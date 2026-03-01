@@ -61,11 +61,27 @@ import type {
   SessionCompactionEventData,
   SubagentStartEventData,
   SubagentCompleteEventData,
+  SubagentUpdateEventData,
 } from "../../sdk/types.ts";
 import type { EventBus } from "../event-bus.ts";
 import type { BusEvent } from "../bus-events.ts";
 import type { SDKStreamAdapter, StreamAdapterOptions } from "./types.ts";
 import { SubagentToolTracker } from "./subagent-tool-tracker.ts";
+import type {
+  WorkflowRuntimeFeatureFlags,
+  WorkflowRuntimeFeatureFlagOverrides,
+} from "../../workflows/runtime-contracts.ts";
+import {
+  DEFAULT_WORKFLOW_RUNTIME_FEATURE_FLAGS,
+  resolveWorkflowRuntimeFeatureFlags,
+} from "../../workflows/runtime-contracts.ts";
+import {
+  createTurnMetadataState,
+  normalizeAgentTaskMetadata,
+  normalizeTurnEndMetadata,
+  normalizeTurnStartId,
+  resetTurnMetadataState,
+} from "./task-turn-normalization.ts";
 
 /**
  * Maximum number of events to buffer before dropping oldest events.
@@ -144,6 +160,10 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
    * the bus event carries the cumulative total.
    */
   private accumulatedOutputTokens = 0;
+  private runtimeFeatureFlags: WorkflowRuntimeFeatureFlags = {
+    ...DEFAULT_WORKFLOW_RUNTIME_FEATURE_FLAGS,
+  };
+  private turnMetadataState = createTurnMetadataState();
 
   /**
    * Create a new Copilot stream adapter.
@@ -192,6 +212,8 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
     this.knownAgentNames = new Set(
       (options.knownAgentNames ?? []).map(n => n.toLowerCase())
     );
+    this.runtimeFeatureFlags = this.resolveRuntimeFeatureFlags(options.runtimeFeatureFlags);
+    resetTurnMetadataState(this.turnMetadataState);
     this.subagentTracker = new SubagentToolTracker(this.bus, this.sessionId, this.runId);
     this.isActive = true;
 
@@ -342,6 +364,12 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
     });
     this.unsubscribers.push(unsubSubagentComplete);
 
+    const unsubSubagentUpdate = this.client.on("subagent.update", (event) => {
+      if (!this.isActive || event.sessionId !== this.sessionId) return;
+      this.handleSubagentUpdate(event as AgentEvent<"subagent.update">);
+    });
+    this.unsubscribers.push(unsubSubagentUpdate);
+
     // Subscribe to turn lifecycle events
     const unsubTurnStart = this.client.on("turn.start", (event) => {
       if (!this.isActive || event.sessionId !== this.sessionId) return;
@@ -410,10 +438,10 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
   private handleMessageDelta(event: AgentEvent<"message.delta">): void {
     const { delta, contentType, thinkingSourceKey } = event.data;
 
-    // Skip sub-agent text deltas — they belong to a child agent and should
-    // not be accumulated or rendered in the main chat stream.
-    const parentToolCallId = (event.data as Record<string, unknown>).parentToolCallId;
-    if (parentToolCallId) return;
+    const parentToolCallId = this.asString((event.data as Record<string, unknown>).parentToolCallId);
+    const agentId = parentToolCallId
+      ? this.toolCallIdToSubagentId.get(parentToolCallId) ?? parentToolCallId
+      : undefined;
 
     // Check if this is thinking/reasoning content
     if (contentType === "thinking" && thinkingSourceKey) {
@@ -431,11 +459,14 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
           delta,
           sourceKey: thinkingSourceKey,
           messageId: this.messageId,
+          ...(agentId ? { agentId } : {}),
         },
       });
     } else {
       // Regular text delta
-      this.accumulatedText += delta;
+      if (!agentId) {
+        this.accumulatedText += delta;
+      }
 
       if (delta.length > 0) {
         this.publishEvent({
@@ -446,6 +477,7 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
           data: {
             delta,
             messageId: this.messageId,
+            ...(agentId ? { agentId } : {}),
           },
         });
       }
@@ -864,9 +896,13 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
 
     // Look up task metadata from the parent task tool call
     const metadata = this.taskToolMetadata.get(toolCallId);
-    const isBackground = metadata?.isBackground ?? false;
-    // Prefer task description from tool arguments over agent type description
-    const task = metadata?.description || data.task || "";
+    const normalizedMetadata = normalizeAgentTaskMetadata(
+      {
+        task: metadata?.description ?? data.task,
+        agentType: data.subagentType,
+        isBackground: metadata?.isBackground,
+      },
+    );
 
     // Register agent with tracker for tool counting
     this.subagentTracker?.registerAgent(data.subagentId);
@@ -898,8 +934,8 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
       data: {
         agentId: data.subagentId,
         agentType: data.subagentType ?? "unknown",
-        task,
-        isBackground,
+        task: normalizedMetadata.task,
+        isBackground: normalizedMetadata.isBackground,
         sdkCorrelationId: toolCallId,
       },
     });
@@ -937,6 +973,24 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
   }
 
   /**
+   * Handle subagent.update event.
+   */
+  private handleSubagentUpdate(event: AgentEvent<"subagent.update">): void {
+    const data = event.data as SubagentUpdateEventData;
+    this.publishEvent({
+      type: "stream.agent.update",
+      sessionId: this.sessionId,
+      runId: this.runId,
+      timestamp: Date.now(),
+      data: {
+        agentId: data.subagentId,
+        currentTool: data.currentTool,
+        toolUses: data.toolUses,
+      },
+    });
+  }
+
+  /**
    * Handle turn.start event.
    */
   private handleTurnStart(event: AgentEvent<"turn.start">): void {
@@ -947,7 +1001,10 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
       runId: this.runId,
       timestamp: Date.now(),
       data: {
-        turnId: data.turnId ?? `turn_${Date.now()}`,
+        turnId: normalizeTurnStartId(
+          data.turnId,
+          this.turnMetadataState,
+        ),
       },
     });
   }
@@ -962,9 +1019,10 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
       sessionId: this.sessionId,
       runId: this.runId,
       timestamp: Date.now(),
-      data: {
-        turnId: data.turnId ?? `turn_${Date.now()}`,
-      },
+      data: normalizeTurnEndMetadata(
+        data,
+        this.turnMetadataState,
+      ),
     });
   }
 
@@ -1287,7 +1345,15 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
     this.toolCallIdToSubagentId.clear();
     this.innerToolCallIds.clear();
     this.knownAgentNames.clear();
+    this.runtimeFeatureFlags = { ...DEFAULT_WORKFLOW_RUNTIME_FEATURE_FLAGS };
+    resetTurnMetadataState(this.turnMetadataState);
     this.subagentTracker?.reset();
     this.subagentTracker = null;
+  }
+
+  private resolveRuntimeFeatureFlags(
+    overrides: WorkflowRuntimeFeatureFlagOverrides | undefined,
+  ): WorkflowRuntimeFeatureFlags {
+    return resolveWorkflowRuntimeFeatureFlags(overrides);
   }
 }

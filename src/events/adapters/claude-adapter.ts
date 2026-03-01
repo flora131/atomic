@@ -30,6 +30,14 @@
 import type { EventBus } from "../event-bus.ts";
 import type { BusEvent } from "../bus-events.ts";
 import type {
+  WorkflowRuntimeFeatureFlags,
+  WorkflowRuntimeFeatureFlagOverrides,
+} from "../../workflows/runtime-contracts.ts";
+import {
+  DEFAULT_WORKFLOW_RUNTIME_FEATURE_FLAGS,
+  resolveWorkflowRuntimeFeatureFlags,
+} from "../../workflows/runtime-contracts.ts";
+import type {
   SDKStreamAdapter,
   StreamAdapterOptions,
 } from "./types.ts";
@@ -39,13 +47,33 @@ import type {
   AgentMessage,
   EventHandler,
   SessionIdleEventData,
+  SessionErrorEventData,
+  SessionInfoEventData,
+  SessionWarningEventData,
+  SessionTitleChangedEventData,
+  SessionTruncationEventData,
+  SessionCompactionEventData,
   ToolStartEventData,
   ToolCompleteEventData,
+  ToolPartialResultEventData,
   SubagentStartEventData,
   SubagentCompleteEventData,
   SubagentUpdateEventData,
   PermissionRequestedEventData,
+  HumanInputRequiredEventData,
+  SkillInvokedEventData,
+  ReasoningDeltaEventData,
+  ReasoningCompleteEventData,
+  TurnStartEventData,
+  TurnEndEventData,
 } from "../../sdk/types.ts";
+import {
+  createTurnMetadataState,
+  normalizeAgentTaskMetadata,
+  normalizeTurnEndMetadata,
+  normalizeTurnStartId,
+  resetTurnMetadataState,
+} from "./task-turn-normalization.ts";
 import { SubagentToolTracker } from "./subagent-tool-tracker.ts";
 import { classifyError, computeDelay, retrySleep, DEFAULT_MAX_RETRIES } from "./retry.ts";
 
@@ -69,6 +97,10 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
   private syntheticToolCounter = 0;
   private accumulatedOutputTokens = 0;
   private subagentTracker: SubagentToolTracker | null = null;
+  private runtimeFeatureFlags: WorkflowRuntimeFeatureFlags = {
+    ...DEFAULT_WORKFLOW_RUNTIME_FEATURE_FLAGS,
+  };
+  private turnMetadataState = createTurnMetadataState();
 
   /**
    * Create a new Claude stream adapter.
@@ -100,7 +132,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     message: string,
     options: StreamAdapterOptions,
   ): Promise<void> {
-    const { runId, messageId, agent } = options;
+    const { runId, messageId, agent, runtimeFeatureFlags } = options;
 
     // Clean up any existing subscriptions from a previous startStreaming() call
     // to prevent subscription accumulation on re-entry without dispose()
@@ -117,6 +149,8 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     this.syntheticToolCounter = 0;
     this.accumulatedOutputTokens = 0;
     this.subagentTracker = new SubagentToolTracker(this.bus, this.sessionId, runId);
+    this.runtimeFeatureFlags = this.resolveRuntimeFeatureFlags(runtimeFeatureFlags);
+    resetTurnMetadataState(this.turnMetadataState);
 
     this.publishSessionStart(runId);
 
@@ -160,6 +194,12 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       );
       this.unsubscribers.push(unsubIdle);
 
+      const unsubSessionError = client.on(
+        "session.error",
+        this.createSessionErrorHandler(runId),
+      );
+      this.unsubscribers.push(unsubSessionError);
+
       const unsubUsage = client.on(
         "usage",
         this.createUsageHandler(runId),
@@ -172,6 +212,78 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
         this.createPermissionRequestedHandler(runId),
       );
       this.unsubscribers.push(unsubPermission);
+
+      const unsubHumanInput = client.on(
+        "human_input_required",
+        this.createHumanInputRequiredHandler(runId),
+      );
+      this.unsubscribers.push(unsubHumanInput);
+
+      const unsubSkillInvoked = client.on(
+        "skill.invoked",
+        this.createSkillInvokedHandler(runId),
+      );
+      this.unsubscribers.push(unsubSkillInvoked);
+
+      const unsubReasoningDelta = client.on(
+        "reasoning.delta",
+        this.createReasoningDeltaHandler(runId, messageId),
+      );
+      this.unsubscribers.push(unsubReasoningDelta);
+
+      const unsubReasoningComplete = client.on(
+        "reasoning.complete",
+        this.createReasoningCompleteHandler(runId),
+      );
+      this.unsubscribers.push(unsubReasoningComplete);
+
+      const unsubTurnStart = client.on(
+        "turn.start",
+        this.createTurnStartHandler(runId),
+      );
+      this.unsubscribers.push(unsubTurnStart);
+
+      const unsubTurnEnd = client.on(
+        "turn.end",
+        this.createTurnEndHandler(runId),
+      );
+      this.unsubscribers.push(unsubTurnEnd);
+
+      const unsubToolPartialResult = client.on(
+        "tool.partial_result",
+        this.createToolPartialResultHandler(runId),
+      );
+      this.unsubscribers.push(unsubToolPartialResult);
+
+      const unsubSessionInfo = client.on(
+        "session.info",
+        this.createSessionInfoHandler(runId),
+      );
+      this.unsubscribers.push(unsubSessionInfo);
+
+      const unsubSessionWarning = client.on(
+        "session.warning",
+        this.createSessionWarningHandler(runId),
+      );
+      this.unsubscribers.push(unsubSessionWarning);
+
+      const unsubSessionTitleChanged = client.on(
+        "session.title_changed",
+        this.createSessionTitleChangedHandler(runId),
+      );
+      this.unsubscribers.push(unsubSessionTitleChanged);
+
+      const unsubSessionTruncation = client.on(
+        "session.truncation",
+        this.createSessionTruncationHandler(runId),
+      );
+      this.unsubscribers.push(unsubSessionTruncation);
+
+      const unsubSessionCompaction = client.on(
+        "session.compaction",
+        this.createSessionCompactionHandler(runId),
+      );
+      this.unsubscribers.push(unsubSessionCompaction);
     }
 
     try {
@@ -593,6 +705,271 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     };
   }
 
+  private createHumanInputRequiredHandler(
+    runId: number,
+  ): EventHandler<"human_input_required"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) return;
+      const data = event.data as HumanInputRequiredEventData;
+      this.bus.publish({
+        type: "stream.human_input_required",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          requestId: data.requestId,
+          question: data.question,
+          header: data.header,
+          options: data.options,
+          nodeId: data.nodeId,
+          respond: data.respond,
+        },
+      });
+    };
+  }
+
+  private createSkillInvokedHandler(
+    runId: number,
+  ): EventHandler<"skill.invoked"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) return;
+      const data = event.data as SkillInvokedEventData;
+      this.bus.publish({
+        type: "stream.skill.invoked",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          skillName: data.skillName,
+          skillPath: data.skillPath,
+        },
+      });
+    };
+  }
+
+  private createReasoningDeltaHandler(
+    runId: number,
+    messageId: string,
+  ): EventHandler<"reasoning.delta"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) return;
+      const data = event.data as ReasoningDeltaEventData;
+      if (!data.delta || data.delta.length === 0) return;
+      const sourceKey = data.reasoningId || "reasoning";
+      if (!this.thinkingStartTimes.has(sourceKey)) {
+        this.thinkingStartTimes.set(sourceKey, Date.now());
+      }
+      this.bus.publish({
+        type: "stream.thinking.delta",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          delta: data.delta,
+          sourceKey,
+          messageId,
+        },
+      });
+    };
+  }
+
+  private createReasoningCompleteHandler(
+    runId: number,
+  ): EventHandler<"reasoning.complete"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) return;
+      const data = event.data as ReasoningCompleteEventData;
+      const sourceKey = data.reasoningId || "reasoning";
+      const start = this.thinkingStartTimes.get(sourceKey);
+      const durationMs = start ? Date.now() - start : 0;
+      this.thinkingStartTimes.delete(sourceKey);
+      this.bus.publish({
+        type: "stream.thinking.complete",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          sourceKey,
+          durationMs,
+        },
+      });
+    };
+  }
+
+  private createTurnStartHandler(
+    runId: number,
+  ): EventHandler<"turn.start"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) return;
+      const data = event.data as TurnStartEventData;
+      this.bus.publish({
+        type: "stream.turn.start",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          turnId: normalizeTurnStartId(
+            data.turnId,
+            this.turnMetadataState,
+          ),
+        },
+      });
+    };
+  }
+
+  private createTurnEndHandler(
+    runId: number,
+  ): EventHandler<"turn.end"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) return;
+      const data = event.data as TurnEndEventData;
+      this.bus.publish({
+        type: "stream.turn.end",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: normalizeTurnEndMetadata(
+          data,
+          this.turnMetadataState,
+        ),
+      });
+    };
+  }
+
+  private createToolPartialResultHandler(
+    runId: number,
+  ): EventHandler<"tool.partial_result"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) return;
+      const data = event.data as ToolPartialResultEventData;
+      this.bus.publish({
+        type: "stream.tool.partial_result",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          toolCallId: data.toolCallId,
+          partialOutput: data.partialOutput,
+        },
+      });
+    };
+  }
+
+  private createSessionErrorHandler(
+    runId: number,
+  ): EventHandler<"session.error"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) return;
+      const data = event.data as SessionErrorEventData;
+      this.bus.publish({
+        type: "stream.session.error",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          error: data.error instanceof Error ? data.error.message : String(data.error),
+          code: data.code,
+        },
+      });
+    };
+  }
+
+  private createSessionInfoHandler(
+    runId: number,
+  ): EventHandler<"session.info"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) return;
+      const data = event.data as SessionInfoEventData;
+      this.bus.publish({
+        type: "stream.session.info",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          infoType: data.infoType ?? "general",
+          message: data.message ?? "",
+        },
+      });
+    };
+  }
+
+  private createSessionWarningHandler(
+    runId: number,
+  ): EventHandler<"session.warning"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) return;
+      const data = event.data as SessionWarningEventData;
+      this.bus.publish({
+        type: "stream.session.warning",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          warningType: data.warningType ?? "general",
+          message: data.message ?? "",
+        },
+      });
+    };
+  }
+
+  private createSessionTitleChangedHandler(
+    runId: number,
+  ): EventHandler<"session.title_changed"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) return;
+      const data = event.data as SessionTitleChangedEventData;
+      this.bus.publish({
+        type: "stream.session.title_changed",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          title: data.title ?? "",
+        },
+      });
+    };
+  }
+
+  private createSessionTruncationHandler(
+    runId: number,
+  ): EventHandler<"session.truncation"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) return;
+      const data = event.data as SessionTruncationEventData;
+      this.bus.publish({
+        type: "stream.session.truncation",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          tokenLimit: data.tokenLimit ?? 0,
+          tokensRemoved: data.tokensRemoved ?? 0,
+          messagesRemoved: data.messagesRemoved ?? 0,
+        },
+      });
+    };
+  }
+
+  private createSessionCompactionHandler(
+    runId: number,
+  ): EventHandler<"session.compaction"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) return;
+      const data = event.data as SessionCompactionEventData;
+      this.bus.publish({
+        type: "stream.session.compaction",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          phase: data.phase,
+          success: data.success,
+          error: data.error,
+        },
+      });
+    };
+  }
+
   /**
    * Create a handler for subagent.start events from the SDK.
    * Publishes stream.agent.start to the bus.
@@ -604,6 +981,15 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       if (event.sessionId !== this.sessionId) return;
 
       const data = event.data as SubagentStartEventData;
+
+      const normalizedMetadata = normalizeAgentTaskMetadata(
+        {
+          task: data.task,
+          agentType: data.subagentType,
+          isBackground: (data as Record<string, unknown>).isBackground,
+          toolInput: (data as Record<string, unknown>).toolInput,
+        },
+      );
 
       // Register agent with tracker for tool counting
       this.subagentTracker?.registerAgent(data.subagentId);
@@ -623,8 +1009,8 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
         data: {
           agentId: data.subagentId,
           agentType: data.subagentType ?? "unknown",
-          task: data.task ?? "",
-          isBackground: false,
+          task: normalizedMetadata.task,
+          isBackground: normalizedMetadata.isBackground,
           sdkCorrelationId,
         },
       };
@@ -908,7 +1294,15 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     this.toolCorrelationAliases.clear();
     this.syntheticToolCounter = 0;
     this.accumulatedOutputTokens = 0;
+    this.runtimeFeatureFlags = { ...DEFAULT_WORKFLOW_RUNTIME_FEATURE_FLAGS };
+    resetTurnMetadataState(this.turnMetadataState);
     this.subagentTracker?.reset();
     this.subagentTracker = null;
+  }
+
+  private resolveRuntimeFeatureFlags(
+    overrides: WorkflowRuntimeFeatureFlagOverrides | undefined,
+  ): WorkflowRuntimeFeatureFlags {
+    return resolveWorkflowRuntimeFeatureFlags(overrides);
   }
 }

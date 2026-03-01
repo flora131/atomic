@@ -42,6 +42,21 @@ import type {
   StreamAdapterOptions,
 } from "./types.ts";
 import type {
+  WorkflowRuntimeFeatureFlags,
+  WorkflowRuntimeFeatureFlagOverrides,
+} from "../../workflows/runtime-contracts.ts";
+import {
+  DEFAULT_WORKFLOW_RUNTIME_FEATURE_FLAGS,
+  resolveWorkflowRuntimeFeatureFlags,
+} from "../../workflows/runtime-contracts.ts";
+import {
+  createTurnMetadataState,
+  normalizeAgentTaskMetadata,
+  normalizeTurnEndMetadata,
+  normalizeTurnStartId,
+  resetTurnMetadataState,
+} from "./task-turn-normalization.ts";
+import type {
   CodingAgentClient,
   Session,
   AgentMessage,
@@ -62,6 +77,8 @@ import type {
   SessionInfoEventData,
   SessionWarningEventData,
   SessionTitleChangedEventData,
+  ReasoningDeltaEventData,
+  ReasoningCompleteEventData,
 } from "../../sdk/types.ts";
 import { classifyError, computeDelay, retrySleep, DEFAULT_MAX_RETRIES } from "./retry.ts";
 
@@ -85,6 +102,10 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
   private pendingToolIdsByName = new Map<string, string[]>();
   private toolCorrelationAliases = new Map<string, string>();
   private syntheticToolCounter = 0;
+  private runtimeFeatureFlags: WorkflowRuntimeFeatureFlags = {
+    ...DEFAULT_WORKFLOW_RUNTIME_FEATURE_FLAGS,
+  };
+  private turnMetadataState = createTurnMetadataState();
 
   /**
    * Running total of output tokens across all messages in the current stream.
@@ -126,7 +147,7 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     message: string,
     options: StreamAdapterOptions,
   ): Promise<void> {
-    const { runId, messageId, agent } = options;
+    const { runId, messageId, agent, runtimeFeatureFlags } = options;
 
     // Clean up any existing subscriptions from a previous startStreaming() call
     // to prevent subscription accumulation on re-entry without dispose()
@@ -143,6 +164,8 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     this.syntheticToolCounter = 0;
     this.lastSeenOutputTokens = 0;
     this.accumulatedOutputTokens = 0;
+    this.runtimeFeatureFlags = this.resolveRuntimeFeatureFlags(runtimeFeatureFlags);
+    resetTurnMetadataState(this.turnMetadataState);
 
     this.publishSessionStart(runId);
 
@@ -163,6 +186,18 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
         this.createMessageCompleteHandler(runId, messageId),
       );
       this.unsubscribers.push(unsubComplete);
+
+      const unsubReasoningDelta = client.on(
+        "reasoning.delta",
+        this.createReasoningDeltaHandler(runId, messageId),
+      );
+      this.unsubscribers.push(unsubReasoningDelta);
+
+      const unsubReasoningComplete = client.on(
+        "reasoning.complete",
+        this.createReasoningCompleteHandler(runId),
+      );
+      this.unsubscribers.push(unsubReasoningComplete);
 
       // Subscribe to tool.start events
       const unsubToolStart = client.on(
@@ -401,6 +436,62 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
       // Keep subscriptions active until dispose() so late lifecycle events
       // (e.g. delayed tool.complete) can still be published to the bus.
     }
+  }
+
+  private createReasoningDeltaHandler(
+    runId: number,
+    messageId: string,
+  ): EventHandler<"reasoning.delta"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) return;
+      if (this.abortController?.signal.aborted) return;
+
+      const data = event.data as ReasoningDeltaEventData;
+      if (!data.delta || data.delta.length === 0) return;
+      const sourceKey = data.reasoningId || "reasoning";
+
+      if (!this.thinkingBlocks.has(sourceKey)) {
+        this.thinkingBlocks.set(sourceKey, { startTime: Date.now() });
+      }
+
+      this.bus.publish({
+        type: "stream.thinking.delta",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          delta: data.delta,
+          sourceKey,
+          messageId,
+        },
+      });
+    };
+  }
+
+  private createReasoningCompleteHandler(
+    runId: number,
+  ): EventHandler<"reasoning.complete"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) return;
+      if (this.abortController?.signal.aborted) return;
+
+      const data = event.data as ReasoningCompleteEventData;
+      const sourceKey = data.reasoningId || "reasoning";
+      const start = this.thinkingBlocks.get(sourceKey)?.startTime;
+      const durationMs = start ? Date.now() - start : 0;
+      this.thinkingBlocks.delete(sourceKey);
+
+      this.bus.publish({
+        type: "stream.thinking.complete",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          sourceKey,
+          durationMs,
+        },
+      });
+    };
   }
 
   /**
@@ -749,6 +840,15 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
 
       const data = event.data as SubagentStartEventData;
 
+      const normalizedMetadata = normalizeAgentTaskMetadata(
+        {
+          task: data.task,
+          agentType: data.subagentType,
+          isBackground: (data as Record<string, unknown>).isBackground,
+          toolInput: (data as Record<string, unknown>).toolInput,
+        },
+      );
+
       // Extract SDK correlation ID
       const rawSdkCorrelationId = this.asString(
         data.toolUseId ?? data.toolUseID ?? data.toolCallId,
@@ -763,8 +863,8 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
         data: {
           agentId: data.subagentId,
           agentType: data.subagentType ?? "unknown",
-          task: data.task ?? "",
-          isBackground: false, // OpenCode doesn't have background mode
+          task: normalizedMetadata.task,
+          isBackground: normalizedMetadata.isBackground,
           sdkCorrelationId,
         },
       };
@@ -1082,7 +1182,10 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
         runId,
         timestamp: Date.now(),
         data: {
-          turnId: data.turnId ?? `turn_${Date.now()}`,
+          turnId: normalizeTurnStartId(
+            data.turnId,
+            this.turnMetadataState,
+          ),
         },
       });
     };
@@ -1102,9 +1205,10 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
         sessionId: this.sessionId,
         runId,
         timestamp: Date.now(),
-        data: {
-          turnId: data.turnId ?? `turn_${Date.now()}`,
-        },
+        data: normalizeTurnEndMetadata(
+          data,
+          this.turnMetadataState,
+        ),
       });
     };
   }
@@ -1409,7 +1513,15 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     this.pendingToolIdsByName.clear();
     this.toolCorrelationAliases.clear();
     this.syntheticToolCounter = 0;
+    this.runtimeFeatureFlags = { ...DEFAULT_WORKFLOW_RUNTIME_FEATURE_FLAGS };
+    resetTurnMetadataState(this.turnMetadataState);
     this.lastSeenOutputTokens = 0;
     this.accumulatedOutputTokens = 0;
+  }
+
+  private resolveRuntimeFeatureFlags(
+    overrides: WorkflowRuntimeFeatureFlagOverrides | undefined,
+  ): WorkflowRuntimeFeatureFlags {
+    return resolveWorkflowRuntimeFeatureFlags(overrides);
   }
 }

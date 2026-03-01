@@ -17,6 +17,20 @@ import {
 import type { NormalizedTodoItem, TaskStatus } from "../ui/utils/task-status.ts";
 import type { EventBus } from "../events/event-bus.ts";
 import { WorkflowEventAdapter } from "../events/adapters/workflow-adapter.ts";
+import {
+    resolveWorkflowRuntimeFeatureFlags,
+    toWorkflowRuntimeTask,
+    toWorkflowRuntimeTasks,
+    workflowRuntimeStrictTaskSchema,
+    type WorkflowRuntimeFeatureFlagOverrides,
+    type WorkflowRuntimeTask,
+} from "./runtime-contracts.ts";
+import { TaskIdentityService } from "./task-identity-service.ts";
+import {
+    incrementRuntimeParityCounter,
+    observeRuntimeParityHistogram,
+    runtimeParityDebug,
+} from "./runtime-parity-observability.ts";
 
 /**
  * Result of a workflow execution.
@@ -128,6 +142,7 @@ export async function executeWorkflow(
         compiledGraph?: CompiledGraph<BaseState>;
         saveTasksToSession?: (tasks: NormalizedTodoItem[], sessionId: string) => Promise<void>;
         eventBus?: EventBus;
+        featureFlags?: WorkflowRuntimeFeatureFlagOverrides;
     },
 ): Promise<CommandResult> {
     // Phase 1: Session initialization
@@ -167,6 +182,10 @@ export async function executeWorkflow(
     context.setStreaming(true);
 
     let unsubscribeStatusChange: (() => void) | undefined;
+    incrementRuntimeParityCounter("workflow.runtime.parity.execution_total", {
+        phase: "start",
+        workflow: definition.name,
+    });
 
     try {
         context.addMessage(
@@ -199,6 +218,24 @@ export async function executeWorkflow(
             ? definition.createState({ prompt, sessionId, sessionDir, maxIterations })
             : ({ executionId: sessionId, lastUpdated: new Date().toISOString(), outputs: {} } as BaseState);
 
+        const runtimeFeatureFlags = resolveWorkflowRuntimeFeatureFlags(
+            definition.runtime?.featureFlags,
+            options?.featureFlags,
+        );
+        const taskIdentity = new TaskIdentityService();
+
+        const toRuntimeTask = (task: unknown): WorkflowRuntimeTask => {
+            const normalized = toWorkflowRuntimeTask(task, () => crypto.randomUUID());
+            const withIdentity = taskIdentity.backfillTask(normalized);
+            return workflowRuntimeStrictTaskSchema.parse(withIdentity);
+        };
+
+        const toRuntimeTasks = (tasks: unknown): WorkflowRuntimeTask[] => {
+            const normalized = toWorkflowRuntimeTasks(tasks, () => crypto.randomUUID());
+            const strictTasks = normalized.map((task) => workflowRuntimeStrictTaskSchema.parse(task));
+            return taskIdentity.backfillTasks(strictTasks);
+        };
+
         // Phase 4: Registry setup — pass TUI's spawnSubagentParallel directly
         const registry = createSubagentRegistry();
         const spawnFn = context.spawnSubagentParallel;
@@ -208,6 +245,7 @@ export async function executeWorkflow(
 
         compiled.config.runtime = {
             ...compiled.config.runtime,
+            featureFlags: runtimeFeatureFlags,
             spawnSubagent: async (agent, abortSignal) => {
                 // Publish agent start event if adapter is available
                 if (eventAdapter) {
@@ -263,19 +301,24 @@ export async function executeWorkflow(
 
                 return results;
             },
+            taskIdentity,
             subagentRegistry: registry,
-            notifyTaskStatusChange: options?.eventBus
+            notifyTaskStatusChange: options?.eventBus && runtimeFeatureFlags.emitTaskStatusEvents
                 ? (
                     taskIds: string[],
                     newStatus: string,
-                    tasks: Array<{ id: string; title: string; status: string; blockedBy?: string[] }>,
+                    tasks: WorkflowRuntimeTask[],
                 ) => {
                     options.eventBus!.publish({
                         type: "workflow.task.statusChange",
                         sessionId,
                         runId: workflowRunId,
                         timestamp: Date.now(),
-                        data: { taskIds, newStatus, tasks },
+                        data: {
+                            taskIds,
+                            newStatus,
+                            tasks: tasks.map(toRuntimeTask),
+                        },
                     });
                 }
                 : undefined,
@@ -320,10 +363,52 @@ export async function executeWorkflow(
         // When a worker node publishes a status change (e.g., pending → in_progress)
         // before spawning sub-agents, this subscriber persists the update immediately
         // via the debounced save, so the file watcher can trigger UI updates.
-        if (options?.eventBus && debouncedSaveTasksToSession) {
+        if (
+            options?.eventBus &&
+            debouncedSaveTasksToSession &&
+            runtimeFeatureFlags.persistTaskStatusEvents
+        ) {
             unsubscribeStatusChange = options.eventBus.on("workflow.task.statusChange", (event) => {
                 if (event.sessionId !== sessionId) return;
-                const { tasks } = event.data;
+                incrementRuntimeParityCounter("workflow.runtime.parity.status_snapshot_total", {
+                    phase: "received",
+                    workflow: definition.name,
+                });
+                runtimeParityDebug("status_snapshot_received", {
+                    sessionId,
+                    workflowRunId,
+                    workflow: definition.name,
+                    taskIds: event.data.taskIds,
+                    taskCount: event.data.tasks.length,
+                });
+
+                const runtimeTasks = toRuntimeTasks(event.data.tasks);
+                for (const runtimeTask of runtimeTasks) {
+                    const canonicalId = runtimeTask.identity?.canonicalId;
+                    if (!canonicalId || canonicalId.trim().length === 0) {
+                        incrementRuntimeParityCounter("workflow.runtime.parity.status_snapshot_failures_total", {
+                            reason: "missing_canonical_id",
+                            workflow: definition.name,
+                        });
+                        throw new Error(`workflow.task.statusChange invariant failed: task ${runtimeTask.id} missing canonical identity`);
+                    }
+
+                    if (runtimeTask.taskResult && runtimeTask.taskResult.task_id !== canonicalId) {
+                        incrementRuntimeParityCounter("workflow.runtime.parity.status_snapshot_failures_total", {
+                            reason: "task_result_identity_mismatch",
+                            workflow: definition.name,
+                        });
+                        throw new Error(
+                            `workflow.task.statusChange invariant failed: taskResult.task_id ${runtimeTask.taskResult.task_id} does not match canonical task identity ${canonicalId}`,
+                        );
+                    }
+                }
+
+                observeRuntimeParityHistogram(
+                    "workflow.runtime.parity.status_snapshot_task_count",
+                    runtimeTasks.length,
+                    { workflow: definition.name },
+                );
 
                 const previousById = new Map<string, NormalizedTodoItem>();
                 for (const task of latestWorkflowTasks) {
@@ -332,7 +417,7 @@ export async function executeWorkflow(
                     previousById.set(key, task);
                 }
 
-                const normalized: NormalizedTodoItem[] = tasks.map((t) => {
+                const normalized: NormalizedTodoItem[] = runtimeTasks.map((t) => {
                     const taskKey = normalizeTaskKey(t.id);
                     return {
                         id: t.id,
@@ -341,7 +426,13 @@ export async function executeWorkflow(
                         activeForm: t.title,
                         blockedBy: t.blockedBy
                             ?? (taskKey ? previousById.get(taskKey)?.blockedBy : undefined),
+                        identity: t.identity,
+                        taskResult: t.taskResult,
                     };
+                });
+                incrementRuntimeParityCounter("workflow.runtime.parity.status_snapshot_total", {
+                    phase: "persisted",
+                    workflow: definition.name,
                 });
                 debouncedSaveTasksToSession(normalized, sessionId);
             });
@@ -378,7 +469,17 @@ export async function executeWorkflow(
             }
 
             // Sync task list to UI and session
-            const state = step.state as BaseState & { tasks?: Array<{ id?: string; content: string; status: string; activeForm: string; blockedBy?: string[] }> };
+            const state = step.state as BaseState & {
+                tasks?: Array<{
+                    id?: string;
+                    content: string;
+                    status: string;
+                    activeForm: string;
+                    blockedBy?: string[];
+                    identity?: WorkflowRuntimeTask["identity"];
+                    taskResult?: WorkflowRuntimeTask["taskResult"];
+                }>;
+            };
             if (state.tasks && state.tasks.length > 0) {
                 if (debouncedSaveTasksToSession) {
                     debouncedSaveTasksToSession(
@@ -389,12 +490,16 @@ export async function executeWorkflow(
                 
                 // Publish task update event
                 if (eventAdapter) {
-                    const formattedTasks = state.tasks.map(task => ({
-                        id: task.id ?? crypto.randomUUID(),
-                        title: task.content,
-                        status: task.status,
-                        blockedBy: task.blockedBy,
-                    }));
+                    const formattedTasks = toRuntimeTasks(
+                        state.tasks.map((task) => ({
+                            id: task.id,
+                            title: task.content,
+                            status: task.status,
+                            blockedBy: task.blockedBy,
+                            identity: task.identity,
+                            taskResult: task.taskResult,
+                        })),
+                    );
                     eventAdapter.publishTaskUpdate(sessionId, formattedTasks);
                 }
 
@@ -461,6 +566,17 @@ export async function executeWorkflow(
             const errorDetail = lastStepError ? `: ${lastStepError}` : "";
             const failureMessage = `Workflow failed at node "${lastNodeId ?? "unknown"}"${errorDetail}`;
             context.addMessage("system", failureMessage);
+            incrementRuntimeParityCounter("workflow.runtime.parity.execution_total", {
+                phase: "failure",
+                workflow: definition.name,
+            });
+            runtimeParityDebug("workflow_execution_failed", {
+                workflow: definition.name,
+                sessionId,
+                workflowRunId,
+                nodeId: lastNodeId,
+                error: lastStepError,
+            });
             return {
                 success: false,
                 stateUpdate: {
@@ -475,6 +591,10 @@ export async function executeWorkflow(
             "assistant",
             `**${definition.name}** workflow completed successfully.`,
         );
+        incrementRuntimeParityCounter("workflow.runtime.parity.execution_total", {
+            phase: "success",
+            workflow: definition.name,
+        });
 
         return {
             success: true,
@@ -502,6 +622,16 @@ export async function executeWorkflow(
 
         const errorMessage = `Workflow failed: ${error instanceof Error ? error.message : String(error)}`;
         context.addMessage("system", errorMessage);
+        incrementRuntimeParityCounter("workflow.runtime.parity.execution_total", {
+            phase: "failure",
+            workflow: definition.name,
+        });
+        runtimeParityDebug("workflow_execution_failed", {
+            workflow: definition.name,
+            sessionId,
+            workflowRunId,
+            error: error instanceof Error ? error.message : String(error),
+        });
 
         return {
             success: false,

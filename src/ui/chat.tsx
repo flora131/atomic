@@ -2088,23 +2088,6 @@ export function ChatApp({
     flushPendingBackgroundUpdatesToAgent();
   }, [flushPendingBackgroundUpdatesToAgent]);
 
-  const appendBackgroundAgentMessage = useCallback((content: string) => {
-    const trimmed = content.trim();
-    if (!trimmed) {
-      return;
-    }
-    setMessagesWindowed((prev: ChatMessage[]) => {
-      const latestMeta = streamingMetaRef.current;
-      const message: ChatMessage = {
-        ...createMessage("assistant", trimmed),
-        outputTokens: latestMeta?.outputTokens,
-        thinkingMs: latestMeta?.thinkingMs,
-      };
-      backgroundAgentMessageIdRef.current = message.id;
-      return [...prev, message];
-    });
-    sendBackgroundMessageToAgent(trimmed);
-  }, [setMessagesWindowed, sendBackgroundMessageToAgent]);
 
   useEffect(() => {
     if (!isStreaming) {
@@ -3289,7 +3272,7 @@ export function ChatApp({
       )
     );
     if (progressMessage) {
-      appendBackgroundAgentMessage(progressMessage);
+      sendBackgroundMessageToAgent(progressMessage);
     }
   });
 
@@ -3326,18 +3309,18 @@ export function ChatApp({
     if (data.success) {
       const result = data.result ?? completingAgent?.result;
       if (typeof result === "string" && result.trim().length > 0) {
-        appendBackgroundAgentMessage(`Background task "${agentName}" completed:\n\n${result}`);
+        sendBackgroundMessageToAgent(`Background task "${agentName}" completed:\n\n${result}`);
       } else {
-        appendBackgroundAgentMessage(`Background task "${agentName}" completed.`);
+        sendBackgroundMessageToAgent(`Background task "${agentName}" completed.`);
       }
       return;
     }
 
     const errorText = data.error?.trim();
     if (errorText) {
-      appendBackgroundAgentMessage(`Background task "${agentName}" failed:\n\n${errorText}`);
+      sendBackgroundMessageToAgent(`Background task "${agentName}" failed:\n\n${errorText}`);
     } else {
-      appendBackgroundAgentMessage(`Background task "${agentName}" failed.`);
+      sendBackgroundMessageToAgent(`Background task "${agentName}" failed.`);
     }
   });
 

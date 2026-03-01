@@ -17,6 +17,11 @@ export {
   saveSubagentOutput,
 } from "./session.ts";
 
+export {
+  buildTaskResultEnvelope,
+  formatTaskResultEnvelopeText,
+} from "./task-result-envelope.ts";
+
 // Graph execution engine
 export * from "./graph/index.ts";
 

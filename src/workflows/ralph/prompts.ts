@@ -12,12 +12,19 @@
  * the task list as context.
  */
 
+import type {
+    WorkflowRuntimeTaskIdentity,
+    WorkflowRuntimeTaskResultEnvelope,
+} from "../runtime-contracts.ts";
+
 export interface TaskItem {
     id?: string;
     content: string;
     status: string;
     activeForm: string;
     blockedBy?: string[];
+    identity?: WorkflowRuntimeTaskIdentity;
+    taskResult?: WorkflowRuntimeTaskResultEnvelope;
 }
 
 function isCompletedStatus(status: string): boolean {

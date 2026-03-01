@@ -118,6 +118,33 @@ export interface CompactionPart extends BasePart {
   summary: string;
 }
 
+export interface TaskResultPart extends BasePart {
+  type: "task-result";
+  taskId: string;
+  toolName: string;
+  title: string;
+  status: "completed" | "error";
+  outputText: string;
+  envelopeText?: string;
+  error?: string;
+  metadata?: {
+    sessionId?: string;
+    providerBindings?: Record<string, string>;
+  };
+}
+
+export interface WorkflowStepPart extends BasePart {
+  type: "workflow-step";
+  workflowId: string;
+  nodeId: string;
+  nodeName: string;
+  status: "running" | "completed" | "error" | "skipped";
+  startedAt: string;
+  completedAt?: string;
+  durationMs?: number;
+  result?: unknown;
+}
+
 // ============================================================================
 // PART UNION
 // ============================================================================
@@ -131,4 +158,6 @@ export type Part =
   | TaskListPart
   | SkillLoadPart
   | McpSnapshotPart
-  | CompactionPart;
+  | CompactionPart
+  | TaskResultPart
+  | WorkflowStepPart;

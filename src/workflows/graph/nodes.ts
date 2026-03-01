@@ -1388,6 +1388,10 @@ export function contextMonitorNode<TState extends ContextMonitoringState = Conte
           // OpenCode: call session.summarize()
           const session = getSession?.(ctx.state);
           if (session) {
+            const compactionState = session.getCompactionState?.();
+            if (compactionState?.isCompacting || compactionState?.hasAutoCompacted) {
+              break;
+            }
             try {
               await session.summarize();
               onCompaction?.(usage!, action);

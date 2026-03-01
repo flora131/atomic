@@ -87,6 +87,9 @@ export class EventBus {
     set.add(handler as BusHandler<BusEventType>);
     return () => {
       set?.delete(handler as BusHandler<BusEventType>);
+      if (set && set.size === 0) {
+        this.handlers.delete(type);
+      }
     };
   }
 
@@ -137,6 +140,13 @@ export class EventBus {
    * ```
    */
   publish<T extends BusEventType>(event: BusEvent<T>): void {
+    const handlers = this.handlers.get(event.type);
+    const hasTypedHandlers = handlers !== undefined && handlers.size > 0;
+    const hasWildcardHandlers = this.wildcardHandlers.size > 0;
+    if (!hasTypedHandlers && !hasWildcardHandlers) {
+      return;
+    }
+
     // Validate event data with Zod schema before dispatch
     const schema = BusEventSchemas[event.type];
     if (schema) {
@@ -154,8 +164,7 @@ export class EventBus {
     }
 
     // Dispatch to typed handlers
-    const handlers = this.handlers.get(event.type);
-    if (handlers) {
+    if (hasTypedHandlers && handlers) {
       for (const handler of handlers) {
         try {
           handler(event as BusEvent<BusEventType>);

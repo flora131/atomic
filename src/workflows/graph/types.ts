@@ -1,6 +1,11 @@
 import type { z } from "zod";
 import type { CodingAgentClient, Session, SessionConfig } from "../../sdk/types.ts";
 import type { SubagentEntry } from "./subagent-registry.ts";
+import type {
+  WorkflowRuntimeFeatureFlags,
+  WorkflowRuntimeTask,
+  WorkflowRuntimeTaskIdentityRuntime,
+} from "../runtime-contracts.ts";
 
 /**
  * Graph Execution Engine Types
@@ -474,6 +479,8 @@ export interface GraphRuntimeDependencies {
   workflowResolver?: (name: string) => RuntimeSubgraph | null;
   spawnSubagent?: (agent: SubagentSpawnOptions, abortSignal?: AbortSignal) => Promise<SubagentStreamResult>;
   spawnSubagentParallel?: (agents: SubagentSpawnOptions[], abortSignal?: AbortSignal) => Promise<SubagentStreamResult[]>;
+  taskIdentity?: WorkflowRuntimeTaskIdentityRuntime;
+  featureFlags?: WorkflowRuntimeFeatureFlags;
   subagentRegistry?: {
     get(name: string): SubagentEntry | undefined;
     getAll(): SubagentEntry[];
@@ -481,7 +488,7 @@ export interface GraphRuntimeDependencies {
   notifyTaskStatusChange?: (
     taskIds: string[],
     newStatus: string,
-    tasks: Array<{ id: string; title: string; status: string; blockedBy?: string[] }>,
+    tasks: WorkflowRuntimeTask[],
   ) => void;
 }
 

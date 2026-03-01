@@ -845,6 +845,8 @@ export class CopilotClient implements CodingAgentClient {
         case "assistant.turn_end":
           eventData = {
             turnId: data.turnId,
+            finishReason: asNonEmptyString(data.finishReason) ?? asNonEmptyString(data.stopReason) ?? asNonEmptyString(data.reason),
+            rawFinishReason: asNonEmptyString(data.rawFinishReason) ?? asNonEmptyString(data.finishReason) ?? asNonEmptyString(data.stopReason) ?? asNonEmptyString(data.reason),
           };
           break;
         case "assistant.usage":

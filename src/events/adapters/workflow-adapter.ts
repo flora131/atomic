@@ -21,6 +21,7 @@
 
 import type { EventBus } from "../event-bus.ts";
 import type { BusEvent } from "../bus-events.ts";
+import type { WorkflowRuntimeTask } from "../../workflows/runtime-contracts.ts";
 
 /**
  * Workflow Event Adapter for publishing workflow execution events to the event bus.
@@ -72,12 +73,12 @@ export class WorkflowEventAdapter {
   /**
    * Publish a workflow step complete event.
    *
-   * @param workflowId - Workflow instance ID
-   * @param stepName - Human-readable step/node name (currently unused in event data, but kept for API consistency)
-   * @param nodeId - Node ID that completed
-   * @param status - Completion status
-   * @param result - Optional result data from the step
-   */
+ * @param workflowId - Workflow instance ID
+ * @param stepName - Human-readable step/node name
+ * @param nodeId - Node ID that completed
+ * @param status - Completion status
+ * @param result - Optional result data from the step
+ */
   publishStepComplete(
     workflowId: string,
     stepName: string,
@@ -93,6 +94,7 @@ export class WorkflowEventAdapter {
       data: {
         workflowId,
         nodeId,
+        nodeName: stepName,
         status,
         result,
       },
@@ -109,7 +111,7 @@ export class WorkflowEventAdapter {
    */
   publishTaskUpdate(
     workflowId: string,
-    tasks: Array<{ id: string; title: string; status: string; blockedBy?: string[] }>,
+    tasks: WorkflowRuntimeTask[],
   ): void {
     const event: BusEvent<"workflow.task.update"> = {
       type: "workflow.task.update",

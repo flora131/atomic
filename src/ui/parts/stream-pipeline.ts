@@ -9,6 +9,7 @@ import type { ChatMessage, MessageToolCall } from "../chat.tsx";
 import type { ParallelAgent } from "../components/parallel-agents-tree.tsx";
 import type { HitlResponseRecord } from "../utils/hitl-response.ts";
 import type { PermissionOption } from "../../sdk/types.ts";
+import type { WorkflowRuntimeTaskResultEnvelope } from "../../workflows/runtime-contracts.ts";
 import { type PartId, createPartId } from "./id.ts";
 import { upsertPart, findLastPartIndex } from "./store.ts";
 import { handleTextDelta } from "./handlers.ts";
@@ -17,6 +18,7 @@ import type {
   AgentPart,
   Part,
   ReasoningPart,
+  TaskResultPart,
   TaskListPart,
   TextPart,
   ToolPart,
@@ -114,6 +116,29 @@ interface TaskListUpdateEvent {
   }>;
 }
 
+interface WorkflowStepStartEvent {
+  type: "workflow-step-start";
+  workflowId: string;
+  nodeId: string;
+  nodeName: string;
+  startedAt?: string;
+}
+
+interface WorkflowStepCompleteEvent {
+  type: "workflow-step-complete";
+  workflowId: string;
+  nodeId: string;
+  nodeName?: string;
+  status: "success" | "error" | "skipped";
+  result?: unknown;
+  completedAt?: string;
+}
+
+interface TaskResultUpsertEvent {
+  type: "task-result-upsert";
+  envelope: WorkflowRuntimeTaskResultEnvelope;
+}
+
 interface ToolPartialResultEvent {
   type: "tool-partial-result";
   toolId: string;
@@ -130,7 +155,10 @@ export type StreamPartEvent =
   | HitlRequestEvent
   | HitlResponseEvent
   | ParallelAgentsEvent
-  | TaskListUpdateEvent;
+  | TaskListUpdateEvent
+  | WorkflowStepStartEvent
+  | WorkflowStepCompleteEvent
+  | TaskResultUpsertEvent;
 
 const reasoningPartIdBySourceRegistry = new WeakMap<ChatMessage, Map<string, PartId>>();
 
@@ -875,6 +903,8 @@ export function mergeParallelAgentsIntoParts(
           if ((nextPart as TextPart).content.trim().length > 0) {
             endsGroup = true;
           }
+        } else if (nextPart.type === "task-result") {
+          endsGroup = true;
         }
       }
     }
@@ -994,6 +1024,40 @@ function routeToAgentInlineParts(
     return updatedParts;
   }
   return null;
+}
+
+function upsertTaskResultPart(parts: Part[], event: TaskResultUpsertEvent): Part[] {
+  const existingIdx = parts.findIndex(
+    (part) => part.type === "task-result" && (part as TaskResultPart).taskId === event.envelope.task_id,
+  );
+
+  const basePart: Omit<TaskResultPart, "id" | "createdAt"> = {
+    type: "task-result",
+    taskId: event.envelope.task_id,
+    toolName: event.envelope.tool_name,
+    title: event.envelope.title,
+    status: event.envelope.status,
+    outputText: event.envelope.output_text,
+    ...(event.envelope.envelope_text ? { envelopeText: event.envelope.envelope_text } : {}),
+    ...(event.envelope.error ? { error: event.envelope.error } : {}),
+    ...(event.envelope.metadata ? { metadata: event.envelope.metadata } : {}),
+  };
+
+  if (existingIdx >= 0) {
+    const existing = parts[existingIdx] as TaskResultPart;
+    const updated = [...parts];
+    updated[existingIdx] = {
+      ...existing,
+      ...basePart,
+    };
+    return updated;
+  }
+
+  return upsertPart(parts, {
+    ...basePart,
+    id: createPartId(),
+    createdAt: new Date().toISOString(),
+  } satisfies TaskResultPart);
 }
 
 export function applyStreamPartEvent(
@@ -1184,7 +1248,19 @@ export function applyStreamPartEvent(
       const nextMessage: ChatMessage = { ...message, parts };
       return carryReasoningPartRegistry(message, nextMessage);
     }
+
+    case "workflow-step-start":
+    case "workflow-step-complete":
+      return message;
+
+    case "task-result-upsert": {
+      const nextParts = upsertTaskResultPart(message.parts ?? [], event);
+      const nextMessage: ChatMessage = { ...message, parts: nextParts };
+      return carryReasoningPartRegistry(message, nextMessage);
+    }
   }
+
+  return message;
 }
 
 /** Map raw status strings from workflow.task.update to TaskItem status values. */

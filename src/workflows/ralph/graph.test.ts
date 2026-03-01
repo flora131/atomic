@@ -16,6 +16,7 @@ import type {
 import { createRalphWorkflow } from "./graph.ts";
 import { createRalphState } from "./state.ts";
 import type { RalphWorkflowState } from "./state.ts";
+import { TaskIdentityService } from "../task-identity-service.ts";
 
 // ============================================================================
 // MOCK SPAWN FUNCTIONS
@@ -96,6 +97,7 @@ function createWorkflowWithMockBridge(
       runtime: {
         spawnSubagent,
         spawnSubagentParallel,
+        taskIdentity: new TaskIdentityService(),
         subagentRegistry: createMockRegistry(),
       },
     },
@@ -1270,6 +1272,7 @@ describe("createRalphWorkflow - Parallel Worker Dispatch", () => {
         runtime: {
           spawnSubagent,
           spawnSubagentParallel,
+          taskIdentity: new TaskIdentityService(),
           subagentRegistry: createMockRegistry(),
           notifyTaskStatusChange: (
             taskIds: string[],
@@ -1307,6 +1310,71 @@ describe("createRalphWorkflow - Parallel Worker Dispatch", () => {
     // The tasks array should show in_progress status for the ready tasks
     const inProgressTasks = firstCall.tasks.filter((t) => t.status === "in_progress");
     expect(inProgressTasks).toHaveLength(2);
+
+    // Provider task bindings should be attached for runtime correlation.
+    const firstTaskIdentity = (inProgressTasks[0] as any)?.identity;
+    expect(firstTaskIdentity?.providerBindings?.subagent_id?.length ?? 0).toBeGreaterThan(0);
+  });
+
+  test("attaches task result envelope with canonical identity metadata", async () => {
+    const mockResponses = new Map<
+      string,
+      (opts: SubagentSpawnOptions) => SubagentStreamResult
+    >();
+
+    mockResponses.set("planner", () => ({
+      agentId: "planner-1",
+      success: true,
+      output: JSON.stringify([
+        { id: "#1", content: "Task 1", status: "pending", activeForm: "Doing 1", blockedBy: [] },
+      ]),
+      toolUses: 0,
+      durationMs: 10,
+    }));
+
+    mockResponses.set("worker", (opts) => ({
+      agentId: opts.agentId,
+      success: true,
+      output: "Completed Task 1",
+      toolUses: 1,
+      durationMs: 10,
+    }));
+
+    mockResponses.set("reviewer", () => ({
+      agentId: "reviewer-1",
+      success: true,
+      output: JSON.stringify({
+        findings: [],
+        overall_correctness: "patch is correct",
+        overall_explanation: "Done",
+      }),
+      toolUses: 1,
+      durationMs: 10,
+    }));
+
+    const workflow = createWorkflowWithMockBridge(mockResponses);
+    const result = await executeGraph(workflow, {
+      initialState: {
+        ...createRalphState("test-task-result-envelope", { yoloPrompt: "test prompt" }),
+        maxIterations: 10,
+        ralphSessionDir: "/tmp/test-session",
+      },
+      executionId: "test-task-result-envelope",
+    });
+
+    expect(result.status).toBe("completed");
+    const task = result.state.tasks.find((t: any) => t.id === "#1");
+    expect(task?.taskResult).toMatchObject({
+      task_id: "#1",
+      tool_name: "task",
+      status: "completed",
+      metadata: {
+        sessionId: "test-task-result-envelope",
+      },
+      output_text: "Completed Task 1",
+    });
+    expect(task?.taskResult?.metadata?.providerBindings?.subagent_id).toBe("worker-#1");
+    expect(task?.taskResult?.envelope_text).toContain("<task_result>");
   });
 
   test("worker prompt includes completed task context from previous batches", async () => {

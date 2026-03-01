@@ -418,6 +418,23 @@ describe("EventBus", () => {
   });
 
   describe("publish() - Zod schema validation", () => {
+    it("should skip schema validation when no subscribers are registered", () => {
+      const consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
+
+      const invalidEvent = {
+        type: "stream.text.delta" as const,
+        sessionId: "s1",
+        runId: 1,
+        timestamp: Date.now(),
+        data: { delta: 123, messageId: "msg1" },
+      };
+
+      expect(() => bus.publish(invalidEvent as any)).not.toThrow();
+      expect(consoleErrorSpy).not.toHaveBeenCalled();
+
+      consoleErrorSpy.mockRestore();
+    });
+
     it("should reject event with invalid payload type (delta should be string)", () => {
       const handler = mock();
       bus.on("stream.text.delta", handler);

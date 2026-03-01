@@ -1,4 +1,30 @@
 import type { Part, ToolPart } from "../parts/types.ts";
+import {
+  incrementRuntimeParityCounter,
+  observeRuntimeParityHistogram,
+  runtimeParityDebug,
+  setRuntimeParityGauge,
+} from "../../workflows/runtime-parity-observability.ts";
+
+export type SessionLoopFinishReason =
+  | "tool-calls"
+  | "stop"
+  | "max-tokens"
+  | "max-turns"
+  | "error"
+  | "unknown";
+
+export interface SessionLoopContinuationInput {
+  finishReason?: SessionLoopFinishReason;
+  hasActiveForegroundAgents: boolean;
+  hasRunningBlockingTool: boolean;
+  hasPendingTaskContract: boolean;
+}
+
+export interface SessionLoopContinuationSignal {
+  shouldContinue: boolean;
+  reason: "finish-reason" | "pending-work" | "terminal";
+}
 
 export interface QueueDispatchOptions {
   delayMs?: number;
@@ -40,6 +66,83 @@ const DEFAULT_QUEUE_DISPATCH_DELAY_MS = 50;
 
 const ASK_QUESTION_TOOL_SUFFIX = "ask_question";
 const NON_BLOCKING_TOOL_SUFFIX = "skill";
+
+const CONTINUE_FINISH_REASONS = new Set<SessionLoopFinishReason>([
+  "tool-calls",
+  "unknown",
+]);
+
+export function shouldContinueParentSessionLoop(
+  input: SessionLoopContinuationInput,
+): SessionLoopContinuationSignal {
+  observeRuntimeParityHistogram(
+    "workflow.runtime.parity.loop_pending_flags",
+    Number(input.hasActiveForegroundAgents) + Number(input.hasRunningBlockingTool) + Number(input.hasPendingTaskContract),
+    { finishReason: input.finishReason ?? "unset" },
+  );
+  setRuntimeParityGauge(
+    "workflow.runtime.parity.loop_pending_task_contract",
+    input.hasPendingTaskContract ? 1 : 0,
+    { finishReason: input.finishReason ?? "unset" },
+  );
+
+  if (
+    input.hasActiveForegroundAgents
+    || input.hasRunningBlockingTool
+    || input.hasPendingTaskContract
+  ) {
+    incrementRuntimeParityCounter("workflow.runtime.parity.loop_decision_total", {
+      decision: "continue",
+      reason: "pending-work",
+      finishReason: input.finishReason ?? "unset",
+    });
+    runtimeParityDebug("loop_decision", {
+      decision: "continue",
+      reason: "pending-work",
+      finishReason: input.finishReason ?? "unset",
+      hasActiveForegroundAgents: input.hasActiveForegroundAgents,
+      hasRunningBlockingTool: input.hasRunningBlockingTool,
+      hasPendingTaskContract: input.hasPendingTaskContract,
+    });
+    return {
+      shouldContinue: true,
+      reason: "pending-work",
+    };
+  }
+
+  if (input.finishReason && CONTINUE_FINISH_REASONS.has(input.finishReason)) {
+    incrementRuntimeParityCounter("workflow.runtime.parity.loop_decision_total", {
+      decision: "continue",
+      reason: "finish-reason",
+      finishReason: input.finishReason,
+    });
+    runtimeParityDebug("loop_decision", {
+      decision: "continue",
+      reason: "finish-reason",
+      finishReason: input.finishReason,
+    });
+    return {
+      shouldContinue: true,
+      reason: "finish-reason",
+    };
+  }
+
+  incrementRuntimeParityCounter("workflow.runtime.parity.loop_decision_total", {
+    decision: "stop",
+    reason: "terminal",
+    finishReason: input.finishReason ?? "unset",
+  });
+  runtimeParityDebug("loop_decision", {
+    decision: "stop",
+    reason: "terminal",
+    finishReason: input.finishReason ?? "unset",
+  });
+
+  return {
+    shouldContinue: false,
+    reason: "terminal",
+  };
+}
 
 export function createStoppedStreamControlState(
   current: StreamControlState,
@@ -140,6 +243,12 @@ export function dispatchNextQueuedMessage<T>(
   options?: QueueDispatchOptions,
 ): boolean {
   const delayMs = options?.delayMs ?? DEFAULT_QUEUE_DISPATCH_DELAY_MS;
+  if (!Number.isFinite(delayMs) || delayMs < 0) {
+    incrementRuntimeParityCounter("workflow.runtime.parity.queue_dispatch_invariant_failures_total", {
+      reason: "invalid_delay",
+    });
+    throw new Error(`dispatchNextQueuedMessage requires non-negative finite delay, received ${delayMs}`);
+  }
   const schedule = options?.schedule ?? ((callback: () => void, delay: number) => {
     setTimeout(callback, delay);
   });
@@ -148,6 +257,10 @@ export function dispatchNextQueuedMessage<T>(
   if (!options?.shouldDispatch) {
     const nextMessage = dequeue();
     if (!nextMessage) {
+      incrementRuntimeParityCounter("workflow.runtime.parity.queue_dispatch_total", {
+        result: "no-op",
+        mode: "unguarded",
+      });
       return false;
     }
 
@@ -155,19 +268,47 @@ export function dispatchNextQueuedMessage<T>(
       dispatch(nextMessage);
     }, delayMs);
 
+    incrementRuntimeParityCounter("workflow.runtime.parity.queue_dispatch_total", {
+      result: "scheduled",
+      mode: "unguarded",
+    });
+    runtimeParityDebug("queue_dispatch", {
+      mode: "unguarded",
+      delayMs,
+      scheduled: true,
+    });
+
     return true;
   }
 
   schedule(() => {
     if (!options.shouldDispatch?.()) {
+      incrementRuntimeParityCounter("workflow.runtime.parity.queue_dispatch_total", {
+        result: "guard_blocked",
+        mode: "guarded",
+      });
       return;
     }
     const nextMessage = dequeue();
     if (!nextMessage) {
+      incrementRuntimeParityCounter("workflow.runtime.parity.queue_dispatch_total", {
+        result: "empty_queue",
+        mode: "guarded",
+      });
       return;
     }
+    incrementRuntimeParityCounter("workflow.runtime.parity.queue_dispatch_total", {
+      result: "dispatched",
+      mode: "guarded",
+    });
     dispatch(nextMessage);
   }, delayMs);
+
+  runtimeParityDebug("queue_dispatch", {
+    mode: "guarded",
+    delayMs,
+    scheduled: true,
+  });
 
   return true;
 }

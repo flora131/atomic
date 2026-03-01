@@ -1,16 +1,25 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import {
   createStartedStreamControlState,
   createStoppedStreamControlState,
   dispatchNextQueuedMessage,
   interruptRunningToolCalls,
   isAskQuestionToolName,
+  shouldContinueParentSessionLoop,
   shouldTrackToolAsBlocking,
   shouldDispatchQueuedMessage,
   shouldDeferComposerSubmit,
 } from "./stream-continuation.ts";
+import {
+  getRuntimeParityMetricsSnapshot,
+  resetRuntimeParityMetrics,
+} from "../../workflows/runtime-parity-observability.ts";
 
 describe("stream continuation helpers", () => {
+  beforeEach(() => {
+    resetRuntimeParityMetrics();
+  });
+
   test("dispatchNextQueuedMessage dispatches next queued item once", () => {
     const queue = ["first", "second"];
     const dispatched: string[] = [];
@@ -51,6 +60,20 @@ describe("stream continuation helpers", () => {
 
     expect(dispatchedAny).toBe(false);
     expect(dispatched).toEqual([]);
+
+    const metrics = getRuntimeParityMetricsSnapshot();
+    expect(metrics.counters["workflow.runtime.parity.queue_dispatch_total{mode=unguarded,result=no-op}"]).toBe(1);
+  });
+
+  test("dispatchNextQueuedMessage fails on invalid delay invariants", () => {
+    expect(() => dispatchNextQueuedMessage(
+      () => "item",
+      () => {},
+      { delayMs: -1 },
+    )).toThrow("non-negative finite delay");
+
+    const metrics = getRuntimeParityMetricsSnapshot();
+    expect(metrics.counters["workflow.runtime.parity.queue_dispatch_invariant_failures_total{reason=invalid_delay}"]).toBe(1);
   });
 
   test("guarded dispatch does not dequeue when streaming resumed", () => {
@@ -438,5 +461,55 @@ describe("stream continuation helpers", () => {
     dispatchIfAllowed();
     expect(dispatched).toEqual(["queued-message"]);
     expect(queue).toEqual([]);
+  });
+
+  test("parent loop continues on tool-calls finish reason", () => {
+    const signal = shouldContinueParentSessionLoop({
+      finishReason: "tool-calls",
+      hasActiveForegroundAgents: false,
+      hasRunningBlockingTool: false,
+      hasPendingTaskContract: false,
+    });
+
+    expect(signal).toEqual({
+      shouldContinue: true,
+      reason: "finish-reason",
+    });
+
+    const metrics = getRuntimeParityMetricsSnapshot();
+    expect(metrics.counters["workflow.runtime.parity.loop_decision_total{decision=continue,finishReason=tool-calls,reason=finish-reason}"]).toBe(1);
+  });
+
+  test("parent loop continues while pending work remains", () => {
+    const signal = shouldContinueParentSessionLoop({
+      finishReason: "stop",
+      hasActiveForegroundAgents: false,
+      hasRunningBlockingTool: true,
+      hasPendingTaskContract: false,
+    });
+
+    expect(signal).toEqual({
+      shouldContinue: true,
+      reason: "pending-work",
+    });
+  });
+
+  test("parent loop terminates on terminal finish reason with no pending work", () => {
+    const signal = shouldContinueParentSessionLoop({
+      finishReason: "stop",
+      hasActiveForegroundAgents: false,
+      hasRunningBlockingTool: false,
+      hasPendingTaskContract: false,
+    });
+
+    expect(signal).toEqual({
+      shouldContinue: false,
+      reason: "terminal",
+    });
+
+    const metrics = getRuntimeParityMetricsSnapshot();
+    expect(metrics.counters["workflow.runtime.parity.loop_decision_total{decision=stop,finishReason=stop,reason=terminal}"]).toBe(1);
+    expect(metrics.gauges["workflow.runtime.parity.loop_pending_task_contract{finishReason=stop}"]).toBe(0);
+    expect(metrics.histograms["workflow.runtime.parity.loop_pending_flags{finishReason=stop}"]).toEqual([0]);
   });
 });

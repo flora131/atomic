@@ -14,6 +14,11 @@
  */
 
 import { z } from "zod";
+import {
+  workflowRuntimeTaskSchema,
+  workflowRuntimeTaskStatusChangeSchema,
+  type WorkflowRuntimeTask,
+} from "../workflows/runtime-contracts.ts";
 
 /**
  * All event types supported by the event bus.
@@ -298,6 +303,10 @@ export interface BusEventDataMap {
   "stream.turn.end": {
     /** Unique turn identifier */
     turnId: string;
+    /** Normalized finish reason for loop continuation decisions */
+    finishReason?: "tool-calls" | "stop" | "max-tokens" | "max-turns" | "error" | "unknown";
+    /** Provider-native finish reason before normalization */
+    rawFinishReason?: string;
   };
 
   /**
@@ -320,6 +329,8 @@ export interface BusEventDataMap {
     workflowId: string;
     /** Node ID that completed */
     nodeId: string;
+    /** Human-readable node name */
+    nodeName: string;
     /** Completion status */
     status: "success" | "error" | "skipped";
     /** Result data from the step (if any) */
@@ -333,16 +344,7 @@ export interface BusEventDataMap {
     /** Workflow instance ID */
     workflowId: string;
     /** Updated task list */
-    tasks: Array<{
-      /** Task ID */
-      id: string;
-      /** Task title/description */
-      title: string;
-      /** Task status (e.g., "pending", "in_progress", "complete") */
-      status: string;
-      /** Optional dependency task IDs */
-      blockedBy?: string[];
-    }>;
+    tasks: WorkflowRuntimeTask[];
   };
 
   /**
@@ -354,16 +356,7 @@ export interface BusEventDataMap {
     /** The new status value */
     newStatus: string;
     /** Full updated task list snapshot */
-    tasks: Array<{
-      /** Task ID */
-      id: string;
-      /** Task title/description */
-      title: string;
-      /** Task status */
-      status: string;
-      /** Optional dependency task IDs */
-      blockedBy?: string[];
-    }>;
+    tasks: WorkflowRuntimeTask[];
   };
 
   /**
@@ -583,6 +576,8 @@ export const BusEventSchemas: Record<BusEventType, z.ZodType> = {
   }),
   "stream.turn.end": z.object({
     turnId: z.string(),
+    finishReason: z.enum(["tool-calls", "stop", "max-tokens", "max-turns", "error", "unknown"]).optional(),
+    rawFinishReason: z.string().optional(),
   }),
   "workflow.step.start": z.object({
     workflowId: z.string(),
@@ -592,28 +587,15 @@ export const BusEventSchemas: Record<BusEventType, z.ZodType> = {
   "workflow.step.complete": z.object({
     workflowId: z.string(),
     nodeId: z.string(),
+    nodeName: z.string(),
     status: z.enum(["success", "error", "skipped"]),
     result: z.unknown().optional(),
   }),
   "workflow.task.update": z.object({
     workflowId: z.string(),
-    tasks: z.array(z.object({
-      id: z.string(),
-      title: z.string(),
-      status: z.string(),
-      blockedBy: z.array(z.string()).optional(),
-    })),
+    tasks: z.array(workflowRuntimeTaskSchema),
   }),
-  "workflow.task.statusChange": z.object({
-    taskIds: z.array(z.string()),
-    newStatus: z.string(),
-    tasks: z.array(z.object({
-      id: z.string(),
-      title: z.string(),
-      status: z.string(),
-      blockedBy: z.array(z.string()).optional(),
-    })),
-  }),
+  "workflow.task.statusChange": workflowRuntimeTaskStatusChangeSchema,
   "stream.permission.requested": z.object({
     requestId: z.string(),
     toolName: z.string(),

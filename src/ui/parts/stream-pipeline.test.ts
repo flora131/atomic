@@ -76,6 +76,76 @@ describe("applyStreamPartEvent", () => {
     }
   });
 
+  test("upserts task result parts from workflow task result envelopes", () => {
+    const msg = createAssistantMessage();
+    const withResult = applyStreamPartEvent(msg, {
+      type: "task-result-upsert",
+      envelope: {
+        task_id: "#7",
+        tool_name: "task",
+        title: "Implement registry",
+        status: "completed",
+        output_text: "Implemented",
+        envelope_text: "task_id: #7",
+      },
+    });
+
+    const taskResultPart = withResult.parts?.find((part) => part.type === "task-result");
+    expect(taskResultPart?.type).toBe("task-result");
+    if (taskResultPart?.type === "task-result") {
+      expect(taskResultPart.taskId).toBe("#7");
+      expect(taskResultPart.status).toBe("completed");
+      expect(taskResultPart.outputText).toBe("Implemented");
+    }
+
+    const updated = applyStreamPartEvent(withResult, {
+      type: "task-result-upsert",
+      envelope: {
+        task_id: "#7",
+        tool_name: "task",
+        title: "Implement registry",
+        status: "error",
+        output_text: "Failed",
+        error: "lint failed",
+      },
+    });
+
+    const updatedTaskResultPart = updated.parts?.find((part) => part.type === "task-result");
+    expect(updatedTaskResultPart?.type).toBe("task-result");
+    if (updatedTaskResultPart?.type === "task-result") {
+      expect(updatedTaskResultPart.status).toBe("error");
+      expect(updatedTaskResultPart.error).toBe("lint failed");
+      expect(updatedTaskResultPart.outputText).toBe("Failed");
+    }
+    expect((updated.parts ?? []).filter((part) => part.type === "task-result")).toHaveLength(1);
+  });
+
+  test("ignores workflow step events", () => {
+    const msg = createAssistantMessage();
+    const startedAt = "2026-03-01T00:00:00.000Z";
+    const completedAt = "2026-03-01T00:00:02.000Z";
+
+    const withStepStart = applyStreamPartEvent(msg, {
+      type: "workflow-step-start",
+      workflowId: "wf-1",
+      nodeId: "worker",
+      nodeName: "Worker Node",
+      startedAt,
+    });
+
+    expect(withStepStart.parts ?? []).toHaveLength(0);
+
+    const withStepComplete = applyStreamPartEvent(withStepStart, {
+      type: "workflow-step-complete",
+      workflowId: "wf-1",
+      nodeId: "worker",
+      status: "success",
+      completedAt,
+    });
+
+    expect(withStepComplete.parts ?? []).toHaveLength(0);
+  });
+
   test("streams thinking as a dedicated reasoning part when enabled", () => {
     let msg = createAssistantMessage();
     msg = applyStreamPartEvent(msg, {

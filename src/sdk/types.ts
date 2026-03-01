@@ -225,6 +225,11 @@ export interface ContextUsage {
   usagePercentage: number;
 }
 
+export interface SessionCompactionState {
+  isCompacting: boolean;
+  hasAutoCompacted: boolean;
+}
+
 /**
  * Interface for an active agent session.
  * Reference: Feature list step 3
@@ -245,10 +250,14 @@ export interface Session {
    * @param message - The message to send
    * @param options - Optional dispatch options. The `agent` field is used by
    *   the OpenCode client to dispatch to a named sub-agent via AgentPartInput.
-   *   Other clients ignore it.
+   *   Other clients ignore it. The optional `abortSignal` allows callers to
+   *   cancel local stream polling loops promptly.
    * @returns AsyncIterable yielding partial response chunks
    */
-  stream(message: string, options?: { agent?: string }): AsyncIterable<AgentMessage>;
+  stream(
+    message: string,
+    options?: { agent?: string; abortSignal?: AbortSignal },
+  ): AsyncIterable<AgentMessage>;
 
   /**
    * Fire-and-forget message send for async/event-driven streaming.
@@ -258,7 +267,7 @@ export interface Session {
    * @param message - The message to send
    * @param options - Optional dispatch options
    */
-  sendAsync?(message: string, options?: { agent?: string }): Promise<void>;
+  sendAsync?(message: string, options?: { agent?: string; abortSignal?: AbortSignal }): Promise<void>;
 
   /**
    * Summarize the current conversation to reduce context usage.
@@ -284,6 +293,12 @@ export interface Session {
    * Implementations may omit this and callers should gracefully fall back.
    */
   getMcpSnapshot?(): Promise<McpRuntimeSnapshot | null>;
+
+  /**
+   * Optional compaction state snapshot for conflict-safe context monitoring.
+   * Implementations may omit this and callers should gracefully fall back.
+   */
+  getCompactionState?(): SessionCompactionState | null;
 
   /**
    * Destroy the session and release resources.
@@ -486,6 +501,10 @@ export interface TurnStartEventData extends BaseEventData {
 export interface TurnEndEventData extends BaseEventData {
   /** Unique turn identifier */
   turnId: string;
+  /** Provider-reported normalized finish reason, if available */
+  finishReason?: string;
+  /** Provider-native finish reason token (for diagnostics/parity) */
+  rawFinishReason?: string;
 }
 
 /**

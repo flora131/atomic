@@ -12,6 +12,10 @@ import {
 } from "./executor.ts";
 import type { WorkflowGraphConfig } from "../ui/commands/workflow-commands.ts";
 import type { BaseState, NodeDefinition } from "./graph/types.ts";
+import {
+    getRuntimeParityMetricsSnapshot,
+    resetRuntimeParityMetrics,
+} from "./runtime-parity-observability.ts";
 
 describe("compileGraphConfig", () => {
     test("converts node array to Map", () => {
@@ -534,6 +538,78 @@ describe("executeWorkflow", () => {
         expect(messages.some((m: any) => m.content.includes("completed successfully"))).toBe(true);
     });
 
+    test("threads workflow abort signal to subagent spawns", async () => {
+        const context = createMockContext();
+        const workflowAbortController = new AbortController();
+        let capturedParallelAbortSignal: AbortSignal | undefined;
+        let capturedAgentAbortSignal: AbortSignal | undefined;
+        let observedNodeAbortSignal: AbortSignal | undefined;
+
+        const contextWithCapture = {
+            ...context,
+            spawnSubagentParallel: async (agents: any[], abortSignal?: AbortSignal) => {
+                capturedParallelAbortSignal = abortSignal;
+                capturedAgentAbortSignal = agents[0]?.abortSignal;
+                return [{
+                    agentId: agents[0]?.agentId ?? "agent-1",
+                    success: true,
+                    output: "ok",
+                    toolUses: 0,
+                    durationMs: 1,
+                }];
+            },
+        };
+
+        interface TestState extends BaseState {
+            value: string;
+        }
+
+        const compiledGraph = compileGraphConfig<TestState>({
+            nodes: [
+                {
+                    id: "spawn-node",
+                    type: "tool",
+                    execute: async (ctx: any) => {
+                        observedNodeAbortSignal = ctx.abortSignal;
+                        const spawnSubagent = ctx.config.runtime?.spawnSubagent;
+                        if (!spawnSubagent) {
+                            throw new Error("spawnSubagent missing");
+                        }
+                        await spawnSubagent({
+                            agentId: "worker-1",
+                            agentName: "worker",
+                            task: "do work",
+                        });
+                        return { stateUpdate: { value: "done" } as Partial<TestState> };
+                    },
+                },
+            ],
+            edges: [],
+            startNode: "spawn-node",
+        });
+
+        const definition = {
+            name: "test-workflow",
+            description: "Abort signal propagation",
+            command: "/test",
+        };
+
+        const result = await executeWorkflow(
+            definition,
+            "test prompt",
+            contextWithCapture as any,
+            {
+                compiledGraph: compiledGraph as any,
+                abortSignal: workflowAbortController.signal,
+            },
+        );
+
+        expect(result.success).toBe(true);
+        expect(observedNodeAbortSignal).toBe(workflowAbortController.signal);
+        expect(capturedParallelAbortSignal).toBe(workflowAbortController.signal);
+        expect(capturedAgentAbortSignal).toBe(workflowAbortController.signal);
+    });
+
     test("handles workflow cancellation error gracefully", async () => {
         const context = createMockContext();
         
@@ -673,6 +749,117 @@ describe("executeWorkflow", () => {
         expect(capturedParams.sessionId).toBeDefined();
         expect(capturedParams.sessionDir).toBeDefined();
         expect(capturedParams.maxIterations).toBe(100); // DEFAULT_MAX_ITERATIONS
+    });
+
+    test("injects resolved runtime feature flags into graph runtime config", async () => {
+        const context = createMockContext();
+
+        interface TestState extends BaseState {
+            value: string;
+        }
+
+        let capturedFlags: unknown;
+        const compiledGraph = compileGraphConfig<TestState>({
+            nodes: [
+                {
+                    id: "feature-node",
+                    type: "tool",
+                    execute: async (ctx: any) => {
+                        capturedFlags = (ctx.config.runtime as any)?.featureFlags;
+                        return { stateUpdate: { value: "done" } as Partial<TestState> };
+                    },
+                },
+            ],
+            edges: [],
+            startNode: "feature-node",
+        });
+
+        const definition = {
+            name: "test-workflow",
+            description: "Feature flags test",
+            command: "/test",
+            runtime: {
+                featureFlags: {
+                    emitTaskStatusEvents: false,
+                },
+            },
+        };
+
+        const result = await executeWorkflow(
+            definition as any,
+            "test prompt",
+            context as any,
+            {
+                compiledGraph: compiledGraph as any,
+                featureFlags: {
+                    strictTaskContract: true,
+                },
+            },
+        );
+
+        expect(result.success).toBe(true);
+        expect(capturedFlags).toEqual({
+            emitTaskStatusEvents: false,
+            persistTaskStatusEvents: true,
+            strictTaskContract: true,
+        });
+    });
+
+    test("does not inject notifyTaskStatusChange when task status events are disabled", async () => {
+        const context = createMockContext();
+
+        interface TestState extends BaseState {
+            value: string;
+        }
+
+        let capturedNotifyFn: unknown;
+        const compiledGraph = compileGraphConfig<TestState>({
+            nodes: [
+                {
+                    id: "notify-node",
+                    type: "tool",
+                    execute: async (ctx: any) => {
+                        capturedNotifyFn = (ctx.config.runtime as any)?.notifyTaskStatusChange;
+                        return { stateUpdate: { value: "done" } as Partial<TestState> };
+                    },
+                },
+            ],
+            edges: [],
+            startNode: "notify-node",
+        });
+
+        const mockEventBus = {
+            publish: () => {},
+            on: () => () => {},
+            onAll: () => () => {},
+            clear: () => {},
+            hasHandlers: () => false,
+            get handlerCount() { return 0; },
+        };
+
+        const definition = {
+            name: "test-workflow",
+            description: "Disable status events",
+            command: "/test",
+            runtime: {
+                featureFlags: {
+                    emitTaskStatusEvents: false,
+                },
+            },
+        };
+
+        const result = await executeWorkflow(
+            definition as any,
+            "test prompt",
+            context as any,
+            {
+                compiledGraph: compiledGraph as any,
+                eventBus: mockEventBus as any,
+            },
+        );
+
+        expect(result.success).toBe(true);
+        expect(capturedNotifyFn).toBeUndefined();
     });
 
     test("debounces saveTasksToSession calls", async () => {
@@ -1004,6 +1191,295 @@ describe("executeWorkflow", () => {
         expect(task2.blockedBy).toEqual(["#1"]);
     });
 
+    test("backfills task identity metadata when status snapshots are legacy", async () => {
+        const context = createMockContext();
+        const saveCalls: Array<{ tasks: any[]; sessionId: string }> = [];
+        const saveTasksToSession = async (tasks: any[], sessionId: string) => {
+            saveCalls.push({ tasks, sessionId });
+        };
+
+        const subscriptions: Array<{ type: string; handler: any }> = [];
+        const mockEventBus = {
+            publish: (event: any) => {
+                for (const sub of subscriptions) {
+                    if (sub.type === event.type) {
+                        sub.handler(event);
+                    }
+                }
+            },
+            on: (type: string, handler: any) => {
+                subscriptions.push({ type, handler });
+                return () => {};
+            },
+            onAll: () => () => {},
+            clear: () => {},
+            hasHandlers: () => false,
+            get handlerCount() { return 0; },
+        };
+
+        interface TestState extends BaseState {
+            value: string;
+        }
+
+        const compiledGraph = compileGraphConfig<TestState>({
+            nodes: [
+                {
+                    id: "test-node",
+                    type: "tool",
+                    execute: async (ctx: any) => {
+                        const notifyFn = (ctx.config.runtime as any)?.notifyTaskStatusChange;
+                        notifyFn?.(
+                            ["#7"],
+                            "in_progress",
+                            [{ id: "#7", title: "Legacy Task", status: "in_progress" }],
+                        );
+                        return { stateUpdate: { value: "done" } as Partial<TestState> };
+                    },
+                },
+            ],
+            edges: [],
+            startNode: "test-node",
+        });
+
+        const definition = {
+            name: "test-workflow",
+            description: "Task identity backfill",
+            command: "/test",
+        };
+
+        const result = await executeWorkflow(
+            definition,
+            "test prompt",
+            context as any,
+            {
+                compiledGraph: compiledGraph as any,
+                eventBus: mockEventBus as any,
+                saveTasksToSession,
+            },
+        );
+
+        expect(result.success).toBe(true);
+        await new Promise((resolve) => setTimeout(resolve, 150));
+
+        const lastSave = saveCalls[saveCalls.length - 1];
+        expect(lastSave).toBeDefined();
+        const task = lastSave?.tasks[0];
+        expect(task.identity?.canonicalId).toBe("#7");
+        expect(task.identity?.providerBindings?.task_id).toContain("#7");
+    });
+
+    test("persists task result envelopes from status snapshots", async () => {
+        resetRuntimeParityMetrics();
+        const context = createMockContext();
+        const saveCalls: Array<{ tasks: any[]; sessionId: string }> = [];
+        const saveTasksToSession = async (tasks: any[], sessionId: string) => {
+            saveCalls.push({ tasks, sessionId });
+        };
+
+        const subscriptions: Array<{ type: string; handler: any }> = [];
+        const mockEventBus = {
+            publish: (event: any) => {
+                for (const sub of subscriptions) {
+                    if (sub.type === event.type) {
+                        sub.handler(event);
+                    }
+                }
+            },
+            on: (type: string, handler: any) => {
+                subscriptions.push({ type, handler });
+                return () => {};
+            },
+            onAll: () => () => {},
+            clear: () => {},
+            hasHandlers: () => false,
+            get handlerCount() { return 0; },
+        };
+
+        interface TestState extends BaseState {
+            value: string;
+        }
+
+        const compiledGraph = compileGraphConfig<TestState>({
+            nodes: [
+                {
+                    id: "test-node",
+                    type: "tool",
+                    execute: async (ctx: any) => {
+                        const notifyFn = (ctx.config.runtime as any)?.notifyTaskStatusChange;
+                        notifyFn?.(
+                            ["#12"],
+                            "completed",
+                            [{
+                                id: "#12",
+                                title: "Persist envelope",
+                                status: "completed",
+                                identity: {
+                                    canonicalId: "#12",
+                                    providerBindings: {
+                                        subagent_id: ["worker-12"],
+                                    },
+                                },
+                                taskResult: {
+                                    task_id: "#12",
+                                    tool_name: "task",
+                                    title: "Persist envelope",
+                                    metadata: {
+                                        sessionId: "session-12",
+                                        providerBindings: {
+                                            subagent_id: "worker-12",
+                                        },
+                                    },
+                                    status: "completed",
+                                    output_text: "done",
+                                    envelope_text: "task_id: #12",
+                                },
+                            }],
+                        );
+                        return { stateUpdate: { value: "done" } as Partial<TestState> };
+                    },
+                },
+            ],
+            edges: [],
+            startNode: "test-node",
+        });
+
+        const definition = {
+            name: "test-workflow",
+            description: "Task result persistence",
+            command: "/test",
+        };
+
+        const result = await executeWorkflow(
+            definition,
+            "test prompt",
+            context as any,
+            {
+                compiledGraph: compiledGraph as any,
+                eventBus: mockEventBus as any,
+                saveTasksToSession,
+            },
+        );
+
+        expect(result.success).toBe(true);
+        await new Promise((resolve) => setTimeout(resolve, 150));
+
+        const lastSave = saveCalls[saveCalls.length - 1];
+        expect(lastSave).toBeDefined();
+        const task = lastSave?.tasks[0];
+        expect(task.taskResult).toMatchObject({
+            task_id: "#12",
+            tool_name: "task",
+            status: "completed",
+            metadata: {
+                providerBindings: {
+                    subagent_id: "worker-12",
+                },
+            },
+            output_text: "done",
+        });
+
+        const metrics = getRuntimeParityMetricsSnapshot();
+        expect(metrics.counters["workflow.runtime.parity.status_snapshot_total{phase=received,workflow=test-workflow}"]).toBe(1);
+        expect(metrics.counters["workflow.runtime.parity.status_snapshot_total{phase=persisted,workflow=test-workflow}"]).toBe(1);
+        expect(metrics.histograms["workflow.runtime.parity.status_snapshot_task_count{workflow=test-workflow}"]).toEqual([1]);
+    });
+
+    test("fails fast when task result task_id mismatches canonical identity", async () => {
+        resetRuntimeParityMetrics();
+        const context = createMockContext();
+
+        const subscriptions: Array<{ type: string; handler: any }> = [];
+        const mockEventBus = {
+            publish: (event: any) => {
+                for (const sub of subscriptions) {
+                    if (sub.type === event.type) {
+                        sub.handler(event);
+                    }
+                }
+            },
+            on: (type: string, handler: any) => {
+                subscriptions.push({ type, handler });
+                return () => {};
+            },
+            onAll: () => () => {},
+            clear: () => {},
+            hasHandlers: () => false,
+            get handlerCount() { return 0; },
+        };
+
+        interface TestState extends BaseState {
+            value: string;
+        }
+
+        const compiledGraph = compileGraphConfig<TestState>({
+            nodes: [
+                {
+                    id: "test-node",
+                    type: "tool",
+                    execute: async (ctx: any) => {
+                        const notifyFn = (ctx.config.runtime as any)?.notifyTaskStatusChange;
+                        notifyFn?.(
+                            ["#13"],
+                            "completed",
+                            [{
+                                id: "#13",
+                                title: "Mismatched envelope",
+                                status: "completed",
+                                identity: {
+                                    canonicalId: "#13",
+                                    providerBindings: {
+                                        subagent_id: ["worker-13"],
+                                    },
+                                },
+                                taskResult: {
+                                    task_id: "#14",
+                                    tool_name: "task",
+                                    title: "Mismatched envelope",
+                                    status: "completed",
+                                    output_text: "done",
+                                },
+                            }],
+                        );
+                        return { stateUpdate: { value: "done" } as Partial<TestState> };
+                    },
+                },
+            ],
+            edges: [],
+            startNode: "test-node",
+        });
+
+        const definition = {
+            name: "test-workflow",
+            description: "Task result mismatch",
+            command: "/test",
+        };
+
+        const result = await executeWorkflow(
+            definition,
+            "test prompt",
+            context as any,
+            {
+                compiledGraph: compiledGraph as any,
+                eventBus: mockEventBus as any,
+                saveTasksToSession: async () => {},
+            },
+        );
+
+        expect(result.success).toBe(false);
+        expect(
+            context
+                ._getMessages()
+                .some((m: { role: string; content: string }) =>
+                    m.role === "system" && m.content.includes("TaskResult envelope task_id mismatch: expected #13, received #14"),
+                ),
+        ).toBe(true);
+
+        const metrics = getRuntimeParityMetricsSnapshot();
+        expect(metrics.counters["workflow.runtime.parity.task_result_invariant_failures_total{reason=task_id_mismatch}"]).toBeGreaterThanOrEqual(1);
+        expect(metrics.counters["workflow.runtime.parity.task_result_normalization_failures_total{reason=invalid_envelope}"]).toBeGreaterThanOrEqual(1);
+        expect(metrics.counters["workflow.runtime.parity.execution_total{phase=failure,workflow=test-workflow}"]).toBe(1);
+    });
+
     test("unsubscribes from statusChange events on error", async () => {
         let unsubscribeCalled = false;
 
@@ -1080,5 +1556,73 @@ describe("executeWorkflow", () => {
         ).toBe(true);
         // Verify unsubscribe was called even on error
         expect(unsubscribeCalled).toBe(true);
+    });
+
+    test("publishes step completion status from actual terminal step state", async () => {
+        const context = createMockContext();
+        const publishedEvents: any[] = [];
+
+        const mockEventBus = {
+            publish: (event: any) => {
+                publishedEvents.push(event);
+            },
+            on: () => () => {},
+            onAll: () => () => {},
+            clear: () => {},
+            hasHandlers: () => false,
+            get handlerCount() { return 0; },
+        };
+
+        interface TestState extends BaseState {
+            value: string;
+        }
+
+        const compiledGraph = compileGraphConfig<TestState>({
+            nodes: [
+                {
+                    id: "step-1",
+                    type: "tool",
+                    execute: async () => ({
+                        stateUpdate: { value: "ok" } as Partial<TestState>,
+                    }),
+                },
+                {
+                    id: "step-2",
+                    type: "tool",
+                    execute: async () => {
+                        throw new Error("boom");
+                    },
+                },
+            ],
+            edges: [{ from: "step-1", to: "step-2" }],
+            startNode: "step-1",
+        });
+
+        const definition = {
+            name: "test-workflow",
+            description: "Step status parity",
+            command: "/test",
+        };
+
+        const result = await executeWorkflow(
+            definition,
+            "test prompt",
+            context as any,
+            {
+                compiledGraph: compiledGraph as any,
+                eventBus: mockEventBus as any,
+            },
+        );
+
+        expect(result.success).toBe(false);
+
+        const completionEvents = publishedEvents.filter(
+            (event) => event.type === "workflow.step.complete",
+        );
+        expect(completionEvents).toHaveLength(2);
+        expect(completionEvents[0].data.nodeId).toBe("step-1");
+        expect(completionEvents[0].data.status).toBe("success");
+        expect(completionEvents[1].data.nodeId).toBe("step-2");
+        expect(completionEvents[1].data.status).toBe("error");
     });
 });

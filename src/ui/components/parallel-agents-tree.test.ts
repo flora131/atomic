@@ -317,8 +317,10 @@ describe("agent inline display helpers", () => {
     "reasoning",
     "skill-load",
     "task-list",
+    "task-result",
     "text",
     "tool",
+    "workflow-step",
   ];
 
   const inlineParts: Part[] = [

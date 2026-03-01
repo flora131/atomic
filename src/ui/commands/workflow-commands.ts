@@ -20,6 +20,10 @@ import type {
 } from "./registry.ts";
 import { globalRegistry } from "./registry.ts";
 import type { TodoItem } from "../../sdk/tools/todo-write.ts";
+import type {
+    WorkflowRuntimeFeatureFlagOverrides,
+    WorkflowRuntimeTaskResultEnvelope,
+} from "../../workflows/runtime-contracts.ts";
 
 import {
     normalizeTodoItem,
@@ -171,6 +175,11 @@ export interface WorkflowDefinition extends WorkflowMetadata {
      * Example: { "planner": "🧠 Planning tasks...", "worker": "⚡ Implementing..." }
      */
     nodeDescriptions?: Record<string, string>;
+
+    /** Optional runtime configuration for execution-only behavior toggles. */
+    runtime?: {
+        featureFlags?: WorkflowRuntimeFeatureFlagOverrides;
+    };
 }
 
 // ============================================================================
@@ -254,6 +263,7 @@ export async function saveTasksToActiveSession(
         status: string;
         activeForm: string;
         blockedBy?: string[];
+        taskResult?: WorkflowRuntimeTaskResultEnvelope;
     }>,
     sessionId?: string,
 ): Promise<void> {
@@ -480,6 +490,7 @@ export async function loadWorkflowsFromDisk(): Promise<WorkflowDefinition[]> {
             const graphConfig = module.graphConfig as WorkflowGraphConfig | undefined;
             const createState = module.createState as ((params: WorkflowStateParams) => BaseState) | undefined;
             const nodeDescriptions = module.nodeDescriptions as Record<string, string> | undefined;
+            const runtime = module.runtime as WorkflowDefinition["runtime"] | undefined;
 
             // Validate graph config (Task #33)
             if (graphConfig) {
@@ -525,6 +536,7 @@ export async function loadWorkflowsFromDisk(): Promise<WorkflowDefinition[]> {
                 graphConfig,
                 createState,
                 nodeDescriptions,
+                runtime,
             };
 
             if (typeof definition.minSDKVersion === "string") {

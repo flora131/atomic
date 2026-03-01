@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { parallelNode, parallelSubagentNode } from "./nodes.ts";
-import type { BaseState, ExecutionContext, SubagentStreamResult } from "./types.ts";
+import { contextMonitorNode, parallelNode, parallelSubagentNode } from "./nodes.ts";
+import type { BaseState, ContextWindowUsage, ExecutionContext, SubagentStreamResult } from "./types.ts";
+import type { ContextUsage, Session } from "../../sdk/types.ts";
 
 interface TestState extends BaseState {
   mapperSource?: string;
@@ -26,6 +27,59 @@ function createContext(
 
 function createMockSpawnParallel(results: SubagentStreamResult[]) {
   return async (): Promise<SubagentStreamResult[]> => results;
+}
+
+interface MonitorState extends BaseState {
+  contextWindowUsage: ContextWindowUsage | null;
+}
+
+function createMonitorContext(
+  overrides: Partial<MonitorState> = {},
+): ExecutionContext<MonitorState> {
+  return {
+    state: {
+      executionId: "exec-monitor",
+      lastUpdated: new Date(0).toISOString(),
+      outputs: {},
+      contextWindowUsage: null,
+      ...overrides,
+    },
+    config: {},
+    errors: [],
+  };
+}
+
+function createMockMonitoringSession(options: {
+  usagePercentage: number;
+  hasAutoCompacted: boolean;
+  isCompacting?: boolean;
+}): { session: Session; getSummarizeCalls: () => number } {
+  let summarizeCalls = 0;
+  const usage: ContextUsage = {
+    inputTokens: 60,
+    outputTokens: 0,
+    maxTokens: 100,
+    usagePercentage: options.usagePercentage,
+  };
+  const session: Session = {
+    id: "ses_monitor",
+    send: async () => ({ type: "text", content: "" }),
+    stream: async function* () {},
+    summarize: async () => {
+      summarizeCalls += 1;
+    },
+    getContextUsage: async () => usage,
+    getSystemToolsTokens: () => 0,
+    getCompactionState: () => ({
+      isCompacting: options.isCompacting ?? false,
+      hasAutoCompacted: options.hasAutoCompacted,
+    }),
+    destroy: async () => {},
+  };
+  return {
+    session,
+    getSummarizeCalls: () => summarizeCalls,
+  };
 }
 
 describe("parallelNode mapper standardization", () => {
@@ -129,5 +183,40 @@ describe("parallelSubagentNode mapper standardization", () => {
         agents: [{ agentName: "worker", task: "do work" }],
       })
     ).toThrow(/requires outputMapper/);
+  });
+});
+
+describe("contextMonitorNode compaction conflict guard", () => {
+  test("skips summarize when session has already auto-compacted", async () => {
+    const { session, getSummarizeCalls } = createMockMonitoringSession({
+      usagePercentage: 60,
+      hasAutoCompacted: true,
+    });
+    const node = contextMonitorNode<MonitorState>({
+      id: "context-monitor",
+      agentType: "opencode",
+      getSession: () => session,
+    });
+
+    const result = await node.execute(createMonitorContext());
+
+    expect(getSummarizeCalls()).toBe(0);
+    expect(result.stateUpdate?.contextWindowUsage?.usagePercentage).toBe(60);
+  });
+
+  test("summarizes when threshold is exceeded and no compaction conflict exists", async () => {
+    const { session, getSummarizeCalls } = createMockMonitoringSession({
+      usagePercentage: 60,
+      hasAutoCompacted: false,
+    });
+    const node = contextMonitorNode<MonitorState>({
+      id: "context-monitor",
+      agentType: "opencode",
+      getSession: () => session,
+    });
+
+    await node.execute(createMonitorContext());
+
+    expect(getSummarizeCalls()).toBe(1);
   });
 });

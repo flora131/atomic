@@ -111,6 +111,46 @@ describe("task item normalization", () => {
       "pending",
     ]);
   });
+
+  test("preserves task result envelopes for persistence round-trip", () => {
+    const normalized = normalizeTodoItems([
+      {
+        id: "#3",
+        content: "Persist worker output",
+        status: "completed",
+        activeForm: "Persisting worker output",
+        taskResult: {
+          task_id: "#3",
+          tool_name: "task",
+          title: "Persist worker output",
+          metadata: {
+            sessionId: "session-3",
+            providerBindings: {
+              subagent_id: "worker-3",
+            },
+          },
+          status: "completed",
+          output_text: "done",
+          envelope_text: "task_id: #3",
+        },
+      },
+    ]);
+
+    expect(normalized[0]?.taskResult).toEqual({
+      task_id: "#3",
+      tool_name: "task",
+      title: "Persist worker output",
+      metadata: {
+        sessionId: "session-3",
+        providerBindings: {
+          subagent_id: "worker-3",
+        },
+      },
+      status: "completed",
+      output_text: "done",
+      envelope_text: "task_id: #3",
+    });
+  });
 });
 
 describe("mergeBlockedBy", () => {

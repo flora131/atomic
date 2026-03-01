@@ -199,7 +199,7 @@ describe("StreamPipelineConsumer", () => {
     });
   });
 
-  it("should ignore workflow.step.start events", () => {
+  it("should map workflow.step.start to workflow-step-start event", () => {
     const event: EnrichedBusEvent = {
       type: "workflow.step.start",
       sessionId: "test",
@@ -210,21 +210,36 @@ describe("StreamPipelineConsumer", () => {
 
     consumer.processBatch([event]);
 
-    expect(receivedEvents).toHaveLength(0);
+    expect(receivedEvents).toHaveLength(1);
+    expect(receivedEvents[0]).toEqual({
+      type: "workflow-step-start",
+      workflowId: "wf1",
+      nodeId: "node1",
+      nodeName: "Planner",
+      startedAt: new Date(event.timestamp).toISOString(),
+    });
   });
 
-  it("should ignore workflow.step.complete events", () => {
+  it("should map workflow.step.complete to workflow-step-complete event", () => {
     const event: EnrichedBusEvent = {
       type: "workflow.step.complete",
       sessionId: "test",
       runId: 1,
       timestamp: Date.now(),
-      data: { workflowId: "wf1", nodeId: "node1", status: "success" },
+      data: { workflowId: "wf1", nodeId: "node1", nodeName: "Planner", status: "success" },
     };
 
     consumer.processBatch([event]);
 
-    expect(receivedEvents).toHaveLength(0);
+    expect(receivedEvents).toHaveLength(1);
+    expect(receivedEvents[0]).toEqual({
+      type: "workflow-step-complete",
+      workflowId: "wf1",
+      nodeId: "node1",
+      nodeName: "Planner",
+      status: "success",
+      completedAt: new Date(event.timestamp).toISOString(),
+    });
   });
 
   it("should map workflow.task.update to task-list-update event", () => {
@@ -251,6 +266,64 @@ describe("StreamPipelineConsumer", () => {
         { id: "t1", title: "Plan", status: "complete", blockedBy: [] },
         { id: "t2", title: "Implement", status: "pending" },
       ],
+    });
+  });
+
+  it("should map workflow task result envelopes to task-result-upsert events", () => {
+    const event: EnrichedBusEvent = {
+      type: "workflow.task.update",
+      sessionId: "test",
+      runId: 1,
+      timestamp: Date.now(),
+      data: {
+        workflowId: "wf1",
+        tasks: [
+          {
+            id: "t1",
+            title: "Plan",
+            status: "completed",
+            taskResult: {
+              task_id: "#1",
+              tool_name: "task",
+              title: "Plan",
+              status: "completed",
+              output_text: "done",
+              envelope_text: "task_id: #1",
+              metadata: {
+                sessionId: "session-1",
+              },
+            },
+          },
+        ],
+      },
+    };
+
+    consumer.processBatch([event]);
+
+    expect(receivedEvents).toHaveLength(2);
+    expect(receivedEvents[0]).toEqual({
+      type: "task-list-update",
+      tasks: [
+        {
+          id: "t1",
+          title: "Plan",
+          status: "completed",
+        },
+      ],
+    });
+    expect(receivedEvents[1]).toEqual({
+      type: "task-result-upsert",
+      envelope: {
+        task_id: "#1",
+        tool_name: "task",
+        title: "Plan",
+        status: "completed",
+        output_text: "done",
+        envelope_text: "task_id: #1",
+        metadata: {
+          sessionId: "session-1",
+        },
+      },
     });
   });
 

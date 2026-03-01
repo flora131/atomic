@@ -118,9 +118,11 @@ import {
   interruptRunningToolCalls,
   interruptRunningToolParts,
   isAskQuestionToolName,
+  shouldContinueParentSessionLoop,
   shouldTrackToolAsBlocking,
   shouldDispatchQueuedMessage,
   shouldDeferComposerSubmit,
+  type SessionLoopFinishReason,
 } from "./utils/stream-continuation.ts";
 import { getNextKittyKeyboardDetectionState } from "./utils/kitty-keyboard-detection.ts";
 import {
@@ -149,8 +151,8 @@ import {
 } from "./utils/workflow-input-resolver.ts";
 import type {
   Part,
+  StreamPartEvent,
   TextPart,
-  TaskListPart,
   SkillLoadPart,
   McpSnapshotPart,
   CompactionPart,
@@ -178,6 +180,36 @@ export {
   shouldShowMessageLoadingIndicator,
   shouldShowCompletionSummary,
 } from "./utils/loading-state.ts";
+
+const RUNTIME_ENVELOPE_PART_TYPES = new Set<StreamPartEvent["type"]>([
+  "task-list-update",
+  "workflow-step-start",
+  "workflow-step-complete",
+  "task-result-upsert",
+]);
+
+export function isRuntimeEnvelopePartEvent(
+  part: StreamPartEvent,
+): part is Extract<
+  StreamPartEvent,
+  { type: "task-list-update" | "workflow-step-start" | "workflow-step-complete" | "task-result-upsert" }
+> {
+  return RUNTIME_ENVELOPE_PART_TYPES.has(part.type);
+}
+
+function toWorkflowStepCompletionMessage(
+  part: Extract<StreamPartEvent, { type: "workflow-step-complete" }>,
+): string {
+  const stepLabel = part.nodeName?.trim() || part.nodeId;
+  switch (part.status) {
+    case "success":
+      return `Workflow step "${stepLabel}" completed.`;
+    case "skipped":
+      return `Workflow step "${stepLabel}" skipped.`;
+    case "error":
+      return `Workflow step "${stepLabel}" failed.`;
+  }
+}
 
 
 /**
@@ -614,8 +646,6 @@ export interface ChatMessage {
   skillLoads?: MessageSkillLoad[];
   /** Snapshot of task items active during this message (baked on completion) */
   taskItems?: Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed" | "error"; blockedBy?: string[]}>;
-  /** Whether task updates for this message should remain pinned-only (Ralph exception) */
-  tasksPinned?: boolean;
   /** MCP snapshot for rendering Codex-style /mcp output */
   mcpSnapshot?: McpSnapshotView;
   /** Output tokens used in this message (baked on completion) */
@@ -892,8 +922,6 @@ export interface MessageBubbleProps {
   todoItems?: Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed" | "error"; blockedBy?: string[]}>;
   /** Whether task items are expanded (no truncation) */
   tasksExpanded?: boolean;
-  /** Whether task updates should be rendered inline for this message */
-  inlineTasksEnabled?: boolean;
   /** Workflow session directory for persistent task list panel */
   workflowSessionDir?: string | null;
   /** Whether workflow execution is active */
@@ -984,6 +1012,35 @@ export function shouldProcessStreamLifecycleEvent(
   eventRunId: number,
 ): boolean {
   return activeRunId !== null && activeRunId === eventRunId;
+}
+
+/**
+ * Format stream.session.truncation notifications for the UI.
+ */
+export function formatSessionTruncationMessage(
+  tokensRemoved: number,
+  messagesRemoved: number,
+): string {
+  return `${MISC.warning} Context truncated: ${tokensRemoved.toLocaleString()} tokens removed (${messagesRemoved} message${messagesRemoved === 1 ? "" : "s"})`;
+}
+
+/**
+ * Convert stream.session.compaction events into indicator state transitions.
+ */
+export function getAutoCompactionIndicatorState(
+  phase: "start" | "complete",
+  success?: boolean,
+  error?: string,
+): AutoCompactionIndicatorState {
+  if (phase === "start") {
+    return { status: "running" };
+  }
+
+  if (success === false) {
+    return { status: "error", errorMessage: error?.trim() || undefined };
+  }
+
+  return { status: "completed" };
 }
 
 /**
@@ -1308,8 +1365,6 @@ export function AtomicHeader({
  */
 function getRenderableAssistantParts(
   message: ChatMessage,
-  taskItemsToShow: TaskItem[] | undefined,
-  inlineTaskExpansion: boolean | undefined,
   isLastMessage: boolean,
   hideAskUserQuestion: boolean,
 ): Part[] {
@@ -1331,26 +1386,6 @@ function getRenderableAssistantParts(
         shouldGroupSubagentTrees(message, isLastMessage),
       );
     }
-  }
-
-  const shouldRenderInlineTasks = taskItemsToShow && taskItemsToShow.length > 0 && inlineTaskExpansion !== false;
-  const existingTaskIdx = parts.findIndex((p) => p.type === "task-list");
-  if (shouldRenderInlineTasks) {
-    const sortedTaskItems = sortTasksTopologically(taskItemsToShow!);
-    const taskPart: TaskListPart = {
-      id: existingTaskIdx >= 0 ? parts[existingTaskIdx]!.id : `task-list-${message.id}`,
-      type: "task-list",
-      items: sortedTaskItems,
-      expanded: inlineTaskExpansion ?? false,
-      createdAt: existingTaskIdx >= 0 ? parts[existingTaskIdx]!.createdAt : message.timestamp,
-    };
-    if (existingTaskIdx >= 0) {
-      parts[existingTaskIdx] = taskPart;
-    } else {
-      parts.push(taskPart);
-    }
-  } else if (existingTaskIdx >= 0) {
-    parts.splice(existingTaskIdx, 1);
   }
 
   if (message.mcpSnapshot) {
@@ -1440,8 +1475,12 @@ function getRenderableAssistantParts(
 
   return parts;
 }
-export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestion = false, hideLoading = false, todoItems, tasksExpanded = false, inlineTasksEnabled = true, workflowSessionDir, workflowActive = false, showTodoPanel = true, elapsedMs, collapsed = false, streamingMeta }: MessageBubbleProps): React.ReactNode {
+export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestion = false, hideLoading = false, todoItems, tasksExpanded = false, workflowSessionDir, workflowActive = false, showTodoPanel = true, elapsedMs, collapsed = false, streamingMeta }: MessageBubbleProps): React.ReactNode {
   const themeColors = useThemeColors();
+  const persistentTaskPanelSessionDir = isLast && showTodoPanel && workflowSessionDir
+    ? workflowSessionDir
+    : null;
+  const shouldShowPersistentTaskPanel = persistentTaskPanelSessionDir !== null;
 
   // Collapsed mode: show compact single-line summary for each message
   // Spacing: user messages sit tight above their reply; assistant messages
@@ -1504,9 +1543,9 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
         </box>
 
         {/* Workflow persistent task list - also shown after user messages */}
-        {isLast && workflowSessionDir && showTodoPanel && (
+        {persistentTaskPanelSessionDir && (
           <TaskListPanel
-            sessionDir={workflowSessionDir}
+            sessionDir={persistentTaskPanelSessionDir}
             expanded={tasksExpanded}
             workflowActive={workflowActive}
           />
@@ -1517,18 +1556,16 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
 
   // Assistant message: parts-based rendering only
   if (message.role === "assistant") {
-    const shouldRenderInlineTasks = inlineTasksEnabled && !message.tasksPinned && message.streaming;
-    const taskItemsToShow = shouldRenderInlineTasks ? todoItems : undefined;
-    const inlineTaskExpansion = shouldRenderInlineTasks ? (tasksExpanded || undefined) : false;
+    const assistantParts = getRenderableAssistantParts(
+      message,
+      Boolean(isLast),
+      hideAskUserQuestion,
+    );
     const renderableMessage = {
       ...message,
-      parts: getRenderableAssistantParts(
-        message,
-        taskItemsToShow,
-        inlineTaskExpansion,
-        Boolean(isLast),
-        hideAskUserQuestion,
-      ),
+      parts: shouldShowPersistentTaskPanel
+        ? assistantParts.filter((part) => part.type !== "task-list")
+        : assistantParts,
     };
 
     // Detect active background agents on this message
@@ -1546,9 +1583,9 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
         <MessageBubbleParts message={renderableMessage} syntaxStyle={syntaxStyle} />
 
         {/* Workflow persistent task list - pinned above streaming text in last message */}
-        {isLast && workflowSessionDir && showTodoPanel && (
+        {persistentTaskPanelSessionDir && (
           <TaskListPanel
-            sessionDir={workflowSessionDir}
+            sessionDir={persistentTaskPanelSessionDir}
             expanded={tasksExpanded}
             workflowActive={workflowActive}
           />
@@ -1883,6 +1920,9 @@ export function ChatApp({
   // Tracks the runId of the currently active stream.session.start event so
   // stale lifecycle events from a prior run do not finalize a new message.
   const activeStreamRunIdRef = useRef<number | null>(null);
+  // Captures the latest normalized turn finish reason so session.idle can
+  // decide whether to continue the parent loop or finalize the stream.
+  const lastTurnFinishReasonRef = useRef<SessionLoopFinishReason | null>(null);
   // Persists the message ID after handleStreamComplete clears streamingMessageIdRef,
   // so late-arriving bus events (stream.usage, stream.thinking.complete) can still
   // bake metadata onto the completed message.
@@ -1946,6 +1986,41 @@ export function ChatApp({
     toolUses: number;
     currentTool?: string;
   }>>(new Map());
+
+  const asSessionLoopFinishReason = useCallback((value: unknown): SessionLoopFinishReason | null => {
+    if (typeof value !== "string") {
+      return null;
+    }
+    const token = value.trim();
+    if (
+      token === "tool-calls"
+      || token === "stop"
+      || token === "max-tokens"
+      || token === "max-turns"
+      || token === "error"
+      || token === "unknown"
+    ) {
+      return token;
+    }
+    return null;
+  }, []);
+
+  const hasPendingTaskResultContract = useCallback((): boolean => {
+    return todoItemsRef.current.some((task) => {
+      const isTerminalStatus = task.status === "completed" || task.status === "error";
+      if (!isTerminalStatus || task.taskResult) {
+        return false;
+      }
+
+      const canonicalId = task.identity?.canonicalId;
+      const hasProviderBindings = Boolean(
+        task.identity?.providerBindings
+        && Object.keys(task.identity.providerBindings).length > 0,
+      );
+
+      return Boolean(canonicalId) || hasProviderBindings;
+    });
+  }, []);
 
   const clearDeferredCompletion = useCallback(() => {
     pendingCompleteRef.current = null;
@@ -2342,6 +2417,7 @@ export function ChatApp({
     hasRunningToolRef.current = next.hasRunningTool;
     if (!next.isStreaming) {
       activeStreamRunIdRef.current = null;
+      lastTurnFinishReasonRef.current = null;
     }
     runningBlockingToolIdsRef.current.clear();
     runningAskQuestionToolIdsRef.current.clear();
@@ -2511,7 +2587,6 @@ export function ChatApp({
     if (isTodoWriteToolName(toolName) && input.todos && Array.isArray(input.todos)) {
       const previousTodos = todoItemsRef.current;
       const todos = reconcileTodoWriteItems(input.todos, previousTodos);
-      const taskStreamPinned = Boolean(workflowSessionIdRef.current);
       const isWorkflowUpdate = isWorkflowTaskUpdate(todos, previousTodos);
 
       // During workflow, ignore unrelated sub-agent TodoWrite payloads so they
@@ -2531,18 +2606,6 @@ export function ChatApp({
       // Before: if (workflowSessionIdRef.current && isWorkflowUpdate) { ... }
       // Now: Never persist TodoWrite during active workflow.
 
-      if (messageId) {
-        setMessagesWindowed((prev) =>
-          prev.map((msg) =>
-            msg.id === messageId
-              ? {
-                  ...msg,
-                  tasksPinned: msg.tasksPinned ?? taskStreamPinned,
-                }
-              : msg
-          )
-        );
-      }
     }
   }, [isWorkflowTaskUpdate, applyAutoCompactionIndicator, resolveAgentScopedMessageId]);
 
@@ -2629,7 +2692,6 @@ export function ChatApp({
     if (isTodoWriteCompletion && input && input.todos && Array.isArray(input.todos)) {
       const previousTodos = todoItemsRef.current;
       const todos = reconcileTodoWriteItems(input.todos, previousTodos);
-      const taskStreamPinned = Boolean(workflowSessionIdRef.current);
       const isWorkflowUpdate = isWorkflowTaskUpdate(todos, previousTodos);
 
       // During workflow, ignore unrelated sub-agent TodoWrite payloads so they
@@ -2649,18 +2711,6 @@ export function ChatApp({
       // Before: if (workflowSessionIdRef.current && isWorkflowUpdate) { ... }
       // Now: Never persist TodoWrite during active workflow.
 
-      if (messageId) {
-        setMessagesWindowed((prev) =>
-          prev.map((msg) =>
-            msg.id === messageId
-              ? {
-                  ...msg,
-                  tasksPinned: msg.tasksPinned ?? taskStreamPinned,
-                }
-              : msg
-          )
-        );
-      }
     }
   }, [isWorkflowTaskUpdate, continueQueuedConversation, applyAutoCompactionIndicator]);
 
@@ -2997,9 +3047,27 @@ export function ChatApp({
           )
         );
       }
-      // Workflow task list events route through the same parts pipeline as
-      // the main chat so workflow task state stays in sync in the unified TUI.
-      if (part.type === "task-list-update") {
+      // Route workflow runtime envelopes through the shared parts reducer so
+      // TaskList/TaskResult parts stay runtime-driven.
+      if (isRuntimeEnvelopePartEvent(part)) {
+        if (part.type === "workflow-step-complete") {
+          sendBackgroundMessageToAgent(toWorkflowStepCompletionMessage(part));
+          continue;
+        }
+        if (part.type === "workflow-step-start") {
+          continue;
+        }
+        // Send task results to the main agent so they are actionable, not decorative
+        if (part.type === "task-result-upsert") {
+          const env = part.envelope;
+          const resultText = env.envelope_text ?? env.output_text;
+          if (resultText.trim().length > 0) {
+            const statusLabel = env.status === "error" ? "failed" : "completed";
+            sendBackgroundMessageToAgent(
+              `Task "${env.title}" (${env.task_id}) ${statusLabel}:\n\n${resultText}`,
+            );
+          }
+        }
         const messageId = resolveAgentScopedMessageId();
         if (!messageId) continue;
         setMessagesWindowed((prev: ChatMessage[]) =>
@@ -3022,6 +3090,7 @@ export function ChatApp({
       return;
     }
     activeStreamRunIdRef.current = event.runId;
+    lastTurnFinishReasonRef.current = null;
   });
 
   useBusSubscription("stream.turn.start", (event) => {
@@ -3048,6 +3117,8 @@ export function ChatApp({
       }
     }
 
+    lastTurnFinishReasonRef.current = null;
+
   });
 
   useBusSubscription("stream.turn.end", (event) => {
@@ -3060,6 +3131,10 @@ export function ChatApp({
     if (isStreamingRef.current) {
       batchDispatcher.flush();
     }
+
+    lastTurnFinishReasonRef.current = asSessionLoopFinishReason(
+      (event.data as Record<string, unknown>).finishReason,
+    );
   });
 
   useBusSubscription("stream.session.idle", (event) => {
@@ -3068,6 +3143,17 @@ export function ChatApp({
     }
 
     if (isStreamingRef.current) {
+      const continuationSignal = shouldContinueParentSessionLoop({
+        finishReason: lastTurnFinishReasonRef.current ?? undefined,
+        hasActiveForegroundAgents: hasActiveForegroundAgents(parallelAgentsRef.current),
+        hasRunningBlockingTool: hasRunningToolRef.current,
+        hasPendingTaskContract: hasPendingTaskResultContract(),
+      });
+
+      if (continuationSignal.shouldContinue) {
+        return;
+      }
+
       // Flush pending batched events before finalization so no trailing
       // content is lost (e.g. tool-only responses where text.complete never fires).
       batchDispatcher.flush();
@@ -3127,7 +3213,7 @@ export function ChatApp({
       ...prev,
       createMessage(
         "system",
-        `${MISC.warning} Context truncated: ${tokensRemoved.toLocaleString()} tokens removed (${messagesRemoved} message${messagesRemoved === 1 ? "" : "s"})`,
+        formatSessionTruncationMessage(tokensRemoved, messagesRemoved),
       ),
     ]);
   });
@@ -3138,15 +3224,9 @@ export function ChatApp({
     }
 
     const { phase, success, error } = event.data;
-    if (phase === "start") {
-      applyAutoCompactionIndicator({ status: "running" });
-    } else if (phase === "complete") {
-      applyAutoCompactionIndicator(
-        success === false
-          ? { status: "error", errorMessage: error?.trim() || undefined }
-          : { status: "completed" },
-      );
-    }
+    applyAutoCompactionIndicator(
+      getAutoCompactionIndicatorState(phase, success, error),
+    );
   });
 
   useBusSubscription("stream.usage", (event) => {
@@ -4657,7 +4737,10 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
             });
 
             try {
-              const stream = session.stream(options.task, { agent: options.agentName });
+              const stream = session.stream(options.task, {
+                agent: options.agentName,
+                abortSignal: agentAbort.signal,
+              });
 
               // Adapter consumes stream, publishes events to the bus,
               // and returns SubagentStreamResult with full metadata
@@ -6584,7 +6667,6 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           streamingMeta={scopedStreamingMeta}
           collapsed={false}
           tasksExpanded={tasksExpanded}
-          inlineTasksEnabled={!workflowSessionDir}
           workflowSessionDir={workflowSessionDir}
           workflowActive={workflowState.workflowActive}
           showTodoPanel={showTodoPanel}

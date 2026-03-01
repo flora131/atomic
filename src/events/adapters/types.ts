@@ -1,4 +1,5 @@
 import type { Session } from "../../sdk/types.ts";
+import type { WorkflowRuntimeFeatureFlagOverrides } from "../../workflows/runtime-contracts.ts";
 
 /**
  * Interface for SDK stream adapters that consume native SDK streaming APIs
@@ -41,8 +42,12 @@ export interface StreamAdapterOptions {
   runId: number;
   /** Message ID to associate with text events */
   messageId: string;
+  /** Optional external abort signal for stream cancellation */
+  abortSignal?: AbortSignal;
   /** Optional agent name for sub-agent dispatch (used by OpenCode) */
   agent?: string;
   /** Known agent names that should be treated as task/agent tools (Copilot SDK) */
   knownAgentNames?: string[];
+  /** Runtime contract feature-flag overrides (Task #1 scaffolding) */
+  runtimeFeatureFlags?: WorkflowRuntimeFeatureFlagOverrides;
 }

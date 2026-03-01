@@ -482,6 +482,7 @@ describe("coalescingKey()", () => {
         data: {
           workflowId: "workflow-123",
           nodeId: "node-1",
+          nodeName: "Step 1",
           status: "success",
           result: "Step completed",
         },

@@ -475,6 +475,7 @@ export async function startChatUI(
       await adapter.startStreaming(state.session!, effectiveContent, {
         runId,
         messageId,
+        abortSignal: state.streamAbortController?.signal,
         agent: options?.agent,
         knownAgentNames,
       });

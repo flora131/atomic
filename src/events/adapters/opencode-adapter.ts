@@ -147,7 +147,7 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     message: string,
     options: StreamAdapterOptions,
   ): Promise<void> {
-    const { runId, messageId, agent, runtimeFeatureFlags } = options;
+    const { runId, messageId, agent, runtimeFeatureFlags, abortSignal } = options;
 
     // Clean up any existing subscriptions from a previous startStreaming() call
     // to prevent subscription accumulation on re-entry without dispose()
@@ -336,15 +336,17 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
       if (session.sendAsync) {
         // Create a promise that resolves when session.idle or session.error fires
         const completionPromise = new Promise<{ reason: string; error?: string }>((resolve) => {
-          const checkAbort = () => {
-            if (this.abortController?.signal.aborted) {
-              resolve({ reason: "aborted" });
-            }
+          let resolved = false;
+          const safeResolve = (value: { reason: string; error?: string }) => {
+            if (resolved) return;
+            resolved = true;
+            resolve(value);
           };
+          const handleAbort = () => safeResolve({ reason: "aborted" });
 
           const onIdle = client?.on("session.idle", (event) => {
             if (event.sessionId !== this.sessionId) return;
-            resolve({ reason: event.data.reason ?? "idle" });
+            safeResolve({ reason: event.data.reason ?? "idle" });
           });
           if (onIdle) this.unsubscribers.push(onIdle);
 
@@ -353,15 +355,74 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
             const error = typeof event.data.error === "string"
               ? event.data.error
               : (event.data.error as Error).message;
-            resolve({ reason: "error", error });
+            safeResolve({ reason: "error", error });
           });
           if (onError) this.unsubscribers.push(onError);
 
-          // Also check abort periodically
-          this.abortController?.signal.addEventListener("abort", checkAbort, { once: true });
+          const adapterAbortSignal = this.abortController?.signal;
+          if (adapterAbortSignal) {
+            if (adapterAbortSignal.aborted) {
+              handleAbort();
+            } else {
+              adapterAbortSignal.addEventListener("abort", handleAbort, { once: true });
+              this.unsubscribers.push(
+                () => adapterAbortSignal.removeEventListener("abort", handleAbort),
+              );
+            }
+          }
+
+          if (abortSignal) {
+            if (abortSignal.aborted) {
+              handleAbort();
+            } else {
+              abortSignal.addEventListener("abort", handleAbort, { once: true });
+              this.unsubscribers.push(
+                () => abortSignal.removeEventListener("abort", handleAbort),
+              );
+            }
+          }
         });
 
-        await session.sendAsync(message, agent ? { agent } : undefined);
+        const dispatchAbortSignal = (() => {
+          const adapterAbortSignal = this.abortController?.signal;
+          if (adapterAbortSignal && abortSignal) {
+            return AbortSignal.any([adapterAbortSignal, abortSignal]);
+          }
+          return adapterAbortSignal ?? abortSignal;
+        })();
+
+        const isDispatchAbortError = (error: unknown): boolean => {
+          if (dispatchAbortSignal?.aborted) {
+            return true;
+          }
+          if (error instanceof DOMException && error.name === "AbortError") {
+            return true;
+          }
+          if (!(error instanceof Error)) {
+            return false;
+          }
+          const errorWithCode = error as Error & { code?: string };
+          if (
+            error.name === "AbortError"
+            || errorWithCode.code === "ABORT_ERR"
+            || errorWithCode.code === "ERR_CANCELED"
+          ) {
+            return true;
+          }
+          return error.message.toLowerCase().includes("aborted");
+        };
+
+        const dispatchOptions = agent || dispatchAbortSignal
+          ? { agent: agent ?? undefined, abortSignal: dispatchAbortSignal }
+          : undefined;
+
+        try {
+          await session.sendAsync(message, dispatchOptions);
+        } catch (error) {
+          if (!isDispatchAbortError(error)) {
+            throw error;
+          }
+        }
 
         // Wait for completion signal from SSE
         const completion = await completionPromise;

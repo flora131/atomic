@@ -13,6 +13,37 @@ import { mkdirSync, existsSync, readFileSync } from "fs";
 import type { CommandContext, CommandContextState } from "./registry.ts";
 import { getWorkflowCommands } from "./workflow-commands.ts";
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  timeoutMessage: string,
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new Error(timeoutMessage)),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
 function createMockContext(overrides?: Partial<CommandContext>): CommandContext {
   return {
     session: null,
@@ -127,13 +158,11 @@ describe("Workflow inline mode E2E", () => {
 
 
 
-  test("review with findings triggers fixer and completes without freeze", async () => {
+  test("review with findings triggers fixer and completes within timeout", async () => {
     // Track all spawnSubagentParallel calls
     const spawnCalls: Array<{ agentName: string }> = [];
     const workflowStateUpdates: Array<Partial<CommandContextState>> = [];
     let sessionDir: string | null = null;
-    let todoItems: any[] = [];
-
     const context = createMockContext({
       updateWorkflowState: (update) => {
         workflowStateUpdates.push(update);
@@ -149,9 +178,6 @@ describe("Workflow inline mode E2E", () => {
       },
       setWorkflowSessionId: () => {},
       setWorkflowTaskIds: () => {},
-      setTodoItems: (items) => {
-        todoItems = items;
-      },
       spawnSubagentParallel: async (agents) => {
         return agents.map((a) => {
           const agentName = a.agentName ?? a.agentId ?? "unknown";
@@ -232,7 +258,11 @@ describe("Workflow inline mode E2E", () => {
     expect(ralphCommand).toBeDefined();
 
     // Run workflow — should complete without hanging
-    const result = await ralphCommand!.execute("Build auth feature", context);
+    const result = await withTimeout(
+      Promise.resolve(ralphCommand!.execute("Build auth feature", context)),
+      3_000,
+      "ralph workflow did not complete in time",
+    );
 
     // Assert: workflow completed successfully
     expect(result.success).toBe(true);
@@ -258,6 +288,132 @@ describe("Workflow inline mode E2E", () => {
     expect(sessionDir).not.toBeNull();
 
     // Clean up temp dir
+    if (sessionDir && existsSync(sessionDir)) {
+      await rm(sessionDir, { recursive: true, force: true });
+    }
+  });
+
+  test("keeps TUI workflow state responsive while worker execution is in-flight", async () => {
+    const workflowStateUpdates: Array<Partial<CommandContextState>> = [];
+    const streamingTransitions: boolean[] = [];
+    const trackedSessionDirs: Array<string | null> = [];
+    const trackedSessionIds: Array<string | null> = [];
+    const trackedTaskIdSizes: number[] = [];
+    let sessionDir: string | null = null;
+
+    const workerStarted = createDeferred<void>();
+    const releaseWorker = createDeferred<void>();
+
+    const context = createMockContext({
+      updateWorkflowState: (update) => {
+        workflowStateUpdates.push(update);
+      },
+      setStreaming: (value) => {
+        streamingTransitions.push(value);
+      },
+      setWorkflowSessionDir: (dir) => {
+        trackedSessionDirs.push(dir);
+        sessionDir = dir;
+        if (dir && !existsSync(dir)) {
+          mkdirSync(dir, { recursive: true });
+          const progressPath = join(dir, "progress.txt");
+          fsWriteFile(progressPath, "Test workflow in progress\n", "utf-8").catch(() => {});
+        }
+      },
+      setWorkflowSessionId: (id) => {
+        trackedSessionIds.push(id);
+      },
+      setWorkflowTaskIds: (ids) => {
+        trackedTaskIdSizes.push(ids.size);
+      },
+      spawnSubagentParallel: async (agents) => {
+        const firstAgent = agents[0];
+        const agentName = firstAgent?.agentName ?? firstAgent?.agentId ?? "unknown";
+
+        if (agentName === "planner") {
+          return [{
+            agentId: firstAgent?.agentId ?? "planner-1",
+            success: true,
+            output: JSON.stringify([
+              { id: "#1", content: "Implement auth", status: "pending", activeForm: "Implementing auth", blockedBy: [] },
+              { id: "#2", content: "Add tests", status: "pending", activeForm: "Adding tests", blockedBy: [] },
+            ]),
+            toolUses: 1,
+            durationMs: 100,
+          }];
+        }
+
+        if (agentName === "worker") {
+          workerStarted.resolve(undefined);
+          await releaseWorker.promise;
+          return agents.map((agent, index) => ({
+            agentId: agent.agentId,
+            success: true,
+            output: `Completed worker task ${index + 1}`,
+            toolUses: 2,
+            durationMs: 200,
+          }));
+        }
+
+        if (agentName === "reviewer") {
+          return [{
+            agentId: firstAgent?.agentId ?? "reviewer-1",
+            success: true,
+            output: JSON.stringify({
+              findings: [],
+              overall_correctness: "patch is correct",
+              overall_explanation: "No issues",
+            }),
+            toolUses: 1,
+            durationMs: 100,
+          }];
+        }
+
+        return agents.map((agent) => ({
+          agentId: agent.agentId,
+          success: true,
+          output: "OK",
+          toolUses: 0,
+          durationMs: 10,
+        }));
+      },
+    });
+
+    const commands = getWorkflowCommands();
+    const ralphCommand = commands.find((cmd) => cmd.name === "ralph");
+    expect(ralphCommand).toBeDefined();
+
+    const executionPromise = Promise.resolve(
+      ralphCommand!.execute("Build auth feature", context),
+    );
+    await withTimeout(workerStarted.promise, 1_000, "worker node did not start in time");
+
+    // While worker is still in-flight, the workflow should already have updated
+    // TUI state and session/task bindings.
+    expect(streamingTransitions[0]).toBe(true);
+    expect(workflowStateUpdates.some((update) => update.workflowActive === true)).toBe(true);
+    expect(trackedSessionDirs.length).toBeGreaterThan(0);
+    expect(trackedSessionIds.length).toBeGreaterThan(0);
+    expect(trackedTaskIdSizes.some((size) => size >= 2)).toBe(true);
+
+    let resolvedEarly = false;
+    void executionPromise.then(() => {
+      resolvedEarly = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(resolvedEarly).toBe(false);
+
+    releaseWorker.resolve(undefined);
+
+    const result = await withTimeout(
+      executionPromise,
+      3_000,
+      "ralph workflow did not finish after releasing worker",
+    );
+    expect(result.success).toBe(true);
+    expect(result.stateUpdate?.workflowActive).toBe(false);
+    expect(streamingTransitions[streamingTransitions.length - 1]).toBe(false);
+
     if (sessionDir && existsSync(sessionDir)) {
       await rm(sessionDir, { recursive: true, force: true });
     }

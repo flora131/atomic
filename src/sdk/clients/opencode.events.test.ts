@@ -1,5 +1,29 @@
 import { describe, expect, test } from "bun:test";
-import { OpenCodeClient } from "./opencode.ts";
+import { isContextOverflowError, OpenCodeClient } from "./opencode.ts";
+
+describe("isContextOverflowError", () => {
+  test("detects overflow messages across known pattern variants", () => {
+    const overflowErrors = [
+      "ContextOverflowError: Input exceeds context window of this model",
+      "code=context_length_exceeded",
+      "prompt is too long for this model",
+      "Request too large for provider",
+      "Exceeded the model's maximum context length",
+      "Too many tokens in request",
+    ];
+
+    for (const message of overflowErrors) {
+      expect(isContextOverflowError(message)).toBe(true);
+      expect(isContextOverflowError(new Error(message))).toBe(true);
+    }
+  });
+
+  test("does not flag unrelated errors as overflow", () => {
+    expect(isContextOverflowError("Rate limit exceeded")).toBe(false);
+    expect(isContextOverflowError(new Error("Network connection reset"))).toBe(false);
+    expect(isContextOverflowError("")).toBe(false);
+  });
+});
 
 describe("OpenCodeClient event mapping", () => {
   test("defaults directory to process.cwd() for project-scoped agent resolution", () => {
@@ -75,6 +99,745 @@ describe("OpenCodeClient event mapping", () => {
     unsubscribe();
 
     expect(idles).toEqual(["ses_idle_info"]);
+  });
+
+  test("emitEvent dispatch remains synchronous", () => {
+    const client = new OpenCodeClient();
+    const order: string[] = [];
+
+    const unsubscribe = client.on("message.delta", () => {
+      order.push("handler");
+    });
+
+    order.push("before");
+    (client as unknown as {
+      emitEvent: (type: "message.delta", sessionId: string, data: Record<string, unknown>) => void;
+    }).emitEvent("message.delta", "ses_sync_dispatch", { delta: "hello" });
+    order.push("after");
+
+    unsubscribe();
+
+    expect(order).toEqual(["before", "handler", "after"]);
+  });
+
+  test("emitEvent isolates handler errors and continues dispatch", () => {
+    const client = new OpenCodeClient();
+    const order: string[] = [];
+    const originalConsoleError = console.error;
+    const consoleErrors: unknown[][] = [];
+
+    (console as unknown as { error: (...args: unknown[]) => void }).error = (...args: unknown[]) => {
+      consoleErrors.push(args);
+    };
+
+    const unsubscribeThrowingHandler = client.on("message.delta", () => {
+      order.push("throwing-handler");
+      throw new Error("handler failure");
+    });
+    const unsubscribeSecondHandler = client.on("message.delta", () => {
+      order.push("second-handler");
+    });
+
+    try {
+      (client as unknown as {
+        emitEvent: (type: "message.delta", sessionId: string, data: Record<string, unknown>) => void;
+      }).emitEvent("message.delta", "ses_sync_dispatch", { delta: "hello" });
+    } finally {
+      unsubscribeThrowingHandler();
+      unsubscribeSecondHandler();
+      (console as unknown as { error: (...args: unknown[]) => void }).error = originalConsoleError;
+    }
+
+    expect(order).toEqual(["throwing-handler", "second-handler"]);
+    expect(consoleErrors).toHaveLength(1);
+    expect(String(consoleErrors[0]?.[0] ?? "")).toContain("Error in event handler for message.delta:");
+  });
+
+  test("on() unsubscribe removes empty handler buckets", () => {
+    const client = new OpenCodeClient();
+    const unsubscribe = client.on("session.idle", () => {});
+
+    unsubscribe();
+
+    const eventHandlers = (client as unknown as {
+      eventHandlers: Map<string, Set<unknown>>;
+    }).eventHandlers;
+
+    expect(eventHandlers.has("session.idle")).toBe(false);
+  });
+
+  test("processEventStream filters non-lifecycle events for inactive sessions", async () => {
+    const client = new OpenCodeClient();
+    const deltas: string[] = [];
+    const starts: string[] = [];
+
+    const unsubDelta = client.on("message.delta", (event) => {
+      const data = event.data as { delta?: string };
+      if (typeof data.delta === "string") {
+        deltas.push(data.delta);
+      }
+    });
+    const unsubStart = client.on("session.start", (event) => {
+      starts.push(event.sessionId);
+    });
+
+    (client as unknown as { registerActiveSession: (sessionId: string) => void })
+      .registerActiveSession("ses_active");
+
+    const stream = (async function* (): AsyncGenerator<unknown, void, unknown> {
+      yield {
+        type: "message.part.delta",
+        properties: {
+          sessionID: "ses_inactive",
+          delta: "inactive output",
+        },
+      };
+      yield {
+        type: "message.part.delta",
+        properties: {
+          sessionID: "ses_active",
+          delta: "active output",
+        },
+      };
+      yield {
+        type: "session.created",
+        properties: {
+          info: { id: "ses_created" },
+        },
+      };
+      yield {
+        type: "message.part.delta",
+        properties: {
+          sessionID: "ses_created",
+          delta: "created output",
+        },
+      };
+    })();
+
+    await (client as unknown as {
+      processEventStream: (
+        eventStream: AsyncGenerator<unknown, void, unknown>,
+        watchdogAbort: AbortController,
+      ) => Promise<void>;
+    }).processEventStream(stream, new AbortController());
+
+    unsubDelta();
+    unsubStart();
+
+    expect(deltas).toEqual(["active output", "created output"]);
+    expect(starts).toContain("ses_created");
+  });
+
+  test("processEventStream allows lifecycle events for inactive sessions", async () => {
+    const client = new OpenCodeClient();
+    const idles: string[] = [];
+    const deltas: string[] = [];
+
+    const unsubIdle = client.on("session.idle", (event) => {
+      idles.push(event.sessionId);
+    });
+    const unsubDelta = client.on("message.delta", (event) => {
+      const data = event.data as { delta?: string };
+      if (typeof data.delta === "string") {
+        deltas.push(data.delta);
+      }
+    });
+
+    const stream = (async function* (): AsyncGenerator<unknown, void, unknown> {
+      yield {
+        type: "session.status",
+        properties: {
+          sessionID: "ses_lifecycle_only",
+          status: "idle",
+        },
+      };
+      yield {
+        type: "message.part.delta",
+        properties: {
+          sessionID: "ses_filtered_only",
+          delta: "should be filtered",
+        },
+      };
+    })();
+
+    await (client as unknown as {
+      processEventStream: (
+        eventStream: AsyncGenerator<unknown, void, unknown>,
+        watchdogAbort: AbortController,
+      ) => Promise<void>;
+    }).processEventStream(stream, new AbortController());
+
+    unsubIdle();
+    unsubDelta();
+
+    expect(idles).toEqual(["ses_lifecycle_only"]);
+    expect(deltas).toEqual([]);
+  });
+
+  test("session.deleted unregisters active sessions for subsequent SSE filtering", async () => {
+    const client = new OpenCodeClient();
+    const deltas: string[] = [];
+
+    const unsubDelta = client.on("message.delta", (event) => {
+      const data = event.data as { delta?: string };
+      if (typeof data.delta === "string") {
+        deltas.push(data.delta);
+      }
+    });
+
+    (client as unknown as { registerActiveSession: (sessionId: string) => void })
+      .registerActiveSession("ses_deleted");
+
+    const stream = (async function* (): AsyncGenerator<unknown, void, unknown> {
+      yield {
+        type: "session.deleted",
+        properties: {
+          sessionID: "ses_deleted",
+        },
+      };
+      yield {
+        type: "message.part.delta",
+        properties: {
+          sessionID: "ses_deleted",
+          delta: "should be dropped",
+        },
+      };
+    })();
+
+    await (client as unknown as {
+      processEventStream: (
+        eventStream: AsyncGenerator<unknown, void, unknown>,
+        watchdogAbort: AbortController,
+      ) => Promise<void>;
+    }).processEventStream(stream, new AbortController());
+
+    unsubDelta();
+
+    expect(deltas).toEqual([]);
+  });
+
+  test("processEventStream emits diagnostics usage marker for filtered SSE events", async () => {
+    const client = new OpenCodeClient();
+    const usageMarkers: Array<Record<string, unknown>> = [];
+
+    const unsubUsage = client.on("usage", (event) => {
+      usageMarkers.push(event.data as Record<string, unknown>);
+    });
+
+    const stream = (async function* (): AsyncGenerator<unknown, void, unknown> {
+      yield {
+        type: "message.part.delta",
+        properties: {
+          sessionID: "ses_filtered_marker",
+          delta: "drop me",
+        },
+      };
+    })();
+
+    await (client as unknown as {
+      processEventStream: (
+        eventStream: AsyncGenerator<unknown, void, unknown>,
+        watchdogAbort: AbortController,
+      ) => Promise<void>;
+    }).processEventStream(stream, new AbortController());
+
+    unsubUsage();
+
+    expect(usageMarkers).toContainEqual({
+      provider: "opencode",
+      marker: "opencode.sse.diagnostics",
+      counter: "sse.event.filtered.count",
+      value: 1,
+    });
+  });
+
+  test("processEventStream emits diagnostics usage marker when watchdog abort stops stream", async () => {
+    const client = new OpenCodeClient();
+    const usageMarkers: Array<Record<string, unknown>> = [];
+
+    const unsubUsage = client.on("usage", (event) => {
+      usageMarkers.push(event.data as Record<string, unknown>);
+    });
+
+    const watchdogAbort = new AbortController();
+    watchdogAbort.abort();
+
+    const stream = (async function* (): AsyncGenerator<unknown, void, unknown> {
+      yield {
+        type: "session.created",
+        properties: {
+          info: { id: "ses_abort_marker" },
+        },
+      };
+    })();
+
+    await (client as unknown as {
+      processEventStream: (
+        eventStream: AsyncGenerator<unknown, void, unknown>,
+        watchdogAbort: AbortController,
+      ) => Promise<void>;
+    }).processEventStream(stream, watchdogAbort);
+
+    unsubUsage();
+
+    expect(usageMarkers).toContainEqual({
+      provider: "opencode",
+      marker: "opencode.sse.diagnostics",
+      counter: "sse.abort.watchdog.count",
+      value: 1,
+    });
+  });
+
+  test("processEventStream emits diagnostics usage marker when global abort stops stream", async () => {
+    const client = new OpenCodeClient();
+    const usageMarkers: Array<Record<string, unknown>> = [];
+    const globalAbort = new AbortController();
+    globalAbort.abort();
+
+    const unsubUsage = client.on("usage", (event) => {
+      usageMarkers.push(event.data as Record<string, unknown>);
+    });
+
+    (client as unknown as { eventSubscriptionController: AbortController | null })
+      .eventSubscriptionController = globalAbort;
+
+    const stream = (async function* (): AsyncGenerator<unknown, void, unknown> {
+      yield {
+        type: "session.created",
+        properties: {
+          info: { id: "ses_global_abort_marker" },
+        },
+      };
+    })();
+
+    await (client as unknown as {
+      processEventStream: (
+        eventStream: AsyncGenerator<unknown, void, unknown>,
+        watchdogAbort: AbortController,
+      ) => Promise<void>;
+    }).processEventStream(stream, new AbortController());
+
+    unsubUsage();
+
+    expect(usageMarkers).toContainEqual({
+      provider: "opencode",
+      marker: "opencode.sse.diagnostics",
+      counter: "sse.abort.global.count",
+      value: 1,
+    });
+  });
+
+  test("processEventStream emits watchdog-timeout diagnostics marker", async () => {
+    const client = new OpenCodeClient();
+    const usageMarkers: Array<Record<string, unknown>> = [];
+
+    const unsubUsage = client.on("usage", (event) => {
+      usageMarkers.push(event.data as Record<string, unknown>);
+    });
+
+    const originalSetTimeout = globalThis.setTimeout;
+    const originalClearTimeout = globalThis.clearTimeout;
+    const originalDateNow = Date.now;
+    let nowCall = 0;
+
+    (Date as unknown as { now: () => number }).now = () => {
+      nowCall += 1;
+      return nowCall <= 2 ? 0 : 15_001;
+    };
+    (globalThis as unknown as { setTimeout: (...args: unknown[]) => unknown }).setTimeout = (
+      callback: unknown,
+    ) => {
+      if (typeof callback === "function") {
+        (callback as () => void)();
+      }
+      return 1;
+    };
+    (globalThis as unknown as { clearTimeout: (...args: unknown[]) => void }).clearTimeout =
+      () => {};
+
+    try {
+      const stream = (async function* (): AsyncGenerator<unknown, void, unknown> {})();
+      await (client as unknown as {
+        processEventStream: (
+          eventStream: AsyncGenerator<unknown, void, unknown>,
+          watchdogAbort: AbortController,
+        ) => Promise<void>;
+      }).processEventStream(stream, new AbortController());
+    } finally {
+      (Date as unknown as { now: () => number }).now = originalDateNow;
+      (
+        globalThis as unknown as { setTimeout: (...args: unknown[]) => unknown }
+      ).setTimeout = originalSetTimeout as unknown as (...args: unknown[]) => unknown;
+      (
+        globalThis as unknown as { clearTimeout: (...args: unknown[]) => void }
+      ).clearTimeout = originalClearTimeout as unknown as (...args: unknown[]) => void;
+      unsubUsage();
+    }
+
+    expect(usageMarkers).toContainEqual({
+      provider: "opencode",
+      marker: "opencode.sse.diagnostics",
+      counter: "sse.watchdog.timeout.count",
+      value: 1,
+    });
+  });
+
+  test("summarize emits compaction start and context_compacted idle", async () => {
+    const client = new OpenCodeClient();
+    const compactions: Array<{ phase?: string; success?: boolean; error?: string }> = [];
+    const idles: string[] = [];
+    const sessionId = "ses_summarize_success";
+
+    (client as unknown as {
+      resolveModelContextWindow: (modelHint?: string) => Promise<number>;
+    }).resolveModelContextWindow = async () => 200_000;
+
+    (client as unknown as {
+      sdkClient: {
+        session: {
+          summarize: (params: Record<string, unknown>) => Promise<void>;
+          messages: (params: Record<string, unknown>) => Promise<{
+            data?: Array<{ info: { role: string } }>;
+          }>;
+        };
+      };
+    }).sdkClient = {
+      session: {
+        summarize: async () => {},
+        messages: async () => ({ data: [] }),
+      },
+    };
+
+    const unsubCompaction = client.on("session.compaction", (event) => {
+      const data = event.data as { phase?: string; success?: boolean; error?: string };
+      compactions.push({
+        phase: data.phase,
+        success: data.success,
+        error: data.error,
+      });
+    });
+    const unsubIdle = client.on("session.idle", (event) => {
+      const data = event.data as { reason?: string };
+      idles.push(data.reason ?? "");
+    });
+
+    const session = await (client as unknown as {
+      wrapSession: (sid: string, config: Record<string, unknown>) => Promise<{
+        summarize: () => Promise<void>;
+      }>;
+    }).wrapSession(sessionId, {});
+
+    await session.summarize();
+
+    unsubCompaction();
+    unsubIdle();
+
+    expect(compactions).toEqual([{ phase: "start", success: undefined, error: undefined }]);
+    expect(idles).toContain("context_compacted");
+  });
+
+  test("summarize emits truncation from pre/post compaction token deltas", async () => {
+    const client = new OpenCodeClient();
+    const truncations: Array<{ tokenLimit?: number; tokensRemoved?: number; messagesRemoved?: number }> = [];
+    const sessionId = "ses_summarize_truncation";
+
+    (client as unknown as {
+      resolveModelContextWindow: (modelHint?: string) => Promise<number>;
+    }).resolveModelContextWindow = async () => 200_000;
+
+    (client as unknown as {
+      sdkClient: {
+        session: {
+          prompt: (params: Record<string, unknown>) => Promise<{
+            data?: {
+              info?: { tokens?: { input?: number; output?: number } };
+              parts?: Array<Record<string, unknown>>;
+            };
+          }>;
+          summarize: (params: Record<string, unknown>) => Promise<void>;
+          messages: (params: Record<string, unknown>) => Promise<{
+            data?: Array<{ info: { role: string; tokens?: { input?: number; output?: number } } }>;
+          }>;
+        };
+      };
+    }).sdkClient = {
+      session: {
+        prompt: async () => ({
+          data: {
+            info: {
+              tokens: { input: 1_200, output: 300 },
+            },
+            parts: [{ type: "text", text: "seed" }],
+          },
+        }),
+        summarize: async () => {},
+        messages: async () => ({
+          data: [
+            {
+              info: {
+                role: "assistant",
+                tokens: { input: 400, output: 100 },
+              },
+            },
+          ],
+        }),
+      },
+    };
+
+    const unsubTruncation = client.on("session.truncation", (event) => {
+      const data = event.data as {
+        tokenLimit?: number;
+        tokensRemoved?: number;
+        messagesRemoved?: number;
+      };
+      truncations.push({
+        tokenLimit: data.tokenLimit,
+        tokensRemoved: data.tokensRemoved,
+        messagesRemoved: data.messagesRemoved,
+      });
+    });
+
+    const session = await (client as unknown as {
+      wrapSession: (sid: string, config: Record<string, unknown>) => Promise<{
+        send: (message: string) => Promise<{ type: string; content: unknown }>;
+        summarize: () => Promise<void>;
+      }>;
+    }).wrapSession(sessionId, {});
+
+    await session.send("seed usage state");
+    await session.summarize();
+
+    unsubTruncation();
+
+    expect(truncations).toEqual([
+      {
+        tokenLimit: 200_000,
+        tokensRemoved: 1_000,
+        messagesRemoved: 0,
+      },
+    ]);
+  });
+
+  test("summarize emits compaction failure and rethrows summarize errors", async () => {
+    const client = new OpenCodeClient();
+    const compactions: Array<{ phase?: string; success?: boolean; error?: string }> = [];
+    const idles: string[] = [];
+    const sessionId = "ses_summarize_failure";
+    const summarizeError = new Error("summarize failed");
+
+    (client as unknown as {
+      resolveModelContextWindow: (modelHint?: string) => Promise<number>;
+    }).resolveModelContextWindow = async () => 200_000;
+
+    (client as unknown as {
+      sdkClient: {
+        session: {
+          summarize: (params: Record<string, unknown>) => Promise<void>;
+          messages: (params: Record<string, unknown>) => Promise<{
+            data?: Array<{ info: { role: string } }>;
+          }>;
+        };
+      };
+    }).sdkClient = {
+      session: {
+        summarize: async () => {
+          throw summarizeError;
+        },
+        messages: async () => ({ data: [] }),
+      },
+    };
+
+    const unsubCompaction = client.on("session.compaction", (event) => {
+      const data = event.data as { phase?: string; success?: boolean; error?: string };
+      compactions.push({
+        phase: data.phase,
+        success: data.success,
+        error: data.error,
+      });
+    });
+    const unsubIdle = client.on("session.idle", (event) => {
+      const data = event.data as { reason?: string };
+      idles.push(data.reason ?? "");
+    });
+
+    const session = await (client as unknown as {
+      wrapSession: (sid: string, config: Record<string, unknown>) => Promise<{
+        summarize: () => Promise<void>;
+      }>;
+    }).wrapSession(sessionId, {});
+
+    await expect(session.summarize()).rejects.toThrow("summarize failed");
+
+    unsubCompaction();
+    unsubIdle();
+
+    expect(compactions).toEqual([
+      { phase: "start", success: undefined, error: undefined },
+      { phase: "complete", success: false, error: "summarize failed" },
+    ]);
+    expect(idles).toEqual([]);
+  });
+
+  test("dedupes duplicate compaction complete events after summarize recovery", async () => {
+    const client = new OpenCodeClient();
+    const sessionId = "ses_compaction_dedupe";
+    const compactionPhases: string[] = [];
+
+    (client as unknown as {
+      resolveModelContextWindow: (modelHint?: string) => Promise<number>;
+    }).resolveModelContextWindow = async () => 200_000;
+
+    (client as unknown as {
+      sdkClient: {
+        session: {
+          summarize: (params: Record<string, unknown>) => Promise<void>;
+          messages: (params: Record<string, unknown>) => Promise<{ data?: Array<{ info: { role: string } }> }>;
+        };
+      };
+    }).sdkClient = {
+      session: {
+        summarize: async () => {},
+        messages: async () => ({ data: [] }),
+      },
+    };
+
+    const unsubscribe = client.on("session.compaction", (event) => {
+      const data = event.data as { phase?: string };
+      compactionPhases.push(data.phase ?? "");
+    });
+
+    const session = await (client as unknown as {
+      wrapSession: (sid: string, config: Record<string, unknown>) => Promise<{
+        summarize: () => Promise<void>;
+      }>;
+    }).wrapSession(sessionId, {});
+
+    await session.summarize();
+
+    const handle = (client as unknown as {
+      handleSdkEvent: (event: Record<string, unknown>) => void;
+    }).handleSdkEvent.bind(client);
+    handle({
+      type: "session.compacted",
+      properties: { sessionID: sessionId },
+    });
+    handle({
+      type: "session.compacted",
+      properties: { sessionID: sessionId },
+    });
+
+    unsubscribe();
+
+    expect(compactionPhases.filter((phase) => phase === "complete")).toHaveLength(1);
+  });
+
+  test("does not leave pending compaction completion stale when compacted arrives before summarize resolves", async () => {
+    const client = new OpenCodeClient();
+    const sessionId = "ses_compaction_pending_race";
+    const compactionPhases: string[] = [];
+
+    (client as unknown as {
+      resolveModelContextWindow: (modelHint?: string) => Promise<number>;
+    }).resolveModelContextWindow = async () => 200_000;
+
+    const handle = (client as unknown as {
+      handleSdkEvent: (event: Record<string, unknown>) => void;
+    }).handleSdkEvent.bind(client);
+
+    let releaseSummarize!: () => void;
+    const summarizeGate = new Promise<void>((resolve) => {
+      releaseSummarize = resolve;
+    });
+
+    (client as unknown as {
+      sdkClient: {
+        session: {
+          summarize: (params: Record<string, unknown>) => Promise<void>;
+          messages: (params: Record<string, unknown>) => Promise<{ data?: Array<{ info: { role: string } }> }>;
+        };
+      };
+    }).sdkClient = {
+      session: {
+        summarize: async () => {
+          handle({
+            type: "session.compacted",
+            properties: { sessionID: sessionId },
+          });
+          await summarizeGate;
+        },
+        messages: async () => ({ data: [] }),
+      },
+    };
+
+    const unsubscribe = client.on("session.compaction", (event) => {
+      const data = event.data as { phase?: string };
+      compactionPhases.push(data.phase ?? "");
+    });
+
+    const session = await (client as unknown as {
+      wrapSession: (sid: string, config: Record<string, unknown>) => Promise<{
+        summarize: () => Promise<void>;
+      }>;
+    }).wrapSession(sessionId, {});
+
+    const summarizePromise = session.summarize();
+    releaseSummarize();
+    await summarizePromise;
+
+    handle({
+      type: "session.compacted",
+      properties: { sessionID: sessionId },
+    });
+
+    unsubscribe();
+
+    expect(compactionPhases.filter((phase) => phase === "complete")).toHaveLength(1);
+  });
+
+  test("emits compaction complete when no pending compaction recovery exists", async () => {
+    const client = new OpenCodeClient();
+    const sessionId = "ses_compaction_emit_without_pending";
+    const compactionPhases: string[] = [];
+
+    (client as unknown as {
+      resolveModelContextWindow: (modelHint?: string) => Promise<number>;
+    }).resolveModelContextWindow = async () => 200_000;
+
+    (client as unknown as {
+      sdkClient: {
+        session: {
+          summarize: (params: Record<string, unknown>) => Promise<void>;
+          messages: (params: Record<string, unknown>) => Promise<{ data?: Array<{ info: { role: string } }> }>;
+        };
+      };
+    }).sdkClient = {
+      session: {
+        summarize: async () => {},
+        messages: async () => ({ data: [] }),
+      },
+    };
+
+    const unsubscribe = client.on("session.compaction", (event) => {
+      const data = event.data as { phase?: string };
+      compactionPhases.push(data.phase ?? "");
+    });
+
+    await (client as unknown as {
+      wrapSession: (sid: string, config: Record<string, unknown>) => Promise<{
+        summarize: () => Promise<void>;
+      }>;
+    }).wrapSession(sessionId, {});
+
+    (client as unknown as {
+      handleSdkEvent: (event: Record<string, unknown>) => void;
+    }).handleSdkEvent({
+      type: "session.compacted",
+      properties: { sessionID: sessionId },
+    });
+
+    unsubscribe();
+
+    expect(compactionPhases.filter((phase) => phase === "complete")).toHaveLength(1);
   });
 
   test("stream resolves even when no terminal idle event arrives", async () => {
@@ -1659,5 +2422,590 @@ describe("OpenCodeClient event mapping", () => {
     };
 
     await expect(consumeStream()).rejects.toThrow("OpenCode quota exceeded");
+  });
+
+  test("stream proactively compacts when usage crosses threshold", async () => {
+    const client = new OpenCodeClient();
+    const sessionId = "ses_stream_proactive_threshold";
+
+    (client as unknown as {
+      resolveModelContextWindow: (modelHint?: string) => Promise<number>;
+    }).resolveModelContextWindow = async () => 100;
+
+    const handle = (event: Record<string, unknown>) =>
+      (client as unknown as { handleSdkEvent: (e: Record<string, unknown>) => void }).handleSdkEvent(event);
+
+    const promptCalls: string[] = [];
+    let summarizeCalls = 0;
+
+    (client as unknown as {
+      sdkClient: {
+        session: {
+          promptAsync: (params: Record<string, unknown>) => Promise<Record<string, unknown>>;
+          summarize: (params: Record<string, unknown>) => Promise<Record<string, never>>;
+          messages: (params: Record<string, unknown>) => Promise<{ data: unknown[] }>;
+        };
+      };
+    }).sdkClient = {
+      session: {
+        promptAsync: async (params) => {
+          const parts = ((params.parts as Array<{ type?: string; text?: string }> | undefined) ?? []);
+          const textPart = parts.find((part) => part.type === "text");
+          promptCalls.push(textPart?.text ?? "");
+
+          setTimeout(() => {
+            handle({
+              type: "message.updated",
+              properties: {
+                info: {
+                  role: "assistant",
+                  sessionID: sessionId,
+                  tokens: {
+                    input: 30,
+                    output: 20,
+                  },
+                },
+              },
+            });
+          }, 10);
+
+          setTimeout(() => {
+            handle({
+              type: "message.part.delta",
+              properties: {
+                sessionID: sessionId,
+                delta: "threshold output",
+              },
+            });
+          }, 20);
+
+          setTimeout(() => {
+            handle({
+              type: "session.status",
+              properties: {
+                sessionID: sessionId,
+                status: "idle",
+              },
+            });
+          }, 40);
+
+          return {};
+        },
+        summarize: async () => {
+          summarizeCalls += 1;
+          return {};
+        },
+        messages: async () => ({ data: [] }),
+      },
+    };
+
+    const session = await (client as unknown as {
+      wrapSession: (
+        sid: string,
+        config: Record<string, unknown>,
+      ) => Promise<{
+        stream: (message: string) => AsyncIterable<{ type: string; content: unknown }>;
+      }>;
+    }).wrapSession(sessionId, {});
+
+    const textChunks: string[] = [];
+    for await (const chunk of session.stream("trigger proactive threshold")) {
+      if (chunk.type === "text") {
+        textChunks.push(chunk.content as string);
+      }
+    }
+
+    expect(promptCalls).toEqual(["trigger proactive threshold"]);
+    expect(textChunks).toContain("threshold output");
+    expect(summarizeCalls).toBe(1);
+  });
+
+  test("stream does not proactively compact below threshold", async () => {
+    const client = new OpenCodeClient();
+    const sessionId = "ses_stream_proactive_below_threshold";
+
+    (client as unknown as {
+      resolveModelContextWindow: (modelHint?: string) => Promise<number>;
+    }).resolveModelContextWindow = async () => 100;
+
+    const handle = (event: Record<string, unknown>) =>
+      (client as unknown as { handleSdkEvent: (e: Record<string, unknown>) => void }).handleSdkEvent(event);
+
+    let summarizeCalls = 0;
+
+    (client as unknown as {
+      sdkClient: {
+        session: {
+          promptAsync: (params: Record<string, unknown>) => Promise<Record<string, unknown>>;
+          summarize: (params: Record<string, unknown>) => Promise<Record<string, never>>;
+          messages: (params: Record<string, unknown>) => Promise<{ data: unknown[] }>;
+        };
+      };
+    }).sdkClient = {
+      session: {
+        promptAsync: async () => {
+          setTimeout(() => {
+            handle({
+              type: "message.updated",
+              properties: {
+                info: {
+                  role: "assistant",
+                  sessionID: sessionId,
+                  tokens: {
+                    input: 20,
+                    output: 10,
+                  },
+                },
+              },
+            });
+          }, 10);
+
+          setTimeout(() => {
+            handle({
+              type: "session.status",
+              properties: {
+                sessionID: sessionId,
+                status: "idle",
+              },
+            });
+          }, 40);
+
+          return {};
+        },
+        summarize: async () => {
+          summarizeCalls += 1;
+          return {};
+        },
+        messages: async () => ({ data: [] }),
+      },
+    };
+
+    const session = await (client as unknown as {
+      wrapSession: (
+        sid: string,
+        config: Record<string, unknown>,
+      ) => Promise<{
+        stream: (message: string) => AsyncIterable<unknown>;
+      }>;
+    }).wrapSession(sessionId, {});
+
+    for await (const _chunk of session.stream("below threshold")) {
+      // no-op
+    }
+
+    expect(summarizeCalls).toBe(0);
+  });
+
+  test("stream auto-compacts on overflow and auto-continues", async () => {
+    const client = new OpenCodeClient();
+    const sessionId = "ses_stream_overflow_recovery";
+
+    (client as unknown as {
+      resolveModelContextWindow: (modelHint?: string) => Promise<number>;
+    }).resolveModelContextWindow = async () => 200_000;
+
+    const handle = (event: Record<string, unknown>) =>
+      (client as unknown as { handleSdkEvent: (e: Record<string, unknown>) => void }).handleSdkEvent(event);
+
+    const promptCalls: string[] = [];
+    let summarizeCalls = 0;
+
+    (client as unknown as {
+      sdkClient: {
+        session: {
+          promptAsync: (params: Record<string, unknown>) => Promise<Record<string, unknown>>;
+          summarize: (params: Record<string, unknown>) => Promise<Record<string, never>>;
+          messages: (params: Record<string, unknown>) => Promise<{ data: unknown[] }>;
+        };
+      };
+    }).sdkClient = {
+      session: {
+        promptAsync: async (params) => {
+          const parts = ((params.parts as Array<{ type?: string; text?: string }> | undefined) ?? []);
+          const textPart = parts.find((part) => part.type === "text");
+          promptCalls.push(textPart?.text ?? "");
+
+          if (promptCalls.length === 1) {
+            return {
+              error: {
+                message: "ContextOverflowError: Input exceeds context window of this model",
+              },
+            };
+          }
+
+          setTimeout(() => {
+            handle({
+              type: "message.part.delta",
+              properties: {
+                sessionID: sessionId,
+                delta: "continued output",
+              },
+            });
+          }, 20);
+
+          setTimeout(() => {
+            handle({
+              type: "session.status",
+              properties: {
+                sessionID: sessionId,
+                status: "idle",
+              },
+            });
+          }, 80);
+
+          return {};
+        },
+        summarize: async () => {
+          summarizeCalls += 1;
+          return {};
+        },
+        messages: async () => ({ data: [] }),
+      },
+    };
+
+    const session = await (client as unknown as {
+      wrapSession: (
+        sid: string,
+        config: Record<string, unknown>,
+      ) => Promise<{
+        stream: (message: string) => AsyncIterable<{ type: string; content: unknown }>;
+      }>;
+    }).wrapSession(sessionId, {});
+
+    const textChunks: string[] = [];
+    for await (const chunk of session.stream("trigger overflow")) {
+      if (chunk.type === "text") {
+        textChunks.push(chunk.content as string);
+      }
+    }
+
+    expect(summarizeCalls).toBe(1);
+    expect(promptCalls).toEqual(["trigger overflow", "Continue"]);
+    expect(textChunks).toContain("continued output");
+  });
+
+  test("stream overflow recovery emits compaction lifecycle in deterministic order", async () => {
+    const client = new OpenCodeClient();
+    const sessionId = "ses_stream_overflow_recovery_ordering";
+
+    (client as unknown as {
+      resolveModelContextWindow: (modelHint?: string) => Promise<number>;
+    }).resolveModelContextWindow = async () => 200_000;
+
+    const handle = (event: Record<string, unknown>) =>
+      (client as unknown as { handleSdkEvent: (e: Record<string, unknown>) => void }).handleSdkEvent(event);
+
+    const promptCalls: string[] = [];
+    const compactionPhases: string[] = [];
+    const idleReasons: string[] = [];
+    const lifecycle: string[] = [];
+    const truncationTokensRemoved: number[] = [];
+    let summarizeCalls = 0;
+
+    const unsubCompaction = client.on("session.compaction", (event) => {
+      const data = event.data as { phase?: string };
+      if (data.phase) {
+        compactionPhases.push(data.phase);
+        lifecycle.push(`compaction:${data.phase}`);
+      }
+    });
+
+    const unsubTruncation = client.on("session.truncation", (event) => {
+      const data = event.data as { tokensRemoved?: number };
+      truncationTokensRemoved.push(data.tokensRemoved ?? 0);
+      lifecycle.push("truncation");
+    });
+
+    const unsubIdle = client.on("session.idle", (event) => {
+      const data = event.data as { reason?: string };
+      const reason = data.reason ?? "";
+      idleReasons.push(reason);
+      lifecycle.push(`idle:${reason}`);
+    });
+
+    (client as unknown as {
+      sdkClient: {
+        session: {
+          promptAsync: (params: Record<string, unknown>) => Promise<Record<string, unknown>>;
+          summarize: (params: Record<string, unknown>) => Promise<Record<string, never>>;
+          messages: (params: Record<string, unknown>) => Promise<{
+            data?: Array<{ info: { role: string; tokens?: { input?: number; output?: number } } }>;
+          }>;
+        };
+      };
+    }).sdkClient = {
+      session: {
+        promptAsync: async (params) => {
+          const parts = ((params.parts as Array<{ type?: string; text?: string }> | undefined) ?? []);
+          const textPart = parts.find((part) => part.type === "text");
+          promptCalls.push(textPart?.text ?? "");
+
+          if (promptCalls.length === 1) {
+            handle({
+              type: "message.updated",
+              properties: {
+                info: {
+                  role: "assistant",
+                  sessionID: sessionId,
+                  tokens: {
+                    input: 1_200,
+                    output: 300,
+                  },
+                },
+              },
+            });
+            return {
+              error: {
+                message: "ContextOverflowError: Input exceeds context window of this model",
+              },
+            };
+          }
+
+          setTimeout(() => {
+            handle({
+              type: "message.part.delta",
+              properties: {
+                sessionID: sessionId,
+                delta: "continued output",
+              },
+            });
+          }, 10);
+
+          setTimeout(() => {
+            handle({
+              type: "session.status",
+              properties: {
+                sessionID: sessionId,
+                status: "idle",
+              },
+            });
+          }, 30);
+
+          return {};
+        },
+        summarize: async () => {
+          summarizeCalls += 1;
+          setTimeout(() => {
+            handle({
+              type: "session.compacted",
+              properties: { sessionID: sessionId },
+            });
+          }, 0);
+          setTimeout(() => {
+            handle({
+              type: "session.compacted",
+              properties: { sessionID: sessionId },
+            });
+          }, 1);
+          return {};
+        },
+        messages: async () => ({
+          data: [
+            {
+              info: {
+                role: "assistant",
+                tokens: { input: 400, output: 100 },
+              },
+            },
+          ],
+        }),
+      },
+    };
+
+    const session = await (client as unknown as {
+      wrapSession: (
+        sid: string,
+        config: Record<string, unknown>,
+      ) => Promise<{
+        stream: (message: string) => AsyncIterable<{ type: string; content: unknown }>;
+      }>;
+    }).wrapSession(sessionId, {});
+
+    const textChunks: string[] = [];
+    for await (const chunk of session.stream("trigger overflow")) {
+      if (chunk.type === "text") {
+        textChunks.push(chunk.content as string);
+        lifecycle.push("text");
+      }
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    unsubCompaction();
+    unsubTruncation();
+    unsubIdle();
+
+    expect(summarizeCalls).toBe(1);
+    expect(promptCalls).toEqual(["trigger overflow", "Continue"]);
+    expect(textChunks).toEqual(["continued output"]);
+    expect(compactionPhases).toEqual(["start", "complete"]);
+    expect(truncationTokensRemoved).toEqual([1_000]);
+    expect(idleReasons).toEqual(["context_compacted", "idle"]);
+
+    const startIdx = lifecycle.indexOf("compaction:start");
+    const truncationIdx = lifecycle.indexOf("truncation");
+    const completeIdx = lifecycle.indexOf("compaction:complete");
+    const textIdx = lifecycle.indexOf("text");
+    expect(startIdx).toBeGreaterThanOrEqual(0);
+    expect(truncationIdx).toBeGreaterThan(startIdx);
+    expect(completeIdx).toBeGreaterThan(truncationIdx);
+    expect(textIdx).toBeGreaterThan(completeIdx);
+  });
+
+  test("stream overflow recovery drops stale pre-compaction deltas", async () => {
+    const client = new OpenCodeClient();
+    const sessionId = "ses_stream_overflow_recovery_stale_delta";
+
+    (client as unknown as {
+      resolveModelContextWindow: (modelHint?: string) => Promise<number>;
+    }).resolveModelContextWindow = async () => 200_000;
+
+    const handle = (event: Record<string, unknown>) =>
+      (client as unknown as { handleSdkEvent: (e: Record<string, unknown>) => void }).handleSdkEvent(event);
+
+    const promptCalls: string[] = [];
+    let summarizeCalls = 0;
+
+    (client as unknown as {
+      sdkClient: {
+        session: {
+          promptAsync: (params: Record<string, unknown>) => Promise<Record<string, unknown>>;
+          summarize: (params: Record<string, unknown>) => Promise<Record<string, never>>;
+          messages: (params: Record<string, unknown>) => Promise<{ data: unknown[] }>;
+        };
+      };
+    }).sdkClient = {
+      session: {
+        promptAsync: async (params) => {
+          const parts = ((params.parts as Array<{ type?: string; text?: string }> | undefined) ?? []);
+          const textPart = parts.find((part) => part.type === "text");
+          promptCalls.push(textPart?.text ?? "");
+
+          if (promptCalls.length === 1) {
+            setTimeout(() => {
+              handle({
+                type: "message.part.delta",
+                properties: {
+                  sessionID: sessionId,
+                  delta: "stale pre-compaction output",
+                },
+              });
+            }, 5);
+            return {
+              error: {
+                message: "context_length_exceeded",
+              },
+            };
+          }
+
+          setTimeout(() => {
+            handle({
+              type: "message.part.delta",
+              properties: {
+                sessionID: sessionId,
+                delta: "continued output",
+              },
+            });
+          }, 5);
+
+          setTimeout(() => {
+            handle({
+              type: "session.status",
+              properties: {
+                sessionID: sessionId,
+                status: "idle",
+              },
+            });
+          }, 20);
+
+          return {};
+        },
+        summarize: async () => {
+          summarizeCalls += 1;
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          return {};
+        },
+        messages: async () => ({ data: [] }),
+      },
+    };
+
+    const session = await (client as unknown as {
+      wrapSession: (
+        sid: string,
+        config: Record<string, unknown>,
+      ) => Promise<{
+        stream: (message: string) => AsyncIterable<{ type: string; content: unknown }>;
+      }>;
+    }).wrapSession(sessionId, {});
+
+    const textChunks: string[] = [];
+    for await (const chunk of session.stream("trigger overflow")) {
+      if (chunk.type === "text") {
+        textChunks.push(chunk.content as string);
+      }
+    }
+
+    expect(summarizeCalls).toBe(1);
+    expect(promptCalls).toEqual(["trigger overflow", "Continue"]);
+    expect(textChunks).toEqual(["continued output"]);
+  });
+
+  test("stream surfaces overflow after auto-compaction retry budget is exhausted", async () => {
+    const client = new OpenCodeClient();
+    const sessionId = "ses_stream_overflow_retries_exhausted";
+
+    (client as unknown as {
+      resolveModelContextWindow: (modelHint?: string) => Promise<number>;
+    }).resolveModelContextWindow = async () => 200_000;
+
+    const promptCalls: string[] = [];
+    let summarizeCalls = 0;
+
+    (client as unknown as {
+      sdkClient: {
+        session: {
+          promptAsync: (params: Record<string, unknown>) => Promise<Record<string, unknown>>;
+          summarize: (params: Record<string, unknown>) => Promise<Record<string, never>>;
+          messages: (params: Record<string, unknown>) => Promise<{ data: unknown[] }>;
+        };
+      };
+    }).sdkClient = {
+      session: {
+        promptAsync: async (params) => {
+          const parts = ((params.parts as Array<{ type?: string; text?: string }> | undefined) ?? []);
+          const textPart = parts.find((part) => part.type === "text");
+          promptCalls.push(textPart?.text ?? "");
+
+          return {
+            error: {
+              message: "context_length_exceeded",
+            },
+          };
+        },
+        summarize: async () => {
+          summarizeCalls += 1;
+          return {};
+        },
+        messages: async () => ({ data: [] }),
+      },
+    };
+
+    const session = await (client as unknown as {
+      wrapSession: (
+        sid: string,
+        config: Record<string, unknown>,
+      ) => Promise<{
+        stream: (message: string) => AsyncIterable<unknown>;
+      }>;
+    }).wrapSession(sessionId, {});
+
+    const consumeStream = async (): Promise<void> => {
+      for await (const _chunk of session.stream("trigger overflow")) {
+        // stream should throw after a single auto-compaction attempt
+      }
+    };
+
+    await expect(consumeStream()).rejects.toThrow(/context_length_exceeded/i);
+    expect(summarizeCalls).toBe(1);
+    expect(promptCalls).toEqual(["trigger overflow", "Continue"]);
   });
 });

@@ -2,6 +2,15 @@ import { describe, expect, mock, test } from "bun:test";
 import { ClaudeAgentClient, OpenCodeClient, CopilotClient } from "./clients/index.ts";
 import { extractMessageContent } from "./clients/claude.ts";
 import type { EventType } from "./types.ts";
+import {
+  ADAPTER_EVENT_COVERAGE_POLICY,
+  ALL_SDK_EVENT_TYPES,
+  assertAdapterEventCoveragePolicyInvariant,
+} from "../events/adapters/event-coverage-policy.ts";
+import {
+  getRuntimeParityMetricsSnapshot,
+  resetRuntimeParityMetrics,
+} from "../workflows/runtime-parity-observability.ts";
 
 const PARITY_EVENTS: EventType[] = [
   "session.start",
@@ -295,5 +304,33 @@ describe("Unified provider event parity", () => {
     }
 
     expect(copilotSourceKeys).toEqual(["reasoning_123", "reasoning_123"]);
+  });
+
+  test("event coverage policy parity stays consistent across providers", () => {
+    resetRuntimeParityMetrics();
+    assertAdapterEventCoveragePolicyInvariant();
+
+    const metrics = getRuntimeParityMetricsSnapshot();
+    for (const provider of ["opencode", "claude", "copilot"] as const) {
+      expect(
+        metrics.counters[
+          `workflow.runtime.parity.event_coverage_validations_total{provider=${provider}}`
+        ],
+      ).toBe(1);
+      expect(
+        metrics.histograms[
+          `workflow.runtime.parity.event_coverage_mapped_events{provider=${provider}}`
+        ],
+      ).toEqual([ALL_SDK_EVENT_TYPES.length - 1]);
+      expect(
+        metrics.gauges[
+          `workflow.runtime.parity.event_coverage_noop_events{provider=${provider}}`
+        ],
+      ).toBe(1);
+    }
+
+    expect(ADAPTER_EVENT_COVERAGE_POLICY.copilot["message.complete"].canonicalEvents).toContain(
+      "stream.tool.start",
+    );
   });
 });

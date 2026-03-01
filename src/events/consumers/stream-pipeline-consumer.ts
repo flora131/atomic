@@ -191,9 +191,51 @@ export class StreamPipelineConsumer {
 
       case "workflow.task.update": {
         const data = event.data as BusEventDataMap["workflow.task.update"];
-        return [{
+        const mapped: StreamPartEvent[] = [{
           type: "task-list-update",
-          tasks: data.tasks,
+          tasks: data.tasks.map((task) => ({
+            id: task.id,
+            title: task.title,
+            status: task.status,
+            ...(task.blockedBy ? { blockedBy: task.blockedBy } : {}),
+          })),
+        }];
+
+        for (const task of data.tasks) {
+          if (!task.taskResult) {
+            continue;
+          }
+
+          mapped.push({
+            type: "task-result-upsert",
+            envelope: task.taskResult,
+          });
+        }
+
+        return mapped;
+      }
+
+      case "workflow.step.start": {
+        const data = event.data as BusEventDataMap["workflow.step.start"];
+        return [{
+          type: "workflow-step-start",
+          workflowId: data.workflowId,
+          nodeId: data.nodeId,
+          nodeName: data.nodeName,
+          startedAt: new Date(event.timestamp).toISOString(),
+        }];
+      }
+
+      case "workflow.step.complete": {
+        const data = event.data as BusEventDataMap["workflow.step.complete"];
+        return [{
+          type: "workflow-step-complete",
+          workflowId: data.workflowId,
+          nodeId: data.nodeId,
+          nodeName: data.nodeName,
+          status: data.status,
+          ...(data.result !== undefined ? { result: data.result } : {}),
+          completedAt: new Date(event.timestamp).toISOString(),
         }];
       }
 

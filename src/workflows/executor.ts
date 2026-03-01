@@ -143,6 +143,7 @@ export async function executeWorkflow(
         saveTasksToSession?: (tasks: NormalizedTodoItem[], sessionId: string) => Promise<void>;
         eventBus?: EventBus;
         featureFlags?: WorkflowRuntimeFeatureFlagOverrides;
+        abortSignal?: AbortSignal;
     },
 ): Promise<CommandResult> {
     // Phase 1: Session initialization
@@ -223,6 +224,7 @@ export async function executeWorkflow(
             options?.featureFlags,
         );
         const taskIdentity = new TaskIdentityService();
+        const workflowAbortSignal = options?.abortSignal ?? new AbortController().signal;
 
         const toRuntimeTask = (task: unknown): WorkflowRuntimeTask => {
             const normalized = toWorkflowRuntimeTask(task, () => crypto.randomUUID());
@@ -247,6 +249,7 @@ export async function executeWorkflow(
             ...compiled.config.runtime,
             featureFlags: runtimeFeatureFlags,
             spawnSubagent: async (agent, abortSignal) => {
+                const effectiveAbortSignal = agent.abortSignal ?? abortSignal ?? workflowAbortSignal;
                 // Publish agent start event if adapter is available
                 if (eventAdapter) {
                     eventAdapter.publishAgentStart(
@@ -257,7 +260,10 @@ export async function executeWorkflow(
                     );
                 }
 
-                const [result] = await spawnFn([{ ...agent, abortSignal }], abortSignal);
+                const [result] = await spawnFn(
+                    [{ ...agent, abortSignal: effectiveAbortSignal }],
+                    effectiveAbortSignal,
+                );
                 if (!result) throw new Error("Subagent spawn returned no results");
 
                 // Publish agent complete event if adapter is available
@@ -273,6 +279,7 @@ export async function executeWorkflow(
                 return result;
             },
             spawnSubagentParallel: async (agents, abortSignal) => {
+                const effectiveAbortSignal = abortSignal ?? workflowAbortSignal;
                 // Publish agent start events for all agents if adapter is available
                 if (eventAdapter) {
                     for (const agent of agents) {
@@ -285,7 +292,13 @@ export async function executeWorkflow(
                     }
                 }
 
-                const results = await spawnFn(agents, abortSignal);
+                const results = await spawnFn(
+                    agents.map((agent) => ({
+                        ...agent,
+                        abortSignal: agent.abortSignal ?? effectiveAbortSignal,
+                    })),
+                    effectiveAbortSignal,
+                );
 
                 // Publish agent complete events for all agents if adapter is available
                 if (eventAdapter) {
@@ -327,9 +340,23 @@ export async function executeWorkflow(
         // Phase 5: Stream graph execution with progress
         let sessionTracked = false;
         let lastNodeId: string | null = null;
+        let lastNodeCompletionStatus: "success" | "error" | "skipped" = "success";
         let lastStepStatus: string | null = null;
         let lastStepError: string | undefined;
         const nodeDescriptions = definition.nodeDescriptions;
+        const mapStepStatusToCompletionStatus = (
+            stepStatus: string,
+        ): "success" | "error" | "skipped" => {
+            switch (stepStatus) {
+                case "failed":
+                    return "error";
+                case "cancelled":
+                case "paused":
+                    return "skipped";
+                default:
+                    return "success";
+            }
+        };
 
         // Debounced saveTasksToSession to avoid I/O contention during rapid updates
         let saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -438,7 +465,9 @@ export async function executeWorkflow(
             });
         }
 
-        for await (const step of streamGraph(compiled, { initialState })) {
+        for await (const step of streamGraph(compiled, { initialState, abortSignal: workflowAbortSignal })) {
+            const currentCompletionStatus = mapStepStatusToCompletionStatus(step.status);
+
             // Track step status for failure detection
             lastStepStatus = step.status;
             lastStepError = step.error?.error instanceof Error ? step.error.error.message : step.error?.error;
@@ -453,6 +482,7 @@ export async function executeWorkflow(
                         sessionId,
                         nodeDescriptions?.[lastNodeId] ?? lastNodeId,
                         lastNodeId,
+                        lastNodeCompletionStatus,
                     );
                 }
                 
@@ -467,6 +497,8 @@ export async function executeWorkflow(
                 
                 lastNodeId = step.nodeId;
             }
+
+            lastNodeCompletionStatus = currentCompletionStatus;
 
             // Sync task list to UI and session
             const state = step.state as BaseState & {
@@ -541,6 +573,7 @@ export async function executeWorkflow(
                 sessionId,
                 nodeDescriptions?.[lastNodeId] ?? lastNodeId,
                 lastNodeId,
+                lastNodeCompletionStatus,
             );
         }
 

@@ -232,6 +232,140 @@ describe("OpenCodeStreamAdapter", () => {
     expect(toolCompleteEvents[0].runId).toBe(42);
   });
 
+  test("publishes session truncation and compaction events from SDK client", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 42,
+      messageId: "msg-1",
+    });
+
+    client.emit("session.truncation" as EventType, {
+      type: "session.truncation",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: { tokenLimit: 1000, tokensRemoved: 250, messagesRemoved: 3 },
+    } as AgentEvent<"session.truncation">);
+
+    client.emit("session.compaction" as EventType, {
+      type: "session.compaction",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: { phase: "complete", success: false, error: "summarize failed" },
+    } as AgentEvent<"session.compaction">);
+
+    await streamPromise;
+
+    const truncationEvent = events.find(
+      (event) => event.type === "stream.session.truncation",
+    );
+    expect(truncationEvent).toBeDefined();
+    expect(truncationEvent?.runId).toBe(42);
+    expect(truncationEvent?.data).toEqual({
+      tokenLimit: 1000,
+      tokensRemoved: 250,
+      messagesRemoved: 3,
+    });
+
+    const compactionEvent = events.find(
+      (event) => event.type === "stream.session.compaction",
+    );
+    expect(compactionEvent).toBeDefined();
+    expect(compactionEvent?.runId).toBe(42);
+    expect(compactionEvent?.data).toEqual({
+      phase: "complete",
+      success: false,
+      error: "summarize failed",
+    });
+  });
+
+  test("resolves sendAsync completionPromise immediately on external abort", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+    const session = createMockSession(mockAsyncStream([]), client) as Session & {
+      sendAsync: ReturnType<typeof mock>;
+    };
+    session.sendAsync = mock(async () => {});
+
+    const externalAbort = new AbortController();
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 42,
+      messageId: "msg-1",
+      abortSignal: externalAbort.signal,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    externalAbort.abort();
+
+    const completion = await Promise.race([
+      streamPromise.then(() => "resolved"),
+      new Promise<string>((resolve) => setTimeout(() => resolve("timed-out"), 50)),
+    ]);
+
+    expect(completion).toBe("resolved");
+
+    const idleEvents = events.filter((e) => e.type === "stream.session.idle");
+    expect(idleEvents.length).toBe(1);
+    expect(idleEvents[0].data.reason).toBe("aborted");
+  });
+
+  test("passes abortSignal to sendAsync and exits stalled dispatch on external abort", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+    const session = createMockSession(mockAsyncStream([]), client) as Session & {
+      sendAsync: ReturnType<typeof mock>;
+    };
+    session.sendAsync = mock(
+      async (
+        _message: string,
+        options?: { agent?: string; abortSignal?: AbortSignal },
+      ) => {
+        await new Promise<void>((_resolve, reject) => {
+          if (options?.abortSignal?.aborted) {
+            reject(new DOMException("Aborted", "AbortError"));
+            return;
+          }
+          options?.abortSignal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        });
+      },
+    );
+
+    const externalAbort = new AbortController();
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 42,
+      messageId: "msg-1",
+      abortSignal: externalAbort.signal,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    externalAbort.abort();
+
+    const completion = await Promise.race([
+      streamPromise.then(() => "resolved"),
+      new Promise<string>((resolve) => setTimeout(() => resolve("timed-out"), 100)),
+    ]);
+
+    expect(completion).toBe("resolved");
+    expect(session.sendAsync).toHaveBeenCalledTimes(1);
+    expect(session.sendAsync.mock.calls[0][1]?.abortSignal).toBeDefined();
+
+    const idleEvents = events.filter((e) => e.type === "stream.session.idle");
+    expect(idleEvents.length).toBe(1);
+    expect(idleEvents[0].data.reason).toBe("aborted");
+
+    const errorEvents = events.filter((e) => e.type === "stream.session.error");
+    expect(errorEvents.length).toBe(0);
+  });
+
   test("publishes session error on stream error", async () => {
     const events = collectEvents(bus);
 
@@ -406,6 +540,125 @@ describe("OpenCodeStreamAdapter", () => {
     // Text complete event should still contain the full text
     const completeEvent = events.find((e) => e.type === "stream.text.complete");
     expect(completeEvent?.data.fullText).toBe("Hello world");
+  });
+
+  test("strict runtime contract normalizes OpenCode subagent task metadata", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 42,
+      messageId: "msg-1",
+      runtimeFeatureFlags: {
+        strictTaskContract: true,
+      },
+    });
+
+    client.emit("subagent.start" as EventType, {
+      type: "subagent.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        subagentId: "agent-oc-1",
+        subagentType: "explore",
+        task: "   ",
+        toolInput: {
+          description: "Inspect auth paths",
+          mode: "background",
+        },
+      },
+    } as AgentEvent<"subagent.start">);
+
+    await streamPromise;
+
+    const agentStartEvents = events.filter((e) => e.type === "stream.agent.start");
+    expect(agentStartEvents.length).toBe(1);
+    expect(agentStartEvents[0].data.task).toBe("Inspect auth paths");
+    expect(agentStartEvents[0].data.isBackground).toBe(true);
+  });
+
+  test("strict runtime contract keeps synthetic turn id stable in OpenCode", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 42,
+      messageId: "msg-1",
+      runtimeFeatureFlags: {
+        strictTaskContract: true,
+      },
+    });
+
+    client.emit("turn.start" as EventType, {
+      type: "turn.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {},
+    } as AgentEvent<"turn.start">);
+
+    client.emit("turn.end" as EventType, {
+      type: "turn.end",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: { stop_reason: "tool_use" },
+    } as AgentEvent<"turn.end">);
+
+    await streamPromise;
+
+    const turnStartEvents = events.filter((e) => e.type === "stream.turn.start");
+    const turnEndEvents = events.filter((e) => e.type === "stream.turn.end");
+    expect(turnStartEvents.length).toBe(1);
+    expect(turnEndEvents.length).toBe(1);
+    expect(turnStartEvents[0].data.turnId).toMatch(/^turn_/);
+    expect(turnEndEvents[0].data.turnId).toBe(turnStartEvents[0].data.turnId);
+    expect(turnEndEvents[0].data.finishReason).toBe("tool-calls");
+    expect(turnEndEvents[0].data.rawFinishReason).toBe("tool_use");
+  });
+
+  test("maps reasoning events from SDK client to thinking events", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const stream = mockAsyncStream([{ type: "text", content: "done" }]);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 42,
+      messageId: "msg-1",
+    });
+
+    client.emit("reasoning.delta" as EventType, {
+      type: "reasoning.delta",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        reasoningId: "reasoning-1",
+        delta: "thinking...",
+      },
+    } as AgentEvent<"reasoning.delta">);
+
+    client.emit("reasoning.complete" as EventType, {
+      type: "reasoning.complete",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        reasoningId: "reasoning-1",
+        content: "done",
+      },
+    } as AgentEvent<"reasoning.complete">);
+
+    await streamPromise;
+
+    expect(events.some((e) => e.type === "stream.thinking.delta" && e.data.sourceKey === "reasoning-1")).toBe(true);
+    expect(events.some((e) => e.type === "stream.thinking.complete" && e.data.sourceKey === "reasoning-1")).toBe(true);
   });
 });
 
@@ -949,6 +1202,163 @@ describe("ClaudeStreamAdapter", () => {
     expect(agentCompleteEvents[0].data.result).toBe("Found 3 files");
     expect(agentCompleteEvents[0].runId).toBe(100);
   });
+
+  test("strict runtime contract normalizes Claude subagent task metadata", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test", {
+      runId: 100,
+      messageId: "msg-2",
+      runtimeFeatureFlags: {
+        strictTaskContract: true,
+      },
+    });
+
+    client.emit("subagent.start" as EventType, {
+      type: "subagent.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        subagentId: "agent-cl-1",
+        subagentType: "research",
+        task: "   ",
+        toolInput: {
+          prompt: "Review deploy logs",
+          run_in_background: true,
+        },
+      },
+    } as AgentEvent<"subagent.start">);
+
+    await streamPromise;
+
+    const agentStartEvents = events.filter((e) => e.type === "stream.agent.start");
+    expect(agentStartEvents.length).toBe(1);
+    expect(agentStartEvents[0].data.task).toBe("Review deploy logs");
+    expect(agentStartEvents[0].data.isBackground).toBe(true);
+  });
+
+  test("maps extended Claude client events to canonical stream events", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const session = createMockSession(mockAsyncStream([{ type: "text", content: "done" }]), client);
+    const streamPromise = adapter.startStreaming(session, "test", {
+      runId: 100,
+      messageId: "msg-2",
+      runtimeFeatureFlags: { strictTaskContract: true },
+    });
+
+    client.emit("reasoning.delta" as EventType, {
+      type: "reasoning.delta",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: { reasoningId: "r-1", delta: "trace" },
+    } as AgentEvent<"reasoning.delta">);
+
+    client.emit("reasoning.complete" as EventType, {
+      type: "reasoning.complete",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: { reasoningId: "r-1", content: "trace complete" },
+    } as AgentEvent<"reasoning.complete">);
+
+    client.emit("turn.start" as EventType, {
+      type: "turn.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {},
+    } as AgentEvent<"turn.start">);
+
+    client.emit("turn.end" as EventType, {
+      type: "turn.end",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: { finish_reason: "end_turn" },
+    } as AgentEvent<"turn.end">);
+
+    client.emit("tool.partial_result" as EventType, {
+      type: "tool.partial_result",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: { toolCallId: "tool-1", partialOutput: "half" },
+    } as AgentEvent<"tool.partial_result">);
+
+    client.emit("session.info" as EventType, {
+      type: "session.info",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: { infoType: "general", message: "hello" },
+    } as AgentEvent<"session.info">);
+
+    client.emit("session.warning" as EventType, {
+      type: "session.warning",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: { warningType: "general", message: "careful" },
+    } as AgentEvent<"session.warning">);
+
+    client.emit("session.title_changed" as EventType, {
+      type: "session.title_changed",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: { title: "new title" },
+    } as AgentEvent<"session.title_changed">);
+
+    client.emit("session.truncation" as EventType, {
+      type: "session.truncation",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: { tokenLimit: 1000, tokensRemoved: 50, messagesRemoved: 1 },
+    } as AgentEvent<"session.truncation">);
+
+    client.emit("session.compaction" as EventType, {
+      type: "session.compaction",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: { phase: "start" },
+    } as AgentEvent<"session.compaction">);
+
+    client.emit("skill.invoked" as EventType, {
+      type: "skill.invoked",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: { skillName: "frontend-design", skillPath: "skills/front.md" },
+    } as AgentEvent<"skill.invoked">);
+
+    client.emit("human_input_required" as EventType, {
+      type: "human_input_required",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        requestId: "req-1",
+        question: "Proceed?",
+        nodeId: "n1",
+      },
+    } as AgentEvent<"human_input_required">);
+
+    await streamPromise;
+
+    expect(events.some((e) => e.type === "stream.thinking.delta" && e.data.sourceKey === "r-1")).toBe(true);
+    expect(events.some((e) => e.type === "stream.thinking.complete" && e.data.sourceKey === "r-1")).toBe(true);
+    expect(events.some((e) => e.type === "stream.turn.start")).toBe(true);
+    expect(events.some((e) => e.type === "stream.turn.end")).toBe(true);
+    const turnEnd = events.find((e) => e.type === "stream.turn.end");
+    expect(turnEnd?.data.finishReason).toBe("stop");
+    expect(turnEnd?.data.rawFinishReason).toBe("end_turn");
+    expect(events.some((e) => e.type === "stream.tool.partial_result")).toBe(true);
+    expect(events.some((e) => e.type === "stream.session.info")).toBe(true);
+    expect(events.some((e) => e.type === "stream.session.warning")).toBe(true);
+    expect(events.some((e) => e.type === "stream.session.title_changed")).toBe(true);
+    expect(events.some((e) => e.type === "stream.session.truncation")).toBe(true);
+    expect(events.some((e) => e.type === "stream.session.compaction")).toBe(true);
+    expect(events.some((e) => e.type === "stream.skill.invoked")).toBe(true);
+    expect(events.some((e) => e.type === "stream.human_input_required")).toBe(true);
+  });
 });
 
 // ============================================================================
@@ -1308,6 +1718,82 @@ describe("CopilotStreamAdapter", () => {
       (e) => e.type === "stream.text.complete",
     );
     expect(completeEvents.length).toBe(1);
+  });
+
+  test("strict runtime contract keeps synthetic turn id stable in Copilot", async () => {
+    const events = collectEvents(bus);
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream);
+
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 200,
+      messageId: "msg-turn-strict",
+      runtimeFeatureFlags: {
+        strictTaskContract: true,
+      },
+    });
+
+    client.emit("turn.start" as EventType, {
+      type: "turn.start",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {},
+    } as AgentEvent<"turn.start">);
+
+    client.emit("turn.end" as EventType, {
+      type: "turn.end",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: { finishReason: "length" },
+    } as AgentEvent<"turn.end">);
+
+    await streamPromise;
+
+    const turnStartEvents = events.filter((e) => e.type === "stream.turn.start");
+    const turnEndEvents = events.filter((e) => e.type === "stream.turn.end");
+    expect(turnStartEvents.length).toBe(1);
+    expect(turnEndEvents.length).toBe(1);
+    expect(turnStartEvents[0].data.turnId).toMatch(/^turn_/);
+    expect(turnEndEvents[0].data.turnId).toBe(turnStartEvents[0].data.turnId);
+    expect(turnEndEvents[0].data.finishReason).toBe("max-tokens");
+    expect(turnEndEvents[0].data.rawFinishReason).toBe("length");
+  });
+
+  test("strict runtime contract falls back subagent task to agent type in Copilot", async () => {
+    const events = collectEvents(bus);
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream);
+
+    const streamPromise = adapter.startStreaming(session, "test", {
+      runId: 200,
+      messageId: "msg-task-strict",
+      runtimeFeatureFlags: {
+        strictTaskContract: true,
+      },
+    });
+
+    client.emit("subagent.start" as EventType, {
+      type: "subagent.start",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        subagentId: "sub-strict-1",
+        subagentType: "general-purpose",
+        task: "   ",
+        toolCallId: "strict-task-1",
+      },
+    } as AgentEvent<"subagent.start">);
+
+    await streamPromise;
+
+    const agentStartEvents = events.filter((e) => e.type === "stream.agent.start");
+    expect(agentStartEvents.length).toBe(1);
+    expect(agentStartEvents[0].data.task).toBe("general-purpose");
+    expect(agentStartEvents[0].data.isBackground).toBe(false);
   });
 
   test("publishes thinking delta events from message.delta with thinking content", async () => {
@@ -1988,6 +2474,64 @@ describe("CopilotStreamAdapter", () => {
     const textCompletes = events.filter((e) => e.type === "stream.text.complete");
     expect(textCompletes.length).toBe(0);
   });
+
+  test("maps subagent.update events and sub-agent message deltas", async () => {
+    const events = collectEvents(bus);
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream);
+
+    const streamPromise = adapter.startStreaming(session, "test", {
+      runId: 510,
+      messageId: "msg-subagent-delta",
+      knownAgentNames: ["codebase-analyzer"],
+    });
+
+    client.emit("subagent.start" as EventType, {
+      type: "subagent.start",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        subagentId: "agent-sub-1",
+        subagentType: "codebase-analyzer",
+        toolCallId: "tool-call-agent-1",
+      },
+    } as AgentEvent<"subagent.start">);
+
+    client.emit("subagent.update" as EventType, {
+      type: "subagent.update",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        subagentId: "agent-sub-1",
+        currentTool: "grep",
+        toolUses: 2,
+      },
+    } as AgentEvent<"subagent.update">);
+
+    client.emit("message.delta" as EventType, {
+      type: "message.delta",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        delta: "child chunk",
+        contentType: "text",
+        parentToolCallId: "tool-call-agent-1",
+      },
+    } as AgentEvent<"message.delta">);
+
+    await streamPromise;
+
+    expect(events.some((e) => e.type === "stream.agent.update" && e.data.agentId === "agent-sub-1")).toBe(true);
+    expect(
+      events.some(
+        (e) => e.type === "stream.text.delta"
+          && e.data.delta === "child chunk"
+          && e.data.agentId === "agent-sub-1",
+      ),
+    ).toBe(true);
+  });
 });
 
 // ============================================================================
@@ -2026,6 +2570,7 @@ describe("WorkflowEventAdapter", () => {
     expect(events[0].type).toBe("workflow.step.complete");
     expect(events[0].data.workflowId).toBe("wf-001");
     expect(events[0].data.nodeId).toBe("node-1");
+    expect(events[0].data.nodeName).toBe("analyze-code");
     expect(events[0].data.status).toBe("success");
     expect(events[0].data.result).toEqual({ output: "done" });
     expect(events[0].runId).toBe(1);
@@ -2036,6 +2581,7 @@ describe("WorkflowEventAdapter", () => {
 
     adapter.publishStepComplete("wf-001", "step", "node-1");
 
+    expect(events[0].data.nodeName).toBe("step");
     expect(events[0].data.status).toBe("success");
   });
 

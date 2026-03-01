@@ -53,6 +53,7 @@ import {
   type SessionConfig,
   type AgentMessage,
   type ContextUsage,
+  type SessionCompactionState,
   type McpRuntimeSnapshot,
   type EventType,
   type EventHandler,
@@ -67,6 +68,7 @@ import {
   startToolDispatchServer,
   stopToolDispatchServer,
 } from "../tools/opencode-mcp-bridge.ts";
+import { BACKGROUND_COMPACTION_THRESHOLD } from "../../workflows/graph/types.ts";
 
 // Import the real SDK
 import {
@@ -114,6 +116,27 @@ const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_RETRY_DELAY = 1000;
 const PRE_PROMPT_TERMINAL_SETTLE_MS = 500;
 const STREAM_POLL_MS = 25;
+export const AUTO_COMPACTION_THRESHOLD = BACKGROUND_COMPACTION_THRESHOLD;
+export const MAX_AUTO_COMPACTION_RETRIES = 0;
+const COMPACTION_COMPLETE_DEDUPE_WINDOW_MS = 1000;
+const SESSION_LIFECYCLE_EVENT_TYPES = new Set<string>([
+  "session.created",
+  "session.updated",
+  "session.status",
+  "session.idle",
+  "session.error",
+  "session.deleted",
+]);
+const OPENCODE_SSE_DIAGNOSTICS_MARKER = "opencode.sse.diagnostics";
+
+type OpenCodeSseDiagnosticsCounter =
+  | "sse.watchdog.timeout.count"
+  | "sse.event.filtered.count"
+  | "sse.abort.watchdog.count"
+  | "sse.abort.global.count"
+  | "sse.abort.unknown.count";
+
+type OpenCodeSseAbortReason = "watchdog" | "global" | "unknown";
 
 type OpenCodeSessionStatus = "idle" | "busy" | "retry";
 
@@ -125,6 +148,23 @@ interface OpenCodeSubagentSessionState {
   queuedTaskToolPartIds: Set<string>;
   synthesizedTaskAgentIds: Set<string>;
   synthesizedTaskAgentTypes: Map<string, string>;
+}
+
+interface OpenCodeSessionCompactionState {
+  isCompacting: boolean;
+  hasAutoCompacted: boolean;
+  pendingCompactionComplete: boolean;
+  lastCompactionCompleteAt: number | null;
+  autoCompactionRetryCount: number;
+}
+
+interface OpenCodeSessionState {
+  inputTokens: number;
+  outputTokens: number;
+  isClosed: boolean;
+  contextWindow: number | null;
+  systemToolsBaseline: number | null;
+  compaction: OpenCodeSessionCompactionState;
 }
 
 function parseOpenCodeSessionStatus(status: unknown): OpenCodeSessionStatus | undefined {
@@ -163,6 +203,31 @@ function asNonEmptyErrorString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0
     ? value
     : undefined;
+}
+
+const CONTEXT_OVERFLOW_PATTERNS = [
+  "contextoverflowerror",
+  "context_length_exceeded",
+  "context length exceeded",
+  "context window",
+  "maximum context length",
+  "input is too long",
+  "input exceeds context window",
+  "exceeds the model's maximum context",
+  "token limit",
+  "too many tokens",
+  "request too large",
+  "prompt is too long",
+];
+
+export function isContextOverflowError(error: Error | string): boolean {
+  const message = typeof error === "string" ? error : error.message;
+  const normalizedMessage = message.trim().toLowerCase();
+  if (!normalizedMessage) {
+    return false;
+  }
+
+  return CONTEXT_OVERFLOW_PATTERNS.some((pattern) => normalizedMessage.includes(pattern));
 }
 
 function extractOpenCodeErrorMessage(error: unknown, fallback = "Unknown error"): string {
@@ -458,6 +523,7 @@ export class OpenCodeClient implements CodingAgentClient {
   private eventHandlers: Map<EventType, Set<EventHandler<EventType>>> =
     new Map();
   private activeSessions: Set<string> = new Set();
+  private sessionStateById = new Map<string, OpenCodeSessionState>();
   private registeredTools: Map<string, ToolDefinition> = new Map();
   private isRunning = false;
   private isConnected = false;
@@ -466,6 +532,13 @@ export class OpenCodeClient implements CodingAgentClient {
   private serverCloseCallback: (() => void) | null = null;
   private isServerSpawned = false;
   private dispatchServerStop: (() => void) | null = null;
+  private readonly sseDiagnosticsCounters: Record<OpenCodeSseDiagnosticsCounter, number> = {
+    "sse.watchdog.timeout.count": 0,
+    "sse.event.filtered.count": 0,
+    "sse.abort.watchdog.count": 0,
+    "sse.abort.global.count": 0,
+    "sse.abort.unknown.count": 0,
+  };
 
   /** Mutable model preference updated by /model command at runtime */
   private activePromptModel: { providerID: string; modelID: string } | undefined;
@@ -629,6 +702,7 @@ export class OpenCodeClient implements CodingAgentClient {
       }
     }
     this.activeSessions.clear();
+    this.sessionStateById.clear();
 
     this.isConnected = false;
     this.sdkClient = null;
@@ -709,16 +783,29 @@ export class OpenCodeClient implements CodingAgentClient {
 
     while (!this.eventSubscriptionController?.signal.aborted && this.isRunning) {
       try {
-        const result = await this.sdkClient!.event.subscribe({
-          directory: this.clientOptions.directory,
-        });
+        const watchdogAbort = new AbortController();
+        const globalAbortSignal = this.eventSubscriptionController?.signal;
+        if (!globalAbortSignal) break;
+        const composedAbortSignal = AbortSignal.any([
+          globalAbortSignal,
+          watchdogAbort.signal,
+        ]);
+
+        const result = await this.sdkClient!.event.subscribe(
+          {
+            directory: this.clientOptions.directory,
+          },
+          {
+            signal: composedAbortSignal,
+          },
+        );
 
         // On reconnection, reconcile state to recover any events missed during the gap
         if (isReconnect) {
           await this.reconcileStateOnReconnect();
         }
 
-        await this.processEventStream(result.stream);
+        await this.processEventStream(result.stream, watchdogAbort);
 
         // Generator ended normally — if not aborted, reconnect
         if (this.eventSubscriptionController?.signal.aborted) break;
@@ -749,6 +836,7 @@ export class OpenCodeClient implements CodingAgentClient {
     try {
       const sessions = await this.listSessions();
       for (const session of sessions) {
+        this.registerActiveSession(session.id);
         this.emitEvent("session.start", session.id, {
           title: session.title ?? "Reconnected session",
         });
@@ -766,14 +854,14 @@ export class OpenCodeClient implements CodingAgentClient {
    * connections proactively — the server sends heartbeats every ~10s.
    */
   private async processEventStream(
-    eventStream: AsyncGenerator<unknown, unknown, unknown>
+    eventStream: AsyncGenerator<unknown, unknown, unknown>,
+    watchdogAbort: AbortController,
   ): Promise<void> {
     const HEARTBEAT_TIMEOUT_MS = 15_000;
     let lastEventAt = Date.now();
     let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
-
-    // Create a local abort controller for the watchdog to signal
-    const watchdogAbort = new AbortController();
+    let filteredEventCount = 0;
+    let abortDiagnosticsEmitted = false;
 
     const resetWatchdog = () => {
       lastEventAt = Date.now();
@@ -781,7 +869,15 @@ export class OpenCodeClient implements CodingAgentClient {
       watchdogTimer = setTimeout(() => {
         const elapsed = Date.now() - lastEventAt;
         if (elapsed >= HEARTBEAT_TIMEOUT_MS) {
-          console.warn(`SSE heartbeat timeout: no events for ${elapsed}ms, forcing reconnect`);
+          const timeoutCount = this.emitSseDiagnosticsCounter("sse.watchdog.timeout.count");
+          console.warn(
+            `SSE heartbeat timeout: no events for ${elapsed}ms, forcing reconnect (timeoutCount=${timeoutCount})`,
+          );
+          debugLog("sse-watchdog-timeout", {
+            elapsed,
+            timeoutCount,
+            activeSessions: this.activeSessions.size,
+          });
           watchdogAbort.abort();
         }
       }, HEARTBEAT_TIMEOUT_MS);
@@ -792,18 +888,146 @@ export class OpenCodeClient implements CodingAgentClient {
     try {
       for await (const event of eventStream) {
         if (this.eventSubscriptionController?.signal.aborted || watchdogAbort.signal.aborted) {
+          const abortReason: OpenCodeSseAbortReason = watchdogAbort.signal.aborted
+            ? "watchdog"
+            : this.eventSubscriptionController?.signal.aborted
+              ? "global"
+              : "unknown";
+          const abortCount = this.emitSseAbortDiagnostics(abortReason);
+          abortDiagnosticsEmitted = true;
+          debugLog("sse-abort", {
+            reason: abortReason,
+            abortCount,
+            activeSessions: this.activeSessions.size,
+          });
           break;
         }
         resetWatchdog();
-        this.handleSdkEvent(event as Record<string, unknown>);
+        const sdkEvent = event as Record<string, unknown>;
+        if (!this.shouldProcessSseEvent(sdkEvent)) {
+          filteredEventCount += 1;
+          continue;
+        }
+        this.handleSdkEvent(sdkEvent);
       }
     } catch (error) {
       if ((error as Error)?.name !== "AbortError") {
         throw error;
       }
+      if (!abortDiagnosticsEmitted) {
+        const abortReason: OpenCodeSseAbortReason = watchdogAbort.signal.aborted
+          ? "watchdog"
+          : this.eventSubscriptionController?.signal.aborted
+            ? "global"
+            : "unknown";
+        const abortCount = this.emitSseAbortDiagnostics(abortReason);
+        debugLog("sse-abort", {
+          reason: abortReason,
+          abortCount,
+          activeSessions: this.activeSessions.size,
+        });
+      }
     } finally {
       if (watchdogTimer) clearTimeout(watchdogTimer);
+      if (filteredEventCount > 0) {
+        const totalFilteredCount = this.emitSseDiagnosticsCounter(
+          "sse.event.filtered.count",
+          filteredEventCount,
+        );
+        debugLog("sse-event-filter", {
+          filteredEventCount,
+          totalFilteredCount,
+          activeSessions: this.activeSessions.size,
+        });
+      }
     }
+  }
+
+  private emitSseDiagnosticsCounter(
+    counter: OpenCodeSseDiagnosticsCounter,
+    amount = 1,
+  ): number {
+    this.sseDiagnosticsCounters[counter] += amount;
+    const value = this.sseDiagnosticsCounters[counter];
+    this.emitEvent("usage", "connection", {
+      provider: "opencode",
+      marker: OPENCODE_SSE_DIAGNOSTICS_MARKER,
+      counter,
+      value,
+    });
+    return value;
+  }
+
+  private emitSseAbortDiagnostics(reason: OpenCodeSseAbortReason): number {
+    if (reason === "watchdog") {
+      return this.emitSseDiagnosticsCounter("sse.abort.watchdog.count");
+    }
+    if (reason === "global") {
+      return this.emitSseDiagnosticsCounter("sse.abort.global.count");
+    }
+    return this.emitSseDiagnosticsCounter("sse.abort.unknown.count");
+  }
+
+  private registerActiveSession(sessionId: string): void {
+    if (!sessionId) return;
+    this.activeSessions.add(sessionId);
+  }
+
+  private unregisterActiveSession(sessionId: string): void {
+    if (!sessionId) return;
+    this.activeSessions.delete(sessionId);
+    this.sessionStateById.delete(sessionId);
+    this.clearSubagentSessionState(sessionId);
+    if (this.currentSessionId === sessionId) {
+      this.currentSessionId = null;
+    }
+  }
+
+  private isSessionLifecycleEventType(eventType: string): boolean {
+    return SESSION_LIFECYCLE_EVENT_TYPES.has(eventType);
+  }
+
+  private extractEventSessionCandidates(event: Record<string, unknown>): string[] {
+    const properties = event.properties as Record<string, unknown> | undefined;
+    const info = properties?.info as { id?: string; sessionID?: string } | undefined;
+    const part = properties?.part as { sessionID?: string } | undefined;
+    const candidates = [
+      properties?.sessionID,
+      info?.id,
+      info?.sessionID,
+      part?.sessionID,
+    ];
+    return Array.from(
+      new Set(
+        candidates
+          .filter((value): value is string => typeof value === "string")
+          .filter((value) => value.length > 0),
+      ),
+    );
+  }
+
+  private shouldProcessSseEvent(event: Record<string, unknown>): boolean {
+    const eventType = event.type as string | undefined;
+    if (!eventType || this.isSessionLifecycleEventType(eventType)) {
+      return true;
+    }
+
+    const sessionCandidates = this.extractEventSessionCandidates(event);
+    if (sessionCandidates.length === 0) {
+      return true;
+    }
+
+    for (const sessionId of sessionCandidates) {
+      if (this.activeSessions.has(sessionId)) {
+        return true;
+      }
+      const parentSessionId = this.childSessionToParentSession.get(sessionId);
+      if (parentSessionId && this.activeSessions.has(parentSessionId)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private createSubagentSessionState(): OpenCodeSubagentSessionState {
@@ -930,21 +1154,29 @@ export class OpenCodeClient implements CodingAgentClient {
       case "session.created":
         // OpenCode emits session ID under properties.info.id (not properties.sessionID).
         // Fall back to sessionID for defensive compatibility with older payloads.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        this.emitEvent(
-          "session.start",
-          ((properties?.info as any)?.id as string) ?? (properties?.sessionID as string) ?? "",
-          {
+        {
+          const createdInfo = properties?.info as { id?: string } | undefined;
+          const createdSessionId = createdInfo?.id ?? (properties?.sessionID as string) ?? "";
+          this.registerActiveSession(createdSessionId);
+          this.emitEvent("session.start", createdSessionId, {
             config: {},
-          }
-        );
+          });
+        }
         break;
+
+      case "session.deleted": {
+        const deletedInfo = properties?.info as { id?: string } | undefined;
+        const deletedSessionId = (properties?.sessionID as string) ?? deletedInfo?.id ?? "";
+        this.unregisterActiveSession(deletedSessionId);
+        break;
+      }
 
       case "session.status": {
         const status = parseOpenCodeSessionStatus(properties?.status);
         // OpenCode payloads can carry the session ID either at sessionID or info.id.
         const info = properties?.info as { id?: string } | undefined;
         const statusSessionId = (properties?.sessionID as string) ?? info?.id ?? "";
+        this.registerActiveSession(statusSessionId);
 
         if (status === "idle") {
           this.emitEvent("session.idle", statusSessionId, {
@@ -959,9 +1191,11 @@ export class OpenCodeClient implements CodingAgentClient {
         // Prefer sessionID and fall back to info.id for compatibility across SDK versions.
         {
           const idleInfo = properties?.info as { id?: string } | undefined;
+          const idleSessionId = (properties?.sessionID as string) ?? idleInfo?.id ?? "";
+          this.registerActiveSession(idleSessionId);
           this.emitEvent(
             "session.idle",
-            (properties?.sessionID as string) ?? idleInfo?.id ?? "",
+            idleSessionId,
             {
               reason: "idle",
             }
@@ -972,9 +1206,11 @@ export class OpenCodeClient implements CodingAgentClient {
       case "session.error":
         {
           const errorInfo = properties?.info as { id?: string } | undefined;
+          const errorSessionId = (properties?.sessionID as string) ?? errorInfo?.id ?? "";
+          this.registerActiveSession(errorSessionId);
           this.emitEvent(
             "session.error",
-            (properties?.sessionID as string) ?? errorInfo?.id ?? "",
+            errorSessionId,
             {
               error: extractOpenCodeErrorMessage(
                 properties?.error ?? event.error,
@@ -985,14 +1221,31 @@ export class OpenCodeClient implements CodingAgentClient {
         break;
 
       case "session.compacted":
-        this.emitEvent(
-          "session.compaction",
-          (properties?.sessionID as string) ?? "",
-          {
-            phase: "complete",
-            success: true,
+        {
+          const compactedSessionId = (properties?.sessionID as string) ?? "";
+          const sessionState = this.sessionStateById.get(compactedSessionId);
+          const now = Date.now();
+          if (
+            sessionState
+            && !sessionState.compaction.pendingCompactionComplete
+            && sessionState.compaction.lastCompactionCompleteAt !== null
+            && now - sessionState.compaction.lastCompactionCompleteAt <= COMPACTION_COMPLETE_DEDUPE_WINDOW_MS
+          ) {
+            break;
           }
-        );
+          if (sessionState) {
+            sessionState.compaction.pendingCompactionComplete = false;
+            sessionState.compaction.lastCompactionCompleteAt = now;
+          }
+          this.emitEvent(
+            "session.compaction",
+            compactedSessionId,
+            {
+              phase: "complete",
+              success: true,
+            }
+          );
+        }
         break;
 
       case "message.updated": {
@@ -1508,7 +1761,7 @@ export class OpenCodeClient implements CodingAgentClient {
     data: Record<string, unknown>
   ): void {
     const handlers = this.eventHandlers.get(eventType);
-    if (!handlers) return;
+    if (!handlers || handlers.size === 0) return;
 
     const event: AgentEvent<T> = {
       type: eventType,
@@ -1647,7 +1900,7 @@ export class OpenCodeClient implements CodingAgentClient {
 
     const sessionId = result.data.id;
     this.currentSessionId = sessionId;
-    this.activeSessions.add(sessionId);
+    this.registerActiveSession(sessionId);
 
     // Emit session start event
     this.emitEvent("session.start", sessionId, { config });
@@ -1678,7 +1931,7 @@ export class OpenCodeClient implements CodingAgentClient {
     }
 
     this.currentSessionId = sessionId;
-    this.activeSessions.add(sessionId);
+    this.registerActiveSession(sessionId);
     return this.wrapSession(sessionId, {});
   }
 
@@ -1729,13 +1982,21 @@ export class OpenCodeClient implements CodingAgentClient {
     }
 
     // Track session state for token usage and lifecycle
-    const sessionState = {
+    const sessionState: OpenCodeSessionState = {
       inputTokens: 0,
       outputTokens: 0,
       isClosed: false,
       contextWindow: null as number | null,
       systemToolsBaseline: null as number | null,
+      compaction: {
+        isCompacting: false,
+        hasAutoCompacted: false,
+        pendingCompactionComplete: false,
+        lastCompactionCompleteAt: null,
+        autoCompactionRetryCount: 0,
+      },
     };
+    this.sessionStateById.set(sessionId, sessionState);
 
     // Eagerly resolve contextWindow from provider metadata
     const modelId = config.model;
@@ -1811,7 +2072,10 @@ export class OpenCodeClient implements CodingAgentClient {
         };
       },
 
-      sendAsync: async (message: string, options?: { agent?: string }): Promise<void> => {
+      sendAsync: async (
+        message: string,
+        options?: { agent?: string; abortSignal?: AbortSignal },
+      ): Promise<void> => {
         if (sessionState.isClosed) {
           throw new Error("Session is closed");
         }
@@ -1819,21 +2083,27 @@ export class OpenCodeClient implements CodingAgentClient {
           throw new Error("Client not connected");
         }
 
-        const result = await client.sdkClient.session.promptAsync({
-          sessionID: sessionId,
-          directory: client.clientOptions.directory,
-          agent: agentMode,
-          model: client.activePromptModel ?? initialPromptModel,
-          system: config.systemPrompt || undefined,
-          parts: buildOpenCodePromptParts(message, options?.agent),
-        });
+        const result = await client.sdkClient.session.promptAsync(
+          {
+            sessionID: sessionId,
+            directory: client.clientOptions.directory,
+            agent: agentMode,
+            model: client.activePromptModel ?? initialPromptModel,
+            system: config.systemPrompt || undefined,
+            parts: buildOpenCodePromptParts(message, options?.agent),
+          },
+          options?.abortSignal ? { signal: options.abortSignal } : undefined,
+        );
 
         if (result?.error) {
           throw new Error(extractOpenCodeErrorMessage(result.error));
         }
       },
 
-      stream: (message: string, options?: { agent?: string }): AsyncIterable<AgentMessage> => {
+      stream: (
+        message: string,
+        options?: { agent?: string; abortSignal?: AbortSignal },
+      ): AsyncIterable<AgentMessage> => {
         return {
           async *[Symbol.asyncIterator]() {
             if (sessionState.isClosed) {
@@ -1842,6 +2112,11 @@ export class OpenCodeClient implements CodingAgentClient {
             if (!client.sdkClient) {
               throw new Error("Client not connected");
             }
+            const sdkClient = client.sdkClient;
+
+            sessionState.compaction.hasAutoCompacted = false;
+            sessionState.compaction.pendingCompactionComplete = false;
+            sessionState.compaction.autoCompactionRetryCount = 0;
 
             // Note: input tokens are updated from result.data.info?.tokens after prompt resolves
 
@@ -1853,12 +2128,47 @@ export class OpenCodeClient implements CodingAgentClient {
             let streamError: Error | null = null;
             let terminalEventSeen = false;
             let terminalEventAt: number | null = null;
+            const streamAbortSignal = options?.abortSignal;
             const isSubagentDispatch =
               typeof options?.agent === "string" && options.agent.trim().length > 0;
             const relatedSessionIds = new Set<string>([sessionId]);
             const startedToolUseIds = new Set<string>();
             const completedToolUseIds = new Set<string>();
             let syntheticToolUseCounter = 0;
+
+            const handleStreamAbort = () => {
+              streamDone = true;
+              terminalEventSeen = true;
+              terminalEventAt = Date.now();
+              resolveNext?.();
+            };
+
+            if (streamAbortSignal?.aborted) {
+              handleStreamAbort();
+            } else if (streamAbortSignal) {
+              streamAbortSignal.addEventListener("abort", handleStreamAbort, { once: true });
+            }
+
+            const isStreamAbortError = (error: unknown): boolean => {
+              if (streamAbortSignal?.aborted) {
+                return true;
+              }
+              if (error instanceof DOMException && error.name === "AbortError") {
+                return true;
+              }
+              if (!(error instanceof Error)) {
+                return false;
+              }
+              const errorWithCode = error as Error & { code?: string };
+              if (
+                error.name === "AbortError"
+                || errorWithCode.code === "ABORT_ERR"
+                || errorWithCode.code === "ERR_CANCELED"
+              ) {
+                return true;
+              }
+              return error.message.toLowerCase().includes("aborted");
+            };
 
             const isRelatedSession = (candidateSessionId: string): boolean => {
               if (!isSubagentDispatch) {
@@ -2001,6 +2311,17 @@ export class OpenCodeClient implements CodingAgentClient {
               resolveNext?.();
             };
 
+            const handleUsage = (event: AgentEvent<"usage">) => {
+              if (event.sessionId !== sessionId) return;
+              const usageData = event.data as { inputTokens?: unknown; outputTokens?: unknown };
+              if (typeof usageData.inputTokens === "number") {
+                sessionState.inputTokens = usageData.inputTokens;
+              }
+              if (typeof usageData.outputTokens === "number") {
+                sessionState.outputTokens = usageData.outputTokens;
+              }
+            };
+
             // Subscribe to events
             const unsubDelta = client.on("message.delta", handleDelta);
             const unsubSubagentStart = isSubagentDispatch
@@ -2014,84 +2335,186 @@ export class OpenCodeClient implements CodingAgentClient {
               : () => {};
             const unsubIdle = client.on("session.idle", handleIdle);
             const unsubError = client.on("session.error", handleError);
+            const unsubUsage = client.on("usage", handleUsage);
 
-            try {
-              // Fire-and-forget: promptAsync() returns 204 immediately.
-              // All streaming content arrives exclusively through SSE events
-              // (message.delta, session.idle, session.error).
-              await client.sdkClient.session.promptAsync({
-                sessionID: sessionId,
-                directory: client.clientOptions.directory,
-                agent: agentMode,
-                model: client.activePromptModel ?? initialPromptModel,
-                system: config.systemPrompt || undefined,
-                parts: buildOpenCodePromptParts(message, options?.agent),
-              }).then((result) => {
+            const dispatchStreamPrompt = async (promptMessage: string): Promise<void> => {
+              await sdkClient.session.promptAsync(
+                {
+                  sessionID: sessionId,
+                  directory: client.clientOptions.directory,
+                  agent: agentMode,
+                  model: client.activePromptModel ?? initialPromptModel,
+                  system: config.systemPrompt || undefined,
+                  parts: buildOpenCodePromptParts(promptMessage, options?.agent),
+                },
+                streamAbortSignal ? { signal: streamAbortSignal } : undefined,
+              ).then((result) => {
                 if (result?.error) {
                   streamError = new Error(extractOpenCodeErrorMessage(result.error));
                   streamDone = true;
                   resolveNext?.();
                 }
               }).catch((error: unknown) => {
+                if (isStreamAbortError(error)) {
+                  streamDone = true;
+                  terminalEventSeen = true;
+                  terminalEventAt = Date.now();
+                  resolveNext?.();
+                  return;
+                }
                 streamError = error instanceof Error ? error : new Error(String(error));
                 streamDone = true;
                 resolveNext?.();
               });
+            };
 
+            const resetStreamTerminalState = (): void => {
+              streamDone = false;
+              streamError = null;
+              terminalEventSeen = false;
+              terminalEventAt = null;
+            };
+
+            try {
               // Wall-clock thinking timing
               let reasoningStartMs: number | null = null;
               let reasoningDurationMs = 0;
 
-              // Drain SSE deltas until session.idle or session.error
-              while (!streamDone || deltaQueue.length > 0) {
-                if (deltaQueue.length > 0) {
-                  const msg = deltaQueue.shift()!;
-                  if (msg.type === "thinking") {
-                    if (reasoningStartMs === null) {
-                      reasoningStartMs = Date.now();
-                    }
-                    const currentMs = reasoningDurationMs + (Date.now() - reasoningStartMs);
-                    const existingMetadata = (msg.metadata ?? {}) as Record<string, unknown>;
-                    msg.metadata = {
-                      ...existingMetadata,
-                      streamingStats: { thinkingMs: currentMs, outputTokens: 0 },
-                    };
-                  } else if (reasoningStartMs !== null) {
-                    reasoningDurationMs += Date.now() - reasoningStartMs;
-                    reasoningStartMs = null;
-                  }
-                  yield msg;
-                  continue;
-                }
-
-                if (streamDone) {
-                  break;
-                }
-
-                if (
-                  terminalEventSeen
-                  && terminalEventAt !== null
-                  && Date.now() - terminalEventAt >= PRE_PROMPT_TERMINAL_SETTLE_MS
-                ) {
-                  streamDone = true;
-                  break;
-                }
-
-                // Wait for next delta or completion
-                await new Promise<void>((resolve) => {
-                  resolveNext = resolve;
-                  setTimeout(resolve, STREAM_POLL_MS);
-                });
-                resolveNext = null;
+              // Fire-and-forget: promptAsync() returns 204 immediately.
+              // All streaming content arrives exclusively through SSE events
+              // (message.delta, session.idle, session.error).
+              if (!streamAbortSignal?.aborted) {
+                await dispatchStreamPrompt(message);
               }
 
-              // Check for stream error
-              if (streamError) {
-                throw streamError;
+              while (true) {
+                // Drain SSE deltas until session.idle or session.error
+                while (!streamDone || deltaQueue.length > 0) {
+                  if (streamAbortSignal?.aborted) {
+                    streamDone = true;
+                    break;
+                  }
+
+                  if (deltaQueue.length > 0) {
+                    const msg = deltaQueue.shift()!;
+                    if (msg.type === "thinking") {
+                      if (reasoningStartMs === null) {
+                        reasoningStartMs = Date.now();
+                      }
+                      const currentMs = reasoningDurationMs + (Date.now() - reasoningStartMs);
+                      const existingMetadata = (msg.metadata ?? {}) as Record<string, unknown>;
+                      msg.metadata = {
+                        ...existingMetadata,
+                        streamingStats: { thinkingMs: currentMs, outputTokens: 0 },
+                      };
+                    } else if (reasoningStartMs !== null) {
+                      reasoningDurationMs += Date.now() - reasoningStartMs;
+                      reasoningStartMs = null;
+                    }
+                    yield msg;
+                    continue;
+                  }
+
+                  if (streamDone) {
+                    break;
+                  }
+
+                  if (
+                    terminalEventSeen
+                    && terminalEventAt !== null
+                    && Date.now() - terminalEventAt >= PRE_PROMPT_TERMINAL_SETTLE_MS
+                  ) {
+                    streamDone = true;
+                    break;
+                  }
+
+                  // Wait for next delta or completion
+                  await new Promise<void>((resolve) => {
+                    resolveNext = resolve;
+                    setTimeout(resolve, STREAM_POLL_MS);
+                  });
+                  resolveNext = null;
+                }
+
+                if (streamAbortSignal?.aborted) {
+                  break;
+                }
+
+                if (!streamError) {
+                  const maxTokens = client.activeContextWindow ?? sessionState.contextWindow;
+                  const usagePercentage = maxTokens && maxTokens > 0
+                    ? ((sessionState.inputTokens + sessionState.outputTokens) / maxTokens) * 100
+                    : 0;
+                  const shouldAttemptProactiveCompaction =
+                    !isSubagentDispatch
+                    && usagePercentage >= AUTO_COMPACTION_THRESHOLD * 100
+                    && !sessionState.compaction.isCompacting
+                    && !sessionState.compaction.hasAutoCompacted
+                    && sessionState.compaction.autoCompactionRetryCount <= MAX_AUTO_COMPACTION_RETRIES;
+
+                  if (!shouldAttemptProactiveCompaction) {
+                    break;
+                  }
+
+                  debugLog("compaction.proactive_trigger", {
+                    sessionId,
+                    trigger: "threshold",
+                    thresholdPercentage: AUTO_COMPACTION_THRESHOLD * 100,
+                    usagePercentage,
+                    inputTokens: sessionState.inputTokens,
+                    outputTokens: sessionState.outputTokens,
+                    contextWindow: maxTokens ?? 0,
+                    retryCount: sessionState.compaction.autoCompactionRetryCount + 1,
+                  });
+                  sessionState.compaction.hasAutoCompacted = true;
+                  sessionState.compaction.autoCompactionRetryCount += 1;
+                  await session.summarize();
+                  break;
+                }
+
+                if (reasoningStartMs !== null) {
+                  reasoningDurationMs += Date.now() - reasoningStartMs;
+                  reasoningStartMs = null;
+                }
+
+                const shouldAttemptAutoCompaction = isContextOverflowError(streamError)
+                  && !sessionState.compaction.isCompacting
+                  && !sessionState.compaction.hasAutoCompacted
+                  && sessionState.compaction.autoCompactionRetryCount <= MAX_AUTO_COMPACTION_RETRIES;
+
+                if (!shouldAttemptAutoCompaction) {
+                  throw streamError;
+                }
+
+                debugLog("compaction.overflow_trigger", {
+                  sessionId,
+                  trigger: "overflow",
+                  thresholdPercentage: AUTO_COMPACTION_THRESHOLD * 100,
+                  inputTokens: sessionState.inputTokens,
+                  outputTokens: sessionState.outputTokens,
+                  contextWindow: sessionState.contextWindow ?? 0,
+                  retryCount: sessionState.compaction.autoCompactionRetryCount + 1,
+                  error: extractOpenCodeErrorMessage(streamError),
+                });
+                sessionState.compaction.hasAutoCompacted = true;
+                sessionState.compaction.autoCompactionRetryCount += 1;
+
+                await session.summarize();
+
+                // Discard any stale stream payload from the failed pre-compaction turn.
+                deltaQueue.length = 0;
+                resetStreamTerminalState();
+                if (streamAbortSignal?.aborted) {
+                  break;
+                }
+                await dispatchStreamPrompt("Continue");
               }
             } catch (error) {
               throw new Error(extractOpenCodeErrorMessage(error));
             } finally {
+              if (streamAbortSignal) {
+                streamAbortSignal.removeEventListener("abort", handleStreamAbort);
+              }
               // Unsubscribe from events
               unsubDelta();
               unsubSubagentStart();
@@ -2099,6 +2522,7 @@ export class OpenCodeClient implements CodingAgentClient {
               unsubToolComplete();
               unsubIdle();
               unsubError();
+              unsubUsage();
             }
           },
         };
@@ -2109,39 +2533,103 @@ export class OpenCodeClient implements CodingAgentClient {
           throw new Error("Client not connected");
         }
 
-        await client.sdkClient.session.summarize({
-          sessionID: sessionId,
-          directory: client.clientOptions.directory,
+        sessionState.compaction.isCompacting = true;
+        const preCompactionTokens = sessionState.inputTokens + sessionState.outputTokens;
+        debugLog("compaction.summarize_start", {
+          sessionId,
+          thresholdPercentage: AUTO_COMPACTION_THRESHOLD * 100,
+          inputTokens: sessionState.inputTokens,
+          outputTokens: sessionState.outputTokens,
+          preCompactionTokens,
+          contextWindow: sessionState.contextWindow ?? 0,
         });
-
-        // Query actual post-compaction token counts from the SDK.
-        // session.messages() returns each message with its token snapshot,
-        // so the last assistant message reflects the post-compaction state.
+        client.emitEvent("session.compaction", sessionId, {
+          phase: "start",
+        });
+        sessionState.compaction.pendingCompactionComplete = true;
+        let summarizeSucceeded = false;
         try {
-          const messagesResult = await client.sdkClient.session.messages({
+          await client.sdkClient.session.summarize({
             sessionID: sessionId,
+            directory: client.clientOptions.directory,
           });
-          const messages = messagesResult.data ?? [];
-          for (let i = messages.length - 1; i >= 0; i--) {
-            const msg = messages[i]!.info;
-            if (msg.role === "assistant" && "tokens" in msg) {
-              sessionState.inputTokens = msg.tokens.input ?? sessionState.inputTokens;
-              sessionState.outputTokens = msg.tokens.output ?? 0;
-              const cacheTokens = (msg.tokens.cache?.write ?? 0) + (msg.tokens.cache?.read ?? 0);
-              if (cacheTokens > 0) {
-                sessionState.systemToolsBaseline = cacheTokens;
-              }
-              break;
-            }
-          }
-        } catch {
-          // If messages() fails, token counts remain at pre-compaction values.
-          // They will self-correct on the next message (snapshot tracking).
-        }
+          summarizeSucceeded = true;
 
-        client.emitEvent("session.idle", sessionId, {
-          reason: "context_compacted",
-        });
+          // Query actual post-compaction token counts from the SDK.
+          // session.messages() returns each message with its token snapshot,
+          // so the last assistant message reflects the post-compaction state.
+          try {
+            const messagesResult = await client.sdkClient.session.messages({
+              sessionID: sessionId,
+            });
+            const messages = messagesResult.data ?? [];
+            for (let i = messages.length - 1; i >= 0; i--) {
+              const msg = messages[i]!.info;
+              if (msg.role === "assistant" && "tokens" in msg) {
+                sessionState.inputTokens = msg.tokens.input ?? sessionState.inputTokens;
+                sessionState.outputTokens = msg.tokens.output ?? 0;
+                const cacheTokens = (msg.tokens.cache?.write ?? 0) + (msg.tokens.cache?.read ?? 0);
+                if (cacheTokens > 0) {
+                  sessionState.systemToolsBaseline = cacheTokens;
+                }
+                break;
+              }
+            }
+          } catch (refreshError) {
+            debugLog("compaction.refresh_tokens_failed", {
+              sessionId,
+              error: extractOpenCodeErrorMessage(refreshError),
+            });
+            // If messages() fails, token counts remain at pre-compaction values.
+            // They will self-correct on the next message (snapshot tracking).
+          }
+
+          const postCompactionTokens = sessionState.inputTokens + sessionState.outputTokens;
+          const tokensRemoved = preCompactionTokens - postCompactionTokens;
+          debugLog("compaction.summarize_complete", {
+            sessionId,
+            thresholdPercentage: AUTO_COMPACTION_THRESHOLD * 100,
+            inputTokens: sessionState.inputTokens,
+            outputTokens: sessionState.outputTokens,
+            preCompactionTokens,
+            postCompactionTokens,
+            tokensRemoved,
+            tokenLimit: sessionState.contextWindow ?? 0,
+          });
+          if (tokensRemoved > 0) {
+            client.emitEvent("session.truncation", sessionId, {
+              tokenLimit: sessionState.contextWindow ?? 0,
+              tokensRemoved,
+              messagesRemoved: 0,
+            });
+          }
+
+          client.emitEvent("session.idle", sessionId, {
+            reason: "context_compacted",
+          });
+        } catch (error) {
+          const errorMessage = extractOpenCodeErrorMessage(error);
+          debugLog("compaction.summarize_failed", {
+            sessionId,
+            thresholdPercentage: AUTO_COMPACTION_THRESHOLD * 100,
+            inputTokens: sessionState.inputTokens,
+            outputTokens: sessionState.outputTokens,
+            preCompactionTokens,
+            contextWindow: sessionState.contextWindow ?? 0,
+            error: errorMessage,
+          });
+          client.emitEvent("session.compaction", sessionId, {
+            phase: "complete",
+            success: false,
+            error: errorMessage,
+          });
+          throw error instanceof Error ? error : new Error(errorMessage);
+        } finally {
+          if (!summarizeSucceeded) {
+            sessionState.compaction.pendingCompactionComplete = false;
+          }
+          sessionState.compaction.isCompacting = false;
+        }
       },
 
       getContextUsage: async (): Promise<ContextUsage> => {
@@ -2165,6 +2653,11 @@ export class OpenCodeClient implements CodingAgentClient {
         }
         return sessionState.systemToolsBaseline;
       },
+
+      getCompactionState: (): SessionCompactionState => ({
+        isCompacting: sessionState.compaction.isCompacting,
+        hasAutoCompacted: sessionState.compaction.hasAutoCompacted,
+      }),
 
       getMcpSnapshot: async (): Promise<McpRuntimeSnapshot | null> => {
         if (sessionState.isClosed) {
@@ -2222,11 +2715,7 @@ export class OpenCodeClient implements CodingAgentClient {
           directory: client.clientOptions.directory,
         });
 
-        client.activeSessions.delete(sessionId);
-        client.clearSubagentSessionState(sessionId);
-        if (client.currentSessionId === sessionId) {
-          client.currentSessionId = null;
-        }
+        client.unregisterActiveSession(sessionId);
 
         client.emitEvent("session.idle", sessionId, { reason: "destroyed" });
       },
@@ -2249,6 +2738,9 @@ export class OpenCodeClient implements CodingAgentClient {
 
     return () => {
       handlers?.delete(handler as EventHandler<EventType>);
+      if (handlers && handlers.size === 0) {
+        this.eventHandlers.delete(eventType);
+      }
     };
   }
 

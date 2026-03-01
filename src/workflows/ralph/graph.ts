@@ -13,6 +13,8 @@ import {
 } from "../graph/index.ts";
 import type { NodeDefinition, ExecutionContext, NodeResult } from "../graph/types.ts";
 import type { SubagentSpawnOptions } from "../graph/types.ts";
+import type { WorkflowRuntimeTask } from "../runtime-contracts.ts";
+import { buildTaskResultEnvelope } from "../task-result-envelope.ts";
 import type { RalphWorkflowState } from "./state.ts";
 import {
   buildSpecToTasksPrompt,
@@ -84,6 +86,29 @@ function hasActionableTasks(tasks: TaskItem[]): boolean {
 
 function stripPriorityPrefix(title: string): string {
   return title.replace(/^\s*\[(?:P\d|p\d)\]\s*/u, "").trim();
+}
+
+function toRuntimeTask(task: TaskItem, fallbackId: string): WorkflowRuntimeTask {
+  return {
+    id: task.id ?? fallbackId,
+    title: task.content,
+    status: task.status,
+    blockedBy: task.blockedBy,
+    identity: task.identity,
+    taskResult: task.taskResult,
+  };
+}
+
+function applyRuntimeTask(task: TaskItem, runtimeTask: WorkflowRuntimeTask): TaskItem {
+  const taskResult = runtimeTask.taskResult ?? task.taskResult;
+  return {
+    ...task,
+    id: runtimeTask.id,
+    status: runtimeTask.status,
+    blockedBy: runtimeTask.blockedBy,
+    identity: runtimeTask.identity,
+    ...(taskResult ? { taskResult } : {}),
+  };
 }
 
 function buildReviewFixTasks(findings: ReadonlyArray<{
@@ -183,6 +208,7 @@ export function createRalphWorkflow() {
             if (!spawnSubagentParallel) {
               throw new Error("spawnSubagentParallel not available in runtime config");
             }
+            const taskIdentity = ctx.config.runtime?.taskIdentity;
 
             const ready = ctx.state.currentTasks;
             if (ready.length === 0) {
@@ -203,27 +229,6 @@ export function createRalphWorkflow() {
                 : task,
             );
 
-            // Publish workflow.task.statusChange event before spawning.
-            // notifyTaskStatusChange is injected at runtime by the executor when an eventBus is available.
-            const notifyFn = (ctx.config.runtime as Record<string, unknown> | undefined)
-              ?.notifyTaskStatusChange as
-              | ((
-                taskIds: string[],
-                newStatus: string,
-                tasks: Array<{ id: string; title: string; status: string; blockedBy?: string[] }>,
-              ) => void)
-              | undefined;
-            notifyFn?.(
-              ready.map((r) => r.id).filter((id): id is string => Boolean(id)),
-              "in_progress",
-              tasksWithProgress.map((t) => ({
-                id: t.id ?? "",
-                title: t.content,
-                status: t.status,
-                blockedBy: t.blockedBy,
-              })),
-            );
-
             // Build spawn configs for ALL ready tasks.
             // Keep IDs stable for normal flows while guaranteeing uniqueness
             // when tasks have duplicate IDs.
@@ -240,18 +245,111 @@ export function createRalphWorkflow() {
               };
             });
 
+            const readyTaskProviderBindings = new Map<TaskItem, string>();
+            for (const [index, task] of ready.entries()) {
+              const spawnConfig = spawnConfigs[index];
+              if (!spawnConfig) {
+                continue;
+              }
+              readyTaskProviderBindings.set(task, spawnConfig.agentId);
+            }
+
+            const identityBoundTasks = tasksWithProgress.map((task, taskIndex) => {
+              const sourceTask = ctx.state.tasks[taskIndex];
+              const providerTaskId = sourceTask ? readyTaskProviderBindings.get(sourceTask) : undefined;
+
+              if (!providerTaskId || !taskIdentity) {
+                return task;
+              }
+
+              const runtimeTask = toRuntimeTask(task, `${ctx.state.executionId}-${ctx.state.iteration}-${taskIndex}`);
+              const boundTask = taskIdentity.bindProviderId(runtimeTask, "subagent_id", providerTaskId);
+              return applyRuntimeTask(task, boundTask);
+            });
+
+            // Publish workflow.task.statusChange event before spawning.
+            // notifyTaskStatusChange is injected at runtime by the executor when an eventBus is available.
+            const notifyFn = ctx.config.runtime?.notifyTaskStatusChange;
+            notifyFn?.(
+              ready.map((r) => r.id).filter((id): id is string => Boolean(id)),
+              "in_progress",
+              identityBoundTasks.map((task, index) => {
+                const runtimeTask = toRuntimeTask(task, `${ctx.state.executionId}-${ctx.state.iteration}-${index}`);
+                return {
+                  id: task.id ?? "",
+                  title: task.content,
+                  status: task.status,
+                  blockedBy: task.blockedBy,
+                  identity: runtimeTask.identity,
+                };
+              }),
+            );
+
             // Dispatch all concurrently via spawnSubagentParallel
             const results = await spawnSubagentParallel(spawnConfigs, ctx.abortSignal);
 
+            const statusByCanonicalTaskId = new Map<string, "completed" | "error">();
+            const resultByCanonicalTaskId = new Map<string, { output: string; error?: string; success: boolean; agentId: string }>();
+            for (const result of results) {
+              const canonicalTaskId = taskIdentity?.resolveCanonicalTaskId("subagent_id", result.agentId);
+              if (!canonicalTaskId) {
+                continue;
+              }
+              statusByCanonicalTaskId.set(canonicalTaskId, result.success ? "completed" : "error");
+              resultByCanonicalTaskId.set(canonicalTaskId, {
+                output: result.output,
+                error: result.error,
+                success: result.success,
+                agentId: result.agentId,
+              });
+            }
+
             // Map results back independently — each result corresponds to the
             // matched ready task index from the precomputed map.
-            const updatedTasks = tasksWithProgress.map((task, taskIndex) => {
+            const updatedTasks = identityBoundTasks.map((task, taskIndex) => {
+              if (taskIdentity) {
+                const runtimeTask = toRuntimeTask(task, `${ctx.state.executionId}-${ctx.state.iteration}-${taskIndex}`);
+                const canonicalTaskId = runtimeTask.identity?.canonicalId ?? runtimeTask.id;
+                const nextStatus = statusByCanonicalTaskId.get(canonicalTaskId);
+                const mappedResult = resultByCanonicalTaskId.get(canonicalTaskId);
+                if (nextStatus) {
+                  const taskResult = mappedResult
+                    ? buildTaskResultEnvelope({
+                      task: runtimeTask,
+                      result: mappedResult,
+                      sessionId: ctx.state.executionId,
+                    })
+                    : runtimeTask.taskResult;
+                  return applyRuntimeTask(task, {
+                    ...runtimeTask,
+                    status: nextStatus,
+                    taskResult,
+                  });
+                }
+              }
+
               const sourceTask = ctx.state.tasks[taskIndex];
               if (!sourceTask) return task;
               const readyIndex = readyIndexByTask.get(sourceTask);
               if (readyIndex === undefined) return task;
               const result = results[readyIndex];
-              return { ...task, status: result?.success ? "completed" : "error" };
+              if (!result) {
+                return task;
+              }
+
+              const runtimeTask = toRuntimeTask(task, `${ctx.state.executionId}-${ctx.state.iteration}-${taskIndex}`);
+              const terminalStatus = result.success ? "completed" : "error";
+              const taskResult = buildTaskResultEnvelope({
+                task: runtimeTask,
+                result,
+                sessionId: ctx.state.executionId,
+              });
+
+              return applyRuntimeTask(task, {
+                ...runtimeTask,
+                status: terminalStatus,
+                taskResult,
+              });
             });
 
             return {
@@ -321,6 +419,7 @@ export function createRalphWorkflow() {
             if (!spawnSubagent) {
               throw new Error("spawnSubagent not available in runtime config");
             }
+            const taskIdentity = ctx.config.runtime?.taskIdentity;
 
             const review = ctx.state.reviewResult;
             if (!review) {
@@ -358,31 +457,63 @@ export function createRalphWorkflow() {
               | ((
                 taskIds: string[],
                 newStatus: string,
-                tasks: Array<{ id: string; title: string; status: string; blockedBy?: string[] }>,
+                tasks: Array<{ id: string; title: string; status: string; blockedBy?: string[]; identity?: WorkflowRuntimeTask["identity"] }>,
               ) => void)
               | undefined;
             notifyFn?.(
               activeFixTaskIds,
               "in_progress",
-              tasksInProgress.map((task) => ({
-                id: task.id ?? "",
-                title: task.content,
-                status: task.status,
-                blockedBy: task.blockedBy,
-              })),
+              tasksInProgress.map((task, index) => {
+                const runtimeTask = toRuntimeTask(task, `${ctx.state.executionId}-fix-${index}`);
+                return {
+                  id: task.id ?? "",
+                  title: task.content,
+                  status: task.status,
+                  blockedBy: task.blockedBy,
+                  identity: runtimeTask.identity,
+                };
+              }),
             );
 
+            const fixerAgentId = `fixer-${ctx.state.executionId}`;
+            const identityBoundTasks = taskIdentity
+              ? tasksInProgress.map((task, index) => {
+                if (task.status !== "in_progress") {
+                  return task;
+                }
+
+                const runtimeTask = toRuntimeTask(task, `${ctx.state.executionId}-fix-${index}`);
+                const boundTask = taskIdentity.bindProviderId(runtimeTask, "subagent_id", fixerAgentId);
+                return applyRuntimeTask(task, boundTask);
+              })
+              : tasksInProgress;
+
             const result = await spawnSubagent({
-              agentId: `fixer-${ctx.state.executionId}`,
+              agentId: fixerAgentId,
               agentName: "debugger",
               task: fixSpec,
               abortSignal: ctx.abortSignal,
             }, ctx.abortSignal);
 
             const terminalStatus = result.success ? "completed" : "error";
-            const finalizedTasks = tasksInProgress.map((task) =>
-              task.status === "in_progress" ? { ...task, status: terminalStatus } : task,
-            );
+            const finalizedTasks = identityBoundTasks.map((task, index) => {
+              if (task.status !== "in_progress") {
+                return task;
+              }
+
+              const runtimeTask = toRuntimeTask(task, `${ctx.state.executionId}-fix-${index}`);
+              const taskResult = buildTaskResultEnvelope({
+                task: runtimeTask,
+                result,
+                sessionId: ctx.state.executionId,
+              });
+
+              return applyRuntimeTask(task, {
+                ...runtimeTask,
+                status: terminalStatus,
+                taskResult,
+              });
+            });
 
             return {
               stateUpdate: {

@@ -717,6 +717,15 @@ git config --global user.email "you@example.com"
 
 **Generating CLAUDE.md/AGENTS.md:** `atomic init` does not create `CLAUDE.md` or `AGENTS.md`. Run `/init` inside a chat session to generate these files. The command explores your codebase and produces project-specific documentation for coding agents.
 
+**Sub-agent Tree Stuck on "Initializing..." or Loading:** Atomic normalizes sub-agent loading and terminal transitions across Claude, OpenCode, and Copilot so agents are only marked complete after terminal events arrive. Background tasks stay in a running/background state until they actually finish.
+
+If loading still appears stuck:
+
+1. Update to the latest release (`atomic update`) and retry.
+2. Confirm the session eventually receives terminal progress events (`subagent.complete` or tool completion) in verbose mode.
+3. If only background tasks are stuck, press `Ctrl+F` twice to terminate active background agents, then resend your prompt.
+4. If the timeout fallback repeats, capture reproduction steps (agent type, prompt, and terminal output) and open an issue.
+
 **Shift+Enter Not Inserting Newline:** Atomic uses layered newline detection in chat input.
 
 - **Kitty protocol (VS Code path):** In VS Code's integrated terminal, keep `terminal.integrated.enableKittyKeyboardProtocol` enabled so Shift+Enter is sent as a modified Enter key.

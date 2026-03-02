@@ -2,18 +2,36 @@
  * ReasoningPartDisplay Component
  *
  * Renders a ReasoningPart showing the model's reasoning/thinking process.
- * Uses <code filetype="markdown"> with a dimmed syntax style for visual
- * distinction from primary response content. If syntaxStyle is missing,
- * falls back to the same markdown code rendering with a local fallback style.
+ * Uses <markdown> with a dimmed syntax style for visual distinction from
+ * primary response content, matching TextPartDisplay's rendering path for
+ * consistent block formatting (spacing, tables, lists). Falls back to
+ * <code filetype="markdown"> when no syntaxStyle is provided.
  */
 
 import React, { useMemo } from "react";
-import type { SyntaxStyle } from "@opentui/core";
+import { MarkdownRenderable, type SyntaxStyle } from "@opentui/core";
 import type { ReasoningPart } from "../../parts/types.ts";
 import { createDimmedSyntaxStyle, createMarkdownSyntaxStyle, useTheme, useThemeColors } from "../../theme.tsx";
 import { SPACING } from "../../constants/spacing.ts";
 import { MISC } from "../../constants/icons.ts";
 import { normalizeMarkdownNewlines } from "../../utils/format.ts";
+
+// Patch MarkdownRenderable for text selection (same as TextPartDisplay).
+// MarkdownRenderable extends Renderable (not TextBufferRenderable), so its
+// shouldStartSelection() always returns false. This patch delegates to a
+// bounds check so selection can initiate inside child TextRenderable instances.
+if (!(MarkdownRenderable.prototype as any).__reasoningSelectionPatched) {
+  MarkdownRenderable.prototype.shouldStartSelection = function (
+    x: number,
+    y: number,
+  ) {
+    if (!this.selectable) return false;
+    const localX = x - this.x;
+    const localY = y - this.y;
+    return localX >= 0 && localX < this.width && localY >= 0 && localY < this.height;
+  };
+  (MarkdownRenderable.prototype as any).__reasoningSelectionPatched = true;
+}
 
 export interface ReasoningPartDisplayProps {
   part: ReasoningPart;
@@ -52,15 +70,26 @@ export function ReasoningPartDisplay({ part, syntaxStyle }: ReasoningPartDisplay
       </text>
       {normalizedContent && (
         <box marginLeft={SPACING.INDENT}>
-          <code
-            filetype="markdown"
-            drawUnstyledText={false}
-            streaming={part.isStreaming}
-            syntaxStyle={dimmedStyle}
-            content={normalizedContent}
-            conceal={true}
-            fg={colors.muted}
-          />
+          {syntaxStyle ? (
+            <markdown
+              content={normalizedContent}
+              syntaxStyle={dimmedStyle}
+              streaming={part.isStreaming}
+              conceal={true}
+              // @ts-expect-error selectable is a valid Renderable property but not typed in MarkdownOptions
+              selectable={true}
+            />
+          ) : (
+            <code
+              filetype="markdown"
+              drawUnstyledText={false}
+              streaming={part.isStreaming}
+              syntaxStyle={dimmedStyle}
+              content={normalizedContent}
+              conceal={true}
+              fg={colors.muted}
+            />
+          )}
         </box>
       )}
     </box>

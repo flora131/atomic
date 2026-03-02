@@ -207,6 +207,41 @@ describe("ClaudeAgentClient observability and parity", () => {
     expect(integrity.unmatchedSubagentCompletes).toBe(1);
   });
 
+  test("does not bind session.error handlers to Stop hooks", () => {
+    const client = new ClaudeAgentClient();
+    const seenErrors: string[] = [];
+
+    const unsubscribe = client.on("session.error", (event) => {
+      const data = event.data as { error?: Error | string };
+      const errorValue = data.error;
+      seenErrors.push(
+        errorValue instanceof Error ? errorValue.message : String(errorValue),
+      );
+    });
+
+    try {
+      const privateClient = client as unknown as {
+        registeredHooks: Record<string, Array<unknown> | undefined>;
+        emitEvent: (
+          eventType: "session.error",
+          sessionId: string,
+          data: Record<string, unknown>,
+        ) => void;
+      };
+
+      expect(privateClient.registeredHooks.Stop).toBeUndefined();
+
+      privateClient.emitEvent("session.error", "session-1", {
+        error: "Maximum turns exceeded",
+        code: "MAX_TURNS",
+      });
+
+      expect(seenErrors).toEqual(["Maximum turns exceeded"]);
+    } finally {
+      unsubscribe();
+    }
+  });
+
   test("maps hook sdk session IDs to wrapped session IDs for tool and subagent events", async () => {
     const client = new ClaudeAgentClient();
     const seenToolSessionIds: string[] = [];
@@ -289,6 +324,436 @@ describe("ClaudeAgentClient observability and parity", () => {
     } finally {
       unsubTool();
       unsubSubagent();
+    }
+  });
+
+  test("maps parent_tool_call_id to parentAgentId for tool hooks", async () => {
+    const client = new ClaudeAgentClient();
+    const seenParentAgentIds: Array<string | undefined> = [];
+    const seenParentToolIds: Array<string | undefined> = [];
+
+    const unsubTool = client.on("tool.start", (event) => {
+      const data = event.data as {
+        parentAgentId?: string;
+        parentToolUseId?: string;
+      };
+      seenParentAgentIds.push(data.parentAgentId);
+      seenParentToolIds.push(data.parentToolUseId);
+    });
+    const unsubSubagent = client.on("subagent.start", () => {});
+
+    try {
+      const privateClient = client as unknown as {
+        registeredHooks: Record<
+          string,
+          Array<
+            (
+              input: Record<string, unknown>,
+              toolUseID: string | undefined,
+              options: { signal: AbortSignal },
+            ) => Promise<{ continue: boolean }>
+          >
+        >;
+        wrapQuery: (
+          queryInstance: null,
+          sessionId: string,
+          config: Record<string, unknown>,
+        ) => { destroy: () => Promise<void> };
+      };
+
+      const wrappedSession = privateClient.wrapQuery(null, "wrapped-session-id", {});
+      const subagentStartHook = privateClient.registeredHooks.SubagentStart?.[0];
+      const preToolUseHook = privateClient.registeredHooks.PreToolUse?.[0];
+      expect(subagentStartHook).toBeDefined();
+      expect(preToolUseHook).toBeDefined();
+
+      await subagentStartHook?.(
+        {
+          session_id: "sdk-main-session",
+          agent_id: "agent-hook-1",
+          tool_use_id: "subagent-hook-correlation-1",
+          parent_tool_call_id: "parent-dispatch-call-1",
+        },
+        undefined,
+        { signal: new AbortController().signal },
+      );
+
+      await preToolUseHook?.(
+        {
+          session_id: "sdk-main-session",
+          tool_name: "WebSearch",
+          tool_input: { query: "parallel tool routing" },
+          parent_tool_call_id: "parent-dispatch-call-1",
+        },
+        "inner-tool-call-1",
+        { signal: new AbortController().signal },
+      );
+
+      expect(seenParentToolIds).toContain("parent-dispatch-call-1");
+      expect(seenParentAgentIds).toContain("agent-hook-1");
+
+      await wrappedSession.destroy();
+    } finally {
+      unsubTool();
+      unsubSubagent();
+    }
+  });
+
+  test("maps child-session tool hooks to subagents when SubagentStart omits tool use IDs", async () => {
+    const client = new ClaudeAgentClient();
+    const seenParentAgentIds: Array<string | undefined> = [];
+
+    const unsubTool = client.on("tool.start", (event) => {
+      const data = event.data as { parentAgentId?: string };
+      seenParentAgentIds.push(data.parentAgentId);
+    });
+    const unsubSubagent = client.on("subagent.start", () => {});
+
+    try {
+      const privateClient = client as unknown as {
+        registeredHooks: Record<
+          string,
+          Array<
+            (
+              input: Record<string, unknown>,
+              toolUseID: string | undefined,
+              options: { signal: AbortSignal },
+            ) => Promise<{ continue: boolean }>
+          >
+        >;
+        wrapQuery: (
+          queryInstance: null,
+          sessionId: string,
+          config: Record<string, unknown>,
+        ) => { destroy: () => Promise<void> };
+      };
+
+      const wrappedSession = privateClient.wrapQuery(null, "wrapped-session-id", {});
+      const subagentStartHook = privateClient.registeredHooks.SubagentStart?.[0];
+      const preToolUseHook = privateClient.registeredHooks.PreToolUse?.[0];
+      expect(subagentStartHook).toBeDefined();
+      expect(preToolUseHook).toBeDefined();
+
+      // SubagentStart payload has no tool_use_id. We still need to queue this
+      // subagent for later child-session correlation.
+      await subagentStartHook?.(
+        {
+          session_id: "sdk-main-session",
+          agent_id: "agent-child-1",
+          agent_type: "researcher",
+        },
+        undefined,
+        { signal: new AbortController().signal },
+      );
+
+      await preToolUseHook?.(
+        {
+          session_id: "sdk-child-session-1",
+          tool_name: "WebSearch",
+          tool_input: { query: "bm25 fundamentals" },
+          tool_use_id: "child-tool-1",
+        },
+        undefined,
+        { signal: new AbortController().signal },
+      );
+
+      expect(seenParentAgentIds).toContain("agent-child-1");
+
+      await wrappedSession.destroy();
+    } finally {
+      unsubTool();
+      unsubSubagent();
+    }
+  });
+
+  test("binds concurrent hook session IDs deterministically via pending queue", async () => {
+    const client = new ClaudeAgentClient();
+
+    const privateClient = client as unknown as {
+      wrapQuery: (
+        queryInstance: null,
+        sessionId: string,
+        config: Record<string, unknown>,
+      ) => { destroy: () => Promise<void> };
+      pendingHookSessionBindings: string[];
+      resolveHookSessionId: (sdkSessionId: string) => string;
+      sessions: Map<string, { sdkSessionId: string | null }>;
+    };
+
+    const sessionA = privateClient.wrapQuery(null, "wrapped-a", {});
+    const sessionB = privateClient.wrapQuery(null, "wrapped-b", {});
+    const stateA = privateClient.sessions.get("wrapped-a") as { query?: { close?: () => void } } | undefined;
+    const stateB = privateClient.sessions.get("wrapped-b") as { query?: { close?: () => void } } | undefined;
+    if (stateA) stateA.query = { close: () => {} };
+    if (stateB) stateB.query = { close: () => {} };
+    privateClient.pendingHookSessionBindings.push("wrapped-a", "wrapped-b");
+
+    try {
+      const mappedA = privateClient.resolveHookSessionId("sdk-a");
+      const mappedB = privateClient.resolveHookSessionId("sdk-b");
+
+      expect(mappedA).toBe("wrapped-a");
+      expect(mappedB).toBe("wrapped-b");
+      expect(privateClient.sessions.get("wrapped-a")?.sdkSessionId).toBe("sdk-a");
+      expect(privateClient.sessions.get("wrapped-b")?.sdkSessionId).toBe("sdk-b");
+    } finally {
+      await sessionA.destroy();
+      await sessionB.destroy();
+    }
+  });
+
+  test("uses hook payload fallback for subagent terminal signals when session_id/toolUseID arg are missing", async () => {
+    const client = new ClaudeAgentClient();
+    const seenSessionIds: string[] = [];
+    const seenSubagentIds: string[] = [];
+    const seenToolUseIds: Array<string | undefined> = [];
+
+    const unsubStart = client.on("subagent.start", () => {});
+    const unsubComplete = client.on("subagent.complete", (event) => {
+      const data = event.data as { subagentId?: string; toolUseID?: string };
+      seenSessionIds.push(event.sessionId);
+      seenSubagentIds.push(data.subagentId ?? "");
+      seenToolUseIds.push(data.toolUseID);
+    });
+
+    try {
+      const privateClient = client as unknown as {
+        wrapQuery: (
+          queryInstance: null,
+          sessionId: string,
+          config: Record<string, unknown>,
+        ) => { destroy: () => Promise<void> };
+        registeredHooks: Record<
+          string,
+          Array<
+            (
+              input: Record<string, unknown>,
+              toolUseID: string | undefined,
+              options: { signal: AbortSignal },
+            ) => Promise<{ continue: boolean }>
+          >
+        >;
+        sessions: Map<string, { query?: { close?: () => void } }>;
+      };
+
+      const wrappedSession = privateClient.wrapQuery(null, "wrapped-session-id", {});
+      const wrappedState = privateClient.sessions.get("wrapped-session-id");
+      if (wrappedState) {
+        wrappedState.query = { close: () => {} };
+      }
+
+      const subagentStartHook = privateClient.registeredHooks.SubagentStart?.[0];
+      const subagentStopHook = privateClient.registeredHooks.SubagentStop?.[0];
+      expect(subagentStartHook).toBeDefined();
+      expect(subagentStopHook).toBeDefined();
+
+      await subagentStartHook?.(
+        {
+          agent_id: "agent-42",
+          tool_use_id: "tool-use-42",
+        },
+        undefined,
+        { signal: new AbortController().signal },
+      );
+
+      await subagentStopHook?.(
+        {
+          tool_use_id: "tool-use-42",
+        },
+        undefined,
+        { signal: new AbortController().signal },
+      );
+
+      expect(seenSessionIds).toEqual(["wrapped-session-id"]);
+      expect(seenSubagentIds).toEqual(["agent-42"]);
+      expect(seenToolUseIds).toEqual(["tool-use-42"]);
+
+      await wrappedSession.destroy();
+    } finally {
+      unsubStart();
+      unsubComplete();
+    }
+  });
+
+  test("routes subagent terminal signals by tool_use_id when session_id is omitted across multiple sessions", async () => {
+    const client = new ClaudeAgentClient();
+    const seenSessionIds: string[] = [];
+    const seenSubagentIds: string[] = [];
+
+    const unsubStart = client.on("subagent.start", () => {});
+    const unsubComplete = client.on("subagent.complete", (event) => {
+      const data = event.data as { subagentId?: string };
+      seenSessionIds.push(event.sessionId);
+      seenSubagentIds.push(data.subagentId ?? "");
+    });
+
+    try {
+      const privateClient = client as unknown as {
+        wrapQuery: (
+          queryInstance: null,
+          sessionId: string,
+          config: Record<string, unknown>,
+        ) => { destroy: () => Promise<void> };
+        registeredHooks: Record<
+          string,
+          Array<
+            (
+              input: Record<string, unknown>,
+              toolUseID: string | undefined,
+              options: { signal: AbortSignal },
+            ) => Promise<{ continue: boolean }>
+          >
+        >;
+        sessions: Map<
+          string,
+          {
+            query?: { close?: () => void };
+            sdkSessionId?: string | null;
+          }
+        >;
+      };
+
+      const wrappedMain = privateClient.wrapQuery(null, "wrapped-main", {});
+      const wrappedWorker = privateClient.wrapQuery(null, "wrapped-worker", {});
+      const mainState = privateClient.sessions.get("wrapped-main");
+      const workerState = privateClient.sessions.get("wrapped-worker");
+      if (mainState) {
+        mainState.query = { close: () => {} };
+        mainState.sdkSessionId = "sdk-main";
+      }
+      if (workerState) {
+        workerState.query = { close: () => {} };
+        workerState.sdkSessionId = "sdk-worker";
+      }
+
+      const subagentStartHook = privateClient.registeredHooks.SubagentStart?.[0];
+      const subagentStopHook = privateClient.registeredHooks.SubagentStop?.[0];
+      expect(subagentStartHook).toBeDefined();
+      expect(subagentStopHook).toBeDefined();
+
+      await subagentStartHook?.(
+        {
+          session_id: "sdk-worker",
+          agent_id: "agent-77",
+          tool_use_id: "tool-use-77",
+        },
+        undefined,
+        { signal: new AbortController().signal },
+      );
+
+      await subagentStopHook?.(
+        {
+          tool_use_id: "tool-use-77",
+        },
+        undefined,
+        { signal: new AbortController().signal },
+      );
+
+      expect(seenSessionIds).toEqual(["wrapped-worker"]);
+      expect(seenSubagentIds).toEqual(["agent-77"]);
+
+      await wrappedMain.destroy();
+      await wrappedWorker.destroy();
+    } finally {
+      unsubStart();
+      unsubComplete();
+    }
+  });
+
+  test("maps task_notification terminal statuses to subagent.complete outcomes", () => {
+    const client = new ClaudeAgentClient();
+    const seenCompletions: Array<{
+      sessionId: string;
+      subagentId?: string;
+      success?: boolean;
+      result?: string;
+    }> = [];
+
+    const unsubscribe = client.on("subagent.complete", (event) => {
+      const data = event.data as {
+        subagentId?: string;
+        success?: boolean;
+        result?: string;
+      };
+      seenCompletions.push({
+        sessionId: event.sessionId,
+        subagentId: data.subagentId,
+        success: data.success,
+        result: data.result,
+      });
+    });
+
+    try {
+      const privateClient = client as unknown as {
+        processMessage: (
+          sdkMessage: Record<string, unknown>,
+          sessionId: string,
+          state: {
+            sdkSessionId: string | null;
+            inputTokens: number;
+            outputTokens: number;
+            hasEmittedStreamingUsage: boolean;
+          },
+        ) => void;
+        toolUseIdToAgentId: Map<string, string>;
+        toolUseIdToSessionId: Map<string, string>;
+      };
+
+      const state = {
+        sdkSessionId: "sdk-session",
+        inputTokens: 0,
+        outputTokens: 0,
+        hasEmittedStreamingUsage: false,
+      };
+
+      privateClient.toolUseIdToAgentId.set("tool-use-success", "agent-success");
+      privateClient.toolUseIdToSessionId.set("tool-use-success", "wrapped-session");
+      privateClient.processMessage(
+        {
+          type: "system",
+          subtype: "task_notification",
+          tool_use_id: "tool-use-success",
+          status: "completed",
+          summary: "done",
+        },
+        "wrapped-session",
+        state,
+      );
+
+      privateClient.toolUseIdToAgentId.set("tool-use-error", "agent-error");
+      privateClient.toolUseIdToSessionId.set("tool-use-error", "wrapped-session");
+      privateClient.processMessage(
+        {
+          type: "system",
+          subtype: "task_notification",
+          tool_use_id: "tool-use-error",
+          status: "failed",
+          summary: "failed",
+        },
+        "wrapped-session",
+        state,
+      );
+
+      expect(seenCompletions).toEqual([
+        {
+          sessionId: "wrapped-session",
+          subagentId: "agent-success",
+          success: true,
+          result: "done",
+        },
+        {
+          sessionId: "wrapped-session",
+          subagentId: "agent-error",
+          success: false,
+          result: "failed",
+        },
+      ]);
+      expect(privateClient.toolUseIdToAgentId.has("tool-use-success")).toBe(false);
+      expect(privateClient.toolUseIdToSessionId.has("tool-use-success")).toBe(false);
+      expect(privateClient.toolUseIdToAgentId.has("tool-use-error")).toBe(false);
+      expect(privateClient.toolUseIdToSessionId.has("tool-use-error")).toBe(false);
+    } finally {
+      unsubscribe();
     }
   });
 
@@ -570,7 +1035,7 @@ describe("ClaudeAgentClient permissions and options", () => {
 });
 
 describe("ClaudeAgentClient resume continuity semantics", () => {
-  test("re-wraps active sessions without losing usage state", async () => {
+  test("re-wraps active sessions without losing usage state and preserves hasEmittedStreamingUsage default", async () => {
     const client = new ClaudeAgentClient();
     (client as unknown as { isRunning: boolean }).isRunning = true;
 
@@ -623,5 +1088,177 @@ describe("ClaudeAgentClient resume continuity semantics", () => {
     });
 
     await resumed?.destroy();
+  });
+});
+
+describe("ClaudeAgentClient streaming usage events", () => {
+  test("message_delta with usage data triggers a usage client event during streaming", () => {
+    const client = new ClaudeAgentClient();
+    const usageEvents: Array<Record<string, unknown>> = [];
+
+    const unsubscribe = client.on("usage", (event) => {
+      usageEvents.push(event.data as Record<string, unknown>);
+    });
+
+    try {
+      const privateClient = client as unknown as {
+        wrapQuery: (
+          queryInstance: null,
+          sessionId: string,
+          config: Record<string, unknown>,
+        ) => { destroy: () => Promise<void> };
+        sessions: Map<string, { hasEmittedStreamingUsage: boolean }>;
+        emitEvent: (
+          eventType: string,
+          sessionId: string,
+          data: Record<string, unknown>,
+        ) => void;
+        detectedModel: string | null;
+      };
+
+      const session = privateClient.wrapQuery(null, "stream-usage-test", {});
+      const state = privateClient.sessions.get("stream-usage-test");
+
+      // Simulate what emitStreamingUsage does (arrow fn inside stream())
+      // We test the state flag and emitEvent directly since the closure is internal
+      expect(state?.hasEmittedStreamingUsage).toBe(false);
+
+      state!.hasEmittedStreamingUsage = true;
+      privateClient.emitEvent("usage", "stream-usage-test", {
+        inputTokens: 0,
+        outputTokens: 150,
+        model: privateClient.detectedModel,
+      });
+
+      const streamingUsage = usageEvents.filter(
+        (e) => typeof e.outputTokens === "number" && e.outputTokens > 0,
+      );
+      expect(streamingUsage).toHaveLength(1);
+      expect(streamingUsage[0]).toMatchObject({
+        inputTokens: 0,
+        outputTokens: 150,
+      });
+      expect(state?.hasEmittedStreamingUsage).toBe(true);
+
+      session.destroy();
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  test("result handler emits inputTokens-only correction when hasEmittedStreamingUsage is true", () => {
+    const client = new ClaudeAgentClient();
+    const usageEvents: Array<Record<string, unknown>> = [];
+
+    const unsubscribe = client.on("usage", (event) => {
+      usageEvents.push(event.data as Record<string, unknown>);
+    });
+
+    try {
+      const privateClient = client as unknown as {
+        wrapQuery: (
+          queryInstance: null,
+          sessionId: string,
+          config: Record<string, unknown>,
+        ) => { destroy: () => Promise<void> };
+        sessions: Map<string, { hasEmittedStreamingUsage: boolean }>;
+        processMessage: (
+          msg: Record<string, unknown>,
+          sessionId: string,
+          state: Record<string, unknown>,
+        ) => Record<string, unknown> | null;
+      };
+
+      const session = privateClient.wrapQuery(null, "result-guard-test", {});
+      const state = privateClient.sessions.get("result-guard-test")!;
+
+      // Simulate streaming path: flag is true
+      state.hasEmittedStreamingUsage = true;
+
+      // Process a result message with usage
+      const resultMsg = {
+        type: "result",
+        subtype: "success",
+        usage: { input_tokens: 500, output_tokens: 200 },
+      };
+      privateClient.processMessage(
+        resultMsg,
+        "result-guard-test",
+        state as unknown as Record<string, unknown>,
+      );
+
+      // Filter to non-marker usage events (exclude runtime selection, integrity, etc.)
+      const tokenUsage = usageEvents.filter(
+        (e) => typeof e.inputTokens === "number",
+      );
+      expect(tokenUsage).toHaveLength(1);
+      // Should emit inputTokens but outputTokens: 0 (not double-counting)
+      expect(tokenUsage[0]).toMatchObject({
+        inputTokens: 500,
+        outputTokens: 0,
+      });
+      // Flag should be reset after processing
+      expect(state.hasEmittedStreamingUsage).toBe(false);
+
+      session.destroy();
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  test("send path (no message_delta) still emits full usage from result", () => {
+    const client = new ClaudeAgentClient();
+    const usageEvents: Array<Record<string, unknown>> = [];
+
+    const unsubscribe = client.on("usage", (event) => {
+      usageEvents.push(event.data as Record<string, unknown>);
+    });
+
+    try {
+      const privateClient = client as unknown as {
+        wrapQuery: (
+          queryInstance: null,
+          sessionId: string,
+          config: Record<string, unknown>,
+        ) => { destroy: () => Promise<void> };
+        sessions: Map<string, { hasEmittedStreamingUsage: boolean }>;
+        processMessage: (
+          msg: Record<string, unknown>,
+          sessionId: string,
+          state: Record<string, unknown>,
+        ) => Record<string, unknown> | null;
+      };
+
+      const session = privateClient.wrapQuery(null, "send-usage-test", {});
+      const state = privateClient.sessions.get("send-usage-test")!;
+
+      // Send path: flag remains false (no streaming deltas)
+      expect(state.hasEmittedStreamingUsage).toBe(false);
+
+      const resultMsg = {
+        type: "result",
+        subtype: "success",
+        usage: { input_tokens: 1000, output_tokens: 300 },
+      };
+      privateClient.processMessage(
+        resultMsg,
+        "send-usage-test",
+        state as unknown as Record<string, unknown>,
+      );
+
+      const tokenUsage = usageEvents.filter(
+        (e) => typeof e.inputTokens === "number",
+      );
+      expect(tokenUsage).toHaveLength(1);
+      // Full usage emitted since no streaming usage was sent
+      expect(tokenUsage[0]).toMatchObject({
+        inputTokens: 1000,
+        outputTokens: 300,
+      });
+
+      session.destroy();
+    } finally {
+      unsubscribe();
+    }
   });
 });

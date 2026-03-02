@@ -11,7 +11,7 @@ import { ToolResult } from "../tool-result.tsx";
 import { useThemeColors } from "../../theme.tsx";
 import { CONNECTOR, STATUS, TREE } from "../../constants/icons.ts";
 import type { ToolPart, ToolState } from "../../parts/types.ts";
-import type { ToolExecutionStatus } from "../../hooks/use-streaming-state.ts";
+import type { ToolExecutionStatus } from "../../parts/types.ts";
 import type { HitlResponseRecord } from "../../utils/hitl-response.ts";
 
 export interface ToolPartDisplayProps {

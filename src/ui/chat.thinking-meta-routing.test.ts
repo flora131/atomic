@@ -29,18 +29,18 @@ function createDiagnostics(): ThinkingDropDiagnostics {
 }
 
 describe("resolveValidatedThinkingMetaEvent", () => {
-  test("returns null when source generation is stale", () => {
+  test("returns null when source generation binding is missing", () => {
     const meta = createMeta({
-      thinkingGenerationBySource: { [sourceKey]: 2 },
+      thinkingGenerationBySource: {},
     });
     const diagnostics = createDiagnostics();
 
-    const event = resolveValidatedThinkingMetaEvent(meta, "msg-1", 3, undefined, diagnostics);
+    const event = resolveValidatedThinkingMetaEvent(meta, "msg-1", undefined, diagnostics);
 
     expect(event).toBeNull();
     expect(diagnostics).toEqual({
-      droppedStaleOrClosedThinkingEvents: 1,
-      droppedMissingBindingThinkingEvents: 0,
+      droppedStaleOrClosedThinkingEvents: 0,
+      droppedMissingBindingThinkingEvents: 1,
     });
   });
 
@@ -50,7 +50,7 @@ describe("resolveValidatedThinkingMetaEvent", () => {
     });
     const diagnostics = createDiagnostics();
 
-    const event = resolveValidatedThinkingMetaEvent(meta, "msg-1", 3, undefined, diagnostics);
+    const event = resolveValidatedThinkingMetaEvent(meta, "msg-1", undefined, diagnostics);
 
     expect(event).toBeNull();
     expect(diagnostics).toEqual({
@@ -59,17 +59,22 @@ describe("resolveValidatedThinkingMetaEvent", () => {
     });
   });
 
-  test("increments missing-binding counter when source message binding is absent", () => {
+  test("defaults to expectedMessageId when source message binding is absent", () => {
     const diagnostics = createDiagnostics();
 
     const event = resolveValidatedThinkingMetaEvent(createMeta({
       thinkingMessageBySource: {},
-    }), "msg-1", 3, undefined, diagnostics);
+    }), "msg-1", undefined, diagnostics);
 
-    expect(event).toBeNull();
+    expect(event).toEqual({
+      thinkingSourceKey: sourceKey,
+      targetMessageId: "msg-1",
+      streamGeneration: 3,
+      thinkingText: "source thought",
+    });
     expect(diagnostics).toEqual({
       droppedStaleOrClosedThinkingEvents: 0,
-      droppedMissingBindingThinkingEvents: 1,
+      droppedMissingBindingThinkingEvents: 0,
     });
   });
 
@@ -77,7 +82,7 @@ describe("resolveValidatedThinkingMetaEvent", () => {
     const meta = createMeta();
     const diagnostics = createDiagnostics();
 
-    const event = resolveValidatedThinkingMetaEvent(meta, "msg-1", 3, undefined, diagnostics);
+    const event = resolveValidatedThinkingMetaEvent(meta, "msg-1", undefined, diagnostics);
 
     expect(event).toEqual({
       thinkingSourceKey: sourceKey,
@@ -96,7 +101,7 @@ describe("resolveValidatedThinkingMetaEvent", () => {
     const closedSources = new Set([sourceKey]);
     const diagnostics = createDiagnostics();
 
-    const event = resolveValidatedThinkingMetaEvent(meta, "msg-1", 3, closedSources, diagnostics);
+    const event = resolveValidatedThinkingMetaEvent(meta, "msg-1", closedSources, diagnostics);
 
     expect(event).toBeNull();
     expect(diagnostics).toEqual({
@@ -113,7 +118,6 @@ describe("resolveValidatedThinkingMetaEvent", () => {
         thinkingTextBySource: { [sourceKey]: "late thought" },
       }),
       "msg-1",
-      3,
       closedSources,
     );
 

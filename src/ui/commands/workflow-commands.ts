@@ -20,6 +20,10 @@ import type {
 } from "./registry.ts";
 import { globalRegistry } from "./registry.ts";
 import type { TodoItem } from "../../sdk/tools/todo-write.ts";
+import type {
+    WorkflowRuntimeFeatureFlagOverrides,
+    WorkflowRuntimeTaskResultEnvelope,
+} from "../../workflows/runtime-contracts.ts";
 
 import {
     normalizeTodoItem,
@@ -31,23 +35,11 @@ import {
     getWorkflowSessionDir,
     type WorkflowSession,
 } from "../../workflows/session.ts";
-import {
-    buildSpecToTasksPrompt,
-    buildBootstrappedTaskContext,
-    buildContinuePrompt,
-    buildReviewPrompt,
-    parseReviewResult,
-    buildFixSpecFromReview,
-} from "../../graph/nodes/ralph.ts";
-
-// ============================================================================
-// CONSTANTS
-// ============================================================================
-
-/** Maximum number of iterations for the main implementation loop to prevent infinite loops */
-const MAX_RALPH_ITERATIONS = 100;
-/** Maximum number of review-fix cycles to prevent infinite loops */
-const MAX_REVIEW_ITERATIONS = 1;
+import type { BaseState, NodeDefinition, Edge } from "../../workflows/graph/types.ts";
+import { VERSION } from "../../version.ts";
+import { executeWorkflow } from "../../workflows/executor.ts";
+import { createRalphWorkflow } from "../../workflows/ralph/graph.ts";
+import { ralphWorkflowDefinition } from "../../workflows/ralph/definition.ts";
 
 // ============================================================================
 // RALPH COMMAND PARSING
@@ -78,6 +70,14 @@ export function parseRalphArgs(args: string): RalphCommandArgs {
 // ============================================================================
 
 /**
+ * State migration function exported by custom workflows.
+ */
+export type WorkflowStateMigrator = (
+    oldState: unknown,
+    fromVersion: number,
+) => BaseState;
+
+/**
  * Metadata for a workflow command definition.
  */
 export interface WorkflowMetadata {
@@ -89,10 +89,97 @@ export interface WorkflowMetadata {
     aliases?: string[];
     /** Optional default configuration */
     defaultConfig?: Record<string, unknown>;
+    /** Workflow definition version (semver) */
+    version?: string;
+    /** Minimum SDK version required to run this workflow */
+    minSDKVersion?: string;
+    /** Workflow state schema version for migrations */
+    stateVersion?: number;
+    /** Optional state migrator for loading persisted state from older versions */
+    migrateState?: WorkflowStateMigrator;
     /** Source: built-in, global (~/.atomic/workflows), or local (.atomic/workflows) */
     source?: "builtin" | "global" | "local";
     /** Hint text showing expected arguments (e.g., "PROMPT [--yolo]") */
     argumentHint?: string;
+}
+
+/**
+ * Standard task interface for workflow task list UI.
+ * All task-list-capable workflows must use this shape.
+ */
+export interface WorkflowTask {
+    /** Unique task identifier */
+    id: string;
+    /** Human-readable task title */
+    title: string;
+    /** Task status */
+    status: "pending" | "in_progress" | "completed" | "failed" | "blocked";
+    /** Optional task dependencies (IDs of tasks that must complete first) */
+    blockedBy?: string[];
+    /** Optional error message if status is "failed" */
+    error?: string;
+}
+
+/**
+ * Declarative graph configuration exported by custom workflows.
+ * The framework compiles this into a CompiledGraph.
+ */
+export interface WorkflowGraphConfig<TState extends BaseState = BaseState> {
+    /** Node definitions for the graph */
+    nodes: NodeDefinition<TState>[];
+    /** Edge definitions connecting nodes */
+    edges: Edge<TState>[];
+    /** The starting node ID */
+    startNode: string;
+    /** Maximum iterations for loops (default: 100) */
+    maxIterations?: number;
+}
+
+/**
+ * Parameters passed to a workflow's createState() factory function.
+ */
+export interface WorkflowStateParams {
+    /** The user's prompt text */
+    prompt: string;
+    /** UUID session ID for this execution */
+    sessionId: string;
+    /** Session directory path */
+    sessionDir: string;
+    /** Maximum iterations (from workflow config or global default) */
+    maxIterations: number;
+}
+
+/**
+ * Extended workflow definition that includes execution logic.
+ * Backward-compatible with WorkflowMetadata (all new fields optional).
+ * Fully declarative — capabilities are inferred from the graph definition.
+ */
+export interface WorkflowDefinition extends WorkflowMetadata {
+    /**
+     * Declarative graph configuration for this workflow.
+     * The framework validates and compiles this into a CompiledGraph.
+     * If absent, the workflow falls back to the generic chat handler.
+     */
+    graphConfig?: WorkflowGraphConfig;
+
+    /**
+     * Factory function to create the initial state for graph execution.
+     * Receives the user's prompt and session context.
+     */
+    createState?: (params: WorkflowStateParams) => BaseState;
+
+    /**
+     * Map of node IDs to human-readable progress descriptions.
+     * Replaces the hardcoded getNodePhaseDescription().
+     * Nodes not in this map are silently skipped in UI progress.
+     * Example: { "planner": "🧠 Planning tasks...", "worker": "⚡ Implementing..." }
+     */
+    nodeDescriptions?: Record<string, string>;
+
+    /** Optional runtime configuration for execution-only behavior toggles. */
+    runtime?: {
+        featureFlags?: WorkflowRuntimeFeatureFlagOverrides;
+    };
 }
 
 // ============================================================================
@@ -111,6 +198,13 @@ export function getActiveSession(): WorkflowSession | undefined {
         (a, b) =>
             new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     )[0];
+}
+
+/**
+ * Register an active workflow session for tracking.
+ */
+export function registerActiveSession(session: WorkflowSession): void {
+    activeSessions.set(session.sessionId, session);
 }
 
 /**
@@ -169,6 +263,7 @@ export async function saveTasksToActiveSession(
         status: string;
         activeForm: string;
         blockedBy?: string[];
+        taskResult?: WorkflowRuntimeTaskResultEnvelope;
     }>,
     sessionId?: string,
 ): Promise<void> {
@@ -182,7 +277,7 @@ export async function saveTasksToActiveSession(
     }
     if (!sessionDir) {
         console.error(
-            "[ralph] saveTasksToActiveSession: no session directory found",
+            "[workflow] saveTasksToActiveSession: no session directory found",
         );
         return;
     }
@@ -195,7 +290,7 @@ export async function saveTasksToActiveSession(
         );
         await atomicWrite(tasksPath, content);
     } catch (error) {
-        console.error("[ralph] Failed to write tasks.json:", error);
+        console.error("[workflow] Failed to write tasks.json:", error);
     }
 }
 
@@ -257,6 +352,46 @@ function expandPath(path: string): string {
     return path;
 }
 
+const SEMVER_PATTERN =
+    /^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+
+function parseSemver(version: string): [number, number, number] | null {
+    const normalized = version.trim();
+
+    if (!SEMVER_PATTERN.test(normalized)) {
+        return null;
+    }
+
+    const coreVersion =
+        normalized.replace(/^v/i, "").split(/[+-]/, 1)[0] ?? "0.0.0";
+    const [major = "0", minor = "0", patch = "0"] = coreVersion.split(".");
+
+    return [
+        Number.parseInt(major, 10),
+        Number.parseInt(minor, 10),
+        Number.parseInt(patch, 10),
+    ];
+}
+
+function isWorkflowMinSdkNewerThanCurrent(
+    minSdkVersion: string,
+    currentSdkVersion: string,
+): boolean {
+    const minVersion = parseSemver(minSdkVersion);
+    const currentVersion = parseSemver(currentSdkVersion);
+
+    if (!minVersion || !currentVersion) {
+        return false;
+    }
+
+    const [minMajor, minMinor, minPatch] = minVersion;
+    const [curMajor, curMinor, curPatch] = currentVersion;
+
+    if (minMajor !== curMajor) return minMajor > curMajor;
+    if (minMinor !== curMinor) return minMinor > curMinor;
+    return minPatch > curPatch;
+}
+
 /**
  * Discover workflow files from disk.
  * Returns paths to .ts files that define workflows.
@@ -300,7 +435,7 @@ export function discoverWorkflowFiles(): {
  * Dynamically loaded workflows from disk.
  * Populated by loadWorkflowsFromDisk().
  */
-let loadedWorkflows: WorkflowMetadata[] = [];
+let loadedWorkflows: WorkflowDefinition[] = [];
 
 /**
  * Load workflow definitions from .ts files on disk.
@@ -309,6 +444,13 @@ let loadedWorkflows: WorkflowMetadata[] = [];
  * - `name`: Workflow name (optional, defaults to filename)
  * - `description`: Human-readable description (optional)
  * - `aliases`: Alternative names (optional)
+ * - `version`: Workflow version (optional)
+ * - `minSDKVersion`: Minimum required SDK version (optional)
+ * - `stateVersion`: Workflow state schema version (optional)
+ * - `migrateState(oldState, fromVersion)`: State migration handler (optional)
+ * - `graphConfig`: Declarative graph configuration (optional)
+ * - `createState`: Factory function to create initial state (optional)
+ * - `nodeDescriptions`: Map of node IDs to progress descriptions (optional)
  *
  * Example workflow file (.atomic/workflows/my-workflow.ts):
  * ```typescript
@@ -317,11 +459,11 @@ let loadedWorkflows: WorkflowMetadata[] = [];
  * export const aliases = ["mw"];
  * ```
  *
- * @returns Array of loaded workflow metadata (local workflows override global)
+ * @returns Array of loaded workflow definitions (local workflows override global)
  */
-export async function loadWorkflowsFromDisk(): Promise<WorkflowMetadata[]> {
+export async function loadWorkflowsFromDisk(): Promise<WorkflowDefinition[]> {
     const discovered = discoverWorkflowFiles();
-    const loaded: WorkflowMetadata[] = [];
+    const loaded: WorkflowDefinition[] = [];
     const loadedNames = new Set<string>();
 
     for (const { path, source } of discovered) {
@@ -339,20 +481,87 @@ export async function loadWorkflowsFromDisk(): Promise<WorkflowMetadata[]> {
                 continue;
             }
 
-            const metadata: WorkflowMetadata = {
+            const migrateState =
+                typeof module.migrateState === "function"
+                    ? (module.migrateState as WorkflowStateMigrator)
+                    : undefined;
+
+            // Extract new WorkflowDefinition fields (optional)
+            const graphConfig = module.graphConfig as WorkflowGraphConfig | undefined;
+            const createState = module.createState as ((params: WorkflowStateParams) => BaseState) | undefined;
+            const nodeDescriptions = module.nodeDescriptions as Record<string, string> | undefined;
+            const runtime = module.runtime as WorkflowDefinition["runtime"] | undefined;
+
+            // Validate graph config (Task #33)
+            if (graphConfig) {
+                const nodeIds = new Set(graphConfig.nodes.map(n => n.id));
+                
+                if (!nodeIds.has(graphConfig.startNode)) {
+                    console.warn(`[workflow:${name}] startNode "${graphConfig.startNode}" not found in nodes`);
+                }
+                
+                for (const edge of graphConfig.edges) {
+                    if (!nodeIds.has(edge.from)) {
+                        console.warn(`[workflow:${name}] edge from "${edge.from}" references unknown node`);
+                    }
+                    if (!nodeIds.has(edge.to)) {
+                        console.warn(`[workflow:${name}] edge to "${edge.to}" references unknown node`);
+                    }
+                }
+                
+                // Check for orphan nodes (nodes with no edges to/from them, except startNode)
+                const nodesWithEdges = new Set<string>();
+                for (const edge of graphConfig.edges) {
+                    nodesWithEdges.add(edge.from);
+                    nodesWithEdges.add(edge.to);
+                }
+                
+                for (const node of graphConfig.nodes) {
+                    if (node.id !== graphConfig.startNode && !nodesWithEdges.has(node.id)) {
+                        console.warn(`[workflow:${name}] node "${node.id}" is orphaned (no edges to/from it)`);
+                    }
+                }
+            }
+
+            const definition: WorkflowDefinition = {
                 name,
                 description: module.description ?? `Custom workflow: ${name}`,
                 aliases: module.aliases,
                 defaultConfig: module.defaultConfig,
+                version: module.version,
+                minSDKVersion: module.minSDKVersion,
+                stateVersion: module.stateVersion,
+                migrateState,
                 source,
+                graphConfig,
+                createState,
+                nodeDescriptions,
+                runtime,
             };
 
-            loaded.push(metadata);
+            if (typeof definition.minSDKVersion === "string") {
+                if (!parseSemver(definition.minSDKVersion)) {
+                    console.warn(
+                        `Workflow "${definition.name}" has invalid minSDKVersion "${definition.minSDKVersion}". Expected semver format like "1.2.3".`,
+                    );
+                } else if (
+                    isWorkflowMinSdkNewerThanCurrent(
+                        definition.minSDKVersion,
+                        VERSION,
+                    )
+                ) {
+                    console.warn(
+                        `Workflow "${definition.name}" requires SDK ${definition.minSDKVersion}, but current SDK is ${VERSION}.`,
+                    );
+                }
+            }
+
+            loaded.push(definition);
             loadedNames.add(name.toLowerCase());
 
             // Also track aliases
-            if (metadata.aliases) {
-                for (const alias of metadata.aliases) {
+            if (definition.aliases) {
+                for (const alias of definition.aliases) {
                     loadedNames.add(alias.toLowerCase());
                 }
             }
@@ -407,19 +616,9 @@ export function getAllWorkflows(): WorkflowMetadata[] {
 /**
  * Built-in workflow definitions.
  * These can be overridden by local or global workflows with the same name.
- *
- * The ralph workflow is a two-step workflow:
- *   1. decompose — Task list decomposition from user prompt
- *   2. implement — Main agent manually dispatches worker sub-agents
  */
-const BUILTIN_WORKFLOW_DEFINITIONS: WorkflowMetadata[] = [
-    {
-        name: "ralph",
-        description: "Start autonomous implementation workflow",
-        aliases: ["loop"],
-        argumentHint: '"<prompt-or-spec-path>"',
-        source: "builtin",
-    },
+const BUILTIN_WORKFLOW_DEFINITIONS: WorkflowDefinition[] = [
+    ralphWorkflowDefinition,
 ];
 
 // ============================================================================
@@ -428,16 +627,59 @@ const BUILTIN_WORKFLOW_DEFINITIONS: WorkflowMetadata[] = [
 
 /**
  * Create a command definition for a workflow.
+ * Handles both graph-based workflows (via executeWorkflow) and chat-based workflows.
  *
- * @param metadata - Workflow metadata
+ * @param metadata - Workflow metadata (may be a full WorkflowDefinition)
  * @returns Command definition for the workflow
  */
 function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
-    // Use specialized handler for ralph workflow
-    if (metadata.name === "ralph") {
-        return createRalphCommand(metadata);
+    const definition = metadata as WorkflowDefinition;
+    const hasExecutionLogic = definition.createState || definition.graphConfig;
+
+    if (hasExecutionLogic) {
+        // Graph-based workflow — use executeWorkflow() for full lifecycle
+        return {
+            name: metadata.name,
+            description: metadata.description,
+            category: "workflow",
+            aliases: metadata.aliases,
+            argumentHint: metadata.argumentHint,
+            execute: async (
+                args: string,
+                context: CommandContext,
+            ): Promise<CommandResult> => {
+                if (context.state.workflowActive) {
+                    return {
+                        success: false,
+                        message: `A workflow is already active (${context.state.workflowType}).`,
+                    };
+                }
+
+                let parsed: RalphCommandArgs;
+                try {
+                    parsed = parseRalphArgs(args);
+                } catch (e) {
+                    return {
+                        success: false,
+                        message: e instanceof Error ? e.message : String(e),
+                    };
+                }
+
+                // Ralph uses builder pattern (createRalphWorkflow) instead of declarative graphConfig
+                const compiledGraph = definition.name === "ralph"
+                    ? createRalphWorkflow() as unknown as import("../../workflows/graph/types.ts").CompiledGraph<BaseState>
+                    : undefined;
+
+                return executeWorkflow(definition, parsed.prompt, context, {
+                    compiledGraph,
+                    saveTasksToSession: saveTasksToActiveSession,
+                    eventBus: context.eventBus,
+                });
+            },
+        };
     }
 
+    // Chat-based workflow — simple state update, no graph execution
     return {
         name: metadata.name,
         description: metadata.description,
@@ -445,7 +687,6 @@ function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
         aliases: metadata.aliases,
         argumentHint: metadata.argumentHint,
         execute: (args: string, context: CommandContext): CommandResult => {
-            // Check if already in a workflow
             if (context.state.workflowActive) {
                 return {
                     success: false,
@@ -453,7 +694,6 @@ function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
                 };
             }
 
-            // Extract the prompt from args
             const initialPrompt = args.trim() || null;
 
             if (!initialPrompt) {
@@ -463,13 +703,11 @@ function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
                 };
             }
 
-            // Add a system message indicating workflow start
             context.addMessage(
                 "system",
                 `Starting **${metadata.name}** workflow...\n\nPrompt: "${initialPrompt}"`,
             );
 
-            // Return success with state updates
             return {
                 success: true,
                 message: `Workflow **${metadata.name}** initialized. Researching codebase...`,
@@ -486,402 +724,6 @@ function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
     };
 }
 
-/**
- * Parse a JSON task list from streaming content.
- * Handles both raw JSON arrays and content with markdown fences or extra text.
- */
-function parseTasks(content: string): NormalizedTodoItem[] {
-    const trimmed = content.trim();
-    let parsed: unknown = null;
-    try {
-        parsed = JSON.parse(trimmed);
-    } catch {
-        const match = trimmed.match(/\[[\s\S]*\]/);
-        if (match) {
-            try {
-                parsed = JSON.parse(match[0]);
-            } catch {
-                /* ignore */
-            }
-        }
-    }
-    if (!Array.isArray(parsed) || parsed.length === 0) return [];
-    return normalizeTodoItems(parsed);
-}
-
-function hasActionableTasks(tasks: NormalizedTodoItem[]): boolean {
-    const normalizeTaskId = (id: string): string => {
-        const trimmed = id.trim().toLowerCase();
-        return trimmed.startsWith("#") ? trimmed.slice(1) : trimmed;
-    };
-
-    const completedIds = new Set(
-        tasks
-            .filter((task) => task.status === "completed")
-            .map((task) => task.id)
-            .filter((id): id is string => Boolean(id))
-            .map((id) => normalizeTaskId(id))
-            .filter((id): id is string => Boolean(id)),
-    );
-
-    return tasks.some((task) => {
-        if (task.status === "in_progress") {
-            return true;
-        }
-        if (task.status !== "pending") {
-            return false;
-        }
-
-        const dependencies = (task.blockedBy ?? [])
-            .map((dependency) => normalizeTaskId(dependency))
-            .filter((dependency) => dependency.length > 0);
-
-        if (dependencies.length === 0) {
-            return true;
-        }
-
-        return dependencies.every((dependency) => completedIds.has(dependency));
-    });
-}
-
-type StreamAndWaitResult = Awaited<ReturnType<CommandContext["streamAndWait"]>>;
-
-async function streamWithInterruptRecovery(
-    context: CommandContext,
-    initialPrompt: string,
-    options?: { hideContent?: boolean },
-    onInterrupted?: (
-        userPrompt: string,
-    ) => { prompt: string; options?: { hideContent?: boolean } },
-): Promise<StreamAndWaitResult> {
-    let prompt = initialPrompt;
-    let streamOptions = options;
-
-    while (true) {
-        const result = await context.streamAndWait(prompt, streamOptions);
-
-        if (result.wasCancelled || !result.wasInterrupted) {
-            return result;
-        }
-
-        const userPrompt = await context.waitForUserInput();
-
-        if (onInterrupted) {
-            const next = onInterrupted(userPrompt);
-            prompt = next.prompt;
-            streamOptions = next.options;
-        } else {
-            prompt = userPrompt;
-            streamOptions = undefined;
-        }
-    }
-}
-
-function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
-    return {
-        name: metadata.name,
-        description: metadata.description,
-        category: "workflow",
-        aliases: metadata.aliases,
-        argumentHint: metadata.argumentHint,
-        execute: async (
-            args: string,
-            context: CommandContext,
-        ): Promise<CommandResult> => {
-            if (context.state.workflowActive) {
-                return {
-                    success: false,
-                    message: `A workflow is already active (${context.state.workflowType}).`,
-                };
-            }
-
-            let parsed: RalphCommandArgs;
-            try {
-                parsed = parseRalphArgs(args);
-            } catch (e) {
-                return {
-                    success: false,
-                    message: e instanceof Error ? e.message : String(e),
-                };
-            }
-
-            // ── Two-step workflow (async/await) ──────────────────────────────
-            // Step 1: Task decomposition via streamAndWait
-            // Step 2: Feature implementation via worker sub-agent
-            // ────────────────────────────────────────────────────────────────
-
-            // Initialize a workflow session via the SDK
-            const sessionId = crypto.randomUUID();
-            const sessionDir = getWorkflowSessionDir(sessionId);
-            void initWorkflowSession("ralph", sessionId).then((session) => {
-                activeSessions.set(session.sessionId, session);
-            });
-
-            context.updateWorkflowState({
-                workflowActive: true,
-                workflowType: metadata.name,
-                ralphConfig: { sessionId, userPrompt: parsed.prompt },
-            });
-
-            try {
-                // Step 1: Task decomposition (blocks until streaming completes)
-                // hideContent suppresses raw JSON rendering in the chat — content is still
-                // accumulated in StreamResult for parseTasks() and task-state persistence takes over.
-                const step1 = await streamWithInterruptRecovery(
-                    context,
-                    buildSpecToTasksPrompt(parsed.prompt),
-                    { hideContent: true },
-                    (userPrompt) => ({
-                        prompt: buildSpecToTasksPrompt(userPrompt),
-                        options: { hideContent: true },
-                    }),
-                );
-                if (step1.wasCancelled)
-                    return {
-                        success: true,
-                        stateUpdate: {
-                            workflowActive: false,
-                            workflowType: null,
-                            initialPrompt: null,
-                        },
-                    };
-
-                // Parse tasks from step 1 output and save to disk (file watcher handles UI)
-                const tasks = parseTasks(step1.content);
-                if (tasks.length > 0) {
-                    await saveTasksToActiveSession(tasks, sessionId);
-                    // Seed in-memory TodoWrite state so later payloads that omit IDs
-                    // can be reconciled against the planning-phase task list.
-                    context.setTodoItems(
-                        tasks.map((task) => ({
-                            ...task,
-                            status:
-                                task.status === "error"
-                                    ? "pending"
-                                    : task.status,
-                        })) as TodoItem[],
-                    );
-                }
-
-            // Track Ralph session metadata AFTER tasks.json exists on disk
-            context.setRalphSessionDir(sessionDir);
-            context.setRalphSessionId(sessionId);
-
-            // Register the planning-phase task IDs so the TodoWrite persistence
-            // guard can distinguish ralph task updates from sub-agent todo lists.
-            const taskIds = new Set(
-                tasks
-                    .map((t) => t.id)
-                    .filter((id): id is string => id != null && id.length > 0),
-            );
-            context.setRalphTaskIds(taskIds);
-
-            // Step 2: Execute tasks in a loop until all are completed.
-            // The agent's context is blank after Step 1 (hideContent suppressed the JSON),
-            // so inject the task list and instructions for worker dispatch, then loop
-            // until tasks.json shows all items completed.
-            if (tasks.length > 0) {
-                let iteration = 0;
-                let currentTasks: NormalizedTodoItem[] = tasks;
-
-                while (iteration < MAX_RALPH_ITERATIONS) {
-                    iteration++;
-                    const prompt =
-                        iteration === 1
-                            ? buildBootstrappedTaskContext(
-                                  currentTasks,
-                                  sessionId,
-                              )
-                            : buildContinuePrompt(currentTasks, sessionId);
-
-                    const result = await streamWithInterruptRecovery(
-                        context,
-                        prompt,
-                    );
-                    if (result.wasCancelled) break;
-
-                    // Read latest task state from disk after agent response
-                    const diskTasks = await readTasksFromDisk(sessionDir);
-                    if (diskTasks.length === 0) break;
-
-                    // Check if all tasks are completed
-                    const allCompleted = diskTasks.every(
-                        (t) => t.status === "completed",
-                    );
-                    if (allCompleted) break;
-
-                    // Check if remaining tasks are all stuck (including dependency deadlocks)
-                    const hasActionable = hasActionableTasks(diskTasks);
-                    if (!hasActionable) break;
-
-                    currentTasks = diskTasks;
-                }
-
-                // Step 3: Review & Fix phase
-                // Re-read tasks from disk to confirm final state
-                const finalTasks = await readTasksFromDisk(sessionDir);
-                const allTasksCompleted =
-                    finalTasks.length > 0 &&
-                    finalTasks.every((t) => t.status === "completed");
-
-                if (allTasksCompleted) {
-                    for (
-                        let reviewIteration = 0;
-                        reviewIteration < MAX_REVIEW_ITERATIONS;
-                        reviewIteration++
-                    ) {
-                        // Get current task state for review
-                        const reviewTasks = await readTasksFromDisk(sessionDir);
-                        const reviewPrompt = buildReviewPrompt(
-                            reviewTasks,
-                            parsed.prompt,
-                        );
-
-                        // Spawn reviewer sub-agent
-                        const reviewResult = await context.spawnSubagent({
-                            name: "reviewer",
-                            message: reviewPrompt,
-                        });
-
-                        if (!reviewResult.success || !reviewResult.output)
-                            break;
-
-                        // Parse review findings from reviewer output
-                        const review = parseReviewResult(reviewResult.output);
-                        if (!review) break;
-
-                        // Persist review artifacts to session directory
-                        const reviewArtifactPath = join(
-                            sessionDir,
-                            `review-${reviewIteration}.json`,
-                        );
-                        await writeFile(
-                            reviewArtifactPath,
-                            JSON.stringify(review, null, 2),
-                        );
-
-                        // Build fix specification from review findings
-                        const fixSpec = buildFixSpecFromReview(
-                            review,
-                            reviewTasks,
-                            parsed.prompt,
-                        );
-
-                        // If no actionable findings, we're done
-                        if (!fixSpec) break;
-
-                        // Persist fix spec to session directory
-                        const fixSpecPath = join(
-                            sessionDir,
-                            `fix-spec-${reviewIteration}.md`,
-                        );
-                        await writeFile(fixSpecPath, fixSpec);
-
-                        // Re-invoke ralph: decompose fix-spec into tasks (Step 1 again)
-                        const fixStep1 = await streamWithInterruptRecovery(
-                            context,
-                            buildSpecToTasksPrompt(fixSpec),
-                            { hideContent: true },
-                            (userPrompt) => ({
-                                prompt: buildSpecToTasksPrompt(userPrompt),
-                                options: { hideContent: true },
-                            }),
-                        );
-                        if (fixStep1.wasCancelled) break;
-
-                        const fixTasks = parseTasks(fixStep1.content);
-                        if (fixTasks.length === 0) break;
-
-                        // Save fix tasks and update tracking
-                        await saveTasksToActiveSession(fixTasks, sessionId);
-                        const fixTaskIds = new Set(
-                            fixTasks
-                                .map((t) => t.id)
-                                .filter(
-                                    (id): id is string =>
-                                        id != null && id.length > 0,
-                                ),
-                        );
-                        context.setRalphTaskIds(fixTaskIds);
-
-                        // Re-run implementation loop for fix tasks (Step 2 again)
-                        let fixIteration = 0;
-                        let currentFixTasks: NormalizedTodoItem[] = fixTasks;
-
-                        while (fixIteration < MAX_RALPH_ITERATIONS) {
-                            fixIteration++;
-                            const prompt =
-                                fixIteration === 1
-                                    ? buildBootstrappedTaskContext(
-                                          currentFixTasks,
-                                          sessionId,
-                                      )
-                                    : buildContinuePrompt(
-                                          currentFixTasks,
-                                          sessionId,
-                                      );
-
-                            const result = await streamWithInterruptRecovery(
-                                context,
-                                prompt,
-                            );
-                            if (result.wasCancelled) break;
-
-                            // Read latest task state from disk after agent response
-                            const diskTasks =
-                                await readTasksFromDisk(sessionDir);
-                            if (diskTasks.length === 0) break;
-
-                            // Check if all fix tasks are completed
-                            const allFixCompleted = diskTasks.every(
-                                (t) => t.status === "completed",
-                            );
-                            if (allFixCompleted) break;
-
-                            // Check if remaining fix tasks are all stuck (including dependency deadlocks)
-                            const hasActionable = hasActionableTasks(diskTasks);
-                            if (!hasActionable) break;
-
-                            currentFixTasks = diskTasks;
-                        }
-                    }
-                }
-            }
-
-            return {
-                success: true,
-                stateUpdate: {
-                    workflowActive: false,
-                    workflowType: null,
-                    initialPrompt: null,
-                },
-            };
-            } catch (error) {
-                // Silent exit for workflow cancellation (double Ctrl+C)
-                if (error instanceof Error && error.message === "Workflow cancelled") {
-                    return {
-                        success: true,
-                        stateUpdate: {
-                            workflowActive: false,
-                            workflowType: null,
-                            initialPrompt: null,
-                        },
-                    };
-                }
-                return {
-                    success: false,
-                    message: `Workflow failed: ${error instanceof Error ? error.message : String(error)}`,
-                    stateUpdate: {
-                        workflowActive: false,
-                        workflowType: null,
-                        initialPrompt: null,
-                    },
-                };
-            }
-        },
-    };
-}
-
 // ============================================================================
 // FILE WATCHER
 // ============================================================================
@@ -893,10 +735,19 @@ export function watchTasksJson(
         watchImpl?: (
             filename: string,
             listener:
-                | ((eventType: string, filename: string | Buffer | null) => void)
-                | ((eventType: string, filename: string | Buffer | null) => Promise<void>),
+                | ((
+                      eventType: string,
+                      filename: string | Buffer | null,
+                  ) => void)
+                | ((
+                      eventType: string,
+                      filename: string | Buffer | null,
+                  ) => Promise<void>),
         ) => FSWatcher;
-        readFileImpl?: (path: string, encoding: BufferEncoding) => Promise<string>;
+        readFileImpl?: (
+            path: string,
+            encoding: BufferEncoding,
+        ) => Promise<string>;
     },
 ): () => void {
     const tasksPath = join(sessionDir, "tasks.json");
@@ -908,7 +759,9 @@ export function watchTasksJson(
     const isTasksJsonEvent = (filename: string | Buffer | null): boolean => {
         if (filename == null) return true;
         const normalized =
-            typeof filename === "string" ? filename : filename.toString("utf-8");
+            typeof filename === "string"
+                ? filename
+                : filename.toString("utf-8");
         return normalized === "tasks.json";
     };
 

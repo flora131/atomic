@@ -5,7 +5,8 @@
     },
     "rules": {
         "no-unused-vars": "warn",
-        "no-control-regex": "off"
+        "no-control-regex": "off",
+        "unicorn/no-thenable": "off"
     },
     "ignorePatterns": ["node_modules", "dist", "*.test.ts"]
 }

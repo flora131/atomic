@@ -8,6 +8,7 @@
 import React from "react";
 import type { TaskListPart } from "../../parts/types.ts";
 import { TaskListBox } from "../task-list-panel.tsx";
+import { sortTasksTopologically } from "../task-order.ts";
 import { SPACING } from "../../constants/spacing.ts";
 
 export interface TaskListPartDisplayProps {
@@ -16,10 +17,12 @@ export interface TaskListPartDisplayProps {
 }
 
 export function TaskListPartDisplay({ part }: TaskListPartDisplayProps): React.ReactNode {
+  const sortedItems = sortTasksTopologically(part.items);
+
   return (
     <box flexDirection="column" paddingLeft={SPACING.INDENT} paddingRight={SPACING.INDENT} marginTop={SPACING.SECTION}>
       <TaskListBox
-        items={part.items}
+        items={sortedItems}
         expanded={part.expanded}
         headerTitle="Todo Progress"
       />

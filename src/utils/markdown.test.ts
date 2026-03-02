@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { parseMarkdownFrontmatter } from "./markdown";
 
 describe("parseMarkdownFrontmatter", () => {
@@ -555,6 +557,15 @@ Body`;
       expect(result?.frontmatter.time).toBe("12:30:45");
     });
 
+    test("handles CRLF line endings (Windows)", () => {
+      const content = "---\r\nname: test-agent\r\ndescription: A test agent\r\n---\r\nBody content";
+      const result = parseMarkdownFrontmatter(content);
+      expect(result).not.toBeNull();
+      expect(result?.frontmatter.name).toBe("test-agent");
+      expect(result?.frontmatter.description).toBe("A test agent");
+      expect(result?.body).toBe("Body content");
+    });
+
     test("key with empty value followed by non-indented next line", () => {
       // Value is empty, next line exists but is not indented (not array/object)
       const content = `---
@@ -570,4 +581,5 @@ Body`;
       expect(result?.frontmatter.nextkey).toBe("hello");
     });
   });
+
 });

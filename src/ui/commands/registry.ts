@@ -11,6 +11,7 @@ import type { Session, ModelDisplayInfo, McpServerConfig } from "../../sdk/types
 import type { AgentType, ModelOperations } from "../../models";
 import type { TodoItem } from "../../sdk/tools/todo-write.ts";
 import type { McpServerToggleMap, McpSnapshotView } from "../utils/mcp-output.ts";
+import type { SubagentSpawnOptions, SubagentStreamResult } from "../../workflows/graph/types.ts";
 
 // ============================================================================
 // TYPES
@@ -33,8 +34,10 @@ export interface StreamResult {
  * to the underlying SDK session.
  */
 export interface StreamMessageOptions {
-  /** Sub-agent name for OpenCode dispatch via AgentPartInput. Ignored by Claude/Copilot. */
+  /** Sub-agent name for dispatch via SDK-native mechanisms. OpenCode uses AgentPartInput, Claude uses options.agent on query(). Copilot ignores this field. */
   agent?: string;
+  /** Marks this stream as @agent-only so completion can be finalized without SDK onComplete. */
+  isAgentOnlyStream?: boolean;
 }
 
 /**
@@ -97,6 +100,15 @@ export interface CommandContext {
    */
   spawnSubagent: (options: SpawnSubagentOptions) => Promise<SpawnSubagentResult>;
   /**
+   * Spawn multiple sub-agents concurrently using independent SDK sessions.
+   * Each sub-agent runs in its own session, so all
+   * agents can execute truly in parallel (unlike spawnSubagent which is serial).
+   *
+   * @param agents - Array of sub-agent spawn configurations
+   * @returns Promise with results for all agents (uses Promise.allSettled internally)
+   */
+  spawnSubagentParallel?: (agents: SubagentSpawnOptions[], abortSignal?: AbortSignal) => Promise<SubagentStreamResult[]>;
+  /**
    * Send a message and wait for the streaming response to complete.
    * Returns the accumulated content and whether it was interrupted.
    * Use this for multi-step workflows that need sequential coordination.
@@ -118,19 +130,19 @@ export interface CommandContext {
    */
   setTodoItems: (items: TodoItem[]) => void;
   /**
-   * Set the ralph workflow session directory for the persistent task list panel.
+   * Set the workflow session directory for the persistent task list panel.
    */
-  setRalphSessionDir: (dir: string | null) => void;
+  setWorkflowSessionDir: (dir: string | null) => void;
   /**
-   * Set the ralph workflow session ID for the persistent task list panel.
+   * Set the workflow session ID for the persistent task list panel.
    */
-  setRalphSessionId: (id: string | null) => void;
+  setWorkflowSessionId: (id: string | null) => void;
   /**
-   * Set the known ralph task IDs from the planning phase.
-   * Used to guard TodoWrite persistence so that only ralph-originated
+   * Set the known workflow task IDs from the planning phase.
+   * Used to guard TodoWrite persistence so that only workflow-originated
    * updates are written to tasks.json (prevents sub-agent overwrites).
    */
-  setRalphTaskIds: (ids: Set<string>) => void;
+  setWorkflowTaskIds: (ids: Set<string>) => void;
   /**
    * Wait for the user to type and submit a prompt.
    * Used by workflows after a stream interruption (Ctrl+C) to yield control
@@ -141,6 +153,8 @@ export interface CommandContext {
    * Update workflow state from a command handler.
    */
   updateWorkflowState: (update: Partial<CommandContextState>) => void;
+  /** The event bus for publishing/subscribing to streaming events */
+  eventBus?: import("../../events/event-bus.ts").EventBus;
   /** The type of agent currently in use (claude, opencode, copilot) */
   agentType?: AgentType;
   /** Model operations interface for listing, setting, and resolving models */
@@ -195,10 +209,11 @@ export interface CommandContextState {
   specApproved?: boolean;
   /** Feedback from spec rejection */
   feedback?: string | null;
-  /** Ralph-specific workflow configuration */
-  ralphConfig?: {
+  /** Workflow-specific configuration */
+  workflowConfig?: {
     userPrompt: string | null;
     sessionId?: string;
+    workflowName?: string;
   };
 }
 

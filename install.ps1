@@ -17,6 +17,63 @@ $BinDir = if ($env:ATOMIC_INSTALL_DIR) { $env:ATOMIC_INSTALL_DIR } elseif ($Inst
 $DataDir = if ($env:LOCALAPPDATA) { "${env:LOCALAPPDATA}\atomic" } else { "${Home}\AppData\Local\atomic" }
 $AtomicHome = "${Home}\.atomic"
 
+function Install-BunIfMissing {
+    if (Get-Command bun -ErrorAction SilentlyContinue) {
+        return
+    }
+
+    Write-Info "bun not detected. Installing bun..."
+    try {
+        Invoke-RestMethod "https://bun.sh/install.ps1" | Invoke-Expression
+    } catch {
+        Write-Warn "Failed to install bun automatically: $_"
+    }
+
+    $bunBin = Join-Path $Home ".bun\bin"
+    if (Test-Path (Join-Path $bunBin "bun.exe")) {
+        $env:Path = "${bunBin};${env:Path}"
+    }
+
+    if (Get-Command bun -ErrorAction SilentlyContinue) {
+        Write-Info "bun installed successfully"
+    } else {
+        Write-Warn "Failed to install bun automatically. Install bun manually from https://bun.sh"
+    }
+}
+
+function Install-NpmIfMissing {
+    if (Get-Command npm -ErrorAction SilentlyContinue) {
+        return
+    }
+
+    Write-Info "npm not detected. Installing Node.js/npm..."
+    $installed = $false
+
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        winget install --id OpenJS.NodeJS.LTS -e --silent --accept-source-agreements --accept-package-agreements
+        $installed = $LASTEXITCODE -eq 0
+    } elseif (Get-Command choco -ErrorAction SilentlyContinue) {
+        choco install nodejs-lts -y --no-progress
+        $installed = $LASTEXITCODE -eq 0
+    } elseif (Get-Command scoop -ErrorAction SilentlyContinue) {
+        scoop install nodejs-lts
+        $installed = $LASTEXITCODE -eq 0
+    } else {
+        Write-Warn "Could not find winget, choco, or scoop to install npm automatically."
+    }
+
+    $nodeBin = Join-Path ${env:ProgramFiles} "nodejs"
+    if (Test-Path (Join-Path $nodeBin "npm.cmd")) {
+        $env:Path = "${nodeBin};${env:Path}"
+    }
+
+    if ($installed -and (Get-Command npm -ErrorAction SilentlyContinue)) {
+        Write-Info "npm installed successfully"
+    } elseif (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+        Write-Warn "Failed to install npm automatically. Install Node.js/npm manually."
+    }
+}
+
 function Sync-GlobalAgentConfigs {
     param([string]$SourceRoot)
 
@@ -48,6 +105,9 @@ function Sync-GlobalAgentConfigs {
 
     Remove-Item -Recurse -Force (Join-Path $copilotDir "workflows") -ErrorAction SilentlyContinue
     Remove-Item -Force (Join-Path $copilotDir "dependabot.yml") -ErrorAction SilentlyContinue
+
+    Install-BunIfMissing
+    Install-NpmIfMissing
 
     # Install @playwright/cli globally if a package manager is available.
     # Do not install Chromium browsers here; defer to first use.

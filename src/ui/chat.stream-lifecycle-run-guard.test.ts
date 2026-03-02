@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { shouldProcessStreamLifecycleEvent } from "./chat.tsx";
+import { shouldFinalizeAgentOnlyStream, shouldProcessStreamLifecycleEvent } from "./chat.tsx";
 
 function shouldFinalizeOnIdle(args: {
   activeRunId: number | null;
@@ -41,5 +41,43 @@ describe("chat stream lifecycle run guard", () => {
         isStreaming: true,
       }),
     ).toBe(true);
+  });
+});
+
+describe("agent-only stream finalization guard", () => {
+  test("finalizes when live sub-agent state is present", () => {
+    expect(
+      shouldFinalizeAgentOnlyStream({
+        hasStreamingMessage: true,
+        isStreaming: true,
+        isAgentOnlyStream: true,
+        liveAgentCount: 1,
+        messageAgentCount: 0,
+      }),
+    ).toBe(true);
+  });
+
+  test("finalizes when live state is cleared but message snapshot still has sub-agents", () => {
+    expect(
+      shouldFinalizeAgentOnlyStream({
+        hasStreamingMessage: true,
+        isStreaming: true,
+        isAgentOnlyStream: true,
+        liveAgentCount: 0,
+        messageAgentCount: 1,
+      }),
+    ).toBe(true);
+  });
+
+  test("does not finalize before any sub-agent data exists", () => {
+    expect(
+      shouldFinalizeAgentOnlyStream({
+        hasStreamingMessage: true,
+        isStreaming: true,
+        isAgentOnlyStream: true,
+        liveAgentCount: 0,
+        messageAgentCount: 0,
+      }),
+    ).toBe(false);
   });
 });

@@ -1014,6 +1014,19 @@ export function shouldProcessStreamLifecycleEvent(
   return activeRunId !== null && activeRunId === eventRunId;
 }
 
+export function shouldFinalizeAgentOnlyStream(args: {
+  hasStreamingMessage: boolean;
+  isStreaming: boolean;
+  isAgentOnlyStream: boolean;
+  liveAgentCount: number;
+  messageAgentCount: number;
+}): boolean {
+  return args.hasStreamingMessage
+    && args.isStreaming
+    && args.isAgentOnlyStream
+    && (args.liveAgentCount > 0 || args.messageAgentCount > 0);
+}
+
 /**
  * Format stream.session.truncation notifications for the UI.
  */
@@ -2473,8 +2486,12 @@ export function ChatApp({
     hideStreamContentRef.current = false;
     if (resolver) {
       resolver({ content: lastStreamingContentRef.current, wasInterrupted: true });
+    } else {
+      // Continue draining the message queue even after an error so queued
+      // messages are not silently dropped.
+      continueQueuedConversation();
     }
-  }, [setMessagesWindowed, stopSharedStreamState, finalizeThinkingSourceTracking]);
+  }, [setMessagesWindowed, stopSharedStreamState, finalizeThinkingSourceTracking, continueQueuedConversation]);
 
   const enqueueShortcutLabel = useMemo(() => getEnqueueShortcutLabel(), []);
 
@@ -3143,6 +3160,18 @@ export function ChatApp({
     }
 
     if (isStreamingRef.current) {
+      // Flush pending batched events BEFORE the continuation check so tool
+      // completion state is current.  Without this flush, adapters that do
+      // not emit stream.turn.end (e.g. Claude) may still have
+      // stream.tool.complete events pending in the batch dispatcher when
+      // session.idle fires, causing hasRunningToolRef to be stale (true)
+      // and shouldContinueParentSessionLoop to block queue processing.
+      //
+      // OpenCode / Copilot avoid this because stream.turn.end already
+      // triggers a dispatcher flush (see handler above), but Claude
+      // sessions never fire turn lifecycle events.
+      batchDispatcher.flush();
+
       const continuationSignal = shouldContinueParentSessionLoop({
         finishReason: lastTurnFinishReasonRef.current ?? undefined,
         hasActiveForegroundAgents: hasActiveForegroundAgents(parallelAgentsRef.current),
@@ -3154,9 +3183,6 @@ export function ChatApp({
         return;
       }
 
-      // Flush pending batched events before finalization so no trailing
-      // content is lost (e.g. tool-only responses where text.complete never fires).
-      batchDispatcher.flush();
       handleStreamComplete();
     }
   });
@@ -3956,20 +3982,23 @@ export function ChatApp({
     // when all spawned sub-agents have completed and there is no pending SDK
     // stream completion.  Without this, the placeholder assistant message
     // would stay in the streaming state indefinitely.
+    const messageId = streamingMessageIdRef.current;
+    const messageAgents = messageId ? (messages.find((m) => m.id === messageId)?.parallelAgents ?? []) : [];
     if (
-      streamingMessageIdRef.current &&
-      isStreamingRef.current &&
-      isAgentOnlyStreamRef.current &&
-      parallelAgents.length > 0
+      shouldFinalizeAgentOnlyStream({
+        hasStreamingMessage: Boolean(messageId),
+        isStreaming: isStreamingRef.current,
+        isAgentOnlyStream: isAgentOnlyStreamRef.current,
+        liveAgentCount: parallelAgents.length,
+        messageAgentCount: messageAgents.length,
+      })
     ) {
-      const messageId = streamingMessageIdRef.current;
       const durationMs = streamingStartRef.current
         ? Date.now() - streamingStartRef.current
         : undefined;
       // SDK-side correlation cleanup may clear live parallelAgents before this
       // finalizer runs. Fall back to the agents already baked onto the message
       // so we can still stop streaming and preserve the final tree state.
-      const messageAgents = messages.find((m) => m.id === messageId)?.parallelAgents ?? [];
       const sourceAgents = parallelAgents.length > 0 ? parallelAgents : messageAgents;
       const finalizedAgents = sourceAgents.map((a) => {
         if (a.background) return a;
@@ -4603,8 +4632,14 @@ export function ChatApp({
           // correct prompt parts without string encoding.
           instruction = task;
           silentOptions = { agent: agentName };
+        } else if (agentType === "claude") {
+          // Claude SDK dispatches sub-agents via `options.agent` on the
+          // query() call. Pass the agent name structurally so the client
+          // sets `options.agent = agentName`.
+          instruction = task;
+          silentOptions = { agent: agentName };
         } else {
-          // Claude SDK and Copilot SDK use the Task tool for sub-agent dispatch.
+          // Copilot SDK uses the Task tool for sub-agent dispatch.
           // Explicitly request the agent tool and ask for the complete output
           // to be passed through without additional commentary.
           instruction = `Invoke the "${agentName}" sub-agent with the following task. Return ONLY the sub-agent's complete output with no additional commentary or explanation.

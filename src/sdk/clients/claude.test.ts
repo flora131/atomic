@@ -207,6 +207,41 @@ describe("ClaudeAgentClient observability and parity", () => {
     expect(integrity.unmatchedSubagentCompletes).toBe(1);
   });
 
+  test("does not bind session.error handlers to Stop hooks", () => {
+    const client = new ClaudeAgentClient();
+    const seenErrors: string[] = [];
+
+    const unsubscribe = client.on("session.error", (event) => {
+      const data = event.data as { error?: Error | string };
+      const errorValue = data.error;
+      seenErrors.push(
+        errorValue instanceof Error ? errorValue.message : String(errorValue),
+      );
+    });
+
+    try {
+      const privateClient = client as unknown as {
+        registeredHooks: Record<string, Array<unknown> | undefined>;
+        emitEvent: (
+          eventType: "session.error",
+          sessionId: string,
+          data: Record<string, unknown>,
+        ) => void;
+      };
+
+      expect(privateClient.registeredHooks.Stop).toBeUndefined();
+
+      privateClient.emitEvent("session.error", "session-1", {
+        error: "Maximum turns exceeded",
+        code: "MAX_TURNS",
+      });
+
+      expect(seenErrors).toEqual(["Maximum turns exceeded"]);
+    } finally {
+      unsubscribe();
+    }
+  });
+
   test("maps hook sdk session IDs to wrapped session IDs for tool and subagent events", async () => {
     const client = new ClaudeAgentClient();
     const seenToolSessionIds: string[] = [];

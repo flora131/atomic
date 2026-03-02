@@ -56,6 +56,7 @@ import {
   normalizeTurnStartId,
   resetTurnMetadataState,
 } from "./task-turn-normalization.ts";
+import { SubagentToolTracker } from "./subagent-tool-tracker.ts";
 import type {
   CodingAgentClient,
   Session,
@@ -102,6 +103,9 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
   private pendingToolIdsByName = new Map<string, string[]>();
   private toolCorrelationAliases = new Map<string, string>();
   private syntheticToolCounter = 0;
+  private ownedSessionIds = new Set<string>();
+  private subagentSessionToAgentId = new Map<string, string>();
+  private subagentTracker: SubagentToolTracker | null = null;
   private runtimeFeatureFlags: WorkflowRuntimeFeatureFlags = {
     ...DEFAULT_WORKFLOW_RUNTIME_FEATURE_FLAGS,
   };
@@ -162,6 +166,9 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     this.pendingToolIdsByName.clear();
     this.toolCorrelationAliases.clear();
     this.syntheticToolCounter = 0;
+    this.ownedSessionIds = new Set([this.sessionId]);
+    this.subagentSessionToAgentId.clear();
+    this.subagentTracker = new SubagentToolTracker(this.bus, this.sessionId, runId);
     this.lastSeenOutputTokens = 0;
     this.accumulatedOutputTokens = 0;
     this.runtimeFeatureFlags = this.resolveRuntimeFeatureFlags(runtimeFeatureFlags);
@@ -814,8 +821,8 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
    */
   private createToolStartHandler(runId: number): EventHandler<"tool.start"> {
     return (event) => {
-      // Only process events for this session
-      if (event.sessionId !== this.sessionId) {
+      // Process tool events for parent and owned sub-agent sessions.
+      if (!this.isOwnedSession(event.sessionId)) {
         return;
       }
 
@@ -826,6 +833,13 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
       const toolName = this.normalizeToolName(data.toolName);
       const toolId = this.resolveToolStartId(sdkCorrelationId, runId, toolName);
       this.registerToolCorrelationAliases(toolId, sdkToolUseId, sdkToolCallId);
+      const parentAgentId = this.resolveParentAgentId(
+        event.sessionId,
+        data as Record<string, unknown>,
+      );
+      if (parentAgentId) {
+        this.subagentTracker?.onToolStart(parentAgentId, toolName);
+      }
 
       const busEvent: BusEvent<"stream.tool.start"> = {
         type: "stream.tool.start",
@@ -837,6 +851,7 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
           toolName,
           toolInput: (data.toolInput ?? {}) as Record<string, unknown>,
           sdkCorrelationId: sdkCorrelationId ?? toolId,
+          ...(parentAgentId ? { parentAgentId } : {}),
         },
       };
 
@@ -851,8 +866,8 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     runId: number,
   ): EventHandler<"tool.complete"> {
     return (event) => {
-      // Only process events for this session
-      if (event.sessionId !== this.sessionId) {
+      // Process tool events for parent and owned sub-agent sessions.
+      if (!this.isOwnedSession(event.sessionId)) {
         return;
       }
 
@@ -866,6 +881,13 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
       const toolId = this.resolveToolCompleteId(sdkCorrelationId, runId, toolName);
       const toolInput = this.asRecord((data as Record<string, unknown>).toolInput);
       this.registerToolCorrelationAliases(toolId, sdkToolUseId, sdkToolCallId);
+      const parentAgentId = this.resolveParentAgentId(
+        event.sessionId,
+        data as Record<string, unknown>,
+      );
+      if (parentAgentId) {
+        this.subagentTracker?.onToolComplete(parentAgentId);
+      }
 
       const busEvent: BusEvent<"stream.tool.complete"> = {
         type: "stream.tool.complete",
@@ -880,6 +902,7 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
           success: data.success,
           error: data.error,
           sdkCorrelationId: sdkCorrelationId ?? toolId,
+          ...(parentAgentId ? { parentAgentId } : {}),
         },
       };
 
@@ -909,6 +932,14 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
           toolInput: (data as Record<string, unknown>).toolInput,
         },
       );
+      this.subagentTracker?.registerAgent(data.subagentId);
+      const subagentSessionId = this.asString(
+        (data as Record<string, unknown>).subagentSessionId,
+      );
+      if (subagentSessionId) {
+        this.ownedSessionIds.add(subagentSessionId);
+        this.subagentSessionToAgentId.set(subagentSessionId, data.subagentId);
+      }
 
       // Extract SDK correlation ID
       const rawSdkCorrelationId = this.asString(
@@ -947,6 +978,13 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
       }
 
       const data = event.data as SubagentCompleteEventData;
+      this.subagentTracker?.removeAgent(data.subagentId);
+      for (const [subagentSessionId, agentId] of this.subagentSessionToAgentId.entries()) {
+        if (agentId === data.subagentId) {
+          this.subagentSessionToAgentId.delete(subagentSessionId);
+          this.ownedSessionIds.delete(subagentSessionId);
+        }
+      }
 
       const busEvent: BusEvent<"stream.agent.complete"> = {
         type: "stream.agent.complete",
@@ -972,7 +1010,7 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     runId: number,
   ): EventHandler<"subagent.update"> {
     return (event) => {
-      if (event.sessionId !== this.sessionId) return;
+      if (!this.isOwnedSession(event.sessionId)) return;
 
       const data = event.data as SubagentUpdateEventData;
       const busEvent: BusEvent<"stream.agent.update"> = {
@@ -1574,6 +1612,10 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     this.pendingToolIdsByName.clear();
     this.toolCorrelationAliases.clear();
     this.syntheticToolCounter = 0;
+    this.ownedSessionIds.clear();
+    this.subagentSessionToAgentId.clear();
+    this.subagentTracker?.reset();
+    this.subagentTracker = null;
     this.runtimeFeatureFlags = { ...DEFAULT_WORKFLOW_RUNTIME_FEATURE_FLAGS };
     resetTurnMetadataState(this.turnMetadataState);
     this.lastSeenOutputTokens = 0;
@@ -1584,5 +1626,23 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     overrides: WorkflowRuntimeFeatureFlagOverrides | undefined,
   ): WorkflowRuntimeFeatureFlags {
     return resolveWorkflowRuntimeFeatureFlags(overrides);
+  }
+
+  private isOwnedSession(eventSessionId: string): boolean {
+    return eventSessionId === this.sessionId || this.ownedSessionIds.has(eventSessionId);
+  }
+
+  private resolveParentAgentId(
+    eventSessionId: string,
+    data: Record<string, unknown>,
+  ): string | undefined {
+    const explicitParentAgentId = this.asString(data.parentAgentId ?? data.parentId);
+    if (explicitParentAgentId) {
+      return explicitParentAgentId;
+    }
+    if (eventSessionId === this.sessionId) {
+      return undefined;
+    }
+    return this.subagentSessionToAgentId.get(eventSessionId);
   }
 }

@@ -189,6 +189,32 @@ async function syncProjectScmSkills(options: SyncProjectScmSkillsOptions): Promi
   return copiedCount;
 }
 
+function decodeSpawnOutput(output: Uint8Array): string {
+  return new TextDecoder().decode(output).trim();
+}
+
+function runPlaywrightCliInstall(): void {
+  const playwrightCliPath = Bun.which("playwright-cli");
+  const command = playwrightCliPath
+    ? [playwrightCliPath, "install"]
+    : [process.execPath, "x", "@playwright/cli", "install"];
+
+  const result = Bun.spawnSync({
+    cmd: command,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  if (result.success) {
+    return;
+  }
+
+  const stderr = decodeSpawnOutput(result.stderr);
+  const stdout = decodeSpawnOutput(result.stdout);
+  const details = stderr || stdout || "No command output captured.";
+  throw new Error(`Failed to run '${command.join(" ")}': ${details}`);
+}
+
 /**
  * Run the interactive init command
  */
@@ -425,6 +451,17 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
       error instanceof Error ? error.message : "Unknown error occurred"
     );
     process.exit(1);
+  }
+
+  const playwrightInstallSpinner = spinner();
+  playwrightInstallSpinner.start("Installing Playwright browser runtime...");
+  try {
+    runPlaywrightCliInstall();
+    playwrightInstallSpinner.stop("Playwright browser runtime installed");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    playwrightInstallSpinner.stop("Playwright browser runtime installation failed");
+    log.warn(`Could not run 'playwright-cli install': ${message}`);
   }
 
   // Check for WSL on Windows

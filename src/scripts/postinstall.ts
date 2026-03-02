@@ -5,7 +5,11 @@ import {
   syncAtomicGlobalAgentConfigs,
 } from "../utils/atomic-global-config";
 import { getConfigRoot } from "../utils/config-path";
-import { deployPlaywrightSkill, installPlaywrightCli } from "./postinstall-playwright";
+import {
+  deployPlaywrightSkill,
+  ensurePlaywrightPackageManagers,
+  installPlaywrightCli,
+} from "./postinstall-playwright";
 
 function formatErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -28,6 +32,12 @@ async function main(): Promise<void> {
     await syncAtomicGlobalAgentConfigs(configRoot);
   } catch (error) {
     warnPostinstallStep("failed to sync ~/.atomic global configs", error);
+  }
+
+  try {
+    ensurePlaywrightPackageManagers();
+  } catch (error) {
+    warnPostinstallStep("failed to install missing package managers (bun/npm)", error);
   }
 
   try {

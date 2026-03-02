@@ -128,7 +128,6 @@ function mapEventTypeToHookEvent(eventType: EventType): HookEvent | null {
     const mapping: Partial<Record<EventType, HookEvent>> = {
         "session.start": "SessionStart",
         "session.idle": "SessionEnd",
-        "session.error": "Stop",
         "tool.start": "PreToolUse",
         "tool.complete": "PostToolUse",
         "subagent.start": "SubagentStart",
@@ -332,6 +331,8 @@ export class ClaudeAgentClient implements CodingAgentClient {
     private toolUseIdToAgentId = new Map<string, string>();
     /** Maps tool_use_id → wrapped session ID for terminal hook routing. */
     private toolUseIdToSessionId = new Map<string, string>();
+    /** Maps tool_use_id → task description from task_started for subagent labels. */
+    private taskDescriptionByToolUseId = new Map<string, string>();
 
     /**
      * Maps sub-agent SDK session ID → agent_id.
@@ -691,6 +692,15 @@ export class ClaudeAgentClient implements CodingAgentClient {
                         }
 
                         if (sdkMessage.type === "assistant") {
+                            // Skip sub-agent assistant messages — only
+                            // the main agent's response should be returned.
+                            const parentToolUseId = (
+                                sdkMessage as Record<string, unknown>
+                            ).parent_tool_use_id;
+                            if (parentToolUseId) {
+                                continue;
+                            }
+
                             const { type, content, thinkingSourceKey } =
                                 extractMessageContent(sdkMessage);
                             lastAssistantMessage = {
@@ -944,6 +954,20 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                     }
                                 }
                                 } else if (sdkMessage.type === "assistant") {
+                                    // Skip sub-agent assistant messages — they
+                                    // belong to a child agent context and their
+                                    // tool calls are handled by the hook path
+                                    // (PreToolUse/PostToolUse) with proper
+                                    // parentAgentId routing. Yielding them here
+                                    // would leak sub-agent tool_use (and text)
+                                    // into the main chat without parentAgentId.
+                                    const parentToolUseId = (
+                                        sdkMessage as Record<string, unknown>
+                                    ).parent_tool_use_id;
+                                    if (parentToolUseId) {
+                                        continue;
+                                    }
+
                                     const { type, content, thinkingSourceKey } =
                                         extractMessageContent(sdkMessage);
 
@@ -1164,6 +1188,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                     for (const [toolUseId, mappedSessionId] of this.toolUseIdToSessionId.entries()) {
                         if (mappedSessionId === sessionId) {
                             this.toolUseIdToSessionId.delete(toolUseId);
+                            this.taskDescriptionByToolUseId.delete(toolUseId);
                         }
                     }
                     // Clean up sub-agent session tracking
@@ -1209,7 +1234,11 @@ export class ClaudeAgentClient implements CodingAgentClient {
         if (sdkMessage.type === "system" && sdkMessage.subtype === "task_progress") {
             const msg = sdkMessage as Record<string, unknown>;
             const toolUseId = msg.tool_use_id as string | undefined;
-            const agentId = toolUseId ? this.toolUseIdToAgentId.get(toolUseId) : undefined;
+            const mappedAgentId = toolUseId ? this.toolUseIdToAgentId.get(toolUseId) : undefined;
+            const sessionScopedAgentId = typeof msg.session_id === "string"
+                ? this.subagentSdkSessionIdToAgentId.get(msg.session_id)
+                : undefined;
+            const agentId = mappedAgentId ?? sessionScopedAgentId;
             if (agentId) {
                 const usage = msg.usage as { tool_uses?: number } | undefined;
                 this.emitEvent("subagent.update", sessionId, {
@@ -1220,11 +1249,26 @@ export class ClaudeAgentClient implements CodingAgentClient {
             }
         }
 
+        if (sdkMessage.type === "system" && sdkMessage.subtype === "task_started") {
+            const msg = sdkMessage as Record<string, unknown>;
+            const toolUseId = msg.tool_use_id as string | undefined;
+            const description = typeof msg.description === "string"
+                ? msg.description.trim()
+                : "";
+            if (toolUseId && description.length > 0) {
+                this.taskDescriptionByToolUseId.set(toolUseId, description);
+            }
+        }
+
         // Handle task_notification messages (sub-agent completion notification)
         if (sdkMessage.type === "system" && sdkMessage.subtype === "task_notification") {
             const msg = sdkMessage as Record<string, unknown>;
             const toolUseId = msg.tool_use_id as string | undefined;
-            const agentId = toolUseId ? this.toolUseIdToAgentId.get(toolUseId) : undefined;
+            const mappedAgentId = toolUseId ? this.toolUseIdToAgentId.get(toolUseId) : undefined;
+            const sessionScopedAgentId = typeof msg.session_id === "string"
+                ? this.subagentSdkSessionIdToAgentId.get(msg.session_id)
+                : undefined;
+            const agentId = mappedAgentId ?? sessionScopedAgentId;
             if (agentId) {
                 this.emitEvent("subagent.complete", sessionId, {
                     subagentId: agentId,
@@ -1234,6 +1278,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 if (toolUseId) {
                     this.toolUseIdToAgentId.delete(toolUseId);
                     this.toolUseIdToSessionId.delete(toolUseId);
+                    this.taskDescriptionByToolUseId.delete(toolUseId);
                 }
             }
         }
@@ -1722,6 +1767,27 @@ export class ClaudeAgentClient implements CodingAgentClient {
                     if (hookInput.agent_type) {
                         eventData.subagentType = hookInput.agent_type;
                     }
+                    if (hookInput.parent_tool_use_id) {
+                        eventData.parentToolUseId = hookInput.parent_tool_use_id;
+                    }
+                    const taskFromHook = typeof hookInput.description === "string"
+                        ? hookInput.description.trim()
+                        : typeof hookInput.prompt === "string"
+                            ? hookInput.prompt.trim()
+                            : typeof hookInput.task === "string"
+                                ? hookInput.task.trim()
+                                : undefined;
+                    if (targetHookEvent === "SubagentStart") {
+                        const taskFromStartedMessage = resolvedToolUseId
+                            ? this.taskDescriptionByToolUseId.get(resolvedToolUseId)
+                            : undefined;
+                        const resolvedTask = taskFromHook && taskFromHook.length > 0
+                            ? taskFromHook
+                            : taskFromStartedMessage;
+                        if (resolvedTask) {
+                            eventData.task = resolvedTask;
+                        }
+                    }
                     if (targetHookEvent === "SubagentStop") {
                         // SubagentStop implies successful completion
                         eventData.success = true;
@@ -1766,6 +1832,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                     if (targetHookEvent === "SubagentStop" && resolvedToolUseId) {
                         this.toolUseIdToAgentId.delete(resolvedToolUseId);
                         this.toolUseIdToSessionId.delete(resolvedToolUseId);
+                        this.taskDescriptionByToolUseId.delete(resolvedToolUseId);
                         // Clean up sub-agent session tracking
                         const stoppedAgentId = (eventData.subagentId ?? hookInput.agent_id) as string | undefined;
                         if (stoppedAgentId) {

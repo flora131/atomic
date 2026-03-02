@@ -232,6 +232,76 @@ describe("OpenCodeStreamAdapter", () => {
     expect(toolCompleteEvents[0].runId).toBe(42);
   });
 
+  test("streams child-session tool events for registered subagents", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 42,
+      messageId: "msg-1",
+    });
+
+    client.emit("subagent.start" as EventType, {
+      type: "subagent.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        subagentId: "agent-child-1",
+        subagentType: "general-purpose",
+        toolCallId: "task-tool-1",
+        subagentSessionId: "child-session-1",
+      },
+    } as AgentEvent<"subagent.start">);
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "child-session-1",
+      timestamp: Date.now(),
+      data: {
+        toolName: "bash",
+        toolInput: { command: "echo hello" },
+        toolUseId: "child-tool-1",
+      },
+    } as AgentEvent<"tool.start">);
+
+    client.emit("tool.complete" as EventType, {
+      type: "tool.complete",
+      sessionId: "child-session-1",
+      timestamp: Date.now(),
+      data: {
+        toolName: "bash",
+        toolResult: "ok",
+        success: true,
+        toolUseId: "child-tool-1",
+      },
+    } as AgentEvent<"tool.complete">);
+
+    await streamPromise;
+
+    const toolStart = events.find(
+      (e) => e.type === "stream.tool.start" && e.data.toolId === "child-tool-1",
+    );
+    expect(toolStart).toBeDefined();
+    expect(toolStart?.data.parentAgentId).toBe("agent-child-1");
+
+    const toolComplete = events.find(
+      (e) => e.type === "stream.tool.complete" && e.data.toolId === "child-tool-1",
+    );
+    expect(toolComplete).toBeDefined();
+    expect(toolComplete?.data.parentAgentId).toBe("agent-child-1");
+
+    const updates = events.filter(
+      (e) => e.type === "stream.agent.update" && e.data.agentId === "agent-child-1",
+    );
+    expect(updates.length).toBeGreaterThanOrEqual(2);
+    expect(updates.some((e) => e.data.currentTool === "bash" && e.data.toolUses === 1)).toBe(true);
+    expect(updates.some((e) => e.data.currentTool === undefined && e.data.toolUses === 1)).toBe(true);
+  });
+
   test("publishes session truncation and compaction events from SDK client", async () => {
     const events = collectEvents(bus);
     const client = createMockClient();
@@ -812,6 +882,31 @@ describe("ClaudeStreamAdapter", () => {
     expect(errorEvents.length).toBe(1);
     expect(errorEvents[0].data.error).toBe("Claude API error");
     expect(errorEvents[0].runId).toBe(100);
+  });
+
+  test("ignores malformed session.error events with no message or code", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const stream = mockAsyncStream([{ type: "text", content: "done" }]);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 100,
+      messageId: "msg-2",
+    });
+
+    client.emit("session.error" as EventType, {
+      type: "session.error",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {},
+    } as AgentEvent<"session.error">);
+
+    await streamPromise;
+
+    const errorEvents = events.filter((e) => e.type === "stream.session.error");
+    expect(errorEvents.length).toBe(0);
   });
 
   test("dispose() stops processing via AbortController", async () => {

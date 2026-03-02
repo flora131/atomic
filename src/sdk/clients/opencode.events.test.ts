@@ -1601,16 +1601,19 @@ describe("OpenCodeClient event mapping", () => {
     const client = new OpenCodeClient();
     const starts: Array<{
       subagentId?: string;
+      subagentType?: string;
       toolCallId?: string;
     }> = [];
 
     const unsubStart = client.on("subagent.start", (event) => {
       const data = event.data as {
         subagentId?: string;
+        subagentType?: string;
         toolCallId?: string;
       };
       starts.push({
         subagentId: data.subagentId,
+        subagentType: data.subagentType,
         toolCallId: data.toolCallId,
       });
     });
@@ -1637,7 +1640,7 @@ describe("OpenCodeClient event mapping", () => {
       },
     });
 
-    // Agent part should correlate to task_tool_1 (not callID fallback).
+    // Agent part should merge with the synthesized task agent (not create a duplicate).
     (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
       type: "message.part.updated",
       properties: {
@@ -1654,8 +1657,121 @@ describe("OpenCodeClient event mapping", () => {
 
     unsubStart();
 
-    const mappedAgentStart = starts.find((entry) => entry.subagentId === "agent_from_task");
-    expect(mappedAgentStart?.toolCallId).toBe("task_tool_1");
+    // The AgentPart should NOT create a separate entry — it merges with the
+    // synthesized task agent by reusing its ID ("task-agent-task_tool_1").
+    const duplicateEntry = starts.find((entry) => entry.subagentId === "agent_from_task");
+    expect(duplicateEntry).toBeUndefined();
+
+    // All events should use the synthesized ID with the correct correlation.
+    const mergedEvents = starts.filter((entry) => entry.subagentId === "task-agent-task_tool_1");
+    expect(mergedEvents.length).toBeGreaterThanOrEqual(1);
+    expect(mergedEvents.every((e) => e.toolCallId === "task_tool_1")).toBe(true);
+
+    // The last event should carry the real agent type from the AgentPart.
+    const lastMerged = mergedEvents[mergedEvents.length - 1];
+    expect(lastMerged?.subagentType).toBe("debugger");
+  });
+
+  test("ignores user @mention agent parts to avoid orphan subagent rows", () => {
+    const client = new OpenCodeClient();
+    const starts: Array<{
+      subagentId?: string;
+      subagentType?: string;
+      toolCallId?: string;
+    }> = [];
+
+    const unsubStart = client.on("subagent.start", (event) => {
+      const data = event.data as {
+        subagentId?: string;
+        subagentType?: string;
+        toolCallId?: string;
+      };
+      starts.push({
+        subagentId: data.subagentId,
+        subagentType: data.subagentType,
+        toolCallId: data.toolCallId,
+      });
+    });
+
+    // OpenCode persists @agent mentions as USER AgentPart entries.
+    // These should not become subagent.start rows.
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.updated",
+      properties: {
+        info: {
+          id: "msg_user_1",
+          sessionID: "ses_parent",
+          role: "user",
+        },
+      },
+    });
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "user_agent_ref",
+          sessionID: "ses_parent",
+          messageID: "msg_user_1",
+          type: "agent",
+          name: "debugger",
+        },
+      },
+    });
+
+    // Task tool + assistant AgentPart represent the real sub-agent dispatch.
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "task_tool_1",
+          callID: "task_call_1",
+          sessionID: "ses_parent",
+          messageID: "msg_asst_1",
+          type: "tool",
+          tool: "task",
+          state: {
+            status: "pending",
+            input: {
+              subagent_type: "debugger",
+              description: "Investigate initialization hang",
+            },
+          },
+        },
+      },
+    });
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.updated",
+      properties: {
+        info: {
+          id: "msg_asst_1",
+          sessionID: "ses_parent",
+          role: "assistant",
+        },
+      },
+    });
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "agent_from_task",
+          callID: "call_agent_1",
+          sessionID: "ses_parent",
+          messageID: "msg_asst_1",
+          type: "agent",
+          name: "debugger",
+        },
+      },
+    });
+
+    unsubStart();
+
+    // User @mention AgentPart should be ignored.
+    expect(starts.find((entry) => entry.subagentId === "user_agent_ref")).toBeUndefined();
+
+    // Real dispatch should still be represented by the synthesized task agent.
+    const mergedEvents = starts.filter((entry) => entry.subagentId === "task-agent-task_tool_1");
+    expect(mergedEvents.length).toBeGreaterThanOrEqual(1);
+    expect(mergedEvents.every((entry) => entry.toolCallId === "task_tool_1")).toBe(true);
   });
 
   test("does not leak completed synthesized task correlation into later agent parts", () => {

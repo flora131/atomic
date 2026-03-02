@@ -565,6 +565,12 @@ export class OpenCodeClient implements CodingAgentClient {
   private reasoningPartIds = new Set<string>();
 
   /**
+   * Track message roles so part events can distinguish user @mentions
+   * from assistant-emitted sub-agent lifecycle parts.
+   */
+  private messageRolesBySession = new Map<string, Map<string, "user" | "assistant">>();
+
+  /**
    * Create a new OpenCodeClient
    * @param options - Client options
    */
@@ -710,6 +716,7 @@ export class OpenCodeClient implements CodingAgentClient {
     this.subagentStateByParentSession.clear();
     this.childSessionToParentSession.clear();
     this.reasoningPartIds.clear();
+    this.messageRolesBySession.clear();
 
     this.emitEvent("session.idle", "connection", { reason: "disconnected" });
   }
@@ -977,6 +984,7 @@ export class OpenCodeClient implements CodingAgentClient {
     if (!sessionId) return;
     this.activeSessions.delete(sessionId);
     this.sessionStateById.delete(sessionId);
+    this.messageRolesBySession.delete(sessionId);
     this.clearSubagentSessionState(sessionId);
     if (this.currentSessionId === sessionId) {
       this.currentSessionId = null;
@@ -1142,6 +1150,28 @@ export class OpenCodeClient implements CodingAgentClient {
     this.childSessionToParentSession.delete(parentSessionId);
   }
 
+  private setMessageRole(
+    sessionId: string,
+    messageId: string,
+    role: "user" | "assistant",
+  ): void {
+    if (!sessionId || !messageId) return;
+    let roles = this.messageRolesBySession.get(sessionId);
+    if (!roles) {
+      roles = new Map<string, "user" | "assistant">();
+      this.messageRolesBySession.set(sessionId, roles);
+    }
+    roles.set(messageId, role);
+  }
+
+  private getMessageRole(
+    sessionId: string,
+    messageId: string,
+  ): "user" | "assistant" | undefined {
+    if (!sessionId || !messageId) return undefined;
+    return this.messageRolesBySession.get(sessionId)?.get(messageId);
+  }
+
   /**
    * Handle events from SDK and map to unified event types
    */
@@ -1251,6 +1281,19 @@ export class OpenCodeClient implements CodingAgentClient {
       case "message.updated": {
         // Handle message updates (info contains the message)
         const info = properties?.info as Record<string, unknown> | undefined;
+        const infoRole = info?.role;
+        const infoMessageId = info?.id;
+        const infoSessionId = info?.sessionID;
+        if (
+          (infoRole === "user" || infoRole === "assistant")
+          && typeof infoMessageId === "string"
+          && infoMessageId.length > 0
+          && typeof infoSessionId === "string"
+          && infoSessionId.length > 0
+        ) {
+          this.setMessageRole(infoSessionId, infoMessageId, infoRole);
+        }
+
         if (info?.role === "assistant") {
           const msgSessionId = (info?.sessionID as string) ?? "";
           this.emitEvent("message.complete", msgSessionId, {
@@ -1280,6 +1323,8 @@ export class OpenCodeClient implements CodingAgentClient {
         // Using properties first collapses child tools into the parent stream,
         // which breaks inline task anchoring and pushes agent trees to the end.
         const partSessionId = (part?.sessionID as string) ?? (properties?.sessionID as string) ?? "";
+        const partMessageId = (part?.messageID as string) ?? "";
+        const partMessageRole = this.getMessageRole(partSessionId, partMessageId);
         const parentSessionId = this.findParentSessionForPart(properties, partSessionId);
         const sessionSubagentState = parentSessionId
           ? this.getSubagentSessionState(parentSessionId)
@@ -1549,6 +1594,12 @@ export class OpenCodeClient implements CodingAgentClient {
             }
           }
         } else if (part?.type === "agent") {
+          if (partMessageRole === "user") {
+            // User @mentions are prompt input references, not runtime
+            // sub-agent lifecycle events.
+            break;
+          }
+
           // AgentPart: { type: "agent", name, id, sessionID, messageID }
           // Map agent parts to subagent.start events.
           //
@@ -1566,25 +1617,75 @@ export class OpenCodeClient implements CodingAgentClient {
           // the redundant tool card display.  The ToolPart for "task" is
           // always emitted before the AgentPart it spawns.
           const taskToolPartId = this.dequeuePendingTaskToolPartId(sessionSubagentState);
-          const correlationId = taskToolPartId ?? (part?.callID as string) ?? agentPartId;
-          debugLog("subagent.start", {
-            partType: "agent",
-            subagentId: agentPartId,
-            subagentType: agentName,
-            toolCallId: correlationId,
-            taskToolPartId: taskToolPartId ?? "none",
-          });
-          sessionSubagentState.pendingAgentParts.push({ partId: agentPartId, agentName });
-          this.emitEvent("subagent.start", parentSessionId || partSessionId, {
-            subagentId: agentPartId,
-            subagentType: agentName,
-            toolCallId: correlationId,
-            // subagentSessionId intentionally omitted — part.sessionID is
-            // the parent session, not the child.  The correct child session
-            // will be registered via a follow-up subagent.start when the
-            // first child tool event arrives.
-          });
+
+          // When AgentPartInput triggers dispatch, the SDK emits BOTH a Task
+          // ToolPart (which the synthesizer at line ~1401 already turned into
+          // a subagent.start with id "task-agent-<partId>") AND this AgentPart.
+          // Without merging, two entries appear in the sub-agent tree and the
+          // AgentPart entry never receives a completion event, causing the
+          // stream to get stuck at initialization.
+          //
+          // Fix: when the AgentPart correlates with a synthesized task agent,
+          // re-emit subagent.start with the SYNTHESIZED id (updating the
+          // existing tree entry with the real agent name) instead of creating
+          // a second entry with the AgentPart's own id.
+          if (taskToolPartId && sessionSubagentState.synthesizedTaskAgentIds.has(taskToolPartId)) {
+            const synthesizedAgentId = `task-agent-${taskToolPartId}`;
+
+            // Update the pending entry's agent name so child-session discovery
+            // inherits the real name.
+            const pendingEntry = sessionSubagentState.pendingAgentParts.find(
+              (p) => p.partId === synthesizedAgentId,
+            );
+            if (pendingEntry) {
+              pendingEntry.agentName = agentName;
+            }
+
+            // Also update the synthesized agent type map so completion events
+            // carry the correct agent type.
+            sessionSubagentState.synthesizedTaskAgentTypes.set(taskToolPartId, agentName);
+
+            debugLog("subagent.start", {
+              partType: "agent-merged-with-synthesized",
+              subagentId: synthesizedAgentId,
+              originalAgentPartId: agentPartId,
+              subagentType: agentName,
+              toolCallId: taskToolPartId,
+            });
+
+            // Re-emit with the synthesized ID — the UI merges by agentId so
+            // this updates the existing row instead of appending a duplicate.
+            this.emitEvent("subagent.start", parentSessionId || partSessionId, {
+              subagentId: synthesizedAgentId,
+              subagentType: agentName,
+              toolCallId: taskToolPartId,
+            });
+          } else {
+            const correlationId = taskToolPartId ?? (part?.callID as string) ?? agentPartId;
+            debugLog("subagent.start", {
+              partType: "agent",
+              subagentId: agentPartId,
+              subagentType: agentName,
+              toolCallId: correlationId,
+              taskToolPartId: taskToolPartId ?? "none",
+            });
+            sessionSubagentState.pendingAgentParts.push({ partId: agentPartId, agentName });
+            this.emitEvent("subagent.start", parentSessionId || partSessionId, {
+              subagentId: agentPartId,
+              subagentType: agentName,
+              toolCallId: correlationId,
+              // subagentSessionId intentionally omitted — part.sessionID is
+              // the parent session, not the child.  The correct child session
+              // will be registered via a follow-up subagent.start when the
+              // first child tool event arrives.
+            });
+          }
         } else if (part?.type === "subtask") {
+          if (partMessageRole === "user") {
+            // Defensive parity with AgentPart handling above.
+            break;
+          }
+
           // SubtaskPart: { type: "subtask", prompt, description, agent, ... }
           // Some OpenCode versions emit sub-agent dispatch as "subtask" parts
           // instead of "agent" parts. Normalize both to subagent.start.
@@ -1598,27 +1699,62 @@ export class OpenCodeClient implements CodingAgentClient {
 
           // Use the pending Task ToolPart ID for correlation (same as AgentPart above).
           const taskToolPartId = this.dequeuePendingTaskToolPartId(sessionSubagentState);
-          const correlationId = taskToolPartId ?? subtaskPartId;
-          debugLog("subagent.start", {
-            partType: "subtask",
-            subagentId: subtaskPartId,
-            subagentType: subtaskAgent,
-            toolCallId: correlationId,
-            taskToolPartId: taskToolPartId ?? "none",
-          });
-          sessionSubagentState.pendingAgentParts.push({ partId: subtaskPartId, agentName: subtaskAgent });
-          this.emitEvent("subagent.start", parentSessionId || partSessionId, {
-            subagentId: subtaskPartId,
-            subagentType: subtaskAgent,
-            task: subtaskDescription || subtaskPrompt,
-            toolCallId: correlationId,
-            toolInput: {
-              prompt: subtaskPrompt,
-              description: subtaskDescription,
-              agent: subtaskAgent,
-            },
-            // subagentSessionId intentionally omitted — see AgentPart comment.
-          });
+
+          // Same merge-with-synthesized logic as AgentPart — see comment there.
+          if (taskToolPartId && sessionSubagentState.synthesizedTaskAgentIds.has(taskToolPartId)) {
+            const synthesizedAgentId = `task-agent-${taskToolPartId}`;
+
+            const pendingEntry = sessionSubagentState.pendingAgentParts.find(
+              (p) => p.partId === synthesizedAgentId,
+            );
+            if (pendingEntry) {
+              pendingEntry.agentName = subtaskAgent;
+            }
+
+            sessionSubagentState.synthesizedTaskAgentTypes.set(taskToolPartId, subtaskAgent);
+
+            debugLog("subagent.start", {
+              partType: "subtask-merged-with-synthesized",
+              subagentId: synthesizedAgentId,
+              originalSubtaskPartId: subtaskPartId,
+              subagentType: subtaskAgent,
+              toolCallId: taskToolPartId,
+            });
+
+            this.emitEvent("subagent.start", parentSessionId || partSessionId, {
+              subagentId: synthesizedAgentId,
+              subagentType: subtaskAgent,
+              task: subtaskDescription || subtaskPrompt,
+              toolCallId: taskToolPartId,
+              toolInput: {
+                prompt: subtaskPrompt,
+                description: subtaskDescription,
+                agent: subtaskAgent,
+              },
+            });
+          } else {
+            const correlationId = taskToolPartId ?? subtaskPartId;
+            debugLog("subagent.start", {
+              partType: "subtask",
+              subagentId: subtaskPartId,
+              subagentType: subtaskAgent,
+              toolCallId: correlationId,
+              taskToolPartId: taskToolPartId ?? "none",
+            });
+            sessionSubagentState.pendingAgentParts.push({ partId: subtaskPartId, agentName: subtaskAgent });
+            this.emitEvent("subagent.start", parentSessionId || partSessionId, {
+              subagentId: subtaskPartId,
+              subagentType: subtaskAgent,
+              task: subtaskDescription || subtaskPrompt,
+              toolCallId: correlationId,
+              toolInput: {
+                prompt: subtaskPrompt,
+                description: subtaskDescription,
+                agent: subtaskAgent,
+              },
+              // subagentSessionId intentionally omitted — see AgentPart comment.
+            });
+          }
         } else if (part?.type === "step-finish") {
           // StepFinishPart signals the end of a sub-agent step
           // Map to subagent.complete with success based on reason

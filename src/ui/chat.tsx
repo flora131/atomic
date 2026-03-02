@@ -173,6 +173,7 @@ import {
   hasActiveForegroundAgents,
   shouldFinalizeDeferredStream,
   applyStreamPartEvent,
+  isSubagentToolName,
   mergeParallelAgentsIntoParts,
   shouldGroupSubagentTrees,
   syncToolCallsIntoParts,
@@ -203,6 +204,7 @@ const RUNTIME_ENVELOPE_PART_TYPES = new Set<StreamPartEvent["type"]>([
 ]);
 
 const DEFAULT_SUBAGENT_TASK_LABEL = "sub-agent task";
+const SYNTHETIC_TASK_AGENT_PREFIX = "synthetic-task-agent:";
 
 export function isGenericSubagentTaskLabel(task: string | undefined): boolean {
   const normalized = (task ?? "").trim().toLowerCase();
@@ -225,6 +227,206 @@ export function mergeAgentTaskLabel(
   const nextTask = resolveIncomingSubagentTaskLabel(incomingTask, agentType);
   if (isGenericSubagentTaskLabel(existingTask)) return nextTask;
   return isGenericSubagentTaskLabel(nextTask) ? (existingTask ?? nextTask) : (existingTask ?? nextTask);
+}
+
+function asNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function parseSyntheticTaskAgentType(input: Record<string, unknown>): string | undefined {
+  return asNonEmptyString(
+    input.subagent_type
+    ?? input.subagentType
+    ?? input.agent_type
+    ?? input.agentType
+    ?? input.agent
+    ?? input.type,
+  );
+}
+
+function parseSyntheticTaskAgentName(input: Record<string, unknown>): string {
+  return parseSyntheticTaskAgentType(input) ?? "agent";
+}
+
+function parseSyntheticTaskLabel(input: Record<string, unknown>): string {
+  const description = asNonEmptyString(
+    input.description
+    ?? input.task
+    ?? input.title,
+  );
+  return resolveIncomingSubagentTaskLabel(description, parseSyntheticTaskAgentType(input));
+}
+
+function parseSyntheticBackgroundFlag(input: Record<string, unknown>): boolean {
+  const mode = asNonEmptyString(input.mode)?.toLowerCase();
+  return input.run_in_background === true || mode === "background";
+}
+
+function hasSyntheticTaskExecutionDetails(input: Record<string, unknown>): boolean {
+  return Boolean(
+    asNonEmptyString(input.description)
+    || asNonEmptyString(input.prompt)
+    || asNonEmptyString(input.task)
+    || asNonEmptyString(input.title),
+  );
+}
+
+function buildSyntheticTaskAgentId(toolId: string): string {
+  return `${SYNTHETIC_TASK_AGENT_PREFIX}${toolId}`;
+}
+
+export function isSyntheticTaskAgentId(agentId: string): boolean {
+  return agentId.startsWith(SYNTHETIC_TASK_AGENT_PREFIX);
+}
+
+function extractTaskToolResultText(output: unknown): string | undefined {
+  if (typeof output === "string") {
+    return asNonEmptyString(output);
+  }
+  if (!output || typeof output !== "object") {
+    return undefined;
+  }
+  const record = output as Record<string, unknown>;
+  return asNonEmptyString(record.result ?? record.text ?? record.output);
+}
+
+function isAbortLikeToolError(error: string | undefined): boolean {
+  const normalized = error?.trim().toLowerCase() ?? "";
+  if (!normalized) return false;
+  return normalized.includes("abort")
+    || normalized.includes("cancel")
+    || normalized.includes("interrupt");
+}
+
+export function upsertSyntheticTaskAgentForToolStart(args: {
+  agents: ParallelAgent[];
+  provider: AgentType | undefined;
+  toolName: string;
+  toolId: string;
+  input: Record<string, unknown>;
+  startedAt: string;
+  agentId?: string;
+}): ParallelAgent[] {
+  if (args.provider !== "opencode") return args.agents;
+  if (args.agentId) return args.agents;
+  if (!isSubagentToolName(args.toolName)) return args.agents;
+
+  const existingRealAgent = args.agents.find(
+    (agent) => agent.taskToolCallId === args.toolId && !isSyntheticTaskAgentId(agent.id),
+  );
+  if (existingRealAgent) {
+    return args.agents;
+  }
+
+  const agentName = parseSyntheticTaskAgentName(args.input);
+  const task = parseSyntheticTaskLabel(args.input);
+  const background = parseSyntheticBackgroundFlag(args.input);
+  const hasExecutionDetails = hasSyntheticTaskExecutionDetails(args.input);
+  if (!hasExecutionDetails) {
+    const hasExistingSynthetic = args.agents.some(
+      (agent) =>
+        agent.id === buildSyntheticTaskAgentId(args.toolId)
+        || (isSyntheticTaskAgentId(agent.id) && agent.taskToolCallId === args.toolId),
+    );
+    // OpenCode often emits an empty placeholder task.start before the
+    // hydrated payload. Skip creating a visible placeholder row so the tree
+    // starts with descriptive task metadata when available.
+    if (!hasExistingSynthetic) {
+      return args.agents;
+    }
+  }
+  const nextStatus: ParallelAgent["status"] = background
+    ? "background"
+    : (hasExecutionDetails ? "running" : "pending");
+  // The Task/Agent call is only the dispatch envelope, not a sub-agent's
+  // internal tool execution. Keep tool progress empty until real sub-agent
+  // tool events arrive.
+  const nextToolUses = 0;
+  const nextCurrentTool = undefined;
+  const syntheticId = buildSyntheticTaskAgentId(args.toolId);
+  const existingSyntheticIndex = args.agents.findIndex(
+    (agent) =>
+      agent.id === syntheticId
+      || (isSyntheticTaskAgentId(agent.id) && agent.taskToolCallId === args.toolId),
+  );
+
+  if (existingSyntheticIndex >= 0) {
+    return args.agents.map((agent, index) =>
+      index === existingSyntheticIndex
+        ? {
+          ...agent,
+          id: syntheticId,
+          taskToolCallId: args.toolId,
+          name: agentName,
+          task: mergeAgentTaskLabel(agent.task, task, agentName),
+          status: nextStatus,
+          background,
+          startedAt: agent.startedAt || args.startedAt,
+          toolUses: Math.max(agent.toolUses ?? 0, nextToolUses),
+          currentTool: nextCurrentTool ?? agent.currentTool,
+          error: undefined,
+        }
+        : agent
+    );
+  }
+
+  return [
+    ...args.agents,
+    {
+      id: syntheticId,
+      taskToolCallId: args.toolId,
+      name: agentName,
+      task,
+      status: nextStatus,
+      startedAt: args.startedAt,
+      background,
+      currentTool: nextCurrentTool,
+      toolUses: nextToolUses,
+    },
+  ];
+}
+
+export function finalizeSyntheticTaskAgentForToolComplete(args: {
+  agents: ParallelAgent[];
+  provider: AgentType | undefined;
+  toolName: string;
+  toolId: string;
+  success: boolean;
+  output: unknown;
+  error?: string;
+  completedAtMs: number;
+  agentId?: string;
+}): ParallelAgent[] {
+  if (args.provider !== "opencode") return args.agents;
+  if (args.agentId) return args.agents;
+  if (!isSubagentToolName(args.toolName)) return args.agents;
+
+  const syntheticId = buildSyntheticTaskAgentId(args.toolId);
+  const syntheticIndex = args.agents.findIndex((agent) => agent.id === syntheticId);
+  if (syntheticIndex < 0) {
+    return args.agents;
+  }
+
+  return args.agents.map((agent, index) => {
+    if (index !== syntheticIndex) return agent;
+    const startedAtMs = new Date(agent.startedAt).getTime();
+    const durationMs = Number.isFinite(startedAtMs)
+      ? Math.max(0, args.completedAtMs - startedAtMs)
+      : agent.durationMs;
+    const status: ParallelAgent["status"] = args.success
+      ? "completed"
+      : (isAbortLikeToolError(args.error) ? "interrupted" : "error");
+    return {
+      ...agent,
+      status,
+      currentTool: agent.currentTool,
+      result: args.success ? (extractTaskToolResultText(args.output) ?? agent.result) : agent.result,
+      error: args.success ? undefined : (args.error ?? agent.error),
+      durationMs,
+    };
+  });
 }
 
 export function isRuntimeEnvelopePartEvent(
@@ -949,6 +1151,8 @@ export const defaultWorkflowChatState: WorkflowChatState = {
 export interface MessageBubbleProps {
   /** The message to display */
   message: ChatMessage;
+  /** Live parallel agents for this message (used for same-tick tree sync) */
+  liveParallelAgents?: ParallelAgent[];
   /** Whether this is the last message in the list */
   isLast?: boolean;
   /** Optional syntax style for markdown rendering */
@@ -1034,6 +1238,28 @@ export function reconcilePreviousStreamingPlaceholder(
         : msg
     )
     .filter((msg) => !(msg.id === previousStreamingId && !msg.content.trim()));
+}
+
+export function shouldHideStaleSubagentToolPlaceholder(
+  message: ChatMessage,
+  activeMessageIds: ReadonlySet<string>,
+): boolean {
+  if (message.role !== "assistant") return false;
+  if (message.streaming) return false;
+  if (activeMessageIds.has(message.id)) return false;
+  if (message.content.trim().length > 0) return false;
+  if ((message.parallelAgents?.length ?? 0) > 0) return false;
+
+  const parts = message.parts ?? [];
+  if (parts.length === 0) return false;
+
+  for (const part of parts) {
+    if (part.type !== "tool") return false;
+    const toolPart = part as ToolPart;
+    if (!isSubagentToolName(toolPart.toolName)) return false;
+  }
+
+  return true;
 }
 
 /**
@@ -1570,25 +1796,27 @@ function getRenderableAssistantParts(
   message: ChatMessage,
   isLastMessage: boolean,
   hideAskUserQuestion: boolean,
+  liveParallelAgents?: ParallelAgent[],
 ): Part[] {
   let parts = [...(message.parts ?? [])];
 
   // Keep ToolPart state synchronized with the source toolCalls array.
   parts = syncToolCallsIntoParts(parts, message.toolCalls ?? [], message.timestamp, message.id);
 
-  // Only merge parallel agents into parts if agent parts don't already exist.
-  // During streaming, agents are already added to parts via applyStreamPartEvent.
-  // This check prevents duplicate agent trees from being rendered.
-  if (message.parallelAgents && message.parallelAgents.length > 0) {
-    const hasExistingAgentParts = parts.some((part) => part.type === "agent");
-    if (!hasExistingAgentParts) {
-      parts = mergeParallelAgentsIntoParts(
-        parts,
-        message.parallelAgents,
-        message.timestamp,
-        shouldGroupSubagentTrees(message, isLastMessage),
-      );
-    }
+  const effectiveParallelAgents = liveParallelAgents ?? message.parallelAgents;
+  if (effectiveParallelAgents && effectiveParallelAgents.length > 0) {
+    parts = mergeParallelAgentsIntoParts(
+      parts,
+      effectiveParallelAgents,
+      message.timestamp,
+      shouldGroupSubagentTrees(
+        {
+          ...message,
+          parallelAgents: effectiveParallelAgents,
+        },
+        isLastMessage,
+      ),
+    );
   }
 
   if (message.mcpSnapshot) {
@@ -1678,7 +1906,22 @@ function getRenderableAssistantParts(
 
   return parts;
 }
-export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestion = false, hideLoading = false, todoItems, tasksExpanded = false, workflowSessionDir, workflowActive = false, showTodoPanel = true, elapsedMs, collapsed = false, streamingMeta }: MessageBubbleProps): React.ReactNode {
+export function MessageBubble({
+  message,
+  liveParallelAgents,
+  isLast,
+  syntaxStyle,
+  hideAskUserQuestion = false,
+  hideLoading = false,
+  todoItems,
+  tasksExpanded = false,
+  workflowSessionDir,
+  workflowActive = false,
+  showTodoPanel = true,
+  elapsedMs,
+  collapsed = false,
+  streamingMeta,
+}: MessageBubbleProps): React.ReactNode {
   const themeColors = useThemeColors();
   const persistentTaskPanelSessionDir = isLast && showTodoPanel && workflowSessionDir
     ? workflowSessionDir
@@ -1763,6 +2006,7 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
       message,
       Boolean(isLast),
       hideAskUserQuestion,
+      liveParallelAgents,
     );
     const renderableMessage = {
       ...message,
@@ -1772,7 +2016,8 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
     };
 
     // Detect active background agents on this message
-    const hasActiveBackgroundAgents = getActiveBackgroundAgents(message.parallelAgents ?? []).length > 0;
+    const effectiveParallelAgents = liveParallelAgents ?? message.parallelAgents;
+    const hasActiveBackgroundAgents = getActiveBackgroundAgents(effectiveParallelAgents ?? []).length > 0;
     const liveTaskItems = message.streaming ? todoItems : message.taskItems;
     const showLoadingIndicator = shouldShowMessageLoadingIndicator(message, liveTaskItems);
 
@@ -2782,6 +3027,18 @@ export function ChatApp({
     }
 
     toolNameByIdRef.current.set(toolId, toolName);
+    const syntheticStartedAt = new Date().toISOString();
+    setParallelAgents((current) =>
+      upsertSyntheticTaskAgentForToolStart({
+        agents: current,
+        provider: agentType,
+        toolName,
+        toolId,
+        input,
+        startedAt: syntheticStartedAt,
+        ...(agentId ? { agentId } : {}),
+      })
+    );
 
     // Tracking tool executions in streaming state was dead code (never read), removed
     // Track blocking tool lifecycles synchronously for stream finalization.
@@ -2873,7 +3130,7 @@ export function ChatApp({
       // Now: Never persist TodoWrite during active workflow.
 
     }
-  }, [isWorkflowTaskUpdate, applyAutoCompactionIndicator, resolveAgentScopedMessageId]);
+  }, [agentType, isWorkflowTaskUpdate, applyAutoCompactionIndicator, resolveAgentScopedMessageId]);
 
   /**
    * Handle tool execution complete event.
@@ -2952,6 +3209,19 @@ export function ChatApp({
       });
     }
     toolMessageIdByIdRef.current.delete(toolId);
+    setParallelAgents((current) =>
+      finalizeSyntheticTaskAgentForToolComplete({
+        agents: current,
+        provider: agentType,
+        toolName: completedToolName,
+        toolId,
+        success,
+        output,
+        error,
+        completedAtMs: Date.now(),
+        ...(agentId ? { agentId } : {}),
+      })
+    );
 
     // Update persistent todo panel when TodoWrite completes (handles late input)
     const isTodoWriteCompletion = isTodoWriteToolName(completedToolName);
@@ -2978,7 +3248,7 @@ export function ChatApp({
       // Now: Never persist TodoWrite during active workflow.
 
     }
-  }, [isWorkflowTaskUpdate, continueQueuedConversation, applyAutoCompactionIndicator]);
+  }, [agentType, isWorkflowTaskUpdate, continueQueuedConversation, applyAutoCompactionIndicator]);
 
   const handleStreamComplete = useCallback(function handleStreamCompleteImpl() {
     const messageId = streamingMessageIdRef.current;
@@ -3701,14 +3971,18 @@ export function ChatApp({
     }
     setParallelAgents((current) => {
       const existingIndex = current.findIndex((agent) => agent.id === data.agentId);
-      if (existingIndex >= 0) {
-        const existing = current[existingIndex];
+      const correlatedIndex = existingIndex < 0 && data.sdkCorrelationId
+        ? current.findIndex((agent) => agent.taskToolCallId === data.sdkCorrelationId)
+        : -1;
+      const targetIndex = existingIndex >= 0 ? existingIndex : correlatedIndex;
+      if (targetIndex >= 0) {
+        const existing = current[targetIndex];
         // If agent already has a terminal status (completed, error, interrupted),
         // it's from a previous stream. Filter it out instead of preserving it.
         if (existing && (existing.status === "completed" || existing.status === "error" || existing.status === "interrupted")) {
           // Remove the old agent and add the new one
           return [
-            ...current.filter((agent) => agent.id !== data.agentId),
+            ...current.filter((agent, index) => index !== targetIndex && agent.id !== data.agentId),
             {
               id: data.agentId,
               taskToolCallId: data.sdkCorrelationId,
@@ -3722,10 +3996,11 @@ export function ChatApp({
           ];
         }
         // Update existing agent that's still active
-        return current.map((agent) =>
-          agent.id === data.agentId
+        return current.map((agent, index) =>
+          index === targetIndex
             ? {
               ...agent,
+              id: data.agentId,
               name: data.agentType || agent.name,
               task: mergeAgentTaskLabel(agent.task, data.task, data.agentType),
               status,
@@ -5131,6 +5406,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
               agentId: options.agentId,
               parentAgentId: parentSessionId,
               runId: subagentRunId,
+              agentType: options.agentName,
+              task: options.task,
             });
 
             // Register with correlation service for event attribution
@@ -7040,7 +7317,15 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
   );
 
   // All messages are kept in memory; no windowing/eviction.
-  const renderMessages = messages;
+  // Hide stale empty assistant placeholders that only contain duplicated
+  // sub-agent task tool cards from older stream targeting races.
+  const activeMessageIds = new Set<string>();
+  if (streamingMessageIdRef.current) activeMessageIds.add(streamingMessageIdRef.current);
+  if (lastStreamedMessageIdRef.current) activeMessageIds.add(lastStreamedMessageIdRef.current);
+  if (backgroundAgentMessageIdRef.current) activeMessageIds.add(backgroundAgentMessageIdRef.current);
+  const renderMessages = messages.filter(
+    (message) => !shouldHideStaleSubagentToolPlaceholder(message, activeMessageIds),
+  );
   const footerBackgroundAgents = useMemo(
     () => resolveBackgroundAgentsForFooter(parallelAgents, messages),
     [parallelAgents, messages],
@@ -7050,6 +7335,16 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
   const messageContent = renderMessages.length > 0 ? (
     <>
       {renderMessages.map((msg, index) => {
+        const liveMessageId =
+          streamingMessageIdRef.current
+          ?? lastStreamedMessageIdRef.current
+          ?? backgroundAgentMessageIdRef.current;
+        const liveParallelAgentsForMessage = liveMessageId && msg.id === liveMessageId
+          ? parallelAgents.filter((agent) => {
+              const mappedMessageId = agentMessageIdByIdRef.current.get(agent.id);
+              return !mappedMessageId || mappedMessageId === liveMessageId;
+            })
+          : undefined;
         const liveTaskItems = msg.streaming ? todoItems : undefined;
         const showLive = shouldShowMessageLoadingIndicator(msg, liveTaskItems);
         const scopedStreamingMeta = showLive
@@ -7061,6 +7356,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         <MessageBubble
           key={msg.id}
           message={msg}
+          liveParallelAgents={liveParallelAgentsForMessage}
           isLast={index === renderMessages.length - 1}
           syntaxStyle={markdownSyntaxStyle}
           hideAskUserQuestion={activeQuestion !== null}

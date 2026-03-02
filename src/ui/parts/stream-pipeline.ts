@@ -643,10 +643,26 @@ function carryReasoningPartRegistry(from: ChatMessage, to: ChatMessage): ChatMes
   return to;
 }
 
+/**
+ * Check if a tool name represents a sub-agent dispatch tool.
+ *
+ * Different SDKs use different tool names for sub-agent invocation:
+ * - OpenCode / Copilot: "Task" or "task"
+ * - Claude Agent SDK:   "Agent" or "agent"
+ * - Claude SDK (alt):   "launch_agent"
+ *
+ * This helper centralises the check so that the pipeline correctly
+ * recognises sub-agent tools regardless of which SDK emitted the event.
+ */
+export function isSubagentToolName(toolName: string): boolean {
+  const normalized = toolName.toLowerCase();
+  return normalized === "task" || normalized === "agent" || normalized === "launch_agent";
+}
+
 function hasSubagentCall(message: Pick<ChatMessage, "parallelAgents" | "toolCalls">): boolean {
   if ((message.parallelAgents?.length ?? 0) > 0) return true;
   return (message.toolCalls ?? []).some(
-    (toolCall) => toolCall.toolName === "Task" || toolCall.toolName === "task",
+    (toolCall) => isSubagentToolName(toolCall.toolName),
   );
 }
 
@@ -697,7 +713,7 @@ function getAgentInsertIndex(parts: Part[]): number {
     if (!part || part.type !== "tool") continue;
     lastToolIdx = i;
     const toolName = (part as ToolPart).toolName;
-    if (toolName === "Task" || toolName === "task") {
+    if (isSubagentToolName(toolName)) {
       lastTaskToolIdx = i;
     }
   }
@@ -874,7 +890,7 @@ export function mergeParallelAgentsIntoParts(
     if (!part) continue;
     finalParts.push(part);
 
-    if (part.type === "tool" && (part.toolName === "Task" || part.toolName === "task")) {
+    if (part.type === "tool" && isSubagentToolName(part.toolName)) {
       const toolPart = part as ToolPart;
       currentGroup.push(toolPart);
       const agents = agentsByToolCall.get(toolPart.toolCallId);
@@ -896,7 +912,7 @@ export function mergeParallelAgentsIntoParts(
           endsGroup = true;
         } else if (nextPart.type === "tool") {
           const toolName = (nextPart as ToolPart).toolName;
-          if (toolName !== "Task" && toolName !== "task") {
+          if (!isSubagentToolName(toolName)) {
             endsGroup = true;
           }
         } else if (nextPart.type === "text") {

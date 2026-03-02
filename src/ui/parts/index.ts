@@ -33,6 +33,7 @@ export {
   type StreamPartEvent,
   applyStreamPartEvent,
   toToolState,
+  isSubagentToolName,
   shouldGroupSubagentTrees,
   mergeParallelAgentsIntoParts,
   syncToolCallsIntoParts,

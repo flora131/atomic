@@ -104,10 +104,21 @@ function createAgentPart(agents: ParallelAgent[], parentToolPartId?: string): Ag
 }
 
 describe("getConsumedTaskToolCallIds", () => {
-  test("returns empty set when no AgentParts exist", () => {
+  test("consumes sub-agent dispatch tools even when no AgentParts exist", () => {
     const parts: Part[] = [
       createToolPart("tool-1", "task"),
       createToolPart("tool-2", "task"),
+    ];
+    const consumed = getConsumedTaskToolCallIds(parts);
+    expect(consumed.size).toBe(2);
+    expect(consumed.has("tool-1")).toBe(true);
+    expect(consumed.has("tool-2")).toBe(true);
+  });
+
+  test("does not consume non-subagent tools when no AgentParts exist", () => {
+    const parts: Part[] = [
+      createToolPart("tool-1", "bash"),
+      createToolPart("tool-2", "read"),
     ];
     expect(getConsumedTaskToolCallIds(parts).size).toBe(0);
   });
@@ -137,16 +148,16 @@ describe("getConsumedTaskToolCallIds", () => {
     expect(consumed.has("tool-1")).toBe(true);
   });
 
-  test("does not consume Task ToolParts without matching agents", () => {
+  test("still consumes sub-agent dispatch tools even when only some are matched to agents", () => {
     const parts: Part[] = [
       createToolPart("tool-1", "task"),
       createToolPart("tool-2", "task"),
       createAgentPart([createAgent("tool-1", "explorer")]),
     ];
     const consumed = getConsumedTaskToolCallIds(parts);
-    expect(consumed.size).toBe(1);
+    expect(consumed.size).toBe(2);
     expect(consumed.has("tool-1")).toBe(true);
-    expect(consumed.has("tool-2")).toBe(false);
+    expect(consumed.has("tool-2")).toBe(true);
   });
 
   test("handles PascalCase Task tool name", () => {
@@ -219,7 +230,7 @@ describe("getConsumedTaskToolCallIds", () => {
     expect(consumed.has("synth-tool-1")).toBe(true);
   });
 
-  test("limits fallback consumption to unmatched agent count", () => {
+  test("consumes all sub-agent dispatch tools regardless of fallback count", () => {
     const agentWithoutId: ParallelAgent = {
       id: "agent-no-id",
       taskToolCallId: undefined,
@@ -235,10 +246,9 @@ describe("getConsumedTaskToolCallIds", () => {
       createAgentPart([agentWithoutId]),
     ];
     const consumed = getConsumedTaskToolCallIds(parts);
-    // Only 1 agent without ID, so only 1 task ToolPart consumed by fallback
-    expect(consumed.size).toBe(1);
+    expect(consumed.size).toBe(3);
     expect(consumed.has("tool-1")).toBe(true);
-    expect(consumed.has("tool-2")).toBe(false);
-    expect(consumed.has("tool-3")).toBe(false);
+    expect(consumed.has("tool-2")).toBe(true);
+    expect(consumed.has("tool-3")).toBe(true);
   });
 });

@@ -79,6 +79,20 @@ export class SubagentToolTracker {
   }
 
   /**
+   * Record in-flight progress for the current tool without incrementing
+   * the tool count. Useful for streaming partial tool output.
+   */
+  onToolProgress(agentId: string, toolName?: string): void {
+    const state = this.agents.get(agentId);
+    if (!state) return;
+
+    if (toolName) {
+      state.currentTool = toolName;
+    }
+    this.publishUpdate(agentId, state);
+  }
+
+  /**
    * Remove a sub-agent from tracking (e.g., on completion).
    */
   removeAgent(agentId: string): void {

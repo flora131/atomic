@@ -11,6 +11,7 @@ import type { ChatMessage } from "../../chat.tsx";
 import type { Part, ToolPart, AgentPart } from "../../parts/types.ts";
 import { PART_REGISTRY } from "./registry.tsx";
 import { SPACING } from "../../constants/spacing.ts";
+import { isSubagentToolName } from "../../parts/stream-pipeline.ts";
 
 /**
  * Build a set of toolCallIds that are already represented by an AgentPart.
@@ -23,8 +24,20 @@ import { SPACING } from "../../constants/spacing.ts";
  * name (e.g., "general-purpose", "codebase-analyzer") rather than "task".
  */
 export function getConsumedTaskToolCallIds(parts: ReadonlyArray<Part>): Set<string> {
+  const consumed = new Set<string>();
+
+  // Always hide sub-agent dispatch tool widgets (Task/Agent/launch_agent).
+  // The dedicated agent tree is the canonical visualization for these calls.
+  for (const part of parts) {
+    if (part.type !== "tool") continue;
+    const toolPart = part as ToolPart;
+    if (isSubagentToolName(toolPart.toolName)) {
+      consumed.add(toolPart.toolCallId);
+    }
+  }
+
   const hasAgentPart = parts.some((p) => p.type === "agent");
-  if (!hasAgentPart) return new Set();
+  if (!hasAgentPart) return consumed;
 
   const agentTaskToolCallIds = new Set<string>();
   const inlineToolCallIds = new Set<string>();
@@ -44,7 +57,6 @@ export function getConsumedTaskToolCallIds(parts: ReadonlyArray<Part>): Set<stri
     }
   }
 
-  const consumed = new Set<string>();
   for (const part of parts) {
     if (part.type !== "tool") continue;
     const toolPart = part as ToolPart;
@@ -77,7 +89,7 @@ export function getConsumedTaskToolCallIds(parts: ReadonlyArray<Part>): Set<stri
       if (part.type !== "tool") continue;
       const toolPart = part as ToolPart;
       if (consumed.has(toolPart.toolCallId)) continue;
-      if (toolPart.toolName === "task" || toolPart.toolName === "Task") {
+      if (isSubagentToolName(toolPart.toolName)) {
         consumed.add(toolPart.toolCallId);
         remaining--;
       }

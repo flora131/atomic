@@ -193,6 +193,71 @@ describe("OpenCodeStreamAdapter", () => {
     expect(toolStartEvents[0].runId).toBe(42);
   });
 
+  test("suppresses empty OpenCode task placeholders and deduplicates hydrated task starts", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 42,
+      messageId: "msg-1",
+    });
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "task",
+        toolInput: {},
+        toolUseId: "task-tool-1",
+      },
+    } as AgentEvent<"tool.start">);
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "task",
+        toolInput: {
+          description: "Research TUI UX practices",
+          subagent_type: "codebase-online-researcher",
+        },
+        toolUseId: "task-tool-1",
+      },
+    } as AgentEvent<"tool.start">);
+
+    // Duplicate hydrated event (same tool ID + same payload) should be ignored.
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "task",
+        toolInput: {
+          description: "Research TUI UX practices",
+          subagent_type: "codebase-online-researcher",
+        },
+        toolUseId: "task-tool-1",
+      },
+    } as AgentEvent<"tool.start">);
+
+    await streamPromise;
+
+    const taskStartEvents = events.filter(
+      (e) => e.type === "stream.tool.start" && e.data.toolId === "task-tool-1",
+    );
+    expect(taskStartEvents.length).toBe(1);
+    expect(taskStartEvents[0].data.toolInput).toEqual({
+      description: "Research TUI UX practices",
+      subagent_type: "codebase-online-researcher",
+    });
+  });
+
   test("publishes tool complete events from SDK client", async () => {
     const events = collectEvents(bus);
     const client = createMockClient();
@@ -302,6 +367,282 @@ describe("OpenCodeStreamAdapter", () => {
     expect(updates.some((e) => e.data.currentTool === undefined && e.data.toolUses === 1)).toBe(true);
   });
 
+  test("attributes unknown child-session tool events to the sole active subagent", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 42,
+      messageId: "msg-1",
+    });
+
+    client.emit("subagent.start" as EventType, {
+      type: "subagent.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        subagentId: "agent-only-1",
+        subagentType: "researcher",
+        task: "Investigate UI state",
+        toolCallId: "task-call-only-1",
+      },
+    } as AgentEvent<"subagent.start">);
+
+    // No subagentSessionId and unknown child session; adapter should still
+    // associate this with the sole active sub-agent.
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "child-session-unknown",
+      timestamp: Date.now(),
+      data: {
+        toolName: "WebSearch",
+        toolInput: { query: "tui patterns" },
+        toolUseId: "child-tool-unknown-1",
+      },
+    } as AgentEvent<"tool.start">);
+
+    await streamPromise;
+
+    const toolStart = events.find(
+      (e) => e.type === "stream.tool.start" && e.data.toolId === "child-tool-unknown-1",
+    );
+    expect(toolStart).toBeDefined();
+    expect(toolStart?.data.parentAgentId).toBe("agent-only-1");
+  });
+
+  test("attributes child-session tools to synthetic task agent when subagent.start is missing", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 42,
+      messageId: "msg-1",
+    });
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "task",
+        toolInput: {
+          description: "Research TUI UX practices",
+          subagent_type: "codebase-online-researcher",
+        },
+        toolUseId: "task-tool-synth-1",
+      },
+    } as AgentEvent<"tool.start">);
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "child-session-unknown",
+      timestamp: Date.now(),
+      data: {
+        toolName: "WebSearch",
+        toolInput: { query: "tui patterns" },
+        toolUseId: "child-tool-synth-1",
+      },
+    } as AgentEvent<"tool.start">);
+
+    await streamPromise;
+
+    const childToolStart = events.find(
+      (e) => e.type === "stream.tool.start" && e.data.toolId === "child-tool-synth-1",
+    );
+    expect(childToolStart).toBeDefined();
+    expect(childToolStart?.data.parentAgentId).toBe("synthetic-task-agent:task-tool-synth-1");
+
+    const syntheticAgentUpdate = events.find(
+      (e) =>
+        e.type === "stream.agent.update"
+        && e.data.agentId === "synthetic-task-agent:task-tool-synth-1"
+        && e.data.currentTool === "WebSearch",
+    );
+    expect(syntheticAgentUpdate).toBeDefined();
+
+    const syntheticAgentStart = events.find(
+      (e) =>
+        e.type === "stream.agent.start"
+        && e.data.agentId === "synthetic-task-agent:task-tool-synth-1",
+    );
+    expect(syntheticAgentStart).toBeDefined();
+    expect(syntheticAgentStart?.data.task).toBe("Research TUI UX practices");
+    expect(syntheticAgentStart?.data.agentType).toBe("codebase-online-researcher");
+
+    const syntheticAgentStartIndex = events.findIndex(
+      (e) =>
+        e.type === "stream.agent.start"
+        && e.data.agentId === "synthetic-task-agent:task-tool-synth-1",
+    );
+    const syntheticAgentUpdateIndex = events.findIndex(
+      (e) =>
+        e.type === "stream.agent.update"
+        && e.data.agentId === "synthetic-task-agent:task-tool-synth-1",
+    );
+    expect(syntheticAgentStartIndex).toBeGreaterThan(-1);
+    expect(syntheticAgentUpdateIndex).toBeGreaterThan(syntheticAgentStartIndex);
+  });
+
+  test("does not double-count subagent tool usage for repeated tool.start lifecycle updates", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 42,
+      messageId: "msg-1",
+    });
+
+    client.emit("subagent.start" as EventType, {
+      type: "subagent.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        subagentId: "agent-repeat-start-1",
+        subagentType: "debugger",
+        task: "Investigate repeated tool starts",
+        toolCallId: "task-repeat-start-1",
+      },
+    } as AgentEvent<"subagent.start">);
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "bash",
+        toolInput: { command: "echo pending", state: "pending" },
+        toolCallId: "inner-repeat-start-1",
+        parentId: "agent-repeat-start-1",
+      },
+    } as AgentEvent<"tool.start">);
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "bash",
+        toolInput: { command: "echo running", state: "running" },
+        toolCallId: "inner-repeat-start-1",
+        parentId: "agent-repeat-start-1",
+      },
+    } as AgentEvent<"tool.start">);
+
+    client.emit("tool.complete" as EventType, {
+      type: "tool.complete",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "bash",
+        toolResult: "ok",
+        success: true,
+        toolCallId: "inner-repeat-start-1",
+        parentId: "agent-repeat-start-1",
+      },
+    } as AgentEvent<"tool.complete">);
+
+    client.emit("subagent.complete" as EventType, {
+      type: "subagent.complete",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        subagentId: "agent-repeat-start-1",
+        success: true,
+        result: "done",
+      },
+    } as AgentEvent<"subagent.complete">);
+
+    await streamPromise;
+
+    const toolStartEvents = events.filter(
+      (e) => e.type === "stream.tool.start" && e.data.toolId === "inner-repeat-start-1",
+    );
+    expect(toolStartEvents.length).toBe(2);
+
+    const agentUpdateEvents = events.filter(
+      (e) => e.type === "stream.agent.update" && e.data.agentId === "agent-repeat-start-1",
+    );
+    expect(
+      agentUpdateEvents.filter((e) => e.data.currentTool === "bash").length,
+    ).toBe(1);
+    expect(
+      agentUpdateEvents.some((e) => e.data.currentTool === undefined && e.data.toolUses === 1),
+    ).toBe(true);
+    expect(Math.max(...agentUpdateEvents.map((e) => e.data.toolUses ?? 0))).toBe(1);
+  });
+
+  test("publishes subagent progress updates on tool.partial_result", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 42,
+      messageId: "msg-1",
+    });
+
+    client.emit("subagent.start" as EventType, {
+      type: "subagent.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        subagentId: "agent-partial-1",
+        subagentType: "debugger",
+        task: "Track live tool progress",
+        toolCallId: "task-partial-1",
+        subagentSessionId: "child-session-partial-1",
+      },
+    } as AgentEvent<"subagent.start">);
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "child-session-partial-1",
+      timestamp: Date.now(),
+      data: {
+        toolName: "bash",
+        toolInput: { command: "tail -f logs" },
+        toolCallId: "inner-partial-1",
+        parentId: "agent-partial-1",
+      },
+    } as AgentEvent<"tool.start">);
+
+    client.emit("tool.partial_result" as EventType, {
+      type: "tool.partial_result",
+      sessionId: "child-session-partial-1",
+      timestamp: Date.now(),
+      data: {
+        toolCallId: "inner-partial-1",
+        partialOutput: "line 1",
+      },
+    } as AgentEvent<"tool.partial_result">);
+
+    await streamPromise;
+
+    const progressUpdates = events.filter(
+      (e) =>
+        e.type === "stream.agent.update"
+        && e.data.agentId === "agent-partial-1"
+        && e.data.currentTool === "bash",
+    );
+    expect(progressUpdates.length).toBeGreaterThanOrEqual(2);
+    expect(progressUpdates.some((e) => e.data.toolUses === 1)).toBe(true);
+  });
+
   test("publishes session truncation and compaction events from SDK client", async () => {
     const events = collectEvents(bus);
     const client = createMockClient();
@@ -382,6 +723,53 @@ describe("OpenCodeStreamAdapter", () => {
     const idleEvents = events.filter((e) => e.type === "stream.session.idle");
     expect(idleEvents.length).toBe(1);
     expect(idleEvents[0].data.reason).toBe("aborted");
+  });
+
+  test("publishes orphaned tool.complete before session.idle on aborted sendAsync runs", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+    const session = createMockSession(mockAsyncStream([]), client) as Session & {
+      sendAsync: ReturnType<typeof mock>;
+    };
+    session.sendAsync = mock(async () => {
+      client.emit("tool.start" as EventType, {
+        type: "tool.start",
+        sessionId: "test-session-123",
+        timestamp: Date.now(),
+        data: {
+          toolName: "task",
+          toolInput: { description: "Research TUI UX practices" },
+          toolUseId: "tool-abort-order-1",
+        },
+      } as AgentEvent<"tool.start">);
+    });
+
+    const externalAbort = new AbortController();
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 42,
+      messageId: "msg-1",
+      abortSignal: externalAbort.signal,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    externalAbort.abort();
+    await streamPromise;
+
+    const completeIdx = events.findIndex(
+      (event) =>
+        event.type === "stream.tool.complete"
+        && event.data.toolId === "tool-abort-order-1"
+        && event.data.error === "Tool execution aborted",
+    );
+    const idleIdx = events.findIndex(
+      (event) =>
+        event.type === "stream.session.idle"
+        && event.data.reason === "aborted",
+    );
+
+    expect(completeIdx).toBeGreaterThan(-1);
+    expect(idleIdx).toBeGreaterThan(-1);
+    expect(completeIdx).toBeLessThan(idleIdx);
   });
 
   test("passes abortSignal to sendAsync and exits stalled dispatch on external abort", async () => {
@@ -730,6 +1118,115 @@ describe("OpenCodeStreamAdapter", () => {
     expect(events.some((e) => e.type === "stream.thinking.delta" && e.data.sourceKey === "reasoning-1")).toBe(true);
     expect(events.some((e) => e.type === "stream.thinking.complete" && e.data.sourceKey === "reasoning-1")).toBe(true);
   });
+
+  test("bridges callId-first subagent.start to later Task toolUseId and preserves a single canonical correlation", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const stream = mockAsyncStream([{ type: "text", content: "done" }]);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 42,
+      messageId: "msg-opencode-call-first",
+    });
+
+    client.emit("subagent.start" as EventType, {
+      type: "subagent.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        subagentId: "agent-call-first",
+        subagentType: "debugger",
+        task: "Sub-agent task",
+        toolCallId: "call-only-1",
+      },
+    } as AgentEvent<"subagent.start">);
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "Task",
+        toolInput: { description: "Investigate OpenCode parity" },
+        toolUseId: "tool-use-1",
+      },
+    } as AgentEvent<"tool.start">);
+
+    // Replay event from SDK with newly-populated subagentSessionId but missing call IDs.
+    client.emit("subagent.start" as EventType, {
+      type: "subagent.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        subagentId: "agent-call-first",
+        subagentType: "debugger",
+        task: "Sub-agent task",
+        subagentSessionId: "child-session-oc-1",
+      },
+    } as AgentEvent<"subagent.start">);
+
+    await streamPromise;
+
+    const toolStartEvents = events.filter((e) => e.type === "stream.tool.start");
+    expect(toolStartEvents.length).toBe(1);
+    expect(toolStartEvents[0].data.toolId).toBe("tool-use-1");
+    expect(toolStartEvents[0].data.sdkCorrelationId).toBe("tool-use-1");
+
+    const agentStartEvents = events.filter(
+      (e) => e.type === "stream.agent.start" && e.data.agentId === "agent-call-first",
+    );
+    expect(agentStartEvents.length).toBe(2);
+    expect(agentStartEvents[0].data.sdkCorrelationId).toBe("call-only-1");
+    expect(agentStartEvents[1].data.sdkCorrelationId).toBe("tool-use-1");
+    expect(agentStartEvents[1].data.task).toBe("Investigate OpenCode parity");
+  });
+
+  test("maps subagent.start callId-only events onto pending Task toolUseId metadata", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const stream = mockAsyncStream([{ type: "text", content: "done" }]);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 42,
+      messageId: "msg-opencode-pending-fallback",
+    });
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "Agent",
+        toolInput: { description: "Find orphaned sub-agent branches" },
+        toolUseId: "tool-use-task-2",
+      },
+    } as AgentEvent<"tool.start">);
+
+    client.emit("subagent.start" as EventType, {
+      type: "subagent.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        subagentId: "agent-pending-link",
+        subagentType: "explore",
+        task: "sub-agent task",
+        toolCallId: "call-only-2",
+      },
+    } as AgentEvent<"subagent.start">);
+
+    await streamPromise;
+
+    const agentStartEvents = events.filter(
+      (e) => e.type === "stream.agent.start" && e.data.agentId === "agent-pending-link",
+    );
+    expect(agentStartEvents.length).toBe(1);
+    expect(agentStartEvents[0].data.sdkCorrelationId).toBe("tool-use-task-2");
+    expect(agentStartEvents[0].data.task).toBe("Find orphaned sub-agent branches");
+  });
 });
 
 // ============================================================================
@@ -1057,6 +1554,71 @@ describe("ClaudeStreamAdapter", () => {
     expect(toolCompleteEvents[0].runId).toBe(100);
   });
 
+  test("prefers client hook tool events over stream chunk tool events to avoid duplicate unscoped tools", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const chunks: AgentMessage[] = [
+      {
+        type: "tool_use",
+        content: {
+          name: "WebSearch",
+          input: { query: "query" },
+          toolUseId: "tool-dup-1",
+        },
+      } as unknown as AgentMessage,
+      {
+        type: "tool_result",
+        content: "ok",
+        tool_use_id: "tool-dup-1",
+        toolName: "WebSearch",
+      } as unknown as AgentMessage,
+      { type: "text", content: "done" },
+    ];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 100,
+      messageId: "msg-2",
+    });
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "WebSearch",
+        toolInput: { query: "query" },
+        toolUseId: "tool-dup-1",
+        parentAgentId: "agent-1",
+      },
+    } as AgentEvent<"tool.start">);
+
+    client.emit("tool.complete" as EventType, {
+      type: "tool.complete",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "WebSearch",
+        toolUseId: "tool-dup-1",
+        toolResult: "ok",
+        success: true,
+        parentAgentId: "agent-1",
+      },
+    } as AgentEvent<"tool.complete">);
+
+    await streamPromise;
+
+    const toolStartEvents = events.filter((e) => e.type === "stream.tool.start" && e.data.toolId === "tool-dup-1");
+    expect(toolStartEvents.length).toBe(1);
+    expect(toolStartEvents[0].data.parentAgentId).toBe("agent-1");
+
+    const toolCompleteEvents = events.filter((e) => e.type === "stream.tool.complete" && e.data.toolId === "tool-dup-1");
+    expect(toolCompleteEvents.length).toBe(1);
+    expect(toolCompleteEvents[0].data.parentAgentId).toBe("agent-1");
+  });
+
   test("publishes agent start events from subagent.start hook", async () => {
     const events = collectEvents(bus);
     const client = createMockClient();
@@ -1092,6 +1654,65 @@ describe("ClaudeStreamAdapter", () => {
     expect(agentStartEvents[0].data.task).toBe("Find files");
     expect(agentStartEvents[0].data.sdkCorrelationId).toBe("tool_use_123");
     expect(agentStartEvents[0].runId).toBe(100);
+  });
+
+  test("publishes subagent progress updates on tool.partial_result", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test", {
+      runId: 100,
+      messageId: "msg-2",
+    });
+
+    client.emit("subagent.start" as EventType, {
+      type: "subagent.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        subagentId: "agent-partial-claude-1",
+        subagentType: "explore",
+        task: "Watch streaming tool output",
+        toolUseID: "tool-use-parent-claude-1",
+      },
+    } as AgentEvent<"subagent.start">);
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "bash",
+        toolInput: { command: "tail -f logs" },
+        toolCallId: "inner-partial-claude-1",
+        parentId: "agent-partial-claude-1",
+      },
+    } as AgentEvent<"tool.start">);
+
+    client.emit("tool.partial_result" as EventType, {
+      type: "tool.partial_result",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolCallId: "inner-partial-claude-1",
+        partialOutput: "line 1",
+      },
+    } as AgentEvent<"tool.partial_result">);
+
+    await streamPromise;
+
+    const progressUpdates = events.filter(
+      (e) =>
+        e.type === "stream.agent.update"
+        && e.data.agentId === "agent-partial-claude-1"
+        && e.data.currentTool === "bash",
+    );
+    expect(progressUpdates.length).toBeGreaterThanOrEqual(2);
+    expect(progressUpdates.some((e) => e.data.toolUses === 1)).toBe(true);
   });
 
   test("normalizes OpenCode subagent correlation IDs to the canonical tool ID", async () => {
@@ -1142,6 +1763,153 @@ describe("ClaudeStreamAdapter", () => {
     const agentStartEvents = events.filter((e) => e.type === "stream.agent.start");
     expect(agentStartEvents.length).toBe(1);
     expect(agentStartEvents[0].data.sdkCorrelationId).toBe("tool-use-123");
+  });
+
+  test("agent-only streams publish synthetic foreground agent lifecycle with tool progress", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "Investigate auth retries", {
+      runId: 101,
+      messageId: "msg-agent-only",
+      agent: "debugger",
+    });
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "bash",
+        toolInput: { command: "rg auth" },
+        toolUseId: "tool-agent-only-1",
+      },
+    } as AgentEvent);
+
+    client.emit("tool.complete" as EventType, {
+      type: "tool.complete",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "bash",
+        toolUseId: "tool-agent-only-1",
+        toolResult: "ok",
+        success: true,
+      },
+    } as AgentEvent);
+
+    await streamPromise;
+
+    const agentStartEvents = events.filter((e) => e.type === "stream.agent.start");
+    expect(agentStartEvents.length).toBe(1);
+    expect(agentStartEvents[0].data.agentType).toBe("debugger");
+    expect(agentStartEvents[0].data.task).toBe("Investigate auth retries");
+
+    const syntheticAgentId = agentStartEvents[0].data.agentId;
+    const agentUpdateEvents = events.filter(
+      (e) => e.type === "stream.agent.update" && e.data.agentId === syntheticAgentId,
+    );
+    expect(agentUpdateEvents.some((e) => e.data.currentTool === "bash" && e.data.toolUses === 1)).toBe(true);
+    expect(agentUpdateEvents.some((e) => e.data.currentTool === undefined && e.data.toolUses === 1)).toBe(true);
+
+    const agentCompleteEvents = events.filter(
+      (e) => e.type === "stream.agent.complete" && e.data.agentId === syntheticAgentId,
+    );
+    expect(agentCompleteEvents.length).toBe(1);
+    expect(agentCompleteEvents[0].data.success).toBe(true);
+  });
+
+  test("uses parent_tool_use_id fallback to hydrate subagent task metadata", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test", {
+      runId: 102,
+      messageId: "msg-parent-fallback",
+    });
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "Agent",
+        toolInput: { description: "Locate sub-agent tree rendering" },
+        toolUseId: "tool-parent-1",
+      },
+    } as AgentEvent);
+
+    client.emit("subagent.start" as EventType, {
+      type: "subagent.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        subagentId: "agent-parent-fallback",
+        subagentType: "codebase-locator",
+        task: "codebase-locator",
+        toolCallId: "uuid-1",
+        parent_tool_use_id: "tool-parent-1",
+      },
+    } as AgentEvent);
+
+    await streamPromise;
+
+    const agentStartEvents = events.filter((e) => e.type === "stream.agent.start");
+    expect(agentStartEvents.length).toBe(1);
+    expect(agentStartEvents[0].data.task).toBe("Locate sub-agent tree rendering");
+    expect(agentStartEvents[0].data.sdkCorrelationId).toBe("tool-parent-1");
+  });
+
+  test("falls back to pending task tool ordering when subagent.start lacks parent correlation", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test", {
+      runId: 103,
+      messageId: "msg-pending-fallback",
+    });
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "Agent",
+        toolInput: { description: "Find missing sub-agent metadata wiring" },
+        toolUseId: "tool-pending-1",
+      },
+    } as AgentEvent);
+
+    client.emit("subagent.start" as EventType, {
+      type: "subagent.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        subagentId: "agent-pending-fallback",
+        subagentType: "debugger",
+        task: "debugger",
+        toolCallId: "unmapped-call-id",
+      },
+    } as AgentEvent);
+
+    await streamPromise;
+
+    const agentStartEvents = events.filter((e) => e.type === "stream.agent.start");
+    expect(agentStartEvents.length).toBe(1);
+    expect(agentStartEvents[0].data.task).toBe("Find missing sub-agent metadata wiring");
+    expect(agentStartEvents[0].data.sdkCorrelationId).toBe("tool-pending-1");
   });
 
   test("real usage events publish stream.usage with accumulated tokens", async () => {
@@ -2105,6 +2873,64 @@ describe("CopilotStreamAdapter", () => {
     expect(updateEvents[0].data.currentTool).toBe("glob");
   });
 
+  test("publishes subagent progress updates on tool.partial_result", async () => {
+    const events = collectEvents(bus);
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream);
+
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 200,
+      messageId: "msg-3",
+    });
+
+    client.emit("subagent.start" as EventType, {
+      type: "subagent.start",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        subagentId: "sub-partial-1",
+        subagentType: "Explore",
+        task: "Watch streaming tool output",
+        toolCallId: "task-call-partial-1",
+      },
+    } as AgentEvent<"subagent.start">);
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        toolName: "bash",
+        toolInput: { command: "tail -f logs" },
+        toolCallId: "inner-tool-partial-1",
+        parentId: "sub-partial-1",
+      },
+    } as AgentEvent<"tool.start">);
+
+    client.emit("tool.partial_result" as EventType, {
+      type: "tool.partial_result",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        toolCallId: "inner-tool-partial-1",
+        partialOutput: "line 1",
+      },
+    } as AgentEvent<"tool.partial_result">);
+
+    await streamPromise;
+
+    const progressUpdates = events.filter(
+      (e) =>
+        e.type === "stream.agent.update"
+        && e.data.agentId === "sub-partial-1"
+        && e.data.currentTool === "bash",
+    );
+    expect(progressUpdates.length).toBeGreaterThanOrEqual(2);
+    expect(progressUpdates.some((e) => e.data.toolUses === 1)).toBe(true);
+  });
+
   test("defaults to foreground when task tool has no mode field", async () => {
     const events = collectEvents(bus);
 
@@ -2508,6 +3334,29 @@ describe("CopilotStreamAdapter", () => {
       },
     } as AgentEvent<"subagent.start">);
 
+    // 5. nested lifecycle events should also be suppressed
+    client.emit("subagent.update" as EventType, {
+      type: "subagent.update",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        subagentId: "tc-inner",
+        currentTool: "grep",
+        toolUses: 1,
+      },
+    } as AgentEvent<"subagent.update">);
+
+    client.emit("subagent.complete" as EventType, {
+      type: "subagent.complete",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        subagentId: "tc-inner",
+        success: true,
+        result: "nested done",
+      },
+    } as AgentEvent<"subagent.complete">);
+
     await streamPromise;
 
     // Only the top-level agent (codebase-analyzer) should appear
@@ -2518,6 +3367,16 @@ describe("CopilotStreamAdapter", () => {
     // The nested explore agent should NOT appear
     const exploreEvents = agentStartEvents.filter((e) => e.data.agentType === "explore");
     expect(exploreEvents.length).toBe(0);
+
+    const nestedAgentUpdates = events.filter(
+      (e) => e.type === "stream.agent.update" && e.data.agentId === "tc-inner",
+    );
+    expect(nestedAgentUpdates.length).toBe(0);
+
+    const nestedAgentCompletes = events.filter(
+      (e) => e.type === "stream.agent.complete" && e.data.agentId === "tc-inner",
+    );
+    expect(nestedAgentCompletes.length).toBe(0);
   });
 
   test("sub-agent message.complete with parentToolCallId is skipped", async () => {

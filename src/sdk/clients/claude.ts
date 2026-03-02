@@ -1781,9 +1781,16 @@ export class ClaudeAgentClient implements CodingAgentClient {
                         const taskFromStartedMessage = resolvedToolUseId
                             ? this.taskDescriptionByToolUseId.get(resolvedToolUseId)
                             : undefined;
+                        // Also check parent_tool_use_id for task description —
+                        // the SubagentStart hook's toolUseID may differ from
+                        // the Agent tool's tool_use_id used in task_started messages.
+                        const parentToolUseIdValue = hookInput.parent_tool_use_id as string | undefined;
+                        const taskFromParentToolUse = parentToolUseIdValue
+                            ? this.taskDescriptionByToolUseId.get(parentToolUseIdValue)
+                            : undefined;
                         const resolvedTask = taskFromHook && taskFromHook.length > 0
                             ? taskFromHook
-                            : taskFromStartedMessage;
+                            : (taskFromStartedMessage ?? taskFromParentToolUse);
                         if (resolvedTask) {
                             eventData.task = resolvedTask;
                         }
@@ -1810,6 +1817,17 @@ export class ClaudeAgentClient implements CodingAgentClient {
                             resolvedToolUseId,
                             hookInput.agent_id as string,
                         );
+                        // Also register under parent_tool_use_id so task_progress
+                        // messages that carry the Agent tool's tool_use_id (which
+                        // may differ from the SubagentStart hook's toolUseID) can
+                        // still be correlated to the sub-agent.
+                        const parentToolUseIdForMapping = hookInput.parent_tool_use_id as string | undefined;
+                        if (parentToolUseIdForMapping && parentToolUseIdForMapping !== resolvedToolUseId) {
+                            this.toolUseIdToAgentId.set(
+                                parentToolUseIdForMapping,
+                                hookInput.agent_id as string,
+                            );
+                        }
                         // Track as unmapped until we discover its SDK session ID
                         this.unmappedSubagentIds.push(hookInput.agent_id as string);
                     }
@@ -1833,6 +1851,13 @@ export class ClaudeAgentClient implements CodingAgentClient {
                         this.toolUseIdToAgentId.delete(resolvedToolUseId);
                         this.toolUseIdToSessionId.delete(resolvedToolUseId);
                         this.taskDescriptionByToolUseId.delete(resolvedToolUseId);
+                        // Also clean up parent_tool_use_id mapping if it exists
+                        const parentToolUseIdForCleanup = hookInput.parent_tool_use_id as string | undefined;
+                        if (parentToolUseIdForCleanup) {
+                            this.toolUseIdToAgentId.delete(parentToolUseIdForCleanup);
+                            this.toolUseIdToSessionId.delete(parentToolUseIdForCleanup);
+                            this.taskDescriptionByToolUseId.delete(parentToolUseIdForCleanup);
+                        }
                         // Clean up sub-agent session tracking
                         const stoppedAgentId = (eventData.subagentId ?? hookInput.agent_id) as string | undefined;
                         if (stoppedAgentId) {

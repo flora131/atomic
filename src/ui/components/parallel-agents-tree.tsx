@@ -610,7 +610,9 @@ function AgentRow({ agent, isLast, compact, syntaxStyle, themeColors, nowMs }: A
   }
 
   // Current tool shown on separate line only during active execution
-  const showCurrentTool = isRunning && agent.currentTool && agent.toolUses !== undefined && agent.toolUses > 0;
+  const showCurrentTool = Boolean(agent.currentTool) && (
+    isRunning ? ((agent.toolUses ?? 0) > 0) : true
+  );
 
   const inlineParts = agent.inlineParts ?? [];
   const hasInlineParts = inlineParts.length > 0;

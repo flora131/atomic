@@ -123,6 +123,8 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
 
   /** Buffers tool events that arrive before their parent subagent.started */
   private earlyToolEvents = new Map<string, Array<{ toolName: string }>>();
+  /** Active sub-agent tool contexts keyed by tool call ID */
+  private activeSubagentToolsById = new Map<string, { parentAgentId: string; toolName: string }>();
 
   /** Known agent names that should be treated as task tools (Copilot SDK) */
   private knownAgentNames = new Set<string>();
@@ -143,6 +145,12 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
    * another sub-agent and should NOT appear as a top-level tree entry.
    */
   private innerToolCallIds = new Set<string>();
+
+  /**
+   * Nested sub-agent IDs intentionally suppressed from tree lifecycle events.
+   * Ensures we do not later emit stream.agent.update/complete without a start.
+   */
+  private suppressedNestedAgentIds = new Set<string>();
 
   /**
    * Track thinking streams for timing and correlation.
@@ -208,8 +216,10 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
     this.emittedToolStartIds.clear();
     this.taskToolMetadata.clear();
     this.earlyToolEvents.clear();
+    this.activeSubagentToolsById.clear();
     this.toolCallIdToSubagentId.clear();
     this.innerToolCallIds.clear();
+    this.suppressedNestedAgentIds.clear();
     this.knownAgentNames = new Set(
       (options.knownAgentNames ?? []).map(n => n.toLowerCase())
     );
@@ -633,6 +643,7 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
     // nested subagent.start events (whose toolCallId matches) can be
     // detected and suppressed from the top-level agent tree.
     if (parentAgentId) {
+      this.recordActiveSubagentToolContext(toolId, resolvedToolName, parentAgentId, explicitToolId);
       if (explicitToolId) {
         this.innerToolCallIds.add(explicitToolId);
       }
@@ -669,6 +680,7 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
     const resolvedToolName = this.normalizeToolName(toolName ?? this.toolNameById.get(toolId));
     const toolInput = this.normalizeToolInput((event.data as Record<string, unknown>).toolInput);
     this.toolNameById.delete(toolId);
+    this.removeActiveSubagentToolContext(toolId, explicitToolId);
 
     // Clean up deduplication tracking
     if (explicitToolId) {
@@ -892,6 +904,10 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
     // with parentAgentId), this is a nested agent and should not appear as
     // a top-level entry in the agent tree.
     if (this.innerToolCallIds.has(toolCallId)) {
+      this.suppressedNestedAgentIds.add(data.subagentId);
+      this.suppressedNestedAgentIds.add(toolCallId);
+      this.earlyToolEvents.delete(data.subagentId);
+      this.earlyToolEvents.delete(toolCallId);
       return;
     }
 
@@ -948,6 +964,14 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
    */
   private handleSubagentComplete(event: AgentEvent<"subagent.complete">): void {
     const data = event.data as SubagentCompleteEventData;
+
+    if (this.suppressedNestedAgentIds.has(data.subagentId)) {
+      this.suppressedNestedAgentIds.delete(data.subagentId);
+      this.earlyToolEvents.delete(data.subagentId);
+      return;
+    }
+
+    this.suppressedNestedAgentIds.delete(data.subagentId);
     this.subagentTracker?.removeAgent(data.subagentId);
     this.taskToolMetadata.delete(data.subagentId);
     this.earlyToolEvents.delete(data.subagentId);
@@ -979,6 +1003,9 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
    */
   private handleSubagentUpdate(event: AgentEvent<"subagent.update">): void {
     const data = event.data as SubagentUpdateEventData;
+    if (this.suppressedNestedAgentIds.has(data.subagentId)) {
+      return;
+    }
     this.publishEvent({
       type: "stream.agent.update",
       sessionId: this.sessionId,
@@ -1043,6 +1070,15 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
         partialOutput: data.partialOutput,
       },
     });
+
+    const toolCallId = this.asString(data.toolCallId);
+    if (!toolCallId) {
+      return;
+    }
+    const context = this.activeSubagentToolsById.get(toolCallId);
+    if (context && this.subagentTracker?.hasAgent(context.parentAgentId)) {
+      this.subagentTracker.onToolProgress(context.parentAgentId, context.toolName);
+    }
   }
 
   /**
@@ -1238,6 +1274,29 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
     return this.shiftQueuedToolId(resolvedName) ?? this.createSyntheticToolId(resolvedName);
   }
 
+  private recordActiveSubagentToolContext(
+    toolId: string,
+    toolName: string,
+    parentAgentId: string,
+    ...correlationIds: Array<string | undefined>
+  ): void {
+    const context = { parentAgentId, toolName };
+    const ids = [toolId, ...correlationIds].filter((id): id is string => Boolean(id));
+    for (const id of ids) {
+      this.activeSubagentToolsById.set(id, context);
+    }
+  }
+
+  private removeActiveSubagentToolContext(
+    toolId: string,
+    ...correlationIds: Array<string | undefined>
+  ): void {
+    const ids = [toolId, ...correlationIds].filter((id): id is string => Boolean(id));
+    for (const id of ids) {
+      this.activeSubagentToolsById.delete(id);
+    }
+  }
+
   /**
    * Publish an event to the bus with backpressure management.
    *
@@ -1336,6 +1395,7 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
       }
     }
     this.pendingToolIdsByName.clear();
+    this.activeSubagentToolsById.clear();
   }
 
   /**
@@ -1366,8 +1426,10 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
     this.emittedToolStartIds.clear();
     this.taskToolMetadata.clear();
     this.earlyToolEvents.clear();
+    this.activeSubagentToolsById.clear();
     this.toolCallIdToSubagentId.clear();
     this.innerToolCallIds.clear();
+    this.suppressedNestedAgentIds.clear();
     this.knownAgentNames.clear();
     this.runtimeFeatureFlags = { ...DEFAULT_WORKFLOW_RUNTIME_FEATURE_FLAGS };
     resetTurnMetadataState(this.turnMetadataState);

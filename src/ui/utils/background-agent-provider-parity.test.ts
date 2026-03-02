@@ -117,7 +117,7 @@ describe("Background agent provider parity matrix", () => {
         expect(BACKGROUND_FOOTER_CONTRACT).toEqual({
           showWhenAgentCountAtLeast: 1,
           includeTerminateHint: true,
-          terminateHintText: "ctrl+f to kill agents",
+          terminateHintText: "ctrl+f to kill all background tasks",
           countFormat: "agents",
         });
       },
@@ -177,7 +177,7 @@ describe("Background agent provider parity matrix", () => {
 
         // All providers see the same contract instance
         expect(BACKGROUND_TREE_HINT_CONTRACT).toEqual({
-          whenRunning: "background running · ctrl+f to kill agents",
+          whenRunning: "background running · ctrl+f to kill all background tasks",
           whenComplete: "background complete · ctrl+o to expand",
           defaultHint: "ctrl+o to expand",
         });
@@ -199,7 +199,7 @@ describe("Background agent provider parity matrix", () => {
 
         // When running
         expect(buildParallelAgentsHeaderHint(runningAgents, true)).toBe(
-          "background running · ctrl+f to kill agents",
+          "background running · ctrl+f to kill all background tasks",
         );
 
         // When complete
@@ -398,7 +398,7 @@ describe("Background agent provider parity matrix", () => {
         expect(activeBackground.map((a) => a.id).sort()).toEqual(["bg-1", "bg-2"]);
 
         const hint = buildParallelAgentsHeaderHint(agents, true);
-        expect(hint).toBe("background running · ctrl+f to kill agents");
+        expect(hint).toBe("background running · ctrl+f to kill all background tasks");
 
         const result = interruptActiveBackgroundAgents(agents);
         expect(result.interruptedIds.length).toBe(2);

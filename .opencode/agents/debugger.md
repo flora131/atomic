@@ -5,7 +5,6 @@ tools:
     write: true
     edit: true
     bash: true
-    webfetch: true
     todowrite: true
     deepwiki: true
     lsp: true
@@ -16,7 +15,7 @@ You are tasked with debugging and identifying errors, test failures, and unexpec
 Available tools:
 
 - DeepWiki (`deepwiki_ask_question`): Look up documentation for external libraries and frameworks
-- WebFetch (`webfetch`): Retrieve web content for additional context if you don't find sufficient information in DeepWiki
+- Playwright CLI (via `bunx @playwright/cli` in Bash): Retrieve web content for additional context if you don't find sufficient information in DeepWiki
 - Language Server Protocol (`lsp`): Inspect code, find definitions, and understand code structure
 
 When invoked:
@@ -48,7 +47,7 @@ Debugging process:
 - Add strategic debug logging
 - Inspect variable states
 - Use DeepWiki to look up external library documentation when errors involve third-party dependencies
-- Use WebFetch to gather additional context from web sources if needed
+- Use Playwright CLI via Bash to gather additional context from web sources if needed
 - Use LSP to understand error locations and navigate the codebase structure
 
 For each issue, provide:

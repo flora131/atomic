@@ -53,6 +53,7 @@ import {
   type SessionConfig,
   type AgentMessage,
   type ContextUsage,
+  type SessionCompactionState,
   type McpRuntimeSnapshot,
   type EventType,
   type EventHandler,
@@ -62,7 +63,16 @@ import {
 } from "../types.ts";
 
 import { initOpenCodeConfigOverrides } from "../init.ts";
-import { createToolMcpServerScript } from "../tools/opencode-mcp-bridge.ts";
+import {
+  createToolMcpServerScript,
+  startToolDispatchServer,
+  stopToolDispatchServer,
+} from "../tools/opencode-mcp-bridge.ts";
+import { BACKGROUND_COMPACTION_THRESHOLD } from "../../workflows/graph/types.ts";
+import {
+  incrementRuntimeParityCounter,
+  runtimeParityDebug,
+} from "../../workflows/runtime-parity-observability.ts";
 
 // Import the real SDK
 import {
@@ -108,12 +118,334 @@ export interface OpenCodeSdkEvent {
 const DEFAULT_OPENCODE_BASE_URL = "http://localhost:4096";
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_RETRY_DELAY = 1000;
+const PRE_PROMPT_TERMINAL_SETTLE_MS = 500;
+export const AUTO_COMPACTION_THRESHOLD = BACKGROUND_COMPACTION_THRESHOLD;
+export const MAX_COMPACTION_WAIT_MS = 15_000;
+export const COMPACTION_TERMINAL_ERROR_MESSAGE = "Compaction failed, please start a new chat.";
+const COMPACTION_COMPLETE_DEDUPE_WINDOW_MS = 1000;
+const SESSION_LIFECYCLE_EVENT_TYPES = new Set<string>([
+  "session.created",
+  "session.updated",
+  "session.status",
+  "session.idle",
+  "session.error",
+  "session.deleted",
+]);
+const OPENCODE_SSE_DIAGNOSTICS_MARKER = "opencode.sse.diagnostics";
+
+type OpenCodeSseDiagnosticsCounter =
+  | "sse.watchdog.timeout.count"
+  | "sse.event.filtered.count"
+  | "sse.abort.watchdog.count"
+  | "sse.abort.global.count"
+  | "sse.abort.unknown.count";
+
+type OpenCodeSseAbortReason = "watchdog" | "global" | "unknown";
+
+type OpenCodeSessionStatus = "idle" | "busy" | "retry";
+export type OpenCodeCompactionControlState = "STREAMING" | "COMPACTING" | "TERMINAL_ERROR" | "ENDED";
+export type OpenCodeCompactionErrorCode =
+  | "COMPACTION_TIMEOUT"
+  | "COMPACTION_FAILED"
+  | "COMPACTION_INVALID_STATE";
+
+interface OpenCodeCompactionControl {
+  state: OpenCodeCompactionControlState;
+  startedAt: number | null;
+  errorCode?: OpenCodeCompactionErrorCode;
+  errorMessage?: string;
+}
+
+interface OpenCodeSubagentSessionState {
+  pendingAgentParts: Array<{ partId: string; agentName: string }>;
+  childSessionToAgentPart: Map<string, string>;
+  startedSubagentIds: Set<string>;
+  subagentToolCounts: Map<string, number>;
+  pendingTaskToolPartIds: string[];
+  queuedTaskToolPartIds: Set<string>;
+}
+
+interface OpenCodeSessionCompactionState {
+  isCompacting: boolean;
+  hasAutoCompacted: boolean;
+  pendingCompactionComplete: boolean;
+  lastCompactionCompleteAt: number | null;
+  control: OpenCodeCompactionControl;
+}
+
+interface OpenCodeSessionState {
+  inputTokens: number;
+  outputTokens: number;
+  isClosed: boolean;
+  contextWindow: number | null;
+  systemToolsBaseline: number | null;
+  compaction: OpenCodeSessionCompactionState;
+}
+
+function parseOpenCodeSessionStatus(status: unknown): OpenCodeSessionStatus | undefined {
+  if (status === "idle" || status === "busy" || status === "retry") {
+    return status;
+  }
+
+  if (typeof status !== "object" || status === null) {
+    return undefined;
+  }
+
+  const statusRecord = status as {
+    type?: unknown;
+    status?: unknown;
+    value?: unknown;
+  };
+
+  const candidates = [statusRecord.type, statusRecord.status, statusRecord.value];
+  for (const candidate of candidates) {
+    if (candidate === "idle" || candidate === "busy" || candidate === "retry") {
+      return candidate;
+    }
+  }
+
+  return undefined;
+}
+
+function asErrorRecord(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return undefined;
+}
+
+function asNonEmptyErrorString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0
+    ? value
+    : undefined;
+}
+
+export class OpenCodeCompactionError extends Error {
+  readonly code: OpenCodeCompactionErrorCode;
+
+  constructor(code: OpenCodeCompactionErrorCode, message: string) {
+    super(message);
+    this.name = "OpenCodeCompactionError";
+    this.code = code;
+  }
+}
+
+type OpenCodeCompactionControlEvent =
+  | "stream.start"
+  | "compaction.start"
+  | "compaction.complete.success"
+  | "compaction.complete.error"
+  | "turn.ended";
+
+export function transitionOpenCodeCompactionControl(
+  current: OpenCodeCompactionControl,
+  event: OpenCodeCompactionControlEvent,
+  options?: {
+    now?: number;
+    errorCode?: OpenCodeCompactionErrorCode;
+    errorMessage?: string;
+  },
+): OpenCodeCompactionControl {
+  const now = options?.now ?? Date.now();
+
+  switch (event) {
+    case "stream.start":
+      return { state: "STREAMING", startedAt: null };
+    case "compaction.start":
+      if (current.state !== "STREAMING") {
+        throw new OpenCodeCompactionError(
+          "COMPACTION_INVALID_STATE",
+          COMPACTION_TERMINAL_ERROR_MESSAGE,
+        );
+      }
+      return { state: "COMPACTING", startedAt: now };
+    case "compaction.complete.success":
+      if (current.state === "TERMINAL_ERROR" || current.state === "ENDED") {
+        return current;
+      }
+      return { state: "STREAMING", startedAt: null };
+    case "compaction.complete.error":
+      if (current.state === "TERMINAL_ERROR" || current.state === "ENDED") {
+        return current;
+      }
+      if (current.state !== "COMPACTING") {
+        throw new OpenCodeCompactionError(
+          "COMPACTION_INVALID_STATE",
+          COMPACTION_TERMINAL_ERROR_MESSAGE,
+        );
+      }
+      return {
+        state: "TERMINAL_ERROR",
+        startedAt: current.startedAt ?? now,
+        errorCode: options?.errorCode ?? "COMPACTION_FAILED",
+        errorMessage: options?.errorMessage ?? COMPACTION_TERMINAL_ERROR_MESSAGE,
+      };
+    case "turn.ended":
+      if (current.state !== "TERMINAL_ERROR") {
+        return current;
+      }
+      return {
+        state: "ENDED",
+        startedAt: current.startedAt,
+        errorCode: current.errorCode,
+        errorMessage: current.errorMessage,
+      };
+    default:
+      return current;
+  }
+}
+
+function setCompactionControlState(
+  sessionState: OpenCodeSessionState,
+  event: OpenCodeCompactionControlEvent,
+  options?: {
+    now?: number;
+    errorCode?: OpenCodeCompactionErrorCode;
+    errorMessage?: string;
+  },
+): void {
+  sessionState.compaction.control = transitionOpenCodeCompactionControl(
+    sessionState.compaction.control,
+    event,
+    options,
+  );
+  sessionState.compaction.isCompacting = sessionState.compaction.control.state === "COMPACTING";
+}
+
+function toOpenCodeCompactionTerminalError(error: unknown): OpenCodeCompactionError {
+  if (error instanceof OpenCodeCompactionError) {
+    return error;
+  }
+  return new OpenCodeCompactionError(
+    "COMPACTION_FAILED",
+    COMPACTION_TERMINAL_ERROR_MESSAGE,
+  );
+}
+
+export function emitOpenCodeCompactionContractFailureObservability(args: {
+  sessionId: string;
+  code: OpenCodeCompactionErrorCode;
+  sourceError: string;
+  terminalError: string;
+}): void {
+  incrementRuntimeParityCounter("workflow.runtime.parity.compaction_timeout_terminated_total", {
+    provider: "opencode",
+    code: args.code,
+  });
+  incrementRuntimeParityCounter("workflow.runtime.parity.turn_terminated_due_to_contract_error_total", {
+    provider: "opencode",
+    reason: "compaction_terminal_error",
+    code: args.code,
+  });
+  runtimeParityDebug("compaction_contract_failure", {
+    provider: "opencode",
+    sessionId: args.sessionId,
+    code: args.code,
+    sourceError: args.sourceError,
+    terminalError: args.terminalError,
+  });
+}
+
+async function withCompactionTimeout<T>(operation: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<T>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          reject(
+            new OpenCodeCompactionError(
+              "COMPACTION_TIMEOUT",
+              COMPACTION_TERMINAL_ERROR_MESSAGE,
+            ),
+          );
+        }, MAX_COMPACTION_WAIT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
+
+const CONTEXT_OVERFLOW_PATTERNS = [
+  "contextoverflowerror",
+  "context_length_exceeded",
+  "context length exceeded",
+  "context window",
+  "maximum context length",
+  "input is too long",
+  "input exceeds context window",
+  "exceeds the model's maximum context",
+  "token limit",
+  "too many tokens",
+  "request too large",
+  "prompt is too long",
+];
+
+export function isContextOverflowError(error: Error | string): boolean {
+  const message = typeof error === "string" ? error : error.message;
+  const normalizedMessage = message.trim().toLowerCase();
+  if (!normalizedMessage) {
+    return false;
+  }
+
+  return CONTEXT_OVERFLOW_PATTERNS.some((pattern) => normalizedMessage.includes(pattern));
+}
+
+function extractOpenCodeErrorMessage(error: unknown, fallback = "Unknown error"): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  const direct = asNonEmptyErrorString(error);
+  if (direct) {
+    return direct;
+  }
+
+  const record = asErrorRecord(error);
+  if (!record) {
+    return fallback;
+  }
+
+  const directFields = [
+    record.message,
+    record.error,
+    record.details,
+    record.reason,
+    record.stderr,
+    record.stdout,
+  ];
+
+  for (const field of directFields) {
+    const value = asNonEmptyErrorString(field);
+    if (value) {
+      return value;
+    }
+  }
+
+  if (Array.isArray(record.errors) && record.errors.length > 0) {
+    const entries = record.errors
+      .map((entry) => extractOpenCodeErrorMessage(entry, ""))
+      .filter((entry) => entry.length > 0);
+    if (entries.length > 0) {
+      return entries.join("; ");
+    }
+  }
+
+  try {
+    return JSON.stringify(record);
+  } catch {
+    return fallback;
+  }
+}
 
 /**
- * Debug logging helper gated behind ATOMIC_DEBUG environment variable
+ * Debug logging helper gated behind DEBUG environment variable
  * Used to verify event emission at runtime during development
  */
-const debugLog = process.env.ATOMIC_DEBUG
+const debugLog = process.env.DEBUG === "1"
   ? (label: string, data: Record<string, unknown>) =>
       console.debug(`[opencode:${label}]`, JSON.stringify(data, null, 2))
   : () => {};
@@ -355,6 +687,7 @@ export class OpenCodeClient implements CodingAgentClient {
   private eventHandlers: Map<EventType, Set<EventHandler<EventType>>> =
     new Map();
   private activeSessions: Set<string> = new Set();
+  private sessionStateById = new Map<string, OpenCodeSessionState>();
   private registeredTools: Map<string, ToolDefinition> = new Map();
   private isRunning = false;
   private isConnected = false;
@@ -362,6 +695,14 @@ export class OpenCodeClient implements CodingAgentClient {
   private eventSubscriptionController: AbortController | null = null;
   private serverCloseCallback: (() => void) | null = null;
   private isServerSpawned = false;
+  private dispatchServerStop: (() => void) | null = null;
+  private readonly sseDiagnosticsCounters: Record<OpenCodeSseDiagnosticsCounter, number> = {
+    "sse.watchdog.timeout.count": 0,
+    "sse.event.filtered.count": 0,
+    "sse.abort.watchdog.count": 0,
+    "sse.abort.global.count": 0,
+    "sse.abort.unknown.count": 0,
+  };
 
   /** Mutable model preference updated by /model command at runtime */
   private activePromptModel: { providerID: string; modelID: string } | undefined;
@@ -369,6 +710,29 @@ export class OpenCodeClient implements CodingAgentClient {
   /** Mutable context window updated when activePromptModel changes */
   private activeContextWindow: number | null = null;
 
+  /**
+   * Sub-agent session tracking scoped by parent session ID.
+   *
+   * The OpenCode SDK's AgentPart/SubtaskPart carry `sessionID` referencing
+   * the PARENT session (where the part was created), not the child session.
+   * In parallel workflows multiple parent sessions can stream concurrently, so
+   * all correlation state must be partitioned per parent session.
+   */
+  private subagentStateByParentSession = new Map<string, OpenCodeSubagentSessionState>();
+  private childSessionToParentSession = new Map<string, string>();
+
+  /**
+   * Track reasoning part IDs so `message.part.delta` can distinguish
+   * reasoning deltas from text deltas (the delta event only carries a
+   * partID, not the part type).
+   */
+  private reasoningPartIds = new Set<string>();
+
+  /**
+   * Track message roles so part events can distinguish user @mentions
+   * from assistant-emitted sub-agent lifecycle parts.
+   */
+  private messageRolesBySession = new Map<string, Map<string, "user" | "assistant">>();
 
   /**
    * Create a new OpenCodeClient
@@ -405,7 +769,7 @@ export class OpenCodeClient implements CodingAgentClient {
         if (result.error) {
           return {
             healthy: false,
-            error: String(result.error),
+            error: extractOpenCodeErrorMessage(result.error),
           };
         }
         return {
@@ -418,7 +782,7 @@ export class OpenCodeClient implements CodingAgentClient {
       if (result.error) {
         return {
           healthy: false,
-          error: String(result.error),
+          error: extractOpenCodeErrorMessage(result.error),
         };
       }
       return {
@@ -508,10 +872,15 @@ export class OpenCodeClient implements CodingAgentClient {
       }
     }
     this.activeSessions.clear();
+    this.sessionStateById.clear();
 
     this.isConnected = false;
     this.sdkClient = null;
     this.currentSessionId = null;
+    this.subagentStateByParentSession.clear();
+    this.childSessionToParentSession.clear();
+    this.reasoningPartIds.clear();
+    this.messageRolesBySession.clear();
 
     this.emitEvent("session.idle", "connection", { reason: "disconnected" });
   }
@@ -560,46 +929,453 @@ export class OpenCodeClient implements CodingAgentClient {
   private async subscribeToSdkEvents(): Promise<void> {
     if (!this.sdkClient) return;
 
-    try {
-      this.eventSubscriptionController = new AbortController();
+    this.eventSubscriptionController = new AbortController();
 
-      const result = await this.sdkClient.event.subscribe({
-        directory: this.clientOptions.directory,
-      });
+    // Start the resilient event loop — it will auto-reconnect on failures.
+    // Mirrors the pattern used in OpenCode's own TUI client (global-sdk.tsx).
+    this.runEventLoop().catch((error) => {
+      if (error?.name !== "AbortError") {
+        console.error("SSE event loop terminated:", error);
+      }
+    });
+  }
 
-      // The SDK returns { stream: AsyncGenerator } - extract the stream
-      const eventStream = result.stream;
+  /**
+   * Resilient SSE event loop that auto-reconnects on failures.
+   * Keeps the SSE connection alive as long as the client is running
+   * (i.e. until `eventSubscriptionController` is aborted via `disconnect()`).
+   *
+   * Uses a flat reconnect delay (250ms) since the SDK's `createSseClient`
+   * already implements exponential backoff for connection-level retries.
+   */
+  private async runEventLoop(): Promise<void> {
+    const SSE_RECONNECT_DELAY_MS = 250;
+    let isReconnect = false;
 
-      // Process events in background
-      this.processEventStream(eventStream).catch((error) => {
-        // Only log if not aborted
-        if (error?.name !== "AbortError") {
-          console.error("SSE event stream error:", error);
+    while (!this.eventSubscriptionController?.signal.aborted && this.isRunning) {
+      try {
+        const watchdogAbort = new AbortController();
+        const globalAbortSignal = this.eventSubscriptionController?.signal;
+        if (!globalAbortSignal) break;
+        const composedAbortSignal = AbortSignal.any([
+          globalAbortSignal,
+          watchdogAbort.signal,
+        ]);
+
+        const result = await this.sdkClient!.event.subscribe(
+          {
+            directory: this.clientOptions.directory,
+          },
+          {
+            signal: composedAbortSignal,
+          },
+        );
+
+        // On reconnection, reconcile state to recover any events missed during the gap
+        if (isReconnect) {
+          await this.reconcileStateOnReconnect();
         }
-      });
-    } catch (error) {
-      console.error("Failed to subscribe to events:", error);
+
+        await this.processEventStream(result.stream, watchdogAbort);
+
+        // Generator ended normally — if not aborted, reconnect
+        if (this.eventSubscriptionController?.signal.aborted) break;
+        isReconnect = true;
+      } catch (error) {
+        if ((error as Error)?.name === "AbortError") break;
+        if (this.eventSubscriptionController?.signal.aborted) break;
+
+        console.error("SSE connection error, reconnecting:", error);
+        isReconnect = true;
+      }
+
+      // Brief delay before reconnecting (SDK handles exponential backoff internally)
+      if (!this.eventSubscriptionController?.signal.aborted && this.isRunning) {
+        await new Promise((resolve) => setTimeout(resolve, SSE_RECONNECT_DELAY_MS));
+      }
     }
   }
 
   /**
-   * Process SSE event stream
+   * Reconcile state after SSE reconnection.
+   *
+   * Re-fetches session list from the server and re-emits current state so the
+   * UI is in sync after any events missed during the connection gap.
+   * Modeled after OpenCode's bootstrap() call on server.connected.
+   */
+  private async reconcileStateOnReconnect(): Promise<void> {
+    try {
+      const sessions = await this.listSessions();
+      for (const session of sessions) {
+        this.registerActiveSession(session.id);
+        this.emitEvent("session.start", session.id, {
+          title: session.title ?? "Reconnected session",
+        });
+      }
+    } catch (error) {
+      console.warn("State reconciliation failed after reconnect:", error);
+    }
+  }
+
+  /**
+   * Process SSE event stream with heartbeat watchdog.
+   *
+   * Tracks the last event timestamp and aborts the connection if no events
+   * arrive within the watchdog timeout (15s). This detects dead SSE
+   * connections proactively — the server sends heartbeats every ~10s.
    */
   private async processEventStream(
-    eventStream: AsyncGenerator<unknown, unknown, unknown>
+    eventStream: AsyncGenerator<unknown, unknown, unknown>,
+    watchdogAbort: AbortController,
   ): Promise<void> {
+    const HEARTBEAT_TIMEOUT_MS = 15_000;
+    let lastEventAt = Date.now();
+    let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
+    let filteredEventCount = 0;
+    let abortDiagnosticsEmitted = false;
+
+    const resetWatchdog = () => {
+      lastEventAt = Date.now();
+      if (watchdogTimer) clearTimeout(watchdogTimer);
+      watchdogTimer = setTimeout(() => {
+        const elapsed = Date.now() - lastEventAt;
+        if (elapsed >= HEARTBEAT_TIMEOUT_MS) {
+          const timeoutCount = this.emitSseDiagnosticsCounter("sse.watchdog.timeout.count");
+          console.warn(
+            `SSE heartbeat timeout: no events for ${elapsed}ms, forcing reconnect (timeoutCount=${timeoutCount})`,
+          );
+          debugLog("sse-watchdog-timeout", {
+            elapsed,
+            timeoutCount,
+            activeSessions: this.activeSessions.size,
+          });
+          watchdogAbort.abort();
+        }
+      }, HEARTBEAT_TIMEOUT_MS);
+    };
+
+    resetWatchdog();
+
     try {
       for await (const event of eventStream) {
-        if (this.eventSubscriptionController?.signal.aborted) {
+        if (this.eventSubscriptionController?.signal.aborted || watchdogAbort.signal.aborted) {
+          const abortReason: OpenCodeSseAbortReason = watchdogAbort.signal.aborted
+            ? "watchdog"
+            : this.eventSubscriptionController?.signal.aborted
+              ? "global"
+              : "unknown";
+          const abortCount = this.emitSseAbortDiagnostics(abortReason);
+          abortDiagnosticsEmitted = true;
+          debugLog("sse-abort", {
+            reason: abortReason,
+            abortCount,
+            activeSessions: this.activeSessions.size,
+          });
           break;
         }
-        this.handleSdkEvent(event as Record<string, unknown>);
+        resetWatchdog();
+        const sdkEvent = event as Record<string, unknown>;
+        if (!this.shouldProcessSseEvent(sdkEvent)) {
+          filteredEventCount += 1;
+          continue;
+        }
+        this.handleSdkEvent(sdkEvent);
       }
     } catch (error) {
       if ((error as Error)?.name !== "AbortError") {
         throw error;
       }
+      if (!abortDiagnosticsEmitted) {
+        const abortReason: OpenCodeSseAbortReason = watchdogAbort.signal.aborted
+          ? "watchdog"
+          : this.eventSubscriptionController?.signal.aborted
+            ? "global"
+            : "unknown";
+        const abortCount = this.emitSseAbortDiagnostics(abortReason);
+        debugLog("sse-abort", {
+          reason: abortReason,
+          abortCount,
+          activeSessions: this.activeSessions.size,
+        });
+      }
+    } finally {
+      if (watchdogTimer) clearTimeout(watchdogTimer);
+      if (filteredEventCount > 0) {
+        const totalFilteredCount = this.emitSseDiagnosticsCounter(
+          "sse.event.filtered.count",
+          filteredEventCount,
+        );
+        debugLog("sse-event-filter", {
+          filteredEventCount,
+          totalFilteredCount,
+          activeSessions: this.activeSessions.size,
+        });
+      }
     }
+  }
+
+  private emitSseDiagnosticsCounter(
+    counter: OpenCodeSseDiagnosticsCounter,
+    amount = 1,
+  ): number {
+    this.sseDiagnosticsCounters[counter] += amount;
+    const value = this.sseDiagnosticsCounters[counter];
+    this.emitEvent("usage", "connection", {
+      provider: "opencode",
+      marker: OPENCODE_SSE_DIAGNOSTICS_MARKER,
+      counter,
+      value,
+    });
+    return value;
+  }
+
+  private emitSseAbortDiagnostics(reason: OpenCodeSseAbortReason): number {
+    if (reason === "watchdog") {
+      return this.emitSseDiagnosticsCounter("sse.abort.watchdog.count");
+    }
+    if (reason === "global") {
+      return this.emitSseDiagnosticsCounter("sse.abort.global.count");
+    }
+    return this.emitSseDiagnosticsCounter("sse.abort.unknown.count");
+  }
+
+  private registerActiveSession(sessionId: string): void {
+    if (!sessionId) return;
+    this.activeSessions.add(sessionId);
+  }
+
+  private setSessionParentMapping(
+    sessionId: string,
+    parentSessionId: string | undefined,
+  ): void {
+    if (!sessionId) return;
+    if (parentSessionId && parentSessionId !== sessionId) {
+      this.childSessionToParentSession.set(sessionId, parentSessionId);
+      return;
+    }
+    this.childSessionToParentSession.delete(sessionId);
+  }
+
+  private unregisterActiveSession(sessionId: string): void {
+    if (!sessionId) return;
+    this.activeSessions.delete(sessionId);
+    this.sessionStateById.delete(sessionId);
+    this.messageRolesBySession.delete(sessionId);
+    this.clearSubagentSessionState(sessionId);
+    if (this.currentSessionId === sessionId) {
+      this.currentSessionId = null;
+    }
+  }
+
+  private isSessionLifecycleEventType(eventType: string): boolean {
+    return SESSION_LIFECYCLE_EVENT_TYPES.has(eventType);
+  }
+
+  private extractEventSessionCandidates(event: Record<string, unknown>): string[] {
+    const properties = event.properties as Record<string, unknown> | undefined;
+    const info = properties?.info as { id?: string; sessionID?: string } | undefined;
+    const part = properties?.part as { sessionID?: string } | undefined;
+    const candidates = [
+      properties?.sessionID,
+      info?.id,
+      info?.sessionID,
+      part?.sessionID,
+    ];
+    return Array.from(
+      new Set(
+        candidates
+          .filter((value): value is string => typeof value === "string")
+          .filter((value) => value.length > 0),
+      ),
+    );
+  }
+
+  private shouldProcessSseEvent(event: Record<string, unknown>): boolean {
+    const eventType = event.type as string | undefined;
+    if (!eventType || this.isSessionLifecycleEventType(eventType)) {
+      return true;
+    }
+
+    const sessionCandidates = this.extractEventSessionCandidates(event);
+    if (sessionCandidates.length === 0) {
+      return true;
+    }
+
+    for (const sessionId of sessionCandidates) {
+      if (this.activeSessions.has(sessionId)) {
+        return true;
+      }
+      const parentSessionId = this.childSessionToParentSession.get(sessionId);
+      if (parentSessionId && this.activeSessions.has(parentSessionId)) {
+        return true;
+      }
+    }
+
+    // Child-session sub-agent part events can arrive before we can map the
+    // child session to a parent. This is common during parallel task dispatch
+    // where multiple child sessions start nearly simultaneously.
+    // Allow these events through when we have a scoped current session so
+    // findParentSessionForPart() can recover parent attribution.
+    if (
+      this.currentSessionId
+      && (eventType === "message.part.updated" || eventType === "message.part.delta")
+    ) {
+      const properties = event.properties as Record<string, unknown> | undefined;
+      const part = properties?.part as { sessionID?: unknown } | undefined;
+      if (typeof part?.sessionID === "string" && part.sessionID.length > 0) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private createSubagentSessionState(): OpenCodeSubagentSessionState {
+    return {
+      pendingAgentParts: [],
+      childSessionToAgentPart: new Map(),
+      startedSubagentIds: new Set(),
+      subagentToolCounts: new Map(),
+      pendingTaskToolPartIds: [],
+      queuedTaskToolPartIds: new Set(),
+    };
+  }
+
+  private getSubagentSessionState(parentSessionId: string): OpenCodeSubagentSessionState {
+    let state = this.subagentStateByParentSession.get(parentSessionId);
+    if (!state) {
+      state = this.createSubagentSessionState();
+      this.subagentStateByParentSession.set(parentSessionId, state);
+    }
+    return state;
+  }
+
+  private findParentSessionForPart(
+    properties: Record<string, unknown> | undefined,
+    partSessionId: string,
+  ): string {
+    const envelopeSessionId = (properties?.sessionID as string | undefined) ?? "";
+    if (envelopeSessionId) {
+      return envelopeSessionId;
+    }
+
+    const mappedParent = this.childSessionToParentSession.get(partSessionId);
+    if (mappedParent) {
+      return mappedParent;
+    }
+
+    // Heuristic fallback: when exactly one parent session currently has
+    // pending agent/subtask parts awaiting child-session discovery, attribute
+    // unknown child tool parts to that parent instead of the child session.
+    // This recovers parent linkage when session.created(parentID) arrives late.
+    if (partSessionId) {
+      const pendingParentCandidates: string[] = [];
+      for (const [candidateSessionId, state] of this.subagentStateByParentSession.entries()) {
+        if (candidateSessionId === partSessionId) continue;
+        if (state.pendingAgentParts.length === 0) continue;
+        pendingParentCandidates.push(candidateSessionId);
+        if (pendingParentCandidates.length > 1) break;
+      }
+      if (pendingParentCandidates.length === 1) {
+        return pendingParentCandidates[0]!;
+      }
+    }
+
+    if (partSessionId) {
+      if (this.activeSessions.has(partSessionId)) {
+        return partSessionId;
+      }
+
+      // Older OpenCode payloads sometimes omit envelope sessionID for child
+      // tool parts. Fall back to the current scoped parent session so child
+      // discovery can still register subagentSessionId correlation.
+      if (
+        this.currentSessionId &&
+        this.currentSessionId !== partSessionId
+      ) {
+        return this.currentSessionId;
+      }
+
+      return partSessionId;
+    }
+
+    return this.currentSessionId ?? "";
+  }
+
+  private enqueuePendingTaskToolPartId(
+    state: OpenCodeSubagentSessionState,
+    taskPartId: string,
+  ): void {
+    if (state.queuedTaskToolPartIds.has(taskPartId)) return;
+    state.pendingTaskToolPartIds.push(taskPartId);
+    state.queuedTaskToolPartIds.add(taskPartId);
+  }
+
+  private dequeuePendingTaskToolPartId(
+    state: OpenCodeSubagentSessionState,
+  ): string | undefined {
+    const taskPartId = state.pendingTaskToolPartIds.shift();
+    if (taskPartId) {
+      state.queuedTaskToolPartIds.delete(taskPartId);
+    }
+    return taskPartId;
+  }
+
+  private removePendingTaskToolPartId(
+    state: OpenCodeSubagentSessionState,
+    taskPartId: string,
+  ): void {
+    const idx = state.pendingTaskToolPartIds.indexOf(taskPartId);
+    if (idx !== -1) {
+      state.pendingTaskToolPartIds.splice(idx, 1);
+    }
+    state.queuedTaskToolPartIds.delete(taskPartId);
+  }
+
+  private clearSubagentSessionState(parentSessionId: string): void {
+    const state = this.subagentStateByParentSession.get(parentSessionId);
+    if (state) {
+      for (const childSessionId of state.childSessionToAgentPart.keys()) {
+        this.childSessionToParentSession.delete(childSessionId);
+      }
+      this.subagentStateByParentSession.delete(parentSessionId);
+    }
+
+    const ownerParent = this.childSessionToParentSession.get(parentSessionId);
+    if (!ownerParent) return;
+
+    const ownerState = this.subagentStateByParentSession.get(ownerParent);
+    if (ownerState) {
+      const agentPartId = ownerState.childSessionToAgentPart.get(parentSessionId);
+      ownerState.childSessionToAgentPart.delete(parentSessionId);
+      if (agentPartId) {
+        ownerState.startedSubagentIds.delete(agentPartId);
+        ownerState.subagentToolCounts.delete(agentPartId);
+      }
+    }
+    this.childSessionToParentSession.delete(parentSessionId);
+  }
+
+  private setMessageRole(
+    sessionId: string,
+    messageId: string,
+    role: "user" | "assistant",
+  ): void {
+    if (!sessionId || !messageId) return;
+    let roles = this.messageRolesBySession.get(sessionId);
+    if (!roles) {
+      roles = new Map<string, "user" | "assistant">();
+      this.messageRolesBySession.set(sessionId, roles);
+    }
+    roles.set(messageId, role);
+  }
+
+  private getMessageRole(
+    sessionId: string,
+    messageId: string,
+  ): "user" | "assistant" | undefined {
+    if (!sessionId || !messageId) return undefined;
+    return this.messageRolesBySession.get(sessionId)?.get(messageId);
   }
 
   /**
@@ -614,158 +1390,479 @@ export class OpenCodeClient implements CodingAgentClient {
       case "session.created":
         // OpenCode emits session ID under properties.info.id (not properties.sessionID).
         // Fall back to sessionID for defensive compatibility with older payloads.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        this.emitEvent(
-          "session.start",
-          ((properties?.info as any)?.id as string) ?? (properties?.sessionID as string) ?? "",
-          {
+        {
+          const createdInfo = properties?.info as { id?: string; sessionID?: string; parentID?: string } | undefined;
+          const createdSessionId = createdInfo?.id ?? (properties?.sessionID as string) ?? "";
+          this.setSessionParentMapping(
+            createdSessionId,
+            typeof createdInfo?.parentID === "string" ? createdInfo.parentID : undefined,
+          );
+          this.registerActiveSession(createdSessionId);
+          this.emitEvent("session.start", createdSessionId, {
             config: {},
-          }
-        );
+          });
+        }
         break;
 
-      case "session.idle":
-        this.emitEvent(
-          "session.idle",
-          (properties?.sessionID as string) ?? "",
-          {
-            reason: "idle",
-          }
+      case "session.updated": {
+        const updatedInfo = properties?.info as { id?: string; parentID?: string } | undefined;
+        const updatedSessionId = updatedInfo?.id ?? (properties?.sessionID as string) ?? "";
+        this.setSessionParentMapping(
+          updatedSessionId,
+          typeof updatedInfo?.parentID === "string" ? updatedInfo.parentID : undefined,
         );
+        this.registerActiveSession(updatedSessionId);
+        break;
+      }
+
+      case "session.deleted": {
+        const deletedInfo = properties?.info as { id?: string } | undefined;
+        const deletedSessionId = (properties?.sessionID as string) ?? deletedInfo?.id ?? "";
+        this.unregisterActiveSession(deletedSessionId);
+        break;
+      }
+
+      case "session.status": {
+        const status = parseOpenCodeSessionStatus(properties?.status);
+        // OpenCode payloads can carry the session ID either at sessionID or info.id.
+        const info = properties?.info as { id?: string } | undefined;
+        const statusSessionId = (properties?.sessionID as string) ?? info?.id ?? "";
+        this.registerActiveSession(statusSessionId);
+
+        if (status === "idle") {
+          this.emitEvent("session.idle", statusSessionId, {
+            reason: "idle",
+          });
+        }
+        break;
+      }
+
+      case "session.idle":
+        // OpenCode payloads can carry the session ID either at sessionID or info.id.
+        // Prefer sessionID and fall back to info.id for compatibility across SDK versions.
+        {
+          const idleInfo = properties?.info as { id?: string } | undefined;
+          const idleSessionId = (properties?.sessionID as string) ?? idleInfo?.id ?? "";
+          this.registerActiveSession(idleSessionId);
+          this.emitEvent(
+            "session.idle",
+            idleSessionId,
+            {
+              reason: "idle",
+            }
+          );
+        }
         break;
 
       case "session.error":
-        this.emitEvent(
-          "session.error",
-          (properties?.sessionID as string) ?? "",
-          {
-            error: properties?.error ?? "Unknown error",
+        {
+          const errorInfo = properties?.info as { id?: string } | undefined;
+          const errorSessionId = (properties?.sessionID as string) ?? errorInfo?.id ?? "";
+          this.registerActiveSession(errorSessionId);
+          this.emitEvent(
+            "session.error",
+            errorSessionId,
+            {
+              error: extractOpenCodeErrorMessage(
+                properties?.error ?? event.error,
+              ),
+            }
+          );
+        }
+        break;
+
+      case "session.compacted":
+        {
+          const compactedSessionId = (properties?.sessionID as string) ?? "";
+          const sessionState = this.sessionStateById.get(compactedSessionId);
+          if (
+            sessionState
+            && (
+              sessionState.compaction.control.state === "TERMINAL_ERROR"
+              || sessionState.compaction.control.state === "ENDED"
+            )
+          ) {
+            break;
           }
-        );
+          const now = Date.now();
+          if (
+            sessionState
+            && !sessionState.compaction.pendingCompactionComplete
+            && sessionState.compaction.lastCompactionCompleteAt !== null
+            && now - sessionState.compaction.lastCompactionCompleteAt <= COMPACTION_COMPLETE_DEDUPE_WINDOW_MS
+          ) {
+            break;
+          }
+          if (sessionState) {
+            sessionState.compaction.pendingCompactionComplete = false;
+            sessionState.compaction.lastCompactionCompleteAt = now;
+            setCompactionControlState(sessionState, "compaction.complete.success", { now });
+          }
+          this.emitEvent(
+            "session.compaction",
+            compactedSessionId,
+            {
+              phase: "complete",
+              success: true,
+            }
+          );
+        }
         break;
 
       case "message.updated": {
         // Handle message updates (info contains the message)
         const info = properties?.info as Record<string, unknown> | undefined;
+        const infoRole = info?.role;
+        const infoMessageId = info?.id;
+        const infoSessionId = info?.sessionID;
+        if (
+          (infoRole === "user" || infoRole === "assistant")
+          && typeof infoMessageId === "string"
+          && infoMessageId.length > 0
+          && typeof infoSessionId === "string"
+          && infoSessionId.length > 0
+        ) {
+          this.setMessageRole(infoSessionId, infoMessageId, infoRole);
+        }
+
         if (info?.role === "assistant") {
-          this.emitEvent(
-            "message.complete",
-            (info?.sessionID as string) ?? "",
-            {
-              message: info,
-            }
-          );
+          const msgSessionId = (info?.sessionID as string) ?? "";
+          this.emitEvent("message.complete", msgSessionId, {
+            message: info,
+          });
+
+          // Extract token usage from assistant message updates (carries
+          // cumulative tokens at each step boundary, delivered via SSE)
+          const msgTokens = info?.tokens as
+            | { input?: number; output?: number; reasoning?: number }
+            | undefined;
+          if (msgTokens && (msgTokens.input || msgTokens.output)) {
+            this.emitEvent("usage", msgSessionId, {
+              inputTokens: msgTokens.input ?? 0,
+              outputTokens: msgTokens.output ?? 0,
+            });
+          }
         }
         break;
       }
 
       case "message.part.updated": {
-        // Handle streaming text parts
         const part = properties?.part as Record<string, unknown> | undefined;
-        const delta = properties?.delta as string | undefined;
-        // Session ID is in properties, not in part
-        const partSessionId = (properties?.sessionID as string) ?? (part?.sessionID as string) ?? "";
-        if (part?.type === "text" && delta) {
-          this.emitEvent("message.delta", partSessionId, {
-            delta,
-            contentType: "text",
-          });
-        } else if (part?.type === "reasoning" && delta) {
-          this.emitEvent("message.delta", partSessionId, {
-            delta,
-            contentType: "reasoning",
-            thinkingSourceKey: (part?.id as string) ?? undefined,
-          });
+        // Session IDs can appear on both the event envelope and the part.
+        // Prefer part.sessionID because tool parts emitted by sub-agent child
+        // sessions can still carry properties.sessionID from the parent frame.
+        // Using properties first collapses child tools into the parent stream,
+        // which breaks inline task anchoring and pushes agent trees to the end.
+        const partSessionId = (part?.sessionID as string) ?? (properties?.sessionID as string) ?? "";
+        const partMessageId = (part?.messageID as string) ?? "";
+        const partMessageRole = this.getMessageRole(partSessionId, partMessageId);
+        const parentSessionId = this.findParentSessionForPart(properties, partSessionId);
+        const sessionSubagentState = parentSessionId
+          ? this.getSubagentSessionState(parentSessionId)
+          : this.createSubagentSessionState();
+        if (part?.type === "text") {
+          // Text streaming is handled entirely by message.part.delta (v2).
+        } else if (part?.type === "reasoning") {
+          // Register reasoning part IDs so message.part.delta can route
+          // them as "thinking" content; streaming handled by that handler.
+          const partId = (part?.id as string) ?? undefined;
+          if (partId) {
+            this.reasoningPartIds.add(partId);
+          }
         } else if (part?.type === "tool") {
           const toolState = part?.state as Record<string, unknown> | undefined;
           const toolName = (part?.tool as string) ?? "";
           const toolInput = (toolState?.input as Record<string, unknown>) ?? {};
+          const toolMetadata = (
+            typeof toolState?.metadata === "object"
+            && toolState?.metadata !== null
+            && !Array.isArray(toolState.metadata)
+          )
+            ? (toolState.metadata as Record<string, unknown>)
+            : undefined;
+          let agentPartId = sessionSubagentState.childSessionToAgentPart.get(partSessionId);
+
+          // --- Child session discovery for sub-agent tools ---
+          // When a ToolPart arrives from a session that is NOT the parent
+          // session, it belongs to a sub-agent's child session.  On first
+          // encounter we associate the child session with the oldest pending
+          // agent part and re-emit subagent.start with the correct
+          // subagentSessionId so the UI registers the child session in
+          // ownedSessionIds before the tool.start event arrives.
+          debugLog("tool-part-session-check", {
+            toolName,
+            partSessionId,
+            parentSessionId: parentSessionId || "null",
+            propertiesSessionID: (properties?.sessionID as string) ?? "undefined",
+            partSessionID: (part?.sessionID as string) ?? "undefined",
+            pendingAgentParts: sessionSubagentState.pendingAgentParts.length,
+            childSessionAlreadyKnown: sessionSubagentState.childSessionToAgentPart.has(partSessionId),
+            toolStatus: (toolState?.status as string) ?? "unknown",
+          });
+          if (
+            partSessionId &&
+            parentSessionId &&
+            partSessionId !== parentSessionId &&
+            !sessionSubagentState.childSessionToAgentPart.has(partSessionId)
+          ) {
+            const pending = sessionSubagentState.pendingAgentParts.shift();
+            if (pending) {
+              sessionSubagentState.childSessionToAgentPart.set(partSessionId, pending.partId);
+              agentPartId = pending.partId;
+              this.childSessionToParentSession.set(partSessionId, parentSessionId);
+              debugLog("child-session-discovered", {
+                childSessionId: partSessionId,
+                agentPartId: pending.partId,
+                agentName: pending.agentName,
+              });
+              // Re-emit subagent.start with the correct child session ID.
+              // The UI handles duplicate subagent.start by updating in-place
+              // and — critically — registers the subagentSessionId in
+              // ownedSessionIds + subagentSessionToAgentId.
+              this.emitEvent("subagent.start", parentSessionId, {
+                subagentId: pending.partId,
+                subagentType: pending.agentName,
+                subagentSessionId: partSessionId,
+              });
+              if (pending.partId) {
+                sessionSubagentState.startedSubagentIds.add(pending.partId);
+              }
+            }
+          }
 
           // Emit tool.start for pending or running status
           // OpenCode sends "pending" first, then "running" with more complete input.
           // Include the tool part ID so the UI can deduplicate events for
           // the same logical tool call (pending → running transitions).
           if (toolState?.status === "pending" || toolState?.status === "running") {
-            debugLog("tool.start", {
-              toolName,
-              toolId: part?.id as string,
-              hasToolInput: !!toolInput && Object.keys(toolInput).length > 0,
-            });
-            this.emitEvent("tool.start", partSessionId, {
-              toolName,
-              toolInput,
-              toolUseId: part?.id as string,
-              toolCallId: part?.callID as string,
-            });
+            const isTaskTool = toolName === "task" || toolName === "Task";
+            const isParentSessionTaskTool =
+              !parentSessionId || partSessionId === parentSessionId;
+
+            if (isTaskTool) {
+              const taskPartId = part?.id as string;
+              if (taskPartId && isParentSessionTaskTool) {
+                this.enqueuePendingTaskToolPartId(sessionSubagentState, taskPartId);
+              }
+            }
+
+            // Emit tool.start for non-task tools and parent-session task tools.
+            // Parent task tools provide an anchor so the sub-agent tree renders
+            // inline with the task invocation instead of pinning at the bottom.
+            if (!isTaskTool || isParentSessionTaskTool) {
+              debugLog("tool.start", {
+                toolName,
+                toolId: part?.id as string,
+                hasToolInput: !!toolInput && Object.keys(toolInput).length > 0,
+              });
+              this.emitEvent("tool.start", partSessionId, {
+                toolName,
+                toolInput,
+                ...(toolMetadata ? { toolMetadata } : {}),
+                toolUseId: part?.id as string,
+                toolCallId: part?.callID as string,
+                ...(agentPartId ? { parentAgentId: agentPartId } : {}),
+              });
+            }
+
+            // Emit subagent.update for child session tools
+            if (agentPartId && toolState?.status === "running") {
+              const count = (sessionSubagentState.subagentToolCounts.get(agentPartId) ?? 0) + 1;
+              sessionSubagentState.subagentToolCounts.set(agentPartId, count);
+              this.emitEvent("subagent.update", parentSessionId || partSessionId, {
+                subagentId: agentPartId,
+                currentTool: toolName,
+                toolUses: count,
+              });
+            }
           } else if (toolState?.status === "completed") {
-            // Only emit complete if output is available
-            // The output field contains the formatted file content
-            const output = toolState?.output;
-            if (output !== undefined) {
+            const isTaskTool = toolName === "task" || toolName === "Task";
+            const isParentSessionTaskTool =
+              !parentSessionId || partSessionId === parentSessionId;
+
+            // Emit tool.complete for non-task tools and parent-session task tools.
+            if (!isTaskTool || isParentSessionTaskTool) {
               this.emitEvent("tool.complete", partSessionId, {
                 toolName,
-                toolResult: output,
+                toolResult: toolState?.output,
                 toolInput,
+                ...(toolMetadata ? { toolMetadata } : {}),
                 success: true,
                 toolUseId: part?.id as string,
                 toolCallId: part?.callID as string,
+                ...(agentPartId ? { parentAgentId: agentPartId } : {}),
               });
             }
+
+            if (isTaskTool) {
+              const taskPartId = part?.id as string;
+              if (taskPartId) {
+                this.removePendingTaskToolPartId(sessionSubagentState, taskPartId);
+              }
+            }
           } else if (toolState?.status === "error") {
-            this.emitEvent("tool.complete", partSessionId, {
-              toolName,
-              toolResult: toolState?.error ?? "Tool execution failed",
-              toolInput,
-              success: false,
-              toolUseId: part?.id as string,
-              toolCallId: part?.callID as string,
-            });
+            const isTaskTool = toolName === "task" || toolName === "Task";
+            const isParentSessionTaskTool =
+              !parentSessionId || partSessionId === parentSessionId;
+
+            // Emit tool.complete for non-task tools and parent-session task tools.
+            if (!isTaskTool || isParentSessionTaskTool) {
+              this.emitEvent("tool.complete", partSessionId, {
+                toolName,
+                toolResult: toolState?.error ?? "Tool execution failed",
+                toolInput,
+                ...(toolMetadata ? { toolMetadata } : {}),
+                success: false,
+                toolUseId: part?.id as string,
+                toolCallId: part?.callID as string,
+                ...(agentPartId ? { parentAgentId: agentPartId } : {}),
+              });
+            }
+
+            if (isTaskTool) {
+              const taskPartId = part?.id as string;
+              if (taskPartId) {
+                this.removePendingTaskToolPartId(sessionSubagentState, taskPartId);
+              }
+            }
           }
         } else if (part?.type === "agent") {
+          if (partMessageRole === "user") {
+            // User @mentions are prompt input references, not runtime
+            // sub-agent lifecycle events.
+            break;
+          }
+
           // AgentPart: { type: "agent", name, id, sessionID, messageID }
-          // Map agent parts to subagent.start events
+          // Map agent parts to subagent.start events.
+          //
+          // NOTE: AgentPart.sessionID is the PARENT session (where the part
+          // was created), NOT the child sub-agent session.  The child session
+          // ID is only discoverable from subsequent ToolPart events emitted
+          // by the sub-agent.  We enqueue this agent and will re-emit
+          // subagent.start with the correct subagentSessionId once the first
+          // child tool event reveals the child session.
+          const agentPartId = (part?.id as string) ?? "";
+          const agentName = (part?.name as string) ?? "";
+
+          // Use the pending Task ToolPart ID as the correlation ID so the
+          // UI can match the agent tree to the Task tool card and suppress
+          // the redundant tool card display.  The ToolPart for "task" is
+          // always emitted before the AgentPart it spawns.
+          const taskToolPartId = this.dequeuePendingTaskToolPartId(sessionSubagentState);
+
+          const correlationId = taskToolPartId ?? (part?.callID as string) ?? agentPartId;
           debugLog("subagent.start", {
             partType: "agent",
-            subagentId: (part?.id as string) ?? "",
-            subagentType: (part?.name as string) ?? "",
-            toolCallId: (part?.callID as string) ?? (part?.id as string),
+            subagentId: agentPartId,
+            subagentType: agentName,
+            toolCallId: correlationId,
+            taskToolPartId: taskToolPartId ?? "none",
           });
-          this.emitEvent("subagent.start", partSessionId, {
-            subagentId: (part?.id as string) ?? "",
-            subagentType: (part?.name as string) ?? "",
-            toolCallId: (part?.callID as string) ?? (part?.id as string),
+          sessionSubagentState.pendingAgentParts.push({ partId: agentPartId, agentName });
+          this.emitEvent("subagent.start", parentSessionId || partSessionId, {
+            subagentId: agentPartId,
+            subagentType: agentName,
+            toolCallId: correlationId,
+            // subagentSessionId intentionally omitted — part.sessionID is
+            // the parent session, not the child.  The correct child session
+            // will be registered via a follow-up subagent.start when the
+            // first child tool event arrives.
           });
+          if (agentPartId) {
+            sessionSubagentState.startedSubagentIds.add(agentPartId);
+          }
         } else if (part?.type === "subtask") {
+          if (partMessageRole === "user") {
+            // Defensive parity with AgentPart handling above.
+            break;
+          }
+
           // SubtaskPart: { type: "subtask", prompt, description, agent, ... }
           // Some OpenCode versions emit sub-agent dispatch as "subtask" parts
           // instead of "agent" parts. Normalize both to subagent.start.
+          //
+          // Same child-session caveat as AgentPart above: SubtaskPart.sessionID
+          // is the parent session.  We enqueue and defer child session discovery.
+          const subtaskPartId = (part?.id as string) ?? "";
           const subtaskPrompt = (part?.prompt as string) ?? "";
           const subtaskDescription = (part?.description as string) ?? "";
           const subtaskAgent = (part?.agent as string) ?? "";
+
+          // Use the pending Task ToolPart ID for correlation (same as AgentPart above).
+          const taskToolPartId = this.dequeuePendingTaskToolPartId(sessionSubagentState);
+
+          const correlationId = taskToolPartId ?? subtaskPartId;
           debugLog("subagent.start", {
             partType: "subtask",
-            subagentId: (part?.id as string) ?? "",
+            subagentId: subtaskPartId,
             subagentType: subtaskAgent,
+            toolCallId: correlationId,
+            taskToolPartId: taskToolPartId ?? "none",
           });
-          this.emitEvent("subagent.start", partSessionId, {
-            subagentId: (part?.id as string) ?? "",
+          sessionSubagentState.pendingAgentParts.push({ partId: subtaskPartId, agentName: subtaskAgent });
+          this.emitEvent("subagent.start", parentSessionId || partSessionId, {
+            subagentId: subtaskPartId,
             subagentType: subtaskAgent,
             task: subtaskDescription || subtaskPrompt,
+            toolCallId: correlationId,
             toolInput: {
               prompt: subtaskPrompt,
               description: subtaskDescription,
               agent: subtaskAgent,
             },
+            // subagentSessionId intentionally omitted — see AgentPart comment.
           });
+          if (subtaskPartId) {
+            sessionSubagentState.startedSubagentIds.add(subtaskPartId);
+          }
         } else if (part?.type === "step-finish") {
-          // StepFinishPart signals the end of a sub-agent step
-          // Map to subagent.complete with success based on reason
+          // StepFinishPart signals the end of a step.
+          //
+          // OpenCode emits step-finish for BOTH sub-agent completions AND
+          // main-turn completions (the primary agent finishing its response).
+          // Only emit subagent.complete when the finishedPartId belongs to a
+          // known sub-agent — i.e., it was previously registered via an
+          // "agent" or "subtask" part that triggered subagent.start.
+          // Main-turn step-finish parts are silently ignored to prevent
+          // MISSING_START contract violations downstream.
           const reason = (part?.reason as string) ?? "";
-          this.emitEvent("subagent.complete", partSessionId, {
-            subagentId: (part?.id as string) ?? "",
-            success: reason !== "error",
-            result: reason,
-          });
+          const finishedPartId = (part?.id as string) ?? "";
+          const hasStartedSubagent =
+            finishedPartId.length > 0 &&
+            sessionSubagentState.startedSubagentIds.has(finishedPartId);
+
+          if (hasStartedSubagent) {
+            this.emitEvent("subagent.complete", parentSessionId || partSessionId, {
+              subagentId: finishedPartId,
+              success: reason !== "error",
+              result: reason,
+            });
+
+            // Clean up child session tracking and tool counts for the completed agent.
+            sessionSubagentState.startedSubagentIds.delete(finishedPartId);
+            sessionSubagentState.subagentToolCounts.delete(finishedPartId);
+            for (const [childSid, agentPartId] of sessionSubagentState.childSessionToAgentPart) {
+              if (agentPartId === finishedPartId) {
+                sessionSubagentState.childSessionToAgentPart.delete(childSid);
+                this.childSessionToParentSession.delete(childSid);
+                break;
+              }
+            }
+            // Also remove from pending in case it never spawned child tools.
+            const pendingIdx = sessionSubagentState.pendingAgentParts.findIndex(
+              (p) => p.partId === finishedPartId
+            );
+            if (pendingIdx !== -1) {
+              sessionSubagentState.pendingAgentParts.splice(pendingIdx, 1);
+            }
+          } else {
+            debugLog("step-finish-ignored", {
+              finishedPartId,
+              reason,
+              info: "step-finish part does not match any known sub-agent; likely a main-turn completion",
+            });
+          }
         }
         break;
       }
@@ -774,6 +1871,29 @@ export class OpenCodeClient implements CodingAgentClient {
         // Handle HITL (Human-in-the-Loop) question requests from OpenCode
         // Map OpenCode's question format to our unified permission.requested event
         this.handleQuestionAsked(properties);
+        break;
+      }
+
+      case "message.part.delta": {
+        // v2 SDK sends incremental deltas via a separate event type instead of
+        // including `delta` on `message.part.updated`.
+        const partDelta = properties?.delta as string | undefined;
+        const partId = properties?.partID as string | undefined;
+        const deltaSessionId = (properties?.sessionID as string) ?? "";
+        if (partDelta && partDelta.length > 0) {
+          if (partId && this.reasoningPartIds.has(partId)) {
+            this.emitEvent("message.delta", deltaSessionId, {
+              delta: partDelta,
+              contentType: "thinking",
+              thinkingSourceKey: partId,
+            });
+          } else {
+            this.emitEvent("message.delta", deltaSessionId, {
+              delta: partDelta,
+              contentType: "text",
+            });
+          }
+        }
         break;
       }
     }
@@ -858,7 +1978,7 @@ export class OpenCodeClient implements CodingAgentClient {
     data: Record<string, unknown>
   ): void {
     const handlers = this.eventHandlers.get(eventType);
-    if (!handlers) return;
+    if (!handlers || handlers.size === 0) return;
 
     const event: AgentEvent<T> = {
       type: eventType,
@@ -923,13 +2043,30 @@ export class OpenCodeClient implements CodingAgentClient {
 
   /**
    * Register custom tools as a single MCP stdio server.
-   * Bundles all registered tools into a temporary script and registers it via mcp.add().
+   * Starts a local HTTP dispatch server for tool handler IPC, generates a
+   * temporary MCP script that forwards tool calls to it, and registers the
+   * script with the OpenCode server via mcp.add().
    */
   private async registerToolsMcpServer(): Promise<void> {
     if (!this.sdkClient) return;
 
+    // Start the in-process dispatch server so the MCP script can call handlers
+    const contextFactory = () => ({
+      sessionID: this.currentSessionId ?? "",
+      messageID: "",
+      agent: "opencode" as const,
+      directory: this.clientOptions.directory ?? process.cwd(),
+      abort: new AbortController().signal,
+    });
+
+    const { port, stop } = await startToolDispatchServer(
+      this.registeredTools,
+      contextFactory,
+    );
+    this.dispatchServerStop = stop;
+
     const tools = Array.from(this.registeredTools.values());
-    const scriptPath = await createToolMcpServerScript(tools);
+    const scriptPath = await createToolMcpServerScript(tools, port);
 
     try {
       await this.sdkClient.mcp.add({
@@ -974,13 +2111,13 @@ export class OpenCodeClient implements CodingAgentClient {
 
     if (result.error || !result.data) {
       throw new Error(
-        `Failed to create session: ${result.error ?? "Unknown error"}`
+        `Failed to create session: ${extractOpenCodeErrorMessage(result.error)}`
       );
     }
 
     const sessionId = result.data.id;
     this.currentSessionId = sessionId;
-    this.activeSessions.add(sessionId);
+    this.registerActiveSession(sessionId);
 
     // Emit session start event
     this.emitEvent("session.start", sessionId, { config });
@@ -1011,7 +2148,7 @@ export class OpenCodeClient implements CodingAgentClient {
     }
 
     this.currentSessionId = sessionId;
-    this.activeSessions.add(sessionId);
+    this.registerActiveSession(sessionId);
     return this.wrapSession(sessionId, {});
   }
 
@@ -1062,13 +2199,24 @@ export class OpenCodeClient implements CodingAgentClient {
     }
 
     // Track session state for token usage and lifecycle
-    const sessionState = {
+    const sessionState: OpenCodeSessionState = {
       inputTokens: 0,
       outputTokens: 0,
       isClosed: false,
       contextWindow: null as number | null,
       systemToolsBaseline: null as number | null,
+      compaction: {
+        isCompacting: false,
+        hasAutoCompacted: false,
+        pendingCompactionComplete: false,
+        lastCompactionCompleteAt: null,
+        control: {
+          state: "STREAMING",
+          startedAt: null,
+        },
+      },
     };
+    this.sessionStateById.set(sessionId, sessionState);
 
     // Eagerly resolve contextWindow from provider metadata
     const modelId = config.model;
@@ -1095,9 +2243,7 @@ export class OpenCodeClient implements CodingAgentClient {
         });
 
         if (result.error) {
-          const err = result.error as Record<string, unknown>;
-          const errorDetail = typeof err === "string" ? err : JSON.stringify(err);
-          throw new Error(`Failed to send message: ${errorDetail}`);
+          throw new Error(extractOpenCodeErrorMessage(result.error));
         }
 
         // Update token counts from SDK response
@@ -1146,7 +2292,38 @@ export class OpenCodeClient implements CodingAgentClient {
         };
       },
 
-      stream: (message: string, options?: { agent?: string }): AsyncIterable<AgentMessage> => {
+      sendAsync: async (
+        message: string,
+        options?: { agent?: string; abortSignal?: AbortSignal },
+      ): Promise<void> => {
+        if (sessionState.isClosed) {
+          throw new Error("Session is closed");
+        }
+        if (!client.sdkClient) {
+          throw new Error("Client not connected");
+        }
+
+        const result = await client.sdkClient.session.promptAsync(
+          {
+            sessionID: sessionId,
+            directory: client.clientOptions.directory,
+            agent: agentMode,
+            model: client.activePromptModel ?? initialPromptModel,
+            system: config.systemPrompt || undefined,
+            parts: buildOpenCodePromptParts(message, options?.agent),
+          },
+          options?.abortSignal ? { signal: options.abortSignal } : undefined,
+        );
+
+        if (result?.error) {
+          throw new Error(extractOpenCodeErrorMessage(result.error));
+        }
+      },
+
+      stream: (
+        message: string,
+        options?: { agent?: string; abortSignal?: AbortSignal },
+      ): AsyncIterable<AgentMessage> => {
         return {
           async *[Symbol.asyncIterator]() {
             if (sessionState.isClosed) {
@@ -1155,30 +2332,169 @@ export class OpenCodeClient implements CodingAgentClient {
             if (!client.sdkClient) {
               throw new Error("Client not connected");
             }
+            const sdkClient = client.sdkClient;
+
+            sessionState.compaction.hasAutoCompacted = false;
+            sessionState.compaction.pendingCompactionComplete = false;
+            setCompactionControlState(sessionState, "stream.start");
 
             // Note: input tokens are updated from result.data.info?.tokens after prompt resolves
 
             // Set up streaming via SSE events
             // OpenCode streams text deltas via message.part.updated events
             const deltaQueue: AgentMessage[] = [];
+            let deltaQueueHead = 0;
             let resolveNext: (() => void) | null = null;
+            let settleWaitTimer: ReturnType<typeof setTimeout> | null = null;
             let streamDone = false;
             let streamError: Error | null = null;
+            let terminalEventSeen = false;
+            let terminalEventAt: number | null = null;
+            let promptInFlight = false;
+            const streamAbortSignal = options?.abortSignal;
+            const isSubagentDispatch =
+              typeof options?.agent === "string" && options.agent.trim().length > 0;
+            const relatedSessionIds = new Set<string>([sessionId]);
+            const startedToolUseIds = new Set<string>();
+            const completedToolUseIds = new Set<string>();
+            let syntheticToolUseCounter = 0;
+
+            const compactDeltaQueue = (force = false): void => {
+              if (deltaQueueHead === 0) {
+                return;
+              }
+
+              if (force || deltaQueueHead >= deltaQueue.length) {
+                deltaQueue.length = 0;
+                deltaQueueHead = 0;
+                return;
+              }
+
+              if (deltaQueueHead >= 128 && deltaQueueHead * 2 >= deltaQueue.length) {
+                deltaQueue.splice(0, deltaQueueHead);
+                deltaQueueHead = 0;
+              }
+            };
+
+            const clearSettleWaitTimer = (): void => {
+              if (settleWaitTimer !== null) {
+                clearTimeout(settleWaitTimer);
+                settleWaitTimer = null;
+              }
+            };
+
+            const wakeStreamLoop = (): void => {
+              if (!resolveNext) {
+                return;
+              }
+              const resolve = resolveNext;
+              resolveNext = null;
+              clearSettleWaitTimer();
+              resolve();
+            };
+
+            const enqueueDelta = (messageChunk: AgentMessage): void => {
+              deltaQueue.push(messageChunk);
+              wakeStreamLoop();
+            };
+
+            const hasQueuedDelta = (): boolean => deltaQueueHead < deltaQueue.length;
+
+            const dequeueDelta = (): AgentMessage | undefined => {
+              if (!hasQueuedDelta()) {
+                return undefined;
+              }
+              const nextChunk = deltaQueue[deltaQueueHead];
+              deltaQueueHead += 1;
+              compactDeltaQueue();
+              return nextChunk;
+            };
+
+            const waitForStreamSignal = async (): Promise<void> => {
+              await new Promise<void>((resolve) => {
+                resolveNext = resolve;
+                if (terminalEventSeen && terminalEventAt !== null && promptInFlight) {
+                  const elapsed = Date.now() - terminalEventAt;
+                  const remaining = PRE_PROMPT_TERMINAL_SETTLE_MS - elapsed;
+                  if (remaining <= 0) {
+                    wakeStreamLoop();
+                    return;
+                  }
+                  settleWaitTimer = setTimeout(() => {
+                    settleWaitTimer = null;
+                    wakeStreamLoop();
+                  }, remaining);
+                }
+              });
+            };
+
+            const handleStreamAbort = () => {
+              streamDone = true;
+              terminalEventSeen = true;
+              terminalEventAt = Date.now();
+              wakeStreamLoop();
+            };
+
+            if (streamAbortSignal?.aborted) {
+              handleStreamAbort();
+            } else if (streamAbortSignal) {
+              streamAbortSignal.addEventListener("abort", handleStreamAbort, { once: true });
+            }
+
+            const isStreamAbortError = (error: unknown): boolean => {
+              if (streamAbortSignal?.aborted) {
+                return true;
+              }
+              if (error instanceof DOMException && error.name === "AbortError") {
+                return true;
+              }
+              if (!(error instanceof Error)) {
+                return false;
+              }
+              const errorWithCode = error as Error & { code?: string };
+              if (
+                error.name === "AbortError"
+                || errorWithCode.code === "ABORT_ERR"
+                || errorWithCode.code === "ERR_CANCELED"
+              ) {
+                return true;
+              }
+              return error.message.toLowerCase().includes("aborted");
+            };
+
+            const isRelatedSession = (candidateSessionId: string): boolean => {
+              if (!isSubagentDispatch) {
+                return candidateSessionId === sessionId;
+              }
+              return candidateSessionId.length > 0 && relatedSessionIds.has(candidateSessionId);
+            };
+
+            const registerRelatedSession = (candidateSessionId: unknown): void => {
+              if (typeof candidateSessionId !== "string" || candidateSessionId.length === 0) {
+                return;
+              }
+              relatedSessionIds.add(candidateSessionId);
+            };
+
+            const buildSyntheticToolUseId = (): string => {
+              syntheticToolUseCounter += 1;
+              return `tool_${sessionId}_${syntheticToolUseCounter}`;
+            };
 
             // Handler for delta events from SSE
             const handleDelta = (event: AgentEvent<"message.delta">) => {
-              // Only handle events for our session
-              if (event.sessionId !== sessionId) return;
+              // Handle parent session and discovered child sessions.
+              if (!isRelatedSession(event.sessionId)) return;
 
               const delta = event.data?.delta as string | undefined;
               const contentType = event.data?.contentType as string | undefined;
               const thinkingSourceKey = event.data?.thinkingSourceKey as string | undefined;
               if (delta) {
-                deltaQueue.push({
-                  type: contentType === "reasoning" ? "thinking" as const : "text" as const,
+                enqueueDelta({
+                  type: contentType === "thinking" ? "thinking" as const : "text" as const,
                   content: delta,
                   role: "assistant" as const,
-                  ...(contentType === "reasoning" ? {
+                  ...(contentType === "thinking" ? {
                     metadata: {
                       provider: "opencode",
                       thinkingSourceKey,
@@ -1189,176 +2505,193 @@ export class OpenCodeClient implements CodingAgentClient {
                     },
                   } : {}),
                 });
-                resolveNext?.();
               }
+            };
+
+            // Track discovered child sessions so their deltas/tools are included.
+            const handleSubagentStart = (event: AgentEvent<"subagent.start">) => {
+              if (!isSubagentDispatch) return;
+              if (!isRelatedSession(event.sessionId)) return;
+              registerRelatedSession((event.data as Record<string, unknown>)?.subagentSessionId);
+            };
+
+            const handleToolStart = (event: AgentEvent<"tool.start">) => {
+              if (!isSubagentDispatch) return;
+              if (!isRelatedSession(event.sessionId)) return;
+
+              const toolData = event.data as Record<string, unknown>;
+              const toolName = (toolData.toolName as string | undefined) ?? "unknown";
+              const toolInput = (toolData.toolInput as Record<string, unknown> | undefined) ?? {};
+              const toolUseId =
+                (toolData.toolUseId as string | undefined) ??
+                (toolData.toolUseID as string | undefined) ??
+                (toolData.toolCallId as string | undefined) ??
+                buildSyntheticToolUseId();
+
+              if (startedToolUseIds.has(toolUseId)) {
+                return;
+              }
+
+              startedToolUseIds.add(toolUseId);
+              enqueueDelta({
+                type: "tool_use",
+                content: {
+                  name: toolName,
+                  input: toolInput,
+                  toolUseId,
+                },
+                role: "assistant",
+                metadata: {
+                  toolName,
+                  toolId: toolUseId,
+                },
+              });
+            };
+
+            const handleToolComplete = (event: AgentEvent<"tool.complete">) => {
+              if (!isSubagentDispatch) return;
+              if (!isRelatedSession(event.sessionId)) return;
+
+              const toolData = event.data as Record<string, unknown>;
+              const toolName = (toolData.toolName as string | undefined) ?? "unknown";
+              const toolUseId =
+                (toolData.toolUseId as string | undefined) ??
+                (toolData.toolUseID as string | undefined) ??
+                (toolData.toolCallId as string | undefined) ??
+                buildSyntheticToolUseId();
+
+              if (completedToolUseIds.has(toolUseId)) {
+                return;
+              }
+
+              completedToolUseIds.add(toolUseId);
+              const success = (toolData.success as boolean | undefined) ?? true;
+              const toolResult = success
+                ? toolData.toolResult
+                : { error: (toolData.error as string | undefined) ?? "Tool execution failed" };
+
+              enqueueDelta({
+                type: "tool_result",
+                content: toolResult,
+                role: "assistant",
+                metadata: {
+                  toolName,
+                  toolId: toolUseId,
+                  error: !success,
+                },
+              });
             };
 
             // Handler for session idle (stream complete)
             const handleIdle = (event: AgentEvent<"session.idle">) => {
-              if (event.sessionId !== sessionId) return;
-              streamDone = true;
-              resolveNext?.();
+              if (!isRelatedSession(event.sessionId)) return;
+              terminalEventSeen = true;
+              terminalEventAt = Date.now();
+              wakeStreamLoop();
             };
 
             // Handler for session error
             const handleError = (event: AgentEvent<"session.error">) => {
-              if (event.sessionId !== sessionId) return;
+              if (!isRelatedSession(event.sessionId)) return;
               streamError = new Error(String(event.data?.error ?? "Stream error"));
+              terminalEventSeen = true;
+              terminalEventAt = Date.now();
               streamDone = true;
-              resolveNext?.();
+              wakeStreamLoop();
+            };
+
+            const handleUsage = (event: AgentEvent<"usage">) => {
+              if (event.sessionId !== sessionId) return;
+              const usageData = event.data as { inputTokens?: unknown; outputTokens?: unknown };
+              if (typeof usageData.inputTokens === "number") {
+                sessionState.inputTokens = usageData.inputTokens;
+              }
+              if (typeof usageData.outputTokens === "number") {
+                sessionState.outputTokens = usageData.outputTokens;
+              }
             };
 
             // Subscribe to events
             const unsubDelta = client.on("message.delta", handleDelta);
+            const unsubSubagentStart = isSubagentDispatch
+              ? client.on("subagent.start", handleSubagentStart)
+              : () => {};
+            const unsubToolStart = isSubagentDispatch
+              ? client.on("tool.start", handleToolStart)
+              : () => {};
+            const unsubToolComplete = isSubagentDispatch
+              ? client.on("tool.complete", handleToolComplete)
+              : () => {};
             const unsubIdle = client.on("session.idle", handleIdle);
             const unsubError = client.on("session.error", handleError);
+            const unsubUsage = client.on("usage", handleUsage);
+
+            const dispatchStreamPrompt = async (promptMessage: string): Promise<void> => {
+              promptInFlight = true;
+              try {
+                const result = await sdkClient.session.promptAsync(
+                  {
+                    sessionID: sessionId,
+                    directory: client.clientOptions.directory,
+                    agent: agentMode,
+                    model: client.activePromptModel ?? initialPromptModel,
+                    system: config.systemPrompt || undefined,
+                    parts: buildOpenCodePromptParts(promptMessage, options?.agent),
+                  },
+                  streamAbortSignal ? { signal: streamAbortSignal } : undefined,
+                );
+
+                if (result?.error) {
+                  streamError = new Error(extractOpenCodeErrorMessage(result.error));
+                  streamDone = true;
+                  wakeStreamLoop();
+                }
+              } catch (error: unknown) {
+                if (isStreamAbortError(error)) {
+                  streamDone = true;
+                  terminalEventSeen = true;
+                  terminalEventAt = Date.now();
+                  wakeStreamLoop();
+                  return;
+                }
+                streamError = error instanceof Error ? error : new Error(String(error));
+                streamDone = true;
+                wakeStreamLoop();
+              } finally {
+                promptInFlight = false;
+                wakeStreamLoop();
+              }
+            };
+
+            const resetStreamTerminalState = (): void => {
+              streamDone = false;
+              streamError = null;
+              terminalEventSeen = false;
+              terminalEventAt = null;
+            };
 
             try {
-              // Start the prompt (this initiates the agentic loop)
-              // The response will come through SSE events
-              const result = await client.sdkClient.session.prompt({
-                sessionID: sessionId,
-                directory: client.clientOptions.directory,
-                agent: agentMode,
-                model: client.activePromptModel ?? initialPromptModel,
-                system: config.systemPrompt || undefined,
-                parts: buildOpenCodePromptParts(message, options?.agent),
-              });
-
-              if (result.error) {
-                throw new Error(`Failed to send message: ${result.error}`);
-              }
-
-              // Track if we already yielded text content from direct response
-              // to avoid duplicating with SSE deltas
-              let yieldedTextFromResponse = false;
-
               // Wall-clock thinking timing
               let reasoningStartMs: number | null = null;
               let reasoningDurationMs = 0;
 
-              // If we got a direct response (no SSE streaming), yield it
-              // This handles cases where the SDK returns immediately
-              if (result.data?.parts) {
-                const parts = result.data.parts;
-                for (const part of parts) {
-                  if (part.type === "text" && part.text) {
-                    yieldedTextFromResponse = true;
-                    yield {
-                      type: "text" as const,
-                      content: part.text,
-                      role: "assistant" as const,
-                    };
-                  } else if (part.type === "reasoning" && part.text) {
-                    if (reasoningStartMs === null) {
-                      reasoningStartMs = Date.now();
-                    }
-                    const reasoningPartId = (part as { id?: string }).id;
-                    yield {
-                      type: "thinking" as const,
-                      content: part.text,
-                      role: "assistant" as const,
-                      metadata: {
-                        provider: "opencode",
-                        thinkingSourceKey: reasoningPartId,
-                        streamingStats: {
-                          thinkingMs: reasoningDurationMs + (Date.now() - reasoningStartMs),
-                          outputTokens: 0,
-                        },
-                      },
-                    };
-                  } else if (part.type === "tool") {
-                    // Accumulate reasoning duration when transitioning away from reasoning
-                    if (reasoningStartMs !== null) {
-                      reasoningDurationMs += Date.now() - reasoningStartMs;
-                      reasoningStartMs = null;
-                    }
-                    const toolPart = part as Record<string, unknown>;
-                    const toolState = toolPart.state as Record<string, unknown> | undefined;
-                    const toolName = toolPart.tool as string;
-
-                    // Yield tool_use message for pending/running tools
-                    if (toolState?.status === "pending" || toolState?.status === "running") {
-                      yield {
-                        type: "tool_use" as const,
-                        content: {
-                          name: toolName,
-                          input: toolState?.input ?? {},
-                          toolUseId: toolPart.id as string,
-                        },
-                        role: "assistant" as const,
-                        metadata: {
-                          toolId: toolPart.id as string,
-                        },
-                      };
-                    }
-
-                    // Yield tool_result message for completed tools
-                    if (toolState?.status === "completed" && toolState?.output) {
-                      yield {
-                        type: "tool_result" as const,
-                        content: toolState.output,
-                        role: "assistant" as const,
-                        metadata: {
-                          toolName,
-                          toolId: toolPart.id as string,
-                        },
-                      };
-                    }
-
-                    // Yield error message for failed tools
-                    if (toolState?.status === "error") {
-                      yield {
-                        type: "tool_result" as const,
-                        content: { error: toolState?.error ?? "Tool execution failed" },
-                        role: "assistant" as const,
-                        metadata: {
-                          toolName,
-                          toolId: toolPart.id as string,
-                          error: true,
-                        },
-                      };
-                    }
-                  }
-                }
-
-                // Update token counts from response
-                const tokens = result.data.info?.tokens;
-                if (tokens) {
-                  sessionState.inputTokens = tokens.input ?? sessionState.inputTokens;
-                  sessionState.outputTokens = tokens.output ?? 0;
-
-                  // Capture system/tools baseline from cache tokens
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  const cacheTokens = (((tokens as any).cache?.write ?? 0) + ((tokens as any).cache?.read ?? 0));
-                  if (cacheTokens > 0) {
-                    sessionState.systemToolsBaseline = cacheTokens;
-                  }
-                }
-
-                // Yield actual token counts to UI
-                if (sessionState.outputTokens > 0 || reasoningDurationMs > 0) {
-                  yield {
-                    type: "text" as const,
-                    content: "",
-                    role: "assistant" as const,
-                    metadata: {
-                      streamingStats: {
-                        outputTokens: sessionState.outputTokens,
-                        thinkingMs: reasoningDurationMs,
-                      },
-                    },
-                  };
-                }
+              // Fire-and-forget: promptAsync() returns 204 immediately.
+              // All streaming content arrives exclusively through SSE events
+              // (message.delta, session.idle, session.error).
+              if (!streamAbortSignal?.aborted) {
+                void dispatchStreamPrompt(message);
               }
 
-              // Yield any SSE deltas that arrived, but skip if we already yielded text from direct response
-              // This prevents duplication when OpenCode returns content both in direct response AND via SSE
-              if (!yieldedTextFromResponse) {
-                while (!streamDone || deltaQueue.length > 0) {
-                  if (deltaQueue.length > 0) {
-                    const msg = deltaQueue.shift()!;
-                    // Track reasoning duration from SSE deltas
+              while (true) {
+                // Drain SSE deltas until session.idle or session.error
+                while (!streamDone || hasQueuedDelta()) {
+                  if (streamAbortSignal?.aborted) {
+                    streamDone = true;
+                    break;
+                  }
+
+                  const msg = dequeueDelta();
+                  if (msg) {
                     if (msg.type === "thinking") {
                       if (reasoningStartMs === null) {
                         reasoningStartMs = Date.now();
@@ -1374,39 +2707,118 @@ export class OpenCodeClient implements CodingAgentClient {
                       reasoningStartMs = null;
                     }
                     yield msg;
-                  } else if (!streamDone) {
-                    // Wait for next delta or completion
-                    await new Promise<void>((resolve) => {
-                      resolveNext = resolve;
-                      // Add a timeout to prevent infinite waiting
-                      setTimeout(resolve, 30000);
-                    });
-                    resolveNext = null;
+                    continue;
                   }
+
+                  if (streamDone) {
+                    break;
+                  }
+
+                  if (
+                    terminalEventSeen
+                    && terminalEventAt !== null
+                    && (
+                      !promptInFlight
+                      || Date.now() - terminalEventAt >= PRE_PROMPT_TERMINAL_SETTLE_MS
+                    )
+                  ) {
+                    streamDone = true;
+                    break;
+                  }
+
+                  // Wait for next delta or completion
+                  await waitForStreamSignal();
                 }
-              } else {
-                // Clear the delta queue since we already have the response
+
+                if (streamAbortSignal?.aborted) {
+                  break;
+                }
+
+                if (!streamError) {
+                  const maxTokens = client.activeContextWindow ?? sessionState.contextWindow;
+                  const usagePercentage = maxTokens && maxTokens > 0
+                    ? ((sessionState.inputTokens + sessionState.outputTokens) / maxTokens) * 100
+                    : 0;
+                  const shouldAttemptProactiveCompaction =
+                    !isSubagentDispatch
+                    && usagePercentage >= AUTO_COMPACTION_THRESHOLD * 100
+                    && !sessionState.compaction.isCompacting
+                    && sessionState.compaction.control.state === "STREAMING"
+                    && !sessionState.compaction.hasAutoCompacted;
+
+                  if (!shouldAttemptProactiveCompaction) {
+                    break;
+                  }
+
+                  debugLog("compaction.proactive_trigger", {
+                    sessionId,
+                    trigger: "threshold",
+                    thresholdPercentage: AUTO_COMPACTION_THRESHOLD * 100,
+                    usagePercentage,
+                    inputTokens: sessionState.inputTokens,
+                    outputTokens: sessionState.outputTokens,
+                    contextWindow: maxTokens ?? 0,
+                  });
+                  sessionState.compaction.hasAutoCompacted = true;
+                  await session.summarize();
+                  break;
+                }
+
+                if (reasoningStartMs !== null) {
+                  reasoningDurationMs += Date.now() - reasoningStartMs;
+                  reasoningStartMs = null;
+                }
+
+                const shouldAttemptAutoCompaction = isContextOverflowError(streamError)
+                  && !sessionState.compaction.isCompacting
+                  && sessionState.compaction.control.state === "STREAMING"
+                  && !sessionState.compaction.hasAutoCompacted;
+
+                if (!shouldAttemptAutoCompaction) {
+                  throw streamError;
+                }
+
+                debugLog("compaction.overflow_trigger", {
+                  sessionId,
+                  trigger: "overflow",
+                  thresholdPercentage: AUTO_COMPACTION_THRESHOLD * 100,
+                  inputTokens: sessionState.inputTokens,
+                  outputTokens: sessionState.outputTokens,
+                  contextWindow: sessionState.contextWindow ?? 0,
+                  error: extractOpenCodeErrorMessage(streamError),
+                });
+                sessionState.compaction.hasAutoCompacted = true;
+
+                await session.summarize();
+
+                // Discard any stale stream payload from the failed pre-compaction turn.
                 deltaQueue.length = 0;
-                streamDone = true;
+                deltaQueueHead = 0;
+                resetStreamTerminalState();
+                if (streamAbortSignal?.aborted) {
+                  break;
+                }
+                void dispatchStreamPrompt("Continue");
               }
-
-              // Check for stream error
-              if (streamError) {
-                throw streamError;
-              }
-
-              // Actual token counts come from result.data.info?.tokens (yielded above).
             } catch (error) {
-              yield {
-                type: "text" as const,
-                content: `Error: ${error instanceof Error ? error.message : String(error)}`,
-                role: "assistant" as const,
-              };
+              if (error instanceof OpenCodeCompactionError) {
+                setCompactionControlState(sessionState, "turn.ended");
+                throw error;
+              }
+              throw new Error(extractOpenCodeErrorMessage(error));
             } finally {
+              clearSettleWaitTimer();
+              if (streamAbortSignal) {
+                streamAbortSignal.removeEventListener("abort", handleStreamAbort);
+              }
               // Unsubscribe from events
               unsubDelta();
+              unsubSubagentStart();
+              unsubToolStart();
+              unsubToolComplete();
               unsubIdle();
               unsubError();
+              unsubUsage();
             }
           },
         };
@@ -1417,39 +2829,123 @@ export class OpenCodeClient implements CodingAgentClient {
           throw new Error("Client not connected");
         }
 
-        await client.sdkClient.session.summarize({
-          sessionID: sessionId,
-          directory: client.clientOptions.directory,
-        });
-
-        // Query actual post-compaction token counts from the SDK.
-        // session.messages() returns each message with its token snapshot,
-        // so the last assistant message reflects the post-compaction state.
+        const preCompactionTokens = sessionState.inputTokens + sessionState.outputTokens;
+        let summarizeSucceeded = false;
         try {
-          const messagesResult = await client.sdkClient.session.messages({
-            sessionID: sessionId,
+          const compactionStartAt = Date.now();
+          setCompactionControlState(sessionState, "compaction.start", { now: compactionStartAt });
+          debugLog("compaction.summarize_start", {
+            sessionId,
+            thresholdPercentage: AUTO_COMPACTION_THRESHOLD * 100,
+            inputTokens: sessionState.inputTokens,
+            outputTokens: sessionState.outputTokens,
+            preCompactionTokens,
+            contextWindow: sessionState.contextWindow ?? 0,
+            maxCompactionWaitMs: MAX_COMPACTION_WAIT_MS,
           });
-          const messages = messagesResult.data ?? [];
-          for (let i = messages.length - 1; i >= 0; i--) {
-            const msg = messages[i]!.info;
-            if (msg.role === "assistant" && "tokens" in msg) {
-              sessionState.inputTokens = msg.tokens.input ?? sessionState.inputTokens;
-              sessionState.outputTokens = msg.tokens.output ?? 0;
-              const cacheTokens = (msg.tokens.cache?.write ?? 0) + (msg.tokens.cache?.read ?? 0);
-              if (cacheTokens > 0) {
-                sessionState.systemToolsBaseline = cacheTokens;
-              }
-              break;
-            }
-          }
-        } catch {
-          // If messages() fails, token counts remain at pre-compaction values.
-          // They will self-correct on the next message (snapshot tracking).
-        }
+          client.emitEvent("session.compaction", sessionId, {
+            phase: "start",
+          });
+          sessionState.compaction.pendingCompactionComplete = true;
 
-        client.emitEvent("session.idle", sessionId, {
-          reason: "context_compacted",
-        });
+          await withCompactionTimeout(client.sdkClient.session.summarize({
+            sessionID: sessionId,
+            directory: client.clientOptions.directory,
+          }));
+          summarizeSucceeded = true;
+
+          // Query actual post-compaction token counts from the SDK.
+          // session.messages() returns each message with its token snapshot,
+          // so the last assistant message reflects the post-compaction state.
+          try {
+            const messagesResult = await client.sdkClient.session.messages({
+              sessionID: sessionId,
+            });
+            const messages = messagesResult.data ?? [];
+            for (let i = messages.length - 1; i >= 0; i--) {
+              const msg = messages[i]!.info;
+              if (msg.role === "assistant" && "tokens" in msg) {
+                sessionState.inputTokens = msg.tokens.input ?? sessionState.inputTokens;
+                sessionState.outputTokens = msg.tokens.output ?? 0;
+                const cacheTokens = (msg.tokens.cache?.write ?? 0) + (msg.tokens.cache?.read ?? 0);
+                if (cacheTokens > 0) {
+                  sessionState.systemToolsBaseline = cacheTokens;
+                }
+                break;
+              }
+            }
+          } catch (refreshError) {
+            debugLog("compaction.refresh_tokens_failed", {
+              sessionId,
+              error: extractOpenCodeErrorMessage(refreshError),
+            });
+            // If messages() fails, token counts remain at pre-compaction values.
+            // They will self-correct on the next message (snapshot tracking).
+          }
+
+          const postCompactionTokens = sessionState.inputTokens + sessionState.outputTokens;
+          const tokensRemoved = preCompactionTokens - postCompactionTokens;
+          debugLog("compaction.summarize_complete", {
+            sessionId,
+            thresholdPercentage: AUTO_COMPACTION_THRESHOLD * 100,
+            inputTokens: sessionState.inputTokens,
+            outputTokens: sessionState.outputTokens,
+            preCompactionTokens,
+            postCompactionTokens,
+            tokensRemoved,
+            tokenLimit: sessionState.contextWindow ?? 0,
+          });
+          if (tokensRemoved > 0) {
+            client.emitEvent("session.truncation", sessionId, {
+              tokenLimit: sessionState.contextWindow ?? 0,
+              tokensRemoved,
+              messagesRemoved: 0,
+            });
+          }
+
+          client.emitEvent("session.idle", sessionId, {
+            reason: "context_compacted",
+          });
+          setCompactionControlState(sessionState, "compaction.complete.success");
+        } catch (error) {
+          const sourceErrorMessage = extractOpenCodeErrorMessage(error);
+          const terminalError = toOpenCodeCompactionTerminalError(error);
+          setCompactionControlState(sessionState, "compaction.complete.error", {
+            errorCode: terminalError.code,
+            errorMessage: terminalError.message,
+          });
+          debugLog("compaction.summarize_failed", {
+            sessionId,
+            thresholdPercentage: AUTO_COMPACTION_THRESHOLD * 100,
+            inputTokens: sessionState.inputTokens,
+            outputTokens: sessionState.outputTokens,
+            preCompactionTokens,
+            contextWindow: sessionState.contextWindow ?? 0,
+            error: sourceErrorMessage,
+            terminalErrorCode: terminalError.code,
+            terminalError: terminalError.message,
+          });
+          emitOpenCodeCompactionContractFailureObservability({
+            sessionId,
+            code: terminalError.code,
+            sourceError: sourceErrorMessage,
+            terminalError: terminalError.message,
+          });
+          client.emitEvent("session.compaction", sessionId, {
+            phase: "complete",
+            success: false,
+            error: terminalError.message,
+          });
+          client.emitEvent("session.error", sessionId, {
+            error: terminalError.message,
+            code: terminalError.code,
+          });
+          throw terminalError;
+        } finally {
+          if (!summarizeSucceeded) {
+            sessionState.compaction.pendingCompactionComplete = false;
+          }
+        }
       },
 
       getContextUsage: async (): Promise<ContextUsage> => {
@@ -1474,11 +2970,50 @@ export class OpenCodeClient implements CodingAgentClient {
         return sessionState.systemToolsBaseline;
       },
 
+      getCompactionState: (): SessionCompactionState => ({
+        isCompacting: sessionState.compaction.isCompacting,
+        hasAutoCompacted: sessionState.compaction.hasAutoCompacted,
+      }),
+
       getMcpSnapshot: async (): Promise<McpRuntimeSnapshot | null> => {
         if (sessionState.isClosed) {
           return null;
         }
         return client.buildOpenCodeMcpSnapshot();
+      },
+
+      abort: async (): Promise<void> => {
+        if (sessionState.isClosed || !client.sdkClient) return;
+        await client.sdkClient.session.abort({
+          sessionID: sessionId,
+          directory: client.clientOptions.directory,
+        });
+      },
+
+      abortBackgroundAgents: async (): Promise<void> => {
+        if (sessionState.isClosed || !client.sdkClient) return;
+        // Abort tracked child sessions (background sub-agents).
+        // OpenCode tracks child session IDs in the parent session state.
+        const parentState = client.subagentStateByParentSession.get(sessionId);
+        const childSessionIds = parentState
+          ? Array.from(parentState.childSessionToAgentPart.keys())
+          : [];
+        if (childSessionIds.length > 0) {
+          const abortPromises = childSessionIds.map((childSid) =>
+            client.sdkClient!.session.abort({
+              sessionID: childSid,
+              directory: client.clientOptions.directory,
+            }).catch((error: unknown) => {
+              console.error(`Failed to abort child session ${childSid}:`, error);
+            }),
+          );
+          await Promise.allSettled(abortPromises);
+        }
+        // Also abort the parent session to catch any remaining work
+        await client.sdkClient.session.abort({
+          sessionID: sessionId,
+          directory: client.clientOptions.directory,
+        });
       },
 
       destroy: async (): Promise<void> => {
@@ -1496,10 +3031,7 @@ export class OpenCodeClient implements CodingAgentClient {
           directory: client.clientOptions.directory,
         });
 
-        client.activeSessions.delete(sessionId);
-        if (client.currentSessionId === sessionId) {
-          client.currentSessionId = null;
-        }
+        client.unregisterActiveSession(sessionId);
 
         client.emitEvent("session.idle", sessionId, { reason: "destroyed" });
       },
@@ -1522,6 +3054,9 @@ export class OpenCodeClient implements CodingAgentClient {
 
     return () => {
       handlers?.delete(handler as EventHandler<EventType>);
+      if (handlers && handlers.size === 0) {
+        this.eventHandlers.delete(eventType);
+      }
     };
   }
 
@@ -1595,10 +3130,12 @@ export class OpenCodeClient implements CodingAgentClient {
       }
     }
 
+    // Mark running BEFORE starting SSE so the event loop's while-condition
+    // (which checks `this.isRunning` synchronously) evaluates to true.
+    this.isRunning = true;
+
     // Start SSE event subscription
     await this.subscribeToSdkEvents();
-
-    this.isRunning = true;
   }
 
   /**
@@ -1622,6 +3159,13 @@ export class OpenCodeClient implements CodingAgentClient {
       this.serverCloseCallback = null;
       this.isServerSpawned = false;
     }
+
+    // Stop the tool dispatch HTTP server
+    if (this.dispatchServerStop) {
+      this.dispatchServerStop();
+      this.dispatchServerStop = null;
+    }
+    stopToolDispatchServer();
 
     this.eventHandlers.clear();
     this.isRunning = false;

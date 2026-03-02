@@ -316,12 +316,22 @@ export function createAgentCommand(agent: AgentInfo): CommandDefinition {
         // OpenCode SDK dispatches sub-agents via AgentPartInput parts.
         // Pass the agent name structurally so the client can construct
         // the correct prompt parts without string encoding.
-        context.sendSilentMessage(task, { agent: agent.name });
+        context.sendSilentMessage(task, { agent: agent.name, isAgentOnlyStream: true });
+      } else if (context.agentType === "claude") {
+        // Claude SDK dispatches sub-agents via `options.agent` on the
+        // query() call. Pass the agent name structurally so the client
+        // sets `options.agent = agentName` and the SDK runs the query
+        // with that agent's prompt, tools, and model.
+        context.sendSilentMessage(task, { agent: agent.name, isAgentOnlyStream: true });
       } else {
-        // Claude SDK and Copilot SDK use the Task tool for sub-agent dispatch.
+        // Copilot SDK uses the Task tool for sub-agent dispatch.
         // Strongly steer the model to use Task-tool sub-agent dispatch so
         // sub-agent lifecycle events (and tree rendering) are emitted.
-        const instruction = `Use the Task tool to invoke the ${agent.name} sub-agent for this exact task: ${task}`;
+        // NOTE: Do NOT set isAgentOnlyStream here — these SDKs fire normal
+        // stream completion callbacks (handleStreamComplete). Setting it
+        // would trigger the premature agent-only finalizer, stopping the
+        // spinner while the main agent is still streaming its summary.
+        const instruction = `Use the Task tool to invoke the ${agent.name} sub-agent for this exact task: ${task}\n\nAfter the sub-agent completes, provide a concise summary of the outcome to the user.`;
         context.sendSilentMessage(instruction);
       }
 

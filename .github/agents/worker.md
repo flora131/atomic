@@ -86,7 +86,7 @@ Use the "Gang of Four" patterns as a shared vocabulary to solve recurring proble
 
 When you encounter ANY bug — whether introduced by your changes, discovered during testing, or pre-existing — you MUST follow this protocol:
 
-1. **Delegate debugging**: Use the Task tool to spawn a debugger agent. It can navigate the web for best practices.
+1. **Delegate debugging**: Use the Task tool to spawn a debugger agent. It can use DeepWiki for framework and library best practices.
 2. **Add the bug fix to the TOP of the task list AND update `blockedBy` on affected tasks**: Update `~/.atomic/workflows/{session_id}/tasks.json` with the bug fix as the FIRST item in the array (highest priority). Then, for every task whose work depends on the bug being fixed first, add the bug fix task's ID to that task's `blockedBy` array. This ensures those tasks cannot be started until the fix lands. Example:
     ```json
     [

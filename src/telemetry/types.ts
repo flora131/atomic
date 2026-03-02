@@ -198,7 +198,7 @@ export interface TuiBackgroundTerminationEvent extends TelemetryEventBase {
   source: "tui";
   sessionId: string;
   agentType: AgentType;
-  action: "noop" | "warn" | "execute";
+  action: "noop" | "warn" | "execute" | "fallback";
   activeAgentCount: number;
   interruptedCount?: number;
 }

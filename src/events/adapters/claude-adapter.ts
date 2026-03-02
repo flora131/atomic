@@ -123,6 +123,10 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
   private currentBackgroundAttributionAgentId: string | null = null;
   /** Active sub-agent tool contexts keyed by tool correlation ID */
   private activeSubagentToolsById = new Map<string, { parentAgentId: string; toolName: string }>();
+  /** Sessions owned by this run (parent + discovered child sessions) */
+  private ownedSessionIds = new Set<string>();
+  /** Maps sub-agent child session IDs to agent IDs */
+  private subagentSessionToAgentId = new Map<string, string>();
   /** Maps task-tool correlation ID -> subagentId */
   private toolUseIdToSubagentId = new Map<string, string>();
   /** Synthetic foreground agent context used for Claude @agent agent-only streams */
@@ -197,6 +201,8 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     this.activeSubagentBackgroundById.clear();
     this.currentBackgroundAttributionAgentId = null;
     this.activeSubagentToolsById.clear();
+    this.ownedSessionIds = new Set([this.sessionId]);
+    this.subagentSessionToAgentId.clear();
     this.toolUseIdToSubagentId.clear();
     this.syntheticForegroundAgent = agent
       ? {
@@ -709,8 +715,9 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       if (taskOutputParentAgentId) {
         this.currentBackgroundAttributionAgentId = taskOutputParentAgentId;
       }
-      const allowFallbackAttribution = event.sessionId === this.sessionId
-        || Boolean(directParentAgentId || parentToolUseId);
+      const sessionMappedParentAgentId = this.resolveSubagentSessionParentAgentId(event.sessionId);
+      const allowFallbackAttribution = this.isOwnedSession(event.sessionId)
+        || Boolean(directParentAgentId || parentToolUseId || sessionMappedParentAgentId);
       const fallbackParentAgentId = allowFallbackAttribution
         ? this.resolveSoleActiveSubagentId()
         : undefined;
@@ -725,6 +732,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
         : undefined;
       const resolvedParentAgentId = directParentAgentId
         ?? (parentToolUseId ? this.toolUseIdToSubagentId.get(parentToolUseId) : undefined)
+        ?? sessionMappedParentAgentId
         ?? taskOutputParentAgentId
         ?? fallbackParentAgentId;
       const attributedWithContextParentAgentId = resolvedParentAgentId
@@ -732,9 +740,10 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
         ?? fallbackActiveToolParentAgentId;
       const finalAttributedParentAgentId = attributedWithContextParentAgentId ?? syntheticParentAgentId;
       if (
-        event.sessionId !== this.sessionId
+        !this.isOwnedSession(event.sessionId)
         && !directParentAgentId
         && !parentToolUseId
+        && !sessionMappedParentAgentId
       ) {
         return;
       }
@@ -838,8 +847,9 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       if (taskOutputParentAgentId) {
         this.currentBackgroundAttributionAgentId = taskOutputParentAgentId;
       }
-      const allowFallbackAttribution = event.sessionId === this.sessionId
-        || Boolean(directParentAgentId || parentToolUseId);
+      const sessionMappedParentAgentId = this.resolveSubagentSessionParentAgentId(event.sessionId);
+      const allowFallbackAttribution = this.isOwnedSession(event.sessionId)
+        || Boolean(directParentAgentId || parentToolUseId || sessionMappedParentAgentId);
       const fallbackParentAgentId = allowFallbackAttribution
         ? this.resolveSoleActiveSubagentId()
         : undefined;
@@ -855,6 +865,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
         : undefined;
       const resolvedParentAgentId = directParentAgentId
         ?? (parentToolUseId ? this.toolUseIdToSubagentId.get(parentToolUseId) : undefined)
+        ?? sessionMappedParentAgentId
         ?? taskOutputParentAgentId
         ?? activeToolContext?.parentAgentId
         ?? fallbackParentAgentId;
@@ -863,9 +874,10 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
         ?? fallbackActiveToolParentAgentId;
       const attributedParentAgentId = attributedWithContextParentAgentId ?? syntheticParentAgentId;
       if (
-        event.sessionId !== this.sessionId
+        !this.isOwnedSession(event.sessionId)
         && !directParentAgentId
         && !parentToolUseId
+        && !sessionMappedParentAgentId
       ) {
         return;
       }
@@ -1099,13 +1111,17 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     runId: number,
   ): EventHandler<"tool.partial_result"> {
     return (event) => {
-      if (event.sessionId !== this.sessionId) return;
+      const sessionMappedParentAgentId = this.resolveSubagentSessionParentAgentId(event.sessionId);
+      if (!this.isOwnedSession(event.sessionId) && !sessionMappedParentAgentId) {
+        return;
+      }
       const data = event.data as ToolPartialResultEventData;
       const toolCallId = this.resolveToolCorrelationId(this.asString(data.toolCallId))
         ?? this.asString(data.toolCallId);
       const context = toolCallId
         ? this.activeSubagentToolsById.get(toolCallId)
         : undefined;
+      const parentAgentId = context?.parentAgentId ?? sessionMappedParentAgentId;
       this.bus.publish({
         type: "stream.tool.partial_result",
         sessionId: this.sessionId,
@@ -1114,15 +1130,15 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
         data: {
           toolCallId: toolCallId ?? data.toolCallId,
           partialOutput: data.partialOutput,
-          ...(context ? { parentAgentId: context.parentAgentId } : {}),
+          ...(parentAgentId ? { parentAgentId } : {}),
         },
       });
 
-      if (!toolCallId) {
+      if (!toolCallId && !parentAgentId) {
         return;
       }
-      if (context && this.subagentTracker?.hasAgent(context.parentAgentId)) {
-        this.subagentTracker.onToolProgress(context.parentAgentId, context.toolName);
+      if (parentAgentId && this.subagentTracker?.hasAgent(parentAgentId)) {
+        this.subagentTracker.onToolProgress(parentAgentId, context?.toolName);
       }
     };
   }
@@ -1265,6 +1281,12 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     return (event) => {
       const data = event.data as SubagentStartEventData;
       const dataRecord = data as Record<string, unknown>;
+      const subagentSessionId = this.asString(
+        dataRecord.subagentSessionId
+          ?? dataRecord.subagent_session_id
+          ?? dataRecord.session_id
+          ?? dataRecord.sessionId,
+      );
       if (this.syntheticForegroundAgent) {
         this.syntheticForegroundAgent.sawNativeSubagentStart = true;
         this.publishSyntheticAgentComplete(runId, true);
@@ -1356,6 +1378,14 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       // Register agent with tracker for tool counting
       this.subagentTracker?.registerAgent(data.subagentId);
       this.activeSubagentIds.add(data.subagentId);
+      if (subagentSessionId && subagentSessionId !== this.sessionId) {
+        this.ownedSessionIds.add(subagentSessionId);
+        this.subagentSessionToAgentId.set(subagentSessionId, data.subagentId);
+      }
+      if (event.sessionId !== this.sessionId) {
+        this.ownedSessionIds.add(event.sessionId);
+        this.subagentSessionToAgentId.set(event.sessionId, data.subagentId);
+      }
       this.activeSubagentBackgroundById.set(data.subagentId, normalizedMetadata.isBackground);
       if (normalizedMetadata.isBackground && !this.currentBackgroundAttributionAgentId) {
         this.currentBackgroundAttributionAgentId = data.subagentId;
@@ -1426,6 +1456,12 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
           this.taskToolMetadata.delete(toolUseId);
           this.removePendingTaskToolCorrelationId(toolUseId);
           this.earlyToolEvents.delete(toolUseId);
+        }
+      }
+      for (const [subagentSessionId, mappedAgentId] of this.subagentSessionToAgentId.entries()) {
+        if (mappedAgentId === data.subagentId) {
+          this.subagentSessionToAgentId.delete(subagentSessionId);
+          this.ownedSessionIds.delete(subagentSessionId);
         }
       }
       if (this.currentBackgroundAttributionAgentId === data.subagentId) {
@@ -1719,6 +1755,9 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
   private resolveSoleActiveSubagentToolParentAgentId(): string | undefined {
     const parentAgentIds = new Set<string>();
     for (const context of this.activeSubagentToolsById.values()) {
+      if (!this.subagentTracker?.hasAgent(context.parentAgentId)) {
+        continue;
+      }
       parentAgentIds.add(context.parentAgentId);
       if (parentAgentIds.size > 1) {
         return undefined;
@@ -1900,6 +1939,8 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     this.activeSubagentBackgroundById.clear();
     this.currentBackgroundAttributionAgentId = null;
     this.activeSubagentToolsById.clear();
+    this.ownedSessionIds = new Set([this.sessionId]);
+    this.subagentSessionToAgentId.clear();
   }
 
   /**
@@ -1932,6 +1973,8 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     this.activeSubagentBackgroundById.clear();
     this.currentBackgroundAttributionAgentId = null;
     this.activeSubagentToolsById.clear();
+    this.ownedSessionIds.clear();
+    this.subagentSessionToAgentId.clear();
     this.toolUseIdToSubagentId.clear();
     this.syntheticForegroundAgent = null;
     this.syntheticToolCounter = 0;
@@ -1946,5 +1989,16 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     overrides: WorkflowRuntimeFeatureFlagOverrides | undefined,
   ): WorkflowRuntimeFeatureFlags {
     return resolveWorkflowRuntimeFeatureFlags(overrides);
+  }
+
+  private isOwnedSession(eventSessionId: string): boolean {
+    return eventSessionId === this.sessionId || this.ownedSessionIds.has(eventSessionId);
+  }
+
+  private resolveSubagentSessionParentAgentId(eventSessionId: string): string | undefined {
+    if (eventSessionId === this.sessionId) {
+      return undefined;
+    }
+    return this.subagentSessionToAgentId.get(eventSessionId);
   }
 }

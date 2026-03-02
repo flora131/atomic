@@ -61,6 +61,27 @@ describe("StreamPipelineConsumer", () => {
     expect(receivedEvents).toHaveLength(0);
   });
 
+  it("does not suppress agent-scoped text deltas", () => {
+    echoSuppressor.expectEcho("agent text");
+
+    const event: EnrichedBusEvent = {
+      type: "stream.text.delta",
+      sessionId: "test",
+      runId: 1,
+      timestamp: Date.now(),
+      data: { delta: "agent text", messageId: "msg1", agentId: "agent_1" },
+    };
+
+    consumer.processBatch([event]);
+
+    expect(receivedEvents).toHaveLength(1);
+    expect(receivedEvents[0]).toEqual({
+      type: "text-delta",
+      delta: "agent text",
+      agentId: "agent_1",
+    });
+  });
+
   it("should map stream.thinking.delta to thinking-meta event", () => {
     const event: EnrichedBusEvent = {
       type: "stream.thinking.delta",
@@ -277,6 +298,45 @@ describe("StreamPipelineConsumer", () => {
       toolId: "tool1",
       toolName: "TaskOutput",
       output: { retrieval_status: "running" },
+      success: true,
+      error: undefined,
+    });
+  });
+
+  it("suppresses main-stream text echoes after TaskOutput completion", () => {
+    const events: EnrichedBusEvent[] = [
+      {
+        type: "stream.tool.complete",
+        sessionId: "test",
+        runId: 1,
+        timestamp: Date.now(),
+        data: {
+          toolId: "taskoutput-1",
+          toolName: "TaskOutput",
+          toolResult: { result: "sub-agent final output" },
+          success: true,
+        },
+      },
+      {
+        type: "stream.text.delta",
+        sessionId: "test",
+        runId: 1,
+        timestamp: Date.now(),
+        data: {
+          delta: "sub-agent final output",
+          messageId: "msg1",
+        },
+      },
+    ];
+
+    consumer.processBatch(events);
+
+    expect(receivedEvents).toHaveLength(1);
+    expect(receivedEvents[0]).toEqual({
+      type: "tool-complete",
+      toolId: "taskoutput-1",
+      toolName: "TaskOutput",
+      output: { result: "sub-agent final output" },
       success: true,
       error: undefined,
     });

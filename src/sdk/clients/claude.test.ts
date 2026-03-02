@@ -399,6 +399,73 @@ describe("ClaudeAgentClient observability and parity", () => {
     }
   });
 
+  test("maps child-session tool hooks to subagents when SubagentStart omits tool use IDs", async () => {
+    const client = new ClaudeAgentClient();
+    const seenParentAgentIds: Array<string | undefined> = [];
+
+    const unsubTool = client.on("tool.start", (event) => {
+      const data = event.data as { parentAgentId?: string };
+      seenParentAgentIds.push(data.parentAgentId);
+    });
+    const unsubSubagent = client.on("subagent.start", () => {});
+
+    try {
+      const privateClient = client as unknown as {
+        registeredHooks: Record<
+          string,
+          Array<
+            (
+              input: Record<string, unknown>,
+              toolUseID: string | undefined,
+              options: { signal: AbortSignal },
+            ) => Promise<{ continue: boolean }>
+          >
+        >;
+        wrapQuery: (
+          queryInstance: null,
+          sessionId: string,
+          config: Record<string, unknown>,
+        ) => { destroy: () => Promise<void> };
+      };
+
+      const wrappedSession = privateClient.wrapQuery(null, "wrapped-session-id", {});
+      const subagentStartHook = privateClient.registeredHooks.SubagentStart?.[0];
+      const preToolUseHook = privateClient.registeredHooks.PreToolUse?.[0];
+      expect(subagentStartHook).toBeDefined();
+      expect(preToolUseHook).toBeDefined();
+
+      // SubagentStart payload has no tool_use_id. We still need to queue this
+      // subagent for later child-session correlation.
+      await subagentStartHook?.(
+        {
+          session_id: "sdk-main-session",
+          agent_id: "agent-child-1",
+          agent_type: "researcher",
+        },
+        undefined,
+        { signal: new AbortController().signal },
+      );
+
+      await preToolUseHook?.(
+        {
+          session_id: "sdk-child-session-1",
+          tool_name: "WebSearch",
+          tool_input: { query: "bm25 fundamentals" },
+          tool_use_id: "child-tool-1",
+        },
+        undefined,
+        { signal: new AbortController().signal },
+      );
+
+      expect(seenParentAgentIds).toContain("agent-child-1");
+
+      await wrappedSession.destroy();
+    } finally {
+      unsubTool();
+      unsubSubagent();
+    }
+  });
+
   test("binds concurrent hook session IDs deterministically via pending queue", async () => {
     const client = new ClaudeAgentClient();
 

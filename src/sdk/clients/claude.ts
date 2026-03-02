@@ -1973,33 +1973,44 @@ export class ClaudeAgentClient implements CodingAgentClient {
                         }
                     }
 
-                    // Store toolUseID → agent_id mapping for task_progress correlation
+                    // Store toolUseID → agent_id mapping for task_progress correlation.
+                    // Some SubagentStart hook payloads do not include toolUse IDs.
+                    // Still track the agent as "unmapped" so we can later bind a
+                    // child SDK session_id from tool hooks via resolveSubagentParentId().
                     if (
                         targetHookEvent === "SubagentStart" &&
-                        resolvedToolUseId &&
                         hookInput.agent_id
                     ) {
-                        this.toolUseIdToAgentId.set(
-                            resolvedToolUseId,
-                            hookInput.agent_id as string,
-                        );
-                        // Also register under parent_tool_use_id so task_progress
-                        // messages that carry the Agent tool's tool_use_id (which
-                        // may differ from the SubagentStart hook's toolUseID) can
-                        // still be correlated to the sub-agent.
-                        if (
-                            resolvedParentToolUseId &&
-                            resolvedParentToolUseId !== resolvedToolUseId
-                        ) {
+                        const startedAgentId = hookInput.agent_id as string;
+                        if (resolvedToolUseId) {
                             this.toolUseIdToAgentId.set(
-                                resolvedParentToolUseId,
-                                hookInput.agent_id as string,
+                                resolvedToolUseId,
+                                startedAgentId,
                             );
+                            // Also register under parent_tool_use_id so task_progress
+                            // messages that carry the Agent tool's tool_use_id (which
+                            // may differ from the SubagentStart hook's toolUseID) can
+                            // still be correlated to the sub-agent.
+                            if (
+                                resolvedParentToolUseId &&
+                                resolvedParentToolUseId !== resolvedToolUseId
+                            ) {
+                                this.toolUseIdToAgentId.set(
+                                    resolvedParentToolUseId,
+                                    startedAgentId,
+                                );
+                            }
                         }
-                        // Track as unmapped until we discover its SDK session ID
-                        this.unmappedSubagentIds.push(
-                            hookInput.agent_id as string,
-                        );
+
+                        const isAlreadySessionMapped = Array.from(
+                            this.subagentSdkSessionIdToAgentId.values(),
+                        ).includes(startedAgentId);
+                        if (
+                            !isAlreadySessionMapped &&
+                            !this.unmappedSubagentIds.includes(startedAgentId)
+                        ) {
+                            this.unmappedSubagentIds.push(startedAgentId);
+                        }
                     }
 
                     const hookSessionId =
@@ -2020,28 +2031,29 @@ export class ClaudeAgentClient implements CodingAgentClient {
                             sessionId,
                         );
                     }
-                    if (
-                        targetHookEvent === "SubagentStop" &&
-                        resolvedToolUseId
-                    ) {
-                        this.toolUseIdToAgentId.delete(resolvedToolUseId);
-                        this.toolUseIdToSessionId.delete(resolvedToolUseId);
-                        this.taskDescriptionByToolUseId.delete(
-                            resolvedToolUseId,
-                        );
-                        // Also clean up parent_tool_use_id mapping if it exists
-                        if (resolvedParentToolUseId) {
-                            this.toolUseIdToAgentId.delete(
-                                resolvedParentToolUseId,
-                            );
-                            this.toolUseIdToSessionId.delete(
-                                resolvedParentToolUseId,
-                            );
+                    if (targetHookEvent === "SubagentStop") {
+                        if (resolvedToolUseId) {
+                            this.toolUseIdToAgentId.delete(resolvedToolUseId);
+                            this.toolUseIdToSessionId.delete(resolvedToolUseId);
                             this.taskDescriptionByToolUseId.delete(
-                                resolvedParentToolUseId,
+                                resolvedToolUseId,
                             );
+                            // Also clean up parent_tool_use_id mapping if it exists
+                            if (resolvedParentToolUseId) {
+                                this.toolUseIdToAgentId.delete(
+                                    resolvedParentToolUseId,
+                                );
+                                this.toolUseIdToSessionId.delete(
+                                    resolvedParentToolUseId,
+                                );
+                                this.taskDescriptionByToolUseId.delete(
+                                    resolvedParentToolUseId,
+                                );
+                            }
                         }
-                        // Clean up sub-agent session tracking
+
+                        // Clean up sub-agent session tracking even when toolUse IDs
+                        // are missing from the stop hook payload.
                         const stoppedAgentId = (eventData.subagentId ??
                             hookInput.agent_id) as string | undefined;
                         if (stoppedAgentId) {

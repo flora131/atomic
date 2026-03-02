@@ -168,6 +168,10 @@ function isHitlToolName(toolName: string): boolean {
   return toolName === "AskUserQuestion" || toolName === "question" || toolName === "ask_user";
 }
 
+function isTaskOutputToolName(toolName: string | undefined): boolean {
+  return (toolName ?? "").trim().toLowerCase() === "taskoutput";
+}
+
 export function toToolState(
   status: ToolStatus,
   output: unknown,
@@ -1161,18 +1165,37 @@ export function applyStreamPartEvent(
     case "tool-start": {
       // Agent-scoped routing: add tool to agent's inline parts
       if (event.agentId && message.parts) {
+        const shouldMirrorTaskOutput = isTaskOutputToolName(event.toolName);
         const routed = routeToAgentInlineParts(message.parts, event.agentId, (inlineParts) => {
           return upsertToolPartStart(inlineParts, event);
         });
         if (routed) {
-          // Keep sub-agent tool activity scoped to inline parts so it does not
-          // leak back into top-level main-chat tool rendering.
-          const nextMessage: ChatMessage = { ...message, parts: routed };
+          if (!shouldMirrorTaskOutput) {
+            // Keep non-TaskOutput sub-agent tool activity scoped to inline parts
+            // so it does not leak back into top-level main-chat tool rendering.
+            const nextMessage: ChatMessage = { ...message, parts: routed };
+            return carryReasoningPartRegistry(message, nextMessage);
+          }
+          // TaskOutput is a user-visible progress primitive and should render
+          // as a dedicated block in the main transcript as well.
+          const nextMessage: ChatMessage = {
+            ...message,
+            toolCalls: upsertToolCallStart(message.toolCalls, event),
+            parts: upsertToolPartStart(routed, event),
+          };
           return carryReasoningPartRegistry(message, nextMessage);
         }
         // Agent not yet in parts — buffer for replay when AgentPart is created
         bufferAgentEvent(event.agentId, event);
-        return message;
+        if (!shouldMirrorTaskOutput) {
+          return message;
+        }
+        const nextMessage: ChatMessage = {
+          ...message,
+          toolCalls: upsertToolCallStart(message.toolCalls, event),
+          parts: upsertToolPartStart(message.parts ?? [], event),
+        };
+        return carryReasoningPartRegistry(message, nextMessage);
       }
       const nextToolCalls = upsertToolCallStart(message.toolCalls, event);
       const nextParts = upsertToolPartStart(message.parts ?? [], event);
@@ -1187,18 +1210,38 @@ export function applyStreamPartEvent(
     case "tool-complete": {
       // Agent-scoped routing: update tool in agent's inline parts
       if (event.agentId && message.parts) {
+        const shouldMirrorTaskOutput = isTaskOutputToolName(event.toolName)
+          || (message.toolCalls ?? []).some(
+            (toolCall) => toolCall.id === event.toolId && isTaskOutputToolName(toolCall.toolName),
+          );
         const routed = routeToAgentInlineParts(message.parts, event.agentId, (inlineParts) => {
           return upsertToolPartComplete(inlineParts, event);
         });
         if (routed) {
-          // Keep sub-agent tool activity scoped to inline parts so it does not
-          // leak back into top-level main-chat tool rendering.
-          const nextMessage: ChatMessage = { ...message, parts: routed };
+          if (!shouldMirrorTaskOutput) {
+            // Keep non-TaskOutput sub-agent tool activity scoped to inline parts
+            // so it does not leak back into top-level main-chat tool rendering.
+            const nextMessage: ChatMessage = { ...message, parts: routed };
+            return carryReasoningPartRegistry(message, nextMessage);
+          }
+          const nextMessage: ChatMessage = {
+            ...message,
+            toolCalls: upsertToolCallComplete(message.toolCalls, event),
+            parts: upsertToolPartComplete(routed, event),
+          };
           return carryReasoningPartRegistry(message, nextMessage);
         }
         // Agent not yet in parts — buffer for replay when AgentPart is created
         bufferAgentEvent(event.agentId, event);
-        return message;
+        if (!shouldMirrorTaskOutput) {
+          return message;
+        }
+        const nextMessage: ChatMessage = {
+          ...message,
+          toolCalls: upsertToolCallComplete(message.toolCalls, event),
+          parts: upsertToolPartComplete(message.parts ?? [], event),
+        };
+        return carryReasoningPartRegistry(message, nextMessage);
       }
       const nextToolCalls = upsertToolCallComplete(message.toolCalls, event);
       const nextParts = upsertToolPartComplete(message.parts ?? [], event);

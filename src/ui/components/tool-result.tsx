@@ -44,6 +44,49 @@ export interface ToolSummary {
   count?: number;
 }
 
+function isTaskOutputToolName(toolName: string): boolean {
+  return toolName.trim().toLowerCase() === "taskoutput";
+}
+
+function resolveTaskOutputTarget(input: Record<string, unknown>): string {
+  const candidates = [
+    input.sub_agent_name,
+    input.subagent_name,
+    input.agent_name,
+    input.agent,
+    input.task_id,
+    input.taskId,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim().length > 0) {
+      return candidate.trim();
+    }
+  }
+  return "sub-agent";
+}
+
+function TaskOutputResult({
+  input,
+  status,
+}: {
+  input: Record<string, unknown>;
+  status: ToolExecutionStatus;
+}): React.ReactNode {
+  const { theme } = useTheme();
+  const target = resolveTaskOutputTarget(input);
+
+  return (
+    <box flexDirection="column">
+      <box flexDirection="row" gap={SPACING.ELEMENT}>
+        <StatusIndicator status={status} theme={theme} />
+        <text style={{ fg: theme.colors.accent }}>
+          {`TaskOutput: [${target}]`}
+        </text>
+      </box>
+    </box>
+  );
+}
+
 // ============================================================================
 // STATUS INDICATOR COMPONENT
 // ============================================================================
@@ -247,6 +290,10 @@ export function ToolResult({
   initialExpanded = false,
   maxCollapsedLines = 5,
 }: ToolResultProps): React.ReactNode {
+  if (isTaskOutputToolName(toolName)) {
+    return <TaskOutputResult input={input} status={status} />;
+  }
+
   // Skill tool: render SkillLoadIndicator directly, bypassing standard tool result layout
   const normalizedToolName = toolName.toLowerCase();
   if (normalizedToolName === "skill") {

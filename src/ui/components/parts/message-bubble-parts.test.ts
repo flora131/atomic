@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Part, ReasoningPart, TextPart, ToolPart, AgentPart } from "../../parts/types.ts";
 import type { ParallelAgent } from "../parallel-agents-tree.tsx";
-import { buildPartRenderKeys, getConsumedTaskToolCallIds } from "./message-bubble-parts.tsx";
+import { buildPartRenderKeys, getConsumedTaskToolCallIds, orderPartsForTaskOutputDisplay } from "./message-bubble-parts.tsx";
 
 function createReasoningPart(id: string, thinkingSourceKey: string): ReasoningPart {
   return {
@@ -58,6 +58,36 @@ describe("buildPartRenderKeys", () => {
       "reasoning-source:source:a",
       "reasoning-source:source:a#1",
     ]);
+  });
+});
+
+describe("orderPartsForTaskOutputDisplay", () => {
+  test("moves TaskOutput tool parts directly below agent parts", () => {
+    const parts: Part[] = [
+      createTextPart("text-1"),
+      createToolPart("taskoutput-1", "TaskOutput"),
+      createAgentPart([createAgent("task-tool-1", "explorer")]),
+      createToolPart("bash-1", "bash"),
+    ];
+
+    const ordered = orderPartsForTaskOutputDisplay(parts);
+    expect(ordered.map((part) => part.type === "tool" ? `${part.type}:${part.toolName}` : part.type)).toEqual([
+      "text",
+      "agent",
+      "tool:TaskOutput",
+      "tool:bash",
+    ]);
+  });
+
+  test("keeps ordering when no agent part exists", () => {
+    const parts: Part[] = [
+      createTextPart("text-1"),
+      createToolPart("taskoutput-1", "TaskOutput"),
+      createToolPart("bash-1", "bash"),
+    ];
+
+    const ordered = orderPartsForTaskOutputDisplay(parts);
+    expect(ordered).toEqual(parts);
   });
 });
 
@@ -200,6 +230,19 @@ describe("getConsumedTaskToolCallIds", () => {
     const consumed = getConsumedTaskToolCallIds(parts);
     expect(consumed.has("inline-tool-1")).toBe(true);
     expect(consumed.has("standalone-tool")).toBe(false);
+  });
+
+  test("does not consume mirrored TaskOutput tool blocks", () => {
+    const inlineTaskOutput = createToolPart("taskoutput-1", "TaskOutput");
+    const parts: Part[] = [
+      createToolPart("taskoutput-1", "TaskOutput"),
+      createAgentPart([
+        createAgent("task-tool-1", "codebase-analyzer", [inlineTaskOutput]),
+      ]),
+    ];
+
+    const consumed = getConsumedTaskToolCallIds(parts);
+    expect(consumed.has("taskoutput-1")).toBe(false);
   });
 
   test("consumes task ToolPart when agent lacks taskToolCallId (Claude SDK fallback)", () => {

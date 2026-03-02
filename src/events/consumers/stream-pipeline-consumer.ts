@@ -37,6 +37,61 @@ import type { EchoSuppressor } from "./echo-suppressor.ts";
 import type { StreamPartEvent } from "../../ui/parts/stream-pipeline.ts";
 import { pipelineLog } from "../pipeline-logger.ts";
 
+function isTaskOutputToolName(toolName: string): boolean {
+  return toolName.trim().toLowerCase() === "taskoutput";
+}
+
+function normalizeTaskOutputText(value: string): string | undefined {
+  const normalized = value.replace(/\r\n?/g, "\n").trim();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function extractTaskOutputEchoText(toolResult: unknown): string | undefined {
+  if (typeof toolResult === "string") {
+    const trimmed = toolResult.trim();
+    if (trimmed.length === 0) {
+      return undefined;
+    }
+    try {
+      const parsed = JSON.parse(toolResult);
+      return extractTaskOutputEchoText(parsed);
+    } catch {
+      return normalizeTaskOutputText(toolResult);
+    }
+  }
+
+  if (!toolResult || typeof toolResult !== "object") {
+    return undefined;
+  }
+
+  const record = toolResult as Record<string, unknown>;
+  const directText = [record.result, record.text, record.output]
+    .find((candidate) => typeof candidate === "string" && candidate.trim().length > 0);
+  if (typeof directText === "string") {
+    return normalizeTaskOutputText(directText);
+  }
+
+  if (Array.isArray(record.content)) {
+    const textBlocks = record.content
+      .map((entry) => {
+        if (!entry || typeof entry !== "object") {
+          return undefined;
+        }
+        const entryRecord = entry as Record<string, unknown>;
+        if (entryRecord.type === "text" && typeof entryRecord.text === "string") {
+          return entryRecord.text;
+        }
+        return undefined;
+      })
+      .filter((text): text is string => typeof text === "string" && text.trim().length > 0);
+    if (textBlocks.length > 0) {
+      return normalizeTaskOutputText(textBlocks.join("\n"));
+    }
+  }
+
+  return undefined;
+}
+
 /**
  * Callback type for receiving batches of StreamPartEvents.
  *
@@ -178,10 +233,13 @@ export class StreamPipelineConsumer {
     switch (event.type) {
       case "stream.text.delta": {
         const data = event.data as BusEventDataMap["stream.text.delta"];
+        if (data.agentId) {
+          return [{ type: "text-delta", delta: data.delta, agentId: data.agentId }];
+        }
         // Run through echo suppressor to filter duplicate tool result echoes
         const filtered = this.echoSuppressor.filterDelta(data.delta);
         if (!filtered) return null;
-        return [{ type: "text-delta", delta: filtered, ...(data.agentId ? { agentId: data.agentId } : {}) }];
+        return [{ type: "text-delta", delta: filtered }];
       }
 
       case "stream.thinking.delta": {
@@ -214,6 +272,12 @@ export class StreamPipelineConsumer {
         const data = event.data as BusEventDataMap["stream.tool.complete"];
         const correlatedAgentId = data.parentAgentId
           ?? (event.isSubagentTool ? event.resolvedAgentId : undefined);
+        if (isTaskOutputToolName(data.toolName)) {
+          const echoText = extractTaskOutputEchoText(data.toolResult);
+          if (echoText) {
+            this.echoSuppressor.expectEcho(echoText);
+          }
+        }
         const mapped: StreamPartEvent = {
           type: "tool-complete",
           toolId: data.toolId,

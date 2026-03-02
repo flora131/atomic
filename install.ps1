@@ -13,8 +13,8 @@ $ErrorActionPreference = 'Stop'
 # Configuration
 $GithubRepo = "flora131/atomic"
 $BinaryName = "atomic"
-$BinDir = if ($env:ATOMIC_INSTALL_DIR) { $env:ATOMIC_INSTALL_DIR } elseif ($InstallDir) { $InstallDir } else { "${Home}\.local\bin" }
-$DataDir = if ($env:LOCALAPPDATA) { "${env:LOCALAPPDATA}\atomic" } else { "${Home}\AppData\Local\atomic" }
+$BinDir = $(if ($env:ATOMIC_INSTALL_DIR) { $env:ATOMIC_INSTALL_DIR } elseif ($InstallDir) { $InstallDir } else { "${Home}\.local\bin" })
+$DataDir = $(if ($env:LOCALAPPDATA) { "${env:LOCALAPPDATA}\atomic" } else { "${Home}\AppData\Local\atomic" })
 $AtomicHome = "${Home}\.atomic"
 
 function Install-BunIfMissing {

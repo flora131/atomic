@@ -183,7 +183,7 @@ verify_checksum() {
     filename=$(basename "$file")
 
     local expected
-    expected=$(grep "$filename" "$checksums_file" | awk '{print $1}')
+    expected=$(grep -F "$filename" "$checksums_file" | awk '{print $1}')
 
     if [[ -z "$expected" ]]; then
         error "Could not find checksum for $filename"
@@ -273,7 +273,7 @@ main() {
     mkdir -p "$BIN_DIR"
     mkdir -p "$DATA_DIR"
     tmp_dir=$(mktemp -d)
-    trap "rm -rf $tmp_dir" EXIT
+    trap 'rm -rf "$tmp_dir"' EXIT
 
     # Download URLs
     local base_url="https://github.com/${GITHUB_REPO}/releases/download/${version}"

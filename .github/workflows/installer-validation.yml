@@ -43,9 +43,11 @@ jobs:
             - name: Validate PowerShell syntax
               shell: pwsh
               run: |
+                  $tokens = $null
+                  $errors = $null
                   $null = [System.Management.Automation.Language.Parser]::ParseFile(
                       (Resolve-Path ./install.ps1),
-                      [ref]$null,
+                      [ref]$tokens,
                       [ref]$errors
                   )
                   if ($errors.Count -gt 0) {

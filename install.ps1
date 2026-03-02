@@ -2,6 +2,8 @@
 # Usage: irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1 | iex
 # Usage with version: iex "& { $(irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1) } -Version v1.0.0"
 
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingInvokeExpression', '')]
 param(
     [String]$Version = "latest",
     [String]$InstallDir = "",
@@ -74,7 +76,7 @@ function Install-NpmIfMissing {
     }
 }
 
-function Sync-GlobalAgentConfigs {
+function Sync-GlobalAgentConfig {
     param([string]$SourceRoot)
 
     $claudeDir = Join-Path $AtomicHome ".claude"
@@ -255,7 +257,7 @@ try {
     Expand-Archive -Path $TempConfig -DestinationPath $DataDir -Force
 
     Write-Info "Syncing global agent configs to ${AtomicHome}..."
-    Sync-GlobalAgentConfigs -SourceRoot $DataDir
+    Sync-GlobalAgentConfig -SourceRoot $DataDir
 
     # Verify installation
     $VersionOutput = & $BinaryPath --version 2>&1

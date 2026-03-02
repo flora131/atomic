@@ -42,7 +42,6 @@ export interface TranscriptLine {
 export interface FormatTranscriptOptions {
   messages: ChatMessage[];
   liveThinkingText?: string;
-  liveParallelAgents?: ParallelAgent[];
   streamingMeta?: StreamingMeta | null;
   isStreaming: boolean;
   modelId?: string;
@@ -77,7 +76,7 @@ function line(type: TranscriptLineType, content: string, indent = 0): Transcript
  * - Footer: `──── Showing detailed transcript · ctrl+o to toggle`
  */
 export function formatTranscript(options: FormatTranscriptOptions): TranscriptLine[] {
-  const { messages, liveThinkingText, liveParallelAgents, streamingMeta, isStreaming, modelId } = options;
+  const { messages, liveThinkingText, streamingMeta, isStreaming, modelId } = options;
   const lines: TranscriptLine[] = [];
 
   for (const msg of messages) {
@@ -183,9 +182,7 @@ export function formatTranscript(options: FormatTranscriptOptions): TranscriptLi
       // Parallel agents (baked from completed message or live)
       const agents = msg.parallelAgents && msg.parallelAgents.length > 0
         ? msg.parallelAgents
-        : msg.streaming && liveParallelAgents && liveParallelAgents.length > 0
-          ? liveParallelAgents
-          : null;
+        : null;
 
       if (agents) {
         lines.push(line("blank", ""));

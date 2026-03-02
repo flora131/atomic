@@ -327,6 +327,78 @@ describe("ClaudeAgentClient observability and parity", () => {
     }
   });
 
+  test("maps parent_tool_call_id to parentAgentId for tool hooks", async () => {
+    const client = new ClaudeAgentClient();
+    const seenParentAgentIds: Array<string | undefined> = [];
+    const seenParentToolIds: Array<string | undefined> = [];
+
+    const unsubTool = client.on("tool.start", (event) => {
+      const data = event.data as {
+        parentAgentId?: string;
+        parentToolUseId?: string;
+      };
+      seenParentAgentIds.push(data.parentAgentId);
+      seenParentToolIds.push(data.parentToolUseId);
+    });
+    const unsubSubagent = client.on("subagent.start", () => {});
+
+    try {
+      const privateClient = client as unknown as {
+        registeredHooks: Record<
+          string,
+          Array<
+            (
+              input: Record<string, unknown>,
+              toolUseID: string | undefined,
+              options: { signal: AbortSignal },
+            ) => Promise<{ continue: boolean }>
+          >
+        >;
+        wrapQuery: (
+          queryInstance: null,
+          sessionId: string,
+          config: Record<string, unknown>,
+        ) => { destroy: () => Promise<void> };
+      };
+
+      const wrappedSession = privateClient.wrapQuery(null, "wrapped-session-id", {});
+      const subagentStartHook = privateClient.registeredHooks.SubagentStart?.[0];
+      const preToolUseHook = privateClient.registeredHooks.PreToolUse?.[0];
+      expect(subagentStartHook).toBeDefined();
+      expect(preToolUseHook).toBeDefined();
+
+      await subagentStartHook?.(
+        {
+          session_id: "sdk-main-session",
+          agent_id: "agent-hook-1",
+          tool_use_id: "subagent-hook-correlation-1",
+          parent_tool_call_id: "parent-dispatch-call-1",
+        },
+        undefined,
+        { signal: new AbortController().signal },
+      );
+
+      await preToolUseHook?.(
+        {
+          session_id: "sdk-main-session",
+          tool_name: "WebSearch",
+          tool_input: { query: "parallel tool routing" },
+          parent_tool_call_id: "parent-dispatch-call-1",
+        },
+        "inner-tool-call-1",
+        { signal: new AbortController().signal },
+      );
+
+      expect(seenParentToolIds).toContain("parent-dispatch-call-1");
+      expect(seenParentAgentIds).toContain("agent-hook-1");
+
+      await wrappedSession.destroy();
+    } finally {
+      unsubTool();
+      unsubSubagent();
+    }
+  });
+
   test("binds concurrent hook session IDs deterministically via pending queue", async () => {
     const client = new ClaudeAgentClient();
 

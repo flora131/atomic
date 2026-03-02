@@ -41,6 +41,8 @@ import { registerAgentToolNames } from "./tools/registry.ts";
 import { attachDebugSubscriber } from "../events/debug-subscriber.ts";
 import { cleanupMcpBridgeScripts } from "../sdk/tools/opencode-mcp-bridge.ts";
 
+const FLUSH_FRAME_MS = 16;
+
 /**
  * Build a system prompt section describing all registered capabilities.
  * Includes slash commands, skills, and sub-agents so the model is aware
@@ -244,7 +246,10 @@ export async function startChatUI(
   const sharedBus = new EventBus({
     validatePayloads: process.env.ATOMIC_VALIDATE_BUS_EVENTS === "1",
   });
-  const sharedDispatcher = new BatchDispatcher(sharedBus);
+  const sharedDispatcher = new BatchDispatcher(
+    sharedBus,
+    FLUSH_FRAME_MS,
+  );
 
   // Attach file-based debug subscriber when stream debug logging is enabled.
   const debugSub = await attachDebugSubscriber(sharedBus);

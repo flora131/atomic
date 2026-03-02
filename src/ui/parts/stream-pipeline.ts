@@ -143,6 +143,8 @@ interface ToolPartialResultEvent {
   type: "tool-partial-result";
   toolId: string;
   partialOutput: string;
+  /** Sub-agent ID if this event is scoped to a workflow sub-agent */
+  agentId?: string;
 }
 
 export type StreamPartEvent =
@@ -325,7 +327,11 @@ function upsertToolPartStart(parts: Part[], event: ToolStartEvent): Part[] {
     return updated;
   }
 
-  const finalized = finalizeLastStreamingTextPart(parts);
+  // Always finalize the currently streaming text part before a tool block.
+  // This preserves visible tool boundaries in the transcript and prevents
+  // punctuation/text from being merged across interleaved tool calls.
+  const baseParts = finalizeLastStreamingTextPart(parts);
+
   const toolPart: ToolPart = {
     id: createPartId(),
     type: "tool",
@@ -335,7 +341,7 @@ function upsertToolPartStart(parts: Part[], event: ToolStartEvent): Part[] {
     state: { status: "running", startedAt: event.startedAt ?? new Date().toISOString() },
     createdAt: new Date().toISOString(),
   };
-  return upsertPart(finalized, toolPart);
+  return upsertPart(baseParts, toolPart);
 }
 
 function upsertToolCallComplete(
@@ -792,6 +798,22 @@ function drainBufferedEvents(parts: Part[], agentId: string): Part[] {
         return upsertToolPartComplete(inlineParts, event);
       });
       if (routed) currentParts = routed;
+    } else if (event.type === "tool-partial-result" && event.agentId) {
+      const routed = routeToAgentInlineParts(currentParts, event.agentId, (inlineParts) => {
+        const updatedInlineParts = [...inlineParts];
+        const toolPartIdx = updatedInlineParts.findIndex(
+          (part) => part.type === "tool" && (part as ToolPart).toolCallId === event.toolId,
+        );
+        if (toolPartIdx >= 0) {
+          const existing = updatedInlineParts[toolPartIdx] as ToolPart;
+          updatedInlineParts[toolPartIdx] = {
+            ...existing,
+            partialOutput: (existing.partialOutput ?? "") + event.partialOutput,
+          };
+        }
+        return updatedInlineParts;
+      });
+      if (routed) currentParts = routed;
     } else if (event.type === "thinking-meta" && event.agentId) {
       const routed = routeToAgentInlineParts(currentParts, event.agentId, (inlineParts) => {
         return upsertThinkingMetaPart(inlineParts, event);
@@ -1143,8 +1165,9 @@ export function applyStreamPartEvent(
           return upsertToolPartStart(inlineParts, event);
         });
         if (routed) {
-          const nextToolCalls = upsertToolCallStart(message.toolCalls, event);
-          const nextMessage: ChatMessage = { ...message, toolCalls: nextToolCalls, parts: routed };
+          // Keep sub-agent tool activity scoped to inline parts so it does not
+          // leak back into top-level main-chat tool rendering.
+          const nextMessage: ChatMessage = { ...message, parts: routed };
           return carryReasoningPartRegistry(message, nextMessage);
         }
         // Agent not yet in parts — buffer for replay when AgentPart is created
@@ -1168,8 +1191,9 @@ export function applyStreamPartEvent(
           return upsertToolPartComplete(inlineParts, event);
         });
         if (routed) {
-          const nextToolCalls = upsertToolCallComplete(message.toolCalls, event);
-          const nextMessage: ChatMessage = { ...message, toolCalls: nextToolCalls, parts: routed };
+          // Keep sub-agent tool activity scoped to inline parts so it does not
+          // leak back into top-level main-chat tool rendering.
+          const nextMessage: ChatMessage = { ...message, parts: routed };
           return carryReasoningPartRegistry(message, nextMessage);
         }
         // Agent not yet in parts — buffer for replay when AgentPart is created
@@ -1187,6 +1211,29 @@ export function applyStreamPartEvent(
     }
 
     case "tool-partial-result": {
+      if (event.agentId && message.parts) {
+        const routed = routeToAgentInlineParts(message.parts, event.agentId, (inlineParts) => {
+          const updatedInlineParts = [...inlineParts];
+          const toolPartIdx = updatedInlineParts.findIndex(
+            (part) => part.type === "tool" && (part as ToolPart).toolCallId === event.toolId,
+          );
+          if (toolPartIdx >= 0) {
+            const existing = updatedInlineParts[toolPartIdx] as ToolPart;
+            updatedInlineParts[toolPartIdx] = {
+              ...existing,
+              partialOutput: (existing.partialOutput ?? "") + event.partialOutput,
+            };
+          }
+          return updatedInlineParts;
+        });
+        if (routed) {
+          const nextMessage: ChatMessage = { ...message, parts: routed };
+          return carryReasoningPartRegistry(message, nextMessage);
+        }
+        bufferAgentEvent(event.agentId, event);
+        return message;
+      }
+
       const parts = [...(message.parts ?? [])];
       const toolPartIdx = parts.findIndex(
         (part) => part.type === "tool" && (part as ToolPart).toolCallId === event.toolId,

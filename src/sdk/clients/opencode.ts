@@ -1144,6 +1144,18 @@ export class OpenCodeClient implements CodingAgentClient {
     this.activeSessions.add(sessionId);
   }
 
+  private setSessionParentMapping(
+    sessionId: string,
+    parentSessionId: string | undefined,
+  ): void {
+    if (!sessionId) return;
+    if (parentSessionId && parentSessionId !== sessionId) {
+      this.childSessionToParentSession.set(sessionId, parentSessionId);
+      return;
+    }
+    this.childSessionToParentSession.delete(sessionId);
+  }
+
   private unregisterActiveSession(sessionId: string): void {
     if (!sessionId) return;
     this.activeSessions.delete(sessionId);
@@ -1199,6 +1211,22 @@ export class OpenCodeClient implements CodingAgentClient {
       }
     }
 
+    // Child-session sub-agent part events can arrive before we can map the
+    // child session to a parent. This is common during parallel task dispatch
+    // where multiple child sessions start nearly simultaneously.
+    // Allow these events through when we have a scoped current session so
+    // findParentSessionForPart() can recover parent attribution.
+    if (
+      this.currentSessionId
+      && (eventType === "message.part.updated" || eventType === "message.part.delta")
+    ) {
+      const properties = event.properties as Record<string, unknown> | undefined;
+      const part = properties?.part as { sessionID?: unknown } | undefined;
+      if (typeof part?.sessionID === "string" && part.sessionID.length > 0) {
+        return true;
+      }
+    }
+
     return false;
   }
 
@@ -1236,20 +1264,34 @@ export class OpenCodeClient implements CodingAgentClient {
       return mappedParent;
     }
 
+    // Heuristic fallback: when exactly one parent session currently has
+    // pending agent/subtask parts awaiting child-session discovery, attribute
+    // unknown child tool parts to that parent instead of the child session.
+    // This recovers parent linkage when session.created(parentID) arrives late.
+    if (partSessionId) {
+      const pendingParentCandidates: string[] = [];
+      for (const [candidateSessionId, state] of this.subagentStateByParentSession.entries()) {
+        if (candidateSessionId === partSessionId) continue;
+        if (state.pendingAgentParts.length === 0) continue;
+        pendingParentCandidates.push(candidateSessionId);
+        if (pendingParentCandidates.length > 1) break;
+      }
+      if (pendingParentCandidates.length === 1) {
+        return pendingParentCandidates[0]!;
+      }
+    }
+
     if (partSessionId) {
       if (this.activeSessions.has(partSessionId)) {
         return partSessionId;
       }
 
-      // Older OpenCode event payloads sometimes omit the envelope session ID
-      // for child tool parts. In that case, fall back to the current parent
-      // session heuristic (legacy behavior) so child discovery still works.
-      // Guard this fallback to single-session contexts to avoid cross-session
-      // contamination during parallel sub-agent execution.
+      // Older OpenCode payloads sometimes omit envelope sessionID for child
+      // tool parts. Fall back to the current scoped parent session so child
+      // discovery can still register subagentSessionId correlation.
       if (
         this.currentSessionId &&
-        this.currentSessionId !== partSessionId &&
-        this.activeSessions.size <= 1
+        this.currentSessionId !== partSessionId
       ) {
         return this.currentSessionId;
       }
@@ -1349,14 +1391,29 @@ export class OpenCodeClient implements CodingAgentClient {
         // OpenCode emits session ID under properties.info.id (not properties.sessionID).
         // Fall back to sessionID for defensive compatibility with older payloads.
         {
-          const createdInfo = properties?.info as { id?: string } | undefined;
+          const createdInfo = properties?.info as { id?: string; sessionID?: string; parentID?: string } | undefined;
           const createdSessionId = createdInfo?.id ?? (properties?.sessionID as string) ?? "";
+          this.setSessionParentMapping(
+            createdSessionId,
+            typeof createdInfo?.parentID === "string" ? createdInfo.parentID : undefined,
+          );
           this.registerActiveSession(createdSessionId);
           this.emitEvent("session.start", createdSessionId, {
             config: {},
           });
         }
         break;
+
+      case "session.updated": {
+        const updatedInfo = properties?.info as { id?: string; parentID?: string } | undefined;
+        const updatedSessionId = updatedInfo?.id ?? (properties?.sessionID as string) ?? "";
+        this.setSessionParentMapping(
+          updatedSessionId,
+          typeof updatedInfo?.parentID === "string" ? updatedInfo.parentID : undefined,
+        );
+        this.registerActiveSession(updatedSessionId);
+        break;
+      }
 
       case "session.deleted": {
         const deletedInfo = properties?.info as { id?: string } | undefined;
@@ -1516,6 +1573,14 @@ export class OpenCodeClient implements CodingAgentClient {
           const toolState = part?.state as Record<string, unknown> | undefined;
           const toolName = (part?.tool as string) ?? "";
           const toolInput = (toolState?.input as Record<string, unknown>) ?? {};
+          const toolMetadata = (
+            typeof toolState?.metadata === "object"
+            && toolState?.metadata !== null
+            && !Array.isArray(toolState.metadata)
+          )
+            ? (toolState.metadata as Record<string, unknown>)
+            : undefined;
+          let agentPartId = sessionSubagentState.childSessionToAgentPart.get(partSessionId);
 
           // --- Child session discovery for sub-agent tools ---
           // When a ToolPart arrives from a session that is NOT the parent
@@ -1543,6 +1608,7 @@ export class OpenCodeClient implements CodingAgentClient {
             const pending = sessionSubagentState.pendingAgentParts.shift();
             if (pending) {
               sessionSubagentState.childSessionToAgentPart.set(partSessionId, pending.partId);
+              agentPartId = pending.partId;
               this.childSessionToParentSession.set(partSessionId, parentSessionId);
               debugLog("child-session-discovered", {
                 childSessionId: partSessionId,
@@ -1592,13 +1658,14 @@ export class OpenCodeClient implements CodingAgentClient {
               this.emitEvent("tool.start", partSessionId, {
                 toolName,
                 toolInput,
+                ...(toolMetadata ? { toolMetadata } : {}),
                 toolUseId: part?.id as string,
                 toolCallId: part?.callID as string,
+                ...(agentPartId ? { parentAgentId: agentPartId } : {}),
               });
             }
 
             // Emit subagent.update for child session tools
-            const agentPartId = sessionSubagentState.childSessionToAgentPart.get(partSessionId);
             if (agentPartId && toolState?.status === "running") {
               const count = (sessionSubagentState.subagentToolCounts.get(agentPartId) ?? 0) + 1;
               sessionSubagentState.subagentToolCounts.set(agentPartId, count);
@@ -1619,9 +1686,11 @@ export class OpenCodeClient implements CodingAgentClient {
                 toolName,
                 toolResult: toolState?.output,
                 toolInput,
+                ...(toolMetadata ? { toolMetadata } : {}),
                 success: true,
                 toolUseId: part?.id as string,
                 toolCallId: part?.callID as string,
+                ...(agentPartId ? { parentAgentId: agentPartId } : {}),
               });
             }
 
@@ -1642,9 +1711,11 @@ export class OpenCodeClient implements CodingAgentClient {
                 toolName,
                 toolResult: toolState?.error ?? "Tool execution failed",
                 toolInput,
+                ...(toolMetadata ? { toolMetadata } : {}),
                 success: false,
                 toolUseId: part?.id as string,
                 toolCallId: part?.callID as string,
+                ...(agentPartId ? { parentAgentId: agentPartId } : {}),
               });
             }
 

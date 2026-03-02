@@ -732,7 +732,7 @@ describe("formatTranscript - Parallel Agents", () => {
     expect(substatusLine!.content).toContain("File not found");
   });
 
-  test("uses liveParallelAgents during streaming when message has no baked agents", () => {
+  test("does not render live agent trees without baked message parallelAgents", () => {
     const msg: ChatMessage = {
       id: "m1",
       role: "assistant",
@@ -741,20 +741,13 @@ describe("formatTranscript - Parallel Agents", () => {
       streaming: true,
     };
 
-    const liveAgents: ParallelAgent[] = [
-      { id: "a1", name: "Live", task: "Live task", status: "running", startedAt: new Date().toISOString() },
-    ];
-
     const lines = formatTranscript({
       messages: [msg],
       isStreaming: true,
-      liveParallelAgents: liveAgents,
     });
 
     const headerLine = findFirstLineByType(lines, "agent-header");
-    expect(headerLine).toBeDefined();
-    expect(headerLine!.type).toBe("agent-header");
-    expect(headerLine!.content).toContain("Running 1 agent");
+    expect(headerLine).toBeUndefined();
   });
 });
 

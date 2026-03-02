@@ -151,6 +151,51 @@ describe("StreamPipelineConsumer", () => {
     });
   });
 
+  it("uses resolvedAgentId for stream.tool.start when event is sub-agent scoped", () => {
+    const event: EnrichedBusEvent = {
+      type: "stream.tool.start",
+      sessionId: "test",
+      runId: 1,
+      timestamp: Date.now(),
+      resolvedAgentId: "subagent_1",
+      isSubagentTool: true,
+      data: { toolId: "tool1", toolName: "bash", toolInput: { command: "ls" } },
+    };
+
+    consumer.processBatch([event]);
+
+    expect(receivedEvents).toHaveLength(1);
+    expect(receivedEvents[0]).toEqual({
+      type: "tool-start",
+      toolId: "tool1",
+      toolName: "bash",
+      input: { command: "ls" },
+      agentId: "subagent_1",
+    });
+  });
+
+  it("does not use resolvedAgentId for stream.tool.start when event is not sub-agent scoped", () => {
+    const event: EnrichedBusEvent = {
+      type: "stream.tool.start",
+      sessionId: "test",
+      runId: 1,
+      timestamp: Date.now(),
+      resolvedAgentId: "agent_misfire",
+      isSubagentTool: false,
+      data: { toolId: "tool1", toolName: "TaskOutput", toolInput: { task_id: "abc" } },
+    };
+
+    consumer.processBatch([event]);
+
+    expect(receivedEvents).toHaveLength(1);
+    expect(receivedEvents[0]).toEqual({
+      type: "tool-start",
+      toolId: "tool1",
+      toolName: "TaskOutput",
+      input: { task_id: "abc" },
+    });
+  });
+
   it("should map stream.tool.complete to tool-complete event", () => {
     const event: EnrichedBusEvent = {
       type: "stream.tool.complete",
@@ -173,6 +218,65 @@ describe("StreamPipelineConsumer", () => {
       toolId: "tool1",
       toolName: "bash",
       output: "file1.txt\nfile2.txt",
+      success: true,
+      error: undefined,
+    });
+  });
+
+  it("uses resolvedAgentId for stream.tool.complete when event is sub-agent scoped", () => {
+    const event: EnrichedBusEvent = {
+      type: "stream.tool.complete",
+      sessionId: "test",
+      runId: 1,
+      timestamp: Date.now(),
+      resolvedAgentId: "subagent_1",
+      isSubagentTool: true,
+      data: {
+        toolId: "tool1",
+        toolName: "bash",
+        toolResult: "ok",
+        success: true,
+      },
+    };
+
+    consumer.processBatch([event]);
+
+    expect(receivedEvents).toHaveLength(1);
+    expect(receivedEvents[0]).toEqual({
+      type: "tool-complete",
+      toolId: "tool1",
+      toolName: "bash",
+      output: "ok",
+      success: true,
+      error: undefined,
+      agentId: "subagent_1",
+    });
+  });
+
+  it("does not use resolvedAgentId for stream.tool.complete when event is not sub-agent scoped", () => {
+    const event: EnrichedBusEvent = {
+      type: "stream.tool.complete",
+      sessionId: "test",
+      runId: 1,
+      timestamp: Date.now(),
+      resolvedAgentId: "agent_misfire",
+      isSubagentTool: false,
+      data: {
+        toolId: "tool1",
+        toolName: "TaskOutput",
+        toolResult: { retrieval_status: "running" },
+        success: true,
+      },
+    };
+
+    consumer.processBatch([event]);
+
+    expect(receivedEvents).toHaveLength(1);
+    expect(receivedEvents[0]).toEqual({
+      type: "tool-complete",
+      toolId: "tool1",
+      toolName: "TaskOutput",
+      output: { retrieval_status: "running" },
       success: true,
       error: undefined,
     });
@@ -401,6 +505,30 @@ describe("StreamPipelineConsumer", () => {
       type: "tool-partial-result",
       toolId: "tool1",
       partialOutput: "partial output line\n",
+    });
+  });
+
+  it("maps stream.tool.partial_result agent attribution when parentAgentId is present", () => {
+    const event: EnrichedBusEvent = {
+      type: "stream.tool.partial_result",
+      sessionId: "test",
+      runId: 1,
+      timestamp: Date.now(),
+      data: {
+        toolCallId: "tool1",
+        partialOutput: "line\n",
+        parentAgentId: "subagent_1",
+      },
+    };
+
+    consumer.processBatch([event]);
+
+    expect(receivedEvents).toHaveLength(1);
+    expect(receivedEvents[0]).toEqual({
+      type: "tool-partial-result",
+      toolId: "tool1",
+      partialOutput: "line\n",
+      agentId: "subagent_1",
     });
   });
 

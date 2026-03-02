@@ -3,6 +3,7 @@ import {
   buildAgentHeaderLabel,
   buildAgentInlinePrefix,
   deduplicateAgents,
+  getForegroundHeaderText,
   getAgentInlineDisplayParts,
   getAgentTaskLabel,
   getBackgroundSubStatusText,
@@ -73,6 +74,15 @@ describe("ParallelAgentsTree labeling", () => {
         task: "Research Rust TUI stacks",
       })
     ).toBe("Research Rust TUI stacks");
+  });
+
+  test("uses running-style header text for pending-only foreground trees", () => {
+    expect(
+      getForegroundHeaderText([
+        { status: "pending" },
+        { status: "pending" },
+      ])
+    ).toBe("Running 2 agents…");
   });
 });
 

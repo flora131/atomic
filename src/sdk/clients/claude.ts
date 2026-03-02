@@ -37,6 +37,7 @@ import {
     type HookJSONOutput,
     type McpSdkServerConfigWithInstance,
     type McpServerStatus,
+    type ThinkingConfig,
 } from "@anthropic-ai/claude-agent-sdk";
 import type {
     CodingAgentClient,
@@ -159,7 +160,11 @@ export function extractMessageContent(message: SDKAssistantMessage): {
     let thinkingContent: string | null = null;
     let thinkingSourceKey: string | undefined;
 
-    for (let blockIndex = 0; blockIndex < betaMessage.content.length; blockIndex++) {
+    for (
+        let blockIndex = 0;
+        blockIndex < betaMessage.content.length;
+        blockIndex++
+    ) {
         const block = betaMessage.content[blockIndex]!;
         if (block.type === "tool_use") {
             // Return immediately — tool_use has highest priority.
@@ -198,7 +203,9 @@ export function extractMessageContent(message: SDKAssistantMessage): {
     return { type: "text", content: "" };
 }
 
-function getClaudeContentBlockIndex(event: Record<string, unknown>): number | null {
+function getClaudeContentBlockIndex(
+    event: Record<string, unknown>,
+): number | null {
     const directIndex = event.index;
     if (typeof directIndex === "number") {
         return directIndex;
@@ -285,6 +292,10 @@ export class ClaudeAgentClient implements CodingAgentClient {
         "NotebookEdit",
         "NotebookRead",
     ] as const;
+    private static readonly SUPPORTS_ADAPTIVE_THINKING = new Set([
+        "opus",
+        "sonnet",
+    ]);
     private static readonly SUPPORTED_REASONING_EFFORTS = new Set([
         "low",
         "medium",
@@ -386,16 +397,28 @@ export class ClaudeAgentClient implements CodingAgentClient {
             : "high";
     }
 
+    private getThinkingBudget(
+        model: string | undefined,
+        maxThinkingTokens: number = 16000,
+    ): ThinkingConfig | undefined {
+        return model &&
+            ClaudeAgentClient.SUPPORTS_ADAPTIVE_THINKING.has(
+                normalizeClaudeModelLabel(model),
+            )
+            ? { type: "adaptive" }
+            : {
+                  type: "enabled",
+                  budgetTokens: maxThinkingTokens,
+              };
+    }
+
     private async handleAskUserQuestion(
         sessionId: string,
         toolInput: Record<string, unknown>,
-    ): Promise<
-        | {
-              behavior: "allow";
-              updatedInput: Record<string, unknown>;
-          }
-        | null
-    > {
+    ): Promise<{
+        behavior: "allow";
+        updatedInput: Record<string, unknown>;
+    } | null> {
         const input = toolInput as AskUserQuestionInput;
 
         if (!input.questions || input.questions.length === 0) {
@@ -405,15 +428,15 @@ export class ClaudeAgentClient implements CodingAgentClient {
         const answers: Record<string, string> = {};
 
         for (const q of input.questions) {
-            const responsePromise = new Promise<string | string[]>((resolve) => {
-                this.emitEvent("permission.requested", sessionId, {
-                    requestId: `ask_${Date.now()}`,
-                    toolName: "AskUserQuestion",
-                    toolInput: q,
-                    question: q.question,
-                    header: q.header,
-                    options:
-                        q.options?.map((opt) => ({
+            const responsePromise = new Promise<string | string[]>(
+                (resolve) => {
+                    this.emitEvent("permission.requested", sessionId, {
+                        requestId: `ask_${Date.now()}`,
+                        toolName: "AskUserQuestion",
+                        toolInput: q,
+                        question: q.question,
+                        header: q.header,
+                        options: q.options?.map((opt) => ({
                             label: opt.label,
                             value: opt.label,
                             description: opt.description,
@@ -429,10 +452,11 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                 description: "Deny",
                             },
                         ],
-                    multiSelect: q.multiSelect ?? false,
-                    respond: resolve,
-                });
-            });
+                        multiSelect: q.multiSelect ?? false,
+                        respond: resolve,
+                    });
+                },
+            );
 
             const response = await responsePromise;
             answers[q.question] = Array.isArray(response)
@@ -452,7 +476,10 @@ export class ClaudeAgentClient implements CodingAgentClient {
         toolInput: Record<string, unknown>,
     ): Promise<{ behavior: "allow"; updatedInput: Record<string, unknown> }> {
         if (toolName === "AskUserQuestion") {
-            const resolved = await this.handleAskUserQuestion(sessionId, toolInput);
+            const resolved = await this.handleAskUserQuestion(
+                sessionId,
+                toolInput,
+            );
             if (resolved) {
                 return resolved;
             }
@@ -516,13 +543,10 @@ export class ClaudeAgentClient implements CodingAgentClient {
             maxTurns: config.maxTurns,
             maxBudgetUsd: config.maxBudgetUsd,
             effort: this.getReasoningEffort(config.reasoningEffort),
-            thinking:
-                config.model == "opus"
-                    ? { type: "adaptive" }
-                    : {
-                          type: "enabled",
-                          budgetTokens: config.maxThinkingTokens ?? 16000,
-                      },
+            thinking: this.getThinkingBudget(
+                config.model,
+                config.maxThinkingTokens,
+            ),
             hooks: this.buildNativeHooks(),
             includePartialMessages: true,
             // Use Claude Code's built-in system prompt, appending custom instructions if provided
@@ -545,7 +569,11 @@ export class ClaudeAgentClient implements CodingAgentClient {
             toolInput: Record<string, unknown>,
             _options: { signal: AbortSignal },
         ) => {
-            return this.resolveToolPermission(sessionId ?? "", toolName, toolInput);
+            return this.resolveToolPermission(
+                sessionId ?? "",
+                toolName,
+                toolInput,
+            );
         };
 
         const mcpServers = this.buildMcpServers(config);
@@ -718,7 +746,8 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                     },
                                     model: sdkMessage.message.model,
                                     stopReason:
-                                        sdkMessage.message.stop_reason ?? undefined,
+                                        sdkMessage.message.stop_reason ??
+                                        undefined,
                                     ...(type === "thinking"
                                         ? {
                                               provider: "claude",
@@ -730,7 +759,9 @@ export class ClaudeAgentClient implements CodingAgentClient {
                         }
                     }
                 } catch (error) {
-                    throw error instanceof Error ? error : new Error(String(error));
+                    throw error instanceof Error
+                        ? error
+                        : new Error(String(error));
                 }
 
                 if (!sawTerminalEvent) {
@@ -749,7 +780,10 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 );
             },
 
-            stream: (message: string, optionsArg?: { agent?: string }): AsyncIterable<AgentMessage> => {
+            stream: (
+                message: string,
+                optionsArg?: { agent?: string },
+            ): AsyncIterable<AgentMessage> => {
                 // Capture references for the async generator
                 const buildOptions = () =>
                     this.buildSdkOptions(config, sessionId);
@@ -821,138 +855,190 @@ export class ClaudeAgentClient implements CodingAgentClient {
 
                                 if (sdkMessage.type === "stream_event") {
                                     const event = sdkMessage.event;
+                                    const eventRecord = event as Record<
+                                        string,
+                                        unknown
+                                    >;
+                                    const parentToolUseId =
+                                        typeof eventRecord.parent_tool_use_id ===
+                                        "string"
+                                            ? eventRecord.parent_tool_use_id
+                                            : typeof eventRecord.parentToolUseId ===
+                                                "string"
+                                              ? eventRecord.parentToolUseId
+                                              : undefined;
 
-                                // Track thinking block boundaries
-                                if (event.type === "content_block_start") {
-                                    const blockIndex = getClaudeContentBlockIndex(
-                                        event as Record<string, unknown>,
-                                    );
-                                    const blockType = (
-                                        event as Record<string, unknown>
-                                    ).content_block
-                                        ? (
-                                              (event as Record<string, unknown>)
-                                                  .content_block as Record<
-                                                  string,
-                                                  unknown
-                                              >
-                                          ).type
-                                        : undefined;
-                                    currentBlockIsThinking =
-                                        blockType === "thinking";
-                                    if (currentBlockIsThinking) {
-                                        thinkingStartMs = Date.now();
-                                        activeThinkingSourceKey =
-                                            blockIndex !== null
-                                                ? String(blockIndex)
-                                                : null;
-                                    }
-                                }
-                                if (
-                                    event.type === "content_block_stop" &&
-                                    currentBlockIsThinking
-                                ) {
-                                    if (activeThinkingSourceKey === null) {
+                                    // Track thinking block boundaries
+                                    if (event.type === "content_block_start") {
                                         const blockIndex =
                                             getClaudeContentBlockIndex(
-                                                event as Record<string, unknown>,
-                                            );
-                                        if (blockIndex !== null) {
-                                            activeThinkingSourceKey =
-                                                String(blockIndex);
-                                        }
-                                    }
-                                    if (thinkingStartMs !== null) {
-                                        thinkingDurationMs +=
-                                            Date.now() - thinkingStartMs;
-                                        thinkingStartMs = null;
-                                    }
-                                    currentBlockIsThinking = false;
-                                    yield {
-                                        type: "thinking" as MessageContentType,
-                                        content: "",
-                                        role: "assistant",
-                                        metadata: {
-                                            provider: "claude",
-                                            thinkingSourceKey:
-                                                activeThinkingSourceKey ??
-                                                undefined,
-                                            streamingStats: {
-                                                thinkingMs: thinkingDurationMs,
-                                                outputTokens,
-                                            },
-                                        },
-                                    };
-                                    activeThinkingSourceKey = null;
-                                }
-
-                                // Track output tokens from message_delta usage
-                                if (event.type === "message_delta") {
-                                    const usage = (
-                                        event as Record<string, unknown>
-                                    ).usage as
-                                        | { output_tokens?: number }
-                                        | undefined;
-                                    if (usage?.output_tokens) {
-                                        outputTokens += usage.output_tokens;
-                                        // Emit per-API-call token count so the adapter can publish
-                                        // stream.usage for live token display during streaming
-                                        emitStreamingUsage(usage.output_tokens);
-                                    }
-                                }
-
-                                if (event.type === "content_block_delta") {
-                                    if (event.delta.type === "text_delta") {
-                                        hasYieldedDeltas = true;
-                                        yield {
-                                            type: "text",
-                                            content: event.delta.text,
-                                            role: "assistant",
-                                        };
-                                    } else if (
-                                        event.delta.type === "thinking_delta"
-                                    ) {
-                                        hasYieldedDeltas = true;
-                                        const blockIndex =
-                                            getClaudeContentBlockIndex(
-                                                event as Record<string, unknown>,
-                                            );
-                                        const resolvedThinkingSourceKey: string | null =
-                                            blockIndex !== null
-                                                ? String(blockIndex)
-                                                : activeThinkingSourceKey;
-                                        if (resolvedThinkingSourceKey !== null) {
-                                            activeThinkingSourceKey =
-                                                resolvedThinkingSourceKey;
-                                        }
-                                        const currentThinkingMs =
-                                            thinkingDurationMs +
-                                            (thinkingStartMs !== null
-                                                ? Date.now() - thinkingStartMs
-                                                : 0);
-                                        yield {
-                                            type: "thinking" as MessageContentType,
-                                            content: (
-                                                event.delta as Record<
+                                                event as Record<
                                                     string,
                                                     unknown
-                                                >
-                                            ).thinking as string,
+                                                >,
+                                            );
+                                        const blockType = (
+                                            event as Record<string, unknown>
+                                        ).content_block
+                                            ? (
+                                                  (
+                                                      event as Record<
+                                                          string,
+                                                          unknown
+                                                      >
+                                                  ).content_block as Record<
+                                                      string,
+                                                      unknown
+                                                  >
+                                              ).type
+                                            : undefined;
+                                        currentBlockIsThinking =
+                                            blockType === "thinking";
+                                        if (currentBlockIsThinking) {
+                                            thinkingStartMs = Date.now();
+                                            activeThinkingSourceKey =
+                                                blockIndex !== null
+                                                    ? String(blockIndex)
+                                                    : null;
+                                        }
+                                    }
+                                    if (
+                                        event.type === "content_block_stop" &&
+                                        currentBlockIsThinking
+                                    ) {
+                                        if (activeThinkingSourceKey === null) {
+                                            const blockIndex =
+                                                getClaudeContentBlockIndex(
+                                                    event as Record<
+                                                        string,
+                                                        unknown
+                                                    >,
+                                                );
+                                            if (blockIndex !== null) {
+                                                activeThinkingSourceKey =
+                                                    String(blockIndex);
+                                            }
+                                        }
+                                        if (thinkingStartMs !== null) {
+                                            thinkingDurationMs +=
+                                                Date.now() - thinkingStartMs;
+                                            thinkingStartMs = null;
+                                        }
+                                        currentBlockIsThinking = false;
+                                        yield {
+                                            type: "thinking" as MessageContentType,
+                                            content: "",
                                             role: "assistant",
                                             metadata: {
                                                 provider: "claude",
                                                 thinkingSourceKey:
-                                                    resolvedThinkingSourceKey ??
+                                                    activeThinkingSourceKey ??
                                                     undefined,
                                                 streamingStats: {
                                                     thinkingMs:
-                                                        currentThinkingMs,
+                                                        thinkingDurationMs,
                                                     outputTokens,
                                                 },
                                             },
                                         };
+                                        activeThinkingSourceKey = null;
                                     }
-                                }
+
+                                    // Track output tokens from message_delta usage
+                                    if (event.type === "message_delta") {
+                                        const usage = (
+                                            event as Record<string, unknown>
+                                        ).usage as
+                                            | { output_tokens?: number }
+                                            | undefined;
+                                        if (usage?.output_tokens) {
+                                            outputTokens += usage.output_tokens;
+                                            // Emit per-API-call token count so the adapter can publish
+                                            // stream.usage for live token display during streaming
+                                            emitStreamingUsage(
+                                                usage.output_tokens,
+                                            );
+                                        }
+                                    }
+
+                                    if (event.type === "content_block_delta") {
+                                        if (event.delta.type === "text_delta") {
+                                            if (!parentToolUseId) {
+                                                hasYieldedDeltas = true;
+                                            }
+                                            yield {
+                                                type: "text",
+                                                content: event.delta.text,
+                                                role: "assistant",
+                                                ...(parentToolUseId
+                                                    ? {
+                                                          metadata: {
+                                                              parentToolCallId:
+                                                                  parentToolUseId,
+                                                          },
+                                                      }
+                                                    : {}),
+                                            };
+                                        } else if (
+                                            event.delta.type ===
+                                            "thinking_delta"
+                                        ) {
+                                            // Sub-agent thinking deltas belong to
+                                            // child contexts and must not pollute
+                                            // the parent stream.
+                                            if (parentToolUseId) {
+                                                continue;
+                                            }
+                                            hasYieldedDeltas = true;
+                                            const blockIndex =
+                                                getClaudeContentBlockIndex(
+                                                    event as Record<
+                                                        string,
+                                                        unknown
+                                                    >,
+                                                );
+                                            const resolvedThinkingSourceKey:
+                                                | string
+                                                | null =
+                                                blockIndex !== null
+                                                    ? String(blockIndex)
+                                                    : activeThinkingSourceKey;
+                                            if (
+                                                resolvedThinkingSourceKey !==
+                                                null
+                                            ) {
+                                                activeThinkingSourceKey =
+                                                    resolvedThinkingSourceKey;
+                                            }
+                                            const currentThinkingMs =
+                                                thinkingDurationMs +
+                                                (thinkingStartMs !== null
+                                                    ? Date.now() -
+                                                      thinkingStartMs
+                                                    : 0);
+                                            yield {
+                                                type: "thinking" as MessageContentType,
+                                                content: (
+                                                    event.delta as Record<
+                                                        string,
+                                                        unknown
+                                                    >
+                                                ).thinking as string,
+                                                role: "assistant",
+                                                metadata: {
+                                                    provider: "claude",
+                                                    thinkingSourceKey:
+                                                        resolvedThinkingSourceKey ??
+                                                        undefined,
+                                                    streamingStats: {
+                                                        thinkingMs:
+                                                            currentThinkingMs,
+                                                        outputTokens,
+                                                    },
+                                                },
+                                            };
+                                        }
+                                    }
                                 } else if (sdkMessage.type === "assistant") {
                                     // Skip sub-agent assistant messages — they
                                     // belong to a child agent context and their
@@ -971,10 +1057,10 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                     const { type, content, thinkingSourceKey } =
                                         extractMessageContent(sdkMessage);
 
-                                // Always yield tool_use messages so callers can track tool
-                                // invocations (e.g. spawnSubagentParallel counts them for
-                                // the tree view).  Text messages are only yielded when we
-                                // haven't already streamed text deltas to avoid duplication.
+                                    // Always yield tool_use messages so callers can track tool
+                                    // invocations (e.g. spawnSubagentParallel counts them for
+                                    // the tree view).  Text messages are only yielded when we
+                                    // haven't already streamed text deltas to avoid duplication.
                                     if (type === "tool_use") {
                                         yield {
                                             type,
@@ -982,7 +1068,8 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                             role: "assistant",
                                             metadata: {
                                                 toolName:
-                                                    typeof content === "object" &&
+                                                    typeof content ===
+                                                        "object" &&
                                                     content !== null
                                                         ? ((
                                                               content as Record<
@@ -1005,12 +1092,14 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                                             ?.input_tokens ?? 0,
                                                     outputTokens:
                                                         sdkMessage.message.usage
-                                                            ?.output_tokens ?? 0,
+                                                            ?.output_tokens ??
+                                                        0,
                                                 },
                                                 model: sdkMessage.message.model,
                                                 stopReason:
                                                     sdkMessage.message
-                                                        .stop_reason ?? undefined,
+                                                        .stop_reason ??
+                                                    undefined,
                                                 ...(type === "thinking"
                                                     ? {
                                                           provider: "claude",
@@ -1023,7 +1112,9 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                 }
                             }
                         } catch (error) {
-                            throw error instanceof Error ? error : new Error(String(error));
+                            throw error instanceof Error
+                                ? error
+                                : new Error(String(error));
                         }
 
                         if (!sawTerminalEvent) {
@@ -1072,7 +1163,9 @@ export class ClaudeAgentClient implements CodingAgentClient {
                         this.processMessage(sdkMessage, sessionId, state);
                     }
                 } catch (error) {
-                    throw error instanceof Error ? error : new Error(String(error));
+                    throw error instanceof Error
+                        ? error
+                        : new Error(String(error));
                 }
             },
 
@@ -1185,7 +1278,10 @@ export class ClaudeAgentClient implements CodingAgentClient {
                     }
                     this.pendingToolBySession.delete(sessionId);
                     this.pendingSubagentBySession.delete(sessionId);
-                    for (const [toolUseId, mappedSessionId] of this.toolUseIdToSessionId.entries()) {
+                    for (const [
+                        toolUseId,
+                        mappedSessionId,
+                    ] of this.toolUseIdToSessionId.entries()) {
                         if (mappedSessionId === sessionId) {
                             this.toolUseIdToSessionId.delete(toolUseId);
                             this.taskDescriptionByToolUseId.delete(toolUseId);
@@ -1231,43 +1327,59 @@ export class ClaudeAgentClient implements CodingAgentClient {
         }
 
         // Handle task_progress messages from sub-agents (periodic progress updates)
-        if (sdkMessage.type === "system" && sdkMessage.subtype === "task_progress") {
+        if (
+            sdkMessage.type === "system" &&
+            sdkMessage.subtype === "task_progress"
+        ) {
             const msg = sdkMessage as Record<string, unknown>;
             const toolUseId = msg.tool_use_id as string | undefined;
-            const mappedAgentId = toolUseId ? this.toolUseIdToAgentId.get(toolUseId) : undefined;
-            const sessionScopedAgentId = typeof msg.session_id === "string"
-                ? this.subagentSdkSessionIdToAgentId.get(msg.session_id)
+            const mappedAgentId = toolUseId
+                ? this.toolUseIdToAgentId.get(toolUseId)
                 : undefined;
+            const sessionScopedAgentId =
+                typeof msg.session_id === "string"
+                    ? this.subagentSdkSessionIdToAgentId.get(msg.session_id)
+                    : undefined;
             const agentId = mappedAgentId ?? sessionScopedAgentId;
             if (agentId) {
                 const usage = msg.usage as { tool_uses?: number } | undefined;
                 this.emitEvent("subagent.update", sessionId, {
                     subagentId: agentId,
-                    currentTool: (msg.last_tool_name as string | undefined),
+                    currentTool: msg.last_tool_name as string | undefined,
                     toolUses: usage?.tool_uses,
                 });
             }
         }
 
-        if (sdkMessage.type === "system" && sdkMessage.subtype === "task_started") {
+        if (
+            sdkMessage.type === "system" &&
+            sdkMessage.subtype === "task_started"
+        ) {
             const msg = sdkMessage as Record<string, unknown>;
             const toolUseId = msg.tool_use_id as string | undefined;
-            const description = typeof msg.description === "string"
-                ? msg.description.trim()
-                : "";
+            const description =
+                typeof msg.description === "string"
+                    ? msg.description.trim()
+                    : "";
             if (toolUseId && description.length > 0) {
                 this.taskDescriptionByToolUseId.set(toolUseId, description);
             }
         }
 
         // Handle task_notification messages (sub-agent completion notification)
-        if (sdkMessage.type === "system" && sdkMessage.subtype === "task_notification") {
+        if (
+            sdkMessage.type === "system" &&
+            sdkMessage.subtype === "task_notification"
+        ) {
             const msg = sdkMessage as Record<string, unknown>;
             const toolUseId = msg.tool_use_id as string | undefined;
-            const mappedAgentId = toolUseId ? this.toolUseIdToAgentId.get(toolUseId) : undefined;
-            const sessionScopedAgentId = typeof msg.session_id === "string"
-                ? this.subagentSdkSessionIdToAgentId.get(msg.session_id)
+            const mappedAgentId = toolUseId
+                ? this.toolUseIdToAgentId.get(toolUseId)
                 : undefined;
+            const sessionScopedAgentId =
+                typeof msg.session_id === "string"
+                    ? this.subagentSdkSessionIdToAgentId.get(msg.session_id)
+                    : undefined;
             const agentId = mappedAgentId ?? sessionScopedAgentId;
             if (agentId) {
                 this.emitEvent("subagent.complete", sessionId, {
@@ -1480,7 +1592,10 @@ export class ClaudeAgentClient implements CodingAgentClient {
             if (candidateState.query === null) {
                 continue;
             }
-            if (candidateState.sdkSessionId && candidateState.sdkSessionId !== sdkSessionId) {
+            if (
+                candidateState.sdkSessionId &&
+                candidateState.sdkSessionId !== sdkSessionId
+            ) {
                 continue;
             }
             this.pendingHookSessionBindings.splice(i, 1);
@@ -1502,7 +1617,9 @@ export class ClaudeAgentClient implements CodingAgentClient {
         }
 
         // If there is exactly one unbound open session, bind it.
-        const unboundOpenSessions = openSessions.filter(([, state]) => !state.sdkSessionId);
+        const unboundOpenSessions = openSessions.filter(
+            ([, state]) => !state.sdkSessionId,
+        );
         if (unboundOpenSessions.length === 1) {
             const [wrappedSessionId, state] = unboundOpenSessions[0]!;
             state.sdkSessionId = sdkSessionId;
@@ -1530,6 +1647,31 @@ export class ClaudeAgentClient implements CodingAgentClient {
             hookInput.toolUseID,
             hookInput.tool_call_id,
             hookInput.toolCallId,
+        ];
+        for (const candidate of candidates) {
+            if (typeof candidate === "string" && candidate.trim().length > 0) {
+                return candidate;
+            }
+        }
+        return undefined;
+    }
+
+    /**
+     * Resolve parent tool correlation ID from hook payload.
+     *
+     * Claude hook payloads can provide this as either "use" or "call" IDs
+     * depending on runtime/event shape.
+     */
+    private resolveHookParentToolUseId(
+        hookInput: Record<string, unknown>,
+    ): string | undefined {
+        const candidates = [
+            hookInput.parent_tool_use_id,
+            hookInput.parentToolUseId,
+            hookInput.parentToolUseID,
+            hookInput.parent_tool_call_id,
+            hookInput.parentToolCallId,
+            hookInput.parentToolCallID,
         ];
         for (const candidate of candidates) {
             if (typeof candidate === "string" && candidate.trim().length > 0) {
@@ -1589,7 +1731,8 @@ export class ClaudeAgentClient implements CodingAgentClient {
         }
 
         // Check if we've already mapped this SDK session ID to a sub-agent
-        const knownAgentId = this.subagentSdkSessionIdToAgentId.get(hookSdkSessionId);
+        const knownAgentId =
+            this.subagentSdkSessionIdToAgentId.get(hookSdkSessionId);
         if (knownAgentId) return knownAgentId;
 
         // Bind to the first unmapped sub-agent
@@ -1622,9 +1765,17 @@ export class ClaudeAgentClient implements CodingAgentClient {
         // Load custom agents from project and global directories
         const projectRoot = process.cwd();
         const loadedAgents = await this.loadConfiguredAgents(projectRoot);
-        
-        const agentsMap: Record<string, { description: string; prompt: string; tools?: string[]; model?: "sonnet" | "opus" | "haiku" | "inherit" }> = { ...config.agents };
-        
+
+        const agentsMap: Record<
+            string,
+            {
+                description: string;
+                prompt: string;
+                tools?: string[];
+                model?: "sonnet" | "opus" | "haiku" | "inherit";
+            }
+        > = { ...config.agents };
+
         for (const agent of loadedAgents) {
             if (!agentsMap[agent.name]) {
                 agentsMap[agent.name] = {
@@ -1635,7 +1786,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 };
             }
         }
-        
+
         if (Object.keys(agentsMap).length > 0) {
             config.agents = agentsMap;
         }
@@ -1684,9 +1835,14 @@ export class ClaudeAgentClient implements CodingAgentClient {
 
             const queryInstance = query({ prompt: "", options });
 
-            return this.wrapQuery(queryInstance, sessionId, {}, {
-                sdkSessionId: sessionId,
-            });
+            return this.wrapQuery(
+                queryInstance,
+                sessionId,
+                {},
+                {
+                    sdkSessionId: sessionId,
+                },
+            );
         } catch (error) {
             console.warn(`Failed to resume session ${sessionId}:`, error);
             return null;
@@ -1735,6 +1891,8 @@ export class ClaudeAgentClient implements CodingAgentClient {
                         toolUseID,
                         hookInput,
                     );
+                    const resolvedParentToolUseId =
+                        this.resolveHookParentToolUseId(hookInput);
                     const eventData: Record<string, unknown> = {
                         hookInput: input,
                         toolUseID: resolvedToolUseId,
@@ -1767,30 +1925,38 @@ export class ClaudeAgentClient implements CodingAgentClient {
                     if (hookInput.agent_type) {
                         eventData.subagentType = hookInput.agent_type;
                     }
-                    if (hookInput.parent_tool_use_id) {
-                        eventData.parentToolUseId = hookInput.parent_tool_use_id;
+                    if (resolvedParentToolUseId) {
+                        eventData.parentToolUseId =
+                            resolvedParentToolUseId;
                     }
-                    const taskFromHook = typeof hookInput.description === "string"
-                        ? hookInput.description.trim()
-                        : typeof hookInput.prompt === "string"
-                            ? hookInput.prompt.trim()
-                            : typeof hookInput.task === "string"
+                    const taskFromHook =
+                        typeof hookInput.description === "string"
+                            ? hookInput.description.trim()
+                            : typeof hookInput.prompt === "string"
+                              ? hookInput.prompt.trim()
+                              : typeof hookInput.task === "string"
                                 ? hookInput.task.trim()
                                 : undefined;
                     if (targetHookEvent === "SubagentStart") {
                         const taskFromStartedMessage = resolvedToolUseId
-                            ? this.taskDescriptionByToolUseId.get(resolvedToolUseId)
+                            ? this.taskDescriptionByToolUseId.get(
+                                  resolvedToolUseId,
+                              )
                             : undefined;
                         // Also check parent_tool_use_id for task description —
                         // the SubagentStart hook's toolUseID may differ from
                         // the Agent tool's tool_use_id used in task_started messages.
-                        const parentToolUseIdValue = hookInput.parent_tool_use_id as string | undefined;
-                        const taskFromParentToolUse = parentToolUseIdValue
-                            ? this.taskDescriptionByToolUseId.get(parentToolUseIdValue)
+                        const taskFromParentToolUse =
+                            resolvedParentToolUseId
+                            ? this.taskDescriptionByToolUseId.get(
+                                  resolvedParentToolUseId,
+                              )
                             : undefined;
-                        const resolvedTask = taskFromHook && taskFromHook.length > 0
-                            ? taskFromHook
-                            : (taskFromStartedMessage ?? taskFromParentToolUse);
+                        const resolvedTask =
+                            taskFromHook && taskFromHook.length > 0
+                                ? taskFromHook
+                                : (taskFromStartedMessage ??
+                                  taskFromParentToolUse);
                         if (resolvedTask) {
                             eventData.task = resolvedTask;
                         }
@@ -1809,9 +1975,9 @@ export class ClaudeAgentClient implements CodingAgentClient {
 
                     // Store toolUseID → agent_id mapping for task_progress correlation
                     if (
-                        targetHookEvent === "SubagentStart"
-                        && resolvedToolUseId
-                        && hookInput.agent_id
+                        targetHookEvent === "SubagentStart" &&
+                        resolvedToolUseId &&
+                        hookInput.agent_id
                     ) {
                         this.toolUseIdToAgentId.set(
                             resolvedToolUseId,
@@ -1821,15 +1987,19 @@ export class ClaudeAgentClient implements CodingAgentClient {
                         // messages that carry the Agent tool's tool_use_id (which
                         // may differ from the SubagentStart hook's toolUseID) can
                         // still be correlated to the sub-agent.
-                        const parentToolUseIdForMapping = hookInput.parent_tool_use_id as string | undefined;
-                        if (parentToolUseIdForMapping && parentToolUseIdForMapping !== resolvedToolUseId) {
+                        if (
+                            resolvedParentToolUseId &&
+                            resolvedParentToolUseId !== resolvedToolUseId
+                        ) {
                             this.toolUseIdToAgentId.set(
-                                parentToolUseIdForMapping,
+                                resolvedParentToolUseId,
                                 hookInput.agent_id as string,
                             );
                         }
                         // Track as unmapped until we discover its SDK session ID
-                        this.unmappedSubagentIds.push(hookInput.agent_id as string);
+                        this.unmappedSubagentIds.push(
+                            hookInput.agent_id as string,
+                        );
                     }
 
                     const hookSessionId =
@@ -1841,31 +2011,52 @@ export class ClaudeAgentClient implements CodingAgentClient {
                         : this.resolveFallbackHookSessionId(resolvedToolUseId);
 
                     if (
-                        targetHookEvent === "SubagentStart"
-                        && resolvedToolUseId
-                        && sessionId
+                        targetHookEvent === "SubagentStart" &&
+                        resolvedToolUseId &&
+                        sessionId
                     ) {
-                        this.toolUseIdToSessionId.set(resolvedToolUseId, sessionId);
+                        this.toolUseIdToSessionId.set(
+                            resolvedToolUseId,
+                            sessionId,
+                        );
                     }
-                    if (targetHookEvent === "SubagentStop" && resolvedToolUseId) {
+                    if (
+                        targetHookEvent === "SubagentStop" &&
+                        resolvedToolUseId
+                    ) {
                         this.toolUseIdToAgentId.delete(resolvedToolUseId);
                         this.toolUseIdToSessionId.delete(resolvedToolUseId);
-                        this.taskDescriptionByToolUseId.delete(resolvedToolUseId);
+                        this.taskDescriptionByToolUseId.delete(
+                            resolvedToolUseId,
+                        );
                         // Also clean up parent_tool_use_id mapping if it exists
-                        const parentToolUseIdForCleanup = hookInput.parent_tool_use_id as string | undefined;
-                        if (parentToolUseIdForCleanup) {
-                            this.toolUseIdToAgentId.delete(parentToolUseIdForCleanup);
-                            this.toolUseIdToSessionId.delete(parentToolUseIdForCleanup);
-                            this.taskDescriptionByToolUseId.delete(parentToolUseIdForCleanup);
+                        if (resolvedParentToolUseId) {
+                            this.toolUseIdToAgentId.delete(
+                                resolvedParentToolUseId,
+                            );
+                            this.toolUseIdToSessionId.delete(
+                                resolvedParentToolUseId,
+                            );
+                            this.taskDescriptionByToolUseId.delete(
+                                resolvedParentToolUseId,
+                            );
                         }
                         // Clean up sub-agent session tracking
-                        const stoppedAgentId = (eventData.subagentId ?? hookInput.agent_id) as string | undefined;
+                        const stoppedAgentId = (eventData.subagentId ??
+                            hookInput.agent_id) as string | undefined;
                         if (stoppedAgentId) {
-                            const idx = this.unmappedSubagentIds.indexOf(stoppedAgentId);
-                            if (idx >= 0) this.unmappedSubagentIds.splice(idx, 1);
-                            for (const [sid, aid] of this.subagentSdkSessionIdToAgentId) {
+                            const idx =
+                                this.unmappedSubagentIds.indexOf(
+                                    stoppedAgentId,
+                                );
+                            if (idx >= 0)
+                                this.unmappedSubagentIds.splice(idx, 1);
+                            for (const [sid, aid] of this
+                                .subagentSdkSessionIdToAgentId) {
                                 if (aid === stoppedAgentId) {
-                                    this.subagentSdkSessionIdToAgentId.delete(sid);
+                                    this.subagentSdkSessionIdToAgentId.delete(
+                                        sid,
+                                    );
                                     break;
                                 }
                             }
@@ -1876,11 +2067,24 @@ export class ClaudeAgentClient implements CodingAgentClient {
                     // Sub-agent tool hooks carry a different SDK session_id than
                     // the main session. When detected, add parentAgentId so the
                     // adapter can route events to the agent tree.
+                    const mappedParentAgentId =
+                        (resolvedParentToolUseId
+                            ? this.toolUseIdToAgentId.get(
+                                  resolvedParentToolUseId,
+                              )
+                            : undefined) ??
+                        (resolvedToolUseId
+                            ? this.toolUseIdToAgentId.get(resolvedToolUseId)
+                            : undefined);
+                    if (mappedParentAgentId) {
+                        eventData.parentAgentId = mappedParentAgentId;
+                    }
                     if (
-                        targetHookEvent !== "SubagentStart"
-                        && targetHookEvent !== "SubagentStop"
-                        && hookSessionId
-                        && sessionId
+                        !eventData.parentAgentId &&
+                        targetHookEvent !== "SubagentStart" &&
+                        targetHookEvent !== "SubagentStop" &&
+                        hookSessionId &&
+                        sessionId
                     ) {
                         const parentAgentId = this.resolveSubagentParentId(
                             hookSessionId,
@@ -2257,7 +2461,8 @@ export function getBundledClaudeCodePath(): string {
             .split(/\r?\n/)[0]
             ?.replace(/\r$/, "");
         if (claudeBin) {
-            const { realpathSync } = require("node:fs") as typeof import("node:fs");
+            const { realpathSync } =
+                require("node:fs") as typeof import("node:fs");
             const realPath = realpathSync(claudeBin);
             // Check if it's an npm package with cli.js
             const pkgDir = dirname(realPath);

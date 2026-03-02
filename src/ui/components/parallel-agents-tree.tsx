@@ -448,6 +448,29 @@ export function buildAgentHeaderLabel(count: number, dominantType: string): stri
   return `${count} ${normalized} agent${plural ? "s" : ""}`;
 }
 
+export function getForegroundActiveAgentCount(
+  agents: ReadonlyArray<Pick<ParallelAgent, "status">>,
+): number {
+  return agents.filter(
+    (agent) => agent.status === "running" || agent.status === "pending" || agent.status === "background",
+  ).length;
+}
+
+export function getForegroundHeaderText(
+  agents: ReadonlyArray<Pick<ParallelAgent, "status">>,
+): string {
+  const activeCount = getForegroundActiveAgentCount(agents);
+  if (activeCount > 0) {
+    return `Running ${activeCount} agent${activeCount !== 1 ? "s" : ""}…`;
+  }
+  const completedCount = agents.filter((agent) => agent.status === "completed").length;
+  if (completedCount > 0) {
+    return `${completedCount} agent${completedCount !== 1 ? "s" : ""} finished`;
+  }
+  const pendingCount = agents.filter((agent) => agent.status === "pending").length;
+  return `${pendingCount} agent${pendingCount !== 1 ? "s" : ""} pending`;
+}
+
 /**
  * Get elapsed time since start.
  */
@@ -775,9 +798,8 @@ export function ParallelAgentsTree({
   const hiddenCount = agents.length - visibleAgents.length;
 
   // Count agents by status
-  const runningCount = agents.filter(a => a.status === "running" || a.status === "background").length;
+  const activeCount = getForegroundActiveAgentCount(agents);
   const completedCount = agents.filter(a => a.status === "completed").length;
-  const pendingCount = agents.filter(a => a.status === "pending").length;
 
   // Dominant type removed — header always says "Task" for background, "agents" for foreground
 
@@ -847,19 +869,15 @@ export function ParallelAgentsTree({
   }
 
   // Build header text - Claude Code style: "● Running N {Type} agents…"
-  const headerIcon = runningCount > 0 ? "●" : completedCount > 0 ? "●" : "○";
-  const headerColor = runningCount > 0
+  const headerIcon = activeCount > 0 ? "●" : completedCount > 0 ? "●" : "○";
+  const headerColor = activeCount > 0
     ? themeColors.accent
     : interruptedCount > 0
       ? themeColors.warning
       : completedCount > 0
         ? themeColors.success
         : themeColors.muted;
-  const headerText = runningCount > 0
-    ? `Running ${runningCount} agent${runningCount !== 1 ? "s" : ""}…`
-    : completedCount > 0
-      ? `${completedCount} agent${completedCount !== 1 ? "s" : ""} finished`
-      : `${pendingCount} agent${pendingCount !== 1 ? "s" : ""} pending`;
+  const headerText = getForegroundHeaderText(agents);
 
   // Build header hint from background agent tree hints
   const headerHintText = buildParallelAgentsHeaderHint(agents, showExpandHint);
@@ -872,7 +890,7 @@ export function ParallelAgentsTree({
     >
       {/* Header */}
       <box flexDirection="row">
-        {runningCount > 0 ? (
+        {activeCount > 0 ? (
           <text><AnimatedBlinkIndicator color={headerColor} speed={500} /></text>
         ) : (
           <text style={{ fg: headerColor }}>{headerIcon}</text>

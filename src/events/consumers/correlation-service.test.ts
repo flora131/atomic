@@ -592,6 +592,27 @@ describe("CorrelationService", () => {
       expect(enriched.suppressFromMainChat).toBe(false);
     });
 
+    test("stream.tool.start with explicit parentAgentId still marks sub-agent scope before registry hydration", () => {
+      const event: BusEvent<"stream.tool.start"> = {
+        type: "stream.tool.start",
+        sessionId: "session_1",
+        runId: 1,
+        timestamp: Date.now(),
+        data: {
+          toolId: "tool_pre_registered",
+          toolName: "WebSearch",
+          toolInput: { query: "status" },
+          parentAgentId: "sub_unregistered",
+        },
+      };
+
+      const enriched = service.enrich(event);
+
+      expect(enriched.resolvedAgentId).toBe("sub_unregistered");
+      expect(enriched.parentAgentId).toBeUndefined();
+      expect(enriched.isSubagentTool).toBe(true);
+    });
+
     test("stream.tool.start without parentAgentId falls back to mainAgentId", () => {
       // Set up main agent
       const agentEvent: BusEvent<"stream.agent.start"> = {
@@ -888,6 +909,54 @@ describe("CorrelationService", () => {
       expect(enriched.resolvedAgentId).toBe("worker-1");
       expect(enriched.isSubagentTool).toBe(true);
       expect(enriched.parentAgentId).toBe("main-agent");
+    });
+
+    test("registers fallback-attributed tool so stream.tool.complete inherits resolvedAgentId", () => {
+      const agentStartEvent: BusEvent<"stream.agent.start"> = {
+        type: "stream.agent.start",
+        sessionId: "session_123",
+        runId: 1,
+        timestamp: Date.now(),
+        data: {
+          agentId: "background-agent-1",
+          toolCallId: "spawn-tool-1",
+          agentType: "codebase-online-researcher",
+          task: "Research task",
+          isBackground: true,
+        },
+      };
+      service.enrich(agentStartEvent);
+
+      const toolStartEvent: BusEvent<"stream.tool.start"> = {
+        type: "stream.tool.start",
+        sessionId: "session_123",
+        runId: 1,
+        timestamp: Date.now(),
+        data: {
+          toolId: "tool-bg-1",
+          toolName: "WebSearch",
+          toolInput: { query: "test" },
+        },
+      };
+
+      const startEnriched = service.enrich(toolStartEvent);
+      expect(startEnriched.resolvedAgentId).toBe("background-agent-1");
+
+      const toolCompleteEvent: BusEvent<"stream.tool.complete"> = {
+        type: "stream.tool.complete",
+        sessionId: "session_123",
+        runId: 1,
+        timestamp: Date.now(),
+        data: {
+          toolId: "tool-bg-1",
+          toolName: "WebSearch",
+          toolResult: "done",
+          success: true,
+        },
+      };
+
+      const completeEnriched = service.enrich(toolCompleteEvent);
+      expect(completeEnriched.resolvedAgentId).toBe("background-agent-1");
     });
   });
 });

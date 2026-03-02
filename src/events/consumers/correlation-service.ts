@@ -186,25 +186,34 @@ export class CorrelationService {
         // Track which run this tool belongs to
         this.toolIdToRunMap.set(data.toolId, event.runId);
 
-        // Check if this tool's parentAgentId refers to a registered sub-agent
+        // If the event is explicitly scoped to a sub-agent, attribute to it.
+        // Some adapters provide parentAgentId even when the sub-agent was not
+        // pre-registered in correlation; still preserve the attribution.
         if (data.parentAgentId) {
+          enriched.resolvedAgentId = data.parentAgentId;
+          // Explicit parentAgentId on tool events indicates sub-agent scoping
+          // even before the sub-agent lifecycle is fully registered.
+          enriched.isSubagentTool = true;
           const toolSubCtx = this.subagentRegistry.get(data.parentAgentId);
           if (toolSubCtx) {
-            enriched.resolvedAgentId = data.parentAgentId;
             enriched.parentAgentId = toolSubCtx.parentAgentId;
-            enriched.isSubagentTool = true;
             enriched.suppressFromMainChat = false;
-            // Register tool ID so stream.tool.complete can look up the agent
-            this.toolToAgent.set(data.toolId, data.parentAgentId);
-            this.subAgentTools.add(data.toolId);
-            break;
           }
         }
 
         // If we know which agent spawned this tool, correlate it
         // For tools without explicit agent correlation, use the main agent
-        if (this.mainAgentId) {
+        if (!enriched.resolvedAgentId && this.mainAgentId) {
           enriched.resolvedAgentId = this.mainAgentId;
+        }
+
+        // Persist start-time attribution so stream.tool.complete can resolve
+        // even when the completion event omits agent correlation fields.
+        if (enriched.resolvedAgentId) {
+          this.toolToAgent.set(data.toolId, enriched.resolvedAgentId);
+          if (enriched.isSubagentTool) {
+            this.subAgentTools.add(data.toolId);
+          }
         }
         break;
       }
@@ -224,6 +233,15 @@ export class CorrelationService {
           if (completeToolCtx) {
             enriched.parentAgentId = completeToolCtx.parentAgentId;
             enriched.isSubagentTool = true;
+            enriched.suppressFromMainChat = false;
+          }
+        } else if (data.parentAgentId) {
+          // Best-effort fallback for adapters that only emit parentAgentId on complete.
+          enriched.resolvedAgentId = data.parentAgentId;
+          enriched.isSubagentTool = true;
+          const completeToolCtx = this.subagentRegistry.get(data.parentAgentId);
+          if (completeToolCtx) {
+            enriched.parentAgentId = completeToolCtx.parentAgentId;
             enriched.suppressFromMainChat = false;
           }
         }

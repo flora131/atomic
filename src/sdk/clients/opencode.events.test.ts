@@ -380,6 +380,164 @@ describe("OpenCodeClient event mapping", () => {
     expect(deltas).toEqual([]);
   });
 
+  test("processEventStream allows unknown child message.part.updated events in single-session mode", async () => {
+    const client = new OpenCodeClient();
+    const starts: Array<{ subagentId?: string; subagentSessionId?: string }> = [];
+    const toolStarts: Array<{ sessionId: string; toolName?: string }> = [];
+
+    const unsubStart = client.on("subagent.start", (event) => {
+      const data = event.data as { subagentId?: string; subagentSessionId?: string };
+      starts.push({ subagentId: data.subagentId, subagentSessionId: data.subagentSessionId });
+    });
+    const unsubTool = client.on("tool.start", (event) => {
+      const data = event.data as { toolName?: string };
+      toolStarts.push({ sessionId: event.sessionId, toolName: data.toolName });
+    });
+
+    (client as unknown as { registerActiveSession: (sessionId: string) => void })
+      .registerActiveSession("ses_parent");
+    (client as unknown as { currentSessionId: string | null }).currentSessionId = "ses_parent";
+
+    const stream = (async function* (): AsyncGenerator<unknown, void, unknown> {
+      yield {
+        type: "message.updated",
+        properties: {
+          info: {
+            id: "msg_parent",
+            sessionID: "ses_parent",
+            role: "assistant",
+          },
+        },
+      };
+      yield {
+        type: "message.part.updated",
+        properties: {
+          sessionID: "ses_parent",
+          part: {
+            id: "agent_1",
+            sessionID: "ses_parent",
+            messageID: "msg_parent",
+            type: "agent",
+            name: "worker",
+          },
+        },
+      };
+      // Child tool arrives without envelope sessionID (only part.sessionID).
+      // This must be allowed through filtering so child discovery can run.
+      yield {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            id: "tool_child_1",
+            sessionID: "ses_child",
+            messageID: "msg_child_1",
+            type: "tool",
+            tool: "Read",
+            state: {
+              status: "pending",
+              input: { filePath: "src/ui/chat.tsx" },
+            },
+          },
+        },
+      };
+    })();
+
+    await (client as unknown as {
+      processEventStream: (
+        eventStream: AsyncGenerator<unknown, void, unknown>,
+        watchdogAbort: AbortController,
+      ) => Promise<void>;
+    }).processEventStream(stream, new AbortController());
+
+    unsubStart();
+    unsubTool();
+
+    expect(starts).toHaveLength(2);
+    expect(starts[0]).toEqual({ subagentId: "agent_1", subagentSessionId: undefined });
+    expect(starts[1]).toEqual({ subagentId: "agent_1", subagentSessionId: "ses_child" });
+    expect(toolStarts).toContainEqual({ sessionId: "ses_child", toolName: "Read" });
+  });
+
+  test("processEventStream allows unknown child message.part.updated events in parallel-session mode", async () => {
+    const client = new OpenCodeClient();
+    const starts: Array<{ subagentId?: string; subagentSessionId?: string }> = [];
+    const toolStarts: Array<{ sessionId: string; toolName?: string }> = [];
+
+    const unsubStart = client.on("subagent.start", (event) => {
+      const data = event.data as { subagentId?: string; subagentSessionId?: string };
+      starts.push({ subagentId: data.subagentId, subagentSessionId: data.subagentSessionId });
+    });
+    const unsubTool = client.on("tool.start", (event) => {
+      const data = event.data as { toolName?: string };
+      toolStarts.push({ sessionId: event.sessionId, toolName: data.toolName });
+    });
+
+    (client as unknown as { registerActiveSession: (sessionId: string) => void })
+      .registerActiveSession("ses_parent");
+    (client as unknown as { registerActiveSession: (sessionId: string) => void })
+      .registerActiveSession("ses_other_active");
+    (client as unknown as { currentSessionId: string | null }).currentSessionId = "ses_parent";
+
+    const stream = (async function* (): AsyncGenerator<unknown, void, unknown> {
+      yield {
+        type: "message.updated",
+        properties: {
+          info: {
+            id: "msg_parent_parallel",
+            sessionID: "ses_parent",
+            role: "assistant",
+          },
+        },
+      };
+      yield {
+        type: "message.part.updated",
+        properties: {
+          sessionID: "ses_parent",
+          part: {
+            id: "agent_parallel_1",
+            sessionID: "ses_parent",
+            messageID: "msg_parent_parallel",
+            type: "agent",
+            name: "worker",
+          },
+        },
+      };
+      // Child tool arrives without envelope sessionID while another session
+      // is also active. We still need to process this for child discovery.
+      yield {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            id: "tool_parallel_child_1",
+            sessionID: "ses_parallel_child",
+            messageID: "msg_parallel_child_1",
+            type: "tool",
+            tool: "Glob",
+            state: {
+              status: "pending",
+              input: { path: "src/**/*.tsx" },
+            },
+          },
+        },
+      };
+    })();
+
+    await (client as unknown as {
+      processEventStream: (
+        eventStream: AsyncGenerator<unknown, void, unknown>,
+        watchdogAbort: AbortController,
+      ) => Promise<void>;
+    }).processEventStream(stream, new AbortController());
+
+    unsubStart();
+    unsubTool();
+
+    expect(starts).toHaveLength(2);
+    expect(starts[0]).toEqual({ subagentId: "agent_parallel_1", subagentSessionId: undefined });
+    expect(starts[1]).toEqual({ subagentId: "agent_parallel_1", subagentSessionId: "ses_parallel_child" });
+    expect(toolStarts).toContainEqual({ sessionId: "ses_parallel_child", toolName: "Glob" });
+  });
+
   test("session.deleted unregisters active sessions for subsequent SSE filtering", async () => {
     const client = new OpenCodeClient();
     const deltas: string[] = [];
@@ -1702,6 +1860,63 @@ describe("OpenCodeClient event mapping", () => {
     expect(completes).toEqual([{ toolName: "task", toolCallId: "call_task_parent" }]);
   });
 
+  test("includes task tool metadata on tool.start for parent-session task parts", () => {
+    const client = new OpenCodeClient();
+    (client as unknown as { currentSessionId: string | null }).currentSessionId = "ses_parent";
+
+    const starts: Array<{ toolName?: string; toolCallId?: string; toolMetadata?: Record<string, unknown> }> = [];
+
+    const unsubStart = client.on("tool.start", (event) => {
+      const data = event.data as {
+        toolName?: string;
+        toolCallId?: string;
+        toolMetadata?: Record<string, unknown>;
+      };
+      starts.push({
+        toolName: data.toolName,
+        toolCallId: data.toolCallId,
+        toolMetadata: data.toolMetadata,
+      });
+    });
+
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "task_tool_parent_meta",
+          callID: "call_task_parent_meta",
+          sessionID: "ses_parent",
+          messageID: "msg_task_meta_1",
+          type: "tool",
+          tool: "task",
+          state: {
+            status: "running",
+            input: {
+              subagent_type: "debugger",
+              description: "debug stream ordering",
+            },
+            metadata: {
+              sessionId: "ses_child_meta_1",
+              model: { providerID: "openai", modelID: "gpt-5.3-codex-high" },
+            },
+          },
+        },
+      },
+    });
+
+    unsubStart();
+
+    expect(starts).toHaveLength(1);
+    expect(starts[0]).toEqual({
+      toolName: "task",
+      toolCallId: "call_task_parent_meta",
+      toolMetadata: {
+        sessionId: "ses_child_meta_1",
+        model: { providerID: "openai", modelID: "gpt-5.3-codex-high" },
+      },
+    });
+  });
+
   test("does not synthesize subagent.start from parent-session task tool parts", () => {
     const client = new OpenCodeClient();
     (client as unknown as { currentSessionId: string | null }).currentSessionId = "ses_parent";
@@ -2568,6 +2783,7 @@ describe("OpenCodeClient event mapping", () => {
     const toolStarts: Array<{
       sessionId: string;
       toolName?: string;
+      parentAgentId?: string;
     }> = [];
 
     const unsubStart = client.on("subagent.start", (event) => {
@@ -2575,8 +2791,12 @@ describe("OpenCodeClient event mapping", () => {
       starts.push({ subagentId: data.subagentId, subagentSessionId: data.subagentSessionId });
     });
     const unsubTool = client.on("tool.start", (event) => {
-      const data = event.data as { toolName?: string };
-      toolStarts.push({ sessionId: event.sessionId, toolName: data.toolName });
+      const data = event.data as { toolName?: string; parentAgentId?: string };
+      toolStarts.push({
+        sessionId: event.sessionId,
+        toolName: data.toolName,
+        parentAgentId: data.parentAgentId,
+      });
     });
 
     // 1. Agent part arrives (parent session)
@@ -2630,6 +2850,7 @@ describe("OpenCodeClient event mapping", () => {
     expect(toolStarts).toHaveLength(1);
     expect(toolStarts[0]!.sessionId).toBe("ses_child");
     expect(toolStarts[0]!.toolName).toBe("Read");
+    expect(toolStarts[0]!.parentAgentId).toBe("agent_1");
   });
 
   test("routes child-session discovery to envelope parent session during parallel runs", () => {
@@ -2697,6 +2918,183 @@ describe("OpenCodeClient event mapping", () => {
     expect(starts[1]!.sessionId).toBe("ses_A");
     expect(starts[1]!.subagentId).toBe("agent_A");
     expect(starts[1]!.subagentSessionId).toBe("ses_child_A");
+  });
+
+  test("maps child tool events via session.created parentID before first child tool", () => {
+    const client = new OpenCodeClient();
+    const handle = (event: Record<string, unknown>) =>
+      (client as unknown as { handleSdkEvent: (e: Record<string, unknown>) => void }).handleSdkEvent(event);
+
+    (client as unknown as { currentSessionId: string | null }).currentSessionId = "ses_parent_map";
+
+    const starts: Array<{ subagentId?: string; subagentSessionId?: string }> = [];
+    const toolStarts: Array<{ sessionId: string; toolName?: string; parentAgentId?: string }> = [];
+    const updates: Array<{ subagentId?: string; currentTool?: string; toolUses?: number }> = [];
+
+    const unsubStart = client.on("subagent.start", (event) => {
+      const data = event.data as { subagentId?: string; subagentSessionId?: string };
+      starts.push({ subagentId: data.subagentId, subagentSessionId: data.subagentSessionId });
+    });
+    const unsubToolStart = client.on("tool.start", (event) => {
+      const data = event.data as { toolName?: string; parentAgentId?: string };
+      toolStarts.push({
+        sessionId: event.sessionId,
+        toolName: data.toolName,
+        parentAgentId: data.parentAgentId,
+      });
+    });
+    const unsubUpdate = client.on("subagent.update", (event) => {
+      const data = event.data as { subagentId?: string; currentTool?: string; toolUses?: number };
+      updates.push({
+        subagentId: data.subagentId,
+        currentTool: data.currentTool,
+        toolUses: data.toolUses,
+      });
+    });
+
+    // Parent dispatches sub-agent
+    handle({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "agent_map_1",
+          sessionID: "ses_parent_map",
+          messageID: "msg_parent_map_1",
+          type: "agent",
+          name: "codebase-locator",
+        },
+      },
+    });
+
+    // Child session is created with explicit parentID before first child tool part.
+    handle({
+      type: "session.created",
+      properties: {
+        info: {
+          id: "ses_child_map_1",
+          parentID: "ses_parent_map",
+        },
+      },
+    });
+
+    // First child tool event arrives with child sessionID.
+    handle({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "tool_child_map_1",
+          sessionID: "ses_child_map_1",
+          messageID: "msg_child_map_1",
+          type: "tool",
+          tool: "Read",
+          callID: "call_child_map_1",
+          state: {
+            status: "running",
+            input: { filePath: "src/ui/chat.tsx" },
+          },
+        },
+      },
+    });
+
+    unsubStart();
+    unsubToolStart();
+    unsubUpdate();
+
+    expect(starts).toHaveLength(2);
+    expect(starts[0]).toEqual({ subagentId: "agent_map_1", subagentSessionId: undefined });
+    expect(starts[1]).toEqual({ subagentId: "agent_map_1", subagentSessionId: "ses_child_map_1" });
+    expect(toolStarts).toContainEqual({
+      sessionId: "ses_child_map_1",
+      toolName: "Read",
+      parentAgentId: "agent_map_1",
+    });
+    expect(updates).toContainEqual({
+      subagentId: "agent_map_1",
+      currentTool: "Read",
+      toolUses: 1,
+    });
+  });
+
+  test("infers parent session for active child sessions when a single pending subagent exists", () => {
+    const client = new OpenCodeClient();
+    const handle = (event: Record<string, unknown>) =>
+      (client as unknown as { handleSdkEvent: (e: Record<string, unknown>) => void }).handleSdkEvent(event);
+
+    // Mark child session active before first child tool part arrives.
+    (client as unknown as { registerActiveSession: (sessionId: string) => void })
+      .registerActiveSession("ses_child_active_1");
+
+    const starts: Array<{ sessionId: string; subagentId?: string; subagentSessionId?: string }> = [];
+    const toolStarts: Array<{ sessionId: string; toolName?: string; parentAgentId?: string }> = [];
+
+    const unsubStart = client.on("subagent.start", (event) => {
+      const data = event.data as { subagentId?: string; subagentSessionId?: string };
+      starts.push({
+        sessionId: event.sessionId,
+        subagentId: data.subagentId,
+        subagentSessionId: data.subagentSessionId,
+      });
+    });
+    const unsubToolStart = client.on("tool.start", (event) => {
+      const data = event.data as { toolName?: string; parentAgentId?: string };
+      toolStarts.push({
+        sessionId: event.sessionId,
+        toolName: data.toolName,
+        parentAgentId: data.parentAgentId,
+      });
+    });
+
+    // Parent creates a pending subagent entry.
+    handle({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "agent_pending_1",
+          sessionID: "ses_parent_pending_1",
+          messageID: "msg_parent_pending_1",
+          type: "agent",
+          name: "codebase-analyzer",
+        },
+      },
+    });
+
+    // Child tool part arrives while child session is already active.
+    handle({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "tool_child_active_1",
+          sessionID: "ses_child_active_1",
+          messageID: "msg_child_active_1",
+          type: "tool",
+          tool: "Glob",
+          state: {
+            status: "pending",
+            input: { path: "src/**/*.ts" },
+          },
+        },
+      },
+    });
+
+    unsubStart();
+    unsubToolStart();
+
+    expect(starts).toHaveLength(2);
+    expect(starts[0]).toEqual({
+      sessionId: "ses_parent_pending_1",
+      subagentId: "agent_pending_1",
+      subagentSessionId: undefined,
+    });
+    expect(starts[1]).toEqual({
+      sessionId: "ses_parent_pending_1",
+      subagentId: "agent_pending_1",
+      subagentSessionId: "ses_child_active_1",
+    });
+    expect(toolStarts).toContainEqual({
+      sessionId: "ses_child_active_1",
+      toolName: "Glob",
+      parentAgentId: "agent_pending_1",
+    });
   });
 
   test("does not re-emit subagent.start for subsequent tool events on same child session", () => {

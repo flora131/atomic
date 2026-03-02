@@ -2,9 +2,12 @@ import { describe, expect, test } from "bun:test";
 import type { ParallelAgent } from "./components/parallel-agents-tree.tsx";
 import type { AgentPart } from "./parts/index.ts";
 import {
+  finalizeCorrelatedSubagentDispatchForToolComplete,
   finalizeSyntheticTaskAgentForToolComplete,
   isSyntheticTaskAgentId,
   mergeAgentTaskLabel,
+  resolveSubagentStartCorrelationId,
+  resolveAgentCurrentToolForUpdate,
   shouldGroupSubagentTrees,
   upsertSyntheticTaskAgentForToolStart,
 } from "./chat.tsx";
@@ -115,6 +118,87 @@ describe("mergeAgentTaskLabel", () => {
 
   test("falls back to agent type when existing label is generic and task is missing", () => {
     expect(mergeAgentTaskLabel("subagent task", undefined, "codebase-analyzer")).toBe("codebase-analyzer");
+  });
+});
+
+describe("resolveSubagentStartCorrelationId", () => {
+  test("prefers sdkCorrelationId when available", () => {
+    expect(
+      resolveSubagentStartCorrelationId({
+        sdkCorrelationId: "sdk-1",
+        toolCallId: "tool-1",
+      })
+    ).toBe("sdk-1");
+  });
+
+  test("falls back to toolCallId when sdkCorrelationId is missing", () => {
+    expect(
+      resolveSubagentStartCorrelationId({
+        toolCallId: "tool-2",
+      })
+    ).toBe("tool-2");
+  });
+});
+
+describe("finalizeCorrelatedSubagentDispatchForToolComplete", () => {
+  test("marks correlated running agents interrupted on dispatch abort without agent.complete", () => {
+    const agents: ParallelAgent[] = [
+      {
+        id: "agent-1",
+        taskToolCallId: "tool-1",
+        name: "codebase-analyzer",
+        task: "Analyze rendering",
+        status: "running",
+        startedAt: "2026-03-02T08:17:49.941Z",
+        currentTool: "rg",
+      },
+      {
+        id: "agent-2",
+        taskToolCallId: "tool-2",
+        name: "debugger",
+        task: "Inspect logs",
+        status: "running",
+        startedAt: "2026-03-02T08:17:49.941Z",
+      },
+    ];
+
+    const result = finalizeCorrelatedSubagentDispatchForToolComplete({
+      agents,
+      toolName: "Agent",
+      toolId: "tool-1",
+      success: false,
+      error: "Tool execution aborted",
+      completedAtMs: new Date("2026-03-02T08:18:59.188Z").getTime(),
+    });
+
+    expect(result[0]!.status).toBe("interrupted");
+    expect(result[0]!.currentTool).toBeUndefined();
+    expect(result[0]!.durationMs).toBeGreaterThan(0);
+    expect(result[1]!.status).toBe("running");
+  });
+});
+
+describe("resolveAgentCurrentToolForUpdate", () => {
+  test("keeps incoming tool name when present", () => {
+    expect(resolveAgentCurrentToolForUpdate({
+      incomingCurrentTool: "rg",
+      existingCurrentTool: "Running codebase-locator...",
+      agentName: "codebase-locator",
+    })).toBe("rg");
+  });
+
+  test("drops bootstrap running label when update has no current tool", () => {
+    expect(resolveAgentCurrentToolForUpdate({
+      existingCurrentTool: "Running codebase-locator...",
+      agentName: "codebase-locator",
+    })).toBeUndefined();
+  });
+
+  test("preserves last concrete tool when update omits current tool", () => {
+    expect(resolveAgentCurrentToolForUpdate({
+      existingCurrentTool: "glob",
+      agentName: "codebase-locator",
+    })).toBe("glob");
   });
 });
 

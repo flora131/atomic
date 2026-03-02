@@ -199,17 +199,21 @@ export class StreamPipelineConsumer {
 
       case "stream.tool.start": {
         const data = event.data as BusEventDataMap["stream.tool.start"];
+        const correlatedAgentId = data.parentAgentId
+          ?? (event.isSubagentTool ? event.resolvedAgentId : undefined);
         return [{
           type: "tool-start",
           toolId: data.toolId,
           toolName: data.toolName,
           input: data.toolInput,
-          ...(data.parentAgentId ? { agentId: data.parentAgentId } : {}),
+          ...(correlatedAgentId ? { agentId: correlatedAgentId } : {}),
         }];
       }
 
       case "stream.tool.complete": {
         const data = event.data as BusEventDataMap["stream.tool.complete"];
+        const correlatedAgentId = data.parentAgentId
+          ?? (event.isSubagentTool ? event.resolvedAgentId : undefined);
         const mapped: StreamPartEvent = {
           type: "tool-complete",
           toolId: data.toolId,
@@ -218,17 +222,20 @@ export class StreamPipelineConsumer {
           success: data.success,
           error: data.error,
           ...(data.toolInput ? { input: data.toolInput } : {}),
-          ...(data.parentAgentId ? { agentId: data.parentAgentId } : {}),
+          ...(correlatedAgentId ? { agentId: correlatedAgentId } : {}),
         };
         return [mapped];
       }
 
       case "stream.tool.partial_result": {
         const data = event.data as BusEventDataMap["stream.tool.partial_result"];
+        const correlatedAgentId = data.parentAgentId
+          ?? (event.isSubagentTool ? event.resolvedAgentId : undefined);
         return [{
           type: "tool-partial-result",
           toolId: data.toolCallId,
           partialOutput: data.partialOutput,
+          ...(correlatedAgentId ? { agentId: correlatedAgentId } : {}),
         }];
       }
 

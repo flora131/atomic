@@ -167,6 +167,8 @@ export interface BusEventDataMap {
     toolCallId: string;
     /** Incremental output text */
     partialOutput: string;
+    /** Parent agent ID if this tool belongs to a sub-agent */
+    parentAgentId?: string;
   };
 
   /**
@@ -517,6 +519,7 @@ export const BusEventSchemas: Record<BusEventType, z.ZodType> = {
   "stream.tool.partial_result": z.object({
     toolCallId: z.string(),
     partialOutput: z.string(),
+    parentAgentId: z.string().optional(),
   }),
   "stream.agent.start": z.object({
     agentId: z.string(),

@@ -121,6 +121,7 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     description: string;
     isBackground: boolean;
     agentType?: string;
+    subagentSessionId?: string;
   }>();
   /** Ordered task tool IDs awaiting subagent.start correlation fallback */
   private pendingTaskToolCorrelationIds: string[] = [];
@@ -905,9 +906,11 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
         runId,
         toolName,
       );
+      const toolMetadata = this.asRecord(dataRecord.toolMetadata);
       const toolStartSignature = this.buildToolStartSignature(
         toolName,
         (data.toolInput ?? {}) as Record<string, unknown>,
+        toolMetadata,
         parentAgentId,
       );
       const previousStartSignature = this.toolStartSignatureByToolId.get(toolId);
@@ -931,12 +934,16 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
       this.registerToolCorrelationAliases(toolId, sdkToolUseId, sdkToolCallId);
       const taskCorrelationId = resolvedSdkCorrelationId ?? sdkCorrelationId;
       if (this.isTaskTool(toolName) && taskCorrelationId) {
-        const metadata = this.extractTaskToolMetadata(data.toolInput);
-        this.taskToolMetadata.set(taskCorrelationId, metadata);
+        const metadata = this.extractTaskToolMetadata(data.toolInput, dataRecord);
+        const existingMetadata = this.taskToolMetadata.get(taskCorrelationId);
+        const mergedMetadata = this.mergeTaskToolMetadata(existingMetadata, metadata);
+        this.taskToolMetadata.set(taskCorrelationId, mergedMetadata);
         this.recordPendingTaskToolCorrelationId(taskCorrelationId);
         this.resolvePendingSubagentTaskCorrelation(taskCorrelationId);
         this.ensureSyntheticTaskSubagentMapping(taskCorrelationId, data.toolInput, runId);
+        this.registerTaskSubagentSessionCorrelation(taskCorrelationId, mergedMetadata.subagentSessionId);
       }
+      const syntheticFallbackParentAgentId = this.resolveSyntheticTaskParentAgentId(taskCorrelationId);
       if (parentAgentId) {
         this.ensureSyntheticTaskAgentStart(runId, parentAgentId);
         this.recordActiveSubagentToolContext(toolId, toolName, parentAgentId, sdkToolUseId, sdkToolCallId);
@@ -952,6 +959,21 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
             }
           }
         }
+      } else if (syntheticFallbackParentAgentId) {
+        this.ensureSyntheticTaskAgentStart(runId, syntheticFallbackParentAgentId);
+        this.recordActiveSubagentToolContext(
+          toolId,
+          toolName,
+          syntheticFallbackParentAgentId,
+          sdkToolUseId,
+          sdkToolCallId,
+          taskCorrelationId,
+        );
+        const trackerKey = this.buildTrackedToolStartKey(syntheticFallbackParentAgentId, toolId);
+        if (!this.trackedToolStartKeys.has(trackerKey) && this.subagentTracker?.hasAgent(syntheticFallbackParentAgentId)) {
+          this.trackedToolStartKeys.add(trackerKey);
+          this.subagentTracker.onToolStart(syntheticFallbackParentAgentId, toolName);
+        }
       } else if (parentToolUseId) {
         this.queueEarlyToolEvent(parentToolUseId, toolId, toolName);
         const correlatedParentAgentId = this.toolUseIdToSubagentId.get(parentToolUseId);
@@ -966,6 +988,8 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
           );
         }
       }
+      const attributedParentAgentId = parentAgentId
+        ?? this.activeSubagentToolsById.get(toolId)?.parentAgentId;
 
       const busEvent: BusEvent<"stream.tool.start"> = {
         type: "stream.tool.start",
@@ -977,7 +1001,7 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
           toolName,
           toolInput: (data.toolInput ?? {}) as Record<string, unknown>,
           sdkCorrelationId: sdkCorrelationId ?? toolId,
-          ...(parentAgentId ? { parentAgentId } : {}),
+          ...(attributedParentAgentId ? { parentAgentId: attributedParentAgentId } : {}),
         },
       };
 
@@ -1003,17 +1027,21 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
         event.sessionId,
         dataRecord,
       );
-      // Process tool events for parent/owned sessions, and also accept
-      // events that carry an explicit parent-agent correlation.
-      if (!this.isOwnedSession(event.sessionId) && !parentAgentId) {
-        return;
-      }
       const sdkToolUseId = this.asString(data.toolUseId ?? data.toolUseID);
       const sdkToolCallId = this.asString(data.toolCallId);
       const sdkCorrelationId = this.resolveToolCorrelationId(
         sdkToolUseId ?? sdkToolCallId,
       );
+      const knownParentAgentId = sdkCorrelationId
+        ? this.activeSubagentToolsById.get(sdkCorrelationId)?.parentAgentId
+        : undefined;
+      // Process tool events for parent/owned sessions, and also accept
+      // events that carry an explicit parent-agent correlation.
+      if (!this.isOwnedSession(event.sessionId) && !parentAgentId && !knownParentAgentId) {
+        return;
+      }
       const toolName = this.normalizeToolName(data.toolName);
+      const taskCorrelationId = this.isTaskTool(toolName) ? sdkCorrelationId : undefined;
       const toolId = this.resolveToolCompleteId(sdkCorrelationId, runId, toolName);
       const startSignature = this.toolStartSignatureByToolId.get(toolId);
       this.toolStartSignatureByToolId.delete(toolId);
@@ -1025,25 +1053,67 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
       }
       const toolInput = this.asRecord((data as Record<string, unknown>).toolInput);
       this.registerToolCorrelationAliases(toolId, sdkToolUseId, sdkToolCallId);
+      const activeToolContext = this.activeSubagentToolsById.get(toolId);
       this.removeActiveSubagentToolContext(toolId, sdkToolUseId, sdkToolCallId);
-      if (this.isTaskTool(toolName) && sdkCorrelationId) {
-        const mappedAgentId = this.toolUseIdToSubagentId.get(sdkCorrelationId);
-        if (mappedAgentId && isSyntheticTaskAgentId(mappedAgentId)) {
-          this.subagentTracker?.removeAgent(mappedAgentId);
-          this.toolUseIdToSubagentId.delete(sdkCorrelationId);
-          this.subagentIdToCorrelationId.delete(mappedAgentId);
-        }
-      }
+      const syntheticMappedAgentId = this.isTaskTool(toolName) && sdkCorrelationId
+        ? this.toolUseIdToSubagentId.get(sdkCorrelationId)
+        : undefined;
+      let syntheticFallbackParentAgentId: string | undefined;
       if (parentAgentId) {
         const trackerKey = this.buildTrackedToolStartKey(parentAgentId, toolId);
         if (this.trackedToolStartKeys.delete(trackerKey)) {
           this.subagentTracker?.onToolComplete(parentAgentId);
         }
         this.removeEarlyToolEvent(parentAgentId, toolId);
+      } else {
+        syntheticFallbackParentAgentId = (
+          syntheticMappedAgentId && isSyntheticTaskAgentId(syntheticMappedAgentId)
+        )
+          ? syntheticMappedAgentId
+          : this.resolveSyntheticTaskParentAgentId(taskCorrelationId);
+        if (syntheticFallbackParentAgentId) {
+          const trackerKey = this.buildTrackedToolStartKey(syntheticFallbackParentAgentId, toolId);
+          if (this.trackedToolStartKeys.delete(trackerKey)) {
+            this.subagentTracker?.onToolComplete(syntheticFallbackParentAgentId);
+          }
+          this.removeEarlyToolEvent(syntheticFallbackParentAgentId, toolId);
+        }
+      }
+      const syntheticTaskAgentIdForCompletion = (
+        syntheticMappedAgentId && isSyntheticTaskAgentId(syntheticMappedAgentId)
+      )
+        ? syntheticMappedAgentId
+        : (
+          syntheticFallbackParentAgentId && isSyntheticTaskAgentId(syntheticFallbackParentAgentId)
+            ? syntheticFallbackParentAgentId
+            : undefined
+        );
+      const shouldPublishSyntheticAgentComplete = Boolean(
+        syntheticTaskAgentIdForCompletion
+        && this.subagentTracker?.hasAgent(syntheticTaskAgentIdForCompletion),
+      );
+
+      if (syntheticTaskAgentIdForCompletion) {
+        this.subagentTracker?.removeAgent(syntheticTaskAgentIdForCompletion);
+        if (sdkCorrelationId) {
+          this.toolUseIdToSubagentId.delete(sdkCorrelationId);
+        }
+        this.subagentIdToCorrelationId.delete(syntheticTaskAgentIdForCompletion);
+        for (const [subagentSessionId, mappedAgentId] of this.subagentSessionToAgentId.entries()) {
+          if (mappedAgentId === syntheticTaskAgentIdForCompletion) {
+            this.subagentSessionToAgentId.delete(subagentSessionId);
+            this.subagentSessionToCorrelationId.delete(subagentSessionId);
+            this.ownedSessionIds.delete(subagentSessionId);
+          }
+        }
       }
       if (parentToolUseId) {
         this.removeEarlyToolEvent(parentToolUseId, toolId);
       }
+      const attributedParentAgentId = parentAgentId
+        ?? knownParentAgentId
+        ?? activeToolContext?.parentAgentId
+        ?? syntheticFallbackParentAgentId;
 
       const busEvent: BusEvent<"stream.tool.complete"> = {
         type: "stream.tool.complete",
@@ -1058,11 +1128,31 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
           success: data.success,
           error: data.error,
           sdkCorrelationId: sdkCorrelationId ?? toolId,
-          ...(parentAgentId ? { parentAgentId } : {}),
+          ...(attributedParentAgentId ? { parentAgentId: attributedParentAgentId } : {}),
         },
       };
 
       this.bus.publish(busEvent);
+
+      // OpenCode synthetic Task/Agent flows often complete via task tool.complete
+      // without a follow-up subagent.complete. Emit the terminal lifecycle event
+      // here so the UI can leave the running state deterministically.
+      if (shouldPublishSyntheticAgentComplete && syntheticTaskAgentIdForCompletion) {
+        this.bus.publish({
+          type: "stream.agent.complete",
+          sessionId: this.sessionId,
+          runId,
+          timestamp: Date.now(),
+          data: {
+            agentId: syntheticTaskAgentIdForCompletion,
+            success: data.success,
+            result: data.success
+              ? this.extractTaskToolResultSummary(data.toolResult)
+              : undefined,
+            error: data.success ? undefined : data.error,
+          },
+        });
+      }
     };
   }
 
@@ -1282,9 +1372,11 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     runId: number,
   ): EventHandler<"subagent.update"> {
     return (event) => {
-      if (!this.isOwnedSession(event.sessionId)) return;
-
       const data = event.data as SubagentUpdateEventData;
+      const isKnownSubagent = this.subagentIdToCorrelationId.has(data.subagentId)
+        || Array.from(this.subagentSessionToAgentId.values()).includes(data.subagentId);
+      if (!this.isOwnedSession(event.sessionId) && !isKnownSubagent) return;
+
       const busEvent: BusEvent<"stream.agent.update"> = {
         type: "stream.agent.update",
         sessionId: this.sessionId,
@@ -1765,6 +1857,25 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
       : undefined;
   }
 
+  private extractTaskToolResultSummary(toolResult: unknown): string | undefined {
+    const directSummary = this.asString(toolResult);
+    if (directSummary) {
+      return directSummary;
+    }
+
+    const record = this.asRecord(toolResult);
+    if (!record) {
+      return undefined;
+    }
+
+    return this.asString(record.result)
+      ?? this.asString(record.output)
+      ?? this.asString(record.output_text)
+      ?? this.asString(record.text)
+      ?? this.asString(record.summary)
+      ?? this.asString(record.message);
+  }
+
   private normalizeToolName(value: unknown): string {
     return this.asString(value) ?? "unknown";
   }
@@ -1776,8 +1887,12 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
 
   private extractTaskToolMetadata(
     toolInput: unknown,
-  ): { description: string; isBackground: boolean; agentType?: string } {
+    eventData?: Record<string, unknown>,
+  ): { description: string; isBackground: boolean; agentType?: string; subagentSessionId?: string } {
     const record = this.asRecord(toolInput) ?? {};
+    const toolMetadata = this.asRecord(eventData?.toolMetadata)
+      ?? this.asRecord(record.metadata)
+      ?? {};
     const agentType = this.asString(record.subagent_type)
       ?? this.asString(record.subagentType)
       ?? this.asString(record.agent_type)
@@ -1791,6 +1906,23 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
       isBackground: record.run_in_background === true
         || this.asString(record.mode)?.toLowerCase() === "background",
       agentType,
+      subagentSessionId: this.asString(toolMetadata.sessionId)
+        ?? this.asString(toolMetadata.sessionID),
+    };
+  }
+
+  private mergeTaskToolMetadata(
+    existing: { description: string; isBackground: boolean; agentType?: string; subagentSessionId?: string } | undefined,
+    incoming: { description: string; isBackground: boolean; agentType?: string; subagentSessionId?: string },
+  ): { description: string; isBackground: boolean; agentType?: string; subagentSessionId?: string } {
+    if (!existing) {
+      return incoming;
+    }
+    return {
+      description: incoming.description || existing.description,
+      isBackground: incoming.isBackground || existing.isBackground,
+      agentType: incoming.agentType ?? existing.agentType,
+      subagentSessionId: incoming.subagentSessionId ?? existing.subagentSessionId,
     };
   }
 
@@ -1829,9 +1961,10 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
   private buildToolStartSignature(
     toolName: string,
     toolInput: Record<string, unknown>,
+    toolMetadata: Record<string, unknown> | undefined,
     parentAgentId: string | undefined,
   ): string {
-    return `${toolName}|${parentAgentId ?? ""}|${this.serializeForSignature(toolInput)}`;
+    return `${toolName}|${parentAgentId ?? ""}|${this.serializeForSignature(toolInput)}|${this.serializeForSignature(toolMetadata ?? {})}`;
   }
 
   private resolveToolCorrelationId(correlationId: string | undefined): string | undefined {
@@ -1983,6 +2116,19 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     return undefined;
   }
 
+  private resolveSyntheticTaskParentAgentId(
+    taskCorrelationId: string | undefined,
+  ): string | undefined {
+    if (!taskCorrelationId) {
+      return undefined;
+    }
+    const mappedAgentId = this.toolUseIdToSubagentId.get(taskCorrelationId);
+    if (!mappedAgentId || !isSyntheticTaskAgentId(mappedAgentId)) {
+      return undefined;
+    }
+    return mappedAgentId;
+  }
+
   private buildSyntheticTaskAgentId(correlationId: string): string {
     return `${SYNTHETIC_TASK_AGENT_PREFIX}${correlationId}`;
   }
@@ -2132,6 +2278,22 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     this.toolUseIdToSubagentId.set(taskCorrelationId, syntheticAgentId);
     this.subagentIdToCorrelationId.set(syntheticAgentId, taskCorrelationId);
     this.ensureSyntheticTaskAgentStart(runId, syntheticAgentId);
+  }
+
+  private registerTaskSubagentSessionCorrelation(
+    taskCorrelationId: string,
+    subagentSessionId: string | undefined,
+  ): void {
+    if (!subagentSessionId) {
+      return;
+    }
+    const mappedAgentId = this.toolUseIdToSubagentId.get(taskCorrelationId);
+    if (!mappedAgentId) {
+      return;
+    }
+    this.ownedSessionIds.add(subagentSessionId);
+    this.subagentSessionToAgentId.set(subagentSessionId, mappedAgentId);
+    this.subagentSessionToCorrelationId.set(subagentSessionId, taskCorrelationId);
   }
 
   private createSyntheticToolId(runId: number, toolName: string): string {

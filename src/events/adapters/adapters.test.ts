@@ -297,6 +297,72 @@ describe("OpenCodeStreamAdapter", () => {
     expect(toolCompleteEvents[0].runId).toBe(42);
   });
 
+  test("publishes synthetic stream.agent.complete when task tool completes without subagent.complete", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 42,
+      messageId: "msg-opencode-synthetic-complete",
+    });
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "Task",
+        toolInput: {
+          description: "Locate TUI code",
+          subagent_type: "codebase-locator",
+        },
+        toolUseId: "task-tool-complete-1",
+      },
+    } as AgentEvent<"tool.start">);
+
+    client.emit("tool.complete" as EventType, {
+      type: "tool.complete",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "Task",
+        toolUseId: "task-tool-complete-1",
+        toolResult: "Completed task output",
+        success: true,
+      },
+    } as AgentEvent<"tool.complete">);
+
+    await streamPromise;
+
+    const syntheticAgentId = "synthetic-task-agent:task-tool-complete-1";
+
+    const agentStartEvent = events.find(
+      (e) => e.type === "stream.agent.start" && e.data.agentId === syntheticAgentId,
+    );
+    expect(agentStartEvent).toBeDefined();
+
+    const agentCompleteEvents = events.filter(
+      (e) => e.type === "stream.agent.complete" && e.data.agentId === syntheticAgentId,
+    );
+    expect(agentCompleteEvents.length).toBe(1);
+    expect(agentCompleteEvents[0].data.success).toBe(true);
+    expect(agentCompleteEvents[0].data.result).toBe("Completed task output");
+
+    const toolCompleteIndex = events.findIndex(
+      (e) => e.type === "stream.tool.complete" && e.data.toolId === "task-tool-complete-1",
+    );
+    const agentCompleteIndex = events.findIndex(
+      (e) => e.type === "stream.agent.complete" && e.data.agentId === syntheticAgentId,
+    );
+    expect(toolCompleteIndex).toBeGreaterThan(-1);
+    expect(agentCompleteIndex).toBeGreaterThan(-1);
+    expect(toolCompleteIndex).toBeLessThan(agentCompleteIndex);
+  });
+
   test("streams child-session tool events for registered subagents", async () => {
     const events = collectEvents(bus);
     const client = createMockClient();
@@ -414,6 +480,53 @@ describe("OpenCodeStreamAdapter", () => {
     expect(toolStart?.data.parentAgentId).toBe("agent-only-1");
   });
 
+  test("accepts subagent.update from unknown child session when subagent is already known", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 42,
+      messageId: "msg-subagent-update-child-session",
+    });
+
+    client.emit("subagent.start" as EventType, {
+      type: "subagent.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        subagentId: "agent-known-1",
+        subagentType: "codebase-locator",
+        toolCallId: "task-call-known-1",
+      },
+    } as AgentEvent<"subagent.start">);
+
+    client.emit("subagent.update" as EventType, {
+      type: "subagent.update",
+      sessionId: "child-session-unowned-1",
+      timestamp: Date.now(),
+      data: {
+        subagentId: "agent-known-1",
+        currentTool: "glob",
+        toolUses: 1,
+      },
+    } as AgentEvent<"subagent.update">);
+
+    await streamPromise;
+
+    expect(
+      events.some(
+        (e) => e.type === "stream.agent.update"
+          && e.data.agentId === "agent-known-1"
+          && e.data.currentTool === "glob"
+          && e.data.toolUses === 1,
+      ),
+    ).toBe(true);
+  });
+
   test("attributes child-session tools to synthetic task agent when subagent.start is missing", async () => {
     const events = collectEvents(bus);
     const client = createMockClient();
@@ -489,6 +602,153 @@ describe("OpenCodeStreamAdapter", () => {
     );
     expect(syntheticAgentStartIndex).toBeGreaterThan(-1);
     expect(syntheticAgentUpdateIndex).toBeGreaterThan(syntheticAgentStartIndex);
+  });
+
+  test("attributes parallel child-session tools via task metadata session ids when subagent.start is missing", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 42,
+      messageId: "msg-1",
+    });
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "task",
+        toolInput: {
+          description: "Locate TUI code",
+          subagent_type: "codebase-locator",
+        },
+        toolMetadata: {
+          sessionId: "child-session-a",
+        },
+        toolUseId: "task-tool-a",
+      },
+    } as AgentEvent<"tool.start">);
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "task",
+        toolInput: {
+          description: "Find UI patterns",
+          subagent_type: "codebase-pattern-finder",
+        },
+        toolMetadata: {
+          sessionId: "child-session-b",
+        },
+        toolUseId: "task-tool-b",
+      },
+    } as AgentEvent<"tool.start">);
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "child-session-a",
+      timestamp: Date.now(),
+      data: {
+        toolName: "Read",
+        toolInput: { filePath: "src/ui/chat.tsx" },
+        toolUseId: "child-tool-a",
+      },
+    } as AgentEvent<"tool.start">);
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "child-session-b",
+      timestamp: Date.now(),
+      data: {
+        toolName: "Glob",
+        toolInput: { path: "src/**/*.ts" },
+        toolUseId: "child-tool-b",
+      },
+    } as AgentEvent<"tool.start">);
+
+    await streamPromise;
+
+    const childToolA = events.find(
+      (e) => e.type === "stream.tool.start" && e.data.toolId === "child-tool-a",
+    );
+    const childToolB = events.find(
+      (e) => e.type === "stream.tool.start" && e.data.toolId === "child-tool-b",
+    );
+    expect(childToolA?.data.parentAgentId).toBe("synthetic-task-agent:task-tool-a");
+    expect(childToolB?.data.parentAgentId).toBe("synthetic-task-agent:task-tool-b");
+  });
+
+  test("emits synthetic task-agent progress updates from task tool lifecycle when child telemetry is missing", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 42,
+      messageId: "msg-1",
+    });
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "task",
+        toolInput: {
+          description: "Locate TUI code",
+          subagent_type: "codebase-locator",
+        },
+        toolUseId: "task-tool-fallback-1",
+      },
+    } as AgentEvent<"tool.start">);
+
+    client.emit("tool.complete" as EventType, {
+      type: "tool.complete",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "task",
+        toolResult: "done",
+        success: true,
+        toolUseId: "task-tool-fallback-1",
+      },
+    } as AgentEvent<"tool.complete">);
+
+    await streamPromise;
+
+    const syntheticAgentId = "synthetic-task-agent:task-tool-fallback-1";
+    const syntheticStart = events.find(
+      (e) => e.type === "stream.agent.start" && e.data.agentId === syntheticAgentId,
+    );
+    expect(syntheticStart).toBeDefined();
+
+    const runningUpdate = events.find(
+      (e) =>
+        e.type === "stream.agent.update"
+        && e.data.agentId === syntheticAgentId
+        && e.data.currentTool === "task"
+        && e.data.toolUses === 1,
+    );
+    expect(runningUpdate).toBeDefined();
+
+    const settledUpdate = events.find(
+      (e) =>
+        e.type === "stream.agent.update"
+        && e.data.agentId === syntheticAgentId
+        && e.data.currentTool === undefined
+        && e.data.toolUses === 1,
+    );
+    expect(settledUpdate).toBeDefined();
   });
 
   test("buffers early tool events before subagent.start and replays tool usage updates", async () => {
@@ -1872,6 +2132,329 @@ describe("ClaudeStreamAdapter", () => {
     expect(progressUpdates.length).toBeGreaterThanOrEqual(1);
   });
 
+  test("attributes parallel unscoped tool events via TaskOutput task_id and active tool context", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test", {
+      runId: 101,
+      messageId: "msg-parallel-taskoutput",
+    });
+
+    client.emit("subagent.start" as EventType, {
+      type: "subagent.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        subagentId: "agent-parallel-a",
+        subagentType: "research",
+        task: "Research A",
+        toolUseID: "task-tool-a",
+      },
+    } as AgentEvent<"subagent.start">);
+
+    client.emit("subagent.start" as EventType, {
+      type: "subagent.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        subagentId: "agent-parallel-b",
+        subagentType: "research",
+        task: "Research B",
+        toolUseID: "task-tool-b",
+      },
+    } as AgentEvent<"subagent.start">);
+
+    // SDK can omit parent metadata in parallel mode; TaskOutput carries task_id.
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "TaskOutput",
+        toolUseId: "task-output-1",
+        toolInput: { task_id: "agent-parallel-a", block: true },
+      },
+    } as AgentEvent<"tool.start">);
+
+    // Follow-up tools may also be unscoped; attribute using active sub-agent tool context.
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "WebSearch",
+        toolUseId: "websearch-1",
+        toolInput: { query: "parallel attribution fallback" },
+      },
+    } as AgentEvent<"tool.start">);
+
+    client.emit("tool.complete" as EventType, {
+      type: "tool.complete",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "WebSearch",
+        toolUseId: "websearch-1",
+        toolResult: "ok",
+        success: true,
+      },
+    } as AgentEvent<"tool.complete">);
+
+    await streamPromise;
+
+    const taskOutputStart = events.find(
+      (e) => e.type === "stream.tool.start" && e.data.toolId === "task-output-1",
+    );
+    expect(taskOutputStart).toBeDefined();
+    expect(taskOutputStart?.data.parentAgentId).toBe("agent-parallel-a");
+
+    const webSearchStart = events.find(
+      (e) => e.type === "stream.tool.start" && e.data.toolId === "websearch-1",
+    );
+    expect(webSearchStart).toBeDefined();
+    expect(webSearchStart?.data.parentAgentId).toBe("agent-parallel-a");
+
+    const webSearchComplete = events.find(
+      (e) => e.type === "stream.tool.complete" && e.data.toolId === "websearch-1",
+    );
+    expect(webSearchComplete).toBeDefined();
+    expect(webSearchComplete?.data.parentAgentId).toBe("agent-parallel-a");
+  });
+
+  test("attributes pre-TaskOutput unscoped tools to active background subagent fallback", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test", {
+      runId: 102,
+      messageId: "msg-parallel-pre-taskoutput",
+    });
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "Agent",
+        toolInput: { description: "Background A", run_in_background: true },
+        toolUseId: "task-tool-bg-a",
+      },
+    } as AgentEvent<"tool.start">);
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "Agent",
+        toolInput: { description: "Background B", run_in_background: true },
+        toolUseId: "task-tool-bg-b",
+      },
+    } as AgentEvent<"tool.start">);
+
+    client.emit("subagent.start" as EventType, {
+      type: "subagent.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        subagentId: "agent-bg-a",
+        subagentType: "research",
+        task: "Background A",
+        toolUseID: "task-tool-bg-a",
+      },
+    } as AgentEvent<"subagent.start">);
+
+    client.emit("subagent.start" as EventType, {
+      type: "subagent.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        subagentId: "agent-bg-b",
+        subagentType: "research",
+        task: "Background B",
+        toolUseID: "task-tool-bg-b",
+      },
+    } as AgentEvent<"subagent.start">);
+
+    // This mirrors leaked events before first TaskOutput arrives.
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "Read",
+        toolUseId: "pre-taskoutput-read-1",
+        toolInput: { file_path: "README.md" },
+      },
+    } as AgentEvent<"tool.start">);
+
+    await streamPromise;
+
+    const readStart = events.find(
+      (e) => e.type === "stream.tool.start" && e.data.toolId === "pre-taskoutput-read-1",
+    );
+    expect(readStart).toBeDefined();
+    expect(readStart?.data.parentAgentId).toBe("agent-bg-a");
+  });
+
+  test("attributes child-session tools via background fallback when parent correlation is unresolved", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test", {
+      runId: 102,
+      messageId: "msg-child-session-bg-fallback",
+    });
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "Agent",
+        toolInput: { description: "Background A", run_in_background: true },
+        toolUseId: "task-tool-bg-a",
+      },
+    } as AgentEvent<"tool.start">);
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "Agent",
+        toolInput: { description: "Background B", run_in_background: true },
+        toolUseId: "task-tool-bg-b",
+      },
+    } as AgentEvent<"tool.start">);
+
+    client.emit("subagent.start" as EventType, {
+      type: "subagent.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        subagentId: "agent-bg-a",
+        subagentType: "research",
+        task: "Background A",
+        toolUseID: "task-tool-bg-a",
+      },
+    } as AgentEvent<"subagent.start">);
+
+    client.emit("subagent.start" as EventType, {
+      type: "subagent.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        subagentId: "agent-bg-b",
+        subagentType: "research",
+        task: "Background B",
+        toolUseID: "task-tool-bg-b",
+      },
+    } as AgentEvent<"subagent.start">);
+
+    // Child-session event that carries a parentToolUseId we cannot resolve.
+    // Adapter should still attribute this to active background context.
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "child-session-unknown",
+      timestamp: Date.now(),
+      data: {
+        toolName: "WebSearch",
+        toolUseId: "child-bg-tool-1",
+        toolInput: { query: "tree sync leakage" },
+        parentToolUseId: "missing-parent-correlation",
+      },
+    } as AgentEvent<"tool.start">);
+
+    client.emit("tool.complete" as EventType, {
+      type: "tool.complete",
+      sessionId: "child-session-unknown",
+      timestamp: Date.now(),
+      data: {
+        toolName: "WebSearch",
+        toolUseId: "child-bg-tool-1",
+        toolResult: { ok: true },
+        success: true,
+        parentToolUseId: "missing-parent-correlation",
+      },
+    } as AgentEvent<"tool.complete">);
+
+    await streamPromise;
+
+    const toolStart = events.find(
+      (e) => e.type === "stream.tool.start" && e.data.toolId === "child-bg-tool-1",
+    );
+    expect(toolStart).toBeDefined();
+    expect(toolStart?.data.parentAgentId).toBe("agent-bg-a");
+
+    const toolComplete = events.find(
+      (e) => e.type === "stream.tool.complete" && e.data.toolId === "child-bg-tool-1",
+    );
+    expect(toolComplete).toBeDefined();
+    expect(toolComplete?.data.parentAgentId).toBe("agent-bg-a");
+  });
+
+  test("preserves parentAgentId on orphaned tool completions during cleanup", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test", {
+      runId: 103,
+      messageId: "msg-orphan-parent-preservation",
+    });
+
+    client.emit("subagent.start" as EventType, {
+      type: "subagent.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        subagentId: "agent-orphan-1",
+        subagentType: "Explore",
+        task: "Explore repository",
+        toolUseID: "tool-parent-orphan-1",
+      },
+    } as AgentEvent<"subagent.start">);
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "Bash",
+        toolInput: { command: "ls -la" },
+        toolUseId: "tool-orphan-1",
+      },
+    } as AgentEvent<"tool.start">);
+
+    await streamPromise;
+
+    const orphanedComplete = events.find(
+      (e) =>
+        e.type === "stream.tool.complete"
+        && e.data.toolId === "tool-orphan-1"
+        && e.data.error === "Tool execution aborted",
+    );
+    expect(orphanedComplete).toBeDefined();
+    expect(orphanedComplete?.data.parentAgentId).toBe("agent-orphan-1");
+  });
+
   test("normalizes OpenCode subagent correlation IDs to the canonical tool ID", async () => {
     const events = collectEvents(bus);
     const client = createMockClient();
@@ -2023,6 +2606,83 @@ describe("ClaudeStreamAdapter", () => {
     expect(agentStartEvents.length).toBe(1);
     expect(agentStartEvents[0].data.task).toBe("Locate sub-agent tree rendering");
     expect(agentStartEvents[0].data.sdkCorrelationId).toBe("tool-parent-1");
+  });
+
+  test("attributes child tool events via parent_tool_call_id correlation", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test", {
+      runId: 102,
+      messageId: "msg-parent-call-correlation",
+    });
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "Agent",
+        toolInput: { description: "Correlate by parent call id" },
+        toolUseId: "tool-parent-call-1",
+      },
+    } as AgentEvent);
+
+    client.emit("subagent.start" as EventType, {
+      type: "subagent.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        subagentId: "agent-parent-call-1",
+        subagentType: "codebase-locator",
+        task: "codebase-locator",
+        toolCallId: "subagent-call-1",
+        parent_tool_call_id: "tool-parent-call-1",
+      },
+    } as AgentEvent);
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "WebSearch",
+        toolInput: { query: "sync parallel agents" },
+        toolUseId: "inner-tool-1",
+        parent_tool_call_id: "tool-parent-call-1",
+      },
+    } as AgentEvent);
+
+    client.emit("tool.complete" as EventType, {
+      type: "tool.complete",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        toolName: "WebSearch",
+        toolUseId: "inner-tool-1",
+        toolResult: "ok",
+        success: true,
+        parent_tool_call_id: "tool-parent-call-1",
+      },
+    } as AgentEvent);
+
+    await streamPromise;
+
+    const innerStart = events.find(
+      (e) => e.type === "stream.tool.start" && e.data.toolId === "inner-tool-1",
+    );
+    expect(innerStart).toBeDefined();
+    expect(innerStart?.data.parentAgentId).toBe("agent-parent-call-1");
+
+    const innerComplete = events.find(
+      (e) => e.type === "stream.tool.complete" && e.data.toolId === "inner-tool-1",
+    );
+    expect(innerComplete).toBeDefined();
+    expect(innerComplete?.data.parentAgentId).toBe("agent-parent-call-1");
   });
 
   test("falls back to pending task tool ordering when subagent.start lacks parent correlation", async () => {
@@ -3643,6 +4303,7 @@ describe("CopilotStreamAdapter", () => {
       ),
     ).toBe(true);
   });
+
 });
 
 // ============================================================================

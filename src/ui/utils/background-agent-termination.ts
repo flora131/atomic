@@ -17,6 +17,36 @@ export interface InterruptBackgroundAgentsResult {
   interruptedIds: string[];
 }
 
+export interface BackgroundTerminationPressEvaluation {
+  pressCount: number;
+  nextPressCount: number;
+  decision: BackgroundTerminationDecision;
+}
+
+export interface ExecuteBackgroundTerminationOptions {
+  getAgents: () => readonly ParallelAgent[];
+  onTerminateBackgroundAgents?: () => void | Promise<void>;
+  nowMs?: number;
+}
+
+export type ExecuteBackgroundTerminationResult =
+  | {
+    status: "noop";
+    agents: ParallelAgent[];
+    interruptedIds: [];
+  }
+  | {
+    status: "terminated";
+    agents: ParallelAgent[];
+    interruptedIds: string[];
+  }
+  | {
+    status: "failed";
+    agents: ParallelAgent[];
+    interruptedIds: [];
+    error: unknown;
+  };
+
 export function isBackgroundTerminationKey(event: BackgroundTerminationKeyEvent): boolean {
   return event.ctrl === true
     && event.shift !== true
@@ -42,6 +72,27 @@ export function getBackgroundTerminationDecision(
   return {
     action: "warn",
     message: "Press Ctrl-F again to terminate background agents",
+  };
+}
+
+/**
+ * Evaluate a Ctrl+F keypress using a synchronous mutable press counter.
+ *
+ * This intentionally mutates `pressCountRef.current` immediately so rapid
+ * key events in the same input frame do not read stale React state.
+ */
+export function evaluateBackgroundTerminationPress(
+  pressCountRef: { current: number },
+  activeBackgroundAgentCount: number,
+): BackgroundTerminationPressEvaluation {
+  const pressCount = pressCountRef.current;
+  const decision = getBackgroundTerminationDecision(pressCount, activeBackgroundAgentCount);
+  const nextPressCount = decision.action === "warn" ? pressCount + 1 : 0;
+  pressCountRef.current = nextPressCount;
+  return {
+    pressCount,
+    nextPressCount,
+    decision,
   };
 }
 
@@ -80,5 +131,46 @@ export function interruptActiveBackgroundAgents(
   return {
     agents: nextAgents,
     interruptedIds,
+  };
+}
+
+/**
+ * Execute confirmed background termination in two phases:
+ * 1) verify there is active work to terminate,
+ * 2) await runtime abort callback,
+ * 3) apply local interruption state against the latest agent snapshot.
+ */
+export async function executeBackgroundTermination(
+  options: ExecuteBackgroundTerminationOptions,
+): Promise<ExecuteBackgroundTerminationResult> {
+  const initialAgents = options.getAgents();
+  const hasActiveBackgroundAgents = getActiveBackgroundAgents(initialAgents).length > 0;
+  if (!hasActiveBackgroundAgents) {
+    return {
+      status: "noop",
+      agents: [...initialAgents],
+      interruptedIds: [],
+    };
+  }
+
+  try {
+    await Promise.resolve(options.onTerminateBackgroundAgents?.());
+  } catch (error) {
+    return {
+      status: "failed",
+      agents: [...options.getAgents()],
+      interruptedIds: [],
+      error,
+    };
+  }
+
+  const result = interruptActiveBackgroundAgents(
+    options.getAgents(),
+    options.nowMs ?? Date.now(),
+  );
+  return {
+    status: "terminated",
+    agents: result.agents,
+    interruptedIds: result.interruptedIds,
   };
 }

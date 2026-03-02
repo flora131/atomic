@@ -6,3 +6,4 @@
 
 export { getToolRegistry, setToolRegistry, ToolRegistry } from "./registry.ts";
 export type { ToolEntry } from "./registry.ts";
+export { registerCustomTools } from "./discovery.ts";

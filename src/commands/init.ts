@@ -29,6 +29,7 @@ import {
 import { displayBanner } from "../utils/banner";
 import { copyFile, pathExists } from "../utils/copy";
 import { detectInstallationType, getConfigRoot } from "../utils/config-path";
+import { mergeJsonFile } from "../utils/merge";
 import { isWindows, isWslInstalled, WSL_INSTALL_URL, getOppositeScriptExtension } from "../utils/detect";
 import { trackAtomicCommand, handleTelemetryConsent, type AgentType } from "../telemetry";
 import { saveAtomicConfig } from "../utils/atomic-config";
@@ -186,6 +187,32 @@ async function syncProjectScmSkills(options: SyncProjectScmSkillsOptions): Promi
   }
 
   return copiedCount;
+}
+
+function decodeSpawnOutput(output: Uint8Array): string {
+  return new TextDecoder().decode(output).trim();
+}
+
+function runPlaywrightCliInstall(): void {
+  const playwrightCliPath = Bun.which("playwright-cli");
+  const command = playwrightCliPath
+    ? [playwrightCliPath, "install"]
+    : [process.execPath, "x", "@playwright/cli", "install"];
+
+  const result = Bun.spawnSync({
+    cmd: command,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  if (result.success) {
+    return;
+  }
+
+  const stderr = decodeSpawnOutput(result.stderr);
+  const stdout = decodeSpawnOutput(result.stdout);
+  const details = stderr || stdout || "No command output captured.";
+  throw new Error(`Failed to run '${command.join(" ")}': ${details}`);
 }
 
 /**
@@ -391,6 +418,20 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
       configRoot,
     });
 
+    // Merge JSON config files (e.g., .mcp.json, mcp-config.json)
+    for (const file of agent.merge_files) {
+      const srcFile = join(configRoot, file);
+      const destFile = join(targetDir, file);
+
+      if (await pathExists(srcFile)) {
+        if (await pathExists(destFile)) {
+          await mergeJsonFile(srcFile, destFile);
+        } else {
+          await copyFile(srcFile, destFile);
+        }
+      }
+    }
+
     // Save SCM selection to .atomic/settings.json
     await saveAtomicConfig(targetDir, {
       scm: scmType,
@@ -410,6 +451,17 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
       error instanceof Error ? error.message : "Unknown error occurred"
     );
     process.exit(1);
+  }
+
+  const playwrightInstallSpinner = spinner();
+  playwrightInstallSpinner.start("Installing Playwright browser runtime...");
+  try {
+    runPlaywrightCliInstall();
+    playwrightInstallSpinner.stop("Playwright browser runtime installed");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    playwrightInstallSpinner.stop("Playwright browser runtime installation failed");
+    log.warn(`Could not run 'playwright-cli install': ${message}`);
   }
 
   // Check for WSL on Windows

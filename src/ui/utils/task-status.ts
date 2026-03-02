@@ -1,3 +1,6 @@
+import { sortTasksTopologically } from "../components/task-order.ts";
+import type { WorkflowRuntimeTaskResultEnvelope } from "../../workflows/runtime-contracts.ts";
+
 /**
  * Task status normalization helpers.
  *
@@ -39,6 +42,11 @@ export interface NormalizedTaskItem {
   content: string;
   status: TaskStatus;
   blockedBy?: string[];
+  identity?: {
+    canonicalId?: string;
+    providerBindings?: Record<string, string[]>;
+  };
+  taskResult?: WorkflowRuntimeTaskResultEnvelope;
 }
 
 export interface NormalizedTodoItem extends NormalizedTaskItem {
@@ -86,6 +94,179 @@ function normalizeBlockedBy(value: unknown): string[] | undefined {
   return normalized.length > 0 ? normalized : undefined;
 }
 
+function normalizeTaskIdentity(value: unknown): NormalizedTaskItem["identity"] {
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  const canonicalId = typeof record.canonicalId === "string" && record.canonicalId.length > 0
+    ? record.canonicalId
+    : undefined;
+
+  let providerBindings: Record<string, string[]> | undefined;
+  if (typeof record.providerBindings === "object" && record.providerBindings !== null) {
+    providerBindings = {};
+    for (const [provider, ids] of Object.entries(record.providerBindings as Record<string, unknown>)) {
+      if (!Array.isArray(ids) || provider.length === 0) {
+        continue;
+      }
+
+      const normalizedIds = Array.from(new Set(
+        ids
+          .filter((id) => id !== null && id !== undefined)
+          .map((id) => String(id))
+          .filter((id) => id.length > 0),
+      ));
+
+      if (normalizedIds.length > 0) {
+        providerBindings[provider] = normalizedIds;
+      }
+    }
+
+    if (Object.keys(providerBindings).length === 0) {
+      providerBindings = undefined;
+    }
+  }
+
+  if (!canonicalId && !providerBindings) {
+    return undefined;
+  }
+
+  return {
+    canonicalId,
+    providerBindings,
+  };
+}
+
+function normalizeTaskResultEnvelope(value: unknown): WorkflowRuntimeTaskResultEnvelope | undefined {
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  const taskId = typeof record.task_id === "string" && record.task_id.length > 0
+    ? record.task_id
+    : undefined;
+  if (!taskId) {
+    return undefined;
+  }
+
+  const toolName = typeof record.tool_name === "string" && record.tool_name.length > 0
+    ? record.tool_name
+    : "task";
+  const title = typeof record.title === "string" ? record.title : "";
+  const outputText = typeof record.output_text === "string" ? record.output_text : "";
+  const status: WorkflowRuntimeTaskResultEnvelope["status"] = record.status === "error" ? "error" : "completed";
+
+  let metadata: WorkflowRuntimeTaskResultEnvelope["metadata"];
+  if (typeof record.metadata === "object" && record.metadata !== null) {
+    const metadataRecord = record.metadata as Record<string, unknown>;
+    const sessionId = typeof metadataRecord.sessionId === "string" && metadataRecord.sessionId.length > 0
+      ? metadataRecord.sessionId
+      : undefined;
+
+    let providerBindings: Record<string, string> | undefined;
+    if (typeof metadataRecord.providerBindings === "object" && metadataRecord.providerBindings !== null) {
+      providerBindings = {};
+      for (const [provider, providerId] of Object.entries(metadataRecord.providerBindings as Record<string, unknown>)) {
+        const normalizedProvider = provider.trim();
+        const normalizedProviderId = typeof providerId === "string" ? providerId.trim() : String(providerId ?? "").trim();
+        if (normalizedProvider.length === 0 || normalizedProviderId.length === 0) {
+          continue;
+        }
+        providerBindings[normalizedProvider] = normalizedProviderId;
+      }
+      if (Object.keys(providerBindings).length === 0) {
+        providerBindings = undefined;
+      }
+    }
+
+    if (sessionId || providerBindings) {
+      metadata = {
+        ...(sessionId ? { sessionId } : {}),
+        ...(providerBindings ? { providerBindings } : {}),
+      };
+    }
+  }
+
+  const outputStructured = typeof record.output_structured === "object"
+    && record.output_structured !== null
+    && !Array.isArray(record.output_structured)
+    ? record.output_structured as Record<string, unknown>
+    : undefined;
+
+  return {
+    task_id: taskId,
+    tool_name: toolName,
+    title,
+    ...(metadata ? { metadata } : {}),
+    status,
+    output_text: outputText,
+    ...(outputStructured ? { output_structured: outputStructured } : {}),
+    ...(typeof record.error === "string" && record.error.length > 0 ? { error: record.error } : {}),
+    ...(typeof record.envelope_text === "string" && record.envelope_text.length > 0
+      ? { envelope_text: record.envelope_text }
+      : {}),
+  };
+}
+
+function normalizeStableTaskContent(content: string): string {
+  return content.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function normalizeDependencyTaskId(id: string | undefined): string | undefined {
+  if (typeof id !== "string") return undefined;
+  const normalized = id.trim().toLowerCase().replace(/^#/, "");
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function getStableTaskKey(task: { id?: string; content: string }): string {
+  const normalizedId = task.id?.trim().toLowerCase();
+  if (normalizedId) {
+    return `id:${normalizedId}`;
+  }
+
+  const normalizedContent = normalizeStableTaskContent(task.content);
+  if (normalizedContent.length > 0) {
+    return `content:${normalizedContent}`;
+  }
+
+  return "";
+}
+
+function stabilizeByPreviousOrder<T extends NormalizedTaskItem>(
+  tasks: readonly T[],
+  previous: readonly NormalizedTaskItem[],
+): T[] {
+  if (tasks.length <= 1 || previous.length === 0) {
+    return [...tasks];
+  }
+
+  const previousRank = new Map<string, number>();
+  for (let index = 0; index < previous.length; index++) {
+    const task = previous[index];
+    if (!task) continue;
+    const key = getStableTaskKey(task);
+    if (!key || previousRank.has(key)) continue;
+    previousRank.set(key, index);
+  }
+
+  if (previousRank.size === 0) {
+    return [...tasks];
+  }
+
+  return [...tasks].sort((left, right) => {
+    const leftRank = previousRank.get(getStableTaskKey(left));
+    const rightRank = previousRank.get(getStableTaskKey(right));
+
+    if (leftRank === undefined && rightRank === undefined) return 0;
+    if (leftRank === undefined) return 1;
+    if (rightRank === undefined) return -1;
+    return leftRank - rightRank;
+  });
+}
+
 export function isTaskStatus(status: unknown): status is TaskStatus {
   if (typeof status !== "string") {
     return false;
@@ -112,11 +293,15 @@ export function isTodoWriteToolName(name: unknown): boolean {
 
 export function normalizeTaskItem(input: unknown): NormalizedTaskItem {
   const record = asRecord(input);
+  const identity = normalizeTaskIdentity(record.identity);
+  const taskResult = normalizeTaskResultEnvelope(record.taskResult ?? record.task_result);
   return {
     id: normalizeId(record.id),
     content: String(record.content ?? ""),
     status: normalizeTaskStatus(record.status),
     blockedBy: normalizeBlockedBy(record.blockedBy),
+    ...(identity ? { identity } : {}),
+    ...(taskResult ? { taskResult } : {}),
   };
 }
 
@@ -166,7 +351,7 @@ export function mergeBlockedBy<T extends NormalizedTaskItem>(
   const prevBlockedById = new Map<string, string[]>();
   const prevByContent = new Map<string, NormalizedTaskItem>();
   for (const task of previous) {
-    const id = task.id?.trim().toLowerCase();
+    const id = normalizeDependencyTaskId(task.id);
     if (id && task.blockedBy) {
       prevBlockedById.set(id, task.blockedBy);
     }
@@ -188,7 +373,7 @@ export function mergeBlockedBy<T extends NormalizedTaskItem>(
       : undefined;
 
     const restoredId = hasExplicitId ? task.id : prevByMatchingContent?.id;
-    const normalizedId = restoredId?.trim().toLowerCase();
+    const normalizedId = normalizeDependencyTaskId(restoredId);
 
     const restoredBlockedBy = task.blockedBy
       ?? (normalizedId ? prevBlockedById.get(normalizedId) : undefined)
@@ -204,4 +389,18 @@ export function mergeBlockedBy<T extends NormalizedTaskItem>(
       blockedBy: restoredBlockedBy,
     };
   });
+}
+
+/**
+ * Normalize a TodoWrite payload, restore missing dependency metadata, and
+ * apply a stable dependency-aware order for rendering.
+ */
+export function reconcileTodoWriteItems(
+  incomingTodos: unknown,
+  previous: readonly NormalizedTodoItem[] = [],
+): NormalizedTodoItem[] {
+  const normalized = normalizeTodoItems(incomingTodos);
+  const merged = mergeBlockedBy(normalized, previous);
+  const stabilized = stabilizeByPreviousOrder(merged, previous);
+  return sortTasksTopologically(stabilized);
 }

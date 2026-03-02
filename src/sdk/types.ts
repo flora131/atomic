@@ -225,6 +225,11 @@ export interface ContextUsage {
   usagePercentage: number;
 }
 
+export interface SessionCompactionState {
+  isCompacting: boolean;
+  hasAutoCompacted: boolean;
+}
+
 /**
  * Interface for an active agent session.
  * Reference: Feature list step 3
@@ -245,10 +250,24 @@ export interface Session {
    * @param message - The message to send
    * @param options - Optional dispatch options. The `agent` field is used by
    *   the OpenCode client to dispatch to a named sub-agent via AgentPartInput.
-   *   Other clients ignore it.
+   *   Other clients ignore it. The optional `abortSignal` allows callers to
+   *   cancel local stream polling loops promptly.
    * @returns AsyncIterable yielding partial response chunks
    */
-  stream(message: string, options?: { agent?: string }): AsyncIterable<AgentMessage>;
+  stream(
+    message: string,
+    options?: { agent?: string; abortSignal?: AbortSignal },
+  ): AsyncIterable<AgentMessage>;
+
+  /**
+   * Fire-and-forget message send for async/event-driven streaming.
+   * The prompt is initiated but the response is delivered exclusively
+   * through SSE events (message.delta, session.idle, etc.).
+   * Only implemented by OpenCode; other clients may omit this.
+   * @param message - The message to send
+   * @param options - Optional dispatch options
+   */
+  sendAsync?(message: string, options?: { agent?: string; abortSignal?: AbortSignal }): Promise<void>;
 
   /**
    * Summarize the current conversation to reduce context usage.
@@ -276,6 +295,12 @@ export interface Session {
   getMcpSnapshot?(): Promise<McpRuntimeSnapshot | null>;
 
   /**
+   * Optional compaction state snapshot for conflict-safe context monitoring.
+   * Implementations may omit this and callers should gracefully fall back.
+   */
+  getCompactionState?(): SessionCompactionState | null;
+
+  /**
    * Destroy the session and release resources.
    * Should be called when the session is no longer needed.
    */
@@ -288,6 +313,16 @@ export interface Session {
    * @returns Promise resolving when the abort request is acknowledged
    */
   abort?(): Promise<void>;
+
+  /**
+   * Abort only background agents while preserving foreground work.
+   * Used for Ctrl+F background agent termination.
+   * Implementations should selectively terminate background agent
+   * sessions/queries without affecting the main foreground session.
+   * Falls back to full session abort when granular control is unavailable.
+   * @returns Promise resolving when all background agents are aborted
+   */
+  abortBackgroundAgents?(): Promise<void>;
 }
 
 /**
@@ -298,13 +333,24 @@ export type EventType =
   | "session.start"
   | "session.idle"
   | "session.error"
+  | "session.info"
+  | "session.warning"
+  | "session.title_changed"
+  | "session.truncation"
+  | "session.compaction"
   | "message.delta"
   | "message.complete"
+  | "reasoning.delta"
+  | "reasoning.complete"
+  | "turn.start"
+  | "turn.end"
   | "tool.start"
   | "tool.complete"
+  | "tool.partial_result"
   | "skill.invoked"
   | "subagent.start"
   | "subagent.complete"
+  | "subagent.update"
   | "permission.requested"
   | "human_input_required"
   | "usage";
@@ -353,6 +399,10 @@ export interface MessageDeltaEventData extends BaseEventData {
   contentType?: MessageContentType;
   /** Provider-native thinking source identity (for reasoning/thinking deltas) */
   thinkingSourceKey?: string;
+  /** Parent tool call ID when this delta belongs to a sub-agent */
+  parentToolCallId?: string;
+  /** Runtime message ID for per-message correlation */
+  messageId?: string;
 }
 
 /**
@@ -361,6 +411,14 @@ export interface MessageDeltaEventData extends BaseEventData {
 export interface MessageCompleteEventData extends BaseEventData {
   /** Complete message */
   message: AgentMessage;
+  /** Tool requests made by the model in this message (Copilot SDK) */
+  toolRequests?: Array<{
+    toolCallId: string;
+    name: string;
+    arguments: unknown;
+  }>;
+  /** Parent tool call ID when this message is from a sub-agent */
+  parentToolCallId?: string;
 }
 
 /**
@@ -410,6 +468,108 @@ export interface SkillInvokedEventData extends BaseEventData {
 }
 
 /**
+ * Event data for reasoning.delta events (streaming thinking content)
+ */
+export interface ReasoningDeltaEventData extends BaseEventData {
+  /** Partial reasoning content */
+  delta: string;
+  /** Reasoning block identifier */
+  reasoningId: string;
+}
+
+/**
+ * Event data for reasoning.complete events
+ */
+export interface ReasoningCompleteEventData extends BaseEventData {
+  /** Reasoning block identifier */
+  reasoningId: string;
+  /** Complete reasoning content */
+  content: string;
+}
+
+/**
+ * Event data for turn.start events
+ */
+export interface TurnStartEventData extends BaseEventData {
+  /** Unique turn identifier */
+  turnId: string;
+}
+
+/**
+ * Event data for turn.end events
+ */
+export interface TurnEndEventData extends BaseEventData {
+  /** Unique turn identifier */
+  turnId: string;
+  /** Provider-reported normalized finish reason, if available */
+  finishReason?: string;
+  /** Provider-native finish reason token (for diagnostics/parity) */
+  rawFinishReason?: string;
+}
+
+/**
+ * Event data for tool.partial_result events (streaming tool output)
+ */
+export interface ToolPartialResultEventData extends BaseEventData {
+  /** Tool call ID this output belongs to */
+  toolCallId: string;
+  /** Incremental output text */
+  partialOutput: string;
+}
+
+/**
+ * Event data for session.info events
+ */
+export interface SessionInfoEventData extends BaseEventData {
+  /** Information category */
+  infoType: string;
+  /** Human-readable message */
+  message: string;
+}
+
+/**
+ * Event data for session.warning events
+ */
+export interface SessionWarningEventData extends BaseEventData {
+  /** Warning category */
+  warningType: string;
+  /** Human-readable message */
+  message: string;
+}
+
+/**
+ * Event data for session.title_changed events
+ */
+export interface SessionTitleChangedEventData extends BaseEventData {
+  /** New session title */
+  title: string;
+}
+
+/**
+ * Event data for session.truncation events
+ */
+export interface SessionTruncationEventData extends BaseEventData {
+  /** Maximum token budget */
+  tokenLimit: number;
+  /** Tokens removed during truncation */
+  tokensRemoved: number;
+  /** Messages removed during truncation */
+  messagesRemoved: number;
+}
+
+/**
+ * Event data for session.compaction events
+ */
+export interface SessionCompactionEventData extends BaseEventData {
+  /** Whether this is a start or complete event */
+  phase: "start" | "complete";
+  /** Whether compaction succeeded (only for complete phase) */
+  success?: boolean;
+  /** Error message on failure (only for complete phase) */
+  error?: string;
+}
+
+/**
  * Event data for subagent.start events
  */
 export interface SubagentStartEventData extends BaseEventData {
@@ -419,10 +579,24 @@ export interface SubagentStartEventData extends BaseEventData {
   subagentType?: string;
   /** Task assigned to the subagent */
   task?: string;
+  /** SDK-native tool use ID (camelCase variant) */
+  toolUseId?: string;
   /** SDK-native tool use ID (Claude hook variant) */
   toolUseID?: string;
   /** SDK-native tool call ID (Copilot variant) */
   toolCallId?: string;
+}
+
+/**
+ * Event data for subagent.update events (progress notification)
+ */
+export interface SubagentUpdateEventData extends BaseEventData {
+  /** Subagent identifier */
+  subagentId: string;
+  /** Current tool being used by the sub-agent */
+  currentTool?: string;
+  /** Number of tool uses so far */
+  toolUses?: number;
 }
 
 /**
@@ -509,13 +683,24 @@ export interface EventDataMap {
   "session.start": SessionStartEventData;
   "session.idle": SessionIdleEventData;
   "session.error": SessionErrorEventData;
+  "session.info": SessionInfoEventData;
+  "session.warning": SessionWarningEventData;
+  "session.title_changed": SessionTitleChangedEventData;
+  "session.truncation": SessionTruncationEventData;
+  "session.compaction": SessionCompactionEventData;
   "message.delta": MessageDeltaEventData;
   "message.complete": MessageCompleteEventData;
+  "reasoning.delta": ReasoningDeltaEventData;
+  "reasoning.complete": ReasoningCompleteEventData;
+  "turn.start": TurnStartEventData;
+  "turn.end": TurnEndEventData;
   "tool.start": ToolStartEventData;
   "tool.complete": ToolCompleteEventData;
+  "tool.partial_result": ToolPartialResultEventData;
   "skill.invoked": SkillInvokedEventData;
   "subagent.start": SubagentStartEventData;
   "subagent.complete": SubagentCompleteEventData;
+  "subagent.update": SubagentUpdateEventData;
   "permission.requested": PermissionRequestedEventData;
   "human_input_required": HumanInputRequiredEventData;
 }
@@ -659,6 +844,9 @@ export interface CodingAgentClient {
    * Returns null if the baseline is not yet available.
    */
   getSystemToolsTokens(): number | null;
+
+  /** Known agent/sub-agent tool names (Copilot uses agent names as tool names) */
+  getKnownAgentNames?(): string[];
 }
 
 /**

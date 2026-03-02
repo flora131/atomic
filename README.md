@@ -109,6 +109,7 @@ atomic chat -a claude "/research-codebase Research implementing GraphRAG using \
 - [Telemetry](#telemetry)
 - [Troubleshooting](#troubleshooting)
 - [FAQ](#faq)
+- [Workflow Authoring Guide](docs/workflow-authors-getting-started.md)
 - [Contributing Guide](#contributing-guide)
 - [License](#license)
 - [Credits](#credits)
@@ -306,7 +307,6 @@ Top-level Atomic CLI commands.
 | `-w, --workflow` | `false` | Enable graph workflow mode |
 | `-t, --theme <name>` | `"dark"` | UI theme (`dark`, `light`) |
 | `-m, --model <name>` | (none) | Model to use for the chat session |
-| `--max-iterations <n>` | `"100"` | Maximum iterations for workflow mode |
 | `[prompt...]` | (none) | Initial prompt to send |
 
 #### `atomic init` Flags
@@ -417,10 +417,10 @@ The [Ralph Wiggum Method](https://ghuntley.com/ralph/) enables multi-hour autono
 
 1. Create and approve your spec (`/create-spec`)
 2. Start the workflow (`/ralph "<prompt-or-spec-path>"`)
-3. Ralph executes a 3-step process:
-   - **Step 1 — Task Decomposition**: Breaks the spec/prompt into a structured task list
-   - **Step 2 — Implementation Loop**: Dispatches `worker` sub-agents to implement tasks one-by-one (up to 100 iterations)
-   - **Step 3 — Review & Fix**: Spawns a `reviewer` sub-agent to audit the implementation, generates fix specs if needed, and re-runs implementation for any issues found
+3. Ralph executes a 3-phase graph-based workflow:
+   - **Phase 1 — Task Decomposition**: A `planner` sub-agent breaks the spec/prompt into a structured task list with dependency tracking
+   - **Phase 2 — Worker Loop**: Dispatches `worker` sub-agents for ready tasks (those with no blocking dependencies), executing up to 100 iterations
+   - **Phase 3 — Review & Fix**: A `reviewer` sub-agent audits the implementation; if issues are found, a `fixer` sub-agent generates corrective tasks that re-enter the worker loop
 
 ### Usage
 
@@ -717,6 +717,15 @@ git config --global user.email "you@example.com"
 
 **Generating CLAUDE.md/AGENTS.md:** `atomic init` does not create `CLAUDE.md` or `AGENTS.md`. Run `/init` inside a chat session to generate these files. The command explores your codebase and produces project-specific documentation for coding agents.
 
+**Sub-agent Tree Stuck on "Initializing..." or Loading:** Atomic normalizes sub-agent loading and terminal transitions across Claude, OpenCode, and Copilot so agents are only marked complete after terminal events arrive. Background tasks stay in a running/background state until they actually finish.
+
+If loading still appears stuck:
+
+1. Update to the latest release (`atomic update`) and retry.
+2. Confirm the session eventually receives terminal progress events (`subagent.complete` or tool completion) in verbose mode.
+3. If only background tasks are stuck, press `Ctrl+F` twice to terminate active background agents, then resend your prompt.
+4. If the timeout fallback repeats, capture reproduction steps (agent type, prompt, and terminal output) and open an issue.
+
 **Shift+Enter Not Inserting Newline:** Atomic uses layered newline detection in chat input.
 
 - **Kitty protocol (VS Code path):** In VS Code's integrated terminal, keep `terminal.integrated.enableKittyKeyboardProtocol` enabled so Shift+Enter is sent as a modified Enter key.
@@ -769,6 +778,7 @@ This keeps your main workspace free for other work while Ralph runs autonomously
 ## Contributing Guide
 
 See [DEV_SETUP.md](DEV_SETUP.md) for development setup, testing guidelines, and contribution workflow.
+For custom workflow authoring, see [docs/workflow-authors-getting-started.md](docs/workflow-authors-getting-started.md).
 
 ---
 

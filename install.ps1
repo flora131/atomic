@@ -2,6 +2,8 @@
 # Usage: irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1 | iex
 # Usage with version: iex "& { $(irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1) } -Version v1.0.0"
 
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingInvokeExpression', '')]
 param(
     [String]$Version = "latest",
     [String]$InstallDir = "",
@@ -13,11 +15,68 @@ $ErrorActionPreference = 'Stop'
 # Configuration
 $GithubRepo = "flora131/atomic"
 $BinaryName = "atomic"
-$BinDir = if ($env:ATOMIC_INSTALL_DIR) { $env:ATOMIC_INSTALL_DIR } elseif ($InstallDir) { $InstallDir } else { "${Home}\.local\bin" }
-$DataDir = if ($env:LOCALAPPDATA) { "${env:LOCALAPPDATA}\atomic" } else { "${Home}\AppData\Local\atomic" }
+$BinDir = $(if ($env:ATOMIC_INSTALL_DIR) { $env:ATOMIC_INSTALL_DIR } elseif ($InstallDir) { $InstallDir } else { "${Home}\.local\bin" })
+$DataDir = $(if ($env:LOCALAPPDATA) { "${env:LOCALAPPDATA}\atomic" } else { "${Home}\AppData\Local\atomic" })
 $AtomicHome = "${Home}\.atomic"
 
-function Sync-GlobalAgentConfigs {
+function Install-BunIfMissing {
+    if (Get-Command bun -ErrorAction SilentlyContinue) {
+        return
+    }
+
+    Write-Info "bun not detected. Installing bun..."
+    try {
+        Invoke-RestMethod "https://bun.sh/install.ps1" | Invoke-Expression
+    } catch {
+        Write-Warn "Failed to install bun automatically: $_"
+    }
+
+    $bunBin = Join-Path $Home ".bun\bin"
+    if (Test-Path (Join-Path $bunBin "bun.exe")) {
+        $env:Path = "${bunBin};${env:Path}"
+    }
+
+    if (Get-Command bun -ErrorAction SilentlyContinue) {
+        Write-Info "bun installed successfully"
+    } else {
+        Write-Warn "Failed to install bun automatically. Install bun manually from https://bun.sh"
+    }
+}
+
+function Install-NpmIfMissing {
+    if (Get-Command npm -ErrorAction SilentlyContinue) {
+        return
+    }
+
+    Write-Info "npm not detected. Installing Node.js/npm..."
+    $installed = $false
+
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        winget install --id OpenJS.NodeJS.LTS -e --silent --accept-source-agreements --accept-package-agreements
+        $installed = $LASTEXITCODE -eq 0
+    } elseif (Get-Command choco -ErrorAction SilentlyContinue) {
+        choco install nodejs-lts -y --no-progress
+        $installed = $LASTEXITCODE -eq 0
+    } elseif (Get-Command scoop -ErrorAction SilentlyContinue) {
+        scoop install nodejs-lts
+        $installed = $LASTEXITCODE -eq 0
+    } else {
+        Write-Warn "Could not find winget, choco, or scoop to install npm automatically."
+    }
+
+    $nodeBin = Join-Path ${env:ProgramFiles} "nodejs"
+    if (Test-Path (Join-Path $nodeBin "npm.cmd")) {
+        $env:Path = "${nodeBin};${env:Path}"
+    }
+
+    if ($installed -and (Get-Command npm -ErrorAction SilentlyContinue)) {
+        Write-Info "npm installed successfully"
+    } elseif (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+        Write-Warn "Failed to install npm automatically. Install Node.js/npm manually."
+    }
+}
+
+function Sync-GlobalAgentConfig {
     param([string]$SourceRoot)
 
     $claudeDir = Join-Path $AtomicHome ".claude"
@@ -48,6 +107,26 @@ function Sync-GlobalAgentConfigs {
 
     Remove-Item -Recurse -Force (Join-Path $copilotDir "workflows") -ErrorAction SilentlyContinue
     Remove-Item -Force (Join-Path $copilotDir "dependabot.yml") -ErrorAction SilentlyContinue
+
+    Install-BunIfMissing
+    Install-NpmIfMissing
+
+    # Install @playwright/cli globally if a package manager is available.
+    # Do not install Chromium browsers here; defer to first use.
+    Write-Info "Installing @playwright/cli globally (if available)..."
+    if (Get-Command bun -ErrorAction SilentlyContinue) {
+        bun install -g @playwright/cli@latest 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "Failed to install @playwright/cli with bun. Continuing without it."
+        }
+    } elseif (Get-Command npm -ErrorAction SilentlyContinue) {
+        npm install -g @playwright/cli@latest 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "Failed to install @playwright/cli with npm. Continuing without it."
+        }
+    } else {
+        Write-Warn "Neither bun nor npm found. Install @playwright/cli manually for web browsing capabilities."
+    }
 }
 
 # Colors for output
@@ -178,7 +257,7 @@ try {
     Expand-Archive -Path $TempConfig -DestinationPath $DataDir -Force
 
     Write-Info "Syncing global agent configs to ${AtomicHome}..."
-    Sync-GlobalAgentConfigs -SourceRoot $DataDir
+    Sync-GlobalAgentConfig -SourceRoot $DataDir
 
     # Verify installation
     $VersionOutput = & $BinaryPath --version 2>&1

@@ -9,7 +9,7 @@ description: Explain code functionality in detail.
 The following MCP tools are available and SHOULD be used when relevant:
 
 - **DeepWiki** (`ask_question`): Use to look up documentation for external libraries, frameworks, and GitHub repositories. Particularly useful for understanding third-party dependencies and their APIs.
-- **WebFetch/WebSearch**: Use to retrieve web content for additional context if information is not found in DeepWiki.
+- **Playwright CLI** (`playwright-cli`): Use to retrieve web content, browse documentation, and extract data from web pages if information is not found in DeepWiki. Invoke via the `/playwright-cli` skill or run `bunx playwright-cli` commands directly.
 
 ## Instructions
 
@@ -81,6 +81,7 @@ Follow this systematic approach to explain code: **$ARGUMENTS**
     - Identify debugging points and logging
     - Describe mock data or test scenarios
     - Explain test helpers and utilities
+    - Use `playwright-cli` to reproduce browser interactions and validate frontend behavior when applicable
 
 12. **Dependencies and Integrations**
     - Explain external service integrations
@@ -203,3 +204,4 @@ Remember to:
 - Include visual diagrams or flowcharts when helpful
 - Tailor the explanation level to the intended audience
 - Use DeepWiki to look up external library documentation when encountering unfamiliar dependencies
+- Use `playwright-cli` for live browser inspection when static code analysis is not enough

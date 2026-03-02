@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, appendFileSync } from "fs";
 import { join } from "path";
 import { getBinaryDataDir } from "../utils/config-path";
+import { withLock } from "../utils/file-lock";
 import type { TelemetryEvent, AgentType } from "./types";
 
 /**
@@ -21,13 +22,14 @@ export function getEventsFilePath(agentType?: AgentType | null): string {
 
 /**
  * Append an event to the telemetry events JSONL file.
- * Uses atomic append-only writes for concurrent safety.
+ * Uses file locking via withLock() for concurrent write safety,
+ * with OS-level O_APPEND as a fallback guarantee.
  * Fails silently to ensure telemetry never breaks operation.
  *
  * @param event - The event object to append
  * @param agentType - Optional agent type for file isolation
  */
-export function appendEvent(event: TelemetryEvent, agentType?: AgentType | null): void {
+export async function appendEvent(event: TelemetryEvent, agentType?: AgentType | null): Promise<void> {
   try {
     const dataDir = getBinaryDataDir();
 
@@ -39,14 +41,9 @@ export function appendEvent(event: TelemetryEvent, agentType?: AgentType | null)
     const eventsPath = getEventsFilePath(agentType);
     const line = JSON.stringify(event) + "\n";
 
-    // appendFileSync relies on OS-level O_APPEND atomicity for concurrent safety.
-    // This is sufficient for our use case without explicit file locking because:
-    // - Low frequency: Events are infrequent (1 per command/session, minutes apart)
-    // - Small writes: Events are ~300-500 bytes (well under PIPE_BUF of 4KB)
-    // - File isolation: Different agent types write to separate files
-    // - Local filesystem: POSIX guarantees prevent data clobbering on local filesystems
-    // File locking would add overhead without meaningful benefit given these constraints.
-    appendFileSync(eventsPath, line, "utf-8");
+    await withLock(eventsPath, () => {
+      appendFileSync(eventsPath, line, "utf-8");
+    });
   } catch {
     // Fail silently - telemetry should never break the application
   }

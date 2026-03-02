@@ -115,6 +115,8 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
   private pendingTaskToolCorrelationIds: string[] = [];
   /** Buffers tool events that arrive before parent subagent registration */
   private earlyToolEvents = new Map<string, Array<{ toolName: string }>>();
+  /** Active native sub-agent IDs for fallback attribution when tool hooks are unscoped */
+  private activeSubagentIds = new Set<string>();
   /** Active sub-agent tool contexts keyed by tool correlation ID */
   private activeSubagentToolsById = new Map<string, { parentAgentId: string; toolName: string }>();
   /** Maps task-tool correlation ID -> subagentId */
@@ -187,6 +189,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     this.taskToolMetadata.clear();
     this.pendingTaskToolCorrelationIds = [];
     this.earlyToolEvents.clear();
+    this.activeSubagentIds.clear();
     this.activeSubagentToolsById.clear();
     this.toolUseIdToSubagentId.clear();
     this.syntheticForegroundAgent = agent
@@ -618,10 +621,6 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
 
   private createToolStartHandler(runId: number): EventHandler<"tool.start"> {
     return (event) => {
-      if (event.sessionId !== this.sessionId) {
-        return;
-      }
-
       const data = event.data as ToolStartEventData;
       const dataRecord = data as Record<string, unknown>;
       const sdkToolUseId = this.asString(data.toolUseId ?? data.toolUseID);
@@ -642,10 +641,23 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
             ?? dataRecord.parentToolUseID,
         ),
       );
-      const syntheticParentAgentId = this.getSyntheticAgentIdForAttribution();
+      const fallbackParentAgentId = event.sessionId === this.sessionId
+        ? this.resolveSoleActiveSubagentId()
+        : undefined;
+      const syntheticParentAgentId = event.sessionId === this.sessionId
+        ? this.getSyntheticAgentIdForAttribution()
+        : undefined;
       const resolvedParentAgentId = directParentAgentId
-        ?? (parentToolUseId ? this.toolUseIdToSubagentId.get(parentToolUseId) : undefined);
+        ?? (parentToolUseId ? this.toolUseIdToSubagentId.get(parentToolUseId) : undefined)
+        ?? fallbackParentAgentId;
       const attributedParentAgentId = resolvedParentAgentId ?? syntheticParentAgentId;
+      if (
+        event.sessionId !== this.sessionId
+        && !directParentAgentId
+        && !parentToolUseId
+      ) {
+        return;
+      }
 
       if (this.isTaskTool(toolName) && sdkCorrelationId) {
         const metadata = this.extractTaskToolMetadata(data.toolInput);
@@ -687,10 +699,6 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
 
   private createToolCompleteHandler(runId: number): EventHandler<"tool.complete"> {
     return (event) => {
-      if (event.sessionId !== this.sessionId) {
-        return;
-      }
-
       const data = event.data as ToolCompleteEventData;
       const dataRecord = data as Record<string, unknown>;
       const sdkToolUseId = this.asString(data.toolUseId ?? data.toolUseID);
@@ -715,10 +723,23 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
             ?? dataRecord.parentToolUseID,
         ),
       );
-      const syntheticParentAgentId = this.getSyntheticAgentIdForAttribution();
+      const fallbackParentAgentId = event.sessionId === this.sessionId
+        ? this.resolveSoleActiveSubagentId()
+        : undefined;
+      const syntheticParentAgentId = event.sessionId === this.sessionId
+        ? this.getSyntheticAgentIdForAttribution()
+        : undefined;
       const resolvedParentAgentId = directParentAgentId
-        ?? (parentToolUseId ? this.toolUseIdToSubagentId.get(parentToolUseId) : undefined);
+        ?? (parentToolUseId ? this.toolUseIdToSubagentId.get(parentToolUseId) : undefined)
+        ?? fallbackParentAgentId;
       const attributedParentAgentId = resolvedParentAgentId ?? syntheticParentAgentId;
+      if (
+        event.sessionId !== this.sessionId
+        && !directParentAgentId
+        && !parentToolUseId
+      ) {
+        return;
+      }
 
       // Update sub-agent tool tracker for tool count display
       if (attributedParentAgentId && this.subagentTracker?.hasAgent(attributedParentAgentId)) {
@@ -1110,8 +1131,6 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     runId: number,
   ): EventHandler<"subagent.start"> {
     return (event) => {
-      if (event.sessionId !== this.sessionId) return;
-
       const data = event.data as SubagentStartEventData;
       const dataRecord = data as Record<string, unknown>;
       if (this.syntheticForegroundAgent) {
@@ -1135,6 +1154,29 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
           ?? dataRecord.parent_tool_use_id
           ?? dataRecord.parentToolUseID,
       ));
+      const isKnownSubagent = this.hasKnownSubagentId(data.subagentId);
+      const hasTaskCorrelation = Boolean(
+        sdkCorrelationId
+        && (
+          this.taskToolMetadata.has(sdkCorrelationId)
+          || this.pendingTaskToolCorrelationIds.includes(sdkCorrelationId)
+        ),
+      );
+      const hasParentTaskCorrelation = Boolean(
+        parentToolUseId
+        && (
+          this.taskToolMetadata.has(parentToolUseId)
+          || this.pendingTaskToolCorrelationIds.includes(parentToolUseId)
+        ),
+      );
+      if (
+        event.sessionId !== this.sessionId
+        && !isKnownSubagent
+        && !hasTaskCorrelation
+        && !hasParentTaskCorrelation
+      ) {
+        return;
+      }
 
       const hasSdkMetadata = sdkCorrelationId
         ? this.taskToolMetadata.has(sdkCorrelationId)
@@ -1178,6 +1220,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
 
       // Register agent with tracker for tool counting
       this.subagentTracker?.registerAgent(data.subagentId);
+      this.activeSubagentIds.add(data.subagentId);
 
       if (sdkCorrelationId) {
         this.toolUseIdToSubagentId.set(sdkCorrelationId, data.subagentId);
@@ -1230,10 +1273,12 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     runId: number,
   ): EventHandler<"subagent.complete"> {
     return (event) => {
-      if (event.sessionId !== this.sessionId) return;
-
       const data = event.data as SubagentCompleteEventData;
+      if (event.sessionId !== this.sessionId && !this.hasKnownSubagentId(data.subagentId)) {
+        return;
+      }
       this.subagentTracker?.removeAgent(data.subagentId);
+      this.activeSubagentIds.delete(data.subagentId);
       this.earlyToolEvents.delete(data.subagentId);
       for (const [toolUseId, subagentId] of this.toolUseIdToSubagentId.entries()) {
         if (subagentId === data.subagentId) {
@@ -1270,9 +1315,10 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     runId: number,
   ): EventHandler<"subagent.update"> {
     return (event) => {
-      if (event.sessionId !== this.sessionId) return;
-
       const data = event.data as SubagentUpdateEventData;
+      if (event.sessionId !== this.sessionId && !this.hasKnownSubagentId(data.subagentId)) {
+        return;
+      }
       const busEvent: BusEvent<"stream.agent.update"> = {
         type: "stream.agent.update",
         sessionId: this.sessionId,
@@ -1582,6 +1628,31 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     }
   }
 
+  private hasKnownSubagentId(subagentId: string): boolean {
+    if (!subagentId) {
+      return false;
+    }
+    if (this.activeSubagentIds.has(subagentId)) {
+      return true;
+    }
+    if (this.subagentTracker?.hasAgent(subagentId)) {
+      return true;
+    }
+    for (const mappedId of this.toolUseIdToSubagentId.values()) {
+      if (mappedId === subagentId) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private resolveSoleActiveSubagentId(): string | undefined {
+    if (this.activeSubagentIds.size !== 1) {
+      return undefined;
+    }
+    return this.activeSubagentIds.values().next().value;
+  }
+
   /**
    * Force-complete any tools that received start but no complete event.
    * Prevents tools from being stuck in running state after stream abort.
@@ -1606,6 +1677,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       }
     }
     this.pendingToolIdsByName.clear();
+    this.activeSubagentIds.clear();
     this.activeSubagentToolsById.clear();
   }
 
@@ -1635,6 +1707,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     this.taskToolMetadata.clear();
     this.pendingTaskToolCorrelationIds = [];
     this.earlyToolEvents.clear();
+    this.activeSubagentIds.clear();
     this.activeSubagentToolsById.clear();
     this.toolUseIdToSubagentId.clear();
     this.syntheticForegroundAgent = null;

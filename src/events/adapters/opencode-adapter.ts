@@ -136,6 +136,8 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
   private syntheticAgentStartsPublished = new Set<string>();
   /** Parent-agent/tool pairs already counted by SubagentToolTracker */
   private trackedToolStartKeys = new Set<string>();
+  /** Tool starts that arrived before parent sub-agent registration */
+  private earlyToolEvents = new Map<string, Array<{ toolId: string; toolName: string }>>();
   /** Active sub-agent tool contexts keyed by tool correlation ID */
   private activeSubagentToolsById = new Map<string, { parentAgentId: string; toolName: string }>();
   private syntheticToolCounter = 0;
@@ -210,6 +212,7 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     this.subagentSessionToCorrelationId.clear();
     this.syntheticAgentStartsPublished.clear();
     this.trackedToolStartKeys.clear();
+    this.earlyToolEvents.clear();
     this.activeSubagentToolsById.clear();
     this.syntheticToolCounter = 0;
     this.ownedSessionIds = new Set([this.sessionId]);
@@ -878,6 +881,11 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     return (event) => {
       const data = event.data as ToolStartEventData;
       const dataRecord = data as Record<string, unknown>;
+      const parentToolUseId = this.resolveToolCorrelationId(this.asString(
+        dataRecord.parentToolUseId
+          ?? dataRecord.parent_tool_use_id
+          ?? dataRecord.parentToolUseID,
+      ));
       const parentAgentId = this.resolveParentAgentId(
         event.sessionId,
         dataRecord,
@@ -933,9 +941,29 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
         this.ensureSyntheticTaskAgentStart(runId, parentAgentId);
         this.recordActiveSubagentToolContext(toolId, toolName, parentAgentId, sdkToolUseId, sdkToolCallId);
         const trackerKey = this.buildTrackedToolStartKey(parentAgentId, toolId);
-        if (!this.trackedToolStartKeys.has(trackerKey) && this.subagentTracker?.hasAgent(parentAgentId)) {
-          this.trackedToolStartKeys.add(trackerKey);
-          this.subagentTracker.onToolStart(parentAgentId, toolName);
+        if (!this.trackedToolStartKeys.has(trackerKey)) {
+          if (this.subagentTracker?.hasAgent(parentAgentId)) {
+            this.trackedToolStartKeys.add(trackerKey);
+            this.subagentTracker.onToolStart(parentAgentId, toolName);
+          } else {
+            this.queueEarlyToolEvent(parentAgentId, toolId, toolName);
+            if (parentToolUseId) {
+              this.queueEarlyToolEvent(parentToolUseId, toolId, toolName);
+            }
+          }
+        }
+      } else if (parentToolUseId) {
+        this.queueEarlyToolEvent(parentToolUseId, toolId, toolName);
+        const correlatedParentAgentId = this.toolUseIdToSubagentId.get(parentToolUseId);
+        if (correlatedParentAgentId) {
+          this.recordActiveSubagentToolContext(
+            toolId,
+            toolName,
+            correlatedParentAgentId,
+            sdkToolUseId,
+            sdkToolCallId,
+            parentToolUseId,
+          );
         }
       }
 
@@ -966,6 +994,11 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     return (event) => {
       const data = event.data as ToolCompleteEventData;
       const dataRecord = data as Record<string, unknown>;
+      const parentToolUseId = this.resolveToolCorrelationId(this.asString(
+        dataRecord.parentToolUseId
+          ?? dataRecord.parent_tool_use_id
+          ?? dataRecord.parentToolUseID,
+      ));
       const parentAgentId = this.resolveParentAgentId(
         event.sessionId,
         dataRecord,
@@ -1006,6 +1039,10 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
         if (this.trackedToolStartKeys.delete(trackerKey)) {
           this.subagentTracker?.onToolComplete(parentAgentId);
         }
+        this.removeEarlyToolEvent(parentAgentId, toolId);
+      }
+      if (parentToolUseId) {
+        this.removeEarlyToolEvent(parentToolUseId, toolId);
       }
 
       const busEvent: BusEvent<"stream.tool.complete"> = {
@@ -1151,6 +1188,14 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
         }
       }
 
+      this.replayEarlyToolEvents(
+        data.subagentId,
+        data.subagentId,
+        rawSdkCorrelationId,
+        sdkCorrelationId,
+        parentToolUseId,
+      );
+
       if (rawSdkCorrelationId && !this.taskToolMetadata.has(rawSdkCorrelationId)) {
         this.recordPendingSubagentCorrelationId(rawSdkCorrelationId);
       } else if (rawSdkCorrelationId) {
@@ -1208,8 +1253,10 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
           this.taskToolMetadata.delete(toolUseId);
           this.removePendingTaskToolCorrelationId(toolUseId);
           this.removePendingSubagentCorrelationId(toolUseId);
+          this.earlyToolEvents.delete(toolUseId);
         }
       }
+      this.earlyToolEvents.delete(data.subagentId);
 
       const busEvent: BusEvent<"stream.agent.complete"> = {
         type: "stream.agent.complete",
@@ -1979,6 +2026,59 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     }
   }
 
+  private queueEarlyToolEvent(
+    key: string,
+    toolId: string,
+    toolName: string,
+  ): void {
+    const queue = this.earlyToolEvents.get(key) ?? [];
+    if (queue.some((entry) => entry.toolId === toolId)) {
+      return;
+    }
+    queue.push({ toolId, toolName });
+    this.earlyToolEvents.set(key, queue);
+  }
+
+  private removeEarlyToolEvent(
+    key: string,
+    toolId: string,
+  ): void {
+    const queue = this.earlyToolEvents.get(key);
+    if (!queue) {
+      return;
+    }
+    const nextQueue = queue.filter((entry) => entry.toolId !== toolId);
+    if (nextQueue.length === 0) {
+      this.earlyToolEvents.delete(key);
+      return;
+    }
+    this.earlyToolEvents.set(key, nextQueue);
+  }
+
+  private replayEarlyToolEvents(
+    agentId: string,
+    ...keys: Array<string | undefined>
+  ): void {
+    for (const key of keys) {
+      if (!key) {
+        continue;
+      }
+      const queue = this.earlyToolEvents.get(key);
+      if (!queue) {
+        continue;
+      }
+      for (const tool of queue) {
+        const trackerKey = this.buildTrackedToolStartKey(agentId, tool.toolId);
+        if (this.trackedToolStartKeys.has(trackerKey)) {
+          continue;
+        }
+        this.trackedToolStartKeys.add(trackerKey);
+        this.subagentTracker?.onToolStart(agentId, tool.toolName);
+      }
+      this.earlyToolEvents.delete(key);
+    }
+  }
+
   private ensureSyntheticTaskAgentStart(runId: number, agentId: string): void {
     if (!isSyntheticTaskAgentId(agentId) || this.syntheticAgentStartsPublished.has(agentId)) {
       return;
@@ -2124,6 +2224,7 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     this.pendingToolIdsByName.clear();
     this.toolStartSignatureByToolId.clear();
     this.trackedToolStartKeys.clear();
+    this.earlyToolEvents.clear();
     this.activeSubagentToolsById.clear();
   }
 
@@ -2156,6 +2257,7 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     this.subagentSessionToCorrelationId.clear();
     this.syntheticAgentStartsPublished.clear();
     this.trackedToolStartKeys.clear();
+    this.earlyToolEvents.clear();
     this.activeSubagentToolsById.clear();
     this.syntheticToolCounter = 0;
     this.ownedSessionIds.clear();
@@ -2185,6 +2287,17 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     const explicitParentAgentId = this.asString(data.parentAgentId ?? data.parentId);
     if (explicitParentAgentId) {
       return explicitParentAgentId;
+    }
+    const parentToolUseId = this.resolveToolCorrelationId(this.asString(
+      data.parentToolUseId
+        ?? data.parent_tool_use_id
+        ?? data.parentToolUseID,
+    ));
+    if (parentToolUseId) {
+      const mappedAgentId = this.toolUseIdToSubagentId.get(parentToolUseId);
+      if (mappedAgentId) {
+        return mappedAgentId;
+      }
     }
     if (eventSessionId === this.sessionId) {
       return undefined;

@@ -24,6 +24,72 @@ success() { echo -e "${GREEN}success${NC}: $*"; }
 warn() { echo -e "${YELLOW}warn${NC}: $*"; }
 error() { echo -e "${RED}error${NC}: $*" >&2; exit 1; }
 
+run_with_optional_sudo() {
+    if [[ "$(id -u)" -eq 0 ]]; then
+        "$@"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo "$@"
+    else
+        return 1
+    fi
+}
+
+install_bun_if_missing() {
+    if command -v bun >/dev/null 2>&1; then
+        return 0
+    fi
+
+    info "bun not detected. Installing bun..."
+    if curl -fsSL https://bun.sh/install | bash >/dev/null 2>&1; then
+        export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
+        export PATH="$BUN_INSTALL/bin:$PATH"
+    fi
+
+    if command -v bun >/dev/null 2>&1; then
+        info "bun installed successfully"
+        return 0
+    fi
+
+    warn "Failed to install bun automatically. Install bun manually from https://bun.sh"
+    return 1
+}
+
+install_npm_if_missing() {
+    if command -v npm >/dev/null 2>&1; then
+        return 0
+    fi
+
+    info "npm not detected. Installing Node.js/npm..."
+    local installed=0
+
+    if command -v brew >/dev/null 2>&1; then
+        if brew install node >/dev/null 2>&1; then installed=1; fi
+    elif command -v apt-get >/dev/null 2>&1; then
+        if run_with_optional_sudo apt-get update >/dev/null 2>&1 &&
+            run_with_optional_sudo apt-get install -y nodejs npm >/dev/null 2>&1; then
+            installed=1
+        fi
+    elif command -v dnf >/dev/null 2>&1; then
+        if run_with_optional_sudo dnf install -y nodejs npm >/dev/null 2>&1; then installed=1; fi
+    elif command -v yum >/dev/null 2>&1; then
+        if run_with_optional_sudo yum install -y nodejs npm >/dev/null 2>&1; then installed=1; fi
+    elif command -v pacman >/dev/null 2>&1; then
+        if run_with_optional_sudo pacman -Sy --noconfirm nodejs npm >/dev/null 2>&1; then installed=1; fi
+    elif command -v zypper >/dev/null 2>&1; then
+        if run_with_optional_sudo zypper --non-interactive install nodejs npm >/dev/null 2>&1; then installed=1; fi
+    elif command -v apk >/dev/null 2>&1; then
+        if run_with_optional_sudo apk add --no-cache nodejs npm >/dev/null 2>&1; then installed=1; fi
+    fi
+
+    if [[ $installed -eq 1 ]] && command -v npm >/dev/null 2>&1; then
+        info "npm installed successfully"
+        return 0
+    fi
+
+    warn "Failed to install npm automatically. Install Node.js/npm manually."
+    return 1
+}
+
 # Detect platform
 detect_platform() {
     local os arch
@@ -117,7 +183,7 @@ verify_checksum() {
     filename=$(basename "$file")
 
     local expected
-    expected=$(grep "$filename" "$checksums_file" | awk '{print $1}')
+    expected=$(grep -F "$filename" "$checksums_file" | awk '{print $1}')
 
     if [[ -z "$expected" ]]; then
         error "Could not find checksum for $filename"
@@ -162,6 +228,20 @@ sync_global_agent_configs() {
     # Keep Copilot global config focused on skills/agents/instructions/MCP.
     rm -rf "$ATOMIC_HOME/.copilot/workflows" 2>/dev/null || true
     rm -f "$ATOMIC_HOME/.copilot/dependabot.yml" 2>/dev/null || true
+
+    install_bun_if_missing || true
+    install_npm_if_missing || true
+
+    # Install @playwright/cli globally if a package manager is available.
+    # Do not install Chromium browsers here; defer to first use.
+    info "Installing @playwright/cli globally (if available)..."
+    if command -v bun >/dev/null 2>&1; then
+        bun install -g @playwright/cli@latest 2>/dev/null || true
+    elif command -v npm >/dev/null 2>&1; then
+        npm install -g @playwright/cli@latest 2>/dev/null || true
+    else
+        warn "Neither bun nor npm found. Install @playwright/cli manually for web browsing capabilities."
+    fi
 }
 
 # Get latest version
@@ -193,7 +273,7 @@ main() {
     mkdir -p "$BIN_DIR"
     mkdir -p "$DATA_DIR"
     tmp_dir=$(mktemp -d)
-    trap "rm -rf $tmp_dir" EXIT
+    trap 'rm -rf "$tmp_dir"' EXIT
 
     # Download URLs
     local base_url="https://github.com/${GITHUB_REPO}/releases/download/${version}"

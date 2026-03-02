@@ -84,6 +84,26 @@ describe("hasActiveForegroundAgents", () => {
     ];
     expect(hasActiveForegroundAgents(agents)).toBe(false);
   });
+
+  test("returns false for shadow foreground agent tied to active background agent", () => {
+    const agents = [
+      createMockAgent({
+        id: "bg-1",
+        name: "Researcher",
+        status: "background",
+        background: true,
+        taskToolCallId: "bg-1",
+      }),
+      createMockAgent({
+        id: "fg-shadow-1",
+        name: "Researcher",
+        status: "running",
+        background: false,
+        taskToolCallId: "bg-1",
+      }),
+    ];
+    expect(hasActiveForegroundAgents(agents)).toBe(false);
+  });
 });
 
 describe("shouldFinalizeDeferredStream", () => {

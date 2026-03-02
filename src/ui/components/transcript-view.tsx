@@ -9,7 +9,6 @@ import React, { useMemo } from "react";
 import { useTheme } from "../theme.tsx";
 import { formatTranscript, type TranscriptLine, type TranscriptLineType } from "../utils/transcript-formatter.ts";
 import type { ChatMessage, StreamingMeta } from "../chat.tsx";
-import type { ParallelAgent } from "./parallel-agents-tree.tsx";
 import { SPACING } from "../constants/spacing.ts";
 
 // ============================================================================
@@ -19,7 +18,6 @@ import { SPACING } from "../constants/spacing.ts";
 export interface TranscriptViewProps {
   messages: ChatMessage[];
   liveThinkingText?: string;
-  liveParallelAgents?: ParallelAgent[];
   modelId?: string;
   isStreaming: boolean;
   streamingMeta?: StreamingMeta | null;
@@ -73,7 +71,6 @@ function getLineColor(type: TranscriptLineType, colors: ReturnType<typeof useThe
 export function TranscriptView({
   messages,
   liveThinkingText,
-  liveParallelAgents,
   modelId,
   isStreaming,
   streamingMeta,
@@ -84,11 +81,10 @@ export function TranscriptView({
   const transcriptLines = useMemo(() => formatTranscript({
     messages,
     liveThinkingText,
-    liveParallelAgents,
     streamingMeta,
     isStreaming,
     modelId,
-  }), [messages, liveThinkingText, liveParallelAgents, streamingMeta, isStreaming, modelId]);
+  }), [messages, liveThinkingText, streamingMeta, isStreaming, modelId]);
 
   return (
     <scrollbox

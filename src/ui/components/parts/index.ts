@@ -11,8 +11,9 @@ export { ToolPartDisplay, type ToolPartDisplayProps } from "./tool-part-display.
 export { SkillLoadPartDisplay, type SkillLoadPartDisplayProps } from "./skill-load-part-display.tsx";
 export { McpSnapshotPartDisplay, type McpSnapshotPartDisplayProps } from "./mcp-snapshot-part-display.tsx";
 export { CompactionPartDisplay, type CompactionPartDisplayProps } from "./compaction-part-display.tsx";
+export { TaskResultPartDisplay, type TaskResultPartDisplayProps } from "./task-result-part-display.tsx";
+export { WorkflowStepPartDisplay, type WorkflowStepPartDisplayProps } from "./workflow-step-part-display.tsx";
 export { AgentPartDisplay, type AgentPartDisplayProps } from "./agent-part-display.tsx";
 export { TaskListPartDisplay, type TaskListPartDisplayProps } from "./task-list-part-display.tsx";
-export { UserQuestionInline, type UserQuestionInlineProps, type PendingQuestion } from "./user-question-inline.tsx";
 export { PART_REGISTRY, type PartRenderer } from "./registry.tsx";
 export { MessageBubbleParts, type MessageBubblePartsProps } from "./message-bubble-parts.tsx";

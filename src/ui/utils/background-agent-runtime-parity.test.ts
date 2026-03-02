@@ -69,7 +69,7 @@ describe("Background agent runtime parity (dev/prod invariance)", () => {
       // Verify exact values
       expect(contract.showWhenAgentCountAtLeast).toBe(1);
       expect(contract.includeTerminateHint).toBe(true);
-      expect(contract.terminateHintText).toBe("ctrl+f to kill agents");
+      expect(contract.terminateHintText).toBe("ctrl+f to kill all background tasks");
       expect(contract.countFormat).toBe("agents");
 
       // Verify object stability (same reference across calls)
@@ -84,7 +84,7 @@ describe("Background agent runtime parity (dev/prod invariance)", () => {
       const contract = BACKGROUND_TREE_HINT_CONTRACT;
 
       // Verify exact values
-      expect(contract.whenRunning).toBe("background running · ctrl+f to kill agents");
+      expect(contract.whenRunning).toBe("background running · ctrl+f to kill all background tasks");
       expect(contract.whenComplete).toBe("background complete · ctrl+o to expand");
       expect(contract.defaultHint).toBe("ctrl+o to expand");
 
@@ -246,7 +246,7 @@ describe("Background agent runtime parity (dev/prod invariance)", () => {
 
     test("buildParallelAgentsHeaderHint produces identical outputs for identical inputs", () => {
       const testCases = [
-        [[createAgent({ status: "background" })], true, "background running · ctrl+f to kill agents"],
+        [[createAgent({ status: "background" })], true, "background running · ctrl+f to kill all background tasks"],
         [[createAgent({ status: "completed", background: true })], true, "background complete · ctrl+o to expand"],
         [[], true, "ctrl+o to expand"],
         [[], false, ""],
@@ -358,7 +358,7 @@ describe("Background agent runtime parity (dev/prod invariance)", () => {
 
       // All results must be identical
       for (const result of results) {
-        expect(result).toBe("background running · ctrl+f to kill agents");
+        expect(result).toBe("background running · ctrl+f to kill all background tasks");
       }
     });
   });
@@ -391,7 +391,7 @@ describe("Background agent runtime parity (dev/prod invariance)", () => {
 
       // Test hint building
       const hint = buildParallelAgentsHeaderHint(agents, true);
-      expect(hint).toBe("background running · ctrl+f to kill agents");
+      expect(hint).toBe("background running · ctrl+f to kill all background tasks");
 
       // Test active agent filtering
       const activeAgents = getActiveBackgroundAgents(agents);
@@ -532,7 +532,7 @@ describe("Background agent runtime parity (dev/prod invariance)", () => {
       const noAgents: ParallelAgent[] = [];
 
       expect(buildParallelAgentsHeaderHint(runningAgents, true)).toBe(
-        "background running · ctrl+f to kill agents",
+        "background running · ctrl+f to kill all background tasks",
       );
       expect(buildParallelAgentsHeaderHint(completedAgents, true)).toBe(
         "background complete · ctrl+o to expand",
@@ -567,12 +567,12 @@ describe("Background agent runtime parity (dev/prod invariance)", () => {
       expect(footerContract).toEqual({
         showWhenAgentCountAtLeast: 1,
         includeTerminateHint: true,
-        terminateHintText: "ctrl+f to kill agents",
+        terminateHintText: "ctrl+f to kill all background tasks",
         countFormat: "agents",
       });
 
       expect(treeContract).toEqual({
-        whenRunning: "background running · ctrl+f to kill agents",
+        whenRunning: "background running · ctrl+f to kill all background tasks",
         whenComplete: "background complete · ctrl+o to expand",
         defaultHint: "ctrl+o to expand",
       });

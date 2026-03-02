@@ -4,13 +4,14 @@
 
 import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { join } from "path";
-import { mkdtemp, rm } from "fs/promises";
+import { mkdir, mkdtemp, readdir, rm } from "fs/promises";
 import { tmpdir } from "os";
 import {
   attachDebugSubscriber,
   cleanup,
   initEventLog,
   readEventLog,
+  readRawStreamLog,
   listEventLogs,
   resolveStreamDebugLogConfig,
   type EventLogEntry,
@@ -21,9 +22,6 @@ import { EventBus } from "./event-bus.ts";
 const STREAM_DEBUG_ENV_KEYS = [
   "DEBUG",
   "LOG_DIR",
-  "ATOMIC_DEBUG",
-  "ATOMIC_STREAM_DEBUG_LOG",
-  "ATOMIC_STREAM_DEBUG_LOG_DIR",
 ] as const;
 
 describe("Debug Subscriber JSONL Logging", () => {
@@ -70,25 +68,17 @@ describe("Debug Subscriber JSONL Logging", () => {
     expect(config.logDir).toBe(customDir);
   });
 
-  test("resolveStreamDebugLogConfig() keeps ATOMIC_STREAM_DEBUG_LOG compatibility", () => {
-    const customDir = "/tmp/AtomicDebugLogs";
+  test("resolveStreamDebugLogConfig() remains disabled when DEBUG is not set", () => {
     const config = resolveStreamDebugLogConfig({
-      ATOMIC_STREAM_DEBUG_LOG: customDir,
+      LOG_DIR: "/tmp/AtomicDebugLogs",
     });
-    expect(config.enabled).toBe(true);
-    expect(config.logDir).toBe(customDir);
+    expect(config.enabled).toBe(false);
+    expect(config.logDir).toBe("/tmp/AtomicDebugLogs");
+    expect(config.consolePreviewEnabled).toBe(false);
   });
 
-  test("resolveStreamDebugLogConfig() keeps legacy ATOMIC_DEBUG compatibility", () => {
-    const config = resolveStreamDebugLogConfig({
-      ATOMIC_DEBUG: "1",
-    });
-    expect(config.enabled).toBe(true);
-    expect(config.consolePreviewEnabled).toBe(true);
-  });
-
-  test("initEventLog() creates a JSONL file and writes events", async () => {
-    const { write, close, logPath } = await initEventLog({
+  test("initEventLog() creates a per-run log directory and writes events", async () => {
+    const { write, close, logPath, rawLogPath, logDirPath } = await initEventLog({
       logDir: testDir,
     });
     
@@ -110,6 +100,9 @@ describe("Debug Subscriber JSONL Logging", () => {
     expect(entries[0]!.sessionId).toBe("test-session");
     expect(entries[0]!.runId).toBe(1);
     expect((entries[0]!.data as any).delta).toBe("hello");
+    expect(logPath).toContain("events.jsonl");
+    expect(rawLogPath).toContain("raw-stream.log");
+    expect(logDirPath).toContain(testDir);
   });
 
   test("readEventLog() returns empty array for non-existent file", async () => {
@@ -137,30 +130,89 @@ describe("Debug Subscriber JSONL Logging", () => {
     expect(filtered.length).toBe(2);
   });
 
-  test("cleanup() retains only MAX_LOG_FILES most recent files", async () => {
-    // Create 12 fake log files in testDir
+  test("initEventLog() writes raw stream conversation components", async () => {
+    const { write, writeRawLine, close, rawLogPath } = await initEventLog({
+      logDir: testDir,
+    });
+
+    writeRawLine("❯ @codebase-online-researcher Research TUI UX");
+    write({
+      type: "stream.thinking.delta",
+      sessionId: "s-raw",
+      runId: 11,
+      timestamp: Date.now(),
+      data: {
+        delta: "thinking",
+        sourceKey: "src-1",
+        messageId: "m-raw",
+      },
+    });
+    write({
+      type: "stream.text.delta",
+      sessionId: "s-raw",
+      runId: 11,
+      timestamp: Date.now(),
+      data: { delta: "Launching UI/UX research task\n", messageId: "m-raw" },
+    });
+    write({
+      type: "stream.tool.start",
+      sessionId: "s-raw",
+      runId: 11,
+      timestamp: Date.now(),
+      data: {
+        toolId: "tool-task",
+        toolName: "task",
+        toolInput: {
+          agent_type: "codebase-online-researcher",
+          description: "Research TUI UX practices",
+          prompt: "Research task only",
+        },
+      },
+    });
+
+    await close();
+
+    const rawLines = await readRawStreamLog(rawLogPath);
+    expect(rawLines).toContain("❯ @codebase-online-researcher Research TUI UX");
+    expect(rawLines).toContain("⣯ Composing…");
+    expect(rawLines).toContain("∴ Thinking...");
+    expect(rawLines).toContain("Launching UI/UX research task");
+    expect(rawLines).toContain("◉");
+    expect(rawLines).toContain("task codebase-online-researcher: Research TUI UX practices");
+    expect(rawLines).toContain("Agent: codebase-online-researcher");
+    expect(rawLines).toContain("Task: Research TUI UX practices");
+    expect(rawLines).toContain("Prompt: Research task only");
+  });
+
+  test("cleanup() retains only 10 most recent session directories", async () => {
+    // Create 12 fake session directories in testDir
     for (let i = 0; i < 12; i++) {
       const hour = String(i).padStart(2, "0");
-      const filename = `2026-02-26T${hour}0000.events.jsonl`;
-      await Bun.write(join(testDir, filename), `{"ts":"test"}\n`);
+      const sessionName = `2026-02-26T${hour}0000`;
+      const sessionDir = join(testDir, sessionName);
+      await mkdir(sessionDir, { recursive: true });
+      await Bun.write(
+        join(sessionDir, "events.jsonl"),
+        `{"ts":"test"}\n`,
+      );
     }
 
     await cleanup(testDir);
 
-    const glob = new Bun.Glob("????-??-??T??????.events.jsonl");
-    const remaining: string[] = [];
-    for await (const file of glob.scan({ cwd: testDir })) {
-      remaining.push(file);
-    }
+    const remaining = (await readdir(testDir, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory())
+      .filter((entry) => /^\d{4}-\d{2}-\d{2}T\d{6}$/.test(entry.name));
 
     expect(remaining.length).toBe(10);
   });
 
   test("listEventLogs() returns files most recent first", async () => {
-    // Create a few log files
-    await Bun.write(join(testDir, "2026-02-26T100000.events.jsonl"), "");
-    await Bun.write(join(testDir, "2026-02-26T120000.events.jsonl"), "");
-    await Bun.write(join(testDir, "2026-02-26T080000.events.jsonl"), "");
+    // Create a few log directories
+    for (const sessionName of ["2026-02-26T100000", "2026-02-26T120000", "2026-02-26T080000"]) {
+      const sessionDir = join(testDir, sessionName);
+      await mkdir(sessionDir, { recursive: true });
+      await Bun.write(join(sessionDir, "events.jsonl"), "");
+    }
 
     const logs = await listEventLogs(testDir);
     expect(logs.length).toBe(3);
@@ -366,8 +418,12 @@ describe("Debug Subscriber JSONL Logging", () => {
     const debugSpy = spyOn(console, "debug").mockImplementation(() => {});
 
     const bus = new EventBus({ validatePayloads: false });
-    const { unsubscribe, logPath } = await attachDebugSubscriber(bus);
+    const { unsubscribe, logPath, rawLogPath, logDirPath, writeRawLine } = await attachDebugSubscriber(bus);
     expect(logPath).not.toBeNull();
+    expect(rawLogPath).not.toBeNull();
+    expect(logDirPath).not.toBeNull();
+
+    writeRawLine("❯ Investigate stream ordering");
 
     bus.publish({
       type: "stream.text.delta",
@@ -393,5 +449,10 @@ describe("Debug Subscriber JSONL Logging", () => {
     expect((entries[0] as unknown as Record<string, unknown>).category).toBe("startup");
     expect(entries[1]?.type).toBe("stream.text.delta");
     expect(entries[2]?.type).toBe("stream.tool.start");
+
+    const rawLines = await readRawStreamLog(rawLogPath!);
+    expect(rawLines).toContain("❯ Investigate stream ordering");
+    expect(rawLines.some((line) => line.includes("stream.text.delta"))).toBe(false);
+    expect(rawLines).toContain("◉ bash");
   });
 });

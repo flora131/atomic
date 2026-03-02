@@ -2,7 +2,10 @@
 
 Use stream debug logging when you need a full event timeline for a conversation.
 
-When enabled, Atomic writes every Event Bus event to a JSONL file (one JSON event per line).
+When enabled, Atomic writes stream diagnostics into a **timestamped log folder** per run:
+
+- `events` log (structured JSONL event timeline)
+- `raw stream` log (UI-oriented conversation components)
 
 ## Quick Start
 
@@ -14,10 +17,12 @@ DEBUG=1 bun run src/cli.ts chat -a opencode
 
 You can use `-a claude` or `-a copilot` the same way.
 
-At startup, Atomic prints the file path:
+At startup, Atomic prints the folder and both files:
 
 ```text
-[Atomic] Stream debug log: /home/<user>/.local/share/atomic/log/events/2026-03-02T184210.events.jsonl
+[Atomic] Stream debug logs: /home/<user>/.local/share/atomic/log/events/2026-03-02T184210
+[Atomic] Stream events log: /home/<user>/.local/share/atomic/log/events/2026-03-02T184210/events.jsonl
+[Atomic] Stream raw log: /home/<user>/.local/share/atomic/log/events/2026-03-02T184210/raw-stream.log
 ```
 
 ## Environment Variables
@@ -26,11 +31,38 @@ At startup, Atomic prints the file path:
     - `1`, `true`, `on`: enable stream debug log files and console preview
     - `0`, `false`, `off`: disable stream debug log files
 - `LOG_DIR`
-    - optional directory override for log files (defaults to `~/.local/share/atomic/log/events/`)
+    - optional directory override for the **parent debug log directory** (defaults to `~/.local/share/atomic/log/events/`)
 
 ## What Gets Logged
 
-The JSONL file contains two kinds of entries: **event entries** (bus events) and **diagnostic entries** (errors, metadata). In addition, **pipeline diagnostic messages** are emitted to the console at both `debug` and `error` levels.
+Each session folder contains:
+
+- `events.jsonl`: structured bus timeline + diagnostics
+- `raw-stream.log`: UI-style line stream for visual debugging
+
+The JSONL `events` log contains two kinds of entries: **event entries** (bus events) and **diagnostic entries** (errors, metadata). In addition, **pipeline diagnostic messages** are emitted to the console at both `debug` and `error` levels.
+
+### Raw Stream Log (UI)
+
+The raw stream log captures conversation components in the order they are rendered/observed by the stream pipeline, for example:
+
+```text
+❯ @codebase-online-researcher Research good UI/UX design practices for the TUI
+∴ Thinking...
+Launching UI/UX research task
+◉
+task codebase-online-researcher: Research TUI UX practices
+Agent: codebase-online-researcher
+Task: Research TUI UX practices
+Prompt: Research task only (do not write code): Find modern, high-quality UI/UX design practices...
+⣯ Composing… (23s)
+```
+
+Notes:
+
+- User prompts are written when a stream starts.
+- `Task/task/launch_agent` tool calls include expanded `Agent/Task/Prompt` fields when present.
+- The raw stream log is optimized for UI debugging and is intentionally less structured than the JSONL event log.
 
 ### Event Entries
 
@@ -109,7 +141,13 @@ The first entry in every debug log is a `startup` diagnostic containing environm
     "seq": 1,
     "ts": "2026-03-02T18:42:10.100Z",
     "category": "startup",
-    "agentTreeSnapshot": { "agents": [], "totalCount": 0, "runningCount": 0, "completedCount": 0, "errorCount": 0 },
+    "agentTreeSnapshot": {
+        "agents": [],
+        "totalCount": 0,
+        "runningCount": 0,
+        "completedCount": 0,
+        "errorCount": 0
+    },
     "data": {
         "pid": 12345,
         "platform": "linux",
@@ -120,7 +158,12 @@ The first entry in every debug log is a `startup` diagnostic containing environm
         "debugConfig": { "enabled": true, "logDir": "..." },
         "env": { "DEBUG": "1", "NODE_ENV": "development" },
         "argv": ["bun", "run", "src/cli.ts", "chat", "-a", "opencode"],
-        "memoryUsage": { "rss": 52428800, "heapTotal": 8388608, "heapUsed": 6291456, "external": 1048576 }
+        "memoryUsage": {
+            "rss": 52428800,
+            "heapTotal": 8388608,
+            "heapUsed": 6291456,
+            "external": 1048576
+        }
     }
 }
 ```
@@ -146,6 +189,7 @@ Captures internal EventBus failures — schema validation drops, handler excepti
 ```
 
 The `kind` field is one of:
+
 - `schema_validation` — event payload failed Zod schema validation and was dropped (never reached subscribers)
 - `handler_error` — a typed event handler threw an exception
 - `wildcard_handler_error` — a wildcard (`onAll`) handler threw an exception
@@ -203,6 +247,7 @@ Agent lifecycle events and error entries include an `agentTreeSnapshot` field th
 ```
 
 Each agent entry tracks:
+
 - `agentId`, `agentType`, `task`: identity and purpose
 - `status`: `"running"`, `"completed"`, or `"error"`
 - `isBackground`: whether the agent was launched in background mode
@@ -229,14 +274,14 @@ All messages are prefixed with `[Pipeline:<stage>]` for easy filtering:
 
 ### Pipeline Stages
 
-| Stage | Description |
-|---|---|
-| `EventBus` | Schema validation, handler dispatch errors |
-| `Dispatcher` | Event coalescing, buffer overflow drops, batch flushing |
-| `Wire` | Ownership filtering (owned vs unowned events) |
-| `Consumer` | Event mapping, unmapped event warnings |
-| `Subagent` | Sub-agent spawn/complete, registry misses |
-| `Workflow` | Workflow lifecycle — start, complete, execution failures, task save errors |
+| Stage        | Description                                                                |
+| ------------ | -------------------------------------------------------------------------- |
+| `EventBus`   | Schema validation, handler dispatch errors                                 |
+| `Dispatcher` | Event coalescing, buffer overflow drops, batch flushing                    |
+| `Wire`       | Ownership filtering (owned vs unowned events)                              |
+| `Consumer`   | Event mapping, unmapped event warnings                                     |
+| `Subagent`   | Sub-agent spawn/complete, registry misses                                  |
+| `Workflow`   | Workflow lifecycle — start, complete, execution failures, task save errors |
 
 ### Error-Level Actions
 
@@ -247,7 +292,9 @@ The following actions are logged at `console.error` level (via `pipelineError`):
 
 ## Notes
 
-- Log files are named `<timestamp>.events.jsonl` (e.g. `2026-03-02T184210.events.jsonl`).
-- Log files are rotated automatically; Atomic keeps the most recent 10 files.
+- Log sessions are named `<timestamp>` (e.g. `2026-03-02T184210`) and each contains:
+    - `events.jsonl`
+    - `raw-stream.log`
+- Log rotation is automatic; Atomic keeps the most recent 10 session folders.
 - This mode is intended for debugging. Keep it off in normal usage for best performance.
 - Both event entries and diagnostic entries share the same `seq` counter, so you can sort by `seq` to get a unified timeline of events and errors.

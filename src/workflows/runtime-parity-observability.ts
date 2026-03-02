@@ -21,7 +21,7 @@ const DEBUG_ENABLED = () => {
   if (debugValue) {
     return debugValue === "1" || debugValue === "true" || debugValue === "on";
   }
-  return process.env.ATOMIC_DEBUG === "1" || process.env.ATOMIC_WORKFLOW_DEBUG === "1";
+  return process.env.ATOMIC_WORKFLOW_DEBUG === "1";
 };
 
 function metricKey(name: string, labels?: Record<string, string | number | boolean | undefined>): string {

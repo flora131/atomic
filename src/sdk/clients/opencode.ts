@@ -445,7 +445,7 @@ function extractOpenCodeErrorMessage(error: unknown, fallback = "Unknown error")
  * Debug logging helper gated behind DEBUG environment variable
  * Used to verify event emission at runtime during development
  */
-const debugLog = process.env.DEBUG === "1" || process.env.ATOMIC_DEBUG === "1"
+const debugLog = process.env.DEBUG === "1"
   ? (label: string, data: Record<string, unknown>) =>
       console.debug(`[opencode:${label}]`, JSON.stringify(data, null, 2))
   : () => {};

@@ -248,8 +248,14 @@ export async function startChatUI(
 
   // Attach file-based debug subscriber when stream debug logging is enabled.
   const debugSub = await attachDebugSubscriber(sharedBus);
-  if (debugSub.logPath) {
-    console.info(`[Atomic] Stream debug log: ${debugSub.logPath}`);
+  if (debugSub.logDirPath) {
+    console.info(`[Atomic] Stream debug logs: ${debugSub.logDirPath}`);
+    if (debugSub.logPath) {
+      console.info(`[Atomic] Stream events log: ${debugSub.logPath}`);
+    }
+    if (debugSub.rawLogPath) {
+      console.info(`[Atomic] Stream raw log: ${debugSub.rawLogPath}`);
+    }
   }
 
   // Initialize state
@@ -471,6 +477,11 @@ export async function startChatUI(
 
     const runId = state.currentRunId;
     const messageId = crypto.randomUUID();
+    debugSub.writeRawLine(`❯ ${content}`, {
+      sessionId: state.session?.id,
+      runId,
+      component: "prompt",
+    });
 
     // Discover agent names for Copilot adapter + tool registry
     const knownAgentNames = client.getKnownAgentNames?.() ?? [];

@@ -37,11 +37,7 @@ let _debugEnabled: boolean | null = null;
 export function isPipelineDebug(): boolean {
   if (_debugEnabled === null) {
     const debugValue = process.env.DEBUG?.trim().toLowerCase();
-    if (debugValue) {
-      _debugEnabled = debugValue === "1" || debugValue === "true" || debugValue === "on";
-    } else {
-      _debugEnabled = process.env.ATOMIC_DEBUG === "1";
-    }
+    _debugEnabled = !!debugValue && (debugValue === "1" || debugValue === "true" || debugValue === "on");
   }
   return _debugEnabled;
 }

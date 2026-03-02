@@ -24,22 +24,17 @@
 
 import { join } from "path";
 import { homedir } from "os";
-import { mkdir, unlink } from "fs/promises";
+import { mkdir, readdir, rm } from "fs/promises";
 import type { EventBus } from "./event-bus.ts";
-import type { InternalBusError } from "./event-bus.ts";
 import type { BusEvent } from "./bus-events.ts";
 
 const DEFAULT_LOG_DIR = join(homedir(), ".local", "share", "atomic", "log", "events");
-const MAX_LOG_FILES = 10;
+const MAX_LOG_SESSIONS = 10;
 const DEBUG_ENV = "DEBUG";
 const LOG_DIR_ENV = "LOG_DIR";
-const LEGACY_STREAM_DEBUG_LOG_ENV = "ATOMIC_STREAM_DEBUG_LOG";
-const LEGACY_STREAM_DEBUG_LOG_DIR_ENV = "ATOMIC_STREAM_DEBUG_LOG_DIR";
-const LEGACY_DEBUG_ENV = "ATOMIC_DEBUG";
-
-function isTruthyEnvValue(value: string): boolean {
-  return value === "1" || value === "true" || value === "on";
-}
+const LOG_SESSION_NAME_REGEX = /^\d{4}-\d{2}-\d{2}T\d{6}$/;
+const LOG_EVENTS_FILENAME = "events.jsonl";
+const LOG_RAW_STREAM_FILENAME = "raw-stream.log";
 
 function isFalsyEnvValue(value: string): boolean {
   return value === "0" || value === "false" || value === "off";
@@ -56,20 +51,9 @@ export function resolveStreamDebugLogConfig(
 ): StreamDebugLogConfig {
   const rawDebugValue = env[DEBUG_ENV]?.trim();
   const normalizedDebugValue = rawDebugValue?.toLowerCase();
-  const legacyRawDebugValue = env[LEGACY_STREAM_DEBUG_LOG_ENV]?.trim();
-  const legacyNormalizedDebugValue = legacyRawDebugValue?.toLowerCase();
-  const explicitDir =
-    env[LOG_DIR_ENV]?.trim() ?? env[LEGACY_STREAM_DEBUG_LOG_DIR_ENV]?.trim();
-  const legacyDebugEnabled = env[LEGACY_DEBUG_ENV] === "1";
+  const explicitDir = env[LOG_DIR_ENV]?.trim();
 
-  if (normalizedDebugValue) {
-    if (isFalsyEnvValue(normalizedDebugValue)) {
-      return {
-        enabled: false,
-        consolePreviewEnabled: false,
-      };
-    }
-
+  if (normalizedDebugValue && !isFalsyEnvValue(normalizedDebugValue)) {
     return {
       enabled: true,
       ...(explicitDir ? { logDir: explicitDir } : {}),
@@ -77,33 +61,10 @@ export function resolveStreamDebugLogConfig(
     };
   }
 
-  if (!legacyNormalizedDebugValue) {
-    return {
-      enabled: legacyDebugEnabled,
-      ...(explicitDir ? { logDir: explicitDir } : {}),
-      consolePreviewEnabled: legacyDebugEnabled,
-    };
-  }
-
-  if (isFalsyEnvValue(legacyNormalizedDebugValue)) {
-    return {
-      enabled: false,
-      consolePreviewEnabled: false,
-    };
-  }
-
-  if (isTruthyEnvValue(legacyNormalizedDebugValue)) {
-    return {
-      enabled: true,
-      ...(explicitDir ? { logDir: explicitDir } : {}),
-      consolePreviewEnabled: legacyDebugEnabled,
-    };
-  }
-
   return {
-    enabled: true,
-    logDir: explicitDir ?? legacyRawDebugValue,
-    consolePreviewEnabled: legacyDebugEnabled,
+    enabled: false,
+    ...(explicitDir ? { logDir: explicitDir } : {}),
+    consolePreviewEnabled: false,
   };
 }
 
@@ -181,7 +142,40 @@ export interface DiagnosticLogEntry {
   data?: unknown;
 }
 
+export interface RawStreamLogEntry {
+  seq: number;
+  ts: string;
+  sessionId?: string;
+  runId?: number;
+  component:
+    | "prompt"
+    | "status"
+    | "thinking"
+    | "assistant"
+    | "tool"
+    | "agent"
+    | "diagnostic";
+  text: string;
+}
+
 const STREAM_CONTINUITY_GAP_THRESHOLD_MS = 1500;
+
+function buildLogSessionName(now: Date = new Date()): string {
+  return now.toISOString().split(".")[0]!.replace(/:/g, "");
+}
+
+function formatRawDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes <= 0) return `${seconds}s`;
+  return `${minutes}m ${seconds}s`;
+}
+
+function truncateRawText(value: string, maxChars: number): string {
+  if (value.length <= maxChars) return value;
+  return `${value.slice(0, maxChars)}… (+${value.length - maxChars} chars truncated)`;
+}
 
 interface SessionRunDebugState {
   firstSeenLoggedAtMs: number;
@@ -198,6 +192,9 @@ interface SessionRunDebugState {
   sawSessionStart: boolean;
   sawSessionIdle: boolean;
   sawSessionError: boolean;
+  rawStatusLogged: boolean;
+  rawThinkingLogged: boolean;
+  rawTextBuffer: string;
 }
 
 function buildSessionRunKey(event: BusEvent): string {
@@ -236,25 +233,36 @@ function createSessionRunDebugState(loggedAtMs: number): SessionRunDebugState {
     sawSessionStart: false,
     sawSessionIdle: false,
     sawSessionError: false,
+    rawStatusLogged: false,
+    rawThinkingLogged: false,
+    rawTextBuffer: "",
   };
 }
 
+async function listLogSessionDirectories(dir: string): Promise<string[]> {
+  const sessionDirs: string[] = [];
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    if (!LOG_SESSION_NAME_REGEX.test(entry.name)) continue;
+    sessionDirs.push(join(dir, entry.name));
+  }
+  sessionDirs.sort();
+  return sessionDirs;
+}
+
 /**
- * Clean up old event log files, retaining the most recent MAX_LOG_FILES.
- * Mirrors OpenCode's cleanup() in packages/opencode/src/util/log.ts.
+ * Clean up old debug log sessions, retaining the most recent MAX_LOG_SESSIONS.
  */
 export async function cleanup(dir: string): Promise<void> {
-  const glob = new Bun.Glob("????-??-??T??????.events.jsonl");
-  const files: string[] = [];
-  for await (const file of glob.scan({ cwd: dir, absolute: true })) {
-    files.push(file);
+  const sessionDirs = await listLogSessionDirectories(dir);
+  if (sessionDirs.length > MAX_LOG_SESSIONS) {
+    const dirsToDelete = sessionDirs.slice(0, sessionDirs.length - MAX_LOG_SESSIONS);
+    await Promise.all(
+      dirsToDelete.map((sessionDir) =>
+        rm(sessionDir, { recursive: true, force: true }).catch(() => {})),
+    );
   }
-  files.sort();
-  if (files.length <= MAX_LOG_FILES) return;
-  const filesToDelete = files.slice(0, files.length - MAX_LOG_FILES);
-  await Promise.all(
-    filesToDelete.map((file) => unlink(file).catch(() => {})),
-  );
 }
 
 /**
@@ -266,21 +274,27 @@ export async function initEventLog(options?: {
 }): Promise<{
   write: (event: BusEvent) => void;
   writeDiagnostic: (entry: Omit<DiagnosticLogEntry, "seq" | "ts">) => void;
+  writeRawLine: (line: string, metadata?: { sessionId?: string; runId?: number; component?: RawStreamLogEntry["component"] }) => void;
   getAgentTreeSnapshot: () => AgentTreeSnapshot;
   close: () => Promise<void>;
   logPath: string;
+  rawLogPath: string;
+  logDirPath: string;
 }> {
   const logDir = options?.logDir ?? DEFAULT_LOG_DIR;
   await mkdir(logDir, { recursive: true });
   await cleanup(logDir);
 
-  const filename =
-    new Date().toISOString().split(".")[0]!.replace(/:/g, "") +
-    ".events.jsonl";
+  const sessionName = buildLogSessionName();
+  const logDirPath = join(logDir, sessionName);
+  await mkdir(logDirPath, { recursive: true });
 
-  const logPath = join(logDir, filename);
+  const logPath = join(logDirPath, LOG_EVENTS_FILENAME);
+  const rawLogPath = join(logDirPath, LOG_RAW_STREAM_FILENAME);
   const logFile = Bun.file(logPath);
   const writer = logFile.writer();
+  const rawFile = Bun.file(rawLogPath);
+  const rawWriter = rawFile.writer();
   const textEncoder = new TextEncoder();
   let seq = 0;
   let previousLoggedAtMs: number | null = null;
@@ -337,6 +351,154 @@ export async function initEventLog(options?: {
     type === "stream.agent.start" ||
     type === "stream.agent.update" ||
     type === "stream.agent.complete";
+
+  const writeRawLine = (
+    line: string,
+    metadata?: { sessionId?: string; runId?: number; component?: RawStreamLogEntry["component"] },
+  ): void => {
+    void metadata;
+    const normalizedLine = line.replace(/\r/g, "");
+    if (!normalizedLine.trim()) return;
+    rawWriter.write(`${normalizedLine}\n`);
+    rawWriter.flush();
+  };
+
+  const writeRawLines = (
+    lines: string[],
+    metadata?: { sessionId?: string; runId?: number; component?: RawStreamLogEntry["component"] },
+  ): void => {
+    for (const line of lines) {
+      writeRawLine(line, metadata);
+    }
+  };
+
+  const flushRawTextBuffer = (event: BusEvent, runState: SessionRunDebugState): void => {
+    const buffered = runState.rawTextBuffer.trim();
+    if (buffered.length === 0) {
+      runState.rawTextBuffer = "";
+      return;
+    }
+    writeRawLine(buffered, {
+      sessionId: event.sessionId,
+      runId: event.runId,
+      component: "assistant",
+    });
+    runState.rawTextBuffer = "";
+  };
+
+  const formatTaskToolLines = (toolInput: Record<string, unknown>): string[] => {
+    const lines: string[] = [];
+    const task = String(toolInput.description ?? "").trim();
+    const prompt = String(toolInput.prompt ?? "").trim();
+    const agent = String(
+      toolInput.agent_type ?? toolInput.subagent_type ?? toolInput.agent ?? "",
+    ).trim();
+    const title = [agent, task].filter(Boolean).join(": ") || "Sub-agent task";
+    lines.push(`task ${truncateRawText(title, 180)}`);
+    if (agent) lines.push(`Agent: ${truncateRawText(agent, 160)}`);
+    if (task) lines.push(`Task: ${truncateRawText(task, 160)}`);
+    if (prompt) lines.push(`Prompt: ${truncateRawText(prompt, 160)}`);
+    return lines;
+  };
+
+  const formatToolStartLines = (
+    toolName: string,
+    toolInput: Record<string, unknown>,
+  ): string[] => {
+    const normalizedName = toolName.toLowerCase();
+    if (
+      normalizedName === "task"
+      || normalizedName === "launch_agent"
+      || normalizedName === "launch-agent"
+    ) {
+      return ["◉", ...formatTaskToolLines(toolInput)];
+    }
+
+    const lines: string[] = [`◉ ${toolName}`];
+    const summaryParts = Object.entries(toolInput)
+      .slice(0, 3)
+      .map(([key, value]) => `${key}: ${truncateRawText(String(value), 80)}`);
+    if (summaryParts.length > 0) {
+      lines.push(summaryParts.join(", "));
+    }
+    return lines;
+  };
+
+  const writeRawForEvent = (
+    event: BusEvent,
+    runState: SessionRunDebugState,
+    loggedAtMs: number,
+  ): void => {
+    if (!runState.rawStatusLogged && event.type.startsWith("stream.")) {
+      runState.rawStatusLogged = true;
+      writeRawLine("⣯ Composing…", {
+        sessionId: event.sessionId,
+        runId: event.runId,
+        component: "status",
+      });
+    }
+
+    if (event.type === "stream.thinking.delta" && !runState.rawThinkingLogged) {
+      runState.rawThinkingLogged = true;
+      writeRawLine("∴ Thinking...", {
+        sessionId: event.sessionId,
+        runId: event.runId,
+        component: "thinking",
+      });
+      return;
+    }
+
+    if (event.type === "stream.text.delta") {
+      const delta = String((event.data as Record<string, unknown>).delta ?? "");
+      if (delta.length === 0) return;
+      runState.rawTextBuffer += delta;
+      const newlineChunks = runState.rawTextBuffer.split("\n");
+      if (newlineChunks.length <= 1) return;
+      const completeLines = newlineChunks.slice(0, -1).map((line) => line.trim()).filter(Boolean);
+      runState.rawTextBuffer = newlineChunks.at(-1) ?? "";
+      writeRawLines(completeLines, {
+        sessionId: event.sessionId,
+        runId: event.runId,
+        component: "assistant",
+      });
+      return;
+    }
+
+    if (event.type === "stream.tool.start") {
+      flushRawTextBuffer(event, runState);
+      const data = event.data as Record<string, unknown>;
+      const toolName = String(data.toolName ?? "tool");
+      const toolInput = (data.toolInput as Record<string, unknown> | undefined) ?? {};
+      writeRawLines(formatToolStartLines(toolName, toolInput), {
+        sessionId: event.sessionId,
+        runId: event.runId,
+        component: "tool",
+      });
+      return;
+    }
+
+    if (event.type === "stream.agent.start") {
+      const data = event.data as Record<string, unknown>;
+      const agentType = String(data.agentType ?? "agent");
+      const task = String(data.task ?? "sub-agent task");
+      writeRawLine(`● ${agentType}: ${truncateRawText(task, 160)}`, {
+        sessionId: event.sessionId,
+        runId: event.runId,
+        component: "agent",
+      });
+      return;
+    }
+
+    if (event.type === "stream.session.idle" || event.type === "stream.session.error") {
+      flushRawTextBuffer(event, runState);
+      const runAgeMs = Math.max(0, loggedAtMs - runState.firstSeenLoggedAtMs);
+      writeRawLine(`⣯ Composing… (${formatRawDuration(runAgeMs)})`, {
+        sessionId: event.sessionId,
+        runId: event.runId,
+        component: "status",
+      });
+    }
+  };
 
   const write = (event: BusEvent): void => {
     const loggedAtMs = Date.now();
@@ -504,6 +666,7 @@ export async function initEventLog(options?: {
     };
     writer.write(JSON.stringify(entry) + "\n");
     writer.flush();
+    writeRawForEvent(event, runState, loggedAtMs);
   };
 
   const writeDiagnostic = (partial: Omit<DiagnosticLogEntry, "seq" | "ts">): void => {
@@ -515,20 +678,38 @@ export async function initEventLog(options?: {
     };
     writer.write(JSON.stringify(entry) + "\n");
     writer.flush();
+    const diagnosticMessage =
+      partial.error
+        ? `[${partial.category}] ${partial.error}`
+        : `[${partial.category}]`;
+    writeRawLine(diagnosticMessage, { component: "diagnostic" });
   };
 
   const getAgentTreeSnapshot = (): AgentTreeSnapshot => buildAgentTreeSnapshot();
 
   const close = async (): Promise<void> => {
-    const result = writer.end();
+    const eventWriterResult = writer.end();
+    const rawWriterResult = rawWriter.end();
     // Bun's writer.end() can return either number (sync) or Promise<number> (async)
-    // We must await if it's a Promise to ensure all data is flushed
-    if (result instanceof Promise) {
-      await result;
+    // We must await when it is a Promise to ensure all data is flushed.
+    if (eventWriterResult instanceof Promise) {
+      await eventWriterResult;
+    }
+    if (rawWriterResult instanceof Promise) {
+      await rawWriterResult;
     }
   };
 
-  return { write, writeDiagnostic, getAgentTreeSnapshot, close, logPath };
+  return {
+    write,
+    writeDiagnostic,
+    writeRawLine,
+    getAgentTreeSnapshot,
+    close,
+    logPath,
+    rawLogPath,
+    logDirPath,
+  };
 }
 
 /**
@@ -552,16 +733,30 @@ export async function readEventLog(
 }
 
 /**
+ * Read raw UI stream log lines.
+ */
+export async function readRawStreamLog(rawLogPath: string): Promise<string[]> {
+  const file = Bun.file(rawLogPath);
+  const exists = await file.exists();
+  if (!exists) return [];
+  const content = await file.text();
+  if (!content.trim()) return [];
+  return content
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0);
+}
+
+/**
  * List all available event log files, most recent first.
  */
 export async function listEventLogs(dir: string = DEFAULT_LOG_DIR): Promise<string[]> {
-  const glob = new Bun.Glob("????-??-??T??????.events.jsonl");
-  const files: string[] = [];
-  for await (const file of glob.scan({ cwd: dir, absolute: true })) {
-    files.push(file);
-  }
-  files.sort();
-  return files.reverse();
+  const sessionDirs = await listLogSessionDirectories(dir);
+  const sessionEventLogs = sessionDirs
+    .map((sessionDir) => join(sessionDir, LOG_EVENTS_FILENAME));
+
+  sessionEventLogs.sort();
+  return sessionEventLogs.reverse();
 }
 
 /**
@@ -577,13 +772,30 @@ export async function listEventLogs(dir: string = DEFAULT_LOG_DIR): Promise<stri
 export async function attachDebugSubscriber(bus: EventBus): Promise<{
   unsubscribe: () => Promise<void>;
   logPath: string | null;
+  rawLogPath: string | null;
+  logDirPath: string | null;
+  writeRawLine: (line: string, metadata?: { sessionId?: string; runId?: number; component?: RawStreamLogEntry["component"] }) => void;
 }> {
   const debugConfig = resolveStreamDebugLogConfig();
   if (!debugConfig.enabled) {
-    return { unsubscribe: async () => {}, logPath: null };
+    return {
+      unsubscribe: async () => {},
+      logPath: null,
+      rawLogPath: null,
+      logDirPath: null,
+      writeRawLine: () => {},
+    };
   }
 
-  const { write, writeDiagnostic, close, logPath } = await initEventLog({
+  const {
+    write,
+    writeDiagnostic,
+    writeRawLine,
+    close,
+    logPath,
+    rawLogPath,
+    logDirPath,
+  } = await initEventLog({
     logDir: debugConfig.logDir,
   });
 
@@ -600,8 +812,7 @@ export async function attachDebugSubscriber(bus: EventBus): Promise<{
       debugConfig,
       env: {
         DEBUG: process.env.DEBUG,
-        ATOMIC_DEBUG: process.env.ATOMIC_DEBUG,
-        ATOMIC_STREAM_DEBUG_LOG: process.env.ATOMIC_STREAM_DEBUG_LOG,
+        LOG_DIR: process.env.LOG_DIR,
         NODE_ENV: process.env.NODE_ENV,
       },
       argv: process.argv,
@@ -663,5 +874,5 @@ export async function attachDebugSubscriber(bus: EventBus): Promise<{
     await close();
   };
 
-  return { unsubscribe, logPath };
+  return { unsubscribe, logPath, rawLogPath, logDirPath, writeRawLine };
 }

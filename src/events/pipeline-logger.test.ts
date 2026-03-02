@@ -12,12 +12,10 @@ import {
 
 describe("Pipeline Logger", () => {
   let originalDebugEnv: string | undefined;
-  let originalAtomicDebugEnv: string | undefined;
   let debugSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
     originalDebugEnv = process.env.DEBUG;
-    originalAtomicDebugEnv = process.env.ATOMIC_DEBUG;
     resetPipelineDebugCache();
     debugSpy = spyOn(console, "debug").mockImplementation(() => {});
   });
@@ -29,19 +27,12 @@ describe("Pipeline Logger", () => {
       process.env.DEBUG = originalDebugEnv;
     }
 
-    if (originalAtomicDebugEnv === undefined) {
-      delete process.env.ATOMIC_DEBUG;
-    } else {
-      process.env.ATOMIC_DEBUG = originalAtomicDebugEnv;
-    }
-
     resetPipelineDebugCache();
     debugSpy.mockRestore();
   });
 
   test("isPipelineDebug() returns false when debug env is not set", () => {
     delete process.env.DEBUG;
-    delete process.env.ATOMIC_DEBUG;
     resetPipelineDebugCache();
     expect(isPipelineDebug()).toBe(false);
   });
@@ -52,16 +43,8 @@ describe("Pipeline Logger", () => {
     expect(isPipelineDebug()).toBe(true);
   });
 
-  test("isPipelineDebug() returns true with legacy ATOMIC_DEBUG=1", () => {
-    delete process.env.DEBUG;
-    process.env.ATOMIC_DEBUG = "1";
-    resetPipelineDebugCache();
-    expect(isPipelineDebug()).toBe(true);
-  });
-
   test("isPipelineDebug() returns false when DEBUG=0", () => {
     process.env.DEBUG = "0";
-    process.env.ATOMIC_DEBUG = "1";
     resetPipelineDebugCache();
     expect(isPipelineDebug()).toBe(false);
   });
@@ -78,7 +61,6 @@ describe("Pipeline Logger", () => {
 
   test("pipelineLog() emits nothing when debug is off", () => {
     delete process.env.DEBUG;
-    delete process.env.ATOMIC_DEBUG;
     resetPipelineDebugCache();
 
     pipelineLog("EventBus", "schema_drop", { type: "stream.text.delta" });
@@ -139,14 +121,12 @@ describe("Pipeline Logger", () => {
     expect(isPipelineDebug()).toBe(true);
 
     process.env.DEBUG = "0";
-    delete process.env.ATOMIC_DEBUG;
     resetPipelineDebugCache();
     expect(isPipelineDebug()).toBe(false);
   });
 
   test("pipelineError() emits nothing when debug is off", () => {
     delete process.env.DEBUG;
-    delete process.env.ATOMIC_DEBUG;
     resetPipelineDebugCache();
 
     const errorSpy = spyOn(console, "error").mockImplementation(() => {});

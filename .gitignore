@@ -177,3 +177,7 @@ atomic.exe
 # TUI test screenshots
 screenshots/
 tmux-screenshots/
+
+.claude/settings.local.json
+
+.playwright-cli

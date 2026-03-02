@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { ParallelAgent } from "../components/parallel-agents-tree.tsx";
 import {
+  evaluateBackgroundTerminationPress,
+  executeBackgroundTermination,
   getBackgroundTerminationDecision,
   interruptActiveBackgroundAgents,
   isBackgroundTerminationKey,
@@ -48,6 +50,23 @@ describe("background-agent termination keybinding", () => {
     expect(getBackgroundTerminationDecision(5, 0)).toEqual({
       action: "none",
     });
+  });
+
+  test("handles two rapid Ctrl+F presses without waiting for React state flush", () => {
+    const pressCountRef = { current: 0 };
+
+    const firstPress = evaluateBackgroundTerminationPress(pressCountRef, 2);
+    expect(firstPress.decision.action).toBe("warn");
+    expect(firstPress.pressCount).toBe(0);
+    expect(firstPress.nextPressCount).toBe(1);
+
+    // Simulate a second key event in the same input frame.
+    // The synchronous ref mutation should make this a terminate action.
+    const secondPress = evaluateBackgroundTerminationPress(pressCountRef, 2);
+    expect(secondPress.decision.action).toBe("terminate");
+    expect(secondPress.pressCount).toBe(1);
+    expect(secondPress.nextPressCount).toBe(0);
+    expect(pressCountRef.current).toBe(0);
   });
 });
 
@@ -132,5 +151,88 @@ describe("background-agent termination flow", () => {
     const result = interruptActiveBackgroundAgents(agents);
     expect(result.interruptedIds).toEqual([]);
     expect(result.agents).toEqual(agents);
+  });
+
+  test("waits for parent abort callback before applying local interruption", async () => {
+    const agents: ParallelAgent[] = [
+      createAgent({ id: "bg-active", status: "background", background: true }),
+      createAgent({ id: "fg-running", status: "running", background: false }),
+    ];
+    const callbackOrder: string[] = [];
+
+    const result = await executeBackgroundTermination({
+      getAgents: () => agents,
+      onTerminateBackgroundAgents: async () => {
+        callbackOrder.push("callback");
+      },
+    });
+
+    callbackOrder.push("after");
+    expect(callbackOrder).toEqual(["callback", "after"]);
+    expect(result.status).toBe("terminated");
+    expect(result.interruptedIds).toEqual(["bg-active"]);
+    expect(result.agents.find((agent) => agent.id === "bg-active")?.status).toBe("interrupted");
+    expect(result.agents.find((agent) => agent.id === "fg-running")?.status).toBe("running");
+  });
+
+  test("returns failed result and preserves live agents when abort callback rejects", async () => {
+    const agents: ParallelAgent[] = [
+      createAgent({ id: "bg-active", status: "background", background: true }),
+    ];
+
+    const result = await executeBackgroundTermination({
+      getAgents: () => agents,
+      onTerminateBackgroundAgents: async () => {
+        throw new Error("abort failed");
+      },
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.interruptedIds).toEqual([]);
+    expect(result.agents).toEqual(agents);
+    if (result.status === "failed") {
+      expect(result.error).toBeInstanceOf(Error);
+      expect((result.error as Error).message).toBe("abort failed");
+    }
+  });
+
+  test("does not invoke parent callback when no active background agents exist", async () => {
+    const callbackInvoked = { current: false };
+    const agents: ParallelAgent[] = [
+      createAgent({ id: "done", status: "completed", background: true }),
+      createAgent({ id: "fg", status: "running", background: false }),
+    ];
+
+    const result = await executeBackgroundTermination({
+      getAgents: () => agents,
+      onTerminateBackgroundAgents: async () => {
+        callbackInvoked.current = true;
+      },
+    });
+
+    expect(result.status).toBe("noop");
+    expect(result.interruptedIds).toEqual([]);
+    expect(callbackInvoked.current).toBe(false);
+  });
+
+  test("re-evaluates live agents after callback to avoid stale snapshots", async () => {
+    const activeAgents: ParallelAgent[] = [
+      createAgent({ id: "bg-active", status: "background", background: true }),
+    ];
+    const completedAgents: ParallelAgent[] = [
+      createAgent({ id: "bg-active", status: "completed", background: true }),
+    ];
+    let snapshot = activeAgents;
+
+    const result = await executeBackgroundTermination({
+      getAgents: () => snapshot,
+      onTerminateBackgroundAgents: async () => {
+        snapshot = completedAgents;
+      },
+    });
+
+    expect(result.status).toBe("terminated");
+    expect(result.interruptedIds).toEqual([]);
+    expect(result.agents).toEqual(completedAgents);
   });
 });

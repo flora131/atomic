@@ -2,11 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { formatDuration, formatTimestamp, normalizeMarkdownNewlines, truncateText } from "./format";
 
 describe("formatDuration", () => {
-  test("formats milliseconds under 1 second", () => {
-    expect(formatDuration(0)).toEqual({ text: "0ms", ms: 0 });
-    expect(formatDuration(1)).toEqual({ text: "1ms", ms: 1 });
-    expect(formatDuration(500)).toEqual({ text: "500ms", ms: 500 });
-    expect(formatDuration(999)).toEqual({ text: "999ms", ms: 999 });
+  test("formats sub-second values as seconds", () => {
+    expect(formatDuration(0)).toEqual({ text: "0s", ms: 0 });
+    expect(formatDuration(1)).toEqual({ text: "1s", ms: 1 });
+    expect(formatDuration(500)).toEqual({ text: "1s", ms: 500 });
+    expect(formatDuration(999)).toEqual({ text: "1s", ms: 999 });
   });
 
   test("formats seconds (1000ms to 59999ms)", () => {
@@ -30,14 +30,14 @@ describe("formatDuration", () => {
   });
 
   test("handles negative values as zero", () => {
-    expect(formatDuration(-1)).toEqual({ text: "0ms", ms: 0 });
-    expect(formatDuration(-1000)).toEqual({ text: "0ms", ms: 0 });
-    expect(formatDuration(-99999)).toEqual({ text: "0ms", ms: 0 });
+    expect(formatDuration(-1)).toEqual({ text: "0s", ms: 0 });
+    expect(formatDuration(-1000)).toEqual({ text: "0s", ms: 0 });
+    expect(formatDuration(-99999)).toEqual({ text: "0s", ms: 0 });
   });
 
   test("handles boundary values", () => {
     // Just under 1 second
-    expect(formatDuration(999)).toEqual({ text: "999ms", ms: 999 });
+    expect(formatDuration(999)).toEqual({ text: "1s", ms: 999 });
     // Exactly 1 second
     expect(formatDuration(1000)).toEqual({ text: "1s", ms: 1000 });
     // Just under 1 minute

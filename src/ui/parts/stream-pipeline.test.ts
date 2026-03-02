@@ -56,6 +56,96 @@ describe("applyStreamPartEvent", () => {
     expect(next.parts).toHaveLength(0);
   });
 
+  test("maps workflow task updates with blockedBy into task-list parts", () => {
+    const msg = createAssistantMessage();
+    const next = applyStreamPartEvent(msg, {
+      type: "task-list-update",
+      tasks: [
+        { id: "#1", title: "Plan", status: "completed", blockedBy: [] },
+        { id: "#2", title: "Implement", status: "pending", blockedBy: ["#1"] },
+      ],
+    });
+
+    const taskListPart = next.parts?.find((part) => part.type === "task-list");
+    expect(taskListPart?.type).toBe("task-list");
+    if (taskListPart?.type === "task-list") {
+      expect(taskListPart.items).toEqual([
+        { id: "#1", content: "Plan", status: "completed", blockedBy: [] },
+        { id: "#2", content: "Implement", status: "pending", blockedBy: ["#1"] },
+      ]);
+    }
+  });
+
+  test("upserts task result parts from workflow task result envelopes", () => {
+    const msg = createAssistantMessage();
+    const withResult = applyStreamPartEvent(msg, {
+      type: "task-result-upsert",
+      envelope: {
+        task_id: "#7",
+        tool_name: "task",
+        title: "Implement registry",
+        status: "completed",
+        output_text: "Implemented",
+        envelope_text: "task_id: #7",
+      },
+    });
+
+    const taskResultPart = withResult.parts?.find((part) => part.type === "task-result");
+    expect(taskResultPart?.type).toBe("task-result");
+    if (taskResultPart?.type === "task-result") {
+      expect(taskResultPart.taskId).toBe("#7");
+      expect(taskResultPart.status).toBe("completed");
+      expect(taskResultPart.outputText).toBe("Implemented");
+    }
+
+    const updated = applyStreamPartEvent(withResult, {
+      type: "task-result-upsert",
+      envelope: {
+        task_id: "#7",
+        tool_name: "task",
+        title: "Implement registry",
+        status: "error",
+        output_text: "Failed",
+        error: "lint failed",
+      },
+    });
+
+    const updatedTaskResultPart = updated.parts?.find((part) => part.type === "task-result");
+    expect(updatedTaskResultPart?.type).toBe("task-result");
+    if (updatedTaskResultPart?.type === "task-result") {
+      expect(updatedTaskResultPart.status).toBe("error");
+      expect(updatedTaskResultPart.error).toBe("lint failed");
+      expect(updatedTaskResultPart.outputText).toBe("Failed");
+    }
+    expect((updated.parts ?? []).filter((part) => part.type === "task-result")).toHaveLength(1);
+  });
+
+  test("ignores workflow step events", () => {
+    const msg = createAssistantMessage();
+    const startedAt = "2026-03-01T00:00:00.000Z";
+    const completedAt = "2026-03-01T00:00:02.000Z";
+
+    const withStepStart = applyStreamPartEvent(msg, {
+      type: "workflow-step-start",
+      workflowId: "wf-1",
+      nodeId: "worker",
+      nodeName: "Worker Node",
+      startedAt,
+    });
+
+    expect(withStepStart.parts ?? []).toHaveLength(0);
+
+    const withStepComplete = applyStreamPartEvent(withStepStart, {
+      type: "workflow-step-complete",
+      workflowId: "wf-1",
+      nodeId: "worker",
+      status: "success",
+      completedAt,
+    });
+
+    expect(withStepComplete.parts ?? []).toHaveLength(0);
+  });
+
   test("streams thinking as a dedicated reasoning part when enabled", () => {
     let msg = createAssistantMessage();
     msg = applyStreamPartEvent(msg, {
@@ -297,7 +387,21 @@ describe("applyStreamPartEvent", () => {
     expect((next.parts ?? []).filter((part) => part.type === "reasoning")).toHaveLength(1);
   });
 
-  test("handles tool start by finalizing text and inserting a tool part", () => {
+  test("text-complete is a no-op in the reducer (reconciliation handled upstream)", () => {
+    const msg = createAssistantMessage();
+    const withDelta = applyStreamPartEvent(msg, { type: "text-delta", delta: "Hello" });
+    const next = applyStreamPartEvent(withDelta, {
+      type: "text-complete",
+      fullText: "Hello World",
+      messageId: "msg-test",
+    });
+
+    // The reducer returns the message unchanged — reconciliation happens in useStreamConsumer
+    expect(next).toBe(withDelta);
+    expect(next.content).toBe("Hello");
+  });
+
+  test("handles tool start by finalizing active text", () => {
     let msg = createAssistantMessage();
     msg = applyStreamPartEvent(msg, { type: "text-delta", delta: "Before tool" });
 
@@ -377,7 +481,51 @@ describe("applyStreamPartEvent", () => {
     }
   });
 
-  test("keeps thinking, pre-tool text, and post-tool text segmented", () => {
+  test("accumulates partial output on running tool part", () => {
+    let msg = createAssistantMessage();
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-start",
+      toolId: "tool_1",
+      toolName: "bash",
+      input: { command: "ls -la" },
+    });
+
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-partial-result",
+      toolId: "tool_1",
+      partialOutput: "file1.txt\n",
+    });
+
+    const toolPart1 = msg.parts?.find((p) => p.type === "tool" && p.toolCallId === "tool_1");
+    expect(toolPart1?.type).toBe("tool");
+    if (toolPart1?.type === "tool") {
+      expect(toolPart1.partialOutput).toBe("file1.txt\n");
+      expect(toolPart1.state.status).toBe("running");
+    }
+
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-partial-result",
+      toolId: "tool_1",
+      partialOutput: "file2.txt\n",
+    });
+
+    const toolPart2 = msg.parts?.find((p) => p.type === "tool" && p.toolCallId === "tool_1");
+    if (toolPart2?.type === "tool") {
+      expect(toolPart2.partialOutput).toBe("file1.txt\nfile2.txt\n");
+    }
+  });
+
+  test("ignores partial result for unknown tool id", () => {
+    const msg = createAssistantMessage();
+    const next = applyStreamPartEvent(msg, {
+      type: "tool-partial-result",
+      toolId: "nonexistent",
+      partialOutput: "output",
+    });
+    expect(next.parts).toHaveLength(0);
+  });
+
+  test("keeps thinking, pre-tool text, and post-tool text segmented for visible tools", () => {
     let msg = createAssistantMessage();
     msg = applyStreamPartEvent(msg, {
       type: "thinking-meta",
@@ -421,6 +569,119 @@ describe("applyStreamPartEvent", () => {
     if (secondText?.type === "text") {
       expect(secondText.content).toBe(" after tool");
       expect(secondText.isStreaming).toBe(true);
+    }
+  });
+
+  test("splits text blocks when TodoWrite interleaves mid-stream", () => {
+    let msg = createAssistantMessage();
+    msg = applyStreamPartEvent(msg, { type: "text-delta", delta: "Draft answer" });
+
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-start",
+      toolId: "tool_todo_1",
+      toolName: "TodoWrite",
+      input: { todos: [] },
+    });
+
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-complete",
+      toolId: "tool_todo_1",
+      toolName: "TodoWrite",
+      output: { ok: true },
+      success: true,
+    });
+
+    const next = applyStreamPartEvent(msg, { type: "text-delta", delta: " after todo" });
+
+    expect(next.content).toBe("Draft answer after todo");
+    expect(next.parts?.map((part) => part.type)).toEqual(["text", "tool", "text"]);
+
+    const firstText = next.parts?.[0];
+    expect(firstText?.type).toBe("text");
+    if (firstText?.type === "text") {
+      expect(firstText.content).toBe("Draft answer");
+      expect(firstText.isStreaming).toBe(false);
+    }
+
+    const secondText = next.parts?.[2];
+    expect(secondText?.type).toBe("text");
+    if (secondText?.type === "text") {
+      expect(secondText.content).toBe(" after todo");
+      expect(secondText.isStreaming).toBe(true);
+    }
+  });
+
+  test("keeps sentence punctuation separated across TodoWrite boundaries", () => {
+    let msg = createAssistantMessage();
+    msg = applyStreamPartEvent(msg, {
+      type: "text-delta",
+      delta: "Now I have full context of the codebase. Let me set up the research plan and spawn parallel agents.",
+    });
+
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-start",
+      toolId: "tool_todo_2",
+      toolName: "TodoWrite",
+      input: { todos: [{ content: "Spawn research agents", status: "in_progress" }] },
+    });
+
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-complete",
+      toolId: "tool_todo_2",
+      toolName: "TodoWrite",
+      output: { ok: true },
+      success: true,
+    });
+
+    const next = applyStreamPartEvent(msg, {
+      type: "text-delta",
+      delta: "Now let me spawn parallel research agents.",
+    });
+
+    expect(next.content).toBe(
+      "Now I have full context of the codebase. Let me set up the research plan and spawn parallel agents.Now let me spawn parallel research agents.",
+    );
+    expect(next.parts?.map((part) => part.type)).toEqual(["text", "tool", "text"]);
+
+    const preToolText = next.parts?.[0];
+    expect(preToolText?.type).toBe("text");
+    if (preToolText?.type === "text") {
+      expect(preToolText.content).toBe(
+        "Now I have full context of the codebase. Let me set up the research plan and spawn parallel agents.",
+      );
+      expect(preToolText.isStreaming).toBe(false);
+    }
+
+    const postToolText = next.parts?.[2];
+    expect(postToolText?.type).toBe("text");
+    if (postToolText?.type === "text") {
+      expect(postToolText.content).toBe("Now let me spawn parallel research agents.");
+      expect(postToolText.isStreaming).toBe(true);
+    }
+  });
+
+  test("starts a separate block for TaskOutput tools", () => {
+    let msg = createAssistantMessage();
+    msg = applyStreamPartEvent(msg, { type: "text-delta", delta: "Waiting..." });
+
+    const next = applyStreamPartEvent(msg, {
+      type: "tool-start",
+      toolId: "task_output_1",
+      toolName: "TaskOutput",
+      input: { task_id: "agent-1", block: true },
+    });
+
+    expect(next.parts?.map((part) => part.type)).toEqual(["text", "tool"]);
+    const textPart = next.parts?.[0];
+    expect(textPart?.type).toBe("text");
+    if (textPart?.type === "text") {
+      expect(textPart.content).toBe("Waiting...");
+      expect(textPart.isStreaming).toBe(false);
+    }
+    const toolPart = next.parts?.[1];
+    expect(toolPart?.type).toBe("tool");
+    if (toolPart?.type === "tool") {
+      expect(toolPart.toolName).toBe("TaskOutput");
     }
   });
 
@@ -498,6 +759,237 @@ describe("applyStreamPartEvent", () => {
     if (agentPart?.type === "agent") {
       expect(agentPart.agents[0]?.background).toBe(true);
       expect(agentPart.agents[0]?.status).toBe("background");
+    }
+  });
+
+  test("routes agent thinking-meta into inlineParts", () => {
+    let msg = createAssistantMessage();
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-start",
+      toolId: "task_1",
+      toolName: "Task",
+      input: { description: "Investigate" },
+    });
+    msg = applyStreamPartEvent(msg, {
+      type: "parallel-agents",
+      agents: [
+        {
+          id: "agent_1",
+          taskToolCallId: "task_1",
+          name: "researcher",
+          task: "Investigate",
+          status: "running",
+          startedAt: new Date().toISOString(),
+        },
+      ],
+      isLastMessage: true,
+    });
+
+    const next = applyStreamPartEvent(msg, {
+      type: "thinking-meta",
+      thinkingSourceKey: "agent:source",
+      targetMessageId: "msg-test",
+      streamGeneration: 1,
+      thinkingMs: 350,
+      thinkingText: "agent reasoning",
+      includeReasoningPart: true,
+      agentId: "agent_1",
+    });
+
+    expect((next.parts ?? []).some((part) => part.type === "reasoning")).toBe(false);
+    const agentPart = next.parts?.find((part) => part.type === "agent");
+    expect(agentPart?.type).toBe("agent");
+    if (agentPart?.type === "agent") {
+      const inlineReasoning = agentPart.agents[0]?.inlineParts?.find((part) => part.type === "reasoning");
+      expect(inlineReasoning?.type).toBe("reasoning");
+      if (inlineReasoning?.type === "reasoning") {
+        expect(inlineReasoning.content).toBe("agent reasoning");
+        expect(inlineReasoning.thinkingSourceKey).toBe("agent:source");
+        expect(inlineReasoning.durationMs).toBe(350);
+      }
+    }
+  });
+
+  test("keeps agent-scoped tool events out of top-level toolCalls", () => {
+    let msg = createAssistantMessage();
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-start",
+      toolId: "task_1",
+      toolName: "Task",
+      input: { description: "Investigate" },
+    });
+    msg = applyStreamPartEvent(msg, {
+      type: "parallel-agents",
+      agents: [
+        {
+          id: "agent_1",
+          taskToolCallId: "task_1",
+          name: "researcher",
+          task: "Investigate",
+          status: "running",
+          startedAt: new Date().toISOString(),
+        },
+      ],
+      isLastMessage: true,
+    });
+
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-start",
+      toolId: "agent_tool_1",
+      toolName: "Read",
+      input: { filePath: "src/ui/chat.tsx" },
+      agentId: "agent_1",
+    });
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-complete",
+      toolId: "agent_tool_1",
+      toolName: "Read",
+      output: "ok",
+      success: true,
+      agentId: "agent_1",
+    });
+
+    expect(msg.toolCalls?.map((toolCall) => toolCall.id)).toEqual(["task_1"]);
+    const topLevelToolIds = (msg.parts ?? [])
+      .filter((part) => part.type === "tool")
+      .map((part) => part.toolCallId);
+    expect(topLevelToolIds).toEqual(["task_1"]);
+
+    const agentPart = msg.parts?.find((part) => part.type === "agent");
+    expect(agentPart?.type).toBe("agent");
+    if (agentPart?.type === "agent") {
+      const inlineTool = agentPart.agents[0]?.inlineParts?.find(
+        (part) => part.type === "tool" && part.toolCallId === "agent_tool_1",
+      );
+      expect(inlineTool?.type).toBe("tool");
+      if (inlineTool?.type === "tool") {
+        expect(inlineTool.state.status).toBe("completed");
+      }
+    }
+  });
+
+  test("mirrors agent-scoped TaskOutput into top-level tool blocks", () => {
+    let msg = createAssistantMessage();
+    msg = applyStreamPartEvent(msg, { type: "text-delta", delta: "Waiting for agents..." });
+
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-start",
+      toolId: "task_output_agent_1",
+      toolName: "TaskOutput",
+      input: { task_id: "agent_1", block: true },
+      agentId: "agent_1",
+    });
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-complete",
+      toolId: "task_output_agent_1",
+      toolName: "TaskOutput",
+      output: { retrieval_status: "timeout", task: null },
+      success: true,
+      agentId: "agent_1",
+    });
+
+    expect(msg.toolCalls?.map((toolCall) => toolCall.id)).toEqual(["task_output_agent_1"]);
+    expect(msg.parts?.map((part) => part.type)).toEqual(["text", "tool"]);
+
+    const textPart = msg.parts?.[0];
+    expect(textPart?.type).toBe("text");
+    if (textPart?.type === "text") {
+      expect(textPart.content).toBe("Waiting for agents...");
+      expect(textPart.isStreaming).toBe(false);
+    }
+
+    const toolPart = msg.parts?.[1];
+    expect(toolPart?.type).toBe("tool");
+    if (toolPart?.type === "tool") {
+      expect(toolPart.toolName).toBe("TaskOutput");
+      expect(toolPart.state.status).toBe("completed");
+    }
+  });
+
+  test("separates main-text updates after mirrored TaskOutput boundaries", () => {
+    let msg = createAssistantMessage();
+    msg = applyStreamPartEvent(msg, {
+      type: "text-delta",
+      delta: "Waiting for all agents to complete before synthesizing the findings into a comprehensive research document...",
+    });
+
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-start",
+      toolId: "task_output_agent_2",
+      toolName: "TaskOutput",
+      input: { task_id: "agent_2", block: true },
+      agentId: "agent_2",
+    });
+
+    const next = applyStreamPartEvent(msg, {
+      type: "text-delta",
+      delta: "First agent completed. Waiting for the remaining three...",
+    });
+
+    expect(next.parts?.map((part) => part.type)).toEqual(["text", "tool", "text"]);
+    const preToolText = next.parts?.[0];
+    expect(preToolText?.type).toBe("text");
+    if (preToolText?.type === "text") {
+      expect(preToolText.content).toBe(
+        "Waiting for all agents to complete before synthesizing the findings into a comprehensive research document...",
+      );
+      expect(preToolText.isStreaming).toBe(false);
+    }
+    const postToolText = next.parts?.[2];
+    expect(postToolText?.type).toBe("text");
+    if (postToolText?.type === "text") {
+      expect(postToolText.content).toBe("First agent completed. Waiting for the remaining three...");
+      expect(postToolText.isStreaming).toBe(true);
+    }
+  });
+
+  test("replays buffered agent thinking-meta into inlineParts when agent appears", () => {
+    let msg = createAssistantMessage();
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-start",
+      toolId: "task_1",
+      toolName: "Task",
+      input: { description: "Investigate" },
+    });
+
+    msg = applyStreamPartEvent(msg, {
+      type: "thinking-meta",
+      thinkingSourceKey: "agent:source",
+      targetMessageId: "msg-test",
+      streamGeneration: 1,
+      thinkingMs: 510,
+      thinkingText: "buffered agent reasoning",
+      includeReasoningPart: true,
+      agentId: "agent_1",
+    });
+
+    expect((msg.parts ?? []).some((part) => part.type === "reasoning")).toBe(false);
+
+    const next = applyStreamPartEvent(msg, {
+      type: "parallel-agents",
+      agents: [
+        {
+          id: "agent_1",
+          taskToolCallId: "task_1",
+          name: "researcher",
+          task: "Investigate",
+          status: "running",
+          startedAt: new Date().toISOString(),
+        },
+      ],
+      isLastMessage: true,
+    });
+
+    const agentPart = next.parts?.find((part) => part.type === "agent");
+    expect(agentPart?.type).toBe("agent");
+    if (agentPart?.type === "agent") {
+      const inlineReasoning = agentPart.agents[0]?.inlineParts?.find((part) => part.type === "reasoning");
+      expect(inlineReasoning?.type).toBe("reasoning");
+      if (inlineReasoning?.type === "reasoning") {
+        expect(inlineReasoning.content).toBe("buffered agent reasoning");
+        expect(inlineReasoning.thinkingSourceKey).toBe("agent:source");
+        expect(inlineReasoning.durationMs).toBe(510);
+      }
     }
   });
 

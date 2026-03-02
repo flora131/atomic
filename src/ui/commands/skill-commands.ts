@@ -89,6 +89,96 @@ export interface DiskSkillDefinition {
     requiredArguments?: string[];
 }
 
+export interface BuiltinSkillDefinition {
+    name: string;
+    description: string;
+    prompt: string;
+    aliases?: string[];
+    argumentHint?: string;
+    requiredArguments?: string[];
+}
+
+export const BUILTIN_SKILLS: BuiltinSkillDefinition[] = [
+    {
+        name: "playwright-cli",
+        aliases: ["pw", "playwright"],
+        description:
+            "Browser automation for web research, data extraction, and UI testing with Playwright CLI",
+        argumentHint: "[url-or-task]",
+        prompt: `# Browser Automation with playwright-cli
+
+Use this skill when the user asks to browse websites, validate UI flows, reproduce web bugs, fill forms, or capture page artifacts.
+
+User request: $ARGUMENTS
+
+## Standard workflow
+
+1. Open a browser session.
+2. Navigate to the target URL.
+3. Capture a snapshot to get element refs.
+4. Interact with page elements by ref.
+5. Capture evidence (snapshot/screenshot/pdf) when needed.
+6. Close the browser when done.
+
+## Command patterns
+
+### Navigation
+
+\`\`\`bash
+playwright-cli open [url]
+playwright-cli goto <url>
+playwright-cli go-back
+playwright-cli go-forward
+playwright-cli reload
+playwright-cli close
+\`\`\`
+
+### Interaction
+
+\`\`\`bash
+playwright-cli click <ref> [button]
+playwright-cli dblclick <ref> [button]
+playwright-cli fill <ref> <text>
+playwright-cli type <text>
+playwright-cli press <key>
+playwright-cli select <ref> <value>
+playwright-cli check <ref>
+playwright-cli uncheck <ref>
+playwright-cli hover <ref>
+playwright-cli drag <startRef> <endRef>
+playwright-cli upload <file>
+\`\`\`
+
+### Page state and artifacts
+
+\`\`\`bash
+playwright-cli snapshot
+playwright-cli screenshot
+playwright-cli pdf --filename=page.pdf
+playwright-cli eval "document.title"
+playwright-cli console
+playwright-cli network
+\`\`\`
+
+## Best practices
+
+- Run \`snapshot\` often to refresh refs before interacting.
+- Use element refs (\`e1\`, \`e2\`, ...) from the latest snapshot.
+- Keep actions incremental and verify after meaningful steps.
+- Use named sessions for multi-step workflows that need persistent state.
+
+## Fallback execution
+
+If global \`playwright-cli\` is unavailable, use Bun:
+
+\`\`\`bash
+bunx @playwright/cli open https://example.com
+bunx @playwright/cli snapshot
+\`\`\`
+`,
+    },
+];
+
 function shouldSkillOverride(
     newSource: SkillSource,
     existingSource: SkillSource,
@@ -232,6 +322,56 @@ function loadSkillContent(skillFilePath: string): string | null {
     }
 }
 
+function dispatchLoadedSkillPrompt(
+    skillName: string,
+    body: string,
+    skillArgs: string,
+    context: CommandContext,
+): CommandResult {
+    const expandedPrompt = expandArguments(body, skillArgs);
+    // Prepend a directive so the model acts on the already-expanded
+    // skill content rather than re-loading the raw skill via the SDK's
+    // built-in "skill" tool (which would lose the $ARGUMENTS expansion).
+    const directive =
+        `<skill-loaded name="${skillName}">\n` +
+        `The "${skillName}" skill has already been loaded with the user's arguments below. ` +
+        `Do NOT invoke the Skill tool for "${skillName}" — follow the instructions directly.\n` +
+        `</skill-loaded>\n\n`;
+    context.sendSilentMessage(directive + expandedPrompt);
+    return { success: true, skillLoaded: skillName };
+}
+
+function createBuiltinSkillCommand(skill: BuiltinSkillDefinition): CommandDefinition {
+    return {
+        name: skill.name,
+        description: skill.description,
+        category: "skill",
+        aliases: skill.aliases,
+        argumentHint: skill.argumentHint,
+        execute: (args: string, context: CommandContext): CommandResult => {
+            const skillArgs = args.trim();
+
+            // Validate required arguments from built-in definition
+            if (skill.requiredArguments?.length && !skillArgs) {
+                const argList = skill.requiredArguments
+                    .map((a) => `<${a}>`)
+                    .join(" ");
+                return {
+                    success: false,
+                    message: `Missing required argument.\nUsage: /${skill.name} ${argList}`,
+                };
+            }
+
+            return dispatchLoadedSkillPrompt(
+                skill.name,
+                skill.prompt,
+                skillArgs,
+                context,
+            );
+        },
+    };
+}
+
 function createDiskSkillCommand(skill: DiskSkillDefinition): CommandDefinition {
     return {
         name: skill.name,
@@ -263,22 +403,22 @@ function createDiskSkillCommand(skill: DiskSkillDefinition): CommandDefinition {
                 context.sendSilentMessage(invocationMessage);
                 return { success: true, skillLoaded: skill.name };
             }
-            const expandedPrompt = expandArguments(body, skillArgs);
-            // Prepend a directive so the model acts on the already-expanded
-            // skill content rather than re-loading the raw skill via the SDK's
-            // built-in "skill" tool (which would lose the $ARGUMENTS expansion).
-            const directive =
-                `<skill-loaded name="${skill.name}">\n` +
-                `The "${skill.name}" skill has already been loaded with the user's arguments below. ` +
-                `Do NOT invoke the Skill tool for "${skill.name}" — follow the instructions directly.\n` +
-                `</skill-loaded>\n\n`;
-            context.sendSilentMessage(directive + expandedPrompt);
-            return { success: true, skillLoaded: skill.name };
+            return dispatchLoadedSkillPrompt(skill.name, body, skillArgs, context);
         },
     };
 }
 
+export function registerBuiltinSkills(): void {
+    for (const skill of BUILTIN_SKILLS) {
+        if (globalRegistry.has(skill.name)) {
+            continue;
+        }
+        globalRegistry.register(createBuiltinSkillCommand(skill));
+    }
+}
+
 export async function discoverAndRegisterDiskSkills(): Promise<void> {
+    registerBuiltinSkills();
     const files = discoverSkillFiles();
 
     // Build map with priority resolution (project > user)

@@ -26,7 +26,7 @@
 ```bash
 bun test              # Run all tests with coverage
 bun test --bail       # Stop on first failure
-bun test src/graph/   # Run tests for a specific module
+bun test src/workflows/graph/   # Run tests for a specific module
 ```
 
 ### Writing Tests

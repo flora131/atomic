@@ -9,6 +9,7 @@ import type { ChatMessage, MessageToolCall } from "../chat.tsx";
 import type { ParallelAgent } from "../components/parallel-agents-tree.tsx";
 import type { HitlResponseRecord } from "../utils/hitl-response.ts";
 import type { PermissionOption } from "../../sdk/types.ts";
+import type { WorkflowRuntimeTaskResultEnvelope } from "../../workflows/runtime-contracts.ts";
 import { type PartId, createPartId } from "./id.ts";
 import { upsertPart, findLastPartIndex } from "./store.ts";
 import { handleTextDelta } from "./handlers.ts";
@@ -17,6 +18,8 @@ import type {
   AgentPart,
   Part,
   ReasoningPart,
+  TaskResultPart,
+  TaskListPart,
   TextPart,
   ToolPart,
   ToolState,
@@ -30,20 +33,33 @@ interface ToolStartEvent {
   toolName: string;
   input: Record<string, unknown>;
   startedAt?: string;
+  /** Sub-agent ID if this event is scoped to a workflow sub-agent */
+  agentId?: string;
 }
 
 interface ToolCompleteEvent {
   type: "tool-complete";
   toolId: string;
+  toolName?: string;
   output: unknown;
   success: boolean;
   error?: string;
   input?: Record<string, unknown>;
+  /** Sub-agent ID if this event is scoped to a workflow sub-agent */
+  agentId?: string;
 }
 
 interface TextDeltaEvent {
   type: "text-delta";
   delta: string;
+  /** Sub-agent ID if this event is scoped to a workflow sub-agent */
+  agentId?: string;
+}
+
+interface TextCompleteEvent {
+  type: "text-complete";
+  fullText: string;
+  messageId: string;
 }
 
 export type ThinkingProvider = "claude" | "opencode" | "copilot" | "unknown";
@@ -55,6 +71,8 @@ export interface ThinkingMetaEvent {
   streamGeneration: number;
   thinkingText: string;
   thinkingMs: number;
+  /** Sub-agent ID if this event is scoped to a workflow sub-agent */
+  agentId?: string;
   /**
    * Off by default to keep current UI behavior until dedicated
    * reasoning rendering task is complete.
@@ -88,19 +106,70 @@ interface ParallelAgentsEvent {
   isLastMessage: boolean;
 }
 
+interface TaskListUpdateEvent {
+  type: "task-list-update";
+  tasks: Array<{
+    id: string;
+    title: string;
+    status: string;
+    blockedBy?: string[];
+  }>;
+}
+
+interface WorkflowStepStartEvent {
+  type: "workflow-step-start";
+  workflowId: string;
+  nodeId: string;
+  nodeName: string;
+  startedAt?: string;
+}
+
+interface WorkflowStepCompleteEvent {
+  type: "workflow-step-complete";
+  workflowId: string;
+  nodeId: string;
+  nodeName?: string;
+  status: "success" | "error" | "skipped";
+  result?: unknown;
+  completedAt?: string;
+}
+
+interface TaskResultUpsertEvent {
+  type: "task-result-upsert";
+  envelope: WorkflowRuntimeTaskResultEnvelope;
+}
+
+interface ToolPartialResultEvent {
+  type: "tool-partial-result";
+  toolId: string;
+  partialOutput: string;
+  /** Sub-agent ID if this event is scoped to a workflow sub-agent */
+  agentId?: string;
+}
+
 export type StreamPartEvent =
   | TextDeltaEvent
+  | TextCompleteEvent
   | ThinkingMetaEvent
   | ToolStartEvent
   | ToolCompleteEvent
+  | ToolPartialResultEvent
   | HitlRequestEvent
   | HitlResponseEvent
-  | ParallelAgentsEvent;
+  | ParallelAgentsEvent
+  | TaskListUpdateEvent
+  | WorkflowStepStartEvent
+  | WorkflowStepCompleteEvent
+  | TaskResultUpsertEvent;
 
 const reasoningPartIdBySourceRegistry = new WeakMap<ChatMessage, Map<string, PartId>>();
 
 function isHitlToolName(toolName: string): boolean {
   return toolName === "AskUserQuestion" || toolName === "question" || toolName === "ask_user";
+}
+
+function isTaskOutputToolName(toolName: string | undefined): boolean {
+  return (toolName ?? "").trim().toLowerCase() === "taskoutput";
 }
 
 export function toToolState(
@@ -131,8 +200,14 @@ export function toToolState(
           : (typeof output === "string" && output.trim() ? output : "Tool execution failed"),
         output,
       };
-    case "interrupted":
-      return { status: "interrupted", partialOutput: output };
+    case "interrupted": {
+      let durationMs: number | undefined;
+      if (existingState?.status === "running") {
+        const startedAtMs = new Date(existingState.startedAt).getTime();
+        durationMs = Number.isFinite(startedAtMs) ? Math.max(0, Date.now() - startedAtMs) : undefined;
+      }
+      return { status: "interrupted", partialOutput: output, durationMs };
+    }
   }
 }
 
@@ -151,28 +226,31 @@ function finalizeLastStreamingTextPart(parts: Part[]): Part[] {
   return updated;
 }
 
-export function finalizeStreamingReasoningParts(parts: Part[]): Part[] {
+export function finalizeStreamingReasoningParts(parts: Part[], fallbackDurationMs?: number): Part[] {
   let changed = false;
   const updated = parts.map((part) => {
     if (part.type !== "reasoning" || !part.isStreaming) {
       return part;
     }
     changed = true;
+    const rp = part as ReasoningPart;
     return {
-      ...part,
+      ...rp,
       isStreaming: false,
+      // Use existing durationMs if available, otherwise fall back to message-level thinkingMs
+      durationMs: rp.durationMs || fallbackDurationMs || 0,
     };
   });
 
   return changed ? updated : parts;
 }
 
-export function finalizeStreamingReasoningInMessage<T extends { parts?: Part[] }>(message: T): T {
+export function finalizeStreamingReasoningInMessage<T extends { parts?: Part[]; thinkingMs?: number }>(message: T): T {
   if (!message.parts || message.parts.length === 0) {
     return message;
   }
 
-  const finalizedParts = finalizeStreamingReasoningParts(message.parts);
+  const finalizedParts = finalizeStreamingReasoningParts(message.parts, message.thinkingMs);
   if (finalizedParts === message.parts) {
     return message;
   }
@@ -253,7 +331,11 @@ function upsertToolPartStart(parts: Part[], event: ToolStartEvent): Part[] {
     return updated;
   }
 
-  const finalized = finalizeLastStreamingTextPart(parts);
+  // Always finalize the currently streaming text part before a tool block.
+  // This preserves visible tool boundaries in the transcript and prevents
+  // punctuation/text from being merged across interleaved tool calls.
+  const baseParts = finalizeLastStreamingTextPart(parts);
+
   const toolPart: ToolPart = {
     id: createPartId(),
     type: "tool",
@@ -263,7 +345,7 @@ function upsertToolPartStart(parts: Part[], event: ToolStartEvent): Part[] {
     state: { status: "running", startedAt: event.startedAt ?? new Date().toISOString() },
     createdAt: new Date().toISOString(),
   };
-  return upsertPart(finalized, toolPart);
+  return upsertPart(baseParts, toolPart);
 }
 
 function upsertToolCallComplete(
@@ -278,8 +360,12 @@ function upsertToolCallComplete(
     const updatedInput = (event.input && Object.keys(toolCall.input).length === 0)
       ? event.input
       : toolCall.input;
+    const updatedToolName = toolCall.toolName === "unknown"
+      ? (event.toolName ?? "unknown")
+      : toolCall.toolName;
     return {
       ...toolCall,
+      toolName: updatedToolName,
       input: updatedInput,
       output: mergeToolCallOutput(toolCall, event.output),
       status: event.success ? ("completed" as const) : ("error" as const),
@@ -292,7 +378,7 @@ function upsertToolCallComplete(
     ...updated,
     {
       id: event.toolId,
-      toolName: "unknown",
+      toolName: event.toolName ?? "unknown",
       input: event.input ?? {},
       output: event.output,
       status: event.success ? ("completed" as const) : ("error" as const),
@@ -324,6 +410,7 @@ function upsertToolPartComplete(parts: Part[], event: ToolCompleteEvent): Part[]
     const updated = [...parts];
     updated[toolPartIdx] = {
       ...existing,
+      toolName: existing.toolName === "unknown" ? (event.toolName ?? "unknown") : existing.toolName,
       input: updatedInput,
       output: event.output,
       state: newState,
@@ -335,7 +422,7 @@ function upsertToolPartComplete(parts: Part[], event: ToolCompleteEvent): Part[]
     id: createPartId(),
     type: "tool",
     toolCallId: event.toolId,
-    toolName: "unknown",
+    toolName: event.toolName ?? "unknown",
     input: event.input ?? {},
     output: event.output,
     state: event.success
@@ -494,6 +581,51 @@ function upsertThinkingMeta(
   return nextMessage;
 }
 
+function upsertThinkingMetaPart(parts: Part[], event: ThinkingMetaEvent): Part[] {
+  if (!event.includeReasoningPart) {
+    return parts;
+  }
+
+  const existingIdx = parts.findIndex(
+    (part) => part.type === "reasoning" && (part as ReasoningPart).thinkingSourceKey === event.thinkingSourceKey,
+  );
+
+  if (existingIdx >= 0) {
+    const existing = parts[existingIdx] as ReasoningPart;
+    const updated = [...parts];
+    updated[existingIdx] = {
+      ...existing,
+      thinkingSourceKey: event.thinkingSourceKey,
+      content: event.thinkingText,
+      durationMs: event.thinkingMs,
+      isStreaming: true,
+    };
+    return updated;
+  }
+
+  if (event.thinkingText.trim().length === 0) {
+    return parts;
+  }
+
+  const reasoningPart: ReasoningPart = {
+    id: createPartId(),
+    type: "reasoning",
+    thinkingSourceKey: event.thinkingSourceKey,
+    content: event.thinkingText,
+    durationMs: event.thinkingMs,
+    isStreaming: true,
+    createdAt: new Date().toISOString(),
+  };
+  const updated = [...parts];
+  const firstTextIdx = updated.findIndex((part) => part.type === "text");
+  if (firstTextIdx >= 0) {
+    updated.splice(firstTextIdx, 0, reasoningPart);
+  } else {
+    updated.push(reasoningPart);
+  }
+  return updated;
+}
+
 function cloneReasoningPartRegistry(message: ChatMessage): Map<string, PartId> {
   const existing = reasoningPartIdBySourceRegistry.get(message);
   if (existing) {
@@ -521,18 +653,26 @@ function carryReasoningPartRegistry(from: ChatMessage, to: ChatMessage): ChatMes
   return to;
 }
 
-function isActiveParallelAgent(agent: ParallelAgent): boolean {
-  return (
-    agent.status === "running"
-    || agent.status === "pending"
-    || agent.status === "background"
-  );
+/**
+ * Check if a tool name represents a sub-agent dispatch tool.
+ *
+ * Different SDKs use different tool names for sub-agent invocation:
+ * - OpenCode / Copilot: "Task" or "task"
+ * - Claude Agent SDK:   "Agent" or "agent"
+ * - Claude SDK (alt):   "launch_agent"
+ *
+ * This helper centralises the check so that the pipeline correctly
+ * recognises sub-agent tools regardless of which SDK emitted the event.
+ */
+export function isSubagentToolName(toolName: string): boolean {
+  const normalized = toolName.toLowerCase();
+  return normalized === "task" || normalized === "agent" || normalized === "launch_agent";
 }
 
 function hasSubagentCall(message: Pick<ChatMessage, "parallelAgents" | "toolCalls">): boolean {
   if ((message.parallelAgents?.length ?? 0) > 0) return true;
   return (message.toolCalls ?? []).some(
-    (toolCall) => toolCall.toolName === "Task" || toolCall.toolName === "task",
+    (toolCall) => isSubagentToolName(toolCall.toolName),
   );
 }
 
@@ -564,38 +704,14 @@ function normalizeParallelAgents(agents: ParallelAgent[]): ParallelAgent[] {
   return changed ? normalizedAgents : agents;
 }
 
-function isGroupedAgentPart(part: Part): part is AgentPart {
-  return part.type === "agent" && part.parentToolPartId === undefined;
-}
-
 export function shouldGroupSubagentTrees(
   message: Pick<ChatMessage, "parallelAgents" | "toolCalls" | "parts">,
-  isLastMessage: boolean,
+  _isLastMessage: boolean,
 ): boolean {
-  if (!isLastMessage) return false;
   const agents = message.parallelAgents ?? [];
   if (agents.length === 0) return false;
   if (!hasSubagentCall(message)) return false;
-
-  const parts = message.parts ?? [];
-  let hasSeenTask = false;
-  for (const part of parts) {
-    if (part.type === "tool") {
-      const toolName = part.toolName;
-      if (toolName === "Task" || toolName === "task") {
-        hasSeenTask = true;
-      } else {
-        return false;
-      }
-    } else if (part.type === "text") {
-      if (hasSeenTask && part.content.trim().length > 0) {
-        return false;
-      }
-    }
-  }
-
-  if (agents.some(isActiveParallelAgent)) return true;
-  return (message.parts ?? []).some(isGroupedAgentPart);
+  return true;
 }
 
 function getAgentInsertIndex(parts: Part[]): number {
@@ -607,7 +723,7 @@ function getAgentInsertIndex(parts: Part[]): number {
     if (!part || part.type !== "tool") continue;
     lastToolIdx = i;
     const toolName = (part as ToolPart).toolName;
-    if (toolName === "Task" || toolName === "task") {
+    if (isSubagentToolName(toolName)) {
       lastTaskToolIdx = i;
     }
   }
@@ -634,6 +750,106 @@ function insertAgentPartAtTaskBoundary(parts: Part[], agentPart: AgentPart): Par
   ];
 }
 
+/**
+ * Buffer for agent-scoped events that arrive before the AgentPart is created.
+ * Keyed by agentId → array of pending StreamPartEvents.
+ * Replayed when the parallel-agents event creates the AgentPart.
+ */
+const agentEventBuffer = new Map<string, StreamPartEvent[]>();
+
+/** Buffer an event for later replay when agent appears in parts. */
+function bufferAgentEvent(agentId: string, event: StreamPartEvent): void {
+  const existing = agentEventBuffer.get(agentId) ?? [];
+  existing.push(event);
+  agentEventBuffer.set(agentId, existing);
+}
+
+/** Drain buffered events for an agent and apply them to parts. */
+function drainBufferedEvents(parts: Part[], agentId: string): Part[] {
+  const buffered = agentEventBuffer.get(agentId);
+  if (!buffered || buffered.length === 0) return parts;
+
+  agentEventBuffer.delete(agentId);
+  let currentParts = parts;
+  for (const event of buffered) {
+    if (event.type === "text-delta" && event.agentId) {
+      const routed = routeToAgentInlineParts(currentParts, event.agentId, (inlineParts) => {
+        const lastText = inlineParts.length > 0 ? inlineParts[inlineParts.length - 1] : undefined;
+        if (lastText && lastText.type === "text" && (lastText as TextPart).isStreaming) {
+          const updated = [...inlineParts];
+          updated[updated.length - 1] = {
+            ...(lastText as TextPart),
+            content: (lastText as TextPart).content + event.delta,
+          };
+          return updated;
+        }
+        return [...inlineParts, {
+          id: createPartId(),
+          type: "text",
+          content: event.delta,
+          isStreaming: true,
+          createdAt: new Date().toISOString(),
+        } as TextPart];
+      });
+      if (routed) currentParts = routed;
+    } else if (event.type === "tool-start" && event.agentId) {
+      const routed = routeToAgentInlineParts(currentParts, event.agentId, (inlineParts) => {
+        return upsertToolPartStart(inlineParts, event);
+      });
+      if (routed) currentParts = routed;
+    } else if (event.type === "tool-complete" && event.agentId) {
+      const routed = routeToAgentInlineParts(currentParts, event.agentId, (inlineParts) => {
+        return upsertToolPartComplete(inlineParts, event);
+      });
+      if (routed) currentParts = routed;
+    } else if (event.type === "tool-partial-result" && event.agentId) {
+      const routed = routeToAgentInlineParts(currentParts, event.agentId, (inlineParts) => {
+        const updatedInlineParts = [...inlineParts];
+        const toolPartIdx = updatedInlineParts.findIndex(
+          (part) => part.type === "tool" && (part as ToolPart).toolCallId === event.toolId,
+        );
+        if (toolPartIdx >= 0) {
+          const existing = updatedInlineParts[toolPartIdx] as ToolPart;
+          updatedInlineParts[toolPartIdx] = {
+            ...existing,
+            partialOutput: (existing.partialOutput ?? "") + event.partialOutput,
+          };
+        }
+        return updatedInlineParts;
+      });
+      if (routed) currentParts = routed;
+    } else if (event.type === "thinking-meta" && event.agentId) {
+      const routed = routeToAgentInlineParts(currentParts, event.agentId, (inlineParts) => {
+        return upsertThinkingMetaPart(inlineParts, event);
+      });
+      if (routed) currentParts = routed;
+    }
+  }
+  return currentParts;
+}
+
+/**
+ * Carry over inlineParts from existing agents when re-merging from
+ * parallelAgents state updates. Without this, every parallel-agents
+ * event would wipe out accumulated streaming content.
+ */
+function carryOverInlineParts(
+  agents: ParallelAgent[],
+  existingInlineParts: Map<string, Part[]>,
+): ParallelAgent[] {
+  if (existingInlineParts.size === 0) return agents;
+  let changed = false;
+  const result = agents.map((agent) => {
+    const existing = existingInlineParts.get(agent.id);
+    if (existing && existing.length > 0 && (!agent.inlineParts || agent.inlineParts.length === 0)) {
+      changed = true;
+      return { ...agent, inlineParts: existing };
+    }
+    return agent;
+  });
+  return changed ? result : agents;
+}
+
 export function mergeParallelAgentsIntoParts(
   parts: Part[],
   parallelAgents: ParallelAgent[],
@@ -644,7 +860,21 @@ export function mergeParallelAgentsIntoParts(
   const nonAgentParts: Part[] = parts.filter((part) => part.type !== "agent");
   const existingAgentParts = parts.filter((part): part is AgentPart => part.type === "agent");
 
-  if (normalizedAgents.length === 0) {
+  // Build a lookup of existing agents' inlineParts so we don't lose
+  // streaming content when re-merging from parallelAgents state updates.
+  const existingInlineParts = new Map<string, Part[]>();
+  for (const agentPart of existingAgentParts) {
+    for (const agent of agentPart.agents) {
+      if (agent.inlineParts && agent.inlineParts.length > 0) {
+        existingInlineParts.set(agent.id, agent.inlineParts);
+      }
+    }
+  }
+
+  // Also replay any buffered events for agents that are now present
+  const mergedAgents = carryOverInlineParts(normalizedAgents, existingInlineParts);
+
+  if (mergedAgents.length === 0) {
     return nonAgentParts;
   }
 
@@ -653,7 +883,7 @@ export function mergeParallelAgentsIntoParts(
     const groupedPart: AgentPart = {
       id: existingGroupedPart?.id ?? createPartId(),
       type: "agent",
-      agents: normalizedAgents,
+      agents: mergedAgents,
       parentToolPartId: undefined,
       createdAt: existingGroupedPart?.createdAt ?? messageTimestamp,
     };
@@ -668,7 +898,7 @@ export function mergeParallelAgentsIntoParts(
   }
 
   const agentsByToolCall = new Map<string | undefined, ParallelAgent[]>();
-  for (const agent of normalizedAgents) {
+  for (const agent of mergedAgents) {
     const toolCallId = agent.taskToolCallId;
     const grouped = agentsByToolCall.get(toolCallId) ?? [];
     grouped.push(agent);
@@ -686,7 +916,7 @@ export function mergeParallelAgentsIntoParts(
     if (!part) continue;
     finalParts.push(part);
 
-    if (part.type === "tool" && (part.toolName === "Task" || part.toolName === "task")) {
+    if (part.type === "tool" && isSubagentToolName(part.toolName)) {
       const toolPart = part as ToolPart;
       currentGroup.push(toolPart);
       const agents = agentsByToolCall.get(toolPart.toolCallId);
@@ -708,13 +938,15 @@ export function mergeParallelAgentsIntoParts(
           endsGroup = true;
         } else if (nextPart.type === "tool") {
           const toolName = (nextPart as ToolPart).toolName;
-          if (toolName !== "Task" && toolName !== "task") {
+          if (!isSubagentToolName(toolName)) {
             endsGroup = true;
           }
         } else if (nextPart.type === "text") {
           if ((nextPart as TextPart).content.trim().length > 0) {
             endsGroup = true;
           }
+        } else if (nextPart.type === "task-result") {
+          endsGroup = true;
         }
       }
     }
@@ -809,12 +1041,101 @@ export function syncToolCallsIntoParts(
   return nextParts;
 }
 
+/**
+ * Route a part event into a specific agent's inlineParts sub-array.
+ * Returns updated top-level parts array, or null if the agent was not found.
+ */
+function routeToAgentInlineParts(
+  parts: Part[],
+  agentId: string,
+  applyFn: (inlineParts: Part[]) => Part[],
+): Part[] | null {
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (part?.type !== "agent") continue;
+    const agentPart = part as AgentPart;
+    const agentIdx = agentPart.agents.findIndex((a) => a.id === agentId);
+    if (agentIdx < 0) continue;
+
+    const agent = agentPart.agents[agentIdx]!;
+    const updatedInlineParts = applyFn(agent.inlineParts ?? []);
+    const updatedAgents = [...agentPart.agents];
+    updatedAgents[agentIdx] = { ...agent, inlineParts: updatedInlineParts };
+    const updatedParts = [...parts];
+    updatedParts[i] = { ...agentPart, agents: updatedAgents };
+    return updatedParts;
+  }
+  return null;
+}
+
+function upsertTaskResultPart(parts: Part[], event: TaskResultUpsertEvent): Part[] {
+  const existingIdx = parts.findIndex(
+    (part) => part.type === "task-result" && (part as TaskResultPart).taskId === event.envelope.task_id,
+  );
+
+  const basePart: Omit<TaskResultPart, "id" | "createdAt"> = {
+    type: "task-result",
+    taskId: event.envelope.task_id,
+    toolName: event.envelope.tool_name,
+    title: event.envelope.title,
+    status: event.envelope.status,
+    outputText: event.envelope.output_text,
+    ...(event.envelope.envelope_text ? { envelopeText: event.envelope.envelope_text } : {}),
+    ...(event.envelope.error ? { error: event.envelope.error } : {}),
+    ...(event.envelope.metadata ? { metadata: event.envelope.metadata } : {}),
+  };
+
+  if (existingIdx >= 0) {
+    const existing = parts[existingIdx] as TaskResultPart;
+    const updated = [...parts];
+    updated[existingIdx] = {
+      ...existing,
+      ...basePart,
+    };
+    return updated;
+  }
+
+  return upsertPart(parts, {
+    ...basePart,
+    id: createPartId(),
+    createdAt: new Date().toISOString(),
+  } satisfies TaskResultPart);
+}
+
 export function applyStreamPartEvent(
   message: ChatMessage,
   event: StreamPartEvent,
 ): ChatMessage {
   switch (event.type) {
     case "text-delta": {
+      // Agent-scoped routing: append text to agent's inline parts
+      if (event.agentId && message.parts) {
+        const routed = routeToAgentInlineParts(message.parts, event.agentId, (inlineParts) => {
+          const lastText = inlineParts.length > 0 ? inlineParts[inlineParts.length - 1] : undefined;
+          if (lastText && lastText.type === "text" && (lastText as TextPart).isStreaming) {
+            const updated = [...inlineParts];
+            updated[updated.length - 1] = {
+              ...(lastText as TextPart),
+              content: (lastText as TextPart).content + event.delta,
+            };
+            return updated;
+          }
+          return [...inlineParts, {
+            id: createPartId(),
+            type: "text",
+            content: event.delta,
+            isStreaming: true,
+            createdAt: new Date().toISOString(),
+          } as TextPart];
+        });
+        if (routed) {
+          const nextMessage: ChatMessage = { ...message, parts: routed };
+          return carryReasoningPartRegistry(message, nextMessage);
+        }
+        // Agent not yet in parts — buffer for replay when AgentPart is created
+        bufferAgentEvent(event.agentId, event);
+        return message;
+      }
       const withParts = handleTextDelta(message, event.delta);
       const nextMessage: ChatMessage = {
         ...withParts,
@@ -823,10 +1144,59 @@ export function applyStreamPartEvent(
       return carryReasoningPartRegistry(message, nextMessage);
     }
 
-    case "thinking-meta":
+    case "thinking-meta": {
+      if (event.agentId) {
+        const routed = message.parts
+          ? routeToAgentInlineParts(message.parts, event.agentId, (inlineParts) => {
+            return upsertThinkingMetaPart(inlineParts, event);
+          })
+          : null;
+        if (routed) {
+          const nextMessage: ChatMessage = { ...message, parts: routed };
+          return carryReasoningPartRegistry(message, nextMessage);
+        }
+        // Agent not yet in parts — buffer for replay when AgentPart is created
+        bufferAgentEvent(event.agentId, event);
+        return message;
+      }
       return upsertThinkingMeta(message, event);
+    }
 
     case "tool-start": {
+      // Agent-scoped routing: add tool to agent's inline parts
+      if (event.agentId && message.parts) {
+        const shouldMirrorTaskOutput = isTaskOutputToolName(event.toolName);
+        const routed = routeToAgentInlineParts(message.parts, event.agentId, (inlineParts) => {
+          return upsertToolPartStart(inlineParts, event);
+        });
+        if (routed) {
+          if (!shouldMirrorTaskOutput) {
+            // Keep non-TaskOutput sub-agent tool activity scoped to inline parts
+            // so it does not leak back into top-level main-chat tool rendering.
+            const nextMessage: ChatMessage = { ...message, parts: routed };
+            return carryReasoningPartRegistry(message, nextMessage);
+          }
+          // TaskOutput is a user-visible progress primitive and should render
+          // as a dedicated block in the main transcript as well.
+          const nextMessage: ChatMessage = {
+            ...message,
+            toolCalls: upsertToolCallStart(message.toolCalls, event),
+            parts: upsertToolPartStart(routed, event),
+          };
+          return carryReasoningPartRegistry(message, nextMessage);
+        }
+        // Agent not yet in parts — buffer for replay when AgentPart is created
+        bufferAgentEvent(event.agentId, event);
+        if (!shouldMirrorTaskOutput) {
+          return message;
+        }
+        const nextMessage: ChatMessage = {
+          ...message,
+          toolCalls: upsertToolCallStart(message.toolCalls, event),
+          parts: upsertToolPartStart(message.parts ?? [], event),
+        };
+        return carryReasoningPartRegistry(message, nextMessage);
+      }
       const nextToolCalls = upsertToolCallStart(message.toolCalls, event);
       const nextParts = upsertToolPartStart(message.parts ?? [], event);
       const nextMessage: ChatMessage = {
@@ -838,6 +1208,41 @@ export function applyStreamPartEvent(
     }
 
     case "tool-complete": {
+      // Agent-scoped routing: update tool in agent's inline parts
+      if (event.agentId && message.parts) {
+        const shouldMirrorTaskOutput = isTaskOutputToolName(event.toolName)
+          || (message.toolCalls ?? []).some(
+            (toolCall) => toolCall.id === event.toolId && isTaskOutputToolName(toolCall.toolName),
+          );
+        const routed = routeToAgentInlineParts(message.parts, event.agentId, (inlineParts) => {
+          return upsertToolPartComplete(inlineParts, event);
+        });
+        if (routed) {
+          if (!shouldMirrorTaskOutput) {
+            // Keep non-TaskOutput sub-agent tool activity scoped to inline parts
+            // so it does not leak back into top-level main-chat tool rendering.
+            const nextMessage: ChatMessage = { ...message, parts: routed };
+            return carryReasoningPartRegistry(message, nextMessage);
+          }
+          const nextMessage: ChatMessage = {
+            ...message,
+            toolCalls: upsertToolCallComplete(message.toolCalls, event),
+            parts: upsertToolPartComplete(routed, event),
+          };
+          return carryReasoningPartRegistry(message, nextMessage);
+        }
+        // Agent not yet in parts — buffer for replay when AgentPart is created
+        bufferAgentEvent(event.agentId, event);
+        if (!shouldMirrorTaskOutput) {
+          return message;
+        }
+        const nextMessage: ChatMessage = {
+          ...message,
+          toolCalls: upsertToolCallComplete(message.toolCalls, event),
+          parts: upsertToolPartComplete(message.parts ?? [], event),
+        };
+        return carryReasoningPartRegistry(message, nextMessage);
+      }
       const nextToolCalls = upsertToolCallComplete(message.toolCalls, event);
       const nextParts = upsertToolPartComplete(message.parts ?? [], event);
       const nextMessage: ChatMessage = {
@@ -845,6 +1250,45 @@ export function applyStreamPartEvent(
         toolCalls: nextToolCalls,
         parts: nextParts,
       };
+      return carryReasoningPartRegistry(message, nextMessage);
+    }
+
+    case "tool-partial-result": {
+      if (event.agentId && message.parts) {
+        const routed = routeToAgentInlineParts(message.parts, event.agentId, (inlineParts) => {
+          const updatedInlineParts = [...inlineParts];
+          const toolPartIdx = updatedInlineParts.findIndex(
+            (part) => part.type === "tool" && (part as ToolPart).toolCallId === event.toolId,
+          );
+          if (toolPartIdx >= 0) {
+            const existing = updatedInlineParts[toolPartIdx] as ToolPart;
+            updatedInlineParts[toolPartIdx] = {
+              ...existing,
+              partialOutput: (existing.partialOutput ?? "") + event.partialOutput,
+            };
+          }
+          return updatedInlineParts;
+        });
+        if (routed) {
+          const nextMessage: ChatMessage = { ...message, parts: routed };
+          return carryReasoningPartRegistry(message, nextMessage);
+        }
+        bufferAgentEvent(event.agentId, event);
+        return message;
+      }
+
+      const parts = [...(message.parts ?? [])];
+      const toolPartIdx = parts.findIndex(
+        (part) => part.type === "tool" && (part as ToolPart).toolCallId === event.toolId,
+      );
+      if (toolPartIdx >= 0) {
+        const existing = parts[toolPartIdx] as ToolPart;
+        parts[toolPartIdx] = {
+          ...existing,
+          partialOutput: (existing.partialOutput ?? "") + event.partialOutput,
+        };
+      }
+      const nextMessage: ChatMessage = { ...message, parts };
       return carryReasoningPartRegistry(message, nextMessage);
     }
 
@@ -860,14 +1304,23 @@ export function applyStreamPartEvent(
     case "tool-hitl-response":
       return carryReasoningPartRegistry(message, applyHitlResponse(message, event));
 
+    case "text-complete":
+      // Reconciliation is handled in useStreamConsumer (chat.tsx) — the
+      // reducer does not need to act on this event directly.
+      return message;
+
     case "parallel-agents": {
       const normalizedAgents = normalizeParallelAgents(event.agents);
-      const nextParts = mergeParallelAgentsIntoParts(
+      let nextParts = mergeParallelAgentsIntoParts(
         message.parts ?? [],
         normalizedAgents,
         message.timestamp,
         shouldGroupSubagentTrees({ ...message, parallelAgents: normalizedAgents }, event.isLastMessage),
       );
+      // Drain any buffered events for agents that are now in parts
+      for (const agent of normalizedAgents) {
+        nextParts = drainBufferedEvents(nextParts, agent.id);
+      }
       const nextMessage: ChatMessage = {
         ...message,
         parallelAgents: normalizedAgents,
@@ -875,5 +1328,61 @@ export function applyStreamPartEvent(
       };
       return carryReasoningPartRegistry(message, nextMessage);
     }
+
+    case "task-list-update": {
+      const parts = [...(message.parts ?? [])];
+      const taskItems = event.tasks.map((t) => ({
+        id: t.id,
+        content: t.title,
+        status: normalizeTaskItemStatus(t.status),
+        blockedBy: t.blockedBy,
+      }));
+      const existingIdx = parts.findIndex((part) => part.type === "task-list");
+      if (existingIdx >= 0) {
+        const existing = parts[existingIdx] as TaskListPart;
+        parts[existingIdx] = { ...existing, items: taskItems };
+      } else {
+        const taskListPart: TaskListPart = {
+          id: createPartId(),
+          type: "task-list",
+          items: taskItems,
+          expanded: false,
+          createdAt: new Date().toISOString(),
+        };
+        parts.push(taskListPart);
+      }
+      const nextMessage: ChatMessage = { ...message, parts };
+      return carryReasoningPartRegistry(message, nextMessage);
+    }
+
+    case "workflow-step-start":
+    case "workflow-step-complete":
+      return message;
+
+    case "task-result-upsert": {
+      const nextParts = upsertTaskResultPart(message.parts ?? [], event);
+      const nextMessage: ChatMessage = { ...message, parts: nextParts };
+      return carryReasoningPartRegistry(message, nextMessage);
+    }
+  }
+
+  return message;
+}
+
+/** Map raw status strings from workflow.task.update to TaskItem status values. */
+function normalizeTaskItemStatus(status: string): "pending" | "in_progress" | "completed" | "error" {
+  switch (status) {
+    case "pending": return "pending";
+    case "in_progress": return "in_progress";
+    case "completed":
+    case "complete":
+    case "done":
+    case "success":
+      return "completed";
+    case "error":
+    case "failed":
+      return "error";
+    default:
+      return "pending";
   }
 }

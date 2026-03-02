@@ -35,9 +35,9 @@ function createMockContext(overrides?: Partial<CommandContext>): CommandContext 
     waitForUserInput: async () => "",
     clearContext: async () => {},
     setTodoItems: () => {},
-    setRalphSessionDir: () => {},
-    setRalphSessionId: () => {},
-    setRalphTaskIds: () => {},
+    setWorkflowSessionDir: () => {},
+    setWorkflowSessionId: () => {},
+    setWorkflowTaskIds: () => {},
     updateWorkflowState: () => {},
     ...overrides,
   };

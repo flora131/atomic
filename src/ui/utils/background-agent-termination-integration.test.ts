@@ -329,7 +329,7 @@ describe("Ctrl+F double-press lifecycle integration", () => {
 
     // Verify footer contract includes terminate hint
     expect(BACKGROUND_FOOTER_CONTRACT.includeTerminateHint).toBe(true);
-    expect(BACKGROUND_FOOTER_CONTRACT.terminateHintText).toBe("ctrl+f to kill agents");
+    expect(BACKGROUND_FOOTER_CONTRACT.terminateHintText).toBe("ctrl+f to kill all background tasks");
 
     // Verify tree hint contract includes termination hint for running agents
     expect(BACKGROUND_TREE_HINT_CONTRACT.whenRunning).toContain("ctrl+f");

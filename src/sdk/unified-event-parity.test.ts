@@ -2,15 +2,34 @@ import { describe, expect, mock, test } from "bun:test";
 import { ClaudeAgentClient, OpenCodeClient, CopilotClient } from "./clients/index.ts";
 import { extractMessageContent } from "./clients/claude.ts";
 import type { EventType } from "./types.ts";
+import {
+  ADAPTER_EVENT_COVERAGE_POLICY,
+  ALL_SDK_EVENT_TYPES,
+  assertAdapterEventCoveragePolicyInvariant,
+} from "../events/adapters/event-coverage-policy.ts";
+import {
+  getRuntimeParityMetricsSnapshot,
+  resetRuntimeParityMetrics,
+} from "../workflows/runtime-parity-observability.ts";
 
 const PARITY_EVENTS: EventType[] = [
   "session.start",
   "session.idle",
   "session.error",
+  "session.info",
+  "session.warning",
+  "session.title_changed",
+  "session.truncation",
+  "session.compaction",
   "message.delta",
   "message.complete",
+  "reasoning.delta",
+  "reasoning.complete",
+  "turn.start",
+  "turn.end",
   "tool.start",
   "tool.complete",
+  "tool.partial_result",
   "skill.invoked",
   "subagent.start",
   "subagent.complete",
@@ -151,7 +170,7 @@ describe("Unified provider event parity", () => {
     const openCodeSourceKeys: string[] = [];
     const unsubscribeOpenCode = openCodeClient.on("message.delta", (event) => {
       const data = event.data as { contentType?: string; thinkingSourceKey?: string };
-      if (data.contentType === "reasoning" && data.thinkingSourceKey) {
+      if (data.contentType === "thinking" && data.thinkingSourceKey) {
         openCodeSourceKeys.push(data.thinkingSourceKey);
       }
     });
@@ -169,6 +188,18 @@ describe("Unified provider event parity", () => {
           messageID: "msg_reasoning",
           type: "reasoning",
         },
+      },
+    });
+
+    (
+      openCodeClient as unknown as {
+        handleSdkEvent: (event: Record<string, unknown>) => void;
+      }
+    ).handleSdkEvent({
+      type: "message.part.delta",
+      properties: {
+        partID: "reasoning_part_a",
+        sessionID: "ses_reasoning",
         delta: "alpha",
       },
     });
@@ -178,14 +209,10 @@ describe("Unified provider event parity", () => {
         handleSdkEvent: (event: Record<string, unknown>) => void;
       }
     ).handleSdkEvent({
-      type: "message.part.updated",
+      type: "message.part.delta",
       properties: {
-        part: {
-          id: "reasoning_part_a",
-          sessionID: "ses_reasoning",
-          messageID: "msg_reasoning",
-          type: "reasoning",
-        },
+        partID: "reasoning_part_a",
+        sessionID: "ses_reasoning",
         delta: "beta",
       },
     });
@@ -277,5 +304,33 @@ describe("Unified provider event parity", () => {
     }
 
     expect(copilotSourceKeys).toEqual(["reasoning_123", "reasoning_123"]);
+  });
+
+  test("event coverage policy parity stays consistent across providers", () => {
+    resetRuntimeParityMetrics();
+    assertAdapterEventCoveragePolicyInvariant();
+
+    const metrics = getRuntimeParityMetricsSnapshot();
+    for (const provider of ["opencode", "claude", "copilot"] as const) {
+      expect(
+        metrics.counters[
+          `workflow.runtime.parity.event_coverage_validations_total{provider=${provider}}`
+        ],
+      ).toBe(1);
+      expect(
+        metrics.histograms[
+          `workflow.runtime.parity.event_coverage_mapped_events{provider=${provider}}`
+        ],
+      ).toEqual([ALL_SDK_EVENT_TYPES.length - 1]);
+      expect(
+        metrics.gauges[
+          `workflow.runtime.parity.event_coverage_noop_events{provider=${provider}}`
+        ],
+      ).toBe(1);
+    }
+
+    expect(ADAPTER_EVENT_COVERAGE_POLICY.copilot["message.complete"].canonicalEvents).toContain(
+      "stream.tool.start",
+    );
   });
 });

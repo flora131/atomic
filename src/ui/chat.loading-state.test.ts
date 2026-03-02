@@ -88,6 +88,22 @@ describe("shouldShowMessageLoadingIndicator", () => {
     ).toBe(true);
   });
 
+  test("stops loading indicator once stream transitions to a terminal error state", () => {
+    expect(
+      shouldShowMessageLoadingIndicator({
+        streaming: true,
+        taskItems: [{ status: "in_progress" }],
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldShowMessageLoadingIndicator({
+        streaming: false,
+        taskItems: [{ status: "error" }],
+      }),
+    ).toBe(false);
+  });
+
   test("stops loading indicator for completed subagent/background snapshots", () => {
     expect(
       shouldShowMessageLoadingIndicator({
@@ -236,3 +252,4 @@ describe("hasLiveLoadingIndicator", () => {
     ).toBe(false);
   });
 });
+

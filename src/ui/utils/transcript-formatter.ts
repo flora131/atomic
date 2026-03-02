@@ -42,7 +42,6 @@ export interface TranscriptLine {
 export interface FormatTranscriptOptions {
   messages: ChatMessage[];
   liveThinkingText?: string;
-  liveParallelAgents?: ParallelAgent[];
   streamingMeta?: StreamingMeta | null;
   isStreaming: boolean;
   modelId?: string;
@@ -77,7 +76,7 @@ function line(type: TranscriptLineType, content: string, indent = 0): Transcript
  * - Footer: `──── Showing detailed transcript · ctrl+o to toggle`
  */
 export function formatTranscript(options: FormatTranscriptOptions): TranscriptLine[] {
-  const { messages, liveThinkingText, liveParallelAgents, streamingMeta, isStreaming, modelId } = options;
+  const { messages, liveThinkingText, streamingMeta, isStreaming, modelId } = options;
   const lines: TranscriptLine[] = [];
 
   for (const msg of messages) {
@@ -183,9 +182,7 @@ export function formatTranscript(options: FormatTranscriptOptions): TranscriptLi
       // Parallel agents (baked from completed message or live)
       const agents = msg.parallelAgents && msg.parallelAgents.length > 0
         ? msg.parallelAgents
-        : msg.streaming && liveParallelAgents && liveParallelAgents.length > 0
-          ? liveParallelAgents
-          : null;
+        : null;
 
       if (agents) {
         lines.push(line("blank", ""));
@@ -197,21 +194,26 @@ export function formatTranscript(options: FormatTranscriptOptions): TranscriptLi
         lines.push(line("agent-header", headerText));
 
         for (const agent of agents) {
-          const taskText = truncateText(agent.task, 60);
-          const metricsParts: string[] = [];
-          if (agent.toolUses !== undefined) metricsParts.push(`${agent.toolUses} tool uses`);
-          if (agent.durationMs !== undefined) metricsParts.push(formatDuration(agent.durationMs));
-          const metrics = metricsParts.length > 0 ? ` · ${metricsParts.join(" · ")}` : "";
+          const taskText = truncateText(agent.task || agent.name, 60);
 
           const agentIcon = agent.status === "completed" ? STATUS.active : agent.status === "running" ? STATUS.active : STATUS.pending;
-          lines.push(line("agent-row", `${TREE.branch} ${agentIcon} ${taskText}${metrics}`));
+          lines.push(line("agent-row", `${TREE.branch}${agentIcon} ${taskText}`));
 
           // Sub-status
           if (agent.status === "completed") {
             const resultText = agent.result ? truncateText(agent.result, 60) : "Done";
-            lines.push(line("agent-substatus", `${TREE.vertical} ${CONNECTOR.subStatus}  ${resultText}${metrics ? ` (${metricsParts.join(" · ")})` : ""}`));
-          } else if (agent.status === "running" && agent.currentTool) {
-            lines.push(line("agent-substatus", `${TREE.vertical} ${CONNECTOR.subStatus}  ${truncateText(agent.currentTool, 50)}`));
+            lines.push(line("agent-substatus", `${TREE.vertical} ${CONNECTOR.subStatus}  ${resultText}`));
+          } else if (agent.status === "running") {
+            if (agent.toolUses !== undefined && agent.toolUses > 0) {
+              lines.push(line("agent-substatus", `${TREE.vertical} ${CONNECTOR.subStatus}  ${agent.name}: (${agent.toolUses} tool use${agent.toolUses !== 1 ? "s" : ""})`));
+              if (agent.currentTool) {
+                lines.push(line("agent-substatus", `${TREE.vertical}   · ${truncateText(agent.currentTool, 50)}`));
+              }
+            } else if (agent.currentTool) {
+              lines.push(line("agent-substatus", `${TREE.vertical} ${CONNECTOR.subStatus}  Initializing ${agent.name}…`));
+            } else {
+              lines.push(line("agent-substatus", `${TREE.vertical} ${CONNECTOR.subStatus}  Initializing ${agent.name}…`));
+            }
           } else if (agent.status === "error" && agent.error) {
             lines.push(line("agent-substatus", `${TREE.vertical} ${CONNECTOR.subStatus}  ${truncateText(agent.error, 60)}`));
           }

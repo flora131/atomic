@@ -2,7 +2,7 @@
  * Tests for filterStaleEvents, splitIntoBatches, and readEventsFromJSONL functions
  * Reference: specs/phase-6-telemetry-upload-backend.md
  */
-import { describe, expect, test, beforeEach, afterEach } from "bun:test";
+import { describe, expect, test, beforeEach, afterEach, spyOn } from "bun:test";
 import { writeFileSync, mkdirSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -120,22 +120,40 @@ describe("filterStaleEvents", () => {
     });
 
     test("keeps events exactly at the boundary (cutoff time is inclusive)", () => {
-      const boundaryEvent = makeEvent(makeTimestamp(-maxAge)); // Exactly 30 days ago
+      // Mock Date.now() to prevent race condition between timestamp creation and filtering
+      // Without this, time can pass between makeTimestamp() and filterStaleEvents(),
+      // causing the boundary event to become slightly too old
+      const fixedNow = 1672531200000; // 2023-01-01T00:00:00.000Z
+      const dateNowSpy = spyOn(Date, "now").mockReturnValue(fixedNow);
 
-      const result = filterStaleEvents([boundaryEvent]);
+      try {
+        const boundaryEvent = makeEvent(makeTimestamp(-maxAge)); // Exactly 30 days ago
 
-      // Events at exactly cutoff time should be kept (>= cutoff)
-      expect(result.valid).toHaveLength(1);
-      expect(result.staleCount).toBe(0);
+        const result = filterStaleEvents([boundaryEvent]);
+
+        // Events at exactly cutoff time should be kept (>= cutoff)
+        expect(result.valid).toHaveLength(1);
+        expect(result.staleCount).toBe(0);
+      } finally {
+        dateNowSpy.mockRestore();
+      }
     });
 
     test("removes events just before the boundary", () => {
-      const justStaleEvent = makeEvent(makeTimestamp(-maxAge - 1)); // 1ms over 30 days
+      // Mock Date.now() to prevent race condition
+      const fixedNow = 1672531200000; // 2023-01-01T00:00:00.000Z
+      const dateNowSpy = spyOn(Date, "now").mockReturnValue(fixedNow);
 
-      const result = filterStaleEvents([justStaleEvent]);
+      try {
+        const justStaleEvent = makeEvent(makeTimestamp(-maxAge - 1)); // 1ms over 30 days
 
-      expect(result.valid).toHaveLength(0);
-      expect(result.staleCount).toBe(1);
+        const result = filterStaleEvents([justStaleEvent]);
+
+        expect(result.valid).toHaveLength(0);
+        expect(result.staleCount).toBe(1);
+      } finally {
+        dateNowSpy.mockRestore();
+      }
     });
   });
 

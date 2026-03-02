@@ -17,6 +17,8 @@ export {
   type SkillLoadPart,
   type McpSnapshotPart,
   type CompactionPart,
+  type TaskResultPart,
+  type WorkflowStepPart,
   type Part,
 } from "./types.ts";
 export { binarySearchById, upsertPart, findLastPartIndex } from "./store.ts";
@@ -31,6 +33,7 @@ export {
   type StreamPartEvent,
   applyStreamPartEvent,
   toToolState,
+  isSubagentToolName,
   shouldGroupSubagentTrees,
   mergeParallelAgentsIntoParts,
   syncToolCallsIntoParts,

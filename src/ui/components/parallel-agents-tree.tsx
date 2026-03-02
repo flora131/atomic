@@ -7,12 +7,17 @@
  * Reference: Issue #4 - Add UI for visualizing parallel agents
  */
 
-import React from "react";
+import React, { useEffect, useState } from "react";
+import type { SyntaxStyle } from "@opentui/core";
 import { useTheme, getCatppuccinPalette } from "../theme.tsx";
 import { formatDuration as formatDurationObj, truncateText } from "../utils/format.ts";
-import { buildParallelAgentsHeaderHint } from "../utils/background-agent-tree-hints.ts";
-import { STATUS, TREE, CONNECTOR } from "../constants/icons.ts";
+import { STATUS, TREE, CONNECTOR, MISC, ARROW } from "../constants/icons.ts";
 import { SPACING } from "../constants/spacing.ts";
+import { buildParallelAgentsHeaderHint } from "../utils/background-agent-tree-hints.ts";
+import type { Part, ToolPart } from "../parts/types.ts";
+import { PART_REGISTRY } from "./parts/registry.tsx";
+import { AnimatedBlinkIndicator } from "./animated-blink-indicator.tsx";
+import { buildPartRenderKeys, getConsumedTaskToolCallIds } from "./parts/message-bubble-parts.tsx";
 
 // Re-export for backward compatibility
 export { truncateText };
@@ -56,8 +61,12 @@ export interface ParallelAgent {
   toolUses?: number;
   /** Token count (for progress display) */
   tokens?: number;
+  /** Thinking/reasoning duration in milliseconds */
+  thinkingMs?: number;
   /** Current tool operation (e.g., "Bash: Find files...") */
   currentTool?: string;
+  /** Inline parts for agent-scoped streaming content */
+  inlineParts?: import("../parts/types").Part[];
 }
 
 /**
@@ -66,12 +75,18 @@ export interface ParallelAgent {
 export interface ParallelAgentsTreeProps {
   /** List of parallel agents */
   agents: ParallelAgent[];
+  /** Optional syntax style for markdown/code part renderers */
+  syntaxStyle?: SyntaxStyle;
   /** Whether to show in compact mode (default: false) */
   compact?: boolean;
   /** Maximum agents to show before collapsing (default: 5) */
   maxVisible?: number;
   /** Remove top margin (useful when the tree is the first element in a container) */
   noTopMargin?: boolean;
+  /** Render in background-agent mode (green header, "launched", background sub-status) */
+  background?: boolean;
+  /** Whether to show the expand/collapse keyboard hint (default: false) */
+  showExpandHint?: boolean;
 }
 
 // ============================================================================
@@ -129,6 +144,23 @@ export const AGENT_COLORS: Record<string, string> = getAgentColors(true);
  */
 const SUB_STATUS_PAD = "   ";
 
+/**
+ * Part types that should never be rendered inside the sub-agent tree.
+ * Tool calls and text blocks are suppressed to keep the tree compact.
+ */
+const SUPPRESSED_INLINE_PART_TYPES: ReadonlySet<Part["type"]> = new Set(["tool", "text"]);
+
+export function getAgentInlineDisplayParts(
+  parts: ReadonlyArray<Part>,
+): Part[] {
+  if (parts.length === 0) return [];
+  return parts.filter((p) => !SUPPRESSED_INLINE_PART_TYPES.has(p.type));
+}
+
+export function buildAgentInlinePrefix(continuationPrefix: string): string {
+  return `${continuationPrefix}${SUB_STATUS_PAD}${CONNECTOR.subStatus}  `;
+}
+
 // ============================================================================
 // UTILITY FUNCTIONS
 // ============================================================================
@@ -152,16 +184,24 @@ export function getStatusIcon(status: AgentStatus): string {
 
 /**
  * Get the color used for the status indicator dot.
- * Running/pending/background remain muted to avoid implying completion.
+ *
+ * - completed: green (success)
+ * - error: red (error)
+ * - pending/interrupted: yellow (warning)
+ * - running/background: muted (spinner animation conveys activity)
  */
 export function getStatusIndicatorColor(
   status: AgentStatus,
   colors: Pick<ThemeColors, "muted" | "success" | "warning" | "error">,
 ): string {
   if (status === "completed") return colors.success;
-  if (status === "interrupted") return colors.warning;
   if (status === "error") return colors.error;
+  if (status === "pending" || status === "interrupted") return colors.warning;
   return colors.muted;
+}
+
+export function shouldAnimateAgentStatus(status: AgentStatus): boolean {
+  return status === "running" || status === "background";
 }
 
 /**
@@ -172,6 +212,39 @@ export function formatDuration(ms: number | undefined): string {
   return formatDurationObj(ms).text;
 }
 
+function formatTokenCount(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
+  if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}k`;
+  return `${tokens}`;
+}
+
+function formatThinkingDuration(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  if (totalSeconds <= 0) return "1s";
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes === 0) return `${seconds}s`;
+  if (seconds === 0) return `${minutes}m`;
+  return `${minutes}m ${seconds}s`;
+}
+
+function buildAgentProgressInfo(agent: ParallelAgent, nowMs: number): string {
+  const isActive = agent.status === "running" || agent.status === "pending" || agent.status === "background";
+  if (!isActive) return "";
+
+  const parts: string[] = [];
+  const elapsed = getElapsedTime(agent.startedAt, nowMs);
+  if (elapsed) parts.push(elapsed);
+  if ((agent.tokens ?? 0) > 0) {
+    parts.push(`${ARROW.down} ${formatTokenCount(agent.tokens!)} tokens`);
+  }
+  if ((agent.thinkingMs ?? 0) >= 1000) {
+    parts.push(`thought for ${formatThinkingDuration(agent.thinkingMs!)}`);
+  }
+  if (parts.length === 0) return "";
+  return ` (${parts.join(` ${MISC.separator} `)})`;
+}
+
 export function isGenericSubagentTask(task: string): boolean {
   const normalized = task.trim().toLowerCase();
   return normalized === "" || normalized === "sub-agent task" || normalized === "subagent task";
@@ -179,6 +252,184 @@ export function isGenericSubagentTask(task: string): boolean {
 
 export function getAgentTaskLabel(agent: Pick<ParallelAgent, "task" | "name">): string {
   return isGenericSubagentTask(agent.task) ? agent.name : agent.task;
+}
+
+/**
+ * Status priority for deduplication: higher value wins.
+ */
+const STATUS_PRIORITY: Record<AgentStatus, number> = {
+  pending: 0,
+  running: 1,
+  background: 2,
+  completed: 3,
+  interrupted: 4,
+  error: 5,
+};
+
+/**
+ * Deduplicate duplicate logical sub-agents.
+ *
+ * Primary path: merge entries that share a `taskToolCallId`.
+ * Fallback path: merge near-duplicates when one row still carries the
+ * generic placeholder task and another row has the real task text.
+ * This also handles mixed-correlation rows (e.g. eager Task row + SDK row)
+ * when they clearly represent the same logical sub-agent.
+ */
+export function deduplicateAgents(agents: ParallelAgent[]): ParallelAgent[] {
+  if (agents.length <= 1) return agents;
+
+  const byToolCallId = new Map<string, ParallelAgent[]>();
+  const ungrouped: ParallelAgent[] = [];
+
+  for (const agent of agents) {
+    if (agent.taskToolCallId) {
+      const group = byToolCallId.get(agent.taskToolCallId) ?? [];
+      group.push(agent);
+      byToolCallId.set(agent.taskToolCallId, group);
+    } else {
+      ungrouped.push(agent);
+    }
+  }
+
+  let anyMerged = false;
+  const merged: ParallelAgent[] = [];
+
+  for (const group of byToolCallId.values()) {
+    if (group.length === 1) {
+      merged.push(group[0]!);
+      continue;
+    }
+
+    anyMerged = true;
+    // Merge all entries in the group into one
+    let best = group[0]!;
+    for (let i = 1; i < group.length; i++) {
+      const other = group[i]!;
+      best = mergeAgentPair(best, other);
+    }
+    merged.push(best);
+  }
+
+  const fallbackDeduped = deduplicateUncorrelatedAgents([...merged, ...ungrouped]);
+
+  if (!anyMerged && !fallbackDeduped.merged) return agents;
+  return anyMerged && !fallbackDeduped.merged
+    ? [...merged, ...ungrouped]
+    : fallbackDeduped.agents;
+}
+
+function mergeAgentPair(a: ParallelAgent, b: ParallelAgent): ParallelAgent {
+  // Prefer the entry with a real task description
+  const aHasTask = !isGenericSubagentTask(a.task);
+  const bHasTask = !isGenericSubagentTask(b.task);
+  const primary = bHasTask && !aHasTask ? b : a;
+  const secondary = primary === a ? b : a;
+
+  // Take the higher-priority status
+  const statusA = STATUS_PRIORITY[a.status] ?? 0;
+  const statusB = STATUS_PRIORITY[b.status] ?? 0;
+  const statusWinner = statusB > statusA ? b : a;
+
+  return {
+    ...primary,
+    // Use the real subagentId if available (non-toolId format)
+    id: primary.id.startsWith("tool_") ? secondary.id : primary.id,
+    task: aHasTask ? a.task : bHasTask ? b.task : primary.task,
+    status: statusWinner.status,
+    background: a.background || b.background,
+    toolUses: Math.max(a.toolUses ?? 0, b.toolUses ?? 0) || undefined,
+    currentTool: a.currentTool ?? b.currentTool,
+    result: a.result ?? b.result,
+    error: a.error ?? b.error,
+    durationMs: a.durationMs ?? b.durationMs,
+    tokens: Math.max(a.tokens ?? 0, b.tokens ?? 0) || undefined,
+    thinkingMs: Math.max(a.thinkingMs ?? 0, b.thinkingMs ?? 0) || undefined,
+  };
+}
+
+function isLikelyEagerPlaceholder(agent: ParallelAgent): boolean {
+  if (!agent.taskToolCallId) return false;
+  return (
+    agent.id === agent.taskToolCallId
+    || agent.id.startsWith("tool_")
+    || agent.taskToolCallId.startsWith("tool_")
+  );
+}
+
+function canMergeByTaskCorrelation(a: ParallelAgent, b: ParallelAgent): boolean {
+  const aTaskId = a.taskToolCallId;
+  const bTaskId = b.taskToolCallId;
+
+  if (aTaskId && bTaskId) {
+    return aTaskId === bTaskId;
+  }
+
+  if (!aTaskId && !bTaskId) {
+    return true;
+  }
+
+  const withTaskId = aTaskId ? a : b;
+  return isLikelyEagerPlaceholder(withTaskId);
+}
+
+function canMergeUncorrelatedDuplicate(a: ParallelAgent, b: ParallelAgent): boolean {
+  if (!canMergeByTaskCorrelation(a, b)) return false;
+  if (a.name !== b.name) return false;
+
+  const aGenericTask = isGenericSubagentTask(a.task);
+  const bGenericTask = isGenericSubagentTask(b.task);
+  if (aGenericTask === bGenericTask) return false;
+
+  if (Boolean(a.background) !== Boolean(b.background)) return false;
+  if (a.result && b.result && a.result !== b.result) return false;
+  if (a.error && b.error && a.error !== b.error) return false;
+  if (a.toolUses !== undefined && b.toolUses !== undefined && a.toolUses !== b.toolUses) return false;
+
+  return true;
+}
+
+function deduplicateUncorrelatedAgents(agents: ParallelAgent[]): {
+  agents: ParallelAgent[];
+  merged: boolean;
+} {
+  if (agents.length <= 1) {
+    return { agents, merged: false };
+  }
+
+  const consumed = new Set<number>();
+  const mergedAgents: ParallelAgent[] = [];
+  let merged = false;
+
+  for (let i = 0; i < agents.length; i++) {
+    if (consumed.has(i)) continue;
+    const current = agents[i];
+    if (!current) continue;
+
+    let matchIndex = -1;
+    for (let j = i + 1; j < agents.length; j++) {
+      if (consumed.has(j)) continue;
+      const candidate = agents[j];
+      if (!candidate) continue;
+      if (canMergeUncorrelatedDuplicate(current, candidate)) {
+        matchIndex = j;
+        break;
+      }
+    }
+
+    if (matchIndex >= 0) {
+      const match = agents[matchIndex];
+      if (match) {
+        mergedAgents.push(mergeAgentPair(current, match));
+        consumed.add(matchIndex);
+        merged = true;
+        continue;
+      }
+    }
+
+    mergedAgents.push(current);
+  }
+
+  return { agents: merged ? mergedAgents : agents, merged };
 }
 
 export function buildAgentHeaderLabel(count: number, dominantType: string): string {
@@ -197,13 +448,35 @@ export function buildAgentHeaderLabel(count: number, dominantType: string): stri
   return `${count} ${normalized} agent${plural ? "s" : ""}`;
 }
 
+export function getForegroundActiveAgentCount(
+  agents: ReadonlyArray<Pick<ParallelAgent, "status">>,
+): number {
+  return agents.filter(
+    (agent) => agent.status === "running" || agent.status === "pending" || agent.status === "background",
+  ).length;
+}
+
+export function getForegroundHeaderText(
+  agents: ReadonlyArray<Pick<ParallelAgent, "status">>,
+): string {
+  const activeCount = getForegroundActiveAgentCount(agents);
+  if (activeCount > 0) {
+    return `Running ${activeCount} agent${activeCount !== 1 ? "s" : ""}…`;
+  }
+  const completedCount = agents.filter((agent) => agent.status === "completed").length;
+  if (completedCount > 0) {
+    return `${completedCount} agent${completedCount !== 1 ? "s" : ""} finished`;
+  }
+  const pendingCount = agents.filter((agent) => agent.status === "pending").length;
+  return `${pendingCount} agent${pendingCount !== 1 ? "s" : ""} pending`;
+}
+
 /**
  * Get elapsed time since start.
  */
-export function getElapsedTime(startedAt: string): string {
+export function getElapsedTime(startedAt: string, nowMs: number = Date.now()): string {
   const start = new Date(startedAt).getTime();
-  const now = Date.now();
-  return formatDuration(now - start);
+  return formatDuration(nowMs - start);
 }
 
 /**
@@ -215,9 +488,11 @@ export function getSubStatusText(agent: ParallelAgent): string | null {
     return agent.currentTool;
   }
   switch (agent.status) {
+    case "background":
+      return "Running in the background (↓ to manage)";
     case "running":
     case "pending":
-      return "Initializing...";
+      return "Initializing…";
     case "completed":
       return "Done";
     case "error":
@@ -227,6 +502,13 @@ export function getSubStatusText(agent: ParallelAgent): string | null {
     default:
       return null;
   }
+}
+
+export function getBackgroundSubStatusText(agent: ParallelAgent): string {
+  if (agent.status === "completed") return "Done";
+  if (agent.status === "error") return agent.error ?? "Error";
+  if (agent.status === "interrupted") return "Interrupted";
+  return `Running ${agent.name} in background…`;
 }
 
 // ============================================================================
@@ -259,196 +541,202 @@ interface AgentRowProps {
   agent: ParallelAgent;
   isLast: boolean;
   compact: boolean;
+  syntaxStyle?: SyntaxStyle;
   themeColors: ThemeColors;
+  nowMs: number;
 }
 
 /**
- * Format token count with k suffix.
+ * Props for AgentRow component.
  */
-function formatTokens(tokens: number | undefined): string {
-  if (tokens === undefined) return "";
-  if (tokens >= 1000) {
-    return `${(tokens / 1000).toFixed(1)}k tokens`;
-  }
-  return `${tokens} tokens`;
+interface BackgroundAgentRowProps {
+  agent: ParallelAgent;
+  isLast: boolean;
+  themeColors: ThemeColors;
+  nowMs: number;
 }
 
 /**
- * Single agent row in the tree view.
- * Follows Claude Code's parallel agent display style.
+ * Agent row for background-mode tree.
+ * Shows task name with ● indicator and "Running in the background" sub-status.
  */
-function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React.ReactNode {
+function BackgroundAgentRow({ agent, isLast, themeColors, nowMs }: BackgroundAgentRowProps): React.ReactNode {
   const treeChar = isLast ? TREE.lastBranch : TREE.branch;
-
-  // Build metrics text (tool uses and tokens) - Claude Code style
-  const metricsText = [
-    agent.toolUses !== undefined ? `${agent.toolUses} tool uses` : "",
-    agent.tokens !== undefined ? formatTokens(agent.tokens) : "",
-  ].filter(Boolean).join(" · ");
-
-  // Compute sub-status text (currentTool or default based on status)
-  const subStatus = getSubStatusText(agent);
-
-  if (compact) {
-    // Compact mode: Claude Code style - task · metrics
-    const isRunning = agent.status === "running" || agent.status === "pending";
-    const hasTask = agent.task.trim().length > 0;
-    // For running agents, append elapsed time to sub-status
-    const elapsedSuffix = isRunning ? ` (${getElapsedTime(agent.startedAt)})` : "";
-    const displaySubStatus = subStatus ? `${subStatus}${elapsedSuffix}` : null;
-
-    // Status indicator for the tree row
-    const rowIndicatorColor = getStatusIndicatorColor(agent.status, themeColors);
-
-    // Continuation line prefix for sub-status and hints
-    const continuationPrefix = isLast ? TREE.space : TREE.vertical;
-
-    if (!hasTask && displaySubStatus) {
-      // Empty task: show agent name + sub-status inline on the tree line
-      return (
-        <box flexDirection="column">
-          <box flexDirection="row">
-            <box flexShrink={0}><text style={{ fg: themeColors.muted }}>{treeChar} </text></box>
-            <box flexShrink={0}>
-              <text style={{ fg: rowIndicatorColor }}>●</text>
-            </box>
-            <text style={{ fg: themeColors.foreground }}> {agent.name} </text>
-            <text style={{ fg: themeColors.muted }}>
-              {truncateText(displaySubStatus, 50)}
-            </text>
-          </box>
-          {isRunning && agent.toolUses !== undefined && agent.toolUses > 0 && (
-            <box flexDirection="row">
-              <text style={{ fg: themeColors.muted }}>
-                {continuationPrefix}{SUB_STATUS_PAD}+{agent.toolUses} more tool use{agent.toolUses !== 1 ? "s" : ""}
-              </text>
-            </box>
-          )}
-        </box>
-      );
-    }
-
-    const displayTask = truncateText(getAgentTaskLabel(agent), 40);
-
-    return (
-      <box flexDirection="column">
-        <box flexDirection="row">
-          <box flexShrink={0}><text style={{ fg: themeColors.muted }}>{treeChar} </text></box>
-          <box flexShrink={0}>
-            <text style={{ fg: rowIndicatorColor }}>●</text>
-          </box>
-          <text style={{ fg: themeColors.foreground }}>
-            {" "}{displayTask}
-          </text>
-          {metricsText && (
-            <text style={{ fg: themeColors.muted }}> · {metricsText}</text>
-          )}
-        </box>
-        {/* Sub-status: current tool or default status text */}
-        {displaySubStatus && (
-          <box flexDirection="row">
-            <text style={{ fg: themeColors.muted }}>
-              {continuationPrefix}{SUB_STATUS_PAD}{CONNECTOR.subStatus}  {truncateText(displaySubStatus, 50)}
-            </text>
-          </box>
-        )}
-        {/* Collapsed tool uses hint */}
-        {isRunning && agent.toolUses !== undefined && agent.toolUses > 0 && (
-          <box flexDirection="row">
-            <text style={{ fg: themeColors.muted }}>
-              {continuationPrefix}{SUB_STATUS_PAD}+{agent.toolUses} more tool use{agent.toolUses !== 1 ? "s" : ""}
-            </text>
-          </box>
-        )}
-      </box>
-    );
-  }
-
-  // Full mode: includes more details
-  const isRunningFull = agent.status === "running" || agent.status === "pending";
-  const isCompletedFull = agent.status === "completed";
-  const isErrorFull = agent.status === "error";
-  const isInterruptedFull = agent.status === "interrupted";
-  const hasTaskFull = agent.task.trim().length > 0;
-  const elapsedSuffixFull = isRunningFull ? ` (${getElapsedTime(agent.startedAt)})` : "";
-  const displaySubStatusFull = subStatus ? `${subStatus}${elapsedSuffixFull}` : null;
-
-  // Status indicator color for the tree row
-  const fullRowIndicatorColor = getStatusIndicatorColor(agent.status, themeColors);
-
-  // Continuation line prefix for sub-status lines
-  const fullContinuationPrefix = isLast ? TREE.space : TREE.vertical;
-
-  // If task is empty, show agent name + sub-status inline on the tree line
-  if (!hasTaskFull && displaySubStatusFull) {
-    return (
-      <box flexDirection="column">
-        <box flexDirection="row">
-          <box flexShrink={0}><text style={{ fg: themeColors.muted }}>{treeChar} </text></box>
-          <box flexShrink={0}>
-            <text style={{ fg: fullRowIndicatorColor }}>●</text>
-          </box>
-          <text style={{ fg: themeColors.foreground }}> {agent.name} </text>
-          <text style={{ fg: themeColors.muted }}>
-            {displaySubStatusFull}
-          </text>
-        </box>
-      </box>
-    );
-  }
+  const continuationPrefix = isLast ? TREE.space : TREE.vertical;
+  const subStatus = getBackgroundSubStatusText(agent);
+  const progressInfo = buildAgentProgressInfo(agent, nowMs);
+  const animateRowIndicator = shouldAnimateAgentStatus(agent.status);
 
   return (
     <box flexDirection="column">
       <box flexDirection="row">
-        <box flexShrink={0}><text style={{ fg: themeColors.muted }}>{treeChar} </text></box>
+        <box flexShrink={0}><text style={{ fg: themeColors.muted }}>{treeChar}</text></box>
         <box flexShrink={0}>
-          <text style={{ fg: fullRowIndicatorColor }}>●</text>
+          {animateRowIndicator ? (
+            <text><AnimatedBlinkIndicator color={themeColors.success} speed={500} /></text>
+          ) : (
+            <text style={{ fg: themeColors.success }}>●</text>
+          )}
         </box>
-          <text style={{ fg: themeColors.foreground, attributes: 1 }}>
-            {" "}{getAgentTaskLabel(agent)}
-          </text>
-        {metricsText && (
-          <text style={{ fg: themeColors.muted }}> · {metricsText}</text>
-        )}
+        <text style={{ fg: themeColors.foreground, attributes: 1 }}>
+          {" "}{getAgentTaskLabel(agent)}
+        </text>
       </box>
-      {/* Sub-status: current tool or default status text */}
-      {displaySubStatusFull && (
+      {subStatus && (
         <box flexDirection="row">
           <text style={{ fg: themeColors.muted }}>
-            {fullContinuationPrefix}{SUB_STATUS_PAD}{CONNECTOR.subStatus}  {displaySubStatusFull}
+            {continuationPrefix}{SUB_STATUS_PAD}{CONNECTOR.subStatus}  {subStatus}{progressInfo}
           </text>
         </box>
       )}
-      {/* Result summary for completed agents */}
-      {isCompletedFull && agent.result && (
+    </box>
+  );
+}
+
+/**
+ * Single agent row in the tree view.
+ *
+ * Layout:
+ *   ├─● {task}
+ *   │    ╰  {agent-name}: ({N} tool uses)   — during execution
+ *   │      · {currentTool}                   — active tool on separate line
+ *
+ *   ├─● {task}
+ *   │    ╰  Initializing {agent-name}… (Ns)  — during initialization
+ */
+function AgentRow({ agent, isLast, compact, syntaxStyle, themeColors, nowMs }: AgentRowProps): React.ReactNode {
+  const treeChar = isLast ? TREE.lastBranch : TREE.branch;
+  const continuationPrefix = isLast ? TREE.space : TREE.vertical;
+  const isRunning = agent.status === "running" || agent.status === "pending";
+
+  const rowIndicatorColor = getStatusIndicatorColor(agent.status, themeColors);
+  const animateRowIndicator = shouldAnimateAgentStatus(agent.status);
+  const displayTask = truncateText(getAgentTaskLabel(agent), compact ? 40 : 50);
+  const progressInfo = buildAgentProgressInfo(agent, nowMs);
+
+  // Build sub-status text based on agent state
+  let subStatusText: string | null = null;
+  if (isRunning) {
+    if (agent.toolUses !== undefined && agent.toolUses > 0) {
+      subStatusText = `${agent.name}: (${agent.toolUses} tool use${agent.toolUses !== 1 ? "s" : ""})${progressInfo}`;
+    } else {
+      subStatusText = `Initializing ${agent.name}…${progressInfo}`;
+    }
+  } else if (agent.status === "completed") {
+    subStatusText = agent.result ? truncateText(agent.result, 60) : "Done";
+  } else if (agent.status === "error") {
+    subStatusText = agent.error ?? "Error";
+  } else if (agent.status === "interrupted") {
+    subStatusText = "Interrupted";
+  } else if (agent.status === "background") {
+    subStatusText = `Running ${agent.name} in background…${progressInfo}`;
+  }
+
+  // Current tool shown on separate line only during active execution
+  const showCurrentTool = Boolean(agent.currentTool) && (
+    isRunning ? ((agent.toolUses ?? 0) > 0) : true
+  );
+
+  const inlineParts = agent.inlineParts ?? [];
+  const hasInlineParts = inlineParts.length > 0;
+
+  return (
+    <box flexDirection="column">
+      {/* Tree row: ├─● task */}
+      <box flexDirection="row">
+        <box flexShrink={0}><text style={{ fg: themeColors.muted }}>{treeChar}</text></box>
+        <box flexShrink={0}>
+          {animateRowIndicator ? (
+            <text><AnimatedBlinkIndicator color={rowIndicatorColor} speed={500} /></text>
+          ) : (
+            <text style={{ fg: rowIndicatorColor }}>●</text>
+          )}
+        </box>
+        <text style={{ fg: themeColors.foreground, attributes: 1 }}>
+          {" "}{displayTask}
+        </text>
+      </box>
+      {/* Sub-status line */}
+      {subStatusText && (
         <box flexDirection="row">
           <text style={{ fg: themeColors.muted }}>
-            {fullContinuationPrefix}{SUB_STATUS_PAD}</text>
-          <text style={{ fg: themeColors.success }}>
-            {CONNECTOR.subStatus}  {truncateText(agent.result, 60)}
+            {continuationPrefix}{SUB_STATUS_PAD}{CONNECTOR.subStatus}  {subStatusText}
           </text>
         </box>
       )}
-      {/* Error message for failed agents */}
-      {isErrorFull && agent.error && (
+      {/* Current tool on separate line */}
+      {showCurrentTool && (
         <box flexDirection="row">
           <text style={{ fg: themeColors.muted }}>
-            {fullContinuationPrefix}{SUB_STATUS_PAD}</text>
-          <text style={{ fg: themeColors.error }}>
-            {CONNECTOR.subStatus}  {truncateText(agent.error, 60)}
+            {continuationPrefix}{SUB_STATUS_PAD}  {MISC.separator} {agent.currentTool}
           </text>
         </box>
       )}
-      {/* Interrupted message for cancelled agents */}
-      {isInterruptedFull && (
-        <box flexDirection="row">
-          <text style={{ fg: themeColors.muted }}>
-            {fullContinuationPrefix}{SUB_STATUS_PAD}</text>
-          <text style={{ fg: themeColors.warning }}>
-            {CONNECTOR.subStatus}  Interrupted
-          </text>
-        </box>
+      {/* Inline parts from sub-agent */}
+      {hasInlineParts && (
+        <AgentInlinePartsDisplay
+          parts={inlineParts}
+          continuationPrefix={continuationPrefix}
+          syntaxStyle={syntaxStyle}
+          themeColors={themeColors}
+        />
       )}
+    </box>
+  );
+}
+
+// ============================================================================
+// AGENT INLINE PARTS (sub-agent streaming content)
+// ============================================================================
+
+/**
+ * Renders inline parts from a sub-agent's
+ * streaming content, nested under the agent row with tree connectors.
+ */
+function AgentInlinePartsDisplay({
+  parts,
+  continuationPrefix,
+  syntaxStyle,
+  themeColors,
+}: {
+  parts: Part[];
+  continuationPrefix: string;
+  syntaxStyle?: SyntaxStyle;
+  themeColors: ThemeColors;
+}): React.ReactNode {
+  const visibleParts = getAgentInlineDisplayParts(parts);
+  if (visibleParts.length === 0) return null;
+  const inlinePrefix = buildAgentInlinePrefix(continuationPrefix);
+  const consumedTaskIds = getConsumedTaskToolCallIds(visibleParts);
+  const renderKeys = buildPartRenderKeys(visibleParts);
+  const renderQueue = visibleParts.flatMap((part, index) => {
+    if (part.type === "tool" && consumedTaskIds.has((part as ToolPart).toolCallId)) {
+      return [];
+    }
+    return [{ part, index }];
+  });
+
+  return (
+    <box flexDirection="column">
+      {renderQueue.map(({ part, index }, renderedIndex) => {
+        const Renderer = PART_REGISTRY[part.type];
+        if (!Renderer) return null;
+
+        return (
+          <box key={renderKeys[index] ?? part.id} flexDirection="row">
+            <box flexShrink={0}>
+              <text style={{ fg: themeColors.muted }}>{inlinePrefix}</text>
+            </box>
+            <box flexGrow={1} flexShrink={1}>
+              <Renderer
+                part={part}
+                isLast={renderedIndex === renderQueue.length - 1}
+                syntaxStyle={syntaxStyle}
+              />
+            </box>
+          </box>
+        );
+      })}
     </box>
   );
 }
@@ -479,42 +767,41 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
  */
 export function ParallelAgentsTree({
   agents,
+  syntaxStyle,
   compact = false,
   maxVisible = 5,
   noTopMargin = false,
+  background = false,
+  showExpandHint = false,
 }: ParallelAgentsTreeProps): React.ReactNode {
   const { theme } = useTheme();
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const hasActiveAgents = agents.some(
+    (agent) => shouldAnimateAgentStatus(agent.status) || agent.status === "pending",
+  );
+  useEffect(() => {
+    if (!hasActiveAgents) return;
+    setNowMs(Date.now());
+    const interval = setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [hasActiveAgents]);
 
   // Don't render if no agents
   if (agents.length === 0) {
     return null;
   }
 
-  // Sort agents: running first, then pending, then completed, then error
-  const sortedAgents = [...agents].sort((a, b) => {
-    const order: Record<AgentStatus, number> = {
-      running: 0,
-      pending: 1,
-      background: 2,
-      completed: 3,
-      interrupted: 4,
-      error: 5,
-    };
-    return order[a.status] - order[b.status];
-  });
-
-  // Limit visible agents if needed
-  const visibleAgents = sortedAgents.slice(0, maxVisible);
-  const hiddenCount = sortedAgents.length - visibleAgents.length;
+  // Preserve arrival order for stable chronological rendering.
+  const visibleAgents = agents.slice(0, maxVisible);
+  const hiddenCount = agents.length - visibleAgents.length;
 
   // Count agents by status
-  const runningCount = agents.filter(a => a.status === "running" || a.status === "background").length;
+  const activeCount = getForegroundActiveAgentCount(agents);
   const completedCount = agents.filter(a => a.status === "completed").length;
-  const pendingCount = agents.filter(a => a.status === "pending").length;
 
-  // Get the dominant agent type for the header
-  const agentTypes = [...new Set(agents.map(a => a.name))];
-  const dominantType = agentTypes.length === 1 ? (agentTypes[0] ?? "agents") : "agents";
+  // Dominant type removed — header always says "Task" for background, "agents" for foreground
 
   // Theme colors
   const themeColors: ThemeColors = {
@@ -532,22 +819,68 @@ export function ParallelAgentsTree({
   // Count interrupted agents
   const interruptedCount = agents.filter(a => a.status === "interrupted").length;
 
+  // Background mode: green dot header with "N Task agents launched"
+  if (background) {
+    const bgHeaderColor = themeColors.success;
+    const hasActiveBackground = agents.some((agent) => shouldAnimateAgentStatus(agent.status));
+    const bgHeaderText = `${agents.length} Task agent${agents.length !== 1 ? "s" : ""} launched…`;
+    const bgHintText = buildParallelAgentsHeaderHint(agents, showExpandHint);
+
+    return (
+      <box
+        flexDirection="column"
+        paddingLeft={SPACING.CONTAINER_PAD}
+        marginTop={noTopMargin ? SPACING.NONE : SPACING.ELEMENT}
+      >
+        {/* Background header */}
+        <box flexDirection="row">
+          {hasActiveBackground ? (
+            <text><AnimatedBlinkIndicator color={bgHeaderColor} speed={500} /></text>
+          ) : (
+            <text style={{ fg: bgHeaderColor }}>●</text>
+          )}
+          <text style={{ fg: themeColors.foreground }}> {bgHeaderText}</text>
+          {bgHintText !== "" && (
+            <text style={{ fg: themeColors.muted }}> · {bgHintText}</text>
+          )}
+        </box>
+
+        {/* Background agent tree */}
+        {visibleAgents.map((agent, index) => (
+          <BackgroundAgentRow
+            key={agent.id}
+            agent={agent}
+            isLast={index === visibleAgents.length - 1 && hiddenCount === 0}
+            themeColors={themeColors}
+            nowMs={nowMs}
+          />
+        ))}
+
+        {/* Hidden count indicator */}
+        {hiddenCount > 0 && (
+          <box flexDirection="row">
+            <text style={{ fg: themeColors.muted }}>
+              {TREE.lastBranch} ...and {hiddenCount} more
+            </text>
+          </box>
+        )}
+      </box>
+    );
+  }
+
   // Build header text - Claude Code style: "● Running N {Type} agents…"
-  const headerIcon = runningCount > 0 ? "●" : completedCount > 0 ? "●" : "○";
-  const headerColor = runningCount > 0
+  const headerIcon = activeCount > 0 ? "●" : completedCount > 0 ? "●" : "○";
+  const headerColor = activeCount > 0
     ? themeColors.accent
     : interruptedCount > 0
       ? themeColors.warning
       : completedCount > 0
         ? themeColors.success
         : themeColors.muted;
-  const headerText = runningCount > 0
-    ? `Running ${buildAgentHeaderLabel(runningCount, dominantType)}…`
-    : completedCount > 0
-      ? `${buildAgentHeaderLabel(completedCount, dominantType)} finished`
-      : `${buildAgentHeaderLabel(pendingCount, dominantType)} pending`;
+  const headerText = getForegroundHeaderText(agents);
 
-  const headerHint = buildParallelAgentsHeaderHint(agents, runningCount === 0);
+  // Build header hint from background agent tree hints
+  const headerHintText = buildParallelAgentsHeaderHint(agents, showExpandHint);
 
   return (
     <box
@@ -557,9 +890,15 @@ export function ParallelAgentsTree({
     >
       {/* Header */}
       <box flexDirection="row">
-        <text style={{ fg: headerColor }}>{headerIcon}</text>
+        {activeCount > 0 ? (
+          <text><AnimatedBlinkIndicator color={headerColor} speed={500} /></text>
+        ) : (
+          <text style={{ fg: headerColor }}>{headerIcon}</text>
+        )}
         <text style={{ fg: headerColor }}> {headerText}</text>
-        {headerHint && <text style={{ fg: themeColors.muted }}> ({headerHint})</text>}
+        {headerHintText !== "" && (
+          <text style={{ fg: themeColors.muted }}> · {headerHintText}</text>
+        )}
       </box>
 
       {/* Agent tree */}
@@ -569,7 +908,9 @@ export function ParallelAgentsTree({
           agent={agent}
           isLast={index === visibleAgents.length - 1 && hiddenCount === 0}
           compact={compact}
+          syntaxStyle={syntaxStyle}
           themeColors={themeColors}
+          nowMs={nowMs}
         />
       ))}
 

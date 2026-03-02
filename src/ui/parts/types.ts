@@ -40,7 +40,13 @@ export type ToolState =
   | { status: "running"; startedAt: string }
   | { status: "completed"; output: unknown; durationMs: number }
   | { status: "error"; error: string; output?: unknown }
-  | { status: "interrupted"; partialOutput?: unknown };
+  | { status: "interrupted"; partialOutput?: unknown; durationMs?: number };
+
+/**
+ * Tool execution status union type.
+ * Extracted from ToolState for components that only need the status.
+ */
+export type ToolExecutionStatus = ToolState["status"];
 
 // ============================================================================
 // CONCRETE PART TYPES
@@ -69,6 +75,8 @@ export interface ToolPart extends BasePart {
   toolName: string;
   input: Record<string, unknown>;
   output?: unknown;
+  /** Incremental output streamed while tool is still running */
+  partialOutput?: string;
   state: ToolState;
   hitlResponse?: HitlResponseRecord;
 
@@ -110,6 +118,33 @@ export interface CompactionPart extends BasePart {
   summary: string;
 }
 
+export interface TaskResultPart extends BasePart {
+  type: "task-result";
+  taskId: string;
+  toolName: string;
+  title: string;
+  status: "completed" | "error";
+  outputText: string;
+  envelopeText?: string;
+  error?: string;
+  metadata?: {
+    sessionId?: string;
+    providerBindings?: Record<string, string>;
+  };
+}
+
+export interface WorkflowStepPart extends BasePart {
+  type: "workflow-step";
+  workflowId: string;
+  nodeId: string;
+  nodeName: string;
+  status: "running" | "completed" | "error" | "skipped";
+  startedAt: string;
+  completedAt?: string;
+  durationMs?: number;
+  result?: unknown;
+}
+
 // ============================================================================
 // PART UNION
 // ============================================================================
@@ -123,4 +158,6 @@ export type Part =
   | TaskListPart
   | SkillLoadPart
   | McpSnapshotPart
-  | CompactionPart;
+  | CompactionPart
+  | TaskResultPart
+  | WorkflowStepPart;

@@ -58,6 +58,7 @@ describe("BusEvent Type Definitions", () => {
       timestamp: Date.now(),
       data: {
         agentId: "agent-1",
+        toolCallId: "agent-1",
         agentType: "explore",
         task: "Find all TypeScript files",
         isBackground: false,

@@ -147,12 +147,12 @@ describe("Event Bus Integration", () => {
     await waitForBatchFlush();
 
     // Verify output contains expected StreamPartEvents
+    // Adjacent text-deltas with matching agentId are coalesced into a single event
     expect(output.length).toBeGreaterThan(0);
 
     const textDeltas = output.filter((e) => e.type === "text-delta");
-    expect(textDeltas.length).toBe(2);
-    expect(textDeltas[0].delta).toBe("Hello ");
-    expect(textDeltas[1].delta).toBe("world");
+    expect(textDeltas.length).toBe(1);
+    expect(textDeltas[0].delta).toBe("Hello world");
 
     dispose();
     adapter.dispose();
@@ -184,13 +184,10 @@ describe("Event Bus Integration", () => {
     await flushMicrotasks();
     await waitForBatchFlush();
 
-    // Verify all text deltas are present
+    // Adjacent text-deltas with matching agentId are coalesced into a single event
     const textDeltas = output.filter((e) => e.type === "text-delta");
-    expect(textDeltas.length).toBe(4);
-    expect(textDeltas[0].delta).toBe("The ");
-    expect(textDeltas[1].delta).toBe("quick ");
-    expect(textDeltas[2].delta).toBe("brown ");
-    expect(textDeltas[3].delta).toBe("fox");
+    expect(textDeltas.length).toBe(1);
+    expect(textDeltas[0].delta).toBe("The quick brown fox");
 
     dispose();
     adapter.dispose();
@@ -419,10 +416,12 @@ describe("Event Bus Integration", () => {
     await flushMicrotasks();
     await waitForBatchFlush();
 
-    // Verify that events were batched
+    // Verify that events were batched and delivered.
+    // Adjacent text-deltas with matching agentId are coalesced within each batch,
+    // so 10 rapid chunks may reduce to fewer StreamPartEvents.
     const totalEvents = batchSizes.reduce((sum, size) => sum + size, 0);
-    expect(totalEvents).toBeGreaterThanOrEqual(10); // At least 10 deltas
-    // Note: Batching behavior may vary based on timing
+    expect(totalEvents).toBeGreaterThanOrEqual(1);
+    expect(batchSizes.length).toBeGreaterThanOrEqual(1);
 
     dispose();
     adapter.dispose();
@@ -468,12 +467,12 @@ describe("Event Bus Integration", () => {
     await flushMicrotasks();
     await waitForBatchFlush();
 
-    // Verify thinking meta events (thinking deltas are mapped to thinking-meta)
+    // Verify thinking meta events (thinking deltas are mapped to thinking-meta).
+    // Adjacent thinking-meta events with matching scope are coalesced into one.
     const thinkingMeta = output.filter((e) => e.type === "thinking-meta");
-    expect(thinkingMeta.length).toBe(2); // Two chunks with content
-    expect(thinkingMeta[0].thinkingText).toBe("Let me think... ");
+    expect(thinkingMeta.length).toBe(1);
+    expect(thinkingMeta[0].thinkingText).toBe("Let me think... about this problem.");
     expect(thinkingMeta[0].thinkingSourceKey).toBe("block-1");
-    expect(thinkingMeta[1].thinkingText).toBe("about this problem.");
 
     dispose();
     adapter.dispose();

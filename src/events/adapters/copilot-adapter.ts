@@ -100,6 +100,7 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
   private client: CodingAgentClient;
   private unsubscribers: Array<() => void> = [];
   private eventBuffer: BusEvent[] = [];
+  private eventBufferHead = 0;
   private isProcessing = false;
   private sessionId: string = "";
   private runId: number = 0;
@@ -933,6 +934,7 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
       timestamp: Date.now(),
       data: {
         agentId: data.subagentId,
+        toolCallId,
         agentType: data.subagentType ?? "unknown",
         task: normalizedMetadata.task,
         isBackground: normalizedMetadata.isBackground,
@@ -1247,8 +1249,10 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
     this.eventBuffer.push(event);
 
     // Enforce buffer size limit (drop oldest events if overflow)
-    if (this.eventBuffer.length > MAX_BUFFER_SIZE) {
-      const dropped = this.eventBuffer.shift();
+    if (this.eventBuffer.length - this.eventBufferHead > MAX_BUFFER_SIZE) {
+      const dropped = this.eventBuffer[this.eventBufferHead];
+      this.eventBufferHead += 1;
+      this.compactEventBuffer();
       console.warn(
         `[CopilotStreamAdapter] Buffer overflow: dropped event type=${dropped?.type}`,
       );
@@ -1268,8 +1272,9 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
     this.isProcessing = true;
 
     // Process all buffered events
-    while (this.eventBuffer.length > 0) {
-      const event = this.eventBuffer.shift();
+    while (this.eventBufferHead < this.eventBuffer.length) {
+      const event = this.eventBuffer[this.eventBufferHead];
+      this.eventBufferHead += 1;
       if (event) {
         try {
           this.bus.publish(event);
@@ -1282,7 +1287,25 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
       }
     }
 
+    this.compactEventBuffer(true);
     this.isProcessing = false;
+  }
+
+  private compactEventBuffer(force = false): void {
+    if (this.eventBufferHead === 0) {
+      return;
+    }
+
+    if (force || this.eventBufferHead >= this.eventBuffer.length) {
+      this.eventBuffer.length = 0;
+      this.eventBufferHead = 0;
+      return;
+    }
+
+    if (this.eventBufferHead >= 128 && this.eventBufferHead * 2 >= this.eventBuffer.length) {
+      this.eventBuffer = this.eventBuffer.slice(this.eventBufferHead);
+      this.eventBufferHead = 0;
+    }
   }
 
   /**
@@ -1333,6 +1356,7 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
 
     // Clear buffer and state
     this.eventBuffer = [];
+    this.eventBufferHead = 0;
     this.thinkingStreams.clear();
     this.accumulatedText = "";
     this.accumulatedOutputTokens = 0;

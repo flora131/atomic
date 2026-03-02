@@ -219,4 +219,52 @@ describe("contextMonitorNode compaction conflict guard", () => {
 
     expect(getSummarizeCalls()).toBe(1);
   });
+
+  test("throws when summarize action is selected without a session", async () => {
+    const node = contextMonitorNode<MonitorState>({
+      id: "context-monitor",
+      agentType: "opencode",
+      getSession: () => null,
+      getContextUsage: async () => ({
+        inputTokens: 60,
+        outputTokens: 0,
+        maxTokens: 100,
+        usagePercentage: 60,
+      }),
+    });
+
+    await expect(node.execute(createMonitorContext())).rejects.toThrow(
+      /no session available for summarization/i,
+    );
+  });
+
+  test("surfaces summarize failures instead of downgrading to warning signals", async () => {
+    const session: Session = {
+      id: "ses_monitor_error",
+      send: async () => ({ type: "text", content: "" }),
+      stream: async function* () {},
+      summarize: async () => {
+        throw new Error("Compaction timed out");
+      },
+      getContextUsage: async () => ({
+        inputTokens: 60,
+        outputTokens: 0,
+        maxTokens: 100,
+        usagePercentage: 60,
+      }),
+      getSystemToolsTokens: () => 0,
+      getCompactionState: () => ({
+        isCompacting: false,
+        hasAutoCompacted: false,
+      }),
+      destroy: async () => {},
+    };
+    const node = contextMonitorNode<MonitorState>({
+      id: "context-monitor",
+      agentType: "opencode",
+      getSession: () => session,
+    });
+
+    await expect(node.execute(createMonitorContext())).rejects.toThrow(/compaction timed out/i);
+  });
 });

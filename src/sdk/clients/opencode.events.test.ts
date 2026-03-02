@@ -1,5 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { isContextOverflowError, OpenCodeClient } from "./opencode.ts";
+import {
+  COMPACTION_TERMINAL_ERROR_MESSAGE,
+  isContextOverflowError,
+  OpenCodeClient,
+  OpenCodeCompactionError,
+  transitionOpenCodeCompactionControl,
+} from "./opencode.ts";
+import {
+  getRuntimeParityMetricsSnapshot,
+  resetRuntimeParityMetrics,
+} from "../../workflows/runtime-parity-observability.ts";
 
 describe("isContextOverflowError", () => {
   test("detects overflow messages across known pattern variants", () => {
@@ -22,6 +32,102 @@ describe("isContextOverflowError", () => {
     expect(isContextOverflowError("Rate limit exceeded")).toBe(false);
     expect(isContextOverflowError(new Error("Network connection reset"))).toBe(false);
     expect(isContextOverflowError("")).toBe(false);
+  });
+});
+
+describe("transitionOpenCodeCompactionControl", () => {
+  test("applies bounded transitions through success path", () => {
+    const started = transitionOpenCodeCompactionControl(
+      { state: "STREAMING", startedAt: null },
+      "compaction.start",
+      { now: 10 },
+    );
+    const completed = transitionOpenCodeCompactionControl(
+      started,
+      "compaction.complete.success",
+      { now: 20 },
+    );
+
+    expect(started).toEqual({ state: "COMPACTING", startedAt: 10 });
+    expect(completed).toEqual({ state: "STREAMING", startedAt: null });
+  });
+
+  test("rejects invalid compaction start transitions", () => {
+    expect(() =>
+      transitionOpenCodeCompactionControl(
+        { state: "COMPACTING", startedAt: 10 },
+        "compaction.start",
+        { now: 20 },
+      )).toThrow(OpenCodeCompactionError);
+  });
+
+  test("rejects error completion transitions outside compacting state", () => {
+    expect(() =>
+      transitionOpenCodeCompactionControl(
+        { state: "STREAMING", startedAt: null },
+        "compaction.complete.error",
+        {
+          now: 20,
+          errorCode: "COMPACTION_TIMEOUT",
+          errorMessage: COMPACTION_TERMINAL_ERROR_MESSAGE,
+        },
+      )).toThrow(OpenCodeCompactionError);
+  });
+
+  test("transitions to terminal error and ended states on failure", () => {
+    const failed = transitionOpenCodeCompactionControl(
+      { state: "COMPACTING", startedAt: 10 },
+      "compaction.complete.error",
+      {
+        now: 20,
+        errorCode: "COMPACTION_TIMEOUT",
+        errorMessage: COMPACTION_TERMINAL_ERROR_MESSAGE,
+      },
+    );
+    const ended = transitionOpenCodeCompactionControl(failed, "turn.ended");
+
+    expect(failed).toEqual({
+      state: "TERMINAL_ERROR",
+      startedAt: 10,
+      errorCode: "COMPACTION_TIMEOUT",
+      errorMessage: COMPACTION_TERMINAL_ERROR_MESSAGE,
+    });
+    expect(ended).toEqual({
+      state: "ENDED",
+      startedAt: 10,
+      errorCode: "COMPACTION_TIMEOUT",
+      errorMessage: COMPACTION_TERMINAL_ERROR_MESSAGE,
+    });
+  });
+
+  test("keeps terminal states unchanged on late complete events", () => {
+    const terminal = {
+      state: "TERMINAL_ERROR" as const,
+      startedAt: 10,
+      errorCode: "COMPACTION_FAILED" as const,
+      errorMessage: COMPACTION_TERMINAL_ERROR_MESSAGE,
+    };
+    const ended = {
+      state: "ENDED" as const,
+      startedAt: 10,
+      errorCode: "COMPACTION_FAILED" as const,
+      errorMessage: COMPACTION_TERMINAL_ERROR_MESSAGE,
+    };
+
+    expect(transitionOpenCodeCompactionControl(terminal, "compaction.complete.success")).toEqual(terminal);
+    expect(
+      transitionOpenCodeCompactionControl(terminal, "compaction.complete.error", {
+        errorCode: "COMPACTION_TIMEOUT",
+        errorMessage: COMPACTION_TERMINAL_ERROR_MESSAGE,
+      }),
+    ).toEqual(terminal);
+    expect(transitionOpenCodeCompactionControl(ended, "compaction.complete.success")).toEqual(ended);
+    expect(
+      transitionOpenCodeCompactionControl(ended, "compaction.complete.error", {
+        errorCode: "COMPACTION_TIMEOUT",
+        errorMessage: COMPACTION_TERMINAL_ERROR_MESSAGE,
+      }),
+    ).toEqual(ended);
   });
 });
 
@@ -619,8 +725,10 @@ describe("OpenCodeClient event mapping", () => {
   });
 
   test("summarize emits compaction failure and rethrows summarize errors", async () => {
+    resetRuntimeParityMetrics();
     const client = new OpenCodeClient();
     const compactions: Array<{ phase?: string; success?: boolean; error?: string }> = [];
+    const sessionErrors: Array<{ error?: string; code?: string }> = [];
     const idles: string[] = [];
     const sessionId = "ses_summarize_failure";
     const summarizeError = new Error("summarize failed");
@@ -659,6 +767,13 @@ describe("OpenCodeClient event mapping", () => {
       const data = event.data as { reason?: string };
       idles.push(data.reason ?? "");
     });
+    const unsubSessionError = client.on("session.error", (event) => {
+      const data = event.data as { error?: string; code?: string };
+      sessionErrors.push({
+        error: typeof data.error === "string" ? data.error : undefined,
+        code: data.code,
+      });
+    });
 
     const session = await (client as unknown as {
       wrapSession: (sid: string, config: Record<string, unknown>) => Promise<{
@@ -666,16 +781,109 @@ describe("OpenCodeClient event mapping", () => {
       }>;
     }).wrapSession(sessionId, {});
 
-    await expect(session.summarize()).rejects.toThrow("summarize failed");
+    await expect(session.summarize()).rejects.toThrow(COMPACTION_TERMINAL_ERROR_MESSAGE);
 
     unsubCompaction();
     unsubIdle();
+    unsubSessionError();
 
     expect(compactions).toEqual([
       { phase: "start", success: undefined, error: undefined },
-      { phase: "complete", success: false, error: "summarize failed" },
+      { phase: "complete", success: false, error: COMPACTION_TERMINAL_ERROR_MESSAGE },
+    ]);
+    expect(sessionErrors).toEqual([
+      { error: COMPACTION_TERMINAL_ERROR_MESSAGE, code: "COMPACTION_FAILED" },
     ]);
     expect(idles).toEqual([]);
+    const metrics = getRuntimeParityMetricsSnapshot();
+    expect(metrics.counters["workflow.runtime.parity.compaction_timeout_terminated_total{code=COMPACTION_FAILED,provider=opencode}"]).toBe(1);
+    expect(metrics.counters["workflow.runtime.parity.turn_terminated_due_to_contract_error_total{code=COMPACTION_FAILED,provider=opencode,reason=compaction_terminal_error}"]).toBe(1);
+  });
+
+  test("summarize emits terminal timeout error when compaction exceeds bounded wait", async () => {
+    resetRuntimeParityMetrics();
+    const client = new OpenCodeClient();
+    const compactions: Array<{ phase?: string; success?: boolean; error?: string }> = [];
+    const sessionErrors: Array<{ error?: string; code?: string }> = [];
+    const sessionId = "ses_summarize_timeout";
+
+    (client as unknown as {
+      resolveModelContextWindow: (modelHint?: string) => Promise<number>;
+    }).resolveModelContextWindow = async () => 200_000;
+
+    (client as unknown as {
+      sdkClient: {
+        session: {
+          summarize: (params: Record<string, unknown>) => Promise<void>;
+          messages: (params: Record<string, unknown>) => Promise<{
+            data?: Array<{ info: { role: string } }>;
+          }>;
+        };
+      };
+    }).sdkClient = {
+      session: {
+        summarize: async () => new Promise<void>(() => {}),
+        messages: async () => ({ data: [] }),
+      },
+    };
+
+    const unsubCompaction = client.on("session.compaction", (event) => {
+      const data = event.data as { phase?: string; success?: boolean; error?: string };
+      compactions.push({
+        phase: data.phase,
+        success: data.success,
+        error: data.error,
+      });
+    });
+    const unsubSessionError = client.on("session.error", (event) => {
+      const data = event.data as { error?: string; code?: string };
+      sessionErrors.push({
+        error: typeof data.error === "string" ? data.error : undefined,
+        code: data.code,
+      });
+    });
+
+    const originalSetTimeout = globalThis.setTimeout;
+    const originalClearTimeout = globalThis.clearTimeout;
+    (globalThis as unknown as { setTimeout: (...args: unknown[]) => unknown }).setTimeout = (
+      callback: unknown,
+    ) => {
+      if (typeof callback === "function") {
+        (callback as () => void)();
+      }
+      return 1;
+    };
+    (globalThis as unknown as { clearTimeout: (...args: unknown[]) => void }).clearTimeout = () => {};
+
+    try {
+      const session = await (client as unknown as {
+        wrapSession: (sid: string, config: Record<string, unknown>) => Promise<{
+          summarize: () => Promise<void>;
+        }>;
+      }).wrapSession(sessionId, {});
+
+      await expect(session.summarize()).rejects.toThrow(COMPACTION_TERMINAL_ERROR_MESSAGE);
+    } finally {
+      (
+        globalThis as unknown as { setTimeout: (...args: unknown[]) => unknown }
+      ).setTimeout = originalSetTimeout as unknown as (...args: unknown[]) => unknown;
+      (
+        globalThis as unknown as { clearTimeout: (...args: unknown[]) => void }
+      ).clearTimeout = originalClearTimeout as unknown as (...args: unknown[]) => void;
+      unsubCompaction();
+      unsubSessionError();
+    }
+
+    expect(compactions).toEqual([
+      { phase: "start", success: undefined, error: undefined },
+      { phase: "complete", success: false, error: COMPACTION_TERMINAL_ERROR_MESSAGE },
+    ]);
+    expect(sessionErrors).toEqual([
+      { error: COMPACTION_TERMINAL_ERROR_MESSAGE, code: "COMPACTION_TIMEOUT" },
+    ]);
+    const metrics = getRuntimeParityMetricsSnapshot();
+    expect(metrics.counters["workflow.runtime.parity.compaction_timeout_terminated_total{code=COMPACTION_TIMEOUT,provider=opencode}"]).toBe(1);
+    expect(metrics.counters["workflow.runtime.parity.turn_terminated_due_to_contract_error_total{code=COMPACTION_TIMEOUT,provider=opencode,reason=compaction_terminal_error}"]).toBe(1);
   });
 
   test("dedupes duplicate compaction complete events after summarize recovery", async () => {
@@ -1167,6 +1375,109 @@ describe("OpenCodeClient event mapping", () => {
     }
   });
 
+  test("stream yields SSE deltas before promptAsync settles", async () => {
+    const client = new OpenCodeClient();
+    const sessionId = "ses_delta_before_prompt_settle";
+
+    (client as unknown as {
+      resolveModelContextWindow: (modelHint?: string) => Promise<number>;
+    }).resolveModelContextWindow = async () => 200_000;
+
+    const handle = (event: Record<string, unknown>) =>
+      (client as unknown as { handleSdkEvent: (e: Record<string, unknown>) => void }).handleSdkEvent(event);
+
+    (client as unknown as {
+      sdkClient: {
+        session: {
+          promptAsync: (params: Record<string, unknown>) => Promise<void>;
+        };
+      };
+    }).sdkClient = {
+      session: {
+        promptAsync: async () => {
+          setTimeout(() => {
+            handle({
+              type: "message.part.delta",
+              properties: {
+                sessionID: sessionId,
+                delta: "early streamed chunk",
+              },
+            });
+          }, 15);
+
+          setTimeout(() => {
+            handle({
+              type: "session.status",
+              properties: {
+                sessionID: sessionId,
+                status: "idle",
+              },
+            });
+          }, 30);
+
+          // Simulate a promptAsync call that does not settle immediately.
+          await new Promise<void>((resolve) => setTimeout(resolve, 300));
+        },
+      },
+    };
+
+    const session = await (client as unknown as {
+      wrapSession: (sid: string, config: Record<string, unknown>) => Promise<{
+        stream: (message: string, options?: { agent?: string }) => AsyncIterable<{
+          type: string;
+          content: unknown;
+        }>;
+      }>;
+    }).wrapSession(sessionId, {});
+
+    const chunks: Array<{ type: string; content: unknown }> = [];
+    const streamStartAt = Date.now();
+    let firstChunkAt: number | null = null;
+    let firstChunkResolve: (() => void) | undefined;
+    const firstChunkPromise = new Promise<void>((resolve) => {
+      firstChunkResolve = () => resolve();
+    });
+
+    const consumePromise = (async () => {
+      for await (const chunk of session.stream("plain prompt")) {
+        if (firstChunkAt === null) {
+          firstChunkAt = Date.now();
+          firstChunkResolve?.();
+        }
+        chunks.push({ type: chunk.type, content: chunk.content });
+      }
+    })();
+
+    let firstChunkTimeoutId: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        firstChunkPromise,
+        new Promise<never>((_, reject) => {
+          firstChunkTimeoutId = setTimeout(() => reject(new Error("first chunk did not arrive in time")), 150);
+        }),
+      ]);
+    } finally {
+      if (firstChunkTimeoutId) clearTimeout(firstChunkTimeoutId);
+    }
+
+    expect(firstChunkAt).not.toBeNull();
+    expect((firstChunkAt ?? 0) - streamStartAt).toBeLessThan(150);
+
+    let streamTimeoutId: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        consumePromise,
+        new Promise<never>((_, reject) => {
+          streamTimeoutId = setTimeout(() => reject(new Error("stream did not complete")), 2000);
+        }),
+      ]);
+    } finally {
+      if (streamTimeoutId) clearTimeout(streamTimeoutId);
+    }
+
+    expect(chunks.some((chunk) => chunk.type === "text" && chunk.content === "early streamed chunk")).toBe(true);
+  });
+
   test("non-subagent stream completes on idle and yields text from SSE deltas", async () => {
     const client = new OpenCodeClient();
     const sessionId = "ses_non_subagent_idle";
@@ -1389,6 +1700,53 @@ describe("OpenCodeClient event mapping", () => {
 
     expect(starts).toEqual([{ toolName: "task", toolCallId: "call_task_parent" }]);
     expect(completes).toEqual([{ toolName: "task", toolCallId: "call_task_parent" }]);
+  });
+
+  test("does not synthesize subagent.start from parent-session task tool parts", () => {
+    const client = new OpenCodeClient();
+    (client as unknown as { currentSessionId: string | null }).currentSessionId = "ses_parent";
+
+    const lifecycle: string[] = [];
+
+    const unsubSubagentStart = client.on("subagent.start", (event) => {
+      const data = event.data as { toolCallId?: string };
+      if (data.toolCallId === "task_tool_ordering") {
+        lifecycle.push("subagent.start");
+      }
+    });
+
+    const unsubToolStart = client.on("tool.start", (event) => {
+      const data = event.data as { toolName?: string };
+      if (data.toolName === "task") {
+        lifecycle.push("tool.start");
+      }
+    });
+
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "task_tool_ordering",
+          callID: "call_task_ordering",
+          sessionID: "ses_parent",
+          messageID: "msg_task_ordering",
+          type: "tool",
+          tool: "task",
+          state: {
+            status: "running",
+            input: {
+              subagent_type: "debugger",
+              description: "fix ordering",
+            },
+          },
+        },
+      },
+    });
+
+    unsubSubagentStart();
+    unsubToolStart();
+
+    expect(lifecycle).toEqual(["tool.start"]);
   });
 
   test("maps subtask parts to subagent.start with agent name and task", () => {
@@ -1640,7 +1998,7 @@ describe("OpenCodeClient event mapping", () => {
       },
     });
 
-    // Agent part should merge with the synthesized task agent (not create a duplicate).
+    // Agent part should carry correlation from the preceding task tool part.
     (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
       type: "message.part.updated",
       properties: {
@@ -1657,19 +2015,13 @@ describe("OpenCodeClient event mapping", () => {
 
     unsubStart();
 
-    // The AgentPart should NOT create a separate entry — it merges with the
-    // synthesized task agent by reusing its ID ("task-agent-task_tool_1").
-    const duplicateEntry = starts.find((entry) => entry.subagentId === "agent_from_task");
-    expect(duplicateEntry).toBeUndefined();
-
-    // All events should use the synthesized ID with the correct correlation.
-    const mergedEvents = starts.filter((entry) => entry.subagentId === "task-agent-task_tool_1");
-    expect(mergedEvents.length).toBeGreaterThanOrEqual(1);
-    expect(mergedEvents.every((e) => e.toolCallId === "task_tool_1")).toBe(true);
-
-    // The last event should carry the real agent type from the AgentPart.
-    const lastMerged = mergedEvents[mergedEvents.length - 1];
-    expect(lastMerged?.subagentType).toBe("debugger");
+    expect(starts).toEqual([
+      {
+        subagentId: "agent_from_task",
+        subagentType: "debugger",
+        toolCallId: "task_tool_1",
+      },
+    ]);
   });
 
   test("ignores user @mention agent parts to avoid orphan subagent rows", () => {
@@ -1765,16 +2117,16 @@ describe("OpenCodeClient event mapping", () => {
 
     unsubStart();
 
-    // User @mention AgentPart should be ignored.
-    expect(starts.find((entry) => entry.subagentId === "user_agent_ref")).toBeUndefined();
-
-    // Real dispatch should still be represented by the synthesized task agent.
-    const mergedEvents = starts.filter((entry) => entry.subagentId === "task-agent-task_tool_1");
-    expect(mergedEvents.length).toBeGreaterThanOrEqual(1);
-    expect(mergedEvents.every((entry) => entry.toolCallId === "task_tool_1")).toBe(true);
+    expect(starts).toEqual([
+      {
+        subagentId: "agent_from_task",
+        subagentType: "debugger",
+        toolCallId: "task_tool_1",
+      },
+    ]);
   });
 
-  test("does not leak completed synthesized task correlation into later agent parts", () => {
+  test("does not leak completed task correlation into later agent parts", () => {
     const client = new OpenCodeClient();
     const starts: Array<{
       subagentId?: string;
@@ -1846,8 +2198,12 @@ describe("OpenCodeClient event mapping", () => {
 
     unsubStart();
 
-    const start = starts.find((entry) => entry.subagentId === "agent_after_task");
-    expect(start?.toolCallId).toBe("call_after_task");
+    expect(starts).toEqual([
+      {
+        subagentId: "agent_after_task",
+        toolCallId: "call_after_task",
+      },
+    ]);
   });
 
   test("emits tool.complete when tool status is completed but output is undefined", () => {
@@ -1902,8 +2258,11 @@ describe("OpenCodeClient event mapping", () => {
     expect(completes[0]!.success).toBe(true);
   });
 
-  test("maps step-finish part to subagent.complete", () => {
+  test("maps step-finish part to subagent.complete for known sub-agents", () => {
     const client = new OpenCodeClient();
+    const handleSdkEvent = (event: Record<string, unknown>) =>
+      (client as unknown as { handleSdkEvent: (e: Record<string, unknown>) => void }).handleSdkEvent(event);
+
     const completes: Array<{
       sessionId: string;
       subagentId?: string;
@@ -1925,8 +2284,57 @@ describe("OpenCodeClient event mapping", () => {
       });
     });
 
+    // Register the assistant message role so agent parts aren't
+    // filtered as user @mentions.
+    handleSdkEvent({
+      type: "message.updated",
+      properties: {
+        info: {
+          id: "msg_step",
+          sessionID: "ses_step",
+          role: "assistant",
+        },
+      },
+    });
+    handleSdkEvent({
+      type: "message.updated",
+      properties: {
+        info: {
+          id: "msg_step_2",
+          sessionID: "ses_step",
+          role: "assistant",
+        },
+      },
+    });
+
+    // Register sub-agents via agent parts BEFORE step-finish
+    handleSdkEvent({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "step-1",
+          sessionID: "ses_step",
+          messageID: "msg_step",
+          type: "agent",
+          name: "explorer",
+        },
+      },
+    });
+    handleSdkEvent({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "step-2",
+          sessionID: "ses_step",
+          messageID: "msg_step_2",
+          type: "agent",
+          name: "worker",
+        },
+      },
+    });
+
     // Test successful completion
-    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+    handleSdkEvent({
       type: "message.part.updated",
       properties: {
         part: {
@@ -1940,7 +2348,7 @@ describe("OpenCodeClient event mapping", () => {
     });
 
     // Test error completion
-    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+    handleSdkEvent({
       type: "message.part.updated",
       properties: {
         part: {
@@ -1969,6 +2377,92 @@ describe("OpenCodeClient event mapping", () => {
         result: "error",
       },
     ]);
+  });
+
+  test("ignores step-finish for main-turn completion (no prior sub-agent registration)", () => {
+    const client = new OpenCodeClient();
+    const handleSdkEvent = (event: Record<string, unknown>) =>
+      (client as unknown as { handleSdkEvent: (e: Record<string, unknown>) => void }).handleSdkEvent(event);
+
+    const completes: Array<{ subagentId?: string }> = [];
+
+    const unsubComplete = client.on("subagent.complete", (event) => {
+      const data = event.data as { subagentId?: string };
+      completes.push({ subagentId: data.subagentId });
+    });
+
+    // step-finish without any prior agent/subtask part registration
+    // (this is the main-turn completion scenario that caused MISSING_START)
+    handleSdkEvent({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "prt_main_turn_finish",
+          sessionID: "ses_main",
+          messageID: "msg_1",
+          type: "step-finish",
+          reason: "stop",
+        },
+      },
+    });
+
+    unsubComplete();
+
+    // No subagent.complete should be emitted for main-turn step-finish
+    expect(completes).toEqual([]);
+  });
+
+  test("requires a prior subagent.start before mapping step-finish to subagent.complete", () => {
+    const client = new OpenCodeClient();
+    const handleSdkEvent = (event: Record<string, unknown>) =>
+      (client as unknown as { handleSdkEvent: (e: Record<string, unknown>) => void }).handleSdkEvent(event);
+
+    const completes: Array<{ subagentId?: string }> = [];
+    const unsubComplete = client.on("subagent.complete", (event) => {
+      const data = event.data as { subagentId?: string };
+      completes.push({ subagentId: data.subagentId });
+    });
+
+    // Simulate stale internal correlation artifacts without a prior subagent.start.
+    (
+      client as unknown as {
+        subagentStateByParentSession: Map<
+          string,
+          {
+            pendingAgentParts: Array<{ partId: string; agentName: string }>;
+            childSessionToAgentPart: Map<string, string>;
+            startedSubagentIds: Set<string>;
+            subagentToolCounts: Map<string, number>;
+            pendingTaskToolPartIds: string[];
+            queuedTaskToolPartIds: Set<string>;
+          }
+        >;
+      }
+    ).subagentStateByParentSession.set("ses_main", {
+      pendingAgentParts: [{ partId: "prt_ghost_agent", agentName: "worker" }],
+      childSessionToAgentPart: new Map([["ses_child", "prt_ghost_agent"]]),
+      startedSubagentIds: new Set(),
+      subagentToolCounts: new Map([["prt_ghost_agent", 2]]),
+      pendingTaskToolPartIds: [],
+      queuedTaskToolPartIds: new Set(),
+    });
+
+    handleSdkEvent({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "prt_ghost_agent",
+          sessionID: "ses_main",
+          messageID: "msg_1",
+          type: "step-finish",
+          reason: "stop",
+        },
+      },
+    });
+
+    unsubComplete();
+
+    expect(completes).toEqual([]);
   });
 
   test("omits subagentSessionId from initial agent part subagent.start (parent session != child)", () => {
@@ -2304,7 +2798,7 @@ describe("OpenCodeClient event mapping", () => {
       },
     });
 
-    const beforeNestedTask = starts.length;
+    const startsBeforeNestedTask = [...starts];
     // Nested task tool under child session should NOT synthesize a new top-level task-agent row.
     handle({
       type: "message.part.updated",
@@ -2330,11 +2824,10 @@ describe("OpenCodeClient event mapping", () => {
 
     unsubStart();
 
-    expect(starts).toHaveLength(beforeNestedTask);
-    expect(starts.find((entry) => entry.subagentId === "task-agent-nested_task_1")).toBeUndefined();
+    expect(starts).toEqual(startsBeforeNestedTask);
   });
 
-  test("keeps synthesized task subagent type stable across running and completion updates", () => {
+  test("does not emit subagent.start rows from task tool status updates", () => {
     const client = new OpenCodeClient();
     const handle = (event: Record<string, unknown>) =>
       (client as unknown as { handleSdkEvent: (e: Record<string, unknown>) => void }).handleSdkEvent(event);
@@ -2427,12 +2920,7 @@ describe("OpenCodeClient event mapping", () => {
 
     unsubStart();
 
-    const debuggerStarts = starts.filter((entry) => entry.subagentId === "task-agent-task_debugger_1");
-    expect(debuggerStarts).toHaveLength(3);
-    expect(debuggerStarts[0]?.subagentType).toBe("debugger");
-    expect(debuggerStarts[1]?.subagentType).toBe("debugger");
-    expect(debuggerStarts[2]?.subagentType).toBe("debugger");
-    expect(debuggerStarts[2]?.subagentSessionId).toBe("ses_child_debugger");
+    expect(starts).toHaveLength(0);
   });
 
   test("maps structured session.error payloads to readable error strings", () => {
@@ -2632,7 +3120,7 @@ describe("OpenCodeClient event mapping", () => {
     }
 
     expect(promptCalls).toEqual(["trigger proactive threshold"]);
-    expect(textChunks).toContain("threshold output");
+    expect(textChunks).toEqual(["threshold output"]);
     expect(summarizeCalls).toBe(1);
   });
 
@@ -2797,7 +3285,7 @@ describe("OpenCodeClient event mapping", () => {
 
     expect(summarizeCalls).toBe(1);
     expect(promptCalls).toEqual(["trigger overflow", "Continue"]);
-    expect(textChunks).toContain("continued output");
+    expect(textChunks).toEqual(["continued output"]);
   });
 
   test("stream overflow recovery emits compaction lifecycle in deterministic order", async () => {
@@ -3123,5 +3611,67 @@ describe("OpenCodeClient event mapping", () => {
     await expect(consumeStream()).rejects.toThrow(/context_length_exceeded/i);
     expect(summarizeCalls).toBe(1);
     expect(promptCalls).toEqual(["trigger overflow", "Continue"]);
+  });
+
+  test("stream preserves OpenCodeCompactionError type for auto-compaction failures", async () => {
+    const client = new OpenCodeClient();
+    const sessionId = "ses_stream_overflow_compaction_failure";
+    const promptCalls: string[] = [];
+    let summarizeCalls = 0;
+
+    (client as unknown as {
+      resolveModelContextWindow: (modelHint?: string) => Promise<number>;
+    }).resolveModelContextWindow = async () => 200_000;
+
+    (client as unknown as {
+      sdkClient: {
+        session: {
+          promptAsync: (params: Record<string, unknown>) => Promise<Record<string, unknown>>;
+          summarize: (params: Record<string, unknown>) => Promise<Record<string, never>>;
+          messages: (params: Record<string, unknown>) => Promise<{ data: unknown[] }>;
+        };
+      };
+    }).sdkClient = {
+      session: {
+        promptAsync: async (params) => {
+          const parts = ((params.parts as Array<{ type?: string; text?: string }> | undefined) ?? []);
+          const textPart = parts.find((part) => part.type === "text");
+          promptCalls.push(textPart?.text ?? "");
+          return { error: { message: "context_length_exceeded" } };
+        },
+        summarize: async () => {
+          summarizeCalls += 1;
+          throw new Error("summarize failed");
+        },
+        messages: async () => ({ data: [] }),
+      },
+    };
+
+    const session = await (client as unknown as {
+      wrapSession: (
+        sid: string,
+        config: Record<string, unknown>,
+      ) => Promise<{
+        stream: (message: string) => AsyncIterable<unknown>;
+      }>;
+    }).wrapSession(sessionId, {});
+
+    const consumeStream = async (): Promise<void> => {
+      for await (const _chunk of session.stream("trigger overflow")) {
+        // stream should fail after summarize terminal error
+      }
+    };
+
+    const streamError = await consumeStream()
+      .then(() => null)
+      .catch((error: unknown) => error);
+    expect(streamError).toBeInstanceOf(OpenCodeCompactionError);
+    if (!(streamError instanceof OpenCodeCompactionError)) {
+      throw new Error("Expected stream to throw OpenCodeCompactionError");
+    }
+    expect(streamError.code).toBe("COMPACTION_FAILED");
+    expect(streamError.message).toBe(COMPACTION_TERMINAL_ERROR_MESSAGE);
+    expect(summarizeCalls).toBe(1);
+    expect(promptCalls).toEqual(["trigger overflow"]);
   });
 });

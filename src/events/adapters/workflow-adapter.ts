@@ -148,6 +148,7 @@ export class WorkflowEventAdapter {
       timestamp: Date.now(),
       data: {
         agentId,
+        toolCallId: agentId,
         agentType,
         task,
         isBackground,

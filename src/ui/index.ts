@@ -238,12 +238,19 @@ export async function startChatUI(
       : undefined;
   const modelOps = agentType ? new UnifiedModelOperations(agentType, sdkSetModel, sdkListModels, sessionConfig?.model) : undefined;
 
-  // Initialize singleton event bus and batch dispatcher
-  const sharedBus = new EventBus();
+  // Initialize singleton event bus and batch dispatcher.
+  // Runtime validation is expensive on high-frequency streaming events,
+  // so keep it opt-in for diagnostics.
+  const sharedBus = new EventBus({
+    validatePayloads: process.env.ATOMIC_VALIDATE_BUS_EVENTS === "1",
+  });
   const sharedDispatcher = new BatchDispatcher(sharedBus);
 
-  // Attach file-based debug subscriber when ATOMIC_DEBUG=1
+  // Attach file-based debug subscriber when stream debug logging is enabled.
   const debugSub = await attachDebugSubscriber(sharedBus);
+  if (debugSub.logPath) {
+    console.info(`[Atomic] Stream debug log: ${debugSub.logPath}`);
+  }
 
   // Initialize state
   const state: ChatUIState = {

@@ -1,9 +1,8 @@
 /**
  * Test for sub-agent tree orphan fix
  * 
- * Verifies that agents with terminal status (completed, error, interrupted)
- * are properly replaced when a new stream.agent.start event arrives for the
- * same agent ID, rather than preserving the old terminal status.
+ * Verifies that stale terminal agent rows can be replaced by a new start event,
+ * while active-lifecycle terminal rows are blocked from transitioning back to running.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -22,8 +21,9 @@ interface ParallelAgent {
 }
 
 /**
- * Simulates the stream.agent.start handler logic with the fix applied.
- * When an agent with a terminal status exists, it should be replaced, not updated.
+ * Simulates the stream.agent.start handler logic.
+ * - Stale terminal rows (no active lifecycle entry) can be replaced.
+ * - Active lifecycle + terminal row blocks terminal->running transitions.
  */
 function applyAgentStart(
   current: ParallelAgent[],
@@ -33,7 +33,8 @@ function applyAgentStart(
     task: string;
     sdkCorrelationId?: string;
     isBackground?: boolean;
-  }
+  },
+  hasActiveLifecycleEntry = false,
 ): ParallelAgent[] {
   const startedAt = new Date().toISOString();
   const status: AgentStatus = event.isBackground ? "background" : "running";
@@ -42,8 +43,12 @@ function applyAgentStart(
   if (existingIndex >= 0) {
     const existing = current[existingIndex];
     // If agent already has a terminal status (completed, error, interrupted),
-    // it's from a previous stream. Filter it out instead of preserving it.
+    // block active-lifecycle terminal->running transitions; otherwise replace
+    // stale rows from previous streams.
     if (existing && (existing.status === "completed" || existing.status === "error" || existing.status === "interrupted")) {
+      if (hasActiveLifecycleEntry) {
+        return current;
+      }
       // Remove the old agent and add the new one
       return [
         ...current.filter((agent) => agent.id !== event.agentId),
@@ -90,6 +95,26 @@ function applyAgentStart(
 }
 
 describe("sub-agent tree orphan fix", () => {
+  test("terminal agent is not replaced when lifecycle entry is still active", () => {
+    const current: ParallelAgent[] = [
+      {
+        id: "agent-active",
+        name: "debugger",
+        task: "Completed task",
+        status: "completed",
+        startedAt: "2024-01-01T00:00:00.000Z",
+      },
+    ];
+
+    const result = applyAgentStart(current, {
+      agentId: "agent-active",
+      agentType: "debugger",
+      task: "Invalid restart",
+    }, true);
+
+    expect(result).toEqual(current);
+  });
+
   test("completed agent is replaced when new start event arrives", () => {
     const current: ParallelAgent[] = [
       {

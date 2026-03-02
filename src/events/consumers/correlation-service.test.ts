@@ -44,6 +44,7 @@ describe("CorrelationService", () => {
       timestamp: Date.now(),
       data: {
         agentId: "agent_001",
+        toolCallId: "agent_001",
         agentType: "general-purpose",
         task: "Test task",
         isBackground: false,
@@ -65,6 +66,7 @@ describe("CorrelationService", () => {
       timestamp: Date.now(),
       data: {
         agentId: "agent_001",
+        toolCallId: "agent_001",
         agentType: "general-purpose",
         task: "Test task",
         isBackground: false,
@@ -167,6 +169,7 @@ describe("CorrelationService", () => {
       timestamp: Date.now(),
       data: {
         agentId: "agent_main",
+        toolCallId: "agent_main",
         agentType: "general-purpose",
         task: "Main task",
         isBackground: false,
@@ -199,6 +202,7 @@ describe("CorrelationService", () => {
       timestamp: Date.now(),
       data: {
         agentId: "agent_123",
+        toolCallId: "agent_123",
         agentType: "general-purpose",
         task: "Test",
         isBackground: false,
@@ -251,6 +255,7 @@ describe("CorrelationService", () => {
       timestamp: Date.now(),
       data: {
         agentId: "agent_001",
+        toolCallId: "agent_001",
         agentType: "general-purpose",
         task: "Main task",
         isBackground: false,
@@ -266,6 +271,7 @@ describe("CorrelationService", () => {
       timestamp: Date.now(),
       data: {
         agentId: "agent_002",
+        toolCallId: "agent_002",
         agentType: "explore",
         task: "Sub task",
         isBackground: true,
@@ -417,6 +423,7 @@ describe("CorrelationService", () => {
         timestamp: Date.now(),
         data: {
           agentId: "sub_agent_1",
+          toolCallId: "sub_agent_1",
           agentType: "task",
           task: "Analyze code",
           isBackground: false,
@@ -441,6 +448,7 @@ describe("CorrelationService", () => {
         timestamp: Date.now(),
         data: {
           agentId: "sub_agent_2",
+          toolCallId: "sub_agent_2",
           agentType: "task",
           task: "Write tests",
           isBackground: false,
@@ -475,6 +483,7 @@ describe("CorrelationService", () => {
         timestamp: Date.now(),
         data: {
           agentId: "worker_1",
+          toolCallId: "worker_1",
           agentType: "explore",
           task: "Research docs",
           isBackground: true,
@@ -592,6 +601,7 @@ describe("CorrelationService", () => {
         timestamp: Date.now(),
         data: {
           agentId: "main_agent",
+          toolCallId: "main_agent",
           agentType: "general-purpose",
           task: "Main task",
           isBackground: false,
@@ -669,6 +679,7 @@ describe("CorrelationService", () => {
         timestamp: Date.now(),
         data: {
           agentId: "sub_1",
+          toolCallId: "sub_1",
           agentType: "task",
           task: "Test",
           isBackground: false,
@@ -713,6 +724,7 @@ describe("CorrelationService", () => {
         timestamp: Date.now(),
         data: {
           agentId: "main_agent",
+          toolCallId: "main_agent",
           agentType: "general-purpose",
           task: "Chat",
           isBackground: false,
@@ -771,14 +783,14 @@ describe("CorrelationService", () => {
         sessionId: "s1",
         runId: 1,
         timestamp: Date.now(),
-        data: { agentId: "worker_a", agentType: "task", task: "A", isBackground: false },
+        data: { agentId: "worker_a", toolCallId: "worker_a", agentType: "task", task: "A", isBackground: false },
       };
       const eventB: BusEvent<"stream.agent.start"> = {
         type: "stream.agent.start",
         sessionId: "s1",
         runId: 1,
         timestamp: Date.now(),
-        data: { agentId: "worker_b", agentType: "task", task: "B", isBackground: false },
+        data: { agentId: "worker_b", toolCallId: "worker_b", agentType: "task", task: "B", isBackground: false },
       };
 
       const enrichedA = service.enrich(eventA);
@@ -819,7 +831,7 @@ describe("CorrelationService", () => {
         sessionId: "session_123",
         runId: 1,
         timestamp: Date.now(),
-        data: { agentId: "main-agent", agentType: "chat", task: "test", isBackground: false },
+        data: { agentId: "main-agent", toolCallId: "main-agent", agentType: "chat", task: "test", isBackground: false },
       };
       service.enrich(agentStartEvent);
 

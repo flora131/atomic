@@ -31,6 +31,7 @@ import {
     observeRuntimeParityHistogram,
     runtimeParityDebug,
 } from "./runtime-parity-observability.ts";
+import { pipelineLog, pipelineError } from "../events/pipeline-logger.ts";
 
 /**
  * Result of a workflow execution.
@@ -171,6 +172,7 @@ export async function executeWorkflow(
     void initWorkflowSession(definition.name, sessionId).then((session) => {
         registerActiveSession(session);
     }).catch((err) => {
+        pipelineError("Workflow", "session_init_error", { workflow: definition.name, sessionId });
         console.error("[workflow] Failed to initialize session:", err);
     });
 
@@ -183,6 +185,7 @@ export async function executeWorkflow(
     context.setStreaming(true);
 
     let unsubscribeStatusChange: (() => void) | undefined;
+    pipelineLog("Workflow", "start", { workflow: definition.name, sessionId });
     incrementRuntimeParityCounter("workflow.runtime.parity.execution_total", {
         phase: "start",
         workflow: definition.name,
@@ -377,6 +380,7 @@ export async function executeWorkflow(
                         try {
                             await options.saveTasksToSession!(pendingSaveTasks, sid);
                         } catch (err) {
+                            pipelineError("Workflow", "task_save_error", { sessionId });
                             console.error('[workflow] Failed to save tasks:', err);
                         }
                         pendingSaveTasks = null;
@@ -562,6 +566,7 @@ export async function executeWorkflow(
                 try {
                     await options.saveTasksToSession(pendingSaveTasks, sessionId);
                 } catch (err) {
+                    pipelineError("Workflow", "task_flush_error", { sessionId });
                     console.error('[workflow] Failed to flush pending task save:', err);
                 }
             }
@@ -599,6 +604,7 @@ export async function executeWorkflow(
             const errorDetail = lastStepError ? `: ${lastStepError}` : "";
             const failureMessage = `Workflow failed at node "${lastNodeId ?? "unknown"}"${errorDetail}`;
             context.addMessage("system", failureMessage);
+            pipelineError("Workflow", "execution_failed", { workflow: definition.name, nodeId: lastNodeId ?? "unknown", error: lastStepError });
             incrementRuntimeParityCounter("workflow.runtime.parity.execution_total", {
                 phase: "failure",
                 workflow: definition.name,
@@ -624,6 +630,7 @@ export async function executeWorkflow(
             "assistant",
             `**${definition.name}** workflow completed successfully.`,
         );
+        pipelineLog("Workflow", "complete", { workflow: definition.name, sessionId });
         incrementRuntimeParityCounter("workflow.runtime.parity.execution_total", {
             phase: "success",
             workflow: definition.name,
@@ -655,6 +662,7 @@ export async function executeWorkflow(
 
         const errorMessage = `Workflow failed: ${error instanceof Error ? error.message : String(error)}`;
         context.addMessage("system", errorMessage);
+        pipelineError("Workflow", "execution_error", { workflow: definition.name, error: error instanceof Error ? error.message : String(error) });
         incrementRuntimeParityCounter("workflow.runtime.parity.execution_total", {
             phase: "failure",
             workflow: definition.name,

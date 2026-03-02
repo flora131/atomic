@@ -175,6 +175,8 @@ export interface BusEventDataMap {
   "stream.agent.start": {
     /** Unique agent ID */
     agentId: string;
+    /** Tool call ID that spawned this agent (or deterministic fallback) */
+    toolCallId: string;
     /** Type of agent (e.g., "explore", "task", "general-purpose") */
     agentType: string;
     /** Task description given to the agent */
@@ -518,6 +520,7 @@ export const BusEventSchemas: Record<BusEventType, z.ZodType> = {
   }),
   "stream.agent.start": z.object({
     agentId: z.string(),
+    toolCallId: z.string(),
     agentType: z.string(),
     task: z.string(),
     isBackground: z.boolean(),

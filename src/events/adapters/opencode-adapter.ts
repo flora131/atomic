@@ -954,6 +954,7 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
         timestamp: Date.now(),
         data: {
           agentId: data.subagentId,
+          toolCallId: sdkCorrelationId ?? data.subagentId,
           agentType: data.subagentType ?? "unknown",
           task: normalizedMetadata.task,
           isBackground: normalizedMetadata.isBackground,

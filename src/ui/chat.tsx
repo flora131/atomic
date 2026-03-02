@@ -124,6 +124,14 @@ import {
   shouldDeferComposerSubmit,
   type SessionLoopFinishReason,
 } from "./utils/stream-continuation.ts";
+import {
+  createAgentLifecycleLedger,
+  formatAgentLifecycleViolation,
+  registerAgentLifecycleComplete,
+  registerAgentLifecycleStart,
+  registerAgentLifecycleUpdate,
+  type AgentLifecycleViolationCode,
+} from "./utils/agent-lifecycle-ledger.ts";
 import { getNextKittyKeyboardDetectionState } from "./utils/kitty-keyboard-detection.ts";
 import {
   getEnqueueShortcutLabel,
@@ -172,6 +180,12 @@ import {
 import { MessageBubbleParts } from "./components/parts/message-bubble-parts.tsx";
 import { useBusSubscription, useStreamConsumer } from "../events/hooks.ts";
 import { useEventBusContext } from "../events/event-bus-provider.tsx";
+import type { EventBus } from "../events/event-bus.ts";
+import {
+  incrementRuntimeParityCounter,
+  runtimeParityDebug,
+} from "../workflows/runtime-parity-observability.ts";
+import { pipelineError } from "../events/pipeline-logger.ts";
 
 
 export { shouldGroupSubagentTrees };
@@ -187,6 +201,31 @@ const RUNTIME_ENVELOPE_PART_TYPES = new Set<StreamPartEvent["type"]>([
   "workflow-step-complete",
   "task-result-upsert",
 ]);
+
+const DEFAULT_SUBAGENT_TASK_LABEL = "sub-agent task";
+
+export function isGenericSubagentTaskLabel(task: string | undefined): boolean {
+  const normalized = (task ?? "").trim().toLowerCase();
+  return normalized === "" || normalized === DEFAULT_SUBAGENT_TASK_LABEL || normalized === "subagent task";
+}
+
+function resolveIncomingSubagentTaskLabel(task: string | undefined, agentType: string | undefined): string {
+  const normalizedTask = task?.trim();
+  if (normalizedTask) return normalizedTask;
+  const normalizedAgentType = agentType?.trim();
+  if (normalizedAgentType) return normalizedAgentType;
+  return DEFAULT_SUBAGENT_TASK_LABEL;
+}
+
+export function mergeAgentTaskLabel(
+  existingTask: string | undefined,
+  incomingTask: string | undefined,
+  agentType: string | undefined,
+): string {
+  const nextTask = resolveIncomingSubagentTaskLabel(incomingTask, agentType);
+  if (isGenericSubagentTaskLabel(existingTask)) return nextTask;
+  return isGenericSubagentTaskLabel(nextTask) ? (existingTask ?? nextTask) : (existingTask ?? nextTask);
+}
 
 export function isRuntimeEnvelopePartEvent(
   part: StreamPartEvent,
@@ -1025,6 +1064,157 @@ export function shouldFinalizeAgentOnlyStream(args: {
     && args.isStreaming
     && args.isAgentOnlyStream
     && (args.liveAgentCount > 0 || args.messageAgentCount > 0);
+}
+
+export function buildAgentContinuationPayload(args: {
+  agents: readonly ParallelAgent[];
+  fallbackText?: string;
+}): string | null {
+  const agentSections = args.agents
+    .filter((agent) => !agent.background)
+    .map((agent) => {
+      const rawResult = typeof agent.result === "string" && agent.result.trim().length > 0
+        ? agent.result
+        : agent.error?.trim();
+      if (!rawResult) {
+        return null;
+      }
+      const normalizedResult = normalizeMarkdownNewlines(rawResult).trim();
+      if (!normalizedResult) {
+        return null;
+      }
+      return `Sub-agent "${agent.name}" result:\n\n${normalizedResult}`;
+    })
+    .filter((section): section is string => section !== null);
+
+  if (agentSections.length > 0) {
+    return `[Sub-agent results]\n\n${agentSections.join("\n\n")}`;
+  }
+
+  const fallback = normalizeMarkdownNewlines(args.fallbackText ?? "").trim();
+  if (fallback.length > 0) {
+    return `[Sub-agent result]\n\n${fallback}`;
+  }
+
+  return null;
+}
+
+export function getAgentContinuationContractViolation(args: {
+  isAgentOnlyStream: boolean;
+  continuationPayload: string | null;
+}): string | null {
+  if (!args.isAgentOnlyStream || args.continuationPayload) {
+    return null;
+  }
+  return "Contract violation (INV-OUTPUT-001): missing @agent continuation input; turn terminated.";
+}
+
+export type ContractFailureTerminationReason =
+  | "agent_lifecycle_violation"
+  | "missing_agent_continuation"
+  | "compaction_terminal_error";
+
+const AGENT_OUT_OF_ORDER_VIOLATION_CODES = new Set<AgentLifecycleViolationCode>([
+  "OUT_OF_ORDER_EVENT",
+  "INVALID_TERMINAL_TRANSITION",
+]);
+
+export function emitAgentLifecycleContractObservability(args: {
+  provider?: string;
+  runId?: number;
+  code: AgentLifecycleViolationCode;
+  eventType: "stream.agent.start" | "stream.agent.update" | "stream.agent.complete";
+  agentId: string;
+  eventBus?: EventBus;
+}): void {
+  const provider = args.provider ?? "unknown";
+  incrementRuntimeParityCounter("workflow.runtime.parity.agent_lifecycle_contract_violation_total", {
+    provider,
+    code: args.code,
+    eventType: args.eventType,
+  });
+  if (AGENT_OUT_OF_ORDER_VIOLATION_CODES.has(args.code)) {
+    incrementRuntimeParityCounter("workflow.runtime.parity.agent_event_out_of_order_total", {
+      provider,
+      code: args.code,
+      eventType: args.eventType,
+    });
+  }
+  runtimeParityDebug("agent_lifecycle_contract_violation", {
+    provider,
+    runId: args.runId,
+    code: args.code,
+    eventType: args.eventType,
+    agentId: args.agentId,
+  });
+  pipelineError("EventBus", "agent_lifecycle_contract_violation", {
+    provider,
+    code: args.code,
+    eventType: args.eventType,
+    agentId: args.agentId,
+  });
+  args.eventBus?.reportError({
+    kind: "contract_violation",
+    eventType: args.eventType,
+    error: formatAgentLifecycleViolation(args),
+    eventData: { code: args.code, agentId: args.agentId, provider },
+  });
+}
+
+export function emitAgentMainContinuationObservability(args: {
+  provider?: string;
+  runId?: number;
+  result: "forwarded" | "missing";
+}): void {
+  const provider = args.provider ?? "unknown";
+  incrementRuntimeParityCounter("workflow.runtime.parity.agent_result_main_continuation_total", {
+    provider,
+    result: args.result,
+  });
+  runtimeParityDebug("agent_result_main_continuation", {
+    provider,
+    runId: args.runId,
+    result: args.result,
+  });
+}
+
+export function emitContractFailureTerminationObservability(args: {
+  provider?: string;
+  runId?: number;
+  reason: ContractFailureTerminationReason;
+  errorMessage: string;
+  code?: string;
+  eventType?: "stream.agent.start" | "stream.agent.update" | "stream.agent.complete";
+  agentId?: string;
+  eventBus?: EventBus;
+}): void {
+  const provider = args.provider ?? "unknown";
+  incrementRuntimeParityCounter("workflow.runtime.parity.turn_terminated_due_to_contract_error_total", {
+    provider,
+    reason: args.reason,
+    code: args.code,
+  });
+  runtimeParityDebug("contract_failure_turn_terminated", {
+    provider,
+    runId: args.runId,
+    reason: args.reason,
+    code: args.code,
+    eventType: args.eventType,
+    agentId: args.agentId,
+    errorMessage: args.errorMessage,
+  });
+  pipelineError("EventBus", "contract_failure_turn_terminated", {
+    provider,
+    reason: args.reason,
+    code: args.code,
+    errorMessage: args.errorMessage,
+  });
+  args.eventBus?.reportError({
+    kind: "contract_violation",
+    eventType: args.eventType ?? "unknown",
+    error: args.errorMessage,
+    eventData: { reason: args.reason, code: args.code, agentId: args.agentId, provider },
+  });
 }
 
 /**
@@ -1899,6 +2089,8 @@ export function ChatApp({
   // Tracks the message an agent belongs to so updates stay attached to the
   // originating transcript location instead of drifting to the newest message.
   const agentMessageIdByIdRef = useRef<Map<string, string>>(new Map());
+  // Tracks strict lifecycle ordering for each agent at runtime.
+  const agentLifecycleLedgerRef = useRef(createAgentLifecycleLedger());
   // State for input textarea scrollbar (shown only when input overflows)
   const [inputScrollbar, setInputScrollbar] = useState<InputScrollbarState>({
     visible: false,
@@ -2493,6 +2685,63 @@ export function ChatApp({
     }
   }, [setMessagesWindowed, stopSharedStreamState, finalizeThinkingSourceTracking, continueQueuedConversation]);
 
+  const terminateStreamContractViolation = useCallback((args: {
+    errorMessage: string;
+    reason: ContractFailureTerminationReason;
+    code?: string;
+    eventType?: "stream.agent.start" | "stream.agent.update" | "stream.agent.complete";
+    agentId?: string;
+  }) => {
+    emitContractFailureTerminationObservability({
+      provider: agentType,
+      runId: activeStreamRunIdRef.current ?? undefined,
+      reason: args.reason,
+      errorMessage: args.errorMessage,
+      code: args.code,
+      eventType: args.eventType,
+      agentId: args.agentId,
+      eventBus,
+    });
+    stopSharedStreamState();
+    finalizeThinkingSourceTracking();
+    setMessagesWindowed((prev: ChatMessage[]) => [
+      ...prev,
+      createMessage("system", `${STATUS.error} ${args.errorMessage}`),
+    ]);
+
+    const resolver = streamCompletionResolverRef.current;
+    streamCompletionResolverRef.current = null;
+    hideStreamContentRef.current = false;
+    if (resolver) {
+      resolver({ content: lastStreamingContentRef.current, wasInterrupted: true });
+      return;
+    }
+
+    continueQueuedConversation();
+  }, [agentType, eventBus, continueQueuedConversation, finalizeThinkingSourceTracking, setMessagesWindowed, stopSharedStreamState]);
+
+  const terminateAgentLifecycleContractViolation = useCallback((args: {
+    code: AgentLifecycleViolationCode;
+    eventType: "stream.agent.start" | "stream.agent.update" | "stream.agent.complete";
+    agentId: string;
+  }) => {
+    emitAgentLifecycleContractObservability({
+      provider: agentType,
+      runId: activeStreamRunIdRef.current ?? undefined,
+      code: args.code,
+      eventType: args.eventType,
+      agentId: args.agentId,
+      eventBus,
+    });
+    terminateStreamContractViolation({
+      errorMessage: formatAgentLifecycleViolation(args),
+      reason: "agent_lifecycle_violation",
+      code: args.code,
+      eventType: args.eventType,
+      agentId: args.agentId,
+    });
+  }, [agentType, eventBus, terminateStreamContractViolation]);
+
   const enqueueShortcutLabel = useMemo(() => getEnqueueShortcutLabel(), []);
 
   // Dynamic placeholder based on queue state
@@ -2835,6 +3084,16 @@ export function ChatApp({
     // avoid nesting setMessagesWindowed inside setParallelAgents, which
     // previously caused an extra no-op state update and delayed renders.
     const currentAgents = parallelAgentsRef.current;
+    const agentContinuationPayload = isAgentOnlyStreamRef.current
+      ? buildAgentContinuationPayload({
+        agents: currentAgents,
+        fallbackText: lastStreamingContentRef.current,
+      })
+      : null;
+    const continuationContractViolation = getAgentContinuationContractViolation({
+      isAgentOnlyStream: isAgentOnlyStreamRef.current,
+      continuationPayload: agentContinuationPayload,
+    });
     const remaining = getActiveBackgroundAgents(currentAgents);
     if (remaining.length > 0 && messageId) {
       backgroundAgentMessageIdRef.current = messageId;
@@ -2892,7 +3151,28 @@ export function ChatApp({
     parallelAgentsRef.current = remaining;
     setParallelAgents(remaining);
 
+    if (continuationContractViolation) {
+      emitAgentMainContinuationObservability({
+        provider: agentType,
+        runId: activeStreamRunIdRef.current ?? undefined,
+        result: "missing",
+      });
+      terminateStreamContractViolation({
+        errorMessage: continuationContractViolation,
+        reason: "missing_agent_continuation",
+      });
+      return;
+    }
+
     const hasRemainingBg = remaining.length > 0;
+    if (agentContinuationPayload) {
+      emitAgentMainContinuationObservability({
+        provider: agentType,
+        runId: activeStreamRunIdRef.current ?? undefined,
+        result: "forwarded",
+      });
+      sendBackgroundMessageToAgent(agentContinuationPayload);
+    }
     stopSharedStreamState({
       preserveStreamingStart: hasRemainingBg,
       preserveStreamingMeta: hasRemainingBg,
@@ -2911,12 +3191,20 @@ export function ChatApp({
     }
 
     continueQueuedConversation();
-  }, [continueQueuedConversation, finalizeThinkingSourceTracking, setMessagesWindowed, stopSharedStreamState]);
+  }, [agentType, continueQueuedConversation, finalizeThinkingSourceTracking, sendBackgroundMessageToAgent, setMessagesWindowed, stopSharedStreamState, terminateStreamContractViolation]);
 
   const { resetConsumers, getCorrelationService } = useStreamConsumer((parts) => {
-    if (parts.length > 0) {
-  
-    }
+    const updatesByMessageId = new Map<string, StreamPartEvent[]>();
+
+    const queueMessagePartUpdate = (messageId: string, update: StreamPartEvent): void => {
+      const queued = updatesByMessageId.get(messageId);
+      if (queued) {
+        queued.push(update);
+        return;
+      }
+      updatesByMessageId.set(messageId, [update]);
+    };
+
     for (const part of parts) {
       if (part.type === "tool-start") {
         handleToolStart(part.toolId, part.toolName, part.input, part.agentId);
@@ -2941,13 +3229,11 @@ export function ChatApp({
         if (hideStreamContentRef.current) continue;
         const messageId = resolveAgentScopedMessageId(part.agentId);
         if (!messageId) continue;
-        setMessagesWindowed((prev: ChatMessage[]) =>
-          prev.map((msg: ChatMessage) =>
-            msg.id === messageId
-              ? applyStreamPartEvent(msg, { type: "text-delta", delta: part.delta, ...(part.agentId ? { agentId: part.agentId } : {}) })
-              : msg
-          )
-        );
+        queueMessagePartUpdate(messageId, {
+          type: "text-delta",
+          delta: part.delta,
+          ...(part.agentId ? { agentId: part.agentId } : {}),
+        });
         continue;
       }
       if (part.type === "text-complete") {
@@ -2963,13 +3249,7 @@ export function ChatApp({
           if (!hideStreamContentRef.current) {
             const messageId = streamingMessageIdRef.current;
             if (messageId) {
-              setMessagesWindowed((prev: ChatMessage[]) =>
-                prev.map((msg: ChatMessage) =>
-                  msg.id === messageId
-                    ? applyStreamPartEvent(msg, { type: "text-delta", delta: missing })
-                    : msg
-                )
-              );
+              queueMessagePartUpdate(messageId, { type: "text-delta", delta: missing });
             }
           }
         } else {
@@ -2988,22 +3268,16 @@ export function ChatApp({
         const messageId = resolveAgentScopedMessageId(part.agentId);
         if (!messageId) continue;
         if (part.agentId) {
-          setMessagesWindowed((prev: ChatMessage[]) =>
-            prev.map((msg: ChatMessage) =>
-              msg.id === messageId
-                ? applyStreamPartEvent(msg, {
-                  type: "thinking-meta",
-                  thinkingSourceKey: part.thinkingSourceKey,
-                  targetMessageId: part.targetMessageId,
-                  streamGeneration: part.streamGeneration,
-                  thinkingMs: part.thinkingMs,
-                  thinkingText: part.thinkingText,
-                  includeReasoningPart: true,
-                  agentId: part.agentId,
-                })
-                : msg
-            )
-          );
+          queueMessagePartUpdate(messageId, {
+            type: "thinking-meta",
+            thinkingSourceKey: part.thinkingSourceKey,
+            targetMessageId: part.targetMessageId,
+            streamGeneration: part.streamGeneration,
+            thinkingMs: part.thinkingMs,
+            thinkingText: part.thinkingText,
+            includeReasoningPart: true,
+            agentId: part.agentId,
+          });
           continue;
         }
         const previousMeta = streamingMetaRef.current ?? {
@@ -3047,22 +3321,16 @@ export function ChatApp({
           thinkingDropDiagnosticsRef.current,
         );
         if (!thinkingMetaEvent) continue;
-        setMessagesWindowed((prev: ChatMessage[]) =>
-          prev.map((msg: ChatMessage) =>
-            msg.id === messageId
-              ? applyStreamPartEvent(msg, {
-                type: "thinking-meta",
-                thinkingSourceKey: thinkingMetaEvent.thinkingSourceKey,
-                targetMessageId: thinkingMetaEvent.targetMessageId,
-                streamGeneration: thinkingMetaEvent.streamGeneration,
-                thinkingMs: nextMeta.thinkingMs,
-                thinkingText: thinkingMetaEvent.thinkingText,
-                includeReasoningPart: true,
-                ...(part.agentId ? { agentId: part.agentId } : {}),
-              })
-              : msg
-          )
-        );
+        queueMessagePartUpdate(messageId, {
+          type: "thinking-meta",
+          thinkingSourceKey: thinkingMetaEvent.thinkingSourceKey,
+          targetMessageId: thinkingMetaEvent.targetMessageId,
+          streamGeneration: thinkingMetaEvent.streamGeneration,
+          thinkingMs: nextMeta.thinkingMs,
+          thinkingText: thinkingMetaEvent.thinkingText,
+          includeReasoningPart: true,
+          ...(part.agentId ? { agentId: part.agentId } : {}),
+        });
       }
       // Route workflow runtime envelopes through the shared parts reducer so
       // TaskList/TaskResult parts stay runtime-driven.
@@ -3087,16 +3355,29 @@ export function ChatApp({
         }
         const messageId = resolveAgentScopedMessageId();
         if (!messageId) continue;
-        setMessagesWindowed((prev: ChatMessage[]) =>
-          prev.map((msg: ChatMessage) =>
-            msg.id === messageId
-              ? applyStreamPartEvent(msg, part)
-              : msg
-          )
-        );
+        queueMessagePartUpdate(messageId, part);
         continue;
       }
     }
+
+    if (updatesByMessageId.size === 0) {
+      return;
+    }
+
+    setMessagesWindowed((prev: ChatMessage[]) =>
+      prev.map((msg: ChatMessage) => {
+        const updates = updatesByMessageId.get(msg.id);
+        if (!updates || updates.length === 0) {
+          return msg;
+        }
+
+        let nextMessage = msg;
+        for (const update of updates) {
+          nextMessage = applyStreamPartEvent(nextMessage, update);
+        }
+        return nextMessage;
+      })
+    );
   });
 
   // Turn lifecycle events — visual turn boundary markers emitted by OpenCode
@@ -3369,6 +3650,28 @@ export function ChatApp({
   useBusSubscription("stream.agent.start", (event) => {
 
     const data = event.data;
+    const existingAgent = parallelAgentsRef.current.find((agent) => agent.id === data.agentId);
+    if (
+      agentLifecycleLedgerRef.current.has(data.agentId)
+      && existingAgent
+      && (existingAgent.status === "completed" || existingAgent.status === "error" || existingAgent.status === "interrupted")
+    ) {
+      terminateAgentLifecycleContractViolation({
+        code: "INVALID_TERMINAL_TRANSITION",
+        eventType: "stream.agent.start",
+        agentId: data.agentId,
+      });
+      return;
+    }
+    const lifecycleTransition = registerAgentLifecycleStart(agentLifecycleLedgerRef.current, data.agentId);
+    if (!lifecycleTransition.ok) {
+      terminateAgentLifecycleContractViolation({
+        code: lifecycleTransition.code,
+        eventType: "stream.agent.start",
+        agentId: data.agentId,
+      });
+      return;
+    }
     const startedAt = new Date(event.timestamp).toISOString();
     const status: ParallelAgent["status"] = data.isBackground ? "background" : "running";
 
@@ -3410,7 +3713,7 @@ export function ChatApp({
               id: data.agentId,
               taskToolCallId: data.sdkCorrelationId,
               name: data.agentType || "agent",
-              task: data.task || data.agentType || "sub-agent task",
+              task: resolveIncomingSubagentTaskLabel(data.task, data.agentType),
               status,
               startedAt,
               background: data.isBackground,
@@ -3424,7 +3727,7 @@ export function ChatApp({
             ? {
               ...agent,
               name: data.agentType || agent.name,
-              task: data.task || agent.task,
+              task: mergeAgentTaskLabel(agent.task, data.task, data.agentType),
               status,
               background: data.isBackground || agent.background,
               taskToolCallId: data.sdkCorrelationId ?? agent.taskToolCallId,
@@ -3439,7 +3742,7 @@ export function ChatApp({
           id: data.agentId,
           taskToolCallId: data.sdkCorrelationId,
           name: data.agentType || "agent",
-          task: data.task || data.agentType || "sub-agent task",
+          task: resolveIncomingSubagentTaskLabel(data.task, data.agentType),
           status,
           startedAt,
           background: data.isBackground,
@@ -3452,6 +3755,18 @@ export function ChatApp({
   useBusSubscription("stream.agent.update", (event) => {
 
     const data = event.data;
+    const lifecycleTransition = registerAgentLifecycleUpdate(
+      agentLifecycleLedgerRef.current,
+      data.agentId,
+    );
+    if (!lifecycleTransition.ok) {
+      terminateAgentLifecycleContractViolation({
+        code: lifecycleTransition.code,
+        eventType: "stream.agent.update",
+        agentId: data.agentId,
+      });
+      return;
+    }
     const existingAgent = parallelAgentsRef.current.find((agent) => agent.id === data.agentId);
     const nextCurrentTool = data.currentTool ?? existingAgent?.currentTool;
     const nextToolUses = data.toolUses ?? existingAgent?.toolUses;
@@ -3503,6 +3818,18 @@ export function ChatApp({
   useBusSubscription("stream.agent.complete", (event) => {
 
     const data = event.data;
+    const lifecycleTransition = registerAgentLifecycleComplete(
+      agentLifecycleLedgerRef.current,
+      data.agentId,
+    );
+    if (!lifecycleTransition.ok) {
+      terminateAgentLifecycleContractViolation({
+        code: lifecycleTransition.code,
+        eventType: "stream.agent.complete",
+        agentId: data.agentId,
+      });
+      return;
+    }
 
     // Check if the completing agent is a background agent before state update
     const completingAgent = parallelAgentsRef.current.find(a => a.id === data.agentId);
@@ -3565,6 +3892,7 @@ export function ChatApp({
         clearTimeout(backgroundTerminationTimeoutRef.current);
       }
       backgroundProgressSnapshotRef.current.clear();
+      agentLifecycleLedgerRef.current.clear();
       pendingBackgroundUpdatesRef.current = [];
     };
   }, []);
@@ -3587,6 +3915,16 @@ export function ChatApp({
     runningAskQuestionToolIdsRef.current.clear();
     toolNameByIdRef.current.clear();
     toolMessageIdByIdRef.current.clear();
+    const activeAgentIds = new Set(
+      parallelAgentsRef.current
+        .filter((agent) => agent.status === "running" || agent.status === "pending" || agent.status === "background")
+        .map((agent) => agent.id),
+    );
+    for (const agentId of agentLifecycleLedgerRef.current.keys()) {
+      if (!activeAgentIds.has(agentId)) {
+        agentLifecycleLedgerRef.current.delete(agentId);
+      }
+    }
     clearDeferredCompletion();
     resetConsumers();
 
@@ -4018,6 +4356,14 @@ export function ChatApp({
         .map((a) => (typeof a.result === "string" ? normalizeMarkdownNewlines(a.result) : ""))
         .filter((result) => result.length > 0);
       const agentOutput = agentOutputParts.join("\n\n");
+      const agentContinuationPayload = buildAgentContinuationPayload({
+        agents: finalizedAgents,
+        fallbackText: agentOutput,
+      });
+      const continuationContractViolation = getAgentContinuationContractViolation({
+        isAgentOnlyStream: isAgentOnlyStreamRef.current,
+        continuationPayload: agentContinuationPayload,
+      });
 
       setMessagesWindowed((prev: ChatMessage[]) =>
         prev.map((msg: ChatMessage) =>
@@ -4036,6 +4382,28 @@ export function ChatApp({
       );
       // Keep background agents in live state for post-stream completion tracking
       const remainingBg = getActiveBackgroundAgents(parallelAgents);
+      if (continuationContractViolation) {
+        setParallelAgents([]);
+        parallelAgentsRef.current = [];
+        emitAgentMainContinuationObservability({
+          provider: agentType,
+          runId: activeStreamRunIdRef.current ?? undefined,
+          result: "missing",
+        });
+        terminateStreamContractViolation({
+          errorMessage: continuationContractViolation,
+          reason: "missing_agent_continuation",
+        });
+        return;
+      }
+      if (agentContinuationPayload) {
+        emitAgentMainContinuationObservability({
+          provider: agentType,
+          runId: activeStreamRunIdRef.current ?? undefined,
+          result: "forwarded",
+        });
+        sendBackgroundMessageToAgent(agentContinuationPayload);
+      }
       if (remainingBg.length > 0 && messageId) {
         stopSharedStreamState({
           preserveStreamingStart: true,
@@ -4056,7 +4424,7 @@ export function ChatApp({
       // the SDK handleComplete callback, so we must dequeue here.
       continueQueuedConversation();
     }
-  }, [parallelAgents, continueQueuedConversation, toolCompletionVersion, messages, stopSharedStreamState, finalizeThinkingSourceTracking]);
+  }, [agentType, parallelAgents, continueQueuedConversation, toolCompletionVersion, messages, sendBackgroundMessageToAgent, stopSharedStreamState, finalizeThinkingSourceTracking, terminateStreamContractViolation]);
 
   /**
    * Handle user answering a question from UserQuestionDialog.

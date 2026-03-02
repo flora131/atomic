@@ -38,8 +38,10 @@ describe("runtime-parity-observability", () => {
   });
 
   test("debug log stays gated unless debug flags are enabled", () => {
+    const originalDebug = process.env.DEBUG;
     const originalAtomicDebug = process.env.ATOMIC_DEBUG;
     const originalWorkflowDebug = process.env.ATOMIC_WORKFLOW_DEBUG;
+    delete process.env.DEBUG;
     delete process.env.ATOMIC_DEBUG;
     delete process.env.ATOMIC_WORKFLOW_DEBUG;
 
@@ -47,18 +49,36 @@ describe("runtime-parity-observability", () => {
     runtimeParityDebug("phase", { ok: true });
     expect(debugSpy).not.toHaveBeenCalled();
 
-    process.env.ATOMIC_WORKFLOW_DEBUG = "1";
+    process.env.DEBUG = "1";
     runtimeParityDebug("phase", { ok: true });
     expect(debugSpy).toHaveBeenCalledTimes(1);
+
+    process.env.DEBUG = "0";
+    process.env.ATOMIC_DEBUG = "1";
+    runtimeParityDebug("phase-atomic", { ok: "atomic" });
+    expect(debugSpy).toHaveBeenCalledTimes(1);
+
+    delete process.env.DEBUG;
+    process.env.ATOMIC_WORKFLOW_DEBUG = "1";
+    runtimeParityDebug("phase-workflow", { ok: "workflow" });
+    expect(debugSpy).toHaveBeenCalledTimes(2);
 
     delete process.env.ATOMIC_WORKFLOW_DEBUG;
     process.env.ATOMIC_DEBUG = "1";
     runtimeParityDebug("phase-atomic", { ok: "atomic" });
-    expect(debugSpy).toHaveBeenCalledTimes(2);
+    expect(debugSpy).toHaveBeenCalledTimes(3);
     expect(debugSpy.mock.calls[1]?.[0]).toBe(
+      '[workflow.runtime.parity] phase-workflow {"ok":"workflow"}',
+    );
+    expect(debugSpy.mock.calls[2]?.[0]).toBe(
       '[workflow.runtime.parity] phase-atomic {"ok":"atomic"}',
     );
 
+    if (originalDebug === undefined) {
+      delete process.env.DEBUG;
+    } else {
+      process.env.DEBUG = originalDebug;
+    }
     if (originalAtomicDebug === undefined) {
       delete process.env.ATOMIC_DEBUG;
     } else {

@@ -110,9 +110,58 @@ export class StreamPipelineConsumer {
     }
 
     if (parts.length > 0 && this.callback) {
-      pipelineLog("Consumer", "batch_deliver", { count: parts.length });
-      this.callback(parts);
+      const coalescedParts = this.coalesceStreamParts(parts);
+      pipelineLog("Consumer", "batch_deliver", { count: coalescedParts.length });
+      this.callback(coalescedParts);
     }
+  }
+
+  /**
+   * Coalesce adjacent additive stream events within a single batch.
+   *
+   * This keeps visual parity while reducing reducer/state update churn in the UI.
+   * Only strictly adjacent events with matching scope are merged.
+   */
+  private coalesceStreamParts(parts: StreamPartEvent[]): StreamPartEvent[] {
+    if (parts.length <= 1) {
+      return parts;
+    }
+
+    const coalesced: StreamPartEvent[] = [];
+
+    for (const part of parts) {
+      const previous = coalesced.length > 0 ? coalesced[coalesced.length - 1] : undefined;
+
+      if (
+        previous
+        && previous.type === "text-delta"
+        && part.type === "text-delta"
+        && previous.agentId === part.agentId
+      ) {
+        previous.delta += part.delta;
+        continue;
+      }
+
+      if (
+        previous
+        && previous.type === "thinking-meta"
+        && part.type === "thinking-meta"
+        && previous.agentId === part.agentId
+        && previous.thinkingSourceKey === part.thinkingSourceKey
+        && previous.targetMessageId === part.targetMessageId
+        && previous.streamGeneration === part.streamGeneration
+        && previous.includeReasoningPart === part.includeReasoningPart
+        && previous.provider === part.provider
+      ) {
+        previous.thinkingText += part.thinkingText;
+        previous.thinkingMs = Math.max(previous.thinkingMs, part.thinkingMs);
+        continue;
+      }
+
+      coalesced.push(part);
+    }
+
+    return coalesced;
   }
 
   /**

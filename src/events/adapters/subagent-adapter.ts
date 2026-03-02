@@ -115,7 +115,6 @@ export class SubagentStreamAdapter {
     // WorkflowEventAdapter — the idempotent guard in publishAgentStart()
     // prevents this adapter from emitting a duplicate within the same lifecycle.
     this.publishAgentStart();
-    console.debug(`[SubagentAdapter] Registered agent: ${this.agentId}`);
   }
 
   /**
@@ -323,8 +322,6 @@ export class SubagentStreamAdapter {
 
     // Publish stream.agent.update with tool count and current tool
     this.toolTracker.onToolStart(this.agentId, toolName);
-    // Fix 1C: Diagnostic logging at tool event handling
-    console.debug(`[SubagentAdapter] onToolStart: agentId=${this.agentId}, tool=${toolName}, toolCount=${this.toolUseCount}`);
 
     const event: BusEvent<"stream.tool.start"> = {
       type: "stream.tool.start",
@@ -507,6 +504,7 @@ export class SubagentStreamAdapter {
       timestamp: Date.now(),
       data: {
         agentId: this.agentId,
+        toolCallId: this.agentId,
         agentType: this.agentType,
         task: this.task ?? this.agentType,
         isBackground: this.isBackground,

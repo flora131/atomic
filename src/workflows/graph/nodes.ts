@@ -1387,43 +1387,19 @@ export function contextMonitorNode<TState extends ContextMonitoringState = Conte
         case "summarize": {
           // OpenCode: call session.summarize()
           const session = getSession?.(ctx.state);
-          if (session) {
-            const compactionState = session.getCompactionState?.();
-            if (compactionState?.isCompacting || compactionState?.hasAutoCompacted) {
-              break;
-            }
-            try {
-              await session.summarize();
-              onCompaction?.(usage!, action);
-              
-              // Get updated usage after summarization
-              const newUsage = await session.getContextUsage();
-              stateUpdate.contextWindowUsage = newUsage ? toContextWindowUsage(newUsage) : null;
-            } catch (error) {
-              // If summarize fails, emit warning instead
-              signals.push({
-                type: "context_window_warning",
-                message: `Context compaction failed: ${error instanceof Error ? error.message : String(error)}`,
-                data: {
-                  usagePercentage: usage!.usagePercentage,
-                  threshold,
-                  action: "summarize",
-                  error: true,
-                },
-              });
-            }
-          } else {
-            // No session available, emit warning
-            signals.push({
-              type: "context_window_warning",
-              message: `Context usage at ${usage!.usagePercentage.toFixed(1)}% (no session for summarization)`,
-              data: {
-                usagePercentage: usage!.usagePercentage,
-                threshold,
-                action: "warn",
-              },
-            });
+          if (!session) {
+            throw new Error("Context compaction failed: no session available for summarization");
           }
+          const compactionState = session.getCompactionState?.();
+          if (compactionState?.isCompacting || compactionState?.hasAutoCompacted) {
+            break;
+          }
+          await session.summarize();
+          onCompaction?.(usage!, action);
+
+          // Get updated usage after summarization
+          const newUsage = await session.getContextUsage();
+          stateUpdate.contextWindowUsage = newUsage ? toContextWindowUsage(newUsage) : null;
           break;
         }
 

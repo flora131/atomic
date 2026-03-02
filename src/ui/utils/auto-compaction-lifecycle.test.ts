@@ -59,7 +59,7 @@ describe("auto compaction lifecycle", () => {
       status: "error",
       errorMessage: "token limit exceeded",
     });
-    expect(getAutoCompactionIndicatorLabel(next)).toContain("failed");
+    expect(getAutoCompactionIndicatorLabel(next)).toBe("failed (token limit exceeded)");
     expect(shouldShowAutoCompactionIndicator(next)).toBe(true);
   });
 

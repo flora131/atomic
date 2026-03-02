@@ -81,6 +81,35 @@ describe("StreamPipelineConsumer", () => {
     });
   });
 
+  it("coalesces adjacent thinking deltas with same source", () => {
+    const events: EnrichedBusEvent[] = [
+      {
+        type: "stream.thinking.delta",
+        sessionId: "test",
+        runId: 1,
+        timestamp: Date.now(),
+        data: { delta: "Thinking", sourceKey: "block1", messageId: "msg1" },
+      },
+      {
+        type: "stream.thinking.delta",
+        sessionId: "test",
+        runId: 1,
+        timestamp: Date.now(),
+        data: { delta: "...", sourceKey: "block1", messageId: "msg1" },
+      },
+    ];
+
+    consumer.processBatch(events);
+
+    expect(receivedEvents).toHaveLength(1);
+    expect(receivedEvents[0]).toMatchObject({
+      type: "thinking-meta",
+      thinkingSourceKey: "block1",
+      targetMessageId: "msg1",
+      thinkingText: "Thinking...",
+    });
+  });
+
   it("should map stream.thinking.delta agentId to thinking-meta agentId", () => {
     const event: EnrichedBusEvent = {
       type: "stream.thinking.delta",
@@ -149,7 +178,7 @@ describe("StreamPipelineConsumer", () => {
     });
   });
 
-  it("should batch multiple events", () => {
+  it("coalesces adjacent text deltas within a batch", () => {
     const events: EnrichedBusEvent[] = [
       {
         type: "stream.text.delta",
@@ -169,15 +198,44 @@ describe("StreamPipelineConsumer", () => {
 
     consumer.processBatch(events);
 
-    expect(receivedEvents).toHaveLength(2);
+    expect(receivedEvents).toHaveLength(1);
     expect(receivedEvents[0]?.type).toBe("text-delta");
-    expect(receivedEvents[1]?.type).toBe("text-delta");
     if (receivedEvents[0]?.type === "text-delta") {
-      expect(receivedEvents[0].delta).toBe("Hello ");
+      expect(receivedEvents[0].delta).toBe("Hello World");
     }
-    if (receivedEvents[1]?.type === "text-delta") {
-      expect(receivedEvents[1].delta).toBe("World");
-    }
+  });
+
+  it("does not coalesce text deltas across non-text boundaries", () => {
+    const events: EnrichedBusEvent[] = [
+      {
+        type: "stream.text.delta",
+        sessionId: "test",
+        runId: 1,
+        timestamp: Date.now(),
+        data: { delta: "Hello ", messageId: "msg1" },
+      },
+      {
+        type: "stream.tool.start",
+        sessionId: "test",
+        runId: 1,
+        timestamp: Date.now(),
+        data: { toolId: "tool1", toolName: "bash", toolInput: { command: "ls" } },
+      },
+      {
+        type: "stream.text.delta",
+        sessionId: "test",
+        runId: 1,
+        timestamp: Date.now(),
+        data: { delta: "World", messageId: "msg1" },
+      },
+    ];
+
+    consumer.processBatch(events);
+
+    expect(receivedEvents).toHaveLength(3);
+    expect(receivedEvents[0]?.type).toBe("text-delta");
+    expect(receivedEvents[1]?.type).toBe("tool-start");
+    expect(receivedEvents[2]?.type).toBe("text-delta");
   });
 
   it("should map stream.text.complete to text-complete event", () => {

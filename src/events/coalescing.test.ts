@@ -143,6 +143,7 @@ describe("coalescingKey()", () => {
         timestamp: Date.now(),
         data: {
           agentId: "agent-999",
+          toolCallId: "agent-999",
           agentType: "explore",
           task: "Find files",
           isBackground: false,

@@ -322,7 +322,7 @@ export function createAgentCommand(agent: AgentInfo): CommandDefinition {
         // query() call. Pass the agent name structurally so the client
         // sets `options.agent = agentName` and the SDK runs the query
         // with that agent's prompt, tools, and model.
-        context.sendSilentMessage(task, { agent: agent.name });
+        context.sendSilentMessage(task, { agent: agent.name, isAgentOnlyStream: true });
       } else {
         // Copilot SDK uses the Task tool for sub-agent dispatch.
         // Strongly steer the model to use Task-tool sub-agent dispatch so

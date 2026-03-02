@@ -2,7 +2,7 @@
  * Pipeline Diagnostic Logger
  *
  * Lightweight conditional logger for event pipeline chokepoints.
- * Activated by the ATOMIC_DEBUG=1 environment variable.
+ * Activated by the DEBUG=1 environment variable.
  *
  * Logs are prefixed with `[Pipeline:<stage>]` for easy filtering:
  *   [Pipeline:EventBus] Schema validation drop ...
@@ -25,7 +25,8 @@ type PipelineStage =
   | "Dispatcher"
   | "Wire"
   | "Consumer"
-  | "Subagent";
+  | "Subagent"
+  | "Workflow";
 
 let _debugEnabled: boolean | null = null;
 
@@ -35,7 +36,12 @@ let _debugEnabled: boolean | null = null;
  */
 export function isPipelineDebug(): boolean {
   if (_debugEnabled === null) {
-    _debugEnabled = process.env.ATOMIC_DEBUG === "1";
+    const debugValue = process.env.DEBUG?.trim().toLowerCase();
+    if (debugValue) {
+      _debugEnabled = debugValue === "1" || debugValue === "true" || debugValue === "on";
+    } else {
+      _debugEnabled = process.env.ATOMIC_DEBUG === "1";
+    }
   }
   return _debugEnabled;
 }
@@ -50,7 +56,7 @@ export function resetPipelineDebugCache(): void {
 /**
  * Log a diagnostic message from a specific pipeline stage.
  *
- * Only emits output when ATOMIC_DEBUG=1. Each log entry includes
+ * Only emits output when DEBUG=1. Each log entry includes
  * the stage name, a short action tag, and optional structured data.
  *
  * @param stage - Pipeline stage identifier
@@ -65,4 +71,24 @@ export function pipelineLog(
   if (!isPipelineDebug()) return;
   const payload = data ? ` ${JSON.stringify(data)}` : "";
   console.debug(`[Pipeline:${stage}] ${action}${payload}`);
+}
+
+/**
+ * Log an error-level diagnostic message from a specific pipeline stage.
+ *
+ * Only emits output when DEBUG=1. Uses console.error so error messages
+ * are visible even in environments that suppress console.debug output.
+ *
+ * @param stage - Pipeline stage identifier
+ * @param action - Short action descriptor (e.g., "schema_drop", "handler_error")
+ * @param data - Optional structured data to include in the log
+ */
+export function pipelineError(
+  stage: PipelineStage,
+  action: string,
+  data?: Record<string, unknown>,
+): void {
+  if (!isPipelineDebug()) return;
+  const payload = data ? ` ${JSON.stringify(data)}` : "";
+  console.error(`[Pipeline:${stage}] ${action}${payload}`);
 }

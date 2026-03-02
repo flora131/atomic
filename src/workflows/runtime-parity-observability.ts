@@ -16,7 +16,13 @@ const state: RuntimeParityMetricsState = {
   histograms: new Map(),
 };
 
-const DEBUG_ENABLED = () => process.env.ATOMIC_DEBUG === "1" || process.env.ATOMIC_WORKFLOW_DEBUG === "1";
+const DEBUG_ENABLED = () => {
+  const debugValue = process.env.DEBUG?.trim().toLowerCase();
+  if (debugValue) {
+    return debugValue === "1" || debugValue === "true" || debugValue === "on";
+  }
+  return process.env.ATOMIC_DEBUG === "1" || process.env.ATOMIC_WORKFLOW_DEBUG === "1";
+};
 
 function metricKey(name: string, labels?: Record<string, string | number | boolean | undefined>): string {
   if (!labels || Object.keys(labels).length === 0) {

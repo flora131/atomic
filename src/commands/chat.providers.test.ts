@@ -62,15 +62,39 @@ function createMockClient(agentType: CodingAgentClient["agentType"]): CodingAgen
   };
 }
 
-mock.module("../sdk/clients/index.ts", () => ({
-  createClaudeAgentClient: () => createMockClient("claude"),
-  createOpenCodeClient: () => createMockClient("opencode"),
-  createCopilotClient: () => createMockClient("copilot"),
-}));
+mock.module("../sdk/clients/index.ts", () => {
+  const claude = require("../sdk/clients/claude.ts");
+  const opencode = require("../sdk/clients/opencode.ts");
+  const copilot = require("../sdk/clients/copilot.ts");
+  return {
+    ...claude,
+    ...opencode,
+    ...copilot,
+    createClaudeAgentClient: () => createMockClient("claude"),
+    createOpenCodeClient: () => createMockClient("opencode"),
+    createCopilotClient: () => createMockClient("copilot"),
+  };
+});
 
-mock.module("../telemetry/index.ts", () => ({
-  trackAtomicCommand: () => {},
-}));
+mock.module("../telemetry/index.ts", () => {
+  const telemetry = require("../telemetry/telemetry.ts");
+  const tui = require("../telemetry/telemetry-tui.ts");
+  const session = require("../telemetry/telemetry-session.ts");
+  const consent = require("../telemetry/telemetry-consent.ts");
+  const graph = require("../telemetry/graph-integration.ts");
+  const constants = require("../telemetry/constants.ts");
+  const fileIo = require("../telemetry/telemetry-file-io.ts");
+  return {
+    ...telemetry,
+    ...tui,
+    ...session,
+    ...consent,
+    ...graph,
+    ...constants,
+    ...fileIo,
+    trackAtomicCommand: () => {},
+  };
+});
 
 describe("chat command provider wiring", () => {
   test("createClientForAgentType maps all providers to their matching clients", async () => {

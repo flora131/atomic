@@ -121,6 +121,10 @@ interface CopilotSessionState {
   outputTokens: number;
   isClosed: boolean;
   unsubscribe: () => void;
+  /** Recent SDK event IDs for duplicate suppression */
+  recentEventIds: Set<string>;
+  /** FIFO queue backing recentEventIds */
+  recentEventOrder: string[];
   /** Maps toolCallId to toolName for tool.execution_complete events */
   toolCallIdToName: Map<string, string>;
   /** Context window size resolved from listModels() */
@@ -128,6 +132,8 @@ interface CopilotSessionState {
   /** Token count for system prompt + tools baseline */
   systemToolsBaseline: number | null;
 }
+
+const RECENT_EVENT_ID_WINDOW = 2048;
 
 /**
  * Resolve the session ID used for user-input (HITL) events.
@@ -372,6 +378,49 @@ export class CopilotClient implements CodingAgentClient {
   }
 
   /**
+   * Subscribe to SDK session events with a stale-session guard.
+   * If the active CopilotSessionState.sdkSession has been swapped
+   * (e.g. after setActiveSessionModel → resumeSession), events arriving
+   * from the *old* SDK session object are silently dropped.
+   */
+  private subscribeSessionEvents(
+    sessionId: string,
+    sdkSession: SdkCopilotSession
+  ): () => void {
+    return sdkSession.on((event: SdkSessionEvent) => {
+      const activeState = this.sessions.get(sessionId);
+      if (activeState && activeState.sdkSession !== sdkSession) {
+        // Event came from a stale session object — ignore it
+        return;
+      }
+      this.handleSdkEvent(sessionId, event);
+    });
+  }
+
+  /**
+   * Returns true when the event has already been seen within the
+   * sliding window (RECENT_EVENT_ID_WINDOW entries).
+   */
+  private isDuplicateSdkEvent(
+    state: CopilotSessionState,
+    event: SdkSessionEvent
+  ): boolean {
+    const id = (event as { id?: string }).id;
+    if (!id) return false;
+
+    if (state.recentEventIds.has(id)) return true;
+
+    state.recentEventIds.add(id);
+    state.recentEventOrder.push(id);
+
+    if (state.recentEventOrder.length > RECENT_EVENT_ID_WINDOW) {
+      const evicted = state.recentEventOrder.shift()!;
+      state.recentEventIds.delete(evicted);
+    }
+    return false;
+  }
+
+  /**
    * Wrap a Copilot SDK session into a unified Session interface
    */
   private wrapSession(
@@ -380,10 +429,8 @@ export class CopilotClient implements CodingAgentClient {
   ): Session {
     const sessionId = sdkSession.sessionId;
 
-    // Subscribe to all session events
-    const unsubscribe = sdkSession.on((event: SdkSessionEvent) => {
-      this.handleSdkEvent(sessionId, event);
-    });
+    // Subscribe to all session events with stale-session guard
+    const unsubscribe = this.subscribeSessionEvents(sessionId, sdkSession);
 
     const state: CopilotSessionState = {
       sdkSession,
@@ -393,6 +440,8 @@ export class CopilotClient implements CodingAgentClient {
       outputTokens: 0,
       isClosed: false,
       unsubscribe,
+      recentEventIds: new Set(),
+      recentEventOrder: [],
       toolCallIdToName: new Map(),
       contextWindow: null,
       systemToolsBaseline: null,
@@ -662,6 +711,11 @@ export class CopilotClient implements CodingAgentClient {
    */
   private handleSdkEvent(sessionId: string, event: SdkSessionEvent): void {
     const state = this.sessions.get(sessionId);
+
+    // Suppress duplicate SDK events (same event.id seen within sliding window)
+    if (state && this.isDuplicateSdkEvent(state, event)) {
+      return;
+    }
 
     // Track token usage from usage events (per-API-call totals, not deltas)
     if (event.type === "assistant.usage" && state) {
@@ -1241,9 +1295,12 @@ export class CopilotClient implements CodingAgentClient {
         ? { reasoningEffort: options.reasoningEffort }
         : {}),
     };
-    activeState.unsubscribe = resumedSession.on((event: SdkSessionEvent) => {
-      this.handleSdkEvent(activeState.sessionId, event);
-    });
+    activeState.recentEventIds = new Set();
+    activeState.recentEventOrder = [];
+    activeState.unsubscribe = this.subscribeSessionEvents(
+      activeState.sessionId,
+      resumedSession
+    );
   }
 
   /**
@@ -1408,7 +1465,13 @@ export class CopilotClient implements CodingAgentClient {
    */
   async getModelDisplayInfo(
     modelHint?: string
-  ): Promise<{ model: string; tier: string; supportsReasoning?: boolean; contextWindow?: number }> {
+  ): Promise<{
+    model: string;
+    tier: string;
+    supportsReasoning?: boolean;
+    defaultReasoningEffort?: string;
+    contextWindow?: number;
+  }> {
     // Query SDK for model metadata - this is the authoritative source
     if (this.isRunning && this.sdkClient) {
       try {
@@ -1422,11 +1485,17 @@ export class CopilotClient implements CodingAgentClient {
               const caps = (matched as unknown as Record<string, unknown>).capabilities as Record<string, unknown> | undefined;
               const supports = caps?.supports as Record<string, unknown> | undefined;
               const limits = caps?.limits as Record<string, unknown> | undefined;
+              const hasReasoning = supports?.reasoningEffort === true;
+              const defaultReasoningEffort = hasReasoning &&
+                typeof (matched as { defaultReasoningEffort?: unknown }).defaultReasoningEffort === "string"
+                ? (matched as { defaultReasoningEffort: string }).defaultReasoningEffort
+                : undefined;
               const ctxWindow = limits?.max_context_window_tokens as number | undefined;
               return {
                 model: matched.id ?? "Copilot",
                 tier: "GitHub Copilot",
-                supportsReasoning: supports?.reasoningEffort === true,
+                supportsReasoning: hasReasoning,
+                defaultReasoningEffort,
                 contextWindow: ctxWindow,
               };
             }
@@ -1437,11 +1506,17 @@ export class CopilotClient implements CodingAgentClient {
             const caps = (firstModel as unknown as Record<string, unknown>).capabilities as Record<string, unknown> | undefined;
             const supports = caps?.supports as Record<string, unknown> | undefined;
             const limits = caps?.limits as Record<string, unknown> | undefined;
+            const hasReasoning = supports?.reasoningEffort === true;
+            const defaultReasoningEffort = hasReasoning &&
+              typeof (firstModel as { defaultReasoningEffort?: unknown }).defaultReasoningEffort === "string"
+              ? (firstModel as { defaultReasoningEffort: string }).defaultReasoningEffort
+              : undefined;
             const ctxWindow = limits?.max_context_window_tokens as number | undefined;
             return {
               model: firstModel.id ?? "Copilot",
               tier: "GitHub Copilot",
-              supportsReasoning: supports?.reasoningEffort === true,
+              supportsReasoning: hasReasoning,
+              defaultReasoningEffort,
               contextWindow: ctxWindow,
             };
           }

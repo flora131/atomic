@@ -2375,11 +2375,13 @@ export class ClaudeAgentClient implements CodingAgentClient {
     async getModelDisplayInfo(
         modelHint?: string,
     ): Promise<{ model: string; tier: string; contextWindow?: number }> {
-        // Prefer explicit hint (user's /model choice), then detected model from SDK probe, then raw fallback
+        // Prefer explicit hint (user's /model choice), then detected model from SDK probe.
+        // When both are absent, fall back directly to "opus" (the canonical default).
         const raw =
             (modelHint ? stripProviderPrefix(modelHint) : null) ??
-            this.detectedModel;
-        const modelKey = raw ?? "Claude";
+            this.detectedModel ??
+            "opus";
+        const modelKey = raw;
         const displayModel = normalizeClaudeModelLabel(modelKey);
         const contextWindow =
             this.capturedModelContextWindows.get(modelKey) ??

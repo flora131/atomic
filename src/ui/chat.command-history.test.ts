@@ -213,48 +213,48 @@ describe("chat command history integration", () => {
   });
 
   describe("prompt submission persists to history", () => {
-    test("appendCommandHistory writes submitted text that loadCommandHistory reads back", () => {
+    test("appendCommandHistory writes submitted text that loadCommandHistory reads back", async () => {
       // Simulates what handleSubmit does: append trimmedValue to disk
       const submitted = "explain the authentication flow";
       appendCommandHistory(submitted);
 
-      const loaded = loadCommandHistory();
+      const loaded = await loadCommandHistory();
       expect(loaded).toEqual([submitted]);
     });
 
-    test("consecutive duplicate submissions are deduplicated by the caller (not persistence layer)", () => {
+    test("consecutive duplicate submissions are deduplicated by the caller (not persistence layer)", async () => {
       // The persistence layer itself does NOT deduplicate — that's the React state's job.
       // Both writes go to disk; the in-memory state deduplicates via setPromptHistory.
       appendCommandHistory("same command");
       appendCommandHistory("same command");
 
-      const loaded = loadCommandHistory();
+      const loaded = await loadCommandHistory();
       // Both are persisted to disk — the spec says dedup happens in React state only
       expect(loaded).toEqual(["same command", "same command"]);
     });
   });
 
   describe("slash commands are persisted like regular prompts", () => {
-    test("slash commands round-trip through persistence", () => {
+    test("slash commands round-trip through persistence", async () => {
       // handleSubmit appends trimmedValue before parsing slash commands,
       // so /help, /clear, etc. are all persisted
       appendCommandHistory("/help");
       appendCommandHistory("/clear");
       appendCommandHistory("regular prompt");
 
-      const loaded = loadCommandHistory();
+      const loaded = await loadCommandHistory();
       expect(loaded).toEqual(["/help", "/clear", "regular prompt"]);
     });
   });
 
   describe("history loads on startup (simulated)", () => {
-    test("persisted entries from previous session are available for new session", () => {
+    test("persisted entries from previous session are available for new session", async () => {
       // Session 1: user submits prompts
       appendCommandHistory("first session command 1");
       appendCommandHistory("first session command 2");
 
       // Session 2: loadCommandHistory is called on mount (useEffect)
-      const persisted = loadCommandHistory();
+      const persisted = await loadCommandHistory();
       expect(persisted).toEqual([
         "first session command 1",
         "first session command 2",

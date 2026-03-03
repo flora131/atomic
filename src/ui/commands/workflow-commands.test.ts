@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync } from "node:fs";
 import { mkdtemp, mkdir, writeFile as fsWriteFile, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -250,7 +251,6 @@ describe("workflow-commands /ralph", () => {
       setWorkflowSessionDir: (dir: string | null) => {
         sessionDir = dir;
         if (dir) {
-          const { mkdirSync } = require("fs");
           mkdirSync(dir, { recursive: true });
         }
       },
@@ -353,7 +353,6 @@ describe("workflow-commands /ralph", () => {
       setWorkflowSessionDir: (dir: string | null) => {
         sessionDir = dir;
         if (dir) {
-          const { mkdirSync } = require("fs");
           mkdirSync(dir, { recursive: true });
         }
       },
@@ -442,7 +441,6 @@ describe("review step in /ralph", () => {
       setWorkflowSessionDir: (dir: string | null) => {
         sessionDir = dir;
         if (dir) {
-          const { mkdirSync } = require("fs");
           mkdirSync(dir, { recursive: true });
         }
       },

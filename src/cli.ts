@@ -15,7 +15,6 @@
  *   atomic --help                   Show help
  */
 
-import { spawn } from "child_process";
 import { Command } from "@commander-js/extra-typings";
 import { VERSION } from "./version";
 import { COLORS } from "./utils/colors";
@@ -229,7 +228,7 @@ export const program = createProgram();
  *
  * Reference: specs/phase-6-telemetry-upload-backend.md Section 5.5
  */
-async function spawnTelemetryUpload(): Promise<void> {
+export async function spawnTelemetryUpload(): Promise<void> {
   // Prevent recursive spawns - if this is already an upload process, don't spawn another
   if (process.env.ATOMIC_TELEMETRY_UPLOAD === "1") {
     return;
@@ -252,9 +251,11 @@ async function spawnTelemetryUpload(): Promise<void> {
     const scriptPath = process.argv[1] ?? "atomic";
 
     // Spawn detached process that outlives parent
-    const child = spawn(process.execPath, [scriptPath, "upload-telemetry"], {
+    const child = Bun.spawn([process.execPath, scriptPath, "upload-telemetry"], {
       detached: true,
-      stdio: "ignore",
+      stdin: "ignore",
+      stdout: "ignore",
+      stderr: "ignore",
       env: { ...process.env, ATOMIC_TELEMETRY_UPLOAD: "1" },
     });
 
@@ -303,4 +304,6 @@ async function main(): Promise<void> {
 }
 
 // Run the CLI
-main();
+if (import.meta.main) {
+  void main();
+}

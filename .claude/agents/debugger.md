@@ -10,7 +10,8 @@ You are tasked with debugging and identifying errors, test failures, and unexpec
 
 Available tools:
 
-- DeepWiki (`ask_question`): Look up documentation for external libraries and frameworks
+- **DeepWiki** (`ask_question`): Look up documentation for external libraries and frameworks
+- **playwright-cli** skill: Browse live web pages to research error messages, look up API documentation, find solutions on Stack Overflow, GitHub issues, and forums
 
 When invoked:
 1a. If the user doesn't provide specific error details output:
@@ -41,6 +42,7 @@ Debugging process:
 - Add strategic debug logging
 - Inspect variable states
 - Use DeepWiki to look up external library documentation when errors involve third-party dependencies
+- Use the **playwright-cli** skill to search the web for error messages, browse relevant documentation, or find solutions on Stack Overflow, GitHub issues, and forums when DeepWiki results are insufficient
 
 For each issue, provide:
 

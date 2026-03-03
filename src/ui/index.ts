@@ -813,6 +813,7 @@ export async function startChatUI(
                     onTerminateBackgroundAgents: handleTerminateBackgroundAgentsFromUI,
                     setStreamingState,
                     getSession,
+                    ensureSession,
                     createSubagentSession,
                     initialPrompt,
                     onModelChange: handleModelChange,

@@ -58,6 +58,7 @@ import { saveTasksToActiveSession } from "./commands/workflow-commands.ts";
 import { type ToolExecutionStatus } from "./parts/types.ts";
 import { useMessageQueue, type QueuedMessage } from "./hooks/use-message-queue.ts";
 import { useVerboseMode } from "./hooks/use-verbose-mode.ts";
+
 import {
   globalRegistry,
   parseSlashCommand,
@@ -95,6 +96,7 @@ import {
   isBackgroundTerminationKey,
 } from "./utils/background-agent-termination.ts";
 import { loadCommandHistory, appendCommandHistory } from "./utils/command-history.ts";
+import { createClipboardAdapter, type ClipboardAdapter } from "./utils/clipboard.ts";
 import type { McpServerToggleMap, McpSnapshotView } from "./utils/mcp-output.ts";
 import {
   normalizeHitlAnswer,
@@ -2250,6 +2252,15 @@ export function ChatApp({
   // Renderer ref for copy-on-selection (OpenTUI Selection API)
   const renderer = useRenderer();
 
+  // Platform-aware clipboard adapter (Strategy pattern).
+  // Tries OSC 52 first; falls back to native commands (pbcopy, xclip, etc.)
+  // on terminals that don't support OSC 52 (macOS Terminal.app, VS Code).
+  const clipboardRef = useRef<ClipboardAdapter | null>(null);
+  if (!clipboardRef.current) {
+    clipboardRef.current = createClipboardAdapter(renderer);
+  }
+  const clipboard = clipboardRef.current;
+
   // Copy-on-selection: auto-copy selected text to clipboard on mouse release
   // Keep selection visible so user can also use Ctrl+C / Ctrl+Shift+C to copy
   const handleMouseUp = useCallback(() => {
@@ -2258,14 +2269,13 @@ export function ChatApp({
       if (selection) {
         const selectedText = selection.getSelectedText();
         if (selectedText) {
-          // Type assertion for method that exists at runtime but not in type definitions
-          (renderer as unknown as { copyToClipboardOSC52: (text: string) => void }).copyToClipboardOSC52(selectedText);
+          clipboard.copy(selectedText);
         }
       }
     } catch {
       // Ignore errors from mouse selection — can occur when renderables are in a transitional state
     }
-  }, [renderer]);
+  }, [renderer, clipboard]);
 
   // Pending questions queue for HITL flow
   const [, setPendingQuestions] = useState<UserQuestion[]>([]);
@@ -2295,6 +2305,7 @@ export function ChatApp({
 
   // Verbose mode: shows timestamps, model info on messages (ctrl+e toggle)
   const { toggle: toggleVerbose } = useVerboseMode();
+
 
   // State for showing user question dialog
   const [activeQuestion, setActiveQuestion] = useState<UserQuestion | null>(null);
@@ -6171,18 +6182,16 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
   }, []);
 
   // Handle clipboard copy - copies selected text to system clipboard
+  // Uses the platform-aware clipboard adapter (OSC 52 → native fallback)
   // Checks both textarea selection and renderer (mouse-drag) selection
   const handleCopy = useCallback(() => {
     const textarea = textareaRef.current;
-    // Type assertion for method that exists at runtime but not in type definitions
-    const copyToClipboard = (text: string) =>
-      (renderer as unknown as { copyToClipboardOSC52: (text: string) => void }).copyToClipboardOSC52(text);
 
     // First, check textarea selection (input area)
     if (textarea?.hasSelection()) {
       const selectedText = textarea.getSelectedText();
       if (selectedText) {
-        copyToClipboard(selectedText);
+        clipboard.copy(selectedText);
         return;
       }
     }
@@ -6192,11 +6201,11 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
     if (selection) {
       const selectedText = selection.getSelectedText();
       if (selectedText) {
-        copyToClipboard(selectedText);
+        clipboard.copy(selectedText);
         renderer.clearSelection();
       }
     }
-  }, [renderer]);
+  }, [renderer, clipboard]);
 
   // Handle bracketed paste events from OpenTUI
   // This is the primary paste handler for modern terminals that support bracketed paste mode
@@ -6228,8 +6237,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           event.raw,
         );
 
-        // Ctrl+C handling must work everywhere (even in dialogs) for double-press exit
-        if (event.ctrl && event.name === "c") {
+        // Ctrl+C / Cmd+C handling must work everywhere (even in dialogs) for double-press exit
+        if ((event.ctrl || event.meta) && event.name === "c") {
           const textarea = textareaRef.current;
           // If textarea or renderer has selection and no dialog is active, copy instead of interrupt/exit
           const hasRendererSelection = !!renderer.getSelection()?.getSelectedText();
@@ -6566,6 +6575,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           setShowTodoPanel(prev => !prev);
           return;
         }
+
 
         // Skip other keyboard handling when a dialog is active
         // The dialog components handle their own keyboard events via their own useKeyboard hooks

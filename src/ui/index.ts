@@ -957,6 +957,8 @@ export {
   useThemeColors,
   darkTheme,
   lightTheme,
+  darkThemeAnsi,
+  lightThemeAnsi,
   type Theme,
   type ThemeColors,
 } from "./theme.tsx";

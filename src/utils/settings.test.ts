@@ -36,26 +36,26 @@ describe("settings persistence", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  test("prefers local config over global for model preference", () => {
+  test("prefers local config over global for model preference", async () => {
     const localPath = join(cwdDir, ".atomic", "settings.json");
     const globalPath = join(homeDir, ".atomic", "settings.json");
 
     writeJson(globalPath, { model: { claude: "haiku" } });
     writeJson(localPath, { model: { claude: "sonnet" } });
 
-    expect(getModelPreference("claude")).toBe("sonnet");
+    expect(await getModelPreference("claude")).toBe("sonnet");
   });
 
-  test("sanitizes claude default model to opus when reading", () => {
+  test("sanitizes claude default model to opus when reading", async () => {
     const globalPath = join(homeDir, ".atomic", "settings.json");
     writeJson(globalPath, { model: { claude: "default" } });
 
-    expect(getModelPreference("claude")).toBe("opus");
+    expect(await getModelPreference("claude")).toBe("opus");
 
     const localPath = join(cwdDir, ".atomic", "settings.json");
     writeJson(localPath, { model: { claude: "anthropic/default" } });
 
-    expect(getModelPreference("claude")).toBe("opus");
+    expect(await getModelPreference("claude")).toBe("opus");
   });
 
   test("writes model preferences to global only and normalizes claude default", () => {
@@ -77,14 +77,14 @@ describe("settings persistence", () => {
     expect(localSettings.model?.claude).toBe("haiku");
   });
 
-  test("reasoning effort reads local first and writes global", () => {
+  test("reasoning effort reads local first and writes global", async () => {
     const localPath = join(cwdDir, ".atomic", "settings.json");
     const globalPath = join(homeDir, ".atomic", "settings.json");
 
     writeJson(globalPath, { reasoningEffort: { copilot: "medium" } });
     writeJson(localPath, { reasoningEffort: { copilot: "high" } });
 
-    expect(getReasoningEffortPreference("copilot")).toBe("high");
+    expect(await getReasoningEffortPreference("copilot")).toBe("high");
 
     saveReasoningEffortPreference("copilot", "low");
 
@@ -101,13 +101,13 @@ describe("settings persistence", () => {
     expect(existsSync(localPath)).toBe(true);
   });
 
-  test("getModelPreference returns undefined when no settings exist", () => {
+  test("getModelPreference returns undefined when no settings exist", async () => {
     // No settings files created
-    expect(getModelPreference("claude")).toBeUndefined();
-    expect(getModelPreference("copilot")).toBeUndefined();
+    expect(await getModelPreference("claude")).toBeUndefined();
+    expect(await getModelPreference("copilot")).toBeUndefined();
   });
 
-  test("getModelPreference falls back to global when local has no setting", () => {
+  test("getModelPreference falls back to global when local has no setting", async () => {
     const localPath = join(cwdDir, ".atomic", "settings.json");
     const globalPath = join(homeDir, ".atomic", "settings.json");
 
@@ -115,21 +115,21 @@ describe("settings persistence", () => {
     writeJson(localPath, { model: { opencode: "gpt-4" } });
     writeJson(globalPath, { model: { claude: "sonnet" } });
 
-    expect(getModelPreference("claude")).toBe("sonnet");
+    expect(await getModelPreference("claude")).toBe("sonnet");
   });
 
-  test("getModelPreference passes through non-claude model IDs unchanged", () => {
+  test("getModelPreference passes through non-claude model IDs unchanged", async () => {
     const globalPath = join(homeDir, ".atomic", "settings.json");
     writeJson(globalPath, { model: { opencode: "custom-model-id" } });
 
-    expect(getModelPreference("opencode")).toBe("custom-model-id");
+    expect(await getModelPreference("opencode")).toBe("custom-model-id");
   });
 
-  test("getModelPreference normalizes claude model with /default suffix", () => {
+  test("getModelPreference normalizes claude model with /default suffix", async () => {
     const globalPath = join(homeDir, ".atomic", "settings.json");
     writeJson(globalPath, { model: { claude: "anthropic/default" } });
 
-    expect(getModelPreference("claude")).toBe("opus");
+    expect(await getModelPreference("claude")).toBe("opus");
   });
 
   test("saveModelPreference strips Claude provider prefix and stores canonical alias", () => {
@@ -143,11 +143,11 @@ describe("settings persistence", () => {
     expect(settings.model?.claude).toBe("sonnet");
   });
 
-  test("getModelPreference trims whitespace from model ID", () => {
+  test("getModelPreference trims whitespace from model ID", async () => {
     const globalPath = join(homeDir, ".atomic", "settings.json");
     writeJson(globalPath, { model: { claude: "  sonnet  " } });
 
-    expect(getModelPreference("claude")).toBe("sonnet");
+    expect(await getModelPreference("claude")).toBe("sonnet");
   });
 
   test("saveModelPreference creates directory if it does not exist", () => {
@@ -185,18 +185,18 @@ describe("settings persistence", () => {
     expect(settings.reasoningEffort?.copilot).toBe("high");
   });
 
-  test("getReasoningEffortPreference returns undefined when no settings exist", () => {
-    expect(getReasoningEffortPreference("claude")).toBeUndefined();
+  test("getReasoningEffortPreference returns undefined when no settings exist", async () => {
+    expect(await getReasoningEffortPreference("claude")).toBeUndefined();
   });
 
-  test("getReasoningEffortPreference falls back to global when local has no setting", () => {
+  test("getReasoningEffortPreference falls back to global when local has no setting", async () => {
     const localPath = join(cwdDir, ".atomic", "settings.json");
     const globalPath = join(homeDir, ".atomic", "settings.json");
 
     writeJson(localPath, { reasoningEffort: { opencode: "medium" } });
     writeJson(globalPath, { reasoningEffort: { copilot: "high" } });
 
-    expect(getReasoningEffortPreference("copilot")).toBe("high");
+    expect(await getReasoningEffortPreference("copilot")).toBe("high");
   });
 
   test("clearReasoningEffortPreference is safe when preference does not exist", () => {

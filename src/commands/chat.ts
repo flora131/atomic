@@ -28,6 +28,7 @@ import {
 } from "../utils/atomic-global-config.ts";
 import { detectInstallationType, getConfigRoot } from "../utils/config-path.ts";
 import { prepareOpenCodeConfigDir } from "../utils/opencode-config.ts";
+import { prepareClaudeConfigDir } from "../utils/claude-config.ts";
 
 // SDK client imports — lazy-loaded per agent to avoid loading all 3 SDKs
 import { createTodoWriteTool } from "../sdk/tools/todo-write.ts";
@@ -84,7 +85,11 @@ async function createClientForAgentType(agentType: AgentType): Promise<CodingAge
     }
     case "opencode": {
       const { createOpenCodeClient } = await import("../sdk/clients/opencode.ts");
-      return createOpenCodeClient({ directory: process.cwd() });
+      return createOpenCodeClient({
+        directory: process.cwd(),
+        port: 0,
+        reuseExistingServer: false,
+      });
     }
     case "copilot": {
       const { createCopilotClient } = await import("../sdk/clients/copilot.ts");
@@ -228,6 +233,13 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     const mergedConfigDir = await prepareOpenCodeConfigDir({ projectRoot });
     if (mergedConfigDir) {
       process.env.OPENCODE_CONFIG_DIR = mergedConfigDir;
+    }
+  }
+
+  if (agentType === "claude") {
+    const mergedClaudeConfigDir = await prepareClaudeConfigDir();
+    if (mergedClaudeConfigDir) {
+      process.env.CLAUDE_CONFIG_DIR = mergedClaudeConfigDir;
     }
   }
 

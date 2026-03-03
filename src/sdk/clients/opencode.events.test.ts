@@ -138,6 +138,62 @@ describe("OpenCodeClient event mapping", () => {
     expect(options.clientOptions?.directory).toBe(process.cwd());
   });
 
+  test("starts an isolated server before connecting by default", async () => {
+    const client = new OpenCodeClient();
+    const callOrder: string[] = [];
+    const internal = client as unknown as {
+      spawnServer: () => Promise<boolean>;
+      connect: () => Promise<boolean>;
+      subscribeToSdkEvents: () => Promise<void>;
+      isRunning: boolean;
+    };
+
+    internal.spawnServer = async () => {
+      callOrder.push("spawn");
+      return true;
+    };
+    internal.connect = async () => {
+      callOrder.push("connect");
+      return true;
+    };
+    internal.subscribeToSdkEvents = async () => {
+      callOrder.push("subscribe");
+    };
+
+    await client.start();
+
+    expect(callOrder).toEqual(["spawn", "connect", "subscribe"]);
+    expect(internal.isRunning).toBe(true);
+  });
+
+  test("uses Atomic-managed server path even when reuseExistingServer is true", async () => {
+    const client = new OpenCodeClient({ reuseExistingServer: true });
+    const callOrder: string[] = [];
+    const internal = client as unknown as {
+      spawnServer: () => Promise<boolean>;
+      connect: () => Promise<boolean>;
+      subscribeToSdkEvents: () => Promise<void>;
+      isRunning: boolean;
+    };
+
+    internal.spawnServer = async () => {
+      callOrder.push("spawn");
+      return true;
+    };
+    internal.connect = async () => {
+      callOrder.push("connect");
+      return true;
+    };
+    internal.subscribeToSdkEvents = async () => {
+      callOrder.push("subscribe");
+    };
+
+    await client.start();
+
+    expect(callOrder).toEqual(["spawn", "connect", "subscribe"]);
+    expect(internal.isRunning).toBe(true);
+  });
+
   test("maps session.created info.id to session.start sessionId", () => {
     const client = new OpenCodeClient();
     const sessionStarts: string[] = [];
@@ -1789,6 +1845,95 @@ describe("OpenCodeClient event mapping", () => {
         sessionId: "ses_part_session",
         toolName: "bash",
         toolCallId: "call_tool_1",
+      },
+    ]);
+  });
+
+  test("emits skill.invoked once for native Skill tool lifecycle updates", () => {
+    const client = new OpenCodeClient();
+    const invocations: Array<{
+      sessionId: string;
+      skillName?: string;
+      skillPath?: string;
+    }> = [];
+
+    const unsubscribe = client.on("skill.invoked", (event) => {
+      const data = event.data as {
+        skillName?: string;
+        skillPath?: string;
+      };
+      invocations.push({
+        sessionId: event.sessionId,
+        skillName: data.skillName,
+        skillPath: data.skillPath,
+      });
+    });
+
+    const basePart = {
+      id: "skill_tool_part_1",
+      callID: "skill_tool_call_1",
+      sessionID: "ses_skill_main",
+      messageID: "msg_skill_main",
+      type: "tool",
+      tool: "skill",
+    };
+
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          ...basePart,
+          state: {
+            status: "pending",
+            input: {
+              name: "explain-code",
+              path: "/tmp/skills/explain-code/SKILL.md",
+            },
+          },
+        },
+      },
+    });
+
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          ...basePart,
+          state: {
+            status: "running",
+            input: {
+              name: "explain-code",
+              path: "/tmp/skills/explain-code/SKILL.md",
+            },
+          },
+        },
+      },
+    });
+
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          ...basePart,
+          state: {
+            status: "completed",
+            input: {
+              name: "explain-code",
+              path: "/tmp/skills/explain-code/SKILL.md",
+            },
+            output: "loaded",
+          },
+        },
+      },
+    });
+
+    unsubscribe();
+
+    expect(invocations).toEqual([
+      {
+        sessionId: "ses_skill_main",
+        skillName: "explain-code",
+        skillPath: "/tmp/skills/explain-code/SKILL.md",
       },
     ]);
   });

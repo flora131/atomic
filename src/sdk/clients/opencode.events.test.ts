@@ -2072,6 +2072,133 @@ describe("OpenCodeClient event mapping", () => {
     ]);
   });
 
+  test("recognizes reasoning deltas when message.part.delta uses camelCase partId", () => {
+    const client = new OpenCodeClient();
+    const deltas: Array<{
+      sessionId: string;
+      delta?: string;
+      contentType?: string;
+      thinkingSourceKey?: string;
+    }> = [];
+
+    const unsubscribe = client.on("message.delta", (event) => {
+      const data = event.data as {
+        delta?: string;
+        contentType?: string;
+        thinkingSourceKey?: string;
+      };
+      deltas.push({
+        sessionId: event.sessionId,
+        delta: data.delta,
+        contentType: data.contentType,
+        thinkingSourceKey: data.thinkingSourceKey,
+      });
+    });
+
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "reasoning_part_camel",
+          sessionID: "ses_reasoning_camel",
+          messageID: "msg_reasoning_camel",
+          type: "reasoning",
+        },
+      },
+    });
+
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.part.delta",
+      properties: {
+        partId: "reasoning_part_camel",
+        field: "text",
+        sessionID: "ses_reasoning_camel",
+        delta: "camelcase part id reasoning",
+      },
+    });
+
+    unsubscribe();
+
+    expect(deltas).toEqual([
+      {
+        sessionId: "ses_reasoning_camel",
+        delta: "camelcase part id reasoning",
+        contentType: "thinking",
+        thinkingSourceKey: "reasoning_part_camel",
+      },
+    ]);
+  });
+
+  test("ignores message.part.delta updates for non-text fields", () => {
+    const client = new OpenCodeClient();
+    const deltas: string[] = [];
+
+    const unsubscribe = client.on("message.delta", (event) => {
+      const data = event.data as { delta?: string };
+      if (typeof data.delta === "string") {
+        deltas.push(data.delta);
+      }
+    });
+
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.part.delta",
+      properties: {
+        partID: "part_non_text_field",
+        field: "status",
+        sessionID: "ses_non_text_field",
+        delta: "should not emit",
+      },
+    });
+
+    unsubscribe();
+
+    expect(deltas).toEqual([]);
+  });
+
+  test("classifies inline reasoning message.part.delta payloads as thinking", () => {
+    const client = new OpenCodeClient();
+    const deltas: Array<{
+      contentType?: string;
+      thinkingSourceKey?: string;
+      delta?: string;
+    }> = [];
+
+    const unsubscribe = client.on("message.delta", (event) => {
+      const data = event.data as {
+        delta?: string;
+        contentType?: string;
+        thinkingSourceKey?: string;
+      };
+      deltas.push({
+        contentType: data.contentType,
+        thinkingSourceKey: data.thinkingSourceKey,
+        delta: data.delta,
+      });
+    });
+
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.part.delta",
+      properties: {
+        sessionID: "ses_inline_reasoning",
+        delta: "inline reasoning payload",
+        part: {
+          id: "reasoning_inline_1",
+          type: "reasoning",
+        },
+      },
+    });
+
+    unsubscribe();
+
+    expect(deltas).toEqual([
+      {
+        contentType: "thinking",
+        thinkingSourceKey: "reasoning_inline_1",
+        delta: "inline reasoning payload",
+      },
+    ]);
+  });
+
   test("maps agent part to subagent.start with toolCallId from callID", () => {
     const client = new OpenCodeClient();
     const starts: Array<{

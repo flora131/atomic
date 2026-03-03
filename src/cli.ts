@@ -212,7 +212,7 @@ Slash Commands (in workflow mode):
     .command("upload-telemetry", { hidden: true })
     .description("Upload telemetry events (internal use)")
     .action(async () => {
-      const { handleTelemetryUpload } = await import("./telemetry");
+      const { handleTelemetryUpload } = await import("./telemetry/telemetry-upload");
       await handleTelemetryUpload();
     });
 

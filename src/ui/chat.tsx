@@ -1115,6 +1115,8 @@ export interface ChatAppProps {
    * Returns null if no session is active yet.
    */
   getSession?: () => import("../sdk/types.ts").Session | null;
+  /** Ensure an SDK session exists for commands that need one (e.g., /model). */
+  ensureSession?: () => Promise<void>;
   /**
    * Callback to resume workflow execution with user's answer.
    * Called when the user responds to an askUserNode question in workflow mode.
@@ -2204,6 +2206,7 @@ export function ChatApp({
   workingDir = "~/",
   suggestion: _suggestion,
   getSession,
+  ensureSession,
   onWorkflowResumeWithAnswer,
   agentType,
   modelOps,
@@ -5470,6 +5473,7 @@ export function ChatApp({
 
     const context: CommandContext = {
       session: getSession?.() ?? null,
+      ensureSession,
       state: contextState,
       addMessage,
       setStreaming: setStreamingWithFinalize,
@@ -6084,7 +6088,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       });
       return false;
     }
-  }, [isStreaming, messages.length, workflowState, addMessage, updateWorkflowState, toggleTheme, setTheme, onSendMessage, onStreamMessage, getSession, model, onModelChange, onSessionMcpServersChange, onCommandExecutionTelemetry, mcpServerToggles, handleStreamStartupError, setStreamingMessageId, stopSharedStreamState, applyAutoCompactionIndicator, appendHistoryBufferAndSync, appendCompactionSummaryAndSync, clearHistoryBufferAndSync]);
+  }, [isStreaming, messages.length, workflowState, addMessage, updateWorkflowState, toggleTheme, setTheme, onSendMessage, onStreamMessage, getSession, ensureSession, model, onModelChange, onSessionMcpServersChange, onCommandExecutionTelemetry, mcpServerToggles, handleStreamStartupError, setStreamingMessageId, stopSharedStreamState, applyAutoCompactionIndicator, appendHistoryBufferAndSync, appendCompactionSummaryAndSync, clearHistoryBufferAndSync]);
 
   /**
    * Handle autocomplete selection (Tab for complete, Enter for execute).

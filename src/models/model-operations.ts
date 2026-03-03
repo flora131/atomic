@@ -268,18 +268,12 @@ export class UnifiedModelOperations implements ModelOperations {
   private async listModelsForCopilot(): Promise<Model[]> {
     // Dynamic import to avoid loading SDK when not needed
     const { CopilotClient } = await import('@github/copilot-sdk');
-    const { resolveNodePath, getBundledCopilotCliPath } = await import('../sdk/clients/index.ts');
+    const { getBundledCopilotCliPath, resolveCopilotSdkCliLaunch } = await import('../sdk/clients/index.ts');
 
-    // The Copilot SDK spawns its CLI subprocess using process.execPath when
-    // cliPath ends in ".js". Under Bun, this fails because @github/copilot
-    // depends on node:sqlite which Bun does not support. Work around this by
-    // setting cliPath to the Node.js binary and prepending the copilot CLI
-    // index.js path to cliArgs (same fix as CopilotClient.buildSdkOptions).
-    const nodePath = resolveNodePath();
-    const copilotCliPath = getBundledCopilotCliPath();
-    const clientOpts = nodePath && copilotCliPath.endsWith(".js")
-      ? { cliPath: nodePath, cliArgs: ["--no-warnings", copilotCliPath] }
-      : { cliPath: copilotCliPath };
+    // Reuse the same launch compatibility path as CopilotClient.buildSdkOptions:
+    // - Node host for npm package `index.js`
+    // - standalone shim to strip unsupported `--no-auto-update`
+    const clientOpts = resolveCopilotSdkCliLaunch(await getBundledCopilotCliPath());
 
     const client = new CopilotClient(clientOpts);
 

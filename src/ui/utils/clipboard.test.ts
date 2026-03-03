@@ -28,6 +28,14 @@ function makeMockRenderer(overrides: {
 
 describe("ClipboardAdapter", () => {
   const originalTermProgram = process.env.TERM_PROGRAM;
+  const originalPlatform = process.platform;
+
+  const setPlatform = (platform: NodeJS.Platform): void => {
+    Object.defineProperty(process, "platform", {
+      value: platform,
+      configurable: true,
+    });
+  };
 
   beforeEach(() => {
     process.env.TERM_PROGRAM = "iTerm.app";
@@ -35,6 +43,7 @@ describe("ClipboardAdapter", () => {
 
   afterEach(() => {
     process.env.TERM_PROGRAM = originalTermProgram;
+    setPlatform(originalPlatform);
   });
 
   describe("when OSC 52 is supported", () => {
@@ -56,6 +65,8 @@ describe("ClipboardAdapter", () => {
     });
 
     test("falls back to pbcopy when OSC 52 write fails on macOS", () => {
+      setPlatform("darwin");
+
       const renderer = makeMockRenderer({ osc52Supported: true, copyResult: false });
       const whichSpy = spyOn(Bun, "which").mockImplementation((cmd: string) => {
         if (cmd === "pbcopy") return "/usr/bin/pbcopy" as ReturnType<typeof Bun.which>;
@@ -77,6 +88,7 @@ describe("ClipboardAdapter", () => {
 
     test("prefers pbcopy on Apple Terminal", () => {
       process.env.TERM_PROGRAM = "Apple_Terminal";
+      setPlatform("darwin");
 
       const renderer = makeMockRenderer({ osc52Supported: true, copyResult: true });
       const whichSpy = spyOn(Bun, "which").mockImplementation((cmd: string) => {
@@ -100,6 +112,8 @@ describe("ClipboardAdapter", () => {
 
   describe("when OSC 52 is NOT supported", () => {
     test("falls back to pbcopy on macOS", () => {
+      setPlatform("darwin");
+
       const renderer = makeMockRenderer({ osc52Supported: false });
       const whichSpy = spyOn(Bun, "which").mockImplementation((cmd: string) => {
         if (cmd === "pbcopy") return "/usr/bin/pbcopy" as ReturnType<typeof Bun.which>;

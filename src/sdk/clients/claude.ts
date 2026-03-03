@@ -2282,7 +2282,15 @@ export class ClaudeAgentClient implements CodingAgentClient {
         }
 
         // No active session — create a temporary query for model listing
-        const tempQuery = query({ prompt: "", options: { maxTurns: 0 } });
+        // Explicitly set Claude executable path so packaged binaries don't fall
+        // back to Bun virtual FS resolution (/$bunfs/.../cli.js).
+        const tempQuery = query({
+            prompt: "",
+            options: {
+                maxTurns: 0,
+                pathToClaudeCodeExecutable: getBundledClaudeCodePath(),
+            },
+        });
         try {
             return await tempQuery.supportedModels();
         } finally {

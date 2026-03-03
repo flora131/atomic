@@ -471,7 +471,7 @@ describe("UnifiedModelOperations - listAvailableModels with mocks", () => {
     expect(models1).toEqual(models2);
   });
 
-  test("sets default context window of 200000 for all Claude models", async () => {
+  test("sets default context window of 200000 when SDK labels omit context", async () => {
     mockSdkListModels = async () => [
       { value: "sonnet", displayName: "Sonnet", description: "Sonnet" },
       { value: "claude-custom", displayName: "Custom", description: "Custom" },
@@ -483,6 +483,39 @@ describe("UnifiedModelOperations - listAvailableModels with mocks", () => {
     for (const model of models) {
       expect(model.limits.context).toBe(200000);
     }
+  });
+
+  test("uses 1m context when SDK model labels include [1m]", async () => {
+    mockSdkListModels = async () => [
+      { value: "sonnet", displayName: "Sonnet [1m]", description: "Latest Sonnet" },
+      { value: "claude-4-5-opus", displayName: "Opus", description: "Most capable [1m]" },
+      { value: "haiku", displayName: "Haiku", description: "Fast model" },
+    ];
+    const ops = new UnifiedModelOperations("claude", undefined, mockSdkListModels);
+
+    const models = await ops.listAvailableModels();
+    const sonnetModel = models.find((m) => m.modelID === "sonnet");
+    const opusModel = models.find((m) => m.modelID === "claude-4-5-opus");
+    const haikuModel = models.find((m) => m.modelID === "haiku");
+
+    expect(sonnetModel?.limits.context).toBe(1000000);
+    expect(opusModel?.limits.context).toBe(1000000);
+    expect(haikuModel?.limits.context).toBe(200000);
+  });
+
+  test("parses explicit k/m context labels from model metadata", async () => {
+    mockSdkListModels = async () => [
+      { value: "opus", displayName: "Opus 200k", description: "Most capable" },
+      { value: "claude-sonnet-plus", displayName: "Sonnet", description: "Context window: 1m tokens" },
+    ];
+    const ops = new UnifiedModelOperations("claude", undefined, mockSdkListModels);
+
+    const models = await ops.listAvailableModels();
+    const opusModel = models.find((m) => m.modelID === "opus");
+    const sonnetPlus = models.find((m) => m.modelID === "claude-sonnet-plus");
+
+    expect(opusModel?.limits.context).toBe(200000);
+    expect(sonnetPlus?.limits.context).toBe(1000000);
   });
 });
 

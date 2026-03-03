@@ -14,9 +14,8 @@
 
 import type { AgentType } from "../telemetry/types.ts";
 import type { CodingAgentClient } from "../sdk/types.ts";
+import type { ChatUIConfig, Theme } from "../ui/index.ts";
 import { getModelPreference, getReasoningEffortPreference } from "../utils/settings.ts";
-import { discoverMcpConfigs } from "../utils/mcp-config.ts";
-import { trackAtomicCommand } from "../telemetry/index.ts";
 import { pathExists } from "../utils/copy.ts";
 import { AGENT_CONFIG } from "../config.ts";
 // initCommand is lazy-loaded only when auto-init is needed
@@ -27,23 +26,6 @@ import {
   isManagedScmSkillName,
 } from "../utils/atomic-global-config.ts";
 import { detectInstallationType, getConfigRoot } from "../utils/config-path.ts";
-import { prepareOpenCodeConfigDir } from "../utils/opencode-config.ts";
-import { prepareClaudeConfigDir } from "../utils/claude-config.ts";
-
-// SDK client imports — lazy-loaded per agent to avoid loading all 3 SDKs
-import { createTodoWriteTool } from "../sdk/tools/todo-write.ts";
-import { registerCustomTools } from "../sdk/tools/index.ts";
-
-// Chat UI imports
-import {
-  startChatUI,
-  darkTheme,
-  lightTheme,
-  darkThemeAnsi,
-  lightThemeAnsi,
-  type ChatUIConfig,
-  type Theme,
-} from "../ui/index.ts";
 import { supportsTrueColor } from "../utils/detect.ts";
 import { VERSION } from "../version.ts";
 
@@ -115,7 +97,8 @@ function getAgentDisplayName(agentType: AgentType): string {
 /**
  * Get theme from name.
  */
-function getTheme(themeName: "dark" | "light"): Theme {
+async function getTheme(themeName: "dark" | "light"): Promise<Theme> {
+  const { darkTheme, lightTheme, darkThemeAnsi, lightThemeAnsi } = await import("../ui/index.ts");
   const truecolor = supportsTrueColor();
   if (themeName === "light") {
     return truecolor ? lightTheme : lightThemeAnsi;
@@ -218,30 +201,46 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     throw new Error("agentType is required — resolve via saved config or init before calling chatCommand");
   }
 
-  // CLI flag takes precedence, then persisted preference
-  const effectiveModel = model ?? getModelPreference(agentType);
-  const effectiveReasoningEffort = getReasoningEffortPreference(agentType);
+  // Read settings asynchronously in parallel
+  const [resolvedModel, effectiveReasoningEffort] = await Promise.all([
+    getModelPreference(agentType),
+    getReasoningEffortPreference(agentType),
+  ]);
+  const effectiveModel = model ?? resolvedModel;
 
   const agentName = getAgentDisplayName(agentType);
   const projectRoot = process.cwd();
 
+  // Parallelize independent config preparation steps
+  const configPrepTasks: Promise<void>[] = [];
+
   if (detectInstallationType() !== "source") {
-    await ensureAtomicGlobalAgentConfigs(getConfigRoot());
+    configPrepTasks.push(ensureAtomicGlobalAgentConfigs(getConfigRoot()));
   }
 
   if (agentType === "opencode") {
-    const mergedConfigDir = await prepareOpenCodeConfigDir({ projectRoot });
-    if (mergedConfigDir) {
-      process.env.OPENCODE_CONFIG_DIR = mergedConfigDir;
-    }
+    configPrepTasks.push(
+      import("../utils/opencode-config.ts").then(async ({ prepareOpenCodeConfigDir }) => {
+        const mergedConfigDir = await prepareOpenCodeConfigDir({ projectRoot });
+        if (mergedConfigDir) {
+          process.env.OPENCODE_CONFIG_DIR = mergedConfigDir;
+        }
+      })
+    );
   }
 
   if (agentType === "claude") {
-    const mergedClaudeConfigDir = await prepareClaudeConfigDir();
-    if (mergedClaudeConfigDir) {
-      process.env.CLAUDE_CONFIG_DIR = mergedClaudeConfigDir;
-    }
+    configPrepTasks.push(
+      import("../utils/claude-config.ts").then(async ({ prepareClaudeConfigDir }) => {
+        const mergedClaudeConfigDir = await prepareClaudeConfigDir();
+        if (mergedClaudeConfigDir) {
+          process.env.CLAUDE_CONFIG_DIR = mergedClaudeConfigDir;
+        }
+      })
+    );
   }
+
+  await Promise.all(configPrepTasks);
 
   // Auto-init when project SCM skills are missing
   if (await shouldAutoInitChat(agentType, projectRoot)) {
@@ -259,7 +258,12 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   console.log(`Starting ${agentName} chat interface...`);
   console.log("");
 
-  // Create the SDK client
+  // Lazy-load SDK tools and create client
+  const [{ createTodoWriteTool }, { registerCustomTools }] = await Promise.all([
+    import("../sdk/tools/todo-write.ts"),
+    import("../sdk/tools/index.ts"),
+  ]);
+
   const client = await createClientForAgentType(agentType);
 
   // Register TodoWrite tool for agents that don't have it built-in
@@ -271,15 +275,23 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   await registerCustomTools(client);
 
   try {
-    // Start the client immediately so default model discovery can query
-    // SDK metadata (e.g., listModels/provider defaults) before rendering header.
-    const clientStartPromise = client.start();
+    // Start client and discover MCP configs in parallel
+    const [{ discoverMcpConfigs }, { trackAtomicCommand }, { startChatUI }] = await Promise.all([
+      import("../utils/mcp-config.ts"),
+      import("../telemetry/index.ts"),
+      import("../ui/index.ts"),
+    ]);
 
-    // Wait for startup so "no model set" resolves to a real model name
-    // instead of provider fallback labels like "OpenCode"/"Copilot".
+    // Start client and run MCP discovery concurrently
+    const clientStartPromise = client.start();
+    const mcpDiscoveryPromise = discoverMcpConfigs();
+
     await clientStartPromise;
 
-    const modelDisplayInfo = await client.getModelDisplayInfo(effectiveModel);
+    const [modelDisplayInfo, mcpServers] = await Promise.all([
+      client.getModelDisplayInfo(effectiveModel),
+      mcpDiscoveryPromise,
+    ]);
 
     // For Copilot, show explicit reasoning effort when available:
     // user preference first, otherwise SDK-reported model default.
@@ -294,9 +306,6 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
       displayModelName += ` (${resolvedReasoningEffort})`;
     }
 
-    // Discover MCP server configs from all known config formats
-    const mcpServers = discoverMcpConfigs();
-
     // Build chat UI configuration
     const chatConfig: ChatUIConfig = {
       sessionConfig: {
@@ -304,7 +313,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
         reasoningEffort: resolvedReasoningEffort,
         mcpServers,
       },
-      theme: getTheme(theme),
+      theme: await getTheme(theme),
       title: `Chat - ${agentName}`,
       placeholder: "Type a message...",
       version: VERSION,
@@ -324,6 +333,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     trackAtomicCommand("chat", agentType, true);
     return 0;
   } catch (error) {
+    const { trackAtomicCommand } = await import("../telemetry/index.ts");
     trackAtomicCommand("chat", agentType, false);
     console.error("Chat error:", error instanceof Error ? error.message : String(error));
     return 1;

@@ -613,10 +613,13 @@ export async function startChatUI(
   });
 
   try {
-    // Initialize commands registry before rendering
-    // This ensures all slash commands are available when ChatApp mounts
-    // Uses async version to support loading workflows from disk
-    await initializeCommandsAsync();
+    // Initialize commands registry and wait for client startup concurrently.
+    // Both are independent: command discovery scans the filesystem while
+    // the SDK client connects to its backend.
+    await Promise.all([
+      initializeCommandsAsync(),
+      clientStartPromise ?? Promise.resolve(),
+    ]);
 
     // Enhance session config with capabilities system prompt so the model
     // knows about all available slash commands, skills, and sub-agents.

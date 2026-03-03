@@ -1,13 +1,15 @@
 # Atomic CLI Installer for Windows
 # Usage: irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1 | iex
 # Usage with version: iex "& { $(irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1) } -Version v1.0.0"
+# Usage prerelease: iex "& { $(irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1) } -Prerelease"
 
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '')]
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingInvokeExpression', '')]
 param(
     [String]$Version = "latest",
     [String]$InstallDir = "",
-    [Switch]$NoPathUpdate = $false
+    [Switch]$NoPathUpdate = $false,
+    [Switch]$Prerelease = $false
 )
 
 $ErrorActionPreference = 'Stop'
@@ -166,14 +168,27 @@ $null = New-Item -ItemType Directory -Force -Path $DataDir
 if ($Version -eq "latest") {
     Write-Info "Fetching latest version..."
     try {
-        $Release = Invoke-RestMethod "https://api.github.com/repos/${GithubRepo}/releases/latest"
+        if ($Prerelease) {
+            $Releases = Invoke-RestMethod "https://api.github.com/repos/${GithubRepo}/releases"
+            $Release = $Releases | Where-Object { $_.prerelease -eq $true } | Select-Object -First 1
+            if (-not $Release) {
+                Write-Err "No prerelease found"
+                exit 1
+            }
+        } else {
+            $Release = Invoke-RestMethod "https://api.github.com/repos/${GithubRepo}/releases/latest"
+        }
         $Version = $Release.tag_name
     } catch {
         Write-Err "Failed to fetch latest version: $_"
         exit 1
     }
 }
-Write-Info "Installing version: $Version"
+if ($Prerelease -and $Version -ne "latest") {
+    Write-Info "Installing prerelease: $Version"
+} else {
+    Write-Info "Installing version: $Version"
+}
 
 # Setup URLs
 $BaseUrl = "https://github.com/${GithubRepo}/releases/download/${Version}"

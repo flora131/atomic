@@ -259,17 +259,27 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   await registerCustomTools(client);
 
   try {
-    // Start the client in the background — the subprocess spawns concurrently
-    // while the UI renders. ensureSession() awaits this before the first message.
+    // Start the client immediately so default model discovery can query
+    // SDK metadata (e.g., listModels/provider defaults) before rendering header.
     const clientStartPromise = client.start();
 
-    // Get model info immediately (uses fallback values if client isn't ready yet)
+    // Wait for startup so "no model set" resolves to a real model name
+    // instead of provider fallback labels like "OpenCode"/"Copilot".
+    await clientStartPromise;
+
     const modelDisplayInfo = await client.getModelDisplayInfo(effectiveModel);
+
+    // For Copilot, show explicit reasoning effort when available:
+    // user preference first, otherwise SDK-reported model default.
+    const resolvedReasoningEffort =
+      agentType === "copilot" && modelDisplayInfo.supportsReasoning
+        ? (effectiveReasoningEffort ?? modelDisplayInfo.defaultReasoningEffort)
+        : effectiveReasoningEffort;
 
     // For copilot, append reasoning effort to model display if the model supports it
     let displayModelName = modelDisplayInfo.model;
-    if (agentType === "copilot" && effectiveReasoningEffort && modelDisplayInfo.supportsReasoning) {
-      displayModelName += ` (${effectiveReasoningEffort})`;
+    if (agentType === "copilot" && resolvedReasoningEffort && modelDisplayInfo.supportsReasoning) {
+      displayModelName += ` (${resolvedReasoningEffort})`;
     }
 
     // Discover MCP server configs from all known config formats
@@ -279,7 +289,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     const chatConfig: ChatUIConfig = {
       sessionConfig: {
         model: effectiveModel,
-        reasoningEffort: effectiveReasoningEffort,
+        reasoningEffort: resolvedReasoningEffort,
         mcpServers,
       },
       theme: getTheme(theme),

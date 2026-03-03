@@ -29,6 +29,54 @@ describe("resolveCopilotUserInputSessionId", () => {
   });
 });
 
+describe("CopilotClient.getModelDisplayInfo", () => {
+  test("includes default reasoning effort for hinted reasoning-capable model", async () => {
+    const client = new CopilotClient({});
+    (client as unknown as { isRunning: boolean }).isRunning = true;
+    (client as unknown as { sdkClient: { listModels: () => Promise<unknown[]> } }).sdkClient = {
+      listModels: mock(async () => ([
+        {
+          id: "gpt-5",
+          defaultReasoningEffort: "high",
+          capabilities: {
+            supports: { reasoningEffort: true },
+            limits: { max_context_window_tokens: 256000 },
+          },
+        },
+      ])),
+    };
+
+    const info = await client.getModelDisplayInfo("github-copilot/gpt-5");
+
+    expect(info.model).toBe("gpt-5");
+    expect(info.supportsReasoning).toBe(true);
+    expect(info.defaultReasoningEffort).toBe("high");
+  });
+
+  test("uses first model default reasoning effort when no hint is provided", async () => {
+    const client = new CopilotClient({});
+    (client as unknown as { isRunning: boolean }).isRunning = true;
+    (client as unknown as { sdkClient: { listModels: () => Promise<unknown[]> } }).sdkClient = {
+      listModels: mock(async () => ([
+        {
+          id: "claude-opus-4.6",
+          defaultReasoningEffort: "medium",
+          capabilities: {
+            supports: { reasoningEffort: true },
+            limits: { max_context_window_tokens: 200000 },
+          },
+        },
+      ])),
+    };
+
+    const info = await client.getModelDisplayInfo();
+
+    expect(info.model).toBe("claude-opus-4.6");
+    expect(info.supportsReasoning).toBe(true);
+    expect(info.defaultReasoningEffort).toBe("medium");
+  });
+});
+
 describe("CopilotClient abort support", () => {
   test("exposes abort method on wrapped session", async () => {
     // Create a mock SDK session with abort method
@@ -821,5 +869,115 @@ describe("CopilotClient error propagation", () => {
     };
 
     await expect(consumeStream()).rejects.toThrow("Authentication failed");
+  });
+});
+
+describe("CopilotClient model switch event deduplication", () => {
+  /**
+   * Helper: create a minimal mock SDK session whose `.on()` captures
+   * the handler so we can emit synthetic events later.
+   */
+  function createMockSdkSession(sessionId: string) {
+    const listeners = new Set<(event: { type: string; id?: string; data: Record<string, unknown> }) => void>();
+    return {
+      sessionId,
+      listeners,
+      on: mock((handler: (event: { type: string; id?: string; data: Record<string, unknown> }) => void) => {
+        listeners.add(handler);
+        return () => {
+          listeners.delete(handler);
+        };
+      }),
+      send: mock(async () => ({})),
+      sendAndWait: mock(() => Promise.resolve({ data: { content: "" } })),
+      destroy: mock(() => Promise.resolve()),
+      abort: mock(() => Promise.resolve()),
+      emit(event: { type: string; id?: string; data: Record<string, unknown> }) {
+        for (const fn of listeners) fn(event);
+      },
+    };
+  }
+
+  test("stale session events are ignored after setActiveSessionModel", async () => {
+    const initialSdkSession = createMockSdkSession("copilot-dedup-session");
+    const resumedSdkSession = createMockSdkSession("copilot-dedup-session");
+
+    const client = new CopilotClient({});
+
+    // Provide a mock sdkClient with resumeSession that returns the new session
+    (client as unknown as { sdkClient: unknown }).sdkClient = {
+      resumeSession: mock(async () => resumedSdkSession),
+      listModels: mock(async () => []),
+    };
+    (client as unknown as { isRunning: boolean }).isRunning = true;
+    (client as unknown as { registeredTools: unknown[] }).registeredTools = [];
+
+    // Create the initial wrapped session
+    const wrapSession = (client as unknown as {
+      wrapSession: (
+        sdkSession: unknown,
+        config: Record<string, unknown>,
+      ) => unknown;
+    }).wrapSession.bind(client);
+
+    wrapSession(initialSdkSession, { model: "gpt-4o" });
+
+    // Collect deltas emitted by the client
+    const deltas: string[] = [];
+    client.on("message.delta", (event) => {
+      deltas.push((event.data as { delta: string }).delta);
+    });
+
+    // Switch model — this replaces sdkSession in the state
+    await client.setActiveSessionModel("openai/gpt-4o");
+
+    // Events emitted on the OLD session object should be dropped
+    initialSdkSession.emit({
+      type: "assistant.message_delta",
+      id: "stale-1",
+      data: { deltaContent: "stale-delta" },
+    });
+
+    // Events on the NEW session should be processed
+    resumedSdkSession.emit({
+      type: "assistant.message_delta",
+      id: "fresh-1",
+      data: { deltaContent: "fresh-delta" },
+    });
+
+    expect(deltas).toEqual(["fresh-delta"]);
+  });
+
+  test("duplicate event IDs are suppressed within the same session", () => {
+    const sdkSession = createMockSdkSession("copilot-dup-session");
+
+    const client = new CopilotClient({});
+
+    const wrapSession = (client as unknown as {
+      wrapSession: (
+        sdkSession: unknown,
+        config: Record<string, unknown>,
+      ) => unknown;
+    }).wrapSession.bind(client);
+
+    wrapSession(sdkSession, { model: "gpt-4o" });
+
+    const deltas: string[] = [];
+    client.on("message.delta", (event) => {
+      deltas.push((event.data as { delta: string }).delta);
+    });
+
+    const duplicateEvent = {
+      type: "assistant.message_delta" as const,
+      id: "dup-evt-1",
+      data: { deltaContent: "hello" },
+    };
+
+    // Emit the same event twice
+    sdkSession.emit(duplicateEvent);
+    sdkSession.emit(duplicateEvent);
+
+    // Only one should be processed
+    expect(deltas).toEqual(["hello"]);
   });
 });

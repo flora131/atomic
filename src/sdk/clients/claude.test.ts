@@ -3,6 +3,13 @@ import { ClaudeAgentClient } from "./index.ts";
 import { extractMessageContent } from "./claude.ts";
 
 describe("ClaudeAgentClient.getModelDisplayInfo", () => {
+  test("falls back to opus when no model hint is provided", async () => {
+    const client = new ClaudeAgentClient();
+    const info = await client.getModelDisplayInfo();
+
+    expect(info.model).toBe("opus");
+  });
+
   test("normalizes default to opus", async () => {
     const client = new ClaudeAgentClient();
     const info = await client.getModelDisplayInfo("default");

@@ -33,7 +33,6 @@
  * - Event subscription tied to SDK session lifecycle
  */
 
-import { existsSync, realpathSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
@@ -322,30 +321,22 @@ export class CopilotClient implements CodingAgentClient {
   /**
    * Build SDK client options from our client options.
    *
-   * The Copilot SDK spawns its CLI subprocess using process.execPath when
-   * cliPath ends in ".js". Under Bun, this fails because @github/copilot
-   * depends on node:sqlite which Bun does not support. Work around this by
-   * setting cliPath to the Node.js binary and prepending the copilot CLI
-   * index.js path to cliArgs so the SDK spawns Node (not Bun) as the
-   * subprocess host.
+   * Runtime compatibility handling:
+   * - For npm package CLI (`index.js`), force Node.js host process because
+   *   @github/copilot depends on node:sqlite (unsupported in Bun)
+   * - For standalone binaries, use a shim that strips unsupported
+   *   `--no-auto-update` (the SDK appends it unconditionally)
    */
-  private buildSdkOptions(): SdkClientOptions {
+  private async buildSdkOptions(): Promise<SdkClientOptions> {
     let cliPath = this.clientOptions.cliPath;
     const cliArgs = [...(this.clientOptions.cliArgs ?? [])];
 
-    // When no explicit cliPath is provided, resolve the Node.js binary and
-    // the bundled Copilot CLI index.js so the subprocess runs under Node
-    // (required for node:sqlite support). --no-warnings suppresses the
-    // ExperimentalWarning about SQLite.
+    // When no explicit cliPath is provided, resolve runtime launch options
+    // (Node host for .js, shim for standalone binaries when needed).
     if (!cliPath) {
-      const copilotCliPath = getBundledCopilotCliPath();
-      const nodePath = resolveNodePath();
-      if (nodePath && copilotCliPath.endsWith(".js")) {
-        cliPath = nodePath;
-        cliArgs.unshift("--no-warnings", copilotCliPath);
-      } else {
-        cliPath = copilotCliPath;
-      }
+      const launch = await resolveCopilotSdkCliLaunch(await getBundledCopilotCliPath(), cliArgs);
+      cliPath = launch.cliPath;
+      cliArgs.splice(0, cliArgs.length, ...launch.cliArgs);
     }
 
     const opts: SdkClientOptions = {
@@ -1107,7 +1098,7 @@ export class CopilotClient implements CodingAgentClient {
     }));
 
     const HOME = homedir();
-    const skillDirs = [
+    const skillDirCandidates = [
       join(projectRoot, ".github", "skills"),
       join(projectRoot, ".claude", "skills"),
       join(projectRoot, ".opencode", "skills"),
@@ -1117,7 +1108,12 @@ export class CopilotClient implements CodingAgentClient {
       join(HOME, ".atomic", ".copilot", "skills"),
       join(HOME, ".atomic", ".claude", "skills"),
       join(HOME, ".atomic", ".opencode", "skills"),
-    ].filter((dir) => existsSync(dir));
+    ];
+    const skillDirs = (
+      await Promise.all(
+        skillDirCandidates.map(async (dir) => (await pathExists(dir)) ? dir : null),
+      )
+    ).filter((dir): dir is string => dir !== null);
 
     // Strip provider prefix from model ID (e.g. "github-copilot/claude-opus-4.6-fast" → "claude-opus-4.6-fast")
     const resolvedModel = config.model ? stripProviderPrefix(config.model) : undefined;
@@ -1336,7 +1332,7 @@ export class CopilotClient implements CodingAgentClient {
     }
 
     // Create SDK client with options
-    const sdkOptions = this.buildSdkOptions();
+    const sdkOptions = await this.buildSdkOptions();
     this.sdkClient = new SdkCopilotClient(sdkOptions);
 
     // Start the client
@@ -1574,6 +1570,55 @@ export function resolveNodePath(): string | undefined {
   return Bun.which("node") ?? undefined;
 }
 
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    return await Bun.file(path).exists();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve SDK launch options for Copilot CLI process startup.
+ *
+ * Handles three runtime scenarios:
+ * 1. npm package path (`index.js`) -> run under Node.js
+ * 2. standalone binary on Unix -> run via shim that strips unsupported
+ *    `--no-auto-update`
+ * 3. everything else -> run directly
+ */
+export function resolveCopilotSdkCliLaunch(
+  copilotCliPath: string,
+  initialCliArgs: readonly string[] = [],
+): { cliPath: string; cliArgs: string[] } {
+  const cliArgs = [...initialCliArgs];
+  const nodePath = resolveNodePath();
+
+  if (nodePath && copilotCliPath.endsWith(".js")) {
+    return {
+      cliPath: nodePath,
+      cliArgs: ["--no-warnings", copilotCliPath, ...cliArgs],
+    };
+  }
+
+  if (!copilotCliPath.endsWith(".js") && process.platform !== "win32") {
+    const bashPath = Bun.which("bash");
+    if (bashPath) {
+      // Compat shim for standalone copilot binaries:
+      // - Strip --no-auto-update (SDK appends it unconditionally, older binaries reject it)
+      // - Remap --headless to --server (SDK hardcodes --headless, older binaries only know --server)
+      const compatScript =
+        'target="$1"; shift; filtered_args=(); for arg in "$@"; do if [[ "$arg" == "--no-auto-update" ]]; then continue; elif [[ "$arg" == "--headless" ]]; then filtered_args+=("--server"); else filtered_args+=("$arg"); fi; done; exec "$target" "${filtered_args[@]}"';
+      return {
+        cliPath: bashPath,
+        cliArgs: ["-lc", compatScript, "atomic-copilot-compat", copilotCliPath, ...cliArgs],
+      };
+    }
+  }
+
+  return { cliPath: copilotCliPath, cliArgs };
+}
+
 /**
  * Get the path to the Copilot CLI entry point.
  *
@@ -1586,13 +1631,13 @@ export function resolveNodePath(): string | undefined {
  * 2. Resolve from @github/copilot-sdk's directory context (its direct dependency)
  * 3. Find globally-installed copilot CLI on $PATH
  */
-export function getBundledCopilotCliPath(): string {
+export async function getBundledCopilotCliPath(): Promise<string> {
   // Strategy 1: import.meta.resolve (works in dev, fails in compiled binary)
   try {
     const sdkUrl = import.meta.resolve("@github/copilot/sdk");
     const sdkPath = fileURLToPath(sdkUrl);
     const indexPath = join(dirname(dirname(sdkPath)), "index.js");
-    if (existsSync(indexPath)) return indexPath;
+    if (await pathExists(indexPath)) return indexPath;
   } catch {
     // Falls through
   }
@@ -1605,24 +1650,23 @@ export function getBundledCopilotCliPath(): string {
     const copilotPkgUrl = import.meta.resolve("@github/copilot/sdk", copilotSdkUrl);
     const copilotPkgPath = fileURLToPath(copilotPkgUrl);
     const indexPath = join(dirname(dirname(copilotPkgPath)), "index.js");
-    if (existsSync(indexPath)) return indexPath;
+    if (await pathExists(indexPath)) return indexPath;
   } catch {
     // Falls through
   }
 
   // Strategy 3: Find copilot CLI on $PATH and derive the package directory.
-  // For npm global installs, the symlink resolves into the package with index.js.
+  // For npm global installs, this may point directly to a package script.
   // For standalone installs (Homebrew, install script, winget), return the binary directly
   // — the SDK handles non-.js cliPaths by spawning them as executables.
   try {
     const copilotBin = Bun.which("copilot");
     if (copilotBin) {
-      const realPath = realpathSync(copilotBin);
-      const pkgDir = dirname(realPath);
+      const pkgDir = dirname(copilotBin);
       const indexPath = join(pkgDir, "index.js");
-      if (existsSync(indexPath)) return indexPath;
+      if (await pathExists(indexPath)) return indexPath;
       // Standalone binary (Homebrew, install script, winget) — no index.js
-      if (existsSync(realPath)) return realPath;
+      if (await pathExists(copilotBin)) return copilotBin;
     }
   } catch {
     // Falls through

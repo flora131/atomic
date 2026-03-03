@@ -26,4 +26,5 @@ export {
     type CopilotClientOptions,
     resolveNodePath,
     getBundledCopilotCliPath,
+    resolveCopilotSdkCliLaunch,
 } from "./copilot.ts";

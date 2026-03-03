@@ -1564,8 +1564,8 @@ describe("ClaudeStreamAdapter", () => {
       messageId: "msg-2",
     });
 
-    // Should have session.start + 2 delta events + 1 complete event
-    expect(events.length).toBe(4);
+    // Should have session.start + 2 delta events + 1 complete event + 1 idle
+    expect(events.length).toBe(5);
 
     const deltaEvents = events.filter((e) => e.type === "stream.text.delta");
     expect(deltaEvents.length).toBe(2);
@@ -1628,7 +1628,7 @@ describe("ClaudeStreamAdapter", () => {
     expect(thinkingCompleteEvents[0].data.durationMs).toBe(500);
   });
 
-  test("publishes session idle events from SDK client", async () => {
+  test("publishes session idle from stream completion and ignores client idle events", async () => {
     const events = collectEvents(bus);
     const client = createMockClient();
 
@@ -1641,7 +1641,8 @@ describe("ClaudeStreamAdapter", () => {
       messageId: "msg-2",
     });
 
-    // Ignore events from other sessions.
+    // Client-level idle events are ignored for Claude to prevent stale
+    // previous-run idle markers from being reassigned to the active run.
     client.emit("session.idle" as EventType, {
       type: "session.idle",
       sessionId: "other-session",
@@ -1660,8 +1661,68 @@ describe("ClaudeStreamAdapter", () => {
 
     const idleEvents = events.filter((e) => e.type === "stream.session.idle");
     expect(idleEvents.length).toBe(1);
-    expect(idleEvents[0].data.reason).toBe("completed");
+    expect(idleEvents[0].data.reason).toBe("generator-complete");
     expect(idleEvents[0].runId).toBe(100);
+  });
+
+  test("ignores stale client idle emitted after an interrupted run", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const streams: Array<AsyncGenerator<AgentMessage>> = [
+      (async function* interruptedRun(): AsyncGenerator<AgentMessage> {
+        yield { type: "text", content: "partial" };
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        yield { type: "text", content: "late" };
+      })(),
+      (async function* nextRun(): AsyncGenerator<AgentMessage> {
+        yield { type: "text", content: "second-run" };
+      })(),
+    ];
+
+    const session = {
+      id: "test-session-123",
+      stream: mock(() => streams.shift()!),
+      __client: client,
+    } as unknown as Session;
+
+    const firstAbort = new AbortController();
+    const firstRun = adapter.startStreaming(session, "first", {
+      runId: 200,
+      messageId: "msg-first",
+      abortSignal: firstAbort.signal,
+    });
+    firstAbort.abort();
+    await firstRun;
+
+    const secondRun = adapter.startStreaming(session, "second", {
+      runId: 201,
+      messageId: "msg-second",
+    });
+
+    // Simulate a late idle signal from the interrupted first run arriving
+    // while the second run is active.
+    client.emit("session.idle" as EventType, {
+      type: "session.idle",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: { reason: "completed" },
+    } as AgentEvent<"session.idle">);
+
+    await secondRun;
+
+    const secondRunEvents = events.filter((event) => event.runId === 201);
+    const secondRunDelta = secondRunEvents.filter((event) => event.type === "stream.text.delta");
+    expect(secondRunDelta.length).toBe(1);
+    expect(secondRunDelta[0].data.delta).toBe("second-run");
+
+    const secondRunComplete = secondRunEvents.find((event) => event.type === "stream.text.complete");
+    expect(secondRunComplete).toBeDefined();
+    expect(secondRunComplete?.data.fullText).toBe("second-run");
+
+    const secondRunIdle = secondRunEvents.filter((event) => event.type === "stream.session.idle");
+    expect(secondRunIdle.length).toBe(1);
+    expect(secondRunIdle[0].data.reason).toBe("generator-complete");
   });
 
   test("publishes session error on stream error", async () => {
@@ -1771,8 +1832,8 @@ describe("ClaudeStreamAdapter", () => {
       messageId: "msg-2",
     });
 
-    // Should only have session.start, text delta, and text complete events
-    expect(events.length).toBe(3);
+    // Should only have session.start, text delta, text.complete, and session.idle events
+    expect(events.length).toBe(4);
     expect(events.some((e) => e.type === "stream.text.delta")).toBe(true);
     expect(events.some((e) => e.type === "stream.text.complete")).toBe(true);
   });
@@ -1793,10 +1854,13 @@ describe("ClaudeStreamAdapter", () => {
       messageId: "msg-2",
     });
 
-    // Complete event should be the last event
+    // Session idle should be the last event after text completion
     const lastEvent = events[events.length - 1];
-    expect(lastEvent.type).toBe("stream.text.complete");
-    expect(lastEvent.data.fullText).toBe("First Second");
+    const completeEvent = events.find((e) => e.type === "stream.text.complete");
+    expect(completeEvent).toBeDefined();
+    expect(completeEvent?.data.fullText).toBe("First Second");
+    expect(lastEvent.type).toBe("stream.session.idle");
+    expect(lastEvent.data.reason).toBe("generator-complete");
   });
 
   test("publishes tool start events from stream (tool_use)", async () => {

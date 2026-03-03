@@ -533,15 +533,6 @@ If you installed Atomic using the native install script, you can update using th
 atomic update
 ```
 
-### bun installation
-
-Use your package manager to update:
-
-```bash
-# Using bun
-bun upgrade @bastani/atomic
-```
-
 ---
 
 ## Uninstalling Atomic
@@ -593,13 +584,6 @@ Remove-Item "$env:LOCALAPPDATA\atomic" -Recurse -Force
 Remove-Item "$env:USERPROFILE\.atomic\.claude" -Recurse -Force
 Remove-Item "$env:USERPROFILE\.atomic\.opencode" -Recurse -Force
 Remove-Item "$env:USERPROFILE\.atomic\.copilot" -Recurse -Force
-```
-
-### bun installation
-
-```bash
-# Using bun
-bun remove -g @bastani/atomic
 ```
 
 ### Clean up configuration files (optional)

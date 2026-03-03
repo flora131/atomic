@@ -1604,8 +1604,11 @@ export function resolveCopilotSdkCliLaunch(
   if (!copilotCliPath.endsWith(".js") && process.platform !== "win32") {
     const bashPath = Bun.which("bash");
     if (bashPath) {
+      // Compat shim for standalone copilot binaries:
+      // - Strip --no-auto-update (SDK appends it unconditionally, older binaries reject it)
+      // - Remap --headless to --server (SDK hardcodes --headless, older binaries only know --server)
       const compatScript =
-        'target="$1"; shift; filtered_args=(); for arg in "$@"; do if [[ "$arg" == "--no-auto-update" ]]; then continue; fi; filtered_args+=("$arg"); done; exec "$target" "${filtered_args[@]}"';
+        'target="$1"; shift; filtered_args=(); for arg in "$@"; do if [[ "$arg" == "--no-auto-update" ]]; then continue; elif [[ "$arg" == "--headless" ]]; then filtered_args+=("--server"); else filtered_args+=("$arg"); fi; done; exec "$target" "${filtered_args[@]}"';
       return {
         cliPath: bashPath,
         cliArgs: ["-lc", compatScript, "atomic-copilot-compat", copilotCliPath, ...cliArgs],

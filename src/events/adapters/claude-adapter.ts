@@ -46,7 +46,6 @@ import type {
   Session,
   AgentMessage,
   EventHandler,
-  SessionIdleEventData,
   SessionErrorEventData,
   SessionInfoEventData,
   SessionWarningEventData,
@@ -180,7 +179,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     message: string,
     options: StreamAdapterOptions,
   ): Promise<void> {
-    const { runId, messageId, agent, runtimeFeatureFlags } = options;
+    const { runId, messageId, agent, runtimeFeatureFlags, abortSignal } = options;
 
     // Clean up any existing subscriptions from a previous startStreaming() call
     // to prevent subscription accumulation on re-entry without dispose()
@@ -188,6 +187,14 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
 
     // Create abort controller for cancellation
     this.abortController = new AbortController();
+    const forwardExternalAbort = () => {
+      this.abortController?.abort();
+    };
+    if (abortSignal?.aborted) {
+      forwardExternalAbort();
+    } else if (abortSignal) {
+      abortSignal.addEventListener("abort", forwardExternalAbort, { once: true });
+    }
 
     // Reset text accumulator
     this.textAccumulator = "";
@@ -258,12 +265,6 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
         this.createSubagentUpdateHandler(runId),
       );
       this.unsubscribers.push(unsubAgentUpdate);
-
-      const unsubIdle = client.on(
-        "session.idle",
-        this.createSessionIdleHandler(runId),
-      );
-      this.unsubscribers.push(unsubIdle);
 
       const unsubSessionError = client.on(
         "session.error",
@@ -357,6 +358,8 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       this.unsubscribers.push(unsubSessionCompaction);
     }
 
+    let streamCompletionReason: "generator-complete" | "aborted" | "error" = "generator-complete";
+
     try {
       // Retry loop for transient failures (429, 503, ECONNRESET, etc.)
       let lastError: unknown = null;
@@ -369,17 +372,23 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
           for await (const chunk of stream) {
             // Check for cancellation
             if (this.abortController.signal.aborted) {
+              streamCompletionReason = "aborted";
               break;
             }
 
             this.processStreamChunk(chunk, runId, messageId);
           }
 
+          const wasAborted = this.abortController.signal.aborted;
+
           // Publish stream.text.complete event if we accumulated any text
-          if (this.textAccumulator.length > 0) {
+          // and this run was not interrupted.
+          if (!wasAborted && this.textAccumulator.length > 0) {
             this.publishTextComplete(runId, messageId);
           }
-          this.publishSyntheticAgentComplete(runId, true);
+          if (!wasAborted) {
+            this.publishSyntheticAgentComplete(runId, true);
+          }
 
           // Stream completed successfully — exit retry loop
           lastError = null;
@@ -388,7 +397,10 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
           lastError = error;
 
           // Don't retry aborted requests
-          if (this.abortController?.signal.aborted) break;
+          if (this.abortController?.signal.aborted) {
+            streamCompletionReason = "aborted";
+            break;
+          }
 
           const classified = classifyError(error);
           if (!classified.isRetryable || attempt >= DEFAULT_MAX_RETRIES) break;
@@ -419,27 +431,26 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       if (lastError) throw lastError;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      if (this.abortController?.signal.aborted) {
+        streamCompletionReason = "aborted";
+      }
       // Handle stream errors
       if (this.abortController && !this.abortController.signal.aborted) {
+        streamCompletionReason = "error";
         this.publishSessionError(runId, error);
-        // Publish session.idle after error so the UI can finalize
-        // (matches OpenCode adapter pattern for consistent state transitions)
-        const idleEvent: BusEvent<"stream.session.idle"> = {
-          type: "stream.session.idle",
-          sessionId: this.sessionId,
-          runId,
-          timestamp: Date.now(),
-          data: { reason: "error" },
-        };
-        this.bus.publish(idleEvent);
       }
       this.publishSyntheticAgentComplete(runId, false, errorMessage);
     } finally {
+      if (abortSignal) {
+        abortSignal.removeEventListener("abort", forwardExternalAbort);
+      }
       if (this.abortController?.signal.aborted) {
+        streamCompletionReason = "aborted";
         this.publishSyntheticAgentComplete(runId, false, "Tool execution aborted");
       }
       // Force-complete any tools still pending/running — prevents orphaned tool state
       this.cleanupOrphanedTools(runId);
+      this.publishSessionIdle(runId, streamCompletionReason);
       // Keep subscriptions until dispose() so delayed hook events can complete tools.
     }
   }
@@ -1513,28 +1524,6 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     };
   }
 
-  private createSessionIdleHandler(
-    runId: number,
-  ): EventHandler<"session.idle"> {
-    return (event) => {
-      if (event.sessionId !== this.sessionId) {
-        return;
-      }
-
-      const data = event.data as SessionIdleEventData;
-      const busEvent: BusEvent<"stream.session.idle"> = {
-        type: "stream.session.idle",
-        sessionId: this.sessionId,
-        runId,
-        timestamp: Date.now(),
-        data: {
-          reason: typeof data.reason === "string" ? data.reason : undefined,
-        },
-      };
-      this.bus.publish(busEvent);
-    };
-  }
-
   private publishSessionStart(runId: number): void {
     const event: BusEvent<"stream.session.start"> = {
       type: "stream.session.start",
@@ -1542,6 +1531,20 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       runId,
       timestamp: Date.now(),
       data: {},
+    };
+    this.bus.publish(event);
+  }
+
+  private publishSessionIdle(
+    runId: number,
+    reason: "generator-complete" | "aborted" | "error",
+  ): void {
+    const event: BusEvent<"stream.session.idle"> = {
+      type: "stream.session.idle",
+      sessionId: this.sessionId,
+      runId,
+      timestamp: Date.now(),
+      data: { reason },
     };
     this.bus.publish(event);
   }

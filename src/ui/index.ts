@@ -632,7 +632,11 @@ export async function startChatUI(
     }
 
     // Create the CLI renderer with:
-    // - mouse mode enabled for scroll wheel support (text selection via OpenTUI Selection API + Ctrl+Shift+C)
+    // - mouse tracking ENABLED for scroll-wheel support in scrollboxes and
+    //   OpenTUI Selection API (mouse-drag to select, auto-copy on release).
+    //   For native terminal text selection, hold Shift (Linux/Windows) or
+    //   Option (macOS/iTerm2) while clicking — this is a built-in terminal
+    //   emulator bypass that works with virtually all modern terminals.
     // - useAlternateScreen: true to prevent scrollbox from corrupting terminal output
     // - exitOnCtrlC: false to allow double-press Ctrl+C behavior
     // - useKittyKeyboard: with disambiguate so Ctrl+C is received as keyboard event

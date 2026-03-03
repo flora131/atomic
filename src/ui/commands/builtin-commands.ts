@@ -512,7 +512,7 @@ export const mcpCommand: CommandDefinition = {
         args: string,
         context: CommandContext,
     ): Promise<CommandResult> => {
-        const servers = discoverMcpConfigs(undefined, {
+        const servers = await discoverMcpConfigs(undefined, {
             includeDisabled: true,
         });
         const toggles = context.getMcpServerToggles?.() ?? {};

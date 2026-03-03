@@ -67,7 +67,7 @@ function localSettingsPath(): string {
   return join(cwd, ".atomic", "settings.json");
 }
 
-function loadSettingsFile(path: string): AtomicSettings {
+function loadSettingsFileSync(path: string): AtomicSettings {
   try {
     if (existsSync(path)) {
       return JSON.parse(readFileSync(path, "utf-8")) as AtomicSettings;
@@ -78,17 +78,26 @@ function loadSettingsFile(path: string): AtomicSettings {
   return {};
 }
 
+async function loadSettingsFile(path: string): Promise<AtomicSettings> {
+  try {
+    return await Bun.file(path).json() as AtomicSettings;
+  } catch {
+    // Silently fail (file doesn't exist or invalid JSON)
+  }
+  return {};
+}
+
 /**
  * Get the effective model preference for an agent type.
  * Checks local (.atomic/settings.json) first, then global (~/.atomic/settings.json).
  */
-export function getModelPreference(agentType: string): string | undefined {
+export async function getModelPreference(agentType: string): Promise<string | undefined> {
   // Local overrides global
-  const localModel = loadSettingsFile(localSettingsPath()).model?.[agentType];
+  const localModel = (await loadSettingsFile(localSettingsPath())).model?.[agentType];
   if (localModel) {
     return normalizeModelPreference(agentType, localModel);
   }
-  const globalModel = loadSettingsFile(globalSettingsPath()).model?.[agentType];
+  const globalModel = (await loadSettingsFile(globalSettingsPath())).model?.[agentType];
   if (globalModel) {
     return normalizeModelPreference(agentType, globalModel);
   }
@@ -101,7 +110,7 @@ export function getModelPreference(agentType: string): string | undefined {
 export function saveModelPreference(agentType: string, modelId: string): void {
   try {
     const path = globalSettingsPath();
-    const settings = loadSettingsFile(path);
+    const settings = loadSettingsFileSync(path);
     settings.$schema = SETTINGS_SCHEMA_URL;
     settings.model = settings.model ?? {};
     settings.model[agentType] = normalizeModelPreference(agentType, modelId);
@@ -117,12 +126,12 @@ export function saveModelPreference(agentType: string, modelId: string): void {
  * Get the persisted reasoning effort preference for an agent type.
  * Checks local (.atomic/settings.json) first, then global (~/.atomic/settings.json).
  */
-export function getReasoningEffortPreference(agentType: string): string | undefined {
-  const local = loadSettingsFile(localSettingsPath());
+export async function getReasoningEffortPreference(agentType: string): Promise<string | undefined> {
+  const local = await loadSettingsFile(localSettingsPath());
   if (local.reasoningEffort?.[agentType]) {
     return local.reasoningEffort[agentType];
   }
-  const global = loadSettingsFile(globalSettingsPath());
+  const global = await loadSettingsFile(globalSettingsPath());
   return global.reasoningEffort?.[agentType];
 }
 
@@ -132,7 +141,7 @@ export function getReasoningEffortPreference(agentType: string): string | undefi
 export function saveReasoningEffortPreference(agentType: string, effort: string): void {
   try {
     const path = globalSettingsPath();
-    const settings = loadSettingsFile(path);
+    const settings = loadSettingsFileSync(path);
     settings.$schema = SETTINGS_SCHEMA_URL;
     settings.reasoningEffort = settings.reasoningEffort ?? {};
     settings.reasoningEffort[agentType] = effort;
@@ -150,7 +159,7 @@ export function saveReasoningEffortPreference(agentType: string, effort: string)
 export function clearReasoningEffortPreference(agentType: string): void {
   try {
     const path = globalSettingsPath();
-    const settings = loadSettingsFile(path);
+    const settings = loadSettingsFileSync(path);
     if (settings.reasoningEffort?.[agentType]) {
       delete settings.reasoningEffort[agentType];
       settings.$schema = SETTINGS_SCHEMA_URL;
@@ -166,5 +175,5 @@ export function clearReasoningEffortPreference(agentType: string): void {
  * Only checks global settings (~/.atomic/settings.json) since this is an install-level setting.
  */
 export function getPrereleasePreference(): boolean {
-  return loadSettingsFile(globalSettingsPath()).prerelease === true;
+  return loadSettingsFileSync(globalSettingsPath()).prerelease === true;
 }

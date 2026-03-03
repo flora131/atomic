@@ -318,6 +318,19 @@ export const modelCommand: CommandDefinition = {
         const { agentType, modelOps, state } = context;
         const trimmed = args.trim();
 
+        if (!context.session && context.ensureSession) {
+            try {
+                await context.ensureSession();
+            } catch (error) {
+                const errorMessage =
+                    error instanceof Error ? error.message : "Unknown error";
+                return {
+                    success: false,
+                    message: `Failed to start session for /model: ${errorMessage}`,
+                };
+            }
+        }
+
         // No args: show interactive model selector
         if (!trimmed) {
             return {

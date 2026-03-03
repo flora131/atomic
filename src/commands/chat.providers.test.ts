@@ -76,9 +76,9 @@ describe("chat command provider wiring", () => {
   test("createClientForAgentType maps all providers to their matching clients", async () => {
     const { createClientForAgentType } = await import("./chat.ts");
 
-    expect(createClientForAgentType("claude").agentType).toBe("claude");
-    expect(createClientForAgentType("opencode").agentType).toBe("opencode");
-    expect(createClientForAgentType("copilot").agentType).toBe("copilot");
+    expect((await createClientForAgentType("claude")).agentType).toBe("claude");
+    expect((await createClientForAgentType("opencode")).agentType).toBe("opencode");
+    expect((await createClientForAgentType("copilot")).agentType).toBe("copilot");
   });
 
   test("getAgentDisplayName returns stable names for all chat providers", async () => {

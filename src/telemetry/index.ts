@@ -68,15 +68,9 @@ export {
   handleTelemetryConsent,
 } from "./telemetry-consent";
 
-// Telemetry upload
-export {
-  handleTelemetryUpload,
-  readEventsFromJSONL,
-  filterStaleEvents,
-  splitIntoBatches,
-  TELEMETRY_UPLOAD_CONFIG,
-  type UploadResult,
-} from "./telemetry-upload";
+// Telemetry upload — lazy-loaded to avoid pulling in @azure/monitor-opentelemetry (244ms)
+// Import directly from "./telemetry-upload" when needed.
+export type { UploadResult } from "./telemetry-upload";
 
 // Graph workflow telemetry integration
 export {

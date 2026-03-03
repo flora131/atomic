@@ -17,10 +17,12 @@ import {
 } from "../utils/config-path";
 import { syncAtomicGlobalAgentConfigs } from "../utils/atomic-global-config";
 import { isWindows } from "../utils/detect";
+import { getPrereleasePreference } from "../utils/settings";
 import { VERSION } from "../version";
 import {
   ChecksumMismatchError,
   getLatestRelease,
+  getLatestPrerelease,
   downloadFile,
   verifyChecksum,
   getBinaryFilename,
@@ -32,25 +34,37 @@ import { cleanupBunTempNativeAddons } from "../utils/cleanup";
 import { trackAtomicCommand } from "../telemetry";
 
 /**
- * Compare two semver version strings.
+ * Parse a version string into its components.
+ * Handles formats like "0.4.22" and "0.4.22-1" (prerelease suffix).
+ */
+function parseVersion(v: string): [number, number, number, number] {
+  const clean = v.replace(/^v/, "");
+  const [mainPart, prePart] = clean.split("-");
+  const parts = (mainPart || "").split(".").map(Number);
+  const pre = prePart !== undefined ? Number(prePart) : -1; // -1 means stable (no prerelease suffix)
+  return [parts[0] || 0, parts[1] || 0, parts[2] || 0, pre];
+}
+
+/**
+ * Compare two version strings (supports prerelease suffixes).
  * Returns true if v1 > v2.
+ *
+ * Prerelease ordering: 0.4.22-1 < 0.4.22-2 < 0.4.22 (stable).
+ * A stable release is always newer than a prerelease of the same major.minor.patch.
  *
  * @param v1 - First version string (with or without 'v' prefix)
  * @param v2 - Second version string (with or without 'v' prefix)
  * @returns True if v1 is newer than v2
  */
 export function isNewerVersion(v1: string, v2: string): boolean {
-  const parse = (v: string): [number, number, number] => {
-    const parts = v.replace(/^v/, "").split(".").map(Number);
-    return [parts[0] || 0, parts[1] || 0, parts[2] || 0];
-  };
-
-  const [major1, minor1, patch1] = parse(v1);
-  const [major2, minor2, patch2] = parse(v2);
+  const [major1, minor1, patch1, pre1] = parseVersion(v1);
+  const [major2, minor2, patch2, pre2] = parseVersion(v2);
 
   if (major1 !== major2) return major1 > major2;
   if (minor1 !== minor2) return minor1 > minor2;
-  return patch1 > patch2;
+  if (patch1 !== patch2) return patch1 > patch2;
+  // Both stable (-1): equal; one stable, one pre: stable wins; both pre: higher wins
+  return pre1 > pre2;
 }
 
 /**
@@ -198,12 +212,13 @@ export async function updateCommand(): Promise<void> {
   const s = spinner();
 
   try {
-    s.start("Checking for updates...");
+    const usePrerelease = getPrereleasePreference();
+    s.start(usePrerelease ? "Checking for prerelease updates..." : "Checking for updates...");
 
-    const releaseInfo = await getLatestRelease();
+    const releaseInfo = usePrerelease ? await getLatestPrerelease() : await getLatestRelease();
     const targetVersion = releaseInfo.tagName;
     const targetVersionNum = targetVersion.replace(/^v/, "");
-    s.stop(`Current version: v${VERSION}`);
+    s.stop(`Current version: v${VERSION}${usePrerelease ? " (prerelease channel)" : ""}`);
 
     // Check if already on latest
     if (!isNewerVersion(targetVersionNum, VERSION)) {

@@ -126,6 +126,8 @@ export interface ChatUIConfig {
   initialPrompt?: string;
   /** Whether workflow mode was requested for this chat session */
   workflowEnabled?: boolean;
+  /** Promise that resolves when client.start() completes (deferred start) */
+  clientStartPromise?: Promise<void>;
 }
 
 /**
@@ -223,6 +225,7 @@ export async function startChatUI(
     agentType,
     initialPrompt,
     workflowEnabled = false,
+    clientStartPromise,
   } = config;
 
   // Create model operations for the agent
@@ -403,6 +406,11 @@ export async function startChatUI(
     }
     state.sessionCreationPromise = (async () => {
       try {
+        // Wait for deferred client.start() to complete before creating session
+        if (clientStartPromise) {
+          await clientStartPromise;
+        }
+
         // Clear stale tool tracking from any previous session
         state.currentRunId = null;
 
@@ -805,6 +813,7 @@ export async function startChatUI(
                     onTerminateBackgroundAgents: handleTerminateBackgroundAgentsFromUI,
                     setStreamingState,
                     getSession,
+                    ensureSession,
                     createSubagentSession,
                     initialPrompt,
                     onModelChange: handleModelChange,

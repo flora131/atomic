@@ -2,6 +2,7 @@
 # Atomic CLI Installer
 # Usage: curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
 # Usage with version: curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash -s -- v1.0.0
+# Usage prerelease: curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash -s -- --prerelease
 
 set -euo pipefail
 
@@ -244,15 +245,32 @@ sync_global_agent_configs() {
     fi
 }
 
-# Get latest version
+# Get latest version (stable or prerelease)
 get_latest_version() {
-    curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" |
-        grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
+    local prerelease="${1:-false}"
+    if [[ "$prerelease" == "true" ]]; then
+        curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases" |
+            grep -E '"tag_name"|"prerelease"' | paste - - |
+            grep '"prerelease": true' | head -1 |
+            sed -E 's/.*"tag_name": "([^"]+)".*/\1/'
+    else
+        curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" |
+            grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
+    fi
 }
 
 # Main installation
 main() {
-    local version="${1:-}"
+    local version="" prerelease="false"
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --prerelease) prerelease="true"; shift ;;
+            *) version="$1"; shift ;;
+        esac
+    done
+
     local platform download_url checksums_url config_url tmp_dir
 
     # Check dependencies
@@ -265,8 +283,15 @@ main() {
 
     # Get version
     if [[ -z "$version" ]]; then
-        version=$(get_latest_version)
-        info "Latest version: $version"
+        version=$(get_latest_version "$prerelease")
+        if [[ -z "$version" ]]; then
+            error "No ${prerelease:+pre}release found"
+        fi
+        if [[ "$prerelease" == "true" ]]; then
+            info "Latest prerelease: $version"
+        else
+            info "Latest version: $version"
+        fi
     fi
 
     # Setup directories

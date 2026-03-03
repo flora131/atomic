@@ -1297,6 +1297,14 @@ export function createMessage(
   };
 }
 
+function appendUniqueMessagesById(existing: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
+  if (incoming.length === 0) return existing;
+
+  const seenIds = new Set(existing.map((m) => m.id));
+  const newMessages = incoming.filter((m) => !seenIds.has(m.id));
+  return newMessages.length === 0 ? existing : [...existing, ...newMessages];
+}
+
 /**
  * Finalize and remove a previous empty streaming assistant placeholder.
  */
@@ -2292,6 +2300,35 @@ export function ChatApp({
 
   // Transcript mode: full-screen detailed transcript view (ctrl+o toggle)
   const [transcriptMode, setTranscriptMode] = useState(false);
+  const [historyBufferMessages, setHistoryBufferMessages] = useState<ChatMessage[]>([]);
+  const clearHistoryBufferAndSync = useCallback(() => {
+    clearHistoryBuffer();
+    setHistoryBufferMessages([]);
+  }, []);
+  const appendCompactionSummaryAndSync = useCallback((summary: string) => {
+    const summaryMessage = appendCompactionSummary(summary);
+    setHistoryBufferMessages(summaryMessage ? [summaryMessage] : []);
+  }, []);
+  const appendHistoryBufferAndSync = useCallback((nextMessages: ChatMessage[]) => {
+    const appended = appendToHistoryBuffer(nextMessages);
+    if (appended > 0) {
+      setHistoryBufferMessages((prev) => appendUniqueMessagesById(prev, nextMessages));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!transcriptMode) return;
+    let cancelled = false;
+    void (async () => {
+      const history = await readHistoryBuffer();
+      if (!cancelled) {
+        setHistoryBufferMessages(history);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [transcriptMode]);
 
   // Verbose mode: shows timestamps, model info on messages (ctrl+e toggle)
   const { toggle: toggleVerbose } = useVerboseMode();
@@ -2430,11 +2467,13 @@ export function ChatApp({
 
   // Load persisted command history on mount
   useEffect(() => {
-    const persisted = loadCommandHistory();
-    if (persisted.length > 0) {
-      promptHistoryRef.current = persisted;
-      setPromptHistory(persisted);
-    }
+    void (async () => {
+      const persisted = await loadCommandHistory();
+      if (persisted.length > 0) {
+        promptHistoryRef.current = persisted;
+        setPromptHistory(persisted);
+      }
+    })();
   }, []);
 
   // Refs for streaming message updates
@@ -2918,10 +2957,9 @@ export function ChatApp({
       // continues seamlessly into the new (compacted) context.
       const newMsg = createMessage("assistant", "", true);
       setStreamingMessageId(newMsg.id);
-      setMessagesWindowed((prev) => {
-        clearHistoryBuffer();
+      setMessagesWindowed(() => {
         const summaryText = `[Auto-compaction completed at ${new Date().toISOString()}] Context was automatically compacted to reduce token usage.`;
-        appendCompactionSummary(summaryText);
+        appendCompactionSummaryAndSync(summaryText);
         setCompactionSummary(summaryText);
         setShowCompactionHistory(false);
         return [newMsg];
@@ -2942,7 +2980,7 @@ export function ChatApp({
     } else {
       setIsAutoCompacting(false);
     }
-  }, [setStreamingMessageId]);
+  }, [appendCompactionSummaryAndSync, setStreamingMessageId]);
 
   const stopSharedStreamState = useCallback((options?: {
     preserveStreamingStart?: boolean;
@@ -5728,7 +5766,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           await onResetSession();
         }
         setMessagesWindowed((prev) => {
-          appendToHistoryBuffer(prev);
+          appendHistoryBufferAndSync(prev);
           return [];
         });
         setCompactionSummary(null);
@@ -5842,7 +5880,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         setParallelAgents([]);
         backgroundProgressSnapshotRef.current.clear();
         setTranscriptMode(false);
-        clearHistoryBuffer();
+        clearHistoryBufferAndSync();
         loadedSkillsRef.current.clear();
         // Reset workflow state on /clear (Copilot only)
         if (agentType === "copilot") {
@@ -5863,12 +5901,13 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       if (result.clearMessages) {
         const shouldResetHistory = result.destroySession || Boolean(result.compactionSummary);
         if (shouldResetHistory) {
-          clearHistoryBuffer();
           if (result.compactionSummary) {
-            appendCompactionSummary(result.compactionSummary);
+            appendCompactionSummaryAndSync(result.compactionSummary);
+          } else {
+            clearHistoryBufferAndSync();
           }
         } else {
-          appendToHistoryBuffer(messages);
+          appendHistoryBufferAndSync(messages);
         }
         setMessagesWindowed([]);
       }
@@ -6045,7 +6084,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       });
       return false;
     }
-  }, [isStreaming, messages.length, workflowState, addMessage, updateWorkflowState, toggleTheme, setTheme, onSendMessage, onStreamMessage, getSession, model, onModelChange, onSessionMcpServersChange, onCommandExecutionTelemetry, mcpServerToggles, handleStreamStartupError, setStreamingMessageId, stopSharedStreamState, applyAutoCompactionIndicator]);
+  }, [isStreaming, messages.length, workflowState, addMessage, updateWorkflowState, toggleTheme, setTheme, onSendMessage, onStreamMessage, getSession, model, onModelChange, onSessionMcpServersChange, onCommandExecutionTelemetry, mcpServerToggles, handleStreamStartupError, setStreamingMessageId, stopSharedStreamState, applyAutoCompactionIndicator, appendHistoryBufferAndSync, appendCompactionSummaryAndSync, clearHistoryBufferAndSync]);
 
   /**
    * Handle autocomplete selection (Tab for complete, Enter for execute).
@@ -7588,7 +7627,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       {/* Transcript mode: full-screen detailed view of thinking, tools, agents */}
       {transcriptMode ? (
         <TranscriptView
-          messages={[...readHistoryBuffer(), ...messages]}
+          messages={[...historyBufferMessages, ...messages]}
           liveThinkingText={streamingMeta?.thinkingText}
           modelId={currentModelId ?? initialModelId ?? model}
           isStreaming={isStreaming}

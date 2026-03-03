@@ -10,7 +10,7 @@
  * (discoverAndRegisterDiskSkills in skill-commands.ts).
  */
 
-import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from "fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, rmdirSync } from "node:fs";
 import { join, resolve, dirname } from "path";
 import { homedir } from "os";
 import { z } from "zod";
@@ -113,7 +113,6 @@ export function cleanupTempToolFiles(): void {
 
   const tmpDir = join(HOME, ".atomic", ".tmp", "tools");
   try {
-    const { rmdirSync } = require("fs");
     rmdirSync(tmpDir);
   } catch { /* ignore if not empty */ }
 }

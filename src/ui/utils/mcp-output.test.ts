@@ -32,7 +32,7 @@ describe("mcp-output helpers", () => {
       {
         name: "zeta",
         type: "stdio",
-        command: "npx",
+        command: "bunx",
         args: ["-y", "zeta-mcp"],
         env: { API_TOKEN: "secret" },
         enabled: true,

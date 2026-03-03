@@ -275,7 +275,7 @@ describe("formatTranscript - Non-HITL Tool Calls", () => {
           id: "t1",
           toolName: "Bash",
           status: "running",
-          input: { command: "npm test" },
+          input: { command: "bun test" },
         },
       ],
     };
@@ -284,7 +284,7 @@ describe("formatTranscript - Non-HITL Tool Calls", () => {
 
     const contentLines = findLinesByType(lines, "tool-content");
     expect(contentLines.length).toBeGreaterThan(0);
-    const inputLine = contentLines.find((l) => l.content.includes("$ npm test"));
+    const inputLine = contentLines.find((l) => l.content.includes("$ bun test"));
     expect(inputLine).toBeDefined();
     expect(inputLine!.type).toBe("tool-content");
     expect(inputLine!.indent).toBe(1);

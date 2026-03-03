@@ -11,9 +11,8 @@
 import {
   mkdirSync,
   writeFileSync,
-  readFileSync,
-  existsSync,
   appendFileSync,
+  readFileSync,
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -27,9 +26,10 @@ const FILE_MODE = 0o600;
 
 /**
  * In-memory dedup Set of message IDs already written to disk.
- * Populated on first read, cleared on clearHistoryBuffer().
+ * Populated lazily on first read/append, reset on clearHistoryBuffer().
  */
 let writtenIds: Set<string> | null = null;
+let cachedMessages: ChatMessage[] = [];
 
 /**
  * Ensure the buffer directory exists.
@@ -39,12 +39,37 @@ function ensureBufferDir(): void {
 }
 
 /**
- * Lazily initialise the dedup Set by reading existing IDs from disk.
+ * Parse raw history buffer content (legacy JSON array or NDJSON).
+ */
+function parseHistoryBuffer(raw: string): ChatMessage[] {
+  if (!raw.trim()) {
+    return [];
+  }
+
+  if (raw.trimStart().startsWith("[")) {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed as ChatMessage[] : [];
+  }
+
+  return raw
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as ChatMessage);
+}
+
+/**
+ * Lazily initialise dedup IDs from cache, hydrating from disk when needed.
  */
 function ensureDedup(): Set<string> {
   if (writtenIds === null) {
-    const existing = readHistoryBuffer();
-    writtenIds = new Set(existing.map((m) => m.id));
+    if (cachedMessages.length === 0) {
+      try {
+        cachedMessages = parseHistoryBuffer(readFileSync(BUFFER_FILE, "utf-8"));
+      } catch {
+        cachedMessages = [];
+      }
+    }
+    writtenIds = new Set(cachedMessages.map((m) => m.id));
   }
   return writtenIds;
 }
@@ -70,6 +95,7 @@ export function appendToHistoryBuffer(messages: ChatMessage[]): number {
     for (const m of newMessages) {
       ids.add(m.id);
     }
+    cachedMessages = [...cachedMessages, ...newMessages];
     return newMessages.length;
   } catch {
     // Silently ignore write failures -- history is best-effort
@@ -90,6 +116,7 @@ export function replaceHistoryBuffer(messages: ChatMessage[]): void {
     writeFileSync(BUFFER_FILE, ndjson, { encoding: "utf-8", mode: FILE_MODE });
 
     // Rebuild the dedup Set to match the new file contents
+    cachedMessages = [...messages];
     writtenIds = new Set(messages.map((m) => m.id));
   } catch {
     // Silently ignore write failures -- history is best-effort
@@ -101,7 +128,7 @@ export function replaceHistoryBuffer(messages: ChatMessage[]): void {
  * Used when /compact resets prior raw messages but keeps a summary record.
  * Clears existing history first, then writes a single summary line.
  */
-export function appendCompactionSummary(summary: string): void {
+export function appendCompactionSummary(summary: string): ChatMessage | null {
   const message: ChatMessage = {
     id: `compact_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
     role: "assistant",
@@ -109,7 +136,8 @@ export function appendCompactionSummary(summary: string): void {
     timestamp: new Date().toISOString(),
   };
   clearHistoryBuffer();
-  appendToHistoryBuffer([message]);
+  const written = appendToHistoryBuffer([message]);
+  return written > 0 ? message : null;
 }
 
 /**
@@ -117,35 +145,19 @@ export function appendCompactionSummary(summary: string): void {
  * Supports both legacy JSON array format and NDJSON format
  * for backward compatibility (migration detection).
  */
-export function readHistoryBuffer(): ChatMessage[] {
+export async function readHistoryBuffer(): Promise<ChatMessage[]> {
   try {
-    if (!existsSync(BUFFER_FILE)) return [];
-    const raw = readFileSync(BUFFER_FILE, "utf-8");
-    if (!raw.trim()) return [];
+    const raw = await Bun.file(BUFFER_FILE).text();
+    const messages = parseHistoryBuffer(raw);
 
-    let messages: ChatMessage[];
-
-    // Migration detection: legacy JSON array starts with '['
-    if (raw.trimStart().startsWith("[")) {
-      const parsed: unknown = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return [];
-      messages = parsed as ChatMessage[];
-    } else {
-      // NDJSON: one JSON object per line
-      messages = raw
-        .split("\n")
-        .filter(Boolean)
-        .map((line) => JSON.parse(line) as ChatMessage);
-    }
-
-    // Populate the dedup Set if this is the first read
-    if (writtenIds === null) {
-      writtenIds = new Set(messages.map((m) => m.id));
-    }
+    cachedMessages = messages;
+    writtenIds = new Set(messages.map((m) => m.id));
 
     console.debug(`[history-buffer] read ${messages.length} messages (${raw.length} bytes)`);
     return messages;
   } catch {
+    cachedMessages = [];
+    writtenIds = new Set();
     return [];
   }
 }
@@ -158,7 +170,8 @@ export function clearHistoryBuffer(): void {
   try {
     ensureBufferDir();
     writeFileSync(BUFFER_FILE, "", { encoding: "utf-8", mode: FILE_MODE });
-    writtenIds = new Set();
+    cachedMessages = [];
+    writtenIds = null;
   } catch {
     // Silently ignore
   }

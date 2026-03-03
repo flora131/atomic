@@ -10,7 +10,7 @@
  * Session state is persisted to tasks.json in the workflow session directory.
  */
 
-import { existsSync, watch, type FSWatcher } from "fs";
+import { existsSync, readdirSync, watch, type FSWatcher } from "node:fs";
 import { readFile, rename, unlink, writeFile } from "fs/promises";
 import { join } from "path";
 import type {
@@ -413,7 +413,7 @@ export function discoverWorkflowFiles(): {
 
         if (existsSync(searchPath)) {
             try {
-                const files = require("fs").readdirSync(searchPath) as string[];
+                const files = readdirSync(searchPath) as string[];
                 for (const file of files) {
                     if (file.endsWith(".ts")) {
                         discovered.push({

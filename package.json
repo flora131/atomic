@@ -31,7 +31,7 @@
     ],
     "scripts": {
         "dev": "bun run src/cli.ts",
-        "build": "bun build src/cli.ts --compile --outfile atomic",
+        "build": "bun build src/cli.ts --compile --no-compile-autoload-dotenv --no-compile-autoload-bunfig --outfile atomic",
         "test": "bun test",
         "test:contracts": "bun test src/ui/utils/background-agent-provider-parity.test.ts src/ui/utils/background-agent-runtime-parity.test.ts src/ui/utils/background-agent-acceptance.test.ts src/ui/utils/background-agent-termination-integration.test.ts src/ui/utils/background-agent-keybinding-nonconflict.test.ts src/ui/utils/background-agent-parent-callback.test.ts",
         "typecheck": "tsc --noEmit",

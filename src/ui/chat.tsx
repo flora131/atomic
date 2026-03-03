@@ -2257,7 +2257,7 @@ export function ChatApp({
   // on terminals that don't support OSC 52 (macOS Terminal.app, VS Code).
   const clipboardRef = useRef<ClipboardAdapter | null>(null);
   if (!clipboardRef.current) {
-    clipboardRef.current = createClipboardAdapter(renderer);
+    clipboardRef.current = createClipboardAdapter();
   }
   const clipboard = clipboardRef.current;
 
@@ -6214,9 +6214,21 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
     if (!textarea) return;
 
     event.preventDefault();
-    textarea.insertText(normalizePastedText(event.text));
+    const normalized = normalizePastedText(event.text);
+    const pastedContent = normalized.trim();
+
+    if (!pastedContent) {
+      const clipboardText = clipboard.readText();
+      if (clipboardText) {
+        textarea.insertText(normalizePastedText(clipboardText));
+        handleTextareaContentChange();
+      }
+      return;
+    }
+
+    textarea.insertText(normalized);
     handleTextareaContentChange();
-  }, [handleTextareaContentChange, normalizePastedText]);
+  }, [handleTextareaContentChange, normalizePastedText, clipboard]);
 
   // Get current autocomplete suggestions count for navigation
   const autocompleteSuggestions = workflowState.showAutocomplete
@@ -6444,6 +6456,19 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
             interruptTimeoutRef.current = null;
           }, 1000);
           return;
+        }
+
+        if ((event.ctrl || event.meta) && event.name === "v") {
+          const textarea = textareaRef.current;
+          if (textarea) {
+            const clipboardText = clipboard.readText();
+            if (clipboardText) {
+              event.preventDefault();
+              textarea.insertText(normalizePastedText(clipboardText));
+              handleTextareaContentChange();
+              return;
+            }
+          }
         }
 
         // While a dialog is active, it owns keyboard input exclusively.
@@ -7189,6 +7214,9 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         setIsEditingQueue,
         parallelAgents,
         compactionSummary,
+        clipboard,
+        normalizePastedText,
+        handleTextareaContentChange,
         addMessage,
         renderer,
         emitMessageSubmitTelemetry,

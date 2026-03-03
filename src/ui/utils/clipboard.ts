@@ -1,45 +1,36 @@
 /**
- * Clipboard adapter built on OpenTUI's native clipboard APIs.
+ * Clipboard adapter modeled after OpenCode's terminal implementation.
  *
- * OpenTUI already handles OSC 52 support detection and clipboard writes via
- * the renderer (`isOsc52Supported` / `copyToClipboardOSC52`).
- *
- * We keep a narrow native fallback for macOS Terminal.app using `pbcopy`.
+ * Strategy:
+ * 1) Always emit OSC 52 (works over SSH/tmux-capable terminals)
+ * 2) Also write to native OS clipboard command for local reliability
  */
-
-import type { CliRenderer } from "@opentui/core";
 
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
 /**
- * Clipboard adapter for OpenTUI renderer.
+ * Clipboard adapter for the terminal UI.
  *
- * Create one instance per renderer and reuse it for all copy operations.
+ * Create one instance and reuse it for all copy operations.
  *
  * ```ts
- * const clipboard = createClipboardAdapter(renderer);
+ * const clipboard = createClipboardAdapter();
  * clipboard.copy("Hello, world!");
  * ```
  */
 export interface ClipboardAdapter {
   /** Copy `text` to the system clipboard. Returns `true` on success. */
   copy(text: string): boolean;
+  /** Read plain text from the system clipboard when available. */
+  readText(): string | undefined;
 }
 
-function isAppleTerminal(): boolean {
-  return (process.env.TERM_PROGRAM ?? "").toLowerCase() === "apple_terminal";
-}
-
-function canUsePbcopy(): boolean {
-  return process.platform === "darwin" && Bun.which("pbcopy") !== null;
-}
-
-function copyWithPbcopy(text: string): boolean {
+function spawnWithTextInput(command: string[], text: string): boolean {
   try {
     const proc = Bun.spawnSync({
-      cmd: ["pbcopy"],
+      cmd: command,
       stdin: new TextEncoder().encode(text),
       stdout: "ignore",
       stderr: "ignore",
@@ -50,41 +41,133 @@ function copyWithPbcopy(text: string): boolean {
   }
 }
 
-/**
- * Create a {@link ClipboardAdapter} for the given renderer.
- *
- * The adapter caches OpenTUI's OSC 52 support result and performs copy
- * operations only when support is available.
- */
-export function createClipboardAdapter(renderer: CliRenderer): ClipboardAdapter {
-  let isSupported: boolean | null = null;
-  const usePbcopy = canUsePbcopy();
-  const preferPbcopy = usePbcopy && isAppleTerminal();
+function spawnReadText(command: string[]): string | undefined {
+  try {
+    const proc = Bun.spawnSync({
+      cmd: command,
+      stdout: "pipe",
+      stderr: "ignore",
+    });
+    if (!proc.success || !proc.stdout) return undefined;
+    const output = new TextDecoder().decode(proc.stdout).replace(/\0/g, "");
+    return output.length > 0 ? output : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
-  const getSupport = (): boolean => {
-    if (isSupported === null) {
-      isSupported = renderer.isOsc52Supported();
+function writeOsc52(text: string): boolean {
+  if (!process.stdout.isTTY) return false;
+  try {
+    const base64 = Buffer.from(text).toString("base64");
+    const osc52 = `\x1b]52;c;${base64}\x07`;
+    const passthrough = !!(process.env.TMUX || process.env.STY);
+    const sequence = passthrough ? `\x1bPtmux;\x1b${osc52}\x1b\\` : osc52;
+    process.stdout.write(sequence);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+type NativeCopyMethod = (text: string) => boolean;
+type NativeReadMethod = () => string | undefined;
+
+function resolveNativeCopyMethod(): NativeCopyMethod | null {
+  if (process.platform === "darwin" && Bun.which("osascript") !== null) {
+    return (text: string): boolean => {
+      const escaped = text.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+      return spawnWithTextInput(["osascript", "-e", `set the clipboard to "${escaped}"`], "");
+    };
+  }
+
+  if (process.platform === "linux") {
+    if (process.env.WAYLAND_DISPLAY && Bun.which("wl-copy") !== null) {
+      return (text: string): boolean => spawnWithTextInput(["wl-copy"], text);
     }
-    return isSupported;
-  };
+
+    if (Bun.which("xclip") !== null) {
+      return (text: string): boolean => spawnWithTextInput(["xclip", "-selection", "clipboard"], text);
+    }
+
+    if (Bun.which("xsel") !== null) {
+      return (text: string): boolean => spawnWithTextInput(["xsel", "--clipboard", "--input"], text);
+    }
+  }
+
+  if (process.platform === "win32") {
+    return (text: string): boolean =>
+      spawnWithTextInput(
+        [
+          "powershell.exe",
+          "-NonInteractive",
+          "-NoProfile",
+          "-Command",
+          "[Console]::InputEncoding = [System.Text.Encoding]::UTF8; Set-Clipboard -Value ([Console]::In.ReadToEnd())",
+        ],
+        text,
+      );
+  }
+
+  if (process.platform === "darwin" && Bun.which("pbcopy") !== null) {
+    return (text: string): boolean => spawnWithTextInput(["pbcopy"], text);
+  }
+
+  return null;
+}
+
+function resolveNativeReadMethod(): NativeReadMethod | null {
+  if (process.platform === "darwin") {
+    if (Bun.which("pbpaste") !== null) {
+      return (): string | undefined => spawnReadText(["pbpaste"]);
+    }
+  }
+
+  if (process.platform === "linux") {
+    if (process.env.WAYLAND_DISPLAY && Bun.which("wl-paste") !== null) {
+      return (): string | undefined => spawnReadText(["wl-paste", "-n"]);
+    }
+
+    if (Bun.which("xclip") !== null) {
+      return (): string | undefined => spawnReadText(["xclip", "-selection", "clipboard", "-o"]);
+    }
+
+    if (Bun.which("xsel") !== null) {
+      return (): string | undefined => spawnReadText(["xsel", "--clipboard", "--output"]);
+    }
+  }
+
+  if (process.platform === "win32") {
+    return (): string | undefined =>
+      spawnReadText([
+        "powershell.exe",
+        "-NonInteractive",
+        "-NoProfile",
+        "-Command",
+        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-Clipboard -Raw",
+      ]);
+  }
+
+  return null;
+}
+
+/**
+ * Create a {@link ClipboardAdapter}.
+ */
+export function createClipboardAdapter(): ClipboardAdapter {
+  const nativeCopyMethod = resolveNativeCopyMethod();
+  const nativeReadMethod = resolveNativeReadMethod();
 
   return {
     copy(text: string): boolean {
-      if (preferPbcopy) {
-        if (copyWithPbcopy(text)) return true;
-        if (!getSupport()) return false;
-        return renderer.copyToClipboardOSC52(text);
-      }
-
-      if (getSupport()) {
-        if (renderer.copyToClipboardOSC52(text)) return true;
-      }
-
-      if (usePbcopy) {
-        return copyWithPbcopy(text);
-      }
-
-      return false;
+      const osc52Ok = writeOsc52(text);
+      const nativeOk = nativeCopyMethod ? nativeCopyMethod(text) : false;
+      return osc52Ok || nativeOk;
+    },
+    readText(): string | undefined {
+      const text = nativeReadMethod ? nativeReadMethod() : undefined;
+      if (text === undefined) return undefined;
+      return text;
     },
   };
 }

@@ -1,34 +1,18 @@
 /**
- * Tests for ClipboardAdapter built on OpenTUI clipboard APIs with pbcopy fallback.
+ * Tests for ClipboardAdapter modeled after OpenCode clipboard behavior.
  */
 
-import { describe, test, expect, mock, beforeEach, afterEach, spyOn } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { createClipboardAdapter } from "./clipboard.ts";
-import type { CliRenderer } from "@opentui/core";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Minimal mock that satisfies the renderer surface used by ClipboardAdapter */
-function makeMockRenderer(overrides: {
-  osc52Supported?: boolean;
-  copyResult?: boolean;
-} = {}): CliRenderer {
-  const { osc52Supported = false, copyResult = true } = overrides;
-  return {
-    isOsc52Supported: mock(() => osc52Supported),
-    copyToClipboardOSC52: mock(() => copyResult),
-  } as unknown as CliRenderer;
-}
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 describe("ClipboardAdapter", () => {
-  const originalTermProgram = process.env.TERM_PROGRAM;
   const originalPlatform = process.platform;
+  const originalWayland = process.env.WAYLAND_DISPLAY;
+  const originalStdoutIsTTY = process.stdout.isTTY;
 
   const setPlatform = (platform: NodeJS.Platform): void => {
     Object.defineProperty(process, "platform", {
@@ -38,138 +22,121 @@ describe("ClipboardAdapter", () => {
   };
 
   beforeEach(() => {
-    process.env.TERM_PROGRAM = "iTerm.app";
+    process.env.WAYLAND_DISPLAY = undefined;
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: true,
+      configurable: true,
+    });
   });
 
   afterEach(() => {
-    process.env.TERM_PROGRAM = originalTermProgram;
+    process.env.WAYLAND_DISPLAY = originalWayland;
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: originalStdoutIsTTY,
+      configurable: true,
+    });
     setPlatform(originalPlatform);
   });
 
-  describe("when OSC 52 is supported", () => {
-    test("uses OSC 52 for copy", () => {
-      const renderer = makeMockRenderer({ osc52Supported: true, copyResult: true });
-      const adapter = createClipboardAdapter(renderer);
+  describe("copy", () => {
+    test("writes OSC52 and native clipboard on macOS", () => {
+      setPlatform("darwin");
+
+      const writeSpy = spyOn(process.stdout, "write").mockReturnValue(true);
+      const whichSpy = spyOn(Bun, "which").mockImplementation((cmd: string) => {
+        if (cmd === "osascript") return "/usr/bin/osascript" as ReturnType<typeof Bun.which>;
+        return null as ReturnType<typeof Bun.which>;
+      });
+      const spawnSpy = spyOn(Bun, "spawnSync").mockReturnValue({
+        success: true,
+      } as ReturnType<typeof Bun.spawnSync>);
+
+      const adapter = createClipboardAdapter();
 
       const result = adapter.copy("hello");
 
       expect(result).toBe(true);
-      expect(renderer.copyToClipboardOSC52).toHaveBeenCalledWith("hello");
+      expect(writeSpy).toHaveBeenCalled();
+      expect(spawnSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cmd: ["osascript", "-e", "set the clipboard to \"hello\""],
+        }),
+      );
+
+      spawnSpy.mockRestore();
+      whichSpy.mockRestore();
+      writeSpy.mockRestore();
     });
 
-    test("returns true when OSC 52 succeeds", () => {
-      const renderer = makeMockRenderer({ osc52Supported: true, copyResult: true });
-      const adapter = createClipboardAdapter(renderer);
+    test("uses wl-copy on Wayland Linux", () => {
+      setPlatform("linux");
+      process.env.WAYLAND_DISPLAY = "wayland-0";
+
+      const whichSpy = spyOn(Bun, "which").mockImplementation((cmd: string) => {
+        if (cmd === "wl-copy") return "/usr/bin/wl-copy" as ReturnType<typeof Bun.which>;
+        return null as ReturnType<typeof Bun.which>;
+      });
+      const spawnSpy = spyOn(Bun, "spawnSync").mockReturnValue({
+        success: true,
+      } as ReturnType<typeof Bun.spawnSync>);
+
+      const adapter = createClipboardAdapter();
 
       expect(adapter.copy("test")).toBe(true);
-    });
-
-    test("falls back to pbcopy when OSC 52 write fails on macOS", () => {
-      setPlatform("darwin");
-
-      const renderer = makeMockRenderer({ osc52Supported: true, copyResult: false });
-      const whichSpy = spyOn(Bun, "which").mockImplementation((cmd: string) => {
-        if (cmd === "pbcopy") return "/usr/bin/pbcopy" as ReturnType<typeof Bun.which>;
-        return null as ReturnType<typeof Bun.which>;
-      });
-      const spawnSpy = spyOn(Bun, "spawnSync").mockReturnValue({
-        success: true,
-      } as ReturnType<typeof Bun.spawnSync>);
-
-      const adapter = createClipboardAdapter(renderer);
-
-      expect(adapter.copy("test")).toBe(true);
-      expect(renderer.copyToClipboardOSC52).toHaveBeenCalledWith("test");
-      expect(spawnSpy).toHaveBeenCalled();
+      expect(spawnSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cmd: ["wl-copy"],
+        }),
+      );
 
       spawnSpy.mockRestore();
       whichSpy.mockRestore();
     });
 
-    test("prefers pbcopy on Apple Terminal", () => {
-      process.env.TERM_PROGRAM = "Apple_Terminal";
-      setPlatform("darwin");
-
-      const renderer = makeMockRenderer({ osc52Supported: true, copyResult: true });
-      const whichSpy = spyOn(Bun, "which").mockImplementation((cmd: string) => {
-        if (cmd === "pbcopy") return "/usr/bin/pbcopy" as ReturnType<typeof Bun.which>;
-        return null as ReturnType<typeof Bun.which>;
-      });
-      const spawnSpy = spyOn(Bun, "spawnSync").mockReturnValue({
-        success: true,
-      } as ReturnType<typeof Bun.spawnSync>);
-
-      const adapter = createClipboardAdapter(renderer);
-
-      expect(adapter.copy("hello")).toBe(true);
-      expect(spawnSpy).toHaveBeenCalled();
-      expect((renderer.copyToClipboardOSC52 as ReturnType<typeof mock>).mock.calls.length).toBe(0);
-
-      spawnSpy.mockRestore();
-      whichSpy.mockRestore();
-    });
-  });
-
-  describe("when OSC 52 is NOT supported", () => {
-    test("falls back to pbcopy on macOS", () => {
-      setPlatform("darwin");
-
-      const renderer = makeMockRenderer({ osc52Supported: false });
-      const whichSpy = spyOn(Bun, "which").mockImplementation((cmd: string) => {
-        if (cmd === "pbcopy") return "/usr/bin/pbcopy" as ReturnType<typeof Bun.which>;
-        return null as ReturnType<typeof Bun.which>;
-      });
-      const spawnSpy = spyOn(Bun, "spawnSync").mockReturnValue({
-        success: true,
-      } as ReturnType<typeof Bun.spawnSync>);
-      const adapter = createClipboardAdapter(renderer);
-
-      expect(adapter.copy("hello")).toBe(true);
-      expect((renderer.copyToClipboardOSC52 as ReturnType<typeof mock>).mock.calls.length).toBe(0);
-
-      spawnSpy.mockRestore();
-      whichSpy.mockRestore();
-    });
-
-    test("returns false when OSC 52 unsupported and pbcopy unavailable", () => {
-      const renderer = makeMockRenderer({ osc52Supported: false });
+    test("falls back to OSC52-only when no native command is available", () => {
+      const writeSpy = spyOn(process.stdout, "write").mockReturnValue(true);
       const whichSpy = spyOn(Bun, "which").mockReturnValue(null as ReturnType<typeof Bun.which>);
-      const adapter = createClipboardAdapter(renderer);
 
-      expect(adapter.copy("hello")).toBe(false);
+      const adapter = createClipboardAdapter();
+
+      expect(adapter.copy("hello")).toBe(true);
+      expect(writeSpy).toHaveBeenCalled();
 
       whichSpy.mockRestore();
+      writeSpy.mockRestore();
     });
   });
 
-  describe("strategy resolution", () => {
-    test("adapter is reusable across multiple copy calls", () => {
-      const renderer = makeMockRenderer({ osc52Supported: true, copyResult: true });
-      const adapter = createClipboardAdapter(renderer);
+  describe("readText", () => {
+    test("reads clipboard text with pbpaste on macOS", () => {
+      setPlatform("darwin");
 
-      adapter.copy("first");
-      adapter.copy("second");
-      adapter.copy("third");
+      const whichSpy = spyOn(Bun, "which").mockImplementation((cmd: string) => {
+        if (cmd === "pbpaste") return "/usr/bin/pbpaste" as ReturnType<typeof Bun.which>;
+        return null as ReturnType<typeof Bun.which>;
+      });
+      const spawnSpy = spyOn(Bun, "spawnSync").mockReturnValue({
+        success: true,
+        stdout: new TextEncoder().encode("from-clipboard"),
+      } as ReturnType<typeof Bun.spawnSync>);
 
-      // isOsc52Supported is called once for lazy strategy resolution
-      expect((renderer.isOsc52Supported as ReturnType<typeof mock>).mock.calls.length).toBe(1);
-      // copyToClipboardOSC52 is called for each copy
-      expect((renderer.copyToClipboardOSC52 as ReturnType<typeof mock>).mock.calls.length).toBe(3);
+      const adapter = createClipboardAdapter();
+
+      expect(adapter.readText()).toBe("from-clipboard");
+
+      spawnSpy.mockRestore();
+      whichSpy.mockRestore();
     });
 
-    test("strategy resolution is lazy (deferred until first copy)", () => {
-      const renderer = makeMockRenderer({ osc52Supported: true });
-      createClipboardAdapter(renderer);
+    test("returns undefined when no read strategy exists", () => {
+      setPlatform("darwin");
+      const whichSpy = spyOn(Bun, "which").mockReturnValue(null as ReturnType<typeof Bun.which>);
 
-      // No calls until copy() is invoked
-      expect((renderer.isOsc52Supported as ReturnType<typeof mock>).mock.calls.length).toBe(0);
-    });
+      const adapter = createClipboardAdapter();
 
-    test("empty string is handled without error", () => {
-      const renderer = makeMockRenderer({ osc52Supported: true, copyResult: true });
-      const adapter = createClipboardAdapter(renderer);
+      expect(adapter.readText()).toBeUndefined();
 
-      expect(() => adapter.copy("")).not.toThrow();
+      whichSpy.mockRestore();
     });
   });
 

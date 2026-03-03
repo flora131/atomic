@@ -29,6 +29,54 @@ describe("resolveCopilotUserInputSessionId", () => {
   });
 });
 
+describe("CopilotClient.getModelDisplayInfo", () => {
+  test("includes default reasoning effort for hinted reasoning-capable model", async () => {
+    const client = new CopilotClient({});
+    (client as unknown as { isRunning: boolean }).isRunning = true;
+    (client as unknown as { sdkClient: { listModels: () => Promise<unknown[]> } }).sdkClient = {
+      listModels: mock(async () => ([
+        {
+          id: "gpt-5",
+          defaultReasoningEffort: "high",
+          capabilities: {
+            supports: { reasoningEffort: true },
+            limits: { max_context_window_tokens: 256000 },
+          },
+        },
+      ])),
+    };
+
+    const info = await client.getModelDisplayInfo("github-copilot/gpt-5");
+
+    expect(info.model).toBe("gpt-5");
+    expect(info.supportsReasoning).toBe(true);
+    expect(info.defaultReasoningEffort).toBe("high");
+  });
+
+  test("uses first model default reasoning effort when no hint is provided", async () => {
+    const client = new CopilotClient({});
+    (client as unknown as { isRunning: boolean }).isRunning = true;
+    (client as unknown as { sdkClient: { listModels: () => Promise<unknown[]> } }).sdkClient = {
+      listModels: mock(async () => ([
+        {
+          id: "claude-opus-4.6",
+          defaultReasoningEffort: "medium",
+          capabilities: {
+            supports: { reasoningEffort: true },
+            limits: { max_context_window_tokens: 200000 },
+          },
+        },
+      ])),
+    };
+
+    const info = await client.getModelDisplayInfo();
+
+    expect(info.model).toBe("claude-opus-4.6");
+    expect(info.supportsReasoning).toBe(true);
+    expect(info.defaultReasoningEffort).toBe("medium");
+  });
+});
+
 describe("CopilotClient abort support", () => {
   test("exposes abort method on wrapped session", async () => {
     // Create a mock SDK session with abort method

@@ -1408,7 +1408,13 @@ export class CopilotClient implements CodingAgentClient {
    */
   async getModelDisplayInfo(
     modelHint?: string
-  ): Promise<{ model: string; tier: string; supportsReasoning?: boolean; contextWindow?: number }> {
+  ): Promise<{
+    model: string;
+    tier: string;
+    supportsReasoning?: boolean;
+    defaultReasoningEffort?: string;
+    contextWindow?: number;
+  }> {
     // Query SDK for model metadata - this is the authoritative source
     if (this.isRunning && this.sdkClient) {
       try {
@@ -1422,11 +1428,17 @@ export class CopilotClient implements CodingAgentClient {
               const caps = (matched as unknown as Record<string, unknown>).capabilities as Record<string, unknown> | undefined;
               const supports = caps?.supports as Record<string, unknown> | undefined;
               const limits = caps?.limits as Record<string, unknown> | undefined;
+              const hasReasoning = supports?.reasoningEffort === true;
+              const defaultReasoningEffort = hasReasoning &&
+                typeof (matched as { defaultReasoningEffort?: unknown }).defaultReasoningEffort === "string"
+                ? (matched as { defaultReasoningEffort: string }).defaultReasoningEffort
+                : undefined;
               const ctxWindow = limits?.max_context_window_tokens as number | undefined;
               return {
                 model: matched.id ?? "Copilot",
                 tier: "GitHub Copilot",
-                supportsReasoning: supports?.reasoningEffort === true,
+                supportsReasoning: hasReasoning,
+                defaultReasoningEffort,
                 contextWindow: ctxWindow,
               };
             }
@@ -1437,11 +1449,17 @@ export class CopilotClient implements CodingAgentClient {
             const caps = (firstModel as unknown as Record<string, unknown>).capabilities as Record<string, unknown> | undefined;
             const supports = caps?.supports as Record<string, unknown> | undefined;
             const limits = caps?.limits as Record<string, unknown> | undefined;
+            const hasReasoning = supports?.reasoningEffort === true;
+            const defaultReasoningEffort = hasReasoning &&
+              typeof (firstModel as { defaultReasoningEffort?: unknown }).defaultReasoningEffort === "string"
+              ? (firstModel as { defaultReasoningEffort: string }).defaultReasoningEffort
+              : undefined;
             const ctxWindow = limits?.max_context_window_tokens as number | undefined;
             return {
               model: firstModel.id ?? "Copilot",
               tier: "GitHub Copilot",
-              supportsReasoning: supports?.reasoningEffort === true,
+              supportsReasoning: hasReasoning,
+              defaultReasoningEffort,
               contextWindow: ctxWindow,
             };
           }

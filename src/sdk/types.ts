@@ -102,6 +102,8 @@ export interface ModelDisplayInfo {
   tier: string;
   /** Whether the model supports reasoning effort levels */
   supportsReasoning?: boolean;
+  /** Default reasoning effort level for reasoning-capable models (if provided by SDK) */
+  defaultReasoningEffort?: string;
   /** Context window size in tokens (if known from model metadata) */
   contextWindow?: number;
 }

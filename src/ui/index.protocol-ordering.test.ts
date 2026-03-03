@@ -114,6 +114,8 @@ describe("startChatUI protocol escape ordering", () => {
       useThemeColors: () => null,
       darkTheme: { isDark: true },
       lightTheme: { isDark: false },
+      darkThemeAnsi: { isDark: true },
+      lightThemeAnsi: { isDark: false },
     }));
 
     mock.module("./components/error-exit-screen.tsx", () => ({

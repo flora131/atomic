@@ -73,6 +73,12 @@ import {
   incrementRuntimeParityCounter,
   runtimeParityDebug,
 } from "../../workflows/runtime-parity-observability.ts";
+import {
+  extractSkillInvocationFromToolInput,
+  isSkillToolName,
+} from "./skill-invocation.ts";
+import { homedir } from "os";
+import { join } from "path";
 
 // Import the real SDK
 import {
@@ -116,6 +122,7 @@ export interface OpenCodeSdkEvent {
  * Default OpenCode server configuration
  */
 const DEFAULT_OPENCODE_BASE_URL = "http://localhost:4096";
+const ATOMIC_OPENCODE_CONFIG_DIR = join(homedir(), ".atomic", ".opencode");
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_RETRY_DELAY = 1000;
 const PRE_PROMPT_TERMINAL_SETTLE_MS = 500;
@@ -181,6 +188,14 @@ interface OpenCodeSessionState {
   systemToolsBaseline: number | null;
   compaction: OpenCodeSessionCompactionState;
 }
+
+interface AtomicManagedOpenCodeServerState {
+  url: string;
+  close: () => void;
+  leaseCount: number;
+}
+
+let atomicManagedOpenCodeServer: AtomicManagedOpenCodeServerState | null = null;
 
 function parseOpenCodeSessionStatus(status: unknown): OpenCodeSessionStatus | undefined {
   if (status === "idle" || status === "busy" || status === "retry") {
@@ -655,8 +670,15 @@ export interface OpenCodeClientOptions {
   retryDelay?: number;
   /** Default agent mode for new sessions (default: "build") */
   defaultAgentMode?: OpenCodeAgentMode;
-  /** Auto-start OpenCode server if not running (default: true) */
+  /** Auto-start an Atomic-managed OpenCode server when needed (default: true) */
   autoStart?: boolean;
+  /**
+   * Legacy external-server reuse toggle.
+   *
+   * When true and autoStart is disabled, start() can connect to a pre-existing
+   * non-Atomic OpenCode server at baseUrl.
+   */
+  reuseExistingServer?: boolean;
   /** Port for server when auto-starting (default: 4096) */
   port?: number;
   /** Hostname for server when auto-starting (default: localhost) */
@@ -693,7 +715,6 @@ export class OpenCodeClient implements CodingAgentClient {
   private isConnected = false;
   private currentSessionId: string | null = null;
   private eventSubscriptionController: AbortController | null = null;
-  private serverCloseCallback: (() => void) | null = null;
   private isServerSpawned = false;
   private dispatchServerStop: (() => void) | null = null;
   private readonly sseDiagnosticsCounters: Record<OpenCodeSseDiagnosticsCounter, number> = {
@@ -733,6 +754,7 @@ export class OpenCodeClient implements CodingAgentClient {
    * from assistant-emitted sub-agent lifecycle parts.
    */
   private messageRolesBySession = new Map<string, Map<string, "user" | "assistant">>();
+  private skillInvocationsBySession = new Map<string, Set<string>>();
 
   /**
    * Create a new OpenCodeClient
@@ -881,6 +903,7 @@ export class OpenCodeClient implements CodingAgentClient {
     this.childSessionToParentSession.clear();
     this.reasoningPartIds.clear();
     this.messageRolesBySession.clear();
+    this.skillInvocationsBySession.clear();
 
     this.emitEvent("session.idle", "connection", { reason: "disconnected" });
   }
@@ -1161,6 +1184,7 @@ export class OpenCodeClient implements CodingAgentClient {
     this.activeSessions.delete(sessionId);
     this.sessionStateById.delete(sessionId);
     this.messageRolesBySession.delete(sessionId);
+    this.skillInvocationsBySession.delete(sessionId);
     this.clearSubagentSessionState(sessionId);
     if (this.currentSessionId === sessionId) {
       this.currentSessionId = null;
@@ -1378,6 +1402,50 @@ export class OpenCodeClient implements CodingAgentClient {
     return this.messageRolesBySession.get(sessionId)?.get(messageId);
   }
 
+  private shouldEmitSkillInvocation(
+    sessionId: string,
+    dedupeKey: string,
+  ): boolean {
+    let seen = this.skillInvocationsBySession.get(sessionId);
+    if (!seen) {
+      seen = new Set<string>();
+      this.skillInvocationsBySession.set(sessionId, seen);
+    }
+    if (seen.has(dedupeKey)) {
+      return false;
+    }
+    seen.add(dedupeKey);
+    return true;
+  }
+
+  private maybeEmitSkillInvokedEvent(args: {
+    sessionId: string;
+    toolName: string;
+    toolInput: unknown;
+    toolUseId?: string;
+    toolCallId?: string;
+  }): void {
+    if (!args.sessionId || !isSkillToolName(args.toolName)) {
+      return;
+    }
+
+    const invocation = extractSkillInvocationFromToolInput(args.toolInput);
+    if (!invocation) {
+      return;
+    }
+
+    const dedupeKey =
+      args.toolUseId
+      || args.toolCallId
+      || invocation.skillPath
+      || invocation.skillName;
+    if (!this.shouldEmitSkillInvocation(args.sessionId, dedupeKey)) {
+      return;
+    }
+
+    this.emitEvent("skill.invoked", args.sessionId, invocation);
+  }
+
   /**
    * Handle events from SDK and map to unified event types
    */
@@ -1581,6 +1649,14 @@ export class OpenCodeClient implements CodingAgentClient {
             ? (toolState.metadata as Record<string, unknown>)
             : undefined;
           let agentPartId = sessionSubagentState.childSessionToAgentPart.get(partSessionId);
+
+          this.maybeEmitSkillInvokedEvent({
+            sessionId: parentSessionId || partSessionId,
+            toolName,
+            toolInput,
+            toolUseId: part?.id as string | undefined,
+            toolCallId: part?.callID as string | undefined,
+          });
 
           // --- Child session discovery for sub-agent tools ---
           // When a ToolPart arrives from a session that is NOT the parent
@@ -3075,12 +3151,65 @@ export class OpenCodeClient implements CodingAgentClient {
    * @returns True if server was spawned successfully
    */
   private async spawnServer(): Promise<boolean> {
+    const acquireAtomicServerLease = (state: AtomicManagedOpenCodeServerState): void => {
+      state.leaseCount += 1;
+      this.clientOptions.baseUrl = state.url;
+      this.isServerSpawned = true;
+    };
+
+    const releaseUnhealthyAtomicServer = (): void => {
+      if (!atomicManagedOpenCodeServer) {
+        return;
+      }
+      try {
+        atomicManagedOpenCodeServer.close();
+      } catch {
+        // Ignore cleanup errors and replace with a fresh server.
+      }
+      atomicManagedOpenCodeServer = null;
+    };
+
+    const isAtomicServerHealthy = async (
+      serverUrl: string,
+      directory: string | undefined,
+    ): Promise<boolean> => {
+      try {
+        const tempClient = createSdkClient({
+          baseUrl: serverUrl,
+          directory,
+        });
+        const result = await tempClient.global.health();
+        return !result.error;
+      } catch {
+        return false;
+      }
+    };
+
+    if (this.isServerSpawned && atomicManagedOpenCodeServer) {
+      this.clientOptions.baseUrl = atomicManagedOpenCodeServer.url;
+      return true;
+    }
+
+    if (atomicManagedOpenCodeServer) {
+      const healthy = await isAtomicServerHealthy(
+        atomicManagedOpenCodeServer.url,
+        this.clientOptions.directory,
+      );
+      if (healthy) {
+        acquireAtomicServerLease(atomicManagedOpenCodeServer);
+        return true;
+      }
+      releaseUnhealthyAtomicServer();
+    }
+
     // Parse port from baseUrl
     const url = new URL(this.clientOptions.baseUrl ?? DEFAULT_OPENCODE_BASE_URL);
     const port = this.clientOptions.port ?? parseInt(url.port || "4096", 10);
     const hostname = this.clientOptions.hostname ?? url.hostname ?? "localhost";
 
     try {
+      process.env.OPENCODE_CONFIG_DIR = ATOMIC_OPENCODE_CONFIG_DIR;
+
       const serverOptions: SdkServerOptions = {
         hostname,
         port,
@@ -3088,8 +3217,12 @@ export class OpenCodeClient implements CodingAgentClient {
       };
 
       const { url: serverUrl, close } = await createOpencodeServer(serverOptions);
-      this.serverCloseCallback = close;
-      this.isServerSpawned = true;
+      atomicManagedOpenCodeServer = {
+        url: serverUrl,
+        close,
+        leaseCount: 0,
+      };
+      acquireAtomicServerLease(atomicManagedOpenCodeServer);
 
       // Update baseUrl to the actual server URL
       this.clientOptions.baseUrl = serverUrl;
@@ -3111,23 +3244,27 @@ export class OpenCodeClient implements CodingAgentClient {
     }
 
     const autoStart = this.clientOptions.autoStart !== false;
+    const reuseExistingServer = this.clientOptions.reuseExistingServer === true;
 
-    // First, try to connect to existing server
-    try {
-      await this.connect();
-    } catch (connectionError) {
-      // If autoStart is enabled, try spawning a server
-      if (autoStart) {
-        const spawned = await this.spawnServer();
-        if (spawned) {
-          // Try connecting again
-          await this.connect();
-        } else {
-          throw connectionError;
-        }
-      } else {
-        throw connectionError;
+    if (autoStart) {
+      const spawned = await this.spawnServer();
+      if (!spawned) {
+        throw new Error("Failed to start Atomic-managed OpenCode server");
       }
+
+      try {
+        await this.connect();
+      } catch (error) {
+        this.releaseServerLease();
+        throw error;
+      }
+    } else {
+      if (!reuseExistingServer) {
+        throw new Error(
+          "OpenCode autoStart is disabled. Enable autoStart or set reuseExistingServer to connect to an external server.",
+        );
+      }
+      await this.connect();
     }
 
     // Mark running BEFORE starting SSE so the event loop's while-condition
@@ -3149,16 +3286,7 @@ export class OpenCodeClient implements CodingAgentClient {
     // Disconnect from server
     await this.disconnect();
 
-    // Close spawned server if we started it
-    if (this.serverCloseCallback && this.isServerSpawned) {
-      try {
-        this.serverCloseCallback();
-      } catch {
-        // Ignore errors during cleanup
-      }
-      this.serverCloseCallback = null;
-      this.isServerSpawned = false;
-    }
+    this.releaseServerLease();
 
     // Stop the tool dispatch HTTP server
     if (this.dispatchServerStop) {
@@ -3169,6 +3297,30 @@ export class OpenCodeClient implements CodingAgentClient {
 
     this.eventHandlers.clear();
     this.isRunning = false;
+  }
+
+  private releaseServerLease(): void {
+    if (!this.isServerSpawned) {
+      return;
+    }
+
+    this.isServerSpawned = false;
+
+    if (!atomicManagedOpenCodeServer) {
+      return;
+    }
+
+    atomicManagedOpenCodeServer.leaseCount -= 1;
+    if (atomicManagedOpenCodeServer.leaseCount > 0) {
+      return;
+    }
+
+    try {
+      atomicManagedOpenCodeServer.close();
+    } catch {
+      // Ignore errors during cleanup
+    }
+    atomicManagedOpenCodeServer = null;
   }
 
   /**

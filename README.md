@@ -228,6 +228,25 @@ iex "& { $(irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps
 </details>
 
 <details>
+<summary>Install a prerelease version</summary>
+
+> **⚠️ Warning:** Prerelease versions are unstable and may contain breaking changes, incomplete features, or bugs. Use them for testing and feedback only — not in production workflows.
+
+**macOS / Linux:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash -s -- --prerelease
+```
+
+**Windows PowerShell:**
+
+```powershell
+iex "& { $(irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1) } -Prerelease"
+```
+
+</details>
+
+<details>
 <summary>Custom install directory</summary>
 
 **macOS / Linux:**

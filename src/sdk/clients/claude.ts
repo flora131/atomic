@@ -1240,18 +1240,48 @@ export class ClaudeAgentClient implements CodingAgentClient {
             },
 
             abort: async (): Promise<void> => {
-                // Close the active query to terminate in-flight SDK work
-                // (including sub-agent invocations). The session remains
-                // reusable for subsequent queries via resume.
-                state.query?.close();
+                // Prefer graceful interruption so the underlying Claude Code
+                // session remains reusable for the next turn. Force-close only
+                // as a fallback for runtimes that do not expose interrupt().
+                const activeQuery = state.query as
+                    | (Query & {
+                          interrupt?: () => Promise<void>;
+                      })
+                    | null;
+                if (!activeQuery) {
+                    return;
+                }
+                if (typeof activeQuery.interrupt === "function") {
+                    try {
+                        await activeQuery.interrupt();
+                        return;
+                    } catch {
+                        // Fall through to force-close fallback.
+                    }
+                }
+                activeQuery.close();
             },
 
             abortBackgroundAgents: async (): Promise<void> => {
-                // Close the active query to terminate background agents.
-                // The Claude SDK manages sub-agents internally within the
-                // query; closing it terminates all in-flight work including
-                // background sub-agent invocations.
-                state.query?.close();
+                // Prefer graceful interruption to avoid poisoning the next
+                // resumed turn after background/foreground cancellation.
+                const activeQuery = state.query as
+                    | (Query & {
+                          interrupt?: () => Promise<void>;
+                      })
+                    | null;
+                if (!activeQuery) {
+                    return;
+                }
+                if (typeof activeQuery.interrupt === "function") {
+                    try {
+                        await activeQuery.interrupt();
+                        return;
+                    } catch {
+                        // Fall through to force-close fallback.
+                    }
+                }
+                activeQuery.close();
             },
 
             destroy: async (): Promise<void> => {

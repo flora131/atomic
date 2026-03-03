@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "fs/promises";
 import { existsSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import { reconcileScmVariants, syncProjectScmSkills } from "./init";
+import { reconcileScmVariants, syncProjectScmSkills, initCommand } from "./init";
 
 async function makeFile(path: string, content = "test"): Promise<void> {
   await mkdir(join(path, ".."), { recursive: true });
@@ -201,6 +201,29 @@ test("reconcileScmVariants removes gh-*/sl-* dirs and preserves user-custom dirs
     expect(existsSync(join(targetSkillsDir, "custom-tool"))).toBe(true);
     expect(existsSync(join(targetSkillsDir, "my-team-script"))).toBe(true);
   } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("initCommand with --scm azure-devops completes without error", async () => {
+  const root = await mkdtemp(join(tmpdir(), "atomic-init-ado-e2e-"));
+  const originalCwd = process.cwd();
+
+  try {
+    process.chdir(root);
+
+    await initCommand({
+      showBanner: false,
+      preSelectedAgent: "claude",
+      preSelectedScm: "azure-devops",
+      yes: true,
+    });
+
+    // Verify az-* skills were installed to the target directory
+    expect(existsSync(join(root, ".claude", "skills", "az-commit"))).toBe(true);
+    expect(existsSync(join(root, ".claude", "skills", "az-create-pr"))).toBe(true);
+  } finally {
+    process.chdir(originalCwd);
     await rm(root, { recursive: true, force: true });
   }
 });

@@ -12,11 +12,12 @@ Commit changes, push to remote, and create a pull request on Azure Repos with a 
 - Azure account: !`az account show --query "user.name" -o tsv 2>/dev/null || echo "NOT_AUTHENTICATED"`
 - Git status: !`git status --porcelain`
 - Current branch: !`git branch --show-current`
+- Azure DevOps defaults: !`az devops configure --list 2>/dev/null | grep -E "organization|project" || echo "NOT_CONFIGURED"`
 - Default branch: !`az repos show --query "defaultBranch" -o tsv 2>/dev/null | sed 's|refs/heads/||' || echo "main"`
 - Staged changes: !`git diff --cached --stat`
 - Unstaged changes: !`git diff --stat`
 - Recent commits on this branch: !`git log --oneline -10`
-- Existing PR for branch: !`az repos pr list --source-branch $(git branch --show-current) --status active --query "[0].pullRequestId" -o tsv 2>/dev/null || echo "No existing PR"`
+- Existing PR for branch: !`az repos pr list --source-branch "refs/heads/$(git branch --show-current)" --status active --query "[0].pullRequestId" -o tsv 2>/dev/null || echo "No existing PR"`
 
 ## What This Command Does
 
@@ -25,6 +26,10 @@ Commit changes, push to remote, and create a pull request on Azure Repos with a 
      ```
      az extension add --name azure-devops
      az login
+     az devops configure --defaults organization=https://dev.azure.com/<org> project=<project>
+     ```
+   - If `NOT_CONFIGURED` appears in the DevOps defaults output, print the following and stop:
+     ```
      az devops configure --defaults organization=https://dev.azure.com/<org> project=<project>
      ```
 2. **Stage and commit changes** using conventional commit format (follow the az-commit skill conventions)

@@ -4,6 +4,7 @@ on:
     push:
         branches:
             - "release/**"
+            - "prerelease/**"
     release:
         types: [published]
     workflow_dispatch:
@@ -156,6 +157,17 @@ jobs:
               id: version
               run: echo "version=$(jq -r .version package.json)" >> $GITHUB_OUTPUT
 
+            - name: Determine release type
+              id: release-type
+              run: |
+                  if [[ "${{ github.ref }}" == refs/heads/prerelease/* ]]; then
+                    echo "is_prerelease=true" >> $GITHUB_OUTPUT
+                    echo "make_latest=false" >> $GITHUB_OUTPUT
+                  else
+                    echo "is_prerelease=false" >> $GITHUB_OUTPUT
+                    echo "make_latest=true" >> $GITHUB_OUTPUT
+                  fi
+
             - name: Create checksums
               run: |
                   cd dist
@@ -177,7 +189,8 @@ jobs:
                   tag_name: v${{ steps.version.outputs.version }}
                   name: v${{ steps.version.outputs.version }}
                   draft: false
-                  prerelease: false
+                  prerelease: ${{ steps.release-type.outputs.is_prerelease == 'true' }}
+                  make_latest: ${{ steps.release-type.outputs.make_latest }}
                   generate_release_notes: true
                   files: |
                       dist/atomic-linux-x64

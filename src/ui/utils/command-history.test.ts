@@ -38,44 +38,44 @@ describe("command-history", () => {
   });
 
   describe("loadCommandHistory", () => {
-    test("returns [] when file doesn't exist", () => {
+    test("returns [] when file doesn't exist", async () => {
       // Remove the dir so the file definitely doesn't exist
       rmSync(TEST_HOME, { recursive: true, force: true });
-      const result = loadCommandHistory();
+      const result = await loadCommandHistory();
       expect(result).toEqual([]);
     });
 
-    test("correctly parses single-line entries", () => {
+    test("correctly parses single-line entries", async () => {
       writeFileSync(HISTORY_FILE, "hello\nworld\n", "utf-8");
-      const result = loadCommandHistory();
+      const result = await loadCommandHistory();
       expect(result).toEqual(["hello", "world"]);
     });
 
-    test("handles empty lines gracefully (skips them)", () => {
+    test("handles empty lines gracefully (skips them)", async () => {
       writeFileSync(HISTORY_FILE, "hello\n\nworld\n\n", "utf-8");
-      const result = loadCommandHistory();
+      const result = await loadCommandHistory();
       expect(result).toEqual(["hello", "world"]);
     });
 
-    test("joins backslash continuation lines into multi-line entries", () => {
+    test("joins backslash continuation lines into multi-line entries", async () => {
       // "fix the bug\\\nand add error handling\n" on disk
       // means: "fix the bug" + continuation + "and add error handling"
       writeFileSync(HISTORY_FILE, "fix the bug\\\nand add error handling\n", "utf-8");
-      const result = loadCommandHistory();
+      const result = await loadCommandHistory();
       expect(result).toEqual(["fix the bug\nand add error handling"]);
     });
 
-    test("returns [] for empty file", () => {
+    test("returns [] for empty file", async () => {
       writeFileSync(HISTORY_FILE, "", "utf-8");
-      const result = loadCommandHistory();
+      const result = await loadCommandHistory();
       expect(result).toEqual([]);
     });
 
-    test("returns [] for whitespace-only file", () => {
+    test("returns [] for whitespace-only file", async () => {
       writeFileSync(HISTORY_FILE, "   \n  \n", "utf-8");
       // The parser treats lines with only spaces as non-empty entries,
       // but the outer trim check filters the entire file if it's only whitespace
-      const result = loadCommandHistory();
+      const result = await loadCommandHistory();
       expect(result).toEqual([]);
     });
   });
@@ -105,10 +105,10 @@ describe("command-history", () => {
       expect(content).toBe("");
     });
 
-    test("persists slash commands (e.g., /help, /clear)", () => {
+    test("persists slash commands (e.g., /help, /clear)", async () => {
       appendCommandHistory("/help");
       appendCommandHistory("/clear");
-      const result = loadCommandHistory();
+      const result = await loadCommandHistory();
       expect(result).toEqual(["/help", "/clear"]);
     });
 
@@ -121,25 +121,25 @@ describe("command-history", () => {
   });
 
   describe("round-trip", () => {
-    test("prompts with trailing backslashes are escaped and restored correctly", () => {
+    test("prompts with trailing backslashes are escaped and restored correctly", async () => {
       const prompt = "path\\to\\file\\";
       appendCommandHistory(prompt);
-      const result = loadCommandHistory();
+      const result = await loadCommandHistory();
       expect(result).toEqual([prompt]);
     });
 
-    test("multi-line prompts round-trip correctly", () => {
+    test("multi-line prompts round-trip correctly", async () => {
       const prompt = "fix the bug\nand add proper error handling";
       appendCommandHistory(prompt);
-      const result = loadCommandHistory();
+      const result = await loadCommandHistory();
       expect(result).toEqual([prompt]);
     });
 
-    test("mixed single-line and multi-line prompts round-trip correctly", () => {
+    test("mixed single-line and multi-line prompts round-trip correctly", async () => {
       appendCommandHistory("simple command");
       appendCommandHistory("multi\nline\ncommand");
       appendCommandHistory("another simple one");
-      const result = loadCommandHistory();
+      const result = await loadCommandHistory();
       expect(result).toEqual([
         "simple command",
         "multi\nline\ncommand",
@@ -149,17 +149,17 @@ describe("command-history", () => {
   });
 
   describe("clearCommandHistory", () => {
-    test("empties the file", () => {
+    test("empties the file", async () => {
       appendCommandHistory("command one");
       appendCommandHistory("command two");
       clearCommandHistory();
-      const result = loadCommandHistory();
+      const result = await loadCommandHistory();
       expect(result).toEqual([]);
     });
   });
 
   describe("truncation", () => {
-    test("when file exceeds max entries, loadCommandHistory returns only the last N and rewrites file", () => {
+    test("when file exceeds max entries, loadCommandHistory returns only the last N and rewrites file", async () => {
       // Write 1005 entries directly to the file
       const entries: string[] = [];
       for (let i = 1; i <= 1005; i++) {
@@ -168,7 +168,7 @@ describe("command-history", () => {
       const content = entries.map((e) => e + "\n").join("");
       writeFileSync(HISTORY_FILE, content, "utf-8");
 
-      const result = loadCommandHistory();
+      const result = await loadCommandHistory();
 
       // Should return only the last 1000
       expect(result).toHaveLength(1000);

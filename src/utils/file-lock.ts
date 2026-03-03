@@ -7,7 +7,7 @@
  * Uses lock files (.lock suffix) with process info to track ownership.
  */
 
-import { existsSync, writeFileSync, readFileSync, unlinkSync } from "fs";
+import { existsSync, writeFileSync, readFileSync, unlinkSync, mkdirSync, readdirSync } from "node:fs";
 import { join, dirname } from "path";
 
 // ============================================================================
@@ -116,7 +116,6 @@ export function tryAcquireLock(filePath: string, sessionId?: string): LockResult
     // Ensure directory exists
     const dir = dirname(lockPath);
     if (!existsSync(dir)) {
-      const { mkdirSync } = require("fs");
       mkdirSync(dir, { recursive: true });
     }
 
@@ -256,7 +255,6 @@ function isProcessAlive(pid: number): boolean {
  * @returns Number of stale locks removed
  */
 export function cleanupStaleLocks(directory: string): number {
-  const { readdirSync } = require("fs");
   let removed = 0;
 
   try {

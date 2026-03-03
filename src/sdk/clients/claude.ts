@@ -57,8 +57,7 @@ import type {
 import { stripProviderPrefix } from "../types.ts";
 import { initClaudeOptions } from "../init.ts";
 import { loadCopilotAgents } from "../../config/copilot-manual.ts";
-import { execSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -2501,18 +2500,8 @@ export function getBundledClaudeCodePath(): string {
     // For standalone installs (native install, Homebrew, WinGet), return the binary
     // directly — the SDK handles executable paths by spawning them directly.
     try {
-        const cmd =
-            process.platform === "win32" ? "where claude" : "which claude";
-        const claudeBin = execSync(cmd, {
-            encoding: "utf-8",
-            stdio: ["pipe", "pipe", "pipe"],
-        })
-            .trim()
-            .split(/\r?\n/)[0]
-            ?.replace(/\r$/, "");
+        const claudeBin = Bun.which("claude");
         if (claudeBin) {
-            const { realpathSync } =
-                require("node:fs") as typeof import("node:fs");
             const realPath = realpathSync(claudeBin);
             // Check if it's an npm package with cli.js
             const pkgDir = dirname(realPath);

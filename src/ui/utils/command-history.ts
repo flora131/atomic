@@ -1,5 +1,4 @@
 import {
-  readFileSync,
   writeFileSync,
   mkdirSync,
   existsSync,
@@ -74,13 +73,13 @@ function parseHistoryContent(content: string): string[] {
   return entries;
 }
 
-/** Load all command history entries from disk. Returns string[] (oldest first). */
-export function loadCommandHistory(): string[] {
+/** Load all command history entries from disk. Returns Promise<string[]> (oldest first). */
+export async function loadCommandHistory(): Promise<string[]> {
   try {
     const filePath = getCommandHistoryPath();
     if (!existsSync(filePath)) return [];
 
-    const content = readFileSync(filePath, "utf-8");
+    const content = await Bun.file(filePath).text();
     if (!content.trim()) return [];
 
     const entries = parseHistoryContent(content);

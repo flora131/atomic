@@ -12,7 +12,7 @@
  * Reference: Feature 14 - Implement Checkpointer interface
  */
 
-import { mkdir, readFile, writeFile, readdir, unlink, rm } from "node:fs/promises";
+import { mkdir, writeFile, readdir, unlink, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { BaseState, Checkpointer } from "./types.ts";
 
@@ -251,7 +251,7 @@ export class FileSaver<TState extends BaseState = BaseState>
     const filePath = this.getCheckpointPath(executionId, label);
 
     try {
-      const content = await readFile(filePath, "utf-8");
+      const content = await Bun.file(filePath).text();
       const data = JSON.parse(content);
       return data.state as TState;
     } catch (error) {
@@ -501,7 +501,7 @@ export class ResearchDirSaver<TState extends BaseState = BaseState>
     const filePath = this.getCheckpointPath(executionId, label);
 
     try {
-      const content = await readFile(filePath, "utf-8");
+      const content = await Bun.file(filePath).text();
       const parsed = parseYamlFrontmatter(content);
 
       if (!parsed) {
@@ -575,7 +575,7 @@ export class ResearchDirSaver<TState extends BaseState = BaseState>
     const filePath = this.getCheckpointPath(executionId, label);
 
     try {
-      const content = await readFile(filePath, "utf-8");
+      const content = await Bun.file(filePath).text();
       const parsed = parseYamlFrontmatter(content);
 
       return parsed?.frontmatter ?? null;
@@ -794,7 +794,7 @@ export class SessionDirSaver<TState extends BaseState = BaseState>
     const filePath = this.getCheckpointPath(sessionDir, label);
 
     try {
-      const content = await readFile(filePath, "utf-8");
+      const content = await Bun.file(filePath).text();
       const data = JSON.parse(content);
 
       // Optionally verify execution ID matches

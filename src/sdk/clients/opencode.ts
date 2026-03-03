@@ -118,6 +118,7 @@ export interface OpenCodeSdkEvent {
 const DEFAULT_OPENCODE_BASE_URL = "http://localhost:4096";
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_RETRY_DELAY = 1000;
+const DEFAULT_OPENCODE_MODEL_LABEL = "big-pickle";
 const PRE_PROMPT_TERMINAL_SETTLE_MS = 500;
 export const AUTO_COMPACTION_THRESHOLD = BACKGROUND_COMPACTION_THRESHOLD;
 export const MAX_COMPACTION_WAIT_MS = 15_000;
@@ -3217,7 +3218,7 @@ export class OpenCodeClient implements CodingAgentClient {
     modelHint?: string
   ): Promise<{ model: string; tier: string; contextWindow?: number }> {
     let contextWindow = this.activeContextWindow ?? undefined;
-    if (this.isRunning && this.sdkClient) {
+    if (this.sdkClient) {
       try {
         contextWindow = await this.resolveModelContextWindow(modelHint);
       } catch {
@@ -3234,8 +3235,16 @@ export class OpenCodeClient implements CodingAgentClient {
       };
     }
 
+    if (this.activePromptModel) {
+      return {
+        model: this.activePromptModel.modelID,
+        tier: "OpenCode",
+        contextWindow,
+      };
+    }
+
     // No hint - try to get the default model ID from SDK providers
-    if (this.isRunning && this.sdkClient) {
+    if (this.sdkClient) {
       const rawId = await this.lookupRawModelIdFromProviders();
       if (rawId) {
         return { model: rawId, tier: "OpenCode", contextWindow };
@@ -3243,7 +3252,7 @@ export class OpenCodeClient implements CodingAgentClient {
     }
 
     return {
-      model: "OpenCode",
+      model: DEFAULT_OPENCODE_MODEL_LABEL,
       tier: "OpenCode",
       contextWindow,
     };

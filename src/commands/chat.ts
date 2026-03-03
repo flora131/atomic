@@ -19,7 +19,7 @@ import { discoverMcpConfigs } from "../utils/mcp-config.ts";
 import { trackAtomicCommand } from "../telemetry/index.ts";
 import { pathExists } from "../utils/copy.ts";
 import { AGENT_CONFIG } from "../config.ts";
-import { initCommand } from "./init.ts";
+// initCommand is lazy-loaded only when auto-init is needed
 import { join } from "path";
 import { readdir } from "fs/promises";
 import {
@@ -29,12 +29,7 @@ import {
 import { detectInstallationType, getConfigRoot } from "../utils/config-path.ts";
 import { prepareOpenCodeConfigDir } from "../utils/opencode-config.ts";
 
-// SDK client imports
-import {
-  createClaudeAgentClient,
-  createOpenCodeClient,
-  createCopilotClient,
-} from "../sdk/clients/index.ts";
+// SDK client imports — lazy-loaded per agent to avoid loading all 3 SDKs
 import { createTodoWriteTool } from "../sdk/tools/todo-write.ts";
 import { registerCustomTools } from "../sdk/tools/index.ts";
 
@@ -81,14 +76,20 @@ export interface ChatCommandOptions {
  * @param agentType - The type of agent to create a client for
  * @returns A CodingAgentClient instance
  */
-function createClientForAgentType(agentType: AgentType): CodingAgentClient {
+async function createClientForAgentType(agentType: AgentType): Promise<CodingAgentClient> {
   switch (agentType) {
-    case "claude":
+    case "claude": {
+      const { createClaudeAgentClient } = await import("../sdk/clients/claude.ts");
       return createClaudeAgentClient();
-    case "opencode":
+    }
+    case "opencode": {
+      const { createOpenCodeClient } = await import("../sdk/clients/opencode.ts");
       return createOpenCodeClient({ directory: process.cwd() });
-    case "copilot":
+    }
+    case "copilot": {
+      const { createCopilotClient } = await import("../sdk/clients/copilot.ts");
       return createCopilotClient();
+    }
     default:
       throw new Error(`Unknown agent type: ${agentType}`);
   }
@@ -235,6 +236,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     const configNotFoundMessage =
       `Source control skills are not configured for ${agentName}. Starting interactive setup...`;
 
+    const { initCommand } = await import("./init.ts");
     await initCommand({
       showBanner: false,
       preSelectedAgent: agentType,
@@ -246,7 +248,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   console.log("");
 
   // Create the SDK client
-  const client = createClientForAgentType(agentType);
+  const client = await createClientForAgentType(agentType);
 
   // Register TodoWrite tool for agents that don't have it built-in
   if (agentType === "copilot") {
@@ -257,10 +259,11 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   await registerCustomTools(client);
 
   try {
-    await client.start();
+    // Start the client in the background — the subprocess spawns concurrently
+    // while the UI renders. ensureSession() awaits this before the first message.
+    const clientStartPromise = client.start();
 
-    // Get model info from the client (after start to ensure connection)
-    // Pass the model from CLI options if provided for accurate display
+    // Get model info immediately (uses fallback values if client isn't ready yet)
     const modelDisplayInfo = await client.getModelDisplayInfo(effectiveModel);
 
     // For copilot, append reasoning effort to model display if the model supports it
@@ -290,6 +293,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
       agentType,
       initialPrompt,
       workflowEnabled: workflow,
+      clientStartPromise,
     };
 
     // Start standard chat

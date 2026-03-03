@@ -22,6 +22,7 @@ import type { CommandContext, CommandResult } from "./registry.ts";
 function createMockContext(overrides?: Partial<CommandContext>): CommandContext {
   return {
     session: null,
+    ensureSession: async () => {},
     state: {
       isStreaming: false,
       messageCount: 0,
@@ -272,6 +273,39 @@ describe("Built-in Commands", () => {
   });
 
   describe("modelCommand", () => {
+    test("bootstraps a session when /model is first command", async () => {
+      let ensureSessionCalls = 0;
+      const context = createMockContext({
+        session: null,
+        ensureSession: async () => {
+          ensureSessionCalls += 1;
+        },
+        modelOps: {} as any,
+      });
+
+      const result = await modelCommand.execute("", context);
+
+      expect(result.success).toBe(true);
+      expect(result.showModelSelector).toBe(true);
+      expect(ensureSessionCalls).toBe(1);
+    });
+
+    test("returns a clear error when session bootstrap fails", async () => {
+      const context = createMockContext({
+        session: null,
+        ensureSession: async () => {
+          throw new Error("connection refused");
+        },
+        modelOps: {} as any,
+      });
+
+      const result = await modelCommand.execute("list", context);
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain("Failed to start session for /model");
+      expect(result.message).toContain("connection refused");
+    });
+
     test("shows model selector when no args provided", async () => {
       const context = createMockContext({
         modelOps: {} as any,

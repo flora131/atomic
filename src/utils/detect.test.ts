@@ -143,13 +143,21 @@ describe("Color Detection", () => {
   });
 
   describe("supportsTrueColor", () => {
-    test("should return true by default (modern terminals)", () => {
+    test("should return true when COLORTERM indicates truecolor", () => {
       delete process.env.NO_COLOR;
+      process.env.COLORTERM = "truecolor";
       expect(supportsTrueColor()).toBe(true);
     });
 
     test("should return false when NO_COLOR is set", () => {
       process.env.NO_COLOR = "1";
+      expect(supportsTrueColor()).toBe(false);
+    });
+
+    test("should return false for Apple_Terminal without COLORTERM", () => {
+      delete process.env.NO_COLOR;
+      delete process.env.COLORTERM;
+      process.env.TERM_PROGRAM = "Apple_Terminal";
       expect(supportsTrueColor()).toBe(false);
     });
   });
@@ -163,8 +171,8 @@ describe("Color Detection", () => {
 
     test("should return true when supportsTrueColor returns true", () => {
       delete process.env.NO_COLOR;
+      process.env.COLORTERM = "truecolor";
       process.env.TERM = "xterm";
-      // Since supportsTrueColor returns true by default, this should be true
       expect(supports256Color()).toBe(true);
     });
 
@@ -293,10 +301,14 @@ describe("supportsColor — additional edge cases", () => {
 describe("supportsTrueColor — additional edge cases", () => {
   let originalNoColor: string | undefined;
   let originalColorTerm: string | undefined;
+  let originalTermProgram: string | undefined;
+  let originalTerm: string | undefined;
 
   beforeEach(() => {
     originalNoColor = process.env.NO_COLOR;
     originalColorTerm = process.env.COLORTERM;
+    originalTermProgram = process.env.TERM_PROGRAM;
+    originalTerm = process.env.TERM;
   });
 
   afterEach(() => {
@@ -309,6 +321,16 @@ describe("supportsTrueColor — additional edge cases", () => {
       delete process.env.COLORTERM;
     } else {
       process.env.COLORTERM = originalColorTerm;
+    }
+    if (originalTermProgram === undefined) {
+      delete process.env.TERM_PROGRAM;
+    } else {
+      process.env.TERM_PROGRAM = originalTermProgram;
+    }
+    if (originalTerm === undefined) {
+      delete process.env.TERM;
+    } else {
+      process.env.TERM = originalTerm;
     }
   });
 
@@ -330,10 +352,26 @@ describe("supportsTrueColor — additional edge cases", () => {
     expect(supportsTrueColor()).toBe(false);
   });
 
-  test("should return true when COLORTERM is unset and NO_COLOR is unset", () => {
+  test("should return false when COLORTERM is unset and TERM_PROGRAM is Apple_Terminal", () => {
     delete process.env.NO_COLOR;
     delete process.env.COLORTERM;
+    process.env.TERM_PROGRAM = "Apple_Terminal";
+    expect(supportsTrueColor()).toBe(false);
+  });
+
+  test("should return true for known truecolor terminals", () => {
+    delete process.env.NO_COLOR;
+    delete process.env.COLORTERM;
+    process.env.TERM_PROGRAM = "iTerm.app";
     expect(supportsTrueColor()).toBe(true);
+  });
+
+  test("should return false when no truecolor indicators are present", () => {
+    delete process.env.NO_COLOR;
+    delete process.env.COLORTERM;
+    delete process.env.TERM_PROGRAM;
+    delete process.env.TERM;
+    expect(supportsTrueColor()).toBe(false);
   });
 });
 
@@ -361,13 +399,14 @@ describe("supports256Color — additional edge cases", () => {
 
   test("should return true when TERM is empty but truecolor is supported", () => {
     delete process.env.NO_COLOR;
+    process.env.COLORTERM = "truecolor";
     process.env.TERM = "";
-    // With NO_COLOR unset, supportsTrueColor returns true, so supports256Color returns true
     expect(supports256Color()).toBe(true);
   });
 
   test("should return true when TERM is unset but truecolor is supported", () => {
     delete process.env.NO_COLOR;
+    process.env.COLORTERM = "truecolor";
     delete process.env.TERM;
     expect(supports256Color()).toBe(true);
   });

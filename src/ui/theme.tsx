@@ -7,7 +7,7 @@
  * Reference: Feature 19 - Implement theme support with dark/light modes
  */
 
-import React, { createContext, useContext, useState, useCallback } from "react";
+import React, { createContext, useContext, useState, useCallback, useMemo } from "react";
 import { SyntaxStyle, RGBA, type StyleDefinition } from "@opentui/core";
 
 // ============================================================================
@@ -271,6 +271,81 @@ export const lightTheme: Theme = {
   },
 };
 
+/**
+ * ANSI-safe dark theme for terminals without truecolor support (e.g. macOS Terminal.app).
+ *
+ * Uses Catppuccin Mocha hex values instead of named CSS colors. OpenTUI's Zig
+ * renderer automatically detects terminal capabilities and downconverts these
+ * to the nearest 256-color (xterm indices 16-255) or 16-color equivalent.
+ *
+ * The 256-color palette is standardized across terminals (macOS Terminal,
+ * Ghostty, VS Code, iTerm2, etc.), so results are consistent. This avoids
+ * the garish pure-CSS colors that named ANSI values produce — e.g.
+ * "magenta" → #FF00FF → hot pink (xterm 201), vs Mocha Mauve #cba6f7 →
+ * soft purple (xterm 141).
+ *
+ * Approximate 256-color indices noted in comments for reference.
+ */
+export const darkThemeAnsi: Theme = {
+  name: "dark",
+  isDark: true,
+  colors: {
+    background: "#1e1e2e",       // Mocha Base        → 256: 234
+    foreground: "#cdd6f4",       // Mocha Text        → 256: 189
+    accent: "#94e2d5",           // Mocha Teal        → 256: 116
+    border: "#45475a",           // Mocha Surface 1   → 256: 59
+    userMessage: "#89b4fa",      // Mocha Blue        → 256: 111
+    assistantMessage: "#94e2d5", // Mocha Teal        → 256: 116
+    systemMessage: "#cba6f7",    // Mocha Mauve       → 256: 141
+    error: "#f38ba8",            // Mocha Red         → 256: 211
+    success: "#a6e3a1",          // Mocha Green       → 256: 114
+    warning: "#f9e2af",          // Mocha Yellow      → 256: 223
+    muted: "#6c7086",            // Mocha Overlay 0   → 256: 60
+    inputFocus: "#585b70",       // Mocha Surface 2   → 256: 59
+    inputStreaming: "#6c7086",   // Mocha Overlay 0   → 256: 60
+    userBubbleBg: "#313244",     // Mocha Surface 0   → 256: 236
+    userBubbleFg: "#cdd6f4",     // Mocha Text        → 256: 189
+    dim: "#585b70",              // Mocha Surface 2   → 256: 59
+    scrollbarFg: "#6c7086",      // Mocha Overlay 0   → 256: 60
+    scrollbarBg: "#313244",      // Mocha Surface 0   → 256: 236
+    codeBorder: "#45475a",       // Mocha Surface 1   → 256: 59
+    codeTitle: "#94e2d5",        // Mocha Teal        → 256: 116
+  },
+};
+
+/**
+ * ANSI-safe light theme for terminals without truecolor support.
+ *
+ * Uses Catppuccin Latte hex values. Same downconversion approach as
+ * darkThemeAnsi — the Zig renderer maps these to 256-color automatically.
+ */
+export const lightThemeAnsi: Theme = {
+  name: "light",
+  isDark: false,
+  colors: {
+    background: "#eff1f5",       // Latte Base        → 256: 255
+    foreground: "#4c4f69",       // Latte Text        → 256: 59
+    accent: "#179299",           // Latte Teal        → 256: 30
+    border: "#ccd0da",           // Latte Surface 0   → 256: 252
+    userMessage: "#1e66f5",      // Latte Blue        → 256: 33
+    assistantMessage: "#179299", // Latte Teal        → 256: 30
+    systemMessage: "#8839ef",    // Latte Mauve       → 256: 99
+    error: "#d20f39",            // Latte Red         → 256: 160
+    success: "#40a02b",          // Latte Green       → 256: 34
+    warning: "#df8e1d",          // Latte Yellow      → 256: 172
+    muted: "#8c8fa1",            // Latte Overlay 1   → 256: 103
+    inputFocus: "#acb0be",       // Latte Surface 2   → 256: 249
+    inputStreaming: "#9ca0b0",   // Latte Overlay 0   → 256: 146
+    userBubbleBg: "#e6e9ef",     // Latte Mantle      → 256: 254
+    userBubbleFg: "#4c4f69",     // Latte Text        → 256: 59
+    dim: "#acb0be",              // Latte Surface 2   → 256: 249
+    scrollbarFg: "#9ca0b0",      // Latte Overlay 0   → 256: 146
+    scrollbarBg: "#e6e9ef",      // Latte Mantle      → 256: 254
+    codeBorder: "#ccd0da",       // Latte Surface 0   → 256: 252
+    codeTitle: "#179299",        // Latte Teal        → 256: 30
+  },
+};
+
 // ============================================================================
 // THEME CONTEXT
 // ============================================================================
@@ -361,12 +436,19 @@ export function ThemeProvider({
 }: ThemeProviderProps): React.ReactNode {
   const [theme, setThemeState] = useState<Theme>(initialTheme);
 
+  // Determine the paired themes from the initial theme so toggles stay
+  // within the same capability tier (truecolor vs ANSI-safe).
+  const [dark, light] = useMemo(() => {
+    const isAnsi = initialTheme === darkThemeAnsi || initialTheme === lightThemeAnsi;
+    return isAnsi ? [darkThemeAnsi, lightThemeAnsi] : [darkTheme, lightTheme];
+  }, [initialTheme]);
+
   /**
    * Toggle between dark and light themes.
    */
   const toggleTheme = useCallback(() => {
-    setThemeState((current) => (current.isDark ? lightTheme : darkTheme));
-  }, []);
+    setThemeState((current) => (current.isDark ? light : dark));
+  }, [dark, light]);
 
   /**
    * Set a specific theme.

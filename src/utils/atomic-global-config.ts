@@ -7,7 +7,7 @@ import { copyDir, copyFile, pathExists } from "./copy";
 
 const ATOMIC_HOME_DIR = join(homedir(), ".atomic");
 
-export const MANAGED_SCM_SKILL_PREFIXES = ["gh-", "sl-"] as const;
+export const MANAGED_SCM_SKILL_PREFIXES = ["gh-", "sl-", "az-"] as const;
 
 const GLOBAL_AGENT_FOLDER_BY_KEY: Record<AgentKey, string> = {
   claude: ".claude",

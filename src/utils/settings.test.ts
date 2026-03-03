@@ -213,3 +213,22 @@ describe("settings persistence", () => {
     expect(settings.reasoningEffort?.opencode).toBe("high");
   });
 });
+
+describe("settings.schema.json scm enum", () => {
+  test("accepts 'azure-devops' as a valid scm value", async () => {
+    const schemaPath = new URL("../../assets/settings.schema.json", import.meta.url).pathname;
+    const schema = JSON.parse(readFileSync(schemaPath, "utf-8")) as {
+      properties: { scm: { enum: string[] } };
+    };
+    expect(schema.properties.scm.enum).toContain("azure-devops");
+  });
+
+  test("scm enum still contains 'github' and 'sapling'", async () => {
+    const schemaPath = new URL("../../assets/settings.schema.json", import.meta.url).pathname;
+    const schema = JSON.parse(readFileSync(schemaPath, "utf-8")) as {
+      properties: { scm: { enum: string[] } };
+    };
+    expect(schema.properties.scm.enum).toContain("github");
+    expect(schema.properties.scm.enum).toContain("sapling");
+  });
+});

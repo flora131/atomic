@@ -8,6 +8,7 @@ import {
   ensureAtomicGlobalAgentConfigs,
   hasAtomicGlobalAgentConfigs,
   syncAtomicGlobalAgentConfigs,
+  MANAGED_SCM_SKILL_PREFIXES,
 } from "./atomic-global-config";
 
 async function createTemplateAgentConfigs(configRoot: string): Promise<void> {
@@ -119,4 +120,10 @@ test("ensureAtomicGlobalAgentConfigs re-syncs when config folders are incomplete
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("MANAGED_SCM_SKILL_PREFIXES includes 'az-'", () => {
+  expect(MANAGED_SCM_SKILL_PREFIXES).toContain("az-");
+  expect(MANAGED_SCM_SKILL_PREFIXES).toContain("gh-");
+  expect(MANAGED_SCM_SKILL_PREFIXES).toContain("sl-");
 });

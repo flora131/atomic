@@ -50,17 +50,18 @@ interface InitOptions {
   yes?: boolean;
 }
 
-const SCM_PREFIX_BY_TYPE: Record<SourceControlType, "gh-" | "sl-"> = {
+const SCM_PREFIX_BY_TYPE: Record<SourceControlType, "gh-" | "sl-" | "az-"> = {
   github: "gh-",
   sapling: "sl-",
+  "azure-devops": "az-",
 };
 
-function getScmPrefix(scmType: SourceControlType): "gh-" | "sl-" {
+function getScmPrefix(scmType: SourceControlType): "gh-" | "sl-" | "az-" {
   return SCM_PREFIX_BY_TYPE[scmType];
 }
 
 function isManagedScmEntry(name: string): boolean {
-  return name.startsWith("gh-") || name.startsWith("sl-");
+  return name.startsWith("gh-") || name.startsWith("sl-") || name.startsWith("az-");
 }
 
 interface ReconcileScmVariantsOptions {
@@ -154,7 +155,7 @@ async function copyDirPreserving(
   }
 }
 
-interface SyncProjectScmSkillsOptions {
+export interface SyncProjectScmSkillsOptions {
   scmType: SourceControlType;
   sourceSkillsDir: string;
   targetSkillsDir: string;
@@ -163,7 +164,7 @@ interface SyncProjectScmSkillsOptions {
 /**
  * Copy only SCM-managed skill variants for the selected source control.
  */
-async function syncProjectScmSkills(options: SyncProjectScmSkillsOptions): Promise<number> {
+export async function syncProjectScmSkills(options: SyncProjectScmSkillsOptions): Promise<number> {
   const { scmType, sourceSkillsDir, targetSkillsDir } = options;
   const selectedPrefix = getScmPrefix(scmType);
 

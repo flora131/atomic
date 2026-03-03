@@ -86,11 +86,10 @@ export function getAgentKeys(): AgentKey[] {
  */
 
 /** Supported source control types */
-export type SourceControlType = "github" | "sapling";
-// Future: | 'azure-devops'
+export type SourceControlType = "github" | "sapling" | "azure-devops";
 
 /** SCM keys for iteration */
-const SCM_KEYS = ["github", "sapling"] as const;
+const SCM_KEYS = ["github", "sapling", "azure-devops"] as const;
 
 export interface ScmConfig {
   /** Internal identifier */
@@ -130,6 +129,16 @@ export const SCM_CONFIG: Record<SourceControlType, ScmConfig> = {
     detectDir: ".sl",
     reviewCommandFile: "submit-diff.md",
     requiredConfigFiles: [".arcconfig", "~/.arcrc"],
+  },
+  "azure-devops": {
+    name: "azure-devops",
+    displayName: "Azure DevOps / Git",
+    cliTool: "git",
+    reviewTool: "az repos",
+    reviewSystem: "azure-devops",
+    detectDir: ".git",
+    reviewCommandFile: "create-az-pr.md",
+    requiredConfigFiles: ["~/.azure/azureProfile.json"],
   },
 };
 

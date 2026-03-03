@@ -60,6 +60,10 @@ import { loadCopilotAgents } from "../../config/copilot-manual.ts";
 import { existsSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+    extractSkillInvocationFromToolInput,
+    isSkillToolName,
+} from "./skill-invocation.ts";
 
 /**
  * Configuration for Claude SDK native hooks
@@ -129,6 +133,7 @@ function mapEventTypeToHookEvent(eventType: EventType): HookEvent | null {
         "session.start": "SessionStart",
         "session.idle": "SessionEnd",
         "tool.start": "PreToolUse",
+        "skill.invoked": "PreToolUse",
         "tool.complete": "PostToolUse",
         "subagent.start": "SubagentStart",
         "subagent.complete": "SubagentStop",
@@ -2049,6 +2054,38 @@ export class ClaudeAgentClient implements CodingAgentClient {
                     const sessionId = hookSessionId
                         ? this.resolveHookSessionId(hookSessionId)
                         : this.resolveFallbackHookSessionId(resolvedToolUseId);
+
+                    if (eventType === "skill.invoked") {
+                        if (!isSkillToolName(hookInput.tool_name)) {
+                            return { continue: true };
+                        }
+
+                        const skillInvocation =
+                            extractSkillInvocationFromToolInput(
+                                hookInput.tool_input,
+                            );
+                        if (!skillInvocation) {
+                            return { continue: true };
+                        }
+
+                        const skillEvent: AgentEvent<T> = {
+                            type: eventType,
+                            sessionId,
+                            timestamp: new Date().toISOString(),
+                            data: skillInvocation as AgentEvent<T>["data"],
+                        };
+
+                        try {
+                            await handler(skillEvent);
+                        } catch (error) {
+                            console.error(
+                                `Error in hook handler for ${eventType}:`,
+                                error,
+                            );
+                        }
+
+                        return { continue: true };
+                    }
 
                     if (
                         targetHookEvent === "SubagentStart" &&

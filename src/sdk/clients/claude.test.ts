@@ -406,6 +406,90 @@ describe("ClaudeAgentClient observability and parity", () => {
     }
   });
 
+  test("emits skill.invoked from PreToolUse when Claude Skill tool runs", async () => {
+    const client = new ClaudeAgentClient();
+    const invocations: Array<{
+      sessionId: string;
+      skillName?: string;
+      skillPath?: string;
+    }> = [];
+
+    const unsubscribe = client.on("skill.invoked", (event) => {
+      const data = event.data as {
+        skillName?: string;
+        skillPath?: string;
+      };
+      invocations.push({
+        sessionId: event.sessionId,
+        skillName: data.skillName,
+        skillPath: data.skillPath,
+      });
+    });
+
+    try {
+      const privateClient = client as unknown as {
+        registeredHooks: Record<
+          string,
+          Array<
+            (
+              input: Record<string, unknown>,
+              toolUseID: string | undefined,
+              options: { signal: AbortSignal },
+            ) => Promise<{ continue: boolean }>
+          >
+        >;
+        wrapQuery: (
+          queryInstance: null,
+          sessionId: string,
+          config: Record<string, unknown>,
+        ) => { destroy: () => Promise<void> };
+      };
+
+      const wrappedSession = privateClient.wrapQuery(
+        null,
+        "wrapped-session-id",
+        {},
+      );
+      const preToolUseHook = privateClient.registeredHooks.PreToolUse?.[0];
+      expect(preToolUseHook).toBeDefined();
+
+      await preToolUseHook?.(
+        {
+          session_id: "sdk-skill-session",
+          tool_name: "Skill",
+          tool_input: {
+            name: "explain-code",
+            path: "/tmp/skills/explain-code/SKILL.md",
+          },
+        },
+        "skill_tool_use_1",
+        { signal: new AbortController().signal },
+      );
+
+      await preToolUseHook?.(
+        {
+          session_id: "sdk-skill-session",
+          tool_name: "Read",
+          tool_input: { file_path: "README.md" },
+        },
+        "read_tool_use_1",
+        { signal: new AbortController().signal },
+      );
+
+      expect(invocations).toEqual([
+        {
+          sessionId: "wrapped-session-id",
+          skillName: "explain-code",
+          skillPath: "/tmp/skills/explain-code/SKILL.md",
+        },
+      ]);
+
+      await wrappedSession.destroy();
+    } finally {
+      unsubscribe();
+    }
+  });
+
   test("maps child-session tool hooks to subagents when SubagentStart omits tool use IDs", async () => {
     const client = new ClaudeAgentClient();
     const seenParentAgentIds: Array<string | undefined> = [];

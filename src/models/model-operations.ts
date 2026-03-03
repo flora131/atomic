@@ -21,6 +21,44 @@ export const CLAUDE_ALIASES: Record<string, string> = {
 
 const CLAUDE_CANONICAL_MODELS = ["opus", "sonnet", "haiku"] as const;
 type ClaudeCanonicalModel = (typeof CLAUDE_CANONICAL_MODELS)[number];
+const DEFAULT_CLAUDE_CONTEXT_WINDOW = 200000;
+
+/**
+ * The Claude Agent SDK ModelInfo does not expose a context window field.
+ * Infer it from explicit model labels when available (e.g. "[1m]"),
+ * otherwise fall back to the historical 200k default.
+ *
+ * Reference: docs/claude-agent-sdk.md (ModelInfo + context-1m beta notes).
+ */
+function inferClaudeContextWindow(modelInfo: {
+  value: string;
+  displayName: string;
+  description: string;
+}): number {
+  const candidates = [modelInfo.displayName, modelInfo.description, modelInfo.value];
+
+  for (const text of candidates) {
+    const bracketed = text.match(/\[(\d+(?:\.\d+)?)\s*([kKmM])\]/);
+    if (bracketed) {
+      const amount = Number(bracketed[1]);
+      const unit = bracketed[2]?.toLowerCase();
+      if (!Number.isFinite(amount) || !unit) continue;
+      if (unit === "m") return Math.round(amount * 1_000_000);
+      if (unit === "k") return Math.round(amount * 1_000);
+    }
+
+    const windowLabel = text.match(/\b(\d+(?:\.\d+)?)\s*([kKmM])\b(?:\s*(?:ctx|context|context\s+window|tokens?))?/i);
+    if (windowLabel) {
+      const amount = Number(windowLabel[1]);
+      const unit = windowLabel[2]?.toLowerCase();
+      if (!Number.isFinite(amount) || !unit) continue;
+      if (unit === "m") return Math.round(amount * 1_000_000);
+      if (unit === "k") return Math.round(amount * 1_000);
+    }
+  }
+
+  return DEFAULT_CLAUDE_CONTEXT_WINDOW;
+}
 
 function normalizeClaudeModelInput(model: string): string {
   const trimmed = model.trim();
@@ -162,8 +200,8 @@ export class UnifiedModelOperations implements ModelOperations {
   /**
    * List supported models for Claude using the SDK's supportedModels() API.
    * Requires sdkListModels callback (from Query.supportedModels()) to be provided.
-   * Uses a default context window of 200000 since the SDK's ModelInfo doesn't
-   * include context window data — this is a known limitation.
+   * Context window is inferred from model labels when present (e.g. [1m]) and
+   * otherwise defaults to 200k because SDK ModelInfo doesn't expose it directly.
    * @private
    */
   private async listModelsForClaude(): Promise<Model[]> {
@@ -218,8 +256,9 @@ export class UnifiedModelOperations implements ModelOperations {
         .map(([, info]) => info),
     ];
 
-    // Default context window: SDK ModelInfo lacks this field pre-query
-    return orderedModelInfos.map(info => fromClaudeModelInfo(info, 200000));
+    return orderedModelInfos.map((info) =>
+      fromClaudeModelInfo(info, inferClaudeContextWindow(info))
+    );
   }
 
   /**

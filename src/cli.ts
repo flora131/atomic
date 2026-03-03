@@ -20,14 +20,6 @@ import { Command } from "@commander-js/extra-typings";
 import { VERSION } from "./version";
 import { COLORS } from "./utils/colors";
 import { AGENT_CONFIG, type AgentKey } from "./config";
-import { initCommand } from "./commands/init";
-import { configCommand } from "./commands/config";
-import { updateCommand } from "./commands/update";
-import { uninstallCommand } from "./commands/uninstall";
-import { chatCommand } from "./commands/chat";
-import { readAtomicConfig } from "./utils/atomic-config";
-import { cleanupWindowsLeftoverFiles } from "./utils/cleanup";
-import { handleTelemetryUpload, isTelemetryEnabledSync } from "./telemetry";
 
 /**
  * Create and configure the main CLI program
@@ -81,6 +73,7 @@ export function createProgram() {
     )
     .action(async (localOpts) => {
       const globalOpts = program.opts();
+      const { initCommand } = await import("./commands/init");
 
       await initCommand({
         showBanner: globalOpts.banner !== false,
@@ -128,13 +121,16 @@ Slash Commands (in workflow mode):
 
       // If no agent flag provided, check saved config
       if (!agentType) {
+        const { readAtomicConfig } = await import("./utils/atomic-config");
         const config = await readAtomicConfig(process.cwd());
         agentType = config?.agent;
       }
 
       // If still no agent (first run), run init which prompts for selection
       if (!agentType) {
+        const { initCommand } = await import("./commands/init");
         await initCommand({ showBanner: true });
+        const { readAtomicConfig } = await import("./utils/atomic-config");
         const config = await readAtomicConfig(process.cwd());
         agentType = config?.agent;
         if (!agentType) {
@@ -158,6 +154,7 @@ Slash Commands (in workflow mode):
       }
 
       const prompt = promptParts.length > 0 ? promptParts.join(" ") : undefined;
+      const { chatCommand } = await import("./commands/chat");
       const exitCode = await chatCommand({
         agentType: agentType as "claude" | "opencode" | "copilot",
         workflow: localOpts.workflow,
@@ -181,6 +178,7 @@ Slash Commands (in workflow mode):
     .argument("<key>", "Configuration key (e.g., telemetry)")
     .argument("<value>", "Value to set (e.g., true, false)")
     .action(async (key: string, value: string) => {
+      const { configCommand } = await import("./commands/config");
       await configCommand("set", key, value);
     });
 
@@ -189,6 +187,7 @@ Slash Commands (in workflow mode):
     .command("update")
     .description("Self-update to the latest version (binary installs only)")
     .action(async () => {
+      const { updateCommand } = await import("./commands/update");
       await updateCommand();
     });
 
@@ -200,6 +199,7 @@ Slash Commands (in workflow mode):
     .option("--keep-config", "Keep configuration data, only remove binary")
     .action(async (localOpts) => {
       const globalOpts = program.opts();
+      const { uninstallCommand } = await import("./commands/uninstall");
 
       await uninstallCommand({
         yes: globalOpts.yes,
@@ -213,6 +213,7 @@ Slash Commands (in workflow mode):
     .command("upload-telemetry", { hidden: true })
     .description("Upload telemetry events (internal use)")
     .action(async () => {
+      const { handleTelemetryUpload } = await import("./telemetry");
       await handleTelemetryUpload();
     });
 
@@ -228,14 +229,21 @@ export const program = createProgram();
  *
  * Reference: specs/phase-6-telemetry-upload-backend.md Section 5.5
  */
-function spawnTelemetryUpload(): void {
+async function spawnTelemetryUpload(): Promise<void> {
   // Prevent recursive spawns - if this is already an upload process, don't spawn another
   if (process.env.ATOMIC_TELEMETRY_UPLOAD === "1") {
     return;
   }
 
-  // Check if telemetry is enabled (sync check to avoid blocking)
-  if (!isTelemetryEnabledSync()) {
+  // Check if telemetry is enabled (lazy-load to avoid pulling in telemetry at startup)
+  let enabled = false;
+  try {
+    const { isTelemetryEnabledSync } = await import("./telemetry");
+    enabled = isTelemetryEnabledSync();
+  } catch {
+    return;
+  }
+  if (!enabled) {
     return;
   }
 
@@ -270,7 +278,10 @@ function spawnTelemetryUpload(): void {
 async function main(): Promise<void> {
   // Clean up leftover Windows files from previous uninstall/update operations
   // This is a no-op on non-Windows platforms
-  await cleanupWindowsLeftoverFiles();
+  if (process.platform === "win32") {
+    const { cleanupWindowsLeftoverFiles } = await import("./utils/cleanup");
+    await cleanupWindowsLeftoverFiles();
+  }
 
   try {
     // Parse and execute the command
@@ -278,14 +289,14 @@ async function main(): Promise<void> {
     await program.parseAsync();
 
     // Spawn telemetry upload after successful command execution
-    spawnTelemetryUpload();
+    await spawnTelemetryUpload();
   } catch (error) {
     // Handle errors with colored output
     const message = error instanceof Error ? error.message : String(error);
     console.error(`${COLORS.red}Error: ${message}${COLORS.reset}`);
 
     // Spawn telemetry upload even on error
-    spawnTelemetryUpload();
+    await spawnTelemetryUpload();
 
     process.exit(1);
   }

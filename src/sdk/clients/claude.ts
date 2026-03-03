@@ -2337,71 +2337,10 @@ export class ClaudeAgentClient implements CodingAgentClient {
             return; // Already running
         }
         this.isRunning = true;
-
-        // Probe the SDK to detect the default model from the system init message
-        // This makes a lightweight query that doesn't require actual user input
-        try {
-            const probeOptions: Options = {
-                ...initClaudeOptions(),
-                maxTurns: 0, // Don't allow any turns - just get init message
-                // Required for CLAUDE.md/project-setting based sub-agent discovery.
-                systemPrompt: { type: "preset", preset: "claude_code" },
-                // Explicitly set the path to Claude Code executable
-                pathToClaudeCodeExecutable: getBundledClaudeCodePath(),
-            };
-            const probeQuery = query({
-                prompt: "",
-                options: probeOptions,
-            });
-
-            // Read the first message (should be system init)
-            for await (const msg of probeQuery) {
-                if (msg.type === "system" && msg.subtype === "init") {
-                    const systemMsg = msg as SDKSystemMessage;
-                    if (systemMsg.model) {
-                        this.detectedModel = systemMsg.model;
-                    }
-                }
-
-                // Capture contextWindow and systemToolsBaseline from result
-                if (msg.type === "result") {
-                    const result = msg as SDKResultMessage;
-                    if (result.modelUsage) {
-                        const modelKey =
-                            this.detectedModel ??
-                            Object.keys(result.modelUsage)[0];
-                        if (modelKey && result.modelUsage[modelKey]) {
-                            const mu = result.modelUsage[modelKey];
-                            if (mu.contextWindow != null) {
-                                this.probeContextWindow = mu.contextWindow;
-                                this.capturedModelContextWindows.set(
-                                    modelKey,
-                                    mu.contextWindow,
-                                );
-                            }
-                            this.probeSystemToolsBaseline =
-                                mu.cacheCreationInputTokens > 0
-                                    ? mu.cacheCreationInputTokens
-                                    : mu.cacheReadInputTokens;
-                        }
-                        for (const [key, mu] of Object.entries(
-                            result.modelUsage,
-                        )) {
-                            if (mu.contextWindow != null) {
-                                this.capturedModelContextWindows.set(
-                                    key,
-                                    mu.contextWindow,
-                                );
-                            }
-                        }
-                    }
-                    break;
-                }
-            }
-            probeQuery.close();
-        } catch {
-            // Probe failed - will fall back to "Claude" in getModelDisplayInfo
-        }
+        // Model detection, contextWindow, and systemToolsBaseline are captured
+        // from the first real query's system init and result messages via
+        // processMessage(). No startup probe needed — getModelDisplayInfo()
+        // falls back to "Claude" until the first query populates detectedModel.
     }
 
     /**

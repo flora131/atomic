@@ -284,6 +284,21 @@ try {
     Write-Success "Config files installed to ${DataDir}"
     Write-Success "Global agent configs synced to ${AtomicHome}"
 
+    # Persist prerelease channel preference in settings
+    $SettingsFile = Join-Path $AtomicHome "settings.json"
+    $PrereleaseValue = if ($Prerelease) { $true } else { $false }
+    if (Test-Path $SettingsFile) {
+        $Settings = Get-Content $SettingsFile -Raw | ConvertFrom-Json
+        $Settings | Add-Member -NotePropertyName "prerelease" -NotePropertyValue $PrereleaseValue -Force
+        $Settings | ConvertTo-Json -Depth 10 | Set-Content $SettingsFile -Encoding UTF8
+    } else {
+        $null = New-Item -ItemType Directory -Force -Path $AtomicHome
+        @{ prerelease = $PrereleaseValue } | ConvertTo-Json | Set-Content $SettingsFile -Encoding UTF8
+    }
+    if ($Prerelease) {
+        Write-Info "Prerelease channel enabled in ${SettingsFile}"
+    }
+
     # Update PATH
     if (-not $NoPathUpdate) {
         $UserPath = [System.Environment]::GetEnvironmentVariable('Path', 'User')

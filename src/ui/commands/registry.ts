@@ -75,6 +75,8 @@ export interface SpawnSubagentResult {
 export interface CommandContext {
   /** Active session for agent communication (may be null before first message) */
   session: Session | null;
+  /** Ensure an SDK session exists (creates one when missing) */
+  ensureSession?: () => Promise<void>;
   /** Current UI state (messages, streaming status, etc.) */
   state: CommandContextState;
   /** Helper to add a message to the chat */

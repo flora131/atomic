@@ -46,6 +46,11 @@
         "copilot": { "type": "string", "description": "Reasoning effort for GitHub Copilot." }
       },
       "additionalProperties": { "type": "string" }
+    },
+    "prerelease": {
+      "type": "boolean",
+      "description": "When true, 'atomic update' fetches the latest prerelease instead of the latest stable release. Set automatically by the installer when using the --prerelease flag.",
+      "default": false
     }
   },
   "additionalProperties": true

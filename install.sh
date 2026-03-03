@@ -346,6 +346,28 @@ main() {
     success "Config files installed to ${DATA_DIR}"
     success "Global agent configs synced to ${ATOMIC_HOME}"
 
+    # Persist prerelease channel preference in settings
+    local settings_file="${ATOMIC_HOME}/settings.json"
+    mkdir -p "$ATOMIC_HOME"
+    if [[ "$prerelease" == "true" ]]; then
+        local prerelease_value="true"
+    else
+        local prerelease_value="false"
+    fi
+    if [[ -f "$settings_file" ]]; then
+        if grep -q '"prerelease"' "$settings_file" 2>/dev/null; then
+            sed -i "s/\"prerelease\":[^,}]*/\"prerelease\": ${prerelease_value}/" "$settings_file"
+        else
+            # Insert before closing brace
+            sed -i "s/}$/,\n  \"prerelease\": ${prerelease_value}\n}/" "$settings_file"
+        fi
+    else
+        printf '{\n  "prerelease": %s\n}\n' "$prerelease_value" > "$settings_file"
+    fi
+    if [[ "$prerelease" == "true" ]]; then
+        info "Prerelease channel enabled in ${settings_file}"
+    fi
+
     # Update PATH in shell config
     if [[ ":$PATH:" != *":${BIN_DIR}:"* ]]; then
         local config_file

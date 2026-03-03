@@ -1560,9 +1560,13 @@ export class OpenCodeClient implements CodingAgentClient {
         const sessionSubagentState = parentSessionId
           ? this.getSubagentSessionState(parentSessionId)
           : this.createSubagentSessionState();
-        if (part?.type === "text") {
+        const normalizedPartType = typeof part?.type === "string"
+          ? part.type.toLowerCase()
+          : "";
+
+        if (normalizedPartType === "text") {
           // Text streaming is handled entirely by message.part.delta (v2).
-        } else if (part?.type === "reasoning") {
+        } else if (normalizedPartType === "reasoning" || normalizedPartType === "thinking") {
           // Register reasoning part IDs so message.part.delta can route
           // them as "thinking" content; streaming handled by that handler.
           const partId = (part?.id as string) ?? undefined;
@@ -1878,14 +1882,35 @@ export class OpenCodeClient implements CodingAgentClient {
         // v2 SDK sends incremental deltas via a separate event type instead of
         // including `delta` on `message.part.updated`.
         const partDelta = properties?.delta as string | undefined;
-        const partId = properties?.partID as string | undefined;
+        const partRecord = (
+          typeof properties?.part === "object"
+          && properties.part !== null
+          && !Array.isArray(properties.part)
+        )
+          ? properties.part as Record<string, unknown>
+          : undefined;
+        const partId = (
+          (properties?.partID as string | undefined)
+          ?? (properties?.partId as string | undefined)
+          ?? (partRecord?.id as string | undefined)
+        );
+        const field = properties?.field as string | undefined;
+        const inlinePartType = typeof partRecord?.type === "string"
+          ? partRecord.type.toLowerCase()
+          : undefined;
         const deltaSessionId = (properties?.sessionID as string) ?? "";
+        if (field && field !== "text") {
+          break;
+        }
         if (partDelta && partDelta.length > 0) {
-          if (partId && this.reasoningPartIds.has(partId)) {
+          const isReasoningDelta = inlinePartType === "reasoning"
+            || inlinePartType === "thinking"
+            || (partId ? this.reasoningPartIds.has(partId) : false);
+          if (isReasoningDelta) {
             this.emitEvent("message.delta", deltaSessionId, {
               delta: partDelta,
               contentType: "thinking",
-              thinkingSourceKey: partId,
+              thinkingSourceKey: partId ?? "reasoning",
             });
           } else {
             this.emitEvent("message.delta", deltaSessionId, {

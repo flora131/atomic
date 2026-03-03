@@ -284,7 +284,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
 
     // Start client and run MCP discovery concurrently
     const clientStartPromise = client.start();
-    const mcpDiscoveryPromise = Promise.resolve(discoverMcpConfigs());
+    const mcpDiscoveryPromise = discoverMcpConfigs();
 
     await clientStartPromise;
 

@@ -10,7 +10,6 @@
  */
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { SETTINGS_SCHEMA_URL } from "./settings-schema";
@@ -81,8 +80,7 @@ function loadSettingsFileSync(path: string): AtomicSettings {
 
 async function loadSettingsFile(path: string): Promise<AtomicSettings> {
   try {
-    const content = await readFile(path, "utf-8");
-    return JSON.parse(content) as AtomicSettings;
+    return await Bun.file(path).json() as AtomicSettings;
   } catch {
     // Silently fail (file doesn't exist or invalid JSON)
   }

@@ -7,7 +7,6 @@
  * Reference: specs/mcp-support-and-discovery.md section 5.2
  */
 
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { McpServerConfig } from "../sdk/types.ts";
 
@@ -15,9 +14,9 @@ import type { McpServerConfig } from "../sdk/types.ts";
  * Parse Claude Code MCP config (.mcp.json).
  * Format: { "mcpServers": { "<name>": { type?, command?, args?, env?, url?, headers? } } }
  */
-export function parseClaudeMcpConfig(filePath: string): McpServerConfig[] {
+export async function parseClaudeMcpConfig(filePath: string): Promise<McpServerConfig[]> {
   try {
-    const raw = readFileSync(filePath, "utf-8");
+    const raw = await Bun.file(filePath).text();
     const parsed = Bun.JSONC.parse(raw) as Record<string, unknown>;
     const mcpServers = parsed.mcpServers;
     if (!mcpServers || typeof mcpServers !== "object") return [];
@@ -42,9 +41,9 @@ export function parseClaudeMcpConfig(filePath: string): McpServerConfig[] {
  * Format: { "mcpServers": { "<name>": { type, command?, args?, env?, url?, headers?, cwd?, tools?, timeout? } } }
  * Maps "local" type to "stdio".
  */
-export function parseCopilotMcpConfig(filePath: string): McpServerConfig[] {
+export async function parseCopilotMcpConfig(filePath: string): Promise<McpServerConfig[]> {
   try {
-    const raw = readFileSync(filePath, "utf-8");
+    const raw = await Bun.file(filePath).text();
     const parsed = Bun.JSONC.parse(raw) as Record<string, unknown>;
     const mcpServers = parsed.mcpServers;
     if (!mcpServers || typeof mcpServers !== "object") return [];
@@ -77,9 +76,9 @@ export function parseCopilotMcpConfig(filePath: string): McpServerConfig[] {
  * Splits "command: string[]" into command (first) + args (rest).
  * Maps "environment" to "env".
  */
-export function parseOpenCodeMcpConfig(filePath: string): McpServerConfig[] {
+export async function parseOpenCodeMcpConfig(filePath: string): Promise<McpServerConfig[]> {
   try {
-    const raw = readFileSync(filePath, "utf-8");
+    const raw = await Bun.file(filePath).text();
     const parsed = Bun.JSONC.parse(raw) as Record<string, unknown>;
     const mcp = parsed.mcp;
     if (!mcp || typeof mcp !== "object") return [];
@@ -145,9 +144,30 @@ interface TaggedSource {
   ecosystem: ConfigEcosystem;
 }
 
-export function discoverMcpConfigs(cwd?: string, options: DiscoverMcpConfigsOptions = {}): McpServerConfig[] {
+export async function discoverMcpConfigs(cwd?: string, options: DiscoverMcpConfigsOptions = {}): Promise<McpServerConfig[]> {
   const projectRoot = cwd ?? process.cwd();
   const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? "";
+
+  // Fire all config reads concurrently with Bun.file()
+  const [
+    claudeUser, copilotUser, opencodeUserJson, opencodeUserJsonc,
+    claudeProject, copilotProject, copilotVscode, copilotRoot,
+    opencodeProjectJson, opencodeProjectJsonc,
+    opencodeProjectDirJson, opencodeProjectDirJsonc,
+  ] = await Promise.all([
+    parseClaudeMcpConfig(join(homeDir, ".claude", ".mcp.json")),
+    parseCopilotMcpConfig(join(homeDir, ".copilot", "mcp-config.json")),
+    parseOpenCodeMcpConfig(join(homeDir, ".opencode", "opencode.json")),
+    parseOpenCodeMcpConfig(join(homeDir, ".opencode", "opencode.jsonc")),
+    parseClaudeMcpConfig(join(projectRoot, ".mcp.json")),
+    parseCopilotMcpConfig(join(projectRoot, ".github", "mcp-config.json")),
+    parseCopilotMcpConfig(join(projectRoot, ".vscode", "mcp.json")),
+    parseCopilotMcpConfig(join(projectRoot, "mcp-config.json")),
+    parseOpenCodeMcpConfig(join(projectRoot, "opencode.json")),
+    parseOpenCodeMcpConfig(join(projectRoot, "opencode.jsonc")),
+    parseOpenCodeMcpConfig(join(projectRoot, ".opencode", "opencode.json")),
+    parseOpenCodeMcpConfig(join(projectRoot, ".opencode", "opencode.jsonc")),
+  ]);
 
   const sources: TaggedSource[] = [];
 
@@ -158,20 +178,20 @@ export function discoverMcpConfigs(cwd?: string, options: DiscoverMcpConfigsOpti
   }
 
   // User-level configs (lowest priority within each ecosystem)
-  addSources(parseClaudeMcpConfig(join(homeDir, ".claude", ".mcp.json")), "claude");
-  addSources(parseCopilotMcpConfig(join(homeDir, ".copilot", "mcp-config.json")), "copilot");
-  addSources(parseOpenCodeMcpConfig(join(homeDir, ".opencode", "opencode.json")), "opencode");
-  addSources(parseOpenCodeMcpConfig(join(homeDir, ".opencode", "opencode.jsonc")), "opencode");
+  addSources(claudeUser, "claude");
+  addSources(copilotUser, "copilot");
+  addSources(opencodeUserJson, "opencode");
+  addSources(opencodeUserJsonc, "opencode");
 
   // Project-level configs (override user-level within the same ecosystem)
-  addSources(parseClaudeMcpConfig(join(projectRoot, ".mcp.json")), "claude");
-  addSources(parseCopilotMcpConfig(join(projectRoot, ".github", "mcp-config.json")), "copilot");
-  addSources(parseCopilotMcpConfig(join(projectRoot, ".vscode", "mcp.json")), "copilot");
-  addSources(parseCopilotMcpConfig(join(projectRoot, "mcp-config.json")), "copilot");
-  addSources(parseOpenCodeMcpConfig(join(projectRoot, "opencode.json")), "opencode");
-  addSources(parseOpenCodeMcpConfig(join(projectRoot, "opencode.jsonc")), "opencode");
-  addSources(parseOpenCodeMcpConfig(join(projectRoot, ".opencode", "opencode.json")), "opencode");
-  addSources(parseOpenCodeMcpConfig(join(projectRoot, ".opencode", "opencode.jsonc")), "opencode");
+  addSources(claudeProject, "claude");
+  addSources(copilotProject, "copilot");
+  addSources(copilotVscode, "copilot");
+  addSources(copilotRoot, "copilot");
+  addSources(opencodeProjectJson, "opencode");
+  addSources(opencodeProjectJsonc, "opencode");
+  addSources(opencodeProjectDirJson, "opencode");
+  addSources(opencodeProjectDirJsonc, "opencode");
 
   // Deduplicate by name with ecosystem isolation.
   // A source can override the existing entry only if it is from the same ecosystem.

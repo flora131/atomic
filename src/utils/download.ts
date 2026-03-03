@@ -41,6 +41,7 @@ interface GitHubReleaseResponse {
   tag_name: string;
   published_at: string;
   body: string | null;
+  prerelease: boolean;
 }
 
 /**
@@ -81,6 +82,51 @@ export async function getLatestRelease(): Promise<ReleaseInfo> {
     tagName: data.tag_name,
     publishedAt: data.published_at,
     body: data.body || "",
+  };
+}
+
+/**
+ * Fetch the latest prerelease info from GitHub API.
+ *
+ * Queries the releases list and returns the first release marked as a prerelease.
+ *
+ * @returns Release information for the latest prerelease version
+ * @throws Error if no prerelease is found or the API request fails
+ */
+export async function getLatestPrerelease(): Promise<ReleaseInfo> {
+  const url = `https://api.github.com/repos/${GITHUB_REPO}/releases`;
+
+  const headers: Record<string, string> = {
+    Accept: "application/vnd.github.v3+json",
+  };
+
+  if (process.env.GITHUB_TOKEN) {
+    headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+  }
+
+  const response = await fetch(url, { headers });
+
+  if (!response.ok) {
+    if (response.status === 403) {
+      throw new Error(
+        "GitHub API rate limit exceeded. Set GITHUB_TOKEN environment variable to increase limit."
+      );
+    }
+    throw new Error(`Failed to fetch releases: ${response.status} ${response.statusText}`);
+  }
+
+  const releases = (await response.json()) as GitHubReleaseResponse[];
+  const prerelease = releases.find((r) => r.prerelease);
+
+  if (!prerelease) {
+    throw new Error("No prerelease found for this repository.");
+  }
+
+  return {
+    version: prerelease.tag_name.replace(/^v/, ""),
+    tagName: prerelease.tag_name,
+    publishedAt: prerelease.published_at,
+    body: prerelease.body || "",
   };
 }
 

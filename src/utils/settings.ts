@@ -18,6 +18,7 @@ interface AtomicSettings {
   $schema?: string;
   model?: Record<string, string>; // agentType -> modelId
   reasoningEffort?: Record<string, string>; // agentType -> effort level
+  prerelease?: boolean;
 }
 
 const CLAUDE_CANONICAL_MODELS = ["opus", "sonnet", "haiku"] as const;
@@ -158,4 +159,12 @@ export function clearReasoningEffortPreference(agentType: string): void {
   } catch {
     // Silently fail
   }
+}
+
+/**
+ * Get the prerelease channel preference.
+ * Only checks global settings (~/.atomic/settings.json) since this is an install-level setting.
+ */
+export function getPrereleasePreference(): boolean {
+  return loadSettingsFile(globalSettingsPath()).prerelease === true;
 }

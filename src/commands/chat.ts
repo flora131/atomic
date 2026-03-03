@@ -263,13 +263,25 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     // while the UI renders. ensureSession() awaits this before the first message.
     const clientStartPromise = client.start();
 
-    // Get model info immediately (uses fallback values if client isn't ready yet)
+    // For Copilot without an explicit model, wait for startup so we can resolve
+    // and display the SDK default model ID instead of a generic provider label.
+    if (agentType === "copilot" && !effectiveModel) {
+      await clientStartPromise;
+    }
+
+    // Get model info (uses fallback values if metadata is unavailable)
     const modelDisplayInfo = await client.getModelDisplayInfo(effectiveModel);
 
-    // For copilot, append reasoning effort to model display if the model supports it
+    // For copilot, append reasoning effort to model display.
+    // Use saved preference first; fall back to the model's default when the
+    // model supports reasoning but no explicit preference was persisted.
     let displayModelName = modelDisplayInfo.model;
-    if (agentType === "copilot" && effectiveReasoningEffort && modelDisplayInfo.supportsReasoning) {
-      displayModelName += ` (${effectiveReasoningEffort})`;
+    if (agentType === "copilot") {
+      const displayEffort = effectiveReasoningEffort
+        ?? (modelDisplayInfo.supportsReasoning ? modelDisplayInfo.defaultReasoningEffort : undefined);
+      if (displayEffort) {
+        displayModelName += ` (${displayEffort})`;
+      }
     }
 
     // Discover MCP server configs from all known config formats

@@ -200,6 +200,22 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   return undefined;
 }
 
+/**
+ * Check if a Copilot model's `supports` field indicates reasoning capability.
+ * Handles both array format (e.g., ["reasoning", "tools"]) and object format
+ * (e.g., { reasoningEffort: true }), matching the logic in model-transform.ts.
+ */
+function copilotModelSupportsReasoning(supports: unknown): boolean {
+  if (Array.isArray(supports)) {
+    return supports.includes("reasoning") || supports.includes("reasoningEffort");
+  }
+  if (typeof supports === "object" && supports !== null) {
+    const obj = supports as Record<string, unknown>;
+    return !!(obj.reasoningEffort ?? obj.reasoning);
+  }
+  return false;
+}
+
 function extractCopilotToolResult(result: unknown): unknown {
   const resultRecord = asRecord(result);
   if (!resultRecord) {
@@ -1086,7 +1102,7 @@ export class CopilotClient implements CodingAgentClient {
         }
         // Check if model supports reasoning effort
         const supports = caps?.supports as Record<string, unknown> | undefined;
-        modelSupportsReasoning = supports?.reasoningEffort === true;
+        modelSupportsReasoning = copilotModelSupportsReasoning(supports);
       }
     } catch {
       // Fall through - contextWindow stays null
@@ -1408,7 +1424,7 @@ export class CopilotClient implements CodingAgentClient {
    */
   async getModelDisplayInfo(
     modelHint?: string
-  ): Promise<{ model: string; tier: string; supportsReasoning?: boolean; contextWindow?: number }> {
+  ): Promise<{ model: string; tier: string; supportsReasoning?: boolean; defaultReasoningEffort?: string; contextWindow?: number }> {
     // Query SDK for model metadata - this is the authoritative source
     if (this.isRunning && this.sdkClient) {
       try {
@@ -1419,14 +1435,19 @@ export class CopilotClient implements CodingAgentClient {
             const hintModelId = stripProviderPrefix(modelHint);
             const matched = models.find((m: { id?: string }) => m.id === hintModelId || m.id === modelHint);
             if (matched) {
-              const caps = (matched as unknown as Record<string, unknown>).capabilities as Record<string, unknown> | undefined;
+              const meta = matched as unknown as Record<string, unknown>;
+              const caps = meta.capabilities as Record<string, unknown> | undefined;
               const supports = caps?.supports as Record<string, unknown> | undefined;
               const limits = caps?.limits as Record<string, unknown> | undefined;
               const ctxWindow = limits?.max_context_window_tokens as number | undefined;
+              const supportsReasoning = copilotModelSupportsReasoning(supports);
               return {
                 model: matched.id ?? "Copilot",
                 tier: "GitHub Copilot",
-                supportsReasoning: supports?.reasoningEffort === true,
+                supportsReasoning,
+                ...(supportsReasoning && meta.defaultReasoningEffort
+                  ? { defaultReasoningEffort: meta.defaultReasoningEffort as string }
+                  : {}),
                 contextWindow: ctxWindow,
               };
             }
@@ -1434,14 +1455,19 @@ export class CopilotClient implements CodingAgentClient {
           // No hint or hint not found - use the first model's raw ID
           const firstModel = models[0] as { name?: string; id?: string } | undefined;
           if (firstModel) {
-            const caps = (firstModel as unknown as Record<string, unknown>).capabilities as Record<string, unknown> | undefined;
+            const meta = firstModel as unknown as Record<string, unknown>;
+            const caps = meta.capabilities as Record<string, unknown> | undefined;
             const supports = caps?.supports as Record<string, unknown> | undefined;
             const limits = caps?.limits as Record<string, unknown> | undefined;
             const ctxWindow = limits?.max_context_window_tokens as number | undefined;
+            const supportsReasoning = copilotModelSupportsReasoning(supports);
             return {
               model: firstModel.id ?? "Copilot",
               tier: "GitHub Copilot",
-              supportsReasoning: supports?.reasoningEffort === true,
+              supportsReasoning,
+              ...(supportsReasoning && meta.defaultReasoningEffort
+                ? { defaultReasoningEffort: meta.defaultReasoningEffort as string }
+                : {}),
               contextWindow: ctxWindow,
             };
           }

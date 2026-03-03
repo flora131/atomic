@@ -1425,6 +1425,56 @@ describe("OpenCodeStreamAdapter", () => {
     expect(events.some((e) => e.type === "stream.thinking.complete" && e.data.sourceKey === "reasoning-1")).toBe(true);
   });
 
+  test("treats message.delta contentType=reasoning as thinking", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+    const adapterWithClient = new OpenCodeStreamAdapter(bus, "test-session-123", client);
+
+    const stream = mockAsyncStream([{ type: "text", content: "done" }]);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapterWithClient.startStreaming(session, "test message", {
+      runId: 42,
+      messageId: "msg-opencode-reasoning-content-type",
+    });
+
+    client.emit("message.delta" as EventType, {
+      type: "message.delta",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        delta: "reasoning via content type",
+        contentType: "reasoning",
+        thinkingSourceKey: "reasoning-content-type-1",
+      },
+    } as AgentEvent<"message.delta">);
+
+    client.emit("message.complete" as EventType, {
+      type: "message.complete",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        message: "",
+      },
+    } as AgentEvent<"message.complete">);
+
+    await streamPromise;
+
+    expect(
+      events.some(
+        (event) => event.type === "stream.thinking.delta"
+          && event.data.sourceKey === "reasoning-content-type-1"
+          && event.data.delta === "reasoning via content type",
+      ),
+    ).toBe(true);
+    expect(
+      events.some(
+        (event) => event.type === "stream.text.delta"
+          && event.data.delta === "reasoning via content type",
+      ),
+    ).toBe(false);
+  });
+
   test("bridges callId-first subagent.start to later Task toolUseId and preserves a single canonical correlation", async () => {
     const events = collectEvents(bus);
     const client = createMockClient();

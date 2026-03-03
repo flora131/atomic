@@ -798,10 +798,13 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
       if (this.abortController?.signal.aborted) return;
 
       const { delta, contentType, thinkingSourceKey } = event.data;
+      const normalizedContentType = typeof contentType === "string"
+        ? contentType.trim().toLowerCase()
+        : "";
 
       if (!delta || delta.length === 0) return;
 
-      if (contentType === "thinking") {
+      if (normalizedContentType === "thinking" || normalizedContentType === "reasoning") {
         const sourceKey = thinkingSourceKey ?? "default";
 
         if (!this.thinkingBlocks.has(sourceKey)) {

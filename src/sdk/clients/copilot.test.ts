@@ -743,6 +743,123 @@ describe("CopilotClient stream() filters sub-agent deltas", () => {
   });
 });
 
+describe("CopilotClient model switch event deduplication", () => {
+  interface MockSessionEvent {
+    id?: string;
+    type: string;
+    data: Record<string, unknown>;
+  }
+
+  function createMockSdkSession(sessionId: string) {
+    const listeners = new Set<(event: MockSessionEvent) => void>();
+
+    return {
+      sessionId,
+      on: mock((handler: (event: MockSessionEvent) => void) => {
+        listeners.add(handler);
+        return () => {
+          listeners.delete(handler);
+        };
+      }),
+      send: mock(() => Promise.resolve()),
+      sendAndWait: mock(() => Promise.resolve({ data: { content: "" } })),
+      destroy: mock(() => Promise.resolve()),
+      abort: mock(() => Promise.resolve()),
+      emit(event: MockSessionEvent): void {
+        for (const listener of listeners) {
+          listener(event);
+        }
+      },
+    };
+  }
+
+  test("ignores stale pre-switch session events after setActiveSessionModel", async () => {
+    const client = new CopilotClient({});
+    const initialSdkSession = createMockSdkSession("copilot-model-switch");
+    const resumedSdkSession = createMockSdkSession("copilot-model-switch");
+
+    const wrapSession = (client as unknown as {
+      wrapSession: (sdkSession: unknown, config: Record<string, unknown>) => { id: string };
+    }).wrapSession.bind(client);
+    wrapSession(initialSdkSession, {});
+
+    const mutableClient = client as unknown as {
+      sdkClient: {
+        resumeSession: (
+          sessionId: string,
+          config: Record<string, unknown>,
+        ) => Promise<unknown>;
+      } | null;
+      isRunning: boolean;
+    };
+    mutableClient.sdkClient = {
+      resumeSession: mock(async () => resumedSdkSession),
+    };
+    mutableClient.isRunning = true;
+
+    const deltas: string[] = [];
+    client.on("message.delta", (event) => {
+      const delta = (event.data as { delta?: unknown }).delta;
+      if (typeof delta === "string") {
+        deltas.push(delta);
+      }
+    });
+
+    await client.setActiveSessionModel("openai/gpt-4o");
+
+    initialSdkSession.emit({
+      id: "evt-stale",
+      type: "assistant.message_delta",
+      data: {
+        messageId: "message-1",
+        deltaContent: "stale-delta",
+      },
+    });
+    resumedSdkSession.emit({
+      id: "evt-fresh",
+      type: "assistant.message_delta",
+      data: {
+        messageId: "message-1",
+        deltaContent: "fresh-delta",
+      },
+    });
+
+    expect(deltas).toEqual(["fresh-delta"]);
+  });
+
+  test("suppresses duplicate SDK events with the same event id", () => {
+    const client = new CopilotClient({});
+    const sdkSession = createMockSdkSession("copilot-dedup");
+
+    const wrapSession = (client as unknown as {
+      wrapSession: (sdkSession: unknown, config: Record<string, unknown>) => { id: string };
+    }).wrapSession.bind(client);
+    wrapSession(sdkSession, {});
+
+    const deltas: string[] = [];
+    client.on("message.delta", (event) => {
+      const delta = (event.data as { delta?: unknown }).delta;
+      if (typeof delta === "string") {
+        deltas.push(delta);
+      }
+    });
+
+    const duplicateEvent: MockSessionEvent = {
+      id: "evt-dup",
+      type: "assistant.message_delta",
+      data: {
+        messageId: "message-2",
+        deltaContent: "hello",
+      },
+    };
+
+    sdkSession.emit(duplicateEvent);
+    sdkSession.emit(duplicateEvent);
+
+    expect(deltas).toEqual(["hello"]);
+  });
+});
+
 describe("CopilotClient error propagation", () => {
   test("maps structured session.error payloads to readable error strings", () => {
     const client = new CopilotClient({});

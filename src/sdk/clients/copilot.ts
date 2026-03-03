@@ -121,6 +121,10 @@ interface CopilotSessionState {
   outputTokens: number;
   isClosed: boolean;
   unsubscribe: () => void;
+  /** Recent SDK event IDs for duplicate suppression */
+  recentEventIds: Set<string>;
+  /** FIFO queue backing recentEventIds */
+  recentEventOrder: string[];
   /** Maps toolCallId to toolName for tool.execution_complete events */
   toolCallIdToName: Map<string, string>;
   /** Context window size resolved from listModels() */
@@ -128,6 +132,8 @@ interface CopilotSessionState {
   /** Token count for system prompt + tools baseline */
   systemToolsBaseline: number | null;
 }
+
+const RECENT_EVENT_ID_WINDOW = 2048;
 
 /**
  * Resolve the session ID used for user-input (HITL) events.
@@ -388,6 +394,59 @@ export class CopilotClient implements CodingAgentClient {
   }
 
   /**
+   * Subscribe to SDK session events with stale-session guarding.
+   *
+   * During model switches, Copilot sessions can be rebound via resumeSession().
+   * Guarding by object identity ensures stale listeners from pre-switch session
+   * objects cannot forward duplicate events into the unified event bus.
+   */
+  private subscribeSessionEvents(
+    sessionId: string,
+    sdkSession: SdkCopilotSession,
+  ): () => void {
+    return sdkSession.on((event: SdkSessionEvent) => {
+      const activeState = this.sessions.get(sessionId);
+      if (activeState && (activeState.isClosed || activeState.sdkSession !== sdkSession)) {
+        return;
+      }
+      this.handleSdkEvent(sessionId, event);
+    });
+  }
+
+  /**
+   * Track event IDs to suppress duplicate SDK deliveries.
+   */
+  private isDuplicateSdkEvent(
+    state: CopilotSessionState | undefined,
+    event: SdkSessionEvent,
+  ): boolean {
+    if (!state) {
+      return false;
+    }
+
+    const eventId = asNonEmptyString((event as Record<string, unknown>).id);
+    if (!eventId) {
+      return false;
+    }
+
+    if (state.recentEventIds.has(eventId)) {
+      return true;
+    }
+
+    state.recentEventIds.add(eventId);
+    state.recentEventOrder.push(eventId);
+
+    if (state.recentEventOrder.length > RECENT_EVENT_ID_WINDOW) {
+      const staleEventId = state.recentEventOrder.shift();
+      if (staleEventId) {
+        state.recentEventIds.delete(staleEventId);
+      }
+    }
+
+    return false;
+  }
+
+  /**
    * Wrap a Copilot SDK session into a unified Session interface
    */
   private wrapSession(
@@ -397,9 +456,7 @@ export class CopilotClient implements CodingAgentClient {
     const sessionId = sdkSession.sessionId;
 
     // Subscribe to all session events
-    const unsubscribe = sdkSession.on((event: SdkSessionEvent) => {
-      this.handleSdkEvent(sessionId, event);
-    });
+    const unsubscribe = this.subscribeSessionEvents(sessionId, sdkSession);
 
     const state: CopilotSessionState = {
       sdkSession,
@@ -409,6 +466,8 @@ export class CopilotClient implements CodingAgentClient {
       outputTokens: 0,
       isClosed: false,
       unsubscribe,
+      recentEventIds: new Set(),
+      recentEventOrder: [],
       toolCallIdToName: new Map(),
       contextWindow: null,
       systemToolsBaseline: null,
@@ -678,6 +737,10 @@ export class CopilotClient implements CodingAgentClient {
    */
   private handleSdkEvent(sessionId: string, event: SdkSessionEvent): void {
     const state = this.sessions.get(sessionId);
+
+    if (this.isDuplicateSdkEvent(state, event)) {
+      return;
+    }
 
     // Track token usage from usage events (per-API-call totals, not deltas)
     if (event.type === "assistant.usage" && state) {
@@ -1257,9 +1320,7 @@ export class CopilotClient implements CodingAgentClient {
         ? { reasoningEffort: options.reasoningEffort }
         : {}),
     };
-    activeState.unsubscribe = resumedSession.on((event: SdkSessionEvent) => {
-      this.handleSdkEvent(activeState.sessionId, event);
-    });
+    activeState.unsubscribe = this.subscribeSessionEvents(activeState.sessionId, resumedSession);
   }
 
   /**

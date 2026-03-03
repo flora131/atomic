@@ -159,6 +159,13 @@ import {
   rejectPendingWorkflowInput,
   type WorkflowInputResolver,
 } from "./utils/workflow-input-resolver.ts";
+import {
+  createLoadedSkillTrackingSet,
+  normalizeSessionTrackingKey,
+  normalizeSkillTrackingKey,
+  shouldResetLoadedSkillsForSessionChange,
+  tryTrackLoadedSkill,
+} from "./utils/skill-load-tracking.ts";
 import type {
   Part,
   StreamPartEvent,
@@ -978,6 +985,10 @@ export interface ChatMessage {
   spinnerVerb?: string;
 }
 
+function createLoadedSkillsSetFromMessages(messages: readonly ChatMessage[]): Set<string> {
+  return createLoadedSkillTrackingSet(messages);
+}
+
 /**
  * Tool start event callback signature.
  */
@@ -1299,6 +1310,39 @@ export function createMessage(
     streaming,
     parts,
   };
+}
+
+function appendSkillLoadToLatestAssistantMessage(
+  messages: ChatMessage[],
+  skillLoad: MessageSkillLoad,
+): ChatMessage[] {
+  const normalizedSkillKey = normalizeSkillTrackingKey(skillLoad.skillName);
+  if (normalizedSkillKey.length === 0) {
+    return messages;
+  }
+
+  const lastMsg = messages[messages.length - 1];
+  if (lastMsg && lastMsg.role === "assistant") {
+    const existingLoads = lastMsg.skillLoads ?? [];
+    const hasExistingSkill = existingLoads.some(
+      (existingLoad) => normalizeSkillTrackingKey(existingLoad.skillName) === normalizedSkillKey,
+    );
+    if (hasExistingSkill) {
+      return messages;
+    }
+
+    return [
+      ...messages.slice(0, -1),
+      {
+        ...lastMsg,
+        skillLoads: [...existingLoads, skillLoad],
+      },
+    ];
+  }
+
+  const msg = createMessage("assistant", "");
+  msg.skillLoads = [skillLoad];
+  return [...messages, msg];
 }
 
 function appendUniqueMessagesById(existing: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
@@ -1884,10 +1928,42 @@ function getRenderableAssistantParts(
   isLastMessage: boolean,
   hideAskUserQuestion: boolean,
 ): Part[] {
-  let parts = [...(message.parts ?? [])];
+  const skillIndicatorKeys = new Set(
+    (message.skillLoads ?? [])
+      .map((skillLoad) => normalizeSkillTrackingKey(skillLoad.skillName))
+      .filter((key) => key.length > 0),
+  );
+
+  const shouldHideSkillToolIndicator = (toolName: string, input: Record<string, unknown>): boolean => {
+    if (toolName.trim().toLowerCase() !== "skill") {
+      return false;
+    }
+    if (skillIndicatorKeys.size === 0) {
+      return false;
+    }
+    const rawSkillName = typeof input.skill === "string"
+      ? input.skill
+      : (typeof input.name === "string" ? input.name : "");
+    const key = normalizeSkillTrackingKey(rawSkillName);
+    if (key.length === 0) {
+      return true;
+    }
+    return skillIndicatorKeys.has(key);
+  };
+
+  let parts = [...(message.parts ?? [])].filter((part) => {
+    if (part.type !== "tool") {
+      return true;
+    }
+    const toolPart = part as ToolPart;
+    return !shouldHideSkillToolIndicator(toolPart.toolName, toolPart.input);
+  });
 
   // Keep ToolPart state synchronized with the source toolCalls array.
-  parts = syncToolCallsIntoParts(parts, message.toolCalls ?? [], message.timestamp, message.id);
+  const visibleToolCalls = (message.toolCalls ?? []).filter(
+    (toolCall) => !shouldHideSkillToolIndicator(toolCall.toolName, toolCall.input),
+  );
+  parts = syncToolCallsIntoParts(parts, visibleToolCalls, message.timestamp, message.id);
 
   const effectiveParallelAgents = message.parallelAgents;
   if (effectiveParallelAgents && effectiveParallelAgents.length > 0) {
@@ -2549,7 +2625,8 @@ export function ChatApp({
   const [agentAnchorSyncVersion, setAgentAnchorSyncVersion] = useState(0);
   // Incremented when message-window overflow eviction happens.
   // Tracks which skills have been loaded in the current session to avoid duplicate indicators.
-  const loadedSkillsRef = useRef<Set<string>>(new Set());
+  const loadedSkillsRef = useRef<Set<string>>(createLoadedSkillsSetFromMessages(initialMessages));
+  const activeSkillSessionIdRef = useRef<string | null>(null);
   // Ref for scrollbox to enable programmatic scrolling
   const scrollboxRef = useRef<ScrollBoxRenderable>(null);
   // Ref for deferred queue dispatch without circular callback deps
@@ -2581,6 +2658,15 @@ export function ChatApp({
     if (backgroundAgentMessageIdRef.current === messageId) return;
     backgroundAgentMessageIdRef.current = messageId;
     setAgentAnchorSyncVersion((version) => version + 1);
+  }, []);
+
+  const resetLoadedSkillTracking = useCallback((options?: {
+    resetSessionBinding?: boolean;
+  }) => {
+    loadedSkillsRef.current.clear();
+    if (options?.resetSessionBinding) {
+      activeSkillSessionIdRef.current = null;
+    }
   }, []);
 
   const setAgentMessageBinding = useCallback((agentId: string, messageId: string): void => {
@@ -2810,6 +2896,10 @@ export function ChatApp({
     setMessages(next);
   }, []);
 
+  const appendSkillLoadIndicator = useCallback((skillLoad: MessageSkillLoad) => {
+    setMessagesWindowed((prev) => appendSkillLoadToLatestAssistantMessage(prev, skillLoad));
+  }, [setMessagesWindowed]);
+
   const sendBackgroundMessageToAgent = useCallback((content: string) => {
     const trimmed = content.trim();
     if (!trimmed) return;
@@ -2966,6 +3056,7 @@ export function ChatApp({
       }
     } else if (next.status === "completed") {
       setIsAutoCompacting(false);
+      resetLoadedSkillTracking();
       // Compaction succeeded: persist current messages as summary to history buffer,
       // then clear chat and create a fresh streaming message so the active stream
       // continues seamlessly into the new (compacted) context.
@@ -3837,6 +3928,14 @@ export function ChatApp({
   // and Copilot adapters.  Claude sessions never fire these, so the handlers
   // are defensive (guard on isStreamingRef).
   useBusSubscription("stream.session.start", (event) => {
+    const nextSessionId = normalizeSessionTrackingKey(event.sessionId);
+    if (shouldResetLoadedSkillsForSessionChange(activeSkillSessionIdRef.current, nextSessionId)) {
+      resetLoadedSkillTracking();
+    }
+    if (nextSessionId) {
+      activeSkillSessionIdRef.current = nextSessionId;
+    }
+
     if (!isStreamingRef.current) {
       return;
     }
@@ -4710,24 +4809,12 @@ export function ChatApp({
 
   useBusSubscription("stream.skill.invoked", (event) => {
     const { skillName } = event.data;
-    if (loadedSkillsRef.current.has(skillName)) return;
-    loadedSkillsRef.current.add(skillName);
+    if (!tryTrackLoadedSkill(loadedSkillsRef.current, skillName)) return;
     const skillLoad: MessageSkillLoad = {
       skillName,
       status: "loaded",
     };
-    setMessagesWindowed((prev) => {
-      const lastMsg = prev[prev.length - 1];
-      if (lastMsg && lastMsg.role === "assistant") {
-        return [
-          ...prev.slice(0, -1),
-          { ...lastMsg, skillLoads: [...(lastMsg.skillLoads || []), skillLoad] },
-        ];
-      }
-      const msg = createMessage("assistant", "");
-      msg.skillLoads = [skillLoad];
-      return [...prev, msg];
-    });
+    appendSkillLoadIndicator(skillLoad);
   });
 
   // Keep live sub-agent updates anchored to the active streaming message so
@@ -5780,6 +5867,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         if (onResetSession) {
           await onResetSession();
         }
+        resetLoadedSkillTracking({ resetSessionBinding: true });
         setMessagesWindowed((prev) => {
           appendHistoryBufferAndSync(prev);
           return [];
@@ -5896,7 +5984,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         backgroundProgressSnapshotRef.current.clear();
         setTranscriptMode(false);
         clearHistoryBufferAndSync();
-        loadedSkillsRef.current.clear();
+        resetLoadedSkillTracking({ resetSessionBinding: true });
         // Reset workflow state on /clear (Copilot only)
         if (agentType === "copilot") {
           setWorkflowSessionDir(null);
@@ -5916,6 +6004,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       if (result.clearMessages) {
         const shouldResetHistory = result.destroySession || Boolean(result.compactionSummary);
         if (shouldResetHistory) {
+          resetLoadedSkillTracking();
           if (result.compactionSummary) {
             appendCompactionSummaryAndSync(result.compactionSummary);
           } else {
@@ -5991,25 +6080,13 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       }
 
       // Track skill load in message for UI indicator (with session-level deduplication)
-      if (result.skillLoaded && !loadedSkillsRef.current.has(result.skillLoaded)) {
-        loadedSkillsRef.current.add(result.skillLoaded);
+      if (result.skillLoaded && tryTrackLoadedSkill(loadedSkillsRef.current, result.skillLoaded)) {
         const skillLoad: MessageSkillLoad = {
           skillName: result.skillLoaded,
           status: result.skillLoadError ? "error" : "loaded",
           errorMessage: result.skillLoadError,
         };
-        setMessagesWindowed((prev) => {
-          const lastMsg = prev[prev.length - 1];
-          if (lastMsg && lastMsg.role === "assistant") {
-            return [
-              ...prev.slice(0, -1),
-              { ...lastMsg, skillLoads: [...(lastMsg.skillLoads || []), skillLoad] },
-            ];
-          }
-          const msg = createMessage("assistant", "");
-          msg.skillLoads = [skillLoad];
-          return [...prev, msg];
-        });
+        appendSkillLoadIndicator(skillLoad);
       }
 
       // Handle exit command

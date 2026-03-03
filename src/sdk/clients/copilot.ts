@@ -33,8 +33,7 @@
  * - Event subscription tied to SDK session lifecycle
  */
 
-import { existsSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { existsSync, realpathSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
@@ -1497,13 +1496,7 @@ export function createDenyAllPermissionHandler(): CopilotPermissionHandler {
  * Returns undefined if Node.js is not found.
  */
 export function resolveNodePath(): string | undefined {
-  try {
-    const cmd = process.platform === "win32" ? "where node" : "which node";
-    const nodePath = execSync(cmd, { encoding: "utf-8" }).trim().split(/\r?\n/)[0]?.replace(/\r$/, "");
-    return nodePath || undefined;
-  } catch {
-    return undefined;
-  }
+  return Bun.which("node") ?? undefined;
 }
 
 /**
@@ -1533,11 +1526,9 @@ export function getBundledCopilotCliPath(): string {
   // @github/copilot is a direct dependency of @github/copilot-sdk.
   try {
     const copilotSdkUrl = import.meta.resolve("@github/copilot-sdk");
-    const copilotSdkDir = dirname(fileURLToPath(copilotSdkUrl));
-    // Navigate from copilot-sdk's dist/ up to its package root's node_modules
-    const copilotPkgPath = require.resolve("@github/copilot/sdk", {
-      paths: [join(copilotSdkDir, "..")],
-    });
+    // Resolve @github/copilot as if importing from @github/copilot-sdk.
+    const copilotPkgUrl = import.meta.resolve("@github/copilot/sdk", copilotSdkUrl);
+    const copilotPkgPath = fileURLToPath(copilotPkgUrl);
     const indexPath = join(dirname(dirname(copilotPkgPath)), "index.js");
     if (existsSync(indexPath)) return indexPath;
   } catch {
@@ -1549,13 +1540,8 @@ export function getBundledCopilotCliPath(): string {
   // For standalone installs (Homebrew, install script, winget), return the binary directly
   // — the SDK handles non-.js cliPaths by spawning them as executables.
   try {
-    const cmd = process.platform === "win32" ? "where copilot" : "which copilot";
-    const copilotBin = execSync(cmd, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] })
-      .trim()
-      .split(/\r?\n/)[0]
-      ?.replace(/\r$/, "");
+    const copilotBin = Bun.which("copilot");
     if (copilotBin) {
-      const { realpathSync } = require("node:fs") as typeof import("node:fs");
       const realPath = realpathSync(copilotBin);
       const pkgDir = dirname(realPath);
       const indexPath = join(pkgDir, "index.js");

@@ -106,7 +106,7 @@ describe("compact slash command e2e parity", () => {
     "provider %s: long-chat compact lifecycle preserves summary then continued history",
     async (provider) => {
       appendToHistoryBuffer(makeChatMessages(120, "long"));
-      expect(readHistoryBuffer()).toHaveLength(120);
+      expect(await readHistoryBuffer()).toHaveLength(120);
 
       const { result } = await executeCompactSlashCommand(provider, async () => {});
       expect(result.success).toBe(true);
@@ -121,14 +121,14 @@ describe("compact slash command e2e parity", () => {
         }
       }
 
-      const compactedHistory = readHistoryBuffer();
+      const compactedHistory = await readHistoryBuffer();
       expect(compactedHistory).toHaveLength(1);
       expect(compactedHistory[0]?.id).toMatch(/^compact_/);
       expect(compactedHistory[0]?.role).toBe("assistant");
       expect(compactedHistory[0]?.content).toContain("Conversation context was compacted");
 
       appendToHistoryBuffer(makeChatMessages(12, "post"));
-      const continuedHistory = readHistoryBuffer();
+      const continuedHistory = await readHistoryBuffer();
       expect(continuedHistory).toHaveLength(13);
       expect(continuedHistory[0]?.id).toMatch(/^compact_/);
       expect(continuedHistory[1]?.id).toBe("post1");

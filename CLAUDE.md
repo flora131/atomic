@@ -1,105 +1,68 @@
-# Atomic CLI
+# Atomic
 
 ## Overview
 
-This project is a TUI application built on OpenTUI and powered in the backend by coding agent SDKs: OpenCode SDK, Claude Agent SDK, and Copilot SDK.
+Atomic is a TUI-based CLI for AI-assisted software development, providing a chat interface that orchestrates coding agents (Claude Code, OpenCode, GitHub Copilot CLI) with research, spec, and autonomous implementation workflows.
 
-It works out of the box by reading and configuring `.claude`, `.opencode`, `.github` configurations for the Claude Code, OpenCode, and Copilot CLI coding agents and allowing users to build powerful agent workflows defined by TypeScript files.
+## Project Structure
 
-## Tech Stack
-
-- bun.js for the runtime
-- TypeScript
-- @clack/prompts for CLI prompts
-- figlet for ASCII art
-- OpenTUI for tui components
-- OpenCode SDK
-- Claude Agent SDK
-- Copilot SDK
+| Path | Type | Purpose |
+| ---- | ---- | ------- |
+| `src/cli.ts` | entry | CLI entry point and command registration |
+| `src/commands/` | dir | CLI command implementations (`chat`, `init`, `config`, etc.) |
+| `src/config/` | dir | Configuration loading and merging |
+| `src/sdk/` | dir | SDK adapters for OpenCode, Claude, and Copilot agents |
+| `src/ui/` | dir | TUI components, slash commands, tools, and utils |
+| `src/workflows/` | dir | Workflow definitions (Ralph graph workflow) |
+| `src/telemetry/` | dir | Anonymous telemetry and monitoring |
+| `src/models/` | dir | Model management |
+| `src/utils/` | dir | Shared utilities |
+| `docs/` | dir | Developer and author documentation |
+| `specs/` | dir | Feature spec files |
+| `research/` | dir | Codebase research output |
+| `.claude/` | dir | Claude Code agent config and skills |
+| `.opencode/` | dir | OpenCode agent config and skills |
+| `.github/` | dir | Copilot CLI config, skills, and agents (ignore `workflows/` and `dependabot.yml`) |
 
 ## Quick Reference
 
-### Commands by Workspace
+### Commands
 
-Default to using Bun instead of Node.js.
-
-- Use `bun <file>` instead of `node <file>` or `ts-node <file>`
-- Use `bun test` instead of `jest` or `vitest`
-- Use `bun lint` to run the linters
-- Use `bun typecheck` to run TypeScript type checks
-- Use `bun build <file.html|file.ts|file.css>` instead of `webpack` or `esbuild`
-- Use `bun install` instead of `npm install` or `yarn install` or `pnpm install`
-- Use `bun run <script>` instead of `npm run <script>` or `yarn run <script>` or `pnpm run <script>`
-- Use `bunx <package> <command>` instead of `npx <package> <command>`
-- Bun automatically loads `.env`, so don't use `dotenv`.
-
-## Best Practices
-
-- Avoid ambiguous types like `any` and `unknown`. Use specific types instead.
-
-## Testing
-
-Use `bun test` to run tests.
-
-```ts#index.test.ts
-import { test, expect } from "bun:test";
-
-test("hello world", () => {
-  expect(1).toBe(1);
-});
+```bash
+bun run dev          # Run CLI in development mode
+bun run build        # Compile to standalone binary
+bun test             # Run all tests
+bun run lint         # Lint with oxlint
+bun run typecheck    # TypeScript type-check
+bun run lint:fix     # Auto-fix lint issues
 ```
 
-### Code Quality
+## Progressive Disclosure
 
-- Frequently run linters and type checks using `bun lint` and `bun typecheck`.
-- Avoid Any and Unknown types.
-- Modularize code and avoid re-inventing the wheel. Use functionality of libraries and SDKs whenever possible.
+| Topic | Location |
+| ----- | -------- |
+| Dev setup & testing | `DEV_SETUP.md` |
+| Workflow authoring | `docs/workflow-authors-getting-started.md` |
+| UI design patterns | `docs/ui-design-patterns.md` |
+| E2E testing | `docs/e2e-testing.md` |
+| Claude Agent SDK | `docs/claude-agent-sdk.md` |
+| Copilot CLI | `docs/copilot-cli/` |
+| Style guide | `docs/style-guide.md` |
 
-### E2E Tests
+## Universal Rules
 
-Strictly follow the guidelines in the [E2E Testing](docs/e2e-testing.md) doc.
+1. Run `bun run typecheck && bun run lint && bun test --bail` before commits
+2. Keep PRs focused on a single concern
+3. Colocate `*.test.ts` files next to the source file they test
+4. Avoid `any` and `unknown` types — use specific types
+5. Always use `bun` — never `node`, `npm`, `npx`, `yarn`, or `pnpm`
+6. Use Claude Agent SDK v1 (v2 is unstable)
+7. Use DeepWiki (`ask_question` tool) for SDK repos: `anomalyco/opencode`, `anomalyco/opentui`, `github/copilot-sdk`
 
-## Debugging
+## Code Quality
 
-You are bound to run into errors when testing. As you test and run into issues/edges cases, address issues in a file you create called `issues.md` to track progress and support future iterations. Delegate to the debugging sub-agent for support. Delete the file when all issues are resolved to keep the repository clean.
+- `bun run lint` — oxlint (configured via `oxlint.json`)
+- `bun run lint:fix` — auto-fix lint issues
+- `bun run typecheck` — tsc --noEmit
 
-### UI Issues
-
-Fix UI issues by referencing your frontend-design skill and referencing the experience of other coding agents like Claude Code with the `tmux-cli` tool (e.g. run `claude` in a `tmux` session using the `tmux-cli` tool).
-
-## Docs
-
-Relevant resources (use the deepwiki mcp `ask_question` tool for repos):
-
-1. OpenCode SDK / OpenCode repo: `anomalyco/opencode`
-2. OpenTUI repo: `anomalyco/opentui`
-3. Copilot:
-    1. SDK repo: `github/copilot-sdk`
-    2. [CLI](docs/copilot-cli/usage.md)
-        1. [Hooks](docs/copilot-cli/hooks.md)
-        2. [Skills](docs/copilot-cli/skills.md)
-4. [Claude Agent SDK](docs/claude-agent-sdk.md)
-    - v1 preferred (v2 is unstable and has many bugs)
-
-### Coding Agent Configuration Locations
-
-1. OpenCode:
-    - global: `~/.opencode`
-    - local: `.opencode` in the project directory
-2. Claude Code:
-    - global: `~/.claude`
-    - local: `.claude` in the project directory
-3. Copilot CLI:
-    - global: `~/.config/.copilot`
-    - local: `.github` in the project directory
-
-## Tips
-
-1. Note: for the `.github` config for GitHub Copilot CLI, ignore the `.github/workflows` and `.github/dependabot.yml` files as they are NOT for Copilot CLI.
-2. Use many research sub-agents in parallel for documentation overview to avoid populating your entire
-   context window. Spawn as many sub-agents as you need. You are an agent and can execute tasks until you
-   believe you are finished with the task even if it takes hundreds of iterations.
-
-<EXTREMELY_IMPORTANT>
-This is a `bun` project. Do NOT use `node`, `npm`, `npx`, `yarn`, or `pnpm` commands. Always use `bun` commands.
-</EXTREMELY_IMPORTANT>
+Pre-commit hooks run typecheck + lint + tests automatically via Lefthook.

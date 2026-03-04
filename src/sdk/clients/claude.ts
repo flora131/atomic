@@ -58,6 +58,7 @@ import { stripProviderPrefix } from "../types.ts";
 import { initClaudeOptions } from "../init.ts";
 import { loadCopilotAgents } from "../../config/copilot-manual.ts";
 import { existsSync, realpathSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -2471,6 +2472,132 @@ export function createClaudeAgentClient(): ClaudeAgentClient {
 }
 
 /**
+ * Dependencies used to resolve the Claude Code executable path.
+ * Exported for deterministic unit testing.
+ */
+export interface ClaudeExecutablePathResolutionOptions {
+    platform: NodeJS.Platform;
+    homeDir: string;
+    claudeFromPath: string | null;
+    sdkCliPath: string | null;
+    envOverridePath: string | null;
+    pathExists: (path: string) => boolean;
+    resolveRealPath: (path: string) => string;
+}
+
+interface ClaudeExecutableCandidate {
+    invokePath: string;
+    canonicalPath: string;
+}
+
+function isLikelyNodeModulesClaudePath(path: string): boolean {
+    const normalized = path.replaceAll("\\", "/").toLowerCase();
+    return (
+        normalized.includes("/node_modules/") ||
+        normalized.includes("/.bun/install/") ||
+        normalized.endsWith("/cli.js")
+    );
+}
+
+function resolveClaudeExecutableCandidate(
+    candidate: string | null,
+    options: Pick<
+        ClaudeExecutablePathResolutionOptions,
+        "pathExists" | "resolveRealPath"
+    >,
+): ClaudeExecutableCandidate | null {
+    if (!candidate) {
+        return null;
+    }
+    if (!options.pathExists(candidate)) {
+        return null;
+    }
+
+    try {
+        const canonicalPath = options.resolveRealPath(candidate);
+        if (options.pathExists(canonicalPath)) {
+            return {
+                invokePath: candidate,
+                canonicalPath,
+            };
+        }
+    } catch {
+        // Fall through to returning the original candidate.
+    }
+
+    return {
+        invokePath: candidate,
+        canonicalPath: candidate,
+    };
+}
+
+/**
+ * Resolve the best Claude Code executable path for the active runtime.
+ */
+export function resolveClaudeCodeExecutablePath(
+    options: ClaudeExecutablePathResolutionOptions,
+): string | null {
+    const claudeFromPath = resolveClaudeExecutableCandidate(
+        options.claudeFromPath,
+        options,
+    );
+    const sdkCliPath = resolveClaudeExecutableCandidate(options.sdkCliPath, options);
+    const envOverridePath = resolveClaudeExecutableCandidate(
+        options.envOverridePath,
+        options,
+    );
+
+    if (envOverridePath) {
+        return envOverridePath.invokePath;
+    }
+
+    if (options.platform === "darwin") {
+        // On macOS, prefer native installs first so Claude desktop/Homebrew auth
+        // state is reused even when PATH points to a Bun/npm shim.
+        const macNativeCandidates = [
+            "/opt/homebrew/bin/claude",
+            "/usr/local/bin/claude",
+            "/Applications/Claude Code.app/Contents/MacOS/claude",
+            join(options.homeDir, ".local", "bin", "claude"),
+            join(options.homeDir, ".claude", "local", "claude"),
+            join(options.homeDir, "bin", "claude"),
+            "/Applications/Claude.app/Contents/MacOS/claude",
+            join(options.homeDir, "Applications", "Claude.app", "Contents", "MacOS", "claude"),
+            join(
+                options.homeDir,
+                "Applications",
+                "Claude Code.app",
+                "Contents",
+                "MacOS",
+                "claude",
+            ),
+        ];
+
+        for (const candidate of macNativeCandidates) {
+            const resolved = resolveClaudeExecutableCandidate(candidate, options);
+            if (resolved && !isLikelyNodeModulesClaudePath(resolved.canonicalPath)) {
+                return resolved.invokePath;
+            }
+        }
+
+        if (
+            claudeFromPath &&
+            !isLikelyNodeModulesClaudePath(claudeFromPath.canonicalPath)
+        ) {
+            return claudeFromPath.invokePath;
+        }
+
+        if (sdkCliPath && !isLikelyNodeModulesClaudePath(sdkCliPath.canonicalPath)) {
+            return sdkCliPath.invokePath;
+        }
+
+        return claudeFromPath?.invokePath ?? sdkCliPath?.invokePath ?? null;
+    }
+
+    return sdkCliPath?.invokePath ?? claudeFromPath?.invokePath ?? null;
+}
+
+/**
  * Get the path to the Claude Code CLI entry point.
  *
  * Supports all official installation methods:
@@ -2480,55 +2607,35 @@ export function createClaudeAgentClient(): ClaudeAgentClient {
  * - npm package (@anthropic-ai/claude-agent-sdk, dev only)
  *
  * Resolution order:
- * 1. On macOS, prefer globally-installed claude CLI on $PATH
- * 2. import.meta.resolve (works in dev when @anthropic-ai/claude-agent-sdk is available)
- * 3. Find globally-installed claude CLI on $PATH
+ * 1. On macOS, prefer native install locations and non-node_modules binaries
+ * 2. SDK bundled cli.js (import.meta.resolve)
+ * 3. PATH fallback (including Bun/npm shims)
  */
 export function getBundledClaudeCodePath(): string {
-    // Shared strategy: Find claude CLI on $PATH.
-    // For npm global installs, the symlink resolves into the package with cli.js.
-    // For standalone installs (native install, Homebrew, WinGet), return the binary
-    // directly — the SDK handles executable paths by spawning them directly.
-    const resolveClaudeFromPath = (): string | null => {
-        try {
-            const claudeBin = Bun.which("claude");
-            if (claudeBin) {
-                const realPath = realpathSync(claudeBin);
-                // Check if it's an npm package with cli.js
-                const pkgDir = dirname(realPath);
-                const cliPath = join(pkgDir, "cli.js");
-                if (existsSync(cliPath)) return cliPath;
-                // Standalone binary (native install, Homebrew, WinGet) — no cli.js
-                if (existsSync(realPath)) return realPath;
-            }
-        } catch {
-            // Falls through
-        }
-        return null;
-    };
-
-    // On macOS, prefer the system Claude binary first so auth state from
-    // native installs (including Homebrew/curl) is used consistently.
-    if (process.platform === "darwin") {
-        const claudeFromPath = resolveClaudeFromPath();
-        if (claudeFromPath) return claudeFromPath;
-    }
-
-    // Strategy 2: import.meta.resolve (works in dev, fails in compiled binary)
+    const envOverridePath = process.env.ATOMIC_CLAUDE_CODE_EXECUTABLE?.trim() ||
+        null;
+    let sdkCliPath: string | null = null;
     try {
         const sdkUrl = import.meta.resolve("@anthropic-ai/claude-agent-sdk");
         const sdkPath = fileURLToPath(sdkUrl);
         const pkgDir = dirname(sdkPath);
-        const cliPath = join(pkgDir, "cli.js");
-        if (existsSync(cliPath)) return cliPath;
+        sdkCliPath = join(pkgDir, "cli.js");
     } catch {
-        // Falls through
+        // Falls through.
     }
 
-    // Strategy 3: PATH fallback for non-macOS (or when Strategy 1 is unavailable).
-    {
-        const claudeFromPath = resolveClaudeFromPath();
-        if (claudeFromPath) return claudeFromPath;
+    const resolvedPath = resolveClaudeCodeExecutablePath({
+        platform: process.platform,
+        homeDir: homedir(),
+        claudeFromPath: Bun.which("claude") ?? Bun.which("claude-code"),
+        sdkCliPath,
+        envOverridePath,
+        pathExists: existsSync,
+        resolveRealPath: realpathSync,
+    });
+
+    if (resolvedPath) {
+        return resolvedPath;
     }
 
     throw new Error(

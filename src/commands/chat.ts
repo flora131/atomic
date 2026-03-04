@@ -235,7 +235,8 @@ export async function prepareClaudeRuntimeForChat(
     );
   }
 
-  process.env.CLAUDE_CONFIG_DIR = mergedConfigDir;
+  // Do not set CLAUDE_CONFIG_DIR at runtime — it interferes with Claude's
+  // native auth resolution on macOS, causing authentication failures.
   return mergedConfigDir;
 }
 

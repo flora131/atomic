@@ -62,7 +62,7 @@ describe("buildPartRenderKeys", () => {
 });
 
 describe("orderPartsForTaskOutputDisplay", () => {
-  test("moves TaskOutput tool parts directly below agent parts", () => {
+  test("preserves part ordering", () => {
     const parts: Part[] = [
       createTextPart("text-1"),
       createToolPart("taskoutput-1", "TaskOutput"),
@@ -71,15 +71,10 @@ describe("orderPartsForTaskOutputDisplay", () => {
     ];
 
     const ordered = orderPartsForTaskOutputDisplay(parts);
-    expect(ordered.map((part) => part.type === "tool" ? `${part.type}:${part.toolName}` : part.type)).toEqual([
-      "text",
-      "agent",
-      "tool:TaskOutput",
-      "tool:bash",
-    ]);
+    expect(ordered).toEqual(parts);
   });
 
-  test("keeps ordering when no agent part exists", () => {
+  test("preserves ordering when no agent part exists", () => {
     const parts: Part[] = [
       createTextPart("text-1"),
       createToolPart("taskoutput-1", "TaskOutput"),
@@ -232,7 +227,7 @@ describe("getConsumedTaskToolCallIds", () => {
     expect(consumed.has("standalone-tool")).toBe(false);
   });
 
-  test("does not consume mirrored TaskOutput tool blocks", () => {
+  test("consumes duplicated inline tool blocks regardless of tool name", () => {
     const inlineTaskOutput = createToolPart("taskoutput-1", "TaskOutput");
     const parts: Part[] = [
       createToolPart("taskoutput-1", "TaskOutput"),
@@ -242,7 +237,7 @@ describe("getConsumedTaskToolCallIds", () => {
     ];
 
     const consumed = getConsumedTaskToolCallIds(parts);
-    expect(consumed.has("taskoutput-1")).toBe(false);
+    expect(consumed.has("taskoutput-1")).toBe(true);
   });
 
   test("consumes task ToolPart when agent lacks taskToolCallId (Claude SDK fallback)", () => {

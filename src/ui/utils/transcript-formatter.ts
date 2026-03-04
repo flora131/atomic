@@ -201,8 +201,7 @@ export function formatTranscript(options: FormatTranscriptOptions): TranscriptLi
 
           // Sub-status
           if (agent.status === "completed") {
-            const resultText = agent.result ? truncateText(agent.result, 60) : "Done";
-            lines.push(line("agent-substatus", `${TREE.vertical} ${CONNECTOR.subStatus}  ${resultText}`));
+            lines.push(line("agent-substatus", `${TREE.vertical} ${CONNECTOR.subStatus}  Done`));
           } else if (agent.status === "running") {
             if (agent.toolUses !== undefined && agent.toolUses > 0) {
               lines.push(line("agent-substatus", `${TREE.vertical} ${CONNECTOR.subStatus}  ${agent.name}: (${agent.toolUses} tool use${agent.toolUses !== 1 ? "s" : ""})`));

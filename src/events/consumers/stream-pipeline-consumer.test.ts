@@ -311,7 +311,7 @@ describe("StreamPipelineConsumer", () => {
     });
   });
 
-  it("suppresses main-stream text echoes after TaskOutput completion", () => {
+  it("does not suppress main-stream text after TaskOutput completion", () => {
     const events: EnrichedBusEvent[] = [
       {
         type: "stream.tool.complete",
@@ -339,7 +339,7 @@ describe("StreamPipelineConsumer", () => {
 
     consumer.processBatch(events);
 
-    expect(receivedEvents).toHaveLength(1);
+    expect(receivedEvents).toHaveLength(2);
     expect(receivedEvents[0]).toEqual({
       type: "tool-complete",
       runId: 1,
@@ -348,6 +348,11 @@ describe("StreamPipelineConsumer", () => {
       output: { result: "sub-agent final output" },
       success: true,
       error: undefined,
+    });
+    expect(receivedEvents[1]).toEqual({
+      type: "text-delta",
+      runId: 1,
+      delta: "sub-agent final output",
     });
   });
 

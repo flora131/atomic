@@ -868,7 +868,7 @@ describe("applyStreamPartEvent", () => {
     }
   });
 
-  test("mirrors agent-scoped TaskOutput into top-level tool blocks", () => {
+  test("keeps agent-scoped TaskOutput buffered until agent part exists", () => {
     let msg = createAssistantMessage();
     msg = applyStreamPartEvent(msg, { type: "text-delta", delta: "Waiting for agents..." });
 
@@ -888,25 +888,18 @@ describe("applyStreamPartEvent", () => {
       agentId: "agent_1",
     });
 
-    expect(msg.toolCalls?.map((toolCall) => toolCall.id)).toEqual(["task_output_agent_1"]);
-    expect(msg.parts?.map((part) => part.type)).toEqual(["text", "tool"]);
+    expect(msg.toolCalls).toEqual([]);
+    expect(msg.parts?.map((part) => part.type)).toEqual(["text"]);
 
     const textPart = msg.parts?.[0];
     expect(textPart?.type).toBe("text");
     if (textPart?.type === "text") {
       expect(textPart.content).toBe("Waiting for agents...");
-      expect(textPart.isStreaming).toBe(false);
-    }
-
-    const toolPart = msg.parts?.[1];
-    expect(toolPart?.type).toBe("tool");
-    if (toolPart?.type === "tool") {
-      expect(toolPart.toolName).toBe("TaskOutput");
-      expect(toolPart.state.status).toBe("completed");
+      expect(textPart.isStreaming).toBe(true);
     }
   });
 
-  test("separates main-text updates after mirrored TaskOutput boundaries", () => {
+  test("continues streaming text when agent-scoped TaskOutput is buffered", () => {
     let msg = createAssistantMessage();
     msg = applyStreamPartEvent(msg, {
       type: "text-delta",
@@ -926,20 +919,14 @@ describe("applyStreamPartEvent", () => {
       delta: "First agent completed. Waiting for the remaining three...",
     });
 
-    expect(next.parts?.map((part) => part.type)).toEqual(["text", "tool", "text"]);
+    expect(next.parts?.map((part) => part.type)).toEqual(["text"]);
     const preToolText = next.parts?.[0];
     expect(preToolText?.type).toBe("text");
     if (preToolText?.type === "text") {
       expect(preToolText.content).toBe(
-        "Waiting for all agents to complete before synthesizing the findings into a comprehensive research document...",
+        "Waiting for all agents to complete before synthesizing the findings into a comprehensive research document...First agent completed. Waiting for the remaining three...",
       );
-      expect(preToolText.isStreaming).toBe(false);
-    }
-    const postToolText = next.parts?.[2];
-    expect(postToolText?.type).toBe("text");
-    if (postToolText?.type === "text") {
-      expect(postToolText.content).toBe("First agent completed. Waiting for the remaining three...");
-      expect(postToolText.isStreaming).toBe(true);
+      expect(preToolText.isStreaming).toBe(true);
     }
   });
 

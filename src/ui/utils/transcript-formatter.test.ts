@@ -650,7 +650,7 @@ describe("formatTranscript - Parallel Agents", () => {
     expect(rowLine!.content).toContain("Searching for files");
   });
 
-  test("renders agent-substatus with result text for completed agents", () => {
+  test("renders neutral completion substatus for completed agents", () => {
     const agents: ParallelAgent[] = [
       {
         id: "a1",
@@ -674,7 +674,7 @@ describe("formatTranscript - Parallel Agents", () => {
     const substatusLine = findFirstLineByType(lines, "agent-substatus");
     expect(substatusLine).toBeDefined();
     expect(substatusLine!.type).toBe("agent-substatus");
-    expect(substatusLine!.content).toContain("Found 5 files");
+    expect(substatusLine!.content).toContain("Done");
   });
 
   test("renders agent-substatus for running agents with currentTool", () => {

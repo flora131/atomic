@@ -13,47 +13,8 @@ import { PART_REGISTRY } from "./registry.tsx";
 import { SPACING } from "../../constants/spacing.ts";
 import { isSubagentToolName } from "../../parts/stream-pipeline.ts";
 
-function isTaskOutputToolName(toolName: string): boolean {
-  return toolName.trim().toLowerCase() === "taskoutput";
-}
-
 export function orderPartsForTaskOutputDisplay(parts: ReadonlyArray<Part>): Part[] {
-  const hasAgentPart = parts.some((part) => part.type === "agent");
-  if (!hasAgentPart) {
-    return [...parts];
-  }
-
-  const taskOutputParts: Part[] = [];
-  const remainingParts: Part[] = [];
-
-  for (const part of parts) {
-    if (part.type === "tool" && isTaskOutputToolName((part as ToolPart).toolName)) {
-      taskOutputParts.push(part);
-      continue;
-    }
-    remainingParts.push(part);
-  }
-
-  if (taskOutputParts.length === 0) {
-    return [...parts];
-  }
-
-  let lastAgentIndex = -1;
-  for (let i = 0; i < remainingParts.length; i++) {
-    if (remainingParts[i]?.type === "agent") {
-      lastAgentIndex = i;
-    }
-  }
-
-  if (lastAgentIndex < 0) {
-    return [...parts];
-  }
-
-  return [
-    ...remainingParts.slice(0, lastAgentIndex + 1),
-    ...taskOutputParts,
-    ...remainingParts.slice(lastAgentIndex + 1),
-  ];
+  return [...parts];
 }
 
 /**
@@ -104,9 +65,6 @@ export function getConsumedTaskToolCallIds(parts: ReadonlyArray<Part>): Set<stri
     if (part.type !== "tool") continue;
     const toolPart = part as ToolPart;
     const duplicatedInlineTool = inlineToolCallIds.has(toolPart.toolCallId);
-    if (duplicatedInlineTool && isTaskOutputToolName(toolPart.toolName)) {
-      continue;
-    }
     if (
       agentTaskToolCallIds.has(toolPart.toolCallId)
       || duplicatedInlineTool

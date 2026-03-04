@@ -751,11 +751,12 @@ export function createAgentCommand(agent: AgentInfo): CommandDefinition {
         // the correct prompt parts without string encoding.
         context.sendSilentMessage(task, { agent: agent.name, isAgentOnlyStream: true });
       } else if (context.agentType === "claude") {
-        // Claude SDK dispatches sub-agents via `options.agent` on the
-        // query() call. Pass the agent name structurally so the client
-        // sets `options.agent = agentName` and the SDK runs the query
-        // with that agent's prompt, tools, and model.
-        context.sendSilentMessage(task, { agent: agent.name, isAgentOnlyStream: true });
+        // Claude path: use natural-language delegation and also pass the
+        // selected agent through structured query options.
+        const instruction = `Invoke the "${agent.name}" sub-agent with the following task:\n${task}`;
+        context.sendSilentMessage(instruction, {
+          agent: agent.name,
+        });
       } else {
         // Copilot SDK uses the Task tool for sub-agent dispatch.
         // Strongly steer the model to use Task-tool sub-agent dispatch so

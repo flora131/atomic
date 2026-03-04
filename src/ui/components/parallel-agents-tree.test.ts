@@ -8,6 +8,7 @@ import {
   getAgentTaskLabel,
   getBackgroundSubStatusText,
   getStatusIndicatorColor,
+  shouldRenderAgentCurrentTool,
   shouldAnimateAgentStatus,
 } from "./parallel-agents-tree.tsx";
 import type { Part } from "../parts/types.ts";
@@ -84,6 +85,34 @@ describe("ParallelAgentsTree labeling", () => {
       ])
     ).toBe("Running 2 agents…");
   });
+
+  test("suppresses initial sub-agent dispatch tool rendering", () => {
+    expect(
+      shouldRenderAgentCurrentTool({
+        status: "running",
+        currentTool: "Task",
+        toolUses: 1,
+      })
+    ).toBe(false);
+
+    expect(
+      shouldRenderAgentCurrentTool({
+        status: "running",
+        currentTool: "agent",
+        toolUses: 1,
+      })
+    ).toBe(false);
+  });
+
+  test("keeps rendering real tool activity", () => {
+    expect(
+      shouldRenderAgentCurrentTool({
+        status: "running",
+        currentTool: "bash",
+        toolUses: 1,
+      })
+    ).toBe(true);
+  });
 });
 
 describe("deduplicateAgents", () => {
@@ -116,6 +145,27 @@ describe("deduplicateAgents", () => {
     expect(result[0]!.toolUses).toBe(7);
     expect(result[0]!.status).toBe("completed");
     expect(result[0]!.id).toBe("sub_1");
+  });
+
+  test("prefers Task description over agent-name task when deduplicating correlated rows", () => {
+    const agents: ParallelAgent[] = [
+      makeAgent({
+        id: "sub_1",
+        taskToolCallId: "tool_1",
+        name: "codebase-locator",
+        task: "codebase-locator",
+      }),
+      makeAgent({
+        id: "tool_1",
+        taskToolCallId: "tool_1",
+        name: "codebase-locator",
+        task: "Locate sub-agent tree label derivation",
+      }),
+    ];
+
+    const result = deduplicateAgents(agents);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.task).toBe("Locate sub-agent tree label derivation");
   });
 
   test("prefers non-tool_ id format", () => {
@@ -229,6 +279,7 @@ describe("deduplicateAgents", () => {
     const result = deduplicateAgents(agents);
     expect(result).toHaveLength(2);
   });
+
 });
 
 describe("getBackgroundSubStatusText", () => {

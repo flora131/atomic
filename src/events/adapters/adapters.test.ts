@@ -2076,6 +2076,40 @@ describe("ClaudeStreamAdapter", () => {
     expect(agentStartEvents[0].runId).toBe(100);
   });
 
+  test("prefers Task description over subagent name on subagent.start", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test", {
+      runId: 100,
+      messageId: "msg-claude-task-description",
+    });
+
+    client.emit("subagent.start" as EventType, {
+      type: "subagent.start",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        subagentId: "agent-description-priority-1",
+        subagentType: "codebase-locator",
+        task: "codebase-locator",
+        description: "Locate sub-agent tree label derivation",
+        toolUseID: "tool-use-description-priority-1",
+      },
+    } as AgentEvent<"subagent.start">);
+
+    await streamPromise;
+
+    const agentStartEvent = events.find(
+      (e) => e.type === "stream.agent.start" && e.data.agentId === "agent-description-priority-1",
+    );
+    expect(agentStartEvent?.data.task).toBe("Locate sub-agent tree label derivation");
+  });
+
   test("publishes subagent progress updates on tool.partial_result", async () => {
     const events = collectEvents(bus);
     const client = createMockClient();

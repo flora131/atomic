@@ -318,12 +318,25 @@ export function deduplicateAgents(agents: ParallelAgent[]): ParallelAgent[] {
     : fallbackDeduped.agents;
 }
 
+function isTaskEquivalentToAgentName(agent: Pick<ParallelAgent, "task" | "name">): boolean {
+  return agent.task.trim().toLowerCase() === agent.name.trim().toLowerCase();
+}
+
 function mergeAgentPair(a: ParallelAgent, b: ParallelAgent): ParallelAgent {
   // Prefer the entry with a real task description
   const aHasTask = !isGenericSubagentTask(a.task);
   const bHasTask = !isGenericSubagentTask(b.task);
-  const primary = bHasTask && !aHasTask ? b : a;
+  let primary = bHasTask && !aHasTask ? b : a;
+  if (aHasTask && bHasTask) {
+    const aNameEquivalentTask = isTaskEquivalentToAgentName(a);
+    const bNameEquivalentTask = isTaskEquivalentToAgentName(b);
+    if (aNameEquivalentTask !== bNameEquivalentTask) {
+      primary = aNameEquivalentTask ? b : a;
+    }
+  }
   const secondary = primary === a ? b : a;
+  const primaryHasTask = !isGenericSubagentTask(primary.task);
+  const secondaryHasTask = !isGenericSubagentTask(secondary.task);
 
   // Take the higher-priority status
   const statusA = STATUS_PRIORITY[a.status] ?? 0;
@@ -334,7 +347,7 @@ function mergeAgentPair(a: ParallelAgent, b: ParallelAgent): ParallelAgent {
     ...primary,
     // Use the real subagentId if available (non-toolId format)
     id: primary.id.startsWith("tool_") ? secondary.id : primary.id,
-    task: aHasTask ? a.task : bHasTask ? b.task : primary.task,
+    task: primaryHasTask ? primary.task : secondaryHasTask ? secondary.task : primary.task,
     status: statusWinner.status,
     background: a.background || b.background,
     toolUses: Math.max(a.toolUses ?? 0, b.toolUses ?? 0) || undefined,
@@ -511,6 +524,33 @@ export function getBackgroundSubStatusText(agent: ParallelAgent): string {
   return `Running ${agent.name} in background…`;
 }
 
+function isSubagentDispatchToolName(toolName: string | undefined): boolean {
+  if (!toolName) return false;
+  const normalized = toolName.trim().toLowerCase();
+  return normalized === "task" || normalized === "agent" || normalized === "launch_agent";
+}
+
+export function shouldRenderAgentCurrentTool(
+  agent: Pick<ParallelAgent, "status" | "currentTool" | "toolUses">,
+): boolean {
+  const currentTool = agent.currentTool;
+  if (!currentTool) {
+    return false;
+  }
+
+  const toolUses = agent.toolUses ?? 0;
+  if (isSubagentDispatchToolName(currentTool) && toolUses <= 1) {
+    return false;
+  }
+
+  const isRunning = agent.status === "running" || agent.status === "pending";
+  if (isRunning) {
+    return toolUses > 0;
+  }
+
+  return true;
+}
+
 // ============================================================================
 // CLAUDE CODE COLOR CONSTANTS (ANSI 256 compatible)
 // ============================================================================
@@ -633,9 +673,7 @@ function AgentRow({ agent, isLast, compact, syntaxStyle, themeColors, nowMs }: A
   }
 
   // Current tool shown on separate line only during active execution
-  const showCurrentTool = Boolean(agent.currentTool) && (
-    isRunning ? ((agent.toolUses ?? 0) > 0) : true
-  );
+  const showCurrentTool = shouldRenderAgentCurrentTool(agent);
 
   const inlineParts = agent.inlineParts ?? [];
   const hasInlineParts = inlineParts.length > 0;

@@ -174,7 +174,7 @@ describe("CopilotClient abort support", () => {
         },
         config: Record<string, unknown>,
       ) => {
-        stream: (message: string, options?: { agent?: string }) => AsyncIterable<{
+        stream: (message: string, options?: { agent?: string; abortSignal?: AbortSignal }) => AsyncIterable<{
           type: string;
           content: unknown;
           metadata?: Record<string, unknown>;
@@ -202,6 +202,62 @@ describe("CopilotClient abort support", () => {
       (thinkingChunk.metadata?.streamingStats as { outputTokens?: number } | undefined)
         ?.outputTokens,
     ).toBe(0);
+  });
+
+  test("stream honors abortSignal and exits promptly", async () => {
+    const listeners: Array<(event: {
+      type: string;
+      data: Record<string, unknown>;
+    }) => void> = [];
+
+    const mockSdkSession = {
+      sessionId: "copilot-abort-signal-session",
+      on: mock((handler: (event: { type: string; data: Record<string, unknown> }) => void) => {
+        listeners.push(handler);
+        return () => {
+          const idx = listeners.indexOf(handler);
+          if (idx >= 0) listeners.splice(idx, 1);
+        };
+      }),
+      // Do not emit session.idle so the iterator would normally wait forever
+      // unless abortSignal is honored.
+      send: mock(async () => {
+        for (const listener of [...listeners]) {
+          listener({
+            type: "assistant.message_delta",
+            data: { deltaContent: "partial" },
+          });
+        }
+      }),
+      sendAndWait: mock(() => Promise.resolve({ data: { content: "" } })),
+      destroy: mock(() => Promise.resolve()),
+      abort: mock(() => Promise.resolve()),
+    };
+
+    const client = new CopilotClient({});
+    const wrapSession = (client as unknown as {
+      wrapSession: (
+        sdkSession: unknown,
+        config: Record<string, unknown>,
+      ) => {
+        stream: (message: string, options?: { agent?: string; abortSignal?: AbortSignal }) => AsyncIterable<unknown>;
+      };
+    }).wrapSession.bind(client);
+
+    const session = wrapSession(mockSdkSession, {});
+    const abortController = new AbortController();
+
+    const consumeStream = async (): Promise<void> => {
+      for await (const _chunk of session.stream("hello", { abortSignal: abortController.signal })) {
+        // no-op
+      }
+    };
+
+    const consumption = consumeStream();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    abortController.abort();
+
+    await expect(consumption).rejects.toMatchObject({ name: "AbortError" });
   });
 });
 
@@ -503,6 +559,7 @@ describe("CopilotClient tool event mapping", () => {
         toolCallIdToName: Map<string, string>;
         contextWindow: number | null;
         systemToolsBaseline: number | null;
+        pendingAbortPromise: Promise<void> | null;
       }>;
     }).sessions.set("test-session", {
       sdkSession: {},
@@ -515,6 +572,7 @@ describe("CopilotClient tool event mapping", () => {
       toolCallIdToName: new Map(),
       contextWindow: null,
       systemToolsBaseline: null,
+      pendingAbortPromise: null,
     });
 
     const handleSdkEvent = (client as unknown as {
@@ -563,6 +621,7 @@ describe("CopilotClient tool event mapping", () => {
         toolCallIdToName: Map<string, string>;
         contextWindow: number | null;
         systemToolsBaseline: number | null;
+        pendingAbortPromise: Promise<void> | null;
       }>;
     }).sessions.set("test-session", {
       sdkSession: {},
@@ -575,6 +634,7 @@ describe("CopilotClient tool event mapping", () => {
       toolCallIdToName: trackedNames,
       contextWindow: null,
       systemToolsBaseline: null,
+      pendingAbortPromise: null,
     });
 
     const handleSdkEvent = (client as unknown as {

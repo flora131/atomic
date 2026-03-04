@@ -329,6 +329,7 @@ function dispatchLoadedSkillPrompt(
     context: CommandContext,
 ): CommandResult {
     const expandedPrompt = expandArguments(body, skillArgs);
+    const normalizedArgs = skillArgs.trim() || "[no arguments provided]";
     // Prepend a directive so the model acts on the already-expanded
     // skill content rather than re-loading the raw skill via the SDK's
     // built-in "skill" tool (which would lose the $ARGUMENTS expansion).
@@ -336,8 +337,13 @@ function dispatchLoadedSkillPrompt(
         `<skill-loaded name="${skillName}">\n` +
         `The "${skillName}" skill has already been loaded with the user's arguments below. ` +
         `Do NOT invoke the Skill tool for "${skillName}" — follow the instructions directly.\n` +
+        `Treat the active user request below as authoritative for this turn, even if prior prompts were cancelled.\n` +
         `</skill-loaded>\n\n`;
-    context.sendSilentMessage(directive + expandedPrompt);
+    const activeRequest =
+        `<active-user-request>\n` +
+        `${normalizedArgs}\n` +
+        `</active-user-request>\n\n`;
+    context.sendSilentMessage(directive + activeRequest + expandedPrompt);
     return { success: true, skillLoaded: skillName };
 }
 

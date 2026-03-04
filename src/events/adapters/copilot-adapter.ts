@@ -239,6 +239,14 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
     // Subscribe to all relevant event types from the client
     this.subscribeToEvents();
 
+    let abortedBySignal = false;
+    const abortListener = () => {
+      abortedBySignal = true;
+      this.isActive = false;
+      this.cleanupSubscriptions();
+    };
+    options.abortSignal?.addEventListener("abort", abortListener, { once: true });
+
     try {
       // Initiate streaming by calling session.stream()
       // This triggers the SDK to start emitting events through the client
@@ -254,6 +262,12 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
         // no-op: event subscribers handle content
       }
     } catch (error) {
+      if (
+        abortedBySignal
+        || (error instanceof Error && error.name === "AbortError")
+      ) {
+        return;
+      }
       // Publish error event if streaming fails
       if (this.isActive) {
         this.publishEvent({
@@ -270,6 +284,7 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
       // Force-complete any tools still pending/running — prevents orphaned tool state
       this.cleanupOrphanedTools();
       this.isActive = false;
+      options.abortSignal?.removeEventListener("abort", abortListener);
     }
   }
 

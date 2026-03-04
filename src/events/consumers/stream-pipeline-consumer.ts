@@ -191,6 +191,7 @@ export class StreamPipelineConsumer {
         previous
         && previous.type === "text-delta"
         && part.type === "text-delta"
+        && previous.runId === part.runId
         && previous.agentId === part.agentId
       ) {
         previous.delta += part.delta;
@@ -201,6 +202,7 @@ export class StreamPipelineConsumer {
         previous
         && previous.type === "thinking-meta"
         && part.type === "thinking-meta"
+        && previous.runId === part.runId
         && previous.agentId === part.agentId
         && previous.thinkingSourceKey === part.thinkingSourceKey
         && previous.targetMessageId === part.targetMessageId
@@ -234,18 +236,19 @@ export class StreamPipelineConsumer {
       case "stream.text.delta": {
         const data = event.data as BusEventDataMap["stream.text.delta"];
         if (data.agentId) {
-          return [{ type: "text-delta", delta: data.delta, agentId: data.agentId }];
+          return [{ type: "text-delta", runId: event.runId, delta: data.delta, agentId: data.agentId }];
         }
         // Run through echo suppressor to filter duplicate tool result echoes
         const filtered = this.echoSuppressor.filterDelta(data.delta);
         if (!filtered) return null;
-        return [{ type: "text-delta", delta: filtered }];
+        return [{ type: "text-delta", runId: event.runId, delta: filtered }];
       }
 
       case "stream.thinking.delta": {
         const data = event.data as BusEventDataMap["stream.thinking.delta"];
         return [{
           type: "thinking-meta",
+          runId: event.runId,
           thinkingSourceKey: data.sourceKey,
           targetMessageId: data.messageId,
           streamGeneration: 0, // Default value - updated by correlation service if needed
@@ -261,6 +264,7 @@ export class StreamPipelineConsumer {
           ?? (event.isSubagentTool ? event.resolvedAgentId : undefined);
         return [{
           type: "tool-start",
+          runId: event.runId,
           toolId: data.toolId,
           toolName: data.toolName,
           input: data.toolInput,
@@ -280,6 +284,7 @@ export class StreamPipelineConsumer {
         }
         const mapped: StreamPartEvent = {
           type: "tool-complete",
+          runId: event.runId,
           toolId: data.toolId,
           toolName: data.toolName,
           output: data.toolResult,
@@ -297,6 +302,7 @@ export class StreamPipelineConsumer {
           ?? (event.isSubagentTool ? event.resolvedAgentId : undefined);
         return [{
           type: "tool-partial-result",
+          runId: event.runId,
           toolId: data.toolCallId,
           partialOutput: data.partialOutput,
           ...(correlatedAgentId ? { agentId: correlatedAgentId } : {}),
@@ -306,13 +312,14 @@ export class StreamPipelineConsumer {
       case "stream.text.complete": {
         const data = event.data as BusEventDataMap["stream.text.complete"];
         if (!data.fullText) return [];
-        return [{ type: "text-complete", fullText: data.fullText, messageId: data.messageId }];
+        return [{ type: "text-complete", runId: event.runId, fullText: data.fullText, messageId: data.messageId }];
       }
 
       case "workflow.task.update": {
         const data = event.data as BusEventDataMap["workflow.task.update"];
         const mapped: StreamPartEvent[] = [{
           type: "task-list-update",
+          runId: event.runId,
           tasks: data.tasks.map((task) => ({
             id: task.id,
             title: task.title,
@@ -328,6 +335,7 @@ export class StreamPipelineConsumer {
 
           mapped.push({
             type: "task-result-upsert",
+            runId: event.runId,
             envelope: task.taskResult,
           });
         }
@@ -339,6 +347,7 @@ export class StreamPipelineConsumer {
         const data = event.data as BusEventDataMap["workflow.step.start"];
         return [{
           type: "workflow-step-start",
+          runId: event.runId,
           workflowId: data.workflowId,
           nodeId: data.nodeId,
           nodeName: data.nodeName,
@@ -350,6 +359,7 @@ export class StreamPipelineConsumer {
         const data = event.data as BusEventDataMap["workflow.step.complete"];
         return [{
           type: "workflow-step-complete",
+          runId: event.runId,
           workflowId: data.workflowId,
           nodeId: data.nodeId,
           nodeName: data.nodeName,

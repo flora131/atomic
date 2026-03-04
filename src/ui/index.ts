@@ -159,6 +159,8 @@ interface ChatUIState {
   interruptTimeout: ReturnType<typeof setTimeout> | null;
   /** AbortController for the current stream (to interrupt on Escape/Ctrl+C) */
   streamAbortController: AbortController | null;
+  /** In-flight abort lock to prevent starting next turn too early */
+  pendingAbortPromise: Promise<void> | null;
   /** Whether streaming is currently active */
   isStreaming: boolean;
   /** Session IDs owned by this TUI instance (main + spawned subagent sessions) */
@@ -278,6 +280,7 @@ export async function startChatUI(
     interruptCount: 0,
     interruptTimeout: null,
     streamAbortController: null,
+    pendingAbortPromise: null,
     isStreaming: false,
     ownedSessionIds: new Set(),
     sessionCreationPromise: null,
@@ -450,6 +453,15 @@ export async function startChatUI(
     content: string,
     options?: { agent?: string }
   ): Promise<void> {
+    const pendingAbort = state.pendingAbortPromise;
+    if (pendingAbort) {
+      try {
+        await pendingAbort;
+      } catch {
+        // If abort fails, do not block the next user turn.
+      }
+    }
+
     // Single-owner stream model: any new stream handoff resets previous
     // run-owned hook state before creating the next owner.
     state.currentRunId = null;
@@ -550,10 +562,24 @@ export async function startChatUI(
       state.isStreaming = false;
       state.currentRunId = null;
 
-      state.streamAbortController?.abort();
-      if (state.session?.abort) {
-        void state.session.abort().catch(() => {});
+      if (!state.pendingAbortPromise) {
+        const abortPromise = (async () => {
+          if (state.streamAbortController && !state.streamAbortController.signal.aborted) {
+            state.streamAbortController.abort();
+          }
+          if (state.session?.abort) {
+            await state.session.abort();
+          }
+        })();
+
+        state.pendingAbortPromise = abortPromise;
+        void abortPromise.finally(() => {
+          if (state.pendingAbortPromise === abortPromise) {
+            state.pendingAbortPromise = null;
+          }
+        });
       }
+
       state.telemetryTracker?.trackInterrupt(sourceType);
       // Reset interrupt state
       state.interruptCount = 0;

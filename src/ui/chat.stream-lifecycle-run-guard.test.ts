@@ -6,6 +6,7 @@ import {
   emitContractFailureTerminationObservability,
   getAgentContinuationContractViolation,
   shouldFinalizeAgentOnlyStream,
+  shouldProcessStreamPartEvent,
   shouldProcessStreamLifecycleEvent,
 } from "./chat.tsx";
 import type { ParallelAgent } from "./components/parallel-agents-tree.tsx";
@@ -56,6 +57,36 @@ describe("chat stream lifecycle run guard", () => {
         activeRunId: 22,
         eventRunId: 22,
         isStreaming: true,
+      }),
+    ).toBe(true);
+  });
+
+  test("drops stream parts during startup when run is not yet bound", () => {
+    expect(
+      shouldProcessStreamPartEvent({
+        activeRunId: null,
+        partRunId: 7,
+        isStreaming: true,
+      }),
+    ).toBe(false);
+  });
+
+  test("accepts stream parts after run is bound", () => {
+    expect(
+      shouldProcessStreamPartEvent({
+        activeRunId: 7,
+        partRunId: 7,
+        isStreaming: true,
+      }),
+    ).toBe(true);
+  });
+
+  test("keeps idle background parts when no stream is active", () => {
+    expect(
+      shouldProcessStreamPartEvent({
+        activeRunId: null,
+        partRunId: 7,
+        isStreaming: false,
       }),
     ).toBe(true);
   });

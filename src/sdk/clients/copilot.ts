@@ -130,6 +130,8 @@ interface CopilotSessionState {
   contextWindow: number | null;
   /** Token count for system prompt + tools baseline */
   systemToolsBaseline: number | null;
+  /** In-flight abort lock to serialize stream/send after interrupt */
+  pendingAbortPromise: Promise<void> | null;
 }
 
 const RECENT_EVENT_ID_WINDOW = 2048;
@@ -281,6 +283,12 @@ function extractCopilotErrorMessage(error: unknown, fallback = "Unknown error"):
   } catch {
     return fallback;
   }
+}
+
+function createAbortError(message = "The operation was aborted."): Error {
+  const error = new Error(message);
+  error.name = "AbortError";
+  return error;
 }
 
 /**
@@ -436,6 +444,35 @@ export class CopilotClient implements CodingAgentClient {
       toolCallIdToName: new Map(),
       contextWindow: null,
       systemToolsBaseline: null,
+      pendingAbortPromise: null,
+    };
+
+    const waitForPendingAbort = async (): Promise<void> => {
+      const pendingAbort = state.pendingAbortPromise;
+      if (!pendingAbort) {
+        return;
+      }
+      try {
+        await pendingAbort;
+      } catch {
+        // If abort fails, do not block subsequent turns.
+      }
+    };
+
+    const runAbortWithLock = (): Promise<void> => {
+      if (state.pendingAbortPromise) {
+        return state.pendingAbortPromise;
+      }
+
+      const abortPromise = state.sdkSession.abort();
+      state.pendingAbortPromise = abortPromise;
+      void abortPromise.finally(() => {
+        if (state.pendingAbortPromise === abortPromise) {
+          state.pendingAbortPromise = null;
+        }
+      });
+
+      return abortPromise;
     };
 
     this.sessions.set(sessionId, state);
@@ -450,6 +487,8 @@ export class CopilotClient implements CodingAgentClient {
         if (state.isClosed) {
           throw new Error("Session is closed");
         }
+
+        await waitForPendingAbort();
 
         let response: Awaited<ReturnType<SdkCopilotSession["sendAndWait"]>>;
         try {
@@ -476,11 +515,20 @@ export class CopilotClient implements CodingAgentClient {
         };
       },
 
-      stream: (message: string, _options?: { agent?: string }): AsyncIterable<AgentMessage> => {
+      stream: (
+        message: string,
+        options?: { agent?: string; abortSignal?: AbortSignal },
+      ): AsyncIterable<AgentMessage> => {
         return {
           [Symbol.asyncIterator]: async function* () {
             if (state.isClosed) {
               throw new Error("Session is closed");
+            }
+
+            await waitForPendingAbort();
+
+            if (options?.abortSignal?.aborted) {
+              throw createAbortError();
             }
 
             // Set up event handler to collect streaming events
@@ -490,6 +538,7 @@ export class CopilotClient implements CodingAgentClient {
             const chunks: AgentMessage[] = [];
             let resolveChunk: (() => void) | null = null;
             let done = false;
+            let aborted = false;
 
             // Track if we've yielded streaming deltas to avoid duplicating content
             let hasYieldedDeltas = false;
@@ -501,6 +550,12 @@ export class CopilotClient implements CodingAgentClient {
                 resolveChunk = null;
                 resolve();
               }
+            };
+
+            const abortListener = () => {
+              aborted = true;
+              done = true;
+              notifyConsumer();
             };
 
             // Wall-clock thinking timing
@@ -603,6 +658,7 @@ export class CopilotClient implements CodingAgentClient {
             };
 
             const unsub = state.sdkSession.on(eventHandler);
+            options?.abortSignal?.addEventListener("abort", abortListener, { once: true });
 
             try {
               // Send the message (non-blocking - returns immediately)
@@ -615,7 +671,7 @@ export class CopilotClient implements CodingAgentClient {
 
               // Yield chunks as they arrive
               // The loop continues until done is true AND all chunks are consumed
-              while (!done || chunks.length > 0) {
+              while ((!done || chunks.length > 0) && !aborted) {
                 if (chunks.length > 0) {
                   yield chunks.shift()!;
                 } else if (!done) {
@@ -633,8 +689,13 @@ export class CopilotClient implements CodingAgentClient {
                   });
                 }
               }
+
+              if (aborted) {
+                throw createAbortError();
+              }
             } finally {
               unsub();
+              options?.abortSignal?.removeEventListener("abort", abortListener);
             }
           },
         };
@@ -644,6 +705,8 @@ export class CopilotClient implements CodingAgentClient {
         if (state.isClosed) {
           throw new Error("Session is closed");
         }
+
+        await waitForPendingAbort();
 
         // Send /compact as a prompt to the Copilot SDK
         await state.sdkSession.sendAndWait({ prompt: "/compact" });
@@ -675,7 +738,7 @@ export class CopilotClient implements CodingAgentClient {
 
       abort: async (): Promise<void> => {
         // Abort any ongoing work in the session (including sub-agent invocations)
-        await state.sdkSession.abort();
+        await runAbortWithLock();
       },
 
       abortBackgroundAgents: async (): Promise<void> => {
@@ -683,7 +746,7 @@ export class CopilotClient implements CodingAgentClient {
         // The Copilot SDK does not expose individual sub-agent session
         // handles, so we abort the entire session. This is safe because
         // Ctrl+F only fires when NOT streaming (no foreground to preserve).
-        await state.sdkSession.abort();
+        await runAbortWithLock();
       },
 
       getSystemToolsTokens: (): number => {

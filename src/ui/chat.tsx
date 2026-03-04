@@ -1410,6 +1410,29 @@ export function shouldProcessStreamLifecycleEvent(
   return activeRunId !== null && activeRunId === eventRunId;
 }
 
+/**
+ * Guard stream part events against the run-binding startup gap.
+ *
+ * When a new stream starts, `isStreaming` can be true while `activeRunId`
+ * remains null until `stream.session.start` arrives. During that short window,
+ * stale parts from a just-aborted run must be dropped.
+ */
+export function shouldProcessStreamPartEvent(args: {
+  activeRunId: number | null;
+  partRunId: number | undefined;
+  isStreaming: boolean;
+}): boolean {
+  if (typeof args.partRunId !== "number") {
+    return true;
+  }
+
+  if (args.activeRunId === null) {
+    return !args.isStreaming;
+  }
+
+  return args.partRunId === args.activeRunId;
+}
+
 export function shouldFinalizeAgentOnlyStream(args: {
   hasStreamingMessage: boolean;
   isStreaming: boolean;
@@ -3734,11 +3757,11 @@ export function ChatApp({
     };
 
     for (const part of parts) {
-      if (
-        typeof part.runId === "number"
-        && activeStreamRunIdRef.current !== null
-        && part.runId !== activeStreamRunIdRef.current
-      ) {
+      if (!shouldProcessStreamPartEvent({
+        activeRunId: activeStreamRunIdRef.current,
+        partRunId: typeof part.runId === "number" ? part.runId : undefined,
+        isStreaming: isStreamingRef.current,
+      })) {
         continue;
       }
 

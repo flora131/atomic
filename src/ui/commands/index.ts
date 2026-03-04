@@ -34,6 +34,8 @@ import { registerBuiltinCommands } from "./builtin-commands.ts";
 import { registerWorkflowCommands, loadWorkflowsFromDisk } from "./workflow-commands.ts";
 import { discoverAndRegisterDiskSkills } from "./skill-commands.ts";
 import { registerAgentCommands } from "./agent-commands.ts";
+import type { ProviderDiscoveryPlan } from "../../utils/provider-discovery-plan.ts";
+import { startProviderDiscoverySessionCache } from "../../utils/provider-discovery-cache.ts";
 
 // ============================================================================
 // RE-EXPORTS FROM COMMAND MODULES
@@ -84,23 +86,45 @@ export {
  *
  * @returns The number of commands registered
  */
-export async function initializeCommandsAsync(): Promise<number> {
+export interface InitializeCommandsOptions {
+  providerDiscoveryPlan?: ProviderDiscoveryPlan;
+  loadWorkflowsFromDiskFn?: () => Promise<void>;
+  discoverAndRegisterDiskSkillsFn?: (
+    providerDiscoveryPlan?: ProviderDiscoveryPlan,
+  ) => Promise<void>;
+  registerAgentCommandsFn?: (
+    providerDiscoveryPlan?: ProviderDiscoveryPlan,
+  ) => Promise<void>;
+}
+
+export async function initializeCommandsAsync(
+  options: InitializeCommandsOptions = {},
+): Promise<number> {
+  startProviderDiscoverySessionCache({
+    startupPlan: options.providerDiscoveryPlan,
+  });
+
+  const loadWorkflows = options.loadWorkflowsFromDiskFn ?? loadWorkflowsFromDisk;
+  const discoverDiskSkills =
+    options.discoverAndRegisterDiskSkillsFn ?? discoverAndRegisterDiskSkills;
+  const registerAgents = options.registerAgentCommandsFn ?? registerAgentCommands;
+
   const beforeCount = globalRegistry.size();
 
   // Register built-in commands first
   registerBuiltinCommands();
 
   // Load workflows from disk before registering workflow commands
-  await loadWorkflowsFromDisk();
+  await loadWorkflows();
   registerWorkflowCommands();
 
   // Discover and register disk-based skills from .claude/skills/, .github/skills/, etc.
   // Disk skills use project > user priority
-  await discoverAndRegisterDiskSkills();
+  await discoverDiskSkills(options.providerDiscoveryPlan);
 
   // Discover and register agent commands from .claude/agents/*.md etc.
   // Disk agents override builtins with the same name (project > builtin priority)
-  await registerAgentCommands();
+  await registerAgents(options.providerDiscoveryPlan);
 
   const afterCount = globalRegistry.size();
   return afterCount - beforeCount;

@@ -34,7 +34,7 @@ import { isWindows, isWslInstalled, WSL_INSTALL_URL, getOppositeScriptExtension 
 import { trackAtomicCommand, handleTelemetryConsent, type AgentType } from "../telemetry";
 import { saveAtomicConfig } from "../utils/atomic-config";
 import {
-  ensureAtomicGlobalAgentConfigs,
+  ensureAtomicGlobalAgentConfigsForInstallType,
   getTemplateAgentFolder,
 } from "../utils/atomic-global-config";
 
@@ -387,11 +387,10 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
   try {
     const configRoot = getConfigRoot();
 
-    // Ensure global baseline skills/agents are available in ~/.atomic
-    // for installed builds (binary/npm).
-    if (detectInstallationType() !== "source") {
-      await ensureAtomicGlobalAgentConfigs(configRoot);
-    }
+    await ensureAtomicGlobalAgentConfigsForInstallType(
+      detectInstallationType(),
+      configRoot
+    );
 
     const templateAgentFolder = getTemplateAgentFolder(agentKey);
     const sourceSkillsDir = join(configRoot, templateAgentFolder, "skills");

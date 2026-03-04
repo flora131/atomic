@@ -2,15 +2,17 @@
 name: create-spec
 description: Create a detailed execution plan for implementing features or refactors in a codebase by leveraging existing research in the specified `research` directory.
 ---
+
 You are tasked with creating a spec for implementing a new feature or system change in the codebase by leveraging existing research in the **$ARGUMENTS** path. If no research path is specified, use the entire `research/` directory. IMPORTANT: Research documents are located in the `research/` directory — do NOT look in the `specs/` directory for research. Follow the template below to produce a comprehensive specification as output in the `specs/` folder using the findings from RELEVANT research documents found in `research/`. Tip: It's good practice to use the `codebase-research-locator` and `codebase-research-analyzer` agents to help you find and analyze the research documents in the `research/` directory. It is also HIGHLY recommended to cite relevant research throughout the spec for additional context.
 
 <EXTREMELY_IMPORTANT>
+
 - Please DO NOT implement anything in this stage, just create the comprehensive spec as described below.
 - When writing the spec, DO NOT include information about concrete dates/timelines (e.g. # minutes, hours, days, weeks, etc.) and favor explicit phases (e.g. Phase 1, Phase 2, etc.).
 - Once the spec is generated, refer to the section, "## 9. Open Questions / Unresolved Issues", go through each question one by one, and ask the user for clarification with your ask question tool while providing them with suggested options. Update the spec with the user's answers as you walk through the questions.
 - Finally, once the spec is generated and after open questions are answered, provide an executive summary of the spec to the user including provide the path to the generated spec document in the `specs/` directory.
-  - Encourage the user to review the spec for best results and provide feedback or ask any follow-up questions they may have.
-</EXTREMELY_IMPORTANT>
+    - Encourage the user to review the spec for best results and provide feedback or ask any follow-up questions they may have.
+      </EXTREMELY_IMPORTANT>
 
 # [Project Name] Technical Design Document / RFC
 
@@ -23,24 +25,24 @@ You are tasked with creating a spec for implementing a new feature or system cha
 
 ## 1. Executive Summary
 
-*Instruction: A "TL;DR" of the document. Assume the reader is a VP or an engineer from another team who has 2 minutes. Summarize the Context (Problem), the Solution (Proposal), and the Impact (Value). Keep it under 200 words.*
+_Instruction: A "TL;DR" of the document. Assume the reader is a VP or an engineer from another team who has 2 minutes. Summarize the Context (Problem), the Solution (Proposal), and the Impact (Value). Keep it under 200 words._
 
 > **Example:** This RFC proposes replacing our current nightly batch billing system with an event-driven architecture using Kafka and AWS Lambda. Currently, billing delays cause a 5% increase in customer support tickets. The proposed solution will enable real-time invoicing, reducing billing latency from 24 hours to <5 minutes.
 
 ## 2. Context and Motivation
 
-*Instruction: Why are we doing this? Why now? Link to the Product Requirement Document (PRD).*
+_Instruction: Why are we doing this? Why now? Link to the Product Requirement Document (PRD)._
 
 ### 2.1 Current State
 
-*Instruction: Describe the existing architecture. Use a "Context Diagram" if possible. Be honest about the flaws.*
+_Instruction: Describe the existing architecture. Use a "Context Diagram" if possible. Be honest about the flaws._
 
 - **Architecture:** Currently, Service A communicates with Service B via a shared SQL database.
 - **Limitations:** This creates a tight coupling; when Service A locks the table, Service B times out.
 
 ### 2.2 The Problem
 
-*Instruction: What is the specific pain point?*
+_Instruction: What is the specific pain point?_
 
 - **User Impact:** Customers cannot download receipts during the nightly batch window.
 - **Business Impact:** We are losing $X/month in churn due to billing errors.
@@ -48,7 +50,7 @@ You are tasked with creating a spec for implementing a new feature or system cha
 
 ## 3. Goals and Non-Goals
 
-*Instruction: This is the contract Definition of Success. Be precise.*
+_Instruction: This is the contract Definition of Success. Be precise._
 
 ### 3.1 Functional Goals
 
@@ -57,7 +59,7 @@ You are tasked with creating a spec for implementing a new feature or system cha
 
 ### 3.2 Non-Goals (Out of Scope)
 
-*Instruction: Explicitly state what you are NOT doing. This prevents scope creep.*
+_Instruction: Explicitly state what you are NOT doing. This prevents scope creep._
 
 - [ ] We will NOT support PDF export in this version (CSV only).
 - [ ] We will NOT migrate data older than 3 years.
@@ -65,11 +67,11 @@ You are tasked with creating a spec for implementing a new feature or system cha
 
 ## 4. Proposed Solution (High-Level Design)
 
-*Instruction: The "Big Picture." Diagrams are mandatory here.*
+_Instruction: The "Big Picture." Diagrams are mandatory here._
 
 ### 4.1 System Architecture Diagram
 
-*Instruction: Insert a C4 System Context or Container diagram. Show the "Black Boxes."*
+_Instruction: Insert a C4 System Context or Container diagram. Show the "Black Boxes."_
 
 - (Place Diagram Here - e.g., Mermaid diagram)
 
@@ -133,7 +135,7 @@ flowchart TB
 
 ### 4.2 Architectural Pattern
 
-*Instruction: Name the pattern (e.g., "Event Sourcing", "BFF - Backend for Frontend").*
+_Instruction: Name the pattern (e.g., "Event Sourcing", "BFF - Backend for Frontend")._
 
 - We are adopting a Publisher-Subscriber pattern where the Order Service publishes `OrderCreated` events, and the Billing Service consumes them asynchronously.
 
@@ -147,11 +149,11 @@ flowchart TB
 
 ## 5. Detailed Design
 
-*Instruction: The "Meat" of the document. Sufficient detail for an engineer to start coding.*
+_Instruction: The "Meat" of the document. Sufficient detail for an engineer to start coding._
 
 ### 5.1 API Interfaces
 
-*Instruction: Define the contract. Use OpenAPI/Swagger snippets or Protocol Buffer definitions.*
+_Instruction: Define the contract. Use OpenAPI/Swagger snippets or Protocol Buffer definitions._
 
 **Endpoint:** `POST /api/v1/invoices`
 
@@ -160,12 +162,12 @@ flowchart TB
 - **Request Body:**
 
 ```json
-{ "user_id": "uuid", "amount": 100.00, "currency": "USD" }
+{ "user_id": "uuid", "amount": 100.0, "currency": "USD" }
 ```
 
 ### 5.2 Data Model / Schema
 
-*Instruction: Provide ERDs (Entity Relationship Diagrams) or JSON schemas. Discuss normalization vs. denormalization.*
+_Instruction: Provide ERDs (Entity Relationship Diagrams) or JSON schemas. Discuss normalization vs. denormalization._
 
 **Table:** `invoices` (PostgreSQL)
 
@@ -177,14 +179,14 @@ flowchart TB
 
 ### 5.3 Algorithms and State Management
 
-*Instruction: Describe complex logic, state machines, or consistency models.*
+_Instruction: Describe complex logic, state machines, or consistency models._
 
 - **State Machine:** An invoice moves from `DRAFT` -> `LOCKED` -> `PROCESSING` -> `PAID`.
 - **Concurrency:** We use Optimistic Locking on the `version` column to prevent double-payments.
 
 ## 6. Alternatives Considered
 
-*Instruction: Prove you thought about trade-offs. Why is your solution better than the others?*
+_Instruction: Prove you thought about trade-offs. Why is your solution better than the others?_
 
 | Option                           | Pros                               | Cons                                      | Reason for Rejection                                                          |
 | -------------------------------- | ---------------------------------- | ----------------------------------------- | ----------------------------------------------------------------------------- |
@@ -210,7 +212,7 @@ flowchart TB
 ### 7.3 Scalability and Capacity Planning
 
 - **Traffic Estimates:** 1M transactions/day = ~12 TPS avg / 100 TPS peak.
-- **Storage Growth:** 1KB per record * 1M = 1GB/day.
+- **Storage Growth:** 1KB per record \* 1M = 1GB/day.
 - **Bottleneck:** The PostgreSQL Write node is the bottleneck. We will implement Read Replicas to offload traffic.
 
 ## 8. Migration, Rollout, and Testing
@@ -234,7 +236,7 @@ flowchart TB
 
 ## 9. Open Questions / Unresolved Issues
 
-*Instruction: List known unknowns. These must be resolved before the doc is marked "Approved".*
+_Instruction: List known unknowns. These must be resolved before the doc is marked "Approved"._
 
 - [ ] Will the Legal team approve the 3rd party library for PDF generation?
 - [ ] Does the current VPC peering allow connection to the legacy mainframe?

@@ -20,25 +20,25 @@ Commit changes, push to remote, and create a pull request with a conventional co
 ## What This Command Does
 
 1. **Stage and commit changes** using conventional commit format (follow the gh-commit skill conventions)
-   - If there are unstaged changes, stage and commit them with appropriate conventional commit messages
-   - If multiple distinct logical changes exist, create separate commits for each
-   - ALWAYS attribute AI-assisted code authorship in commits
+    - If there are unstaged changes, stage and commit them with appropriate conventional commit messages
+    - If multiple distinct logical changes exist, create separate commits for each
+    - ALWAYS attribute AI-assisted code authorship in commits
 2. **Push the branch** to the remote repository
-   - If the current branch is the default branch (main/master), create a new feature branch first
-   - Use `git push -u origin <branch>` to set upstream tracking
+    - If the current branch is the default branch (main/master), create a new feature branch first
+    - Use `git push -u origin <branch>` to set upstream tracking
 3. **Analyze all changes** in the branch relative to the base branch
-   - Run `git diff origin/<default-branch>...HEAD` to review the full scope of changes
-   - Read relevant modified files to understand the context and impact of changes
+    - Run `git diff origin/<default-branch>...HEAD` to review the full scope of changes
+    - Read relevant modified files to understand the context and impact of changes
 4. **Generate a PR title** following Conventional Commits format:
-   - Format: `<type>[optional scope]: <description>`
-   - Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`
-   - Use `!` after type/scope for breaking changes: `feat(api)!: change response format`
-   - Keep the title concise (under 72 characters)
-   - For multi-commit PRs, synthesize a higher-level title that captures the overall theme
+    - Format: `<type>[optional scope]: <description>`
+    - Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`
+    - Use `!` after type/scope for breaking changes: `feat(api)!: change response format`
+    - Keep the title concise (under 72 characters)
+    - For multi-commit PRs, synthesize a higher-level title that captures the overall theme
 5. **Generate a PR description** with the structure defined in the PR Description Template below
 6. **Create or update the pull request**
-   - If no PR exists for this branch: `gh pr create --title "TITLE" --body "DESCRIPTION"`
-   - If a PR already exists: `gh pr edit <number> --title "TITLE" --body "DESCRIPTION"`
+    - If no PR exists for this branch: `gh pr create --title "TITLE" --body "DESCRIPTION"`
+    - If a PR already exists: `gh pr edit <number> --title "TITLE" --body "DESCRIPTION"`
 
 ## PR Title Examples
 
@@ -87,7 +87,7 @@ Use this structure for the PR body. Omit sections that are not applicable.
 ## Important Notes
 
 - By default, pre-commit checks (defined in `.pre-commit-config.yaml`) will run to ensure code quality
-  - IMPORTANT: DO NOT SKIP pre-commit checks
+    - IMPORTANT: DO NOT SKIP pre-commit checks
 - ALWAYS attribute AI-Assisted Code Authorship in commit messages
 - Always review the diff before generating the title and description to ensure accuracy
 - If `gh` CLI is not authenticated, prompt the user to run `gh auth login` first

@@ -84,13 +84,13 @@ Relevant resources (use the deepwiki mcp `ask_question` tool for repos):
 ### Coding Agent Configuration Locations
 
 1. OpenCode:
-    - global: `~/.opencode`
+    - global: `$XDG_CONFIG_HOME/.opencode` (default: `~/.config/.opencode`, Windows: `%APPDATA%\\.opencode`)
     - local: `.opencode` in the project directory
 2. Claude Code:
     - global: `~/.claude`
     - local: `.claude` in the project directory
 3. Copilot CLI:
-    - global: `~/.config/.copilot`
+    - global: `~/.config/.copilot` (Windows: `%APPDATA%\\.copilot`)
     - local: `.github` in the project directory
 
 ## Tips

@@ -231,12 +231,13 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
 
   if (agentType === "claude") {
     configPrepTasks.push(
-      import("../utils/claude-config.ts").then(async ({ prepareClaudeConfigDir }) => {
-        const mergedClaudeConfigDir = await prepareClaudeConfigDir();
-        if (mergedClaudeConfigDir) {
-          process.env.CLAUDE_CONFIG_DIR = mergedClaudeConfigDir;
-        }
-      })
+      (async () => {
+        // Always keep ~/.atomic/.claude merged with ~/.claude for Atomic-managed
+        // global config continuity. Do not set CLAUDE_CONFIG_DIR at runtime,
+        // because that can break Claude auth resolution on macOS.
+        const { prepareClaudeConfigDir } = await import("../utils/claude-config.ts");
+        await prepareClaudeConfigDir();
+      })()
     );
   }
 

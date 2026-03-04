@@ -2,7 +2,10 @@ import { expect, test } from "bun:test";
 import { mkdtemp, mkdir, rm, writeFile } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
-import { hasProjectScmSkills, shouldAutoInitChat } from "./chat.ts";
+import {
+  hasProjectScmSkills,
+  shouldAutoInitChat,
+} from "./chat.ts";
 
 async function withTempDir(run: (dir: string) => Promise<void>): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), "atomic-chat-test-"));

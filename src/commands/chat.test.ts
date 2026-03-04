@@ -250,7 +250,7 @@ test("logActiveProviderDiscoveryPlan only emits when DEBUG=1", () => {
   }
 });
 
-test("prepareClaudeRuntimeForChat sets CLAUDE_CONFIG_DIR from merged runtime path", async () => {
+test("prepareClaudeRuntimeForChat returns merged dir without setting CLAUDE_CONFIG_DIR", async () => {
   const previousValue = process.env.CLAUDE_CONFIG_DIR;
   const projectRoot = "/tmp/atomic-chat-claude-project";
   const mergedDir = "/tmp/atomic-chat-claude-merged";
@@ -277,7 +277,8 @@ test("prepareClaudeRuntimeForChat sets CLAUDE_CONFIG_DIR from merged runtime pat
     expect(result).toBe(mergedDir);
     expect(capturedProjectRoot).toBe(projectRoot);
     expect(capturedPlanProvider).toBe("claude");
-    expect(process.env.CLAUDE_CONFIG_DIR).toBe(mergedDir);
+    // CLAUDE_CONFIG_DIR must NOT be set — it breaks macOS native auth resolution
+    expect(process.env.CLAUDE_CONFIG_DIR).toBe(previousValue);
   } finally {
     if (previousValue === undefined) {
       delete process.env.CLAUDE_CONFIG_DIR;

@@ -39,6 +39,7 @@ describe("StreamPipelineConsumer", () => {
     expect(receivedEvents).toHaveLength(1);
     expect(receivedEvents[0]).toEqual({
       type: "text-delta",
+      runId: 1,
       delta: "Hello ",
     });
   });
@@ -77,6 +78,7 @@ describe("StreamPipelineConsumer", () => {
     expect(receivedEvents).toHaveLength(1);
     expect(receivedEvents[0]).toEqual({
       type: "text-delta",
+      runId: 1,
       delta: "agent text",
       agentId: "agent_1",
     });
@@ -166,6 +168,7 @@ describe("StreamPipelineConsumer", () => {
     expect(receivedEvents).toHaveLength(1);
     expect(receivedEvents[0]).toEqual({
       type: "tool-start",
+      runId: 1,
       toolId: "tool1",
       toolName: "bash",
       input: { command: "ls" },
@@ -188,6 +191,7 @@ describe("StreamPipelineConsumer", () => {
     expect(receivedEvents).toHaveLength(1);
     expect(receivedEvents[0]).toEqual({
       type: "tool-start",
+      runId: 1,
       toolId: "tool1",
       toolName: "bash",
       input: { command: "ls" },
@@ -211,6 +215,7 @@ describe("StreamPipelineConsumer", () => {
     expect(receivedEvents).toHaveLength(1);
     expect(receivedEvents[0]).toEqual({
       type: "tool-start",
+      runId: 1,
       toolId: "tool1",
       toolName: "TaskOutput",
       input: { task_id: "abc" },
@@ -236,6 +241,7 @@ describe("StreamPipelineConsumer", () => {
     expect(receivedEvents).toHaveLength(1);
     expect(receivedEvents[0]).toEqual({
       type: "tool-complete",
+      runId: 1,
       toolId: "tool1",
       toolName: "bash",
       output: "file1.txt\nfile2.txt",
@@ -265,6 +271,7 @@ describe("StreamPipelineConsumer", () => {
     expect(receivedEvents).toHaveLength(1);
     expect(receivedEvents[0]).toEqual({
       type: "tool-complete",
+      runId: 1,
       toolId: "tool1",
       toolName: "bash",
       output: "ok",
@@ -295,6 +302,7 @@ describe("StreamPipelineConsumer", () => {
     expect(receivedEvents).toHaveLength(1);
     expect(receivedEvents[0]).toEqual({
       type: "tool-complete",
+      runId: 1,
       toolId: "tool1",
       toolName: "TaskOutput",
       output: { retrieval_status: "running" },
@@ -334,6 +342,7 @@ describe("StreamPipelineConsumer", () => {
     expect(receivedEvents).toHaveLength(1);
     expect(receivedEvents[0]).toEqual({
       type: "tool-complete",
+      runId: 1,
       toolId: "taskoutput-1",
       toolName: "TaskOutput",
       output: { result: "sub-agent final output" },
@@ -367,6 +376,31 @@ describe("StreamPipelineConsumer", () => {
     if (receivedEvents[0]?.type === "text-delta") {
       expect(receivedEvents[0].delta).toBe("Hello World");
     }
+  });
+
+  it("does not coalesce text deltas across different runs", () => {
+    const events: EnrichedBusEvent[] = [
+      {
+        type: "stream.text.delta",
+        sessionId: "test",
+        runId: 1,
+        timestamp: Date.now(),
+        data: { delta: "old ", messageId: "msg1" },
+      },
+      {
+        type: "stream.text.delta",
+        sessionId: "test",
+        runId: 2,
+        timestamp: Date.now(),
+        data: { delta: "new", messageId: "msg2" },
+      },
+    ];
+
+    consumer.processBatch(events);
+
+    expect(receivedEvents).toHaveLength(2);
+    expect(receivedEvents[0]).toMatchObject({ type: "text-delta", runId: 1, delta: "old " });
+    expect(receivedEvents[1]).toMatchObject({ type: "text-delta", runId: 2, delta: "new" });
   });
 
   it("does not coalesce text deltas across non-text boundaries", () => {
@@ -416,6 +450,7 @@ describe("StreamPipelineConsumer", () => {
     expect(receivedEvents).toHaveLength(1);
     expect(receivedEvents[0]).toEqual({
       type: "text-complete",
+      runId: 1,
       fullText: "Hello World",
       messageId: "msg1",
     });
@@ -435,6 +470,7 @@ describe("StreamPipelineConsumer", () => {
     expect(receivedEvents).toHaveLength(1);
     expect(receivedEvents[0]).toEqual({
       type: "workflow-step-start",
+      runId: 1,
       workflowId: "wf1",
       nodeId: "node1",
       nodeName: "Planner",
@@ -456,6 +492,7 @@ describe("StreamPipelineConsumer", () => {
     expect(receivedEvents).toHaveLength(1);
     expect(receivedEvents[0]).toEqual({
       type: "workflow-step-complete",
+      runId: 1,
       workflowId: "wf1",
       nodeId: "node1",
       nodeName: "Planner",
@@ -484,6 +521,7 @@ describe("StreamPipelineConsumer", () => {
     expect(receivedEvents).toHaveLength(1);
     expect(receivedEvents[0]).toEqual({
       type: "task-list-update",
+      runId: 1,
       tasks: [
         { id: "t1", title: "Plan", status: "complete", blockedBy: [] },
         { id: "t2", title: "Implement", status: "pending" },
@@ -525,6 +563,7 @@ describe("StreamPipelineConsumer", () => {
     expect(receivedEvents).toHaveLength(2);
     expect(receivedEvents[0]).toEqual({
       type: "task-list-update",
+      runId: 1,
       tasks: [
         {
           id: "t1",
@@ -535,6 +574,7 @@ describe("StreamPipelineConsumer", () => {
     });
     expect(receivedEvents[1]).toEqual({
       type: "task-result-upsert",
+      runId: 1,
       envelope: {
         task_id: "#1",
         tool_name: "task",
@@ -563,6 +603,7 @@ describe("StreamPipelineConsumer", () => {
     expect(receivedEvents).toHaveLength(1);
     expect(receivedEvents[0]).toEqual({
       type: "tool-partial-result",
+      runId: 1,
       toolId: "tool1",
       partialOutput: "partial output line\n",
     });
@@ -586,6 +627,7 @@ describe("StreamPipelineConsumer", () => {
     expect(receivedEvents).toHaveLength(1);
     expect(receivedEvents[0]).toEqual({
       type: "tool-partial-result",
+      runId: 1,
       toolId: "tool1",
       partialOutput: "line\n",
       agentId: "subagent_1",

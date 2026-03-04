@@ -3734,6 +3734,14 @@ export function ChatApp({
     };
 
     for (const part of parts) {
+      if (
+        typeof part.runId === "number"
+        && activeStreamRunIdRef.current !== null
+        && part.runId !== activeStreamRunIdRef.current
+      ) {
+        continue;
+      }
+
       if (part.type === "tool-start") {
         handleToolStart(part.toolId, part.toolName, part.input, part.agentId);
         continue;
@@ -3752,6 +3760,7 @@ export function ChatApp({
         if (!messageId) continue;
         queueMessagePartUpdate(messageId, {
           type: "tool-partial-result",
+          runId: part.runId,
           toolId: part.toolId,
           partialOutput: part.partialOutput,
           ...(part.agentId ? { agentId: part.agentId } : {}),
@@ -3775,6 +3784,7 @@ export function ChatApp({
         if (!messageId) continue;
         queueMessagePartUpdate(messageId, {
           type: "text-delta",
+          runId: part.runId,
           delta: part.delta,
           ...(part.agentId ? { agentId: part.agentId } : {}),
         });
@@ -3814,6 +3824,7 @@ export function ChatApp({
         if (part.agentId) {
           queueMessagePartUpdate(messageId, {
             type: "thinking-meta",
+            runId: part.runId,
             thinkingSourceKey: part.thinkingSourceKey,
             targetMessageId: part.targetMessageId,
             streamGeneration: part.streamGeneration,
@@ -3867,6 +3878,7 @@ export function ChatApp({
         if (!thinkingMetaEvent) continue;
         queueMessagePartUpdate(messageId, {
           type: "thinking-meta",
+          runId: part.runId,
           thinkingSourceKey: thinkingMetaEvent.thinkingSourceKey,
           targetMessageId: thinkingMetaEvent.targetMessageId,
           streamGeneration: thinkingMetaEvent.streamGeneration,

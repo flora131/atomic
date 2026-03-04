@@ -29,6 +29,7 @@ type ToolStatus = MessageToolCall["status"];
 
 interface ToolStartEvent {
   type: "tool-start";
+  runId?: number;
   toolId: string;
   toolName: string;
   input: Record<string, unknown>;
@@ -39,6 +40,7 @@ interface ToolStartEvent {
 
 interface ToolCompleteEvent {
   type: "tool-complete";
+  runId?: number;
   toolId: string;
   toolName?: string;
   output: unknown;
@@ -51,6 +53,7 @@ interface ToolCompleteEvent {
 
 interface TextDeltaEvent {
   type: "text-delta";
+  runId?: number;
   delta: string;
   /** Sub-agent ID if this event is scoped to a workflow sub-agent */
   agentId?: string;
@@ -58,6 +61,7 @@ interface TextDeltaEvent {
 
 interface TextCompleteEvent {
   type: "text-complete";
+  runId?: number;
   fullText: string;
   messageId: string;
 }
@@ -66,6 +70,7 @@ export type ThinkingProvider = "claude" | "opencode" | "copilot" | "unknown";
 
 export interface ThinkingMetaEvent {
   type: "thinking-meta";
+  runId?: number;
   thinkingSourceKey: string;
   targetMessageId: string;
   streamGeneration: number;
@@ -83,6 +88,7 @@ export interface ThinkingMetaEvent {
 
 interface HitlRequestEvent {
   type: "tool-hitl-request";
+  runId?: number;
   toolId: string;
   request: {
     requestId: string;
@@ -96,18 +102,21 @@ interface HitlRequestEvent {
 
 interface HitlResponseEvent {
   type: "tool-hitl-response";
+  runId?: number;
   toolId: string;
   response: HitlResponseRecord;
 }
 
 interface ParallelAgentsEvent {
   type: "parallel-agents";
+  runId?: number;
   agents: ParallelAgent[];
   isLastMessage: boolean;
 }
 
 interface TaskListUpdateEvent {
   type: "task-list-update";
+  runId?: number;
   tasks: Array<{
     id: string;
     title: string;
@@ -118,6 +127,7 @@ interface TaskListUpdateEvent {
 
 interface WorkflowStepStartEvent {
   type: "workflow-step-start";
+  runId?: number;
   workflowId: string;
   nodeId: string;
   nodeName: string;
@@ -126,6 +136,7 @@ interface WorkflowStepStartEvent {
 
 interface WorkflowStepCompleteEvent {
   type: "workflow-step-complete";
+  runId?: number;
   workflowId: string;
   nodeId: string;
   nodeName?: string;
@@ -136,11 +147,13 @@ interface WorkflowStepCompleteEvent {
 
 interface TaskResultUpsertEvent {
   type: "task-result-upsert";
+  runId?: number;
   envelope: WorkflowRuntimeTaskResultEnvelope;
 }
 
 interface ToolPartialResultEvent {
   type: "tool-partial-result";
+  runId?: number;
   toolId: string;
   partialOutput: string;
   /** Sub-agent ID if this event is scoped to a workflow sub-agent */

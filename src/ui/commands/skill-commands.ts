@@ -27,11 +27,7 @@ import type {
     CommandResult,
 } from "./registry.ts";
 import { globalRegistry } from "./registry.ts";
-import {
-    existsSync,
-    readdirSync,
-    readFileSync,
-} from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
 import { parseMarkdownFrontmatter } from "../../utils/markdown.ts";
@@ -74,11 +70,7 @@ const USER_CONFIG_HOME = resolveDefaultConfigHome({
     appDataDir: process.env.APPDATA ?? undefined,
     platform: process.platform,
 });
-const USER_DISCOVERY_ROOTS = [
-    HOME,
-    USER_CONFIG_HOME,
-    join(HOME, ".atomic"),
-];
+const USER_DISCOVERY_ROOTS = [HOME, USER_CONFIG_HOME, join(HOME, ".atomic")];
 
 const SKILL_DISCOVERY_PATHS = [
     join(".claude", "skills"),
@@ -165,16 +157,6 @@ function buildRuntimeDiscoveryPlanOptions(): {
     return discoveryPlanOptions;
 }
 
-export const BUILTIN_SKILLS: BuiltinSkillDefinition[] = [
-    {
-        name: "playwright-cli",
-        aliases: ["pw", "playwright"],
-        description:
-            "Browser automation for web research, data extraction, and UI testing with Playwright CLI",
-        argumentHint: "[url-or-task]",
-    },
-];
-
 function shouldSkillOverride(
     newSource: SkillSource,
     existingSource: SkillSource,
@@ -201,9 +183,11 @@ function determineSkillSource(discoveryPath: string): SkillSource {
         return "project";
     }
 
-    if (USER_DISCOVERY_ROOTS.some((rootPath) =>
-        isPathWithinRoot(rootPath, resolvedPath)
-    )) {
+    if (
+        USER_DISCOVERY_ROOTS.some((rootPath) =>
+            isPathWithinRoot(rootPath, resolvedPath),
+        )
+    ) {
         return "user";
     }
 
@@ -230,10 +214,9 @@ function collectSkillDiscoveryPaths(
 
     for (const plan of discoveryPlans) {
         const compatibilitySelection = compatibilityResolver(plan);
-        const rootsByDescendingPrecedence = [...getCompatibleDiscoveryRoots(
-            plan,
-            compatibilitySelection,
-        )].reverse();
+        const rootsByDescendingPrecedence = [
+            ...getCompatibleDiscoveryRoots(plan, compatibilitySelection),
+        ].reverse();
         for (const root of rootsByDescendingPrecedence) {
             const skillPath = resolve(join(root.resolvedPath, "skills"));
             if (seen.has(skillPath)) {
@@ -324,7 +307,8 @@ function emitSkillCompatibilityFilteredEvent(
                     `${match.provider}:${match.rootId}:${match.rootPath}`,
                 ),
         );
-        const pathContextMatch = providerFilteredMatches[0] ?? providerMatches[0];
+        const pathContextMatch =
+            providerFilteredMatches[0] ?? providerMatches[0];
 
         emitDiscoveryEvent("discovery.compatibility.filtered", {
             level: "warn",
@@ -368,7 +352,9 @@ export function validateDiskSkillDefinitionIntegrity(
     }
 
     if (skill.description.trim().length === 0) {
-        issues.push(`Skill "${skill.name}" must include a non-empty description.`);
+        issues.push(
+            `Skill "${skill.name}" must include a non-empty description.`,
+        );
     }
 
     if (skill.aliases) {
@@ -400,10 +386,11 @@ export function validateDiskSkillDefinitionIntegrity(
         }
     }
 
-    if (skill.argumentHint !== undefined && skill.argumentHint.trim().length === 0) {
-        issues.push(
-            `Skill "${skill.name}" has an empty argument-hint value.`,
-        );
+    if (
+        skill.argumentHint !== undefined &&
+        skill.argumentHint.trim().length === 0
+    ) {
+        issues.push(`Skill "${skill.name}" has an empty argument-hint value.`);
     }
 
     if (skill.requiredArguments) {
@@ -444,11 +431,10 @@ function discoverSkillFiles(
 ): DiscoveredSkillFile[] {
     const files: DiscoveredSkillFile[] = [];
     const cwd = process.cwd();
-    const discoveryPaths = options.searchPaths ??
-        [
-            ...SKILL_DISCOVERY_PATHS.map((searchPath) => resolve(cwd, searchPath)),
-            ...GLOBAL_SKILL_PATHS.map((searchPath) => resolve(searchPath)),
-        ];
+    const discoveryPaths = options.searchPaths ?? [
+        ...SKILL_DISCOVERY_PATHS.map((searchPath) => resolve(cwd, searchPath)),
+        ...GLOBAL_SKILL_PATHS.map((searchPath) => resolve(searchPath)),
+    ];
 
     for (const discoveryPath of discoveryPaths) {
         const fullPath = resolve(discoveryPath);
@@ -478,9 +464,7 @@ function discoverSkillFiles(
     return files;
 }
 
-function parseSkillFile(
-    file: DiscoveredSkillFile,
-): SkillFileParseResult {
+function parseSkillFile(file: DiscoveredSkillFile): SkillFileParseResult {
     const issues: string[] = [];
 
     try {
@@ -604,7 +588,11 @@ function parseSkillFile(
                     (argument) =>
                         typeof argument === "string" ? argument.trim() : "",
                 );
-                if (normalizedRequiredArgs.some((argument) => argument.length === 0)) {
+                if (
+                    normalizedRequiredArgs.some(
+                        (argument) => argument.length === 0,
+                    )
+                ) {
                     issues.push(
                         "frontmatter.required-arguments must contain non-empty string values only.",
                     );
@@ -647,11 +635,15 @@ function dispatchNativeSkillInvocation(
     skillArgs: string,
     context: CommandContext,
 ): CommandResult {
-    context.sendSilentMessage(buildSkillInvocationMessage(skillName, skillArgs));
+    context.sendSilentMessage(
+        buildSkillInvocationMessage(skillName, skillArgs),
+    );
     return { success: true, skillLoaded: skillName };
 }
 
-function createBuiltinSkillCommand(skill: BuiltinSkillDefinition): CommandDefinition {
+function createBuiltinSkillCommand(
+    skill: BuiltinSkillDefinition,
+): CommandDefinition {
     return {
         name: skill.name,
         description: skill.description,
@@ -672,7 +664,11 @@ function createBuiltinSkillCommand(skill: BuiltinSkillDefinition): CommandDefini
                 };
             }
 
-            return dispatchNativeSkillInvocation(skill.name, skillArgs, context);
+            return dispatchNativeSkillInvocation(
+                skill.name,
+                skillArgs,
+                context,
+            );
         },
     };
 }
@@ -698,48 +694,39 @@ function createDiskSkillCommand(skill: DiskSkillDefinition): CommandDefinition {
                 };
             }
 
-            return dispatchNativeSkillInvocation(skill.name, skillArgs, context);
+            return dispatchNativeSkillInvocation(
+                skill.name,
+                skillArgs,
+                context,
+            );
         },
     };
-}
-
-export function registerBuiltinSkills(): void {
-    for (const skill of BUILTIN_SKILLS) {
-        if (globalRegistry.has(skill.name)) {
-            continue;
-        }
-        globalRegistry.register(createBuiltinSkillCommand(skill));
-    }
 }
 
 export async function discoverAndRegisterDiskSkills(
     providerDiscoveryPlan?: ProviderDiscoveryPlan,
 ): Promise<void> {
-    registerBuiltinSkills();
     const allDiscoveryPlans = createAllProviderDiscoveryPlans(
         buildRuntimeDiscoveryPlanOptions(),
     );
     const activeDiscoveryPlans = providerDiscoveryPlan
         ? [providerDiscoveryPlan]
         : allDiscoveryPlans;
-    const runtimeCompatibleSearchPaths = getRuntimeCompatibleSkillDiscoveryPaths(
-        activeDiscoveryPlans,
-    );
-    const crossProviderProjectSearchPaths = SKILL_DISCOVERY_PATHS.map((searchPath) =>
-        resolve(process.cwd(), searchPath),
+    const runtimeCompatibleSearchPaths =
+        getRuntimeCompatibleSkillDiscoveryPaths(activeDiscoveryPlans);
+    const crossProviderProjectSearchPaths = SKILL_DISCOVERY_PATHS.map(
+        (searchPath) => resolve(process.cwd(), searchPath),
     );
     const runtimeCompatiblePathSet = new Set(runtimeCompatibleSearchPaths);
     const discoverySearchPaths = [
         ...runtimeCompatibleSearchPaths,
-        ...crossProviderProjectSearchPaths.filter((searchPath) =>
-            !runtimeCompatiblePathSet.has(searchPath)
+        ...crossProviderProjectSearchPaths.filter(
+            (searchPath) => !runtimeCompatiblePathSet.has(searchPath),
         ),
     ];
     const files = discoverSkillFiles({
         searchPaths:
-            discoverySearchPaths.length > 0
-                ? discoverySearchPaths
-                : undefined,
+            discoverySearchPaths.length > 0 ? discoverySearchPaths : undefined,
     });
     const activeRuntimeProviders = activeDiscoveryPlans
         .map((plan) => plan.provider)
@@ -786,23 +773,24 @@ export async function discoverAndRegisterDiskSkills(
                 runtimeCompatibleMatches,
                 activeDiscoveryPlans,
             );
-            warnSkippedSkillDefinition(file.path, [
-                `Definition is not compatible with active provider runtime(s): ${activeRuntimeProviders}.`,
-            ], {
-                reason: "runtime_incompatible",
-                discoveryMatches: integrity.discoveryMatches,
-                activeDiscoveryPlans,
-            });
+            warnSkippedSkillDefinition(
+                file.path,
+                [
+                    `Definition is not compatible with active provider runtime(s): ${activeRuntimeProviders}.`,
+                ],
+                {
+                    reason: "runtime_incompatible",
+                    discoveryMatches: integrity.discoveryMatches,
+                    activeDiscoveryPlans,
+                },
+            );
             continue;
         }
 
         const skill = parsed.skill;
 
         const existing = resolved.get(skill.name);
-        if (
-            !existing ||
-            shouldSkillOverride(skill.source, existing.source)
-        ) {
+        if (!existing || shouldSkillOverride(skill.source, existing.source)) {
             resolved.set(skill.name, skill);
         }
     }
@@ -820,17 +808,19 @@ export async function discoverAndRegisterDiskSkills(
                 } catch (error) {
                     const message =
                         error instanceof Error ? error.message : String(error);
-                    warnSkippedSkillDefinition(skill.skillFilePath, [
-                        `Command registration failed: ${message}`,
-                    ], {
-                        reason: "command_registration_failed",
-                        discoveryMatches: collectDefinitionDiscoveryMatches(
-                            skill.skillFilePath,
-                            "skill",
-                            allDiscoveryPlans,
-                        ),
-                        activeDiscoveryPlans,
-                    });
+                    warnSkippedSkillDefinition(
+                        skill.skillFilePath,
+                        [`Command registration failed: ${message}`],
+                        {
+                            reason: "command_registration_failed",
+                            discoveryMatches: collectDefinitionDiscoveryMatches(
+                                skill.skillFilePath,
+                                "skill",
+                                allDiscoveryPlans,
+                            ),
+                            activeDiscoveryPlans,
+                        },
+                    );
                     try {
                         globalRegistry.register(existingCmd);
                     } catch {
@@ -844,17 +834,19 @@ export async function discoverAndRegisterDiskSkills(
             } catch (error) {
                 const message =
                     error instanceof Error ? error.message : String(error);
-                warnSkippedSkillDefinition(skill.skillFilePath, [
-                    `Command registration failed: ${message}`,
-                ], {
-                    reason: "command_registration_failed",
-                    discoveryMatches: collectDefinitionDiscoveryMatches(
-                        skill.skillFilePath,
-                        "skill",
-                        allDiscoveryPlans,
-                    ),
-                    activeDiscoveryPlans,
-                });
+                warnSkippedSkillDefinition(
+                    skill.skillFilePath,
+                    [`Command registration failed: ${message}`],
+                    {
+                        reason: "command_registration_failed",
+                        discoveryMatches: collectDefinitionDiscoveryMatches(
+                            skill.skillFilePath,
+                            "skill",
+                            allDiscoveryPlans,
+                        ),
+                        activeDiscoveryPlans,
+                    },
+                );
             }
         }
     }

@@ -2,6 +2,7 @@
 name: testing-anti-patterns
 description: Identify and prevent testing anti-patterns when writing tests
 ---
+
 # Testing Anti-Patterns
 
 ## Overview
@@ -25,6 +26,7 @@ Context for review: $ARGUMENTS
 ## Anti-Pattern 1: Testing Mock Behavior
 
 **The violation:**
+
 ```typescript
 // ✗ BAD: Testing that the mock exists
 test('renders sidebar', () => {
@@ -34,11 +36,13 @@ test('renders sidebar', () => {
 ```
 
 **Why this is wrong:**
+
 - You're verifying the mock works, not that the component works
 - Test passes when mock is present, fails when it's not
 - Tells you nothing about real behavior
 
 **The fix:**
+
 ```typescript
 // ✓ GOOD: Test real component or don't mock it
 test('renders sidebar', () => {
@@ -62,13 +66,15 @@ BEFORE asserting on any mock element:
 ## Anti-Pattern 2: Test-Only Methods in Production
 
 **The violation:**
+
 ```typescript
 // ✗ BAD: destroy() only used in tests
 class Session {
-  async destroy() {  // Looks like production API!
-    await this._workspaceManager?.destroyWorkspace(this.id);
-    // ... cleanup
-  }
+    async destroy() {
+        // Looks like production API!
+        await this._workspaceManager?.destroyWorkspace(this.id);
+        // ... cleanup
+    }
 }
 
 // In tests
@@ -76,18 +82,20 @@ afterEach(() => session.destroy());
 ```
 
 **Why this is wrong:**
+
 - Production class polluted with test-only code
 - Dangerous if accidentally called in production
 - Violates YAGNI and separation of concerns
 
 **The fix:**
+
 ```typescript
 // ✓ GOOD: Test utilities handle test cleanup
 export async function cleanupSession(session: Session) {
-  const workspace = session.getWorkspaceInfo();
-  if (workspace) {
-    await workspaceManager.destroyWorkspace(workspace.id);
-  }
+    const workspace = session.getWorkspaceInfo();
+    if (workspace) {
+        await workspaceManager.destroyWorkspace(workspace.id);
+    }
 }
 
 // In tests
@@ -108,26 +116,28 @@ BEFORE adding any method to production class:
 ## Anti-Pattern 3: Mocking Without Understanding
 
 **The violation:**
+
 ```typescript
 // ✗ BAD: Mock breaks test logic
-test('detects duplicate server', () => {
-  vi.mock('ToolCatalog', () => ({
-    discoverAndCacheTools: vi.fn().mockResolvedValue(undefined)
-  }));
+test("detects duplicate server", () => {
+    vi.mock("ToolCatalog", () => ({
+        discoverAndCacheTools: vi.fn().mockResolvedValue(undefined),
+    }));
 
-  await addServer(config);
-  await addServer(config);  // Should throw - but won't!
+    await addServer(config);
+    await addServer(config); // Should throw - but won't!
 });
 ```
 
 **The fix:**
+
 ```typescript
 // ✓ GOOD: Mock at correct level
-test('detects duplicate server', () => {
-  vi.mock('MCPServerManager'); // Just mock slow server startup
+test("detects duplicate server", () => {
+    vi.mock("MCPServerManager"); // Just mock slow server startup
 
-  await addServer(config);  // Config written
-  await addServer(config);  // Duplicate detected ✓
+    await addServer(config); // Config written
+    await addServer(config); // Duplicate detected ✓
 });
 ```
 
@@ -153,22 +163,23 @@ BEFORE mocking any method:
 ```typescript
 // ✗ BAD: Partial mock
 const mockResponse = {
-  status: 'success',
-  data: { userId: '123', name: 'Alice' }
-  // Missing: metadata that downstream code uses
+    status: "success",
+    data: { userId: "123", name: "Alice" },
+    // Missing: metadata that downstream code uses
 };
 
 // ✓ GOOD: Mirror real API completeness
 const mockResponse = {
-  status: 'success',
-  data: { userId: '123', name: 'Alice' },
-  metadata: { requestId: 'req-789', timestamp: 1234567890 }
+    status: "success",
+    data: { userId: "123", name: "Alice" },
+    metadata: { requestId: "req-789", timestamp: 1234567890 },
 };
 ```
 
 ## Anti-Pattern 5: Integration Tests as Afterthought
 
 **The fix:**
+
 ```
 TDD cycle:
 1. Write failing test

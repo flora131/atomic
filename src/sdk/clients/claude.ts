@@ -58,6 +58,7 @@ import { stripProviderPrefix } from "../types.ts";
 import { initClaudeOptions } from "../init.ts";
 import { loadCopilotAgents } from "../../config/copilot-manual.ts";
 import { existsSync, realpathSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -102,6 +103,8 @@ interface ClaudeSessionState {
     systemToolsBaseline: number | null;
     /** Whether per-turn usage events were emitted from message_delta during streaming */
     hasEmittedStreamingUsage: boolean;
+    /** In-flight abort gate used to serialize new queries after interrupts */
+    pendingAbortPromise: Promise<void> | null;
 }
 
 interface StreamIntegrityCounters {
@@ -686,6 +689,59 @@ export class ClaudeAgentClient implements CodingAgentClient {
             systemToolsBaseline:
                 persisted?.systemToolsBaseline ?? this.probeSystemToolsBaseline,
             hasEmittedStreamingUsage: false,
+            pendingAbortPromise: null,
+        };
+
+        const waitForPendingAbort = async (): Promise<void> => {
+            const pendingAbort = state.pendingAbortPromise;
+            if (!pendingAbort) {
+                return;
+            }
+            try {
+                await pendingAbort;
+            } catch {
+                // If abort fails, do not block subsequent user turns.
+            }
+        };
+
+        const runAbortWithLock = (): Promise<void> => {
+            if (state.pendingAbortPromise) {
+                return state.pendingAbortPromise;
+            }
+
+            const abortPromise = (async () => {
+                // Prefer graceful interruption so the underlying Claude Code
+                // session remains reusable for the next turn. Force-close only
+                // as a fallback for runtimes that do not expose interrupt().
+                const activeQuery = state.query as
+                    | (Query & {
+                          interrupt?: () => Promise<void>;
+                      })
+                    | null;
+                if (!activeQuery) {
+                    return;
+                }
+
+                if (typeof activeQuery.interrupt === "function") {
+                    try {
+                        await activeQuery.interrupt();
+                        return;
+                    } catch {
+                        // Fall through to force-close fallback.
+                    }
+                }
+
+                activeQuery.close();
+            })();
+
+            state.pendingAbortPromise = abortPromise;
+            void abortPromise.finally(() => {
+                if (state.pendingAbortPromise === abortPromise) {
+                    state.pendingAbortPromise = null;
+                }
+            });
+
+            return abortPromise;
         };
 
         this.sessions.set(sessionId, state);
@@ -697,6 +753,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 if (state.isClosed) {
                     throw new Error("Session is closed");
                 }
+                await waitForPendingAbort();
                 this.emitRuntimeSelection(sessionId, "send");
 
                 // Build options with resume if we have an SDK session ID
@@ -818,6 +875,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                         if (state.isClosed) {
                             throw new Error("Session is closed");
                         }
+                        await waitForPendingAbort();
                         state.hasEmittedStreamingUsage = false;
                         emitRuntimeSelection();
                         const options: Options = {
@@ -1147,6 +1205,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 if (state.isClosed) {
                     throw new Error("Session is closed");
                 }
+                await waitForPendingAbort();
                 this.emitRuntimeSelection(sessionId, "summarize");
 
                 // Send /compact as a prompt to the Claude Agents SDK
@@ -1202,6 +1261,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 if (state.isClosed) {
                     return null;
                 }
+                await waitForPendingAbort();
 
                 let statusQuery: Query | null = null;
                 let shouldClose = false;
@@ -1244,48 +1304,11 @@ export class ClaudeAgentClient implements CodingAgentClient {
             },
 
             abort: async (): Promise<void> => {
-                // Prefer graceful interruption so the underlying Claude Code
-                // session remains reusable for the next turn. Force-close only
-                // as a fallback for runtimes that do not expose interrupt().
-                const activeQuery = state.query as
-                    | (Query & {
-                          interrupt?: () => Promise<void>;
-                      })
-                    | null;
-                if (!activeQuery) {
-                    return;
-                }
-                if (typeof activeQuery.interrupt === "function") {
-                    try {
-                        await activeQuery.interrupt();
-                        return;
-                    } catch {
-                        // Fall through to force-close fallback.
-                    }
-                }
-                activeQuery.close();
+                await runAbortWithLock();
             },
 
             abortBackgroundAgents: async (): Promise<void> => {
-                // Prefer graceful interruption to avoid poisoning the next
-                // resumed turn after background/foreground cancellation.
-                const activeQuery = state.query as
-                    | (Query & {
-                          interrupt?: () => Promise<void>;
-                      })
-                    | null;
-                if (!activeQuery) {
-                    return;
-                }
-                if (typeof activeQuery.interrupt === "function") {
-                    try {
-                        await activeQuery.interrupt();
-                        return;
-                    } catch {
-                        // Fall through to force-close fallback.
-                    }
-                }
-                activeQuery.close();
+                await runAbortWithLock();
             },
 
             destroy: async (): Promise<void> => {
@@ -2449,6 +2472,132 @@ export function createClaudeAgentClient(): ClaudeAgentClient {
 }
 
 /**
+ * Dependencies used to resolve the Claude Code executable path.
+ * Exported for deterministic unit testing.
+ */
+export interface ClaudeExecutablePathResolutionOptions {
+    platform: NodeJS.Platform;
+    homeDir: string;
+    claudeFromPath: string | null;
+    sdkCliPath: string | null;
+    envOverridePath: string | null;
+    pathExists: (path: string) => boolean;
+    resolveRealPath: (path: string) => string;
+}
+
+interface ClaudeExecutableCandidate {
+    invokePath: string;
+    canonicalPath: string;
+}
+
+function isLikelyNodeModulesClaudePath(path: string): boolean {
+    const normalized = path.replaceAll("\\", "/").toLowerCase();
+    return (
+        normalized.includes("/node_modules/") ||
+        normalized.includes("/.bun/install/") ||
+        normalized.endsWith("/cli.js")
+    );
+}
+
+function resolveClaudeExecutableCandidate(
+    candidate: string | null,
+    options: Pick<
+        ClaudeExecutablePathResolutionOptions,
+        "pathExists" | "resolveRealPath"
+    >,
+): ClaudeExecutableCandidate | null {
+    if (!candidate) {
+        return null;
+    }
+    if (!options.pathExists(candidate)) {
+        return null;
+    }
+
+    try {
+        const canonicalPath = options.resolveRealPath(candidate);
+        if (options.pathExists(canonicalPath)) {
+            return {
+                invokePath: candidate,
+                canonicalPath,
+            };
+        }
+    } catch {
+        // Fall through to returning the original candidate.
+    }
+
+    return {
+        invokePath: candidate,
+        canonicalPath: candidate,
+    };
+}
+
+/**
+ * Resolve the best Claude Code executable path for the active runtime.
+ */
+export function resolveClaudeCodeExecutablePath(
+    options: ClaudeExecutablePathResolutionOptions,
+): string | null {
+    const claudeFromPath = resolveClaudeExecutableCandidate(
+        options.claudeFromPath,
+        options,
+    );
+    const sdkCliPath = resolveClaudeExecutableCandidate(options.sdkCliPath, options);
+    const envOverridePath = resolveClaudeExecutableCandidate(
+        options.envOverridePath,
+        options,
+    );
+
+    if (envOverridePath) {
+        return envOverridePath.invokePath;
+    }
+
+    if (options.platform === "darwin") {
+        // On macOS, prefer native installs first so Claude desktop/Homebrew auth
+        // state is reused even when PATH points to a Bun/npm shim.
+        const macNativeCandidates = [
+            "/opt/homebrew/bin/claude",
+            "/usr/local/bin/claude",
+            "/Applications/Claude Code.app/Contents/MacOS/claude",
+            join(options.homeDir, ".local", "bin", "claude"),
+            join(options.homeDir, ".claude", "local", "claude"),
+            join(options.homeDir, "bin", "claude"),
+            "/Applications/Claude.app/Contents/MacOS/claude",
+            join(options.homeDir, "Applications", "Claude.app", "Contents", "MacOS", "claude"),
+            join(
+                options.homeDir,
+                "Applications",
+                "Claude Code.app",
+                "Contents",
+                "MacOS",
+                "claude",
+            ),
+        ];
+
+        for (const candidate of macNativeCandidates) {
+            const resolved = resolveClaudeExecutableCandidate(candidate, options);
+            if (resolved && !isLikelyNodeModulesClaudePath(resolved.canonicalPath)) {
+                return resolved.invokePath;
+            }
+        }
+
+        if (
+            claudeFromPath &&
+            !isLikelyNodeModulesClaudePath(claudeFromPath.canonicalPath)
+        ) {
+            return claudeFromPath.invokePath;
+        }
+
+        if (sdkCliPath && !isLikelyNodeModulesClaudePath(sdkCliPath.canonicalPath)) {
+            return sdkCliPath.invokePath;
+        }
+
+        return claudeFromPath?.invokePath ?? sdkCliPath?.invokePath ?? null;
+    }
+
+    return sdkCliPath?.invokePath ?? claudeFromPath?.invokePath ?? null;
+}
+
+/**
  * Get the path to the Claude Code CLI entry point.
  *
  * Supports all official installation methods:
@@ -2458,38 +2607,35 @@ export function createClaudeAgentClient(): ClaudeAgentClient {
  * - npm package (@anthropic-ai/claude-agent-sdk, dev only)
  *
  * Resolution order:
- * 1. import.meta.resolve (works in dev when @anthropic-ai/claude-agent-sdk is available)
- * 2. Find globally-installed claude CLI on $PATH
+ * 1. On macOS, prefer native install locations and non-node_modules binaries
+ * 2. SDK bundled cli.js (import.meta.resolve)
+ * 3. PATH fallback (including Bun/npm shims)
  */
 export function getBundledClaudeCodePath(): string {
-    // Strategy 1: import.meta.resolve (works in dev, fails in compiled binary)
+    const envOverridePath = process.env.ATOMIC_CLAUDE_CODE_EXECUTABLE?.trim() ||
+        null;
+    let sdkCliPath: string | null = null;
     try {
         const sdkUrl = import.meta.resolve("@anthropic-ai/claude-agent-sdk");
         const sdkPath = fileURLToPath(sdkUrl);
         const pkgDir = dirname(sdkPath);
-        const cliPath = join(pkgDir, "cli.js");
-        if (existsSync(cliPath)) return cliPath;
+        sdkCliPath = join(pkgDir, "cli.js");
     } catch {
-        // Falls through
+        // Falls through.
     }
 
-    // Strategy 2: Find claude CLI on $PATH.
-    // For npm global installs, the symlink resolves into the package with cli.js.
-    // For standalone installs (native install, Homebrew, WinGet), return the binary
-    // directly — the SDK handles executable paths by spawning them directly.
-    try {
-        const claudeBin = Bun.which("claude");
-        if (claudeBin) {
-            const realPath = realpathSync(claudeBin);
-            // Check if it's an npm package with cli.js
-            const pkgDir = dirname(realPath);
-            const cliPath = join(pkgDir, "cli.js");
-            if (existsSync(cliPath)) return cliPath;
-            // Standalone binary (native install, Homebrew, WinGet) — no cli.js
-            if (existsSync(realPath)) return realPath;
-        }
-    } catch {
-        // Falls through
+    const resolvedPath = resolveClaudeCodeExecutablePath({
+        platform: process.platform,
+        homeDir: homedir(),
+        claudeFromPath: Bun.which("claude") ?? Bun.which("claude-code"),
+        sdkCliPath,
+        envOverridePath,
+        pathExists: existsSync,
+        resolveRealPath: realpathSync,
+    });
+
+    if (resolvedPath) {
+        return resolvedPath;
     }
 
     throw new Error(

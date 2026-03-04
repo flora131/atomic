@@ -31,7 +31,7 @@
     ],
     "scripts": {
         "dev": "bun run src/cli.ts",
-        "build": "bun build src/cli.ts --compile --no-compile-autoload-dotenv --no-compile-autoload-bunfig --outfile atomic",
+        "build": "bun run src/scripts/build-binary.ts --outfile atomic",
         "test": "bun test",
         "test:contracts": "bun test src/ui/utils/background-agent-provider-parity.test.ts src/ui/utils/background-agent-runtime-parity.test.ts src/ui/utils/background-agent-acceptance.test.ts src/ui/utils/background-agent-termination-integration.test.ts src/ui/utils/background-agent-keybinding-nonconflict.test.ts src/ui/utils/background-agent-parent-callback.test.ts",
         "typecheck": "tsc --noEmit",
@@ -48,18 +48,19 @@
         "typescript": "^5.9.3"
     },
     "dependencies": {
-        "@anthropic-ai/claude-agent-sdk": "^0.2.63",
+        "@anthropic-ai/claude-agent-sdk": "^0.2.66",
         "@azure/monitor-opentelemetry": "^1.16.0",
         "@clack/prompts": "^1.1.0",
         "@commander-js/extra-typings": "^14.0.0",
         "@github/copilot-sdk": "^0.1.30",
-        "@opencode-ai/sdk": "^1.2.15",
+        "@opencode-ai/sdk": "^1.2.16",
         "@opentelemetry/api": "^1.9.0",
         "@opentelemetry/api-logs": "^0.212.0",
         "@opentui/core": "^0.1.86",
         "@opentui/react": "^0.1.86",
         "ci-info": "^4.4.0",
         "commander": "^14.0.3",
+        "web-tree-sitter": "0.25.10",
         "zod": "^4.3.6"
     }
 }

@@ -5,18 +5,19 @@
     "": {
       "name": "@bastani/atomic",
       "dependencies": {
-        "@anthropic-ai/claude-agent-sdk": "^0.2.63",
+        "@anthropic-ai/claude-agent-sdk": "^0.2.66",
         "@azure/monitor-opentelemetry": "^1.16.0",
         "@clack/prompts": "^1.1.0",
         "@commander-js/extra-typings": "^14.0.0",
         "@github/copilot-sdk": "^0.1.30",
-        "@opencode-ai/sdk": "^1.2.15",
+        "@opencode-ai/sdk": "^1.2.16",
         "@opentelemetry/api": "^1.9.0",
         "@opentelemetry/api-logs": "^0.212.0",
         "@opentui/core": "^0.1.86",
         "@opentui/react": "^0.1.86",
         "ci-info": "^4.4.0",
         "commander": "^14.0.3",
+        "web-tree-sitter": "0.25.10",
         "zod": "^4.3.6",
       },
       "devDependencies": {
@@ -30,7 +31,7 @@
     },
   },
   "packages": {
-    "@anthropic-ai/claude-agent-sdk": ["@anthropic-ai/claude-agent-sdk@0.2.63", "", { "optionalDependencies": { "@img/sharp-darwin-arm64": "^0.34.2", "@img/sharp-darwin-x64": "^0.34.2", "@img/sharp-linux-arm": "^0.34.2", "@img/sharp-linux-arm64": "^0.34.2", "@img/sharp-linux-x64": "^0.34.2", "@img/sharp-linuxmusl-arm64": "^0.34.2", "@img/sharp-linuxmusl-x64": "^0.34.2", "@img/sharp-win32-arm64": "^0.34.2", "@img/sharp-win32-x64": "^0.34.2" }, "peerDependencies": { "zod": "^4.0.0" } }, "sha512-ZNiaQb/v6xkbrGt3dtq5J0DGY+AaOhoehUyposa3msvlAlkTHWNGR+NhbCcTE0ML1U91xhPqMAAwZIUqrlkKyQ=="],
+    "@anthropic-ai/claude-agent-sdk": ["@anthropic-ai/claude-agent-sdk@0.2.66", "", { "optionalDependencies": { "@img/sharp-darwin-arm64": "^0.34.2", "@img/sharp-darwin-x64": "^0.34.2", "@img/sharp-linux-arm": "^0.34.2", "@img/sharp-linux-arm64": "^0.34.2", "@img/sharp-linux-x64": "^0.34.2", "@img/sharp-linuxmusl-arm64": "^0.34.2", "@img/sharp-linuxmusl-x64": "^0.34.2", "@img/sharp-win32-arm64": "^0.34.2", "@img/sharp-win32-x64": "^0.34.2" }, "peerDependencies": { "zod": "^4.0.0" } }, "sha512-hJL+j35yIkhcryR0kkszLz00lsEWBMu3qx8hazIHh55QV2nnZ6cn3p6oi04/VT84J9YU90jfmDffTQ66RD7YZg=="],
 
     "@azure/abort-controller": ["@azure/abort-controller@2.1.2", "", { "dependencies": { "tslib": "^2.6.2" } }, "sha512-nBrLsEWm4J2u5LpAPjxADTlq3trDgVZZXHNKabeXZtpq3d3AbN/KGO82R87rdDz5/lYB024rtEf10/q0urNgsA=="],
 
@@ -174,7 +175,7 @@
 
     "@microsoft/applicationinsights-web-snippet": ["@microsoft/applicationinsights-web-snippet@1.2.3", "", {}, "sha512-59ex4x1/PabGQIg+o0GKG5olqAJYBvMOiXec/9HCD3hK2y36YMWT0ivq5mequvtS5+21kco3SOnMB6QyScLPIA=="],
 
-    "@opencode-ai/sdk": ["@opencode-ai/sdk@1.2.15", "", {}, "sha512-NUJNlyBCdZ4R0EBLjJziEQOp2XbRPJosaMcTcWSWO5XJPKGUpz0u8ql+5cR8K+v2RJ+hp2NobtNwpjEYfe6BRQ=="],
+    "@opencode-ai/sdk": ["@opencode-ai/sdk@1.2.16", "", {}, "sha512-y9ae9VnCcuog0GaI4DveX1HB6DBoZgGN3EuJVlRFbBCPwhzkls6fCfHSb5+VnTS6Fy0OWFUL28VBCmixL/D+/Q=="],
 
     "@opentelemetry/api": ["@opentelemetry/api@1.9.0", "", {}, "sha512-3giAOQvZiH5F9bMlMiv8+GSPMeqg0dbaeo58/0SlA9sxSqZhnUtxzX9/2FzyhS9sWQf5S0GJE0AKBrFqjpeYcg=="],
 

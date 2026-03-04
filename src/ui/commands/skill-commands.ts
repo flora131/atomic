@@ -14,11 +14,11 @@
  *   - ~/.claude/skills/
  *   - ~/.opencode/skills/
  *   - ~/.copilot/skills/
+ *   - ~/.config/.opencode/skills/
+ *   - ~/.config/.copilot/skills/
  *   - ~/.atomic/.claude/skills/
  *   - ~/.atomic/.opencode/skills/
  *   - ~/.atomic/.copilot/skills/
- *
- * The $ARGUMENTS placeholder is expanded with user arguments before sending to the agent.
  */
 
 import type {
@@ -32,19 +32,35 @@ import {
     readdirSync,
     readFileSync,
 } from "node:fs";
-import { join, dirname } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
 import { parseMarkdownFrontmatter } from "../../utils/markdown.ts";
+import {
+    getCompatibleDiscoveryRoots,
+    resolveDefaultConfigHome,
+    type ProviderCompatibilitySelection,
+    type ProviderDiscoveryPlan,
+} from "../../utils/provider-discovery-plan.ts";
+import {
+    emitDiscoveryEvent,
+    isDiscoveryDebugLoggingEnabled,
+} from "../../utils/discovery-events.ts";
+import {
+    collectDefinitionDiscoveryMatches,
+    createAllProviderDiscoveryPlans,
+    filterDefinitionMatchesByRuntimeCompatibility,
+    getCommandIdentifierPatternDescription,
+    getRuntimeCompatibilitySelection,
+    isValidCommandIdentifier,
+    validateDefinitionCompatibility,
+    type DefinitionDiscoveryMatch,
+} from "./definition-integrity.ts";
 
-// ============================================================================
-// SKILL PROMPT EXPANSION
-// ============================================================================
-
-/**
- * Expand $ARGUMENTS placeholder in skill prompt with user arguments.
- */
-function expandArguments(prompt: string, args: string): string {
-    return prompt.replace(/\$ARGUMENTS/g, args || "[no arguments provided]");
+function buildSkillInvocationMessage(skillName: string, args: string): string {
+    const trimmedArgs = args.trim();
+    return trimmedArgs.length > 0
+        ? `/${skillName} ${trimmedArgs}`
+        : `/${skillName}`;
 }
 
 // ============================================================================
@@ -52,6 +68,17 @@ function expandArguments(prompt: string, args: string): string {
 // ============================================================================
 
 const HOME = homedir();
+const USER_CONFIG_HOME = resolveDefaultConfigHome({
+    homeDir: HOME,
+    xdgConfigHome: process.env.XDG_CONFIG_HOME ?? undefined,
+    appDataDir: process.env.APPDATA ?? undefined,
+    platform: process.platform,
+});
+const USER_DISCOVERY_ROOTS = [
+    HOME,
+    USER_CONFIG_HOME,
+    join(HOME, ".atomic"),
+];
 
 const SKILL_DISCOVERY_PATHS = [
     join(".claude", "skills"),
@@ -63,9 +90,8 @@ const GLOBAL_SKILL_PATHS = [
     join(HOME, ".claude", "skills"),
     join(HOME, ".opencode", "skills"),
     join(HOME, ".copilot", "skills"),
-] as const;
-
-const GLOBAL_ATOMIC_SKILL_PATHS = [
+    join(USER_CONFIG_HOME, ".opencode", "skills"),
+    join(USER_CONFIG_HOME, ".copilot", "skills"),
     join(HOME, ".atomic", ".claude", "skills"),
     join(HOME, ".atomic", ".opencode", "skills"),
     join(HOME, ".atomic", ".copilot", "skills"),
@@ -92,10 +118,51 @@ export interface DiskSkillDefinition {
 export interface BuiltinSkillDefinition {
     name: string;
     description: string;
-    prompt: string;
     aliases?: string[];
     argumentHint?: string;
     requiredArguments?: string[];
+}
+
+interface SkillFileParseResult {
+    skill: DiskSkillDefinition | null;
+    issues: readonly string[];
+}
+
+export interface SkillDefinitionIntegrityResult {
+    valid: boolean;
+    issues: readonly string[];
+    discoveryMatches: readonly DefinitionDiscoveryMatch[];
+}
+
+function buildRuntimeDiscoveryPlanOptions(): {
+    projectRoot: string;
+    homeDir?: string;
+    xdgConfigHome?: string;
+    appDataDir?: string;
+    platform: NodeJS.Platform;
+} {
+    const discoveryPlanOptions: {
+        projectRoot: string;
+        homeDir?: string;
+        xdgConfigHome?: string;
+        appDataDir?: string;
+        platform: NodeJS.Platform;
+    } = {
+        projectRoot: process.cwd(),
+        platform: process.platform,
+    };
+
+    if (process.env.HOME) {
+        discoveryPlanOptions.homeDir = process.env.HOME;
+    }
+    if (process.env.XDG_CONFIG_HOME) {
+        discoveryPlanOptions.xdgConfigHome = process.env.XDG_CONFIG_HOME;
+    }
+    if (process.env.APPDATA) {
+        discoveryPlanOptions.appDataDir = process.env.APPDATA;
+    }
+
+    return discoveryPlanOptions;
 }
 
 export const BUILTIN_SKILLS: BuiltinSkillDefinition[] = [
@@ -105,77 +172,6 @@ export const BUILTIN_SKILLS: BuiltinSkillDefinition[] = [
         description:
             "Browser automation for web research, data extraction, and UI testing with Playwright CLI",
         argumentHint: "[url-or-task]",
-        prompt: `# Browser Automation with playwright-cli
-
-Use this skill when the user asks to browse websites, validate UI flows, reproduce web bugs, fill forms, or capture page artifacts.
-
-User request: $ARGUMENTS
-
-## Standard workflow
-
-1. Open a browser session.
-2. Navigate to the target URL.
-3. Capture a snapshot to get element refs.
-4. Interact with page elements by ref.
-5. Capture evidence (snapshot/screenshot/pdf) when needed.
-6. Close the browser when done.
-
-## Command patterns
-
-### Navigation
-
-\`\`\`bash
-playwright-cli open [url]
-playwright-cli goto <url>
-playwright-cli go-back
-playwright-cli go-forward
-playwright-cli reload
-playwright-cli close
-\`\`\`
-
-### Interaction
-
-\`\`\`bash
-playwright-cli click <ref> [button]
-playwright-cli dblclick <ref> [button]
-playwright-cli fill <ref> <text>
-playwright-cli type <text>
-playwright-cli press <key>
-playwright-cli select <ref> <value>
-playwright-cli check <ref>
-playwright-cli uncheck <ref>
-playwright-cli hover <ref>
-playwright-cli drag <startRef> <endRef>
-playwright-cli upload <file>
-\`\`\`
-
-### Page state and artifacts
-
-\`\`\`bash
-playwright-cli snapshot
-playwright-cli screenshot
-playwright-cli pdf --filename=page.pdf
-playwright-cli eval "document.title"
-playwright-cli console
-playwright-cli network
-\`\`\`
-
-## Best practices
-
-- Run \`snapshot\` often to refresh refs before interacting.
-- Use element refs (\`e1\`, \`e2\`, ...) from the latest snapshot.
-- Keep actions incremental and verify after meaningful steps.
-- Use named sessions for multi-step workflows that need persistent state.
-
-## Fallback execution
-
-If global \`playwright-cli\` is unavailable, use Bun:
-
-\`\`\`bash
-bunx @playwright/cli open https://example.com
-bunx @playwright/cli snapshot
-\`\`\`
-`,
     },
 ];
 
@@ -190,16 +186,279 @@ function shouldSkillOverride(
     return priority[newSource] > priority[existingSource];
 }
 
-function discoverSkillFiles(): DiscoveredSkillFile[] {
+function isPathWithinRoot(rootPath: string, candidatePath: string): boolean {
+    const relativePath = relative(resolve(rootPath), resolve(candidatePath));
+    return (
+        relativePath === "" ||
+        (!relativePath.startsWith("..") && !isAbsolute(relativePath))
+    );
+}
+
+function determineSkillSource(discoveryPath: string): SkillSource {
+    const resolvedPath = resolve(discoveryPath);
+
+    if (isPathWithinRoot(process.cwd(), resolvedPath)) {
+        return "project";
+    }
+
+    if (USER_DISCOVERY_ROOTS.some((rootPath) =>
+        isPathWithinRoot(rootPath, resolvedPath)
+    )) {
+        return "user";
+    }
+
+    return "project";
+}
+
+export function getRuntimeCompatibleSkillDiscoveryPaths(
+    discoveryPlans: readonly ProviderDiscoveryPlan[],
+): string[] {
+    return collectSkillDiscoveryPaths(
+        discoveryPlans,
+        getRuntimeCompatibilitySelection,
+    );
+}
+
+function collectSkillDiscoveryPaths(
+    discoveryPlans: readonly ProviderDiscoveryPlan[],
+    compatibilityResolver: (
+        plan: ProviderDiscoveryPlan,
+    ) => ProviderCompatibilitySelection,
+): string[] {
+    const searchPaths: string[] = [];
+    const seen = new Set<string>();
+
+    for (const plan of discoveryPlans) {
+        const compatibilitySelection = compatibilityResolver(plan);
+        const rootsByDescendingPrecedence = [...getCompatibleDiscoveryRoots(
+            plan,
+            compatibilitySelection,
+        )].reverse();
+        for (const root of rootsByDescendingPrecedence) {
+            const skillPath = resolve(join(root.resolvedPath, "skills"));
+            if (seen.has(skillPath)) {
+                continue;
+            }
+
+            seen.add(skillPath);
+            searchPaths.push(skillPath);
+        }
+    }
+
+    return searchPaths;
+}
+
+function warnSkippedSkillDefinition(
+    skillFilePath: string,
+    issues: readonly string[],
+    options: {
+        discoveryMatches?: readonly DefinitionDiscoveryMatch[];
+        activeDiscoveryPlans?: readonly ProviderDiscoveryPlan[];
+        reason: string;
+    },
+): void {
+    if (issues.length === 0) {
+        return;
+    }
+
+    const providerTags = new Set(
+        (options.activeDiscoveryPlans ?? []).map((plan) => plan.provider),
+    );
+
+    if (providerTags.size === 0) {
+        for (const match of options.discoveryMatches ?? []) {
+            providerTags.add(match.provider);
+        }
+    }
+
+    for (const provider of providerTags) {
+        const providerMatch = options.discoveryMatches?.find(
+            (match) => match.provider === provider,
+        );
+        emitDiscoveryEvent("discovery.definition.skipped", {
+            level: "warn",
+            tags: {
+                provider,
+                path: resolve(skillFilePath),
+                rootId: providerMatch?.rootId,
+                rootTier: providerMatch?.tier,
+                rootCompatibility: providerMatch?.compatibility,
+            },
+            data: {
+                kind: "skill",
+                reason: options.reason,
+                issueCount: issues.length,
+                issues,
+            },
+        });
+    }
+
+    if (isDiscoveryDebugLoggingEnabled()) {
+        console.warn(
+            `[skill-commands] Skipping skill definition at ${skillFilePath}: ${issues.join(
+                " ",
+            )}`,
+        );
+    }
+}
+
+function emitSkillCompatibilityFilteredEvent(
+    skillFilePath: string,
+    discoveryMatches: readonly DefinitionDiscoveryMatch[],
+    runtimeCompatibleMatches: readonly DefinitionDiscoveryMatch[],
+    activeDiscoveryPlans: readonly ProviderDiscoveryPlan[],
+): void {
+    const runtimeCompatibleMatchKeys = new Set(
+        runtimeCompatibleMatches.map(
+            (match) => `${match.provider}:${match.rootId}:${match.rootPath}`,
+        ),
+    );
+
+    for (const activePlan of activeDiscoveryPlans) {
+        const providerMatches = discoveryMatches.filter(
+            (match) => match.provider === activePlan.provider,
+        );
+        const providerFilteredMatches = providerMatches.filter(
+            (match) =>
+                !runtimeCompatibleMatchKeys.has(
+                    `${match.provider}:${match.rootId}:${match.rootPath}`,
+                ),
+        );
+        const pathContextMatch = providerFilteredMatches[0] ?? providerMatches[0];
+
+        emitDiscoveryEvent("discovery.compatibility.filtered", {
+            level: "warn",
+            tags: {
+                provider: activePlan.provider,
+                path: resolve(skillFilePath),
+                rootId: pathContextMatch?.rootId,
+                rootTier: pathContextMatch?.tier,
+                rootCompatibility: pathContextMatch?.compatibility,
+            },
+            data: {
+                kind: "skill",
+                runtimeCompatibilitySelection:
+                    getRuntimeCompatibilitySelection(activePlan),
+                providerMatchCount: providerMatches.length,
+                filteredMatchCount: providerFilteredMatches.length,
+            },
+        });
+    }
+}
+
+export function validateDiskSkillDefinitionIntegrity(
+    skill: DiskSkillDefinition,
+    options: {
+        discoveryPlans?: readonly ProviderDiscoveryPlan[];
+    } = {},
+): SkillDefinitionIntegrityResult {
+    const issues: string[] = [];
+    const plans = options.discoveryPlans ?? createAllProviderDiscoveryPlans();
+
+    if (!skill.skillFilePath.endsWith("SKILL.md")) {
+        issues.push(
+            `Skill file must point to SKILL.md, received: ${skill.skillFilePath}`,
+        );
+    }
+
+    if (!isValidCommandIdentifier(skill.name)) {
+        issues.push(
+            `Invalid skill name "${skill.name}". Use ${getCommandIdentifierPatternDescription()}.`,
+        );
+    }
+
+    if (skill.description.trim().length === 0) {
+        issues.push(`Skill "${skill.name}" must include a non-empty description.`);
+    }
+
+    if (skill.aliases) {
+        const seenAliases = new Set<string>();
+        for (const alias of skill.aliases) {
+            if (!isValidCommandIdentifier(alias)) {
+                issues.push(
+                    `Invalid alias "${alias}" for skill "${skill.name}". Use ${getCommandIdentifierPatternDescription()}.`,
+                );
+                continue;
+            }
+
+            const normalizedAlias = alias.toLowerCase();
+            if (normalizedAlias === skill.name.toLowerCase()) {
+                issues.push(
+                    `Alias "${alias}" duplicates the skill name "${skill.name}".`,
+                );
+                continue;
+            }
+
+            if (seenAliases.has(normalizedAlias)) {
+                issues.push(
+                    `Alias "${alias}" is duplicated in skill "${skill.name}".`,
+                );
+                continue;
+            }
+
+            seenAliases.add(normalizedAlias);
+        }
+    }
+
+    if (skill.argumentHint !== undefined && skill.argumentHint.trim().length === 0) {
+        issues.push(
+            `Skill "${skill.name}" has an empty argument-hint value.`,
+        );
+    }
+
+    if (skill.requiredArguments) {
+        for (const requiredArgument of skill.requiredArguments) {
+            if (requiredArgument.trim().length === 0) {
+                issues.push(
+                    `Skill "${skill.name}" includes an empty required-arguments entry.`,
+                );
+                continue;
+            }
+
+            if (/\s/.test(requiredArgument)) {
+                issues.push(
+                    `Required argument "${requiredArgument}" for skill "${skill.name}" must not contain spaces.`,
+                );
+            }
+        }
+    }
+
+    const compatibilityValidation = validateDefinitionCompatibility(
+        skill.skillFilePath,
+        "skill",
+        plans,
+    );
+    issues.push(...compatibilityValidation.issues);
+
+    return {
+        valid: issues.length === 0,
+        issues,
+        discoveryMatches: compatibilityValidation.matches,
+    };
+}
+
+function discoverSkillFiles(
+    options: {
+        searchPaths?: readonly string[];
+    } = {},
+): DiscoveredSkillFile[] {
     const files: DiscoveredSkillFile[] = [];
     const cwd = process.cwd();
+    const discoveryPaths = options.searchPaths ??
+        [
+            ...SKILL_DISCOVERY_PATHS.map((searchPath) => resolve(cwd, searchPath)),
+            ...GLOBAL_SKILL_PATHS.map((searchPath) => resolve(searchPath)),
+        ];
 
-    for (const discoveryPath of SKILL_DISCOVERY_PATHS) {
-        const fullPath = join(cwd, discoveryPath);
-        if (!existsSync(fullPath)) continue;
+    for (const discoveryPath of discoveryPaths) {
+        const fullPath = resolve(discoveryPath);
+        if (!existsSync(fullPath)) {
+            continue;
+        }
 
         try {
             const entries = readdirSync(fullPath, { withFileTypes: true });
+            const source = determineSkillSource(fullPath);
             for (const entry of entries) {
                 if (!entry.isDirectory()) continue;
                 const skillFile = join(fullPath, entry.name, "SKILL.md");
@@ -207,29 +466,7 @@ function discoverSkillFiles(): DiscoveredSkillFile[] {
                     files.push({
                         path: skillFile,
                         dirName: entry.name,
-                        source: "project",
-                    });
-                }
-            }
-        } catch {
-            // Skip inaccessible directories
-        }
-    }
-
-    const allGlobalPaths = [...GLOBAL_SKILL_PATHS, ...GLOBAL_ATOMIC_SKILL_PATHS];
-    for (const globalPath of allGlobalPaths) {
-        if (!existsSync(globalPath)) continue;
-
-        try {
-            const entries = readdirSync(globalPath, { withFileTypes: true });
-            for (const entry of entries) {
-                if (!entry.isDirectory()) continue;
-                const skillFile = join(globalPath, entry.name, "SKILL.md");
-                if (existsSync(skillFile)) {
-                    files.push({
-                        path: skillFile,
-                        dirName: entry.name,
-                        source: "user",
+                        source,
                     });
                 }
             }
@@ -243,107 +480,174 @@ function discoverSkillFiles(): DiscoveredSkillFile[] {
 
 function parseSkillFile(
     file: DiscoveredSkillFile,
-): DiskSkillDefinition | null {
+): SkillFileParseResult {
+    const issues: string[] = [];
+
     try {
         const content = readFileSync(file.path, "utf-8");
         const parsed = parseMarkdownFrontmatter(content);
 
-        if (!parsed) {
+        if (content.trimStart().startsWith("---") && !parsed) {
             return {
-                name: file.dirName,
-                description: `Skill: ${file.dirName}`,
-                skillFilePath: file.path,
-                source: file.source,
+                skill: null,
+                issues: [
+                    "Invalid markdown frontmatter block. Ensure SKILL.md starts with a valid '---' header and closing delimiter.",
+                ],
+            };
+        }
+
+        const body = parsed ? parsed.body : content;
+        if (body.trim().length === 0) {
+            return {
+                skill: null,
+                issues: [
+                    "Skill instructions are empty. Add instructions below the frontmatter block.",
+                ],
+            };
+        }
+
+        if (!parsed) {
+            const fallbackName = file.dirName.trim();
+            if (fallbackName.length === 0) {
+                return {
+                    skill: null,
+                    issues: [
+                        "Skill directory name is empty. Rename the skill directory to a valid command identifier.",
+                    ],
+                };
+            }
+
+            return {
+                skill: {
+                    name: fallbackName,
+                    description: `Skill: ${fallbackName}`,
+                    skillFilePath: file.path,
+                    source: file.source,
+                },
+                issues: [],
             };
         }
 
         const fm = parsed.frontmatter;
-        const name = typeof fm.name === "string" ? fm.name : file.dirName;
-        const description =
-            typeof fm.description === "string"
-                ? fm.description
-                : `Skill: ${name}`;
+        let name = file.dirName.trim();
 
-        let aliases: string[] | undefined;
-        if (Array.isArray(fm.aliases)) {
-            aliases = fm.aliases.filter(
-                (a): a is string => typeof a === "string",
+        if ("name" in fm) {
+            if (typeof fm.name !== "string" || fm.name.trim().length === 0) {
+                issues.push(
+                    "frontmatter.name must be a non-empty string when provided.",
+                );
+            } else {
+                name = fm.name.trim();
+            }
+        }
+
+        if (name.length === 0) {
+            issues.push(
+                "Skill name resolved to an empty value. Provide frontmatter.name or a non-empty skill directory name.",
             );
         }
 
-        const argumentHint =
-            typeof fm["argument-hint"] === "string"
-                ? fm["argument-hint"]
-                : undefined;
+        let description = `Skill: ${name}`;
+        if ("description" in fm) {
+            if (
+                typeof fm.description !== "string" ||
+                fm.description.trim().length === 0
+            ) {
+                issues.push(
+                    "frontmatter.description must be a non-empty string when provided.",
+                );
+            } else {
+                description = fm.description.trim();
+            }
+        }
+
+        let aliases: string[] | undefined;
+        if ("aliases" in fm) {
+            if (!Array.isArray(fm.aliases)) {
+                issues.push("frontmatter.aliases must be an array of strings.");
+            } else {
+                const normalizedAliases = fm.aliases.map((alias) =>
+                    typeof alias === "string" ? alias.trim() : "",
+                );
+                if (normalizedAliases.some((alias) => alias.length === 0)) {
+                    issues.push(
+                        "frontmatter.aliases must contain non-empty string values only.",
+                    );
+                } else {
+                    aliases = normalizedAliases;
+                }
+            }
+        }
+
+        let argumentHint: string | undefined;
+        if ("argument-hint" in fm) {
+            if (
+                typeof fm["argument-hint"] !== "string" ||
+                fm["argument-hint"].trim().length === 0
+            ) {
+                issues.push(
+                    "frontmatter.argument-hint must be a non-empty string when provided.",
+                );
+            } else {
+                argumentHint = fm["argument-hint"].trim();
+            }
+        }
 
         let requiredArguments: string[] | undefined;
-        if (Array.isArray(fm["required-arguments"])) {
-            requiredArguments = fm["required-arguments"].filter(
-                (a): a is string => typeof a === "string",
-            );
+        if ("required-arguments" in fm) {
+            if (!Array.isArray(fm["required-arguments"])) {
+                issues.push(
+                    "frontmatter.required-arguments must be an array of strings.",
+                );
+            } else {
+                const normalizedRequiredArgs = fm["required-arguments"].map(
+                    (argument) =>
+                        typeof argument === "string" ? argument.trim() : "",
+                );
+                if (normalizedRequiredArgs.some((argument) => argument.length === 0)) {
+                    issues.push(
+                        "frontmatter.required-arguments must contain non-empty string values only.",
+                    );
+                } else {
+                    requiredArguments = normalizedRequiredArgs;
+                }
+            }
+        }
+
+        if (issues.length > 0) {
+            return {
+                skill: null,
+                issues,
+            };
         }
 
         return {
-            name,
-            description,
-            skillFilePath: file.path,
-            source: file.source,
-            aliases,
-            argumentHint,
-            requiredArguments,
+            skill: {
+                name,
+                description,
+                skillFilePath: file.path,
+                source: file.source,
+                aliases,
+                argumentHint,
+                requiredArguments,
+            },
+            issues: [],
         };
-    } catch {
-        return null;
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+            skill: null,
+            issues: [`Unable to read skill file: ${message}`],
+        };
     }
 }
 
-function loadSkillContent(skillFilePath: string): string | null {
-    try {
-        const content = readFileSync(skillFilePath, "utf-8");
-        const parsed = parseMarkdownFrontmatter(content);
-        const body = parsed ? parsed.body : content;
-        
-        // Include skill directory path context for multi-file skills
-        const skillDir = dirname(skillFilePath);
-        const hasAdditionalFiles = existsSync(skillDir) && 
-            readdirSync(skillDir).some(entry => entry !== "SKILL.md");
-        
-        if (hasAdditionalFiles) {
-            const pathContext = `<skill-directory path="${skillDir}">\n` +
-                `This skill's directory is located at: ${skillDir}\n` +
-                `Use this path when accessing additional files referenced in the skill instructions.\n` +
-                `</skill-directory>\n\n`;
-            return pathContext + body;
-        }
-        
-        return body;
-    } catch {
-        return null;
-    }
-}
-
-function dispatchLoadedSkillPrompt(
+function dispatchNativeSkillInvocation(
     skillName: string,
-    body: string,
     skillArgs: string,
     context: CommandContext,
 ): CommandResult {
-    const expandedPrompt = expandArguments(body, skillArgs);
-    const normalizedArgs = skillArgs.trim() || "[no arguments provided]";
-    // Prepend a directive so the model acts on the already-expanded
-    // skill content rather than re-loading the raw skill via the SDK's
-    // built-in "skill" tool (which would lose the $ARGUMENTS expansion).
-    const directive =
-        `<skill-loaded name="${skillName}">\n` +
-        `The "${skillName}" skill has already been loaded with the user's arguments below. ` +
-        `Do NOT invoke the Skill tool for "${skillName}" — follow the instructions directly.\n` +
-        `Treat the active user request below as authoritative for this turn, even if prior prompts were cancelled.\n` +
-        `</skill-loaded>\n\n`;
-    const activeRequest =
-        `<active-user-request>\n` +
-        `${normalizedArgs}\n` +
-        `</active-user-request>\n\n`;
-    context.sendSilentMessage(directive + activeRequest + expandedPrompt);
+    context.sendSilentMessage(buildSkillInvocationMessage(skillName, skillArgs));
     return { success: true, skillLoaded: skillName };
 }
 
@@ -368,12 +672,7 @@ function createBuiltinSkillCommand(skill: BuiltinSkillDefinition): CommandDefini
                 };
             }
 
-            return dispatchLoadedSkillPrompt(
-                skill.name,
-                skill.prompt,
-                skillArgs,
-                context,
-            );
+            return dispatchNativeSkillInvocation(skill.name, skillArgs, context);
         },
     };
 }
@@ -399,17 +698,7 @@ function createDiskSkillCommand(skill: DiskSkillDefinition): CommandDefinition {
                 };
             }
 
-            const body = loadSkillContent(skill.skillFilePath);
-            if (!body) {
-                // Delegate to the agent's native skill system (e.g. Copilot CLI
-                // loads skills itself via skillDirectories passed at session creation)
-                const invocationMessage = skillArgs
-                    ? `/${skill.name} ${skillArgs}`
-                    : `/${skill.name}`;
-                context.sendSilentMessage(invocationMessage);
-                return { success: true, skillLoaded: skill.name };
-            }
-            return dispatchLoadedSkillPrompt(skill.name, body, skillArgs, context);
+            return dispatchNativeSkillInvocation(skill.name, skillArgs, context);
         },
     };
 }
@@ -423,15 +712,91 @@ export function registerBuiltinSkills(): void {
     }
 }
 
-export async function discoverAndRegisterDiskSkills(): Promise<void> {
+export async function discoverAndRegisterDiskSkills(
+    providerDiscoveryPlan?: ProviderDiscoveryPlan,
+): Promise<void> {
     registerBuiltinSkills();
-    const files = discoverSkillFiles();
+    const allDiscoveryPlans = createAllProviderDiscoveryPlans(
+        buildRuntimeDiscoveryPlanOptions(),
+    );
+    const activeDiscoveryPlans = providerDiscoveryPlan
+        ? [providerDiscoveryPlan]
+        : allDiscoveryPlans;
+    const runtimeCompatibleSearchPaths = getRuntimeCompatibleSkillDiscoveryPaths(
+        activeDiscoveryPlans,
+    );
+    const crossProviderProjectSearchPaths = SKILL_DISCOVERY_PATHS.map((searchPath) =>
+        resolve(process.cwd(), searchPath),
+    );
+    const runtimeCompatiblePathSet = new Set(runtimeCompatibleSearchPaths);
+    const discoverySearchPaths = [
+        ...runtimeCompatibleSearchPaths,
+        ...crossProviderProjectSearchPaths.filter((searchPath) =>
+            !runtimeCompatiblePathSet.has(searchPath)
+        ),
+    ];
+    const files = discoverSkillFiles({
+        searchPaths:
+            discoverySearchPaths.length > 0
+                ? discoverySearchPaths
+                : undefined,
+    });
+    const activeRuntimeProviders = activeDiscoveryPlans
+        .map((plan) => plan.provider)
+        .join(", ");
 
     // Build map with priority resolution (project > user)
     const resolved = new Map<string, DiskSkillDefinition>();
     for (const file of files) {
-        const skill = parseSkillFile(file);
-        if (!skill) continue;
+        const parsed = parseSkillFile(file);
+        if (!parsed.skill) {
+            warnSkippedSkillDefinition(file.path, parsed.issues, {
+                reason: "parse_failed",
+                discoveryMatches: collectDefinitionDiscoveryMatches(
+                    file.path,
+                    "skill",
+                    allDiscoveryPlans,
+                ),
+                activeDiscoveryPlans,
+            });
+            continue;
+        }
+
+        const integrity = validateDiskSkillDefinitionIntegrity(parsed.skill, {
+            discoveryPlans: allDiscoveryPlans,
+        });
+        if (!integrity.valid) {
+            warnSkippedSkillDefinition(file.path, integrity.issues, {
+                reason: "integrity_validation_failed",
+                discoveryMatches: integrity.discoveryMatches,
+                activeDiscoveryPlans,
+            });
+            continue;
+        }
+
+        const runtimeCompatibleMatches =
+            filterDefinitionMatchesByRuntimeCompatibility(
+                integrity.discoveryMatches,
+                activeDiscoveryPlans,
+            );
+        if (runtimeCompatibleMatches.length === 0) {
+            emitSkillCompatibilityFilteredEvent(
+                file.path,
+                integrity.discoveryMatches,
+                runtimeCompatibleMatches,
+                activeDiscoveryPlans,
+            );
+            warnSkippedSkillDefinition(file.path, [
+                `Definition is not compatible with active provider runtime(s): ${activeRuntimeProviders}.`,
+            ], {
+                reason: "runtime_incompatible",
+                discoveryMatches: integrity.discoveryMatches,
+                activeDiscoveryPlans,
+            });
+            continue;
+        }
+
+        const skill = parsed.skill;
 
         const existing = resolved.get(skill.name);
         if (
@@ -450,10 +815,47 @@ export async function discoverAndRegisterDiskSkills(): Promise<void> {
             // Only override if the new skill has higher priority
             if (existingCmd) {
                 globalRegistry.unregister(skill.name);
-                globalRegistry.register(command);
+                try {
+                    globalRegistry.register(command);
+                } catch (error) {
+                    const message =
+                        error instanceof Error ? error.message : String(error);
+                    warnSkippedSkillDefinition(skill.skillFilePath, [
+                        `Command registration failed: ${message}`,
+                    ], {
+                        reason: "command_registration_failed",
+                        discoveryMatches: collectDefinitionDiscoveryMatches(
+                            skill.skillFilePath,
+                            "skill",
+                            allDiscoveryPlans,
+                        ),
+                        activeDiscoveryPlans,
+                    });
+                    try {
+                        globalRegistry.register(existingCmd);
+                    } catch {
+                        // Best effort recovery only.
+                    }
+                }
             }
         } else {
-            globalRegistry.register(command);
+            try {
+                globalRegistry.register(command);
+            } catch (error) {
+                const message =
+                    error instanceof Error ? error.message : String(error);
+                warnSkippedSkillDefinition(skill.skillFilePath, [
+                    `Command registration failed: ${message}`,
+                ], {
+                    reason: "command_registration_failed",
+                    discoveryMatches: collectDefinitionDiscoveryMatches(
+                        skill.skillFilePath,
+                        "skill",
+                        allDiscoveryPlans,
+                    ),
+                    activeDiscoveryPlans,
+                });
+            }
         }
     }
 }

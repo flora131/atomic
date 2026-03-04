@@ -35,7 +35,6 @@
 
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { homedir } from "node:os";
 
 import {
   CopilotClient as SdkCopilotClient,
@@ -52,7 +51,11 @@ import {
 } from "@github/copilot-sdk";
 
 import { initCopilotSessionOptions } from "../init.ts";
-import { loadCopilotAgents } from "../../config/copilot-manual.ts";
+import {
+  loadCopilotAgents,
+  resolveCopilotDiscoveryPlan,
+  resolveCopilotSkillDirectories,
+} from "../../config/copilot-manual.ts";
 import {
   BACKGROUND_COMPACTION_THRESHOLD,
   BUFFER_EXHAUSTION_THRESHOLD,
@@ -1150,9 +1153,20 @@ export class CopilotClient implements CodingAgentClient {
     // Use provided permission handler, or default from initCopilotSessionOptions, or create HITL handler
     const permissionHandler = this.permissionHandler ?? defaultOptions.OnPermissionRequest ?? this.createHITLPermissionHandler(tentativeSessionId);
 
-    // Load custom agents from project and global directories
     const projectRoot = this.clientOptions.cwd ?? process.cwd();
-    const loadedAgents = await loadCopilotAgents(projectRoot);
+    const discoveryPlan = await resolveCopilotDiscoveryPlan(projectRoot, {
+      pathExistsFn: pathExists,
+    });
+    const [loadedAgents, skillDirs] = await Promise.all([
+      loadCopilotAgents(projectRoot, undefined, {
+        providerDiscoveryPlan: discoveryPlan,
+      }),
+      resolveCopilotSkillDirectories(projectRoot, {
+        providerDiscoveryPlan: discoveryPlan,
+        pathExistsFn: pathExists,
+      }),
+    ]);
+
     this.knownAgentNames = [
       "general-purpose",
       ...loadedAgents.map(a => a.name),
@@ -1163,24 +1177,6 @@ export class CopilotClient implements CodingAgentClient {
       tools: agent.tools ?? null,
       prompt: agent.systemPrompt,
     }));
-
-    const HOME = homedir();
-    const skillDirCandidates = [
-      join(projectRoot, ".github", "skills"),
-      join(projectRoot, ".claude", "skills"),
-      join(projectRoot, ".opencode", "skills"),
-      join(HOME, ".copilot", "skills"),
-      join(HOME, ".claude", "skills"),
-      join(HOME, ".opencode", "skills"),
-      join(HOME, ".atomic", ".copilot", "skills"),
-      join(HOME, ".atomic", ".claude", "skills"),
-      join(HOME, ".atomic", ".opencode", "skills"),
-    ];
-    const skillDirs = (
-      await Promise.all(
-        skillDirCandidates.map(async (dir) => (await pathExists(dir)) ? dir : null),
-      )
-    ).filter((dir): dir is string => dir !== null);
 
     // Strip provider prefix from model ID (e.g. "github-copilot/claude-opus-4.6-fast" → "claude-opus-4.6-fast")
     const resolvedModel = config.model ? stripProviderPrefix(config.model) : undefined;

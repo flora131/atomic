@@ -2,9 +2,14 @@
  * Utilities for copying directories and files with exclusions
  */
 
-import { readdir, mkdir, stat, realpath, readFile } from "fs/promises";
-import { join, extname, relative, resolve, sep } from "path";
+import { readdir, mkdir, stat, readFile } from "fs/promises";
+import { join, extname, relative, resolve } from "path";
 import { getOppositeScriptExtension } from "./detect";
+import {
+  assertPathWithinRoot,
+  assertRealPathWithinRoot,
+  isPathWithinRoot,
+} from "./path-root-guard";
 
 /**
  * Normalize a path for cross-platform comparison.
@@ -23,10 +28,8 @@ export function normalizePath(p: string): string {
  * Protects against path traversal attacks
  */
 export function isPathSafe(basePath: string, targetPath: string): boolean {
-  const resolvedBase = resolve(basePath);
   const resolvedTarget = resolve(basePath, targetPath);
-  const rel = relative(resolvedBase, resolvedTarget);
-  return !rel.startsWith("..") && !rel.includes(`..${sep}`);
+  return isPathWithinRoot(basePath, resolvedTarget);
 }
 
 interface CopyOptions {
@@ -55,10 +58,18 @@ export async function copyFile(src: string, dest: string): Promise<void> {
  * This ensures symlinks work on Windows without requiring special permissions
  * @throws Error if the copy operation fails
  */
-async function copySymlinkAsFile(src: string, dest: string): Promise<void> {
+async function copySymlinkAsFile(
+  src: string,
+  dest: string,
+  sourceRoot: string,
+): Promise<void> {
   try {
-    // Resolve the symlink to get the actual file path
-    const resolvedPath = await realpath(src);
+    // Resolve the symlink and ensure it cannot escape the source root
+    const resolvedPath = await assertRealPathWithinRoot(
+      sourceRoot,
+      src,
+      "Symlink source",
+    );
     const stats = await stat(resolvedPath);
 
     if (stats.isFile()) {
@@ -70,6 +81,31 @@ async function copySymlinkAsFile(src: string, dest: string): Promise<void> {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Failed to copy symlink ${src} to ${dest}: ${message}`);
   }
+}
+
+async function copyFileWithOverwriteOption(
+  src: string,
+  dest: string,
+  overwriteExisting: boolean,
+): Promise<void> {
+  if (!overwriteExisting && (await pathExists(dest))) {
+    return;
+  }
+
+  await copyFile(src, dest);
+}
+
+async function copySymlinkAsFileWithOverwriteOption(
+  src: string,
+  dest: string,
+  sourceRoot: string,
+  overwriteExisting: boolean,
+): Promise<void> {
+  if (!overwriteExisting && (await pathExists(dest))) {
+    return;
+  }
+
+  await copySymlinkAsFile(src, dest, sourceRoot);
 }
 
 /**
@@ -114,15 +150,23 @@ export function shouldExclude(
  * @param rootSrc Root source path for calculating relative paths (used internally)
  * @throws Error if the copy operation fails or path traversal is detected
  */
-export async function copyDir(
+async function copyDirInternal(
   src: string,
   dest: string,
   options: CopyOptions = {},
-  rootSrc?: string
+  rootSrc?: string,
+  rootDest?: string,
+  overwriteExisting: boolean = true,
 ): Promise<void> {
   try {
     const { exclude = [], skipOppositeScripts = true } = options;
     const root = rootSrc ?? src;
+    const destinationRoot = rootDest ?? dest;
+
+    assertPathWithinRoot(root, src, "Source path");
+    assertPathWithinRoot(destinationRoot, dest, "Destination path");
+
+    await assertRealPathWithinRoot(root, src, "Source path");
 
     // Create destination directory
     await mkdir(dest, { recursive: true });
@@ -140,15 +184,19 @@ export async function copyDir(
       const srcPath = join(src, entry.name);
       const destPath = join(dest, entry.name);
 
-      // Validate destination path doesn't escape the target directory
-      if (!isPathSafe(dest, entry.name)) {
-        throw new Error(
-          `Path traversal detected: ${entry.name} would escape destination directory`
-        );
+      assertPathWithinRoot(root, srcPath, "Source entry path");
+      assertPathWithinRoot(destinationRoot, destPath, "Destination entry path");
+
+      if (!isPathSafe(src, entry.name) || !isPathSafe(dest, entry.name)) {
+        throw new Error(`Path traversal detected: ${entry.name}`);
       }
 
       // Calculate relative path from root using path.relative for cross-platform support
       const relativePath = relative(root, srcPath);
+
+      if (relativePath.startsWith("..")) {
+        throw new Error(`Path traversal detected: ${srcPath}`);
+      }
 
       // Check if this path should be excluded
       if (shouldExclude(relativePath, entry.name, exclude)) {
@@ -162,12 +210,30 @@ export async function copyDir(
 
       if (entry.isDirectory()) {
         // Directories are processed recursively (which will parallelize their contents)
-        copyPromises.push(copyDir(srcPath, destPath, options, root));
+        copyPromises.push(
+          copyDirInternal(
+            srcPath,
+            destPath,
+            options,
+            root,
+            destinationRoot,
+            overwriteExisting,
+          ),
+        );
       } else if (entry.isFile()) {
-        copyPromises.push(copyFile(srcPath, destPath));
+        copyPromises.push(
+          copyFileWithOverwriteOption(srcPath, destPath, overwriteExisting),
+        );
       } else if (entry.isSymbolicLink()) {
         // Dereference symlinks: resolve target and copy as regular file
-        copyPromises.push(copySymlinkAsFile(srcPath, destPath));
+        copyPromises.push(
+          copySymlinkAsFileWithOverwriteOption(
+            srcPath,
+            destPath,
+            root,
+            overwriteExisting,
+          ),
+        );
       }
       // Skip other special files (block devices, etc.)
     }
@@ -182,6 +248,32 @@ export async function copyDir(
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Failed to copy directory ${src} to ${dest}: ${message}`);
   }
+}
+
+/**
+ * Recursively copy a directory, overwriting existing destination files.
+ */
+export async function copyDir(
+  src: string,
+  dest: string,
+  options: CopyOptions = {},
+  rootSrc?: string,
+  rootDest?: string,
+): Promise<void> {
+  await copyDirInternal(src, dest, options, rootSrc, rootDest, true);
+}
+
+/**
+ * Recursively copy a directory without overwriting existing destination files.
+ */
+export async function copyDirNonDestructive(
+  src: string,
+  dest: string,
+  options: CopyOptions = {},
+  rootSrc?: string,
+  rootDest?: string,
+): Promise<void> {
+  await copyDirInternal(src, dest, options, rootSrc, rootDest, false);
 }
 
 /**

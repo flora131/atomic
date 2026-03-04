@@ -6,6 +6,7 @@ import { join } from "path";
 
 import {
   ensureAtomicGlobalAgentConfigs,
+  ensureAtomicGlobalAgentConfigsForInstallType,
   hasAtomicGlobalAgentConfigs,
   syncAtomicGlobalAgentConfigs,
 } from "./atomic-global-config";
@@ -120,3 +121,27 @@ test("ensureAtomicGlobalAgentConfigs re-syncs when config folders are incomplete
     await rm(root, { recursive: true, force: true });
   }
 });
+
+const INSTALL_TYPES = ["source", "npm", "binary"] as const;
+
+for (const installType of INSTALL_TYPES) {
+  test(`ensureAtomicGlobalAgentConfigsForInstallType syncs for ${installType} installs`, async () => {
+    const root = await mkdtemp(join(tmpdir(), `atomic-global-install-${installType}-`));
+
+    try {
+      const configRoot = join(root, "config");
+      const atomicHome = join(root, ".atomic");
+
+      await createTemplateAgentConfigs(configRoot);
+      await ensureAtomicGlobalAgentConfigsForInstallType(installType, configRoot, atomicHome);
+
+      expect(existsSync(join(atomicHome, ".claude", "settings.json"))).toBe(true);
+      expect(existsSync(join(atomicHome, ".opencode", "opencode.json"))).toBe(true);
+      expect(existsSync(join(atomicHome, ".copilot", "skills", "init", "SKILL.md"))).toBe(true);
+      expect(existsSync(join(atomicHome, ".mcp.json"))).toBe(true);
+      expect(existsSync(join(atomicHome, ".copilot", "mcp-config.json"))).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}

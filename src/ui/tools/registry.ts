@@ -1100,7 +1100,7 @@ export const TOOL_RENDERERS: Record<string, ToolRenderer> = {
 /**
  * Dynamically register agent names as task tool renderers.
  * Called when agent names are discovered from config directories
- * (.github/agents/, ~/.copilot/agents/, ~/.atomic/.copilot/agents/).
+ * (.github/agents/, ~/.config/.copilot/agents/, ~/.atomic/.copilot/agents/).
  * Existing entries are not overwritten.
  */
 export function registerAgentToolNames(agentNames: string[]): void {

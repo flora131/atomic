@@ -60,7 +60,7 @@ describe("playwright-cli slash command E2E provider matrix", () => {
   });
 
   test.each(PROVIDERS)(
-    "provider %s: /playwright-cli loads skill content and forwards user arguments",
+    "provider %s: /playwright-cli delegates to native skill slash command with args",
     async (provider) => {
       const { result, sentMessages } = await executeSlashPlaywrightCommand(
         "/playwright-cli fetch https://example.com",
@@ -70,11 +70,7 @@ describe("playwright-cli slash command E2E provider matrix", () => {
       expect(result.success).toBe(true);
       expect(result.skillLoaded).toBe("playwright-cli");
       expect(sentMessages).toHaveLength(1);
-      expect(sentMessages[0]).toContain('<skill-loaded name="playwright-cli">');
-      expect(sentMessages[0]).toContain("User request: fetch https://example.com");
-      expect(sentMessages[0]).toContain("playwright-cli open [url]");
-      expect(sentMessages[0]).not.toContain("WebFetch");
-      expect(sentMessages[0]).not.toContain("WebSearch");
+      expect(sentMessages[0]).toBe("/playwright-cli fetch https://example.com");
     },
   );
 
@@ -101,7 +97,7 @@ describe("playwright-cli slash command E2E provider matrix", () => {
   );
 
   test.each(PROVIDERS)(
-    "provider %s: /playwright-cli without arguments uses deterministic placeholder",
+    "provider %s: /playwright-cli without arguments delegates to native slash command",
     async (provider) => {
       const { result, sentMessages } = await executeSlashPlaywrightCommand(
         "/playwright-cli",
@@ -111,7 +107,7 @@ describe("playwright-cli slash command E2E provider matrix", () => {
       expect(result.success).toBe(true);
       expect(result.skillLoaded).toBe("playwright-cli");
       expect(sentMessages).toHaveLength(1);
-      expect(sentMessages[0]).toContain("User request: [no arguments provided]");
+      expect(sentMessages[0]).toBe("/playwright-cli");
     },
   );
 });

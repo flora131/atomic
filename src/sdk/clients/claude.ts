@@ -102,6 +102,8 @@ interface ClaudeSessionState {
     systemToolsBaseline: number | null;
     /** Whether per-turn usage events were emitted from message_delta during streaming */
     hasEmittedStreamingUsage: boolean;
+    /** In-flight abort gate used to serialize new queries after interrupts */
+    pendingAbortPromise: Promise<void> | null;
 }
 
 interface StreamIntegrityCounters {
@@ -686,6 +688,59 @@ export class ClaudeAgentClient implements CodingAgentClient {
             systemToolsBaseline:
                 persisted?.systemToolsBaseline ?? this.probeSystemToolsBaseline,
             hasEmittedStreamingUsage: false,
+            pendingAbortPromise: null,
+        };
+
+        const waitForPendingAbort = async (): Promise<void> => {
+            const pendingAbort = state.pendingAbortPromise;
+            if (!pendingAbort) {
+                return;
+            }
+            try {
+                await pendingAbort;
+            } catch {
+                // If abort fails, do not block subsequent user turns.
+            }
+        };
+
+        const runAbortWithLock = (): Promise<void> => {
+            if (state.pendingAbortPromise) {
+                return state.pendingAbortPromise;
+            }
+
+            const abortPromise = (async () => {
+                // Prefer graceful interruption so the underlying Claude Code
+                // session remains reusable for the next turn. Force-close only
+                // as a fallback for runtimes that do not expose interrupt().
+                const activeQuery = state.query as
+                    | (Query & {
+                          interrupt?: () => Promise<void>;
+                      })
+                    | null;
+                if (!activeQuery) {
+                    return;
+                }
+
+                if (typeof activeQuery.interrupt === "function") {
+                    try {
+                        await activeQuery.interrupt();
+                        return;
+                    } catch {
+                        // Fall through to force-close fallback.
+                    }
+                }
+
+                activeQuery.close();
+            })();
+
+            state.pendingAbortPromise = abortPromise;
+            void abortPromise.finally(() => {
+                if (state.pendingAbortPromise === abortPromise) {
+                    state.pendingAbortPromise = null;
+                }
+            });
+
+            return abortPromise;
         };
 
         this.sessions.set(sessionId, state);
@@ -697,6 +752,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 if (state.isClosed) {
                     throw new Error("Session is closed");
                 }
+                await waitForPendingAbort();
                 this.emitRuntimeSelection(sessionId, "send");
 
                 // Build options with resume if we have an SDK session ID
@@ -818,6 +874,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                         if (state.isClosed) {
                             throw new Error("Session is closed");
                         }
+                        await waitForPendingAbort();
                         state.hasEmittedStreamingUsage = false;
                         emitRuntimeSelection();
                         const options: Options = {
@@ -1147,6 +1204,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 if (state.isClosed) {
                     throw new Error("Session is closed");
                 }
+                await waitForPendingAbort();
                 this.emitRuntimeSelection(sessionId, "summarize");
 
                 // Send /compact as a prompt to the Claude Agents SDK
@@ -1202,6 +1260,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 if (state.isClosed) {
                     return null;
                 }
+                await waitForPendingAbort();
 
                 let statusQuery: Query | null = null;
                 let shouldClose = false;
@@ -1244,48 +1303,11 @@ export class ClaudeAgentClient implements CodingAgentClient {
             },
 
             abort: async (): Promise<void> => {
-                // Prefer graceful interruption so the underlying Claude Code
-                // session remains reusable for the next turn. Force-close only
-                // as a fallback for runtimes that do not expose interrupt().
-                const activeQuery = state.query as
-                    | (Query & {
-                          interrupt?: () => Promise<void>;
-                      })
-                    | null;
-                if (!activeQuery) {
-                    return;
-                }
-                if (typeof activeQuery.interrupt === "function") {
-                    try {
-                        await activeQuery.interrupt();
-                        return;
-                    } catch {
-                        // Fall through to force-close fallback.
-                    }
-                }
-                activeQuery.close();
+                await runAbortWithLock();
             },
 
             abortBackgroundAgents: async (): Promise<void> => {
-                // Prefer graceful interruption to avoid poisoning the next
-                // resumed turn after background/foreground cancellation.
-                const activeQuery = state.query as
-                    | (Query & {
-                          interrupt?: () => Promise<void>;
-                      })
-                    | null;
-                if (!activeQuery) {
-                    return;
-                }
-                if (typeof activeQuery.interrupt === "function") {
-                    try {
-                        await activeQuery.interrupt();
-                        return;
-                    } catch {
-                        // Fall through to force-close fallback.
-                    }
-                }
-                activeQuery.close();
+                await runAbortWithLock();
             },
 
             destroy: async (): Promise<void> => {

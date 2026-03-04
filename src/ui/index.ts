@@ -573,11 +573,13 @@ export async function startChatUI(
         })();
 
         state.pendingAbortPromise = abortPromise;
-        void abortPromise.finally(() => {
-          if (state.pendingAbortPromise === abortPromise) {
-            state.pendingAbortPromise = null;
-          }
-        });
+        void abortPromise
+          .finally(() => {
+            if (state.pendingAbortPromise === abortPromise) {
+              state.pendingAbortPromise = null;
+            }
+          })
+          .catch(() => {});
       }
 
       state.telemetryTracker?.trackInterrupt(sourceType);

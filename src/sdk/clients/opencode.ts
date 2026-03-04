@@ -24,7 +24,7 @@
  *
  * Config locations (in order of precedence):
  * - Project root: opencode.json
- * - Global: ~/.config/opencode/opencode.json
+ * - Global: ~/.config/.opencode/opencode.json
  * - Env var: OPENCODE_CONFIG path
  *
  * Note: When running in non-interactive/CLI mode, OpenCode auto-approves all
@@ -196,6 +196,16 @@ interface AtomicManagedOpenCodeServerState {
 }
 
 let atomicManagedOpenCodeServer: AtomicManagedOpenCodeServerState | null = null;
+
+export function resolveOpenCodeConfigDirEnv(
+  configuredPath: string | undefined,
+): string {
+  const trimmedPath = configuredPath?.trim();
+  if (trimmedPath && trimmedPath.length > 0) {
+    return trimmedPath;
+  }
+  return ATOMIC_OPENCODE_CONFIG_DIR;
+}
 
 function parseOpenCodeSessionStatus(status: unknown): OpenCodeSessionStatus | undefined {
   if (status === "idle" || status === "busy" || status === "retry") {
@@ -3233,7 +3243,9 @@ export class OpenCodeClient implements CodingAgentClient {
     const hostname = this.clientOptions.hostname ?? url.hostname ?? "localhost";
 
     try {
-      process.env.OPENCODE_CONFIG_DIR = ATOMIC_OPENCODE_CONFIG_DIR;
+      process.env.OPENCODE_CONFIG_DIR = resolveOpenCodeConfigDirEnv(
+        process.env.OPENCODE_CONFIG_DIR,
+      );
 
       const serverOptions: SdkServerOptions = {
         hostname,

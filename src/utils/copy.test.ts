@@ -12,6 +12,7 @@ import {
   shouldExclude,
   copyFile,
   copyDir,
+  copyDirNonDestructive,
   pathExists,
   isDirectory,
   isFileEmpty,
@@ -437,6 +438,23 @@ describe("copyDir", () => {
     expect(content).toBe("symlink target");
   });
 
+  test("should block symlink targets that escape the source root", async () => {
+    const srcDir = join(tempDir, "src");
+    const destDir = join(tempDir, "dest");
+    const outsideDir = join(tempDir, "outside");
+    const outsideFile = join(outsideDir, "outside.txt");
+    const symlinkFile = join(srcDir, "escape.txt");
+
+    await mkdir(srcDir, { recursive: true });
+    await mkdir(outsideDir, { recursive: true });
+    await writeFile(outsideFile, "outside", "utf-8");
+    await symlink(outsideFile, symlinkFile);
+
+    await expect(copyDir(srcDir, destDir)).rejects.toThrow(
+      "resolves outside allowed root",
+    );
+  });
+
   test("should throw error on path traversal attack", async () => {
     const srcDir = join(tempDir, "src");
     const destDir = join(tempDir, "dest");
@@ -479,6 +497,59 @@ describe("copyDir", () => {
     const destDir = join(tempDir, "dest");
 
     await expect(copyDir(nonExistent, destDir)).rejects.toThrow();
+  });
+});
+
+describe("copyDirNonDestructive", () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "atomic-copy-dir-safe-"));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  test("copies missing files and preserves existing destination files", async () => {
+    const srcDir = join(tempDir, "src");
+    const destDir = join(tempDir, "dest");
+
+    await makeDirStructure(srcDir, {
+      "skills/shared/SKILL.md": "source shared",
+      "skills/new/SKILL.md": "source new",
+    });
+
+    await makeDirStructure(destDir, {
+      "skills/shared/SKILL.md": "destination shared",
+    });
+
+    await copyDirNonDestructive(srcDir, destDir);
+
+    expect(await Bun.file(join(destDir, "skills/shared/SKILL.md")).text()).toBe(
+      "destination shared",
+    );
+    expect(await Bun.file(join(destDir, "skills/new/SKILL.md")).text()).toBe(
+      "source new",
+    );
+  });
+
+  test("preserves existing symlink destination target files", async () => {
+    const srcDir = join(tempDir, "src");
+    const destDir = join(tempDir, "dest");
+    const targetFile = join(srcDir, "target.txt");
+    const symlinkFile = join(srcDir, "link.txt");
+    const existingDest = join(destDir, "link.txt");
+
+    await mkdir(srcDir, { recursive: true });
+    await mkdir(destDir, { recursive: true });
+    await writeFile(targetFile, "symlink target", "utf-8");
+    await symlink(targetFile, symlinkFile);
+    await writeFile(existingDest, "existing destination", "utf-8");
+
+    await copyDirNonDestructive(srcDir, destDir);
+
+    expect(await Bun.file(existingDest).text()).toBe("existing destination");
   });
 });
 

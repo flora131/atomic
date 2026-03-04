@@ -4,6 +4,7 @@ import { homedir } from "os";
 
 import { AGENT_CONFIG, type AgentKey } from "../config";
 import { copyDir, copyFile, pathExists } from "./copy";
+import type { InstallationType } from "./config-path";
 
 const ATOMIC_HOME_DIR = join(homedir(), ".atomic");
 
@@ -191,4 +192,21 @@ export async function ensureAtomicGlobalAgentConfigs(
 ): Promise<void> {
   if (await hasAtomicGlobalAgentConfigs(baseDir)) return;
   await syncAtomicGlobalAgentConfigs(configRoot, baseDir);
+}
+
+/**
+ * Ensure ~/.atomic contains Atomic-managed global agent configs for all install types.
+ */
+export async function ensureAtomicGlobalAgentConfigsForInstallType(
+  installType: InstallationType,
+  configRoot: string,
+  baseDir: string = ATOMIC_HOME_DIR
+): Promise<void> {
+  switch (installType) {
+    case "source":
+    case "npm":
+    case "binary":
+      await ensureAtomicGlobalAgentConfigs(configRoot, baseDir);
+      return;
+  }
 }

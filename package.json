@@ -31,7 +31,7 @@
     ],
     "scripts": {
         "dev": "bun run src/cli.ts",
-        "build": "bun build src/cli.ts --compile --no-compile-autoload-dotenv --no-compile-autoload-bunfig --outfile atomic",
+        "build": "bun run src/scripts/build-binary.ts --outfile atomic",
         "test": "bun test",
         "test:contracts": "bun test src/ui/utils/background-agent-provider-parity.test.ts src/ui/utils/background-agent-runtime-parity.test.ts src/ui/utils/background-agent-acceptance.test.ts src/ui/utils/background-agent-termination-integration.test.ts src/ui/utils/background-agent-keybinding-nonconflict.test.ts src/ui/utils/background-agent-parent-callback.test.ts",
         "typecheck": "tsc --noEmit",
@@ -60,6 +60,7 @@
         "@opentui/react": "^0.1.86",
         "ci-info": "^4.4.0",
         "commander": "^14.0.3",
+        "web-tree-sitter": "0.25.10",
         "zod": "^4.3.6"
     }
 }

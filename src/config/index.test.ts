@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { beforeEach, describe, expect, test } from "bun:test";
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -8,7 +8,18 @@ import {
   loadAgentsFromDir,
   loadCopilotAgents,
   loadCopilotInstructions,
+  resolveCopilotSkillDirectories,
 } from "./copilot-manual.ts";
+import { buildProviderDiscoveryPlan } from "../utils/provider-discovery-plan.ts";
+import {
+  clearProviderDiscoverySessionCache,
+  invalidateProviderDiscoveryCaches,
+  startProviderDiscoverySessionCache,
+} from "../utils/provider-discovery-cache.ts";
+
+beforeEach(() => {
+  clearProviderDiscoverySessionCache();
+});
 
 describe("loadAgentsFromDir", () => {
   test("loads agent with frontmatter", async () => {
@@ -194,7 +205,7 @@ describe("loadCopilotAgents", () => {
 
     try {
       // Set up global directory
-      const globalAgentsDir = join(root, ".copilot", "agents");
+      const globalAgentsDir = join(root, ".config", ".copilot", "agents");
       await mkdir(globalAgentsDir, { recursive: true });
       await writeFile(
         join(globalAgentsDir, "global-agent.md"),
@@ -237,7 +248,9 @@ describe("loadCopilotAgents", () => {
         },
       } as unknown as FsOps;
 
-      const agents = await loadCopilotAgents(root, mockFsOps);
+      const agents = await loadCopilotAgents(root, mockFsOps, {
+        xdgConfigHome: null,
+      });
 
       // Should have 3 agents: global-agent, local-agent, and shared-agent (local version)
       expect(agents.length).toBe(3);
@@ -256,7 +269,7 @@ describe("loadCopilotAgents", () => {
     }
   });
 
-  test("loads agents from ~/.atomic fallback directories", async () => {
+  test("loads agents from ~/.atomic global directories", async () => {
     const root = await mkdtemp(join(tmpdir(), "atomic-config-test-"));
 
     try {
@@ -290,7 +303,7 @@ describe("loadCopilotAgents", () => {
     }
   });
 
-  test("legacy global agents override ~/.atomic global agents", async () => {
+  test("canonical global agents override ~/.atomic global agents", async () => {
     const root = await mkdtemp(join(tmpdir(), "atomic-config-test-"));
 
     try {
@@ -302,11 +315,11 @@ describe("loadCopilotAgents", () => {
         "utf-8"
       );
 
-      const legacyDir = join(root, ".copilot", "agents");
-      await mkdir(legacyDir, { recursive: true });
+      const canonicalDir = join(root, ".config", ".copilot", "agents");
+      await mkdir(canonicalDir, { recursive: true });
       await writeFile(
-        join(legacyDir, "shared.md"),
-        "---\nname: Shared Agent\ndescription: From legacy\n---\nLegacy version",
+        join(canonicalDir, "shared.md"),
+        "---\nname: Shared Agent\ndescription: From canonical\n---\nCanonical version",
         "utf-8"
       );
 
@@ -326,7 +339,7 @@ describe("loadCopilotAgents", () => {
       const agents = await loadCopilotAgents(root, mockFsOps);
       expect(agents.length).toBe(1);
       expect(agents[0]?.name).toBe("Shared Agent");
-      expect(agents[0]?.description).toBe("From legacy");
+      expect(agents[0]?.description).toBe("From canonical");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -337,7 +350,7 @@ describe("loadCopilotAgents", () => {
 
     try {
       // Create agents with different case names
-      const globalDir = join(root, ".copilot", "agents");
+      const globalDir = join(root, ".config", ".copilot", "agents");
       await mkdir(globalDir, { recursive: true });
       await writeFile(
         join(globalDir, "agent1.md"),
@@ -376,6 +389,88 @@ describe("loadCopilotAgents", () => {
     }
   });
 
+  test("loads agents from canonical XDG-default root", async () => {
+    const root = await mkdtemp(join(tmpdir(), "atomic-config-test-"));
+
+    try {
+      const canonicalAgentsDir = join(root, ".config", ".copilot", "agents");
+      await mkdir(canonicalAgentsDir, { recursive: true });
+      await writeFile(
+        join(canonicalAgentsDir, "canonical-agent.md"),
+        "---\nname: Canonical Agent\n---\nCanonical content",
+        "utf-8"
+      );
+
+      const mockFsOps = {
+        readdir: async (dir: string) => {
+          const fs = await import("node:fs/promises");
+          const remappedDir = dir.replace(homedir(), root);
+          return fs.readdir(remappedDir);
+        },
+        readFile: async (file: string, encoding?: string) => {
+          const fs = await import("node:fs/promises");
+          const remappedFile = file.replace(homedir(), root);
+          return fs.readFile(remappedFile, encoding as BufferEncoding);
+        },
+      } as unknown as FsOps;
+
+      const agents = await loadCopilotAgents(root, mockFsOps);
+      expect(agents.length).toBe(1);
+      expect(agents[0]?.name).toBe("Canonical Agent");
+      expect(agents[0]?.source).toBe("global");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("loads ~/.copilot root with precedence over canonical root", async () => {
+    const root = await mkdtemp(join(tmpdir(), "atomic-config-test-"));
+
+    try {
+      const canonicalAgentsDir = join(root, ".config", ".copilot", "agents");
+      await mkdir(canonicalAgentsDir, { recursive: true });
+      await writeFile(
+        join(canonicalAgentsDir, "shared.md"),
+        "---\nname: Shared Agent\ndescription: From canonical\n---\nCanonical version",
+        "utf-8"
+      );
+
+      const homeAgentsDir = join(root, ".copilot", "agents");
+      await mkdir(homeAgentsDir, { recursive: true });
+      await writeFile(
+        join(homeAgentsDir, "shared.md"),
+        "---\nname: Shared Agent\ndescription: From home\n---\nHome version",
+        "utf-8"
+      );
+
+      const warnings: string[] = [];
+      const mockFsOps = {
+        readdir: async (dir: string) => {
+          const fs = await import("node:fs/promises");
+          const remappedDir = dir.replace(homedir(), root);
+          return fs.readdir(remappedDir);
+        },
+        readFile: async (file: string, encoding?: string) => {
+          const fs = await import("node:fs/promises");
+          const remappedFile = file.replace(homedir(), root);
+          return fs.readFile(remappedFile, encoding as BufferEncoding);
+        },
+      } as unknown as FsOps;
+
+      const agents = await loadCopilotAgents(root, mockFsOps, {
+        xdgConfigHome: null,
+        onPathConflictWarning: (warning) => warnings.push(warning.message),
+      });
+
+      expect(agents.length).toBe(1);
+      expect(agents[0]?.name).toBe("Shared Agent");
+      expect(agents[0]?.description).toBe("From home");
+      expect(warnings).toHaveLength(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("returns empty array when no agent directories exist", async () => {
     const root = await mkdtemp(join(tmpdir(), "atomic-config-test-"));
 
@@ -400,6 +495,189 @@ describe("loadCopilotAgents", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  test("uses provided discovery plan roots for custom agent loading", async () => {
+    const root = await mkdtemp(join(tmpdir(), "atomic-config-test-"));
+
+    try {
+      const projectRoot = join(root, "workspace");
+      const canonicalRoot = join(root, "custom", "copilot-canonical");
+
+      await mkdir(join(projectRoot, ".github", "agents"), { recursive: true });
+      await writeFile(
+        join(projectRoot, ".github", "agents", "shared.md"),
+        "---\nname: Shared Agent\ndescription: From local\n---\nLocal version",
+        "utf-8",
+      );
+
+      await mkdir(join(canonicalRoot, "agents"), { recursive: true });
+      await writeFile(
+        join(canonicalRoot, "agents", "shared.md"),
+        "---\nname: Shared Agent\ndescription: From canonical\n---\nCanonical version",
+        "utf-8",
+      );
+      await writeFile(
+        join(canonicalRoot, "agents", "canonical-only.md"),
+        "---\nname: Canonical Only\n---\nCanonical agent",
+        "utf-8",
+      );
+
+      const plan = buildProviderDiscoveryPlan("copilot", {
+        projectRoot,
+        homeDir: root,
+        copilotCanonicalUserRoot: canonicalRoot,
+      });
+
+      const agents = await loadCopilotAgents(projectRoot, undefined, {
+        providerDiscoveryPlan: plan,
+      });
+
+      expect(agents.find((agent) => agent.name === "Shared Agent")?.description).toBe(
+        "From local",
+      );
+      expect(agents.some((agent) => agent.name === "Canonical Only")).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("uses startup discovery plan cache when options omit providerDiscoveryPlan", async () => {
+    const root = await mkdtemp(join(tmpdir(), "atomic-config-test-"));
+
+    try {
+      const projectRoot = join(root, "workspace");
+      const canonicalRoot = join(root, "custom", "copilot-canonical");
+
+      await mkdir(join(projectRoot, ".github", "agents"), { recursive: true });
+      await writeFile(
+        join(projectRoot, ".github", "agents", "local.md"),
+        "---\nname: Local Agent\n---\nProject-local agent",
+        "utf-8",
+      );
+
+      await mkdir(join(canonicalRoot, "agents"), { recursive: true });
+      await writeFile(
+        join(canonicalRoot, "agents", "canonical.md"),
+        "---\nname: Canonical Agent\n---\nCanonical agent",
+        "utf-8",
+      );
+
+      const startupPlan = buildProviderDiscoveryPlan("copilot", {
+        projectRoot,
+        homeDir: root,
+        copilotCanonicalUserRoot: canonicalRoot,
+      });
+
+      startProviderDiscoverySessionCache({
+        projectRoot,
+        startupPlan,
+      });
+
+      const agents = await loadCopilotAgents(projectRoot);
+
+      expect(agents.some((agent) => agent.name === "Local Agent")).toBe(true);
+      expect(agents.some((agent) => agent.name === "Canonical Agent")).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("invalidateProviderDiscoveryCaches clears Copilot agent discovery cache", async () => {
+    const root = await mkdtemp(join(tmpdir(), "atomic-config-test-"));
+
+    try {
+      const projectRoot = join(root, "workspace");
+      const canonicalRoot = join(root, "custom", "copilot-canonical");
+
+      await mkdir(join(projectRoot, ".github", "agents"), { recursive: true });
+      await writeFile(
+        join(projectRoot, ".github", "agents", "local.md"),
+        "---\nname: Local Agent\n---\nProject-local agent",
+        "utf-8",
+      );
+
+      await mkdir(join(canonicalRoot, "agents"), { recursive: true });
+
+      const startupPlan = buildProviderDiscoveryPlan("copilot", {
+        projectRoot,
+        homeDir: root,
+        copilotCanonicalUserRoot: canonicalRoot,
+      });
+
+      startProviderDiscoverySessionCache({
+        projectRoot,
+        startupPlan,
+      });
+
+      let readdirCalls = 0;
+      const countingFsOps = {
+        readdir: async (dir: string) => {
+          readdirCalls += 1;
+          return readdir(dir);
+        },
+        readFile: async (file: string, encoding?: string) => {
+          return readFile(file, encoding as BufferEncoding);
+        },
+      } as unknown as FsOps;
+
+      await loadCopilotAgents(projectRoot, countingFsOps, {
+        providerDiscoveryPlan: startupPlan,
+      });
+      const firstCallCount = readdirCalls;
+
+      await loadCopilotAgents(projectRoot, countingFsOps, {
+        providerDiscoveryPlan: startupPlan,
+      });
+      expect(readdirCalls).toBe(firstCallCount);
+
+      invalidateProviderDiscoveryCaches();
+
+      await loadCopilotAgents(projectRoot, countingFsOps, {
+        providerDiscoveryPlan: startupPlan,
+      });
+      expect(readdirCalls).toBeGreaterThan(firstCallCount);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("resolveCopilotSkillDirectories", () => {
+  test("uses provided discovery plan and returns existing skill directories", async () => {
+    const root = await mkdtemp(join(tmpdir(), "atomic-config-test-"));
+
+    try {
+      const projectRoot = join(root, "workspace");
+      const canonicalRoot = join(root, "custom", "copilot-canonical");
+
+      const expectedDirectories = [
+        join(projectRoot, ".github", "skills"),
+        join(projectRoot, ".claude", "skills"),
+        join(canonicalRoot, "skills"),
+        join(root, ".atomic", ".copilot", "skills"),
+      ];
+
+      await Promise.all(
+        expectedDirectories.map((directoryPath) =>
+          mkdir(directoryPath, { recursive: true }),
+        ),
+      );
+
+      const plan = buildProviderDiscoveryPlan("copilot", {
+        projectRoot,
+        homeDir: root,
+        copilotCanonicalUserRoot: canonicalRoot,
+      });
+
+      const skillDirectories = await resolveCopilotSkillDirectories(projectRoot, {
+        providerDiscoveryPlan: plan,
+      });
+
+      expect(skillDirectories).toEqual(expectedDirectories);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("loadCopilotInstructions", () => {
@@ -420,19 +698,21 @@ describe("loadCopilotInstructions", () => {
         },
       } as unknown as FsOps;
 
-      const instructions = await loadCopilotInstructions(root, mockFsOps);
+      const instructions = await loadCopilotInstructions(root, mockFsOps, {
+        xdgConfigHome: null,
+      });
       expect(instructions).toBe("Local project instructions");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  test("falls back to global instructions when local not available", async () => {
+  test("falls back to canonical global instructions when local and home globals are missing", async () => {
     const root = await mkdtemp(join(tmpdir(), "atomic-config-test-"));
 
     try {
-      const globalInstructionsPath = join(root, ".copilot", "copilot-instructions.md");
-      await mkdir(join(root, ".copilot"), { recursive: true });
+      const globalInstructionsPath = join(root, ".config", ".copilot", "copilot-instructions.md");
+      await mkdir(join(root, ".config", ".copilot"), { recursive: true });
       await writeFile(globalInstructionsPath, "Global user instructions", "utf-8");
 
       const mockFsOps = {
@@ -451,7 +731,35 @@ describe("loadCopilotInstructions", () => {
     }
   });
 
-  test("falls back to ~/.atomic global instructions when legacy global is missing", async () => {
+  test("uses ~/.copilot instructions before canonical global instructions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "atomic-config-test-"));
+
+    try {
+      const homeInstructionsPath = join(root, ".copilot", "copilot-instructions.md");
+      await mkdir(join(root, ".copilot"), { recursive: true });
+      await writeFile(homeInstructionsPath, "Home instructions", "utf-8");
+
+      const canonicalInstructionsPath = join(root, ".config", ".copilot", "copilot-instructions.md");
+      await mkdir(join(root, ".config", ".copilot"), { recursive: true });
+      await writeFile(canonicalInstructionsPath, "Canonical instructions", "utf-8");
+
+      const mockFsOps = {
+        readdir: async () => [],
+        readFile: async (file: string, encoding?: string) => {
+          const fs = await import("node:fs/promises");
+          const remappedFile = file.replace(homedir(), root);
+          return fs.readFile(remappedFile, encoding as BufferEncoding);
+        },
+      } as unknown as FsOps;
+
+      const instructions = await loadCopilotInstructions(root, mockFsOps);
+      expect(instructions).toBe("Home instructions");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("falls back to ~/.atomic global instructions when canonical global is missing", async () => {
     const root = await mkdtemp(join(tmpdir(), "atomic-config-test-"));
 
     try {
@@ -487,9 +795,9 @@ describe("loadCopilotInstructions", () => {
         "utf-8"
       );
 
-      await mkdir(join(root, ".copilot"), { recursive: true });
+      await mkdir(join(root, ".config", ".copilot"), { recursive: true });
       await writeFile(
-        join(root, ".copilot", "copilot-instructions.md"),
+        join(root, ".config", ".copilot", "copilot-instructions.md"),
         "Global instructions",
         "utf-8"
       );
@@ -529,4 +837,5 @@ describe("loadCopilotInstructions", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
 });

@@ -27,6 +27,7 @@ import type {
   Session,
   AgentMessage,
 } from "../sdk/types.ts";
+import type { ProviderDiscoveryPlan } from "../utils/provider-discovery-plan.ts";
 import { UnifiedModelOperations } from "../models/model-operations.ts";
 import {
   createTuiTelemetrySessionTracker,
@@ -105,6 +106,8 @@ function buildCapabilitiesSystemPrompt(): string {
 export interface ChatUIConfig {
   /** Session configuration for the agent */
   sessionConfig?: SessionConfig;
+  /** Startup discovery plan for provider-aware command registration */
+  providerDiscoveryPlan?: ProviderDiscoveryPlan;
   /** Initial theme (defaults to dark) */
   theme?: Theme;
   /** Title for the chat window */
@@ -217,6 +220,7 @@ export async function startChatUI(
 ): Promise<ChatUIResult> {
   const {
     sessionConfig,
+    providerDiscoveryPlan,
     theme = darkTheme,
     title = "Atomic Chat",
     placeholder = "Type a message...",
@@ -646,7 +650,7 @@ export async function startChatUI(
     // Both are independent: command discovery scans the filesystem while
     // the SDK client connects to its backend.
     await Promise.all([
-      initializeCommandsAsync(),
+      initializeCommandsAsync({ providerDiscoveryPlan }),
       clientStartPromise ?? Promise.resolve(),
     ]);
 

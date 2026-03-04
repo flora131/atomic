@@ -18,6 +18,7 @@ import {
 } from "./chat.tsx";
 import { ThemeProvider, darkTheme, type Theme } from "./theme.tsx";
 import { AppErrorBoundary } from "./components/error-exit-screen.tsx";
+import { initTreeSitterAssets } from "./tree-sitter-assets.ts";
 import { initializeCommandsAsync, globalRegistry } from "./commands/index.ts";
 import { EventBusProvider } from "../events/event-bus-provider.tsx";
 import type {
@@ -633,6 +634,11 @@ export async function startChatUI(
           : capabilitiesPrompt;
       }
     }
+
+    // Ensure Tree-sitter WASM/SCM assets are embedded and reachable in
+    // compiled binaries ($bunfs) before any renderer or <markdown> component
+    // triggers syntax highlighting.
+    initTreeSitterAssets();
 
     // Create the CLI renderer with:
     // - mouse tracking ENABLED for scroll-wheel support in scrollboxes and

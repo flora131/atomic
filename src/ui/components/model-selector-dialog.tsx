@@ -11,7 +11,7 @@
 
 import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import type { KeyEvent, ScrollBoxRenderable } from "@opentui/core";
+import type { KeyEvent, ScrollBoxRenderable, MouseEvent } from "@opentui/core";
 import { useTheme } from "../theme.tsx";
 import type { Model } from "../../models/model-transform.ts";
 import { navigateUp, navigateDown } from "../utils/navigation.ts";
@@ -180,6 +180,18 @@ export function ModelSelectorDialog({
       scrollBox.scrollTo(selectedRow + 1 - listHeight);
     }
   }, [selectedIndex, modelRowOffsets, listHeight]);
+
+  // Translate mouse wheel scroll into selection movement so the highlight follows
+  const handleMouseScroll = useCallback((event: MouseEvent) => {
+    if (reasoningModel) return;
+    const direction = event.scroll?.direction;
+    if (direction === "up") {
+      setSelectedIndex((prev) => navigateUp(prev, flatModels.length));
+    } else if (direction === "down") {
+      setSelectedIndex((prev) => navigateDown(prev, flatModels.length));
+    }
+    event.stopPropagation();
+  }, [flatModels.length, reasoningModel]);
 
   /** Confirm model selection, showing reasoning selector if applicable */
   const confirmModel = useCallback((model: Model) => {
@@ -388,7 +400,8 @@ export function ModelSelectorDialog({
             </text>
           </box>
         ) : (
-          groupedModels.map((group, groupIdx) => {
+          <box flexDirection="column" onMouseScroll={handleMouseScroll}>
+          {groupedModels.map((group, groupIdx) => {
             const isLastGroup = groupIdx === groupedModels.length - 1;
 
             return (
@@ -488,6 +501,8 @@ export function ModelSelectorDialog({
               </box>
             );
           })
+          }
+          </box>
         )}
       </scrollbox>
       <box style={{ paddingLeft: 2, paddingTop: 1 }}>

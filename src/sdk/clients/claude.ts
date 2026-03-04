@@ -2480,11 +2480,41 @@ export function createClaudeAgentClient(): ClaudeAgentClient {
  * - npm package (@anthropic-ai/claude-agent-sdk, dev only)
  *
  * Resolution order:
- * 1. import.meta.resolve (works in dev when @anthropic-ai/claude-agent-sdk is available)
- * 2. Find globally-installed claude CLI on $PATH
+ * 1. On macOS, prefer globally-installed claude CLI on $PATH
+ * 2. import.meta.resolve (works in dev when @anthropic-ai/claude-agent-sdk is available)
+ * 3. Find globally-installed claude CLI on $PATH
  */
 export function getBundledClaudeCodePath(): string {
-    // Strategy 1: import.meta.resolve (works in dev, fails in compiled binary)
+    // Shared strategy: Find claude CLI on $PATH.
+    // For npm global installs, the symlink resolves into the package with cli.js.
+    // For standalone installs (native install, Homebrew, WinGet), return the binary
+    // directly — the SDK handles executable paths by spawning them directly.
+    const resolveClaudeFromPath = (): string | null => {
+        try {
+            const claudeBin = Bun.which("claude");
+            if (claudeBin) {
+                const realPath = realpathSync(claudeBin);
+                // Check if it's an npm package with cli.js
+                const pkgDir = dirname(realPath);
+                const cliPath = join(pkgDir, "cli.js");
+                if (existsSync(cliPath)) return cliPath;
+                // Standalone binary (native install, Homebrew, WinGet) — no cli.js
+                if (existsSync(realPath)) return realPath;
+            }
+        } catch {
+            // Falls through
+        }
+        return null;
+    };
+
+    // On macOS, prefer the system Claude binary first so auth state from
+    // native installs (including Homebrew/curl) is used consistently.
+    if (process.platform === "darwin") {
+        const claudeFromPath = resolveClaudeFromPath();
+        if (claudeFromPath) return claudeFromPath;
+    }
+
+    // Strategy 2: import.meta.resolve (works in dev, fails in compiled binary)
     try {
         const sdkUrl = import.meta.resolve("@anthropic-ai/claude-agent-sdk");
         const sdkPath = fileURLToPath(sdkUrl);
@@ -2495,23 +2525,10 @@ export function getBundledClaudeCodePath(): string {
         // Falls through
     }
 
-    // Strategy 2: Find claude CLI on $PATH.
-    // For npm global installs, the symlink resolves into the package with cli.js.
-    // For standalone installs (native install, Homebrew, WinGet), return the binary
-    // directly — the SDK handles executable paths by spawning them directly.
-    try {
-        const claudeBin = Bun.which("claude");
-        if (claudeBin) {
-            const realPath = realpathSync(claudeBin);
-            // Check if it's an npm package with cli.js
-            const pkgDir = dirname(realPath);
-            const cliPath = join(pkgDir, "cli.js");
-            if (existsSync(cliPath)) return cliPath;
-            // Standalone binary (native install, Homebrew, WinGet) — no cli.js
-            if (existsSync(realPath)) return realPath;
-        }
-    } catch {
-        // Falls through
+    // Strategy 3: PATH fallback for non-macOS (or when Strategy 1 is unavailable).
+    {
+        const claudeFromPath = resolveClaudeFromPath();
+        if (claudeFromPath) return claudeFromPath;
     }
 
     throw new Error(

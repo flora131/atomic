@@ -5,10 +5,8 @@ import { dirname, join } from "node:path";
 import type { CommandContext } from "./registry.ts";
 import { globalRegistry } from "./registry.ts";
 import {
-    BUILTIN_SKILLS,
     discoverAndRegisterDiskSkills,
     getRuntimeCompatibleSkillDiscoveryPaths,
-    registerBuiltinSkills,
     validateDiskSkillDefinitionIntegrity,
 } from "./skill-commands.ts";
 import {
@@ -40,11 +38,18 @@ interface DiscoveryEventCapture {
     };
 }
 
-function parseDiscoveryEventMessages(messages: readonly string[]): DiscoveryEventCapture[] {
+function parseDiscoveryEventMessages(
+    messages: readonly string[],
+): DiscoveryEventCapture[] {
     const prefix = "[discovery.event]";
     return messages
         .filter((message) => message.startsWith(prefix))
-        .map((message) => JSON.parse(message.slice(prefix.length).trim()) as DiscoveryEventCapture);
+        .map(
+            (message) =>
+                JSON.parse(
+                    message.slice(prefix.length).trim(),
+                ) as DiscoveryEventCapture,
+        );
 }
 
 function getDiscoveryEventDataString(
@@ -55,7 +60,9 @@ function getDiscoveryEventDataString(
     return typeof value === "string" ? value : undefined;
 }
 
-function createMockContext(overrides?: Partial<CommandContext>): CommandContext {
+function createMockContext(
+    overrides?: Partial<CommandContext>,
+): CommandContext {
     return {
         session: null,
         state: {
@@ -84,61 +91,25 @@ describe("skill-commands builtins", () => {
         globalRegistry.clear();
     });
 
-    test("includes playwright-cli in BUILTIN_SKILLS", () => {
-        const skill = BUILTIN_SKILLS.find((entry) => entry.name === "playwright-cli");
-        expect(skill).toBeDefined();
-        expect(skill?.aliases).toEqual(["pw", "playwright"]);
-    });
-
-    test("registerBuiltinSkills registers playwright-cli and aliases", () => {
-        registerBuiltinSkills();
-
-        const byName = globalRegistry.get("playwright-cli");
-        const byPwAlias = globalRegistry.get("pw");
-        const byPlaywrightAlias = globalRegistry.get("playwright");
-
-        expect(byName).toBeDefined();
-        expect(byPwAlias?.name).toBe("playwright-cli");
-        expect(byPlaywrightAlias?.name).toBe("playwright-cli");
-    });
-
-    test("playwright-cli builtin command invokes native slash skill with arguments", async () => {
-        registerBuiltinSkills();
-
-        const sentMessages: string[] = [];
-        const context = createMockContext({
-            sendSilentMessage: (content: string) => {
-                sentMessages.push(content);
-            },
-        });
-
-        const command = globalRegistry.get("playwright-cli");
-        expect(command).toBeDefined();
-
-        const result = await Promise.resolve(
-            command!.execute("capture login flow", context),
-        );
-
-        expect(result.success).toBe(true);
-        expect(result.skillLoaded).toBe("playwright-cli");
-        expect(sentMessages).toHaveLength(1);
-        expect(sentMessages[0]).toBe("/playwright-cli capture login flow");
-    });
-
     test("disk skill invokes native slash skill with provided arguments", async () => {
         const originalCwd = process.cwd();
         const originalHome = process.env.HOME;
         const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
 
-        const tempRoot = mkdtempSync(join(tmpdir(), "skill-missing-arguments-"));
+        const tempRoot = mkdtempSync(
+            join(tmpdir(), "skill-missing-arguments-"),
+        );
         const homeDir = join(tempRoot, "home");
         const projectRoot = join(homeDir, "project");
         const xdgConfigHome = join(homeDir, ".config");
 
         try {
-            mkdirSync(join(projectRoot, ".claude", "skills", "prompt-engineer-safe"), {
-                recursive: true,
-            });
+            mkdirSync(
+                join(projectRoot, ".claude", "skills", "prompt-engineer-safe"),
+                {
+                    recursive: true,
+                },
+            );
             writeFileSync(
                 join(
                     projectRoot,
@@ -236,7 +207,9 @@ describe("skill-commands builtins", () => {
             result.issues.some((issue) => issue.includes("Invalid alias")),
         ).toBe(true);
         expect(
-            result.issues.some((issue) => issue.includes("outside configured skill discovery roots")),
+            result.issues.some((issue) =>
+                issue.includes("outside configured skill discovery roots"),
+            ),
         ).toBe(true);
     });
 
@@ -251,7 +224,8 @@ describe("skill-commands builtins", () => {
             {
                 name: "code-review",
                 description: "Review code changes",
-                skillFilePath: "/workspace/repo/.claude/skills/code-review/SKILL.md",
+                skillFilePath:
+                    "/workspace/repo/.claude/skills/code-review/SKILL.md",
                 source: "project",
                 aliases: ["review"],
                 requiredArguments: ["target"],
@@ -289,10 +263,9 @@ describe("skill-commands builtins", () => {
             plans,
         );
         const runtimeCompatibleMatches =
-            filterDefinitionMatchesByRuntimeCompatibility(
-                discoveryMatches,
-                [copilotPlan],
-            );
+            filterDefinitionMatchesByRuntimeCompatibility(discoveryMatches, [
+                copilotPlan,
+            ]);
 
         expect(
             runtimeCompatibleMatches.some(
@@ -313,12 +286,16 @@ describe("skill-commands builtins", () => {
             pathExists: () => false,
         });
 
-        const searchPaths = getRuntimeCompatibleSkillDiscoveryPaths([opencodePlan]);
+        const searchPaths = getRuntimeCompatibleSkillDiscoveryPaths([
+            opencodePlan,
+        ]);
 
         expect(searchPaths).toContain("/workspace/repo/.opencode/skills");
         expect(searchPaths).toContain("/home/tester/.opencode/skills");
         expect(searchPaths).toContain("/home/tester/.config/.opencode/skills");
-        expect(searchPaths).not.toContain("/home/tester/.config/opencode/skills");
+        expect(searchPaths).not.toContain(
+            "/home/tester/.config/opencode/skills",
+        );
     });
 
     test("accepts user home skill roots for OpenCode", () => {
@@ -332,7 +309,8 @@ describe("skill-commands builtins", () => {
             {
                 name: "shared-legacy-skill",
                 description: "Shared compatibility skill",
-                skillFilePath: "/home/tester/.opencode/skills/shared-legacy-skill/SKILL.md",
+                skillFilePath:
+                    "/home/tester/.opencode/skills/shared-legacy-skill/SKILL.md",
                 source: "user",
             },
             { discoveryPlans: plans },
@@ -394,7 +372,13 @@ describe("skill-commands builtins", () => {
             process.chdir(projectRoot);
 
             writeSkill(
-                join(projectRoot, ".claude", "skills", "claude-skill", "SKILL.md"),
+                join(
+                    projectRoot,
+                    ".claude",
+                    "skills",
+                    "claude-skill",
+                    "SKILL.md",
+                ),
                 "Use this skill for claude tasks.",
             );
             writeSkill(
@@ -408,7 +392,13 @@ describe("skill-commands builtins", () => {
                 "---\nname: broken-frontmatter\ndescription: missing closing delimiter",
             );
             writeSkill(
-                join(projectRoot, ".github", "skills", "copilot-only", "SKILL.md"),
+                join(
+                    projectRoot,
+                    ".github",
+                    "skills",
+                    "copilot-only",
+                    "SKILL.md",
+                ),
                 "Copilot-only skill instructions.",
             );
 
@@ -426,8 +416,11 @@ describe("skill-commands builtins", () => {
 
             const warningMessages = warnSpy.mock.calls
                 .map((call) => call[0])
-                .filter((message): message is string => typeof message === "string");
-            const discoveryEvents = parseDiscoveryEventMessages(warningMessages);
+                .filter(
+                    (message): message is string => typeof message === "string",
+                );
+            const discoveryEvents =
+                parseDiscoveryEventMessages(warningMessages);
             const serializedDiscoveryEvents = JSON.stringify(discoveryEvents);
 
             expect(serializedDiscoveryEvents.includes(projectRoot)).toBe(false);
@@ -436,7 +429,8 @@ describe("skill-commands builtins", () => {
             const malformedSkipEvent = discoveryEvents.find(
                 (event) =>
                     event.event === "discovery.definition.skipped" &&
-                    getDiscoveryEventDataString(event, "reason") === "parse_failed" &&
+                    getDiscoveryEventDataString(event, "reason") ===
+                        "parse_failed" &&
                     event.tags.path.endsWith("broken-frontmatter/SKILL.md"),
             );
 
@@ -453,7 +447,9 @@ describe("skill-commands builtins", () => {
 
             expect(compatibilityFilteredEvent?.tags.provider).toBe("claude");
             expect(compatibilityFilteredEvent?.tags.installType).toBe("source");
-            expect(compatibilityFilteredEvent?.tags.path).toContain("copilot-only/SKILL.md");
+            expect(compatibilityFilteredEvent?.tags.path).toContain(
+                "copilot-only/SKILL.md",
+            );
 
             expect(
                 warningMessages.some(

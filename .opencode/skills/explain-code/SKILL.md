@@ -2,6 +2,7 @@
 name: explain-code
 description: Explain code functionality in detail.
 ---
+
 # Analyze and Explain Code Functionality
 
 ## Available Tools
@@ -16,59 +17,59 @@ The following MCP tools are available and SHOULD be used when relevant:
 Follow this systematic approach to explain code: **$ARGUMENTS**
 
 1. **Code Context Analysis**
-   - Identify the programming language and framework
-   - Understand the broader context and purpose of the code
-   - Identify the file location and its role in the project
-   - Review related imports, dependencies, and configurations
+    - Identify the programming language and framework
+    - Understand the broader context and purpose of the code
+    - Identify the file location and its role in the project
+    - Review related imports, dependencies, and configurations
 
 2. **High-Level Overview**
-   - Provide a summary of what the code does
-   - Explain the main purpose and functionality
-   - Identify the problem the code is solving
-   - Describe how it fits into the larger system
+    - Provide a summary of what the code does
+    - Explain the main purpose and functionality
+    - Identify the problem the code is solving
+    - Describe how it fits into the larger system
 
 3. **Code Structure Breakdown**
-   - Break down the code into logical sections
-   - Identify classes, functions, and methods
-   - Explain the overall architecture and design patterns
-   - Map out data flow and control flow
+    - Break down the code into logical sections
+    - Identify classes, functions, and methods
+    - Explain the overall architecture and design patterns
+    - Map out data flow and control flow
 
 4. **Line-by-Line Analysis**
-   - Explain complex or non-obvious lines of code
-   - Describe variable declarations and their purposes
-   - Explain function calls and their parameters
-   - Clarify conditional logic and loops
+    - Explain complex or non-obvious lines of code
+    - Describe variable declarations and their purposes
+    - Explain function calls and their parameters
+    - Clarify conditional logic and loops
 
 5. **Algorithm and Logic Explanation**
-   - Describe the algorithm or approach being used
-   - Explain the logic behind complex calculations
-   - Break down nested conditions and loops
-   - Clarify recursive or asynchronous operations
+    - Describe the algorithm or approach being used
+    - Explain the logic behind complex calculations
+    - Break down nested conditions and loops
+    - Clarify recursive or asynchronous operations
 
 6. **Data Structures and Types**
-   - Explain data types and structures being used
-   - Describe how data is transformed or processed
-   - Explain object relationships and hierarchies
-   - Clarify input and output formats
+    - Explain data types and structures being used
+    - Describe how data is transformed or processed
+    - Explain object relationships and hierarchies
+    - Clarify input and output formats
 
 7. **Framework and Library Usage**
-   - Explain framework-specific patterns and conventions
-   - Describe library functions and their purposes
-   - Explain API calls and their expected responses
-   - Clarify configuration and setup code
-   - Use the DeepWiki MCP tool (`deepwiki_ask_question`) to look up documentation for external libraries when needed
+    - Explain framework-specific patterns and conventions
+    - Describe library functions and their purposes
+    - Explain API calls and their expected responses
+    - Clarify configuration and setup code
+    - Use the DeepWiki MCP tool (`deepwiki_ask_question`) to look up documentation for external libraries when needed
 
 8. **Error Handling and Edge Cases**
-   - Explain error handling mechanisms
-   - Describe exception handling and recovery
-   - Identify edge cases being handled
-   - Explain validation and defensive programming
+    - Explain error handling mechanisms
+    - Describe exception handling and recovery
+    - Identify edge cases being handled
+    - Explain validation and defensive programming
 
 9. **Performance Considerations**
-   - Identify performance-critical sections
-   - Explain optimization techniques being used
-   - Describe complexity and scalability implications
-   - Point out potential bottlenecks or inefficiencies
+    - Identify performance-critical sections
+    - Explain optimization techniques being used
+    - Describe complexity and scalability implications
+    - Point out potential bottlenecks or inefficiencies
 
 10. **Security Implications**
     - Identify security-related code sections
@@ -92,6 +93,7 @@ Follow this systematic approach to explain code: **$ARGUMENTS**
 **Explanation Format Examples:**
 
 **For Complex Algorithms:**
+
 ```
 This function implements a depth-first search algorithm:
 
@@ -106,6 +108,7 @@ Space Complexity: O(V) for the visited set and stack
 ```
 
 **For API Integration Code:**
+
 ```
 This code handles user authentication with a third-party service:
 
@@ -121,6 +124,7 @@ Security: Uses HTTPS, validates inputs, and sanitizes responses
 ```
 
 **For Database Operations:**
+
 ```
 This function performs a complex database query with joins:
 
@@ -162,42 +166,49 @@ Performance Notes: Uses indexes on filtered columns, implements connection pooli
 **Language-Specific Considerations:**
 
 **JavaScript/TypeScript:**
+
 - Explain async/await and Promise handling
 - Describe closure and scope behavior
 - Clarify this binding and arrow functions
 - Explain event handling and callbacks
 
 **Python:**
+
 - Explain list comprehensions and generators
 - Describe decorator usage and purpose
 - Clarify context managers and with statements
 - Explain class inheritance and method resolution
 
 **Java:**
+
 - Explain generics and type parameters
 - Describe annotation usage and processing
 - Clarify stream operations and lambda expressions
 - Explain exception hierarchy and handling
 
 **C#:**
+
 - Explain LINQ queries and expressions
 - Describe async/await and Task handling
 - Clarify delegate and event usage
 - Explain nullable reference types
 
 **Go:**
+
 - Explain goroutines and channel usage
 - Describe interface implementation
 - Clarify error handling patterns
 - Explain package structure and imports
 
 **Rust:**
+
 - Explain ownership and borrowing
 - Describe lifetime annotations
 - Clarify pattern matching and Option/Result types
 - Explain trait implementations
 
 Remember to:
+
 - Use clear, non-technical language when possible
 - Provide examples and analogies for complex concepts
 - Structure explanations logically from high-level to detailed

@@ -637,6 +637,7 @@ function dispatchNativeSkillInvocation(
 ): CommandResult {
     context.sendSilentMessage(
         buildSkillInvocationMessage(skillName, skillArgs),
+        { skillCommand: { name: skillName, args: skillArgs } },
     );
     return { success: true, skillLoaded: skillName };
 }

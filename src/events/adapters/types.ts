@@ -50,4 +50,6 @@ export interface StreamAdapterOptions {
   knownAgentNames?: string[];
   /** Runtime contract feature-flag overrides (Task #1 scaffolding) */
   runtimeFeatureFlags?: WorkflowRuntimeFeatureFlagOverrides;
+  /** Structured skill/slash-command for OpenCode session.command() dispatch */
+  skillCommand?: { name: string; args: string };
 }

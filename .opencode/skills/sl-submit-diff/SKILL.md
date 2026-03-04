@@ -27,10 +27,10 @@ Submit commits to Phabricator for code review using `jf submit` (Meta).
 
 ## Common Operations
 
-| Task                    | Command                           |
-| ----------------------- | --------------------------------- |
-| Submit current commit   | `jf submit --draft`               |
-| Update diff after amend | `sl amend && jf submit --draft`   |
+| Task                    | Command                         |
+| ----------------------- | ------------------------------- |
+| Submit current commit   | `jf submit --draft`             |
+| Update diff after amend | `sl amend && jf submit --draft` |
 
 ## Diff Status Values
 

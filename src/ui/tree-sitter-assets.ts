@@ -4,12 +4,17 @@
  * When compiled with `bun build --compile`, the `import ... with { type: "file" }`
  * statements in @opentui/core's pre-bundled chunk resolve paths relative to
  * `import.meta.url`, which points to the binary—not the original package location.
- * This module re-imports all Tree-sitter assets so Bun's compiler embeds them in
- * the binary's virtual filesystem ($bunfs), then overrides the default parser
- * paths via `addDefaultParsers()`.
+ * This module re-imports Tree-sitter grammar/query assets so Bun's compiler
+ * embeds them in the binary's virtual filesystem ($bunfs), then overrides
+ * parser paths via `addDefaultParsers()`. The worker path itself is injected
+ * at compile-time by `src/scripts/build-binary.ts` (OpenCode pattern).
  */
 
 import { addDefaultParsers } from "@opentui/core";
+import { resolve } from "path";
+
+declare const OTUI_TREE_SITTER_WORKER_PATH: string;
+
 
 // -- WASM language grammars --------------------------------------------------
 // @ts-expect-error: Bun-specific import attribute for file embedding
@@ -37,9 +42,20 @@ import mdInlineHighlights from "../../node_modules/@opentui/core/assets/markdown
 // @ts-expect-error: Bun-specific import attribute for file embedding
 import zigHighlights from "../../node_modules/@opentui/core/assets/zig/highlights.scm" with { type: "file" };
 
-// -- Parser worker -----------------------------------------------------------
-// @ts-expect-error: Bun-specific import attribute for file embedding
-import parserWorker from "../../node_modules/@opentui/core/parser.worker.js" with { type: "file" };
+function getCompileTimeTreeSitterWorkerPath(): string | undefined {
+  if (
+    typeof OTUI_TREE_SITTER_WORKER_PATH === "undefined" ||
+    OTUI_TREE_SITTER_WORKER_PATH.length === 0
+  ) {
+    return undefined;
+  }
+
+  return OTUI_TREE_SITTER_WORKER_PATH;
+}
+
+function getRuntimeTreeSitterWorkerPath(): string {
+  return resolve(import.meta.dir, "../../node_modules/@opentui/core/parser.worker.js");
+}
 
 /**
  * Override default Tree-sitter parsers with embedded asset paths and set the
@@ -47,9 +63,11 @@ import parserWorker from "../../node_modules/@opentui/core/parser.worker.js" wit
  * (i.e. before `createCliRenderer()` or the first `<markdown>` render).
  */
 export function initTreeSitterAssets(): void {
-  // Point the worker at the embedded file so the TreeSitterClient doesn't try
-  // to resolve it relative to import.meta.url of the @opentui/core bundle.
-  process.env.OTUI_TREE_SITTER_WORKER_PATH = parserWorker;
+  // OpenCode-style binary builds inject OTUI_TREE_SITTER_WORKER_PATH at compile
+  // time. Keep a runtime fallback for local dev/repo installs.
+  if (!process.env.OTUI_TREE_SITTER_WORKER_PATH && !getCompileTimeTreeSitterWorkerPath()) {
+    process.env.OTUI_TREE_SITTER_WORKER_PATH = getRuntimeTreeSitterWorkerPath();
+  }
 
   addDefaultParsers([
     {

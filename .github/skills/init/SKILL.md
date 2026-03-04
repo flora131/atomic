@@ -2,6 +2,7 @@
 name: init
 description: Generate CLAUDE.md and AGENTS.md by exploring the codebase
 ---
+
 # Generate CLAUDE.md and AGENTS.md
 
 You are tasked with exploring the current codebase with the codebase-analyzer, codebase-locator, codebase-pattern-finder sub-agents and generating populated `CLAUDE.md` and `AGENTS.md` files at the project root. These files provide coding agents with the context they need to work effectively in this repository.
@@ -9,22 +10,22 @@ You are tasked with exploring the current codebase with the codebase-analyzer, c
 ## Steps
 
 1. **Explore the codebase to discover project metadata:**
-   - Read `package.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `Gemfile`, `pom.xml`, or similar manifest files
-   - Scan the top-level directory structure (`src/`, `lib/`, `app/`, `tests/`, `docs/`, etc.)
-   - Check for existing config files: `.eslintrc`, `tsconfig.json`, `biome.json`, `oxlint.json`, `.prettierrc`, CI configs (`.github/workflows/`, `.gitlab-ci.yml`), etc.
-   - Read `README.md` if it exists for project description and setup instructions
-   - Check for `.env.example`, `.env.local`, or similar environment files
-   - Identify the package manager (bun, npm, yarn, pnpm, cargo, go, pip, etc.)
+    - Read `package.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `Gemfile`, `pom.xml`, or similar manifest files
+    - Scan the top-level directory structure (`src/`, `lib/`, `app/`, `tests/`, `docs/`, etc.)
+    - Check for existing config files: `.eslintrc`, `tsconfig.json`, `biome.json`, `oxlint.json`, `.prettierrc`, CI configs (`.github/workflows/`, `.gitlab-ci.yml`), etc.
+    - Read `README.md` if it exists for project description and setup instructions
+    - Check for `.env.example`, `.env.local`, or similar environment files
+    - Identify the package manager (bun, npm, yarn, pnpm, cargo, go, pip, etc.)
 
 2. **Identify key project attributes:**
-   - **Project name**: From manifest file or directory name
-   - **Project purpose**: 1-2 sentence description from README or manifest
-   - **Project structure**: Key directories and their purposes
-   - **Tech stack**: Language, framework, runtime
-   - **Commands**: dev, build, test, lint, typecheck, format (from scripts in manifest)
-   - **Environment setup**: Required env vars, env example files
-   - **Verification command**: The command to run before commits (usually lint + typecheck + test)
-   - **Existing documentation**: Links to docs within the repo
+    - **Project name**: From manifest file or directory name
+    - **Project purpose**: 1-2 sentence description from README or manifest
+    - **Project structure**: Key directories and their purposes
+    - **Tech stack**: Language, framework, runtime
+    - **Commands**: dev, build, test, lint, typecheck, format (from scripts in manifest)
+    - **Environment setup**: Required env vars, env example files
+    - **Verification command**: The command to run before commits (usually lint + typecheck + test)
+    - **Existing documentation**: Links to docs within the repo
 
 3. **Populate the template below** with discovered values. Replace every `{{placeholder}}` with actual values from the repo. Delete sections that don't apply (e.g., Environment if there are no env files). Remove the "How to Fill This Template" meta-section entirely.
 
@@ -41,8 +42,8 @@ You are tasked with exploring the current codebase with the codebase-analyzer, c
 
 ## Project Structure
 
-| Path       | Type     | Purpose     |
-| ---------- | -------- | ----------- |
+| Path         | Type     | Purpose     |
+| ------------ | -------- | ----------- |
 | \`{{path}}\` | {{type}} | {{purpose}} |
 
 ## Quick Reference
@@ -50,11 +51,11 @@ You are tasked with exploring the current codebase with the codebase-analyzer, c
 ### Commands
 
 \`\`\`bash
-{{dev_command}}              # Start dev server / all services
-{{build_command}}            # Build the project
-{{test_command}}             # Run tests
-{{lint_command}}             # Lint & format check
-{{typecheck_command}}        # Type-check (if applicable)
+{{dev_command}} # Start dev server / all services
+{{build_command}} # Build the project
+{{test_command}} # Run tests
+{{lint_command}} # Lint & format check
+{{typecheck_command}} # Type-check (if applicable)
 \`\`\`
 
 ### Environment

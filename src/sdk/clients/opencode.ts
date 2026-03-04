@@ -2431,6 +2431,40 @@ export class OpenCodeClient implements CodingAgentClient {
         }
       },
 
+      command: async (
+        commandName: string,
+        args: string,
+        options?: { agent?: string; abortSignal?: AbortSignal },
+      ): Promise<void> => {
+        if (sessionState.isClosed) {
+          throw new Error("Session is closed");
+        }
+        if (!client.sdkClient) {
+          throw new Error("Client not connected");
+        }
+
+        const resolvedModel = client.activePromptModel ?? initialPromptModel;
+        const modelString = resolvedModel
+          ? `${resolvedModel.providerID}/${resolvedModel.modelID}`
+          : undefined;
+
+        const result = await client.sdkClient.session.command(
+          {
+            sessionID: sessionId,
+            directory: client.clientOptions.directory,
+            agent: agentMode,
+            model: modelString,
+            command: commandName,
+            arguments: args,
+          },
+          options?.abortSignal ? { signal: options.abortSignal } : undefined,
+        );
+
+        if (result?.error) {
+          throw new Error(extractOpenCodeErrorMessage(result.error));
+        }
+      },
+
       stream: (
         message: string,
         options?: { agent?: string; abortSignal?: AbortSignal },

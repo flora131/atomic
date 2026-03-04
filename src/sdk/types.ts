@@ -309,6 +309,20 @@ export interface Session {
   destroy(): Promise<void>;
 
   /**
+   * Send a structured slash-command to the session.
+   * Only implemented by OpenCode (maps to POST /session/{id}/command).
+   * Other clients should omit this; callers fall back to sendAsync/stream.
+   * @param commandName - The command name (without leading slash)
+   * @param args - The command arguments string
+   * @param options - Optional dispatch options (abort signal, agent override)
+   */
+  command?(
+    commandName: string,
+    args: string,
+    options?: { agent?: string; abortSignal?: AbortSignal },
+  ): Promise<void>;
+
+  /**
    * Abort any ongoing work in the session.
    * Optional - only supported by some SDKs (e.g., Copilot).
    * When supported, this cancels in-flight agent work including sub-agent invocations.

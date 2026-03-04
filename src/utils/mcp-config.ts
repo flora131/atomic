@@ -7,33 +7,54 @@
  * Reference: specs/mcp-support-and-discovery.md section 5.2
  */
 
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { McpServerConfig } from "../sdk/types.ts";
+import { assertRealPathWithinRoot } from "./path-root-guard.ts";
+import { resolveDefaultConfigHome } from "./provider-discovery-plan.ts";
+
+async function readJsoncConfig(
+  filePath: string,
+  allowedRoot?: string,
+): Promise<Record<string, unknown> | null> {
+  try {
+    if (allowedRoot) {
+      await assertRealPathWithinRoot(allowedRoot, filePath, "MCP config path");
+    }
+
+    const raw = await Bun.file(filePath).text();
+    return Bun.JSONC.parse(raw) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Parse Claude Code MCP config (.mcp.json).
  * Format: { "mcpServers": { "<name>": { type?, command?, args?, env?, url?, headers? } } }
  */
-export async function parseClaudeMcpConfig(filePath: string): Promise<McpServerConfig[]> {
-  try {
-    const raw = await Bun.file(filePath).text();
-    const parsed = Bun.JSONC.parse(raw) as Record<string, unknown>;
-    const mcpServers = parsed.mcpServers;
-    if (!mcpServers || typeof mcpServers !== "object") return [];
-    return Object.entries(mcpServers as Record<string, Record<string, unknown>>).map(([name, cfg]) => ({
-      name,
-      type: cfg.type as McpServerConfig["type"],
-      command: cfg.command as string | undefined,
-      args: cfg.args as string[] | undefined,
-      env: cfg.env as Record<string, string> | undefined,
-      url: cfg.url as string | undefined,
-      headers: cfg.headers as Record<string, string> | undefined,
-      tools: Array.isArray(cfg.tools) ? (cfg.tools as string[]) : undefined,
-      enabled: cfg.enabled !== false,
-    }));
-  } catch {
+export async function parseClaudeMcpConfig(
+  filePath: string,
+  allowedRoot?: string,
+): Promise<McpServerConfig[]> {
+  const parsed = await readJsoncConfig(filePath, allowedRoot);
+  if (!parsed) {
     return [];
   }
+
+  const mcpServers = parsed.mcpServers;
+  if (!mcpServers || typeof mcpServers !== "object") return [];
+
+  return Object.entries(mcpServers as Record<string, Record<string, unknown>>).map(([name, cfg]) => ({
+    name,
+    type: cfg.type as McpServerConfig["type"],
+    command: cfg.command as string | undefined,
+    args: cfg.args as string[] | undefined,
+    env: cfg.env as Record<string, string> | undefined,
+    url: cfg.url as string | undefined,
+    headers: cfg.headers as Record<string, string> | undefined,
+    tools: Array.isArray(cfg.tools) ? (cfg.tools as string[]) : undefined,
+    enabled: cfg.enabled !== false,
+  }));
 }
 
 /**
@@ -41,31 +62,34 @@ export async function parseClaudeMcpConfig(filePath: string): Promise<McpServerC
  * Format: { "mcpServers": { "<name>": { type, command?, args?, env?, url?, headers?, cwd?, tools?, timeout? } } }
  * Maps "local" type to "stdio".
  */
-export async function parseCopilotMcpConfig(filePath: string): Promise<McpServerConfig[]> {
-  try {
-    const raw = await Bun.file(filePath).text();
-    const parsed = Bun.JSONC.parse(raw) as Record<string, unknown>;
-    const mcpServers = parsed.mcpServers;
-    if (!mcpServers || typeof mcpServers !== "object") return [];
-    return Object.entries(mcpServers as Record<string, Record<string, unknown>>).map(([name, cfg]) => {
-      const type = cfg.type === "local" ? "stdio" : (cfg.type as McpServerConfig["type"]);
-      return {
-        name,
-        type,
-        command: cfg.command as string | undefined,
-        args: cfg.args as string[] | undefined,
-        env: cfg.env as Record<string, string> | undefined,
-        url: cfg.url as string | undefined,
-        headers: cfg.headers as Record<string, string> | undefined,
-        cwd: cfg.cwd as string | undefined,
-        timeout: cfg.timeout as number | undefined,
-        tools: Array.isArray(cfg.tools) ? (cfg.tools as string[]) : undefined,
-        enabled: cfg.enabled !== false,
-      };
-    });
-  } catch {
+export async function parseCopilotMcpConfig(
+  filePath: string,
+  allowedRoot?: string,
+): Promise<McpServerConfig[]> {
+  const parsed = await readJsoncConfig(filePath, allowedRoot);
+  if (!parsed) {
     return [];
   }
+
+  const mcpServers = parsed.mcpServers;
+  if (!mcpServers || typeof mcpServers !== "object") return [];
+
+  return Object.entries(mcpServers as Record<string, Record<string, unknown>>).map(([name, cfg]) => {
+    const type = cfg.type === "local" ? "stdio" : (cfg.type as McpServerConfig["type"]);
+    return {
+      name,
+      type,
+      command: cfg.command as string | undefined,
+      args: cfg.args as string[] | undefined,
+      env: cfg.env as Record<string, string> | undefined,
+      url: cfg.url as string | undefined,
+      headers: cfg.headers as Record<string, string> | undefined,
+      cwd: cfg.cwd as string | undefined,
+      timeout: cfg.timeout as number | undefined,
+      tools: Array.isArray(cfg.tools) ? (cfg.tools as string[]) : undefined,
+      enabled: cfg.enabled !== false,
+    };
+  });
 }
 
 /**
@@ -76,46 +100,49 @@ export async function parseCopilotMcpConfig(filePath: string): Promise<McpServer
  * Splits "command: string[]" into command (first) + args (rest).
  * Maps "environment" to "env".
  */
-export async function parseOpenCodeMcpConfig(filePath: string): Promise<McpServerConfig[]> {
-  try {
-    const raw = await Bun.file(filePath).text();
-    const parsed = Bun.JSONC.parse(raw) as Record<string, unknown>;
-    const mcp = parsed.mcp;
-    if (!mcp || typeof mcp !== "object") return [];
-    return Object.entries(mcp as Record<string, Record<string, unknown>>).map(([name, cfg]) => {
-      const type = cfg.type === "local" ? "stdio"
-        : cfg.type === "remote" ? "http"
-        : (cfg.type as McpServerConfig["type"]);
-
-      // OpenCode schema enforces command: string[] (Zod: z.string().array()).
-      // Defensively handle string input: split on whitespace to normalize.
-      let command: string | undefined;
-      let args: string[] | undefined;
-      if (Array.isArray(cfg.command)) {
-        command = cfg.command[0] as string;
-        args = cfg.command.slice(1) as string[];
-      } else if (typeof cfg.command === "string") {
-        const parts = cfg.command.trim().split(/\s+/);
-        command = parts[0];
-        args = parts.slice(1);
-      }
-
-      return {
-        name,
-        type,
-        command,
-        args,
-        env: (cfg.environment ?? cfg.env) as Record<string, string> | undefined,
-        url: cfg.url as string | undefined,
-        headers: cfg.headers as Record<string, string> | undefined,
-        timeout: cfg.timeout as number | undefined,
-        tools: Array.isArray(cfg.tools) ? (cfg.tools as string[]) : undefined,
-        enabled: cfg.enabled !== false,
-      };
-    });
-  } catch {
+export async function parseOpenCodeMcpConfig(
+  filePath: string,
+  allowedRoot?: string,
+): Promise<McpServerConfig[]> {
+  const parsed = await readJsoncConfig(filePath, allowedRoot);
+  if (!parsed) {
     return [];
   }
+
+  const mcp = parsed.mcp;
+  if (!mcp || typeof mcp !== "object") return [];
+
+  return Object.entries(mcp as Record<string, Record<string, unknown>>).map(([name, cfg]) => {
+    const type = cfg.type === "local" ? "stdio"
+      : cfg.type === "remote" ? "http"
+      : (cfg.type as McpServerConfig["type"]);
+
+    // OpenCode schema enforces command: string[] (Zod: z.string().array()).
+    // Defensively handle string input: split on whitespace to normalize.
+    let command: string | undefined;
+    let args: string[] | undefined;
+    if (Array.isArray(cfg.command)) {
+      command = cfg.command[0] as string;
+      args = cfg.command.slice(1) as string[];
+    } else if (typeof cfg.command === "string") {
+      const parts = cfg.command.trim().split(/\s+/);
+      command = parts[0];
+      args = parts.slice(1);
+    }
+
+    return {
+      name,
+      type,
+      command,
+      args,
+      env: (cfg.environment ?? cfg.env) as Record<string, string> | undefined,
+      url: cfg.url as string | undefined,
+      headers: cfg.headers as Record<string, string> | undefined,
+      timeout: cfg.timeout as number | undefined,
+      tools: Array.isArray(cfg.tools) ? (cfg.tools as string[]) : undefined,
+      enabled: cfg.enabled !== false,
+    };
+  });
 }
 
 /**
@@ -125,10 +152,11 @@ export async function parseOpenCodeMcpConfig(filePath: string): Promise<McpServe
  * within the same ecosystem, later sources (project-level) override earlier ones
  * (user-level), but configs from one ecosystem never override another's.
  *
- * Discovery order per ecosystem:
- * 1. Claude: ~/.claude/.mcp.json → .mcp.json
- * 2. Copilot: ~/.copilot/mcp-config.json → .github/mcp-config.json, .vscode/mcp.json, mcp-config.json
- * 3. OpenCode: ~/.opencode/opencode.json[c] → opencode.json[c], .opencode/opencode.json[c]
+ * Discovery order per ecosystem (low -> high precedence):
+ * 1. Atomic global: ~/.atomic/.{claude,copilot,opencode}/...
+ * 2. Canonical user config-home: <config-home>/.{copilot,opencode}/...
+ * 3. User home roots: ~/.{claude,copilot,opencode}/...
+ * 4. Project local: .mcp.json, .github/mcp-config.json, opencode.json[c], ...
  *
  * @param cwd - Project root directory (defaults to process.cwd())
  * @returns Deduplicated array of McpServerConfig
@@ -145,28 +173,78 @@ interface TaggedSource {
 }
 
 export async function discoverMcpConfigs(cwd?: string, options: DiscoverMcpConfigsOptions = {}): Promise<McpServerConfig[]> {
-  const projectRoot = cwd ?? process.cwd();
+  const projectRoot = resolve(cwd ?? process.cwd());
   const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? "";
+  const atomicHome = homeDir.length > 0 ? join(homeDir, ".atomic") : "";
+  const configHome = homeDir.length > 0
+    ? resolveDefaultConfigHome({
+        homeDir,
+      })
+    : "";
+
+  const claudeAtomicPromise = atomicHome.length > 0
+    ? parseClaudeMcpConfig(join(atomicHome, ".claude", ".mcp.json"), homeDir)
+    : Promise.resolve<McpServerConfig[]>([]);
+  const copilotAtomicPromise = atomicHome.length > 0
+    ? parseCopilotMcpConfig(join(atomicHome, ".copilot", "mcp-config.json"), homeDir)
+    : Promise.resolve<McpServerConfig[]>([]);
+  const opencodeAtomicJsonPromise = atomicHome.length > 0
+    ? parseOpenCodeMcpConfig(join(atomicHome, ".opencode", "opencode.json"), homeDir)
+    : Promise.resolve<McpServerConfig[]>([]);
+  const opencodeAtomicJsoncPromise = atomicHome.length > 0
+    ? parseOpenCodeMcpConfig(join(atomicHome, ".opencode", "opencode.jsonc"), homeDir)
+    : Promise.resolve<McpServerConfig[]>([]);
+
+  const claudeUserPromise = homeDir.length > 0
+    ? parseClaudeMcpConfig(join(homeDir, ".claude", ".mcp.json"), homeDir)
+    : Promise.resolve<McpServerConfig[]>([]);
+  const copilotCanonicalPromise = configHome.length > 0
+    ? parseCopilotMcpConfig(join(configHome, ".copilot", "mcp-config.json"), homeDir)
+    : Promise.resolve<McpServerConfig[]>([]);
+  const opencodeCanonicalJsonPromise = configHome.length > 0
+    ? parseOpenCodeMcpConfig(join(configHome, ".opencode", "opencode.json"), homeDir)
+    : Promise.resolve<McpServerConfig[]>([]);
+  const opencodeCanonicalJsoncPromise = configHome.length > 0
+    ? parseOpenCodeMcpConfig(join(configHome, ".opencode", "opencode.jsonc"), homeDir)
+    : Promise.resolve<McpServerConfig[]>([]);
+  const copilotHomePromise = homeDir.length > 0
+    ? parseCopilotMcpConfig(join(homeDir, ".copilot", "mcp-config.json"), homeDir)
+    : Promise.resolve<McpServerConfig[]>([]);
+  const opencodeHomeJsonPromise = homeDir.length > 0
+    ? parseOpenCodeMcpConfig(join(homeDir, ".opencode", "opencode.json"), homeDir)
+    : Promise.resolve<McpServerConfig[]>([]);
+  const opencodeHomeJsoncPromise = homeDir.length > 0
+    ? parseOpenCodeMcpConfig(join(homeDir, ".opencode", "opencode.jsonc"), homeDir)
+    : Promise.resolve<McpServerConfig[]>([]);
 
   // Fire all config reads concurrently with Bun.file()
   const [
-    claudeUser, copilotUser, opencodeUserJson, opencodeUserJsonc,
+    claudeAtomic, copilotAtomic, opencodeAtomicJson, opencodeAtomicJsonc,
+    claudeUser, copilotCanonical, opencodeCanonicalJson, opencodeCanonicalJsonc,
+    copilotHome, opencodeHomeJson, opencodeHomeJsonc,
     claudeProject, copilotProject, copilotVscode, copilotRoot,
     opencodeProjectJson, opencodeProjectJsonc,
     opencodeProjectDirJson, opencodeProjectDirJsonc,
   ] = await Promise.all([
-    parseClaudeMcpConfig(join(homeDir, ".claude", ".mcp.json")),
-    parseCopilotMcpConfig(join(homeDir, ".copilot", "mcp-config.json")),
-    parseOpenCodeMcpConfig(join(homeDir, ".opencode", "opencode.json")),
-    parseOpenCodeMcpConfig(join(homeDir, ".opencode", "opencode.jsonc")),
-    parseClaudeMcpConfig(join(projectRoot, ".mcp.json")),
-    parseCopilotMcpConfig(join(projectRoot, ".github", "mcp-config.json")),
-    parseCopilotMcpConfig(join(projectRoot, ".vscode", "mcp.json")),
-    parseCopilotMcpConfig(join(projectRoot, "mcp-config.json")),
-    parseOpenCodeMcpConfig(join(projectRoot, "opencode.json")),
-    parseOpenCodeMcpConfig(join(projectRoot, "opencode.jsonc")),
-    parseOpenCodeMcpConfig(join(projectRoot, ".opencode", "opencode.json")),
-    parseOpenCodeMcpConfig(join(projectRoot, ".opencode", "opencode.jsonc")),
+    claudeAtomicPromise,
+    copilotAtomicPromise,
+    opencodeAtomicJsonPromise,
+    opencodeAtomicJsoncPromise,
+    claudeUserPromise,
+    copilotCanonicalPromise,
+    opencodeCanonicalJsonPromise,
+    opencodeCanonicalJsoncPromise,
+    copilotHomePromise,
+    opencodeHomeJsonPromise,
+    opencodeHomeJsoncPromise,
+    parseClaudeMcpConfig(join(projectRoot, ".mcp.json"), projectRoot),
+    parseCopilotMcpConfig(join(projectRoot, ".github", "mcp-config.json"), projectRoot),
+    parseCopilotMcpConfig(join(projectRoot, ".vscode", "mcp.json"), projectRoot),
+    parseCopilotMcpConfig(join(projectRoot, "mcp-config.json"), projectRoot),
+    parseOpenCodeMcpConfig(join(projectRoot, "opencode.json"), projectRoot),
+    parseOpenCodeMcpConfig(join(projectRoot, "opencode.jsonc"), projectRoot),
+    parseOpenCodeMcpConfig(join(projectRoot, ".opencode", "opencode.json"), projectRoot),
+    parseOpenCodeMcpConfig(join(projectRoot, ".opencode", "opencode.jsonc"), projectRoot),
   ]);
 
   const sources: TaggedSource[] = [];
@@ -177,11 +255,22 @@ export async function discoverMcpConfigs(cwd?: string, options: DiscoverMcpConfi
     }
   }
 
-  // User-level configs (lowest priority within each ecosystem)
+  // Atomic global configs (lowest priority within each ecosystem)
+  addSources(claudeAtomic, "claude");
+  addSources(copilotAtomic, "copilot");
+  addSources(opencodeAtomicJson, "opencode");
+  addSources(opencodeAtomicJsonc, "opencode");
+
+  // Canonical config-home roots
+  addSources(copilotCanonical, "copilot");
+  addSources(opencodeCanonicalJson, "opencode");
+  addSources(opencodeCanonicalJsonc, "opencode");
+
+  // User home roots
   addSources(claudeUser, "claude");
-  addSources(copilotUser, "copilot");
-  addSources(opencodeUserJson, "opencode");
-  addSources(opencodeUserJsonc, "opencode");
+  addSources(copilotHome, "copilot");
+  addSources(opencodeHomeJson, "opencode");
+  addSources(opencodeHomeJsonc, "opencode");
 
   // Project-level configs (override user-level within the same ecosystem)
   addSources(claudeProject, "claude");

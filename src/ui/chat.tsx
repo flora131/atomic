@@ -635,6 +635,52 @@ export function getMentionSuggestions(input: string): CommandDefinition[] {
   return suggestions;
 }
 
+interface ResolveSlashAutocompleteExecutionArgs {
+  rawInput: string;
+  selectedCommandName: string;
+  getCommandByName: (name: string) => CommandDefinition | undefined;
+}
+
+interface ResolvedSlashAutocompleteExecution {
+  commandName: string;
+  commandArgs: string;
+  userMessage: string;
+  trigger: "input" | "autocomplete";
+}
+
+/**
+ * Resolve which slash command payload to execute from autocomplete Enter action.
+ *
+ * When users already typed a full command with arguments, preserve that typed
+ * payload instead of dropping args and forcing the selected command with empty args.
+ */
+export function resolveSlashAutocompleteExecution(
+  args: ResolveSlashAutocompleteExecutionArgs,
+): ResolvedSlashAutocompleteExecution {
+  const trimmedInput = args.rawInput.trim();
+  const parsed = parseSlashCommand(trimmedInput);
+
+  if (
+    parsed.isCommand &&
+    parsed.args.length > 0 &&
+    args.getCommandByName(parsed.name)
+  ) {
+    return {
+      commandName: parsed.name,
+      commandArgs: parsed.args,
+      userMessage: trimmedInput,
+      trigger: "input",
+    };
+  }
+
+  return {
+    commandName: args.selectedCommandName,
+    commandArgs: "",
+    userMessage: `/${args.selectedCommandName}`,
+    trigger: "autocomplete",
+  };
+}
+
 // ============================================================================
 // BLOCK LETTER LOGO WITH GRADIENT
 // ============================================================================
@@ -6309,8 +6355,17 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       if (action === "complete") {
         textarea.insertText(`/${command.name} `);
       } else {
-        addMessage("user", `/${command.name}`);
-        void executeCommand(command.name, "", "autocomplete");
+        const resolvedExecution = resolveSlashAutocompleteExecution({
+          rawInput: textarea.plainText ?? "",
+          selectedCommandName: command.name,
+          getCommandByName: (name) => globalRegistry.get(name),
+        });
+        addMessage("user", resolvedExecution.userMessage);
+        void executeCommand(
+          resolvedExecution.commandName,
+          resolvedExecution.commandArgs,
+          resolvedExecution.trigger,
+        );
       }
     }
   }, [updateWorkflowState, executeCommand, addMessage, workflowState.autocompleteMode, workflowState.mentionStartOffset, workflowState.autocompleteInput]);
@@ -7306,6 +7361,11 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
               }
             } else {
               // Slash command: clear and execute
+              const resolvedExecution = resolveSlashAutocompleteExecution({
+                rawInput: textarea.plainText ?? "",
+                selectedCommandName: selectedCommand.name,
+                getCommandByName: (name) => globalRegistry.get(name),
+              });
               textarea.gotoBufferHome();
               textarea.gotoBufferEnd({ select: true });
               textarea.deleteChar();
@@ -7315,8 +7375,12 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                 selectedSuggestionIndex: 0,
                 autocompleteMode: "command",
               });
-              addMessage("user", `/${selectedCommand.name}`);
-              void executeCommand(selectedCommand.name, "", "autocomplete");
+              addMessage("user", resolvedExecution.userMessage);
+              void executeCommand(
+                resolvedExecution.commandName,
+                resolvedExecution.commandArgs,
+                resolvedExecution.trigger,
+              );
             }
           }
           // Prevent textarea's built-in "return → submit" from firing

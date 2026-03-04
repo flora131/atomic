@@ -8,7 +8,7 @@
 
 import React, { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import type { KeyEvent, TextareaRenderable, ScrollBoxRenderable } from "@opentui/core";
+import type { KeyEvent, TextareaRenderable, ScrollBoxRenderable, MouseEvent } from "@opentui/core";
 import { useTheme } from "../theme.tsx";
 import { navigateUp, navigateDown } from "../utils/navigation.ts";
 import { PROMPT, STATUS, CONNECTOR } from "../constants/icons.ts";
@@ -177,6 +177,18 @@ export function UserQuestionDialog({
     setIsEditingCustom(false);
     setIsChatAboutThis(false);
   }, [submitAnswer, isChatAboutThis]);
+
+  // Translate mouse wheel scroll into selection movement so the highlight follows
+  const handleMouseScroll = useCallback((event: MouseEvent) => {
+    if (isEditingCustom || isChatAboutThis) return;
+    const direction = event.scroll?.direction;
+    if (direction === "up") {
+      setHighlightedIndex((prev) => navigateUp(prev, optionsCount));
+    } else if (direction === "down") {
+      setHighlightedIndex((prev) => navigateDown(prev, optionsCount));
+    }
+    event.stopPropagation();
+  }, [optionsCount, isEditingCustom, isChatAboutThis]);
 
   useKeyboard(
     useCallback(
@@ -358,6 +370,7 @@ export function UserQuestionDialog({
             scrollX={false}
             marginTop={SPACING.ELEMENT}
           >
+            <box flexDirection="column" onMouseScroll={handleMouseScroll}>
             {allOptions.map((option, index) => {
               const isHighlighted = index === highlightedIndex;
               const isSelected = selectedValues.includes(option.value);
@@ -396,6 +409,7 @@ export function UserQuestionDialog({
                 </React.Fragment>
               );
             })}
+            </box>
           </scrollbox>
           <box marginTop={SPACING.ELEMENT}>
             <text style={{ fg: colors.muted }}>

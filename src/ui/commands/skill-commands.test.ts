@@ -74,6 +74,8 @@ describe("skill-commands builtins", () => {
         expect(result.skillLoaded).toBe("playwright-cli");
         expect(sentMessages).toHaveLength(1);
         expect(sentMessages[0]).toContain('<skill-loaded name="playwright-cli">');
+        expect(sentMessages[0]).toContain("<active-user-request>");
+        expect(sentMessages[0]).toContain("capture login flow");
         expect(sentMessages[0]).toContain("User request: capture login flow");
     });
 });

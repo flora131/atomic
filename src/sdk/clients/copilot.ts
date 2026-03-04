@@ -466,11 +466,15 @@ export class CopilotClient implements CodingAgentClient {
 
       const abortPromise = state.sdkSession.abort();
       state.pendingAbortPromise = abortPromise;
-      void abortPromise.finally(() => {
-        if (state.pendingAbortPromise === abortPromise) {
-          state.pendingAbortPromise = null;
-        }
-      });
+      void abortPromise
+        .finally(() => {
+          if (state.pendingAbortPromise === abortPromise) {
+            state.pendingAbortPromise = null;
+          }
+        })
+        .catch(() => {
+          // Swallow errors from the finally-chain to avoid unhandled rejections.
+        });
 
       return abortPromise;
     };

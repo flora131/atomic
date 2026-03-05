@@ -16,7 +16,6 @@ import {
   mcpToolRenderer,
   taskToolRenderer,
   todoWriteToolRenderer,
-  parseTaskToolResult,
   registerAgentToolNames,
   TOOL_RENDERERS,
   type ToolRenderProps,
@@ -201,104 +200,6 @@ describe("getLanguageFromExtension", () => {
     expect(getLanguageFromExtension("unknown")).toBeUndefined();
     expect(getLanguageFromExtension("xyz")).toBeUndefined();
     expect(getLanguageFromExtension("")).toBeUndefined();
-  });
-});
-
-describe("parseTaskToolResult", () => {
-  test("extracts text from plain string output", () => {
-    const result = parseTaskToolResult("Simple text result");
-    expect(result.text).toBe("Simple text result");
-    expect(result.durationMs).toBeUndefined();
-    expect(result.toolUses).toBeUndefined();
-  });
-
-  test("extracts text from SDK format with content array", () => {
-    const output = {
-      content: [
-        { type: "text", text: "Agent completed task successfully" },
-      ],
-      totalDurationMs: 5000,
-      totalToolUseCount: 3,
-      totalTokens: 1500,
-    };
-    const result = parseTaskToolResult(output);
-    expect(result.text).toBe("Agent completed task successfully");
-    expect(result.durationMs).toBe(5000);
-    expect(result.toolUses).toBe(3);
-    expect(result.tokens).toBe(1500);
-  });
-
-  test("normalizes whitespace and line endings in extracted text", () => {
-    const output = {
-      content: [
-        { type: "text", text: "\r\n  line one\r\nline two\r\n" },
-      ],
-    };
-    const result = parseTaskToolResult(output);
-    expect(result.text).toBe("line one\nline two");
-  });
-
-  test("extracts text from documented TaskOutput format", () => {
-    const output = {
-      result: "Task completed",
-      duration_ms: 3000,
-    };
-    const result = parseTaskToolResult(output);
-    expect(result.text).toBe("Task completed");
-    expect(result.durationMs).toBe(3000);
-  });
-
-  test("handles JSON string input", () => {
-    const jsonString = JSON.stringify({ result: "Parsed from JSON" });
-    const result = parseTaskToolResult(jsonString);
-    expect(result.text).toBe("Parsed from JSON");
-  });
-
-  test("returns undefined for null or undefined input", () => {
-    expect(parseTaskToolResult(null).text).toBeUndefined();
-    expect(parseTaskToolResult(undefined).text).toBeUndefined();
-  });
-
-  test("returns undefined for whitespace-only text output", () => {
-    expect(parseTaskToolResult("\n\r\n  ").text).toBeUndefined();
-  });
-
-  test("converts non-object types to string", () => {
-    expect(parseTaskToolResult(42).text).toBe("42");
-    expect(parseTaskToolResult(true).text).toBe("true");
-  });
-
-  test("stringifies objects without recognized fields", () => {
-    const output = { unrecognized: "field", other: "data" };
-    const result = parseTaskToolResult(output);
-    expect(result.text).toContain("unrecognized");
-    expect(result.text).toContain("field");
-  });
-
-  test("detects isAsync from async_launched result", () => {
-    const output = {
-      isAsync: true,
-      status: "async_launched",
-      output_file: "/tmp/agent-output.txt",
-    };
-    const result = parseTaskToolResult(output);
-    expect(result.isAsync).toBe(true);
-  });
-
-  test("does not set isAsync for non-async results", () => {
-    const output = { result: "Normal result" };
-    const result = parseTaskToolResult(output);
-    expect(result.isAsync).toBeUndefined();
-  });
-
-  test("detects isAsync alongside recognized formats", () => {
-    const output = {
-      result: "Async task started",
-      isAsync: true,
-    };
-    const result = parseTaskToolResult(output);
-    expect(result.text).toBe("Async task started");
-    expect(result.isAsync).toBe(true);
   });
 });
 
@@ -1253,16 +1154,16 @@ describe("taskToolRenderer.render()", () => {
       },
     };
     const result = taskToolRenderer.render(props);
-    expect(result.content).toContain("Task completed successfully");
+    expect(result.content.some((line) => line.includes("Task completed successfully"))).toBe(true);
   });
 
-  test("renders with TaskOutput format output", () => {
+  test("renders with object output as JSON", () => {
     const props: ToolRenderProps = {
       input: { description: "Analysis" },
       output: { result: "Analysis complete" },
     };
     const result = taskToolRenderer.render(props);
-    expect(result.content).toContain("Analysis complete");
+    expect(result.content.some((line) => line.includes("Analysis complete"))).toBe(true);
   });
 
   test("truncates long prompts", () => {
@@ -1279,7 +1180,7 @@ describe("taskToolRenderer.render()", () => {
     const lines = Array.from({ length: 20 }, (_, i) => `Result line ${i + 1}`);
     const props: ToolRenderProps = {
       input: { description: "Task" },
-      output: { result: lines.join("\n") },
+      output: lines.join("\n"),
     };
     const result = taskToolRenderer.render(props);
     expect(result.content).toContain("Result line 8");

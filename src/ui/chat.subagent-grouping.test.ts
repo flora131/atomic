@@ -119,6 +119,16 @@ describe("mergeAgentTaskLabel", () => {
   test("falls back to agent type when existing label is generic and task is missing", () => {
     expect(mergeAgentTaskLabel("subagent task", undefined, "codebase-analyzer")).toBe("codebase-analyzer");
   });
+
+  test("upgrades agent-type fallback to explicit task description", () => {
+    expect(
+      mergeAgentTaskLabel(
+        "debugger",
+        "Investigate why tool counts are not updating",
+        "debugger",
+      )
+    ).toBe("Investigate why tool counts are not updating");
+  });
 });
 
 describe("resolveSubagentStartCorrelationId", () => {

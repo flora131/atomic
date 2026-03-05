@@ -37,61 +37,6 @@ import type { EchoSuppressor } from "./echo-suppressor.ts";
 import type { StreamPartEvent } from "../../ui/parts/stream-pipeline.ts";
 import { pipelineLog } from "../pipeline-logger.ts";
 
-function isTaskOutputToolName(toolName: string): boolean {
-  return toolName.trim().toLowerCase() === "taskoutput";
-}
-
-function normalizeTaskOutputText(value: string): string | undefined {
-  const normalized = value.replace(/\r\n?/g, "\n").trim();
-  return normalized.length > 0 ? normalized : undefined;
-}
-
-function extractTaskOutputEchoText(toolResult: unknown): string | undefined {
-  if (typeof toolResult === "string") {
-    const trimmed = toolResult.trim();
-    if (trimmed.length === 0) {
-      return undefined;
-    }
-    try {
-      const parsed = JSON.parse(toolResult);
-      return extractTaskOutputEchoText(parsed);
-    } catch {
-      return normalizeTaskOutputText(toolResult);
-    }
-  }
-
-  if (!toolResult || typeof toolResult !== "object") {
-    return undefined;
-  }
-
-  const record = toolResult as Record<string, unknown>;
-  const directText = [record.result, record.text, record.output]
-    .find((candidate) => typeof candidate === "string" && candidate.trim().length > 0);
-  if (typeof directText === "string") {
-    return normalizeTaskOutputText(directText);
-  }
-
-  if (Array.isArray(record.content)) {
-    const textBlocks = record.content
-      .map((entry) => {
-        if (!entry || typeof entry !== "object") {
-          return undefined;
-        }
-        const entryRecord = entry as Record<string, unknown>;
-        if (entryRecord.type === "text" && typeof entryRecord.text === "string") {
-          return entryRecord.text;
-        }
-        return undefined;
-      })
-      .filter((text): text is string => typeof text === "string" && text.trim().length > 0);
-    if (textBlocks.length > 0) {
-      return normalizeTaskOutputText(textBlocks.join("\n"));
-    }
-  }
-
-  return undefined;
-}
-
 /**
  * Callback type for receiving batches of StreamPartEvents.
  *
@@ -276,12 +221,6 @@ export class StreamPipelineConsumer {
         const data = event.data as BusEventDataMap["stream.tool.complete"];
         const correlatedAgentId = data.parentAgentId
           ?? (event.isSubagentTool ? event.resolvedAgentId : undefined);
-        if (isTaskOutputToolName(data.toolName)) {
-          const echoText = extractTaskOutputEchoText(data.toolResult);
-          if (echoText) {
-            this.echoSuppressor.expectEcho(echoText);
-          }
-        }
         const mapped: StreamPartEvent = {
           type: "tool-complete",
           runId: event.runId,
@@ -313,6 +252,19 @@ export class StreamPipelineConsumer {
         const data = event.data as BusEventDataMap["stream.text.complete"];
         if (!data.fullText) return [];
         return [{ type: "text-complete", runId: event.runId, fullText: data.fullText, messageId: data.messageId }];
+      }
+
+      case "stream.agent.complete": {
+        const data = event.data as BusEventDataMap["stream.agent.complete"];
+        return [{
+          type: "agent-terminal",
+          runId: event.runId,
+          agentId: data.agentId,
+          status: data.success ? "completed" : "error",
+          ...(typeof data.result === "string" ? { result: data.result } : {}),
+          ...(typeof data.error === "string" ? { error: data.error } : {}),
+          completedAt: new Date(event.timestamp).toISOString(),
+        }];
       }
 
       case "workflow.task.update": {

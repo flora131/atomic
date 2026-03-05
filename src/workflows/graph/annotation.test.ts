@@ -410,6 +410,7 @@ function createTestRalphState(overrides: Partial<RalphWorkflowState> = {}): Ralp
     tasks: [],
     currentTasks: [],
     reviewResult: null,
+    rawReviewResult: null,
     fixesApplied: false,
     featureList: [],
     currentFeature: null,

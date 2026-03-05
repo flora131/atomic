@@ -6,11 +6,10 @@
  */
 
 import type { ChatMessage, StreamingMeta } from "../chat.tsx";
-import type { ParallelAgent } from "../components/parallel-agents-tree.tsx";
 import { formatDuration } from "../components/parallel-agents-tree.tsx";
 import { truncateText, formatTimestamp as formatTimestampFull } from "./format.ts";
 import { getHitlResponseRecord } from "./hitl-response.ts";
-import { STATUS, TREE, CONNECTOR, PROMPT, SPINNER_FRAMES, SPINNER_COMPLETE, SEPARATOR, MISC } from "../constants/icons.ts";
+import { STATUS, PROMPT, SPINNER_FRAMES, SPINNER_COMPLETE, SEPARATOR, MISC } from "../constants/icons.ts";
 
 // ============================================================================
 // TYPES
@@ -72,7 +71,6 @@ function line(type: TranscriptLineType, content: string, indent = 0): Transcript
  * - Timestamps: `HH:MM AM/PM model-id`
  * - Assistant: `● <content>` bullet prefix
  * - Tool calls: tool name, args, status, output summary
- * - Agent trees: `● AgentType(task)` with prompts, sub-tool lists, `⎿  Done (metrics)`
  * - Footer: `──── Showing detailed transcript · ctrl+o to toggle`
  */
 export function formatTranscript(options: FormatTranscriptOptions): TranscriptLine[] {
@@ -175,47 +173,6 @@ export function formatTranscript(options: FormatTranscriptOptions): TranscriptLi
             if (outputLines.length > previewCount) {
               lines.push(line("tool-content", `  … ${outputLines.length - previewCount} more lines`, 1));
             }
-          }
-        }
-      }
-
-      // Parallel agents (baked from completed message or live)
-      const agents = msg.parallelAgents && msg.parallelAgents.length > 0
-        ? msg.parallelAgents
-        : null;
-
-      if (agents) {
-        lines.push(line("blank", ""));
-        const runningCount = agents.filter(a => a.status === "running" || a.status === "pending").length;
-        const completedCount = agents.filter(a => a.status === "completed").length;
-        const headerText = runningCount > 0
-          ? `${STATUS.active} Running ${runningCount} agent${runningCount !== 1 ? "s" : ""}…`
-          : `${STATUS.active} ${completedCount} agent${completedCount !== 1 ? "s" : ""} finished`;
-        lines.push(line("agent-header", headerText));
-
-        for (const agent of agents) {
-          const taskText = truncateText(agent.task || agent.name, 60);
-
-          const agentIcon = agent.status === "completed" ? STATUS.active : agent.status === "running" ? STATUS.active : STATUS.pending;
-          lines.push(line("agent-row", `${TREE.branch}${agentIcon} ${taskText}`));
-
-          // Sub-status
-          if (agent.status === "completed") {
-            const resultText = agent.result ? truncateText(agent.result, 60) : "Done";
-            lines.push(line("agent-substatus", `${TREE.vertical} ${CONNECTOR.subStatus}  ${resultText}`));
-          } else if (agent.status === "running") {
-            if (agent.toolUses !== undefined && agent.toolUses > 0) {
-              lines.push(line("agent-substatus", `${TREE.vertical} ${CONNECTOR.subStatus}  ${agent.name}: (${agent.toolUses} tool use${agent.toolUses !== 1 ? "s" : ""})`));
-              if (agent.currentTool) {
-                lines.push(line("agent-substatus", `${TREE.vertical}   · ${truncateText(agent.currentTool, 50)}`));
-              }
-            } else if (agent.currentTool) {
-              lines.push(line("agent-substatus", `${TREE.vertical} ${CONNECTOR.subStatus}  Initializing ${agent.name}…`));
-            } else {
-              lines.push(line("agent-substatus", `${TREE.vertical} ${CONNECTOR.subStatus}  Initializing ${agent.name}…`));
-            }
-          } else if (agent.status === "error" && agent.error) {
-            lines.push(line("agent-substatus", `${TREE.vertical} ${CONNECTOR.subStatus}  ${truncateText(agent.error, 60)}`));
           }
         }
       }

@@ -908,6 +908,7 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
       const sdkCorrelationId = sdkToolUseId ?? sdkToolCallId;
       const resolvedSdkCorrelationId = this.resolveToolCorrelationId(sdkCorrelationId);
       const toolName = this.normalizeToolName(data.toolName);
+      const taskCorrelationId = resolvedSdkCorrelationId ?? sdkCorrelationId;
       const toolId = this.resolveToolStartId(
         resolvedSdkCorrelationId ?? sdkCorrelationId,
         runId,
@@ -935,11 +936,20 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
         // brief generic task widget.
         this.toolStartSignatureByToolId.set(toolId, TOOL_START_PLACEHOLDER_SIGNATURE);
         this.removeQueuedToolId(toolName, toolId);
+        this.registerToolCorrelationAliases(toolId, sdkToolUseId, sdkToolCallId);
+        if (taskCorrelationId) {
+          this.recordPendingTaskToolCorrelationId(taskCorrelationId);
+          const mappedAgentId = this.toolUseIdToSubagentId.get(taskCorrelationId);
+          if (!mappedAgentId || isSyntheticTaskAgentId(mappedAgentId)) {
+            const syntheticAgentId = mappedAgentId ?? this.buildSyntheticTaskAgentId(taskCorrelationId);
+            this.toolUseIdToSubagentId.set(taskCorrelationId, syntheticAgentId);
+            this.subagentIdToCorrelationId.set(syntheticAgentId, taskCorrelationId);
+          }
+        }
         return;
       }
       this.toolStartSignatureByToolId.set(toolId, toolStartSignature);
       this.registerToolCorrelationAliases(toolId, sdkToolUseId, sdkToolCallId);
-      const taskCorrelationId = resolvedSdkCorrelationId ?? sdkCorrelationId;
       if (this.isTaskTool(toolName) && taskCorrelationId) {
         const metadata = this.extractTaskToolMetadata(data.toolInput, dataRecord);
         const existingMetadata = this.taskToolMetadata.get(taskCorrelationId);
@@ -980,6 +990,13 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
         if (!this.trackedToolStartKeys.has(trackerKey) && this.subagentTracker?.hasAgent(syntheticFallbackParentAgentId)) {
           this.trackedToolStartKeys.add(trackerKey);
           this.subagentTracker.onToolStart(syntheticFallbackParentAgentId, toolName);
+        }
+        if (this.isTaskTool(toolName) && taskCorrelationId && this.subagentTracker?.hasAgent(syntheticFallbackParentAgentId)) {
+          this.replayEarlyToolEvents(
+            syntheticFallbackParentAgentId,
+            syntheticFallbackParentAgentId,
+            taskCorrelationId,
+          );
         }
       } else if (parentToolUseId) {
         this.queueEarlyToolEvent(parentToolUseId, toolId, toolName);
@@ -1068,10 +1085,11 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
       let syntheticFallbackParentAgentId: string | undefined;
       if (parentAgentId) {
         const trackerKey = this.buildTrackedToolStartKey(parentAgentId, toolId);
-        if (this.trackedToolStartKeys.delete(trackerKey)) {
+        const wasTracked = this.trackedToolStartKeys.delete(trackerKey);
+        if (wasTracked) {
           this.subagentTracker?.onToolComplete(parentAgentId);
+          this.removeEarlyToolEvent(parentAgentId, toolId);
         }
-        this.removeEarlyToolEvent(parentAgentId, toolId);
       } else {
         syntheticFallbackParentAgentId = (
           syntheticMappedAgentId && isSyntheticTaskAgentId(syntheticMappedAgentId)
@@ -1080,10 +1098,11 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
           : this.resolveSyntheticTaskParentAgentId(taskCorrelationId);
         if (syntheticFallbackParentAgentId) {
           const trackerKey = this.buildTrackedToolStartKey(syntheticFallbackParentAgentId, toolId);
-          if (this.trackedToolStartKeys.delete(trackerKey)) {
+          const wasTracked = this.trackedToolStartKeys.delete(trackerKey);
+          if (wasTracked) {
             this.subagentTracker?.onToolComplete(syntheticFallbackParentAgentId);
+            this.removeEarlyToolEvent(syntheticFallbackParentAgentId, toolId);
           }
-          this.removeEarlyToolEvent(syntheticFallbackParentAgentId, toolId);
         }
       }
       const syntheticTaskAgentIdForCompletion = (
@@ -1114,7 +1133,7 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
           }
         }
       }
-      if (parentToolUseId) {
+      if (parentToolUseId && this.toolUseIdToSubagentId.has(parentToolUseId)) {
         this.removeEarlyToolEvent(parentToolUseId, toolId);
       }
       const attributedParentAgentId = parentAgentId
@@ -1264,8 +1283,7 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
           && existingMappedAgentId !== data.subagentId
           && isSyntheticTaskAgentId(existingMappedAgentId)
         ) {
-          this.subagentTracker?.removeAgent(existingMappedAgentId);
-          this.subagentIdToCorrelationId.delete(existingMappedAgentId);
+          this.promoteSyntheticAgentIdentity(existingMappedAgentId, data.subagentId);
         }
         this.toolUseIdToSubagentId.set(sdkCorrelationId, data.subagentId);
         this.subagentIdToCorrelationId.set(data.subagentId, sdkCorrelationId);
@@ -2150,6 +2168,59 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
 
   private buildTrackedToolStartKey(parentAgentId: string, toolId: string): string {
     return `${parentAgentId}::${toolId}`;
+  }
+
+  private promoteSyntheticAgentIdentity(
+    syntheticAgentId: string,
+    realAgentId: string,
+  ): void {
+    if (!syntheticAgentId || !realAgentId || syntheticAgentId === realAgentId) {
+      return;
+    }
+
+    this.subagentTracker?.transferAgent(syntheticAgentId, realAgentId);
+
+    for (const [sessionId, mappedAgentId] of this.subagentSessionToAgentId.entries()) {
+      if (mappedAgentId === syntheticAgentId) {
+        this.subagentSessionToAgentId.set(sessionId, realAgentId);
+      }
+    }
+
+    for (const [contextKey, context] of this.activeSubagentToolsById.entries()) {
+      if (context.parentAgentId === syntheticAgentId) {
+        this.activeSubagentToolsById.set(contextKey, {
+          ...context,
+          parentAgentId: realAgentId,
+        });
+      }
+    }
+
+    const syntheticTrackerPrefix = `${syntheticAgentId}::`;
+    const nextTrackedKeys = new Set<string>();
+    for (const trackedKey of this.trackedToolStartKeys) {
+      if (trackedKey.startsWith(syntheticTrackerPrefix)) {
+        nextTrackedKeys.add(`${realAgentId}::${trackedKey.slice(syntheticTrackerPrefix.length)}`);
+      } else {
+        nextTrackedKeys.add(trackedKey);
+      }
+    }
+    this.trackedToolStartKeys = nextTrackedKeys;
+
+    const syntheticEarlyQueue = this.earlyToolEvents.get(syntheticAgentId);
+    if (syntheticEarlyQueue) {
+      const existingQueue = this.earlyToolEvents.get(realAgentId) ?? [];
+      const mergedQueue = [...existingQueue];
+      for (const queuedTool of syntheticEarlyQueue) {
+        if (mergedQueue.some((entry) => entry.toolId === queuedTool.toolId)) {
+          continue;
+        }
+        mergedQueue.push(queuedTool);
+      }
+      this.earlyToolEvents.set(realAgentId, mergedQueue);
+      this.earlyToolEvents.delete(syntheticAgentId);
+    }
+
+    this.subagentIdToCorrelationId.delete(syntheticAgentId);
   }
 
   private recordActiveSubagentToolContext(

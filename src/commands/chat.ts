@@ -531,7 +531,7 @@ function handleThemeCommand(args: string): { newTheme: "dark" | "light"; message
 
 export function resolveChatAdditionalInstructions(
   options: Pick<ChatCommandOptions, "additionalInstructions">
-): string | undefined {
+): string {
   const trimmedAdditionalInstructions = options.additionalInstructions?.trim();
   if (!trimmedAdditionalInstructions) {
     return ENHANCED_SYSTEM_PROMPT;

@@ -2791,9 +2791,9 @@ describe("ClaudeStreamAdapter", () => {
 
     await streamPromise;
 
+    // Task tools are suppressed from the stream (represented by agent tree instead)
     const toolStartEvents = events.filter((e) => e.type === "stream.tool.start");
-    expect(toolStartEvents.length).toBe(1);
-    expect(toolStartEvents[0].data.toolId).toBe("tool-use-123");
+    expect(toolStartEvents.length).toBe(0);
 
     const agentStartEvents = events.filter((e) => e.type === "stream.agent.start");
     expect(agentStartEvents.length).toBe(1);

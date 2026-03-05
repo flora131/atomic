@@ -805,6 +805,12 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
         this.earlyToolEvents.set(parentToolUseId, queue);
       }
 
+      // Task tools are represented visually by the sub-agent tree
+      // (stream.agent.start/complete), not as standalone tool parts.
+      if (this.isTaskTool(toolName)) {
+        return;
+      }
+
       const busEvent: BusEvent<"stream.tool.start"> = {
         type: "stream.tool.start",
         sessionId: this.sessionId,
@@ -902,6 +908,12 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       // Update sub-agent tool tracker for tool count display
       if (attributedParentAgentId && this.subagentTracker?.hasAgent(attributedParentAgentId)) {
         this.subagentTracker.onToolComplete(attributedParentAgentId);
+      }
+
+      // Task tools are represented visually by the sub-agent tree
+      // (stream.agent.start/complete), not as standalone tool parts.
+      if (this.isTaskTool(toolName)) {
+        return;
       }
 
       const busEvent: BusEvent<"stream.tool.complete"> = {

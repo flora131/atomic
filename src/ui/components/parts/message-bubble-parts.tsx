@@ -8,100 +8,23 @@
 import React from "react";
 import type { SyntaxStyle } from "@opentui/core";
 import type { ChatMessage } from "../../chat.tsx";
-import type { Part, ToolPart, AgentPart } from "../../parts/types.ts";
+import type { Part } from "../../parts/types.ts";
 import { PART_REGISTRY } from "./registry.tsx";
 import { SPACING } from "../../constants/spacing.ts";
-import { isSubagentToolName } from "../../parts/stream-pipeline.ts";
 
 export function orderPartsForTaskOutputDisplay(parts: ReadonlyArray<Part>): Part[] {
   return [...parts];
 }
 
 /**
- * Build a set of toolCallIds that are already represented by an AgentPart.
- * These ToolParts should be hidden because the agent tree already displays
- * the same information (task description, status, tool uses, result, and
- * nested inline tool activity).
+ * Legacy helper kept for API compatibility.
  *
- * The check is purely ID-based (agentTaskToolCallIds set) — no tool-name
- * guard is needed because Copilot uses the agent's own name as the tool
- * name (e.g., "general-purpose", "codebase-analyzer") rather than "task".
+ * Tool parts are no longer hidden behind a sub-agent tree, so no
+ * toolCallIds are consumed.
  */
 export function getConsumedTaskToolCallIds(parts: ReadonlyArray<Part>): Set<string> {
-  const consumed = new Set<string>();
-
-  // Always hide sub-agent dispatch tool widgets (Task/Agent/launch_agent).
-  // The dedicated agent tree is the canonical visualization for these calls.
-  for (const part of parts) {
-    if (part.type !== "tool") continue;
-    const toolPart = part as ToolPart;
-    if (isSubagentToolName(toolPart.toolName)) {
-      consumed.add(toolPart.toolCallId);
-    }
-  }
-
-  const hasAgentPart = parts.some((p) => p.type === "agent");
-  if (!hasAgentPart) return consumed;
-
-  const agentTaskToolCallIds = new Set<string>();
-  const inlineToolCallIds = new Set<string>();
-  for (const part of parts) {
-    if (part.type !== "agent") continue;
-    for (const agent of (part as AgentPart).agents) {
-      if (agent.taskToolCallId) {
-        agentTaskToolCallIds.add(agent.taskToolCallId);
-      }
-      for (const inlinePart of agent.inlineParts ?? []) {
-        if (inlinePart.type !== "tool") continue;
-        const inlineToolCallId = (inlinePart as ToolPart).toolCallId;
-        if (inlineToolCallId) {
-          inlineToolCallIds.add(inlineToolCallId);
-        }
-      }
-    }
-  }
-
-  for (const part of parts) {
-    if (part.type !== "tool") continue;
-    const toolPart = part as ToolPart;
-    const duplicatedInlineTool = inlineToolCallIds.has(toolPart.toolCallId);
-    if (
-      agentTaskToolCallIds.has(toolPart.toolCallId)
-      || duplicatedInlineTool
-    ) {
-      consumed.add(toolPart.toolCallId);
-    }
-  }
-
-  // Fallback: count agents not matched to a consumed ToolPart.
-  // Handles (a) agents without taskToolCallId (e.g., Claude Agent SDK where
-  // SubagentStart hooks may not provide toolUseID), and (b) agents whose
-  // taskToolCallId doesn't match any ToolPart's toolCallId.
-  let unmatchedAgents = 0;
-  for (const part of parts) {
-    if (part.type !== "agent") continue;
-    for (const agent of (part as AgentPart).agents) {
-      if (!agent.taskToolCallId || !consumed.has(agent.taskToolCallId)) {
-        unmatchedAgents++;
-      }
-    }
-  }
-
-  if (unmatchedAgents > 0) {
-    let remaining = unmatchedAgents;
-    for (const part of parts) {
-      if (remaining <= 0) break;
-      if (part.type !== "tool") continue;
-      const toolPart = part as ToolPart;
-      if (consumed.has(toolPart.toolCallId)) continue;
-      if (isSubagentToolName(toolPart.toolName)) {
-        consumed.add(toolPart.toolCallId);
-        remaining--;
-      }
-    }
-  }
-
-  return consumed;
+  void parts;
+  return new Set<string>();
 }
 
 export interface MessageBubblePartsProps {
@@ -169,21 +92,9 @@ export function MessageBubbleParts({
     return null;
   }
 
-  // Task tool ToolParts that are represented by an AgentPart tree should be
-  // hidden to avoid redundant display (the tree already shows task
-  // description, status, tool uses, and result).
-  const consumedTaskIds = getConsumedTaskToolCallIds(parts);
-
   return (
     <box flexDirection="column" gap={SPACING.ELEMENT}>
       {parts.map((part, index) => {
-        // Skip Task ToolParts consumed by the agent tree
-        if (
-          part.type === "tool" &&
-          consumedTaskIds.has((part as ToolPart).toolCallId)
-        ) {
-          return null;
-        }
         const Renderer = PART_REGISTRY[part.type];
         if (!Renderer) return null;
         return (

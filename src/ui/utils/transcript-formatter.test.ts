@@ -22,7 +22,6 @@
 import { describe, expect, test } from "bun:test";
 import { formatTranscript, type TranscriptLine, type TranscriptLineType } from "./transcript-formatter.ts";
 import type { ChatMessage, StreamingMeta } from "../chat.tsx";
-import type { ParallelAgent } from "../components/parallel-agents-tree.tsx";
 
 // Helper to find lines by type
 function findLinesByType(lines: TranscriptLine[], type: TranscriptLineType): TranscriptLine[] {
@@ -579,157 +578,22 @@ describe("formatTranscript - Timestamps", () => {
 // ============================================================================
 
 describe("formatTranscript - Parallel Agents", () => {
-  test("renders agent-header with running count for mixed status agents", () => {
-    const agents: ParallelAgent[] = [
-      { id: "a1", name: "Explore", task: "Search files", status: "running", startedAt: new Date().toISOString() },
-      { id: "a2", name: "Plan", task: "Make plan", status: "pending", startedAt: new Date().toISOString() },
-    ];
+  test("does not render agent tree lines from parallelAgents", () => {
     const msg: ChatMessage = {
       id: "m1",
       role: "assistant",
       content: "",
       timestamp: new Date().toISOString(),
-      parallelAgents: agents,
+      parallelAgents: [
+        { id: "a1", name: "Explore", task: "Search", status: "running", startedAt: new Date().toISOString() },
+      ],
     };
 
     const lines = formatTranscript({ messages: [msg], isStreaming: false });
 
-    const headerLine = findFirstLineByType(lines, "agent-header");
-    expect(headerLine).toBeDefined();
-    expect(headerLine!.type).toBe("agent-header");
-    expect(headerLine!.content).toContain("Running 2 agents");
-  });
-
-  test("renders agent-header with completed count when all agents finished", () => {
-    const agents: ParallelAgent[] = [
-      { id: "a1", name: "Explore", task: "Search", status: "completed", startedAt: new Date().toISOString() },
-      { id: "a2", name: "Plan", task: "Plan", status: "completed", startedAt: new Date().toISOString() },
-      { id: "a3", name: "Code", task: "Code", status: "completed", startedAt: new Date().toISOString() },
-    ];
-    const msg: ChatMessage = {
-      id: "m1",
-      role: "assistant",
-      content: "",
-      timestamp: new Date().toISOString(),
-      parallelAgents: agents,
-    };
-
-    const lines = formatTranscript({ messages: [msg], isStreaming: false });
-
-    const headerLine = findFirstLineByType(lines, "agent-header");
-    expect(headerLine).toBeDefined();
-    expect(headerLine!.type).toBe("agent-header");
-    expect(headerLine!.content).toContain("3 agents finished");
-  });
-
-  test("renders agent-row with task and metrics", () => {
-    const agents: ParallelAgent[] = [
-      {
-        id: "a1",
-        name: "Explore",
-        task: "Searching for files",
-        status: "completed",
-        startedAt: new Date().toISOString(),
-        durationMs: 5000,
-        toolUses: 10,
-      },
-    ];
-    const msg: ChatMessage = {
-      id: "m1",
-      role: "assistant",
-      content: "",
-      timestamp: new Date().toISOString(),
-      parallelAgents: agents,
-    };
-
-    const lines = formatTranscript({ messages: [msg], isStreaming: false });
-
-    const rowLine = findFirstLineByType(lines, "agent-row");
-    expect(rowLine).toBeDefined();
-    expect(rowLine!.type).toBe("agent-row");
-    expect(rowLine!.content).toContain("Searching for files");
-  });
-
-  test("renders neutral completion substatus for completed agents", () => {
-    const agents: ParallelAgent[] = [
-      {
-        id: "a1",
-        name: "Explore",
-        task: "Search",
-        status: "completed",
-        startedAt: new Date().toISOString(),
-        result: "Found 5 files",
-      },
-    ];
-    const msg: ChatMessage = {
-      id: "m1",
-      role: "assistant",
-      content: "",
-      timestamp: new Date().toISOString(),
-      parallelAgents: agents,
-    };
-
-    const lines = formatTranscript({ messages: [msg], isStreaming: false });
-
-    const substatusLine = findFirstLineByType(lines, "agent-substatus");
-    expect(substatusLine).toBeDefined();
-    expect(substatusLine!.type).toBe("agent-substatus");
-    expect(substatusLine!.content).toContain("Done");
-  });
-
-  test("renders agent-substatus for running agents with currentTool", () => {
-    const agents: ParallelAgent[] = [
-      {
-        id: "a1",
-        name: "Explore",
-        task: "Search",
-        status: "running",
-        startedAt: new Date().toISOString(),
-        currentTool: "Bash: Finding files...",
-        toolUses: 3,
-      },
-    ];
-    const msg: ChatMessage = {
-      id: "m1",
-      role: "assistant",
-      content: "",
-      timestamp: new Date().toISOString(),
-      parallelAgents: agents,
-    };
-
-    const lines = formatTranscript({ messages: [msg], isStreaming: false });
-
-    const substatusLines = lines.filter(l => l.type === "agent-substatus");
-    expect(substatusLines.length).toBeGreaterThanOrEqual(1);
-    expect(substatusLines[0]!.content).toContain("Explore: (3 tool uses)");
-    expect(substatusLines[1]!.content).toContain("Bash: Finding files...");
-  });
-
-  test("renders agent-substatus with error message for errored agents", () => {
-    const agents: ParallelAgent[] = [
-      {
-        id: "a1",
-        name: "Explore",
-        task: "Search",
-        status: "error",
-        startedAt: new Date().toISOString(),
-        error: "File not found",
-      },
-    ];
-    const msg: ChatMessage = {
-      id: "m1",
-      role: "assistant",
-      content: "",
-      timestamp: new Date().toISOString(),
-      parallelAgents: agents,
-    };
-
-    const lines = formatTranscript({ messages: [msg], isStreaming: false });
-
-    const substatusLine = findFirstLineByType(lines, "agent-substatus");
-    expect(substatusLine).toBeDefined();
-    expect(substatusLine!.type).toBe("agent-substatus");
-    expect(substatusLine!.content).toContain("File not found");
+    expect(findFirstLineByType(lines, "agent-header")).toBeUndefined();
+    expect(findFirstLineByType(lines, "agent-row")).toBeUndefined();
+    expect(findFirstLineByType(lines, "agent-substatus")).toBeUndefined();
   });
 
   test("does not render live agent trees without baked message parallelAgents", () => {

@@ -1449,22 +1449,10 @@ export function shouldHideStaleSubagentToolPlaceholder(
   message: ChatMessage,
   activeMessageIds: ReadonlySet<string>,
 ): boolean {
-  if (message.role !== "assistant") return false;
-  if (message.streaming) return false;
-  if (activeMessageIds.has(message.id)) return false;
-  if (message.content.trim().length > 0) return false;
-  if ((message.parallelAgents?.length ?? 0) > 0) return false;
-
-  const parts = message.parts ?? [];
-  if (parts.length === 0) return false;
-
-  for (const part of parts) {
-    if (part.type !== "tool") return false;
-    const toolPart = part as ToolPart;
-    if (!isSubagentToolName(toolPart.toolName)) return false;
-  }
-
-  return true;
+  // Intentionally disabled: sub-agent tool/task blocks should remain visible.
+  void message;
+  void activeMessageIds;
+  return false;
 }
 
 /**
@@ -8380,8 +8368,8 @@ export function ChatApp({
   );
 
   // All messages are kept in memory; no windowing/eviction.
-  // Hide stale empty assistant placeholders that only contain duplicated
-  // sub-agent task tool cards from older stream targeting races.
+  // Keep placeholder filtering call wired, but it is currently a no-op so
+  // sub-agent task/tool blocks stay visible.
   const activeMessageIds = new Set<string>();
   if (streamingMessageIdRef.current) activeMessageIds.add(streamingMessageIdRef.current);
   if (lastStreamedMessageIdRef.current) activeMessageIds.add(lastStreamedMessageIdRef.current);

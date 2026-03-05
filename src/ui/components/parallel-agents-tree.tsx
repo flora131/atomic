@@ -14,10 +14,10 @@ import { formatDuration as formatDurationObj, truncateText } from "../utils/form
 import { STATUS, TREE, CONNECTOR, MISC, ARROW } from "../constants/icons.ts";
 import { SPACING } from "../constants/spacing.ts";
 import { buildParallelAgentsHeaderHint } from "../utils/background-agent-tree-hints.ts";
-import type { Part, ToolPart } from "../parts/types.ts";
+import type { Part } from "../parts/types.ts";
 import { PART_REGISTRY } from "./parts/registry.tsx";
 import { AnimatedBlinkIndicator } from "./animated-blink-indicator.tsx";
-import { buildPartRenderKeys, getConsumedTaskToolCallIds } from "./parts/message-bubble-parts.tsx";
+import { buildPartRenderKeys } from "./parts/message-bubble-parts.tsx";
 
 // Re-export for backward compatibility
 export { truncateText };
@@ -146,17 +146,10 @@ export const AGENT_COLORS: Record<string, string> = getAgentColors(true);
  */
 const SUB_STATUS_PAD = "   ";
 
-/**
- * Part types that should never be rendered inside the sub-agent tree.
- * Tool calls and text blocks are suppressed to keep the tree compact.
- */
-const SUPPRESSED_INLINE_PART_TYPES: ReadonlySet<Part["type"]> = new Set(["tool", "text"]);
-
 export function getAgentInlineDisplayParts(
   parts: ReadonlyArray<Part>,
 ): Part[] {
-  if (parts.length === 0) return [];
-  return parts.filter((p) => !SUPPRESSED_INLINE_PART_TYPES.has(p.type));
+  return [...parts];
 }
 
 export function buildAgentInlinePrefix(continuationPrefix: string): string {
@@ -773,14 +766,8 @@ function AgentInlinePartsDisplay({
   const visibleParts = getAgentInlineDisplayParts(parts);
   if (visibleParts.length === 0) return null;
   const inlinePrefix = buildAgentInlinePrefix(continuationPrefix);
-  const consumedTaskIds = getConsumedTaskToolCallIds(visibleParts);
   const renderKeys = buildPartRenderKeys(visibleParts);
-  const renderQueue = visibleParts.flatMap((part, index) => {
-    if (part.type === "tool" && consumedTaskIds.has((part as ToolPart).toolCallId)) {
-      return [];
-    }
-    return [{ part, index }];
-  });
+  const renderQueue = visibleParts.map((part, index) => ({ part, index }));
 
   return (
     <box flexDirection="column">

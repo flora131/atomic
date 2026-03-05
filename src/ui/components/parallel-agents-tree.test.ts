@@ -461,7 +461,7 @@ describe("agent inline display helpers", () => {
     expect(Object.keys(PART_REGISTRY).sort()).toEqual(expectedInlinePartTypes);
   });
 
-  test("suppresses tool and text parts from inline display", () => {
+  test("keeps tool and text parts in inline display", () => {
     const mixedParts: Part[] = [
       {
         id: "part-text",
@@ -489,15 +489,18 @@ describe("agent inline display helpers", () => {
       },
     ] as Part[];
     const result = getAgentInlineDisplayParts(mixedParts);
-    expect(result).toHaveLength(1);
-    expect(result[0]!.id).toBe("part-reasoning");
+    expect(result).toHaveLength(3);
+    expect(result.map((part) => part.id)).toEqual([
+      "part-text",
+      "part-tool",
+      "part-reasoning",
+    ]);
   });
 
-  test("filters out text and tool parts in inline display", () => {
+  test("returns inline parts without filtering", () => {
     const result = getAgentInlineDisplayParts(inlineParts);
-    // part-1 is "text" (suppressed), part-2 is "reasoning" (kept)
-    expect(result).toHaveLength(1);
-    expect(result.map((part) => part.id)).toEqual(["part-2"]);
+    expect(result).toHaveLength(2);
+    expect(result.map((part) => part.id)).toEqual(["part-1", "part-2"]);
     expect(result.every((part) => Boolean(PART_REGISTRY[part.type]))).toBe(true);
   });
 

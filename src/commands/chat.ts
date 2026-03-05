@@ -21,6 +21,7 @@ import type {
 } from "../utils/provider-discovery-plan.ts";
 import type { PrepareClaudeConfigOptions } from "../utils/claude-config.ts";
 import { getModelPreference, getReasoningEffortPreference } from "../utils/settings.ts";
+import { ENHANCED_SYSTEM_PROMPT } from "../sdk/enhanced-system-prompt.ts";
 import { pathExists } from "../utils/copy.ts";
 import { AGENT_CONFIG, type SourceControlType } from "../config.ts";
 // initCommand is lazy-loaded only when auto-init is needed
@@ -694,6 +695,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
         model: effectiveModel,
         reasoningEffort: resolvedReasoningEffort,
         mcpServers,
+        systemPrompt: ENHANCED_SYSTEM_PROMPT,
       },
       theme: await getTheme(theme),
       title: `Chat - ${agentName}`,

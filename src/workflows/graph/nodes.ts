@@ -26,6 +26,7 @@ import type {
   WorkflowToolContext,
 } from "./types.ts";
 import type { SessionConfig, AgentMessage, CodingAgentClient, Session, ContextUsage } from "../../sdk/types.ts";
+import { ENHANCED_SYSTEM_PROMPT } from "../../sdk/enhanced-system-prompt.ts";
 import { DEFAULT_RETRY_CONFIG, BACKGROUND_COMPACTION_THRESHOLD, BUFFER_EXHAUSTION_THRESHOLD } from "./types.ts";
 import type { z } from "zod";
 import { getToolRegistry } from "../../sdk/tools/registry.ts";
@@ -178,7 +179,7 @@ export function agentNode<TState extends BaseState = BaseState>(
       const fullSessionConfig: SessionConfig = {
         ...sessionConfig,
         model: ctx.model ?? sessionConfig?.model,
-        systemPrompt: systemPrompt ?? sessionConfig?.systemPrompt,
+        systemPrompt: systemPrompt ?? sessionConfig?.systemPrompt ?? ENHANCED_SYSTEM_PROMPT,
         tools: tools ?? sessionConfig?.tools,
       };
 

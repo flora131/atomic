@@ -44,8 +44,13 @@ export interface StreamAdapterOptions {
   messageId: string;
   /** Optional external abort signal for stream cancellation */
   abortSignal?: AbortSignal;
-  /** Optional agent name for sub-agent dispatch (used by OpenCode) */
+  /** Optional provider-specific agent name for dispatch metadata (OpenCode, Claude). */
   agent?: string;
+  /**
+   * Claude-specific: when true, do not emit synthetic foreground
+   * sub-agent lifecycle rows from the adapter.
+   */
+  suppressSyntheticAgentLifecycle?: boolean;
   /** Known agent names that should be treated as task/agent tools (Copilot SDK) */
   knownAgentNames?: string[];
   /** Runtime contract feature-flag overrides (Task #1 scaffolding) */

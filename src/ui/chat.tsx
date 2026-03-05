@@ -134,6 +134,18 @@ import {
   registerAgentLifecycleUpdate,
   type AgentLifecycleViolationCode,
 } from "./utils/agent-lifecycle-ledger.ts";
+import {
+  clearAgentOrderingState,
+  createAgentOrderingState,
+  hasDoneStateProjection,
+  pruneAgentOrderingState,
+  registerAgentCompletionSequence,
+  registerDoneStateProjection,
+  registerFirstPostCompleteDeltaSequence,
+  resetAgentOrderingForAgent,
+  type AgentOrderingEvent,
+  type DoneStateProjection,
+} from "./utils/agent-ordering-contract.ts";
 import { getNextKittyKeyboardDetectionState } from "./utils/kitty-keyboard-detection.ts";
 import {
   getEnqueueShortcutLabel,
@@ -193,6 +205,7 @@ import { useEventBusContext } from "../events/event-bus-provider.tsx";
 import type { EventBus } from "../events/event-bus.ts";
 import {
   incrementRuntimeParityCounter,
+  observeRuntimeParityHistogram,
   runtimeParityDebug,
 } from "../workflows/runtime-parity-observability.ts";
 import { pipelineError } from "../events/pipeline-logger.ts";
@@ -214,10 +227,15 @@ const RUNTIME_ENVELOPE_PART_TYPES = new Set<StreamPartEvent["type"]>([
 
 const DEFAULT_SUBAGENT_TASK_LABEL = "sub-agent task";
 const SYNTHETIC_TASK_AGENT_PREFIX = "synthetic-task-agent:";
+const CLAUDE_SYNTHETIC_FOREGROUND_AGENT_PREFIX = "agent-only-";
 
 export function isGenericSubagentTaskLabel(task: string | undefined): boolean {
   const normalized = (task ?? "").trim().toLowerCase();
   return normalized === "" || normalized === DEFAULT_SUBAGENT_TASK_LABEL || normalized === "subagent task";
+}
+
+function isClaudeSyntheticForegroundAgentId(agentId: string | undefined): boolean {
+  return typeof agentId === "string" && agentId.startsWith(CLAUDE_SYNTHETIC_FOREGROUND_AGENT_PREFIX);
 }
 
 function resolveIncomingSubagentTaskLabel(task: string | undefined, agentType: string | undefined): string {
@@ -233,9 +251,26 @@ export function mergeAgentTaskLabel(
   incomingTask: string | undefined,
   agentType: string | undefined,
 ): string {
+  const explicitIncomingTask = asNonEmptyString(incomingTask);
+  const normalizedAgentType = asNonEmptyString(agentType);
+  const normalizedExistingTask = asNonEmptyString(existingTask);
+  if (
+    explicitIncomingTask
+    && !isGenericSubagentTaskLabel(explicitIncomingTask)
+    && (
+      isGenericSubagentTaskLabel(existingTask)
+      || (
+        normalizedExistingTask !== undefined
+        && normalizedAgentType !== undefined
+        && normalizedExistingTask === normalizedAgentType
+      )
+    )
+  ) {
+    return explicitIncomingTask;
+  }
   const nextTask = resolveIncomingSubagentTaskLabel(incomingTask, agentType);
   if (isGenericSubagentTaskLabel(existingTask)) return nextTask;
-  return isGenericSubagentTaskLabel(nextTask) ? (existingTask ?? nextTask) : (existingTask ?? nextTask);
+  return isGenericSubagentTaskLabel(nextTask) ? (normalizedExistingTask ?? nextTask) : (normalizedExistingTask ?? nextTask);
 }
 
 export function resolveSubagentStartCorrelationId(data: {
@@ -326,17 +361,6 @@ function buildSyntheticTaskAgentId(toolId: string): string {
 
 export function isSyntheticTaskAgentId(agentId: string): boolean {
   return agentId.startsWith(SYNTHETIC_TASK_AGENT_PREFIX);
-}
-
-function extractTaskToolResultText(output: unknown): string | undefined {
-  if (typeof output === "string") {
-    return asNonEmptyString(output);
-  }
-  if (!output || typeof output !== "object") {
-    return undefined;
-  }
-  const record = output as Record<string, unknown>;
-  return asNonEmptyString(record.result ?? record.text ?? record.output);
 }
 
 function isAbortLikeToolError(error: string | undefined): boolean {
@@ -469,7 +493,9 @@ export function finalizeSyntheticTaskAgentForToolComplete(args: {
       ...agent,
       status,
       currentTool: agent.currentTool,
-      result: args.success ? (extractTaskToolResultText(args.output) ?? agent.result) : agent.result,
+      result: args.success
+        ? (typeof args.output === "string" ? (asNonEmptyString(args.output) ?? agent.result) : agent.result)
+        : agent.result,
       error: args.success ? undefined : (args.error ?? agent.error),
       durationMs,
     };
@@ -1313,6 +1339,8 @@ export interface MessageBubbleProps {
   collapsed?: boolean;
   /** Live streaming metadata (tokens, thinking duration) */
   streamingMeta?: StreamingMeta | null;
+  /** Optional callback for done-render diagnostics markers */
+  onAgentDoneRendered?: (marker: { messageId: string; agentId: string; timestampMs: number }) => void;
 }
 
 // ============================================================================
@@ -1421,22 +1449,10 @@ export function shouldHideStaleSubagentToolPlaceholder(
   message: ChatMessage,
   activeMessageIds: ReadonlySet<string>,
 ): boolean {
-  if (message.role !== "assistant") return false;
-  if (message.streaming) return false;
-  if (activeMessageIds.has(message.id)) return false;
-  if (message.content.trim().length > 0) return false;
-  if ((message.parallelAgents?.length ?? 0) > 0) return false;
-
-  const parts = message.parts ?? [];
-  if (parts.length === 0) return false;
-
-  for (const part of parts) {
-    if (part.type !== "tool") return false;
-    const toolPart = part as ToolPart;
-    if (!isSubagentToolName(toolPart.toolName)) return false;
-  }
-
-  return true;
+  // Intentionally disabled: sub-agent tool/task blocks should remain visible.
+  void message;
+  void activeMessageIds;
+  return false;
 }
 
 /**
@@ -1490,6 +1506,34 @@ export function shouldFinalizeAgentOnlyStream(args: {
     && args.isStreaming
     && args.isAgentOnlyStream
     && (args.liveAgentCount > 0 || args.messageAgentCount > 0);
+}
+
+export function shouldDeferPostCompleteDeltaUntilDoneProjection(args: {
+  completionSequence: number | undefined;
+  doneProjected: boolean;
+}): boolean {
+  return typeof args.completionSequence === "number" && !args.doneProjected;
+}
+
+export function queueAgentTerminalBeforeDeferredDeltas(args: {
+  messageId: string;
+  terminal: Extract<StreamPartEvent, { type: "agent-terminal" }>;
+  queueMessagePartUpdate: (messageId: string, update: StreamPartEvent) => void;
+  flushDeferredPostCompleteDeltas: (agentId: string) => void;
+}): void {
+  args.queueMessagePartUpdate(args.messageId, {
+    type: "agent-terminal",
+    runId: args.terminal.runId,
+    agentId: args.terminal.agentId,
+    status: args.terminal.status,
+    ...(args.terminal.result !== undefined ? { result: args.terminal.result } : {}),
+    ...(args.terminal.error !== undefined ? { error: args.terminal.error } : {}),
+    ...(args.terminal.completedAt !== undefined ? { completedAt: args.terminal.completedAt } : {}),
+  });
+
+  if (args.terminal.status === "completed") {
+    args.flushDeferredPostCompleteDeltas(args.terminal.agentId);
+  }
 }
 
 export function buildAgentContinuationPayload(args: {
@@ -1640,6 +1684,94 @@ export function emitContractFailureTerminationObservability(args: {
     eventType: args.eventType ?? "unknown",
     error: args.errorMessage,
     eventData: { reason: args.reason, code: args.code, agentId: args.agentId, provider },
+  });
+}
+
+type AgentOrderingScenario = "single" | "multi";
+
+export function emitAgentDoneProjectionObservability(args: {
+  provider?: string;
+  runId?: number;
+  event: AgentOrderingEvent;
+  projectionMode: DoneStateProjection["projectionMode"];
+  completionTimestampMs?: number;
+}): void {
+  const provider = args.provider ?? "unknown";
+  incrementRuntimeParityCounter("workflow.runtime.parity.agent_done_projection_total", {
+    provider,
+    mode: args.projectionMode,
+  });
+  if (typeof args.completionTimestampMs === "number") {
+    observeRuntimeParityHistogram(
+      "workflow.runtime.parity.agent_done_projection_latency_ms",
+      Math.max(0, args.event.timestampMs - args.completionTimestampMs),
+      {
+        provider,
+        mode: args.projectionMode,
+      },
+    );
+  }
+  runtimeParityDebug("agent_done_projection", {
+    provider,
+    runId: args.runId,
+    event: args.event,
+    projectionMode: args.projectionMode,
+    completionTimestampMs: args.completionTimestampMs,
+  });
+}
+
+export function emitAgentDoneRenderedObservability(args: {
+  provider?: string;
+  runId?: number;
+  event: AgentOrderingEvent;
+  completionTimestampMs?: number;
+  projectionMode?: DoneStateProjection["projectionMode"];
+}): void {
+  const provider = args.provider ?? "unknown";
+  incrementRuntimeParityCounter("workflow.runtime.parity.agent_done_rendered_total", {
+    provider,
+  });
+  if (typeof args.completionTimestampMs === "number") {
+    observeRuntimeParityHistogram(
+      "workflow.runtime.parity.agent_done_rendered_latency_ms",
+      Math.max(0, args.event.timestampMs - args.completionTimestampMs),
+      { provider },
+    );
+  }
+  runtimeParityDebug("agent_done_rendered", {
+    provider,
+    runId: args.runId,
+    event: args.event,
+    projectionMode: args.projectionMode,
+    completionTimestampMs: args.completionTimestampMs,
+  });
+}
+
+export function emitPostCompleteDeltaOrderingObservability(args: {
+  provider?: string;
+  runId?: number;
+  event: AgentOrderingEvent;
+  doneProjected: boolean;
+  scenario: AgentOrderingScenario;
+  projectionMode?: DoneStateProjection["projectionMode"];
+}): void {
+  const provider = args.provider ?? "unknown";
+  if (!args.doneProjected) {
+    incrementRuntimeParityCounter("workflow.runtime.parity.agent_post_complete_delta_before_done_total", {
+      provider,
+    });
+    incrementRuntimeParityCounter("workflow.runtime.parity.agent_ordering_contract_violation_total", {
+      provider,
+      scenario: args.scenario,
+    });
+  }
+  runtimeParityDebug("agent_post_complete_delta_ordering", {
+    provider,
+    runId: args.runId,
+    event: args.event,
+    doneProjected: args.doneProjected,
+    scenario: args.scenario,
+    projectionMode: args.projectionMode,
   });
 }
 
@@ -2151,6 +2283,7 @@ export function MessageBubble({
   elapsedMs,
   collapsed = false,
   streamingMeta,
+  onAgentDoneRendered,
 }: MessageBubbleProps): React.ReactNode {
   const themeColors = useThemeColors();
   const persistentTaskPanelSessionDir = isLast && showTodoPanel && workflowSessionDir
@@ -2257,7 +2390,17 @@ export function MessageBubble({
         paddingLeft={SPACING.CONTAINER_PAD}
         paddingRight={SPACING.CONTAINER_PAD}
       >
-        <MessageBubbleParts message={renderableMessage} syntaxStyle={syntaxStyle} />
+        <MessageBubbleParts
+          message={renderableMessage}
+          syntaxStyle={syntaxStyle}
+          onAgentDoneRendered={(marker) => {
+            onAgentDoneRendered?.({
+              messageId: message.id,
+              agentId: marker.agentId,
+              timestampMs: marker.timestampMs,
+            });
+          }}
+        />
 
         {/* Workflow persistent task list - pinned above streaming text in last message */}
         {persistentTaskPanelSessionDir && (
@@ -2604,6 +2747,19 @@ export function ChatApp({
   const agentMessageIdByIdRef = useRef<Map<string, string>>(new Map());
   // Tracks strict lifecycle ordering for each agent at runtime.
   const agentLifecycleLedgerRef = useRef(createAgentLifecycleLedger());
+  // Tracks ordering-contract state for sub-agent done projection diagnostics.
+  const agentOrderingStateRef = useRef(createAgentOrderingState());
+  // Captures latest stream.agent.complete ordering event for projection latency diagnostics.
+  const completionOrderingEventByAgentRef = useRef<Map<string, AgentOrderingEvent>>(new Map());
+  // Deduplicates done-render diagnostics per agent completion sequence.
+  const doneRenderedSequenceByAgentRef = useRef<Map<string, number>>(new Map());
+  // Buffers agent-scoped post-complete text deltas until done projection is visible.
+  const deferredPostCompleteDeltasByAgentRef = useRef<Map<string, Array<{
+    messageId: string;
+    runId?: number;
+    delta: string;
+    completionSequence: number;
+  }>>>(new Map());
   // State for input textarea scrollbar (shown only when input overflows)
   const [inputScrollbar, setInputScrollbar] = useState<InputScrollbarState>({
     visible: false,
@@ -2640,6 +2796,10 @@ export function ChatApp({
   // Tracks the runId of the currently active stream.session.start event so
   // stale lifecycle events from a prior run do not finalize a new message.
   const activeStreamRunIdRef = useRef<number | null>(null);
+  // During immediate stream handoff (e.g. @agent continuation), stale late
+  // events from the previous run can arrive while activeStreamRunId is null.
+  // Require the next bound run to be >= this floor to avoid rebinding to old events.
+  const nextRunIdFloorRef = useRef<number | null>(null);
   // Captures the latest normalized turn finish reason so session.idle can
   // decide whether to continue the parent loop or finalize the stream.
   const lastTurnFinishReasonRef = useRef<SessionLoopFinishReason | null>(null);
@@ -2702,6 +2862,12 @@ export function ChatApp({
   const dispatchQueuedMessageRef = useRef<(queuedMessage: QueuedMessage) => void>(() => {});
   // Ref for dispatching deferred command messages without circular callback deps
   const dispatchDeferredCommandMessageRef = useRef<(message: DeferredCommandMessage) => void>(() => {});
+  // Ref to continue streaming on the same assistant message during @agent
+  // continuation handoff (avoids creating a second spinner message).
+  const continueAssistantStreamInPlaceRef = useRef<((messageId: string, content: string) => void) | null>(null);
+  // Ref to start an internal follow-up stream after @agent completion without
+  // introducing callback-order dependency loops.
+  const startAssistantStreamRef = useRef<((content: string) => void) | null>(null);
   // Serialize background-update session.send calls to preserve ordering.
   const backgroundAgentSendChainRef = useRef<Promise<void>>(Promise.resolve());
   const pendingBackgroundUpdatesRef = useRef<string[]>([]);
@@ -2728,6 +2894,71 @@ export function ChatApp({
     backgroundAgentMessageIdRef.current = messageId;
     setAgentAnchorSyncVersion((version) => version + 1);
   }, []);
+
+  const trackProjectedAgentDoneStates = useCallback((agents: ReadonlyArray<ParallelAgent>) => {
+    for (const agent of agents) {
+      if (agent.status !== "completed") continue;
+      const sequence = agentLifecycleLedgerRef.current.get(agent.id)?.sequence ?? 0;
+      const didRecordProjection = registerDoneStateProjection(agentOrderingStateRef.current, {
+        agentId: agent.id,
+        sequence,
+        projectionMode: "effect",
+      });
+      if (!didRecordProjection) continue;
+      const completionEvent = completionOrderingEventByAgentRef.current.get(agent.id);
+      const projectionEvent: AgentOrderingEvent = {
+        sessionId: completionEvent?.sessionId ?? "unknown",
+        agentId: agent.id,
+        messageId:
+          completionEvent?.messageId
+          ?? agentMessageIdByIdRef.current.get(agent.id)
+          ?? streamingMessageIdRef.current
+          ?? lastStreamedMessageIdRef.current
+          ?? backgroundAgentMessageIdRef.current
+          ?? "",
+        type: "agent_done_projected",
+        sequence,
+        timestampMs: Date.now(),
+        source: "ui-effect",
+      };
+      emitAgentDoneProjectionObservability({
+        provider: agentType,
+        runId: activeStreamRunIdRef.current ?? undefined,
+        event: projectionEvent,
+        projectionMode: "effect",
+        completionTimestampMs: completionEvent?.timestampMs,
+      });
+    }
+  }, [agentType]);
+
+  const handleAgentDoneRendered = useCallback((marker: {
+    messageId: string;
+    agentId: string;
+    timestampMs: number;
+  }) => {
+    const sequence = agentOrderingStateRef.current.lastCompletionSequenceByAgent.get(marker.agentId) ?? 0;
+    if (doneRenderedSequenceByAgentRef.current.get(marker.agentId) === sequence) {
+      return;
+    }
+    doneRenderedSequenceByAgentRef.current.set(marker.agentId, sequence);
+    const completionEvent = completionOrderingEventByAgentRef.current.get(marker.agentId);
+    const renderEvent: AgentOrderingEvent = {
+      sessionId: completionEvent?.sessionId ?? "unknown",
+      agentId: marker.agentId,
+      messageId: marker.messageId,
+      type: "agent_done_rendered",
+      sequence,
+      timestampMs: marker.timestampMs,
+      source: "ui-effect",
+    };
+    emitAgentDoneRenderedObservability({
+      provider: agentType,
+      runId: activeStreamRunIdRef.current ?? undefined,
+      event: renderEvent,
+      completionTimestampMs: completionEvent?.timestampMs,
+      projectionMode: agentOrderingStateRef.current.projectionSourceByAgent.get(marker.agentId),
+    });
+  }, [agentType]);
 
   const resetLoadedSkillTracking = useCallback((options?: {
     resetSessionBinding?: boolean;
@@ -3184,6 +3415,7 @@ export function ChatApp({
     hasRunningToolRef.current = next.hasRunningTool;
     if (!next.isStreaming) {
       activeStreamRunIdRef.current = null;
+      nextRunIdFloorRef.current = null;
       lastTurnFinishReasonRef.current = null;
     }
     runningBlockingToolIdsRef.current.clear();
@@ -3375,52 +3607,54 @@ export function ChatApp({
     // If a tool call with the same ID already exists, update its input
     // (SDKs may send an initial event with empty input followed by a
     // populated one for the same logical tool call).
-    const messageId = resolveAgentScopedMessageId(agentId);
-    if (messageId) {
-      toolMessageIdByIdRef.current.set(toolId, messageId);
-      setMessagesWindowed((prev) =>
-        prev.map((msg) => {
-          if (msg.id === messageId) {
-            return applyStreamPartEvent(msg, {
-              type: "tool-start",
-              toolId,
-              toolName,
-              input,
-              ...(agentId ? { agentId } : {}),
-            });
+    if (!isAgentOnlyStreamRef.current) {
+      const messageId = resolveAgentScopedMessageId(agentId);
+      if (messageId) {
+        toolMessageIdByIdRef.current.set(toolId, messageId);
+        setMessagesWindowed((prev) =>
+          prev.map((msg) => {
+            if (msg.id === messageId) {
+              return applyStreamPartEvent(msg, {
+                type: "tool-start",
+                toolId,
+                toolName,
+                input,
+                ...(agentId ? { agentId } : {}),
+              });
+            }
+            return msg;
+          })
+        );
+      } else {
+        // Fallback: when streamingMessageIdRef is already null (e.g. race between
+        // stream.text.complete firing via direct bus subscription and batched
+        // tool-start events arriving via the 16ms batch dispatcher), find the most
+        // recent assistant message inside the state updater.
+        setMessagesWindowed((prev) => {
+          let targetId: string | undefined;
+          for (let i = prev.length - 1; i >= 0; i--) {
+            const msg = prev[i]!;
+            if (msg.role === "assistant") {
+              targetId = msg.id;
+              break;
+            }
           }
-          return msg;
-        })
-      );
-    } else {
-      // Fallback: when streamingMessageIdRef is already null (e.g. race between
-      // stream.text.complete firing via direct bus subscription and batched
-      // tool-start events arriving via the 16ms batch dispatcher), find the most
-      // recent assistant message inside the state updater.
-      setMessagesWindowed((prev) => {
-        let targetId: string | undefined;
-        for (let i = prev.length - 1; i >= 0; i--) {
-          const msg = prev[i]!;
-          if (msg.role === "assistant") {
-            targetId = msg.id;
-            break;
-          }
-        }
-        if (!targetId) return prev;
-        toolMessageIdByIdRef.current.set(toolId, targetId);
-        return prev.map((msg) => {
-          if (msg.id === targetId) {
-            return applyStreamPartEvent(msg, {
-              type: "tool-start",
-              toolId,
-              toolName,
-              input,
-              ...(agentId ? { agentId } : {}),
-            });
-          }
-          return msg;
+          if (!targetId) return prev;
+          toolMessageIdByIdRef.current.set(toolId, targetId);
+          return prev.map((msg) => {
+            if (msg.id === targetId) {
+              return applyStreamPartEvent(msg, {
+                type: "tool-start",
+                toolId,
+                toolName,
+                input,
+                ...(agentId ? { agentId } : {}),
+              });
+            }
+            return msg;
+          });
         });
-      });
+      }
     }
 
     // Update persistent todo panel when TodoWrite is called
@@ -3499,31 +3733,33 @@ export function ChatApp({
     // Tracking tool completion/error in streaming state was dead code (never read), removed
 
     // Update tool call in current streaming message
-    const messageId =
-      streamingMessageIdRef.current
-      ?? toolMessageIdByIdRef.current.get(toolId)
-      ?? backgroundAgentMessageIdRef.current
-      ?? lastStreamedMessageIdRef.current;
-    if (messageId) {
-      setMessagesWindowed((prev) => {
-        const updated = prev.map((msg) => {
-          if (msg.id === messageId) {
-            return applyStreamPartEvent(msg, {
-              type: "tool-complete",
-              toolId,
-              toolName: completedToolName,
-              output,
-              success,
-              error,
-              input,
-              ...(agentId ? { agentId } : {}),
-            });
-          }
-          return msg;
-        });
+    if (!isAgentOnlyStreamRef.current) {
+      const messageId =
+        streamingMessageIdRef.current
+        ?? toolMessageIdByIdRef.current.get(toolId)
+        ?? backgroundAgentMessageIdRef.current
+        ?? lastStreamedMessageIdRef.current;
+      if (messageId) {
+        setMessagesWindowed((prev) => {
+          const updated = prev.map((msg) => {
+            if (msg.id === messageId) {
+              return applyStreamPartEvent(msg, {
+                type: "tool-complete",
+                toolId,
+                toolName: completedToolName,
+                output,
+                success,
+                error,
+                input,
+                ...(agentId ? { agentId } : {}),
+              });
+            }
+            return msg;
+          });
 
-        return updated;
-      });
+          return updated;
+        });
+      }
     }
     toolMessageIdByIdRef.current.delete(toolId);
     setParallelAgents((current) => {
@@ -3762,22 +3998,13 @@ export function ChatApp({
     }
 
     const hasRemainingBg = remaining.length > 0;
-    if (agentContinuationPayload) {
-      emitAgentMainContinuationObservability({
-        provider: agentType,
-        runId: activeStreamRunIdRef.current ?? undefined,
-        result: "forwarded",
-      });
-      sendBackgroundMessageToAgent(agentContinuationPayload);
-    }
-    stopSharedStreamState({
-      preserveStreamingStart: hasRemainingBg,
-      preserveStreamingMeta: hasRemainingBg,
-    });
-    finalizeThinkingSourceTracking({ preserveStreamingMeta: hasRemainingBg });
-
     const resolver = streamCompletionResolverRef.current;
     if (resolver) {
+      stopSharedStreamState({
+        preserveStreamingStart: hasRemainingBg,
+        preserveStreamingMeta: hasRemainingBg,
+      });
+      finalizeThinkingSourceTracking({ preserveStreamingMeta: hasRemainingBg });
       streamCompletionResolverRef.current = null;
       if (hideStreamContentRef.current && messageId) {
         setMessagesWindowed((prev: ChatMessage[]) => prev.filter((msg: ChatMessage) => msg.id !== messageId));
@@ -3786,6 +4013,42 @@ export function ChatApp({
       resolver({ content: lastStreamingContentRef.current, wasInterrupted: false });
       return;
     }
+
+    if (agentContinuationPayload) {
+      emitAgentMainContinuationObservability({
+        provider: agentType,
+        runId: activeStreamRunIdRef.current ?? undefined,
+        result: "forwarded",
+      });
+
+      // @agent continuation must flow through the normal streaming pipeline so
+      // providers using promptAsync emit a visible parent-agent answer.
+      hideStreamContentRef.current = false;
+      const dispatchAgentContinuationInPlace = continueAssistantStreamInPlaceRef.current;
+      if (dispatchAgentContinuationInPlace) {
+        dispatchAgentContinuationInPlace(messageId, agentContinuationPayload);
+        return;
+      }
+
+      const dispatchAgentContinuation = startAssistantStreamRef.current;
+      if (dispatchAgentContinuation) {
+        dispatchAgentContinuation(agentContinuationPayload);
+        return;
+      }
+
+      // Defensive fallback if stream starter is unavailable.
+      stopSharedStreamState();
+      finalizeThinkingSourceTracking();
+      sendBackgroundMessageToAgent(agentContinuationPayload);
+      continueQueuedConversation();
+      return;
+    }
+
+    stopSharedStreamState({
+      preserveStreamingStart: hasRemainingBg,
+      preserveStreamingMeta: hasRemainingBg,
+    });
+    finalizeThinkingSourceTracking({ preserveStreamingMeta: hasRemainingBg });
 
     continueQueuedConversation();
   }, [agentType, continueQueuedConversation, finalizeThinkingSourceTracking, sendBackgroundMessageToAgent, setMessagesWindowed, setBackgroundAgentMessageId, setLastStreamedMessageId, stopSharedStreamState, terminateStreamContractViolation]);
@@ -3800,6 +4063,68 @@ export function ChatApp({
         return;
       }
       updatesByMessageId.set(messageId, [update]);
+    };
+
+    const queuePostCompleteDeltaOrderingObservability = (args: {
+      agentId: string;
+      messageId: string;
+      completionSequence: number;
+      doneProjected: boolean;
+      projectionMode?: DoneStateProjection["projectionMode"];
+    }): void => {
+      const didRegisterFirstPostCompleteDelta = registerFirstPostCompleteDeltaSequence(
+        agentOrderingStateRef.current,
+        args.agentId,
+        args.completionSequence + 1,
+      );
+      if (!didRegisterFirstPostCompleteDelta) return;
+      const scenario: AgentOrderingScenario =
+        parallelAgentsRef.current.filter((agent) => !agent.background).length > 1 ? "multi" : "single";
+      const postCompleteDeltaEvent: AgentOrderingEvent = {
+        sessionId:
+          completionOrderingEventByAgentRef.current.get(args.agentId)?.sessionId
+          ?? "unknown",
+        agentId: args.agentId,
+        messageId:
+          args.messageId
+          || completionOrderingEventByAgentRef.current.get(args.agentId)?.messageId
+          || "",
+        type: "post_complete_delta_rendered",
+        sequence: args.completionSequence + 1,
+        timestampMs: Date.now(),
+        source: "wildcard-batch",
+      };
+      emitPostCompleteDeltaOrderingObservability({
+        provider: agentType,
+        runId: activeStreamRunIdRef.current ?? undefined,
+        event: postCompleteDeltaEvent,
+        doneProjected: args.doneProjected,
+        scenario,
+        projectionMode: args.projectionMode,
+      });
+    };
+
+    const flushDeferredPostCompleteDeltas = (agentId: string): void => {
+      const deferred = deferredPostCompleteDeltasByAgentRef.current.get(agentId);
+      if (!deferred || deferred.length === 0) return;
+      if (!hasDoneStateProjection(agentOrderingStateRef.current, agentId)) return;
+      deferredPostCompleteDeltasByAgentRef.current.delete(agentId);
+      const projectionMode = agentOrderingStateRef.current.projectionSourceByAgent.get(agentId);
+      for (const deferredPart of deferred) {
+        queuePostCompleteDeltaOrderingObservability({
+          agentId,
+          messageId: deferredPart.messageId,
+          completionSequence: deferredPart.completionSequence,
+          doneProjected: true,
+          projectionMode,
+        });
+        queueMessagePartUpdate(deferredPart.messageId, {
+          type: "text-delta",
+          runId: deferredPart.runId,
+          delta: deferredPart.delta,
+          agentId,
+        });
+      }
     };
 
     for (const part of parts) {
@@ -3820,6 +4145,7 @@ export function ChatApp({
         continue;
       }
       if (part.type === "tool-partial-result") {
+        if (isAgentOnlyStreamRef.current) continue;
         const messageId =
           resolveAgentScopedMessageId(part.agentId)
           ?? toolMessageIdByIdRef.current.get(part.toolId)
@@ -3833,6 +4159,44 @@ export function ChatApp({
           toolId: part.toolId,
           partialOutput: part.partialOutput,
           ...(part.agentId ? { agentId: part.agentId } : {}),
+        });
+        continue;
+      }
+      if (part.type === "agent-terminal") {
+        const messageId = resolveAgentScopedMessageId(part.agentId);
+        if (!messageId) continue;
+        if (part.status === "completed") {
+          const sequence = agentLifecycleLedgerRef.current.get(part.agentId)?.sequence ?? 0;
+          const didRecordProjection = registerDoneStateProjection(agentOrderingStateRef.current, {
+            agentId: part.agentId,
+            sequence,
+            projectionMode: "sync-bridge",
+          });
+          if (didRecordProjection) {
+            const completionEvent = completionOrderingEventByAgentRef.current.get(part.agentId);
+            const projectionEvent: AgentOrderingEvent = {
+              sessionId: completionEvent?.sessionId ?? "unknown",
+              agentId: part.agentId,
+              messageId,
+              type: "agent_done_projected",
+              sequence,
+              timestampMs: Date.now(),
+              source: "sync-bridge",
+            };
+            emitAgentDoneProjectionObservability({
+              provider: agentType,
+              runId: activeStreamRunIdRef.current ?? undefined,
+              event: projectionEvent,
+              projectionMode: "sync-bridge",
+              completionTimestampMs: completionEvent?.timestampMs,
+            });
+          }
+        }
+        queueAgentTerminalBeforeDeferredDeltas({
+          messageId,
+          terminal: part,
+          queueMessagePartUpdate,
+          flushDeferredPostCompleteDeltas,
         });
         continue;
       }
@@ -3850,6 +4214,34 @@ export function ChatApp({
         }
         if (hideStreamContentRef.current) continue;
         const messageId = resolveAgentScopedMessageId(part.agentId);
+        if (part.agentId) {
+          const completionSequence = agentOrderingStateRef.current.lastCompletionSequenceByAgent.get(part.agentId);
+          if (typeof completionSequence === "number") {
+            const doneProjected = hasDoneStateProjection(agentOrderingStateRef.current, part.agentId);
+            if (shouldDeferPostCompleteDeltaUntilDoneProjection({ completionSequence, doneProjected })) {
+              if (!messageId) continue;
+              const deferred = deferredPostCompleteDeltasByAgentRef.current.get(part.agentId) ?? [];
+              deferred.push({
+                messageId,
+                runId: part.runId,
+                delta: part.delta,
+                completionSequence,
+              });
+              deferredPostCompleteDeltasByAgentRef.current.set(part.agentId, deferred);
+              continue;
+            }
+            queuePostCompleteDeltaOrderingObservability({
+              agentId: part.agentId,
+              messageId:
+                messageId
+                ?? completionOrderingEventByAgentRef.current.get(part.agentId)?.messageId
+                ?? "",
+              completionSequence,
+              doneProjected,
+              projectionMode: agentOrderingStateRef.current.projectionSourceByAgent.get(part.agentId),
+            });
+          }
+        }
         if (!messageId) continue;
         queueMessagePartUpdate(messageId, {
           type: "text-delta",
@@ -3970,8 +4362,8 @@ export function ChatApp({
         // Send task results to the main agent so they are actionable, not decorative
         if (part.type === "task-result-upsert") {
           const env = part.envelope;
-          const resultText = env.envelope_text ?? env.output_text;
-          if (resultText.trim().length > 0) {
+          const resultText = asNonEmptyString(env.output_text);
+          if (resultText) {
             const statusLabel = env.status === "error" ? "failed" : "completed";
             sendBackgroundMessageToAgent(
               `Task "${env.title}" (${env.task_id}) ${statusLabel}:\n\n${resultText}`,
@@ -4020,7 +4412,14 @@ export function ChatApp({
     if (!isStreamingRef.current) {
       return;
     }
+
+    const runFloor = nextRunIdFloorRef.current;
+    if (typeof runFloor === "number" && event.runId < runFloor) {
+      return;
+    }
+
     activeStreamRunIdRef.current = event.runId;
+    nextRunIdFloorRef.current = null;
     lastTurnFinishReasonRef.current = null;
   });
 
@@ -4034,7 +4433,12 @@ export function ChatApp({
       if (!isStreamingRef.current) {
         return;
       }
+      const runFloor = nextRunIdFloorRef.current;
+      if (typeof runFloor === "number" && event.runId < runFloor) {
+        return;
+      }
       activeStreamRunIdRef.current = event.runId;
+      nextRunIdFloorRef.current = null;
     }
 
     // Safety-net: ensure streaming state is active when the agent begins a
@@ -4374,6 +4778,10 @@ export function ChatApp({
       });
       return;
     }
+    resetAgentOrderingForAgent(agentOrderingStateRef.current, data.agentId);
+    doneRenderedSequenceByAgentRef.current.delete(data.agentId);
+    completionOrderingEventByAgentRef.current.delete(data.agentId);
+    deferredPostCompleteDeltasByAgentRef.current.delete(data.agentId);
     const startedAt = new Date(event.timestamp).toISOString();
     const status: ParallelAgent["status"] = data.isBackground ? "background" : "running";
 
@@ -4406,7 +4814,16 @@ export function ChatApp({
       const correlatedIndex = existingIndex < 0 && correlationId
         ? current.findIndex((agent) => agent.taskToolCallId === correlationId)
         : -1;
-      const targetIndex = existingIndex >= 0 ? existingIndex : correlatedIndex;
+      const syntheticPlaceholderIndex = existingIndex < 0 && correlatedIndex < 0
+        ? current.findIndex((agent) =>
+          (agent.status === "running" || agent.status === "pending")
+            && isClaudeSyntheticForegroundAgentId(agent.id)
+            && !agent.background
+        )
+        : -1;
+      const targetIndex = existingIndex >= 0
+        ? existingIndex
+        : (correlatedIndex >= 0 ? correlatedIndex : syntheticPlaceholderIndex);
       if (targetIndex >= 0) {
         const existing = current[targetIndex];
         // If agent already has a terminal status (completed, error, interrupted),
@@ -4439,6 +4856,7 @@ export function ChatApp({
               background: data.isBackground || agent.background,
               taskToolCallId: correlationId ?? agent.taskToolCallId,
               currentTool: agent.currentTool,
+              toolUses: agent.toolUses,
             }
             : agent
         );
@@ -4541,26 +4959,61 @@ export function ChatApp({
       });
       return;
     }
+    if (data.success) {
+      registerAgentCompletionSequence(
+        agentOrderingStateRef.current,
+        data.agentId,
+        lifecycleTransition.entry.sequence,
+      );
+      const completionOrderingEvent: AgentOrderingEvent = {
+        sessionId: event.sessionId,
+        agentId: data.agentId,
+        messageId:
+          resolveAgentScopedMessageId(data.agentId)
+          ?? agentMessageIdByIdRef.current.get(data.agentId)
+          ?? streamingMessageIdRef.current
+          ?? lastStreamedMessageIdRef.current
+          ?? backgroundAgentMessageIdRef.current
+          ?? "",
+        type: "agent_complete_received",
+        sequence: lifecycleTransition.entry.sequence,
+        timestampMs: event.timestamp,
+        source: "typed-bus",
+      };
+      completionOrderingEventByAgentRef.current.set(data.agentId, completionOrderingEvent);
+      runtimeParityDebug("agent_complete_received", {
+        provider: agentType,
+        runId: event.runId,
+        event: completionOrderingEvent,
+      });
+    } else {
+      resetAgentOrderingForAgent(agentOrderingStateRef.current, data.agentId);
+      doneRenderedSequenceByAgentRef.current.delete(data.agentId);
+      completionOrderingEventByAgentRef.current.delete(data.agentId);
+    }
 
     // Check if the completing agent is a background agent before state update
     const completingAgent = parallelAgentsRef.current.find(a => a.id === data.agentId);
     const isBgAgent = completingAgent && isBackgroundAgent(completingAgent);
 
     setParallelAgents((current) =>
-      current.map((agent) => {
-        if (agent.id !== data.agentId) return agent;
-        const startedAtMs = new Date(agent.startedAt).getTime();
-        return {
-          ...agent,
-          status: data.success ? "completed" : "error",
-          currentTool: undefined,
-          result: data.result ?? agent.result,
-          error: data.error,
-          durationMs: Number.isFinite(startedAtMs)
-            ? Math.max(0, Date.now() - startedAtMs)
-            : agent.durationMs,
-        };
-      })
+      isClaudeSyntheticForegroundAgentId(data.agentId)
+        && current.some((agent) => agent.id !== data.agentId && !isClaudeSyntheticForegroundAgentId(agent.id))
+        ? current.filter((agent) => agent.id !== data.agentId)
+        : current.map((agent) => {
+          if (agent.id !== data.agentId) return agent;
+          const startedAtMs = new Date(agent.startedAt).getTime();
+          return {
+            ...agent,
+            status: data.success ? "completed" : "error",
+            currentTool: undefined,
+            result: data.result ?? agent.result,
+            error: data.error,
+            durationMs: Number.isFinite(startedAtMs)
+              ? Math.max(0, Date.now() - startedAtMs)
+              : agent.durationMs,
+          };
+        })
     );
     backgroundProgressSnapshotRef.current.delete(data.agentId);
 
@@ -4604,6 +5057,10 @@ export function ChatApp({
       }
       backgroundProgressSnapshotRef.current.clear();
       agentLifecycleLedgerRef.current.clear();
+      clearAgentOrderingState(agentOrderingStateRef.current);
+      completionOrderingEventByAgentRef.current.clear();
+      doneRenderedSequenceByAgentRef.current.clear();
+      deferredPostCompleteDeltasByAgentRef.current.clear();
       pendingBackgroundUpdatesRef.current = [];
     };
   }, []);
@@ -4616,6 +5073,10 @@ export function ChatApp({
     isStreamingRef.current = true;
     setIsStreaming(true);
     streamingStartRef.current = Date.now();
+    const previousRunId = activeStreamRunIdRef.current;
+    nextRunIdFloorRef.current = typeof previousRunId === "number"
+      ? previousRunId + 1
+      : null;
     activeStreamRunIdRef.current = null;
     setLastStreamedMessageId(null);
     resetThinkingSourceTracking();
@@ -4636,12 +5097,29 @@ export function ChatApp({
         agentLifecycleLedgerRef.current.delete(agentId);
       }
     }
+    pruneAgentOrderingState(agentOrderingStateRef.current, activeAgentIds);
+    for (const agentId of Array.from(completionOrderingEventByAgentRef.current.keys())) {
+      if (!activeAgentIds.has(agentId)) {
+        completionOrderingEventByAgentRef.current.delete(agentId);
+      }
+    }
+    for (const agentId of Array.from(doneRenderedSequenceByAgentRef.current.keys())) {
+      if (!activeAgentIds.has(agentId)) {
+        doneRenderedSequenceByAgentRef.current.delete(agentId);
+      }
+    }
+    for (const agentId of Array.from(deferredPostCompleteDeltasByAgentRef.current.keys())) {
+      if (!activeAgentIds.has(agentId)) {
+        deferredPostCompleteDeltasByAgentRef.current.delete(agentId);
+      }
+    }
     clearDeferredCompletion();
     resetConsumers();
 
     const assistantMessage = createMessage("assistant", "", true);
     setStreamingMessageId(assistantMessage.id);
     isAgentOnlyStreamRef.current = options?.isAgentOnlyStream ?? false;
+    hideStreamContentRef.current = hideStreamContentRef.current || isAgentOnlyStreamRef.current;
     setMessagesWindowed((prev: ChatMessage[]) => [...prev, assistantMessage]);
 
     void Promise.resolve(onStreamMessage(content, options)).catch((error) => {
@@ -4658,6 +5136,78 @@ export function ChatApp({
     setStreamingMessageId,
     handleStreamStartupError,
   ]);
+
+  const continueAssistantStreamInPlace = useCallback((
+    messageId: string,
+    content: string,
+  ) => {
+    if (!onStreamMessage) return;
+
+    const previousRunId = activeStreamRunIdRef.current;
+    nextRunIdFloorRef.current = typeof previousRunId === "number"
+      ? previousRunId + 1
+      : null;
+    activeStreamRunIdRef.current = null;
+    lastTurnFinishReasonRef.current = null;
+
+    isStreamingRef.current = true;
+    setIsStreaming(true);
+    streamingStartRef.current = Date.now();
+    setStreamingMessageId(messageId);
+    setLastStreamedMessageId(null);
+    resetThinkingSourceTracking();
+    resetTodoItemsForNewStream();
+    lastStreamingContentRef.current = "";
+    hasRunningToolRef.current = false;
+    runningBlockingToolIdsRef.current.clear();
+    runningAskQuestionToolIdsRef.current.clear();
+    toolNameByIdRef.current.clear();
+    toolMessageIdByIdRef.current.clear();
+    clearDeferredCompletion();
+    resetConsumers();
+    isAgentOnlyStreamRef.current = false;
+    hideStreamContentRef.current = false;
+
+    setMessagesWindowed((prev: ChatMessage[]) =>
+      prev.map((msg: ChatMessage) =>
+        msg.id === messageId
+          ? {
+            ...finalizeStreamingReasoningInMessage(msg),
+            streaming: true,
+            completedAt: undefined,
+            durationMs: undefined,
+          }
+          : msg
+      )
+    );
+
+    void Promise.resolve(onStreamMessage(content)).catch((error) => {
+      handleStreamStartupError(error);
+    });
+  }, [
+    onStreamMessage,
+    setIsStreaming,
+    setStreamingMessageId,
+    setLastStreamedMessageId,
+    resetThinkingSourceTracking,
+    resetTodoItemsForNewStream,
+    clearDeferredCompletion,
+    resetConsumers,
+    setMessagesWindowed,
+    handleStreamStartupError,
+  ]);
+
+  useEffect(() => {
+    startAssistantStreamRef.current = (content: string) => {
+      startAssistantStream(content);
+    };
+  }, [startAssistantStream]);
+
+  useEffect(() => {
+    continueAssistantStreamInPlaceRef.current = (messageId: string, content: string) => {
+      continueAssistantStreamInPlace(messageId, content);
+    };
+  }, [continueAssistantStreamInPlace]);
 
   // Auto-start workflow when workflowActive becomes true with an initialPrompt.
   // This handles non-context-clear workflow starts (e.g., generic workflow commands).
@@ -4928,7 +5478,8 @@ export function ChatApp({
               // (they just finished in this stream)
               return existingAgentIds.has(agent.id);
             });
-            
+            trackProjectedAgentDoneStates(filteredAgents);
+
             return applyStreamPartEvent(msg, {
               type: "parallel-agents",
               agents: filteredAgents,
@@ -4952,6 +5503,7 @@ export function ChatApp({
               const mappedMessageId = agentMessageIdByIdRef.current.get(agent.id);
               return !mappedMessageId || mappedMessageId === lastMsgId;
             });
+            trackProjectedAgentDoneStates(filteredAgents);
             return applyStreamPartEvent(msg, {
               type: "parallel-agents",
               agents: filteredAgents,
@@ -4969,12 +5521,29 @@ export function ChatApp({
         const mappedMessageId = agentMessageIdByIdRef.current.get(agent.id);
         return !mappedMessageId || mappedMessageId === backgroundAgentMessageIdRef.current;
       });
+      trackProjectedAgentDoneStates(filteredAgents);
       applyBackgroundAgentUpdateRef.current(backgroundAgentMessageIdRef.current, filteredAgents);
     }
-  }, [parallelAgents, setMessagesWindowed, agentAnchorSyncVersion]);
+  }, [parallelAgents, setMessagesWindowed, agentAnchorSyncVersion, trackProjectedAgentDoneStates]);
 
   useEffect(() => {
     const activeAgentIds = new Set(parallelAgents.map((agent) => agent.id));
+    pruneAgentOrderingState(agentOrderingStateRef.current, activeAgentIds);
+    for (const agentId of Array.from(completionOrderingEventByAgentRef.current.keys())) {
+      if (!activeAgentIds.has(agentId)) {
+        completionOrderingEventByAgentRef.current.delete(agentId);
+      }
+    }
+    for (const agentId of Array.from(doneRenderedSequenceByAgentRef.current.keys())) {
+      if (!activeAgentIds.has(agentId)) {
+        doneRenderedSequenceByAgentRef.current.delete(agentId);
+      }
+    }
+    for (const agentId of Array.from(deferredPostCompleteDeltasByAgentRef.current.keys())) {
+      if (!activeAgentIds.has(agentId)) {
+        deferredPostCompleteDeltasByAgentRef.current.delete(agentId);
+      }
+    }
     for (const agentId of Array.from(agentMessageIdByIdRef.current.keys())) {
       if (!activeAgentIds.has(agentId)) {
         deleteAgentMessageBinding(agentId);
@@ -5051,15 +5620,9 @@ export function ChatApp({
           : a;
       });
 
-      // Collect sub-agent result text into the message content so it
-      // renders in the main conversation (like Claude Code's Task tool).
-      const agentOutputParts = finalizedAgents
-        .map((a) => (typeof a.result === "string" ? normalizeMarkdownNewlines(a.result) : ""))
-        .filter((result) => result.length > 0);
-      const agentOutput = agentOutputParts.join("\n\n");
       const agentContinuationPayload = buildAgentContinuationPayload({
         agents: finalizedAgents,
-        fallbackText: agentOutput,
+        fallbackText: lastStreamingContentRef.current,
       });
       const continuationContractViolation = getAgentContinuationContractViolation({
         isAgentOnlyStream: isAgentOnlyStreamRef.current,
@@ -5071,7 +5634,7 @@ export function ChatApp({
           msg.id === messageId
             ? {
               ...finalizeStreamingReasoningInMessage(msg),
-              content: (msg.toolCalls?.length ?? 0) > 0 ? msg.content : (agentOutput || msg.content),
+              content: msg.content,
               streaming: false,
               completedAt: new Date(),
               durationMs,
@@ -5084,6 +5647,7 @@ export function ChatApp({
       // Keep background agents in live state for post-stream completion tracking
       const remainingBg = getActiveBackgroundAgents(parallelAgents);
       if (continuationContractViolation) {
+        hideStreamContentRef.current = false;
         setParallelAgents([]);
         parallelAgentsRef.current = [];
         emitAgentMainContinuationObservability({
@@ -5097,13 +5661,45 @@ export function ChatApp({
         });
         return;
       }
+      hideStreamContentRef.current = false;
       if (agentContinuationPayload) {
         emitAgentMainContinuationObservability({
           provider: agentType,
           runId: activeStreamRunIdRef.current ?? undefined,
           result: "forwarded",
         });
+
+        if (remainingBg.length > 0 && messageId) {
+          setBackgroundAgentMessageId(messageId);
+          setParallelAgents(remainingBg);
+          parallelAgentsRef.current = remainingBg;
+        } else {
+          setParallelAgents([]);
+          parallelAgentsRef.current = [];
+        }
+
+        // Continue through the normal stream adapter path so main-agent
+        // post-subagent responses are visible in chat.
+        if (messageId) {
+          const dispatchAgentContinuationInPlace = continueAssistantStreamInPlaceRef.current;
+          if (dispatchAgentContinuationInPlace) {
+            dispatchAgentContinuationInPlace(messageId, agentContinuationPayload);
+            return;
+          }
+        }
+
+        const dispatchAgentContinuation = startAssistantStreamRef.current;
+        if (dispatchAgentContinuation) {
+          dispatchAgentContinuation(agentContinuationPayload);
+          return;
+        }
+
+        // Defensive fallback if stream starter is unavailable.
+        stopSharedStreamState();
+        finalizeThinkingSourceTracking();
         sendBackgroundMessageToAgent(agentContinuationPayload);
+        continueQueuedConversation();
+        return;
       }
       if (remainingBg.length > 0 && messageId) {
         stopSharedStreamState({
@@ -5703,21 +6299,13 @@ export function ChatApp({
           instruction = task;
           silentOptions = { agent: agentName };
         } else if (agentType === "claude") {
-          // Claude SDK dispatches sub-agents via `options.agent` on the
-          // query() call. Pass the agent name structurally so the client
-          // sets `options.agent = agentName`.
-          instruction = task;
+          // Claude path: use natural-language delegation and forward the
+          // selected agent in structured query options.
+          instruction = `Invoke the "${agentName}" sub-agent with the following task:\n${task}`;
           silentOptions = { agent: agentName };
         } else {
           // Copilot SDK uses the Task tool for sub-agent dispatch.
-          // Explicitly request the agent tool and ask for the complete output
-          // to be passed through without additional commentary.
-          instruction = `Invoke the "${agentName}" sub-agent with the following task. Return ONLY the sub-agent's complete output with no additional commentary or explanation.
-
-Task for ${agentName}:
-${task}
-
-Important: Do not add any text before or after the sub-agent's output. Pass through the complete response exactly as produced.`;
+          instruction = `Invoke the "${agentName}" sub-agent with the following task:\n${task}`;
         }
 
         const result = await new Promise<import("./commands/registry.ts").StreamResult>((resolve) => {
@@ -7780,8 +8368,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
   );
 
   // All messages are kept in memory; no windowing/eviction.
-  // Hide stale empty assistant placeholders that only contain duplicated
-  // sub-agent task tool cards from older stream targeting races.
+  // Keep placeholder filtering call wired, but it is currently a no-op so
+  // sub-agent task/tool blocks stay visible.
   const activeMessageIds = new Set<string>();
   if (streamingMessageIdRef.current) activeMessageIds.add(streamingMessageIdRef.current);
   if (lastStreamedMessageIdRef.current) activeMessageIds.add(lastStreamedMessageIdRef.current);
@@ -7821,6 +8409,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           workflowSessionDir={workflowSessionDir}
           workflowActive={workflowState.workflowActive}
           showTodoPanel={showTodoPanel}
+          onAgentDoneRendered={handleAgentDoneRendered}
         />
         );
       })}

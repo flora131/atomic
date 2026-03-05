@@ -3,7 +3,6 @@ name: reviewer
 description: Code reviewer for proposed code changes.
 tools: Bash, Task, Glob, Grep, Read, TodoWrite, mcp__deepwiki__ask_question
 model: opus
-memory: project
 ---
 
 # Review guidelines:

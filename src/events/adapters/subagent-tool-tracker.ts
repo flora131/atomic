@@ -100,6 +100,32 @@ export class SubagentToolTracker {
   }
 
   /**
+   * Move tracked progress from one agent ID to another.
+   * Useful when a synthetic foreground placeholder is replaced by the
+   * SDK's real sub-agent ID mid-stream.
+   */
+  transferAgent(fromAgentId: string, toAgentId: string): void {
+    if (!fromAgentId || !toAgentId || fromAgentId === toAgentId) {
+      return;
+    }
+
+    const fromState = this.agents.get(fromAgentId);
+    if (!fromState) {
+      return;
+    }
+
+    const toState = this.agents.get(toAgentId);
+    const mergedState: AgentToolState = {
+      toolCount: Math.max(fromState.toolCount, toState?.toolCount ?? 0),
+      currentTool: fromState.currentTool ?? toState?.currentTool,
+    };
+
+    this.agents.set(toAgentId, mergedState);
+    this.agents.delete(fromAgentId);
+    this.publishUpdate(toAgentId, mergedState);
+  }
+
+  /**
    * Clear all tracked agents and reset state.
    */
   reset(): void {

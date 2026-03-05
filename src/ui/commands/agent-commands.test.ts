@@ -96,16 +96,18 @@ describe("agent command routing", () => {
     });
   });
 
-  test("routes Claude @agent as agent-only stream", () => {
+  test("routes Claude @agent via natural-language delegation with agent option", () => {
     const sendSilentMessage = mock(() => {});
     const command = createAgentCommand(baseAgent);
 
     command.execute("do work", createContext({ agentType: "claude", sendSilentMessage }));
 
-    expect(sendSilentMessage).toHaveBeenCalledWith("do work", {
-      agent: "worker",
-      isAgentOnlyStream: true,
-    });
+    expect(sendSilentMessage).toHaveBeenCalledWith(
+      'Invoke the "worker" sub-agent with the following task:\ndo work',
+      {
+        agent: "worker",
+      },
+    );
   });
 
   test("rejects malformed or incompatible agent definitions", () => {

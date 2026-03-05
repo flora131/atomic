@@ -4,6 +4,7 @@ import {
   buildWorkerAssignment,
   buildReviewPrompt,
   buildFixSpecFromReview,
+  buildFixSpecFromRawReview,
   parseReviewResult,
   type TaskItem,
   type ReviewResult,
@@ -729,5 +730,23 @@ describe("buildFixSpecFromReview", () => {
 
     expect(spec).toContain("Rubric");
     expect(spec).toContain("fix is complete when");
+  });
+});
+
+describe("buildFixSpecFromRawReview", () => {
+  test("returns empty string for empty raw output", () => {
+    const spec = buildFixSpecFromRawReview("   ", "Test");
+
+    expect(spec).toBe("");
+  });
+
+  test("includes raw reviewer output in fallback spec", () => {
+    const raw = "I found a bug in src/foo.ts around null handling.";
+    const spec = buildFixSpecFromRawReview(raw, "Implement feature X");
+
+    expect(spec).toContain("# Review Fix Specification");
+    expect(spec).toContain("Implement feature X");
+    expect(spec).toContain(raw);
+    expect(spec).toContain("could not be parsed");
   });
 });

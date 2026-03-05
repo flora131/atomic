@@ -208,11 +208,11 @@ describe("concurrent agent inline part isolation (integration)", () => {
 
       const agentAVerboseInline = getAgentInlineDisplayParts(agentA?.inlineParts ?? []);
       expect(agentAVerboseInline.some((part) => part.type === "reasoning")).toBe(true);
-      // text and tool parts are suppressed from inline display
+      // text and tool parts remain visible in inline display
       expect(agentAVerboseInline.some(
         (part) => part.type === "text",
-      )).toBe(false);
-      expect(agentAVerboseInline.some((part) => part.type === "tool")).toBe(false);
+      )).toBe(true);
+      expect(agentAVerboseInline.some((part) => part.type === "tool")).toBe(true);
 
       const agentACompactInline = getAgentInlineDisplayParts(agentA?.inlineParts ?? []);
       expect(agentACompactInline.map((part) => part.id)).toEqual(
@@ -221,9 +221,9 @@ describe("concurrent agent inline part isolation (integration)", () => {
 
       const agentBVerboseInline = getAgentInlineDisplayParts(agentB?.inlineParts ?? []);
       expect(agentBVerboseInline.some((part) => part.type === "reasoning")).toBe(true);
-      // text and tool parts are suppressed from inline display
-      expect(agentBVerboseInline.some((part) => part.type === "text")).toBe(false);
-      expect(agentBVerboseInline.some((part) => part.type === "tool")).toBe(false);
+      // text and tool parts remain visible in inline display
+      expect(agentBVerboseInline.some((part) => part.type === "text")).toBe(true);
+      expect(agentBVerboseInline.some((part) => part.type === "tool")).toBe(true);
 
       const agentBCompactInline = getAgentInlineDisplayParts(agentB?.inlineParts ?? []);
       expect(agentBCompactInline.map((part) => part.id)).toEqual(

@@ -34,7 +34,7 @@ export interface StreamResult {
  * to the underlying SDK session.
  */
 export interface StreamMessageOptions {
-  /** Sub-agent name for dispatch via SDK-native mechanisms. OpenCode uses AgentPartInput, Claude uses options.agent on query(). Copilot ignores this field. */
+  /** Sub-agent/agent name for provider-specific dispatch metadata (OpenCode AgentPartInput, Claude query agent option). */
   agent?: string;
   /** Marks this stream as @agent-only so completion can be finalized without SDK onComplete. */
   isAgentOnlyStream?: boolean;

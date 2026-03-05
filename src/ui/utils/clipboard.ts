@@ -2,8 +2,9 @@
  * Clipboard adapter modeled after OpenCode's terminal implementation.
  *
  * Strategy:
- * 1) Always emit OSC 52 (works over SSH/tmux-capable terminals)
- * 2) Also write to native OS clipboard command for local reliability
+ * 1) Always emit OSC 52 for terminals that support it
+ * 2) In tmux, prefer tmux's own clipboard command instead of passthrough
+ * 3) Also write to native OS clipboard command for local reliability
  */
 
 // ---------------------------------------------------------------------------
@@ -60,10 +61,7 @@ function writeOsc52(text: string): boolean {
   if (!process.stdout.isTTY) return false;
   try {
     const base64 = Buffer.from(text).toString("base64");
-    const osc52 = `\x1b]52;c;${base64}\x07`;
-    const passthrough = !!(process.env.TMUX || process.env.STY);
-    const sequence = passthrough ? `\x1bPtmux;\x1b${osc52}\x1b\\` : osc52;
-    process.stdout.write(sequence);
+    process.stdout.write(`\x1b]52;c;${base64}\x07`);
     return true;
   } catch {
     return false;
@@ -74,6 +72,17 @@ type NativeCopyMethod = (text: string) => boolean;
 type NativeReadMethod = () => string | undefined;
 
 function resolveNativeCopyMethod(): NativeCopyMethod | null {
+  // tmux's built-in clipboard command is more reliable than DCS passthrough:
+  // it does not depend on allow-passthrough and works with tmux's default
+  // clipboard model.
+  if (process.env.TMUX && Bun.which("tmux") !== null) {
+    return (text: string): boolean => spawnWithTextInput(["tmux", "load-buffer", "-w", "-"], text);
+  }
+
+  if (process.platform === "darwin" && Bun.which("pbcopy") !== null) {
+    return (text: string): boolean => spawnWithTextInput(["pbcopy"], text);
+  }
+
   if (process.platform === "darwin" && Bun.which("osascript") !== null) {
     return (text: string): boolean => {
       const escaped = text.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
@@ -107,10 +116,6 @@ function resolveNativeCopyMethod(): NativeCopyMethod | null {
         ],
         text,
       );
-  }
-
-  if (process.platform === "darwin" && Bun.which("pbcopy") !== null) {
-    return (text: string): boolean => spawnWithTextInput(["pbcopy"], text);
   }
 
   return null;

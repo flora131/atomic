@@ -541,6 +541,82 @@ describe("createRalphWorkflow - 3-Phase Flow", () => {
     expect(fixerCalled).toBe(false);
     expect(result.state.fixesApplied).toBe(false);
   });
+
+  test("falls back to raw review output when structured parse fails", async () => {
+    const mockResponses = new Map<
+      string,
+      (opts: SubagentSpawnOptions) => SubagentStreamResult
+    >();
+
+    mockResponses.set("planner", () => ({
+      agentId: "planner-1",
+      success: true,
+      output: JSON.stringify([
+        {
+          id: "#1",
+          content: "Task 1",
+          status: "pending",
+          activeForm: "Doing task 1",
+          blockedBy: [],
+        },
+      ]),
+      toolUses: 0,
+      durationMs: 10,
+    }));
+
+    mockResponses.set("worker", () => ({
+      agentId: "worker-1",
+      success: true,
+      output: "Completed task 1",
+      toolUses: 1,
+      durationMs: 20,
+    }));
+
+    const rawReview = "I found a correctness issue in edge-case handling. Please add guard clauses.";
+    mockResponses.set("reviewer", () => ({
+      agentId: "reviewer-1",
+      success: true,
+      output: rawReview,
+      toolUses: 1,
+      durationMs: 20,
+    }));
+
+    let fixerCalled = false;
+    let fixerTask = "";
+    mockResponses.set("debugger", (opts) => {
+      fixerCalled = true;
+      fixerTask = opts.task;
+      return {
+        agentId: "fixer-1",
+        success: true,
+        output: "Applied fallback fixes",
+        toolUses: 1,
+        durationMs: 40,
+      };
+    });
+
+    const workflow = createWorkflowWithMockBridge(mockResponses);
+
+    const initialState: Partial<RalphWorkflowState> = {
+      ...createRalphState("test-exec-raw-review", { yoloPrompt: "test prompt" }),
+      maxIterations: 10,
+      ralphSessionDir: "/tmp/test-session",
+    };
+
+    const result = await executeGraph(workflow, {
+      initialState,
+      executionId: "test-exec-raw-review",
+    });
+
+    expect(result.status).toBe("completed");
+    expect(result.state.reviewResult).toBeNull();
+    expect(result.state.rawReviewResult).toBe(rawReview);
+    expect(fixerCalled).toBe(true);
+    expect(fixerTask).toContain(rawReview);
+    expect(result.state.fixesApplied).toBe(true);
+    const reviewFixTask = result.state.tasks.find((task: any) => task.id === "#review-fix-1");
+    expect(reviewFixTask?.status).toBe("completed");
+  });
 });
 
 describe("createRalphWorkflow - Worker Loop", () => {

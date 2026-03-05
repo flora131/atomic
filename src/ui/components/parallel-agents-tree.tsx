@@ -7,17 +7,17 @@
  * Reference: Issue #4 - Add UI for visualizing parallel agents
  */
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import type { SyntaxStyle } from "@opentui/core";
 import { useTheme, getCatppuccinPalette } from "../theme.tsx";
 import { formatDuration as formatDurationObj, truncateText } from "../utils/format.ts";
 import { STATUS, TREE, CONNECTOR, MISC, ARROW } from "../constants/icons.ts";
 import { SPACING } from "../constants/spacing.ts";
 import { buildParallelAgentsHeaderHint } from "../utils/background-agent-tree-hints.ts";
-import type { Part, ToolPart } from "../parts/types.ts";
+import type { Part } from "../parts/types.ts";
 import { PART_REGISTRY } from "./parts/registry.tsx";
 import { AnimatedBlinkIndicator } from "./animated-blink-indicator.tsx";
-import { buildPartRenderKeys, getConsumedTaskToolCallIds } from "./parts/message-bubble-parts.tsx";
+import { buildPartRenderKeys } from "./parts/message-bubble-parts.tsx";
 
 // Re-export for backward compatibility
 export { truncateText };
@@ -87,6 +87,8 @@ export interface ParallelAgentsTreeProps {
   background?: boolean;
   /** Whether to show the expand/collapse keyboard hint (default: false) */
   showExpandHint?: boolean;
+  /** Optional callback fired once when an agent first renders as completed */
+  onAgentDoneRendered?: (marker: { agentId: string; timestampMs: number }) => void;
 }
 
 // ============================================================================
@@ -144,17 +146,10 @@ export const AGENT_COLORS: Record<string, string> = getAgentColors(true);
  */
 const SUB_STATUS_PAD = "   ";
 
-/**
- * Part types that should never be rendered inside the sub-agent tree.
- * Tool calls and text blocks are suppressed to keep the tree compact.
- */
-const SUPPRESSED_INLINE_PART_TYPES: ReadonlySet<Part["type"]> = new Set(["tool", "text"]);
-
 export function getAgentInlineDisplayParts(
   parts: ReadonlyArray<Part>,
 ): Part[] {
-  if (parts.length === 0) return [];
-  return parts.filter((p) => !SUPPRESSED_INLINE_PART_TYPES.has(p.type));
+  return [...parts];
 }
 
 export function buildAgentInlinePrefix(continuationPrefix: string): string {
@@ -318,12 +313,25 @@ export function deduplicateAgents(agents: ParallelAgent[]): ParallelAgent[] {
     : fallbackDeduped.agents;
 }
 
+function isTaskEquivalentToAgentName(agent: Pick<ParallelAgent, "task" | "name">): boolean {
+  return agent.task.trim().toLowerCase() === agent.name.trim().toLowerCase();
+}
+
 function mergeAgentPair(a: ParallelAgent, b: ParallelAgent): ParallelAgent {
   // Prefer the entry with a real task description
   const aHasTask = !isGenericSubagentTask(a.task);
   const bHasTask = !isGenericSubagentTask(b.task);
-  const primary = bHasTask && !aHasTask ? b : a;
+  let primary = bHasTask && !aHasTask ? b : a;
+  if (aHasTask && bHasTask) {
+    const aNameEquivalentTask = isTaskEquivalentToAgentName(a);
+    const bNameEquivalentTask = isTaskEquivalentToAgentName(b);
+    if (aNameEquivalentTask !== bNameEquivalentTask) {
+      primary = aNameEquivalentTask ? b : a;
+    }
+  }
   const secondary = primary === a ? b : a;
+  const primaryHasTask = !isGenericSubagentTask(primary.task);
+  const secondaryHasTask = !isGenericSubagentTask(secondary.task);
 
   // Take the higher-priority status
   const statusA = STATUS_PRIORITY[a.status] ?? 0;
@@ -334,7 +342,7 @@ function mergeAgentPair(a: ParallelAgent, b: ParallelAgent): ParallelAgent {
     ...primary,
     // Use the real subagentId if available (non-toolId format)
     id: primary.id.startsWith("tool_") ? secondary.id : primary.id,
-    task: aHasTask ? a.task : bHasTask ? b.task : primary.task,
+    task: primaryHasTask ? primary.task : secondaryHasTask ? secondary.task : primary.task,
     status: statusWinner.status,
     background: a.background || b.background,
     toolUses: Math.max(a.toolUses ?? 0, b.toolUses ?? 0) || undefined,
@@ -511,6 +519,59 @@ export function getBackgroundSubStatusText(agent: ParallelAgent): string {
   return `Running ${agent.name} in background…`;
 }
 
+function isSubagentDispatchToolName(toolName: string | undefined): boolean {
+  if (!toolName) return false;
+  const normalized = toolName.trim().toLowerCase();
+  return normalized === "task" || normalized === "agent" || normalized === "launch_agent";
+}
+
+export function shouldRenderAgentCurrentTool(
+  agent: Pick<ParallelAgent, "status" | "currentTool" | "toolUses">,
+): boolean {
+  const currentTool = agent.currentTool;
+  if (!currentTool) {
+    return false;
+  }
+
+  const toolUses = agent.toolUses ?? 0;
+  if (isSubagentDispatchToolName(currentTool) && toolUses <= 1) {
+    return false;
+  }
+
+  const isRunning = agent.status === "running" || agent.status === "pending";
+  if (isRunning) {
+    return toolUses > 0;
+  }
+
+  return true;
+}
+
+export function collectDoneRenderMarkers(
+  agents: ReadonlyArray<Pick<ParallelAgent, "id" | "status">>,
+  doneRenderedAgentIds: Set<string>,
+): string[] {
+  const visibleAgentIds = new Set(agents.map((agent) => agent.id));
+  for (const agentId of Array.from(doneRenderedAgentIds)) {
+    if (!visibleAgentIds.has(agentId)) {
+      doneRenderedAgentIds.delete(agentId);
+    }
+  }
+
+  const markers: string[] = [];
+  for (const agent of agents) {
+    if (agent.status === "completed") {
+      if (!doneRenderedAgentIds.has(agent.id)) {
+        doneRenderedAgentIds.add(agent.id);
+        markers.push(agent.id);
+      }
+      continue;
+    }
+    doneRenderedAgentIds.delete(agent.id);
+  }
+
+  return markers;
+}
+
 // ============================================================================
 // CLAUDE CODE COLOR CONSTANTS (ANSI 256 compatible)
 // ============================================================================
@@ -633,9 +694,7 @@ function AgentRow({ agent, isLast, compact, syntaxStyle, themeColors, nowMs }: A
   }
 
   // Current tool shown on separate line only during active execution
-  const showCurrentTool = Boolean(agent.currentTool) && (
-    isRunning ? ((agent.toolUses ?? 0) > 0) : true
-  );
+  const showCurrentTool = shouldRenderAgentCurrentTool(agent);
 
   const inlineParts = agent.inlineParts ?? [];
   const hasInlineParts = inlineParts.length > 0;
@@ -707,14 +766,8 @@ function AgentInlinePartsDisplay({
   const visibleParts = getAgentInlineDisplayParts(parts);
   if (visibleParts.length === 0) return null;
   const inlinePrefix = buildAgentInlinePrefix(continuationPrefix);
-  const consumedTaskIds = getConsumedTaskToolCallIds(visibleParts);
   const renderKeys = buildPartRenderKeys(visibleParts);
-  const renderQueue = visibleParts.flatMap((part, index) => {
-    if (part.type === "tool" && consumedTaskIds.has((part as ToolPart).toolCallId)) {
-      return [];
-    }
-    return [{ part, index }];
-  });
+  const renderQueue = visibleParts.map((part, index) => ({ part, index }));
 
   return (
     <box flexDirection="column">
@@ -773,9 +826,11 @@ export function ParallelAgentsTree({
   noTopMargin = false,
   background = false,
   showExpandHint = false,
+  onAgentDoneRendered,
 }: ParallelAgentsTreeProps): React.ReactNode {
   const { theme } = useTheme();
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const doneRenderedAgentIdsRef = useRef<Set<string>>(new Set());
   const hasActiveAgents = agents.some(
     (agent) => shouldAnimateAgentStatus(agent.status) || agent.status === "pending",
   );
@@ -787,6 +842,19 @@ export function ParallelAgentsTree({
     }, 1000);
     return () => clearInterval(interval);
   }, [hasActiveAgents]);
+
+  useEffect(() => {
+    if (!onAgentDoneRendered) return;
+    const markers = collectDoneRenderMarkers(
+      agents.slice(0, maxVisible),
+      doneRenderedAgentIdsRef.current,
+    );
+    if (markers.length === 0) return;
+    const timestampMs = Date.now();
+    for (const agentId of markers) {
+      onAgentDoneRendered({ agentId, timestampMs });
+    }
+  }, [agents, maxVisible, onAgentDoneRendered]);
 
   // Don't render if no agents
   if (agents.length === 0) {

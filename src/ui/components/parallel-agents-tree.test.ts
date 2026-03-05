@@ -2,12 +2,14 @@ import { describe, expect, test } from "bun:test";
 import {
   buildAgentHeaderLabel,
   buildAgentInlinePrefix,
+  collectDoneRenderMarkers,
   deduplicateAgents,
   getForegroundHeaderText,
   getAgentInlineDisplayParts,
   getAgentTaskLabel,
   getBackgroundSubStatusText,
   getStatusIndicatorColor,
+  shouldRenderAgentCurrentTool,
   shouldAnimateAgentStatus,
 } from "./parallel-agents-tree.tsx";
 import type { Part } from "../parts/types.ts";
@@ -84,6 +86,34 @@ describe("ParallelAgentsTree labeling", () => {
       ])
     ).toBe("Running 2 agents…");
   });
+
+  test("suppresses initial sub-agent dispatch tool rendering", () => {
+    expect(
+      shouldRenderAgentCurrentTool({
+        status: "running",
+        currentTool: "Task",
+        toolUses: 1,
+      })
+    ).toBe(false);
+
+    expect(
+      shouldRenderAgentCurrentTool({
+        status: "running",
+        currentTool: "agent",
+        toolUses: 1,
+      })
+    ).toBe(false);
+  });
+
+  test("keeps rendering real tool activity", () => {
+    expect(
+      shouldRenderAgentCurrentTool({
+        status: "running",
+        currentTool: "bash",
+        toolUses: 1,
+      })
+    ).toBe(true);
+  });
 });
 
 describe("deduplicateAgents", () => {
@@ -116,6 +146,27 @@ describe("deduplicateAgents", () => {
     expect(result[0]!.toolUses).toBe(7);
     expect(result[0]!.status).toBe("completed");
     expect(result[0]!.id).toBe("sub_1");
+  });
+
+  test("prefers Task description over agent-name task when deduplicating correlated rows", () => {
+    const agents: ParallelAgent[] = [
+      makeAgent({
+        id: "sub_1",
+        taskToolCallId: "tool_1",
+        name: "codebase-locator",
+        task: "codebase-locator",
+      }),
+      makeAgent({
+        id: "tool_1",
+        taskToolCallId: "tool_1",
+        name: "codebase-locator",
+        task: "Locate sub-agent tree label derivation",
+      }),
+    ];
+
+    const result = deduplicateAgents(agents);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.task).toBe("Locate sub-agent tree label derivation");
   });
 
   test("prefers non-tool_ id format", () => {
@@ -229,6 +280,7 @@ describe("deduplicateAgents", () => {
     const result = deduplicateAgents(agents);
     expect(result).toHaveLength(2);
   });
+
 });
 
 describe("getBackgroundSubStatusText", () => {
@@ -319,6 +371,60 @@ describe("buildParallelAgentsHeaderHint integration with ParallelAgent", () => {
   });
 });
 
+describe("collectDoneRenderMarkers", () => {
+  test("emits markers only once for completed agents until status changes", () => {
+    const emitted = new Set<string>();
+    const first = collectDoneRenderMarkers(
+      [
+        { id: "agent-1", status: "running" },
+        { id: "agent-2", status: "completed" },
+      ],
+      emitted,
+    );
+    expect(first).toEqual(["agent-2"]);
+
+    const second = collectDoneRenderMarkers(
+      [{ id: "agent-2", status: "completed" }],
+      emitted,
+    );
+    expect(second).toEqual([]);
+
+    const third = collectDoneRenderMarkers(
+      [{ id: "agent-2", status: "running" }],
+      emitted,
+    );
+    expect(third).toEqual([]);
+
+    const fourth = collectDoneRenderMarkers(
+      [{ id: "agent-2", status: "completed" }],
+      emitted,
+    );
+    expect(fourth).toEqual(["agent-2"]);
+  });
+
+  test("drops emitted ids when agents disappear from the tree", () => {
+    const emitted = new Set<string>(["agent-1"]);
+    const markers = collectDoneRenderMarkers(
+      [{ id: "agent-2", status: "completed" }],
+      emitted,
+    );
+    expect(markers).toEqual(["agent-2"]);
+    expect(emitted.has("agent-1")).toBe(false);
+  });
+
+  test("does not emit markers for completed agents hidden by visibility slicing", () => {
+    const emitted = new Set<string>();
+    const agents = [
+      { id: "agent-visible", status: "running" as const },
+      { id: "agent-hidden", status: "completed" as const },
+    ];
+
+    const markers = collectDoneRenderMarkers(agents.slice(0, 1), emitted);
+    expect(markers).toEqual([]);
+    expect(emitted.has("agent-hidden")).toBe(false);
+  });
+});
+
 describe("agent inline display helpers", () => {
   const expectedInlinePartTypes: Array<Part["type"]> = [
     "agent",
@@ -355,7 +461,7 @@ describe("agent inline display helpers", () => {
     expect(Object.keys(PART_REGISTRY).sort()).toEqual(expectedInlinePartTypes);
   });
 
-  test("suppresses tool and text parts from inline display", () => {
+  test("keeps tool and text parts in inline display", () => {
     const mixedParts: Part[] = [
       {
         id: "part-text",
@@ -383,15 +489,18 @@ describe("agent inline display helpers", () => {
       },
     ] as Part[];
     const result = getAgentInlineDisplayParts(mixedParts);
-    expect(result).toHaveLength(1);
-    expect(result[0]!.id).toBe("part-reasoning");
+    expect(result).toHaveLength(3);
+    expect(result.map((part) => part.id)).toEqual([
+      "part-text",
+      "part-tool",
+      "part-reasoning",
+    ]);
   });
 
-  test("filters out text and tool parts in inline display", () => {
+  test("returns inline parts without filtering", () => {
     const result = getAgentInlineDisplayParts(inlineParts);
-    // part-1 is "text" (suppressed), part-2 is "reasoning" (kept)
-    expect(result).toHaveLength(1);
-    expect(result.map((part) => part.id)).toEqual(["part-2"]);
+    expect(result).toHaveLength(2);
+    expect(result.map((part) => part.id)).toEqual(["part-1", "part-2"]);
     expect(result.every((part) => Boolean(PART_REGISTRY[part.type]))).toBe(true);
   });
 

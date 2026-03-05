@@ -404,7 +404,11 @@ export async function startChatUI(
    */
   async function handleStreamMessage(
     content: string,
-    options?: { agent?: string; skillCommand?: { name: string; args: string } }
+    options?: {
+      agent?: string;
+      skillCommand?: { name: string; args: string };
+      isAgentOnlyStream?: boolean;
+    }
   ): Promise<void> {
     const pendingAbort = state.pendingAbortPromise;
     if (pendingAbort) {
@@ -474,6 +478,8 @@ export async function startChatUI(
         messageId,
         abortSignal: state.streamAbortController?.signal,
         agent: options?.agent,
+        suppressSyntheticAgentLifecycle:
+          agentType === "claude" && options?.isAgentOnlyStream === true,
         knownAgentNames,
         skillCommand: options?.skillCommand,
       });

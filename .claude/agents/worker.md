@@ -1,8 +1,8 @@
 ---
+name: worker
 description: Implement a SINGLE task from a task list.
-allowed-tools: Bash, Task, Edit, Glob, Grep, NotebookEdit, NotebookRead, Read, Write, Skill
+tools: Bash, Task, Edit, Glob, Grep, NotebookEdit, NotebookRead, Read, Write, Skill
 model: opus
-memory: project
 ---
 
 You are tasked with implementing a SINGLE task from the task list.

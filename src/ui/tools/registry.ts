@@ -13,7 +13,6 @@ import {
   MAIN_CHAT_TOOL_PREVIEW_LIMITS,
   truncateToolText,
 } from "../utils/tool-preview-truncation.ts";
-import { normalizeMarkdownNewlines } from "../utils/format.ts";
 
 // ============================================================================
 // TYPES
@@ -852,88 +851,6 @@ export const mcpToolRenderer: ToolRenderer = {
 };
 
 // ============================================================================
-// TASK TOOL RESULT PARSING
-// ============================================================================
-
-/**
- * Extract the clean result text from a Task tool response.
- * The SDK may return the result in different formats:
- *
- * 1. Actual SDK format: { content: [{ type: "text", text: "..." }], totalDurationMs, ... }
- * 2. Documented TaskOutput: { result: "..." }
- * 3. Plain string
- *
- * Returns the extracted text and optional metadata.
- */
-export function parseTaskToolResult(output: unknown): {
-  text: string | undefined;
-  durationMs?: number;
-  toolUses?: number;
-  tokens?: number;
-  isAsync?: boolean;
-} {
-  const normalizeTaskText = (text: string): string | undefined => {
-    const normalized = normalizeMarkdownNewlines(text);
-    return normalized.length > 0 ? normalized : undefined;
-  };
-
-  if (output === undefined || output === null) {
-    return { text: undefined };
-  }
-
-  // Plain string result
-  if (typeof output === "string") {
-    // Try parsing as JSON first
-    try {
-      const parsed = JSON.parse(output);
-      return parseTaskToolResult(parsed);
-    } catch {
-      return { text: normalizeTaskText(output) };
-    }
-  }
-
-  if (typeof output !== "object") {
-    return { text: normalizeTaskText(String(output)) };
-  }
-
-  const obj = output as Record<string, unknown>;
-
-  // Detect async/background agent results (e.g. { isAsync: true, status: "async_launched" })
-  const isAsync = obj.isAsync === true || undefined;
-
-  // Format 1: Actual SDK response with content array
-  if (Array.isArray(obj.content)) {
-    const textBlock = (obj.content as Array<Record<string, unknown>>).find(
-      (b) => b.type === "text" && typeof b.text === "string"
-    );
-    const text = textBlock?.text as string | undefined;
-    return {
-      text: text ? normalizeTaskText(text) : undefined,
-      durationMs: typeof obj.totalDurationMs === "number" ? obj.totalDurationMs : undefined,
-      toolUses: typeof obj.totalToolUseCount === "number" ? obj.totalToolUseCount : undefined,
-      tokens: typeof obj.totalTokens === "number" ? obj.totalTokens : undefined,
-      isAsync,
-    };
-  }
-
-  // Format 2: Documented TaskOutput with result field
-  if (typeof obj.result === "string") {
-    return {
-      text: normalizeTaskText(obj.result),
-      durationMs: typeof obj.duration_ms === "number" ? obj.duration_ms : undefined,
-      isAsync,
-    };
-  }
-
-  // Fallback: try common text fields
-  if (typeof obj.text === "string") return { text: normalizeTaskText(obj.text), isAsync };
-  if (typeof obj.output === "string") return { text: normalizeTaskText(obj.output), isAsync };
-
-  // Last resort: stringify
-  return { text: normalizeTaskText(JSON.stringify(output, null, 2)), isAsync };
-}
-
-// ============================================================================
 // TASK TOOL RENDERER
 // ============================================================================
 
@@ -984,12 +901,14 @@ export const taskToolRenderer: ToolRenderer = {
       content.push(`Prompt: ${truncateToolText(prompt, TASK_FIELD_MAX_CHARS)}`);
     }
 
-    // Show clean result text (not raw JSON)
+    // Show output as emitted by the SDK (string or JSON).
     if (props.output !== undefined) {
-      const parsed = parseTaskToolResult(props.output);
-      if (parsed.text) {
+      const outputText = typeof props.output === "string"
+        ? props.output
+        : JSON.stringify(props.output, null, 2);
+      if (typeof outputText === "string" && outputText.trim().length > 0) {
         content.push("");
-        const lines = parsed.text.split("\n");
+        const lines = outputText.split("\n");
         const preview = lines
           .slice(0, TASK_OUTPUT_PREVIEW_LINES)
           .map((line) => truncateToolText(line, MAIN_CHAT_TOOL_PREVIEW_LIMITS.maxLineChars));

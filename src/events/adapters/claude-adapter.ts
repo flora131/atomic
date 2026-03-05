@@ -479,6 +479,23 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       );
 
       if (parentToolCallId) {
+        // If the parent tool is a task tool, route text to the sub-agent's
+        // inline parts instead of a (suppressed) tool partial result.
+        const subagentId = this.toolUseIdToSubagentId.get(parentToolCallId);
+        if (subagentId && delta.length > 0) {
+          this.bus.publish({
+            type: "stream.text.delta",
+            sessionId: this.sessionId,
+            runId,
+            timestamp: Date.now(),
+            data: {
+              delta,
+              messageId,
+              agentId: subagentId,
+            },
+          });
+          return;
+        }
         const context = this.activeSubagentToolsById.get(parentToolCallId);
         const event: BusEvent<"stream.tool.partial_result"> = {
           type: "stream.tool.partial_result",
@@ -596,6 +613,12 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       );
       const toolInput = this.asRecord(contentRecord.input ?? chunkRecord.input) ?? {};
       const toolId = this.resolveToolStartId(explicitToolId, runId, toolName);
+      const sdkCorrelationId = explicitToolId ?? toolId;
+      if (this.isTaskTool(toolName) && sdkCorrelationId) {
+        const metadata = this.extractTaskToolMetadata(toolInput);
+        this.taskToolMetadata.set(sdkCorrelationId, metadata);
+        this.recordPendingTaskToolCorrelationId(sdkCorrelationId);
+      }
       const inferredParentAgentId = this.resolveTaskOutputParentAgentId(toolName, toolInput)
         ?? this.resolveSoleActiveSubagentId()
         ?? this.resolveBackgroundAttributionFallbackAgentId()
@@ -624,7 +647,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
           toolId,
           toolName,
           toolInput,
-          sdkCorrelationId: explicitToolId ?? toolId,
+          sdkCorrelationId,
           ...(inferredParentAgentId ? { parentAgentId: inferredParentAgentId } : {}),
         },
       };
@@ -799,6 +822,12 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
         this.earlyToolEvents.set(parentToolUseId, queue);
       }
 
+      // Task tools are represented visually by the sub-agent tree
+      // (stream.agent.start/complete), not as standalone tool parts.
+      if (this.isTaskTool(toolName)) {
+        return;
+      }
+
       const busEvent: BusEvent<"stream.tool.start"> = {
         type: "stream.tool.start",
         sessionId: this.sessionId,
@@ -896,6 +925,12 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       // Update sub-agent tool tracker for tool count display
       if (attributedParentAgentId && this.subagentTracker?.hasAgent(attributedParentAgentId)) {
         this.subagentTracker.onToolComplete(attributedParentAgentId);
+      }
+
+      // Task tools are represented visually by the sub-agent tree
+      // (stream.agent.start/complete), not as standalone tool parts.
+      if (this.isTaskTool(toolName)) {
+        return;
       }
 
       const busEvent: BusEvent<"stream.tool.complete"> = {
@@ -1371,9 +1406,19 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
 
       const metadata = (sdkCorrelationId ? this.taskToolMetadata.get(sdkCorrelationId) : undefined)
         ?? (parentToolUseId ? this.taskToolMetadata.get(parentToolUseId) : undefined);
-      const effectiveTask = metadata?.description || data.task;
+      const metadataTaskDescription = this.asString(metadata?.description);
+      const subagentTaskDescription = this.asString(
+        dataRecord.description
+          ?? dataRecord.prompt
+          ?? dataRecord.taskDescription
+          ?? dataRecord.task_description
+          ?? dataRecord.title,
+      );
+      const effectiveTask = metadataTaskDescription
+        ?? subagentTaskDescription
+        ?? this.asString(data.task);
       const normalizedTask = isGenericSubagentTaskLabel(effectiveTask)
-        ? (this.asString(dataRecord.description) ?? effectiveTask)
+        ? (subagentTaskDescription ?? effectiveTask)
         : effectiveTask;
 
       const normalizedMetadata = normalizeAgentTaskMetadata(

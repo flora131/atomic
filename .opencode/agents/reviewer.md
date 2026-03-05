@@ -1,6 +1,6 @@
 ---
 description: Code reviewer for proposed code changes.
-mode: primary
+mode: subagent
 tools:
     write: false
     edit: false

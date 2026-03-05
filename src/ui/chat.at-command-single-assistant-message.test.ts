@@ -72,7 +72,7 @@ describe("@ command assistant message contract", () => {
 });
 
 describe("stale task placeholder filtering", () => {
-  test("hides stale assistant message that only contains sub-agent task tool parts", () => {
+  test("keeps stale assistant message that only contains sub-agent task tool parts", () => {
     const message = createMessage("assistant", "", false);
     message.parts = [
       {
@@ -86,7 +86,7 @@ describe("stale task placeholder filtering", () => {
       },
     ];
 
-    expect(shouldHideStaleSubagentToolPlaceholder(message, new Set())).toBe(true);
+    expect(shouldHideStaleSubagentToolPlaceholder(message, new Set())).toBe(false);
   });
 
   test("keeps active message ids visible", () => {

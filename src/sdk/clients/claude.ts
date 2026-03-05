@@ -144,6 +144,32 @@ function mapEventTypeToHookEvent(eventType: EventType): HookEvent | null {
     return mapping[eventType] ?? null;
 }
 
+const DEFAULT_SUBAGENT_TASK_LABEL = "sub-agent task";
+
+function isGenericSubagentTaskLabel(task: string | undefined): boolean {
+    const normalized = task?.trim().toLowerCase() ?? "";
+    return (
+        normalized.length === 0 ||
+        normalized === DEFAULT_SUBAGENT_TASK_LABEL ||
+        normalized === "subagent task"
+    );
+}
+
+function shouldPreferRecordedSubagentTask(args: {
+    taskFromHook: string | undefined;
+    agentType: string | undefined;
+}): boolean {
+    const hookTask = args.taskFromHook?.trim();
+    if (!hookTask) {
+        return true;
+    }
+    if (isGenericSubagentTaskLabel(hookTask)) {
+        return true;
+    }
+    const normalizedAgentType = args.agentType?.trim().toLowerCase();
+    return Boolean(normalizedAgentType && hookTask.toLowerCase() === normalizedAgentType);
+}
+
 /**
  * Extracts content from SDK message.
  *
@@ -1995,6 +2021,10 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                 ? hookInput.task.trim()
                                 : undefined;
                     if (targetHookEvent === "SubagentStart") {
+                        const agentTypeFromHook =
+                            typeof hookInput.agent_type === "string"
+                                ? hookInput.agent_type.trim()
+                                : undefined;
                         const taskFromStartedMessage = resolvedToolUseId
                             ? this.taskDescriptionByToolUseId.get(
                                   resolvedToolUseId,
@@ -2009,11 +2039,18 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                   resolvedParentToolUseId,
                               )
                             : undefined;
+                        const taskFromRecordedMetadata =
+                            taskFromStartedMessage ?? taskFromParentToolUse;
                         const resolvedTask =
-                            taskFromHook && taskFromHook.length > 0
-                                ? taskFromHook
-                                : (taskFromStartedMessage ??
-                                  taskFromParentToolUse);
+                            taskFromRecordedMetadata &&
+                            shouldPreferRecordedSubagentTask({
+                                taskFromHook,
+                                agentType: agentTypeFromHook,
+                            })
+                                ? taskFromRecordedMetadata
+                                : taskFromHook && taskFromHook.length > 0
+                                  ? taskFromHook
+                                  : taskFromRecordedMetadata;
                         if (resolvedTask) {
                             eventData.task = resolvedTask;
                         }

@@ -1,6 +1,6 @@
 ---
 description: Implement a SINGLE task from a task list.
-mode: primary
+mode: subagent
 tools:
     write: true
     edit: true

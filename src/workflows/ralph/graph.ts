@@ -21,6 +21,7 @@ import {
   buildWorkerAssignment,
   buildReviewPrompt,
   buildFixSpecFromReview,
+  buildFixSpecFromRawReview,
   parseReviewResult,
   type TaskItem,
 } from "./prompts.ts";
@@ -380,21 +381,23 @@ export function createRalphWorkflow() {
           state.yoloPrompt ?? "",
           `${state.ralphSessionDir}/progress.txt`
         ),
-      outputMapper: (result, _state) => ({
-        reviewResult: parseReviewResult(result.output ?? "") ?? {
-          findings: [],
-          overall_correctness: "patch is correct",
-          overall_explanation: "No review output available",
-        },
-      }),
+      outputMapper: (result, _state) => {
+        const rawReviewResult = result.output ?? "";
+        return {
+          rawReviewResult,
+          reviewResult: parseReviewResult(rawReviewResult),
+        };
+      },
       name: "Reviewer",
       description: "Reviews completed work",
     })
     // oxlint-disable-next-line unicorn/no-thenable -- `then` is part of the IfConfig API
     .if({
       condition: (state) =>
-        state.reviewResult !== null &&
-        state.reviewResult.findings.length > 0,
+        (state.reviewResult !== null && state.reviewResult.findings.length > 0) ||
+        (state.reviewResult === null &&
+          typeof state.rawReviewResult === "string" &&
+          state.rawReviewResult.trim().length > 0),
       then: [
         toolNode<RalphWorkflowState, { findings: NonNullable<RalphWorkflowState["reviewResult"]>["findings"] }, TaskItem[]>({
           id: "prepare-fix-tasks",
@@ -422,7 +425,8 @@ export function createRalphWorkflow() {
             const taskIdentity = ctx.config.runtime?.taskIdentity;
 
             const review = ctx.state.reviewResult;
-            if (!review) {
+            const rawReviewResult = ctx.state.rawReviewResult?.trim() ?? "";
+            if (!review && rawReviewResult.length === 0) {
               return {
                 stateUpdate: {
                   fixesApplied: false,
@@ -430,11 +434,16 @@ export function createRalphWorkflow() {
               };
             }
 
-            const fixSpec = buildFixSpecFromReview(
-              review,
-              ctx.state.tasks,
-              ctx.state.yoloPrompt ?? "",
-            );
+            const fixSpec = review
+              ? buildFixSpecFromReview(
+                review,
+                ctx.state.tasks,
+                ctx.state.yoloPrompt ?? "",
+              )
+              : buildFixSpecFromRawReview(
+                rawReviewResult,
+                ctx.state.yoloPrompt ?? "",
+              );
             if (!fixSpec.trim()) {
               return {
                 stateUpdate: {

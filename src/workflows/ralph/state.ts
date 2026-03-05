@@ -58,6 +58,7 @@ export interface RalphWorkflowState {
   tasks: TaskItem[];
   currentTasks: TaskItem[];
   reviewResult: ReviewResult | null;
+  rawReviewResult: string | null;
   fixesApplied: boolean;
   featureList: Feature[];
   currentFeature: Feature | null;
@@ -91,6 +92,7 @@ export const RalphStateAnnotation = {
   tasks: annotation<TaskItem[]>([], mergeByIdReducer<TaskItem>("id")),
   currentTasks: annotation<TaskItem[]>([], (current: TaskItem[], update: TaskItem[]) => update),
   reviewResult: annotation<ReviewResult | null>(null),
+  rawReviewResult: annotation<string | null>(null),
   fixesApplied: annotation<boolean>(false),
 
   featureList: annotation<Feature[]>([], mergeByIdReducer<Feature>("description")),
@@ -139,6 +141,7 @@ export function createRalphState(
     tasks: options?.tasks ?? [],
     currentTasks: options?.currentTasks ?? [],
     reviewResult: options?.reviewResult ?? null,
+    rawReviewResult: options?.rawReviewResult ?? null,
     fixesApplied: options?.fixesApplied ?? false,
     ralphSessionId,
     ralphSessionDir: options?.ralphSessionDir ?? `${join(homedir(), ".atomic", "workflows", "sessions", ralphSessionId)}`,
@@ -193,6 +196,7 @@ export function isRalphWorkflowState(value: unknown): value is RalphWorkflowStat
     typeof obj.specApproved === "boolean" &&
     Array.isArray(obj.tasks) &&
     Array.isArray(obj.currentTasks) &&
+    (obj.rawReviewResult === null || typeof obj.rawReviewResult === "string") &&
     typeof obj.fixesApplied === "boolean" &&
     Array.isArray(obj.featureList) &&
     typeof obj.allFeaturesPassing === "boolean" &&

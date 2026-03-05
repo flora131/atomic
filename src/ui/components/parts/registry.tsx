@@ -19,7 +19,12 @@ import { CompactionPartDisplay } from "./compaction-part-display.tsx";
 import { TaskResultPartDisplay } from "./task-result-part-display.tsx";
 import { WorkflowStepPartDisplay } from "./workflow-step-part-display.tsx";
 
-export type PartRenderer = (props: { part: any; isLast: boolean; syntaxStyle?: SyntaxStyle }) => React.ReactNode;
+export type PartRenderer = (props: {
+  part: any;
+  isLast: boolean;
+  syntaxStyle?: SyntaxStyle;
+  onAgentDoneRendered?: (marker: { agentId: string; timestampMs: number }) => void;
+}) => React.ReactNode;
 
 export const PART_REGISTRY: Record<Part["type"], PartRenderer> = {
   "text": TextPartDisplay,

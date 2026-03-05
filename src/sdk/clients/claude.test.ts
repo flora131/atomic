@@ -406,6 +406,95 @@ describe("ClaudeAgentClient observability and parity", () => {
     }
   });
 
+  test("prefers recorded task_started description over agent-type SubagentStart labels", async () => {
+    const client = new ClaudeAgentClient();
+    const seenTasks: string[] = [];
+
+    const unsubscribe = client.on("subagent.start", (event) => {
+      const data = event.data as { task?: string };
+      if (typeof data.task === "string") {
+        seenTasks.push(data.task);
+      }
+    });
+
+    try {
+      const privateClient = client as unknown as {
+        processMessage: (
+          sdkMessage: Record<string, unknown>,
+          sessionId: string,
+          state: {
+            sdkSessionId: string | null;
+            inputTokens: number;
+            outputTokens: number;
+            hasEmittedStreamingUsage: boolean;
+          },
+        ) => void;
+        registeredHooks: Record<
+          string,
+          Array<
+            (
+              input: Record<string, unknown>,
+              toolUseID: string | undefined,
+              options: { signal: AbortSignal },
+            ) => Promise<{ continue: boolean }>
+          >
+        >;
+        wrapQuery: (
+          queryInstance: null,
+          sessionId: string,
+          config: Record<string, unknown>,
+        ) => { destroy: () => Promise<void> };
+      };
+
+      const wrappedSession = privateClient.wrapQuery(
+        null,
+        "wrapped-session-id",
+        {},
+      );
+      const state = {
+        sdkSessionId: null,
+        inputTokens: 0,
+        outputTokens: 0,
+        hasEmittedStreamingUsage: false,
+      };
+
+      privateClient.processMessage(
+        {
+          type: "system",
+          subtype: "task_started",
+          tool_use_id: "parent-task-use-id",
+          description: "Investigate why sub-agent root labels regress",
+        },
+        "wrapped-session-id",
+        state,
+      );
+
+      const subagentStartHook = privateClient.registeredHooks.SubagentStart?.[0];
+      expect(subagentStartHook).toBeDefined();
+
+      await subagentStartHook?.(
+        {
+          session_id: "sdk-main-session",
+          agent_id: "agent-1",
+          agent_type: "debugger",
+          description: "debugger",
+          tool_use_id: "subagent-start-use-id",
+          parent_tool_use_id: "parent-task-use-id",
+        },
+        undefined,
+        { signal: new AbortController().signal },
+      );
+
+      expect(seenTasks).toEqual([
+        "Investigate why sub-agent root labels regress",
+      ]);
+
+      await wrappedSession.destroy();
+    } finally {
+      unsubscribe();
+    }
+  });
+
   test("emits skill.invoked from PreToolUse when Claude Skill tool runs", async () => {
     const client = new ClaudeAgentClient();
     const invocations: Array<{

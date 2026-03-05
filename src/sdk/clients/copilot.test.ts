@@ -78,6 +78,52 @@ describe("CopilotClient.getModelDisplayInfo", () => {
 });
 
 describe("CopilotClient abort support", () => {
+  test("creates sessions with append-mode additional instructions", async () => {
+    const mockSdkSession = {
+      sessionId: "test-session",
+      on: mock(() => () => {}),
+      send: mock(() => Promise.resolve()),
+      sendAndWait: mock(() => Promise.resolve({ data: { content: "test" } })),
+      destroy: mock(() => Promise.resolve()),
+      abort: mock(() => Promise.resolve()),
+    };
+
+    const mockCreateSession = mock(() => Promise.resolve(mockSdkSession));
+    const mockSdkClient = {
+      start: mock(() => Promise.resolve()),
+      stop: mock(() => Promise.resolve()),
+      createSession: mockCreateSession,
+      listModels: mock(() => Promise.resolve([
+        {
+          id: "test-model",
+          capabilities: {
+            limits: { max_context_window_tokens: 128000 },
+            supports: {},
+          },
+        },
+      ])),
+    };
+
+    const client = new CopilotClient({});
+    (client as any).sdkClient = mockSdkClient;
+    (client as any).isRunning = true;
+
+    await client.createSession({
+      sessionId: "test-session",
+      additionalInstructions: "Follow repository conventions.",
+    });
+
+    expect(mockCreateSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "test-session",
+        systemMessage: {
+          mode: "append",
+          content: "Follow repository conventions.",
+        },
+      }),
+    );
+  });
+
   test("exposes abort method on wrapped session", async () => {
     // Create a mock SDK session with abort method
     const mockSdkSession = {

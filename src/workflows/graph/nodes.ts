@@ -26,7 +26,6 @@ import type {
   WorkflowToolContext,
 } from "./types.ts";
 import type { SessionConfig, AgentMessage, CodingAgentClient, Session, ContextUsage } from "../../sdk/types.ts";
-import { ENHANCED_SYSTEM_PROMPT } from "../../sdk/enhanced-system-prompt.ts";
 import { DEFAULT_RETRY_CONFIG, BACKGROUND_COMPACTION_THRESHOLD, BUFFER_EXHAUSTION_THRESHOLD } from "./types.ts";
 import type { z } from "zod";
 import { getToolRegistry } from "../../sdk/tools/registry.ts";
@@ -68,8 +67,8 @@ export interface AgentNodeConfig<TState extends BaseState = BaseState> {
   /** Type of agent to use */
   agentType: AgentNodeAgentType;
 
-  /** System prompt for the agent */
-  systemPrompt?: string;
+  /** Additional instructions for the agent's system prompt flow */
+  additionalInstructions?: string;
 
   /** Tools available to the agent */
   tools?: string[];
@@ -135,7 +134,7 @@ export const AGENT_NODE_RETRY_CONFIG: RetryConfig = {
  * const researchNode = agentNode<MyState>({
  *   id: "research",
  *   agentType: "claude",
- *   systemPrompt: "You are a research assistant...",
+ *   additionalInstructions: "You are a research assistant...",
  *   buildMessage: (state) => `Research: ${state.topic}`,
  *   outputMapper: (messages, state) => ({
  *     researchDoc: messages.map(m => m.content).join("\n"),
@@ -149,7 +148,7 @@ export function agentNode<TState extends BaseState = BaseState>(
   const {
     id,
     agentType,
-    systemPrompt,
+    additionalInstructions,
     tools,
     outputMapper,
     sessionConfig,
@@ -179,7 +178,7 @@ export function agentNode<TState extends BaseState = BaseState>(
       const fullSessionConfig: SessionConfig = {
         ...sessionConfig,
         model: ctx.model ?? sessionConfig?.model,
-        systemPrompt: systemPrompt ?? sessionConfig?.systemPrompt ?? ENHANCED_SYSTEM_PROMPT,
+        additionalInstructions: additionalInstructions ?? sessionConfig?.additionalInstructions,
         tools: tools ?? sessionConfig?.tools,
       };
 
@@ -1625,8 +1624,6 @@ export interface SubagentNodeConfig<TState extends BaseState> {
    *  agents (e.g., "codebase-analyzer"), user-global, or project-local agents. */
   agentName: string;
   task: string | ((state: TState) => string);
-  /** Override the agent's system prompt. If omitted, SDK uses native config. */
-  systemPrompt?: string | ((state: TState) => string);
   model?: string;
   tools?: string[];
   outputMapper?: (result: SubagentStreamResult, state: TState) => Partial<TState>;
@@ -1681,15 +1678,10 @@ export function subagentNode<TState extends BaseState>(
         ? config.task(ctx.state)
         : config.task;
 
-      const systemPrompt = typeof config.systemPrompt === "function"
-        ? config.systemPrompt(ctx.state)
-        : config.systemPrompt;
-
       const result = await spawnSubagent({
         agentId: `${config.id}-${ctx.state.executionId}`,
         agentName: config.agentName,
         task,
-        systemPrompt,
         model: config.model ?? ctx.model,
         tools: config.tools,
       });
@@ -1725,7 +1717,6 @@ export interface ParallelSubagentNodeConfig<TState extends BaseState> {
   agents: Array<{
     agentName: string;
     task: string | ((state: TState) => string);
-    systemPrompt?: string;
     model?: string;
     tools?: string[];
   }>;
@@ -1774,7 +1765,6 @@ export function parallelSubagentNode<TState extends BaseState>(
         agentId: `${config.id}-${i}-${ctx.state.executionId}`,
         agentName: agent.agentName,
         task: typeof agent.task === "function" ? agent.task(ctx.state) : agent.task,
-        systemPrompt: agent.systemPrompt,
         model: agent.model ?? ctx.model,
         tools: agent.tools,
       }));

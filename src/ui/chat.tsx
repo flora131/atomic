@@ -70,7 +70,6 @@ import {
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AskUserQuestionEventData } from "../workflows/graph/index.ts";
-import { ENHANCED_SYSTEM_PROMPT } from "../sdk/enhanced-system-prompt.ts";
 import type { AgentType, ModelOperations } from "../models";
 import type {
   McpServerConfig,
@@ -6380,7 +6379,6 @@ export function ChatApp({
 
           try {
             const sessionConfig: import("../sdk/types.ts").SessionConfig = {};
-            sessionConfig.systemPrompt = options.systemPrompt ?? ENHANCED_SYSTEM_PROMPT;
             if (options.model) sessionConfig.model = options.model;
             if (options.tools) sessionConfig.tools = options.tools;
 

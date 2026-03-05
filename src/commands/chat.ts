@@ -695,7 +695,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
         model: effectiveModel,
         reasoningEffort: resolvedReasoningEffort,
         mcpServers,
-        systemPrompt: ENHANCED_SYSTEM_PROMPT,
+        additionalInstructions: ENHANCED_SYSTEM_PROMPT,
       },
       theme: await getTheme(theme),
       title: `Chat - ${agentName}`,

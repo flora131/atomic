@@ -1215,8 +1215,8 @@ export class CopilotClient implements CodingAgentClient {
       ...(modelSupportsReasoning && config.reasoningEffort
         ? { reasoningEffort: config.reasoningEffort }
         : {}),
-      systemMessage: config.systemPrompt
-        ? { mode: "append", content: config.systemPrompt }
+      systemMessage: config.additionalInstructions
+        ? { mode: "append", content: config.additionalInstructions }
         : undefined,
       availableTools: config.tools,
       streaming: true,

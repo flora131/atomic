@@ -19,7 +19,7 @@ import {
 import { ThemeProvider, darkTheme, type Theme } from "./theme.tsx";
 import { AppErrorBoundary } from "./components/error-exit-screen.tsx";
 import { initTreeSitterAssets } from "./tree-sitter-assets.ts";
-import { initializeCommandsAsync, globalRegistry } from "./commands/index.ts";
+import { initializeCommandsAsync } from "./commands/index.ts";
 import { EventBusProvider } from "../events/event-bus-provider.tsx";
 import type {
   CodingAgentClient,
@@ -44,57 +44,6 @@ import { attachDebugSubscriber } from "../events/debug-subscriber.ts";
 import { cleanupMcpBridgeScripts } from "../sdk/tools/opencode-mcp-bridge.ts";
 
 const FLUSH_FRAME_MS = 16;
-
-/**
- * Build a system prompt section describing all registered capabilities.
- * Includes slash commands, skills, and sub-agents so the model is aware
- * of them and they count toward the system/tools token baseline.
- */
-function buildCapabilitiesSystemPrompt(): string {
-  const allCommands = globalRegistry.all();
-  if (allCommands.length === 0) return "";
-
-  const sections: string[] = [];
-
-  const builtins = allCommands.filter((c) => c.category === "builtin");
-  if (builtins.length > 0) {
-    const lines = builtins.map((c) => {
-      const hint = c.argumentHint ? ` ${c.argumentHint}` : "";
-      return `  /${c.name}${hint} - ${c.description}`;
-    });
-    sections.push(`Slash Commands:\n${lines.join("\n")}`);
-  }
-
-  const skills = allCommands.filter((c) => c.category === "skill");
-  if (skills.length > 0) {
-    const lines = skills.map((c) => {
-      const hint = c.argumentHint ? ` ${c.argumentHint}` : "";
-      return `  /${c.name}${hint} - ${c.description}`;
-    });
-    sections.push(
-      `Skills (invoke with /skill-name):\n${lines.join("\n")}\n\n` +
-        `Note: Skills listed above are user-invocable via slash commands. ` +
-        `To load a skill yourself, use the Skill tool instead of outputting a slash command.`,
-    );
-  }
-
-  const agents = allCommands.filter((c) => c.category === "agent");
-  if (agents.length > 0) {
-    const lines = agents.map((c) => {
-      const hint = c.argumentHint ? ` ${c.argumentHint}` : "";
-      return `  /${c.name}${hint} - ${c.description}`;
-    });
-    sections.push(`Sub-Agents (invoke with /agent-name):\n${lines.join("\n")}`);
-  }
-
-  const workflows = allCommands.filter((c) => c.category === "workflow");
-  if (workflows.length > 0) {
-    const lines = workflows.map((c) => `  /${c.name} - ${c.description}`);
-    sections.push(`Workflows:\n${lines.join("\n")}`);
-  }
-
-  return sections.join("\n\n");
-}
 
 // ============================================================================
 // TYPES
@@ -455,7 +404,7 @@ export async function startChatUI(
    */
   async function handleStreamMessage(
     content: string,
-    options?: { agent?: string }
+    options?: { agent?: string; skillCommand?: { name: string; args: string } }
   ): Promise<void> {
     const pendingAbort = state.pendingAbortPromise;
     if (pendingAbort) {
@@ -526,6 +475,7 @@ export async function startChatUI(
         abortSignal: state.streamAbortController?.signal,
         agent: options?.agent,
         knownAgentNames,
+        skillCommand: options?.skillCommand,
       });
 
       state.messageCount++;
@@ -653,19 +603,6 @@ export async function startChatUI(
       initializeCommandsAsync({ providerDiscoveryPlan }),
       clientStartPromise ?? Promise.resolve(),
     ]);
-
-    // Enhance session config with capabilities system prompt so the model
-    // knows about all available slash commands, skills, and sub-agents.
-    // This also ensures they count toward the system/tools token baseline.
-    const capabilitiesPrompt = buildCapabilitiesSystemPrompt();
-    if (capabilitiesPrompt) {
-      const existing = sessionConfig?.systemPrompt ?? "";
-      if (sessionConfig) {
-        sessionConfig.systemPrompt = existing
-          ? `${existing}\n\n${capabilitiesPrompt}`
-          : capabilitiesPrompt;
-      }
-    }
 
     // Ensure Tree-sitter WASM/SCM assets are embedded and reachable in
     // compiled binaries ($bunfs) before any renderer or <markdown> component

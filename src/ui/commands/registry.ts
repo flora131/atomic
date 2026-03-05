@@ -38,6 +38,8 @@ export interface StreamMessageOptions {
   agent?: string;
   /** Marks this stream as @agent-only so completion can be finalized without SDK onComplete. */
   isAgentOnlyStream?: boolean;
+  /** Structured skill/slash-command dispatch. When set, OpenCode uses session.command() instead of promptAsync(). */
+  skillCommand?: { name: string; args: string };
 }
 
 /**

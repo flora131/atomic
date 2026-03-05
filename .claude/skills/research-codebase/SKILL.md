@@ -16,7 +16,8 @@ The user's research question/request is: **$ARGUMENTS**
 
 - OPTIMIZE the user's research question request using your prompt-engineer skill and confirm that the your refined question captures the user's intent BEFORE proceeding using the `AskUserQuestion` tool.
 - After research is complete and the research artifact(s) are generated, provide an executive summary of the research and path to the research document(s) to the user, and ask if they have any follow-up questions or need clarification.
-  </EXTREMELY_IMPORTANT>
+
+</EXTREMELY_IMPORTANT>
 
 1. **Read any directly mentioned files first:**
     - If the user mentions specific files (tickets, docs, or other notes), read them FULLY first

@@ -15,6 +15,7 @@ export interface AgentPartDisplayProps {
   part: AgentPart;
   isLast: boolean;
   syntaxStyle?: SyntaxStyle;
+  onAgentDoneRendered?: (marker: { agentId: string; timestampMs: number }) => void;
 }
 
 export function getForegroundTreeAgents(
@@ -52,7 +53,7 @@ export function getAgentTreeDisplayMode(
   return "mixed";
 }
 
-function AgentPartDisplayInner({ part, syntaxStyle }: AgentPartDisplayProps): React.ReactNode {
+function AgentPartDisplayInner({ part, syntaxStyle, onAgentDoneRendered }: AgentPartDisplayProps): React.ReactNode {
   // Deduplicate before splitting so eager+real entries merge and
   // the `background` flag is preserved on the winner.
   const allAgents = useMemo(() => deduplicateAgents(part.agents), [part.agents]);
@@ -85,6 +86,7 @@ function AgentPartDisplayInner({ part, syntaxStyle }: AgentPartDisplayProps): Re
         background
         maxVisible={5}
         noTopMargin
+        onAgentDoneRendered={onAgentDoneRendered}
       />
     );
   }
@@ -98,12 +100,14 @@ function AgentPartDisplayInner({ part, syntaxStyle }: AgentPartDisplayProps): Re
           compact={!hasActiveAgents}
           maxVisible={5}
           noTopMargin
+          onAgentDoneRendered={onAgentDoneRendered}
         />
         <ParallelAgentsTree
           agents={backgroundAgents}
           syntaxStyle={syntaxStyle}
           background
           maxVisible={5}
+          onAgentDoneRendered={onAgentDoneRendered}
         />
       </box>
     );
@@ -116,6 +120,7 @@ function AgentPartDisplayInner({ part, syntaxStyle }: AgentPartDisplayProps): Re
       compact={!hasActiveAgents}
       maxVisible={5}
       noTopMargin
+      onAgentDoneRendered={onAgentDoneRendered}
     />
   );
 }
@@ -125,7 +130,8 @@ const MemoizedAgentPartDisplay = React.memo(
   (prev, next) =>
     prev.part === next.part
     && prev.syntaxStyle === next.syntaxStyle
-    && prev.isLast === next.isLast,
+    && prev.isLast === next.isLast
+    && prev.onAgentDoneRendered === next.onAgentDoneRendered,
 );
 
 MemoizedAgentPartDisplay.displayName = "AgentPartDisplay";

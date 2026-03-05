@@ -762,6 +762,126 @@ describe("applyStreamPartEvent", () => {
     }
   });
 
+  test("applies agent-terminal updates into reducer lane", () => {
+    let msg = createAssistantMessage();
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-start",
+      toolId: "task_1",
+      toolName: "Task",
+      input: { description: "Investigate" },
+    });
+    msg = applyStreamPartEvent(msg, {
+      type: "parallel-agents",
+      agents: [
+        {
+          id: "agent_1",
+          taskToolCallId: "task_1",
+          name: "researcher",
+          task: "Investigate",
+          status: "running",
+          startedAt: new Date().toISOString(),
+        },
+      ],
+      isLastMessage: true,
+    });
+
+    const next = applyStreamPartEvent(msg, {
+      type: "agent-terminal",
+      agentId: "agent_1",
+      status: "completed",
+      result: "sub-agent finished",
+    });
+
+    expect(next.parallelAgents?.[0]?.status).toBe("completed");
+    expect(next.parallelAgents?.[0]?.result).toBe("sub-agent finished");
+    const agentPart = next.parts?.find((part) => part.type === "agent");
+    expect(agentPart?.type).toBe("agent");
+    if (agentPart?.type === "agent") {
+      expect(agentPart.agents[0]?.status).toBe("completed");
+      expect(agentPart.agents[0]?.result).toBe("sub-agent finished");
+    }
+  });
+
+  test("keeps completed agent-terminal projection idempotent", () => {
+    let msg = createAssistantMessage();
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-start",
+      toolId: "task_1",
+      toolName: "Task",
+      input: { description: "Investigate" },
+    });
+    msg = applyStreamPartEvent(msg, {
+      type: "parallel-agents",
+      agents: [
+        {
+          id: "agent_1",
+          taskToolCallId: "task_1",
+          name: "researcher",
+          task: "Investigate",
+          status: "running",
+          startedAt: new Date().toISOString(),
+        },
+      ],
+      isLastMessage: true,
+    });
+
+    const projected = applyStreamPartEvent(msg, {
+      type: "agent-terminal",
+      agentId: "agent_1",
+      status: "completed",
+      result: "sub-agent finished",
+    });
+    const repeated = applyStreamPartEvent(projected, {
+      type: "agent-terminal",
+      agentId: "agent_1",
+      status: "completed",
+      result: "should be ignored",
+    });
+
+    expect(repeated).toBe(projected);
+    expect(repeated.parallelAgents?.[0]?.result).toBe("sub-agent finished");
+  });
+
+  test("keeps error agent-terminal projection idempotent", () => {
+    let msg = createAssistantMessage();
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-start",
+      toolId: "task_1",
+      toolName: "Task",
+      input: { description: "Investigate" },
+    });
+    msg = applyStreamPartEvent(msg, {
+      type: "parallel-agents",
+      agents: [
+        {
+          id: "agent_1",
+          taskToolCallId: "task_1",
+          name: "researcher",
+          task: "Investigate",
+          status: "running",
+          startedAt: new Date().toISOString(),
+        },
+      ],
+      isLastMessage: true,
+    });
+
+    const projected = applyStreamPartEvent(msg, {
+      type: "agent-terminal",
+      agentId: "agent_1",
+      status: "error",
+      error: "initial failure",
+    });
+    const repeated = applyStreamPartEvent(projected, {
+      type: "agent-terminal",
+      agentId: "agent_1",
+      status: "error",
+      error: "should be ignored",
+    });
+
+    expect(repeated).toBe(projected);
+    expect(repeated.parallelAgents?.[0]?.error).toBe("initial failure");
+  });
+
   test("routes agent thinking-meta into inlineParts", () => {
     let msg = createAssistantMessage();
     msg = applyStreamPartEvent(msg, {

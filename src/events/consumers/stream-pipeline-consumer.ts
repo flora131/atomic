@@ -254,6 +254,19 @@ export class StreamPipelineConsumer {
         return [{ type: "text-complete", runId: event.runId, fullText: data.fullText, messageId: data.messageId }];
       }
 
+      case "stream.agent.complete": {
+        const data = event.data as BusEventDataMap["stream.agent.complete"];
+        return [{
+          type: "agent-terminal",
+          runId: event.runId,
+          agentId: data.agentId,
+          status: data.success ? "completed" : "error",
+          ...(typeof data.result === "string" ? { result: data.result } : {}),
+          ...(typeof data.error === "string" ? { error: data.error } : {}),
+          completedAt: new Date(event.timestamp).toISOString(),
+        }];
+      }
+
       case "workflow.task.update": {
         const data = event.data as BusEventDataMap["workflow.task.update"];
         const mapped: StreamPartEvent[] = [{

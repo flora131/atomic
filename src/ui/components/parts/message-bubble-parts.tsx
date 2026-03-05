@@ -107,6 +107,7 @@ export function getConsumedTaskToolCallIds(parts: ReadonlyArray<Part>): Set<stri
 export interface MessageBubblePartsProps {
   message: ChatMessage;
   syntaxStyle?: SyntaxStyle;
+  onAgentDoneRendered?: (marker: { agentId: string; timestampMs: number }) => void;
 }
 
 function getReasoningSourceKey(part: Part): string {
@@ -156,7 +157,11 @@ export function buildPartRenderKeys(parts: ReadonlyArray<Part>): string[] {
  * to avoid double-spacing. Parts that need extra section-level
  * separation can add marginTop internally.
  */
-export function MessageBubbleParts({ message, syntaxStyle }: MessageBubblePartsProps): React.ReactNode {
+export function MessageBubbleParts({
+  message,
+  syntaxStyle,
+  onAgentDoneRendered,
+}: MessageBubblePartsProps): React.ReactNode {
   const parts = orderPartsForTaskOutputDisplay(message.parts ?? []);
   const renderKeys = buildPartRenderKeys(parts);
 
@@ -187,6 +192,7 @@ export function MessageBubbleParts({ message, syntaxStyle }: MessageBubblePartsP
             part={part}
             isLast={index === parts.length - 1}
             syntaxStyle={syntaxStyle}
+            onAgentDoneRendered={onAgentDoneRendered}
           />
         );
       })}

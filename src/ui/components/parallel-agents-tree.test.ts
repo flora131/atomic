@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildAgentHeaderLabel,
   buildAgentInlinePrefix,
+  collectDoneRenderMarkers,
   deduplicateAgents,
   getForegroundHeaderText,
   getAgentInlineDisplayParts,
@@ -367,6 +368,60 @@ describe("buildParallelAgentsHeaderHint integration with ParallelAgent", () => {
       makeAgent({ id: "fg-1", status: "completed" }),
     ];
     expect(buildParallelAgentsHeaderHint(agents, false)).toBe("");
+  });
+});
+
+describe("collectDoneRenderMarkers", () => {
+  test("emits markers only once for completed agents until status changes", () => {
+    const emitted = new Set<string>();
+    const first = collectDoneRenderMarkers(
+      [
+        { id: "agent-1", status: "running" },
+        { id: "agent-2", status: "completed" },
+      ],
+      emitted,
+    );
+    expect(first).toEqual(["agent-2"]);
+
+    const second = collectDoneRenderMarkers(
+      [{ id: "agent-2", status: "completed" }],
+      emitted,
+    );
+    expect(second).toEqual([]);
+
+    const third = collectDoneRenderMarkers(
+      [{ id: "agent-2", status: "running" }],
+      emitted,
+    );
+    expect(third).toEqual([]);
+
+    const fourth = collectDoneRenderMarkers(
+      [{ id: "agent-2", status: "completed" }],
+      emitted,
+    );
+    expect(fourth).toEqual(["agent-2"]);
+  });
+
+  test("drops emitted ids when agents disappear from the tree", () => {
+    const emitted = new Set<string>(["agent-1"]);
+    const markers = collectDoneRenderMarkers(
+      [{ id: "agent-2", status: "completed" }],
+      emitted,
+    );
+    expect(markers).toEqual(["agent-2"]);
+    expect(emitted.has("agent-1")).toBe(false);
+  });
+
+  test("does not emit markers for completed agents hidden by visibility slicing", () => {
+    const emitted = new Set<string>();
+    const agents = [
+      { id: "agent-visible", status: "running" as const },
+      { id: "agent-hidden", status: "completed" as const },
+    ];
+
+    const markers = collectDoneRenderMarkers(agents.slice(0, 1), emitted);
+    expect(markers).toEqual([]);
+    expect(emitted.has("agent-hidden")).toBe(false);
   });
 });
 

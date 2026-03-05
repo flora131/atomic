@@ -134,6 +134,18 @@ import {
   registerAgentLifecycleUpdate,
   type AgentLifecycleViolationCode,
 } from "./utils/agent-lifecycle-ledger.ts";
+import {
+  clearAgentOrderingState,
+  createAgentOrderingState,
+  hasDoneStateProjection,
+  pruneAgentOrderingState,
+  registerAgentCompletionSequence,
+  registerDoneStateProjection,
+  registerFirstPostCompleteDeltaSequence,
+  resetAgentOrderingForAgent,
+  type AgentOrderingEvent,
+  type DoneStateProjection,
+} from "./utils/agent-ordering-contract.ts";
 import { getNextKittyKeyboardDetectionState } from "./utils/kitty-keyboard-detection.ts";
 import {
   getEnqueueShortcutLabel,
@@ -193,6 +205,7 @@ import { useEventBusContext } from "../events/event-bus-provider.tsx";
 import type { EventBus } from "../events/event-bus.ts";
 import {
   incrementRuntimeParityCounter,
+  observeRuntimeParityHistogram,
   runtimeParityDebug,
 } from "../workflows/runtime-parity-observability.ts";
 import { pipelineError } from "../events/pipeline-logger.ts";
@@ -1326,6 +1339,8 @@ export interface MessageBubbleProps {
   collapsed?: boolean;
   /** Live streaming metadata (tokens, thinking duration) */
   streamingMeta?: StreamingMeta | null;
+  /** Optional callback for done-render diagnostics markers */
+  onAgentDoneRendered?: (marker: { messageId: string; agentId: string; timestampMs: number }) => void;
 }
 
 // ============================================================================
@@ -1505,6 +1520,34 @@ export function shouldFinalizeAgentOnlyStream(args: {
     && (args.liveAgentCount > 0 || args.messageAgentCount > 0);
 }
 
+export function shouldDeferPostCompleteDeltaUntilDoneProjection(args: {
+  completionSequence: number | undefined;
+  doneProjected: boolean;
+}): boolean {
+  return typeof args.completionSequence === "number" && !args.doneProjected;
+}
+
+export function queueAgentTerminalBeforeDeferredDeltas(args: {
+  messageId: string;
+  terminal: Extract<StreamPartEvent, { type: "agent-terminal" }>;
+  queueMessagePartUpdate: (messageId: string, update: StreamPartEvent) => void;
+  flushDeferredPostCompleteDeltas: (agentId: string) => void;
+}): void {
+  args.queueMessagePartUpdate(args.messageId, {
+    type: "agent-terminal",
+    runId: args.terminal.runId,
+    agentId: args.terminal.agentId,
+    status: args.terminal.status,
+    ...(args.terminal.result !== undefined ? { result: args.terminal.result } : {}),
+    ...(args.terminal.error !== undefined ? { error: args.terminal.error } : {}),
+    ...(args.terminal.completedAt !== undefined ? { completedAt: args.terminal.completedAt } : {}),
+  });
+
+  if (args.terminal.status === "completed") {
+    args.flushDeferredPostCompleteDeltas(args.terminal.agentId);
+  }
+}
+
 export function buildAgentContinuationPayload(args: {
   agents: readonly ParallelAgent[];
   fallbackText?: string;
@@ -1653,6 +1696,94 @@ export function emitContractFailureTerminationObservability(args: {
     eventType: args.eventType ?? "unknown",
     error: args.errorMessage,
     eventData: { reason: args.reason, code: args.code, agentId: args.agentId, provider },
+  });
+}
+
+type AgentOrderingScenario = "single" | "multi";
+
+export function emitAgentDoneProjectionObservability(args: {
+  provider?: string;
+  runId?: number;
+  event: AgentOrderingEvent;
+  projectionMode: DoneStateProjection["projectionMode"];
+  completionTimestampMs?: number;
+}): void {
+  const provider = args.provider ?? "unknown";
+  incrementRuntimeParityCounter("workflow.runtime.parity.agent_done_projection_total", {
+    provider,
+    mode: args.projectionMode,
+  });
+  if (typeof args.completionTimestampMs === "number") {
+    observeRuntimeParityHistogram(
+      "workflow.runtime.parity.agent_done_projection_latency_ms",
+      Math.max(0, args.event.timestampMs - args.completionTimestampMs),
+      {
+        provider,
+        mode: args.projectionMode,
+      },
+    );
+  }
+  runtimeParityDebug("agent_done_projection", {
+    provider,
+    runId: args.runId,
+    event: args.event,
+    projectionMode: args.projectionMode,
+    completionTimestampMs: args.completionTimestampMs,
+  });
+}
+
+export function emitAgentDoneRenderedObservability(args: {
+  provider?: string;
+  runId?: number;
+  event: AgentOrderingEvent;
+  completionTimestampMs?: number;
+  projectionMode?: DoneStateProjection["projectionMode"];
+}): void {
+  const provider = args.provider ?? "unknown";
+  incrementRuntimeParityCounter("workflow.runtime.parity.agent_done_rendered_total", {
+    provider,
+  });
+  if (typeof args.completionTimestampMs === "number") {
+    observeRuntimeParityHistogram(
+      "workflow.runtime.parity.agent_done_rendered_latency_ms",
+      Math.max(0, args.event.timestampMs - args.completionTimestampMs),
+      { provider },
+    );
+  }
+  runtimeParityDebug("agent_done_rendered", {
+    provider,
+    runId: args.runId,
+    event: args.event,
+    projectionMode: args.projectionMode,
+    completionTimestampMs: args.completionTimestampMs,
+  });
+}
+
+export function emitPostCompleteDeltaOrderingObservability(args: {
+  provider?: string;
+  runId?: number;
+  event: AgentOrderingEvent;
+  doneProjected: boolean;
+  scenario: AgentOrderingScenario;
+  projectionMode?: DoneStateProjection["projectionMode"];
+}): void {
+  const provider = args.provider ?? "unknown";
+  if (!args.doneProjected) {
+    incrementRuntimeParityCounter("workflow.runtime.parity.agent_post_complete_delta_before_done_total", {
+      provider,
+    });
+    incrementRuntimeParityCounter("workflow.runtime.parity.agent_ordering_contract_violation_total", {
+      provider,
+      scenario: args.scenario,
+    });
+  }
+  runtimeParityDebug("agent_post_complete_delta_ordering", {
+    provider,
+    runId: args.runId,
+    event: args.event,
+    doneProjected: args.doneProjected,
+    scenario: args.scenario,
+    projectionMode: args.projectionMode,
   });
 }
 
@@ -2164,6 +2295,7 @@ export function MessageBubble({
   elapsedMs,
   collapsed = false,
   streamingMeta,
+  onAgentDoneRendered,
 }: MessageBubbleProps): React.ReactNode {
   const themeColors = useThemeColors();
   const persistentTaskPanelSessionDir = isLast && showTodoPanel && workflowSessionDir
@@ -2270,7 +2402,17 @@ export function MessageBubble({
         paddingLeft={SPACING.CONTAINER_PAD}
         paddingRight={SPACING.CONTAINER_PAD}
       >
-        <MessageBubbleParts message={renderableMessage} syntaxStyle={syntaxStyle} />
+        <MessageBubbleParts
+          message={renderableMessage}
+          syntaxStyle={syntaxStyle}
+          onAgentDoneRendered={(marker) => {
+            onAgentDoneRendered?.({
+              messageId: message.id,
+              agentId: marker.agentId,
+              timestampMs: marker.timestampMs,
+            });
+          }}
+        />
 
         {/* Workflow persistent task list - pinned above streaming text in last message */}
         {persistentTaskPanelSessionDir && (
@@ -2617,6 +2759,19 @@ export function ChatApp({
   const agentMessageIdByIdRef = useRef<Map<string, string>>(new Map());
   // Tracks strict lifecycle ordering for each agent at runtime.
   const agentLifecycleLedgerRef = useRef(createAgentLifecycleLedger());
+  // Tracks ordering-contract state for sub-agent done projection diagnostics.
+  const agentOrderingStateRef = useRef(createAgentOrderingState());
+  // Captures latest stream.agent.complete ordering event for projection latency diagnostics.
+  const completionOrderingEventByAgentRef = useRef<Map<string, AgentOrderingEvent>>(new Map());
+  // Deduplicates done-render diagnostics per agent completion sequence.
+  const doneRenderedSequenceByAgentRef = useRef<Map<string, number>>(new Map());
+  // Buffers agent-scoped post-complete text deltas until done projection is visible.
+  const deferredPostCompleteDeltasByAgentRef = useRef<Map<string, Array<{
+    messageId: string;
+    runId?: number;
+    delta: string;
+    completionSequence: number;
+  }>>>(new Map());
   // State for input textarea scrollbar (shown only when input overflows)
   const [inputScrollbar, setInputScrollbar] = useState<InputScrollbarState>({
     visible: false,
@@ -2751,6 +2906,71 @@ export function ChatApp({
     backgroundAgentMessageIdRef.current = messageId;
     setAgentAnchorSyncVersion((version) => version + 1);
   }, []);
+
+  const trackProjectedAgentDoneStates = useCallback((agents: ReadonlyArray<ParallelAgent>) => {
+    for (const agent of agents) {
+      if (agent.status !== "completed") continue;
+      const sequence = agentLifecycleLedgerRef.current.get(agent.id)?.sequence ?? 0;
+      const didRecordProjection = registerDoneStateProjection(agentOrderingStateRef.current, {
+        agentId: agent.id,
+        sequence,
+        projectionMode: "effect",
+      });
+      if (!didRecordProjection) continue;
+      const completionEvent = completionOrderingEventByAgentRef.current.get(agent.id);
+      const projectionEvent: AgentOrderingEvent = {
+        sessionId: completionEvent?.sessionId ?? "unknown",
+        agentId: agent.id,
+        messageId:
+          completionEvent?.messageId
+          ?? agentMessageIdByIdRef.current.get(agent.id)
+          ?? streamingMessageIdRef.current
+          ?? lastStreamedMessageIdRef.current
+          ?? backgroundAgentMessageIdRef.current
+          ?? "",
+        type: "agent_done_projected",
+        sequence,
+        timestampMs: Date.now(),
+        source: "ui-effect",
+      };
+      emitAgentDoneProjectionObservability({
+        provider: agentType,
+        runId: activeStreamRunIdRef.current ?? undefined,
+        event: projectionEvent,
+        projectionMode: "effect",
+        completionTimestampMs: completionEvent?.timestampMs,
+      });
+    }
+  }, [agentType]);
+
+  const handleAgentDoneRendered = useCallback((marker: {
+    messageId: string;
+    agentId: string;
+    timestampMs: number;
+  }) => {
+    const sequence = agentOrderingStateRef.current.lastCompletionSequenceByAgent.get(marker.agentId) ?? 0;
+    if (doneRenderedSequenceByAgentRef.current.get(marker.agentId) === sequence) {
+      return;
+    }
+    doneRenderedSequenceByAgentRef.current.set(marker.agentId, sequence);
+    const completionEvent = completionOrderingEventByAgentRef.current.get(marker.agentId);
+    const renderEvent: AgentOrderingEvent = {
+      sessionId: completionEvent?.sessionId ?? "unknown",
+      agentId: marker.agentId,
+      messageId: marker.messageId,
+      type: "agent_done_rendered",
+      sequence,
+      timestampMs: marker.timestampMs,
+      source: "ui-effect",
+    };
+    emitAgentDoneRenderedObservability({
+      provider: agentType,
+      runId: activeStreamRunIdRef.current ?? undefined,
+      event: renderEvent,
+      completionTimestampMs: completionEvent?.timestampMs,
+      projectionMode: agentOrderingStateRef.current.projectionSourceByAgent.get(marker.agentId),
+    });
+  }, [agentType]);
 
   const resetLoadedSkillTracking = useCallback((options?: {
     resetSessionBinding?: boolean;
@@ -3857,6 +4077,68 @@ export function ChatApp({
       updatesByMessageId.set(messageId, [update]);
     };
 
+    const queuePostCompleteDeltaOrderingObservability = (args: {
+      agentId: string;
+      messageId: string;
+      completionSequence: number;
+      doneProjected: boolean;
+      projectionMode?: DoneStateProjection["projectionMode"];
+    }): void => {
+      const didRegisterFirstPostCompleteDelta = registerFirstPostCompleteDeltaSequence(
+        agentOrderingStateRef.current,
+        args.agentId,
+        args.completionSequence + 1,
+      );
+      if (!didRegisterFirstPostCompleteDelta) return;
+      const scenario: AgentOrderingScenario =
+        parallelAgentsRef.current.filter((agent) => !agent.background).length > 1 ? "multi" : "single";
+      const postCompleteDeltaEvent: AgentOrderingEvent = {
+        sessionId:
+          completionOrderingEventByAgentRef.current.get(args.agentId)?.sessionId
+          ?? "unknown",
+        agentId: args.agentId,
+        messageId:
+          args.messageId
+          || completionOrderingEventByAgentRef.current.get(args.agentId)?.messageId
+          || "",
+        type: "post_complete_delta_rendered",
+        sequence: args.completionSequence + 1,
+        timestampMs: Date.now(),
+        source: "wildcard-batch",
+      };
+      emitPostCompleteDeltaOrderingObservability({
+        provider: agentType,
+        runId: activeStreamRunIdRef.current ?? undefined,
+        event: postCompleteDeltaEvent,
+        doneProjected: args.doneProjected,
+        scenario,
+        projectionMode: args.projectionMode,
+      });
+    };
+
+    const flushDeferredPostCompleteDeltas = (agentId: string): void => {
+      const deferred = deferredPostCompleteDeltasByAgentRef.current.get(agentId);
+      if (!deferred || deferred.length === 0) return;
+      if (!hasDoneStateProjection(agentOrderingStateRef.current, agentId)) return;
+      deferredPostCompleteDeltasByAgentRef.current.delete(agentId);
+      const projectionMode = agentOrderingStateRef.current.projectionSourceByAgent.get(agentId);
+      for (const deferredPart of deferred) {
+        queuePostCompleteDeltaOrderingObservability({
+          agentId,
+          messageId: deferredPart.messageId,
+          completionSequence: deferredPart.completionSequence,
+          doneProjected: true,
+          projectionMode,
+        });
+        queueMessagePartUpdate(deferredPart.messageId, {
+          type: "text-delta",
+          runId: deferredPart.runId,
+          delta: deferredPart.delta,
+          agentId,
+        });
+      }
+    };
+
     for (const part of parts) {
       if (!shouldProcessStreamPartEvent({
         activeRunId: activeStreamRunIdRef.current,
@@ -3892,6 +4174,44 @@ export function ChatApp({
         });
         continue;
       }
+      if (part.type === "agent-terminal") {
+        const messageId = resolveAgentScopedMessageId(part.agentId);
+        if (!messageId) continue;
+        if (part.status === "completed") {
+          const sequence = agentLifecycleLedgerRef.current.get(part.agentId)?.sequence ?? 0;
+          const didRecordProjection = registerDoneStateProjection(agentOrderingStateRef.current, {
+            agentId: part.agentId,
+            sequence,
+            projectionMode: "sync-bridge",
+          });
+          if (didRecordProjection) {
+            const completionEvent = completionOrderingEventByAgentRef.current.get(part.agentId);
+            const projectionEvent: AgentOrderingEvent = {
+              sessionId: completionEvent?.sessionId ?? "unknown",
+              agentId: part.agentId,
+              messageId,
+              type: "agent_done_projected",
+              sequence,
+              timestampMs: Date.now(),
+              source: "sync-bridge",
+            };
+            emitAgentDoneProjectionObservability({
+              provider: agentType,
+              runId: activeStreamRunIdRef.current ?? undefined,
+              event: projectionEvent,
+              projectionMode: "sync-bridge",
+              completionTimestampMs: completionEvent?.timestampMs,
+            });
+          }
+        }
+        queueAgentTerminalBeforeDeferredDeltas({
+          messageId,
+          terminal: part,
+          queueMessagePartUpdate,
+          flushDeferredPostCompleteDeltas,
+        });
+        continue;
+      }
       if (part.type === "text-delta") {
         // For agent-scoped text, always process — sub-agents manage their own
         // stream lifecycle independently of the main chat stream state.
@@ -3906,6 +4226,34 @@ export function ChatApp({
         }
         if (hideStreamContentRef.current) continue;
         const messageId = resolveAgentScopedMessageId(part.agentId);
+        if (part.agentId) {
+          const completionSequence = agentOrderingStateRef.current.lastCompletionSequenceByAgent.get(part.agentId);
+          if (typeof completionSequence === "number") {
+            const doneProjected = hasDoneStateProjection(agentOrderingStateRef.current, part.agentId);
+            if (shouldDeferPostCompleteDeltaUntilDoneProjection({ completionSequence, doneProjected })) {
+              if (!messageId) continue;
+              const deferred = deferredPostCompleteDeltasByAgentRef.current.get(part.agentId) ?? [];
+              deferred.push({
+                messageId,
+                runId: part.runId,
+                delta: part.delta,
+                completionSequence,
+              });
+              deferredPostCompleteDeltasByAgentRef.current.set(part.agentId, deferred);
+              continue;
+            }
+            queuePostCompleteDeltaOrderingObservability({
+              agentId: part.agentId,
+              messageId:
+                messageId
+                ?? completionOrderingEventByAgentRef.current.get(part.agentId)?.messageId
+                ?? "",
+              completionSequence,
+              doneProjected,
+              projectionMode: agentOrderingStateRef.current.projectionSourceByAgent.get(part.agentId),
+            });
+          }
+        }
         if (!messageId) continue;
         queueMessagePartUpdate(messageId, {
           type: "text-delta",
@@ -4442,6 +4790,10 @@ export function ChatApp({
       });
       return;
     }
+    resetAgentOrderingForAgent(agentOrderingStateRef.current, data.agentId);
+    doneRenderedSequenceByAgentRef.current.delete(data.agentId);
+    completionOrderingEventByAgentRef.current.delete(data.agentId);
+    deferredPostCompleteDeltasByAgentRef.current.delete(data.agentId);
     const startedAt = new Date(event.timestamp).toISOString();
     const status: ParallelAgent["status"] = data.isBackground ? "background" : "running";
 
@@ -4619,6 +4971,38 @@ export function ChatApp({
       });
       return;
     }
+    if (data.success) {
+      registerAgentCompletionSequence(
+        agentOrderingStateRef.current,
+        data.agentId,
+        lifecycleTransition.entry.sequence,
+      );
+      const completionOrderingEvent: AgentOrderingEvent = {
+        sessionId: event.sessionId,
+        agentId: data.agentId,
+        messageId:
+          resolveAgentScopedMessageId(data.agentId)
+          ?? agentMessageIdByIdRef.current.get(data.agentId)
+          ?? streamingMessageIdRef.current
+          ?? lastStreamedMessageIdRef.current
+          ?? backgroundAgentMessageIdRef.current
+          ?? "",
+        type: "agent_complete_received",
+        sequence: lifecycleTransition.entry.sequence,
+        timestampMs: event.timestamp,
+        source: "typed-bus",
+      };
+      completionOrderingEventByAgentRef.current.set(data.agentId, completionOrderingEvent);
+      runtimeParityDebug("agent_complete_received", {
+        provider: agentType,
+        runId: event.runId,
+        event: completionOrderingEvent,
+      });
+    } else {
+      resetAgentOrderingForAgent(agentOrderingStateRef.current, data.agentId);
+      doneRenderedSequenceByAgentRef.current.delete(data.agentId);
+      completionOrderingEventByAgentRef.current.delete(data.agentId);
+    }
 
     // Check if the completing agent is a background agent before state update
     const completingAgent = parallelAgentsRef.current.find(a => a.id === data.agentId);
@@ -4685,6 +5069,10 @@ export function ChatApp({
       }
       backgroundProgressSnapshotRef.current.clear();
       agentLifecycleLedgerRef.current.clear();
+      clearAgentOrderingState(agentOrderingStateRef.current);
+      completionOrderingEventByAgentRef.current.clear();
+      doneRenderedSequenceByAgentRef.current.clear();
+      deferredPostCompleteDeltasByAgentRef.current.clear();
       pendingBackgroundUpdatesRef.current = [];
     };
   }, []);
@@ -4719,6 +5107,22 @@ export function ChatApp({
     for (const agentId of agentLifecycleLedgerRef.current.keys()) {
       if (!activeAgentIds.has(agentId)) {
         agentLifecycleLedgerRef.current.delete(agentId);
+      }
+    }
+    pruneAgentOrderingState(agentOrderingStateRef.current, activeAgentIds);
+    for (const agentId of Array.from(completionOrderingEventByAgentRef.current.keys())) {
+      if (!activeAgentIds.has(agentId)) {
+        completionOrderingEventByAgentRef.current.delete(agentId);
+      }
+    }
+    for (const agentId of Array.from(doneRenderedSequenceByAgentRef.current.keys())) {
+      if (!activeAgentIds.has(agentId)) {
+        doneRenderedSequenceByAgentRef.current.delete(agentId);
+      }
+    }
+    for (const agentId of Array.from(deferredPostCompleteDeltasByAgentRef.current.keys())) {
+      if (!activeAgentIds.has(agentId)) {
+        deferredPostCompleteDeltasByAgentRef.current.delete(agentId);
       }
     }
     clearDeferredCompletion();
@@ -5086,7 +5490,8 @@ export function ChatApp({
               // (they just finished in this stream)
               return existingAgentIds.has(agent.id);
             });
-            
+            trackProjectedAgentDoneStates(filteredAgents);
+
             return applyStreamPartEvent(msg, {
               type: "parallel-agents",
               agents: filteredAgents,
@@ -5110,6 +5515,7 @@ export function ChatApp({
               const mappedMessageId = agentMessageIdByIdRef.current.get(agent.id);
               return !mappedMessageId || mappedMessageId === lastMsgId;
             });
+            trackProjectedAgentDoneStates(filteredAgents);
             return applyStreamPartEvent(msg, {
               type: "parallel-agents",
               agents: filteredAgents,
@@ -5127,12 +5533,29 @@ export function ChatApp({
         const mappedMessageId = agentMessageIdByIdRef.current.get(agent.id);
         return !mappedMessageId || mappedMessageId === backgroundAgentMessageIdRef.current;
       });
+      trackProjectedAgentDoneStates(filteredAgents);
       applyBackgroundAgentUpdateRef.current(backgroundAgentMessageIdRef.current, filteredAgents);
     }
-  }, [parallelAgents, setMessagesWindowed, agentAnchorSyncVersion]);
+  }, [parallelAgents, setMessagesWindowed, agentAnchorSyncVersion, trackProjectedAgentDoneStates]);
 
   useEffect(() => {
     const activeAgentIds = new Set(parallelAgents.map((agent) => agent.id));
+    pruneAgentOrderingState(agentOrderingStateRef.current, activeAgentIds);
+    for (const agentId of Array.from(completionOrderingEventByAgentRef.current.keys())) {
+      if (!activeAgentIds.has(agentId)) {
+        completionOrderingEventByAgentRef.current.delete(agentId);
+      }
+    }
+    for (const agentId of Array.from(doneRenderedSequenceByAgentRef.current.keys())) {
+      if (!activeAgentIds.has(agentId)) {
+        doneRenderedSequenceByAgentRef.current.delete(agentId);
+      }
+    }
+    for (const agentId of Array.from(deferredPostCompleteDeltasByAgentRef.current.keys())) {
+      if (!activeAgentIds.has(agentId)) {
+        deferredPostCompleteDeltasByAgentRef.current.delete(agentId);
+      }
+    }
     for (const agentId of Array.from(agentMessageIdByIdRef.current.keys())) {
       if (!activeAgentIds.has(agentId)) {
         deleteAgentMessageBinding(agentId);
@@ -7998,6 +8421,7 @@ export function ChatApp({
           workflowSessionDir={workflowSessionDir}
           workflowActive={workflowState.workflowActive}
           showTodoPanel={showTodoPanel}
+          onAgentDoneRendered={handleAgentDoneRendered}
         />
         );
       })}

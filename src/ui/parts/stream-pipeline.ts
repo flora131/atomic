@@ -114,6 +114,16 @@ interface ParallelAgentsEvent {
   isLastMessage: boolean;
 }
 
+interface AgentTerminalEvent {
+  type: "agent-terminal";
+  runId?: number;
+  agentId: string;
+  status: "completed" | "error";
+  result?: string;
+  error?: string;
+  completedAt?: string;
+}
+
 interface TaskListUpdateEvent {
   type: "task-list-update";
   runId?: number;
@@ -170,6 +180,7 @@ export type StreamPartEvent =
   | HitlRequestEvent
   | HitlResponseEvent
   | ParallelAgentsEvent
+  | AgentTerminalEvent
   | TaskListUpdateEvent
   | WorkflowStepStartEvent
   | WorkflowStepCompleteEvent
@@ -711,6 +722,14 @@ function normalizeParallelAgents(agents: ParallelAgent[]): ParallelAgent[] {
   });
 
   return changed ? normalizedAgents : agents;
+}
+
+function hasCompletedAgentInParts(parts: Part[] | undefined, agentId: string): boolean {
+  if (!parts) return false;
+  return parts.some((part) =>
+    part.type === "agent"
+    && (part as AgentPart).agents.some((agent) => agent.id === agentId && agent.status === "completed")
+  );
 }
 
 export function shouldGroupSubagentTrees(
@@ -1287,6 +1306,78 @@ export function applyStreamPartEvent(
       for (const agent of normalizedAgents) {
         nextParts = drainBufferedEvents(nextParts, agent.id);
       }
+      const nextMessage: ChatMessage = {
+        ...message,
+        parallelAgents: normalizedAgents,
+        parts: nextParts,
+      };
+      return carryReasoningPartRegistry(message, nextMessage);
+    }
+
+    case "agent-terminal": {
+      if (event.status === "completed" && hasCompletedAgentInParts(message.parts, event.agentId)) {
+        return message;
+      }
+
+      const existingAgents = message.parallelAgents ?? [];
+      if (existingAgents.length === 0) {
+        return message;
+      }
+
+      const completedAtMs = event.completedAt ? new Date(event.completedAt).getTime() : Date.now();
+      const normalizedResult = typeof event.result === "string"
+        ? normalizeParallelAgentResult(event.result)
+        : undefined;
+      let changed = false;
+      const nextAgents = existingAgents.map((agent) => {
+        if (agent.id !== event.agentId) {
+          return agent;
+        }
+
+        if (agent.status === event.status && (agent.status === "completed" || agent.status === "error")) {
+          return agent;
+        }
+
+        const startedAtMs = new Date(agent.startedAt).getTime();
+        const nextDurationMs = Number.isFinite(startedAtMs) && Number.isFinite(completedAtMs)
+          ? Math.max(0, completedAtMs - startedAtMs)
+          : agent.durationMs;
+        const nextResult = normalizedResult ?? agent.result;
+        const nextError = event.status === "completed"
+          ? undefined
+          : (event.error ?? agent.error);
+        const hasChange = agent.status !== event.status
+          || agent.currentTool !== undefined
+          || nextResult !== agent.result
+          || nextError !== agent.error
+          || nextDurationMs !== agent.durationMs;
+
+        if (!hasChange) {
+          return agent;
+        }
+
+        changed = true;
+        return {
+          ...agent,
+          status: event.status,
+          currentTool: undefined,
+          ...(nextResult !== undefined ? { result: nextResult } : {}),
+          ...(event.status === "completed" ? { error: undefined } : { error: nextError }),
+          durationMs: nextDurationMs,
+        };
+      });
+
+      if (!changed) {
+        return message;
+      }
+
+      const normalizedAgents = normalizeParallelAgents(nextAgents);
+      const nextParts = mergeParallelAgentsIntoParts(
+        message.parts ?? [],
+        normalizedAgents,
+        message.timestamp,
+        shouldGroupSubagentTrees({ ...message, parallelAgents: normalizedAgents }, true),
+      );
       const nextMessage: ChatMessage = {
         ...message,
         parallelAgents: normalizedAgents,

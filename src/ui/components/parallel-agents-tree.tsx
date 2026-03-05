@@ -7,7 +7,7 @@
  * Reference: Issue #4 - Add UI for visualizing parallel agents
  */
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import type { SyntaxStyle } from "@opentui/core";
 import { useTheme, getCatppuccinPalette } from "../theme.tsx";
 import { formatDuration as formatDurationObj, truncateText } from "../utils/format.ts";
@@ -87,6 +87,8 @@ export interface ParallelAgentsTreeProps {
   background?: boolean;
   /** Whether to show the expand/collapse keyboard hint (default: false) */
   showExpandHint?: boolean;
+  /** Optional callback fired once when an agent first renders as completed */
+  onAgentDoneRendered?: (marker: { agentId: string; timestampMs: number }) => void;
 }
 
 // ============================================================================
@@ -551,6 +553,32 @@ export function shouldRenderAgentCurrentTool(
   return true;
 }
 
+export function collectDoneRenderMarkers(
+  agents: ReadonlyArray<Pick<ParallelAgent, "id" | "status">>,
+  doneRenderedAgentIds: Set<string>,
+): string[] {
+  const visibleAgentIds = new Set(agents.map((agent) => agent.id));
+  for (const agentId of Array.from(doneRenderedAgentIds)) {
+    if (!visibleAgentIds.has(agentId)) {
+      doneRenderedAgentIds.delete(agentId);
+    }
+  }
+
+  const markers: string[] = [];
+  for (const agent of agents) {
+    if (agent.status === "completed") {
+      if (!doneRenderedAgentIds.has(agent.id)) {
+        doneRenderedAgentIds.add(agent.id);
+        markers.push(agent.id);
+      }
+      continue;
+    }
+    doneRenderedAgentIds.delete(agent.id);
+  }
+
+  return markers;
+}
+
 // ============================================================================
 // CLAUDE CODE COLOR CONSTANTS (ANSI 256 compatible)
 // ============================================================================
@@ -811,9 +839,11 @@ export function ParallelAgentsTree({
   noTopMargin = false,
   background = false,
   showExpandHint = false,
+  onAgentDoneRendered,
 }: ParallelAgentsTreeProps): React.ReactNode {
   const { theme } = useTheme();
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const doneRenderedAgentIdsRef = useRef<Set<string>>(new Set());
   const hasActiveAgents = agents.some(
     (agent) => shouldAnimateAgentStatus(agent.status) || agent.status === "pending",
   );
@@ -825,6 +855,19 @@ export function ParallelAgentsTree({
     }, 1000);
     return () => clearInterval(interval);
   }, [hasActiveAgents]);
+
+  useEffect(() => {
+    if (!onAgentDoneRendered) return;
+    const markers = collectDoneRenderMarkers(
+      agents.slice(0, maxVisible),
+      doneRenderedAgentIdsRef.current,
+    );
+    if (markers.length === 0) return;
+    const timestampMs = Date.now();
+    for (const agentId of markers) {
+      onAgentDoneRendered({ agentId, timestampMs });
+    }
+  }, [agents, maxVisible, onAgentDoneRendered]);
 
   // Don't render if no agents
   if (agents.length === 0) {

@@ -461,6 +461,31 @@ describe("StreamPipelineConsumer", () => {
     });
   });
 
+  it("should map stream.agent.complete to agent-terminal event", () => {
+    const event: EnrichedBusEvent = {
+      type: "stream.agent.complete",
+      sessionId: "test",
+      runId: 1,
+      timestamp: Date.now(),
+      data: {
+        agentId: "agent_1",
+        success: true,
+        result: "done",
+      },
+    };
+
+    consumer.processBatch([event]);
+
+    expect(receivedEvents).toHaveLength(1);
+    expect(receivedEvents[0]).toMatchObject({
+      type: "agent-terminal",
+      runId: 1,
+      agentId: "agent_1",
+      status: "completed",
+      result: "done",
+    });
+  });
+
   it("should map workflow.step.start to workflow-step-start event", () => {
     const event: EnrichedBusEvent = {
       type: "workflow.step.start",

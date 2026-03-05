@@ -10,8 +10,10 @@ import {
   logActiveProviderDiscoveryPlan,
   prepareClaudeRuntimeForChat,
   prepareOpenCodeRuntimeConfigForChat,
+  resolveChatAdditionalInstructions,
   shouldAutoInitChat,
 } from "./chat.ts";
+import { ENHANCED_SYSTEM_PROMPT } from "../sdk/enhanced-system-prompt.ts";
 
 async function withTempDir(run: (dir: string) => Promise<void>): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), "atomic-chat-test-"));
@@ -374,4 +376,24 @@ test("prepareOpenCodeRuntimeConfigForChat rejects non-opencode discovery plans",
   ).rejects.toThrow(
     "OpenCode runtime prep requires an OpenCode discovery plan, received claude",
   );
+});
+
+test("resolveChatAdditionalInstructions defaults to the enhanced system prompt", () => {
+  expect(resolveChatAdditionalInstructions({})).toBe(ENHANCED_SYSTEM_PROMPT);
+});
+
+test("resolveChatAdditionalInstructions appends explicit text to the enhanced system prompt", () => {
+  expect(
+    resolveChatAdditionalInstructions({
+      additionalInstructions: "Use short answers.",
+    })
+  ).toBe(`${ENHANCED_SYSTEM_PROMPT}\n\nUse short answers.`);
+});
+
+test("resolveChatAdditionalInstructions ignores blank appended instructions", () => {
+  expect(
+    resolveChatAdditionalInstructions({
+      additionalInstructions: "   ",
+    })
+  ).toBe(ENHANCED_SYSTEM_PROMPT);
 });

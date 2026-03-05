@@ -62,6 +62,8 @@ export interface ChatCommandOptions {
   workflow?: boolean;
   /** Initial prompt to send on session start */
   initialPrompt?: string;
+  /** Extra instructions appended to the enhanced system prompt for the session */
+  additionalInstructions?: string;
 }
 
 // ============================================================================
@@ -527,6 +529,17 @@ function handleThemeCommand(args: string): { newTheme: "dark" | "light"; message
   return null;
 }
 
+export function resolveChatAdditionalInstructions(
+  options: Pick<ChatCommandOptions, "additionalInstructions">
+): string | undefined {
+  const trimmedAdditionalInstructions = options.additionalInstructions?.trim();
+  if (!trimmedAdditionalInstructions) {
+    return ENHANCED_SYSTEM_PROMPT;
+  }
+
+  return `${ENHANCED_SYSTEM_PROMPT}\n\n${trimmedAdditionalInstructions}`;
+}
+
 // ============================================================================
 // Chat Command Implementation
 // ============================================================================
@@ -544,6 +557,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     model,
     workflow = false,
     initialPrompt,
+    additionalInstructions,
   } = options;
 
   if (!agentType) {
@@ -590,6 +604,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   });
   logActiveProviderDiscoveryPlan(providerDiscoveryPlan, { projectRoot });
   const selectedScm = await getSelectedScm(projectRoot);
+  const resolvedAdditionalInstructions = resolveChatAdditionalInstructions({ additionalInstructions });
 
   // Parallelize independent config preparation steps
   const configPrepTasks: Promise<void>[] = [];
@@ -695,7 +710,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
         model: effectiveModel,
         reasoningEffort: resolvedReasoningEffort,
         mcpServers,
-        additionalInstructions: ENHANCED_SYSTEM_PROMPT,
+        additionalInstructions: resolvedAdditionalInstructions,
       },
       theme: await getTheme(theme),
       title: `Chat - ${agentName}`,

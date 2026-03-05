@@ -479,6 +479,23 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       );
 
       if (parentToolCallId) {
+        // If the parent tool is a task tool, route text to the sub-agent's
+        // inline parts instead of a (suppressed) tool partial result.
+        const subagentId = this.toolUseIdToSubagentId.get(parentToolCallId);
+        if (subagentId && delta.length > 0) {
+          this.bus.publish({
+            type: "stream.text.delta",
+            sessionId: this.sessionId,
+            runId,
+            timestamp: Date.now(),
+            data: {
+              delta,
+              messageId,
+              agentId: subagentId,
+            },
+          });
+          return;
+        }
         const context = this.activeSubagentToolsById.get(parentToolCallId);
         const event: BusEvent<"stream.tool.partial_result"> = {
           type: "stream.tool.partial_result",

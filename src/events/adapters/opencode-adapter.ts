@@ -190,7 +190,7 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     message: string,
     options: StreamAdapterOptions,
   ): Promise<void> {
-    const { runId, messageId, agent, runtimeFeatureFlags, abortSignal } = options;
+    const { runId, messageId, agent, runtimeFeatureFlags, abortSignal, skillCommand } = options;
 
     // Clean up any existing subscriptions from a previous startStreaming() call
     // to prevent subscription accumulation on re-entry without dispose()
@@ -474,7 +474,11 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
           : undefined;
 
         try {
-          await session.sendAsync(message, dispatchOptions);
+          if (skillCommand) {
+            await session.command!(skillCommand.name, skillCommand.args, dispatchOptions);
+          } else {
+            await session.sendAsync(message, dispatchOptions);
+          }
         } catch (error) {
           if (!isDispatchAbortError(error)) {
             throw error;

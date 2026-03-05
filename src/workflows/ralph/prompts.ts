@@ -322,6 +322,39 @@ ${review.overall_explanation}
     return fixSpec;
 }
 
+/** Build a fallback fix specification using raw reviewer output */
+export function buildFixSpecFromRawReview(
+    rawReviewResult: string,
+    userPrompt: string,
+): string {
+    const trimmed = rawReviewResult.trim();
+    if (trimmed.length === 0) {
+        return "";
+    }
+
+    return `# Review Fix Specification
+
+## Original Implementation
+
+${userPrompt}
+
+## Reviewer Output (Unparsed)
+
+The reviewer response could not be parsed as structured JSON. Treat the raw output below as authoritative review feedback and apply any actionable fixes.
+
+\`\`\`
+${trimmed}
+\`\`\`
+
+## Fix Guidelines
+
+- Extract concrete issues from the reviewer output and fix them.
+- Focus on correctness and minimal changes.
+- Run relevant tests after each fix to prevent regressions.
+- If any feedback is unclear or non-actionable, document the interpretation used.
+`;
+}
+
 // ============================================================================
 // REVIEW RESULT PARSING
 // ============================================================================

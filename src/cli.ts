@@ -87,6 +87,10 @@ export function createProgram() {
         .option("-w, --workflow", "Enable graph workflow mode", false)
         .option("-t, --theme <name>", "UI theme (dark, light)", "dark")
         .option("-m, --model <name>", "Model to use for the chat session")
+        .option(
+            "--additional-instructions <text>",
+            "Append additional instructions to the default chat system prompt",
+        )
         .argument(
             "[prompt...]",
             "Initial prompt to send (opens interactive session with prompt)",
@@ -99,6 +103,7 @@ Examples:
   $ atomic chat -a opencode                  Start chat with OpenCode
   $ atomic chat -a copilot --workflow        Start workflow-enabled chat with Copilot
   $ atomic chat --theme light                Start chat with light theme
+  $ atomic chat --additional-instructions "Be concise" "review this patch"
   $ atomic chat "fix the typecheck errors"   Start chat with an initial prompt
   $ atomic chat -a claude "refactor utils"   Start chat with agent and prompt
 
@@ -162,6 +167,7 @@ Slash Commands (in workflow mode):
                 theme: localOpts.theme as "dark" | "light",
                 model: localOpts.model,
                 initialPrompt: prompt,
+                additionalInstructions: localOpts.additionalInstructions,
             });
 
             process.exit(exitCode);

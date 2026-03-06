@@ -48,8 +48,6 @@ export interface StreamMessageOptions {
 export interface SpawnSubagentOptions {
   /** Display name for the sub-agent in the tree view (e.g., "codebase-analyzer") */
   name?: string;
-  /** System prompt for the sub-agent (omit to use the agent definition's prompt) */
-  systemPrompt?: string;
   /** Initial message/task for the sub-agent */
   message: string;
   /** Tools available to the sub-agent (inherits all if omitted) */

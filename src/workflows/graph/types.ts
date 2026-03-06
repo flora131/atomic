@@ -416,8 +416,6 @@ export interface SubagentSpawnOptions {
   agentName: string;
   /** Task description to send to the sub-agent */
   task: string;
-  /** Optional system prompt override */
-  systemPrompt?: string;
   /** Optional model override */
   model?: string;
   /** Optional tool restrictions */

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { contextMonitorNode, parallelNode, parallelSubagentNode } from "./nodes.ts";
+import { agentNode, contextMonitorNode, parallelNode, parallelSubagentNode } from "./nodes.ts";
 import type { BaseState, ContextWindowUsage, ExecutionContext, SubagentStreamResult } from "./types.ts";
-import type { ContextUsage, Session } from "../../sdk/types.ts";
+import type { CodingAgentClient, ContextUsage, Session, SessionConfig } from "../../sdk/types.ts";
 
 interface TestState extends BaseState {
   mapperSource?: string;
@@ -122,6 +122,61 @@ describe("parallelNode mapper standardization", () => {
 
     expect(metadata.outputMapper).toBe(merge);
     expect(metadata.merge).toBe(merge);
+  });
+});
+
+describe("agentNode session instructions", () => {
+  test("does not inject enhanced instructions by default", async () => {
+    const createSessionCalls: SessionConfig[] = [];
+    const session: Session = {
+      id: "ses_agent_node",
+      send: async () => ({ type: "text", content: "", role: "assistant" }),
+      stream: async function* () {
+        yield { type: "text", content: "done", role: "assistant" } as const;
+      },
+      summarize: async () => {},
+      getContextUsage: async () => ({
+        inputTokens: 1,
+        outputTokens: 1,
+        maxTokens: 100,
+        usagePercentage: 2,
+      }),
+      getSystemToolsTokens: () => 0,
+      destroy: async () => {},
+    };
+
+    const client: CodingAgentClient = {
+      agentType: "opencode",
+      createSession: async (config = {}) => {
+        createSessionCalls.push(config);
+        return session;
+      },
+      resumeSession: async () => null,
+      on: () => () => {},
+      registerTool: () => {},
+      start: async () => {},
+      stop: async () => {},
+      getModelDisplayInfo: async () => ({ model: "mock", tier: "mock" }),
+      getSystemToolsTokens: () => null,
+    };
+
+    const node = agentNode<TestState>({
+      id: "agent-node",
+      agentType: "opencode",
+      buildMessage: () => "Analyze repo state",
+    });
+
+    await node.execute(createContext({}, {
+      clientProvider: () => client,
+    }));
+
+    expect(createSessionCalls).toEqual([
+      {
+        model: undefined,
+        additionalInstructions: undefined,
+        tools: undefined,
+      },
+    ]);
   });
 });
 

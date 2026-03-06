@@ -104,8 +104,6 @@ export interface SubAgentConfig<TState extends BaseState> {
   agent: string;
   /** Task prompt — static string or state-derived function */
   task: string | ((state: TState) => string);
-  /** Override the agent's system prompt */
-  systemPrompt?: string | ((state: TState) => string);
   /** Model override */
   model?: string;
   /** Tool allowlist */
@@ -806,7 +804,6 @@ export class GraphBuilder<TState extends BaseState = BaseState> {
       id: config.id,
       agentName: config.agent,
       task: config.task,
-      systemPrompt: config.systemPrompt,
       model: config.model,
       tools: config.tools,
       outputMapper: config.outputMapper,

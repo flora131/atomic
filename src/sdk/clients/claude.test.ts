@@ -1203,7 +1203,7 @@ describe("ClaudeAgentClient permissions and options", () => {
     expect(options.systemPrompt).toEqual({ type: "preset", preset: "claude_code" });
 
     const withPrompt = privateClient.buildSdkOptions(
-      { systemPrompt: "Extra system guidance" },
+      { additionalInstructions: "Extra system guidance" },
       "session-v1",
     );
     expect(withPrompt.systemPrompt).toEqual({

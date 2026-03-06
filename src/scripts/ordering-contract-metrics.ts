@@ -161,7 +161,6 @@ async function replayScenario(runId: number, sessionId: string, agentIds: string
       provider: "claude",
       runId,
       doneProjected,
-      scenario,
       projectionMode: "sync-bridge",
       event,
     });
@@ -291,13 +290,9 @@ const doneProjectionKey = "workflow.runtime.parity.agent_done_projection_total{m
 const doneProjectionLatencyKey = "workflow.runtime.parity.agent_done_projection_latency_ms{mode=sync-bridge,provider=claude}";
 const doneRenderedKey = "workflow.runtime.parity.agent_done_rendered_total{provider=claude}";
 const doneRenderedLatencyKey = "workflow.runtime.parity.agent_done_rendered_latency_ms{provider=claude}";
-const violationSingleKey = "workflow.runtime.parity.agent_ordering_contract_violation_total{provider=claude,scenario=single}";
-const violationMultiKey = "workflow.runtime.parity.agent_ordering_contract_violation_total{provider=claude,scenario=multi}";
 
 const doneProjectionTotal = snapshot.counters[doneProjectionKey] ?? 0;
 const doneRenderedTotal = snapshot.counters[doneRenderedKey] ?? 0;
-const violationSingleTotal = snapshot.counters[violationSingleKey] ?? 0;
-const violationMultiTotal = snapshot.counters[violationMultiKey] ?? 0;
 const doneProjectionLatency = snapshot.histograms[doneProjectionLatencyKey] ?? [];
 const doneRenderedLatency = snapshot.histograms[doneRenderedLatencyKey] ?? [];
 
@@ -307,8 +302,6 @@ assertMetric(doneProjectionLatency.length === 3, "Expected one done projection l
 assertMetric(doneRenderedLatency.length === 3, "Expected one done-rendered latency sample per visible completed canary agent");
 assertMetric(doneProjectionLatency.every((sample) => sample >= 0), "Done projection latency samples must be non-negative");
 assertMetric(doneRenderedLatency.every((sample) => sample >= 0), "Done-rendered latency samples must be non-negative");
-assertMetric(violationSingleTotal === 0, "Expected zero single-scenario ordering violations");
-assertMetric(violationMultiTotal === 0, "Expected zero multi-scenario ordering violations");
 
 const report = {
   mode: process.env.ATOMIC_ORDERING_CONTRACT_CANARY === "1" ? "canary" : "ci",
@@ -316,8 +309,6 @@ const report = {
   counters: {
     doneProjectionTotal,
     doneRenderedTotal,
-    violationSingleTotal,
-    violationMultiTotal,
   },
   histograms: {
     doneProjectionLatency,

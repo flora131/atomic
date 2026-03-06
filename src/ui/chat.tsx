@@ -1569,72 +1569,10 @@ export function buildAgentContinuationPayload(args: {
   return null;
 }
 
-export function getAgentContinuationContractViolation(args: {
-  isAgentOnlyStream: boolean;
-  continuationPayload: string | null;
-}): string | null {
-  if (!args.isAgentOnlyStream || args.continuationPayload) {
-    return null;
-  }
-  return "Contract violation (INV-OUTPUT-001): missing @agent continuation input; turn terminated.";
-}
-
-export type ContractFailureTerminationReason =
-  | "agent_lifecycle_violation"
-  | "missing_agent_continuation"
-  | "compaction_terminal_error";
-
-const AGENT_OUT_OF_ORDER_VIOLATION_CODES = new Set<AgentLifecycleViolationCode>([
-  "OUT_OF_ORDER_EVENT",
-  "INVALID_TERMINAL_TRANSITION",
-]);
-
-export function emitAgentLifecycleContractObservability(args: {
-  provider?: string;
-  runId?: number;
-  code: AgentLifecycleViolationCode;
-  eventType: "stream.agent.start" | "stream.agent.update" | "stream.agent.complete";
-  agentId: string;
-  eventBus?: EventBus;
-}): void {
-  const provider = args.provider ?? "unknown";
-  incrementRuntimeParityCounter("workflow.runtime.parity.agent_lifecycle_contract_violation_total", {
-    provider,
-    code: args.code,
-    eventType: args.eventType,
-  });
-  if (AGENT_OUT_OF_ORDER_VIOLATION_CODES.has(args.code)) {
-    incrementRuntimeParityCounter("workflow.runtime.parity.agent_event_out_of_order_total", {
-      provider,
-      code: args.code,
-      eventType: args.eventType,
-    });
-  }
-  runtimeParityDebug("agent_lifecycle_contract_violation", {
-    provider,
-    runId: args.runId,
-    code: args.code,
-    eventType: args.eventType,
-    agentId: args.agentId,
-  });
-  pipelineError("EventBus", "agent_lifecycle_contract_violation", {
-    provider,
-    code: args.code,
-    eventType: args.eventType,
-    agentId: args.agentId,
-  });
-  args.eventBus?.reportError({
-    kind: "contract_violation",
-    eventType: args.eventType,
-    error: formatAgentLifecycleViolation(args),
-    eventData: { code: args.code, agentId: args.agentId, provider },
-  });
-}
-
 export function emitAgentMainContinuationObservability(args: {
   provider?: string;
   runId?: number;
-  result: "forwarded" | "missing";
+  result: "forwarded";
 }): void {
   const provider = args.provider ?? "unknown";
   incrementRuntimeParityCounter("workflow.runtime.parity.agent_result_main_continuation_total", {
@@ -1647,47 +1585,6 @@ export function emitAgentMainContinuationObservability(args: {
     result: args.result,
   });
 }
-
-export function emitContractFailureTerminationObservability(args: {
-  provider?: string;
-  runId?: number;
-  reason: ContractFailureTerminationReason;
-  errorMessage: string;
-  code?: string;
-  eventType?: "stream.agent.start" | "stream.agent.update" | "stream.agent.complete";
-  agentId?: string;
-  eventBus?: EventBus;
-}): void {
-  const provider = args.provider ?? "unknown";
-  incrementRuntimeParityCounter("workflow.runtime.parity.turn_terminated_due_to_contract_error_total", {
-    provider,
-    reason: args.reason,
-    code: args.code,
-  });
-  runtimeParityDebug("contract_failure_turn_terminated", {
-    provider,
-    runId: args.runId,
-    reason: args.reason,
-    code: args.code,
-    eventType: args.eventType,
-    agentId: args.agentId,
-    errorMessage: args.errorMessage,
-  });
-  pipelineError("EventBus", "contract_failure_turn_terminated", {
-    provider,
-    reason: args.reason,
-    code: args.code,
-    errorMessage: args.errorMessage,
-  });
-  args.eventBus?.reportError({
-    kind: "contract_violation",
-    eventType: args.eventType ?? "unknown",
-    error: args.errorMessage,
-    eventData: { reason: args.reason, code: args.code, agentId: args.agentId, provider },
-  });
-}
-
-type AgentOrderingScenario = "single" | "multi";
 
 export function emitAgentDoneProjectionObservability(args: {
   provider?: string;
@@ -1752,7 +1649,6 @@ export function emitPostCompleteDeltaOrderingObservability(args: {
   runId?: number;
   event: AgentOrderingEvent;
   doneProjected: boolean;
-  scenario: AgentOrderingScenario;
   projectionMode?: DoneStateProjection["projectionMode"];
 }): void {
   const provider = args.provider ?? "unknown";
@@ -1760,17 +1656,12 @@ export function emitPostCompleteDeltaOrderingObservability(args: {
     incrementRuntimeParityCounter("workflow.runtime.parity.agent_post_complete_delta_before_done_total", {
       provider,
     });
-    incrementRuntimeParityCounter("workflow.runtime.parity.agent_ordering_contract_violation_total", {
-      provider,
-      scenario: args.scenario,
-    });
   }
   runtimeParityDebug("agent_post_complete_delta_ordering", {
     provider,
     runId: args.runId,
     event: args.event,
     doneProjected: args.doneProjected,
-    scenario: args.scenario,
     projectionMode: args.projectionMode,
   });
 }
@@ -3479,28 +3370,12 @@ export function ChatApp({
     }
   }, [setMessagesWindowed, stopSharedStreamState, finalizeThinkingSourceTracking, continueQueuedConversation]);
 
-  const terminateStreamContractViolation = useCallback((args: {
-    errorMessage: string;
-    reason: ContractFailureTerminationReason;
-    code?: string;
-    eventType?: "stream.agent.start" | "stream.agent.update" | "stream.agent.complete";
-    agentId?: string;
-  }) => {
-    emitContractFailureTerminationObservability({
-      provider: agentType,
-      runId: activeStreamRunIdRef.current ?? undefined,
-      reason: args.reason,
-      errorMessage: args.errorMessage,
-      code: args.code,
-      eventType: args.eventType,
-      agentId: args.agentId,
-      eventBus,
-    });
+  const terminateStreamWithError = useCallback((errorMessage: string) => {
     stopSharedStreamState();
     finalizeThinkingSourceTracking();
     setMessagesWindowed((prev: ChatMessage[]) => [
       ...prev,
-      createMessage("system", `${STATUS.error} ${args.errorMessage}`),
+      createMessage("system", `${STATUS.error} ${errorMessage}`),
     ]);
 
     const resolver = streamCompletionResolverRef.current;
@@ -3512,29 +3387,15 @@ export function ChatApp({
     }
 
     continueQueuedConversation();
-  }, [agentType, eventBus, continueQueuedConversation, finalizeThinkingSourceTracking, setMessagesWindowed, stopSharedStreamState]);
+  }, [continueQueuedConversation, finalizeThinkingSourceTracking, setMessagesWindowed, stopSharedStreamState]);
 
   const terminateAgentLifecycleContractViolation = useCallback((args: {
     code: AgentLifecycleViolationCode;
     eventType: "stream.agent.start" | "stream.agent.update" | "stream.agent.complete";
     agentId: string;
   }) => {
-    emitAgentLifecycleContractObservability({
-      provider: agentType,
-      runId: activeStreamRunIdRef.current ?? undefined,
-      code: args.code,
-      eventType: args.eventType,
-      agentId: args.agentId,
-      eventBus,
-    });
-    terminateStreamContractViolation({
-      errorMessage: formatAgentLifecycleViolation(args),
-      reason: "agent_lifecycle_violation",
-      code: args.code,
-      eventType: args.eventType,
-      agentId: args.agentId,
-    });
-  }, [agentType, eventBus, terminateStreamContractViolation]);
+    terminateStreamWithError(formatAgentLifecycleViolation(args));
+  }, [terminateStreamWithError]);
 
   const enqueueShortcutLabel = useMemo(() => getEnqueueShortcutLabel(), []);
 
@@ -3923,10 +3784,6 @@ export function ChatApp({
         fallbackText: lastStreamingContentRef.current,
       })
       : null;
-    const continuationContractViolation = getAgentContinuationContractViolation({
-      isAgentOnlyStream: isAgentOnlyStreamRef.current,
-      continuationPayload: agentContinuationPayload,
-    });
     const remaining = getActiveBackgroundAgents(currentAgents);
     if (remaining.length > 0 && messageId) {
       setBackgroundAgentMessageId(messageId);
@@ -3984,19 +3841,6 @@ export function ChatApp({
     parallelAgentsRef.current = remaining;
     setParallelAgents(remaining);
 
-    if (continuationContractViolation) {
-      emitAgentMainContinuationObservability({
-        provider: agentType,
-        runId: activeStreamRunIdRef.current ?? undefined,
-        result: "missing",
-      });
-      terminateStreamContractViolation({
-        errorMessage: continuationContractViolation,
-        reason: "missing_agent_continuation",
-      });
-      return;
-    }
-
     const hasRemainingBg = remaining.length > 0;
     const resolver = streamCompletionResolverRef.current;
     if (resolver) {
@@ -4051,7 +3895,7 @@ export function ChatApp({
     finalizeThinkingSourceTracking({ preserveStreamingMeta: hasRemainingBg });
 
     continueQueuedConversation();
-  }, [agentType, continueQueuedConversation, finalizeThinkingSourceTracking, sendBackgroundMessageToAgent, setMessagesWindowed, setBackgroundAgentMessageId, setLastStreamedMessageId, stopSharedStreamState, terminateStreamContractViolation]);
+  }, [agentType, continueQueuedConversation, finalizeThinkingSourceTracking, sendBackgroundMessageToAgent, setMessagesWindowed, setBackgroundAgentMessageId, setLastStreamedMessageId, stopSharedStreamState]);
 
   const { resetConsumers, getCorrelationService } = useStreamConsumer((parts) => {
     const updatesByMessageId = new Map<string, StreamPartEvent[]>();
@@ -4078,8 +3922,6 @@ export function ChatApp({
         args.completionSequence + 1,
       );
       if (!didRegisterFirstPostCompleteDelta) return;
-      const scenario: AgentOrderingScenario =
-        parallelAgentsRef.current.filter((agent) => !agent.background).length > 1 ? "multi" : "single";
       const postCompleteDeltaEvent: AgentOrderingEvent = {
         sessionId:
           completionOrderingEventByAgentRef.current.get(args.agentId)?.sessionId
@@ -4099,7 +3941,6 @@ export function ChatApp({
         runId: activeStreamRunIdRef.current ?? undefined,
         event: postCompleteDeltaEvent,
         doneProjected: args.doneProjected,
-        scenario,
         projectionMode: args.projectionMode,
       });
     };
@@ -5624,10 +5465,6 @@ export function ChatApp({
         agents: finalizedAgents,
         fallbackText: lastStreamingContentRef.current,
       });
-      const continuationContractViolation = getAgentContinuationContractViolation({
-        isAgentOnlyStream: isAgentOnlyStreamRef.current,
-        continuationPayload: agentContinuationPayload,
-      });
 
       setMessagesWindowed((prev: ChatMessage[]) =>
         prev.map((msg: ChatMessage) =>
@@ -5646,21 +5483,6 @@ export function ChatApp({
       );
       // Keep background agents in live state for post-stream completion tracking
       const remainingBg = getActiveBackgroundAgents(parallelAgents);
-      if (continuationContractViolation) {
-        hideStreamContentRef.current = false;
-        setParallelAgents([]);
-        parallelAgentsRef.current = [];
-        emitAgentMainContinuationObservability({
-          provider: agentType,
-          runId: activeStreamRunIdRef.current ?? undefined,
-          result: "missing",
-        });
-        terminateStreamContractViolation({
-          errorMessage: continuationContractViolation,
-          reason: "missing_agent_continuation",
-        });
-        return;
-      }
       hideStreamContentRef.current = false;
       if (agentContinuationPayload) {
         emitAgentMainContinuationObservability({
@@ -5721,7 +5543,7 @@ export function ChatApp({
       // the SDK handleComplete callback, so we must dequeue here.
       continueQueuedConversation();
     }
-  }, [agentType, parallelAgents, continueQueuedConversation, toolCompletionVersion, messages, sendBackgroundMessageToAgent, setBackgroundAgentMessageId, stopSharedStreamState, finalizeThinkingSourceTracking, terminateStreamContractViolation]);
+  }, [agentType, parallelAgents, continueQueuedConversation, toolCompletionVersion, messages, sendBackgroundMessageToAgent, setBackgroundAgentMessageId, stopSharedStreamState, finalizeThinkingSourceTracking]);
 
   /**
    * Handle user answering a question from UserQuestionDialog.

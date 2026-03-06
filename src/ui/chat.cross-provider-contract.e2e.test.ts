@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import type { AgentType } from "../models";
 import {
   buildAgentContinuationPayload,
-  getAgentContinuationContractViolation,
   getAutoCompactionIndicatorState,
   mergeAgentTaskLabel,
   shouldFinalizeAgentOnlyStream,
@@ -62,10 +61,6 @@ function runProviderTurn(fixture: ProviderFixture) {
   const continuationPayload = buildAgentContinuationPayload({
     agents: [createAgent({ id: "fg-1", task: finalTask, result: "Auth guard analysis complete" })],
   });
-  const continuationViolation = getAgentContinuationContractViolation({
-    isAgentOnlyStream: true,
-    continuationPayload,
-  });
 
   const shouldFinalize = shouldFinalizeAgentOnlyStream({
     hasStreamingMessage: true,
@@ -82,14 +77,13 @@ function runProviderTurn(fixture: ProviderFixture) {
     ledgerEntry: ledger.get("agent-e2e-1"),
     finalTask,
     continuationPayload,
-    continuationViolation,
     shouldFinalize,
     compactionStart: getAutoCompactionIndicatorState("start"),
     compactionComplete: getAutoCompactionIndicatorState("complete", true),
   };
 }
 
-describe("chat strict contract cross-provider e2e parity", () => {
+describe("chat cross-provider e2e parity", () => {
   test.each(PROVIDERS)(
     "provider %s: successful agent-only turn preserves strict lifecycle and continuation parity",
     (provider) => {
@@ -107,45 +101,9 @@ describe("chat strict contract cross-provider e2e parity", () => {
       expect(result.continuationPayload).toBe(
         '[Sub-agent results]\n\nSub-agent "worker" result:\n\nAuth guard analysis complete',
       );
-      expect(result.continuationViolation).toBeNull();
       expect(result.shouldFinalize).toBe(true);
       expect(result.compactionStart).toEqual({ status: "running" });
       expect(result.compactionComplete).toEqual({ status: "completed" });
-    },
-  );
-
-  test.each(PROVIDERS)(
-    "provider %s: missing continuation input terminates agent-only turn with parity-stable contract error",
-    (provider) => {
-      const _providerContext = provider;
-      const continuationPayload = buildAgentContinuationPayload({
-        agents: [
-          createAgent({
-            id: "bg-1",
-            background: true,
-            result: "background only",
-          }),
-        ],
-        fallbackText: "   ",
-      });
-      const continuationViolation = getAgentContinuationContractViolation({
-        isAgentOnlyStream: true,
-        continuationPayload,
-      });
-      const compactionError = getAutoCompactionIndicatorState(
-        "complete",
-        false,
-        "compaction failed while finalizing",
-      );
-
-      expect(continuationPayload).toBeNull();
-      expect(continuationViolation).toBe(
-        "Contract violation (INV-OUTPUT-001): missing @agent continuation input; turn terminated.",
-      );
-      expect(compactionError).toEqual({
-        status: "error",
-        errorMessage: "compaction failed while finalizing",
-      });
     },
   );
 });

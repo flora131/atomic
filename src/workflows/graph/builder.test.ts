@@ -934,20 +934,6 @@ describe("GraphBuilder - .subagent() method", () => {
     expect(node?.type).toBe("agent");
   });
 
-  test("systemPrompt can be provided as string", () => {
-    const builder = graph<TestState>().subagent({
-      id: "custom-agent",
-      agent: "codebase-analyzer",
-      task: "Analyze",
-      systemPrompt: "Custom system prompt",
-    });
-
-    const compiled = builder.compile();
-    const node = compiled.nodes.get("custom-agent");
-
-    expect(node).toBeDefined();
-  });
-
   test("model and tools can be specified", () => {
     const builder = graph<TestState>().subagent({
       id: "restricted-agent",

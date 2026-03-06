@@ -487,6 +487,21 @@ type OpenCodeAgentPart = {
 };
 type OpenCodePromptPart = OpenCodeTextPart | OpenCodeAgentPart;
 
+function buildOpenCodePromptText(message: string, additionalInstructions?: string): string {
+  const trimmedInstructions = additionalInstructions?.trim();
+  if (!trimmedInstructions) {
+    return message;
+  }
+
+  return [
+    "<additional_instructions>",
+    trimmedInstructions,
+    "</additional_instructions>",
+    "",
+    message,
+  ].join("\n");
+}
+
 /**
  * Build an array of prompt parts for the OpenCode SDK's session.prompt() API.
  *
@@ -499,18 +514,27 @@ type OpenCodePromptPart = OpenCodeTextPart | OpenCodeAgentPart;
  *
  * @param message - The message text to send
  * @param agentName - Optional sub-agent name for dispatch via AgentPartInput
+ * @param additionalInstructions - Optional additive instructions for non-agent prompts
  * @returns An array of prompt parts (text and/or agent) for the SDK
  */
-function buildOpenCodePromptParts(message: string, agentName?: string): OpenCodePromptPart[] {
+function buildOpenCodePromptParts(
+  message: string,
+  agentName?: string,
+  additionalInstructions?: string,
+): OpenCodePromptPart[] {
+  const resolvedMessage = agentName
+    ? message
+    : buildOpenCodePromptText(message, additionalInstructions);
+
   if (!agentName) {
-    return [{ type: "text", text: message }];
+    return [{ type: "text", text: resolvedMessage }];
   }
 
   const parts: OpenCodePromptPart[] = [];
 
   // Add the task text first so the agent has context to work with
-  if (message.trim()) {
-    parts.push({ type: "text", text: message });
+  if (resolvedMessage.trim()) {
+    parts.push({ type: "text", text: resolvedMessage });
   }
 
   // AgentPartInput triggers the SDK's sub-agent dispatch
@@ -2349,8 +2373,7 @@ export class OpenCodeClient implements CodingAgentClient {
           directory: client.clientOptions.directory,
           agent: agentMode,
           model: client.activePromptModel ?? initialPromptModel,
-          system: config.systemPrompt || undefined,
-          parts: buildOpenCodePromptParts(message),
+          parts: buildOpenCodePromptParts(message, undefined, config.additionalInstructions),
         });
 
         if (result.error) {
@@ -2420,8 +2443,7 @@ export class OpenCodeClient implements CodingAgentClient {
             directory: client.clientOptions.directory,
             agent: agentMode,
             model: client.activePromptModel ?? initialPromptModel,
-            system: config.systemPrompt || undefined,
-            parts: buildOpenCodePromptParts(message, options?.agent),
+            parts: buildOpenCodePromptParts(message, options?.agent, config.additionalInstructions),
           },
           options?.abortSignal ? { signal: options.abortSignal } : undefined,
         );
@@ -2780,8 +2802,7 @@ export class OpenCodeClient implements CodingAgentClient {
                     directory: client.clientOptions.directory,
                     agent: agentMode,
                     model: client.activePromptModel ?? initialPromptModel,
-                    system: config.systemPrompt || undefined,
-                    parts: buildOpenCodePromptParts(promptMessage, options?.agent),
+                    parts: buildOpenCodePromptParts(promptMessage, options?.agent, config.additionalInstructions),
                   },
                   streamAbortSignal ? { signal: streamAbortSignal } : undefined,
                 );

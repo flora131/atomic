@@ -53,6 +53,118 @@ describe("resolveOpenCodeConfigDirEnv", () => {
   });
 });
 
+describe("OpenCode additional instruction routing", () => {
+  test("injects additional instructions into non-agent prompt parts without using system override", async () => {
+    const client = new OpenCodeClient();
+    const sessionId = "ses_prompt_additional_instructions";
+    let capturedParams: Record<string, unknown> | undefined;
+
+    (client as unknown as {
+      resolveModelContextWindow: (modelHint?: string) => Promise<number>;
+    }).resolveModelContextWindow = async () => 200_000;
+
+    (client as unknown as {
+      sdkClient: {
+        session: {
+          prompt: (params: Record<string, unknown>) => Promise<{
+            data?: {
+              info?: { tokens?: { input?: number; output?: number } };
+              parts?: Array<Record<string, unknown>>;
+            };
+          }>;
+        };
+      };
+    }).sdkClient = {
+      session: {
+        prompt: async (params) => {
+          capturedParams = params;
+          return {
+            data: {
+              info: {
+                tokens: { input: 1, output: 1 },
+              },
+              parts: [{ type: "text", text: "ok" }],
+            },
+          };
+        },
+      },
+    };
+
+    const session = await (client as unknown as {
+      wrapSession: (sid: string, config: Record<string, unknown>) => Promise<{
+        send: (message: string) => Promise<unknown>;
+      }>;
+    }).wrapSession(sessionId, {
+      additionalInstructions: "Follow repo conventions.",
+    });
+
+    await session.send("Fix the failing tests");
+
+    expect(capturedParams?.system).toBeUndefined();
+    expect(capturedParams?.parts).toEqual([
+      {
+        type: "text",
+        text: [
+          "<additional_instructions>",
+          "Follow repo conventions.",
+          "</additional_instructions>",
+          "",
+          "Fix the failing tests",
+        ].join("\n"),
+      },
+    ]);
+  });
+
+  test("does not inject additional instructions into agent-dispatch prompt parts", async () => {
+    const client = new OpenCodeClient();
+    const sessionId = "ses_agent_prompt_no_additional_instructions";
+    let capturedParams: Record<string, unknown> | undefined;
+
+    (client as unknown as {
+      resolveModelContextWindow: (modelHint?: string) => Promise<number>;
+    }).resolveModelContextWindow = async () => 200_000;
+
+    (client as unknown as {
+      sdkClient: {
+        session: {
+          promptAsync: (params: Record<string, unknown>) => Promise<void>;
+        };
+      };
+    }).sdkClient = {
+      session: {
+        promptAsync: async (params) => {
+          capturedParams = params;
+        },
+      },
+    };
+
+    const session = await (client as unknown as {
+      wrapSession: (sid: string, config: Record<string, unknown>) => Promise<{
+        sendAsync: (
+          message: string,
+          options?: { agent?: string; abortSignal?: AbortSignal },
+        ) => Promise<void>;
+      }>;
+    }).wrapSession(sessionId, {
+      additionalInstructions: "Follow repo conventions.",
+    });
+
+    await session.sendAsync("Investigate the auth flow", { agent: "worker" });
+
+    expect(capturedParams?.system).toBeUndefined();
+    expect(capturedParams?.parts).toEqual([
+      {
+        type: "text",
+        text: "Investigate the auth flow",
+      },
+      {
+        type: "agent",
+        name: "worker",
+      },
+    ]);
+  });
+});
+
 describe("transitionOpenCodeCompactionControl", () => {
   test("applies bounded transitions through success path", () => {
     const started = transitionOpenCodeCompactionControl(

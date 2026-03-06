@@ -137,8 +137,8 @@ export interface SessionConfig {
   model?: string;
   /** Optional session ID for tracking/resumption */
   sessionId?: string;
-  /** System prompt to configure agent behavior */
-  systemPrompt?: string;
+  /** Additional instructions merged into the provider's system prompt flow */
+  additionalInstructions?: string;
   /** Tools available to the agent during the session */
   tools?: string[];
   /** MCP servers to connect for extended capabilities */

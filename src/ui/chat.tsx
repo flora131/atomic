@@ -6379,7 +6379,6 @@ export function ChatApp({
 
           try {
             const sessionConfig: import("../sdk/types.ts").SessionConfig = {};
-            if (options.systemPrompt) sessionConfig.systemPrompt = options.systemPrompt;
             if (options.model) sessionConfig.model = options.model;
             if (options.tools) sessionConfig.tools = options.tools;
 

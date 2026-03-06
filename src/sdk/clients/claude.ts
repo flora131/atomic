@@ -583,11 +583,11 @@ export class ClaudeAgentClient implements CodingAgentClient {
             hooks: this.buildNativeHooks(),
             includePartialMessages: true,
             // Use Claude Code's built-in system prompt, appending custom instructions if provided
-            systemPrompt: config.systemPrompt
+            systemPrompt: config.additionalInstructions
                 ? {
                       type: "preset",
                       preset: "claude_code",
-                      append: config.systemPrompt,
+                      append: config.additionalInstructions,
                   }
                 : { type: "preset", preset: "claude_code" },
             // Explicitly set the path to Claude Code executable to prevent it from

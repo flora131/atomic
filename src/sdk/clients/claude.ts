@@ -360,6 +360,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
     };
     private pendingToolBySession = new Map<string, number>();
     private pendingSubagentBySession = new Map<string, number>();
+    private modelListReadsBySession = new Map<string, number>();
     /**
      * FIFO of wrapped session IDs awaiting first hook-session binding.
      * Enables deterministic SDK->wrapped session mapping when multiple
@@ -1361,6 +1362,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                     }
                     this.pendingToolBySession.delete(sessionId);
                     this.pendingSubagentBySession.delete(sessionId);
+                    this.modelListReadsBySession.delete(sessionId);
                     for (const [
                         toolUseId,
                         mappedSessionId,
@@ -2370,14 +2372,29 @@ export class ClaudeAgentClient implements CodingAgentClient {
             throw new Error("Client not started. Call start() first.");
         }
 
-        // Reuse an existing active session's query if available
-        for (const state of this.sessions.values()) {
+        // Reuse the active session query once, then force a fresh lookup for
+        // repeated /model runs so newly added models appear without restarting.
+        for (const [sessionId, state] of this.sessions.entries()) {
             if (!state.isClosed && state.query) {
-                return await state.query.supportedModels();
+                const readCount =
+                    this.modelListReadsBySession.get(sessionId) ?? 0;
+                this.modelListReadsBySession.set(sessionId, readCount + 1);
+
+                if (readCount === 0) {
+                    return await state.query.supportedModels();
+                }
+
+                return await this.fetchFreshSupportedModels();
             }
         }
 
-        // No active session — create a temporary query for model listing
+        return await this.fetchFreshSupportedModels();
+    }
+
+    private async fetchFreshSupportedModels(): Promise<
+        Array<{ value: string; displayName: string; description: string }>
+    > {
+        // No active session — create a temporary query for model listing.
         // Explicitly set Claude executable path so packaged binaries don't fall
         // back to Bun virtual FS resolution (/$bunfs/.../cli.js).
         const tempQuery = query({
@@ -2460,6 +2477,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
         this.sessions.clear();
         this.pendingToolBySession.clear();
         this.pendingSubagentBySession.clear();
+        this.modelListReadsBySession.clear();
         this.eventHandlers.clear();
     }
 

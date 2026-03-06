@@ -266,6 +266,36 @@ describe("Built-in Commands", () => {
             expect(result.message).toContain("openai");
         });
 
+        test("invalidates the cached model list before each /model invocation", async () => {
+            let invalidationCalls = 0;
+            let listCalls = 0;
+            const context = createMockContext({
+                modelOps: {
+                    invalidateModelCache: () => {
+                        invalidationCalls += 1;
+                    },
+                    listAvailableModels: async () => {
+                        listCalls += 1;
+                        return [
+                            {
+                                providerID: "anthropic",
+                                modelID: "claude-sonnet-4",
+                                name: "Claude Sonnet 4",
+                            },
+                        ];
+                    },
+                } as any,
+            });
+
+            const firstResult = await modelCommand.execute("list", context);
+            const secondResult = await modelCommand.execute("list", context);
+
+            expect(firstResult.success).toBe(true);
+            expect(secondResult.success).toBe(true);
+            expect(invalidationCalls).toBe(2);
+            expect(listCalls).toBe(2);
+        });
+
         test("filters models by provider", async () => {
             const mockModels = [
                 {

@@ -103,6 +103,12 @@ export interface ModelOperations {
   listAvailableModels(): Promise<Model[]>;
 
   /**
+   * Clear any cached model list so the next /model invocation refetches
+   * from the provider and picks up newly added models.
+   */
+  invalidateModelCache?(): void;
+
+  /**
    * Set the model to use for subsequent operations
    * @param model - Model identifier (format varies by agent type)
    * @returns Promise resolving to result indicating success and whether new session is required
@@ -133,6 +139,10 @@ type SdkSetModelFn = (
   model: string,
   options?: { reasoningEffort?: string }
 ) => Promise<void>;
+type ClaudeSdkListModelsFn = () => Promise<
+  Array<{ value: string; displayName: string; description: string }>
+>;
+type CopilotSdkListModelsFn = () => Promise<unknown[]>;
 
 /**
  * Unified implementation of model operations using SDKs as the source of truth
@@ -165,8 +175,9 @@ export class UnifiedModelOperations implements ModelOperations {
   constructor(
     private agentType: AgentType,
     private sdkSetModel?: SdkSetModelFn,
-    private sdkListModels?: () => Promise<Array<{ value: string; displayName: string; description: string }>>,
+    private sdkListModels?: ClaudeSdkListModelsFn,
     initialModel?: string,
+    private sdkListCopilotModels?: CopilotSdkListModelsFn,
   ) {
     this.currentModel = this.agentType === "claude" && initialModel
       ? normalizeClaudeModelInput(initialModel)
@@ -195,6 +206,10 @@ export class UnifiedModelOperations implements ModelOperations {
     }
     this.cachedModels = models;
     return models;
+  }
+
+  invalidateModelCache(): void {
+    this.cachedModels = null;
   }
 
   /**
@@ -266,6 +281,12 @@ export class UnifiedModelOperations implements ModelOperations {
    * @private
    */
   private async listModelsForCopilot(): Promise<Model[]> {
+    if (this.sdkListCopilotModels) {
+      const modelInfos = await this.sdkListCopilotModels();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return modelInfos.map((m: any) => fromCopilotModelInfo(m));
+    }
+
     // Dynamic import to avoid loading SDK when not needed
     const { CopilotClient } = await import('@github/copilot-sdk');
     const { getBundledCopilotCliPath, resolveCopilotSdkCliLaunch } = await import('../sdk/clients/index.ts');
@@ -409,9 +430,9 @@ export class UnifiedModelOperations implements ModelOperations {
       this.cachedModels = await this.listAvailableModels();
     }
 
-    const found = this.cachedModels.some(
+    const found = this.cachedModels?.some(
       m => m.id === model || m.modelID === model
-    );
+    ) ?? false;
     if (!found) {
       throw new Error(
         `Model '${model}' is not available. Use /model to see available models.`

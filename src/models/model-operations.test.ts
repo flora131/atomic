@@ -341,6 +341,38 @@ describe("UnifiedModelOperations - listAvailableModels with mocks", () => {
     );
   });
 
+  test("uses the injected Copilot model lister when provided", async () => {
+    let callCount = 0;
+    const ops = new UnifiedModelOperations(
+      "copilot",
+      undefined,
+      undefined,
+      undefined,
+      async () => {
+        callCount += 1;
+        return [
+          {
+            id: "gpt-5",
+            name: "GPT-5",
+            capabilities: {
+              supports: { reasoningEffort: true, tools: true },
+              limits: { max_context_window_tokens: 256000 },
+            },
+            supportedReasoningEfforts: ["low", "medium", "high"],
+            defaultReasoningEffort: "medium",
+          },
+        ];
+      }
+    );
+
+    const models = await ops.listAvailableModels();
+
+    expect(callCount).toBe(1);
+    expect(models).toHaveLength(1);
+    expect(models[0]?.id).toBe("github-copilot/gpt-5");
+    expect(models[0]?.modelID).toBe("gpt-5");
+  });
+
   test("returns only canonical models when SDK returns empty array", async () => {
     mockSdkListModels = async () => [];
     const ops = new UnifiedModelOperations("claude", undefined, mockSdkListModels);
@@ -603,6 +635,39 @@ describe("UnifiedModelOperations - edge cases", () => {
 
     // Both calls should succeed using the same cached data
     expect(ops.getPendingModel()).toBe("gpt-4o");
+  });
+
+  test("refetches models after cache invalidation", async () => {
+    const ops = new UnifiedModelOperations("copilot");
+    const firstModels = [
+      createMockModel({
+        id: "github-copilot/gpt-4o",
+        providerID: "github-copilot",
+        modelID: "gpt-4o",
+      }),
+    ];
+    const secondModels = [
+      createMockModel({
+        id: "github-copilot/gpt-5",
+        providerID: "github-copilot",
+        modelID: "gpt-5",
+      }),
+    ];
+    const listSpy = spyOn(ops, "listAvailableModels")
+      .mockResolvedValueOnce(firstModels)
+      .mockResolvedValueOnce(secondModels);
+
+    await ops.setModel("gpt-4o");
+    expect(listSpy).toHaveBeenCalledTimes(1);
+
+    ops.invalidateModelCache();
+
+    await expect(ops.setModel("gpt-5")).resolves.toEqual({
+      success: true,
+      requiresNewSession: true,
+    } satisfies SetModelResult);
+    expect(listSpy).toHaveBeenCalledTimes(2);
+    expect(ops.getPendingModel()).toBe("gpt-5");
   });
 });
 

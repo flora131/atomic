@@ -97,6 +97,55 @@ describe("ClaudeAgentClient.setActiveSessionModel", () => {
   });
 });
 
+describe("ClaudeAgentClient.listSupportedModels", () => {
+  test("uses the active session query once, then fetches fresh models on repeated calls", async () => {
+    const client = new ClaudeAgentClient();
+    (client as unknown as { isRunning: boolean }).isRunning = true;
+
+    let activeQueryCalls = 0;
+    let freshFetchCalls = 0;
+    const sessions = (client as unknown as { sessions: Map<string, unknown> }).sessions;
+    sessions.set("test-session", {
+      query: {
+        supportedModels: async () => {
+          activeQueryCalls += 1;
+          return [{ value: "sonnet", displayName: "Sonnet", description: "cached" }];
+        },
+      },
+      sessionId: "test-session",
+      sdkSessionId: null,
+      config: {},
+      inputTokens: 0,
+      outputTokens: 0,
+      isClosed: false,
+      contextWindow: null,
+      systemToolsBaseline: null,
+      hasEmittedStreamingUsage: false,
+      pendingAbortPromise: null,
+    });
+    (
+      client as unknown as {
+        fetchFreshSupportedModels: () => Promise<Array<{ value: string; displayName: string; description: string }>>;
+      }
+    ).fetchFreshSupportedModels = async () => {
+      freshFetchCalls += 1;
+      return [{ value: "claude-4-2", displayName: "Claude 4.2", description: "fresh" }];
+    };
+
+    const first = await client.listSupportedModels();
+    const second = await client.listSupportedModels();
+
+    expect(first).toEqual([
+      { value: "sonnet", displayName: "Sonnet", description: "cached" },
+    ]);
+    expect(second).toEqual([
+      { value: "claude-4-2", displayName: "Claude 4.2", description: "fresh" },
+    ]);
+    expect(activeQueryCalls).toBe(1);
+    expect(freshFetchCalls).toBe(1);
+  });
+});
+
 describe("extractMessageContent thinking source identity", () => {
   test("returns thinking content with provider-native block index source key", () => {
     const message = {

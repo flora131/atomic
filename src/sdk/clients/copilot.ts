@@ -33,7 +33,7 @@
  * - Event subscription tied to SDK session lifecycle
  */
 
-import { join, dirname } from "node:path";
+import { delimiter, dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -136,6 +136,13 @@ interface CopilotSessionState {
   /** In-flight abort lock to serialize stream/send after interrupt */
   pendingAbortPromise: Promise<void> | null;
 }
+
+type CopilotSdkModelRecord = Record<string, unknown> & {
+  id?: string;
+  name?: string;
+  defaultReasoningEffort?: unknown;
+  capabilities?: Record<string, unknown>;
+};
 
 const RECENT_EVENT_ID_WINDOW = 2048;
 
@@ -310,9 +317,77 @@ export class CopilotClient implements CodingAgentClient {
   private registeredTools: ToolDefinition[] = [];
   private permissionHandler: CopilotPermissionHandler | null = null;
   private isRunning = false;
+  private isExternalServer = false;
   private probeSystemToolsBaseline: number | null = null;
   private probePromise: Promise<void> | null = null;
   private knownAgentNames: string[] = [];
+
+  private createSdkClientInstance(options: SdkClientOptions): SdkCopilotClient {
+    return new SdkCopilotClient(options);
+  }
+
+  private async listSdkModelsFresh(): Promise<unknown[]> {
+    if (!this.sdkClient) {
+      throw new Error("Client not started. Call start() first.");
+    }
+
+    const rawSdkClient = this.sdkClient as unknown as {
+      connection?: {
+        sendRequest: (
+          method: string,
+          params: Record<string, never>
+        ) => Promise<{ models?: unknown[] }>;
+      };
+      modelsCache?: unknown[] | null;
+      listModels: () => Promise<unknown[]>;
+    };
+
+    rawSdkClient.modelsCache = null;
+
+    if (rawSdkClient.connection) {
+      const result = await rawSdkClient.connection.sendRequest("models.list", {});
+      const models = result.models;
+      if (Array.isArray(models)) {
+        rawSdkClient.modelsCache = models;
+        return models;
+      }
+    }
+
+    return await rawSdkClient.listModels();
+  }
+
+  private async listSdkModelsFromFreshClient(): Promise<unknown[]> {
+    const sdkOptions = await this.buildSdkOptions();
+    const tempClient = this.createSdkClientInstance(sdkOptions);
+
+    try {
+      await tempClient.start();
+      const rawTempClient = tempClient as unknown as {
+        connection?: {
+          sendRequest: (
+            method: string,
+            params: Record<string, never>
+          ) => Promise<{ models?: unknown[] }>;
+        };
+        listModels: () => Promise<unknown[]>;
+      };
+
+      if (rawTempClient.connection) {
+        const result = await rawTempClient.connection.sendRequest("models.list", {});
+        if (Array.isArray(result.models)) {
+          return result.models;
+        }
+      }
+
+      return await rawTempClient.listModels();
+    } finally {
+      try {
+        await tempClient.stop();
+      } catch {
+        // Best-effort cleanup for temporary model-discovery clients.
+      }
+    }
+  }
 
   /**
    * Create a new CopilotClient
@@ -320,6 +395,7 @@ export class CopilotClient implements CodingAgentClient {
    */
   constructor(options: CopilotClientOptions = {}) {
     this.clientOptions = options;
+    this.isExternalServer = options.connectionMode?.type === "cliUrl";
   }
 
   /**
@@ -345,7 +421,8 @@ export class CopilotClient implements CodingAgentClient {
     // When no explicit cliPath is provided, resolve runtime launch options
     // (Node host for .js, shim for standalone binaries when needed).
     if (!cliPath) {
-      const launch = await resolveCopilotSdkCliLaunch(await getBundledCopilotCliPath(), cliArgs);
+      const resolvedCliPath = await getBundledCopilotCliPath();
+      const launch = await resolveCopilotSdkCliLaunch(resolvedCliPath, cliArgs);
       cliPath = launch.cliPath;
       cliArgs.splice(0, cliArgs.length, ...launch.cliArgs);
     }
@@ -1185,10 +1262,10 @@ export class CopilotClient implements CodingAgentClient {
     let contextWindow: number | null = null;
     let modelSupportsReasoning = false;
     try {
-      const models = await this.sdkClient.listModels();
+      const models = await this.listSdkModelsFresh() as CopilotSdkModelRecord[];
       if (models?.length) {
         const matched = resolvedModel
-          ? models.find((m: { id?: string }) => m.id === resolvedModel)
+          ? models.find((m) => m.id === resolvedModel)
           : null;
         const targetModel = matched ?? models[0];
         const caps = (targetModel as unknown as Record<string, unknown>).capabilities as Record<string, unknown> | undefined;
@@ -1396,7 +1473,7 @@ export class CopilotClient implements CodingAgentClient {
 
     // Create SDK client with options
     const sdkOptions = await this.buildSdkOptions();
-    this.sdkClient = new SdkCopilotClient(sdkOptions);
+    this.sdkClient = this.createSdkClientInstance(sdkOptions);
 
     // Start the client
     await this.sdkClient.start();
@@ -1516,6 +1593,18 @@ export class CopilotClient implements CodingAgentClient {
     await this.sdkClient.deleteSession(sessionId);
   }
 
+  async listAvailableModels(): Promise<unknown[]> {
+    if (!this.isRunning || !this.sdkClient) {
+      throw new Error("Client not started. Call start() first.");
+    }
+
+    if (this.isExternalServer) {
+      return await this.listSdkModelsFresh();
+    }
+
+    return await this.listSdkModelsFromFreshClient();
+  }
+
   /**
    * Get model display information for UI rendering.
    * Queries the SDK's listModels() for authoritative model names.
@@ -1534,20 +1623,20 @@ export class CopilotClient implements CodingAgentClient {
     // Query SDK for model metadata - this is the authoritative source
     if (this.isRunning && this.sdkClient) {
       try {
-        const models = await this.sdkClient.listModels();
+        const models = await this.listSdkModelsFresh() as CopilotSdkModelRecord[];
         if (models?.length) {
           // If we have a hint, find the matching model by ID
           if (modelHint) {
             const hintModelId = stripProviderPrefix(modelHint);
-            const matched = models.find((m: { id?: string }) => m.id === hintModelId || m.id === modelHint);
+            const matched = models.find((m) => m.id === hintModelId || m.id === modelHint);
             if (matched) {
               const caps = (matched as unknown as Record<string, unknown>).capabilities as Record<string, unknown> | undefined;
               const supports = caps?.supports as Record<string, unknown> | undefined;
               const limits = caps?.limits as Record<string, unknown> | undefined;
               const hasReasoning = supports?.reasoningEffort === true;
               const defaultReasoningEffort = hasReasoning &&
-                typeof (matched as { defaultReasoningEffort?: unknown }).defaultReasoningEffort === "string"
-                ? (matched as { defaultReasoningEffort: string }).defaultReasoningEffort
+                typeof matched.defaultReasoningEffort === "string"
+                ? matched.defaultReasoningEffort
                 : undefined;
               const ctxWindow = limits?.max_context_window_tokens as number | undefined;
               return {
@@ -1560,15 +1649,15 @@ export class CopilotClient implements CodingAgentClient {
             }
           }
           // No hint or hint not found - use the first model's raw ID
-          const firstModel = models[0] as { name?: string; id?: string } | undefined;
+          const firstModel = models[0];
           if (firstModel) {
             const caps = (firstModel as unknown as Record<string, unknown>).capabilities as Record<string, unknown> | undefined;
             const supports = caps?.supports as Record<string, unknown> | undefined;
             const limits = caps?.limits as Record<string, unknown> | undefined;
             const hasReasoning = supports?.reasoningEffort === true;
             const defaultReasoningEffort = hasReasoning &&
-              typeof (firstModel as { defaultReasoningEffort?: unknown }).defaultReasoningEffort === "string"
-              ? (firstModel as { defaultReasoningEffort: string }).defaultReasoningEffort
+              typeof firstModel.defaultReasoningEffort === "string"
+              ? firstModel.defaultReasoningEffort
               : undefined;
             const ctxWindow = limits?.max_context_window_tokens as number | undefined;
             return {
@@ -1641,6 +1730,51 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
+interface CopilotCliPathResolverDependencies {
+  pathExists?: (path: string) => Promise<boolean>;
+  resolveImport?: (specifier: string, parent?: string) => string;
+  which?: (command: string) => string | null | undefined;
+  pathEnv?: string | undefined;
+}
+
+function isNodeModulesBinPath(path: string): boolean {
+  return path.includes(`${sep}node_modules${sep}.bin${sep}`) ||
+    path.endsWith(`${sep}node_modules${sep}.bin`) ||
+    path.includes("/node_modules/.bin/") ||
+    path.endsWith("/node_modules/.bin") ||
+    path.includes("\\node_modules\\.bin\\") ||
+    path.endsWith("\\node_modules\\.bin");
+}
+
+async function findExternalCopilotBinaryOnPath(
+  pathEnv: string | undefined,
+  fileExists: (path: string) => Promise<boolean>,
+): Promise<string | undefined> {
+  if (!pathEnv) {
+    return undefined;
+  }
+
+  const pathEntries = pathEnv
+    .split(delimiter)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0 && !isNodeModulesBinPath(entry));
+
+  const candidateNames = process.platform === "win32"
+    ? ["copilot.exe", "copilot.cmd", "copilot.bat", "copilot"]
+    : ["copilot"];
+
+  for (const dir of pathEntries) {
+    for (const candidateName of candidateNames) {
+      const candidatePath = join(dir, candidateName);
+      if (await fileExists(candidatePath)) {
+        return candidatePath;
+      }
+    }
+  }
+
+  return undefined;
+}
+
 /**
  * Resolve SDK launch options for Copilot CLI process startup.
  *
@@ -1683,54 +1817,65 @@ export function resolveCopilotSdkCliLaunch(
 }
 
 /**
- * Get the path to the Copilot CLI entry point.
+ * Resolve the preferred Copilot CLI entry point.
  *
  * Returns either:
  * - A `.js` path (index.js) when @github/copilot is installed as an npm package
  * - A binary path when copilot is installed standalone (Homebrew, install script, winget)
  *
  * Resolution order:
- * 1. import.meta.resolve (works in dev when @github/copilot is hoisted)
- * 2. Resolve from @github/copilot-sdk's directory context (its direct dependency)
- * 3. Find globally-installed copilot CLI on $PATH
+ * 1. Find an installed `copilot` CLI on $PATH
+ * 2. import.meta.resolve (works in dev when @github/copilot is hoisted)
+ * 3. Resolve from @github/copilot-sdk's directory context (its direct dependency)
  */
-export async function getBundledCopilotCliPath(): Promise<string> {
-  // Strategy 1: import.meta.resolve (works in dev, fails in compiled binary)
-  try {
-    const sdkUrl = import.meta.resolve("@github/copilot/sdk");
-    const sdkPath = fileURLToPath(sdkUrl);
-    const indexPath = join(dirname(dirname(sdkPath)), "index.js");
-    if (await pathExists(indexPath)) return indexPath;
-  } catch {
-    // Falls through
-  }
+export async function getBundledCopilotCliPath(
+  dependencies: CopilotCliPathResolverDependencies = {},
+): Promise<string> {
+  const resolveImport = dependencies.resolveImport ?? import.meta.resolve.bind(import.meta);
+  const fileExists = dependencies.pathExists ?? pathExists;
+  const which = dependencies.which ?? Bun.which;
+  const pathEnv = dependencies.pathEnv ?? process.env.PATH;
 
-  // Strategy 2: Resolve relative to @github/copilot-sdk package location.
-  // @github/copilot is a direct dependency of @github/copilot-sdk.
+  // Strategy 1: Prefer an installed copilot CLI on $PATH so Atomic stays
+  // aligned with the version the user actually runs directly.
   try {
-    const copilotSdkUrl = import.meta.resolve("@github/copilot-sdk");
-    // Resolve @github/copilot as if importing from @github/copilot-sdk.
-    const copilotPkgUrl = import.meta.resolve("@github/copilot/sdk", copilotSdkUrl);
-    const copilotPkgPath = fileURLToPath(copilotPkgUrl);
-    const indexPath = join(dirname(dirname(copilotPkgPath)), "index.js");
-    if (await pathExists(indexPath)) return indexPath;
-  } catch {
-    // Falls through
-  }
-
-  // Strategy 3: Find copilot CLI on $PATH and derive the package directory.
-  // For npm global installs, this may point directly to a package script.
-  // For standalone installs (Homebrew, install script, winget), return the binary directly
-  // — the SDK handles non-.js cliPaths by spawning them as executables.
-  try {
-    const copilotBin = Bun.which("copilot");
-    if (copilotBin) {
+    const copilotBin = which("copilot");
+    if (copilotBin && !isNodeModulesBinPath(copilotBin)) {
       const pkgDir = dirname(copilotBin);
       const indexPath = join(pkgDir, "index.js");
-      if (await pathExists(indexPath)) return indexPath;
-      // Standalone binary (Homebrew, install script, winget) — no index.js
-      if (await pathExists(copilotBin)) return copilotBin;
+      if (await fileExists(indexPath)) return indexPath;
+      if (await fileExists(copilotBin)) return copilotBin;
     }
+
+    const externalCopilotBin = await findExternalCopilotBinaryOnPath(pathEnv, fileExists);
+    if (externalCopilotBin) {
+      const pkgDir = dirname(externalCopilotBin);
+      const indexPath = join(pkgDir, "index.js");
+      if (await fileExists(indexPath)) return indexPath;
+      if (await fileExists(externalCopilotBin)) return externalCopilotBin;
+    }
+  } catch {
+    // Falls through
+  }
+
+  // Strategy 2: import.meta.resolve (works in dev, fails in compiled binary)
+  try {
+    const sdkUrl = resolveImport("@github/copilot/sdk");
+    const sdkPath = fileURLToPath(sdkUrl);
+    const indexPath = join(dirname(dirname(sdkPath)), "index.js");
+    if (await fileExists(indexPath)) return indexPath;
+  } catch {
+    // Falls through
+  }
+
+  // Strategy 3: Resolve relative to @github/copilot-sdk package location.
+  // @github/copilot is a direct dependency of @github/copilot-sdk.
+  try {
+    const copilotSdkUrl = resolveImport("@github/copilot-sdk");
+    const copilotPkgUrl = resolveImport("@github/copilot/sdk", copilotSdkUrl);
+    const copilotPkgPath = fileURLToPath(copilotPkgUrl);
+    const indexPath = join(dirname(dirname(copilotPkgPath)), "index.js");
+    if (await fileExists(indexPath)) return indexPath;
   } catch {
     // Falls through
   }

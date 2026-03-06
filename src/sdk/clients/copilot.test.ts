@@ -2,6 +2,7 @@ import { describe, expect, test, mock } from "bun:test";
 
 import { resolveCopilotUserInputSessionId } from "./copilot.ts";
 import { CopilotClient } from "./copilot.ts";
+import { getBundledCopilotCliPath } from "./copilot.ts";
 
 describe("resolveCopilotUserInputSessionId", () => {
   test("keeps preferred session when it is active", () => {
@@ -26,6 +27,65 @@ describe("resolveCopilotUserInputSessionId", () => {
     const resolved = resolveCopilotUserInputSessionId("tentative_session", []);
 
     expect(resolved).toBe("tentative_session");
+  });
+});
+
+describe("getBundledCopilotCliPath", () => {
+  test("prefers an installed copilot binary on PATH over the bundled package", async () => {
+    const cliPath = await getBundledCopilotCliPath({
+      which: () => "/usr/local/bin/copilot",
+      pathExists: async (path) => path === "/usr/local/bin/copilot",
+      resolveImport: (specifier) => {
+        if (specifier === "@github/copilot/sdk") {
+          return "file:///tmp/node_modules/@github/copilot/sdk/index.js";
+        }
+        if (specifier === "@github/copilot-sdk") {
+          return "file:///tmp/node_modules/@github/copilot-sdk/dist/index.js";
+        }
+        throw new Error(`Unexpected import resolution for ${specifier}`);
+      },
+    });
+
+    expect(cliPath).toBe("/usr/local/bin/copilot");
+  });
+
+  test("skips project-local node_modules shims and prefers an external copilot binary", async () => {
+    const cliPath = await getBundledCopilotCliPath({
+      which: () => "/workspace/app/node_modules/.bin/copilot",
+      pathEnv: "/workspace/app/node_modules/.bin:/home/alice/.local/bin:/usr/bin",
+      pathExists: async (path) =>
+        path === "/workspace/app/node_modules/.bin/copilot" ||
+        path === "/home/alice/.local/bin/copilot",
+      resolveImport: (specifier) => {
+        if (specifier === "@github/copilot/sdk") {
+          return "file:///tmp/node_modules/@github/copilot/sdk/index.js";
+        }
+        if (specifier === "@github/copilot-sdk") {
+          return "file:///tmp/node_modules/@github/copilot-sdk/dist/index.js";
+        }
+        throw new Error(`Unexpected import resolution for ${specifier}`);
+      },
+    });
+
+    expect(cliPath).toBe("/home/alice/.local/bin/copilot");
+  });
+
+  test("falls back to the bundled copilot package when no PATH binary exists", async () => {
+    const cliPath = await getBundledCopilotCliPath({
+      which: () => undefined,
+      pathExists: async (path) => path === "/tmp/node_modules/@github/copilot/index.js",
+      resolveImport: (specifier) => {
+        if (specifier === "@github/copilot/sdk") {
+          return "file:///tmp/node_modules/@github/copilot/sdk/index.js";
+        }
+        if (specifier === "@github/copilot-sdk") {
+          return "file:///tmp/node_modules/@github/copilot-sdk/dist/index.js";
+        }
+        throw new Error(`Unexpected import resolution for ${specifier}`);
+      },
+    });
+
+    expect(cliPath).toBe("/tmp/node_modules/@github/copilot/index.js");
   });
 });
 
@@ -74,6 +134,120 @@ describe("CopilotClient.getModelDisplayInfo", () => {
     expect(info.model).toBe("claude-opus-4.6");
     expect(info.supportsReasoning).toBe(true);
     expect(info.defaultReasoningEffort).toBe("medium");
+  });
+});
+
+describe("CopilotClient.listAvailableModels", () => {
+  test("returns models from the active SDK client when using an external server", async () => {
+    const client = new CopilotClient({});
+    const expectedModels = [
+      {
+        id: "gpt-5",
+        capabilities: {
+          supports: { reasoningEffort: true },
+          limits: { max_context_window_tokens: 256000 },
+        },
+      },
+    ];
+    (client as unknown as { isRunning: boolean }).isRunning = true;
+    (client as unknown as { isExternalServer: boolean }).isExternalServer = true;
+    (client as unknown as { sdkClient: { listModels: () => Promise<unknown[]> } }).sdkClient = {
+      listModels: mock(async () => expectedModels),
+    };
+
+    await expect(client.listAvailableModels()).resolves.toEqual(expectedModels);
+  });
+
+  test("bypasses the SDK model cache via fresh models.list RPC for external servers", async () => {
+    const client = new CopilotClient({});
+    const staleModels = [
+      {
+        id: "old-model",
+        capabilities: {
+          supports: {},
+          limits: { max_context_window_tokens: 128000 },
+        },
+      },
+    ];
+    const freshModels = [
+      {
+        id: "new-model",
+        capabilities: {
+          supports: {},
+          limits: { max_context_window_tokens: 256000 },
+        },
+      },
+    ];
+    const sendRequest = mock(async (method: string) => {
+      expect(method).toBe("models.list");
+      return { models: freshModels };
+    });
+    const listModels = mock(async () => staleModels);
+
+    (client as unknown as { isRunning: boolean }).isRunning = true;
+    (client as unknown as { isExternalServer: boolean }).isExternalServer = true;
+    (client as unknown as {
+      sdkClient: {
+        connection: { sendRequest: (method: string, params: Record<string, never>) => Promise<{ models: unknown[] }> };
+        modelsCache: unknown[] | null;
+        listModels: () => Promise<unknown[]>;
+      };
+    }).sdkClient = {
+      connection: { sendRequest },
+      modelsCache: staleModels,
+      listModels,
+    };
+
+    await expect(client.listAvailableModels()).resolves.toEqual(freshModels);
+    expect(sendRequest).toHaveBeenCalledTimes(1);
+    expect(listModels).not.toHaveBeenCalled();
+  });
+
+  test("uses a fresh temporary SDK client for local model discovery", async () => {
+    const client = new CopilotClient({});
+    const freshModels = [
+      {
+        id: "new-model",
+        capabilities: {
+          supports: {},
+          limits: { max_context_window_tokens: 256000 },
+        },
+      },
+    ];
+    const start = mock(async () => {});
+    const stop = mock(async () => []);
+    const sendRequest = mock(async () => ({ models: freshModels }));
+
+    (client as unknown as { isRunning: boolean }).isRunning = true;
+    (client as unknown as { sdkClient: object }).sdkClient = {};
+    (
+      client as unknown as {
+        buildSdkOptions: () => Promise<object>;
+        createSdkClientInstance: (options: object) => {
+          start: () => Promise<void>;
+          stop: () => Promise<unknown[]>;
+          connection: { sendRequest: (method: string, params: Record<string, never>) => Promise<{ models: unknown[] }> };
+        };
+      }
+    ).buildSdkOptions = async () => ({ useStdio: true });
+    (
+      client as unknown as {
+        createSdkClientInstance: (options: object) => {
+          start: () => Promise<void>;
+          stop: () => Promise<unknown[]>;
+          connection: { sendRequest: (method: string, params: Record<string, never>) => Promise<{ models: unknown[] }> };
+        };
+      }
+    ).createSdkClientInstance = () => ({
+      start,
+      stop,
+      connection: { sendRequest },
+    });
+
+    await expect(client.listAvailableModels()).resolves.toEqual(freshModels);
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(sendRequest).toHaveBeenCalledTimes(1);
+    expect(stop).toHaveBeenCalledTimes(1);
   });
 });
 

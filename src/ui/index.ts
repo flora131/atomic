@@ -188,6 +188,9 @@ export async function startChatUI(
   const sdkListModels = agentType === 'claude' && 'listSupportedModels' in client
     ? () => (client as import('../sdk/clients/index.ts').ClaudeAgentClient).listSupportedModels()
     : undefined;
+  const sdkListCopilotModels = agentType === "copilot" && "listAvailableModels" in client
+    ? () => (client as import("../sdk/clients/index.ts").CopilotClient).listAvailableModels()
+    : undefined;
   const sdkSetModel = agentType === "opencode" && "setActivePromptModel" in client
     ? async (selectedModel: string) => {
         await (client as import("../sdk/clients/index.ts").OpenCodeClient).setActivePromptModel(selectedModel);
@@ -197,7 +200,15 @@ export async function startChatUI(
           await client.setActiveSessionModel?.(selectedModel, options);
         }
       : undefined;
-  const modelOps = agentType ? new UnifiedModelOperations(agentType, sdkSetModel, sdkListModels, sessionConfig?.model) : undefined;
+  const modelOps = agentType
+    ? new UnifiedModelOperations(
+        agentType,
+        sdkSetModel,
+        sdkListModels,
+        sessionConfig?.model,
+        sdkListCopilotModels,
+      )
+    : undefined;
 
   // Initialize singleton event bus and batch dispatcher.
   // Runtime validation is expensive on high-frequency streaming events,

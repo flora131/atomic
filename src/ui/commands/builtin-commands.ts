@@ -191,6 +191,8 @@ export const modelCommand: CommandDefinition = {
             }
         }
 
+        modelOps?.invalidateModelCache?.();
+
         // No args: show interactive model selector
         if (!trimmed) {
             return {

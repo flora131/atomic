@@ -183,26 +183,27 @@ export async function startChatUI(
     workflowEnabled = false,
     clientStartPromise,
   } = config;
+  const resolvedAgentType = agentType ?? client.agentType;
 
   // Create model operations for the agent
-  const sdkListModels = agentType === 'claude' && 'listSupportedModels' in client
+  const sdkListModels = resolvedAgentType === 'claude' && 'listSupportedModels' in client
     ? () => (client as import('../sdk/clients/index.ts').ClaudeAgentClient).listSupportedModels()
     : undefined;
-  const sdkListCopilotModels = agentType === "copilot" && "listAvailableModels" in client
+  const sdkListCopilotModels = resolvedAgentType === "copilot" && "listAvailableModels" in client
     ? () => (client as import("../sdk/clients/index.ts").CopilotClient).listAvailableModels()
     : undefined;
-  const sdkSetModel = agentType === "opencode" && "setActivePromptModel" in client
+  const sdkSetModel = resolvedAgentType === "opencode" && "setActivePromptModel" in client
     ? async (selectedModel: string) => {
         await (client as import("../sdk/clients/index.ts").OpenCodeClient).setActivePromptModel(selectedModel);
       }
-    : agentType && "setActiveSessionModel" in client
+    : resolvedAgentType && "setActiveSessionModel" in client
       ? async (selectedModel: string, options?: { reasoningEffort?: string }) => {
           await client.setActiveSessionModel?.(selectedModel, options);
         }
       : undefined;
-  const modelOps = agentType
+  const modelOps = resolvedAgentType
     ? new UnifiedModelOperations(
-        agentType,
+        resolvedAgentType,
         sdkSetModel,
         sdkListModels,
         sessionConfig?.model,
@@ -250,9 +251,9 @@ export async function startChatUI(
     sessionCreationPromise: null,
     runCounter: 0,
     currentRunId: null,
-    telemetryTracker: agentType
+    telemetryTracker: resolvedAgentType
       ? createTuiTelemetrySessionTracker({
-        agentType,
+        agentType: resolvedAgentType,
         workflowEnabled,
         hasInitialPrompt: !!initialPrompt,
       })
@@ -392,7 +393,7 @@ export async function startChatUI(
             sessionConfig.model = currentModel;
           }
           // Apply pending reasoning effort (Copilot-specific)
-          if (agentType === 'copilot') {
+          if (resolvedAgentType === 'copilot') {
             const pendingEffort = modelOps.getPendingReasoningEffort();
             if (pendingEffort !== undefined) {
               sessionConfig.reasoningEffort = pendingEffort;
@@ -461,9 +462,9 @@ export async function startChatUI(
     // Create the appropriate SDK adapter based on agent type
     let adapter: SDKStreamAdapter;
 
-    if (agentType === "opencode") {
+    if (resolvedAgentType === "opencode") {
       adapter = new OpenCodeStreamAdapter(state.bus, state.session!.id, client);
-    } else if (agentType === "claude") {
+    } else if (resolvedAgentType === "claude") {
       adapter = new ClaudeStreamAdapter(state.bus, state.session!.id, client);
     } else {
       adapter = new CopilotStreamAdapter(state.bus, client);
@@ -490,7 +491,7 @@ export async function startChatUI(
         abortSignal: state.streamAbortController?.signal,
         agent: options?.agent,
         suppressSyntheticAgentLifecycle:
-          agentType === "claude" && options?.isAgentOnlyStream === true,
+          resolvedAgentType === "claude" && options?.isAgentOnlyStream === true,
         knownAgentNames,
         skillCommand: options?.skillCommand,
       });
@@ -800,7 +801,7 @@ export async function startChatUI(
                     tier,
                     workingDir,
                     suggestion,
-                    agentType,
+                    agentType: resolvedAgentType,
                     modelOps,
                     initialModelId: sessionConfig?.model,
                     getModelDisplayInfo: (hint?: string) => client.getModelDisplayInfo(hint),

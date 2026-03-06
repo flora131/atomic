@@ -77,46 +77,37 @@ import {
   extractSkillInvocationFromToolInput,
   isSkillToolName,
 } from "./skill-invocation.ts";
+import type {
+  OpenCodeProviderEvent,
+  OpenCodeProviderEventHandler,
+  ProviderStreamEventDataMap,
+  ProviderStreamEventType,
+} from "../provider-events.ts";
+import { createSyntheticProviderNativeEvent } from "../provider-events.ts";
 import { homedir } from "os";
 import { join } from "path";
 
 // Import the real SDK
 import {
   createOpencodeClient as createSdkClient,
+  type Event as OpenCodeEvent,
+  type EventMessagePartDelta,
+  type EventMessagePartRemoved,
+  type EventMessageUpdated,
+  type EventPermissionAsked,
+  type EventQuestionAsked,
+  type EventSessionCompacted,
+  type EventSessionCreated,
+  type EventSessionError,
+  type EventSessionIdle,
+  type EventSessionStatus,
+  type EventSessionUpdated,
   type OpencodeClient as SdkClient,
 } from "@opencode-ai/sdk/v2/client";
 import {
   createOpencodeServer,
   type ServerOptions as SdkServerOptions,
 } from "@opencode-ai/sdk/v2/server";
-
-/**
- * Type alias for OpenCode SDK event type
- * Used by opencode-hooks.ts for event handlers
- *
- * This is a simplified type covering the events we care about.
- * The full SDK Event type is a union of 40+ event types.
- */
-export interface OpenCodeSdkEvent {
-  type: string;
-  properties?: {
-    sessionID?: string;
-    info?: {
-      id?: string;
-      title?: string;
-    };
-    status?: "idle" | "busy" | "retry";
-    error?: string;
-    part?: {
-      type: string;
-      content?: string;
-      tool?: string;
-      state?: unknown;
-    };
-    delta?: string;
-    [key: string]: unknown;
-  };
-}
 
 /**
  * Default OpenCode server configuration
@@ -148,8 +139,8 @@ type OpenCodeSseDiagnosticsCounter =
   | "sse.abort.unknown.count";
 
 type OpenCodeSseAbortReason = "watchdog" | "global" | "unknown";
-
 type OpenCodeSessionStatus = "idle" | "busy" | "retry";
+
 export type OpenCodeCompactionControlState = "STREAMING" | "COMPACTING" | "TERMINAL_ERROR" | "ENDED";
 export type OpenCodeCompactionErrorCode =
   | "COMPACTION_TIMEOUT"
@@ -189,24 +180,6 @@ interface OpenCodeSessionState {
   compaction: OpenCodeSessionCompactionState;
 }
 
-interface AtomicManagedOpenCodeServerState {
-  url: string;
-  close: () => void;
-  leaseCount: number;
-}
-
-let atomicManagedOpenCodeServer: AtomicManagedOpenCodeServerState | null = null;
-
-export function resolveOpenCodeConfigDirEnv(
-  configuredPath: string | undefined,
-): string {
-  const trimmedPath = configuredPath?.trim();
-  if (trimmedPath && trimmedPath.length > 0) {
-    return trimmedPath;
-  }
-  return ATOMIC_OPENCODE_CONFIG_DIR;
-}
-
 function parseOpenCodeSessionStatus(status: unknown): OpenCodeSessionStatus | undefined {
   if (status === "idle" || status === "busy" || status === "retry") {
     return status;
@@ -230,6 +203,51 @@ function parseOpenCodeSessionStatus(status: unknown): OpenCodeSessionStatus | un
   }
 
   return undefined;
+}
+
+function assertNeverEvent(value: never): never {
+  throw new Error(`Unhandled OpenCode event: ${JSON.stringify(value)}`);
+}
+
+function getOpenCodeNativeMeta(
+  native: OpenCodeEvent | null | undefined,
+): Readonly<Record<string, string | number | boolean | null | undefined>> | undefined {
+  if (!native) {
+    return undefined;
+  }
+
+  const meta: Record<string, string | number | boolean | null | undefined> = {};
+  const properties = native.properties;
+
+  if ("sessionID" in properties && typeof properties.sessionID === "string") {
+    meta.nativeSessionId = properties.sessionID;
+  }
+  if ("messageID" in properties && typeof properties.messageID === "string") {
+    meta.nativeMessageId = properties.messageID;
+  }
+  if ("partID" in properties && typeof properties.partID === "string") {
+    meta.nativePartId = properties.partID;
+  }
+
+  return Object.keys(meta).length > 0 ? meta : undefined;
+}
+
+interface AtomicManagedOpenCodeServerState {
+  url: string;
+  close: () => void;
+  leaseCount: number;
+}
+
+let atomicManagedOpenCodeServer: AtomicManagedOpenCodeServerState | null = null;
+
+export function resolveOpenCodeConfigDirEnv(
+  configuredPath: string | undefined,
+): string {
+  const trimmedPath = configuredPath?.trim();
+  if (trimmedPath && trimmedPath.length > 0) {
+    return trimmedPath;
+  }
+  return ATOMIC_OPENCODE_CONFIG_DIR;
 }
 
 function asErrorRecord(value: unknown): Record<string, unknown> | undefined {
@@ -742,6 +760,8 @@ export class OpenCodeClient implements CodingAgentClient {
   private clientOptions: OpenCodeClientOptions;
   private eventHandlers: Map<EventType, Set<EventHandler<EventType>>> =
     new Map();
+  private providerEventHandlers = new Set<OpenCodeProviderEventHandler>();
+  private activeNativeProviderEvent: OpenCodeEvent | null = null;
   private activeSessions: Set<string> = new Set();
   private sessionStateById = new Map<string, OpenCodeSessionState>();
   private registeredTools: Map<string, ToolDefinition> = new Map();
@@ -788,6 +808,7 @@ export class OpenCodeClient implements CodingAgentClient {
    * from assistant-emitted sub-agent lifecycle parts.
    */
   private messageRolesBySession = new Map<string, Map<string, "user" | "assistant">>();
+  private sessionTitlesById = new Map<string, string>();
   private skillInvocationsBySession = new Map<string, Set<string>>();
 
   /**
@@ -1131,8 +1152,8 @@ export class OpenCodeClient implements CodingAgentClient {
           break;
         }
         resetWatchdog();
-        const sdkEvent = event as Record<string, unknown>;
-        if (!this.shouldProcessSseEvent(sdkEvent)) {
+        const sdkEvent = event as OpenCodeEvent;
+        if (!this.shouldProcessSseEvent(sdkEvent as unknown as Record<string, unknown>)) {
           filteredEventCount += 1;
           continue;
         }
@@ -1217,6 +1238,7 @@ export class OpenCodeClient implements CodingAgentClient {
     if (!sessionId) return;
     this.activeSessions.delete(sessionId);
     this.sessionStateById.delete(sessionId);
+    this.sessionTitlesById.delete(sessionId);
     this.messageRolesBySession.delete(sessionId);
     this.skillInvocationsBySession.delete(sessionId);
     this.clearSubagentSessionState(sessionId);
@@ -1436,6 +1458,49 @@ export class OpenCodeClient implements CodingAgentClient {
     return this.messageRolesBySession.get(sessionId)?.get(messageId);
   }
 
+  private deleteMessageRole(sessionId: string, messageId: string): void {
+    if (!sessionId || !messageId) return;
+    const roles = this.messageRolesBySession.get(sessionId);
+    if (!roles) return;
+    roles.delete(messageId);
+    if (roles.size === 0) {
+      this.messageRolesBySession.delete(sessionId);
+    }
+  }
+
+  private clearPartTracking(sessionId: string, messageId: string, partId?: string): void {
+    if (!sessionId || !messageId) return;
+    if (partId) {
+      this.reasoningPartIds.delete(partId);
+      for (const state of this.subagentStateByParentSession.values()) {
+        state.pendingAgentParts = state.pendingAgentParts.filter((pending) => pending.partId !== partId);
+        state.startedSubagentIds.delete(partId);
+        state.subagentToolCounts.delete(partId);
+        state.pendingTaskToolPartIds = state.pendingTaskToolPartIds.filter((id) => id !== partId);
+        state.queuedTaskToolPartIds.delete(partId);
+        for (const [childSessionId, agentPartId] of state.childSessionToAgentPart.entries()) {
+          if (agentPartId === partId) {
+            state.childSessionToAgentPart.delete(childSessionId);
+            this.childSessionToParentSession.delete(childSessionId);
+          }
+        }
+      }
+    }
+    this.deleteMessageRole(sessionId, messageId);
+  }
+
+  private mapOpenCodePermissionReply(answer: string | string[]): "once" | "always" | "reject" {
+    const selected = Array.isArray(answer) ? answer[0] ?? "" : answer;
+    const normalized = selected.trim().toLowerCase();
+    if (normalized === "always" || normalized === "allow-always") {
+      return "always";
+    }
+    if (normalized === "reject" || normalized === "deny" || normalized === "no") {
+      return "reject";
+    }
+    return "once";
+  }
+
   private shouldEmitSkillInvocation(
     sessionId: string,
     dedupeKey: string,
@@ -1478,62 +1543,107 @@ export class OpenCodeClient implements CodingAgentClient {
     }
 
     this.emitEvent("skill.invoked", args.sessionId, invocation);
+    this.emitProviderEvent("skill.invoked", args.sessionId, invocation, {
+      nativeEventId: dedupeKey,
+      nativeSessionId: args.sessionId,
+    });
   }
 
   /**
    * Handle events from SDK and map to unified event types
    */
-  private handleSdkEvent(event: Record<string, unknown>): void {
-    const eventType = event.type as string;
+  private handleSdkEvent(event: OpenCodeEvent): void {
+    this.activeNativeProviderEvent = event;
+    try {
     const properties = event.properties as Record<string, unknown> | undefined;
-
     // Map SDK events to unified events
-    switch (eventType) {
+    switch (event.type) {
       case "session.created":
         // OpenCode emits session ID under properties.info.id (not properties.sessionID).
         // Fall back to sessionID for defensive compatibility with older payloads.
         {
-          const createdInfo = properties?.info as { id?: string; sessionID?: string; parentID?: string } | undefined;
-          const createdSessionId = createdInfo?.id ?? (properties?.sessionID as string) ?? "";
+          const createdInfo = (event as EventSessionCreated).properties.info;
+          const createdSessionId = createdInfo.id ?? "";
           this.setSessionParentMapping(
             createdSessionId,
-            typeof createdInfo?.parentID === "string" ? createdInfo.parentID : undefined,
+            createdInfo.parentID,
           );
           this.registerActiveSession(createdSessionId);
+          this.sessionTitlesById.set(createdSessionId, createdInfo.title);
           this.emitEvent("session.start", createdSessionId, {
             config: {},
+            source: "start",
+          });
+          this.emitProviderEvent("session.start", createdSessionId, {
+            config: {},
+            sessionParentId: createdInfo.parentID,
+            source: "start",
+          }, {
+            nativeSessionId: createdSessionId,
           });
         }
         break;
 
       case "session.updated": {
-        const updatedInfo = properties?.info as { id?: string; parentID?: string } | undefined;
-        const updatedSessionId = updatedInfo?.id ?? (properties?.sessionID as string) ?? "";
+        const updatedInfo = (event as EventSessionUpdated).properties.info;
+        const updatedSessionId = updatedInfo.id ?? "";
         this.setSessionParentMapping(
           updatedSessionId,
-          typeof updatedInfo?.parentID === "string" ? updatedInfo.parentID : undefined,
+          updatedInfo.parentID,
         );
         this.registerActiveSession(updatedSessionId);
+        const previousTitle = this.sessionTitlesById.get(updatedSessionId);
+        if (previousTitle !== updatedInfo.title) {
+          this.sessionTitlesById.set(updatedSessionId, updatedInfo.title);
+          this.emitEvent("session.title_changed", updatedSessionId, {
+            title: updatedInfo.title,
+          });
+          this.emitProviderEvent("session.title_changed", updatedSessionId, {
+            title: updatedInfo.title,
+          }, {
+            nativeSessionId: updatedSessionId,
+          });
+        }
         break;
       }
 
       case "session.deleted": {
         const deletedInfo = properties?.info as { id?: string } | undefined;
-        const deletedSessionId = (properties?.sessionID as string) ?? deletedInfo?.id ?? "";
+        const deletedSessionId = (properties?.sessionID as string | undefined) ?? deletedInfo?.id ?? "";
         this.unregisterActiveSession(deletedSessionId);
         break;
       }
 
       case "session.status": {
-        const status = parseOpenCodeSessionStatus(properties?.status);
-        // OpenCode payloads can carry the session ID either at sessionID or info.id.
-        const info = properties?.info as { id?: string } | undefined;
-        const statusSessionId = (properties?.sessionID as string) ?? info?.id ?? "";
+        const statusEvent = event as EventSessionStatus;
+        const status = statusEvent.properties.status;
+        const parsedStatus = parseOpenCodeSessionStatus(status);
+        const compatibilityInfo = properties?.info as { id?: string } | undefined;
+        const statusSessionId = statusEvent.properties.sessionID ?? compatibilityInfo?.id ?? "";
         this.registerActiveSession(statusSessionId);
 
-        if (status === "idle") {
+        if (parsedStatus === "idle") {
           this.emitEvent("session.idle", statusSessionId, {
             reason: "idle",
+          });
+          this.emitProviderEvent("session.idle", statusSessionId, {
+            reason: "idle",
+          }, {
+            nativeSessionId: statusSessionId,
+          });
+        } else if (parsedStatus === "retry") {
+          const retryStatus = typeof status === "object" && status !== null
+            ? status as { attempt?: number; message?: string; next?: number }
+            : undefined;
+          const retryData = {
+            attempt: retryStatus?.attempt ?? 1,
+            delay: retryStatus?.next ?? 0,
+            message: retryStatus?.message ?? "Retrying request",
+            nextRetryAt: Date.now() + (retryStatus?.next ?? 0),
+          };
+          this.emitEvent("session.retry", statusSessionId, retryData);
+          this.emitProviderEvent("session.retry", statusSessionId, retryData, {
+            nativeSessionId: statusSessionId,
           });
         }
         break;
@@ -1543,8 +1653,9 @@ export class OpenCodeClient implements CodingAgentClient {
         // OpenCode payloads can carry the session ID either at sessionID or info.id.
         // Prefer sessionID and fall back to info.id for compatibility across SDK versions.
         {
-          const idleInfo = properties?.info as { id?: string } | undefined;
-          const idleSessionId = (properties?.sessionID as string) ?? idleInfo?.id ?? "";
+          const idleEvent = event as EventSessionIdle;
+          const compatibilityInfo = properties?.info as { id?: string } | undefined;
+          const idleSessionId = idleEvent.properties.sessionID ?? compatibilityInfo?.id ?? "";
           this.registerActiveSession(idleSessionId);
           this.emitEvent(
             "session.idle",
@@ -1553,29 +1664,40 @@ export class OpenCodeClient implements CodingAgentClient {
               reason: "idle",
             }
           );
+          this.emitProviderEvent("session.idle", idleSessionId, {
+            reason: "idle",
+          }, {
+            nativeSessionId: idleSessionId,
+          });
         }
         break;
 
       case "session.error":
         {
-          const errorInfo = properties?.info as { id?: string } | undefined;
-          const errorSessionId = (properties?.sessionID as string) ?? errorInfo?.id ?? "";
+          const errorProperties = (event as EventSessionError).properties;
+          const fallbackError = (event as unknown as { error?: unknown }).error;
+          const compatibilityInfo = properties?.info as { id?: string } | undefined;
+          const errorSessionId = errorProperties?.sessionID ?? compatibilityInfo?.id ?? "";
           this.registerActiveSession(errorSessionId);
+          const errorMessage = extractOpenCodeErrorMessage(errorProperties?.error ?? fallbackError);
           this.emitEvent(
             "session.error",
             errorSessionId,
             {
-              error: extractOpenCodeErrorMessage(
-                properties?.error ?? event.error,
-              ),
+              error: errorMessage,
             }
           );
+          this.emitProviderEvent("session.error", errorSessionId, {
+            error: errorMessage,
+          }, {
+            nativeSessionId: errorSessionId,
+          });
         }
         break;
 
       case "session.compacted":
         {
-          const compactedSessionId = (properties?.sessionID as string) ?? "";
+          const compactedSessionId = (event as EventSessionCompacted).properties.sessionID ?? "";
           const sessionState = this.sessionStateById.get(compactedSessionId);
           if (
             sessionState
@@ -1608,43 +1730,73 @@ export class OpenCodeClient implements CodingAgentClient {
               success: true,
             }
           );
+          this.emitProviderEvent("session.compaction", compactedSessionId, {
+            phase: "complete",
+            success: true,
+          }, {
+            nativeSessionId: compactedSessionId,
+            timestamp: now,
+          });
         }
         break;
 
       case "message.updated": {
         // Handle message updates (info contains the message)
-        const info = properties?.info as Record<string, unknown> | undefined;
-        const infoRole = info?.role;
-        const infoMessageId = info?.id;
-        const infoSessionId = info?.sessionID;
+        const info = (event as EventMessageUpdated).properties.info;
+        const infoRole = info.role;
+        const infoMessageId = info.id ?? "";
+        const infoSessionId = info.sessionID ?? "";
         if (
           (infoRole === "user" || infoRole === "assistant")
-          && typeof infoMessageId === "string"
           && infoMessageId.length > 0
-          && typeof infoSessionId === "string"
           && infoSessionId.length > 0
         ) {
           this.setMessageRole(infoSessionId, infoMessageId, infoRole);
         }
 
-        if (info?.role === "assistant") {
-          const msgSessionId = (info?.sessionID as string) ?? "";
-          this.emitEvent("message.complete", msgSessionId, {
-            message: info,
+        if (info.role === "assistant" && infoSessionId.length > 0) {
+          const msgSessionId = infoSessionId;
+          const messageData = {
+            message: {
+              type: "text",
+              content: "",
+              role: "assistant",
+            } satisfies AgentMessage,
+          } satisfies ProviderStreamEventDataMap["message.complete"];
+          this.emitEvent("message.complete", msgSessionId, messageData);
+          this.emitProviderEvent("message.complete", msgSessionId, {
+            ...messageData,
+            nativeMessageId: info.id,
+          }, {
+            nativeSessionId: msgSessionId,
           });
 
           // Extract token usage from assistant message updates (carries
           // cumulative tokens at each step boundary, delivered via SSE)
-          const msgTokens = info?.tokens as
-            | { input?: number; output?: number; reasoning?: number }
-            | undefined;
+          const msgTokens = info.tokens;
           if (msgTokens && (msgTokens.input || msgTokens.output)) {
             this.emitEvent("usage", msgSessionId, {
               inputTokens: msgTokens.input ?? 0,
               outputTokens: msgTokens.output ?? 0,
             });
+            this.emitProviderEvent("usage", msgSessionId, {
+              inputTokens: msgTokens.input ?? 0,
+              outputTokens: msgTokens.output ?? 0,
+              reasoningTokens: msgTokens.reasoning ?? 0,
+              cacheReadTokens: msgTokens.cache?.read ?? 0,
+              cacheWriteTokens: msgTokens.cache?.write ?? 0,
+              costUsd: typeof info.cost === "number" ? info.cost : undefined,
+            }, {
+              nativeSessionId: msgSessionId,
+            });
           }
         }
+        break;
+      }
+
+      case "message.removed": {
+        const removed = properties as { sessionID?: string; messageID?: string } | undefined;
+        this.deleteMessageRole(removed?.sessionID ?? "", removed?.messageID ?? "");
         break;
       }
 
@@ -1738,6 +1890,13 @@ export class OpenCodeClient implements CodingAgentClient {
                 subagentType: pending.agentName,
                 subagentSessionId: partSessionId,
               });
+              this.emitProviderEvent("subagent.start", parentSessionId, {
+                subagentId: pending.partId,
+                subagentType: pending.agentName,
+                subagentSessionId: partSessionId,
+              }, {
+                nativeSessionId: parentSessionId,
+              });
               if (pending.partId) {
                 sessionSubagentState.startedSubagentIds.add(pending.partId);
               }
@@ -1777,6 +1936,17 @@ export class OpenCodeClient implements CodingAgentClient {
                 toolCallId: part?.callID as string,
                 ...(agentPartId ? { parentAgentId: agentPartId } : {}),
               });
+              this.emitProviderEvent("tool.start", partSessionId, {
+                toolName,
+                toolInput,
+                ...(toolMetadata ? { toolMetadata } : {}),
+                toolUseId: part?.id as string | undefined,
+                toolCallId: part?.callID as string | undefined,
+                ...(agentPartId ? { parentAgentId: agentPartId } : {}),
+                nativeMessageId: partMessageId || undefined,
+              }, {
+                nativeSessionId: partSessionId,
+              });
             }
 
             // Emit subagent.update for child session tools
@@ -1787,6 +1957,13 @@ export class OpenCodeClient implements CodingAgentClient {
                 subagentId: agentPartId,
                 currentTool: toolName,
                 toolUses: count,
+              });
+              this.emitProviderEvent("subagent.update", parentSessionId || partSessionId, {
+                subagentId: agentPartId,
+                currentTool: toolName,
+                toolUses: count,
+              }, {
+                nativeSessionId: parentSessionId || partSessionId,
               });
             }
           } else if (toolState?.status === "completed") {
@@ -1805,6 +1982,19 @@ export class OpenCodeClient implements CodingAgentClient {
                 toolUseId: part?.id as string,
                 toolCallId: part?.callID as string,
                 ...(agentPartId ? { parentAgentId: agentPartId } : {}),
+              });
+              this.emitProviderEvent("tool.complete", partSessionId, {
+                toolName,
+                toolResult: toolState?.output,
+                toolInput,
+                ...(toolMetadata ? { toolMetadata } : {}),
+                success: true,
+                toolUseId: part?.id as string | undefined,
+                toolCallId: part?.callID as string | undefined,
+                ...(agentPartId ? { parentAgentId: agentPartId } : {}),
+                nativeMessageId: partMessageId || undefined,
+              }, {
+                nativeSessionId: partSessionId,
               });
             }
 
@@ -1830,6 +2020,20 @@ export class OpenCodeClient implements CodingAgentClient {
                 toolUseId: part?.id as string,
                 toolCallId: part?.callID as string,
                 ...(agentPartId ? { parentAgentId: agentPartId } : {}),
+              });
+              this.emitProviderEvent("tool.complete", partSessionId, {
+                toolName,
+                toolResult: toolState?.error ?? "Tool execution failed",
+                toolInput,
+                ...(toolMetadata ? { toolMetadata } : {}),
+                success: false,
+                error: typeof toolState?.error === "string" ? toolState.error : "Tool execution failed",
+                toolUseId: part?.id as string | undefined,
+                toolCallId: part?.callID as string | undefined,
+                ...(agentPartId ? { parentAgentId: agentPartId } : {}),
+                nativeMessageId: partMessageId || undefined,
+              }, {
+                nativeSessionId: partSessionId,
               });
             }
 
@@ -1883,6 +2087,13 @@ export class OpenCodeClient implements CodingAgentClient {
             // will be registered via a follow-up subagent.start when the
             // first child tool event arrives.
           });
+          this.emitProviderEvent("subagent.start", parentSessionId || partSessionId, {
+            subagentId: agentPartId,
+            subagentType: agentName,
+            toolCallId: correlationId,
+          }, {
+            nativeSessionId: parentSessionId || partSessionId,
+          });
           if (agentPartId) {
             sessionSubagentState.startedSubagentIds.add(agentPartId);
           }
@@ -1927,6 +2138,19 @@ export class OpenCodeClient implements CodingAgentClient {
             },
             // subagentSessionId intentionally omitted — see AgentPart comment.
           });
+          this.emitProviderEvent("subagent.start", parentSessionId || partSessionId, {
+            subagentId: subtaskPartId,
+            subagentType: subtaskAgent,
+            task: subtaskDescription || subtaskPrompt,
+            toolCallId: correlationId,
+            toolInput: {
+              prompt: subtaskPrompt,
+              description: subtaskDescription,
+              agent: subtaskAgent,
+            },
+          }, {
+            nativeSessionId: parentSessionId || partSessionId,
+          });
           if (subtaskPartId) {
             sessionSubagentState.startedSubagentIds.add(subtaskPartId);
           }
@@ -1951,6 +2175,13 @@ export class OpenCodeClient implements CodingAgentClient {
               subagentId: finishedPartId,
               success: reason !== "error",
               result: reason,
+            });
+            this.emitProviderEvent("subagent.complete", parentSessionId || partSessionId, {
+              subagentId: finishedPartId,
+              success: reason !== "error",
+              result: reason,
+            }, {
+              nativeSessionId: parentSessionId || partSessionId,
             });
 
             // Clean up child session tracking and tool counts for the completed agent.
@@ -1981,38 +2212,45 @@ export class OpenCodeClient implements CodingAgentClient {
         break;
       }
 
+      case "permission.asked": {
+        this.handlePermissionAsked(event);
+        break;
+      }
+
       case "question.asked": {
-        // Handle HITL (Human-in-the-Loop) question requests from OpenCode
-        // Map OpenCode's question format to our unified permission.requested event
-        this.handleQuestionAsked(properties);
+        this.handleQuestionAsked(event);
+        break;
+      }
+
+      case "question.replied":
+      case "question.rejected":
+      case "permission.replied":
+        break;
+
+      case "message.part.removed": {
+        this.handleMessagePartRemoved(event);
         break;
       }
 
       case "message.part.delta": {
         // v2 SDK sends incremental deltas via a separate event type instead of
         // including `delta` on `message.part.updated`.
-        const partDelta = properties?.delta as string | undefined;
-        const partRecord = (
-          typeof properties?.part === "object"
-          && properties.part !== null
-          && !Array.isArray(properties.part)
-        )
-          ? properties.part as Record<string, unknown>
-          : undefined;
-        const partId = (
-          (properties?.partID as string | undefined)
-          ?? (properties?.partId as string | undefined)
-          ?? (partRecord?.id as string | undefined)
-        );
-        const field = properties?.field as string | undefined;
-        const inlinePartType = typeof partRecord?.type === "string"
-          ? partRecord.type.toLowerCase()
-          : undefined;
-        const deltaSessionId = (properties?.sessionID as string) ?? "";
+        const partDeltaEvent = event as EventMessagePartDelta;
+        const partDelta = partDeltaEvent.properties.delta;
+        const compatibilityProperties = properties as {
+          partId?: string;
+          part?: { id?: string; type?: string; messageID?: string };
+        };
+        const partId = partDeltaEvent.properties.partID
+          ?? compatibilityProperties.partId
+          ?? compatibilityProperties.part?.id;
+        const field = partDeltaEvent.properties.field;
+        const deltaSessionId = partDeltaEvent.properties.sessionID;
         if (field && field !== "text") {
           break;
         }
         if (partDelta && partDelta.length > 0) {
+          const inlinePartType = compatibilityProperties.part?.type?.toLowerCase();
           const isReasoningDelta = inlinePartType === "reasoning"
             || inlinePartType === "thinking"
             || (partId ? this.reasoningPartIds.has(partId) : false);
@@ -2022,86 +2260,151 @@ export class OpenCodeClient implements CodingAgentClient {
               contentType: "thinking",
               thinkingSourceKey: partId ?? "reasoning",
             });
+            this.emitProviderEvent("reasoning.delta", deltaSessionId, {
+              delta: partDelta,
+              reasoningId: partId ?? "reasoning",
+            }, {
+              nativeSessionId: deltaSessionId,
+            });
           } else {
             this.emitEvent("message.delta", deltaSessionId, {
               delta: partDelta,
               contentType: "text",
             });
+            this.emitProviderEvent("message.delta", deltaSessionId, {
+              delta: partDelta,
+              contentType: "text",
+              nativePartId: partId,
+              nativeMessageId: partDeltaEvent.properties.messageID ?? compatibilityProperties.part?.messageID,
+            }, {
+              nativeSessionId: deltaSessionId,
+            });
           }
         }
         break;
       }
+      case "installation.updated":
+      case "installation.update-available":
+      case "project.updated":
+      case "server.instance.disposed":
+      case "server.connected":
+      case "global.disposed":
+      case "lsp.client.diagnostics":
+      case "lsp.updated":
+      case "file.edited":
+      case "file.watcher.updated":
+      case "todo.updated":
+      case "tui.prompt.append":
+      case "tui.command.execute":
+      case "tui.toast.show":
+      case "tui.session.select":
+      case "mcp.tools.changed":
+      case "mcp.browser.open.failed":
+      case "command.executed":
+      case "session.diff":
+      case "vcs.branch.updated":
+      case "workspace.ready":
+      case "workspace.failed":
+      case "pty.created":
+      case "pty.updated":
+      case "pty.exited":
+      case "pty.deleted":
+      case "worktree.ready":
+      case "worktree.failed":
+        break;
+      default:
+        assertNeverEvent(event);
     }
+    } finally {
+      this.activeNativeProviderEvent = null;
+    }
+  }
+
+  private handlePermissionAsked(event: EventPermissionAsked): void {
+    const request = event.properties;
+    const sessionId = request.sessionID;
+    const toolInput = request.metadata;
+    const providerData = {
+      requestId: request.id,
+      toolName: request.permission,
+      toolInput,
+      question: `Allow ${request.permission} for ${request.patterns.join(", ") || "this request"}?`,
+      header: "Permission",
+      options: [
+        { label: "Allow once", value: "once", description: "Approve this request one time." },
+        { label: "Always allow", value: "always", description: "Approve this request and remember it." },
+        { label: "Reject", value: "reject", description: "Deny this request." },
+      ],
+      respond: (answer: string | string[]) => {
+        if (!this.sdkClient) return;
+        const reply = this.mapOpenCodePermissionReply(answer);
+        this.sdkClient.permission.reply({
+          requestID: request.id,
+          directory: this.clientOptions.directory,
+          reply,
+        }).catch((error) => {
+          console.error("Failed to reply to permission request:", error);
+        });
+      },
+      toolCallId: request.tool?.callID,
+    } satisfies ProviderStreamEventDataMap["permission.requested"];
+
+    this.emitEvent("permission.requested", sessionId, providerData);
+    this.emitProviderEvent("permission.requested", sessionId, providerData, {
+      native: event,
+      nativeEventId: request.id,
+      nativeSessionId: sessionId,
+    });
   }
 
   /**
    * Handle OpenCode's question.asked event (HITL)
-   * Maps the OpenCode question format to our unified permission.requested event
+   * Maps the OpenCode question format to unified human_input_required events.
    */
-  private handleQuestionAsked(properties: Record<string, unknown> | undefined): void {
-    if (!properties) return;
+  private handleQuestionAsked(event: EventQuestionAsked): void {
+    const request = event.properties;
+    const requestId = request.id;
+    const sessionId = request.sessionID;
+    const firstQuestion = request.questions[0];
 
-    const requestId = properties.id as string;
-    const sessionId = properties.sessionID as string;
-    const questions = properties.questions as Array<{
-      question: string;
-      header?: string;
-      options: Array<{ label: string; description?: string }>;
-      multiple?: boolean;
-      custom?: boolean;
-    }> | undefined;
+    if (!requestId || !firstQuestion) return;
 
-    if (!requestId || !questions || questions.length === 0) return;
-
-    // OpenCode can ask multiple questions at once, but our UI handles one at a time
-    // For now, we'll process the first question and queue any additional ones
-    const firstQuestion = questions[0];
-    if (!firstQuestion) return;
-
-    // Map OpenCode question format to our unified format
-    const options = firstQuestion.options.map((opt) => ({
-      label: opt.label,
-      value: opt.label, // OpenCode uses labels as values
-      description: opt.description,
-    }));
-
-    // Create a respond callback that calls the OpenCode SDK
-    const respond = (answer: string | string[]) => {
-      // Convert answer to the format expected by OpenCode SDK
-      // OpenCode expects Array<QuestionAnswer> where QuestionAnswer = Array<string>
-      const answers = Array.isArray(answer) ? [answer] : [[answer]];
-
-      if (this.sdkClient) {
-        // Check if the answer indicates rejection (user cancelled)
-        if (answer === "deny" || (Array.isArray(answer) && answer.includes("deny"))) {
-          this.sdkClient.question.reject({
-            requestID: requestId,
-            directory: this.clientOptions.directory,
-          }).catch((error) => {
-            console.error("Failed to reject question:", error);
-          });
-        } else {
-          this.sdkClient.question.reply({
-            requestID: requestId,
-            directory: this.clientOptions.directory,
-            answers,
-          }).catch((error) => {
-            console.error("Failed to reply to question:", error);
-          });
-        }
-      }
-    };
-
-    // Emit permission.requested event to show the dialog
-    this.emitEvent("permission.requested", sessionId ?? "", {
+    const providerData = {
       requestId,
-      toolName: "question",
       question: firstQuestion.question,
       header: firstQuestion.header,
-      options,
-      multiSelect: firstQuestion.multiple ?? false,
-      respond,
+      options: firstQuestion.options.map((opt) => ({
+        label: opt.label,
+        description: opt.description,
+      })),
+      nodeId: request.tool?.callID ?? requestId,
+      respond: (answer: string | string[]) => {
+        if (!this.sdkClient) return;
+        const answers = Array.isArray(answer) ? [answer] : [[answer]];
+        this.sdkClient.question.reply({
+          requestID: requestId,
+          directory: this.clientOptions.directory,
+          answers,
+        }).catch((error) => {
+          console.error("Failed to reply to question:", error);
+        });
+      },
+    } satisfies ProviderStreamEventDataMap["human_input_required"];
+
+    this.emitEvent("human_input_required", sessionId, providerData);
+    this.emitProviderEvent("human_input_required", sessionId, providerData, {
+      native: event,
+      nativeEventId: requestId,
+      nativeSessionId: sessionId,
     });
+  }
+
+  private handleMessagePartRemoved(event: EventMessagePartRemoved): void {
+    this.clearPartTracking(
+      event.properties.sessionID,
+      event.properties.messageID,
+      event.properties.partID,
+    );
   }
 
   /**
@@ -2127,6 +2430,52 @@ export class OpenCodeClient implements CodingAgentClient {
         handler(event as AgentEvent<EventType>);
       } catch (error) {
         console.error(`Error in event handler for ${eventType}:`, error);
+      }
+    }
+  }
+
+  onProviderEvent(handler: OpenCodeProviderEventHandler): () => void {
+    this.providerEventHandlers.add(handler);
+    return () => {
+      this.providerEventHandlers.delete(handler);
+    };
+  }
+
+  private emitProviderEvent<T extends ProviderStreamEventType>(
+    eventType: T,
+    sessionId: string,
+    data: ProviderStreamEventDataMap[T],
+    options?: {
+      native?: OpenCodeEvent;
+      nativeEventId?: string;
+      nativeSessionId?: string;
+      timestamp?: number;
+    },
+  ): void {
+    if (this.providerEventHandlers.size === 0) {
+      return;
+    }
+
+    const nativeEvent = options?.native ?? this.activeNativeProviderEvent;
+
+    const event: OpenCodeProviderEvent = {
+      provider: "opencode",
+      type: eventType,
+      sessionId,
+      timestamp: options?.timestamp ?? Date.now(),
+      nativeType: nativeEvent?.type ?? eventType,
+      native: nativeEvent ?? createSyntheticProviderNativeEvent(eventType, data),
+      ...(options?.nativeEventId ? { nativeEventId: options.nativeEventId } : {}),
+      ...(options?.nativeSessionId ? { nativeSessionId: options.nativeSessionId } : {}),
+      ...(getOpenCodeNativeMeta(nativeEvent) ? { nativeMeta: getOpenCodeNativeMeta(nativeEvent) } : {}),
+      data,
+    } as OpenCodeProviderEvent;
+
+    for (const handler of this.providerEventHandlers) {
+      try {
+        handler(event);
+      } catch (error) {
+        console.error(`Error in provider event handler for ${eventType}:`, error);
       }
     }
   }
@@ -3012,6 +3361,12 @@ export class OpenCodeClient implements CodingAgentClient {
           client.emitEvent("session.compaction", sessionId, {
             phase: "start",
           });
+          client.emitProviderEvent("session.compaction", sessionId, {
+            phase: "start",
+          }, {
+            nativeSessionId: sessionId,
+            timestamp: compactionStartAt,
+          });
           sessionState.compaction.pendingCompactionComplete = true;
 
           await withCompactionTimeout(client.sdkClient.session.summarize({
@@ -3067,10 +3422,22 @@ export class OpenCodeClient implements CodingAgentClient {
               tokensRemoved,
               messagesRemoved: 0,
             });
+            client.emitProviderEvent("session.truncation", sessionId, {
+              tokenLimit: sessionState.contextWindow ?? 0,
+              tokensRemoved,
+              messagesRemoved: 0,
+            }, {
+              nativeSessionId: sessionId,
+            });
           }
 
           client.emitEvent("session.idle", sessionId, {
             reason: "context_compacted",
+          });
+          client.emitProviderEvent("session.idle", sessionId, {
+            reason: "context_compacted",
+          }, {
+            nativeSessionId: sessionId,
           });
           setCompactionControlState(sessionState, "compaction.complete.success");
         } catch (error) {
@@ -3102,9 +3469,22 @@ export class OpenCodeClient implements CodingAgentClient {
             success: false,
             error: terminalError.message,
           });
+          client.emitProviderEvent("session.compaction", sessionId, {
+            phase: "complete",
+            success: false,
+            error: terminalError.message,
+          }, {
+            nativeSessionId: sessionId,
+          });
           client.emitEvent("session.error", sessionId, {
             error: terminalError.message,
             code: terminalError.code,
+          });
+          client.emitProviderEvent("session.error", sessionId, {
+            error: terminalError.message,
+            code: terminalError.code,
+          }, {
+            nativeSessionId: sessionId,
           });
           throw terminalError;
         } finally {

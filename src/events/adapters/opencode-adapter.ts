@@ -61,6 +61,8 @@ import type {
   CodingAgentClient,
   Session,
   AgentMessage,
+  AgentEvent,
+  EventType,
   EventHandler,
   ToolStartEventData,
   ToolCompleteEventData,
@@ -81,6 +83,10 @@ import type {
   ReasoningDeltaEventData,
   ReasoningCompleteEventData,
 } from "../../sdk/types.ts";
+import type {
+  OpenCodeProviderEvent,
+  OpenCodeProviderEventSource,
+} from "../../sdk/provider-events.ts";
 import { classifyError, computeDelay, retrySleep, DEFAULT_MAX_RETRIES } from "./retry.ts";
 
 const DEFAULT_SUBAGENT_TASK_LABEL = "sub-agent task";
@@ -171,6 +177,17 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     this.client = client;
   }
 
+  private toAgentEvent<T extends EventType>(
+    event: { type: T; sessionId: string; timestamp: number; data: unknown },
+  ): AgentEvent<T> {
+    return {
+      type: event.type,
+      sessionId: event.sessionId,
+      timestamp: new Date(event.timestamp).toISOString(),
+      data: event.data as AgentEvent<T>["data"],
+    } as AgentEvent<T>;
+  }
+
   /**
    * Start consuming the OpenCode SDK stream and publishing BusEvents.
    *
@@ -226,166 +243,112 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
 
     this.publishSessionStart(runId);
 
-    // Get the SDK client from constructor injection first, then legacy session field fallback.
-    // Note: The OpenCode SDK emits most events through the CodingAgentClient event emitter
     const client = this.client ?? (session as Session & { __client?: CodingAgentClient }).__client;
-    if (client && typeof client.on === "function") {
-      // Subscribe to message.delta events for text and thinking content
-      const unsubDelta = client.on(
-        "message.delta",
-        this.createMessageDeltaHandler(runId, messageId),
-      );
-      this.unsubscribers.push(unsubDelta);
-
-      // Subscribe to message.complete events
-      const unsubComplete = client.on(
-        "message.complete",
-        this.createMessageCompleteHandler(runId, messageId),
-      );
-      this.unsubscribers.push(unsubComplete);
-
-      const unsubReasoningDelta = client.on(
-        "reasoning.delta",
-        this.createReasoningDeltaHandler(runId, messageId),
-      );
-      this.unsubscribers.push(unsubReasoningDelta);
-
-      const unsubReasoningComplete = client.on(
-        "reasoning.complete",
-        this.createReasoningCompleteHandler(runId),
-      );
-      this.unsubscribers.push(unsubReasoningComplete);
-
-      // Subscribe to tool.start events
-      const unsubToolStart = client.on(
-        "tool.start",
-        this.createToolStartHandler(runId),
-      );
-      this.unsubscribers.push(unsubToolStart);
-
-      // Subscribe to tool.complete events
-      const unsubToolComplete = client.on(
-        "tool.complete",
-        this.createToolCompleteHandler(runId),
-      );
-      this.unsubscribers.push(unsubToolComplete);
-
-      // Subscribe to subagent.start events
-      const unsubAgentStart = client.on(
-        "subagent.start",
-        this.createSubagentStartHandler(runId),
-      );
-      this.unsubscribers.push(unsubAgentStart);
-
-      // Subscribe to subagent.complete events
-      const unsubAgentComplete = client.on(
-        "subagent.complete",
-        this.createSubagentCompleteHandler(runId),
-      );
-      this.unsubscribers.push(unsubAgentComplete);
-
-      // Subscribe to subagent.update events (tool progress for sub-agents)
-      const unsubAgentUpdate = client.on(
-        "subagent.update",
-        this.createSubagentUpdateHandler(runId),
-      );
-      this.unsubscribers.push(unsubAgentUpdate);
-
-      // Subscribe to session.idle events
-      const unsubIdle = client.on(
-        "session.idle",
-        this.createSessionIdleHandler(runId),
-      );
-      this.unsubscribers.push(unsubIdle);
-
-      // Subscribe to session.error events
-      const unsubError = client.on(
-        "session.error",
-        this.createSessionErrorHandler(runId),
-      );
-      this.unsubscribers.push(unsubError);
-
-      // Subscribe to usage events
-      const unsubUsage = client.on(
-        "usage",
-        this.createUsageHandler(runId),
-      );
-      this.unsubscribers.push(unsubUsage);
-
-      // Subscribe to permission request events
-      const unsubPermission = client.on(
-        "permission.requested",
-        this.createPermissionRequestedHandler(runId),
-      );
-      this.unsubscribers.push(unsubPermission);
-
-      // Subscribe to human input request events
-      const unsubHumanInput = client.on(
-        "human_input_required",
-        this.createHumanInputRequiredHandler(runId),
-      );
-      this.unsubscribers.push(unsubHumanInput);
-
-      // Subscribe to skill invocation events
-      const unsubSkill = client.on(
-        "skill.invoked",
-        this.createSkillInvokedHandler(runId),
-      );
-      this.unsubscribers.push(unsubSkill);
-
-      // Subscribe to session compaction events
-      const unsubCompaction = client.on(
-        "session.compaction",
-        this.createSessionCompactionHandler(runId),
-      );
-      this.unsubscribers.push(unsubCompaction);
-
-      // Subscribe to session truncation events
-      const unsubTruncation = client.on(
-        "session.truncation",
-        this.createSessionTruncationHandler(runId),
-      );
-      this.unsubscribers.push(unsubTruncation);
-
-      // Subscribe to turn lifecycle events
-      const unsubTurnStart = client.on(
-        "turn.start",
-        this.createTurnStartHandler(runId),
-      );
-      this.unsubscribers.push(unsubTurnStart);
-
-      const unsubTurnEnd = client.on(
-        "turn.end",
-        this.createTurnEndHandler(runId),
-      );
-      this.unsubscribers.push(unsubTurnEnd);
-
-      // Subscribe to tool partial result events
-      const unsubToolPartial = client.on(
-        "tool.partial_result",
-        this.createToolPartialResultHandler(runId),
-      );
-      this.unsubscribers.push(unsubToolPartial);
-
-      // Subscribe to session info/warning/title events
-      const unsubInfo = client.on(
-        "session.info",
-        this.createSessionInfoHandler(runId),
-      );
-      this.unsubscribers.push(unsubInfo);
-
-      const unsubWarning = client.on(
-        "session.warning",
-        this.createSessionWarningHandler(runId),
-      );
-      this.unsubscribers.push(unsubWarning);
-
-      const unsubTitleChanged = client.on(
-        "session.title_changed",
-        this.createSessionTitleChangedHandler(runId),
-      );
-      this.unsubscribers.push(unsubTitleChanged);
+    const providerClient = client as (CodingAgentClient & OpenCodeProviderEventSource) | undefined;
+    if (!providerClient || typeof providerClient.onProviderEvent !== "function") {
+      throw new Error("OpenCode stream adapter requires provider event support.");
     }
+
+    const messageDeltaHandler = this.createMessageDeltaHandler(runId, messageId);
+    const messageCompleteHandler = this.createMessageCompleteHandler(runId, messageId);
+    const reasoningDeltaHandler = this.createReasoningDeltaHandler(runId, messageId);
+    const reasoningCompleteHandler = this.createReasoningCompleteHandler(runId);
+    const toolStartHandler = this.createToolStartHandler(runId);
+    const toolCompleteHandler = this.createToolCompleteHandler(runId);
+    const subagentStartHandler = this.createSubagentStartHandler(runId);
+    const subagentCompleteHandler = this.createSubagentCompleteHandler(runId);
+    const subagentUpdateHandler = this.createSubagentUpdateHandler(runId);
+    const sessionIdleHandler = this.createSessionIdleHandler(runId);
+    const sessionErrorHandler = this.createSessionErrorHandler(runId);
+    const usageHandler = this.createUsageHandler(runId);
+    const permissionHandler = this.createPermissionRequestedHandler(runId);
+    const humanInputHandler = this.createHumanInputRequiredHandler(runId);
+    const skillHandler = this.createSkillInvokedHandler(runId);
+    const sessionCompactionHandler = this.createSessionCompactionHandler(runId);
+    const sessionTruncationHandler = this.createSessionTruncationHandler(runId);
+    const turnStartHandler = this.createTurnStartHandler(runId);
+    const turnEndHandler = this.createTurnEndHandler(runId);
+    const toolPartialHandler = this.createToolPartialResultHandler(runId);
+    const sessionInfoHandler = this.createSessionInfoHandler(runId);
+    const sessionWarningHandler = this.createSessionWarningHandler(runId);
+    const sessionTitleChangedHandler = this.createSessionTitleChangedHandler(runId);
+
+    const unsubProvider = providerClient.onProviderEvent((event) => {
+      switch (event.type) {
+        case "message.delta":
+          messageDeltaHandler(this.toAgentEvent(event));
+          break;
+        case "message.complete":
+          messageCompleteHandler(this.toAgentEvent(event));
+          break;
+        case "reasoning.delta":
+          reasoningDeltaHandler(this.toAgentEvent(event));
+          break;
+        case "reasoning.complete":
+          reasoningCompleteHandler(this.toAgentEvent(event));
+          break;
+        case "tool.start":
+          toolStartHandler(this.toAgentEvent(event));
+          break;
+        case "tool.complete":
+          toolCompleteHandler(this.toAgentEvent(event));
+          break;
+        case "tool.partial_result":
+          toolPartialHandler(this.toAgentEvent(event));
+          break;
+        case "subagent.start":
+          subagentStartHandler(this.toAgentEvent(event));
+          break;
+        case "subagent.complete":
+          subagentCompleteHandler(this.toAgentEvent(event));
+          break;
+        case "subagent.update":
+          subagentUpdateHandler(this.toAgentEvent(event));
+          break;
+        case "session.idle":
+          sessionIdleHandler(this.toAgentEvent(event));
+          break;
+        case "session.error":
+          sessionErrorHandler(this.toAgentEvent(event));
+          break;
+        case "usage":
+          usageHandler(this.toAgentEvent(event));
+          break;
+        case "permission.requested":
+          permissionHandler(this.toAgentEvent(event));
+          break;
+        case "human_input_required":
+          humanInputHandler(this.toAgentEvent(event));
+          break;
+        case "skill.invoked":
+          skillHandler(this.toAgentEvent(event));
+          break;
+        case "session.compaction":
+          sessionCompactionHandler(this.toAgentEvent(event));
+          break;
+        case "session.truncation":
+          sessionTruncationHandler(this.toAgentEvent(event));
+          break;
+        case "turn.start":
+          turnStartHandler(this.toAgentEvent(event));
+          break;
+        case "turn.end":
+          turnEndHandler(this.toAgentEvent(event));
+          break;
+        case "session.info":
+          sessionInfoHandler(this.toAgentEvent(event));
+          break;
+        case "session.warning":
+          sessionWarningHandler(this.toAgentEvent(event));
+          break;
+        case "session.title_changed":
+          sessionTitleChangedHandler(this.toAgentEvent(event));
+          break;
+        default:
+          break;
+      }
+    });
+    this.unsubscribers.push(unsubProvider);
 
     try {
       // Fire prompt via sendAsync (fire-and-forget) — all content arrives via SSE events.
@@ -401,20 +364,17 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
           };
           const handleAbort = () => safeResolve({ reason: "aborted" });
 
-          const onIdle = client?.on("session.idle", (event) => {
-            if (event.sessionId !== this.sessionId) return;
+          const onIdle = providerClient.onProviderEvent((event) => {
+            if (event.type !== "session.idle" || event.sessionId !== this.sessionId) return;
             safeResolve({ reason: event.data.reason ?? "idle" });
           });
-          if (onIdle) this.unsubscribers.push(onIdle);
+          this.unsubscribers.push(onIdle);
 
-          const onError = client?.on("session.error", (event) => {
-            if (event.sessionId !== this.sessionId) return;
-            const error = typeof event.data.error === "string"
-              ? event.data.error
-              : (event.data.error as Error).message;
-            safeResolve({ reason: "error", error });
+          const onError = providerClient.onProviderEvent((event) => {
+            if (event.type !== "session.error" || event.sessionId !== this.sessionId) return;
+            safeResolve({ reason: "error", error: event.data.error });
           });
-          if (onError) this.unsubscribers.push(onError);
+          this.unsubscribers.push(onError);
 
           const adapterAbortSignal = this.abortController?.signal;
           if (adapterAbortSignal) {
@@ -1429,7 +1389,7 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     _runId: number,
   ): EventHandler<"session.idle"> {
     return (event) => {
-      if (event.sessionId !== this.sessionId) {
+      if (!this.isOwnedSession(event.sessionId)) {
         return;
       }
       // No-op: completion is handled by the sendAsync completion promise
@@ -1524,7 +1484,7 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     runId: number,
   ): EventHandler<"permission.requested"> {
     return (event) => {
-      if (event.sessionId !== this.sessionId) {
+      if (!this.isOwnedSession(event.sessionId)) {
         return;
       }
 

@@ -46,6 +46,7 @@ import type {
   Session,
   CodingAgentClient,
   AgentEvent,
+  EventType,
   PermissionRequestedEventData,
   HumanInputRequiredEventData,
   SkillInvokedEventData,
@@ -63,6 +64,10 @@ import type {
   SubagentCompleteEventData,
   SubagentUpdateEventData,
 } from "../../sdk/types.ts";
+import type {
+  CopilotProviderEvent,
+  CopilotProviderEventSource,
+} from "../../sdk/provider-events.ts";
 import type { EventBus } from "../event-bus.ts";
 import type { BusEvent } from "../bus-events.ts";
 import type { SDKStreamAdapter, StreamAdapterOptions } from "./types.ts";
@@ -185,6 +190,32 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
     this.client = client;
   }
 
+  private toAgentEvent<T extends EventType>(
+    event: { type: T; sessionId: string; timestamp: number; data: unknown },
+  ): AgentEvent<T> {
+    const nativeParentEventId = (event as unknown as { nativeParentEventId?: unknown }).nativeParentEventId;
+    const eventData = (
+      typeof event.data === "object" && event.data !== null && !Array.isArray(event.data)
+    )
+      ? {
+          ...(event.data as Record<string, unknown>),
+          ...(typeof nativeParentEventId === "string"
+            ? {
+                nativeParentEventId,
+                parentId: (event.data as Record<string, unknown>).parentId
+                  ?? nativeParentEventId,
+              }
+            : {}),
+        }
+      : event.data as AgentEvent<T>["data"];
+    return {
+      type: event.type,
+      sessionId: event.sessionId,
+      timestamp: new Date(event.timestamp).toISOString(),
+      data: eventData as AgentEvent<T>["data"],
+    } as AgentEvent<T>;
+  }
+
   /**
    * Start streaming from the Copilot SDK session.
    *
@@ -292,160 +323,91 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
    * Subscribe to all relevant events from the Copilot client.
    */
   private subscribeToEvents(): void {
-    // Subscribe to message.delta events (text streaming)
-    const unsubDelta = this.client.on("message.delta", (event) => {
-      if (!this.isActive || event.sessionId !== this.sessionId) return;
-      this.handleMessageDelta(event);
-    });
-    this.unsubscribers.push(unsubDelta);
+    const providerClient = this.client as CodingAgentClient & CopilotProviderEventSource;
+    if (typeof providerClient.onProviderEvent !== "function") {
+      throw new Error("Copilot stream adapter requires provider event support.");
+    }
 
-    // Subscribe to message.complete events
-    const unsubComplete = this.client.on("message.complete", (event) => {
-      if (!this.isActive || event.sessionId !== this.sessionId) return;
-      this.handleMessageComplete(event);
-    });
-    this.unsubscribers.push(unsubComplete);
+    const unsubProvider = providerClient.onProviderEvent((event) => {
+      if (!this.isActive || event.sessionId !== this.sessionId) {
+        return;
+      }
 
-    // Subscribe to tool.start events
-    const unsubToolStart = this.client.on("tool.start", (event) => {
-      if (!this.isActive || event.sessionId !== this.sessionId) return;
-      this.handleToolStart(event);
+      switch (event.type) {
+        case "message.delta":
+          this.handleMessageDelta(this.toAgentEvent(event));
+          break;
+        case "message.complete":
+          this.handleMessageComplete(this.toAgentEvent(event));
+          break;
+        case "tool.start":
+          this.handleToolStart(this.toAgentEvent(event));
+          break;
+        case "tool.complete":
+          this.handleToolComplete(this.toAgentEvent(event));
+          break;
+        case "session.idle":
+          this.handleSessionIdle(this.toAgentEvent(event));
+          break;
+        case "session.error":
+          this.handleSessionError(this.toAgentEvent(event));
+          break;
+        case "usage":
+          this.handleUsage(this.toAgentEvent(event));
+          break;
+        case "permission.requested":
+          this.handlePermissionRequested(this.toAgentEvent(event) as AgentEvent<"permission.requested">);
+          break;
+        case "human_input_required":
+          this.handleHumanInputRequired(this.toAgentEvent(event) as AgentEvent<"human_input_required">);
+          break;
+        case "skill.invoked":
+          this.handleSkillInvoked(this.toAgentEvent(event) as AgentEvent<"skill.invoked">);
+          break;
+        case "reasoning.delta":
+          this.handleReasoningDelta(this.toAgentEvent(event) as AgentEvent<"reasoning.delta">);
+          break;
+        case "reasoning.complete":
+          this.handleReasoningComplete(this.toAgentEvent(event) as AgentEvent<"reasoning.complete">);
+          break;
+        case "subagent.start":
+          this.handleSubagentStart(this.toAgentEvent(event) as AgentEvent<"subagent.start">);
+          break;
+        case "subagent.complete":
+          this.handleSubagentComplete(this.toAgentEvent(event) as AgentEvent<"subagent.complete">);
+          break;
+        case "subagent.update":
+          this.handleSubagentUpdate(this.toAgentEvent(event) as AgentEvent<"subagent.update">);
+          break;
+        case "turn.start":
+          this.handleTurnStart(this.toAgentEvent(event) as AgentEvent<"turn.start">);
+          break;
+        case "turn.end":
+          this.handleTurnEnd(this.toAgentEvent(event) as AgentEvent<"turn.end">);
+          break;
+        case "tool.partial_result":
+          this.handleToolPartialResult(this.toAgentEvent(event) as AgentEvent<"tool.partial_result">);
+          break;
+        case "session.info":
+          this.handleSessionInfo(this.toAgentEvent(event) as AgentEvent<"session.info">);
+          break;
+        case "session.warning":
+          this.handleSessionWarning(this.toAgentEvent(event) as AgentEvent<"session.warning">);
+          break;
+        case "session.title_changed":
+          this.handleSessionTitleChanged(this.toAgentEvent(event) as AgentEvent<"session.title_changed">);
+          break;
+        case "session.truncation":
+          this.handleSessionTruncation(this.toAgentEvent(event) as AgentEvent<"session.truncation">);
+          break;
+        case "session.compaction":
+          this.handleSessionCompaction(this.toAgentEvent(event) as AgentEvent<"session.compaction">);
+          break;
+        default:
+          break;
+      }
     });
-    this.unsubscribers.push(unsubToolStart);
-
-    // Subscribe to tool.complete events
-    const unsubToolComplete = this.client.on("tool.complete", (event) => {
-      if (!this.isActive || event.sessionId !== this.sessionId) return;
-      this.handleToolComplete(event);
-    });
-    this.unsubscribers.push(unsubToolComplete);
-
-    // Subscribe to session.idle events
-    const unsubIdle = this.client.on("session.idle", (event) => {
-      if (!this.isActive || event.sessionId !== this.sessionId) return;
-      this.handleSessionIdle(event);
-    });
-    this.unsubscribers.push(unsubIdle);
-
-    // Subscribe to session.error events
-    const unsubError = this.client.on("session.error", (event) => {
-      if (!this.isActive || event.sessionId !== this.sessionId) return;
-      this.handleSessionError(event);
-    });
-    this.unsubscribers.push(unsubError);
-
-    // Subscribe to usage events
-    const unsubUsage = this.client.on("usage", (event) => {
-      if (!this.isActive || event.sessionId !== this.sessionId) return;
-      this.handleUsage(event);
-    });
-    this.unsubscribers.push(unsubUsage);
-
-    // Subscribe to permission request events
-    const unsubPermission = this.client.on("permission.requested", (event) => {
-      if (!this.isActive || event.sessionId !== this.sessionId) return;
-      this.handlePermissionRequested(event as AgentEvent<"permission.requested">);
-    });
-    this.unsubscribers.push(unsubPermission);
-
-    // Subscribe to workflow/human-input events
-    const unsubHumanInput = this.client.on("human_input_required", (event) => {
-      if (!this.isActive || event.sessionId !== this.sessionId) return;
-      this.handleHumanInputRequired(event as AgentEvent<"human_input_required">);
-    });
-    this.unsubscribers.push(unsubHumanInput);
-
-    // Subscribe to skill invocation events
-    const unsubSkill = this.client.on("skill.invoked", (event) => {
-      if (!this.isActive || event.sessionId !== this.sessionId) return;
-      this.handleSkillInvoked(event as AgentEvent<"skill.invoked">);
-    });
-    this.unsubscribers.push(unsubSkill);
-
-    // Subscribe to reasoning delta events (thinking content)
-    const unsubReasoningDelta = this.client.on("reasoning.delta", (event) => {
-      if (!this.isActive || event.sessionId !== this.sessionId) return;
-      this.handleReasoningDelta(event as AgentEvent<"reasoning.delta">);
-    });
-    this.unsubscribers.push(unsubReasoningDelta);
-
-    // Subscribe to reasoning complete events
-    const unsubReasoningComplete = this.client.on("reasoning.complete", (event) => {
-      if (!this.isActive || event.sessionId !== this.sessionId) return;
-      this.handleReasoningComplete(event as AgentEvent<"reasoning.complete">);
-    });
-    this.unsubscribers.push(unsubReasoningComplete);
-
-    // Subscribe to subagent start events
-    const unsubSubagentStart = this.client.on("subagent.start", (event) => {
-      if (!this.isActive || event.sessionId !== this.sessionId) return;
-      this.handleSubagentStart(event as AgentEvent<"subagent.start">);
-    });
-    this.unsubscribers.push(unsubSubagentStart);
-
-    // Subscribe to subagent complete events
-    const unsubSubagentComplete = this.client.on("subagent.complete", (event) => {
-      if (!this.isActive || event.sessionId !== this.sessionId) return;
-      this.handleSubagentComplete(event as AgentEvent<"subagent.complete">);
-    });
-    this.unsubscribers.push(unsubSubagentComplete);
-
-    const unsubSubagentUpdate = this.client.on("subagent.update", (event) => {
-      if (!this.isActive || event.sessionId !== this.sessionId) return;
-      this.handleSubagentUpdate(event as AgentEvent<"subagent.update">);
-    });
-    this.unsubscribers.push(unsubSubagentUpdate);
-
-    // Subscribe to turn lifecycle events
-    const unsubTurnStart = this.client.on("turn.start", (event) => {
-      if (!this.isActive || event.sessionId !== this.sessionId) return;
-      this.handleTurnStart(event as AgentEvent<"turn.start">);
-    });
-    this.unsubscribers.push(unsubTurnStart);
-
-    const unsubTurnEnd = this.client.on("turn.end", (event) => {
-      if (!this.isActive || event.sessionId !== this.sessionId) return;
-      this.handleTurnEnd(event as AgentEvent<"turn.end">);
-    });
-    this.unsubscribers.push(unsubTurnEnd);
-
-    // Subscribe to tool partial result events (streaming tool output)
-    const unsubToolPartial = this.client.on("tool.partial_result", (event) => {
-      if (!this.isActive || event.sessionId !== this.sessionId) return;
-      this.handleToolPartialResult(event as AgentEvent<"tool.partial_result">);
-    });
-    this.unsubscribers.push(unsubToolPartial);
-
-    // Subscribe to session info/warning/title/truncation/compaction events
-    const unsubInfo = this.client.on("session.info", (event) => {
-      if (!this.isActive || event.sessionId !== this.sessionId) return;
-      this.handleSessionInfo(event as AgentEvent<"session.info">);
-    });
-    this.unsubscribers.push(unsubInfo);
-
-    const unsubWarning = this.client.on("session.warning", (event) => {
-      if (!this.isActive || event.sessionId !== this.sessionId) return;
-      this.handleSessionWarning(event as AgentEvent<"session.warning">);
-    });
-    this.unsubscribers.push(unsubWarning);
-
-    const unsubTitleChanged = this.client.on("session.title_changed", (event) => {
-      if (!this.isActive || event.sessionId !== this.sessionId) return;
-      this.handleSessionTitleChanged(event as AgentEvent<"session.title_changed">);
-    });
-    this.unsubscribers.push(unsubTitleChanged);
-
-    const unsubTruncation = this.client.on("session.truncation", (event) => {
-      if (!this.isActive || event.sessionId !== this.sessionId) return;
-      this.handleSessionTruncation(event as AgentEvent<"session.truncation">);
-    });
-    this.unsubscribers.push(unsubTruncation);
-
-    const unsubCompaction = this.client.on("session.compaction", (event) => {
-      if (!this.isActive || event.sessionId !== this.sessionId) return;
-      this.handleSessionCompaction(event as AgentEvent<"session.compaction">);
-    });
-    this.unsubscribers.push(unsubCompaction);
+    this.unsubscribers.push(unsubProvider);
   }
 
   /**

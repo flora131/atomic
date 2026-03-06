@@ -940,6 +940,48 @@ describe("CopilotClient message_delta preserves parentToolCallId and messageId",
   });
 });
 
+describe("CopilotClient provider events", () => {
+  test("preserves nativeType and native payload on provider events", () => {
+    const client = new CopilotClient({});
+    const providerEvents: Array<Record<string, unknown>> = [];
+
+    client.onProviderEvent((event) => {
+      providerEvents.push(event as unknown as Record<string, unknown>);
+    });
+
+    const handleSdkEvent = (client as unknown as {
+      handleSdkEvent: (sessionId: string, event: {
+        id: string;
+        timestamp: string;
+        parentId: string | null;
+        type: string;
+        data: Record<string, unknown>;
+      }) => void;
+    }).handleSdkEvent.bind(client);
+
+    handleSdkEvent("test-session", {
+      id: "evt-1",
+      timestamp: new Date(0).toISOString(),
+      parentId: null,
+      type: "assistant.message_delta",
+      data: {
+        deltaContent: "Hello world",
+        messageId: "msg-123",
+      },
+    });
+
+    expect(providerEvents).toHaveLength(1);
+    expect(providerEvents[0]!.type).toBe("message.delta");
+    expect(providerEvents[0]!.nativeType).toBe("assistant.message_delta");
+    expect((providerEvents[0]!.native as { type: string }).type).toBe("assistant.message_delta");
+    expect(providerEvents[0]!.nativeMeta).toEqual({
+      nativeEventId: "evt-1",
+      nativeParentEventId: null,
+      nativeMessageId: "msg-123",
+    });
+  });
+});
+
 describe("CopilotClient assistant.message preserves toolRequests", () => {
   test("handleSdkEvent passes toolRequests to message.complete event", () => {
     const client = new CopilotClient({});
@@ -958,6 +1000,10 @@ describe("CopilotClient assistant.message preserves toolRequests", () => {
       data: {
         content: "Let me check that file.",
         messageId: "msg-001",
+        interactionId: "int-001",
+        phase: "final",
+        reasoningText: "checked file state",
+        reasoningOpaque: "opaque-reasoning",
         toolRequests: [
           { toolCallId: "tc-1", name: "view", arguments: { path: "/tmp/file.txt" } },
         ],
@@ -967,8 +1013,12 @@ describe("CopilotClient assistant.message preserves toolRequests", () => {
     expect(events).toHaveLength(1);
     const data = events[0]!.data;
     expect((data.message as Record<string, unknown>).content).toBe("Let me check that file.");
+    expect(data.interactionId).toBe("int-001");
+    expect(data.phase).toBe("final");
+    expect(data.reasoningText).toBe("checked file state");
+    expect(data.reasoningOpaque).toBe("opaque-reasoning");
     expect(data.toolRequests).toEqual([
-      { toolCallId: "tc-1", name: "view", arguments: { path: "/tmp/file.txt" } },
+      { toolCallId: "tc-1", name: "view", arguments: { path: "/tmp/file.txt" }, type: undefined },
     ]);
   });
 

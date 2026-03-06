@@ -21,6 +21,7 @@ export const ALL_SDK_EVENT_TYPES: EventType[] = [
   "session.start",
   "session.idle",
   "session.error",
+  "session.retry",
   "session.info",
   "session.warning",
   "session.title_changed",
@@ -54,6 +55,7 @@ const OPENCODE_EVENT_COVERAGE: ProviderCoverage = {
   },
   "session.idle": { disposition: "mapped", canonicalEvents: ["stream.session.idle"], rationale: "Session idle lifecycle." },
   "session.error": { disposition: "mapped", canonicalEvents: ["stream.session.error"], rationale: "Session error lifecycle." },
+  "session.retry": { disposition: "mapped", canonicalEvents: ["stream.session.retry"], rationale: "Retry lifecycle." },
   "session.info": { disposition: "mapped", canonicalEvents: ["stream.session.info"], rationale: "Informational notifications." },
   "session.warning": { disposition: "mapped", canonicalEvents: ["stream.session.warning"], rationale: "Warning notifications." },
   "session.title_changed": {

@@ -45,7 +45,9 @@ import type {
   CodingAgentClient,
   Session,
   AgentMessage,
+  AgentEvent,
   EventHandler,
+  EventType,
   SessionErrorEventData,
   SessionInfoEventData,
   SessionWarningEventData,
@@ -66,6 +68,10 @@ import type {
   TurnStartEventData,
   TurnEndEventData,
 } from "../../sdk/types.ts";
+import type {
+  ClaudeProviderEvent,
+  ClaudeProviderEventSource,
+} from "../../sdk/provider-events.ts";
 import {
   createTurnMetadataState,
   normalizeAgentTaskMetadata,
@@ -161,6 +167,17 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     this.client = client;
   }
 
+  private toAgentEvent<T extends EventType>(
+    event: { type: T; sessionId: string; timestamp: number; data: unknown },
+  ): AgentEvent<T> {
+    return {
+      type: event.type,
+      sessionId: event.sessionId,
+      timestamp: new Date(event.timestamp).toISOString(),
+      data: event.data as AgentEvent<T>["data"],
+    } as AgentEvent<T>;
+  }
+
   /**
    * Start consuming the Claude SDK stream and publishing BusEvents.
    *
@@ -232,130 +249,98 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     this.publishSyntheticAgentStart(runId);
 
     const client = this.client ?? (session as Session & { __client?: CodingAgentClient }).__client;
-    if (client && typeof client.on === "function") {
-      this.preferClientToolHooks = true;
-      const unsubToolStart = client.on(
-        "tool.start",
-        this.createToolStartHandler(runId),
-      );
-      this.unsubscribers.push(unsubToolStart);
+    const providerClient = client as (CodingAgentClient & ClaudeProviderEventSource) | undefined;
+    if (providerClient && typeof providerClient.onProviderEvent === "function") {
+      const toolStartHandler = this.createToolStartHandler(runId);
+      const toolCompleteHandler = this.createToolCompleteHandler(runId);
+      const subagentStartHandler = this.createSubagentStartHandler(runId);
+      const subagentCompleteHandler = this.createSubagentCompleteHandler(runId);
+      const subagentUpdateHandler = this.createSubagentUpdateHandler(runId);
+      const sessionErrorHandler = this.createSessionErrorHandler(runId);
+      const usageHandler = this.createUsageHandler(runId);
+      const permissionHandler = this.createPermissionRequestedHandler(runId);
+      const humanInputHandler = this.createHumanInputRequiredHandler(runId);
+      const skillHandler = this.createSkillInvokedHandler(runId);
+      const reasoningDeltaHandler = this.createReasoningDeltaHandler(runId, messageId);
+      const reasoningCompleteHandler = this.createReasoningCompleteHandler(runId);
+      const turnStartHandler = this.createTurnStartHandler(runId);
+      const turnEndHandler = this.createTurnEndHandler(runId);
+      const toolPartialHandler = this.createToolPartialResultHandler(runId);
+      const sessionInfoHandler = this.createSessionInfoHandler(runId);
+      const sessionWarningHandler = this.createSessionWarningHandler(runId);
+      const sessionTitleChangedHandler = this.createSessionTitleChangedHandler(runId);
+      const sessionTruncationHandler = this.createSessionTruncationHandler(runId);
+      const sessionCompactionHandler = this.createSessionCompactionHandler(runId);
 
-      const unsubToolComplete = client.on(
-        "tool.complete",
-        this.createToolCompleteHandler(runId),
-      );
-      this.unsubscribers.push(unsubToolComplete);
-
-      // Subscribe to subagent lifecycle events from SDK hooks
-      const unsubSubagentStart = client.on(
-        "subagent.start",
-        this.createSubagentStartHandler(runId),
-      );
-      this.unsubscribers.push(unsubSubagentStart);
-
-      const unsubSubagentComplete = client.on(
-        "subagent.complete",
-        this.createSubagentCompleteHandler(runId),
-      );
-      this.unsubscribers.push(unsubSubagentComplete);
-
-      // Subscribe to subagent.update events (tool progress for sub-agents)
-      const unsubAgentUpdate = client.on(
-        "subagent.update",
-        this.createSubagentUpdateHandler(runId),
-      );
-      this.unsubscribers.push(unsubAgentUpdate);
-
-      const unsubSessionError = client.on(
-        "session.error",
-        this.createSessionErrorHandler(runId),
-      );
-      this.unsubscribers.push(unsubSessionError);
-
-      const unsubUsage = client.on(
-        "usage",
-        this.createUsageHandler(runId),
-      );
-      this.unsubscribers.push(unsubUsage);
-
-      // Subscribe to permission request events (HITL)
-      const unsubPermission = client.on(
-        "permission.requested",
-        this.createPermissionRequestedHandler(runId),
-      );
-      this.unsubscribers.push(unsubPermission);
-
-      const unsubHumanInput = client.on(
-        "human_input_required",
-        this.createHumanInputRequiredHandler(runId),
-      );
-      this.unsubscribers.push(unsubHumanInput);
-
-      const unsubSkillInvoked = client.on(
-        "skill.invoked",
-        this.createSkillInvokedHandler(runId),
-      );
-      this.unsubscribers.push(unsubSkillInvoked);
-
-      const unsubReasoningDelta = client.on(
-        "reasoning.delta",
-        this.createReasoningDeltaHandler(runId, messageId),
-      );
-      this.unsubscribers.push(unsubReasoningDelta);
-
-      const unsubReasoningComplete = client.on(
-        "reasoning.complete",
-        this.createReasoningCompleteHandler(runId),
-      );
-      this.unsubscribers.push(unsubReasoningComplete);
-
-      const unsubTurnStart = client.on(
-        "turn.start",
-        this.createTurnStartHandler(runId),
-      );
-      this.unsubscribers.push(unsubTurnStart);
-
-      const unsubTurnEnd = client.on(
-        "turn.end",
-        this.createTurnEndHandler(runId),
-      );
-      this.unsubscribers.push(unsubTurnEnd);
-
-      const unsubToolPartialResult = client.on(
-        "tool.partial_result",
-        this.createToolPartialResultHandler(runId),
-      );
-      this.unsubscribers.push(unsubToolPartialResult);
-
-      const unsubSessionInfo = client.on(
-        "session.info",
-        this.createSessionInfoHandler(runId),
-      );
-      this.unsubscribers.push(unsubSessionInfo);
-
-      const unsubSessionWarning = client.on(
-        "session.warning",
-        this.createSessionWarningHandler(runId),
-      );
-      this.unsubscribers.push(unsubSessionWarning);
-
-      const unsubSessionTitleChanged = client.on(
-        "session.title_changed",
-        this.createSessionTitleChangedHandler(runId),
-      );
-      this.unsubscribers.push(unsubSessionTitleChanged);
-
-      const unsubSessionTruncation = client.on(
-        "session.truncation",
-        this.createSessionTruncationHandler(runId),
-      );
-      this.unsubscribers.push(unsubSessionTruncation);
-
-      const unsubSessionCompaction = client.on(
-        "session.compaction",
-        this.createSessionCompactionHandler(runId),
-      );
-      this.unsubscribers.push(unsubSessionCompaction);
+      const unsubProvider = providerClient.onProviderEvent((event) => {
+        switch (event.type) {
+          case "tool.start":
+            this.preferClientToolHooks = true;
+            toolStartHandler(this.toAgentEvent(event));
+            break;
+          case "tool.complete":
+            this.preferClientToolHooks = true;
+            toolCompleteHandler(this.toAgentEvent(event));
+            break;
+          case "subagent.start":
+            subagentStartHandler(this.toAgentEvent(event));
+            break;
+          case "subagent.complete":
+            subagentCompleteHandler(this.toAgentEvent(event));
+            break;
+          case "subagent.update":
+            subagentUpdateHandler(this.toAgentEvent(event));
+            break;
+          case "session.error":
+            sessionErrorHandler(this.toAgentEvent(event));
+            break;
+          case "usage":
+            usageHandler(this.toAgentEvent(event));
+            break;
+          case "permission.requested":
+            permissionHandler(this.toAgentEvent(event));
+            break;
+          case "human_input_required":
+            humanInputHandler(this.toAgentEvent(event));
+            break;
+          case "skill.invoked":
+            skillHandler(this.toAgentEvent(event));
+            break;
+          case "reasoning.delta":
+            reasoningDeltaHandler(this.toAgentEvent(event));
+            break;
+          case "reasoning.complete":
+            reasoningCompleteHandler(this.toAgentEvent(event));
+            break;
+          case "turn.start":
+            turnStartHandler(this.toAgentEvent(event));
+            break;
+          case "turn.end":
+            turnEndHandler(this.toAgentEvent(event));
+            break;
+          case "tool.partial_result":
+            toolPartialHandler(this.toAgentEvent(event));
+            break;
+          case "session.info":
+            sessionInfoHandler(this.toAgentEvent(event));
+            break;
+          case "session.warning":
+            sessionWarningHandler(this.toAgentEvent(event));
+            break;
+          case "session.title_changed":
+            sessionTitleChangedHandler(this.toAgentEvent(event));
+            break;
+          case "session.truncation":
+            sessionTruncationHandler(this.toAgentEvent(event));
+            break;
+          case "session.compaction":
+            sessionCompactionHandler(this.toAgentEvent(event));
+            break;
+          default:
+            break;
+        }
+      });
+      this.unsubscribers.push(unsubProvider);
     }
 
     let streamCompletionReason: "generator-complete" | "aborted" | "error" = "generator-complete";

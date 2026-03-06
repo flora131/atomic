@@ -28,8 +28,21 @@ import {
     type Options,
     type SDKMessage,
     type SDKAssistantMessage,
+    type SDKAuthStatusMessage,
+    type SDKHookProgressMessage,
+    type SDKHookResponseMessage,
+    type SDKHookStartedMessage,
+    type SDKPartialAssistantMessage,
+    type SDKPromptSuggestionMessage,
+    type SDKRateLimitEvent,
     type SDKResultMessage,
+    type SDKStatusMessage,
     type SDKSystemMessage,
+    type SDKTaskNotificationMessage,
+    type SDKTaskProgressMessage,
+    type SDKTaskStartedMessage,
+    type SDKToolProgressMessage,
+    type SDKToolUseSummaryMessage,
     type HookEvent,
     type HookCallback,
     type HookCallbackMatcher,
@@ -65,6 +78,14 @@ import {
     extractSkillInvocationFromToolInput,
     isSkillToolName,
 } from "./skill-invocation.ts";
+import type {
+    ClaudeProviderEvent,
+    ClaudeProviderEventHandler,
+    ClaudeNativeEvent,
+    ProviderStreamEventDataMap,
+    ProviderStreamEventType,
+} from "../provider-events.ts";
+import { createSyntheticProviderNativeEvent } from "../provider-events.ts";
 
 /**
  * Configuration for Claude SDK native hooks
@@ -122,8 +143,6 @@ function mapSdkEventToEventType(sdkMessageType: string): EventType | null {
     const mapping: Record<string, EventType> = {
         assistant: "message.complete",
         stream_event: "message.delta",
-        result: "session.idle",
-        system: "session.start",
     };
     return mapping[sdkMessageType] ?? null;
 }
@@ -168,6 +187,53 @@ function shouldPreferRecordedSubagentTask(args: {
     }
     const normalizedAgentType = args.agentType?.trim().toLowerCase();
     return Boolean(normalizedAgentType && hookTask.toLowerCase() === normalizedAgentType);
+}
+
+function assertNeverClaudeMessage(value: never): never {
+    throw new Error(`Unhandled Claude SDK message: ${JSON.stringify(value)}`);
+}
+
+function getClaudeNativeSubtype(
+    native: ClaudeNativeEvent | undefined,
+): string | undefined {
+    if (!native || !("subtype" in native)) {
+        return undefined;
+    }
+    const subtype = native.subtype;
+    return typeof subtype === "string" ? subtype : undefined;
+}
+
+function getClaudeNativeMeta(
+    native: ClaudeNativeEvent | undefined,
+): Readonly<Record<string, string | number | boolean | null | undefined>> | undefined {
+    if (!native) {
+        return undefined;
+    }
+
+    const meta: Record<string, string | number | boolean | null | undefined> = {};
+    if ("session_id" in native && typeof native.session_id === "string") {
+        meta.nativeSessionId = native.session_id;
+    }
+    if ("uuid" in native && typeof native.uuid === "string") {
+        meta.nativeMessageId = native.uuid;
+    }
+    if ("parent_tool_use_id" in native) {
+        meta.parentToolUseId =
+            native.parent_tool_use_id === null || typeof native.parent_tool_use_id === "string"
+                ? native.parent_tool_use_id
+                : undefined;
+    }
+    if ("tool_use_id" in native && typeof native.tool_use_id === "string") {
+        meta.toolUseId = native.tool_use_id;
+    }
+    if ("task_id" in native && typeof native.task_id === "string") {
+        meta.taskId = native.task_id;
+    }
+    if ("hook_id" in native && typeof native.hook_id === "string") {
+        meta.hookId = native.hook_id;
+    }
+
+    return Object.keys(meta).length > 0 ? meta : undefined;
 }
 
 /**
@@ -338,6 +404,8 @@ export class ClaudeAgentClient implements CodingAgentClient {
 
     private eventHandlers: Map<EventType, Set<EventHandler<EventType>>> =
         new Map();
+    private providerEventHandlers = new Set<ClaudeProviderEventHandler>();
+    private providerEventBridgeInitialized = false;
     private sessions: Map<string, ClaudeSessionState> = new Map();
     private registeredHooks: Record<string, HookCallback[]> = {};
     private registeredTools: Map<string, McpSdkServerConfigWithInstance> =
@@ -464,8 +532,9 @@ export class ClaudeAgentClient implements CodingAgentClient {
         for (const q of input.questions) {
             const responsePromise = new Promise<string | string[]>(
                 (resolve) => {
-                    this.emitEvent("permission.requested", sessionId, {
-                        requestId: `ask_${Date.now()}`,
+                    const requestId = `ask_${Date.now()}`;
+                    const providerData = {
+                        requestId,
                         toolName: "AskUserQuestion",
                         toolInput: q,
                         question: q.question,
@@ -488,6 +557,11 @@ export class ClaudeAgentClient implements CodingAgentClient {
                         ],
                         multiSelect: q.multiSelect ?? false,
                         respond: resolve,
+                    } satisfies ProviderStreamEventDataMap["permission.requested"];
+                    this.emitEvent("permission.requested", sessionId, providerData);
+                    this.emitProviderEvent("permission.requested", sessionId, providerData, {
+                        nativeSessionId: sessionId,
+                        nativeEventId: requestId,
                     });
                 },
             );
@@ -896,6 +970,18 @@ export class ClaudeAgentClient implements CodingAgentClient {
                         model: this.detectedModel,
                     });
                 };
+                const emitProviderStreamingEvent = <T extends ProviderStreamEventType>(
+                    eventType: T,
+                    data: ProviderStreamEventDataMap[T],
+                    options?: {
+                        native?: ClaudeNativeEvent;
+                        nativeEventId?: string;
+                        nativeSessionId?: string;
+                        timestamp?: number;
+                    },
+                ) => {
+                    this.emitProviderEvent(eventType, sessionId, data, options);
+                };
 
                 return {
                     [Symbol.asyncIterator]: async function* () {
@@ -1030,6 +1116,22 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                                 },
                                             },
                                         };
+                                        emitProviderStreamingEvent(
+                                            "reasoning.complete",
+                                            {
+                                                reasoningId:
+                                                    activeThinkingSourceKey ??
+                                                    "thinking",
+                                                durationMs: thinkingDurationMs,
+                                            },
+                                            {
+                                                native: sdkMessage,
+                                                nativeSessionId:
+                                                    sdkMessage.session_id,
+                                                nativeEventId:
+                                                    sdkMessage.uuid,
+                                            },
+                                        );
                                         activeThinkingSourceKey = null;
                                     }
 
@@ -1068,6 +1170,22 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                                       }
                                                     : {}),
                                             };
+                                            emitProviderStreamingEvent(
+                                                "message.delta",
+                                                {
+                                                    delta: event.delta.text,
+                                                    contentType: "text",
+                                                    parentToolCallId:
+                                                        parentToolUseId,
+                                                },
+                                                {
+                                                    native: sdkMessage,
+                                                    nativeSessionId:
+                                                        sdkMessage.session_id,
+                                                    nativeEventId:
+                                                        sdkMessage.uuid,
+                                                },
+                                            );
                                         } else if (
                                             event.delta.type ===
                                             "thinking_delta"
@@ -1126,6 +1244,27 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                                     },
                                                 },
                                             };
+                                            emitProviderStreamingEvent(
+                                                "reasoning.delta",
+                                                {
+                                                    delta: (
+                                                        event.delta as Record<
+                                                            string,
+                                                            unknown
+                                                        >
+                                                    ).thinking as string,
+                                                    reasoningId:
+                                                        resolvedThinkingSourceKey ??
+                                                        "thinking",
+                                                },
+                                                {
+                                                    native: sdkMessage,
+                                                    nativeSessionId:
+                                                        sdkMessage.session_id,
+                                                    nativeEventId:
+                                                        sdkMessage.uuid,
+                                                },
+                                            );
                                         }
                                     }
                                 } else if (sdkMessage.type === "assistant") {
@@ -1145,6 +1284,28 @@ export class ClaudeAgentClient implements CodingAgentClient {
 
                                     const { type, content, thinkingSourceKey } =
                                         extractMessageContent(sdkMessage);
+
+                                    if (type === "text") {
+                                        emitProviderStreamingEvent(
+                                            "message.complete",
+                                            {
+                                                message: {
+                                                    type,
+                                                    content,
+                                                    role: "assistant",
+                                                },
+                                                nativeMessageId:
+                                                    sdkMessage.uuid,
+                                            },
+                                            {
+                                                native: sdkMessage,
+                                                nativeSessionId:
+                                                    sdkMessage.session_id,
+                                                nativeEventId:
+                                                    sdkMessage.uuid,
+                                            },
+                                        );
+                                    }
 
                                     // Always yield tool_use messages so callers can track tool
                                     // invocations (e.g. spawnSubagentParallel counts them for
@@ -1411,27 +1572,40 @@ export class ClaudeAgentClient implements CodingAgentClient {
             }
         }
 
+        if (sdkMessage.type === "system" && sdkMessage.subtype === "status") {
+            const statusMessage = sdkMessage as SDKStatusMessage;
+            if (statusMessage.status === "compacting") {
+                this.emitEvent("session.compaction", sessionId, {
+                    phase: "start",
+                });
+            }
+        }
+
+        if (sdkMessage.type === "system" && sdkMessage.subtype === "compact_boundary") {
+            this.emitEvent("session.compaction", sessionId, {
+                phase: "complete",
+                success: true,
+            });
+        }
+
         // Handle task_progress messages from sub-agents (periodic progress updates)
         if (
             sdkMessage.type === "system" &&
             sdkMessage.subtype === "task_progress"
         ) {
-            const msg = sdkMessage as Record<string, unknown>;
-            const toolUseId = msg.tool_use_id as string | undefined;
+            const msg = sdkMessage as SDKTaskProgressMessage;
+            const toolUseId = msg.tool_use_id;
             const mappedAgentId = toolUseId
                 ? this.toolUseIdToAgentId.get(toolUseId)
                 : undefined;
             const sessionScopedAgentId =
-                typeof msg.session_id === "string"
-                    ? this.subagentSdkSessionIdToAgentId.get(msg.session_id)
-                    : undefined;
+                this.subagentSdkSessionIdToAgentId.get(msg.session_id);
             const agentId = mappedAgentId ?? sessionScopedAgentId;
             if (agentId) {
-                const usage = msg.usage as { tool_uses?: number } | undefined;
                 this.emitEvent("subagent.update", sessionId, {
                     subagentId: agentId,
-                    currentTool: msg.last_tool_name as string | undefined,
-                    toolUses: usage?.tool_uses,
+                    currentTool: msg.last_tool_name,
+                    toolUses: msg.usage.tool_uses,
                 });
             }
         }
@@ -1440,12 +1614,9 @@ export class ClaudeAgentClient implements CodingAgentClient {
             sdkMessage.type === "system" &&
             sdkMessage.subtype === "task_started"
         ) {
-            const msg = sdkMessage as Record<string, unknown>;
-            const toolUseId = msg.tool_use_id as string | undefined;
-            const description =
-                typeof msg.description === "string"
-                    ? msg.description.trim()
-                    : "";
+            const msg = sdkMessage as SDKTaskStartedMessage;
+            const toolUseId = msg.tool_use_id;
+            const description = msg.description.trim();
             if (toolUseId && description.length > 0) {
                 this.taskDescriptionByToolUseId.set(toolUseId, description);
             }
@@ -1456,21 +1627,19 @@ export class ClaudeAgentClient implements CodingAgentClient {
             sdkMessage.type === "system" &&
             sdkMessage.subtype === "task_notification"
         ) {
-            const msg = sdkMessage as Record<string, unknown>;
-            const toolUseId = msg.tool_use_id as string | undefined;
+            const msg = sdkMessage as SDKTaskNotificationMessage;
+            const toolUseId = msg.tool_use_id;
             const mappedAgentId = toolUseId
                 ? this.toolUseIdToAgentId.get(toolUseId)
                 : undefined;
             const sessionScopedAgentId =
-                typeof msg.session_id === "string"
-                    ? this.subagentSdkSessionIdToAgentId.get(msg.session_id)
-                    : undefined;
+                this.subagentSdkSessionIdToAgentId.get(msg.session_id);
             const agentId = mappedAgentId ?? sessionScopedAgentId;
             if (agentId) {
                 this.emitEvent("subagent.complete", sessionId, {
                     subagentId: agentId,
                     success: msg.status === "completed",
-                    result: msg.summary as string | undefined,
+                    result: msg.summary,
                 });
                 if (toolUseId) {
                     this.toolUseIdToAgentId.delete(toolUseId);
@@ -1501,15 +1670,23 @@ export class ClaudeAgentClient implements CodingAgentClient {
         // Handle specific message types
         if (sdkMessage.type === "result") {
             const result = sdkMessage as SDKResultMessage;
-            if (result.subtype === "error_max_turns") {
-                this.emitEvent("session.error", sessionId, {
-                    error: "Maximum turns exceeded",
-                    code: "MAX_TURNS",
+            if (result.subtype === "success") {
+                this.emitEvent("session.idle", sessionId, {
+                    reason: result.stop_reason ?? "completed",
                 });
-            } else if (result.subtype === "error_max_budget_usd") {
+            } else {
+                const errorMessage = result.errors.join("; ") || "Claude turn failed";
+                const errorCode =
+                    result.subtype === "error_max_turns"
+                        ? "MAX_TURNS"
+                        : result.subtype === "error_max_budget_usd"
+                          ? "MAX_BUDGET"
+                          : result.subtype === "error_max_structured_output_retries"
+                            ? "MAX_STRUCTURED_OUTPUT_RETRIES"
+                            : "EXECUTION_ERROR";
                 this.emitEvent("session.error", sessionId, {
-                    error: "Budget exceeded",
-                    code: "MAX_BUDGET",
+                    error: errorMessage,
+                    code: errorCode,
                 });
             }
 
@@ -1520,12 +1697,20 @@ export class ClaudeAgentClient implements CodingAgentClient {
             if (result.usage) {
                 state.inputTokens = result.usage.input_tokens;
                 state.outputTokens = result.usage.output_tokens;
+                const detectedModelUsage = this.detectedModel
+                    ? result.modelUsage?.[this.detectedModel]
+                    : undefined;
                 if (!state.hasEmittedStreamingUsage) {
                     // Non-streaming path (send): emit full usage
                     this.emitEvent("usage", sessionId, {
                         inputTokens: result.usage.input_tokens ?? 0,
                         outputTokens: result.usage.output_tokens ?? 0,
                         model: this.detectedModel,
+                        costUsd: result.total_cost_usd,
+                        cacheReadTokens:
+                            detectedModelUsage?.cacheReadInputTokens ?? 0,
+                        cacheWriteTokens:
+                            detectedModelUsage?.cacheCreationInputTokens ?? 0,
                     });
                 } else {
                     // Streaming path: output tokens already accumulated from message_delta.
@@ -1534,6 +1719,11 @@ export class ClaudeAgentClient implements CodingAgentClient {
                         inputTokens: result.usage.input_tokens ?? 0,
                         outputTokens: 0,
                         model: this.detectedModel,
+                        costUsd: result.total_cost_usd,
+                        cacheReadTokens:
+                            detectedModelUsage?.cacheReadInputTokens ?? 0,
+                        cacheWriteTokens:
+                            detectedModelUsage?.cacheCreationInputTokens ?? 0,
                     });
                 }
                 // Reset so subsequent queries on this session (send, summarize) emit normally
@@ -1568,6 +1758,62 @@ export class ClaudeAgentClient implements CodingAgentClient {
                     }
                 }
             }
+        }
+
+        switch (sdkMessage.type) {
+            case "assistant":
+            case "user":
+            case "result":
+            case "stream_event":
+                break;
+            case "system":
+                switch (sdkMessage.subtype) {
+                    case "init":
+                    case "compact_boundary":
+                    case "status":
+                    case "task_started":
+                    case "task_progress":
+                    case "task_notification":
+                    case "hook_started":
+                    case "hook_progress":
+                    case "hook_response":
+                    case "files_persisted":
+                    case "local_command_output":
+                    case "elicitation_complete":
+                        break;
+                    default: {
+                        const unexpectedSystemMessage: never = sdkMessage;
+                        throw new Error(`Unhandled Claude system subtype: ${JSON.stringify(unexpectedSystemMessage)}`);
+                    }
+                }
+                break;
+            case "tool_progress": {
+                const toolProgressMessage = sdkMessage as SDKToolProgressMessage;
+                void toolProgressMessage;
+                break;
+            }
+            case "auth_status": {
+                const authStatusMessage = sdkMessage as SDKAuthStatusMessage;
+                void authStatusMessage;
+                break;
+            }
+            case "tool_use_summary": {
+                const toolSummaryMessage = sdkMessage as SDKToolUseSummaryMessage;
+                void toolSummaryMessage;
+                break;
+            }
+            case "rate_limit_event": {
+                const rateLimitMessage = sdkMessage as SDKRateLimitEvent;
+                void rateLimitMessage;
+                break;
+            }
+            case "prompt_suggestion": {
+                const promptSuggestionMessage = sdkMessage as SDKPromptSuggestionMessage;
+                void promptSuggestionMessage;
+                break;
+            }
+            default:
+                assertNeverClaudeMessage(sdkMessage);
         }
     }
 
@@ -1632,6 +1878,197 @@ export class ClaudeAgentClient implements CodingAgentClient {
             } catch (error) {
                 console.error(
                     `Error in event handler for ${eventType}:`,
+                    error,
+                );
+            }
+        }
+    }
+
+    onProviderEvent(handler: ClaudeProviderEventHandler): () => void {
+        this.ensureProviderEventBridges();
+        this.providerEventHandlers.add(handler);
+        return () => {
+            this.providerEventHandlers.delete(handler);
+        };
+    }
+
+    private ensureProviderEventBridges(): void {
+        if (this.providerEventBridgeInitialized) {
+            return;
+        }
+        this.providerEventBridgeInitialized = true;
+
+        this.on("tool.start", (event) => {
+            this.emitProviderEvent("tool.start", event.sessionId, {
+                toolName: String((event.data as { toolName?: unknown }).toolName ?? "unknown"),
+                toolInput: ((event.data as { toolInput?: Record<string, unknown> }).toolInput ?? {}) as Record<string, unknown>,
+                toolUseId: (event.data as { toolUseID?: string; toolUseId?: string }).toolUseID
+                    ?? (event.data as { toolUseID?: string; toolUseId?: string }).toolUseId,
+                parentToolCallId: (event.data as { parentToolUseId?: string }).parentToolUseId,
+                parentAgentId: (event.data as { parentAgentId?: string }).parentAgentId,
+            }, {
+                native: event,
+                nativeSessionId: event.sessionId,
+            });
+        });
+
+        this.on("tool.complete", (event) => {
+            this.emitProviderEvent("tool.complete", event.sessionId, {
+                toolName: String((event.data as { toolName?: unknown }).toolName ?? "unknown"),
+                toolInput: (event.data as { toolInput?: Record<string, unknown> }).toolInput,
+                toolResult: (event.data as { toolResult?: unknown }).toolResult,
+                success: Boolean((event.data as { success?: unknown }).success),
+                error: (event.data as { error?: string }).error,
+                toolUseId: (event.data as { toolUseID?: string; toolUseId?: string }).toolUseID
+                    ?? (event.data as { toolUseID?: string; toolUseId?: string }).toolUseId,
+                parentToolCallId: (event.data as { parentToolUseId?: string }).parentToolUseId,
+                parentAgentId: (event.data as { parentAgentId?: string }).parentAgentId,
+            }, {
+                native: event,
+                nativeSessionId: event.sessionId,
+            });
+        });
+
+        this.on("subagent.start", (event) => {
+            this.emitProviderEvent("subagent.start", event.sessionId, {
+                subagentId: String((event.data as { subagentId?: unknown }).subagentId ?? ""),
+                subagentType: (event.data as { subagentType?: string }).subagentType,
+                task: (event.data as { task?: string }).task,
+                toolUseId: (event.data as { toolUseID?: string; toolUseId?: string }).toolUseID
+                    ?? (event.data as { toolUseID?: string; toolUseId?: string }).toolUseId,
+                parentToolCallId: (event.data as { parentToolUseId?: string }).parentToolUseId,
+                subagentSessionId: (event.data as { subagentSessionId?: string }).subagentSessionId,
+            }, {
+                native: event,
+                nativeSessionId: event.sessionId,
+            });
+        });
+
+        this.on("subagent.update", (event) => {
+            this.emitProviderEvent("subagent.update", event.sessionId, {
+                subagentId: String((event.data as { subagentId?: unknown }).subagentId ?? ""),
+                currentTool: (event.data as { currentTool?: string }).currentTool,
+                toolUses: (event.data as { toolUses?: number }).toolUses,
+            }, {
+                native: event,
+                nativeSessionId: event.sessionId,
+            });
+        });
+
+        this.on("subagent.complete", (event) => {
+            this.emitProviderEvent("subagent.complete", event.sessionId, {
+                subagentId: String((event.data as { subagentId?: unknown }).subagentId ?? ""),
+                success: Boolean((event.data as { success?: unknown }).success),
+                result: (event.data as { result?: unknown }).result,
+            }, {
+                native: event,
+                nativeSessionId: event.sessionId,
+            });
+        });
+
+        this.on("permission.requested", (event) => {
+            this.emitProviderEvent("permission.requested", event.sessionId, event.data as ProviderStreamEventDataMap["permission.requested"], {
+                native: event,
+                nativeSessionId: event.sessionId,
+            });
+        });
+
+        this.on("skill.invoked", (event) => {
+            this.emitProviderEvent("skill.invoked", event.sessionId, {
+                skillName: String((event.data as { skillName?: unknown }).skillName ?? ""),
+                skillPath: (event.data as { skillPath?: string }).skillPath,
+            }, {
+                native: event,
+                nativeSessionId: event.sessionId,
+            });
+        });
+
+        this.on("session.error", (event) => {
+            this.emitProviderEvent("session.error", event.sessionId, {
+                error: typeof (event.data as { error?: unknown }).error === "string"
+                    ? (event.data as { error: string }).error
+                    : String((event.data as { error?: unknown }).error ?? "Unknown error"),
+                code: (event.data as { code?: string }).code,
+            }, {
+                native: event,
+                nativeSessionId: event.sessionId,
+            });
+        });
+
+        this.on("session.idle", (event) => {
+            this.emitProviderEvent("session.idle", event.sessionId, {
+                reason: (event.data as { reason?: string }).reason,
+            }, {
+                native: event,
+                nativeSessionId: event.sessionId,
+            });
+        });
+
+        this.on("session.compaction", (event) => {
+            this.emitProviderEvent("session.compaction", event.sessionId, {
+                phase: (event.data as { phase?: "start" | "complete" }).phase ?? "complete",
+                success: (event.data as { success?: boolean }).success,
+                error: (event.data as { error?: string }).error,
+            }, {
+                native: event,
+                nativeSessionId: event.sessionId,
+            });
+        });
+
+        this.on("usage", (event) => {
+            this.emitProviderEvent("usage", event.sessionId, {
+                inputTokens: Number((event.data as { inputTokens?: unknown }).inputTokens ?? 0),
+                outputTokens: Number((event.data as { outputTokens?: unknown }).outputTokens ?? 0),
+                model: (event.data as { model?: string }).model,
+                cacheReadTokens: (event.data as { cacheReadTokens?: number }).cacheReadTokens,
+                cacheWriteTokens: (event.data as { cacheWriteTokens?: number }).cacheWriteTokens,
+                costUsd: (event.data as { costUsd?: number }).costUsd,
+            }, {
+                native: event,
+                nativeSessionId: event.sessionId,
+            });
+        });
+    }
+
+    private emitProviderEvent<T extends ProviderStreamEventType>(
+        eventType: T,
+        sessionId: string,
+        data: ProviderStreamEventDataMap[T],
+        options?: {
+            native?: ClaudeNativeEvent;
+            nativeEventId?: string;
+            nativeSessionId?: string;
+            timestamp?: number;
+        },
+    ): void {
+        if (this.providerEventHandlers.size === 0) {
+            return;
+        }
+
+        const event: ClaudeProviderEvent = {
+            provider: "claude",
+            type: eventType,
+            sessionId,
+            timestamp: options?.timestamp ?? Date.now(),
+            nativeType: options?.native?.type ?? eventType,
+            native: options?.native ?? createSyntheticProviderNativeEvent(eventType, data),
+            ...(options?.nativeEventId ? { nativeEventId: options.nativeEventId } : {}),
+            ...(options?.nativeSessionId ? { nativeSessionId: options.nativeSessionId } : {}),
+            ...(getClaudeNativeSubtype(options?.native)
+                ? { nativeSubtype: getClaudeNativeSubtype(options?.native) }
+                : {}),
+            ...(getClaudeNativeMeta(options?.native)
+                ? { nativeMeta: getClaudeNativeMeta(options?.native) }
+                : {}),
+            data,
+        } as ClaudeProviderEvent;
+
+        for (const handler of this.providerEventHandlers) {
+            try {
+                handler(event);
+            } catch (error) {
+                console.error(
+                    `Error in provider event handler for ${eventType}:`,
                     error,
                 );
             }
@@ -1878,6 +2315,9 @@ export class ClaudeAgentClient implements CodingAgentClient {
 
         // Emit session start event
         this.emitEvent("session.start", sessionId, { config });
+        this.emitProviderEvent("session.start", sessionId, { config }, {
+            nativeSessionId: sessionId,
+        });
         this.emitRuntimeSelection(sessionId, "create");
         this.pendingHookSessionBindings.push(sessionId);
         return this.wrapQuery(null, sessionId, config);

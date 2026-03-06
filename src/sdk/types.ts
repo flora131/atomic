@@ -349,6 +349,7 @@ export type EventType =
   | "session.start"
   | "session.idle"
   | "session.error"
+  | "session.retry"
   | "session.info"
   | "session.warning"
   | "session.title_changed"
@@ -385,6 +386,12 @@ export interface BaseEventData {
 export interface SessionStartEventData extends BaseEventData {
   /** Session configuration used */
   config?: SessionConfig;
+  /** Whether the session lifecycle came from a fresh start or a resume */
+  source?: "start" | "resume";
+  /** Provider-native resume timestamp when resuming an existing session */
+  resumeTime?: string;
+  /** Provider-native replayed event count when resuming a session */
+  resumeEventCount?: number;
 }
 
 /**
@@ -403,6 +410,28 @@ export interface SessionErrorEventData extends BaseEventData {
   error: Error | string;
   /** Error code if available */
   code?: string;
+  /** Provider-native error category if available */
+  errorType?: string;
+  /** Provider-native HTTP / RPC status code if available */
+  statusCode?: number;
+  /** Provider-native call identifier for correlation */
+  providerCallId?: string;
+  /** Provider-native stack or diagnostic details */
+  stack?: string;
+}
+
+/**
+ * Event data for session.retry events
+ */
+export interface SessionRetryEventData extends BaseEventData {
+  /** Current retry attempt number (1-based) */
+  attempt: number;
+  /** Delay in milliseconds before the next retry */
+  delay: number;
+  /** Human-readable retry message */
+  message: string;
+  /** Unix timestamp (ms) when the next retry will occur */
+  nextRetryAt: number;
 }
 
 /**
@@ -699,6 +728,7 @@ export interface EventDataMap {
   "session.start": SessionStartEventData;
   "session.idle": SessionIdleEventData;
   "session.error": SessionErrorEventData;
+  "session.retry": SessionRetryEventData;
   "session.info": SessionInfoEventData;
   "session.warning": SessionWarningEventData;
   "session.title_changed": SessionTitleChangedEventData;

@@ -42,6 +42,7 @@ import {
   type CopilotClientOptions as SdkClientOptions,
   type SessionConfig as SdkSessionConfig,
   type SessionEvent as SdkSessionEvent,
+  type SessionEventPayload as SdkSessionEventPayload,
   type SessionEventType as SdkSessionEventType,
   type PermissionHandler as SdkPermissionHandler,
   type PermissionRequest as SdkPermissionRequest,
@@ -74,6 +75,13 @@ import {
   type ToolDefinition,
   type ToolContext,
 } from "../types.ts";
+import type {
+  CopilotProviderEvent,
+  CopilotProviderEventHandler,
+  ProviderStreamEventDataMap,
+  ProviderStreamEventType,
+} from "../provider-events.ts";
+import { createSyntheticProviderNativeEvent } from "../provider-events.ts";
 
 /**
  * Permission handler function type (unified interface)
@@ -162,46 +170,6 @@ export function resolveCopilotUserInputSessionId(
   }
   const latestActive = activeSessionIds[activeSessionIds.length - 1];
   return latestActive ?? preferredSessionId;
-}
-
-/**
- * Maps SDK event types to unified EventType.
- * Uses string key type to accommodate SDK event types that may not be in the type definition.
- */
-function mapSdkEventToEventType(sdkEventType: SdkSessionEventType | string): EventType | null {
-  const mapping: Record<string, EventType> = {
-    "session.start": "session.start",
-    "session.resume": "session.start",
-    "session.idle": "session.idle",
-    "session.error": "session.error",
-    "session.info": "session.info",
-    "session.warning": "session.warning",
-    "session.title_changed": "session.title_changed",
-    "session.truncation": "session.truncation",
-    "session.compaction_start": "session.compaction",
-    "session.compaction_complete": "session.compaction",
-    "assistant.message_delta": "message.delta",
-    "assistant.message": "message.complete",
-    "assistant.reasoning_delta": "reasoning.delta",
-    "assistant.reasoning": "reasoning.complete",
-    "assistant.turn_start": "turn.start",
-    "assistant.turn_end": "turn.end",
-    "assistant.usage": "usage",
-    "tool.execution_start": "tool.start",
-    "tool.execution_complete": "tool.complete",
-    "tool.execution_partial_result": "tool.partial_result",
-    "skill.invoked": "skill.invoked",
-    "subagent.started": "subagent.start",
-    "subagent.completed": "subagent.complete",
-    "subagent.failed": "subagent.complete",
-    // session.usage_info is NOT mapped to "usage" — it carries context-window
-    // metadata (currentTokens, tokenLimit), not per-turn token counts. Mapping
-    // it to "usage" would cause the adapter to publish stream.usage with
-    // { inputTokens: 0, outputTokens: 0 }, zeroing out the real counts from
-    // assistant.usage events.
-    // "session.usage_info": handled separately in handleSdkEvent (state only)
-  };
-  return mapping[sdkEventType] ?? null;
 }
 
 function asNonEmptyString(value: unknown): string | undefined {
@@ -301,6 +269,35 @@ function createAbortError(message = "The operation was aborted."): Error {
   return error;
 }
 
+function assertNever(value: never): never {
+  throw new Error(`Unhandled Copilot session event: ${JSON.stringify(value)}`);
+}
+
+function getCopilotNativeMeta(
+  native: SdkSessionEvent | undefined,
+): Readonly<Record<string, string | number | boolean | null | undefined>> | undefined {
+  if (!native) {
+    return undefined;
+  }
+
+  const meta: Record<string, string | number | boolean | null | undefined> = {
+    nativeEventId: native.id,
+    nativeParentEventId: native.parentId,
+  };
+
+  if ("messageId" in native.data && typeof native.data.messageId === "string") {
+    meta.nativeMessageId = native.data.messageId;
+  }
+  if ("toolCallId" in native.data && typeof native.data.toolCallId === "string") {
+    meta.toolCallId = native.data.toolCallId;
+  }
+  if ("interactionId" in native.data && typeof native.data.interactionId === "string") {
+    meta.interactionId = native.data.interactionId;
+  }
+
+  return meta;
+}
+
 /**
  * CopilotClient implements CodingAgentClient for the GitHub Copilot SDK.
  *
@@ -313,6 +310,7 @@ export class CopilotClient implements CodingAgentClient {
   private sdkClient: SdkCopilotClient | null = null;
   private clientOptions: CopilotClientOptions;
   private eventHandlers: Map<EventType, Set<EventHandler<EventType>>> = new Map();
+  private providerEventHandlers = new Set<CopilotProviderEventHandler>();
   private sessions: Map<string, CopilotSessionState> = new Map();
   private registeredTools: ToolDefinition[] = [];
   private permissionHandler: CopilotPermissionHandler | null = null;
@@ -563,6 +561,9 @@ export class CopilotClient implements CodingAgentClient {
 
     // Emit session start event
     this.emitEvent("session.start", sessionId, { config });
+    this.emitProviderEvent("session.start", sessionId, { config }, {
+      nativeSessionId: sessionId,
+    });
 
     const session: Session = {
       id: sessionId,
@@ -817,6 +818,9 @@ export class CopilotClient implements CodingAgentClient {
           await state.sdkSession.destroy();
           this.sessions.delete(sessionId);
           this.emitEvent("session.idle", sessionId, { reason: "destroyed" });
+          this.emitProviderEvent("session.idle", sessionId, { reason: "destroyed" }, {
+            nativeSessionId: sessionId,
+          });
         }
       },
 
@@ -891,209 +895,319 @@ export class CopilotClient implements CodingAgentClient {
       }
     }
 
-    // Map to unified event type
-    const eventType = mapSdkEventToEventType(event.type);
-    if (!eventType) {
-      // DEBUG: Log unmapped event types for Copilot debugging
-      if (event.type.startsWith("tool.")) {
-        console.warn(`[CopilotClient] Unmapped tool event: ${event.type}`);
+    switch (event.type) {
+      case "session.start":
+        this.emitMappedSdkEvent("session.start", sessionId, { config: state?.config }, event);
+        return;
+      case "session.resume":
+        this.emitMappedSdkEvent("session.start", sessionId, {
+          config: state?.config,
+          source: "resume",
+          resumeTime: event.data.resumeTime,
+          resumeEventCount: event.data.eventCount,
+        }, event);
+        return;
+      case "session.idle":
+        this.emitMappedSdkEvent("session.idle", sessionId, { reason: "idle" }, event);
+        return;
+      case "session.error":
+        {
+          const sessionErrorEvent = event as SdkSessionEventPayload<"session.error">;
+          const eventDataRecord = asRecord(sessionErrorEvent.data);
+          this.emitMappedSdkEvent("session.error", sessionId, {
+            error: extractCopilotErrorMessage(sessionErrorEvent.data),
+            code: asNonEmptyString(eventDataRecord?.code) ?? asNonEmptyString(eventDataRecord?.errorType),
+            errorType: sessionErrorEvent.data.errorType,
+            statusCode: sessionErrorEvent.data.statusCode,
+            providerCallId: sessionErrorEvent.data.providerCallId,
+            stack: sessionErrorEvent.data.stack,
+          }, sessionErrorEvent);
+        }
+        return;
+      case "assistant.message_delta":
+        this.emitMappedSdkEvent("message.delta", sessionId, {
+          delta: event.data.deltaContent,
+          contentType: "text",
+          messageId: event.data.messageId,
+          nativeMessageId: event.data.messageId,
+          parentToolCallId: event.data.parentToolCallId ?? undefined,
+        }, event, {
+          delta: event.data.deltaContent,
+          contentType: "text",
+          messageId: event.data.messageId,
+          parentToolCallId: event.data.parentToolCallId ?? undefined,
+        });
+        return;
+      case "assistant.message": {
+        const assistantMessageEvent = event as SdkSessionEventPayload<"assistant.message">;
+        const toolRequests = Array.isArray(assistantMessageEvent.data.toolRequests)
+          ? assistantMessageEvent.data.toolRequests.map(tr => ({
+            toolCallId: String(tr.toolCallId ?? ""),
+            name: String(tr.name ?? ""),
+            arguments: tr.arguments,
+            type: tr.type,
+          }))
+          : undefined;
+        this.emitMappedSdkEvent("message.complete", sessionId, {
+          message: {
+            type: "text",
+            content: assistantMessageEvent.data.content,
+            role: "assistant",
+          },
+          nativeMessageId: assistantMessageEvent.data.messageId,
+          interactionId: assistantMessageEvent.data.interactionId,
+          phase: assistantMessageEvent.data.phase,
+          reasoningText: assistantMessageEvent.data.reasoningText,
+          reasoningOpaque: assistantMessageEvent.data.reasoningOpaque,
+          toolRequests,
+          parentToolCallId: assistantMessageEvent.data.parentToolCallId ?? undefined,
+        }, assistantMessageEvent);
+        return;
       }
+      case "assistant.reasoning_delta":
+        this.emitMappedSdkEvent("reasoning.delta", sessionId, {
+          delta: event.data.deltaContent,
+          reasoningId: event.data.reasoningId,
+        }, event);
+        return;
+      case "assistant.reasoning":
+        this.emitMappedSdkEvent("reasoning.complete", sessionId, {
+          reasoningId: event.data.reasoningId,
+          content: event.data.content,
+        }, event);
+        return;
+      case "assistant.turn_start":
+        this.emitMappedSdkEvent("turn.start", sessionId, { turnId: event.data.turnId }, event);
+        return;
+      case "assistant.turn_end":
+        this.emitMappedSdkEvent("turn.end", sessionId, { turnId: event.data.turnId }, event);
+        return;
+      case "assistant.usage":
+        this.emitMappedSdkEvent("usage", sessionId, {
+          inputTokens: event.data.inputTokens ?? 0,
+          outputTokens: event.data.outputTokens ?? 0,
+          model: event.data.model,
+          cacheReadTokens: event.data.cacheReadTokens,
+          cacheWriteTokens: event.data.cacheWriteTokens,
+          costUsd: event.data.cost,
+          parentToolCallId: event.data.parentToolCallId ?? undefined,
+        }, event);
+        return;
+      case "tool.execution_start": {
+        const toolExecutionStartEvent = event as SdkSessionEventPayload<"tool.execution_start">;
+        const toolCallId = asNonEmptyString(toolExecutionStartEvent.data.toolCallId);
+        const toolName = asNonEmptyString(toolExecutionStartEvent.data.toolName)
+          ?? asNonEmptyString(toolExecutionStartEvent.data.mcpToolName)
+          ?? "unknown";
+        if (state && toolCallId) {
+          state.toolCallIdToName.set(toolCallId, toolName);
+        }
+        this.emitMappedSdkEvent("tool.start", sessionId, {
+          toolName,
+          toolInput: toolExecutionStartEvent.data.arguments,
+          toolCallId,
+          parentToolCallId: asNonEmptyString(toolExecutionStartEvent.data.parentToolCallId),
+          mcpServerName: toolExecutionStartEvent.data.mcpServerName,
+          mcpToolName: toolExecutionStartEvent.data.mcpToolName,
+        }, toolExecutionStartEvent, {
+          toolName,
+          toolInput: toolExecutionStartEvent.data.arguments,
+          toolCallId,
+          parentId: asNonEmptyString(toolExecutionStartEvent.parentId),
+          parentToolCallId: asNonEmptyString(toolExecutionStartEvent.data.parentToolCallId),
+        });
+        return;
+      }
+      case "tool.execution_complete": {
+        const toolExecutionCompleteEvent = event as SdkSessionEventPayload<"tool.execution_complete">;
+        const toolCallId = asNonEmptyString(toolExecutionCompleteEvent.data.toolCallId);
+        const mappedToolName = toolCallId ? state?.toolCallIdToName.get(toolCallId) : undefined;
+        const toolName = mappedToolName
+          ?? "unknown";
+        if (toolCallId) {
+          state?.toolCallIdToName.delete(toolCallId);
+        }
+        const errorData = asRecord(toolExecutionCompleteEvent.data.error);
+        this.emitMappedSdkEvent("tool.complete", sessionId, {
+          toolName,
+          success: typeof toolExecutionCompleteEvent.data.success === "boolean" ? toolExecutionCompleteEvent.data.success : true,
+          toolResult: extractCopilotToolResult(toolExecutionCompleteEvent.data.result),
+          error: asNonEmptyString(errorData?.message),
+          toolCallId,
+          parentToolCallId: asNonEmptyString(toolExecutionCompleteEvent.data.parentToolCallId),
+          interactionId: toolExecutionCompleteEvent.data.interactionId,
+          structuredToolResult: toolExecutionCompleteEvent.data.result,
+          toolTelemetry: toolExecutionCompleteEvent.data.toolTelemetry,
+        }, toolExecutionCompleteEvent, {
+          toolName,
+          success: typeof toolExecutionCompleteEvent.data.success === "boolean" ? toolExecutionCompleteEvent.data.success : true,
+          toolResult: extractCopilotToolResult(toolExecutionCompleteEvent.data.result),
+          error: asNonEmptyString(errorData?.message),
+          toolCallId,
+          parentId: asNonEmptyString(toolExecutionCompleteEvent.parentId),
+          parentToolCallId: asNonEmptyString(toolExecutionCompleteEvent.data.parentToolCallId),
+        });
+        return;
+      }
+      case "tool.execution_partial_result":
+        this.emitMappedSdkEvent("tool.partial_result", sessionId, {
+          toolCallId: event.data.toolCallId,
+          partialOutput: event.data.partialOutput ?? "",
+        }, event);
+        return;
+      case "tool.execution_progress":
+        this.emitMappedSdkEvent("tool.partial_result", sessionId, {
+          toolCallId: event.data.toolCallId,
+          partialOutput: event.data.progressMessage ?? "",
+        }, event);
+        return;
+      case "subagent.started":
+        this.emitMappedSdkEvent("subagent.start", sessionId, {
+          subagentId: event.data.toolCallId,
+          subagentType: event.data.agentName,
+          toolCallId: event.data.toolCallId,
+          task: event.data.agentDescription || "",
+        }, event);
+        return;
+      case "subagent.completed":
+        this.emitMappedSdkEvent("subagent.complete", sessionId, {
+          subagentId: event.data.toolCallId,
+          success: true,
+        }, event);
+        return;
+      case "subagent.failed":
+        this.emitMappedSdkEvent("subagent.complete", sessionId, {
+          subagentId: event.data.toolCallId,
+          success: false,
+          error: typeof event.data.error === "string" ? event.data.error : extractCopilotErrorMessage(event.data.error),
+        }, event);
+        return;
+      case "skill.invoked":
+        this.emitMappedSdkEvent("skill.invoked", sessionId, {
+          skillName: event.data.name,
+          skillPath: event.data.path,
+        }, event);
+        return;
+      case "session.info":
+        this.emitMappedSdkEvent("session.info", sessionId, {
+          infoType: event.data.infoType,
+          message: event.data.message,
+        }, event);
+        return;
+      case "session.warning":
+        this.emitMappedSdkEvent("session.warning", sessionId, {
+          warningType: event.data.warningType,
+          message: event.data.message,
+        }, event);
+        return;
+      case "session.title_changed":
+        this.emitMappedSdkEvent("session.title_changed", sessionId, { title: event.data.title }, event);
+        return;
+      case "session.truncation":
+        this.emitMappedSdkEvent("session.truncation", sessionId, {
+          tokenLimit: event.data.tokenLimit,
+          tokensRemoved: event.data.tokensRemovedDuringTruncation,
+          messagesRemoved: event.data.messagesRemovedDuringTruncation,
+        }, event);
+        return;
+      case "session.compaction_start":
+        this.emitMappedSdkEvent("session.compaction", sessionId, { phase: "start" }, event);
+        return;
+      case "session.compaction_complete":
+        this.emitMappedSdkEvent("session.compaction", sessionId, {
+          phase: "complete",
+          success: typeof event.data.success === "boolean" ? event.data.success : true,
+          error: asNonEmptyString(event.data.error),
+        }, event);
+        return;
+      case "session.usage_info":
+      case "session.shutdown":
+      case "session.context_changed":
+      case "session.model_change":
+      case "session.mode_changed":
+      case "session.plan_changed":
+      case "session.workspace_file_changed":
+      case "session.handoff":
+      case "session.snapshot_rewind":
+      case "session.task_complete":
+      case "user.message":
+      case "assistant.intent":
+      case "assistant.streaming_delta":
+      case "hook.start":
+      case "hook.end":
+      case "tool.user_requested":
+      case "subagent.selected":
+      case "subagent.deselected":
+      case "pending_messages.modified":
+      case "system.message":
+      case "abort":
+        return;
+      default:
+        assertNever(event);
+    }
+  }
+
+  onProviderEvent(handler: CopilotProviderEventHandler): () => void {
+    this.providerEventHandlers.add(handler);
+    return () => {
+      this.providerEventHandlers.delete(handler);
+    };
+  }
+
+  private emitProviderEvent<T extends ProviderStreamEventType>(
+    eventType: T,
+    sessionId: string,
+    data: ProviderStreamEventDataMap[T],
+    options?: {
+      native?: SdkSessionEvent;
+      nativeEventId?: string;
+      nativeSessionId?: string;
+      nativeParentEventId?: string;
+      timestamp?: number;
+    },
+  ): void {
+    if (this.providerEventHandlers.size === 0) {
       return;
     }
 
-    let eventData: Record<string, unknown> = {};
+    const event: CopilotProviderEvent = {
+      provider: "copilot",
+      type: eventType,
+      sessionId,
+      timestamp: options?.timestamp ?? Date.now(),
+      nativeType: options?.native?.type ?? eventType,
+      native: options?.native ?? createSyntheticProviderNativeEvent(eventType, data),
+      ...(options?.nativeEventId ? { nativeEventId: options.nativeEventId } : {}),
+      ...(options?.nativeSessionId ? { nativeSessionId: options.nativeSessionId } : {}),
+      ...(options?.nativeParentEventId ? { nativeParentEventId: options.nativeParentEventId } : {}),
+      ...(getCopilotNativeMeta(options?.native) ? { nativeMeta: getCopilotNativeMeta(options?.native) } : {}),
+      data,
+    } as CopilotProviderEvent;
 
-      // Cast event.data to access properties (type narrowing doesn't work after casting event.type)
-      const data = event.data as Record<string, unknown>;
-      switch (event.type as string) {
-        case "session.start":
-          eventData = { config: state?.config };
-          break;
-        case "session.idle":
-          eventData = { reason: "idle" };
-          break;
-        case "session.error":
-          eventData = {
-            error: extractCopilotErrorMessage(data),
-            code: asNonEmptyString(data.code),
-          };
-          break;
-        case "assistant.message_delta":
-          eventData = {
-            delta: data.deltaContent,
-            messageId: asNonEmptyString(data.messageId),
-            parentToolCallId: asNonEmptyString(data.parentToolCallId),
-          };
-          break;
-        case "assistant.message": {
-          const toolRequests = Array.isArray(data.toolRequests)
-            ? (data.toolRequests as Array<Record<string, unknown>>).map((tr) => ({
-              toolCallId: String(tr.toolCallId ?? ""),
-              name: String(tr.name ?? ""),
-              arguments: tr.arguments,
-            }))
-            : undefined;
-          eventData = {
-            message: {
-              type: "text",
-              content: data.content,
-              role: "assistant",
-            },
-            toolRequests,
-            parentToolCallId: asNonEmptyString(data.parentToolCallId),
-          };
-          break;
-        }
-        case "tool.execution_start": {
-          // Track toolCallId -> toolName mapping for the complete event
-          const toolCallId = asNonEmptyString(data.toolCallId);
-          const toolName = asNonEmptyString(data.toolName)
-            ?? asNonEmptyString(data.mcpToolName)
-            ?? "unknown";
-          if (state && toolCallId) {
-            state.toolCallIdToName.set(toolCallId, toolName);
-          }
-          // Extract parentToolCallId to link tool calls to their parent sub-agent
-          const parentToolCallId = asNonEmptyString(data.parentToolCallId);
-          eventData = {
-            toolName,
-            toolInput: data.arguments,
-            toolCallId,
-            parentId: parentToolCallId,
-          };
-          break;
-        }
-        case "tool.execution_complete": {
-          // Look up the actual tool name from the toolCallId
-          const toolCallId = asNonEmptyString(data.toolCallId);
-          const mappedToolName = toolCallId ? state?.toolCallIdToName.get(toolCallId) : undefined;
-          const toolName = mappedToolName
-            ?? asNonEmptyString(data.toolName)
-            ?? asNonEmptyString(data.mcpToolName)
-            ?? "unknown";
-          // Clean up the mapping
-          if (toolCallId) {
-            state?.toolCallIdToName.delete(toolCallId);
-          }
-          const errorData = asRecord(data.error);
-          const success = typeof data.success === "boolean" ? data.success : true;
-          // Extract parentToolCallId to link tool calls to their parent sub-agent
-          const parentToolCallId = asNonEmptyString(data.parentToolCallId);
-          eventData = {
-            toolName,
-            success,
-            toolResult: extractCopilotToolResult(data.result),
-            error: asNonEmptyString(errorData?.message),
-            toolCallId,
-            parentId: parentToolCallId,
-          };
-          break;
-        }
-        case "subagent.started":
-          eventData = {
-            subagentId: data.toolCallId,
-            subagentType: data.agentName,
-            toolCallId: data.toolCallId,
-            task: data.agentDescription || "",
-          };
-          break;
-        case "skill.invoked":
-          eventData = {
-            skillName: data.name,
-            skillPath: data.path,
-          };
-          break;
-        case "subagent.completed":
-          eventData = {
-            subagentId: data.toolCallId,
-            success: true,
-          };
-          break;
-        case "subagent.failed":
-          eventData = {
-            subagentId: data.toolCallId,
-            success: false,
-            error: data.error,
-          };
-          break;
-        case "assistant.reasoning_delta":
-          eventData = {
-            delta: data.deltaContent,
-            reasoningId: data.reasoningId,
-          };
-          break;
-        case "assistant.reasoning":
-          eventData = {
-            reasoningId: data.reasoningId,
-            content: data.content,
-          };
-          break;
-        case "assistant.turn_start":
-          eventData = {
-            turnId: data.turnId,
-          };
-          break;
-        case "assistant.turn_end":
-          eventData = {
-            turnId: data.turnId,
-            finishReason: asNonEmptyString(data.finishReason) ?? asNonEmptyString(data.stopReason) ?? asNonEmptyString(data.reason),
-            rawFinishReason: asNonEmptyString(data.rawFinishReason) ?? asNonEmptyString(data.finishReason) ?? asNonEmptyString(data.stopReason) ?? asNonEmptyString(data.reason),
-          };
-          break;
-        case "assistant.usage":
-          eventData = {
-            inputTokens: data.inputTokens ?? 0,
-            outputTokens: data.outputTokens ?? 0,
-            model: data.model,
-          };
-          break;
-        case "tool.execution_partial_result":
-          eventData = {
-            toolCallId: data.toolCallId,
-            partialOutput: data.partialOutput,
-          };
-          break;
-        case "session.info":
-          eventData = {
-            infoType: data.infoType ?? "general",
-            message: data.message ?? "",
-          };
-          break;
-        case "session.warning":
-          eventData = {
-            warningType: data.warningType ?? "general",
-            message: data.message ?? "",
-          };
-          break;
-        case "session.title_changed":
-          eventData = {
-            title: data.title ?? "",
-          };
-          break;
-        case "session.truncation":
-          eventData = {
-            tokenLimit: data.tokenLimit ?? 0,
-            tokensRemoved: data.tokensRemovedDuringTruncation ?? 0,
-            messagesRemoved: data.messagesRemovedDuringTruncation ?? 0,
-          };
-          break;
-        case "session.compaction_start":
-          eventData = {
-            phase: "start",
-          };
-          break;
-        case "session.compaction_complete":
-          eventData = {
-            phase: "complete",
-            success: typeof data.success === "boolean" ? data.success : true,
-            error: asNonEmptyString(data.error),
-          };
-          break;
-        // session.usage_info is no longer mapped to a unified event type —
-        // it is handled above for state tracking only (context window metadata).
+    for (const handler of this.providerEventHandlers) {
+      try {
+        handler(event);
+      } catch (error) {
+        console.error(`Error in provider event handler for ${eventType}:`, error);
       }
+    }
+  }
 
-      this.emitEvent(eventType, sessionId, eventData);
+  private emitMappedSdkEvent<T extends ProviderStreamEventType>(
+    eventType: T,
+    sessionId: string,
+    data: ProviderStreamEventDataMap[T],
+    nativeEvent: SdkSessionEvent,
+    unifiedData?: Record<string, unknown>,
+  ): void {
+    this.emitEvent(eventType as EventType, sessionId, unifiedData ?? data as Record<string, unknown>);
+    this.emitProviderEvent(eventType, sessionId, data, {
+      native: nativeEvent,
+      nativeEventId: nativeEvent.id,
+      nativeSessionId: sessionId,
+      nativeParentEventId: nativeEvent.parentId ?? undefined,
+      timestamp: Date.parse(nativeEvent.timestamp),
+    });
   }
 
   /**
@@ -1195,13 +1309,20 @@ export class CopilotClient implements CodingAgentClient {
 
       // Create a promise that resolves when the user responds via the UI
       const response = await new Promise<string | string[]>((resolve) => {
-        this.emitEvent("permission.requested", resolvedSessionId, {
-          requestId: `ask_user_${Date.now()}`,
+        const requestId = `ask_user_${Date.now()}`;
+        const providerData = {
+          requestId,
           toolName: "ask_user",
           question: request.question,
           options,
           toolCallId,
           respond: resolve,
+        } satisfies ProviderStreamEventDataMap["permission.requested"];
+
+        this.emitEvent("permission.requested", resolvedSessionId, providerData);
+        this.emitProviderEvent("permission.requested", resolvedSessionId, providerData, {
+          nativeSessionId: resolvedSessionId,
+          nativeEventId: requestId,
         });
       });
 

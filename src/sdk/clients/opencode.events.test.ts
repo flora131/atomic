@@ -344,6 +344,35 @@ describe("OpenCodeClient event mapping", () => {
     expect(sessionStarts).toEqual(["ses_test_created"]);
   });
 
+  test("preserves nativeType and native payload on provider events", () => {
+    const client = new OpenCodeClient();
+    const providerEvents: Array<Record<string, unknown>> = [];
+
+    client.onProviderEvent((event) => {
+      providerEvents.push(event as unknown as Record<string, unknown>);
+    });
+
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.part.delta",
+      properties: {
+        sessionID: "ses_native",
+        messageID: "msg_native",
+        partID: "part_native",
+        delta: "hello",
+      },
+    });
+
+    expect(providerEvents).toHaveLength(1);
+    expect(providerEvents[0]!.type).toBe("message.delta");
+    expect(providerEvents[0]!.nativeType).toBe("message.part.delta");
+    expect((providerEvents[0]!.native as { type: string }).type).toBe("message.part.delta");
+    expect(providerEvents[0]!.nativeMeta).toEqual({
+      nativeSessionId: "ses_native",
+      nativeMessageId: "msg_native",
+      nativePartId: "part_native",
+    });
+  });
+
   test("maps session.status idle payloads to session.idle", () => {
     const client = new OpenCodeClient();
     const idles: string[] = [];

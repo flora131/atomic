@@ -1100,6 +1100,174 @@ describe("applyStreamPartEvent", () => {
     }
   });
 
+  test("preserves inline tool parts when a synthetic task agent is promoted to the real subagent id", () => {
+    let msg = createAssistantMessage();
+    msg = applyStreamPartEvent(msg, {
+      type: "parallel-agents",
+      agents: [
+        {
+          id: "synthetic-task-agent:task_1",
+          taskToolCallId: "task_1",
+          name: "task",
+          task: "Investigate",
+          status: "running",
+          startedAt: new Date().toISOString(),
+        },
+      ],
+      isLastMessage: true,
+    });
+
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-start",
+      toolId: "child-tool-1",
+      toolName: "Read",
+      input: { filePath: "src/app.ts" },
+      agentId: "synthetic-task-agent:task_1",
+    });
+
+    const promoted = applyStreamPartEvent(msg, {
+      type: "parallel-agents",
+      agents: [
+        {
+          id: "agent_real_1",
+          taskToolCallId: "task_1",
+          name: "debugger",
+          task: "Investigate",
+          status: "running",
+          startedAt: new Date().toISOString(),
+        },
+      ],
+      isLastMessage: true,
+    });
+
+    const agentPart = promoted.parts?.find((part) => part.type === "agent");
+    expect(agentPart?.type).toBe("agent");
+    if (agentPart?.type === "agent") {
+      expect(agentPart.agents[0]?.id).toBe("agent_real_1");
+      const inlineTool = agentPart.agents[0]?.inlineParts?.find(
+        (part) => part.type === "tool" && part.toolCallId === "child-tool-1",
+      );
+      expect(inlineTool?.type).toBe("tool");
+      if (inlineTool?.type === "tool") {
+        expect(inlineTool.toolName).toBe("Read");
+        expect(inlineTool.state.status).toBe("running");
+      }
+    }
+  });
+
+  test("replays buffered synthetic-agent tool events when the real subagent id arrives", () => {
+    let msg = createAssistantMessage();
+
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-start",
+      toolId: "child-tool-buffered",
+      toolName: "Read",
+      input: { filePath: "src/main.ts" },
+      agentId: "synthetic-task-agent:task_2",
+    });
+
+    const promoted = applyStreamPartEvent(msg, {
+      type: "parallel-agents",
+      agents: [
+        {
+          id: "agent_real_2",
+          taskToolCallId: "task_2",
+          name: "debugger",
+          task: "Investigate",
+          status: "running",
+          startedAt: new Date().toISOString(),
+        },
+      ],
+      isLastMessage: true,
+    });
+
+    const agentPart = promoted.parts?.find((part) => part.type === "agent");
+    expect(agentPart?.type).toBe("agent");
+    if (agentPart?.type === "agent") {
+      expect(agentPart.agents[0]?.id).toBe("agent_real_2");
+      const inlineTool = agentPart.agents[0]?.inlineParts?.find(
+        (part) => part.type === "tool" && part.toolCallId === "child-tool-buffered",
+      );
+      expect(inlineTool?.type).toBe("tool");
+      if (inlineTool?.type === "tool") {
+        expect(inlineTool.toolName).toBe("Read");
+        expect(inlineTool.state.status).toBe("running");
+      }
+    }
+  });
+
+  test("replays buffered OpenCode child-session tools from the real task correlation when the subagent row is promoted", () => {
+    let msg = createAssistantMessage();
+
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-start",
+      toolId: "task_open_1",
+      toolName: "Task",
+      input: { description: "Inspect OpenCode child session" },
+    });
+
+    msg = applyStreamPartEvent(msg, {
+      type: "parallel-agents",
+      agents: [
+        {
+          id: "task_open_1",
+          taskToolCallId: "task_open_1",
+          name: "codebase-online-researcher",
+          task: "Inspect OpenCode child session",
+          status: "running",
+          startedAt: new Date().toISOString(),
+        },
+      ],
+      isLastMessage: true,
+    });
+
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-start",
+      toolId: "child-open-tool-1",
+      toolName: "Read",
+      input: { filePath: "src/services/agents/clients/opencode.ts" },
+      agentId: "task_open_1",
+    });
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-complete",
+      toolId: "child-open-tool-1",
+      toolName: "Read",
+      output: "ok",
+      success: true,
+      agentId: "task_open_1",
+    });
+
+    const promoted = applyStreamPartEvent(msg, {
+      type: "parallel-agents",
+      agents: [
+        {
+          id: "agent_open_1",
+          taskToolCallId: "task_open_1",
+          name: "codebase-online-researcher",
+          task: "Inspect OpenCode child session",
+          status: "completed",
+          startedAt: new Date().toISOString(),
+          result: "done",
+        },
+      ],
+      isLastMessage: true,
+    });
+
+    const agentPart = promoted.parts?.find((part) => part.type === "agent");
+    expect(agentPart?.type).toBe("agent");
+    if (agentPart?.type === "agent") {
+      expect(agentPart.agents[0]?.id).toBe("agent_open_1");
+      const inlineTool = agentPart.agents[0]?.inlineParts?.find(
+        (part) => part.type === "tool" && part.toolCallId === "child-open-tool-1",
+      );
+      expect(inlineTool?.type).toBe("tool");
+      if (inlineTool?.type === "tool") {
+        expect(inlineTool.state.status).toBe("completed");
+      }
+      expect(agentPart.agents[0]?.inlineParts?.some((part) => part.type === "text")).toBe(false);
+    }
+  });
+
   test("returns to main text stream after subagent completion", () => {
     let msg = createAssistantMessage();
     msg = applyStreamPartEvent(msg, {

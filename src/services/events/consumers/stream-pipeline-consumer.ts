@@ -213,6 +213,7 @@ export class StreamPipelineConsumer {
           toolId: data.toolId,
           toolName: data.toolName,
           input: data.toolInput,
+          ...(data.toolMetadata ? { toolMetadata: data.toolMetadata } : {}),
           ...(correlatedAgentId ? { agentId: correlatedAgentId } : {}),
         }];
       }
@@ -230,6 +231,7 @@ export class StreamPipelineConsumer {
           success: data.success,
           error: data.error,
           ...(data.toolInput ? { input: data.toolInput } : {}),
+          ...(data.toolMetadata ? { toolMetadata: data.toolMetadata } : {}),
           ...(correlatedAgentId ? { agentId: correlatedAgentId } : {}),
         };
         return [mapped];

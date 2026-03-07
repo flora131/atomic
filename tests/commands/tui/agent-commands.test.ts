@@ -84,7 +84,7 @@ describe("agent command routing", () => {
     filePath: ".claude/agents/worker.md",
   };
 
-  test("routes OpenCode @agent as agent-only stream", () => {
+  test("routes OpenCode @agent on the normal foreground stream", () => {
     const sendSilentMessage = mock(() => {});
     const command = createAgentCommand(baseAgent);
 
@@ -92,7 +92,6 @@ describe("agent command routing", () => {
 
     expect(sendSilentMessage).toHaveBeenCalledWith("do work", {
       agent: "worker",
-      isAgentOnlyStream: true,
     });
   });
 

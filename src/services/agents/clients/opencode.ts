@@ -60,6 +60,7 @@ import {
   type AgentEvent,
   type ToolDefinition,
   type OpenCodeAgentMode,
+  type SessionMessageWithParts,
 } from "@/services/agents/types.ts";
 
 import { initOpenCodeConfigOverrides } from "@/services/agents/init.ts";
@@ -1359,14 +1360,25 @@ export class OpenCodeClient implements CodingAgentClient {
     // where multiple child sessions start nearly simultaneously.
     // Allow these events through when we have a scoped current session so
     // findParentSessionForPart() can recover parent attribution.
-    if (
-      this.currentSessionId
-      && (eventType === "message.part.updated" || eventType === "message.part.delta")
-    ) {
+    if (this.currentSessionId) {
       const properties = event.properties as Record<string, unknown> | undefined;
-      const part = properties?.part as { sessionID?: unknown } | undefined;
-      if (typeof part?.sessionID === "string" && part.sessionID.length > 0) {
-        return true;
+      if (eventType === "message.part.updated") {
+        const part = properties?.part as { sessionID?: unknown } | undefined;
+        if (typeof part?.sessionID === "string" && part.sessionID.length > 0) {
+          return true;
+        }
+      }
+      if (eventType === "message.part.delta") {
+        const deltaSessionId = properties?.sessionID;
+        if (typeof deltaSessionId === "string" && deltaSessionId.length > 0) {
+          return true;
+        }
+      }
+      if (eventType === "message.updated") {
+        const info = properties?.info as { sessionID?: unknown } | undefined;
+        if (typeof info?.sessionID === "string" && info.sessionID.length > 0) {
+          return true;
+        }
       }
     }
 
@@ -1903,14 +1915,6 @@ export class OpenCodeClient implements CodingAgentClient {
             : undefined;
           let agentPartId = sessionSubagentState.childSessionToAgentPart.get(partSessionId);
 
-          this.maybeEmitSkillInvokedEvent({
-            sessionId: parentSessionId || partSessionId,
-            toolName,
-            toolInput,
-            toolUseId: part?.id as string | undefined,
-            toolCallId: part?.callID as string | undefined,
-          });
-
           // --- Child session discovery for sub-agent tools ---
           // When a ToolPart arrives from a session that is NOT the parent
           // session, it belongs to a sub-agent's child session.  On first
@@ -1965,6 +1969,14 @@ export class OpenCodeClient implements CodingAgentClient {
               }
             }
           }
+
+          this.maybeEmitSkillInvokedEvent({
+            sessionId: partSessionId,
+            toolName,
+            toolInput,
+            toolUseId: part?.id as string | undefined,
+            toolCallId: part?.callID as string | undefined,
+          });
 
           // Emit tool.start for pending or running status
           // OpenCode sends "pending" first, then "running" with more complete input.
@@ -2697,6 +2709,31 @@ export class OpenCodeClient implements CodingAgentClient {
     this.currentSessionId = sessionId;
     this.registerActiveSession(sessionId);
     return this.wrapSession(sessionId, {});
+  }
+
+  async getSessionMessagesWithParts(sessionId: string): Promise<SessionMessageWithParts[]> {
+    if (!this.isRunning || !this.sdkClient) {
+      throw new Error("Client not started. Call start() first.");
+    }
+
+    const result = await this.sdkClient.session.messages({
+      sessionID: sessionId,
+    });
+
+    if (result.error || !result.data) {
+      throw new Error(
+        `Failed to load session messages: ${extractOpenCodeErrorMessage(result.error)}`,
+      );
+    }
+
+    return result.data.map((message) => ({
+      info: {
+        id: message.info.id,
+        sessionID: message.info.sessionID,
+        ...(message.info.role ? { role: message.info.role } : {}),
+      },
+      parts: message.parts.map((part) => part as unknown as Record<string, unknown>),
+    }));
   }
 
   /**

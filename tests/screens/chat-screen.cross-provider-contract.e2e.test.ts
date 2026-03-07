@@ -1,12 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentType } from "@/services/models/index.ts";
 import {
-  buildAgentContinuationPayload,
   getAutoCompactionIndicatorState,
   mergeAgentTaskLabel,
   shouldFinalizeAgentOnlyStream,
 } from "@/state/chat/exports.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
 import {
   createAgentLifecycleLedger,
   registerAgentLifecycleComplete,
@@ -15,19 +13,6 @@ import {
 } from "@/lib/ui/agent-lifecycle-ledger.ts";
 
 const PROVIDERS: AgentType[] = ["claude", "opencode", "copilot"];
-
-function createAgent(overrides: Partial<ParallelAgent> = {}): ParallelAgent {
-  return {
-    id: overrides.id ?? "agent-1",
-    name: overrides.name ?? "worker",
-    task: overrides.task ?? "Investigate auth guard ordering",
-    status: overrides.status ?? "completed",
-    startedAt: overrides.startedAt ?? new Date(1000000000000).toISOString(),
-    background: overrides.background,
-    result: overrides.result,
-    error: overrides.error,
-  };
-}
 
 interface ProviderFixture {
   firstTask: string | undefined;
@@ -57,11 +42,6 @@ function runProviderTurn(fixture: ProviderFixture) {
 
   const mergedInitialTask = mergeAgentTaskLabel(undefined, fixture.firstTask, "general-purpose");
   const finalTask = mergeAgentTaskLabel(mergedInitialTask, fixture.secondTask, "general-purpose");
-
-  const continuationPayload = buildAgentContinuationPayload({
-    agents: [createAgent({ id: "fg-1", task: finalTask, result: "Auth guard analysis complete" })],
-  });
-
   const shouldFinalize = shouldFinalizeAgentOnlyStream({
     hasStreamingMessage: true,
     isStreaming: true,
@@ -76,7 +56,6 @@ function runProviderTurn(fixture: ProviderFixture) {
     completed,
     ledgerEntry: ledger.get("agent-e2e-1"),
     finalTask,
-    continuationPayload,
     shouldFinalize,
     compactionStart: getAutoCompactionIndicatorState("start"),
     compactionComplete: getAutoCompactionIndicatorState("complete", true),
@@ -85,7 +64,7 @@ function runProviderTurn(fixture: ProviderFixture) {
 
 describe("chat cross-provider e2e parity", () => {
   test.each(PROVIDERS)(
-    "provider %s: successful agent-only turn preserves strict lifecycle and continuation parity",
+    "provider %s: successful agent-only turn preserves strict lifecycle parity",
     (provider) => {
       const result = runProviderTurn(SUCCESS_FIXTURES[provider]);
 
@@ -98,9 +77,6 @@ describe("chat cross-provider e2e parity", () => {
         sequence: 3,
       });
       expect(result.finalTask).toBe("Investigate auth guard ordering");
-      expect(result.continuationPayload).toBe(
-        '[Sub-agent results]\n\nSub-agent "worker" result:\n\nAuth guard analysis complete',
-      );
       expect(result.shouldFinalize).toBe(true);
       expect(result.compactionStart).toEqual({ status: "running" });
       expect(result.compactionComplete).toEqual({ status: "completed" });

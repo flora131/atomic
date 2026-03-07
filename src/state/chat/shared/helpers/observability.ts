@@ -60,23 +60,6 @@ export function emitAgentLifecycleContractObservability(args: {
   });
 }
 
-export function emitAgentMainContinuationObservability(args: {
-  provider?: string;
-  runId?: number;
-  result: "forwarded" | "missing";
-}): void {
-  const provider = args.provider ?? "unknown";
-  incrementRuntimeParityCounter("workflow.runtime.parity.agent_result_main_continuation_total", {
-    provider,
-    result: args.result,
-  });
-  runtimeParityDebug("agent_result_main_continuation", {
-    provider,
-    runId: args.runId,
-    result: args.result,
-  });
-}
-
 export function emitAgentDoneProjectionObservability(args: {
   provider?: string;
   runId?: number;

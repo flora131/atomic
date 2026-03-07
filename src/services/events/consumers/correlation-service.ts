@@ -248,6 +248,33 @@ export class CorrelationService {
         break;
       }
 
+      case "stream.tool.partial_result": {
+        const data = event.data as BusEventDataMap["stream.tool.partial_result"];
+        enriched.resolvedToolId = data.toolCallId;
+
+        const agentId = this.toolToAgent.get(data.toolCallId);
+        if (agentId) {
+          enriched.resolvedAgentId = agentId;
+          enriched.isSubagentTool = this.subAgentTools.has(data.toolCallId);
+
+          const partialToolCtx = this.subagentRegistry.get(agentId);
+          if (partialToolCtx) {
+            enriched.parentAgentId = partialToolCtx.parentAgentId;
+            enriched.isSubagentTool = true;
+            enriched.suppressFromMainChat = false;
+          }
+        } else if (data.parentAgentId) {
+          enriched.resolvedAgentId = data.parentAgentId;
+          enriched.isSubagentTool = true;
+          const partialToolCtx = this.subagentRegistry.get(data.parentAgentId);
+          if (partialToolCtx) {
+            enriched.parentAgentId = partialToolCtx.parentAgentId;
+            enriched.suppressFromMainChat = false;
+          }
+        }
+        break;
+      }
+
       case "stream.text.delta": {
         const textDeltaData = event.data as BusEventDataMap["stream.text.delta"];
         // Check if agentId maps to a registered sub-agent

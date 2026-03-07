@@ -68,10 +68,7 @@ import type {
   TurnStartEventData,
   TurnEndEventData,
 } from "@/services/agents/types.ts";
-import type {
-  ClaudeProviderEvent,
-  ClaudeProviderEventSource,
-} from "@/services/agents/provider-events.ts";
+import type { ClaudeProviderEventSource } from "@/services/agents/provider-events.ts";
 import {
   createTurnMetadataState,
   normalizeAgentTaskMetadata,
@@ -81,6 +78,7 @@ import {
 } from "@/services/events/adapters/task-turn-normalization.ts";
 import { SubagentToolTracker } from "@/services/events/adapters/subagent-tool-tracker.ts";
 import { classifyError, computeDelay, retrySleep, DEFAULT_MAX_RETRIES } from "@/services/events/adapters/retry.ts";
+import { isSkillToolName } from "@/services/agents/clients/skill-invocation.ts";
 
 const DEFAULT_SUBAGENT_TASK_LABEL = "sub-agent task";
 
@@ -168,13 +166,29 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
   }
 
   private toAgentEvent<T extends EventType>(
-    event: { type: T; sessionId: string; timestamp: number; data: unknown },
+    event: {
+      type: T;
+      sessionId: string;
+      timestamp: number;
+      data: unknown;
+      nativeSessionId?: unknown;
+    },
   ): AgentEvent<T> {
+    const eventData = (
+      typeof event.data === "object" && event.data !== null && !Array.isArray(event.data)
+    )
+      ? {
+          ...(event.data as Record<string, unknown>),
+          ...(typeof event.nativeSessionId === "string"
+            ? { nativeSessionId: event.nativeSessionId }
+            : {}),
+        }
+      : event.data as AgentEvent<T>["data"];
     return {
       type: event.type,
       sessionId: event.sessionId,
       timestamp: new Date(event.timestamp).toISOString(),
-      data: event.data as AgentEvent<T>["data"],
+      data: eventData as AgentEvent<T>["data"],
     } as AgentEvent<T>;
   }
 
@@ -251,6 +265,10 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     const client = this.client ?? (session as Session & { __client?: CodingAgentClient }).__client;
     const providerClient = client as (CodingAgentClient & ClaudeProviderEventSource) | undefined;
     if (providerClient && typeof providerClient.onProviderEvent === "function") {
+      // When Claude provider hooks are available, use them as the single
+      // source of truth for tool lifecycle events to avoid raw stream/tool
+      // duplication before the first hook callback arrives.
+      this.preferClientToolHooks = true;
       const toolStartHandler = this.createToolStartHandler(runId);
       const toolCompleteHandler = this.createToolCompleteHandler(runId);
       const subagentStartHandler = this.createSubagentStartHandler(runId);
@@ -261,6 +279,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       const permissionHandler = this.createPermissionRequestedHandler(runId);
       const humanInputHandler = this.createHumanInputRequiredHandler(runId);
       const skillHandler = this.createSkillInvokedHandler(runId);
+      const messageDeltaHandler = this.createMessageDeltaHandler(runId, messageId);
       const reasoningDeltaHandler = this.createReasoningDeltaHandler(runId, messageId);
       const reasoningCompleteHandler = this.createReasoningCompleteHandler(runId);
       const turnStartHandler = this.createTurnStartHandler(runId);
@@ -305,6 +324,9 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
             break;
           case "skill.invoked":
             skillHandler(this.toAgentEvent(event));
+            break;
+          case "message.delta":
+            messageDeltaHandler(this.toAgentEvent(event));
             break;
           case "reasoning.delta":
             reasoningDeltaHandler(this.toAgentEvent(event));
@@ -515,64 +537,6 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       }
     }
 
-    // Handle thinking deltas and completion
-    if (chunk.type === "thinking") {
-      const metadata = chunk.metadata;
-      const thinkingSourceKey = metadata?.thinkingSourceKey as string | undefined;
-      const sourceKey = thinkingSourceKey ?? "default";
-
-      // Check if this is a thinking delta (has content)
-      if (typeof chunk.content === "string" && chunk.content.length > 0) {
-        // Track start time for this thinking source
-        if (!this.thinkingStartTimes.has(sourceKey)) {
-          this.thinkingStartTimes.set(sourceKey, Date.now());
-        }
-
-        const event: BusEvent<"stream.thinking.delta"> = {
-          type: "stream.thinking.delta",
-          sessionId: this.sessionId,
-          runId,
-          timestamp: Date.now(),
-          data: {
-            delta: chunk.content,
-            sourceKey,
-            messageId,
-          },
-        };
-
-        this.bus.publish(event);
-      }
-
-      // Check if this is a thinking complete event (has streamingStats but no content)
-      const streamingStats = metadata?.streamingStats as
-        | { thinkingMs?: number; outputTokens?: number }
-        | undefined;
-      if (streamingStats?.thinkingMs !== undefined && chunk.content === "") {
-        // Prefer SDK-provided duration, fall back to computed from tracked start time
-        const startTime = this.thinkingStartTimes.get(sourceKey);
-        const durationMs = streamingStats.thinkingMs
-          ?? (startTime ? Date.now() - startTime : 0);
-        this.thinkingStartTimes.delete(sourceKey);
-
-        const event: BusEvent<"stream.thinking.complete"> = {
-          type: "stream.thinking.complete",
-          sessionId: this.sessionId,
-          runId,
-          timestamp: Date.now(),
-          data: {
-            sourceKey,
-            durationMs,
-          },
-        };
-
-        this.bus.publish(event);
-      }
-
-      // Note: streamingStats.outputTokens is NOT used for stream.usage here.
-      // Real token counts come from the client "usage" event (via createUsageHandler)
-      // to avoid double-counting.
-    }
-
     // Handle tool_use events → stream.tool.start
     if (chunk.type === "tool_use") {
       if (this.preferClientToolHooks) {
@@ -584,6 +548,9 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       const toolName = this.normalizeToolName(
         contentRecord.name ?? chunkRecord.name ?? metadataRecord.toolName,
       );
+      if (isSkillToolName(toolName)) {
+        return;
+      }
       const explicitToolId = this.asString(
         contentRecord.toolUseId
           ?? contentRecord.toolUseID
@@ -650,6 +617,9 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       const toolName = this.normalizeToolName(
         chunkRecord.toolName ?? metadataRecord.toolName,
       );
+      if (isSkillToolName(toolName)) {
+        return;
+      }
       const explicitToolId = this.asString(
         chunkRecord.tool_use_id
           ?? chunkRecord.toolUseId
@@ -710,6 +680,9 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       const sdkToolCallId = this.asString(data.toolCallId);
       const sdkCorrelationId = sdkToolUseId ?? sdkToolCallId;
       const toolName = this.normalizeToolName(data.toolName);
+      if (isSkillToolName(toolName)) {
+        return;
+      }
       const toolId = this.resolveToolStartId(sdkCorrelationId, runId, toolName);
       this.registerToolCorrelationAliases(toolId, sdkToolUseId, sdkToolCallId);
 
@@ -840,6 +813,9 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
         sdkToolUseId ?? sdkToolCallId,
       );
       const toolName = this.normalizeToolName(data.toolName);
+      if (isSkillToolName(toolName)) {
+        return;
+      }
       const toolId = this.resolveToolCompleteId(sdkCorrelationId, runId, toolName);
       const toolInput = this.asRecord((data as Record<string, unknown>).toolInput);
       this.registerToolCorrelationAliases(toolId, sdkToolUseId, sdkToolCallId);
@@ -1034,8 +1010,20 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     runId: number,
   ): EventHandler<"skill.invoked"> {
     return (event) => {
-      if (event.sessionId !== this.sessionId) return;
       const data = event.data as SkillInvokedEventData;
+      const dataRecord = data as Record<string, unknown>;
+      const eventSessionId = this.resolveEventSessionId(event);
+      const sessionMappedParentAgentId = this.resolveSubagentSessionParentAgentId(eventSessionId);
+      const parentToolUseId = this.resolveToolCorrelationId(this.asString(
+        data.parentToolCallId
+          ?? dataRecord.parentToolUseId
+          ?? dataRecord.parent_tool_use_id
+          ?? dataRecord.parentToolUseID
+          ?? dataRecord.parent_tool_call_id,
+      ));
+      const parentAgentId = sessionMappedParentAgentId
+        ?? (parentToolUseId ? this.toolUseIdToSubagentId.get(parentToolUseId) : undefined);
+      if (!this.isOwnedSession(eventSessionId) && !parentAgentId) return;
       this.bus.publish({
         type: "stream.skill.invoked",
         sessionId: this.sessionId,
@@ -1044,6 +1032,47 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
         data: {
           skillName: data.skillName,
           skillPath: data.skillPath,
+          ...(parentAgentId ? { agentId: parentAgentId } : {}),
+        },
+      });
+    };
+  }
+
+  private createMessageDeltaHandler(
+    runId: number,
+    messageId: string,
+  ): EventHandler<"message.delta"> {
+    return (event) => {
+      const eventSessionId = this.resolveEventSessionId(event);
+      if (eventSessionId === this.sessionId) {
+        return;
+      }
+      const dataRecord = event.data as Record<string, unknown>;
+      const parentToolUseId = this.resolveToolCorrelationId(this.asString(
+        dataRecord.parentToolCallId
+          ?? dataRecord.parentToolUseId
+          ?? dataRecord.parent_tool_use_id
+          ?? dataRecord.parentToolUseID
+          ?? dataRecord.parent_tool_call_id,
+      ));
+      const parentAgentId = this.resolveSubagentSessionParentAgentId(eventSessionId)
+        ?? (parentToolUseId ? this.toolUseIdToSubagentId.get(parentToolUseId) : undefined);
+      if (!parentAgentId) {
+        return;
+      }
+      const delta = this.asString(dataRecord.delta);
+      if (!delta) {
+        return;
+      }
+      this.bus.publish({
+        type: "stream.text.delta",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          delta,
+          messageId,
+          agentId: parentAgentId,
         },
       });
     };
@@ -1054,8 +1083,21 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     messageId: string,
   ): EventHandler<"reasoning.delta"> {
     return (event) => {
-      if (event.sessionId !== this.sessionId) return;
       const data = event.data as ReasoningDeltaEventData;
+      const dataRecord = data as Record<string, unknown>;
+      const eventSessionId = this.resolveEventSessionId(event);
+      const sessionMappedParentAgentId = this.resolveSubagentSessionParentAgentId(eventSessionId);
+      const parentToolUseId = this.resolveToolCorrelationId(this.asString(
+        data.parentToolCallId
+          ?? dataRecord.parentToolUseId
+          ?? dataRecord.parent_tool_use_id
+          ?? dataRecord.parentToolUseID
+          ?? dataRecord.parent_tool_call_id,
+      ));
+      const parentAgentId = sessionMappedParentAgentId
+        ?? (parentToolUseId ? this.toolUseIdToSubagentId.get(parentToolUseId) : undefined)
+        ?? (eventSessionId === this.sessionId ? this.getSyntheticAgentIdForAttribution() : undefined);
+      if (!this.isOwnedSession(eventSessionId) && !parentAgentId) return;
       if (!data.delta || data.delta.length === 0) return;
       const sourceKey = data.reasoningId || "reasoning";
       if (!this.thinkingStartTimes.has(sourceKey)) {
@@ -1070,6 +1112,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
           delta: data.delta,
           sourceKey,
           messageId,
+          ...(parentAgentId ? { agentId: parentAgentId } : {}),
         },
       });
     };
@@ -1079,8 +1122,21 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     runId: number,
   ): EventHandler<"reasoning.complete"> {
     return (event) => {
-      if (event.sessionId !== this.sessionId) return;
       const data = event.data as ReasoningCompleteEventData;
+      const dataRecord = data as Record<string, unknown>;
+      const eventSessionId = this.resolveEventSessionId(event);
+      const sessionMappedParentAgentId = this.resolveSubagentSessionParentAgentId(eventSessionId);
+      const parentToolUseId = this.resolveToolCorrelationId(this.asString(
+        data.parentToolCallId
+          ?? dataRecord.parentToolUseId
+          ?? dataRecord.parent_tool_use_id
+          ?? dataRecord.parentToolUseID
+          ?? dataRecord.parent_tool_call_id,
+      ));
+      const parentAgentId = sessionMappedParentAgentId
+        ?? (parentToolUseId ? this.toolUseIdToSubagentId.get(parentToolUseId) : undefined)
+        ?? (eventSessionId === this.sessionId ? this.getSyntheticAgentIdForAttribution() : undefined);
+      if (!this.isOwnedSession(eventSessionId) && !parentAgentId) return;
       const sourceKey = data.reasoningId || "reasoning";
       const start = this.thinkingStartTimes.get(sourceKey);
       const durationMs = start ? Date.now() - start : 0;
@@ -1093,6 +1149,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
         data: {
           sourceKey,
           durationMs,
+          ...(parentAgentId ? { agentId: parentAgentId } : {}),
         },
       });
     };
@@ -2022,6 +2079,16 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     overrides: WorkflowRuntimeFeatureFlagOverrides | undefined,
   ): WorkflowRuntimeFeatureFlags {
     return resolveWorkflowRuntimeFeatureFlags(overrides);
+  }
+
+  private resolveEventSessionId<T extends EventType>(event: AgentEvent<T>): string {
+    const dataRecord = (
+      typeof event.data === "object" && event.data !== null && !Array.isArray(event.data)
+    )
+      ? event.data as Record<string, unknown>
+      : undefined;
+    const nativeSessionId = this.asString(dataRecord?.nativeSessionId);
+    return nativeSessionId ?? event.sessionId;
   }
 
   private isOwnedSession(eventSessionId: string): boolean {

@@ -6,10 +6,12 @@ import {
   createMessage,
   formatSessionTruncationMessage,
   getAutoCompactionIndicatorState,
+  shouldBindStreamSessionRun,
   shouldProcessStreamLifecycleEvent,
 } from "@/state/chat/helpers.ts";
 import {
   normalizeSessionTrackingKey,
+  shouldDisplaySkillLoadIndicator,
   shouldResetLoadedSkillsForSessionChange,
   tryTrackLoadedSkill,
 } from "@/lib/ui/skill-load-tracking.ts";
@@ -98,12 +100,12 @@ export function useStreamSessionSubscriptions({
       activeSkillSessionIdRef.current = nextSessionId;
     }
 
-    if (!isStreamingRef.current) {
-      return;
-    }
-
-    const runFloor = nextRunIdFloorRef.current;
-    if (typeof runFloor === "number" && event.runId < runFloor) {
+    if (!shouldBindStreamSessionRun({
+      activeRunId: activeStreamRunIdRef.current,
+      eventRunId: event.runId,
+      isStreaming: isStreamingRef.current,
+      nextRunIdFloor: nextRunIdFloorRef.current,
+    })) {
       return;
     }
 
@@ -433,7 +435,10 @@ export function useStreamSessionSubscriptions({
   });
 
   useBusSubscription("stream.skill.invoked", (event) => {
-    const { skillName } = event.data;
+    const { skillName, agentId } = event.data;
+    if (!shouldDisplaySkillLoadIndicator(agentId)) {
+      return;
+    }
     if (!tryTrackLoadedSkill(loadedSkillsRef.current, skillName)) {
       return;
     }

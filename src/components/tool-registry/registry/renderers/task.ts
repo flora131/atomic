@@ -6,6 +6,8 @@ import type { ToolRenderProps, ToolRenderResult, ToolRenderer } from "@/componen
 
 const TASK_OUTPUT_PREVIEW_LINES = 8;
 const TASK_FIELD_MAX_CHARS = 160;
+const OPENCODE_TASK_RESULT_OPEN = "<task_result>";
+const OPENCODE_TASK_RESULT_CLOSE = "</task_result>";
 
 function getTaskTitle(props: ToolRenderProps): string {
   const description = (props.input.description as string) || (props.input.prompt as string) || "";
@@ -26,6 +28,11 @@ function getTaskTitle(props: ToolRenderProps): string {
     return agentType;
   }
   return "Sub-agent task";
+}
+
+function shouldHideTaskOutput(outputText: string): boolean {
+  return outputText.includes(OPENCODE_TASK_RESULT_OPEN)
+    && outputText.includes(OPENCODE_TASK_RESULT_CLOSE);
 }
 
 export const taskToolRenderer: ToolRenderer = {
@@ -69,7 +76,7 @@ export const taskToolRenderer: ToolRenderer = {
         ? props.output
         : JSON.stringify(props.output, null, 2);
 
-      if (outputText.trim().length > 0) {
+      if (outputText.trim().length > 0 && !shouldHideTaskOutput(outputText)) {
         content.push("");
         const lines = outputText.split("\n");
         content.push(

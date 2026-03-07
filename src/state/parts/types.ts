@@ -74,6 +74,7 @@ export interface ToolPart extends BasePart {
   toolCallId: string;
   toolName: string;
   input: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
   output?: unknown;
   /** Incremental output streamed while tool is still running */
   partialOutput?: string;

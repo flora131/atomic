@@ -140,6 +140,13 @@ function buildSyntheticTaskAgentId(toolId: string): string {
   return `${SYNTHETIC_TASK_AGENT_PREFIX}${toolId}`;
 }
 
+function buildTaskDispatchPlaceholderId(
+  provider: AgentType | undefined,
+  toolId: string,
+): string {
+  return provider === "opencode" ? toolId : buildSyntheticTaskAgentId(toolId);
+}
+
 export function isSyntheticTaskAgentId(agentId: string): boolean {
   return agentId.startsWith(SYNTHETIC_TASK_AGENT_PREFIX);
 }
@@ -165,8 +172,10 @@ export function upsertSyntheticTaskAgentForToolStart(args: {
   if (args.agentId) return args.agents;
   if (!isSubagentToolName(args.toolName)) return args.agents;
 
+  const placeholderId = buildTaskDispatchPlaceholderId(args.provider, args.toolId);
+
   const existingRealAgent = args.agents.find(
-    (agent) => agent.taskToolCallId === args.toolId && !isSyntheticTaskAgentId(agent.id),
+    (agent) => agent.taskToolCallId === args.toolId && agent.id !== placeholderId,
   );
   if (existingRealAgent) {
     return args.agents;
@@ -179,7 +188,7 @@ export function upsertSyntheticTaskAgentForToolStart(args: {
   if (!hasExecutionDetails) {
     const hasExistingSynthetic = args.agents.some(
       (agent) =>
-        agent.id === buildSyntheticTaskAgentId(args.toolId)
+        agent.id === placeholderId
         || (isSyntheticTaskAgentId(agent.id) && agent.taskToolCallId === args.toolId),
     );
     if (!hasExistingSynthetic) {
@@ -192,10 +201,9 @@ export function upsertSyntheticTaskAgentForToolStart(args: {
     : (hasExecutionDetails ? "running" : "pending");
   const nextToolUses = 0;
   const nextCurrentTool = undefined;
-  const syntheticId = buildSyntheticTaskAgentId(args.toolId);
   const existingSyntheticIndex = args.agents.findIndex(
     (agent) =>
-      agent.id === syntheticId
+      agent.id === placeholderId
       || (isSyntheticTaskAgentId(agent.id) && agent.taskToolCallId === args.toolId),
   );
 
@@ -204,7 +212,7 @@ export function upsertSyntheticTaskAgentForToolStart(args: {
       index === existingSyntheticIndex
         ? {
           ...agent,
-          id: syntheticId,
+          id: placeholderId,
           taskToolCallId: args.toolId,
           name: agentName,
           task: mergeAgentTaskLabel(agent.task, task, agentName),
@@ -222,7 +230,7 @@ export function upsertSyntheticTaskAgentForToolStart(args: {
   return [
     ...args.agents,
     {
-      id: syntheticId,
+      id: placeholderId,
       taskToolCallId: args.toolId,
       name: agentName,
       task,
@@ -250,8 +258,8 @@ export function finalizeSyntheticTaskAgentForToolComplete(args: {
   if (args.agentId) return args.agents;
   if (!isSubagentToolName(args.toolName)) return args.agents;
 
-  const syntheticId = buildSyntheticTaskAgentId(args.toolId);
-  const syntheticIndex = args.agents.findIndex((agent) => agent.id === syntheticId);
+  const placeholderId = buildTaskDispatchPlaceholderId(args.provider, args.toolId);
+  const syntheticIndex = args.agents.findIndex((agent) => agent.id === placeholderId);
   if (syntheticIndex < 0) {
     return args.agents;
   }
@@ -289,9 +297,9 @@ export function finalizeCorrelatedSubagentDispatchForToolComplete(args: {
 }): ParallelAgent[] {
   if (args.agentId) return args.agents;
   if (!isSubagentToolName(args.toolName)) return args.agents;
-  if (args.success) return args.agents;
-
-  const status: ParallelAgent["status"] = isAbortLikeToolError(args.error) ? "interrupted" : "error";
+  const status: ParallelAgent["status"] = args.success
+    ? "completed"
+    : (isAbortLikeToolError(args.error) ? "interrupted" : "error");
   let changed = false;
 
   const nextAgents = args.agents.map((agent) => {
@@ -309,7 +317,7 @@ export function finalizeCorrelatedSubagentDispatchForToolComplete(args: {
       ...agent,
       status,
       currentTool: undefined,
-      error: status === "error" ? (args.error ?? agent.error) : agent.error,
+      error: status === "error" ? (args.error ?? agent.error) : undefined,
       durationMs,
     };
   });

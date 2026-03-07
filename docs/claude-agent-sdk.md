@@ -164,7 +164,7 @@ Configuration object for the `query()` function.
 | `includePartialMessages` | `boolean` | `false` | Include partial message events |
 | `maxBudgetUsd` | `number` | `undefined` | Maximum budget in USD for the query |
 | `maxThinkingTokens` | `number` | `undefined` | _Deprecated:_ Use `thinking` instead. Maximum tokens for thinking process |
-| `maxTurns` | `number` | `undefined` | Maximum conversation turns |
+| `maxTurns` | `number` | `undefined` | Maximum agentic turns (tool-use round trips) |
 | `mcpServers` | `Record<string, [`McpServerConfig`](#mcpserverconfig)>` | `{}` | MCP server configurations |
 | `model` | `string` | Default from CLI | Claude model to use |
 | `outputFormat` | `{ type: 'json_schema', schema: JSONSchema }` | `undefined` | Define output format for agent results. See [Structured outputs](/docs/en/agent-sdk/structured-outputs) for details |
@@ -2000,7 +2000,7 @@ type AgentInfo = {
   name: string;
   description: string;
   model?: string;
-}
+};
 ```
 
 | Field | Type | Description |

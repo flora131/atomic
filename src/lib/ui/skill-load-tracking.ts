@@ -2,6 +2,10 @@ export interface SkillLoadLike {
   skillName: string;
 }
 
+export function shouldDisplaySkillLoadIndicator(agentId: string | undefined): boolean {
+  return typeof agentId !== "string" || agentId.trim().length === 0;
+}
+
 export interface SkillLoadPartLike {
   type: string;
   skills?: SkillLoadLike[];

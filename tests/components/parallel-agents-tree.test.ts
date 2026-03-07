@@ -442,13 +442,13 @@ describe("agent inline display helpers", () => {
       },
     ] as Part[];
     const result = getAgentInlineDisplayParts(mixedParts);
-    expect(result).toHaveLength(1);
-    expect(result.map((part) => part.id)).toEqual(["part-tool"]);
+    expect(result).toHaveLength(3);
+    expect(result.map((part) => part.id)).toEqual(["part-text", "part-tool", "part-reasoning"]);
   });
 
-  test("filters non-tool inline parts", () => {
+  test("filters unsupported inline part types", () => {
     const result = getAgentInlineDisplayParts(inlineParts);
-    expect(result).toHaveLength(0);
+    expect(result).toHaveLength(2);
     expect(result.every((part) => Boolean(PART_REGISTRY[part.type]))).toBe(true);
   });
 

@@ -363,6 +363,7 @@ describe("Event Bus Integration", () => {
     expect(toolStarts.length).toBe(1);
     expect(toolStarts[0]?.toolId).toBe("copilot-task-1");
     expect(toolStarts[0]?.toolName).toBe("Task");
+    expect(toolStarts[0]?.agentId).toBe("synthetic-task-agent:copilot-task-1");
 
     const toolCompletes = output.filter((event) => event.type === "tool-complete");
     expect(toolCompletes.length).toBe(1);
@@ -370,7 +371,7 @@ describe("Event Bus Integration", () => {
     expect(toolCompletes[0]?.toolName).toBe("Task");
     expect(toolCompletes[0]?.output).toBe("done");
     expect(toolCompletes[0]?.success).toBe(true);
-    expect(toolCompletes[0]?.agentId).toBeUndefined();
+    expect(toolCompletes[0]?.agentId).toBe("copilot-agent-1");
 
     dispose();
     adapter.dispose();

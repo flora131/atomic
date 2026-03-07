@@ -133,6 +133,8 @@ export interface BusEventDataMap {
     toolInput: Record<string, unknown>;
     /** SDK correlation ID for tracking across adapters */
     sdkCorrelationId?: string;
+    /** Provider-native tool metadata (OpenCode task session bindings, etc.) */
+    toolMetadata?: Record<string, unknown>;
     /** Parent agent ID if this tool was invoked by a sub-agent */
     parentAgentId?: string;
   };
@@ -155,6 +157,8 @@ export interface BusEventDataMap {
     error?: string;
     /** SDK correlation ID for tracking across adapters */
     sdkCorrelationId?: string;
+    /** Provider-native tool metadata (OpenCode task session bindings, etc.) */
+    toolMetadata?: Record<string, unknown>;
     /** Parent agent ID if this tool was invoked by a sub-agent */
     parentAgentId?: string;
   };
@@ -439,6 +443,8 @@ export interface BusEventDataMap {
     skillName: string;
     /** File path to the skill (optional) */
     skillPath?: string;
+    /** Agent ID for sub-agent scoped events */
+    agentId?: string;
   };
 
   /**
@@ -504,6 +510,7 @@ export const BusEventSchemas: Record<BusEventType, z.ZodType> = {
     toolName: z.string(),
     toolInput: z.record(z.string(), z.unknown()),
     sdkCorrelationId: z.string().optional(),
+    toolMetadata: z.record(z.string(), z.unknown()).optional(),
     parentAgentId: z.string().optional(),
   }),
   "stream.tool.complete": z.object({
@@ -514,6 +521,7 @@ export const BusEventSchemas: Record<BusEventType, z.ZodType> = {
     success: z.boolean(),
     error: z.string().optional(),
     sdkCorrelationId: z.string().optional(),
+    toolMetadata: z.record(z.string(), z.unknown()).optional(),
     parentAgentId: z.string().optional(),
   }),
   "stream.tool.partial_result": z.object({
@@ -631,6 +639,7 @@ export const BusEventSchemas: Record<BusEventType, z.ZodType> = {
   "stream.skill.invoked": z.object({
     skillName: z.string(),
     skillPath: z.string().optional(),
+    agentId: z.string().optional(),
   }),
   "stream.usage": z.object({
     inputTokens: z.number(),

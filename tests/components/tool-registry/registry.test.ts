@@ -1215,6 +1215,23 @@ describe("taskToolRenderer.render()", () => {
     expect(result.content).toContain("Task finished with plain string");
   });
 
+  test("hides OpenCode task_result output from the parent task row", () => {
+    const props: ToolRenderProps = {
+      input: { description: "Quick task" },
+      output: [
+        "task_id: ses_child_123",
+        "",
+        "<task_result>",
+        "Sub-agent final answer",
+        "</task_result>",
+      ].join("\n"),
+    };
+    const result = taskToolRenderer.render(props);
+    expect(result.content.some((line) => line.includes("Sub-agent final answer"))).toBe(false);
+    expect(result.content.some((line) => line.includes("<task_result>"))).toBe(false);
+    expect(result.content).toContain("Task: Quick task");
+  });
+
   test("renders with only agent_type (no description or prompt)", () => {
     const props: ToolRenderProps = {
       input: { agent_type: "code" },

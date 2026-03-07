@@ -7,8 +7,6 @@ import {
   getActiveBackgroundAgents,
 } from "@/lib/ui/background-agent-footer.ts";
 import {
-  buildAgentContinuationPayload,
-  emitAgentMainContinuationObservability,
   shouldFinalizeAgentOnlyStream,
 } from "@/state/chat/helpers.ts";
 import { snapshotTaskItems } from "@/lib/ui/workflow-task-state.ts";
@@ -17,10 +15,7 @@ import type { UseChatAgentProjectionArgs } from "@/state/chat/agent/projection-t
 
 type UseChatAgentStreamFinalizationArgs = Pick<
   UseChatAgentProjectionArgs,
-  | "activeStreamRunIdRef"
-  | "agentType"
   | "awaitedStreamRunIdsRef"
-  | "continueAssistantStreamInPlaceRef"
   | "continueQueuedConversation"
   | "deferredCompleteTimeoutRef"
   | "finalizeThinkingSourceTracking"
@@ -34,11 +29,9 @@ type UseChatAgentStreamFinalizationArgs = Pick<
   | "parallelAgentsRef"
   | "pendingCompleteRef"
   | "resolveTrackedRun"
-  | "sendBackgroundMessageToAgent"
   | "setBackgroundAgentMessageId"
   | "setMessagesWindowed"
   | "setParallelAgents"
-  | "startAssistantStreamRef"
   | "stopSharedStreamState"
   | "streamingMessageIdRef"
   | "streamingStartRef"
@@ -47,10 +40,7 @@ type UseChatAgentStreamFinalizationArgs = Pick<
 >;
 
 export function useChatAgentStreamFinalization({
-  activeStreamRunIdRef,
-  agentType,
   awaitedStreamRunIdsRef,
-  continueAssistantStreamInPlaceRef,
   continueQueuedConversation,
   deferredCompleteTimeoutRef,
   finalizeThinkingSourceTracking,
@@ -64,11 +54,9 @@ export function useChatAgentStreamFinalization({
   parallelAgentsRef,
   pendingCompleteRef,
   resolveTrackedRun,
-  sendBackgroundMessageToAgent,
   setBackgroundAgentMessageId,
   setMessagesWindowed,
   setParallelAgents,
-  startAssistantStreamRef,
   stopSharedStreamState,
   streamingMessageIdRef,
   streamingStartRef,
@@ -130,11 +118,6 @@ export function useChatAgentStreamFinalization({
           : agent,
     );
 
-    const agentContinuationPayload = buildAgentContinuationPayload({
-      agents: finalizedAgents,
-      fallbackText: lastStreamingContentRef.current,
-    });
-
     setMessagesWindowed((prev) =>
       prev.map((msg) =>
         msg.id === messageId
@@ -157,45 +140,6 @@ export function useChatAgentStreamFinalization({
       wasInterrupted: false,
     }, { runId: streamRunId });
 
-    if (agentContinuationPayload) {
-      emitAgentMainContinuationObservability({
-        provider: agentType,
-        runId: activeStreamRunIdRef.current ?? undefined,
-        result: "forwarded",
-      });
-
-      if (remainingBg.length > 0 && messageId) {
-        setBackgroundAgentMessageId(messageId);
-        setParallelAgents(remainingBg);
-        parallelAgentsRef.current = remainingBg;
-      } else {
-        setParallelAgents([]);
-        parallelAgentsRef.current = [];
-      }
-
-      if (messageId) {
-        const dispatchAgentContinuationInPlace = continueAssistantStreamInPlaceRef.current;
-        if (dispatchAgentContinuationInPlace) {
-          dispatchAgentContinuationInPlace(messageId, agentContinuationPayload);
-          return;
-        }
-      }
-
-      const dispatchAgentContinuation = startAssistantStreamRef.current;
-      if (dispatchAgentContinuation) {
-        dispatchAgentContinuation(agentContinuationPayload);
-        return;
-      }
-
-      stopSharedStreamState();
-      finalizeThinkingSourceTracking();
-      sendBackgroundMessageToAgent(agentContinuationPayload);
-      if (!suppressQueueContinuation) {
-        continueQueuedConversation();
-      }
-      return;
-    }
-
     if (remainingBg.length > 0 && messageId) {
       stopSharedStreamState({
         preserveStreamingStart: true,
@@ -216,10 +160,7 @@ export function useChatAgentStreamFinalization({
       continueQueuedConversation();
     }
   }, [
-    activeStreamRunIdRef,
-    agentType,
     awaitedStreamRunIdsRef,
-    continueAssistantStreamInPlaceRef,
     continueQueuedConversation,
     deferredCompleteTimeoutRef,
     finalizeThinkingSourceTracking,
@@ -233,11 +174,9 @@ export function useChatAgentStreamFinalization({
     parallelAgentsRef,
     pendingCompleteRef,
     resolveTrackedRun,
-    sendBackgroundMessageToAgent,
     setBackgroundAgentMessageId,
     setMessagesWindowed,
     setParallelAgents,
-    startAssistantStreamRef,
     stopSharedStreamState,
     streamingMessageIdRef,
     streamingStartRef,

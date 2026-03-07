@@ -753,6 +753,96 @@ describe("OpenCodeClient event mapping", () => {
     expect(toolStarts).toContainEqual({ sessionId: "ses_parallel_child", toolName: "Glob" });
   });
 
+  test("processEventStream allows unknown child message.part.delta events while the parent session is active", async () => {
+    const client = new OpenCodeClient();
+    const deltas: Array<{ sessionId: string; delta?: string }> = [];
+
+    const unsubDelta = client.on("message.delta", (event) => {
+      const data = event.data as { delta?: string };
+      deltas.push({ sessionId: event.sessionId, delta: data.delta });
+    });
+
+    (client as unknown as { registerActiveSession: (sessionId: string) => void })
+      .registerActiveSession("ses_parent_delta");
+    (client as unknown as { currentSessionId: string | null }).currentSessionId = "ses_parent_delta";
+
+    const stream = (async function* (): AsyncGenerator<unknown, void, unknown> {
+      yield {
+        type: "message.part.delta",
+        properties: {
+          sessionID: "ses_child_delta",
+          messageID: "msg_child_delta",
+          partID: "part_child_delta",
+          field: "text",
+          delta: "child session response",
+        },
+      };
+    })();
+
+    await (client as unknown as {
+      processEventStream: (
+        eventStream: AsyncGenerator<unknown, void, unknown>,
+        watchdogAbort: AbortController,
+      ) => Promise<void>;
+    }).processEventStream(stream, new AbortController());
+
+    unsubDelta();
+
+    expect(deltas).toEqual([
+      {
+        sessionId: "ses_child_delta",
+        delta: "child session response",
+      },
+    ]);
+  });
+
+  test("processEventStream allows unknown child message.updated events while the parent session is active", async () => {
+    const client = new OpenCodeClient();
+    const completes: Array<{ sessionId: string; role?: string }> = [];
+
+    const unsubComplete = client.on("message.complete", (event) => {
+      const data = event.data as {
+        message?: {
+          role?: string;
+        };
+      };
+      completes.push({ sessionId: event.sessionId, role: data.message?.role });
+    });
+
+    (client as unknown as { registerActiveSession: (sessionId: string) => void })
+      .registerActiveSession("ses_parent_updated");
+    (client as unknown as { currentSessionId: string | null }).currentSessionId = "ses_parent_updated";
+
+    const stream = (async function* (): AsyncGenerator<unknown, void, unknown> {
+      yield {
+        type: "message.updated",
+        properties: {
+          info: {
+            id: "msg_child_updated",
+            sessionID: "ses_child_updated",
+            role: "assistant",
+          },
+        },
+      };
+    })();
+
+    await (client as unknown as {
+      processEventStream: (
+        eventStream: AsyncGenerator<unknown, void, unknown>,
+        watchdogAbort: AbortController,
+      ) => Promise<void>;
+    }).processEventStream(stream, new AbortController());
+
+    unsubComplete();
+
+    expect(completes).toEqual([
+      {
+        sessionId: "ses_child_updated",
+        role: "assistant",
+      },
+    ]);
+  });
+
   test("session.deleted unregisters active sessions for subsequent SSE filtering", async () => {
     const client = new OpenCodeClient();
     const deltas: string[] = [];
@@ -3282,6 +3372,74 @@ describe("OpenCodeClient event mapping", () => {
     expect(toolStarts[0]!.sessionId).toBe("ses_child");
     expect(toolStarts[0]!.toolName).toBe("Read");
     expect(toolStarts[0]!.parentAgentId).toBe("agent_1");
+  });
+
+  test("emits child-session skill.invoked on the discovered subagent session", () => {
+    const client = new OpenCodeClient();
+    const handle = (event: Record<string, unknown>) =>
+      (client as unknown as { handleSdkEvent: (e: Record<string, unknown>) => void }).handleSdkEvent(event);
+
+    (client as unknown as { currentSessionId: string | null }).currentSessionId = "ses_parent";
+
+    const invocations: Array<{
+      sessionId: string;
+      skillName?: string;
+      skillPath?: string;
+    }> = [];
+    const unsubscribe = client.on("skill.invoked", (event) => {
+      const data = event.data as { skillName?: string; skillPath?: string };
+      invocations.push({
+        sessionId: event.sessionId,
+        skillName: data.skillName,
+        skillPath: data.skillPath,
+      });
+    });
+
+    handle({
+      type: "message.part.updated",
+      properties: {
+        sessionID: "ses_parent",
+        part: {
+          id: "agent_skill_1",
+          sessionID: "ses_parent",
+          messageID: "msg_skill_1",
+          type: "agent",
+          name: "explore",
+        },
+      },
+    });
+
+    handle({
+      type: "message.part.updated",
+      properties: {
+        sessionID: "ses_parent",
+        part: {
+          id: "skill_tool_child_1",
+          sessionID: "ses_child",
+          messageID: "msg_child_skill_1",
+          type: "tool",
+          tool: "skill",
+          callID: "skill_call_child_1",
+          state: {
+            status: "pending",
+            input: {
+              name: "frontend-design",
+              path: "/tmp/skills/frontend-design/SKILL.md",
+            },
+          },
+        },
+      },
+    });
+
+    unsubscribe();
+
+    expect(invocations).toEqual([
+      {
+        sessionId: "ses_child",
+        skillName: "frontend-design",
+        skillPath: "/tmp/skills/frontend-design/SKILL.md",
+      },
+    ]);
   });
 
   test("routes child-session discovery to envelope parent session during parallel runs", () => {

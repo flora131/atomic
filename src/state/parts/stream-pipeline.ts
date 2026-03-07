@@ -33,6 +33,7 @@ interface ToolStartEvent {
   toolId: string;
   toolName: string;
   input: Record<string, unknown>;
+  toolMetadata?: Record<string, unknown>;
   startedAt?: string;
   /** Sub-agent ID if this event is scoped to a workflow sub-agent */
   agentId?: string;
@@ -47,6 +48,7 @@ interface ToolCompleteEvent {
   success: boolean;
   error?: string;
   input?: Record<string, unknown>;
+  toolMetadata?: Record<string, unknown>;
   /** Sub-agent ID if this event is scoped to a workflow sub-agent */
   agentId?: string;
 }
@@ -346,6 +348,7 @@ function upsertToolPartStart(parts: Part[], event: ToolStartEvent): Part[] {
       ...existing,
       toolName: event.toolName,
       input: event.input,
+      metadata: event.toolMetadata ?? existing.metadata,
       state: { status: "running", startedAt },
     };
     return updated;
@@ -362,6 +365,7 @@ function upsertToolPartStart(parts: Part[], event: ToolStartEvent): Part[] {
     toolCallId: event.toolId,
     toolName: event.toolName,
     input: event.input,
+    metadata: event.toolMetadata,
     state: { status: "running", startedAt: event.startedAt ?? new Date().toISOString() },
     createdAt: new Date().toISOString(),
   };
@@ -432,6 +436,7 @@ function upsertToolPartComplete(parts: Part[], event: ToolCompleteEvent): Part[]
       ...existing,
       toolName: existing.toolName === "unknown" ? (event.toolName ?? "unknown") : existing.toolName,
       input: updatedInput,
+      metadata: event.toolMetadata ?? existing.metadata,
       output: event.output,
       state: newState,
     };
@@ -444,6 +449,7 @@ function upsertToolPartComplete(parts: Part[], event: ToolCompleteEvent): Part[]
     toolCallId: event.toolId,
     toolName: event.toolName ?? "unknown",
     input: event.input ?? {},
+    metadata: event.toolMetadata,
     output: event.output,
     state: event.success
       ? { status: "completed", output: event.output, durationMs: 0 }
@@ -785,6 +791,10 @@ function insertAgentPartAtTaskBoundary(parts: Part[], agentPart: AgentPart): Par
  */
 const agentEventBuffer = new Map<string, StreamPartEvent[]>();
 
+function buildSyntheticTaskAgentBufferKey(taskToolCallId: string): string {
+  return `synthetic-task-agent:${taskToolCallId}`;
+}
+
 /** Buffer an event for later replay when agent appears in parts. */
 function bufferAgentEvent(agentId: string, event: StreamPartEvent): void {
   const existing = agentEventBuffer.get(agentId) ?? [];
@@ -792,14 +802,36 @@ function bufferAgentEvent(agentId: string, event: StreamPartEvent): void {
   agentEventBuffer.set(agentId, existing);
 }
 
-/** Drain buffered events for an agent and apply them to parts. */
-function drainBufferedEvents(parts: Part[], agentId: string): Part[] {
-  const buffered = agentEventBuffer.get(agentId);
-  if (!buffered || buffered.length === 0) return parts;
+function cloneBufferedEventForAgent(
+  event: StreamPartEvent,
+  agentId: string,
+): StreamPartEvent {
+  if (!("agentId" in event)) {
+    return event;
+  }
+  return { ...event, agentId };
+}
 
-  agentEventBuffer.delete(agentId);
+function resolveBufferedAgentKeys(agent: ParallelAgent): string[] {
+  const keys = new Set<string>([agent.id]);
+  if (agent.taskToolCallId) {
+    keys.add(agent.taskToolCallId);
+    keys.add(buildSyntheticTaskAgentBufferKey(agent.taskToolCallId));
+  }
+  return [...keys];
+}
+
+/** Drain buffered events for an agent and apply them to parts. */
+function drainBufferedEvents(parts: Part[], agent: ParallelAgent): Part[] {
   let currentParts = parts;
-  for (const event of buffered) {
+  for (const key of resolveBufferedAgentKeys(agent)) {
+    const buffered = agentEventBuffer.get(key);
+    if (!buffered || buffered.length === 0) {
+      continue;
+    }
+    agentEventBuffer.delete(key);
+    for (const bufferedEvent of buffered) {
+      const event = cloneBufferedEventForAgent(bufferedEvent, agent.id);
     if (event.type === "text-delta" && event.agentId) {
       const routed = routeToAgentInlineParts(currentParts, event.agentId, (inlineParts) => {
         const lastText = inlineParts.length > 0 ? inlineParts[inlineParts.length - 1] : undefined;
@@ -853,6 +885,7 @@ function drainBufferedEvents(parts: Part[], agentId: string): Part[] {
       if (routed) currentParts = routed;
     }
   }
+  }
   return currentParts;
 }
 
@@ -868,7 +901,8 @@ function carryOverInlineParts(
   if (existingInlineParts.size === 0) return agents;
   let changed = false;
   const result = agents.map((agent) => {
-    const existing = existingInlineParts.get(agent.id);
+    const existing = existingInlineParts.get(agent.id)
+      ?? (agent.taskToolCallId ? existingInlineParts.get(agent.taskToolCallId) : undefined);
     if (existing && existing.length > 0 && (!agent.inlineParts || agent.inlineParts.length === 0)) {
       changed = true;
       return { ...agent, inlineParts: existing };
@@ -895,6 +929,9 @@ export function mergeParallelAgentsIntoParts(
     for (const agent of agentPart.agents) {
       if (agent.inlineParts && agent.inlineParts.length > 0) {
         existingInlineParts.set(agent.id, agent.inlineParts);
+        if (agent.taskToolCallId) {
+          existingInlineParts.set(agent.taskToolCallId, agent.inlineParts);
+        }
       }
     }
   }
@@ -1304,7 +1341,7 @@ export function applyStreamPartEvent(
       );
       // Drain any buffered events for agents that are now in parts
       for (const agent of normalizedAgents) {
-        nextParts = drainBufferedEvents(nextParts, agent.id);
+        nextParts = drainBufferedEvents(nextParts, agent);
       }
       const nextMessage: ChatMessage = {
         ...message,

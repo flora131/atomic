@@ -3,6 +3,7 @@ import {
   createLoadedSkillTrackingSet,
   normalizeSkillTrackingKey,
   normalizeSessionTrackingKey,
+  shouldDisplaySkillLoadIndicator,
   shouldResetLoadedSkillsForSessionChange,
   tryTrackLoadedSkill,
 } from "@/lib/ui/skill-load-tracking.ts";
@@ -53,6 +54,12 @@ describe("skill-load-tracking", () => {
     expect(tryTrackLoadedSkill(loaded, " Prompt-Engineer ")).toBe(false);
     expect(tryTrackLoadedSkill(loaded, "")).toBe(false);
     expect(loaded.size).toBe(1);
+  });
+
+  test("shows skill load indicators only for top-level skill events", () => {
+    expect(shouldDisplaySkillLoadIndicator(undefined)).toBe(true);
+    expect(shouldDisplaySkillLoadIndicator(" ")).toBe(true);
+    expect(shouldDisplaySkillLoadIndicator("agent-sub-1")).toBe(false);
   });
 
   test("normalizes session tracking keys", () => {

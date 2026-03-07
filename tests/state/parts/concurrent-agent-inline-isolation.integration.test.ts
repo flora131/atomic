@@ -207,8 +207,8 @@ describe("concurrent agent inline part isolation (integration)", () => {
       }
 
       const agentAVerboseInline = getAgentInlineDisplayParts(agentA?.inlineParts ?? []);
-      expect(agentAVerboseInline).toHaveLength(1);
-      expect(agentAVerboseInline.every((part) => part.type === "tool")).toBe(true);
+      expect(agentAVerboseInline).toHaveLength(3);
+      expect([...agentAVerboseInline.map((part) => part.type)].sort()).toEqual(["reasoning", "text", "tool"]);
 
       const agentACompactInline = getAgentInlineDisplayParts(agentA?.inlineParts ?? []);
       expect(agentACompactInline.map((part) => part.id)).toEqual(
@@ -216,8 +216,8 @@ describe("concurrent agent inline part isolation (integration)", () => {
       );
 
       const agentBVerboseInline = getAgentInlineDisplayParts(agentB?.inlineParts ?? []);
-      expect(agentBVerboseInline).toHaveLength(1);
-      expect(agentBVerboseInline.every((part) => part.type === "tool")).toBe(true);
+      expect(agentBVerboseInline).toHaveLength(3);
+      expect([...agentBVerboseInline.map((part) => part.type)].sort()).toEqual(["reasoning", "text", "tool"]);
 
       const agentBCompactInline = getAgentInlineDisplayParts(agentB?.inlineParts ?? []);
       expect(agentBCompactInline.map((part) => part.id)).toEqual(

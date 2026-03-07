@@ -1,5 +1,4 @@
 import type {
-  SessionEvent as CopilotSessionEvent,
   SessionEventPayload as CopilotSessionEventPayload,
   SessionEventType as CopilotSessionEventType,
 } from "@github/copilot-sdk";
@@ -25,7 +24,6 @@ import type {
   SDKHookStartedMessage as ClaudeHookStartedMessage,
   SDKMessage as ClaudeSdkMessage,
   SDKPartialAssistantMessage as ClaudePartialAssistantMessage,
-  SDKPromptSuggestionMessage as ClaudePromptSuggestionMessage,
   SDKRateLimitEvent as ClaudeRateLimitEvent,
   SDKResultMessage as ClaudeResultMessage,
   SDKStatusMessage as ClaudeStatusMessage,
@@ -33,13 +31,10 @@ import type {
   SDKTaskNotificationMessage as ClaudeTaskNotificationMessage,
   SDKTaskProgressMessage as ClaudeTaskProgressMessage,
   SDKTaskStartedMessage as ClaudeTaskStartedMessage,
-  SDKToolProgressMessage as ClaudeToolProgressMessage,
-  SDKToolUseSummaryMessage as ClaudeToolUseSummaryMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type {
   AgentEvent,
   AgentMessage,
-  EventType,
   PermissionOption,
   SessionConfig,
 } from "@/services/agents/types.ts";
@@ -287,6 +282,7 @@ export interface ProviderToolPartialResultData {
 export interface ProviderSkillInvokedData {
   skillName: string;
   skillPath?: string;
+  parentToolCallId?: string;
 }
 
 export interface ProviderSubagentStartData {

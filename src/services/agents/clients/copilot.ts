@@ -964,12 +964,14 @@ export class CopilotClient implements CodingAgentClient {
         this.emitMappedSdkEvent("reasoning.delta", sessionId, {
           delta: event.data.deltaContent,
           reasoningId: event.data.reasoningId,
+          parentToolCallId: asNonEmptyString((event.data as Record<string, unknown>).parentToolCallId),
         }, event);
         return;
       case "assistant.reasoning":
         this.emitMappedSdkEvent("reasoning.complete", sessionId, {
           reasoningId: event.data.reasoningId,
           content: event.data.content,
+          parentToolCallId: asNonEmptyString((event.data as Record<string, unknown>).parentToolCallId),
         }, event);
         return;
       case "assistant.turn_start":
@@ -1082,6 +1084,8 @@ export class CopilotClient implements CodingAgentClient {
         this.emitMappedSdkEvent("skill.invoked", sessionId, {
           skillName: event.data.name,
           skillPath: event.data.path,
+          parentToolCallId: asNonEmptyString((event.data as Record<string, unknown>).parentToolCallId)
+            ?? asNonEmptyString((event as Record<string, unknown>).parentId),
         }, event);
         return;
       case "session.info":

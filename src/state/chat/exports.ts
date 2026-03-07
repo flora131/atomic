@@ -22,11 +22,9 @@ export type {
 } from "@/state/chat/types.ts";
 export { defaultWorkflowChatState } from "@/state/chat/types.ts";
 export {
-  buildAgentContinuationPayload,
   createMessage,
   emitAgentDoneProjectionObservability,
   emitAgentDoneRenderedObservability,
-  emitAgentMainContinuationObservability,
   emitPostCompleteDeltaOrderingObservability,
   finalizeCorrelatedSubagentDispatchForToolComplete,
   finalizeSyntheticTaskAgentForToolComplete,
@@ -51,6 +49,7 @@ export {
   shouldDeferPostCompleteDeltaUntilDoneProjection,
   shouldFinalizeAgentOnlyStream,
   shouldHideStaleSubagentToolPlaceholder,
+  shouldBindStreamSessionRun,
   shouldProcessStreamLifecycleEvent,
   shouldProcessStreamPartEvent,
   upsertSyntheticTaskAgentForToolStart,

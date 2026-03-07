@@ -5,10 +5,6 @@ import {
   finalizeStreamingReasoningInMessage,
   finalizeStreamingReasoningParts,
 } from "@/state/parts/index.ts";
-import {
-  buildAgentContinuationPayload,
-  emitAgentMainContinuationObservability,
-} from "@/state/chat/helpers.ts";
 import type { TaskItem } from "@/state/chat/types.ts";
 import type {
   FinalizedStreamCompletionContext,
@@ -18,49 +14,31 @@ import { interruptRunningToolCalls, interruptRunningToolParts } from "@/lib/ui/s
 
 type UseChatStreamFinalizedCompletionArgs = Pick<
   UseChatStreamCompletionArgs,
-  | "activeStreamRunIdRef"
-  | "agentType"
-  | "continueAssistantStreamInPlaceRef"
   | "continueQueuedConversationRef"
   | "currentModelRef"
   | "finalizeThinkingSourceTracking"
-  | "isAgentOnlyStreamRef"
   | "lastStreamingContentRef"
   | "resolveTrackedRun"
-  | "sendBackgroundMessageToAgent"
   | "setBackgroundAgentMessageId"
   | "setMessagesWindowed"
   | "setParallelAgents"
-  | "startAssistantStreamRef"
   | "stopSharedStreamState"
   | "todoItemsRef"
 >;
 
 export function useChatStreamFinalizedCompletion({
-  activeStreamRunIdRef,
-  agentType,
-  continueAssistantStreamInPlaceRef,
   continueQueuedConversationRef,
   currentModelRef,
   finalizeThinkingSourceTracking,
-  isAgentOnlyStreamRef,
   lastStreamingContentRef,
   resolveTrackedRun,
-  sendBackgroundMessageToAgent,
   setBackgroundAgentMessageId,
   setMessagesWindowed,
   setParallelAgents,
-  startAssistantStreamRef,
   stopSharedStreamState,
   todoItemsRef,
 }: UseChatStreamFinalizedCompletionArgs) {
   const finalizeCompletedStream = useCallback((context: FinalizedStreamCompletionContext) => {
-    const agentContinuationPayload = isAgentOnlyStreamRef.current
-      ? buildAgentContinuationPayload({
-        agents: context.currentAgents,
-        fallbackText: lastStreamingContentRef.current,
-      })
-      : null;
     const remaining = getActiveBackgroundAgents(context.currentAgents);
     if (remaining.length > 0) {
       setBackgroundAgentMessageId(context.messageId);
@@ -123,32 +101,6 @@ export function useChatStreamFinalizedCompletion({
       setMessagesWindowed((prev) => prev.filter((msg) => msg.id !== context.messageId));
     }
 
-    if (agentContinuationPayload) {
-      emitAgentMainContinuationObservability({
-        provider: agentType,
-        runId: activeStreamRunIdRef.current ?? undefined,
-        result: "forwarded",
-      });
-
-      const dispatchAgentContinuationInPlace = continueAssistantStreamInPlaceRef.current;
-      if (dispatchAgentContinuationInPlace) {
-        dispatchAgentContinuationInPlace(context.messageId, agentContinuationPayload);
-        return;
-      }
-
-      const dispatchAgentContinuation = startAssistantStreamRef.current;
-      if (dispatchAgentContinuation) {
-        dispatchAgentContinuation(agentContinuationPayload);
-        return;
-      }
-
-      stopSharedStreamState();
-      finalizeThinkingSourceTracking();
-      sendBackgroundMessageToAgent(agentContinuationPayload);
-      continueQueuedConversationRef.current();
-      return;
-    }
-
     stopSharedStreamState({
       preserveStreamingStart: hasRemainingBackgroundAgents,
       preserveStreamingMeta: hasRemainingBackgroundAgents,
@@ -159,20 +111,14 @@ export function useChatStreamFinalizedCompletion({
       continueQueuedConversationRef.current();
     }
   }, [
-    activeStreamRunIdRef,
-    agentType,
-    continueAssistantStreamInPlaceRef,
     continueQueuedConversationRef,
     currentModelRef,
     finalizeThinkingSourceTracking,
-    isAgentOnlyStreamRef,
     lastStreamingContentRef,
     resolveTrackedRun,
-    sendBackgroundMessageToAgent,
     setBackgroundAgentMessageId,
     setMessagesWindowed,
     setParallelAgents,
-    startAssistantStreamRef,
     stopSharedStreamState,
     todoItemsRef,
   ]);

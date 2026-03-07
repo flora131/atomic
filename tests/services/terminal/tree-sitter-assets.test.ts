@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
+import { TreeSitterClient, getDataPaths } from "@opentui/core";
 import { initTreeSitterAssets } from "@/services/terminal/tree-sitter-assets.ts";
 
 function withWorkerPathEnv(envPath: string | undefined, callback: () => void): void {
@@ -30,11 +32,23 @@ describe("initTreeSitterAssets worker configuration", () => {
     });
   });
 
-  test("uses env fallback when compile-time worker path is unavailable", () => {
+  test("uses env fallback when compile-time worker path is unavailable", async () => {
     withWorkerPathEnv(undefined, () => {
       initTreeSitterAssets();
 
       expect(process.env.OTUI_TREE_SITTER_WORKER_PATH).toContain("parser.worker.js");
+      expect(existsSync(process.env.OTUI_TREE_SITTER_WORKER_PATH ?? "")).toBe(true);
     });
+
+    const client = new TreeSitterClient({ dataPath: getDataPaths().globalDataPath });
+
+    await client.initialize();
+
+    const result = await client.highlightOnce("# Title\n\n- one\n- two", "markdown");
+
+    expect(result.error).toBeUndefined();
+    expect(result.highlights?.length ?? 0).toBeGreaterThan(0);
+
+    await client.destroy();
   });
 });

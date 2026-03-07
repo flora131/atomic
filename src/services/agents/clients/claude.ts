@@ -29,10 +29,6 @@ import {
     type SDKMessage,
     type SDKAssistantMessage,
     type SDKAuthStatusMessage,
-    type SDKHookProgressMessage,
-    type SDKHookResponseMessage,
-    type SDKHookStartedMessage,
-    type SDKPartialAssistantMessage,
     type SDKPromptSuggestionMessage,
     type SDKRateLimitEvent,
     type SDKResultMessage,
@@ -953,6 +949,8 @@ export class ClaudeAgentClient implements CodingAgentClient {
                     this.processMessage(msg, sessionId, state);
                 const emitRuntimeSelection = () =>
                     this.emitRuntimeSelection(sessionId, "stream");
+                const getSubagentAgentId = (nativeSessionId: string) =>
+                    this.subagentSdkSessionIdToAgentId.get(nativeSessionId);
                 const bumpMissingTerminalEvents = () => {
                     return this.bumpStreamIntegrityCounter(
                         sessionId,
@@ -1034,6 +1032,11 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                         string,
                                         unknown
                                     >;
+                                    const nativeEventSessionId =
+                                        typeof sdkMessage.session_id ===
+                                            "string"
+                                            ? sdkMessage.session_id
+                                            : undefined;
                                     const parentToolUseId =
                                         typeof eventRecord.parent_tool_use_id ===
                                         "string"
@@ -1042,6 +1045,23 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                                 "string"
                                               ? eventRecord.parentToolUseId
                                               : undefined;
+                                    const sessionScopedAgentId =
+                                        nativeEventSessionId
+                                            ? getSubagentAgentId(
+                                                  nativeEventSessionId,
+                                              )
+                                            : undefined;
+                                    const isChildSessionStream =
+                                        typeof nativeEventSessionId ===
+                                            "string" &&
+                                        typeof state.sdkSessionId ===
+                                            "string" &&
+                                        nativeEventSessionId !==
+                                            state.sdkSessionId;
+                                    const suppressTopLevelYield =
+                                        Boolean(parentToolUseId) ||
+                                        Boolean(sessionScopedAgentId) ||
+                                        isChildSessionStream;
 
                                     // Track thinking block boundaries
                                     if (event.type === "content_block_start") {
@@ -1077,10 +1097,10 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                                     : null;
                                         }
                                     }
-                                    if (
-                                        event.type === "content_block_stop" &&
-                                        currentBlockIsThinking
-                                    ) {
+                                        if (
+                                            event.type === "content_block_stop" &&
+                                            currentBlockIsThinking
+                                        ) {
                                         if (activeThinkingSourceKey === null) {
                                             const blockIndex =
                                                 getClaudeContentBlockIndex(
@@ -1100,22 +1120,24 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                             thinkingStartMs = null;
                                         }
                                         currentBlockIsThinking = false;
-                                        yield {
-                                            type: "thinking" as MessageContentType,
-                                            content: "",
-                                            role: "assistant",
-                                            metadata: {
-                                                provider: "claude",
-                                                thinkingSourceKey:
-                                                    activeThinkingSourceKey ??
-                                                    undefined,
-                                                streamingStats: {
-                                                    thinkingMs:
-                                                        thinkingDurationMs,
-                                                    outputTokens,
+                                        if (!suppressTopLevelYield) {
+                                            yield {
+                                                type: "thinking" as MessageContentType,
+                                                content: "",
+                                                role: "assistant",
+                                                metadata: {
+                                                    provider: "claude",
+                                                    thinkingSourceKey:
+                                                        activeThinkingSourceKey ??
+                                                        undefined,
+                                                    streamingStats: {
+                                                        thinkingMs:
+                                                            thinkingDurationMs,
+                                                        outputTokens,
+                                                    },
                                                 },
-                                            },
-                                        };
+                                            };
+                                        }
                                         emitProviderStreamingEvent(
                                             "reasoning.complete",
                                             {
@@ -1123,6 +1145,9 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                                     activeThinkingSourceKey ??
                                                     "thinking",
                                                 durationMs: thinkingDurationMs,
+                                                parentToolCallId:
+                                                    parentToolUseId ??
+                                                    undefined,
                                             },
                                             {
                                                 native: sdkMessage,
@@ -1152,24 +1177,16 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                         }
                                     }
 
-                                    if (event.type === "content_block_delta") {
-                                        if (event.delta.type === "text_delta") {
-                                            if (!parentToolUseId) {
+                                        if (event.type === "content_block_delta") {
+                                            if (event.delta.type === "text_delta") {
+                                            if (!suppressTopLevelYield) {
                                                 hasYieldedDeltas = true;
+                                                yield {
+                                                    type: "text",
+                                                    content: event.delta.text,
+                                                    role: "assistant",
+                                                };
                                             }
-                                            yield {
-                                                type: "text",
-                                                content: event.delta.text,
-                                                role: "assistant",
-                                                ...(parentToolUseId
-                                                    ? {
-                                                          metadata: {
-                                                              parentToolCallId:
-                                                                  parentToolUseId,
-                                                          },
-                                                      }
-                                                    : {}),
-                                            };
                                             emitProviderStreamingEvent(
                                                 "message.delta",
                                                 {
@@ -1190,13 +1207,9 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                             event.delta.type ===
                                             "thinking_delta"
                                         ) {
-                                            // Sub-agent thinking deltas belong to
-                                            // child contexts and must not pollute
-                                            // the parent stream.
-                                            if (parentToolUseId) {
-                                                continue;
+                                            if (!parentToolUseId) {
+                                                hasYieldedDeltas = true;
                                             }
-                                            hasYieldedDeltas = true;
                                             const blockIndex =
                                                 getClaudeContentBlockIndex(
                                                     event as Record<
@@ -1223,27 +1236,29 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                                     ? Date.now() -
                                                       thinkingStartMs
                                                     : 0);
-                                            yield {
-                                                type: "thinking" as MessageContentType,
-                                                content: (
-                                                    event.delta as Record<
-                                                        string,
-                                                        unknown
-                                                    >
-                                                ).thinking as string,
-                                                role: "assistant",
-                                                metadata: {
-                                                    provider: "claude",
-                                                    thinkingSourceKey:
-                                                        resolvedThinkingSourceKey ??
-                                                        undefined,
-                                                    streamingStats: {
-                                                        thinkingMs:
-                                                            currentThinkingMs,
-                                                        outputTokens,
+                                            if (!suppressTopLevelYield) {
+                                                yield {
+                                                    type: "thinking" as MessageContentType,
+                                                    content: (
+                                                        event.delta as Record<
+                                                            string,
+                                                            unknown
+                                                        >
+                                                    ).thinking as string,
+                                                    role: "assistant",
+                                                    metadata: {
+                                                        provider: "claude",
+                                                        thinkingSourceKey:
+                                                            resolvedThinkingSourceKey ??
+                                                            undefined,
+                                                        streamingStats: {
+                                                            thinkingMs:
+                                                                currentThinkingMs,
+                                                            outputTokens,
+                                                        },
                                                     },
-                                                },
-                                            };
+                                                };
+                                            }
                                             emitProviderStreamingEvent(
                                                 "reasoning.delta",
                                                 {
@@ -1256,6 +1271,9 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                                     reasoningId:
                                                         resolvedThinkingSourceKey ??
                                                         "thinking",
+                                                    parentToolCallId:
+                                                        parentToolUseId ??
+                                                        undefined,
                                                 },
                                                 {
                                                     native: sdkMessage,
@@ -1278,7 +1296,29 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                     const parentToolUseId = (
                                         sdkMessage as Record<string, unknown>
                                     ).parent_tool_use_id;
-                                    if (parentToolUseId) {
+                                    const nativeAssistantSessionId =
+                                        typeof sdkMessage.session_id ===
+                                            "string"
+                                            ? sdkMessage.session_id
+                                            : undefined;
+                                    const sessionScopedAgentId =
+                                        nativeAssistantSessionId
+                                            ? getSubagentAgentId(
+                                                  nativeAssistantSessionId,
+                                              )
+                                            : undefined;
+                                    const isChildAssistantMessage =
+                                        typeof nativeAssistantSessionId ===
+                                            "string" &&
+                                        typeof state.sdkSessionId ===
+                                            "string" &&
+                                        nativeAssistantSessionId !==
+                                            state.sdkSessionId;
+                                    if (
+                                        parentToolUseId ||
+                                        sessionScopedAgentId ||
+                                        isChildAssistantMessage
+                                    ) {
                                         continue;
                                     }
 
@@ -2574,7 +2614,15 @@ export class ClaudeAgentClient implements CodingAgentClient {
                             type: eventType,
                             sessionId,
                             timestamp: new Date().toISOString(),
-                            data: skillInvocation as AgentEvent<T>["data"],
+                            data: {
+                                ...skillInvocation,
+                                ...(resolvedParentToolUseId
+                                    ? {
+                                          parentToolCallId:
+                                              resolvedParentToolUseId,
+                                      }
+                                    : {}),
+                            } as AgentEvent<T>["data"],
                         };
 
                         try {

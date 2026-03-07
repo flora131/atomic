@@ -4,8 +4,10 @@ import { getCatppuccinPalette, useThemeColors } from "@/theme/index.tsx";
 import { formatDuration as formatDurationObj, truncateText } from "@/lib/ui/format.ts";
 import { TREE } from "@/theme/icons.ts";
 import { SPACING } from "@/theme/spacing.ts";
-import type { Part, ToolPart } from "@/state/parts/types.ts";
+import type { Part } from "@/state/parts/types.ts";
 import { AnimatedBlinkIndicator } from "@/components/animated-blink-indicator.tsx";
+import { ReasoningPartDisplay } from "@/components/message-parts/reasoning-part-display.tsx";
+import { TextPartDisplay } from "@/components/message-parts/text-part-display.tsx";
 import { ToolPartDisplay } from "@/components/message-parts/tool-part-display.tsx";
 
 export { truncateText };
@@ -69,8 +71,12 @@ export function getAgentColors(isDark: boolean): Record<string, string> {
 
 export const AGENT_COLORS: Record<string, string> = getAgentColors(true);
 
-export function getAgentInlineDisplayParts(parts: ReadonlyArray<Part>): ToolPart[] {
-  return parts.filter((part): part is ToolPart => part.type === "tool");
+export function getAgentInlineDisplayParts(parts: ReadonlyArray<Part>): Part[] {
+  return parts.filter((part) =>
+    part.type === "tool"
+    || part.type === "text"
+    || part.type === "reasoning"
+  );
 }
 
 export function buildAgentInlinePrefix(continuationPrefix: string): string {
@@ -414,6 +420,7 @@ export function collectDoneRenderMarkers(
 function AgentSummaryBlock({
   agent,
   compact,
+  syntaxStyle,
 }: {
   agent: ParallelAgent;
   compact: boolean;
@@ -435,15 +442,21 @@ function AgentSummaryBlock({
         )}
         <span style={{ fg: colors.foreground, attributes: 1 }}> {label}</span>
       </text>
-      {visibleTools.map((toolPart, index) => (
-        <box key={toolPart.id} flexDirection="row">
+      {visibleTools.map((part, index) => (
+        <box key={part.id} flexDirection="row">
           <box flexShrink={0}>
             <text style={{ fg: colors.muted }}>
               {buildAgentInlineBranchPrefix("", index === visibleTools.length - 1)}
             </text>
           </box>
           <box flexGrow={1} flexShrink={1}>
-            <ToolPartDisplay part={toolPart} summaryOnly />
+            {part.type === "tool" ? (
+              <ToolPartDisplay part={part} summaryOnly />
+            ) : part.type === "text" ? (
+              <TextPartDisplay part={part} syntaxStyle={syntaxStyle} />
+            ) : part.type === "reasoning" ? (
+              <ReasoningPartDisplay part={part} isLast={index === visibleTools.length - 1} syntaxStyle={syntaxStyle} />
+            ) : null}
           </box>
         </box>
       ))}
@@ -453,6 +466,7 @@ function AgentSummaryBlock({
 
 export function ParallelAgentsTree({
   agents,
+  syntaxStyle,
   compact = false,
   maxVisible = 5,
   noTopMargin = false,
@@ -492,6 +506,7 @@ export function ParallelAgentsTree({
           key={agent.id}
           agent={agent}
           compact={compact}
+          syntaxStyle={syntaxStyle}
         />
       ))}
       {hiddenCount > 0 && (

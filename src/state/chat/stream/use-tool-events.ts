@@ -51,12 +51,14 @@ interface UseChatStreamToolEventsResult {
     success: boolean,
     error?: string,
     input?: Record<string, unknown>,
+    toolMetadata?: Record<string, unknown>,
     agentId?: string,
   ) => void;
   handleToolStart: (
     toolId: string,
     toolName: string,
     input: Record<string, unknown>,
+    toolMetadata?: Record<string, unknown>,
     agentId?: string,
   ) => void;
 }
@@ -87,6 +89,7 @@ export function useChatStreamToolEvents({
     toolId: string,
     toolName: string,
     input: Record<string, unknown>,
+    toolMetadata?: Record<string, unknown>,
     agentId?: string,
   ) => {
     if (isAutoCompactionToolName(toolName)) {
@@ -115,7 +118,8 @@ export function useChatStreamToolEvents({
       runningAskQuestionToolIdsRef.current.add(toolId);
     }
 
-    if (!isAgentOnlyStreamRef.current) {
+    const shouldApplyMessageToolParts = !isAgentOnlyStreamRef.current || Boolean(agentId);
+    if (shouldApplyMessageToolParts) {
       const messageId = resolveAgentScopedMessageId(agentId);
       if (messageId) {
         toolMessageIdByIdRef.current.set(toolId, messageId);
@@ -127,6 +131,7 @@ export function useChatStreamToolEvents({
                 toolId,
                 toolName,
                 input,
+                ...(toolMetadata ? { toolMetadata } : {}),
                 ...(agentId ? { agentId } : {}),
               });
             }
@@ -152,6 +157,7 @@ export function useChatStreamToolEvents({
                 toolId,
                 toolName,
                 input,
+                ...(toolMetadata ? { toolMetadata } : {}),
                 ...(agentId ? { agentId } : {}),
               });
             }
@@ -196,6 +202,7 @@ export function useChatStreamToolEvents({
     success: boolean,
     error?: string,
     input?: Record<string, unknown>,
+    toolMetadata?: Record<string, unknown>,
     agentId?: string,
   ) => {
     const completedToolName = toolNameByIdRef.current.get(toolId) ?? toolName;
@@ -220,7 +227,8 @@ export function useChatStreamToolEvents({
       setToolCompletionVersion((version) => version + 1);
     }
 
-    if (!isAgentOnlyStreamRef.current) {
+    const shouldApplyMessageToolParts = !isAgentOnlyStreamRef.current || Boolean(agentId);
+    if (shouldApplyMessageToolParts) {
       const messageId =
         streamingMessageIdRef.current
         ?? toolMessageIdByIdRef.current.get(toolId)
@@ -238,6 +246,7 @@ export function useChatStreamToolEvents({
                 success,
                 error,
                 input,
+                ...(toolMetadata ? { toolMetadata } : {}),
                 ...(agentId ? { agentId } : {}),
               });
             }

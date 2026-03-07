@@ -746,10 +746,10 @@ export function createAgentCommand(agent: AgentInfo): CommandDefinition {
       const task = args.trim() || "Please proceed according to your instructions.";
 
       if (context.agentType === "opencode") {
-        // OpenCode SDK dispatches sub-agents via AgentPartInput parts.
-        // Pass the agent name structurally so the client can construct
-        // the correct prompt parts without string encoding.
-        context.sendSilentMessage(task, { agent: agent.name, isAgentOnlyStream: true });
+        // OpenCode uses the parent session's task tool and follow-up reply.
+        // Keep this on the normal foreground stream so the parent task row
+        // and assistant continuation render like upstream OpenCode.
+        context.sendSilentMessage(task, { agent: agent.name });
       } else if (context.agentType === "claude") {
         // Claude path: use natural-language delegation and also pass the
         // selected agent through structured query options.

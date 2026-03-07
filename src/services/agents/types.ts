@@ -232,6 +232,16 @@ export interface SessionCompactionState {
   hasAutoCompacted: boolean;
 }
 
+export interface SessionMessageWithParts {
+  info: {
+    id: string;
+    sessionID: string;
+    role?: MessageRole;
+    [key: string]: unknown;
+  };
+  parts: Array<Record<string, unknown>>;
+}
+
 /**
  * Interface for an active agent session.
  * Reference: Feature list step 3
@@ -510,6 +520,8 @@ export interface SkillInvokedEventData extends BaseEventData {
   skillName: string;
   /** File path of the skill */
   skillPath?: string;
+  /** Optional parent tool correlation for sub-agent scoped skill loads */
+  parentToolCallId?: string;
 }
 
 /**
@@ -520,6 +532,8 @@ export interface ReasoningDeltaEventData extends BaseEventData {
   delta: string;
   /** Reasoning block identifier */
   reasoningId: string;
+  /** Optional parent tool correlation for sub-agent scoped reasoning */
+  parentToolCallId?: string;
 }
 
 /**
@@ -530,6 +544,8 @@ export interface ReasoningCompleteEventData extends BaseEventData {
   reasoningId: string;
   /** Complete reasoning content */
   content: string;
+  /** Optional parent tool correlation for sub-agent scoped reasoning */
+  parentToolCallId?: string;
 }
 
 /**
@@ -839,6 +855,13 @@ export interface CodingAgentClient {
    * @returns Promise resolving to the resumed Session, or null if not found
    */
   resumeSession(sessionId: string): Promise<Session | null>;
+
+  /**
+   * Retrieve the provider-native message list with parts for a session.
+   * Currently used by the OpenCode path to mirror upstream task/child-session
+   * rendering when the parent stream does not forward child-session tool parts.
+   */
+  getSessionMessagesWithParts?(sessionId: string): Promise<SessionMessageWithParts[]>;
 
   /**
    * Register an event handler for a specific event type.

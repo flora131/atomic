@@ -151,6 +151,41 @@ describe("resolveSubagentStartCorrelationId", () => {
 });
 
 describe("finalizeCorrelatedSubagentDispatchForToolComplete", () => {
+  test("marks correlated running agents completed on successful dispatch completion without agent.complete", () => {
+    const agents: ParallelAgent[] = [
+      {
+        id: "agent-1",
+        taskToolCallId: "tool-1",
+        name: "codebase-online-researcher",
+        task: "Research BM25 explanation",
+        status: "running",
+        startedAt: "2026-03-02T08:17:49.941Z",
+        currentTool: "Read",
+      },
+      {
+        id: "agent-2",
+        taskToolCallId: "tool-2",
+        name: "debugger",
+        task: "Inspect logs",
+        status: "running",
+        startedAt: "2026-03-02T08:17:49.941Z",
+      },
+    ];
+
+    const result = finalizeCorrelatedSubagentDispatchForToolComplete({
+      agents,
+      toolName: "Task",
+      toolId: "tool-1",
+      success: true,
+      completedAtMs: new Date("2026-03-02T08:18:59.188Z").getTime(),
+    });
+
+    expect(result[0]!.status).toBe("completed");
+    expect(result[0]!.currentTool).toBeUndefined();
+    expect(result[0]!.durationMs).toBeGreaterThan(0);
+    expect(result[1]!.status).toBe("running");
+  });
+
   test("marks correlated running agents interrupted on dispatch abort without agent.complete", () => {
     const agents: ParallelAgent[] = [
       {
@@ -212,8 +247,8 @@ describe("resolveAgentCurrentToolForUpdate", () => {
   });
 });
 
-describe("OpenCode synthetic task agent fallback", () => {
-  test("creates a running synthetic agent from Task tool.start with execution details", () => {
+describe("OpenCode task-dispatch placeholders", () => {
+  test("creates a running task-correlated placeholder from Task tool.start with execution details", () => {
     const agents = upsertSyntheticTaskAgentForToolStart({
       agents: [],
       provider: "opencode",
@@ -227,7 +262,8 @@ describe("OpenCode synthetic task agent fallback", () => {
     });
 
     expect(agents).toHaveLength(1);
-    expect(isSyntheticTaskAgentId(agents[0]!.id)).toBe(true);
+    expect(isSyntheticTaskAgentId(agents[0]!.id)).toBe(false);
+    expect(agents[0]!.id).toBe("tool-1");
     expect(agents[0]!.taskToolCallId).toBe("tool-1");
     expect(agents[0]!.name).toBe("codebase-online-researcher");
     expect(agents[0]!.task).toBe("Research TUI UX practices");
@@ -236,7 +272,7 @@ describe("OpenCode synthetic task agent fallback", () => {
     expect(agents[0]!.currentTool).toBeUndefined();
   });
 
-  test("updates the same synthetic agent when duplicate Task tool.start fills input", () => {
+  test("updates the same task-correlated placeholder when duplicate Task tool.start fills input", () => {
     const first = upsertSyntheticTaskAgentForToolStart({
       agents: [],
       provider: "opencode",
@@ -295,7 +331,7 @@ describe("OpenCode synthetic task agent fallback", () => {
     expect(agents).toHaveLength(0);
   });
 
-  test("marks synthetic agent interrupted when Task tool completes with aborted error", () => {
+  test("marks the task-correlated placeholder interrupted when Task tool completes with aborted error", () => {
     const started = upsertSyntheticTaskAgentForToolStart({
       agents: [],
       provider: "opencode",

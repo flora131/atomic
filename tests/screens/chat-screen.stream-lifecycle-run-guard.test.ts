@@ -1,16 +1,15 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import {
   emitAgentDoneRenderedObservability,
-  buildAgentContinuationPayload,
   emitAgentDoneProjectionObservability,
   emitPostCompleteDeltaOrderingObservability,
   queueAgentTerminalBeforeDeferredDeltas,
+  shouldBindStreamSessionRun,
   shouldFinalizeAgentOnlyStream,
   shouldDeferPostCompleteDeltaUntilDoneProjection,
   shouldProcessStreamPartEvent,
   shouldProcessStreamLifecycleEvent,
 } from "@/state/chat/exports.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
 import {
   getRuntimeParityMetricsSnapshot,
   resetRuntimeParityMetrics,
@@ -42,6 +41,39 @@ describe("chat stream lifecycle run guard", () => {
 
   test("accepts lifecycle events from the active run", () => {
     expect(shouldProcessStreamLifecycleEvent(12, 12)).toBe(true);
+  });
+
+  test("keeps the current active run bound when a different session.start arrives mid-stream", () => {
+    expect(
+      shouldBindStreamSessionRun({
+        activeRunId: 1,
+        eventRunId: 2,
+        isStreaming: true,
+        nextRunIdFloor: null,
+      }),
+    ).toBe(false);
+  });
+
+  test("binds the first session.start for a new stream when no run is active yet", () => {
+    expect(
+      shouldBindStreamSessionRun({
+        activeRunId: null,
+        eventRunId: 7,
+        isStreaming: true,
+        nextRunIdFloor: null,
+      }),
+    ).toBe(true);
+  });
+
+  test("drops session.start events below the next-run floor during startup", () => {
+    expect(
+      shouldBindStreamSessionRun({
+        activeRunId: null,
+        eventRunId: 6,
+        isStreaming: true,
+        nextRunIdFloor: 7,
+      }),
+    ).toBe(false);
   });
 
   test("idle finalization runs only for the active stream run", () => {
@@ -200,68 +232,6 @@ describe("post-complete delta gating", () => {
     });
 
     expect(order).toEqual(["terminal"]);
-  });
-});
-
-describe("@agent continuation payload", () => {
-  function createAgent(overrides: Partial<ParallelAgent>): ParallelAgent {
-    return {
-      id: "agent-1",
-      name: "worker",
-      task: "task",
-      status: "completed",
-      startedAt: new Date().toISOString(),
-      ...overrides,
-    };
-  }
-
-  test("builds payload from foreground sub-agent results", () => {
-    const payload = buildAgentContinuationPayload({
-      agents: [
-        createAgent({ id: "fg-1", name: "worker", result: "Done A" }),
-        createAgent({ id: "bg-1", name: "bg", background: true, result: "ignore" }),
-        createAgent({ id: "fg-2", name: "reviewer", result: "Done B" }),
-      ],
-    });
-
-    expect(payload).toBe(
-      '[Sub-agent results]\n\nSub-agent "worker" result:\n\nDone A\n\nSub-agent "reviewer" result:\n\nDone B',
-    );
-  });
-
-  test("falls back to assistant text when no sub-agent result exists", () => {
-    const payload = buildAgentContinuationPayload({
-      agents: [createAgent({ status: "completed", result: "" })],
-      fallbackText: "Final agent output",
-    });
-
-    expect(payload).toBe("[Sub-agent result]\n\nFinal agent output");
-  });
-
-  test("uses foreground agent error text when result text is unavailable", () => {
-    const payload = buildAgentContinuationPayload({
-      agents: [createAgent({ status: "error", result: "", error: "Tool execution failed" })],
-    });
-
-    expect(payload).toBe('[Sub-agent results]\n\nSub-agent "worker" result:\n\nTool execution failed');
-  });
-
-  test("ignores background-only results and uses fallback text", () => {
-    const payload = buildAgentContinuationPayload({
-      agents: [createAgent({ id: "bg-1", background: true, result: "background only" })],
-      fallbackText: "Foreground summary",
-    });
-
-    expect(payload).toBe("[Sub-agent result]\n\nForeground summary");
-  });
-
-  test("returns null when both agent results and fallback are empty", () => {
-    const payload = buildAgentContinuationPayload({
-      agents: [createAgent({ status: "error", error: "   " })],
-      fallbackText: "   ",
-    });
-
-    expect(payload).toBeNull();
   });
 });
 

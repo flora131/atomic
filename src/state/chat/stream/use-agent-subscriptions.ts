@@ -128,8 +128,7 @@ export function useStreamAgentSubscriptions({
         : -1;
       const syntheticPlaceholderIndex = existingIndex < 0 && correlatedIndex < 0
         ? current.findIndex((agent) =>
-          (agent.status === "running" || agent.status === "pending")
-            && isClaudeSyntheticForegroundAgentId(agent.id)
+          isClaudeSyntheticForegroundAgentId(agent.id)
             && !agent.background,
         )
         : -1;

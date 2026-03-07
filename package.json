@@ -52,7 +52,7 @@
         "typescript": "^5.9.3"
     },
     "dependencies": {
-        "@anthropic-ai/claude-agent-sdk": "^0.2.70",
+        "@anthropic-ai/claude-agent-sdk": "^0.2.71",
         "@azure/monitor-opentelemetry": "^1.16.0",
         "@clack/prompts": "^1.1.0",
         "@commander-js/extra-typings": "^14.0.0",

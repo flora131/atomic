@@ -54,7 +54,7 @@ function getCompileTimeTreeSitterWorkerPath(): string | undefined {
 }
 
 function getRuntimeTreeSitterWorkerPath(): string {
-  return resolve(import.meta.dir, "../../node_modules/@opentui/core/parser.worker.js");
+  return resolve(import.meta.dir, "../../../node_modules/@opentui/core/parser.worker.js");
 }
 
 /**

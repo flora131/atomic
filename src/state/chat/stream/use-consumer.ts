@@ -148,7 +148,7 @@ export function useChatStreamConsumer({
       }
 
       if (part.type === "tool-start") {
-        handleToolStart(part.toolId, part.toolName, part.input, part.agentId);
+        handleToolStart(part.toolId, part.toolName, part.input, part.toolMetadata, part.agentId);
         continue;
       }
       if (part.type === "tool-complete") {
@@ -159,6 +159,7 @@ export function useChatStreamConsumer({
           part.success,
           part.error,
           part.input,
+          part.toolMetadata,
           part.agentId,
         );
         continue;

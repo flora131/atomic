@@ -116,6 +116,33 @@ describe("CorrelationService", () => {
     expect(enriched.isSubagentTool).toBe(false);
   });
 
+  test("stream.tool.partial_result correlates with previously registered sub-agent tool", () => {
+    const parentContext: SubagentContext = {
+      parentAgentId: "agent_main",
+      workflowRunId: "workflow_1",
+    };
+    service.registerSubagent("agent_sub", parentContext);
+    service.registerTool("tool_partial", "agent_sub", true);
+
+    const partialEvent: BusEvent<"stream.tool.partial_result"> = {
+      type: "stream.tool.partial_result",
+      sessionId: "session_123",
+      runId: 1,
+      timestamp: Date.now(),
+      data: {
+        toolCallId: "tool_partial",
+        partialOutput: "line 1\n",
+      },
+    };
+
+    const enriched = service.enrich(partialEvent);
+
+    expect(enriched.resolvedToolId).toBe("tool_partial");
+    expect(enriched.resolvedAgentId).toBe("agent_sub");
+    expect(enriched.parentAgentId).toBe("agent_main");
+    expect(enriched.isSubagentTool).toBe(true);
+  });
+
   test("registerTool() maps tool to agent", () => {
     service.registerTool("tool_999", "agent_888", false);
 

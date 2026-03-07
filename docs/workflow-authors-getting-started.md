@@ -147,4 +147,4 @@ Legacy globals were removed from the public graph API.
 | `setSubagentRegistry()` | `WorkflowSDK.init({ agents: ... })` |
 | `setWorkflowResolver()` / `getWorkflowResolver()` | `WorkflowSDK.init({ workflows: ... })` |
 
-Ralph state types were moved out of `@bastani/atomic/graph`; import them from `src/workflows/ralph/state.ts` in this repository.
+Ralph state types were moved out of `@bastani/atomic/graph`; import them from `src/services/workflows/ralph/state.ts` in this repository.

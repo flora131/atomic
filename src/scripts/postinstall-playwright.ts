@@ -1,13 +1,13 @@
 import { mkdir } from "fs/promises";
 import { join } from "path";
 
-import { AGENT_CONFIG, type AgentKey } from "../config";
+import { AGENT_CONFIG, type AgentKey } from "@/services/config/index.ts";
 import {
   getAtomicGlobalAgentFolder,
   getAtomicHomeDir,
   getTemplateAgentFolder,
-} from "../utils/atomic-global-config";
-import { copyFile, pathExists } from "../utils/copy";
+} from "@/services/config/atomic-global-config.ts";
+import { copyFile, pathExists } from "@/services/system/copy.ts";
 
 const PLAYWRIGHT_SKILL_RELATIVE_PATH = join("skills", "playwright-cli", "SKILL.md");
 const PLAYWRIGHT_CLI_PACKAGE = "@playwright/cli@latest";

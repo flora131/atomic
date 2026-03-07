@@ -9,8 +9,8 @@
         "@azure/monitor-opentelemetry": "^1.16.0",
         "@clack/prompts": "^1.1.0",
         "@commander-js/extra-typings": "^14.0.0",
-        "@github/copilot-sdk": "^0.1.30",
-        "@opencode-ai/sdk": "^1.2.18",
+        "@github/copilot-sdk": "0.1.31-unstable.0",
+        "@opencode-ai/sdk": "^1.2.20",
         "@opentelemetry/api": "^1.9.0",
         "@opentelemetry/api-logs": "^0.212.0",
         "@opentui/core": "^0.1.86",
@@ -63,21 +63,21 @@
 
     "@dimforge/rapier2d-simd-compat": ["@dimforge/rapier2d-simd-compat@0.17.3", "", {}, "sha512-bijvwWz6NHsNj5e5i1vtd3dU2pDhthSaTUZSh14DUGGKJfw8eMnlWZsxwHBxB/a3AXVNDjL9abuHw1k9FGR+jg=="],
 
-    "@github/copilot": ["@github/copilot@0.0.420", "", { "optionalDependencies": { "@github/copilot-darwin-arm64": "0.0.420", "@github/copilot-darwin-x64": "0.0.420", "@github/copilot-linux-arm64": "0.0.420", "@github/copilot-linux-x64": "0.0.420", "@github/copilot-win32-arm64": "0.0.420", "@github/copilot-win32-x64": "0.0.420" }, "bin": { "copilot": "npm-loader.js" } }, "sha512-UpPuSjxUxQ+j02WjZEFffWf0scLb23LvuGHzMFtaSsweR+P/BdbtDUI5ZDIA6T0tVyyt6+X1/vgfsJiRqd6jig=="],
+    "@github/copilot": ["@github/copilot@0.0.421", "", { "optionalDependencies": { "@github/copilot-darwin-arm64": "0.0.421", "@github/copilot-darwin-x64": "0.0.421", "@github/copilot-linux-arm64": "0.0.421", "@github/copilot-linux-x64": "0.0.421", "@github/copilot-win32-arm64": "0.0.421", "@github/copilot-win32-x64": "0.0.421" }, "bin": { "copilot": "npm-loader.js" } }, "sha512-nDUt9f5al7IgBOTc7AwLpqvaX61VsRDYDQ9D5iR0QQzHo4pgDcyOXIjXUQUKsJwObXHfh6qR+Jm1vnlbw5cacg=="],
 
-    "@github/copilot-darwin-arm64": ["@github/copilot-darwin-arm64@0.0.420", "", { "os": "darwin", "cpu": "arm64", "bin": { "copilot-darwin-arm64": "copilot" } }, "sha512-sj8Oxcf3oKDbeUotm2gtq5YU1lwCt3QIzbMZioFD/PMLOeqSX/wrecI+c0DDYXKofFhALb0+DxxnWgbEs0mnkQ=="],
+    "@github/copilot-darwin-arm64": ["@github/copilot-darwin-arm64@0.0.421", "", { "os": "darwin", "cpu": "arm64", "bin": { "copilot-darwin-arm64": "copilot" } }, "sha512-S4plFsxH7W8X1gEkGNcfyKykIji4mNv8BP/GpPs2Ad84qWoJpZzfZsjrjF0BQ8mvFObWp6Ft2SZOnJzFZW1Ftw=="],
 
-    "@github/copilot-darwin-x64": ["@github/copilot-darwin-x64@0.0.420", "", { "os": "darwin", "cpu": "x64", "bin": { "copilot-darwin-x64": "copilot" } }, "sha512-2acA93IqXz1uuz3TVUm0Y7BVrBr0MySh1kQa8LqMILhTsG0YHRMm8ybzTp2HA7Mi1tl5CjqMSk163kkS7OzfUA=="],
+    "@github/copilot-darwin-x64": ["@github/copilot-darwin-x64@0.0.421", "", { "os": "darwin", "cpu": "x64", "bin": { "copilot-darwin-x64": "copilot" } }, "sha512-h+Dbfq8ByAielLYIeJbjkN/9Abs6AKHFi+XuuzEy4YA9jOA42uKMFsWYwaoYH8ZLK9Y+4wagYI9UewVPnyIWPA=="],
 
-    "@github/copilot-linux-arm64": ["@github/copilot-linux-arm64@0.0.420", "", { "os": "linux", "cpu": "arm64", "bin": { "copilot-linux-arm64": "copilot" } }, "sha512-h/IvEryTOYm1HzR2GNq8s2aDtN4lvT4MxldfZuS42CtWJDOfVG2jLLsoHWU1T3QV8j1++PmDgE//HX0JLpLMww=="],
+    "@github/copilot-linux-arm64": ["@github/copilot-linux-arm64@0.0.421", "", { "os": "linux", "cpu": "arm64", "bin": { "copilot-linux-arm64": "copilot" } }, "sha512-cxlqDRR/wKfbdzd456N2h7sZOZY069wU2ycSYSmo7cC75U5DyhMGYAZwyAhvQ7UKmS5gJC/wgSgye0njuK22Xg=="],
 
-    "@github/copilot-linux-x64": ["@github/copilot-linux-x64@0.0.420", "", { "os": "linux", "cpu": "x64", "bin": { "copilot-linux-x64": "copilot" } }, "sha512-iL2NpZvXIDZ+3lw7sO2fo5T0nKmP5dZbU2gdYcv+SFBm/ONhCxIY5VRX4yN/9VkFaa9ePv5JzCnsl3vZINiDxg=="],
+    "@github/copilot-linux-x64": ["@github/copilot-linux-x64@0.0.421", "", { "os": "linux", "cpu": "x64", "bin": { "copilot-linux-x64": "copilot" } }, "sha512-7np5b6EEemJ3U3jnl92buJ88nlpqOAIrLaJxx3pJGrP9SVFMBD/6EAlfIQ5m5QTfs+/vIuTKWBrq1wpFVZZUcQ=="],
 
-    "@github/copilot-sdk": ["@github/copilot-sdk@0.1.30", "", { "dependencies": { "@github/copilot": "^0.0.420", "vscode-jsonrpc": "^8.2.1", "zod": "^4.3.6" } }, "sha512-Stg+h8xsPRR0TNGBQfd9laxhJfWZ6DsdpbowcKIZoyKxZvMAbjnY0zyDeOpewJbxWBTJVhBZb5okOq6iaPNMZw=="],
+    "@github/copilot-sdk": ["@github/copilot-sdk@0.1.31-unstable.0", "", { "dependencies": { "@github/copilot": "^0.0.421", "vscode-jsonrpc": "^8.2.1", "zod": "^4.3.6" } }, "sha512-vQUH+dfY1n9rkmpkueKU6jnW1SgQWw8hENwPTfQLkAThWaYwjerVLq3ArW+Lhq5gAddzWny4bOSQ7tBI8KF8OA=="],
 
-    "@github/copilot-win32-arm64": ["@github/copilot-win32-arm64@0.0.420", "", { "os": "win32", "cpu": "arm64", "bin": { "copilot-win32-arm64": "copilot.exe" } }, "sha512-Njlc2j9vYSBAL+lC6FIEhQ3C+VxO3xavwKnw0ecVRiNLcGLyPrTdzPfPQOmEjC63gpVCqLabikoDGv8fuLPA2w=="],
+    "@github/copilot-win32-arm64": ["@github/copilot-win32-arm64@0.0.421", "", { "os": "win32", "cpu": "arm64", "bin": { "copilot-win32-arm64": "copilot.exe" } }, "sha512-T6qCqOnijD5pmC0ytVsahX3bpDnXtLTgo9xFGo/BGaPEvX02ePkzcRZkfkOclkzc8QlkVji6KqZYB+qMZTliwg=="],
 
-    "@github/copilot-win32-x64": ["@github/copilot-win32-x64@0.0.420", "", { "os": "win32", "cpu": "x64", "bin": { "copilot-win32-x64": "copilot.exe" } }, "sha512-rZlH35oNehAP2DvQbu4vQFVNeCh/1p3rUjafBYaEY0Nkhx7RmdrYBileL5U3PtRPPRsBPaq3Qp+pVIrGoCDLzQ=="],
+    "@github/copilot-win32-x64": ["@github/copilot-win32-x64@0.0.421", "", { "os": "win32", "cpu": "x64", "bin": { "copilot-win32-x64": "copilot.exe" } }, "sha512-KDfy3wsRQFIcOQDdd5Mblvh+DWRq+UGbTQ34wyW36ws1BsdWkV++gk9bTkeJRsPbQ51wsJ0V/jRKEZv4uK5dTA=="],
 
     "@grpc/grpc-js": ["@grpc/grpc-js@1.14.3", "", { "dependencies": { "@grpc/proto-loader": "^0.8.0", "@js-sdsl/ordered-map": "^4.4.2" } }, "sha512-Iq8QQQ/7X3Sac15oB6p0FmUg/klxQvXLeileoqrTRGJYLV+/9tubbr9ipz0GKHjmXVsgFPo/+W+2cA8eNcR+XA=="],
 
@@ -175,7 +175,7 @@
 
     "@microsoft/applicationinsights-web-snippet": ["@microsoft/applicationinsights-web-snippet@1.2.3", "", {}, "sha512-59ex4x1/PabGQIg+o0GKG5olqAJYBvMOiXec/9HCD3hK2y36YMWT0ivq5mequvtS5+21kco3SOnMB6QyScLPIA=="],
 
-    "@opencode-ai/sdk": ["@opencode-ai/sdk@1.2.18", "", {}, "sha512-MJhnCtbZDxi6QOF2hDOCVzqBX0PjXWhRU/DNvIWGAHrPzUQ836mVu0QG+KIWxIUxAcOFcQmYfABr2YiawN8a0Q=="],
+    "@opencode-ai/sdk": ["@opencode-ai/sdk@1.2.20", "", {}, "sha512-U5ROpG21D8jg9rkc1IgKAk1g5dn6X/rkOBfveupd0peSDO9n6VM9aikYccVLaMObxVqdjtG08IeQOFTPVS8ySQ=="],
 
     "@opentelemetry/api": ["@opentelemetry/api@1.9.0", "", {}, "sha512-3giAOQvZiH5F9bMlMiv8+GSPMeqg0dbaeo58/0SlA9sxSqZhnUtxzX9/2FzyhS9sWQf5S0GJE0AKBrFqjpeYcg=="],
 

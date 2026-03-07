@@ -1,32 +1,32 @@
 #!/usr/bin/env bun
 
-import type { BusEvent, BusEventDataMap, BusEventType } from "../events/bus-events.ts";
-import { BatchDispatcher } from "../events/batch-dispatcher.ts";
-import { EventBus } from "../events/event-bus.ts";
-import { wireConsumers } from "../events/consumers/wire-consumers.ts";
+import type { BusEvent, BusEventDataMap, BusEventType } from "@/services/events/bus-events.ts";
+import { BatchDispatcher } from "@/services/events/batch-dispatcher.ts";
+import { EventBus } from "@/services/events/event-bus.ts";
+import { wireConsumers } from "@/services/events/consumers/wire-consumers.ts";
 import {
   emitAgentDoneProjectionObservability,
   emitAgentDoneRenderedObservability,
   emitPostCompleteDeltaOrderingObservability,
   shouldDeferPostCompleteDeltaUntilDoneProjection,
-} from "../ui/chat.tsx";
+} from "@/screens/chat-screen.tsx";
 import {
   collectDoneRenderMarkers,
   type ParallelAgent,
-} from "../ui/components/parallel-agents-tree.tsx";
-import { applyStreamPartEvent, type StreamPartEvent } from "../ui/parts/stream-pipeline.ts";
-import type { AgentOrderingEvent } from "../ui/utils/agent-ordering-contract.ts";
+} from "@/components/parallel-agents-tree.tsx";
+import { applyStreamPartEvent, type StreamPartEvent } from "@/state/parts/stream-pipeline.ts";
+import type { AgentOrderingEvent } from "@/lib/ui/agent-ordering-contract.ts";
 import {
   createAgentOrderingState,
   hasDoneStateProjection,
   registerAgentCompletionSequence,
   registerDoneStateProjection,
-} from "../ui/utils/agent-ordering-contract.ts";
+} from "@/lib/ui/agent-ordering-contract.ts";
 import {
   getRuntimeParityMetricsSnapshot,
   resetRuntimeParityMetrics,
-} from "../workflows/runtime-parity-observability.ts";
-import type { ChatMessage } from "../ui/chat.tsx";
+} from "@/services/workflows/runtime-parity-observability.ts";
+import type { ChatMessage } from "@/screens/chat-screen.tsx";
 
 const MAX_VISIBLE_AGENTS = 5;
 
@@ -161,6 +161,7 @@ async function replayScenario(runId: number, sessionId: string, agentIds: string
       provider: "claude",
       runId,
       doneProjected,
+      scenario,
       projectionMode: "sync-bridge",
       event,
     });

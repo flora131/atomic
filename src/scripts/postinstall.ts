@@ -3,13 +3,13 @@
 import {
   hasAtomicGlobalAgentConfigs,
   syncAtomicGlobalAgentConfigs,
-} from "../utils/atomic-global-config";
-import { getConfigRoot } from "../utils/config-path";
+} from "@/services/config/atomic-global-config.ts";
+import { getConfigRoot } from "@/services/config/config-path.ts";
 import {
   deployPlaywrightSkill,
   ensurePlaywrightPackageManagers,
   installPlaywrightCli,
-} from "./postinstall-playwright";
+} from "@/scripts/postinstall-playwright.ts";
 
 function formatErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

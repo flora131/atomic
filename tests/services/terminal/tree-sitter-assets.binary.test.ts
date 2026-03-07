@@ -2,6 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "fs/promises";
 import { join, relative, resolve } from "path";
 import { realpathSync } from "node:fs";
+import { ensureWebTreeSitterWasmShim } from "@/services/terminal/web-tree-sitter-shim.ts";
 
 async function runCommand(command: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const proc = Bun.spawn(command, {
@@ -34,6 +35,8 @@ describe("tree-sitter assets in compiled binaries", () => {
   });
 
   test("markdown highlighting initializes in compiled binary", async () => {
+    ensureWebTreeSitterWasmShim();
+
     tempDir = await mkdtemp(join(process.cwd(), ".tmp-tree-sitter-"));
 
     const scriptPath = join(tempDir, "tree-sitter-binary-check.ts");

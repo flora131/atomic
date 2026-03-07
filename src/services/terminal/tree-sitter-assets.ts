@@ -12,6 +12,7 @@
 
 import { addDefaultParsers } from "@opentui/core";
 import { resolve } from "path";
+import { ensureWebTreeSitterWasmShim } from "@/services/terminal/web-tree-sitter-shim.ts";
 
 declare const OTUI_TREE_SITTER_WORKER_PATH: string;
 
@@ -63,6 +64,8 @@ function getRuntimeTreeSitterWorkerPath(): string {
  * (i.e. before `createCliRenderer()` or the first `<markdown>` render).
  */
 export function initTreeSitterAssets(): void {
+  ensureWebTreeSitterWasmShim();
+
   // OpenCode-style binary builds inject OTUI_TREE_SITTER_WORKER_PATH at compile
   // time. Keep a runtime fallback for local dev/repo installs.
   if (!process.env.OTUI_TREE_SITTER_WORKER_PATH && !getCompileTimeTreeSitterWorkerPath()) {

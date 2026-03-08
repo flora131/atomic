@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import type { CommandContext } from "@/commands/tui/registry.ts";
 import { globalRegistry } from "@/commands/tui/registry.ts";
 import {
@@ -283,6 +283,7 @@ describe("skill-commands builtins", () => {
             projectRoot,
             homeDir,
             xdgConfigHome: "/home/tester/.config",
+            platform: "linux",
             pathExists: () => false,
         });
 
@@ -290,11 +291,11 @@ describe("skill-commands builtins", () => {
             opencodePlan,
         ]);
 
-        expect(searchPaths).toContain("/workspace/repo/.opencode/skills");
-        expect(searchPaths).toContain("/home/tester/.opencode/skills");
-        expect(searchPaths).toContain("/home/tester/.config/.opencode/skills");
+        expect(searchPaths).toContain(resolve("/workspace/repo/.opencode/skills"));
+        expect(searchPaths).toContain(resolve("/home/tester/.opencode/skills"));
+        expect(searchPaths).toContain(resolve("/home/tester/.config/.opencode/skills"));
         expect(searchPaths).not.toContain(
-            "/home/tester/.config/opencode/skills",
+            resolve("/home/tester/.config/opencode/skills"),
         );
     });
 

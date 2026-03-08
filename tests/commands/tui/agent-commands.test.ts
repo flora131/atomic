@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import {
   createAgentCommand,
   determineAgentSource,
@@ -175,16 +175,17 @@ describe("agent command routing", () => {
       projectRoot,
       homeDir,
       xdgConfigHome: "/home/tester/.config",
+      platform: "linux",
       pathExists: () => false,
     });
 
     const searchPaths = getRuntimeCompatibleAgentDiscoveryPaths([copilotPlan]);
 
-    expect(searchPaths).toContain("/workspace/repo/.github/agents");
-    expect(searchPaths).toContain("/workspace/repo/.claude/agents");
-    expect(searchPaths).toContain("/workspace/repo/.opencode/agents");
-    expect(searchPaths).toContain("/home/tester/.copilot/agents");
-    expect(searchPaths).toContain("/home/tester/.config/.copilot/agents");
+    expect(searchPaths).toContain(resolve("/workspace/repo/.github/agents"));
+    expect(searchPaths).toContain(resolve("/workspace/repo/.claude/agents"));
+    expect(searchPaths).toContain(resolve("/workspace/repo/.opencode/agents"));
+    expect(searchPaths).toContain(resolve("/home/tester/.copilot/agents"));
+    expect(searchPaths).toContain(resolve("/home/tester/.config/.copilot/agents"));
   });
 
   test("treats absolute project discovery paths as project source", () => {

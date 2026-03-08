@@ -4,8 +4,8 @@ import type { CommandContext, CommandResult } from "@/commands/tui/registry.ts";
 import { parseSlashCommand } from "@/commands/tui/index.ts";
 import { globalRegistry } from "@/commands/tui/registry.ts";
 import { registerBuiltinCommands } from "@/commands/tui/builtin-commands.ts";
-import { getSpinnerVerbForCommand } from "@/screens/chat-screen.tsx";
-import type { ChatMessage } from "@/screens/chat-screen.tsx";
+import { getSpinnerVerbForCommand } from "@/state/chat/exports.ts";
+import type { ChatMessage } from "@/state/chat/exports.ts";
 import {
   appendCompactionSummary,
   appendToHistoryBuffer,

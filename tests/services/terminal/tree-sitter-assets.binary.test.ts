@@ -1,4 +1,7 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+
+// Binary compilation + execution can be slow, especially on CI or Windows.
+setDefaultTimeout(30_000);
 import { mkdtemp, rm, writeFile } from "fs/promises";
 import { join, relative, resolve } from "path";
 import { realpathSync } from "node:fs";

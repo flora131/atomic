@@ -4844,14 +4844,16 @@ describe("CopilotStreamAdapter", () => {
       (e) => e.type === "stream.tool.start" && e.data.toolId === "copilot-task-buffer-1",
     );
     expect(taskToolStart).toBeDefined();
-    expect(taskToolStart?.data.parentAgentId).toBe("synthetic-task-agent:copilot-task-buffer-1");
+    // Root task tools are top-level containers — no parentAgentId so they
+    // don't appear inside the sub-agent's inline parts.
+    expect(taskToolStart?.data.parentAgentId).toBeUndefined();
 
     const taskToolCompletes = events.filter(
       (e) => e.type === "stream.tool.complete" && e.data.toolId === "copilot-task-buffer-1",
     );
     expect(taskToolCompletes.length).toBeGreaterThan(0);
     const promotedTaskToolComplete = taskToolCompletes[taskToolCompletes.length - 1];
-    expect(promotedTaskToolComplete?.data.parentAgentId).toBe("copilot-real-task-agent-1");
+    expect(promotedTaskToolComplete?.data.parentAgentId).toBeUndefined();
   });
 
   test("detects background sub-agents from task tool arguments", async () => {
@@ -4901,7 +4903,9 @@ describe("CopilotStreamAdapter", () => {
 
     await streamPromise;
 
-    const agentStartEvents = events.filter((e) => e.type === "stream.agent.start");
+    const agentStartEvents = events.filter(
+      (e) => e.type === "stream.agent.start" && !e.data.agentId.startsWith("synthetic-task-agent:"),
+    );
     expect(agentStartEvents.length).toBe(1);
     expect(agentStartEvents[0].data.isBackground).toBe(true);
     expect(agentStartEvents[0].data.task).toBe("Search for auth patterns");
@@ -4966,7 +4970,9 @@ describe("CopilotStreamAdapter", () => {
     expect(toolStartEvents.length).toBe(1);
     expect(toolStartEvents[0].data.toolId).toBe("task-call-2");
     expect(toolStartEvents[0].data.toolName).toBe("Task");
-    expect(toolStartEvents[0].data.parentAgentId).toBe("synthetic-task-agent:task-call-2");
+    // Root task tools stay top-level (no parentAgentId) so they serve as
+    // the visual anchor for the sub-agent tree, not an inline part.
+    expect(toolStartEvents[0].data.parentAgentId).toBeUndefined();
 
     const toolCompleteEvents = events.filter((e) => e.type === "stream.tool.complete");
     expect(toolCompleteEvents.length).toBe(1);
@@ -4974,7 +4980,7 @@ describe("CopilotStreamAdapter", () => {
     expect(toolCompleteEvents[0].data.toolName).toBe("Task");
     expect(toolCompleteEvents[0].data.toolResult).toBe("done");
     expect(toolCompleteEvents[0].data.success).toBe(true);
-    expect(toolCompleteEvents[0].data.parentAgentId).toBe("subagent-2");
+    expect(toolCompleteEvents[0].data.parentAgentId).toBeUndefined();
   });
 
   test("extracts task description from task tool arguments over agent type description", async () => {
@@ -5023,7 +5029,9 @@ describe("CopilotStreamAdapter", () => {
 
     await streamPromise;
 
-    const agentStartEvents = events.filter((e) => e.type === "stream.agent.start");
+    const agentStartEvents = events.filter(
+      (e) => e.type === "stream.agent.start" && !e.data.agentId.startsWith("synthetic-task-agent:"),
+    );
     expect(agentStartEvents.length).toBe(1);
     expect(agentStartEvents[0].data.task).toBe("Find auth code");
   });
@@ -5251,7 +5259,9 @@ describe("CopilotStreamAdapter", () => {
 
     await streamPromise;
 
-    const agentStartEvents = events.filter((e) => e.type === "stream.agent.start");
+    const agentStartEvents = events.filter(
+      (e) => e.type === "stream.agent.start" && !e.data.agentId.startsWith("synthetic-task-agent:"),
+    );
     expect(agentStartEvents.length).toBe(1);
     expect(agentStartEvents[0].data.isBackground).toBe(false);
     expect(agentStartEvents[0].data.task).toBe("Analyze dependencies");
@@ -5304,7 +5314,9 @@ describe("CopilotStreamAdapter", () => {
 
     await streamPromise;
 
-    const agentStartEvents = events.filter((e) => e.type === "stream.agent.start");
+    const agentStartEvents = events.filter(
+      (e) => e.type === "stream.agent.start" && !e.data.agentId.startsWith("synthetic-task-agent:"),
+    );
     expect(agentStartEvents.length).toBe(1);
     // Task description from prompt argument should be used
     expect(agentStartEvents[0].data.task).toBe("Analyze the auth module");
@@ -5354,7 +5366,9 @@ describe("CopilotStreamAdapter", () => {
 
     await streamPromise;
 
-    const agentStartEvents = events.filter((e) => e.type === "stream.agent.start");
+    const agentStartEvents = events.filter(
+      (e) => e.type === "stream.agent.start" && !e.data.agentId.startsWith("synthetic-task-agent:"),
+    );
     expect(agentStartEvents.length).toBe(1);
     expect(agentStartEvents[0].data.task).toBe("Research the dependency graph");
   });
@@ -5446,7 +5460,9 @@ describe("CopilotStreamAdapter", () => {
 
     await streamPromise;
 
-    const agentStartEvents = events.filter((e) => e.type === "stream.agent.start");
+    const agentStartEvents = events.filter(
+      (e) => e.type === "stream.agent.start" && !e.data.agentId.startsWith("synthetic-task-agent:"),
+    );
     expect(agentStartEvents.length).toBe(1);
     expect(agentStartEvents[0].data.isBackground).toBe(true);
     expect(agentStartEvents[0].data.task).toBe("Background research task");
@@ -5566,7 +5582,9 @@ describe("CopilotStreamAdapter", () => {
     expect(grepToolStart!.data.parentAgentId).toBe("lifecycle-tool-1");
 
     // Verify agent lifecycle
-    const agentStartEvents = events.filter((e) => e.type === "stream.agent.start");
+    const agentStartEvents = events.filter(
+      (e) => e.type === "stream.agent.start" && !e.data.agentId.startsWith("synthetic-task-agent:"),
+    );
     expect(agentStartEvents.length).toBe(1);
     expect(agentStartEvents[0].data.task).toBe("Check types");
 
@@ -5624,7 +5642,7 @@ describe("CopilotStreamAdapter", () => {
       },
     } as AgentEvent<"subagent.start">);
 
-    // 3. codebase-analyzer calls Task tool (inner tool.start with parentId)
+    // 3. codebase-analyzer calls Task tool (inner tool.start with parentToolCallId)
     client.emit("tool.start" as EventType, {
       type: "tool.start",
       sessionId: session.id,
@@ -5633,7 +5651,7 @@ describe("CopilotStreamAdapter", () => {
         toolName: "task",
         toolInput: { prompt: "Explore codebase" },
         toolCallId: "tc-inner",
-        parentId: "tc-outer",
+        parentToolCallId: "tc-outer",
       },
     } as AgentEvent<"tool.start">);
 
@@ -5675,8 +5693,10 @@ describe("CopilotStreamAdapter", () => {
 
     await streamPromise;
 
-    // Only the top-level agent (codebase-analyzer) should appear
-    const agentStartEvents = events.filter((e) => e.type === "stream.agent.start");
+    // Only the top-level agent (codebase-analyzer) should appear (excluding synthetic placeholder)
+    const agentStartEvents = events.filter(
+      (e) => e.type === "stream.agent.start" && !e.data.agentId.startsWith("synthetic-task-agent:"),
+    );
     expect(agentStartEvents.length).toBe(1);
     expect(agentStartEvents[0].data.agentType).toBe("codebase-analyzer");
 

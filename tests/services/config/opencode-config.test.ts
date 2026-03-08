@@ -84,6 +84,7 @@ describe("prepareOpenCodeConfigDir", () => {
       homeDir,
       projectRoot,
       xdgConfigHome,
+      platform: "linux",
     });
 
     await mkdir(join(xdgConfigHome, ".opencode", "agents"), { recursive: true });
@@ -158,12 +159,13 @@ describe("prepareOpenCodeConfigDir", () => {
     await writeFile(join(outsideDir, "agents", "escape.md"), "outside", "utf-8");
 
     await mkdir(xdgConfigHome, { recursive: true });
-    await symlink(outsideDir, join(xdgConfigHome, ".opencode"));
+    await symlink(outsideDir, join(xdgConfigHome, ".opencode"), "junction");
 
     const discoveryPlan = buildProviderDiscoveryPlan("opencode", {
       homeDir,
       projectRoot,
       xdgConfigHome,
+      platform: "linux",
     });
 
     try {

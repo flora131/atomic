@@ -275,6 +275,7 @@ describe("loadCopilotAgents", () => {
 
       const agents = await loadCopilotAgents(root, mockFsOps, {
         xdgConfigHome: join(root, ".config"),
+        platform: "linux",
       });
 
       // Should have 3 agents: global-agent, local-agent, and shared-agent (local version)
@@ -363,6 +364,7 @@ describe("loadCopilotAgents", () => {
 
       const agents = await loadCopilotAgents(root, mockFsOps, {
         xdgConfigHome: join(root, ".config"),
+        platform: "linux",
       });
       expect(agents.length).toBe(1);
       expect(agents[0]?.name).toBe("Shared Agent");
@@ -443,6 +445,7 @@ describe("loadCopilotAgents", () => {
 
       const agents = await loadCopilotAgents(root, mockFsOps, {
         xdgConfigHome: join(root, ".config"),
+        platform: "linux",
       });
       expect(agents.length).toBe(1);
       expect(agents[0]?.name).toBe("Canonical Agent");
@@ -488,6 +491,7 @@ describe("loadCopilotAgents", () => {
 
       const agents = await loadCopilotAgents(root, mockFsOps, {
         xdgConfigHome: join(root, ".config"),
+        platform: "linux",
         onPathConflictWarning: (warning) => warnings.push(warning.message),
       });
 
@@ -754,6 +758,7 @@ describe("loadCopilotInstructions", () => {
 
       const instructions = await loadCopilotInstructions(root, mockFsOps, {
         xdgConfigHome: join(root, ".config"),
+        platform: "linux",
       });
       expect(instructions).toBe("Global user instructions");
     } finally {
@@ -784,6 +789,7 @@ describe("loadCopilotInstructions", () => {
 
       const instructions = await loadCopilotInstructions(root, mockFsOps, {
         xdgConfigHome: join(root, ".config"),
+        platform: "linux",
       });
       expect(instructions).toBe("Canonical instructions");
     } finally {

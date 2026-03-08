@@ -91,15 +91,9 @@ import {
  */
 const MAX_BUFFER_SIZE = 1000;
 const SYNTHETIC_FOREGROUND_AGENT_PREFIX = "agent-only-";
-const SYNTHETIC_TASK_AGENT_PREFIX = "synthetic-task-agent:";
-
 function resolveAgentOnlyTaskLabel(message: string, agentName: string): string {
   const trimmed = message.trim();
   return trimmed.length > 0 ? trimmed : agentName;
-}
-
-function buildSyntheticTaskAgentId(toolCallId: string): string {
-  return `${SYNTHETIC_TASK_AGENT_PREFIX}${toolCallId}`;
 }
 
 /**
@@ -577,11 +571,23 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
         const isRootTaskTool = !parentToolCallId && this.isTaskTool(toolName);
         if (isRootTaskTool) {
           this.storeTaskToolMetadata(toolCallId, toolInput);
+          // For known-agent task tools (tool name is the agent), use the tool
+          // name as the agentType fallback so the synthetic placeholder carries
+          // the correct type before subagent.start arrives.
+          if (this.knownAgentNames.has(toolName.toLowerCase())) {
+            const existing = this.taskToolMetadata.get(toolCallId);
+            if (existing && !existing.agentType) {
+              existing.agentType = toolName;
+            }
+          }
         }
-        const syntheticTaskAgentId = isRootTaskTool
-          ? this.ensureSyntheticTaskAgent(toolCallId)
-          : undefined;
-        const bufferedParentAgentId = parentAgentId ?? syntheticParentAgentId ?? syntheticTaskAgentId;
+        // Root task tools are top-level containers for the sub-agent tree —
+        // they must NOT be attributed to the sub-agent's own inline parts.
+        // The real agent entry is created later by handleSubagentStart; any
+        // child tool events that race ahead are buffered in earlyToolEvents.
+        const bufferedParentAgentId = isRootTaskTool
+          ? undefined
+          : (parentAgentId ?? syntheticParentAgentId);
 
         this.emittedToolStartIds.add(toolCallId);
         const toolId = this.resolveToolStartId(toolCallId, toolName);
@@ -669,11 +675,18 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
     const isRootTaskTool = !rawParentToolCallId && this.isTaskTool(resolvedToolName);
     if (isRootTaskTool) {
       this.storeTaskToolMetadata(resolvedToolCallId, this.normalizeToolInput(toolInput));
+      if (this.knownAgentNames.has(resolvedToolName.toLowerCase())) {
+        const existing = this.taskToolMetadata.get(resolvedToolCallId);
+        if (existing && !existing.agentType) {
+          existing.agentType = resolvedToolName;
+        }
+      }
     }
-    const syntheticTaskAgentId = isRootTaskTool
-      ? this.ensureSyntheticTaskAgent(resolvedToolCallId)
-      : undefined;
-    const effectiveParentAgentId = parentAgentId ?? syntheticParentAgentId ?? syntheticTaskAgentId;
+    // Root task tools are top-level containers — do not attribute them to
+    // the sub-agent so they don't appear in inline parts.
+    const effectiveParentAgentId = isRootTaskTool
+      ? undefined
+      : (parentAgentId ?? syntheticParentAgentId);
 
     if (!parentAgentId && rawParentToolCallId) {
       this.queueEarlyToolEvent(rawParentToolCallId, {
@@ -755,10 +768,14 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
       });
       return;
     }
-    const effectiveParentAgentId = resolvedParentId
-      ?? activeToolContext?.parentAgentId
-      ?? (this.isTaskTool(resolvedToolName) ? buildSyntheticTaskAgentId(resolvedToolCallId) : undefined)
-      ?? this.getSyntheticForegroundAgentIdForAttribution();
+    // Root task tool completions (no parentToolCallId, tool is Task/Agent)
+    // must remain top-level — do not attribute them to the sub-agent.
+    const isRootTaskToolComplete = !rawParentToolCallId && this.isTaskTool(resolvedToolName);
+    const effectiveParentAgentId = isRootTaskToolComplete
+      ? undefined
+      : (resolvedParentId
+        ?? activeToolContext?.parentAgentId
+        ?? this.getSyntheticForegroundAgentIdForAttribution());
     if (effectiveParentAgentId && this.subagentTracker?.hasAgent(effectiveParentAgentId)) {
       this.subagentTracker.onToolComplete(effectiveParentAgentId);
     }
@@ -1010,7 +1027,6 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
       },
     );
 
-    const syntheticTaskAgentId = buildSyntheticTaskAgentId(toolCallId);
     // Register agent with tracker for tool counting
     this.subagentTracker?.registerAgent(data.subagentId);
     this.promoteSyntheticForegroundAgentIdentity(data.subagentId);
@@ -1034,13 +1050,10 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
       },
     });
 
-    this.promoteSyntheticTaskAgentIdentity(toolCallId, data.subagentId);
-
     // Replay any early tool events that arrived before this subagent.started.
-    // Events may be keyed by subagentId (parentId path), toolCallId
-    // (parentToolCallId path, before the mapping existed), or the synthetic
-    // task-agent placeholder used before the native lifecycle event arrived.
-    for (const key of [data.subagentId, toolCallId, syntheticTaskAgentId]) {
+    // Events may be keyed by subagentId (parentId path) or toolCallId
+    // (parentToolCallId path, before the mapping existed).
+    for (const key of [data.subagentId, toolCallId]) {
       const earlyTools = this.earlyToolEvents.get(key);
       if (earlyTools) {
         for (const tool of earlyTools) {
@@ -1468,43 +1481,6 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
     );
   }
 
-  private ensureSyntheticTaskAgent(toolCallId: string): string {
-    const existingAgentId = this.toolCallIdToSubagentId.get(toolCallId);
-    const syntheticAgentId = buildSyntheticTaskAgentId(toolCallId);
-    if (existingAgentId && existingAgentId !== syntheticAgentId) {
-      return existingAgentId;
-    }
-
-    this.toolCallIdToSubagentId.set(toolCallId, syntheticAgentId);
-
-    if (this.subagentTracker?.hasAgent(syntheticAgentId)) {
-      return syntheticAgentId;
-    }
-
-    const metadata = this.taskToolMetadata.get(toolCallId);
-    const normalizedMetadata = normalizeAgentTaskMetadata({
-      task: metadata?.description,
-      agentType: metadata?.agentType,
-      isBackground: metadata?.isBackground,
-    });
-    this.subagentTracker?.registerAgent(syntheticAgentId);
-    this.publishEvent({
-      type: "stream.agent.start",
-      sessionId: this.sessionId,
-      runId: this.runId,
-      timestamp: Date.now(),
-      data: {
-        agentId: syntheticAgentId,
-        toolCallId,
-        agentType: metadata?.agentType ?? "unknown",
-        task: normalizedMetadata.task,
-        isBackground: normalizedMetadata.isBackground,
-        sdkCorrelationId: toolCallId,
-      },
-    });
-    return syntheticAgentId;
-  }
-
   private resolveTaskToolCallIdForSubagent(subagentId: string): string | undefined {
     if (this.toolNameById.has(subagentId)) {
       return subagentId;
@@ -1533,33 +1509,6 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
     }
 
     return undefined;
-  }
-
-  private promoteSyntheticTaskAgentIdentity(taskToolCallId: string, realAgentId: string): void {
-    const syntheticAgentId = buildSyntheticTaskAgentId(taskToolCallId);
-    if (syntheticAgentId === realAgentId) {
-      return;
-    }
-
-    if (this.subagentTracker?.hasAgent(syntheticAgentId)) {
-      this.subagentTracker.transferAgent(syntheticAgentId, realAgentId);
-    }
-
-    for (const [contextKey, context] of this.activeSubagentToolsById.entries()) {
-      if (context.parentAgentId === syntheticAgentId) {
-        this.activeSubagentToolsById.set(contextKey, {
-          ...context,
-          parentAgentId: realAgentId,
-        });
-      }
-    }
-
-    const syntheticQueue = this.earlyToolEvents.get(syntheticAgentId);
-    if (syntheticQueue) {
-      const existingQueue = this.earlyToolEvents.get(realAgentId) ?? [];
-      this.earlyToolEvents.set(realAgentId, [...existingQueue, ...syntheticQueue]);
-      this.earlyToolEvents.delete(syntheticAgentId);
-    }
   }
 
   private buildThinkingStreamKey(

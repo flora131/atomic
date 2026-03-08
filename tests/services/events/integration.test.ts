@@ -363,7 +363,9 @@ describe("Event Bus Integration", () => {
     expect(toolStarts.length).toBe(1);
     expect(toolStarts[0]?.toolId).toBe("copilot-task-1");
     expect(toolStarts[0]?.toolName).toBe("Task");
-    expect(toolStarts[0]?.agentId).toBe("synthetic-task-agent:copilot-task-1");
+    // Root task tools are top-level containers — no agentId so they don't
+    // appear in the sub-agent's inline parts.
+    expect(toolStarts[0]?.agentId).toBeUndefined();
 
     const toolCompletes = output.filter((event) => event.type === "tool-complete");
     expect(toolCompletes.length).toBe(1);
@@ -371,13 +373,13 @@ describe("Event Bus Integration", () => {
     expect(toolCompletes[0]?.toolName).toBe("Task");
     expect(toolCompletes[0]?.output).toBe("done");
     expect(toolCompletes[0]?.success).toBe(true);
-    expect(toolCompletes[0]?.agentId).toBe("copilot-agent-1");
+    expect(toolCompletes[0]?.agentId).toBeUndefined();
 
     dispose();
     adapter.dispose();
   });
 
-  test("Copilot streams nested tool rows under a synthetic task agent before native subagent.start", async () => {
+  test("Copilot buffers early child tool events and replays them when subagent.start arrives", async () => {
     const { pipeline, dispose } = wireConsumers(bus, dispatcher);
 
     const output: StreamPartEvent[] = [];
@@ -422,6 +424,7 @@ describe("Event Bus Integration", () => {
       },
     } as AgentEvent<"message.complete">);
 
+    // Child tool events arrive BEFORE subagent.start — they should be buffered
     client.emit("tool.start" as EventType, {
       type: "tool.start",
       sessionId: session.id,
@@ -433,16 +436,6 @@ describe("Event Bus Integration", () => {
         parentToolCallId: "copilot-task-synthetic-1",
       },
     } as AgentEvent<"tool.start">);
-
-    client.emit("tool.partial_result" as EventType, {
-      type: "tool.partial_result",
-      sessionId: session.id,
-      timestamp: Date.now(),
-      data: {
-        toolCallId: "child-tool-1",
-        partialOutput: "src/auth.ts",
-      },
-    } as AgentEvent<"tool.partial_result">);
 
     client.emit("tool.complete" as EventType, {
       type: "tool.complete",
@@ -457,42 +450,51 @@ describe("Event Bus Integration", () => {
       },
     } as AgentEvent<"tool.complete">);
 
+    // subagent.start triggers replay of buffered events with the real agent ID
+    client.emit("subagent.start" as EventType, {
+      type: "subagent.start",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        subagentId: "copilot-real-agent-1",
+        subagentType: "codebase-analyzer",
+        task: "Inspect auth flow",
+        toolCallId: "copilot-task-synthetic-1",
+      },
+    } as AgentEvent<"subagent.start">);
+
     await streamPromise;
     await flushMicrotasks();
     await waitForBatchFlush();
 
-    const syntheticAgentId = "synthetic-task-agent:copilot-task-synthetic-1";
-    const syntheticAgentStart = busEvents.find(
-      (event) => event.type === "stream.agent.start" && event.data.agentId === syntheticAgentId,
+    // The real agent start event should be present (no synthetic agent)
+    const agentStarts = busEvents.filter(
+      (event) => event.type === "stream.agent.start",
     );
-    expect(syntheticAgentStart).toBeDefined();
-    expect(syntheticAgentStart?.data.agentType).toBe("codebase-analyzer");
-    expect(syntheticAgentStart?.data.toolCallId).toBe("copilot-task-synthetic-1");
-    expect(syntheticAgentStart?.data.task).toBe("Inspect auth flow");
+    expect(agentStarts.length).toBe(1);
+    expect(agentStarts[0]?.data.agentId).toBe("copilot-real-agent-1");
+    expect(agentStarts[0]?.data.agentType).toBe("codebase-analyzer");
+    expect(agentStarts[0]?.data.toolCallId).toBe("copilot-task-synthetic-1");
+    expect(agentStarts[0]?.data.task).toBe("Inspect auth flow");
 
+    // Buffered child tools should be replayed with the real agent ID
     const nestedToolStarts = output.filter(
       (event) => event.type === "tool-start" && event.toolId === "child-tool-1",
     );
     expect(nestedToolStarts.length).toBe(1);
-    expect(nestedToolStarts[0]?.agentId).toBe(syntheticAgentId);
-
-    const nestedToolPartials = output.filter(
-      (event) => event.type === "tool-partial-result" && event.toolId === "child-tool-1",
-    );
-    expect(nestedToolPartials.length).toBe(1);
-    expect(nestedToolPartials[0]?.agentId).toBe(syntheticAgentId);
+    expect(nestedToolStarts[0]?.agentId).toBe("copilot-real-agent-1");
 
     const nestedToolCompletes = output.filter(
       (event) => event.type === "tool-complete" && event.toolId === "child-tool-1",
     );
     expect(nestedToolCompletes.length).toBe(1);
-    expect(nestedToolCompletes[0]?.agentId).toBe(syntheticAgentId);
+    expect(nestedToolCompletes[0]?.agentId).toBe("copilot-real-agent-1");
 
     dispose();
     adapter.dispose();
   });
 
-  test("Copilot promotes synthetic task agent tool rows when native subagent.start arrives later", async () => {
+  test("Copilot replays early child tool start with real agent ID after subagent.start", async () => {
     const { pipeline, dispose } = wireConsumers(bus, dispatcher);
 
     const output: StreamPartEvent[] = [];
@@ -537,6 +539,7 @@ describe("Event Bus Integration", () => {
       },
     } as AgentEvent<"message.complete">);
 
+    // Child tool arrives before subagent.start — buffered
     client.emit("tool.start" as EventType, {
       type: "tool.start",
       sessionId: session.id,
@@ -549,6 +552,7 @@ describe("Event Bus Integration", () => {
       },
     } as AgentEvent<"tool.start">);
 
+    // subagent.start replays buffered tool start with the real agent ID
     client.emit("subagent.start" as EventType, {
       type: "subagent.start",
       sessionId: session.id,
@@ -561,6 +565,7 @@ describe("Event Bus Integration", () => {
       },
     } as AgentEvent<"subagent.start">);
 
+    // tool.complete arrives after mapping exists — resolved directly
     client.emit("tool.complete" as EventType, {
       type: "tool.complete",
       sessionId: session.id,
@@ -578,31 +583,28 @@ describe("Event Bus Integration", () => {
     await flushMicrotasks();
     await waitForBatchFlush();
 
+    // Early tool start should be replayed with the real agent ID
     const nestedToolStarts = output.filter(
       (event) => event.type === "tool-start" && event.toolId === "child-tool-2",
     );
     expect(nestedToolStarts.length).toBe(1);
-    expect(nestedToolStarts[0]?.agentId).toBe("synthetic-task-agent:copilot-task-promoted-1");
+    expect(nestedToolStarts[0]?.agentId).toBe("copilot-agent-promoted-1");
 
+    // Tool complete resolves directly to the real agent
     const nestedToolCompletes = output.filter(
       (event) => event.type === "tool-complete" && event.toolId === "child-tool-2",
     );
     expect(nestedToolCompletes.length).toBe(1);
     expect(nestedToolCompletes[0]?.agentId).toBe("copilot-agent-promoted-1");
 
-    const syntheticAgentStart = busEvents.find(
-      (event) => event.type === "stream.agent.start"
-        && event.data.agentId === "synthetic-task-agent:copilot-task-promoted-1",
+    // Only the real agent start — no synthetic agent
+    const agentStarts = busEvents.filter(
+      (event) => event.type === "stream.agent.start",
     );
-    expect(syntheticAgentStart).toBeDefined();
-
-    const promotedAgentStart = busEvents.find(
-      (event) => event.type === "stream.agent.start"
-        && event.data.agentId === "copilot-agent-promoted-1",
-    );
-    expect(promotedAgentStart).toBeDefined();
-    expect(promotedAgentStart?.data.toolCallId).toBe("copilot-task-promoted-1");
-    expect(promotedAgentStart?.data.agentType).toBe("codebase-analyzer");
+    expect(agentStarts.length).toBe(1);
+    expect(agentStarts[0]?.data.agentId).toBe("copilot-agent-promoted-1");
+    expect(agentStarts[0]?.data.toolCallId).toBe("copilot-task-promoted-1");
+    expect(agentStarts[0]?.data.agentType).toBe("codebase-analyzer");
 
     dispose();
     adapter.dispose();

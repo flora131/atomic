@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { resolve } from "node:path";
 import {
   buildProviderDiscoveryPlan,
   getCompatibleDiscoveryRoots,
@@ -13,12 +14,14 @@ function createPathExists(paths: readonly string[]): (path: string) => boolean {
 
 describe("provider-discovery-plan", () => {
   test("builds claude plan with deterministic tier paths and existing roots", () => {
+    const resolvedHome = resolve("/home/tester/.claude");
+    const resolvedProject = resolve("/workspace/repo/.claude");
     const plan = buildProviderDiscoveryPlan("claude", {
       homeDir: "/home/tester",
       projectRoot: "/workspace/repo",
       pathExists: createPathExists([
-        "/home/tester/.claude",
-        "/workspace/repo/.claude",
+        resolvedHome,
+        resolvedProject,
       ]),
     });
 
@@ -29,8 +32,8 @@ describe("provider-discovery-plan", () => {
 
     expect(plan.paths).toEqual({
       atomicBaseline: [],
-      userGlobal: ["/home/tester/.claude"],
-      projectLocal: ["/workspace/repo/.claude"],
+      userGlobal: [resolvedHome],
+      projectLocal: [resolvedProject],
     });
 
     expect(plan.existingRoots.map((root) => root.id)).toEqual([
@@ -50,12 +53,13 @@ describe("provider-discovery-plan", () => {
       homeDir: "/home/tester",
       projectRoot: "/workspace/repo",
       xdgConfigHome: "/xdg/config",
+      platform: "linux",
       pathExists: () => true,
     });
 
     expect(plan.paths.userGlobal).toEqual([
-      "/home/tester/.opencode",
-      "/xdg/config/.opencode",
+      resolve("/home/tester", ".opencode"),
+      resolve("/xdg/config", ".opencode"),
     ]);
 
     const resolved = resolveProviderDiscoveryCandidates(plan, [
@@ -84,6 +88,7 @@ describe("provider-discovery-plan", () => {
       homeDir: "/home/alice",
       projectRoot: "/workspace/repo",
       xdgConfigHome: "/xdg/root",
+      platform: "linux",
       pathExists: () => true,
     });
 
@@ -93,8 +98,8 @@ describe("provider-discovery-plan", () => {
     });
 
     expect(plan.paths.userGlobal).toEqual([
-      "/home/alice/.copilot",
-      "/xdg/root/.copilot",
+      resolve("/home/alice", ".copilot"),
+      resolve("/xdg/root", ".copilot"),
     ]);
 
     expect(Array.from(plan.compatibilitySets.nativeRootIds).sort()).toEqual([
@@ -136,7 +141,7 @@ describe("provider-discovery-plan", () => {
     });
 
     expect(plan.paths.userGlobal).toEqual([
-      "/Users/alice/.copilot",
+      resolve("/Users/alice", ".copilot"),
     ]);
   });
 

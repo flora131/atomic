@@ -1,4 +1,6 @@
 import { describe, expect, test, mock } from "bun:test";
+import { delimiter, dirname, join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { resolveCopilotUserInputSessionId } from "@/services/agents/clients/copilot.ts";
 import { CopilotClient } from "@/services/agents/clients/copilot.ts";
@@ -80,12 +82,17 @@ describe("getBundledCopilotCliPath", () => {
   });
 
   test("skips project-local node_modules shims and prefers an external copilot binary", async () => {
+    const shimBin = join("/workspace/app/node_modules/.bin", "copilot");
+    const externalBin = join("/home/alice/.local/bin", "copilot");
     const cliPath = await getBundledCopilotCliPath({
-      which: () => "/workspace/app/node_modules/.bin/copilot",
-      pathEnv: "/workspace/app/node_modules/.bin:/home/alice/.local/bin:/usr/bin",
+      which: () => shimBin,
+      pathEnv: [
+        "/workspace/app/node_modules/.bin",
+        "/home/alice/.local/bin",
+        "/usr/bin",
+      ].join(delimiter),
       pathExists: async (path) =>
-        path === "/workspace/app/node_modules/.bin/copilot" ||
-        path === "/home/alice/.local/bin/copilot",
+        path === shimBin || path === externalBin,
       resolveImport: (specifier) => {
         if (specifier === "@github/copilot/sdk") {
           return "file:///tmp/node_modules/@github/copilot/sdk/index.js";
@@ -97,25 +104,30 @@ describe("getBundledCopilotCliPath", () => {
       },
     });
 
-    expect(cliPath).toBe("/home/alice/.local/bin/copilot");
+    expect(cliPath).toBe(externalBin);
   });
 
   test("falls back to the bundled copilot package when no PATH binary exists", async () => {
+    const sdkAbsPath = resolve("/tmp/node_modules/@github/copilot/sdk/index.js");
+    const sdkUrl = pathToFileURL(sdkAbsPath).href;
+    const copilotSdkAbsPath = resolve("/tmp/node_modules/@github/copilot-sdk/dist/index.js");
+    const copilotSdkUrl = pathToFileURL(copilotSdkAbsPath).href;
+    const expectedPath = join(dirname(dirname(sdkAbsPath)), "index.js");
     const cliPath = await getBundledCopilotCliPath({
       which: () => undefined,
-      pathExists: async (path) => path === "/tmp/node_modules/@github/copilot/index.js",
+      pathExists: async (path) => path === expectedPath,
       resolveImport: (specifier) => {
         if (specifier === "@github/copilot/sdk") {
-          return "file:///tmp/node_modules/@github/copilot/sdk/index.js";
+          return sdkUrl;
         }
         if (specifier === "@github/copilot-sdk") {
-          return "file:///tmp/node_modules/@github/copilot-sdk/dist/index.js";
+          return copilotSdkUrl;
         }
         throw new Error(`Unexpected import resolution for ${specifier}`);
       },
     });
 
-    expect(cliPath).toBe("/tmp/node_modules/@github/copilot/index.js");
+    expect(cliPath).toBe(expectedPath);
   });
 
 });

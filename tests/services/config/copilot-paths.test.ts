@@ -1,4 +1,5 @@
 import { describe, expect, spyOn, test } from "bun:test";
+import { resolve } from "node:path";
 import {
   COPILOT_CANONICAL_USER_ROOT_ID,
   COPILOT_HOME_USER_ROOT_ID,
@@ -45,7 +46,7 @@ describe("copilot-paths", () => {
         xdgConfigHome,
         platform: "linux",
       }),
-    ).toBe("/tmp/custom-xdg/.copilot");
+    ).toBe(resolve("/tmp/custom-xdg", ".copilot"));
   });
 
   test("uses ~/.copilot as default root on Unix when XDG is unset", () => {
@@ -56,7 +57,7 @@ describe("copilot-paths", () => {
         xdgConfigHome: null,
         platform: "linux",
       }),
-    ).toBe("/home/test-user/.copilot");
+    ).toBe(resolve("/home/test-user", ".copilot"));
   });
 
   test("uses the home root on Windows", () => {
@@ -68,7 +69,7 @@ describe("copilot-paths", () => {
         appDataDir,
         platform: "win32",
       }),
-    ).toBe("/Users/test-user/.copilot");
+    ).toBe(resolve("/Users/test-user", ".copilot"));
   });
 
   test("returns contract-aligned home and canonical root mappings", async () => {
@@ -79,15 +80,16 @@ describe("copilot-paths", () => {
       platform: "linux",
     });
 
+    const expectedRoot = resolve("/home/test-user", ".copilot");
     expect(resolution.rootsById[COPILOT_CANONICAL_USER_ROOT_ID]).toBe(
-      "/home/test-user/.copilot",
+      expectedRoot,
     );
     expect(resolution.rootsById[COPILOT_HOME_USER_ROOT_ID]).toBe(
-      "/home/test-user/.copilot",
+      expectedRoot,
     );
     expect(resolution.rootsInPrecedenceOrder).toEqual([
-      "/home/test-user/.copilot",
-      "/home/test-user/.copilot",
+      expectedRoot,
+      expectedRoot,
     ]);
     expect(resolution.warnings).toEqual([]);
 

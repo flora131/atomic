@@ -1,0 +1,7 @@
+{
+  "scm": "azure-devops",
+  "agent": "copilot",
+  "version": 1,
+  "lastUpdated": "2026-03-08T16:19:19.902Z",
+  "$schema": "https://raw.githubusercontent.com/flora131/atomic/main/assets/settings.schema.json"
+}

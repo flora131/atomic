@@ -19,7 +19,7 @@
     },
     "scm": {
       "type": "string",
-      "enum": ["github", "sapling"],
+      "enum": ["github", "sapling", "azure-devops"],
       "description": "Selected source control management system."
     },
     "lastUpdated": {

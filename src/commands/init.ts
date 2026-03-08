@@ -50,17 +50,18 @@ interface InitOptions {
   yes?: boolean;
 }
 
-const SCM_PREFIX_BY_TYPE: Record<SourceControlType, "gh-" | "sl-"> = {
+const SCM_PREFIX_BY_TYPE: Record<SourceControlType, "gh-" | "sl-" | "az-"> = {
   github: "gh-",
   sapling: "sl-",
+  "azure-devops": "az-",
 };
 
-function getScmPrefix(scmType: SourceControlType): "gh-" | "sl-" {
+function getScmPrefix(scmType: SourceControlType): "gh-" | "sl-" | "az-" {
   return SCM_PREFIX_BY_TYPE[scmType];
 }
 
 function isManagedScmEntry(name: string): boolean {
-  return name.startsWith("gh-") || name.startsWith("sl-");
+  return name.startsWith("gh-") || name.startsWith("sl-") || name.startsWith("az-");
 }
 
 interface ReconcileScmVariantsOptions {

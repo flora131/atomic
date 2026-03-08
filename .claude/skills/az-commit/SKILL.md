@@ -1,5 +1,5 @@
 ---
-name: gh-commit
+name: az-commit
 description: Create well-formatted commits with conventional commit format.
 ---
 
@@ -14,6 +14,7 @@ Create well-formatted commit: $ARGUMENTS
 - Staged changes: !`git diff --cached --stat`
 - Unstaged changes: !`git diff --stat`
 - Recent commits: !`git log --oneline -5`
+- Azure DevOps auth: !`az account show --query "user.name" -o tsv 2>/dev/null || echo "Not authenticated"`
 
 ## What This Command Does
 
@@ -197,47 +198,3 @@ revert: let us never again speak of the noodle incident
 
 Refs: 676104e, a215868
 ```
-
-### Attributing AI-Assisted Code Authorship
-
-When using AI tools to generate code, it can be beneficial to maintain transparency about authorship for accountability, code review, and auditing purposes. This can be done easily by using Git trailers that append structured metadata to the end of commit messages.
-
-This can be done by appending one or more custom trailers in the commit message, such as:
-
-```
-Assistant-model: Claude Code
-```
-
-Because most Git tooling expects `Co-authored-by` trailers to be formatted as email addresses, you should use a different trailer key to avoid confusion and to distinguish authorship from assistance.
-
-Trailers can be added manually at the end of a commit message, or by using the `git commit` command with the `--trailer` option:
-
-```
-git commit --message "Implement feature" --trailer "Assistant-model: Claude Code"
-```
-
-Trailers can be displayed using the [pretty formats](https://git-scm.com/docs/pretty-formats#Documentation/pretty-formats.txt-trailersoptions) option to `git log` command. For example, for a formatted history showing the hash, author name, and assistant models used for each commit:
-
-```
-git log --color --pretty=format:"%C(yellow)%h%C(reset) %C(blue)%an%C(reset) [%C(magenta)%(trailers:key=Assistant-model,valueonly=true,separator=%x2C)%C(reset)] %s%C(bold cyan)%d%C(reset)"
-```
-
-```
-2100e6c Author [Claude Code] Test commit 4 (HEAD -> work-item-8)
-7120221 Author [Claude Code] Test commit 3
-ea03d91 Author [] Test commit 2
-f93fd8e Author [Claude Code] Test commit 1
-dde0159 Claude Code [] Test work item (#7) (origin/main, origin/HEAD)
-```
-
-## Important Notes
-
-- By default, pre-commit checks (defined in `.pre-commit-config.yaml`) will run to ensure code quality
-    - IMPORTANT: DO NOT SKIP pre-commit checks
-- ALWAYS attribute AI-Assisted Code Authorship
-- If specific files are already staged, the command will only commit those files
-- If no files are staged, it will automatically stage all modified and new files
-- The commit message will be constructed based on the changes detected
-- Before committing, the command will review the diff to identify if multiple commits would be more appropriate
-- If suggesting multiple commits, it will help you stage and commit the changes separately
-- Always reviews the commit diff to ensure the message matches the changes

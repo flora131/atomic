@@ -1,25 +1,41 @@
 ---
-name: gh-create-pr
-description: Commit unstaged changes, push changes, submit a pull request.
+name: az-create-pr
+description: Commit unstaged changes, push changes, submit an Azure DevOps pull request.
 ---
 
-# Create Pull Request
+# Create Azure DevOps Pull Request
 
-Commit changes, push to remote, and create a pull request with a conventional commit-style title and comprehensive description: $ARGUMENTS
+Commit changes, push to remote, and create an Azure DevOps pull request with a conventional commit-style title and comprehensive description: $ARGUMENTS
 
 ## Current Repository State
 
+- Azure DevOps auth: !`az account show --query "user.name" -o tsv 2>/dev/null || echo "NOT_AUTHENTICATED"`
 - Git status: !`git status --porcelain`
 - Current branch: !`git branch --show-current`
-- Default branch: !`git rev-parse --abbrev-ref origin/HEAD 2>/dev/null | sed 's|origin/||' || echo main`
+- Default branch: !`az repos show --query "defaultBranch" -o tsv 2>/dev/null | sed 's|refs/heads/||' || git rev-parse --abbrev-ref origin/HEAD 2>/dev/null | sed 's|origin/||' || echo main`
 - Staged changes: !`git diff --cached --stat`
 - Unstaged changes: !`git diff --stat`
 - Recent commits on this branch: !`git log --oneline -10`
-- Existing PR for branch: !`gh pr view --json number,title,body 2>/dev/null || echo "No existing PR"`
+- Existing PR for branch: !`az repos pr list --source-branch $(git branch --show-current) --status active --query "[0].{id:pullRequestId,title:title}" -o json 2>/dev/null || echo "No existing PR"`
+- Commits ahead of default: !`git log --oneline origin/main..HEAD 2>/dev/null | head -20`
+
+## Prerequisites
+
+If the auth check above shows `NOT_AUTHENTICATED`, stop and print this setup guide:
+
+```
+Azure DevOps CLI is not configured. Run these commands to set up:
+
+  az extension add --name azure-devops
+  az login
+  az devops configure --defaults organization=https://dev.azure.com/<YOUR_ORG> project=<YOUR_PROJECT>
+```
+
+Do NOT proceed with PR creation until authentication is confirmed.
 
 ## What This Command Does
 
-1. **Stage and commit changes** using conventional commit format (follow the gh-commit skill conventions)
+1. **Stage and commit changes** using conventional commit format (follow the az-commit skill conventions)
     - If there are unstaged changes, stage and commit them with appropriate conventional commit messages
     - If multiple distinct logical changes exist, create separate commits for each
     - ALWAYS attribute AI-assisted code authorship in commits
@@ -36,9 +52,13 @@ Commit changes, push to remote, and create a pull request with a conventional co
     - Keep the title concise (under 72 characters)
     - For multi-commit PRs, synthesize a higher-level title that captures the overall theme
 5. **Generate a PR description** with the structure defined in the PR Description Template below
-6. **Create or update the pull request**
-    - If no PR exists for this branch: `gh pr create --title "TITLE" --body "DESCRIPTION"`
-    - If a PR already exists: `gh pr edit <number> --title "TITLE" --body "DESCRIPTION"`
+6. **Scan for work item IDs** in branch name and commit messages
+    - Look for patterns like `#1234`, `AB#1234`, or numeric IDs in branch names (e.g., `feature/1234-my-feature`)
+    - These will be passed via `--work-items` flag
+7. **Create or update the pull request**
+    - If no PR exists for this branch: `az repos pr create --title "TITLE" --description "DESCRIPTION" --source-branch <current> --target-branch <default> --draft`
+    - If a PR already exists: `az repos pr update --id <id> --title "TITLE" --description "DESCRIPTION"`
+    - Include `--work-items <ids>` if work item IDs were found
 
 ## PR Title Examples
 
@@ -78,10 +98,11 @@ Use this structure for the PR body. Omit sections that are not applicable.
 ## Guidelines
 
 - **Respect existing content**: If the PR title already follows conventional commit format, keep it unless it's inaccurate. If a PR already has a meaningful description, enhance it rather than replace it entirely.
-- **Issue references**: If the branch name contains an issue number (e.g., `feat/123-add-auth`), reference it in the description with `Closes #123` or `Refs #123`.
+- **Work item references**: If the branch name contains a work item ID (e.g., `feature/1234-add-auth`), include `--work-items 1234` in the create/update command.
 - **Holistic analysis**: The PR title should capture the overall intent of the changes, not just list individual commits.
 - **Single-commit PRs**: The PR title can mirror the commit message.
 - **Multi-commit PRs**: Synthesize a higher-level title that captures the full scope.
+- **Draft by default**: Always create PRs as drafts using `--draft` flag.
 - Use markdown formatting in the description for readability.
 
 ## Important Notes
@@ -90,4 +111,5 @@ Use this structure for the PR body. Omit sections that are not applicable.
     - IMPORTANT: DO NOT SKIP pre-commit checks
 - ALWAYS attribute AI-Assisted Code Authorship in commit messages
 - Always review the diff before generating the title and description to ensure accuracy
-- If `gh` CLI is not authenticated, prompt the user to run `gh auth login` first
+- If `az` CLI is not authenticated or the azure-devops extension is not installed, prompt the user with the setup guide above
+- Use `az repos pr create` (not `gh pr create`) — this is an Azure DevOps repository

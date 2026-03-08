@@ -15,8 +15,6 @@ import { upsertPart, findLastPartIndex } from "@/state/parts/store.ts";
 import { handleTextDelta } from "@/state/parts/handlers.ts";
 import { normalizeMarkdownNewlines } from "@/lib/ui/format.ts";
 import {
-  isSyntheticTaskAgentId,
-  extractToolCallIdFromSyntheticTaskAgentId,
   isClaudeSyntheticForegroundAgentId,
 } from "@/state/chat/shared/helpers/subagents.ts";
 import type {
@@ -770,10 +768,6 @@ function getAgentInsertIndex(parts: Part[]): number {
  */
 const agentEventBuffer = new Map<string, StreamPartEvent[]>();
 
-function buildSyntheticTaskAgentBufferKey(taskToolCallId: string): string {
-  return `synthetic-task-agent:${taskToolCallId}`;
-}
-
 /** Buffer an event for later replay when agent appears in parts. */
 function bufferAgentEvent(agentId: string, event: StreamPartEvent): void {
   const existing = agentEventBuffer.get(agentId) ?? [];
@@ -795,7 +789,6 @@ function resolveBufferedAgentKeys(agent: ParallelAgent): string[] {
   const keys = new Set<string>([agent.id]);
   if (agent.taskToolCallId) {
     keys.add(agent.taskToolCallId);
-    keys.add(buildSyntheticTaskAgentBufferKey(agent.taskToolCallId));
   }
   return [...keys];
 }
@@ -1093,22 +1086,16 @@ export function syncToolCallsIntoParts(
 /**
  * Find an agent index by direct ID match or correlated keys.
  *
- * Handles the timing race where batch-delayed tool events arrive with
- * a synthetic agent ID (e.g. "synthetic-task-agent:{toolCallId}") after
- * the real agent (with matching taskToolCallId) has already been created
- * by an immediately-processed stream.agent.start event.
+ * Handles the timing race where batch-delayed tool events arrive keyed by
+ * the task tool correlation before the agent row is fully hydrated.
  */
 function findAgentIndexByIdOrCorrelation(agents: ParallelAgent[], agentId: string): number {
   const directIdx = agents.findIndex((a) => a.id === agentId);
   if (directIdx >= 0) return directIdx;
 
-  // Match synthetic-task-agent:{toolCallId} → agent with matching id or taskToolCallId
-  if (isSyntheticTaskAgentId(agentId)) {
-    const toolCallId = extractToolCallIdFromSyntheticTaskAgentId(agentId);
-    if (toolCallId) {
-      const idx = agents.findIndex((a) => a.id === toolCallId || a.taskToolCallId === toolCallId);
-      if (idx >= 0) return idx;
-    }
+  const correlatedIdx = agents.findIndex((a) => a.taskToolCallId === agentId);
+  if (correlatedIdx >= 0) {
+    return correlatedIdx;
   }
 
   // Match synthetic foreground agent ID → promoted agent (single non-synthetic non-background agent)

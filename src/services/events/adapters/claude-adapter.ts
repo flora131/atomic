@@ -140,7 +140,9 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
   private ownedSessionIds = new Set<string>();
   /** Maps sub-agent child session IDs to agent IDs */
   private subagentSessionToAgentId = new Map<string, string>();
-  /** Maps task-tool correlation ID -> subagentId */
+  /** Maps native Claude subagent IDs -> canonical agent IDs */
+  private nativeSubagentIdToAgentId = new Map<string, string>();
+  /** Maps task-tool correlation ID -> canonical agent ID */
   private toolUseIdToSubagentId = new Map<string, string>();
   /** Synthetic foreground agent context used for Claude @agent agent-only streams */
   private syntheticForegroundAgent:
@@ -252,6 +254,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     this.activeSubagentToolsById.clear();
     this.ownedSessionIds = new Set([this.sessionId]);
     this.subagentSessionToAgentId.clear();
+    this.nativeSubagentIdToAgentId.clear();
     this.toolUseIdToSubagentId.clear();
     this.syntheticForegroundAgent = agent
       ? {
@@ -503,8 +506,8 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       if (parentToolCallId) {
         // If the parent tool is a task tool, route text to the sub-agent's
         // inline parts instead of a (suppressed) tool partial result.
-        const subagentId = this.toolUseIdToSubagentId.get(parentToolCallId);
-        if (subagentId && delta.length > 0) {
+        const agentId = this.toolUseIdToSubagentId.get(parentToolCallId) ?? parentToolCallId;
+        if (agentId && delta.length > 0) {
           this.bus.publish({
             type: "stream.text.delta",
             sessionId: this.sessionId,
@@ -513,7 +516,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
             data: {
               delta,
               messageId,
-              agentId: subagentId,
+              agentId,
             },
           });
           return;
@@ -704,9 +707,9 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       this.registerToolCorrelationAliases(toolId, sdkToolUseId, sdkToolCallId);
 
       // Check if this tool belongs to a sub-agent
-      const directParentAgentId = this.asString(
+      const directParentAgentId = this.resolveCanonicalAgentId(this.asString(
         dataRecord.parentAgentId ?? dataRecord.parentId,
-      );
+      ));
       const parentToolUseId = this.resolveToolCorrelationId(
         this.asString(
           dataRecord.parentToolUseId
@@ -740,7 +743,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
         ? this.getSyntheticAgentIdForAttribution()
         : undefined;
       const resolvedParentAgentId = directParentAgentId
-        ?? (parentToolUseId ? this.toolUseIdToSubagentId.get(parentToolUseId) : undefined)
+        ?? this.resolveTaskDispatchParentAgentId(parentToolUseId)
         ?? sessionMappedParentAgentId
         ?? taskOutputParentAgentId
         ?? fallbackParentAgentId;
@@ -848,7 +851,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
           ?? (data as Record<string, unknown>).parent_tool_use_id,
       ));
       const parentAgentId = this.resolveSubagentSessionParentAgentId(eventSessionId)
-        ?? (parentToolUseId ? this.toolUseIdToSubagentId.get(parentToolUseId) : undefined);
+        ?? this.resolveTaskDispatchParentAgentId(parentToolUseId);
       const toolRequests = Array.isArray(data.toolRequests) ? data.toolRequests : [];
 
       if (toolRequests.length === 0) {
@@ -885,17 +888,6 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
         this.registerToolCorrelationAliases(toolId, undefined, sdkCorrelationId);
         if (sdkCorrelationId) {
           this.emittedToolStartCorrelationIds.add(sdkCorrelationId);
-        }
-
-        if (!parentAgentId && parentToolUseId) {
-          this.queueEarlyToolStart(parentToolUseId, {
-            phase: "start",
-            toolId,
-            toolName,
-            toolInput,
-            sdkCorrelationId: sdkCorrelationId ?? toolId,
-          });
-          continue;
         }
 
         if (parentAgentId && this.subagentTracker?.hasAgent(parentAgentId)) {
@@ -972,9 +964,9 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       this.removeActiveSubagentToolContext(toolId, sdkCorrelationId, sdkToolUseId, sdkToolCallId);
 
       // Check if this tool belongs to a sub-agent
-      const directParentAgentId = this.asString(
+      const directParentAgentId = this.resolveCanonicalAgentId(this.asString(
         dataRecord.parentAgentId ?? dataRecord.parentId,
-      );
+      ));
       const parentToolUseId = this.resolveToolCorrelationId(
         this.asString(
           dataRecord.parentToolUseId
@@ -1009,7 +1001,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
         ? this.getSyntheticAgentIdForAttribution()
         : undefined;
       const resolvedParentAgentId = directParentAgentId
-        ?? (parentToolUseId ? this.toolUseIdToSubagentId.get(parentToolUseId) : undefined)
+        ?? this.resolveTaskDispatchParentAgentId(parentToolUseId)
         ?? sessionMappedParentAgentId
         ?? taskOutputParentAgentId
         ?? activeToolContext?.parentAgentId
@@ -1166,7 +1158,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
           ?? dataRecord.parent_tool_call_id,
       ));
       const parentAgentId = sessionMappedParentAgentId
-        ?? (parentToolUseId ? this.toolUseIdToSubagentId.get(parentToolUseId) : undefined);
+        ?? this.resolveTaskDispatchParentAgentId(parentToolUseId);
       if (!this.isOwnedSession(eventSessionId) && !parentAgentId) return;
       this.bus.publish({
         type: "stream.skill.invoked",
@@ -1200,7 +1192,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
           ?? dataRecord.parent_tool_call_id,
       ));
       const parentAgentId = this.resolveSubagentSessionParentAgentId(eventSessionId)
-        ?? (parentToolUseId ? this.toolUseIdToSubagentId.get(parentToolUseId) : undefined);
+        ?? this.resolveTaskDispatchParentAgentId(parentToolUseId);
       if (!parentAgentId) {
         return;
       }
@@ -1239,7 +1231,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
           ?? dataRecord.parent_tool_call_id,
       ));
       const parentAgentId = sessionMappedParentAgentId
-        ?? (parentToolUseId ? this.toolUseIdToSubagentId.get(parentToolUseId) : undefined)
+        ?? this.resolveTaskDispatchParentAgentId(parentToolUseId)
         ?? (eventSessionId === this.sessionId ? this.getSyntheticAgentIdForAttribution() : undefined);
       if (!this.isOwnedSession(eventSessionId) && !parentAgentId) return;
       if (!data.delta || data.delta.length === 0) return;
@@ -1278,7 +1270,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
           ?? dataRecord.parent_tool_call_id,
       ));
       const parentAgentId = sessionMappedParentAgentId
-        ?? (parentToolUseId ? this.toolUseIdToSubagentId.get(parentToolUseId) : undefined)
+        ?? this.resolveTaskDispatchParentAgentId(parentToolUseId)
         ?? (eventSessionId === this.sessionId ? this.getSyntheticAgentIdForAttribution() : undefined);
       if (!this.isOwnedSession(eventSessionId) && !parentAgentId) return;
       const sourceKey = data.reasoningId || "reasoning";
@@ -1618,35 +1610,37 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
           toolInput: dataRecord.toolInput,
         },
       );
+      const agentId = parentToolUseId ?? sdkCorrelationId ?? data.subagentId;
 
       // Register agent with tracker for tool counting
-      this.subagentTracker?.registerAgent(data.subagentId);
-      this.activeSubagentIds.add(data.subagentId);
+      this.subagentTracker?.registerAgent(agentId);
+      this.activeSubagentIds.add(agentId);
+      this.nativeSubagentIdToAgentId.set(data.subagentId, agentId);
       if (subagentSessionId && subagentSessionId !== this.sessionId) {
         this.ownedSessionIds.add(subagentSessionId);
-        this.subagentSessionToAgentId.set(subagentSessionId, data.subagentId);
+        this.subagentSessionToAgentId.set(subagentSessionId, agentId);
       }
       if (eventSessionId !== this.sessionId) {
         this.ownedSessionIds.add(eventSessionId);
-        this.subagentSessionToAgentId.set(eventSessionId, data.subagentId);
+        this.subagentSessionToAgentId.set(eventSessionId, agentId);
       }
-      this.activeSubagentBackgroundById.set(data.subagentId, normalizedMetadata.isBackground);
+      this.activeSubagentBackgroundById.set(agentId, normalizedMetadata.isBackground);
       if (normalizedMetadata.isBackground && !this.currentBackgroundAttributionAgentId) {
-        this.currentBackgroundAttributionAgentId = data.subagentId;
+        this.currentBackgroundAttributionAgentId = agentId;
       }
 
       if (sdkCorrelationId) {
-        this.toolUseIdToSubagentId.set(sdkCorrelationId, data.subagentId);
+        this.toolUseIdToSubagentId.set(sdkCorrelationId, agentId);
         this.removePendingTaskToolCorrelationId(sdkCorrelationId);
       }
       // Also map under the parent tool use ID so tool events correlated via the
       // Agent tool's tool_use_id can resolve to this sub-agent.
       if (parentToolUseId && parentToolUseId !== sdkCorrelationId) {
-        this.toolUseIdToSubagentId.set(parentToolUseId, data.subagentId);
+        this.toolUseIdToSubagentId.set(parentToolUseId, agentId);
         this.removePendingTaskToolCorrelationId(parentToolUseId);
       }
 
-      for (const key of [data.subagentId, sdkCorrelationId, parentToolUseId]) {
+      for (const key of [agentId, sdkCorrelationId, parentToolUseId]) {
         if (!key) {
           continue;
         }
@@ -1655,7 +1649,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
           continue;
         }
         for (const tool of earlyTools) {
-          this.replayEarlyToolStart(data.subagentId, tool, runId);
+          this.replayEarlyToolStart(agentId, tool, runId);
         }
         this.earlyToolEvents.delete(key);
       }
@@ -1666,12 +1660,12 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
         runId,
         timestamp: Date.now(),
         data: {
-          agentId: data.subagentId,
-          toolCallId: sdkCorrelationId ?? data.subagentId,
+          agentId,
+          toolCallId: agentId,
           agentType: data.subagentType ?? "unknown",
           task: normalizedMetadata.task,
           isBackground: normalizedMetadata.isBackground,
-          sdkCorrelationId,
+          sdkCorrelationId: agentId,
         },
       };
       this.bus.publish(busEvent);
@@ -1691,12 +1685,14 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       if (eventSessionId !== this.sessionId && !this.hasKnownSubagentId(data.subagentId)) {
         return;
       }
-      this.subagentTracker?.removeAgent(data.subagentId);
-      this.activeSubagentIds.delete(data.subagentId);
-      this.activeSubagentBackgroundById.delete(data.subagentId);
-      this.earlyToolEvents.delete(data.subagentId);
+      const agentId = this.resolveCanonicalAgentId(data.subagentId) ?? data.subagentId;
+      this.subagentTracker?.removeAgent(agentId);
+      this.activeSubagentIds.delete(agentId);
+      this.activeSubagentBackgroundById.delete(agentId);
+      this.earlyToolEvents.delete(agentId);
+      this.nativeSubagentIdToAgentId.delete(data.subagentId);
       for (const [toolUseId, subagentId] of this.toolUseIdToSubagentId.entries()) {
-        if (subagentId === data.subagentId) {
+        if (subagentId === agentId) {
           this.toolUseIdToSubagentId.delete(toolUseId);
           this.taskToolMetadata.delete(toolUseId);
           this.removePendingTaskToolCorrelationId(toolUseId);
@@ -1704,12 +1700,12 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
         }
       }
       for (const [subagentSessionId, mappedAgentId] of this.subagentSessionToAgentId.entries()) {
-        if (mappedAgentId === data.subagentId) {
+        if (mappedAgentId === agentId) {
           this.subagentSessionToAgentId.delete(subagentSessionId);
           this.ownedSessionIds.delete(subagentSessionId);
         }
       }
-      if (this.currentBackgroundAttributionAgentId === data.subagentId) {
+      if (this.currentBackgroundAttributionAgentId === agentId) {
         this.currentBackgroundAttributionAgentId = this.resolveBackgroundAttributionFallbackAgentId() ?? null;
       }
 
@@ -1719,7 +1715,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
         runId,
         timestamp: Date.now(),
         data: {
-          agentId: data.subagentId,
+          agentId,
           success: data.success,
           result: typeof data.result === "string" ? data.result : undefined,
           error: typeof (data as Record<string, unknown>).error === "string"
@@ -1744,13 +1740,14 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       if (eventSessionId !== this.sessionId && !this.hasKnownSubagentId(data.subagentId)) {
         return;
       }
+      const agentId = this.resolveCanonicalAgentId(data.subagentId) ?? data.subagentId;
       const busEvent: BusEvent<"stream.agent.update"> = {
         type: "stream.agent.update",
         sessionId: this.sessionId,
         runId,
         timestamp: Date.now(),
         data: {
-          agentId: data.subagentId,
+          agentId,
           currentTool: data.currentTool,
           toolUses: data.toolUses,
         },
@@ -1897,6 +1894,10 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     if (!taskId) {
       return undefined;
     }
+    const canonicalTaskAgentId = this.resolveCanonicalAgentId(taskId);
+    if (canonicalTaskAgentId) {
+      return canonicalTaskAgentId;
+    }
     if (this.hasKnownSubagentId(taskId)) {
       return taskId;
     }
@@ -1983,6 +1984,25 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       return undefined;
     }
     return this.toolCorrelationAliases.get(correlationId) ?? correlationId;
+  }
+
+  private resolveTaskDispatchParentAgentId(correlationId: string | undefined): string | undefined {
+    const resolvedCorrelationId = this.resolveToolCorrelationId(correlationId) ?? correlationId;
+    if (!resolvedCorrelationId) {
+      return undefined;
+    }
+    return this.toolUseIdToSubagentId.get(resolvedCorrelationId)
+      ?? (this.taskToolMetadata.has(resolvedCorrelationId)
+        || this.pendingTaskToolCorrelationIds.includes(resolvedCorrelationId)
+        ? resolvedCorrelationId
+        : undefined);
+  }
+
+  private resolveCanonicalAgentId(agentId: string | undefined): string | undefined {
+    if (!agentId) {
+      return undefined;
+    }
+    return this.nativeSubagentIdToAgentId.get(agentId) ?? agentId;
   }
 
   private recordPendingTaskToolCorrelationId(correlationId: string): void {
@@ -2137,6 +2157,9 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     if (!subagentId) {
       return false;
     }
+    if (this.nativeSubagentIdToAgentId.has(subagentId)) {
+      return true;
+    }
     if (this.activeSubagentIds.has(subagentId)) {
       return true;
     }
@@ -2221,6 +2244,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     this.activeSubagentToolsById.clear();
     this.ownedSessionIds = new Set([this.sessionId]);
     this.subagentSessionToAgentId.clear();
+    this.nativeSubagentIdToAgentId.clear();
   }
 
   /**
@@ -2256,6 +2280,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     this.activeSubagentToolsById.clear();
     this.ownedSessionIds.clear();
     this.subagentSessionToAgentId.clear();
+    this.nativeSubagentIdToAgentId.clear();
     this.toolUseIdToSubagentId.clear();
     this.syntheticForegroundAgent = null;
     this.syntheticToolCounter = 0;

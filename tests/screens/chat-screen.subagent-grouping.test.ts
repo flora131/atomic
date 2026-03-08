@@ -3,7 +3,6 @@ import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
 import {
   finalizeCorrelatedSubagentDispatchForToolComplete,
   finalizeSyntheticTaskAgentForToolComplete,
-  isSyntheticTaskAgentId,
   mergeAgentTaskLabel,
   resolveSubagentStartCorrelationId,
   resolveAgentCurrentToolForUpdate,
@@ -180,7 +179,6 @@ describe("OpenCode task-dispatch placeholders", () => {
     });
 
     expect(agents).toHaveLength(1);
-    expect(isSyntheticTaskAgentId(agents[0]!.id)).toBe(false);
     expect(agents[0]!.id).toBe("tool-1");
     expect(agents[0]!.taskToolCallId).toBe("tool-1");
     expect(agents[0]!.name).toBe("codebase-online-researcher");
@@ -233,10 +231,30 @@ describe("OpenCode task-dispatch placeholders", () => {
     expect(agents).toHaveLength(0);
   });
 
-  test("does not create synthetic task agents for non-OpenCode providers", () => {
+  test("creates a Claude placeholder row keyed by the task tool id", () => {
     const agents = upsertSyntheticTaskAgentForToolStart({
       agents: [],
       provider: "claude",
+      toolName: "task",
+      toolId: "tool-1",
+      input: {
+        description: "Research TUI UX practices",
+        subagent_type: "codebase-online-researcher",
+      },
+      startedAt: "2026-03-02T06:18:36.000Z",
+    });
+
+    expect(agents).toHaveLength(1);
+    expect(agents[0]!.id).toBe("tool-1");
+    expect(agents[0]!.taskToolCallId).toBe("tool-1");
+    expect(agents[0]!.name).toBe("codebase-online-researcher");
+    expect(agents[0]!.task).toBe("Research TUI UX practices");
+  });
+
+  test("does not create synthetic task agents for unsupported providers", () => {
+    const agents = upsertSyntheticTaskAgentForToolStart({
+      agents: [],
+      provider: "copilot",
       toolName: "task",
       toolId: "tool-1",
       input: {

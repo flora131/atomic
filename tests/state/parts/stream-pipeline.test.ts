@@ -1100,13 +1100,13 @@ describe("applyStreamPartEvent", () => {
     }
   });
 
-  test("preserves inline tool parts when a synthetic task agent is promoted to the real subagent id", () => {
+  test("preserves inline tool parts when a task-correlated row is hydrated", () => {
     let msg = createAssistantMessage();
     msg = applyStreamPartEvent(msg, {
       type: "parallel-agents",
       agents: [
         {
-          id: "synthetic-task-agent:task_1",
+          id: "task_1",
           taskToolCallId: "task_1",
           name: "task",
           task: "Investigate",
@@ -1122,7 +1122,7 @@ describe("applyStreamPartEvent", () => {
       toolId: "child-tool-1",
       toolName: "Read",
       input: { filePath: "src/app.ts" },
-      agentId: "synthetic-task-agent:task_1",
+      agentId: "task_1",
     });
 
     const promoted = applyStreamPartEvent(msg, {
@@ -1194,7 +1194,7 @@ describe("applyStreamPartEvent", () => {
     }
   });
 
-  test("replays buffered synthetic-agent tool events when the real subagent id arrives", () => {
+  test("replays buffered task-correlated tool events when the agent row arrives", () => {
     let msg = createAssistantMessage();
 
     msg = applyStreamPartEvent(msg, {
@@ -1202,7 +1202,7 @@ describe("applyStreamPartEvent", () => {
       toolId: "child-tool-buffered",
       toolName: "Read",
       input: { filePath: "src/main.ts" },
-      agentId: "synthetic-task-agent:task_2",
+      agentId: "task_2",
     });
 
     const promoted = applyStreamPartEvent(msg, {

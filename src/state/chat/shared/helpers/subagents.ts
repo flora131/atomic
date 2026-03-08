@@ -3,7 +3,6 @@ import type { AgentType } from "@/services/models/index.ts";
 import { isSubagentToolName } from "@/state/parts/index.ts";
 
 const DEFAULT_SUBAGENT_TASK_LABEL = "sub-agent task";
-const SYNTHETIC_TASK_AGENT_PREFIX = "synthetic-task-agent:";
 
 export const CLAUDE_SYNTHETIC_FOREGROUND_AGENT_PREFIX = "agent-only-";
 
@@ -136,24 +135,11 @@ function hasSyntheticTaskExecutionDetails(input: Record<string, unknown>): boole
   );
 }
 
-function buildSyntheticTaskAgentId(toolId: string): string {
-  return `${SYNTHETIC_TASK_AGENT_PREFIX}${toolId}`;
-}
-
 function buildTaskDispatchPlaceholderId(
-  provider: AgentType | undefined,
+  _provider: AgentType | undefined,
   toolId: string,
 ): string {
-  return provider === "opencode" ? toolId : buildSyntheticTaskAgentId(toolId);
-}
-
-export function isSyntheticTaskAgentId(agentId: string): boolean {
-  return agentId.startsWith(SYNTHETIC_TASK_AGENT_PREFIX);
-}
-
-export function extractToolCallIdFromSyntheticTaskAgentId(agentId: string): string | undefined {
-  if (!agentId.startsWith(SYNTHETIC_TASK_AGENT_PREFIX)) return undefined;
-  return agentId.slice(SYNTHETIC_TASK_AGENT_PREFIX.length) || undefined;
+  return toolId;
 }
 
 function isAbortLikeToolError(error: string | undefined): boolean {
@@ -173,7 +159,7 @@ export function upsertSyntheticTaskAgentForToolStart(args: {
   startedAt: string;
   agentId?: string;
 }): ParallelAgent[] {
-  if (args.provider !== "opencode") return args.agents;
+  if (args.provider !== "opencode" && args.provider !== "claude") return args.agents;
   if (args.agentId) return args.agents;
   if (!isSubagentToolName(args.toolName)) return args.agents;
 
@@ -193,8 +179,7 @@ export function upsertSyntheticTaskAgentForToolStart(args: {
   if (!hasExecutionDetails) {
     const hasExistingSynthetic = args.agents.some(
       (agent) =>
-        agent.id === placeholderId
-        || (isSyntheticTaskAgentId(agent.id) && agent.taskToolCallId === args.toolId),
+        agent.id === placeholderId,
     );
     if (!hasExistingSynthetic) {
       return args.agents;
@@ -207,9 +192,7 @@ export function upsertSyntheticTaskAgentForToolStart(args: {
   const nextToolUses = 0;
   const nextCurrentTool = undefined;
   const existingSyntheticIndex = args.agents.findIndex(
-    (agent) =>
-      agent.id === placeholderId
-      || (isSyntheticTaskAgentId(agent.id) && agent.taskToolCallId === args.toolId),
+      (agent) => agent.id === placeholderId,
   );
 
   if (existingSyntheticIndex >= 0) {
@@ -259,7 +242,7 @@ export function finalizeSyntheticTaskAgentForToolComplete(args: {
   completedAtMs: number;
   agentId?: string;
 }): ParallelAgent[] {
-  if (args.provider !== "opencode") return args.agents;
+  if (args.provider !== "opencode" && args.provider !== "claude") return args.agents;
   if (args.agentId) return args.agents;
   if (!isSubagentToolName(args.toolName)) return args.agents;
 

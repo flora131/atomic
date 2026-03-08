@@ -35,7 +35,6 @@ export {
   isBootstrapAgentCurrentToolLabel,
   isGenericSubagentTaskLabel,
   isRuntimeEnvelopePartEvent,
-  isSyntheticTaskAgentId,
   mergeAgentTaskLabel,
   mergeClosedThinkingSources,
   queueAgentTerminalBeforeDeferredDeltas,

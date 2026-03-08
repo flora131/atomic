@@ -2526,7 +2526,7 @@ describe("ClaudeStreamAdapter", () => {
 
     const agentStartEvents = events.filter((e) => e.type === "stream.agent.start");
     expect(agentStartEvents.length).toBe(1);
-    expect(agentStartEvents[0].data.agentId).toBe("agent-001");
+    expect(agentStartEvents[0].data.agentId).toBe("tool_use_123");
     expect(agentStartEvents[0].data.agentType).toBe("explore");
     expect(agentStartEvents[0].data.task).toBe("Find files");
     expect(agentStartEvents[0].data.sdkCorrelationId).toBe("tool_use_123");
@@ -2562,7 +2562,7 @@ describe("ClaudeStreamAdapter", () => {
     await streamPromise;
 
     const agentStartEvent = events.find(
-      (e) => e.type === "stream.agent.start" && e.data.agentId === "agent-description-priority-1",
+      (e) => e.type === "stream.agent.start" && e.data.agentId === "tool-use-description-priority-1",
     );
     expect(agentStartEvent?.data.task).toBe("Locate sub-agent tree label derivation");
   });
@@ -2619,7 +2619,7 @@ describe("ClaudeStreamAdapter", () => {
     const progressUpdates = events.filter(
       (e) =>
         e.type === "stream.agent.update"
-        && e.data.agentId === "agent-partial-claude-1"
+        && e.data.agentId === "tool-use-parent-claude-1"
         && e.data.currentTool === "bash",
     );
     expect(progressUpdates.length).toBeGreaterThanOrEqual(2);
@@ -2669,12 +2669,12 @@ describe("ClaudeStreamAdapter", () => {
       (e) => e.type === "stream.tool.start" && e.data.toolId === "child-tool-1",
     );
     expect(toolStart).toBeDefined();
-    expect(toolStart?.data.parentAgentId).toBe("agent-child-session-1");
+    expect(toolStart?.data.parentAgentId).toBe("tool-use-child-parent-1");
 
     const progressUpdates = events.filter(
       (e) =>
         e.type === "stream.agent.update"
-        && e.data.agentId === "agent-child-session-1"
+        && e.data.agentId === "tool-use-child-parent-1"
         && e.data.currentTool === "bash"
         && e.data.toolUses === 1,
     );
@@ -2807,22 +2807,22 @@ describe("ClaudeStreamAdapter", () => {
       (e) => e.type === "stream.tool.start" && e.data.toolId === "child-b-tool-1",
     );
     expect(nestedToolStart).toBeDefined();
-    expect(nestedToolStart?.data.parentAgentId).toBe("agent-child-b");
+    expect(nestedToolStart?.data.parentAgentId).toBe("task-tool-b");
 
     const nestedPartial = events.find(
       (e) => e.type === "stream.tool.partial_result" && e.data.toolCallId === "child-b-tool-1",
     );
     expect(nestedPartial).toBeDefined();
-    expect(nestedPartial?.data.parentAgentId).toBe("agent-child-b");
+    expect(nestedPartial?.data.parentAgentId).toBe("task-tool-b");
 
     const nestedToolComplete = events.find(
       (e) => e.type === "stream.tool.complete" && e.data.toolId === "child-b-tool-1",
     );
     expect(nestedToolComplete).toBeDefined();
-    expect(nestedToolComplete?.data.parentAgentId).toBe("agent-child-b");
+    expect(nestedToolComplete?.data.parentAgentId).toBe("task-tool-b");
 
     const nestedUpdates = events.filter(
-      (e) => e.type === "stream.agent.update" && e.data.agentId === "agent-child-b",
+      (e) => e.type === "stream.agent.update" && e.data.agentId === "task-tool-b",
     );
     expect(nestedUpdates.some((e) => e.data.currentTool === "WebSearch" && e.data.toolUses === 1)).toBe(true);
     expect(nestedUpdates.some((e) => e.data.currentTool === undefined && e.data.toolUses === 1)).toBe(true);
@@ -2872,12 +2872,12 @@ describe("ClaudeStreamAdapter", () => {
       (e) => e.type === "stream.tool.start" && e.data.toolId === "tool-unscoped-1",
     );
     expect(toolStart).toBeDefined();
-    expect(toolStart?.data.parentAgentId).toBe("agent-unscoped-1");
+    expect(toolStart?.data.parentAgentId).toBe("tool-parent-unscoped-1");
 
     const progressUpdates = events.filter(
       (e) =>
         e.type === "stream.agent.update"
-        && e.data.agentId === "agent-unscoped-1"
+        && e.data.agentId === "tool-parent-unscoped-1"
         && e.data.currentTool === "Bash"
         && e.data.toolUses === 1,
     );
@@ -2963,19 +2963,19 @@ describe("ClaudeStreamAdapter", () => {
       (e) => e.type === "stream.tool.start" && e.data.toolId === "task-output-1",
     );
     expect(taskOutputStart).toBeDefined();
-    expect(taskOutputStart?.data.parentAgentId).toBe("agent-parallel-a");
+    expect(taskOutputStart?.data.parentAgentId).toBe("task-tool-a");
 
     const webSearchStart = events.find(
       (e) => e.type === "stream.tool.start" && e.data.toolId === "websearch-1",
     );
     expect(webSearchStart).toBeDefined();
-    expect(webSearchStart?.data.parentAgentId).toBe("agent-parallel-a");
+    expect(webSearchStart?.data.parentAgentId).toBe("task-tool-a");
 
     const webSearchComplete = events.find(
       (e) => e.type === "stream.tool.complete" && e.data.toolId === "websearch-1",
     );
     expect(webSearchComplete).toBeDefined();
-    expect(webSearchComplete?.data.parentAgentId).toBe("agent-parallel-a");
+    expect(webSearchComplete?.data.parentAgentId).toBe("task-tool-a");
   });
 
   test("attributes pre-TaskOutput unscoped tools to active background subagent fallback", async () => {
@@ -3055,7 +3055,7 @@ describe("ClaudeStreamAdapter", () => {
       (e) => e.type === "stream.tool.start" && e.data.toolId === "pre-taskoutput-read-1",
     );
     expect(readStart).toBeDefined();
-    expect(readStart?.data.parentAgentId).toBe("agent-bg-a");
+    expect(readStart?.data.parentAgentId).toBe("task-tool-bg-a");
   });
 
   test("attributes child-session tools via background fallback when parent correlation is unresolved", async () => {
@@ -3150,13 +3150,13 @@ describe("ClaudeStreamAdapter", () => {
       (e) => e.type === "stream.tool.start" && e.data.toolId === "child-bg-tool-1",
     );
     expect(toolStart).toBeDefined();
-    expect(toolStart?.data.parentAgentId).toBe("agent-bg-a");
+    expect(toolStart?.data.parentAgentId).toBe("task-tool-bg-a");
 
     const toolComplete = events.find(
       (e) => e.type === "stream.tool.complete" && e.data.toolId === "child-bg-tool-1",
     );
     expect(toolComplete).toBeDefined();
-    expect(toolComplete?.data.parentAgentId).toBe("agent-bg-a");
+    expect(toolComplete?.data.parentAgentId).toBe("task-tool-bg-a");
   });
 
   test("preserves parentAgentId on orphaned tool completions during cleanup", async () => {
@@ -3204,7 +3204,7 @@ describe("ClaudeStreamAdapter", () => {
         && e.data.error === "Tool execution aborted",
     );
     expect(orphanedComplete).toBeDefined();
-    expect(orphanedComplete?.data.parentAgentId).toBe("agent-orphan-1");
+    expect(orphanedComplete?.data.parentAgentId).toBe("tool-parent-orphan-1");
   });
 
   test("normalizes OpenCode subagent correlation IDs to the canonical tool ID", async () => {
@@ -3486,13 +3486,13 @@ describe("ClaudeStreamAdapter", () => {
       (e) => e.type === "stream.tool.start" && e.data.toolId === "inner-tool-1",
     );
     expect(innerStart).toBeDefined();
-    expect(innerStart?.data.parentAgentId).toBe("agent-parent-call-1");
+    expect(innerStart?.data.parentAgentId).toBe("tool-parent-call-1");
 
     const innerComplete = events.find(
       (e) => e.type === "stream.tool.complete" && e.data.toolId === "inner-tool-1",
     );
     expect(innerComplete).toBeDefined();
-    expect(innerComplete?.data.parentAgentId).toBe("agent-parent-call-1");
+    expect(innerComplete?.data.parentAgentId).toBe("tool-parent-call-1");
   });
 
   test("falls back to pending task tool ordering when subagent.start lacks parent correlation", async () => {
@@ -3722,13 +3722,13 @@ describe("ClaudeStreamAdapter", () => {
       (e) => e.type === "stream.thinking.delta" && e.data.sourceKey === "reasoning-child-1",
     );
     expect(thinkingDelta).toBeDefined();
-    expect(thinkingDelta?.data.agentId).toBe("agent-claude-reasoning-1");
+    expect(thinkingDelta?.data.agentId).toBe("task-call-claude-reasoning-1");
 
     const thinkingComplete = events.find(
       (e) => e.type === "stream.thinking.complete" && e.data.sourceKey === "reasoning-child-1",
     );
     expect(thinkingComplete).toBeDefined();
-    expect(thinkingComplete?.data.agentId).toBe("agent-claude-reasoning-1");
+    expect(thinkingComplete?.data.agentId).toBe("task-call-claude-reasoning-1");
   });
 
   test("routes Claude child-session provider message deltas into agent-scoped text", async () => {
@@ -3775,7 +3775,7 @@ describe("ClaudeStreamAdapter", () => {
       events.some(
         (e) => e.type === "stream.text.delta"
           && e.data.delta === "child text chunk"
-          && e.data.agentId === "agent-claude-text-1",
+          && e.data.agentId === "task-call-claude-text-1",
       ),
     ).toBe(true);
   });
@@ -3836,12 +3836,64 @@ describe("ClaudeStreamAdapter", () => {
     const toolStart = events.find(
       (e) => e.type === "stream.tool.start" && e.data.toolId === "child-claude-tool-1",
     );
-    expect(toolStart?.data.parentAgentId).toBe("agent-claude-tool-1");
+    expect(toolStart?.data.parentAgentId).toBe("task-call-claude-tool-1");
 
     const toolComplete = events.find(
       (e) => e.type === "stream.tool.complete" && e.data.toolId === "child-claude-tool-1",
     );
-    expect(toolComplete?.data.parentAgentId).toBe("agent-claude-tool-1");
+    expect(toolComplete?.data.parentAgentId).toBe("task-call-claude-tool-1");
+  });
+
+  test("routes Claude child-session tool requests to the parent tool id before subagent.start", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+    adapter = new ClaudeStreamAdapter(bus, "test-session-123", client);
+
+    const stream = mockAsyncStream([{ type: "text", content: "done" }]);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test", {
+      runId: 104,
+      messageId: "msg-claude-synthetic-tool-child",
+    });
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        toolName: "Agent",
+        toolInput: {
+          description: "Investigate streaming tree",
+          subagent_type: "debugger",
+        },
+        toolUseId: "task-call-claude-synthetic-1",
+      },
+    } as AgentEvent<"tool.start">);
+
+    client.emit("message.complete" as EventType, {
+      type: "message.complete",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        parentToolCallId: "task-call-claude-synthetic-1",
+        toolRequests: [
+          {
+            toolCallId: "child-claude-tool-synthetic-1",
+            name: "bash",
+            arguments: { command: "pwd" },
+          },
+        ],
+      },
+      nativeSessionId: "child-session-claude-synthetic-1",
+    } as AgentEvent<"message.complete"> & { nativeSessionId: string });
+
+    await streamPromise;
+
+    const toolStart = events.find(
+      (e) => e.type === "stream.tool.start" && e.data.toolId === "child-claude-tool-synthetic-1",
+    );
+    expect(toolStart?.data.parentAgentId).toBe("task-call-claude-synthetic-1");
   });
 
   test("tags Claude subagent skill invocations so the top-level skill UI can ignore them", async () => {
@@ -3885,7 +3937,7 @@ describe("ClaudeStreamAdapter", () => {
     const skillEvent = events.find((e) => e.type === "stream.skill.invoked");
     expect(skillEvent).toBeDefined();
     expect(skillEvent?.data.skillName).toBe("frontend-design");
-    expect(skillEvent?.data.agentId).toBe("agent-claude-skill-1");
+    expect(skillEvent?.data.agentId).toBe("task-call-claude-skill-1");
   });
 
   test("ignores raw Claude Skill tool chunks so skill loads render only through stream.skill.invoked", async () => {

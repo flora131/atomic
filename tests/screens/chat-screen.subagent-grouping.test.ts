@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
-import type { AgentPart } from "@/state/parts/index.ts";
 import {
   finalizeCorrelatedSubagentDispatchForToolComplete,
   finalizeSyntheticTaskAgentForToolComplete,
@@ -8,7 +7,6 @@ import {
   mergeAgentTaskLabel,
   resolveSubagentStartCorrelationId,
   resolveAgentCurrentToolForUpdate,
-  shouldGroupSubagentTrees,
   upsertSyntheticTaskAgentForToolStart,
 } from "@/state/chat/exports.ts";
 
@@ -22,86 +20,6 @@ function createCompletedAgent(): ParallelAgent {
     startedAt: "2026-01-01T00:00:00.000Z",
   };
 }
-
-describe("shouldGroupSubagentTrees", () => {
-  test("groups active sub-agents on the last message", () => {
-    const activeAgent: ParallelAgent = {
-      ...createCompletedAgent(),
-      status: "running",
-    };
-
-    expect(
-      shouldGroupSubagentTrees(
-        {
-          parallelAgents: [activeAgent],
-          toolCalls: [{ id: "task-1", toolName: "Task", input: {}, status: "running" }],
-          parts: [],
-        },
-        true,
-      ),
-    ).toBe(true);
-  });
-
-  test("keeps grouped layout after all sub-agents complete", () => {
-    const groupedPart: AgentPart = {
-      id: "agent-part-grouped",
-      type: "agent",
-      agents: [createCompletedAgent()],
-      parentToolPartId: undefined,
-      createdAt: "2026-01-01T00:00:00.000Z",
-    };
-
-    expect(
-      shouldGroupSubagentTrees(
-        {
-          parallelAgents: [createCompletedAgent()],
-          toolCalls: [{ id: "task-1", toolName: "Task", input: {}, status: "completed" }],
-          parts: [groupedPart],
-        },
-        true,
-      ),
-    ).toBe(true);
-  });
-
-  test("groups completed trees even without grouped history", () => {
-    const splitPart: AgentPart = {
-      id: "agent-part-split",
-      type: "agent",
-      agents: [createCompletedAgent()],
-      parentToolPartId: "tool-part-1",
-      createdAt: "2026-01-01T00:00:00.000Z",
-    };
-
-    expect(
-      shouldGroupSubagentTrees(
-        {
-          parallelAgents: [createCompletedAgent()],
-          toolCalls: [{ id: "task-1", toolName: "Task", input: {}, status: "completed" }],
-          parts: [splitPart],
-        },
-        true,
-      ),
-    ).toBe(true);
-  });
-
-  test("groups sub-agents on non-last messages too", () => {
-    const activeAgent: ParallelAgent = {
-      ...createCompletedAgent(),
-      status: "running",
-    };
-
-    expect(
-      shouldGroupSubagentTrees(
-        {
-          parallelAgents: [activeAgent],
-          toolCalls: [{ id: "task-1", toolName: "Task", input: {}, status: "running" }],
-          parts: [],
-        },
-        false,
-      ),
-    ).toBe(true);
-  });
-});
 
 describe("mergeAgentTaskLabel", () => {
   test("preserves descriptive task labels when incoming label is generic", () => {

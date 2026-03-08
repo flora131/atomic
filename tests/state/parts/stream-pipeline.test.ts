@@ -1155,6 +1155,45 @@ describe("applyStreamPartEvent", () => {
     }
   });
 
+  test("keeps a single subagent tree attached to its task tool instead of grouping it into a shared tree", () => {
+    let msg = createAssistantMessage();
+
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-start",
+      toolId: "task_single_1",
+      toolName: "Task",
+      input: { description: "Inspect auth flow" },
+    });
+
+    const taskToolPart = msg.parts?.find(
+      (part) => part.type === "tool" && part.toolCallId === "task_single_1",
+    );
+    expect(taskToolPart?.type).toBe("tool");
+
+    msg = applyStreamPartEvent(msg, {
+      type: "parallel-agents",
+      agents: [
+        {
+          id: "agent_single_1",
+          taskToolCallId: "task_single_1",
+          name: "codebase-analyzer",
+          task: "Inspect auth flow",
+          status: "running",
+          startedAt: new Date().toISOString(),
+        },
+      ],
+      isLastMessage: true,
+    });
+
+    const agentParts = (msg.parts ?? []).filter((part) => part.type === "agent");
+    expect(agentParts).toHaveLength(1);
+    expect(agentParts[0]?.type).toBe("agent");
+    if (agentParts[0]?.type === "agent" && taskToolPart?.type === "tool") {
+      expect(agentParts[0].parentToolPartId).toBe(taskToolPart.id);
+      expect(agentParts[0].agents[0]?.id).toBe("agent_single_1");
+    }
+  });
+
   test("replays buffered synthetic-agent tool events when the real subagent id arrives", () => {
     let msg = createAssistantMessage();
 

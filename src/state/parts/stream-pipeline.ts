@@ -14,6 +14,11 @@ import { type PartId, createPartId } from "@/state/parts/id.ts";
 import { upsertPart, findLastPartIndex } from "@/state/parts/store.ts";
 import { handleTextDelta } from "@/state/parts/handlers.ts";
 import { normalizeMarkdownNewlines } from "@/lib/ui/format.ts";
+import {
+  isSyntheticTaskAgentId,
+  extractToolCallIdFromSyntheticTaskAgentId,
+  isClaudeSyntheticForegroundAgentId,
+} from "@/state/chat/shared/helpers/subagents.ts";
 import type {
   AgentPart,
   Part,
@@ -695,13 +700,6 @@ export function isSubagentToolName(toolName: string): boolean {
   return normalized === "task" || normalized === "agent" || normalized === "launch_agent";
 }
 
-function hasSubagentCall(message: Pick<ChatMessage, "parallelAgents" | "toolCalls">): boolean {
-  if ((message.parallelAgents?.length ?? 0) > 0) return true;
-  return (message.toolCalls ?? []).some(
-    (toolCall) => isSubagentToolName(toolCall.toolName),
-  );
-}
-
 function normalizeParallelAgentResult(result: string | undefined): string | undefined {
   if (typeof result !== "string") return undefined;
   const normalized = normalizeMarkdownNewlines(result);
@@ -738,16 +736,6 @@ function hasCompletedAgentInParts(parts: Part[] | undefined, agentId: string): b
   );
 }
 
-export function shouldGroupSubagentTrees(
-  message: Pick<ChatMessage, "parallelAgents" | "toolCalls" | "parts">,
-  _isLastMessage: boolean,
-): boolean {
-  const agents = message.parallelAgents ?? [];
-  if (agents.length === 0) return false;
-  if (!hasSubagentCall(message)) return false;
-  return true;
-}
-
 function getAgentInsertIndex(parts: Part[]): number {
   let lastTaskToolIdx = -1;
   let lastToolIdx = -1;
@@ -773,15 +761,6 @@ function getAgentInsertIndex(parts: Part[]): number {
     idx++;
   }
   return idx;
-}
-
-function insertAgentPartAtTaskBoundary(parts: Part[], agentPart: AgentPart): Part[] {
-  const insertIdx = getAgentInsertIndex(parts);
-  return [
-    ...parts.slice(0, insertIdx),
-    agentPart,
-    ...parts.slice(insertIdx),
-  ];
 }
 
 /**
@@ -900,13 +879,31 @@ function carryOverInlineParts(
 ): ParallelAgent[] {
   if (existingInlineParts.size === 0) return agents;
   let changed = false;
+  const claimedKeys = new Set<string>();
   const result = agents.map((agent) => {
     const existing = existingInlineParts.get(agent.id)
       ?? (agent.taskToolCallId ? existingInlineParts.get(agent.taskToolCallId) : undefined);
     if (existing && existing.length > 0 && (!agent.inlineParts || agent.inlineParts.length === 0)) {
       changed = true;
+      claimedKeys.add(agent.id);
       return { ...agent, inlineParts: existing };
     }
+
+    // When an agent ID changes (e.g. synthetic foreground → real), the old
+    // inlineParts are keyed by the synthetic ID. Match any unclaimed synthetic
+    // foreground agent's inlineParts to a non-synthetic running agent.
+    if (!agent.inlineParts || agent.inlineParts.length === 0) {
+      if (!isClaudeSyntheticForegroundAgentId(agent.id)) {
+        for (const [key, parts] of existingInlineParts) {
+          if (isClaudeSyntheticForegroundAgentId(key) && parts.length > 0 && !claimedKeys.has(key)) {
+            changed = true;
+            claimedKeys.add(key);
+            return { ...agent, inlineParts: parts };
+          }
+        }
+      }
+    }
+
     return agent;
   });
   return changed ? result : agents;
@@ -916,7 +913,6 @@ export function mergeParallelAgentsIntoParts(
   parts: Part[],
   parallelAgents: ParallelAgent[],
   messageTimestamp: string,
-  groupIntoSingleTree: boolean,
 ): Part[] {
   const normalizedAgents = normalizeParallelAgents(parallelAgents);
   const nonAgentParts: Part[] = parts.filter((part) => part.type !== "agent");
@@ -941,18 +937,6 @@ export function mergeParallelAgentsIntoParts(
 
   if (mergedAgents.length === 0) {
     return nonAgentParts;
-  }
-
-  if (groupIntoSingleTree) {
-    const existingGroupedPart = existingAgentParts.find((part) => part.parentToolPartId === undefined) ?? existingAgentParts[0];
-    const groupedPart: AgentPart = {
-      id: existingGroupedPart?.id ?? createPartId(),
-      type: "agent",
-      agents: mergedAgents,
-      parentToolPartId: undefined,
-      createdAt: existingGroupedPart?.createdAt ?? messageTimestamp,
-    };
-    return insertAgentPartAtTaskBoundary(nonAgentParts, groupedPart);
   }
 
   const existingByParent = new Map<PartId | undefined, AgentPart>();
@@ -1107,6 +1091,40 @@ export function syncToolCallsIntoParts(
 }
 
 /**
+ * Find an agent index by direct ID match or correlated keys.
+ *
+ * Handles the timing race where batch-delayed tool events arrive with
+ * a synthetic agent ID (e.g. "synthetic-task-agent:{toolCallId}") after
+ * the real agent (with matching taskToolCallId) has already been created
+ * by an immediately-processed stream.agent.start event.
+ */
+function findAgentIndexByIdOrCorrelation(agents: ParallelAgent[], agentId: string): number {
+  const directIdx = agents.findIndex((a) => a.id === agentId);
+  if (directIdx >= 0) return directIdx;
+
+  // Match synthetic-task-agent:{toolCallId} → agent with matching id or taskToolCallId
+  if (isSyntheticTaskAgentId(agentId)) {
+    const toolCallId = extractToolCallIdFromSyntheticTaskAgentId(agentId);
+    if (toolCallId) {
+      const idx = agents.findIndex((a) => a.id === toolCallId || a.taskToolCallId === toolCallId);
+      if (idx >= 0) return idx;
+    }
+  }
+
+  // Match synthetic foreground agent ID → promoted agent (single non-synthetic non-background agent)
+  if (isClaudeSyntheticForegroundAgentId(agentId)) {
+    const idx = agents.findIndex((a) =>
+      !isClaudeSyntheticForegroundAgentId(a.id)
+      && !a.background
+      && (a.status === "running" || a.status === "pending"),
+    );
+    if (idx >= 0) return idx;
+  }
+
+  return -1;
+}
+
+/**
  * Route a part event into a specific agent's inlineParts sub-array.
  * Returns updated top-level parts array, or null if the agent was not found.
  */
@@ -1119,7 +1137,7 @@ function routeToAgentInlineParts(
     const part = parts[i];
     if (part?.type !== "agent") continue;
     const agentPart = part as AgentPart;
-    const agentIdx = agentPart.agents.findIndex((a) => a.id === agentId);
+    const agentIdx = findAgentIndexByIdOrCorrelation(agentPart.agents, agentId);
     if (agentIdx < 0) continue;
 
     const agent = agentPart.agents[agentIdx]!;
@@ -1337,7 +1355,6 @@ export function applyStreamPartEvent(
         message.parts ?? [],
         normalizedAgents,
         message.timestamp,
-        shouldGroupSubagentTrees({ ...message, parallelAgents: normalizedAgents }, event.isLastMessage),
       );
       // Drain any buffered events for agents that are now in parts
       for (const agent of normalizedAgents) {
@@ -1413,7 +1430,6 @@ export function applyStreamPartEvent(
         message.parts ?? [],
         normalizedAgents,
         message.timestamp,
-        shouldGroupSubagentTrees({ ...message, parallelAgents: normalizedAgents }, true),
       );
       const nextMessage: ChatMessage = {
         ...message,

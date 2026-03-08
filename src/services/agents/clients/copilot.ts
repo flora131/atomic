@@ -1118,7 +1118,6 @@ export class CopilotClient implements CodingAgentClient {
           toolName,
           toolInput: toolExecutionStartEvent.data.arguments,
           toolCallId,
-          parentId: asNonEmptyString(toolExecutionStartEvent.parentId),
           parentToolCallId: asNonEmptyString(toolExecutionStartEvent.data.parentToolCallId),
         });
         return;
@@ -1149,7 +1148,6 @@ export class CopilotClient implements CodingAgentClient {
           toolResult: extractCopilotToolResult(toolExecutionCompleteEvent.data.result),
           error: asNonEmptyString(errorData?.message),
           toolCallId,
-          parentId: asNonEmptyString(toolExecutionCompleteEvent.parentId),
           parentToolCallId: asNonEmptyString(toolExecutionCompleteEvent.data.parentToolCallId),
         });
         return;
@@ -1191,8 +1189,7 @@ export class CopilotClient implements CodingAgentClient {
         this.emitMappedSdkEvent("skill.invoked", sessionId, {
           skillName: event.data.name,
           skillPath: event.data.path,
-          parentToolCallId: asNonEmptyString((event.data as Record<string, unknown>).parentToolCallId)
-            ?? asNonEmptyString((event as Record<string, unknown>).parentId),
+          parentToolCallId: asNonEmptyString((event.data as Record<string, unknown>).parentToolCallId),
         }, event);
         return;
       case "session.info":

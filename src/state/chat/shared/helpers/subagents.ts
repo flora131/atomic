@@ -151,6 +151,11 @@ export function isSyntheticTaskAgentId(agentId: string): boolean {
   return agentId.startsWith(SYNTHETIC_TASK_AGENT_PREFIX);
 }
 
+export function extractToolCallIdFromSyntheticTaskAgentId(agentId: string): string | undefined {
+  if (!agentId.startsWith(SYNTHETIC_TASK_AGENT_PREFIX)) return undefined;
+  return agentId.slice(SYNTHETIC_TASK_AGENT_PREFIX.length) || undefined;
+}
+
 function isAbortLikeToolError(error: string | undefined): boolean {
   const normalized = error?.trim().toLowerCase() ?? "";
   if (!normalized) return false;

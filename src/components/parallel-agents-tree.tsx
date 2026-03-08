@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useEffect, useRef } from "react";
 import type { SyntaxStyle } from "@opentui/core";
 import { getCatppuccinPalette, useThemeColors } from "@/theme/index.tsx";
 import { formatDuration as formatDurationObj, truncateText } from "@/lib/ui/format.ts";
@@ -136,181 +136,6 @@ export function isGenericSubagentTask(task: string): boolean {
 
 export function getAgentTaskLabel(agent: Pick<ParallelAgent, "task" | "name">): string {
   return isGenericSubagentTask(agent.task) ? agent.name : agent.task;
-}
-
-const STATUS_PRIORITY: Record<AgentStatus, number> = {
-  pending: 0,
-  running: 1,
-  background: 2,
-  completed: 3,
-  interrupted: 4,
-  error: 5,
-};
-
-export function deduplicateAgents(agents: ParallelAgent[]): ParallelAgent[] {
-  if (agents.length <= 1) return agents;
-
-  const byToolCallId = new Map<string, ParallelAgent[]>();
-  const ungrouped: ParallelAgent[] = [];
-
-  for (const agent of agents) {
-    if (agent.taskToolCallId) {
-      const group = byToolCallId.get(agent.taskToolCallId) ?? [];
-      group.push(agent);
-      byToolCallId.set(agent.taskToolCallId, group);
-    } else {
-      ungrouped.push(agent);
-    }
-  }
-
-  let anyMerged = false;
-  const merged: ParallelAgent[] = [];
-
-  for (const group of byToolCallId.values()) {
-    if (group.length === 1) {
-      merged.push(group[0]!);
-      continue;
-    }
-
-    anyMerged = true;
-    let best = group[0]!;
-    for (let i = 1; i < group.length; i++) {
-      const other = group[i]!;
-      best = mergeAgentPair(best, other);
-    }
-    merged.push(best);
-  }
-
-  const fallbackDeduped = deduplicateUncorrelatedAgents([...merged, ...ungrouped]);
-
-  if (!anyMerged && !fallbackDeduped.merged) return agents;
-  return anyMerged && !fallbackDeduped.merged
-    ? [...merged, ...ungrouped]
-    : fallbackDeduped.agents;
-}
-
-function isTaskEquivalentToAgentName(agent: Pick<ParallelAgent, "task" | "name">): boolean {
-  return agent.task.trim().toLowerCase() === agent.name.trim().toLowerCase();
-}
-
-function mergeAgentPair(a: ParallelAgent, b: ParallelAgent): ParallelAgent {
-  const aHasTask = !isGenericSubagentTask(a.task);
-  const bHasTask = !isGenericSubagentTask(b.task);
-  let primary = bHasTask && !aHasTask ? b : a;
-  if (aHasTask && bHasTask) {
-    const aNameEquivalentTask = isTaskEquivalentToAgentName(a);
-    const bNameEquivalentTask = isTaskEquivalentToAgentName(b);
-    if (aNameEquivalentTask !== bNameEquivalentTask) {
-      primary = aNameEquivalentTask ? b : a;
-    }
-  }
-  const secondary = primary === a ? b : a;
-  const primaryHasTask = !isGenericSubagentTask(primary.task);
-  const secondaryHasTask = !isGenericSubagentTask(secondary.task);
-
-  const statusA = STATUS_PRIORITY[a.status] ?? 0;
-  const statusB = STATUS_PRIORITY[b.status] ?? 0;
-  const statusWinner = statusB > statusA ? b : a;
-
-  return {
-    ...primary,
-    id: primary.id.startsWith("tool_") ? secondary.id : primary.id,
-    task: primaryHasTask ? primary.task : secondaryHasTask ? secondary.task : primary.task,
-    status: statusWinner.status,
-    background: a.background || b.background,
-    toolUses: Math.max(a.toolUses ?? 0, b.toolUses ?? 0) || undefined,
-    currentTool: a.currentTool ?? b.currentTool,
-    result: a.result ?? b.result,
-    error: a.error ?? b.error,
-    durationMs: a.durationMs ?? b.durationMs,
-    tokens: Math.max(a.tokens ?? 0, b.tokens ?? 0) || undefined,
-    thinkingMs: Math.max(a.thinkingMs ?? 0, b.thinkingMs ?? 0) || undefined,
-  };
-}
-
-function isLikelyEagerPlaceholder(agent: ParallelAgent): boolean {
-  if (!agent.taskToolCallId) return false;
-  return (
-    agent.id === agent.taskToolCallId
-    || agent.id.startsWith("tool_")
-    || agent.taskToolCallId.startsWith("tool_")
-  );
-}
-
-function canMergeByTaskCorrelation(a: ParallelAgent, b: ParallelAgent): boolean {
-  const aTaskId = a.taskToolCallId;
-  const bTaskId = b.taskToolCallId;
-
-  if (aTaskId && bTaskId) {
-    return aTaskId === bTaskId;
-  }
-
-  if (!aTaskId && !bTaskId) {
-    return true;
-  }
-
-  const withTaskId = aTaskId ? a : b;
-  return isLikelyEagerPlaceholder(withTaskId);
-}
-
-function canMergeUncorrelatedDuplicate(a: ParallelAgent, b: ParallelAgent): boolean {
-  if (!canMergeByTaskCorrelation(a, b)) return false;
-  if (a.name !== b.name) return false;
-
-  const aGenericTask = isGenericSubagentTask(a.task);
-  const bGenericTask = isGenericSubagentTask(b.task);
-  if (aGenericTask === bGenericTask) return false;
-
-  if (Boolean(a.background) !== Boolean(b.background)) return false;
-  if (a.result && b.result && a.result !== b.result) return false;
-  if (a.error && b.error && a.error !== b.error) return false;
-  if (a.toolUses !== undefined && b.toolUses !== undefined && a.toolUses !== b.toolUses) return false;
-
-  return true;
-}
-
-function deduplicateUncorrelatedAgents(agents: ParallelAgent[]): {
-  agents: ParallelAgent[];
-  merged: boolean;
-} {
-  if (agents.length <= 1) {
-    return { agents, merged: false };
-  }
-
-  const consumed = new Set<number>();
-  const mergedAgents: ParallelAgent[] = [];
-  let merged = false;
-
-  for (let i = 0; i < agents.length; i++) {
-    if (consumed.has(i)) continue;
-    const current = agents[i];
-    if (!current) continue;
-
-    let matchIndex = -1;
-    for (let j = i + 1; j < agents.length; j++) {
-      if (consumed.has(j)) continue;
-      const candidate = agents[j];
-      if (!candidate) continue;
-      if (canMergeUncorrelatedDuplicate(current, candidate)) {
-        matchIndex = j;
-        break;
-      }
-    }
-
-    if (matchIndex >= 0) {
-      const match = agents[matchIndex];
-      if (match) {
-        mergedAgents.push(mergeAgentPair(current, match));
-        consumed.add(matchIndex);
-        merged = true;
-        continue;
-      }
-    }
-
-    mergedAgents.push(current);
-  }
-
-  return { agents: merged ? mergedAgents : agents, merged };
 }
 
 export function buildAgentHeaderLabel(count: number, dominantType: string): string {
@@ -472,7 +297,7 @@ export function ParallelAgentsTree({
   noTopMargin = false,
   onAgentDoneRendered,
 }: ParallelAgentsTreeProps): React.ReactNode {
-  const allAgents = useMemo(() => deduplicateAgents(agents), [agents]);
+  const allAgents = agents;
   const visibleAgents = allAgents.slice(0, maxVisible);
   const hiddenCount = allAgents.length - visibleAgents.length;
   const colors = useThemeColors();

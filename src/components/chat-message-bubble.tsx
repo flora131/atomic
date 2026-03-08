@@ -26,13 +26,12 @@ import type {
 } from "@/state/parts/index.ts";
 import {
   mergeParallelAgentsIntoParts,
-  shouldGroupSubagentTrees,
   syncToolCallsIntoParts,
 } from "@/state/parts/index.ts";
 
 function getRenderableAssistantParts(
   message: ChatMessage,
-  isLastMessage: boolean,
+  _isLastMessage: boolean,
   hideAskUserQuestion: boolean,
 ): Part[] {
   const skillIndicatorKeys = new Set(
@@ -80,13 +79,6 @@ function getRenderableAssistantParts(
       parts,
       effectiveParallelAgents,
       message.timestamp,
-      shouldGroupSubagentTrees(
-        {
-          ...message,
-          parallelAgents: effectiveParallelAgents,
-        },
-        isLastMessage,
-      ),
     );
   }
 

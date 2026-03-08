@@ -5040,7 +5040,7 @@ describe("CopilotStreamAdapter", () => {
       messageId: "msg-3",
     });
 
-    // Emit tool.start with parentId BEFORE subagent.start (race condition)
+    // Emit tool.start with parentToolCallId BEFORE subagent.start (race condition)
     client.emit("tool.start" as EventType, {
       type: "tool.start",
       sessionId: session.id,
@@ -5049,7 +5049,7 @@ describe("CopilotStreamAdapter", () => {
         toolName: "glob",
         toolInput: { pattern: "**/*.ts" },
         toolCallId: "early-tool-1",
-        parentId: "sub-3",
+        parentToolCallId: "task-call-3",
       },
     } as AgentEvent<"tool.start">);
 
@@ -5179,7 +5179,7 @@ describe("CopilotStreamAdapter", () => {
         toolName: "bash",
         toolInput: { command: "tail -f logs" },
         toolCallId: "inner-tool-partial-1",
-        parentId: "sub-partial-1",
+        parentToolCallId: "task-call-partial-1",
       },
     } as AgentEvent<"tool.start">);
 

@@ -377,6 +377,237 @@ describe("Event Bus Integration", () => {
     adapter.dispose();
   });
 
+  test("Copilot streams nested tool rows under a synthetic task agent before native subagent.start", async () => {
+    const { pipeline, dispose } = wireConsumers(bus, dispatcher);
+
+    const output: StreamPartEvent[] = [];
+    const busEvents: BusEvent[] = [];
+    pipeline.onStreamParts((parts) => output.push(...parts));
+    bus.onAll((event) => busEvents.push(event));
+
+    const client = createMockClient();
+
+    async function* slowStream(): AsyncGenerator<AgentMessage> {
+      yield { type: "text", content: "start" };
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      yield { type: "text", content: "end" };
+    }
+
+    const stream = slowStream();
+    const session = createMockSession(stream, client);
+    const adapter = new CopilotStreamAdapter(bus, client);
+
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 12,
+      messageId: "msg-copilot-synthetic-subagent",
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    client.emit("message.complete" as EventType, {
+      type: "message.complete",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        toolRequests: [
+          {
+            toolCallId: "copilot-task-synthetic-1",
+            name: "Task",
+            arguments: {
+              description: "Inspect auth flow",
+              subagent_type: "codebase-analyzer",
+            },
+          },
+        ],
+      },
+    } as AgentEvent<"message.complete">);
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        toolName: "rg",
+        toolInput: { pattern: "auth" },
+        toolCallId: "child-tool-1",
+        parentToolCallId: "copilot-task-synthetic-1",
+      },
+    } as AgentEvent<"tool.start">);
+
+    client.emit("tool.partial_result" as EventType, {
+      type: "tool.partial_result",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        toolCallId: "child-tool-1",
+        partialOutput: "src/auth.ts",
+      },
+    } as AgentEvent<"tool.partial_result">);
+
+    client.emit("tool.complete" as EventType, {
+      type: "tool.complete",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        toolName: "rg",
+        toolResult: "src/auth.ts",
+        success: true,
+        toolCallId: "child-tool-1",
+        parentToolCallId: "copilot-task-synthetic-1",
+      },
+    } as AgentEvent<"tool.complete">);
+
+    await streamPromise;
+    await flushMicrotasks();
+    await waitForBatchFlush();
+
+    const syntheticAgentId = "synthetic-task-agent:copilot-task-synthetic-1";
+    const syntheticAgentStart = busEvents.find(
+      (event) => event.type === "stream.agent.start" && event.data.agentId === syntheticAgentId,
+    );
+    expect(syntheticAgentStart).toBeDefined();
+    expect(syntheticAgentStart?.data.agentType).toBe("codebase-analyzer");
+    expect(syntheticAgentStart?.data.toolCallId).toBe("copilot-task-synthetic-1");
+    expect(syntheticAgentStart?.data.task).toBe("Inspect auth flow");
+
+    const nestedToolStarts = output.filter(
+      (event) => event.type === "tool-start" && event.toolId === "child-tool-1",
+    );
+    expect(nestedToolStarts.length).toBe(1);
+    expect(nestedToolStarts[0]?.agentId).toBe(syntheticAgentId);
+
+    const nestedToolPartials = output.filter(
+      (event) => event.type === "tool-partial-result" && event.toolId === "child-tool-1",
+    );
+    expect(nestedToolPartials.length).toBe(1);
+    expect(nestedToolPartials[0]?.agentId).toBe(syntheticAgentId);
+
+    const nestedToolCompletes = output.filter(
+      (event) => event.type === "tool-complete" && event.toolId === "child-tool-1",
+    );
+    expect(nestedToolCompletes.length).toBe(1);
+    expect(nestedToolCompletes[0]?.agentId).toBe(syntheticAgentId);
+
+    dispose();
+    adapter.dispose();
+  });
+
+  test("Copilot promotes synthetic task agent tool rows when native subagent.start arrives later", async () => {
+    const { pipeline, dispose } = wireConsumers(bus, dispatcher);
+
+    const output: StreamPartEvent[] = [];
+    const busEvents: BusEvent[] = [];
+    pipeline.onStreamParts((parts) => output.push(...parts));
+    bus.onAll((event) => busEvents.push(event));
+
+    const client = createMockClient();
+
+    async function* slowStream(): AsyncGenerator<AgentMessage> {
+      yield { type: "text", content: "start" };
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      yield { type: "text", content: "end" };
+    }
+
+    const stream = slowStream();
+    const session = createMockSession(stream, client);
+    const adapter = new CopilotStreamAdapter(bus, client);
+
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 13,
+      messageId: "msg-copilot-promoted-subagent",
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    client.emit("message.complete" as EventType, {
+      type: "message.complete",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        toolRequests: [
+          {
+            toolCallId: "copilot-task-promoted-1",
+            name: "Task",
+            arguments: {
+              description: "Inspect auth flow",
+              subagent_type: "codebase-analyzer",
+            },
+          },
+        ],
+      },
+    } as AgentEvent<"message.complete">);
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        toolName: "view",
+        toolInput: { path: "src/auth.ts" },
+        toolCallId: "child-tool-2",
+        parentToolCallId: "copilot-task-promoted-1",
+      },
+    } as AgentEvent<"tool.start">);
+
+    client.emit("subagent.start" as EventType, {
+      type: "subagent.start",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        subagentId: "copilot-agent-promoted-1",
+        subagentType: "codebase-analyzer",
+        task: "Inspect auth flow",
+        toolCallId: "copilot-task-promoted-1",
+      },
+    } as AgentEvent<"subagent.start">);
+
+    client.emit("tool.complete" as EventType, {
+      type: "tool.complete",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        toolName: "view",
+        toolResult: "file contents",
+        success: true,
+        toolCallId: "child-tool-2",
+        parentToolCallId: "copilot-task-promoted-1",
+      },
+    } as AgentEvent<"tool.complete">);
+
+    await streamPromise;
+    await flushMicrotasks();
+    await waitForBatchFlush();
+
+    const nestedToolStarts = output.filter(
+      (event) => event.type === "tool-start" && event.toolId === "child-tool-2",
+    );
+    expect(nestedToolStarts.length).toBe(1);
+    expect(nestedToolStarts[0]?.agentId).toBe("synthetic-task-agent:copilot-task-promoted-1");
+
+    const nestedToolCompletes = output.filter(
+      (event) => event.type === "tool-complete" && event.toolId === "child-tool-2",
+    );
+    expect(nestedToolCompletes.length).toBe(1);
+    expect(nestedToolCompletes[0]?.agentId).toBe("copilot-agent-promoted-1");
+
+    const syntheticAgentStart = busEvents.find(
+      (event) => event.type === "stream.agent.start"
+        && event.data.agentId === "synthetic-task-agent:copilot-task-promoted-1",
+    );
+    expect(syntheticAgentStart).toBeDefined();
+
+    const promotedAgentStart = busEvents.find(
+      (event) => event.type === "stream.agent.start"
+        && event.data.agentId === "copilot-agent-promoted-1",
+    );
+    expect(promotedAgentStart).toBeDefined();
+    expect(promotedAgentStart?.data.toolCallId).toBe("copilot-task-promoted-1");
+    expect(promotedAgentStart?.data.agentType).toBe("codebase-analyzer");
+
+    dispose();
+    adapter.dispose();
+  });
+
   test("echo suppression: text delta suppressed when matching expected echo", async () => {
     const { pipeline, echoSuppressor, dispose } = wireConsumers(bus, dispatcher);
 

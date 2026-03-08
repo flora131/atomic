@@ -4,7 +4,7 @@ import {
   emitDiscoveryEvent,
   isDiscoveryDebugLoggingEnabled,
 } from "@/services/config/discovery-events.ts";
-import { resolveDefaultConfigHome } from "@/services/config/provider-discovery-plan.ts";
+import { resolveUserProviderRoot } from "@/services/config/provider-discovery-plan.ts";
 
 export const COPILOT_CANONICAL_USER_ROOT_ID = "copilot_user_canonical_native";
 export const COPILOT_HOME_USER_ROOT_ID = "copilot_user_home_native";
@@ -57,22 +57,13 @@ export function resolveCopilotCanonicalUserRoot(
   } = {},
 ): string {
   const normalizedXdgConfigHome = normalizeOptionalPath(options.xdgConfigHome);
-  const normalizedAppDataDir = normalizeOptionalPath(options.appDataDir);
-
-  const configHome = resolveDefaultConfigHome({
+  return resolveUserProviderRoot({
     homeDir: resolve(homeDir),
+    providerFolder: ".copilot",
     xdgConfigHome:
-      options.xdgConfigHome === undefined
-        ? undefined
-        : normalizedXdgConfigHome,
-    appDataDir:
-      options.appDataDir === undefined
-        ? undefined
-        : normalizedAppDataDir,
+      options.xdgConfigHome === undefined ? undefined : normalizedXdgConfigHome,
     platform: options.platform,
   });
-
-  return join(configHome, ".copilot");
 }
 
 export async function resolveCopilotUserRoots(
@@ -104,7 +95,7 @@ export async function resolveCopilotUserRoots(
       [COPILOT_CANONICAL_USER_ROOT_ID]: canonicalRoot,
       [COPILOT_HOME_USER_ROOT_ID]: homeRoot,
     },
-    rootsInPrecedenceOrder: [canonicalRoot, homeRoot],
+    rootsInPrecedenceOrder: [homeRoot, canonicalRoot],
     warnings: [],
   };
 }

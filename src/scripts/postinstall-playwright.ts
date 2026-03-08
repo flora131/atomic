@@ -3,7 +3,7 @@ import { join } from "path";
 
 import { AGENT_CONFIG, type AgentKey } from "@/services/config/index.ts";
 import {
-  getAtomicGlobalAgentFolder,
+  getAtomicManagedAgentDir,
   getAtomicHomeDir,
   getTemplateAgentFolder,
 } from "@/services/config/atomic-global-config.ts";
@@ -182,7 +182,7 @@ export async function deployPlaywrightSkill(
       continue;
     }
 
-    const destinationAgentFolder = join(atomicHomeDir, getAtomicGlobalAgentFolder(agentKey));
+    const destinationAgentFolder = getAtomicManagedAgentDir(agentKey, atomicHomeDir);
     const destinationSkillDir = join(destinationAgentFolder, "skills", "playwright-cli");
     await mkdir(destinationSkillDir, { recursive: true });
 

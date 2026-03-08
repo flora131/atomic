@@ -8,9 +8,7 @@
  * Agents can be defined as:
  * - Project: Defined in .claude/agents, .opencode/agents, .github/agents
  * - User: Defined in ~/.claude/agents, ~/.opencode/agents, ~/.copilot/agents,
- *   and platform canonical config-home roots for OpenCode/Copilot
- * - Atomic global: Defined in ~/.atomic/.claude/agents, ~/.atomic/.opencode/agents,
- *   ~/.atomic/.copilot/agents
+ *   and distinct XDG override roots for OpenCode/Copilot when configured
  */
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -24,7 +22,7 @@ import type {
 import { globalRegistry } from "@/commands/tui/registry.ts";
 import {
   getCompatibleDiscoveryRoots,
-  resolveDefaultConfigHome,
+  resolveUserProviderRoot,
   type ProviderCompatibilitySelection,
   type ProviderDiscoveryPlan,
 } from "@/services/config/provider-discovery-plan.ts";
@@ -59,16 +57,22 @@ export const AGENT_DISCOVERY_PATHS = [
 ] as const;
 
 const HOME = homedir();
-const USER_CONFIG_HOME = resolveDefaultConfigHome({
+const OPENCODE_USER_OVERRIDE_ROOT = resolveUserProviderRoot({
   homeDir: HOME,
   xdgConfigHome: process.env.XDG_CONFIG_HOME ?? undefined,
-  appDataDir: process.env.APPDATA ?? undefined,
+  providerFolder: ".opencode",
+  platform: process.platform,
+});
+const COPILOT_USER_OVERRIDE_ROOT = resolveUserProviderRoot({
+  homeDir: HOME,
+  xdgConfigHome: process.env.XDG_CONFIG_HOME ?? undefined,
+  providerFolder: ".copilot",
   platform: process.platform,
 });
 const USER_DISCOVERY_ROOTS = [
   HOME,
-  USER_CONFIG_HOME,
-  join(HOME, ".atomic"),
+  OPENCODE_USER_OVERRIDE_ROOT,
+  COPILOT_USER_OVERRIDE_ROOT,
 ];
 
 /**
@@ -80,11 +84,8 @@ export const GLOBAL_AGENT_PATHS = [
   "~/.claude/agents",
   "~/.opencode/agents",
   "~/.copilot/agents",
-  join(USER_CONFIG_HOME, ".opencode", "agents"),
-  join(USER_CONFIG_HOME, ".copilot", "agents"),
-  "~/.atomic/.claude/agents",
-  "~/.atomic/.opencode/agents",
-  "~/.atomic/.copilot/agents",
+  join(OPENCODE_USER_OVERRIDE_ROOT, "agents"),
+  join(COPILOT_USER_OVERRIDE_ROOT, "agents"),
 ] as const;
 
 // ============================================================================

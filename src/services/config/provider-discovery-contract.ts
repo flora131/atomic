@@ -66,14 +66,7 @@ export const PROVIDER_DISCOVERY_CONTRACTS = {
       envVar: "CLAUDE_CONFIG_DIR",
     },
     roots: {
-      atomicBaseline: [
-        {
-          id: "claude_atomic",
-          pathTemplate: "~/.atomic/.claude",
-          compatibility: "native",
-          description: "Atomic-managed Claude baseline",
-        },
-      ],
+      atomicBaseline: [],
       userGlobal: [
         {
           id: "claude_user",
@@ -100,27 +93,20 @@ export const PROVIDER_DISCOVERY_CONTRACTS = {
       envVar: "OPENCODE_CONFIG_DIR",
     },
     roots: {
-      atomicBaseline: [
-        {
-          id: "opencode_atomic",
-          pathTemplate: "~/.atomic/.opencode",
-          compatibility: "native",
-          description: "Atomic-managed OpenCode baseline",
-        },
-      ],
+      atomicBaseline: [],
       userGlobal: [
+        {
+          id: "opencode_user_home_native",
+          pathTemplate: "~/.opencode",
+          compatibility: "native",
+          description: "User OpenCode home config root",
+        },
         {
           id: "opencode_user_canonical_xdg",
           pathTemplate: "<opencode-canonical-user-root>",
           compatibility: "native",
           description:
             "Canonical OpenCode root resolved from the platform config home",
-        },
-        {
-          id: "opencode_user_home_native",
-          pathTemplate: "~/.opencode",
-          compatibility: "native",
-          description: "User OpenCode home config root",
         },
       ],
       projectLocal: [
@@ -141,38 +127,19 @@ export const PROVIDER_DISCOVERY_CONTRACTS = {
       injects: ["customAgents", "skillDirectories", "instructions"],
     },
     roots: {
-      atomicBaseline: [
-        {
-          id: "copilot_atomic_claude_compat",
-          pathTemplate: "~/.atomic/.claude",
-          compatibility: "compatibility",
-          description: "Atomic Claude compatibility root",
-        },
-        {
-          id: "copilot_atomic_opencode_compat",
-          pathTemplate: "~/.atomic/.opencode",
-          compatibility: "compatibility",
-          description: "Atomic OpenCode compatibility root",
-        },
-        {
-          id: "copilot_atomic_native",
-          pathTemplate: "~/.atomic/.copilot",
-          compatibility: "native",
-          description: "Atomic Copilot baseline",
-        },
-      ],
+      atomicBaseline: [],
       userGlobal: [
-        {
-          id: "copilot_user_canonical_native",
-          pathTemplate: "<copilot-canonical-user-root>",
-          compatibility: "native",
-          description: "Canonical Copilot root resolved from the platform config home",
-        },
         {
           id: "copilot_user_home_native",
           pathTemplate: "~/.copilot",
           compatibility: "native",
           description: "User Copilot home config root",
+        },
+        {
+          id: "copilot_user_canonical_native",
+          pathTemplate: "<copilot-canonical-user-root>",
+          compatibility: "native",
+          description: "Canonical Copilot root resolved from the platform config home",
         },
       ],
       projectLocal: [

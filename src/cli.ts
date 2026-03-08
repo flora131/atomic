@@ -99,12 +99,12 @@ export function createProgram() {
             "after",
             `
 Examples:
-  $ atomic chat                              Start chat (uses saved agent or runs init)
+  $ atomic chat -a claude                   Start chat with Claude
   $ atomic chat -a opencode                  Start chat with OpenCode
   $ atomic chat -a copilot --workflow        Start workflow-enabled chat with Copilot
-  $ atomic chat --theme light                Start chat with light theme
-  $ atomic chat --additional-instructions "Be concise" "review this patch"
-  $ atomic chat "fix the typecheck errors"   Start chat with an initial prompt
+  $ atomic chat -a claude --theme light      Start chat with light theme
+  $ atomic chat -a claude --additional-instructions "Be concise" "review this patch"
+  $ atomic chat -a claude "fix the typecheck errors"
   $ atomic chat -a claude "refactor utils"   Start chat with agent and prompt
 
 Slash Commands (in workflow mode):
@@ -114,30 +114,16 @@ Slash Commands (in workflow mode):
         )
         .action(async (promptParts: string[], localOpts) => {
             const validAgents = Object.keys(AGENT_CONFIG);
-            let agentType = localOpts.agent;
+            const agentType = localOpts.agent;
 
-            // If no agent flag provided, check saved config
             if (!agentType) {
-                const { readAtomicConfig } =
-                    await import("@/services/config/atomic-config.ts");
-                const config = await readAtomicConfig(process.cwd());
-                agentType = config?.agent;
-            }
-
-            // If still no agent (first run), run init which prompts for selection
-            if (!agentType) {
-                const { initCommand } = await import("@/commands/cli/init.ts");
-                await initCommand({ showBanner: true });
-                const { readAtomicConfig } =
-                    await import("@/services/config/atomic-config.ts");
-                const config = await readAtomicConfig(process.cwd());
-                agentType = config?.agent;
-                if (!agentType) {
-                    console.error(
-                        `${COLORS.red}No agent selected. Run 'atomic init' to configure.${COLORS.reset}`,
-                    );
-                    process.exit(1);
-                }
+                console.error(
+                    `${COLORS.red}Error: Missing agent.${COLORS.reset}`,
+                );
+                console.error(
+                    "Start chat with an explicit provider, for example: atomic chat -a claude",
+                );
+                process.exit(1);
             }
 
             // Validate agent choice

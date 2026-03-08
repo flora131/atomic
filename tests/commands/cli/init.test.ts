@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, mkdir, rm, writeFile } from "fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "fs/promises";
 import { existsSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import { reconcileScmVariants } from "@/commands/cli/init.ts";
+import { applyManagedOnboardingFiles, reconcileScmVariants } from "@/commands/cli/init.ts";
 
 async function makeFile(path: string, content = "test"): Promise<void> {
   await mkdir(join(path, ".."), { recursive: true });
@@ -16,7 +16,7 @@ async function makeSkillDir(baseDir: string, name: string): Promise<void> {
   await writeFile(join(dir, "SKILL.md"), `# ${name}\n`, "utf-8");
 }
 
-test("reconcileScmVariants keeps Sapling variants and removes managed GitHub variants", async () => {
+test("reconcileScmVariants preserves managed GitHub and Sapling variants", async () => {
   const root = await mkdtemp(join(tmpdir(), "atomic-init-scm-files-"));
 
   try {
@@ -43,8 +43,8 @@ test("reconcileScmVariants keeps Sapling variants and removes managed GitHub var
 
     expect(existsSync(join(targetSkillsDir, "sl-commit"))).toBe(true);
     expect(existsSync(join(targetSkillsDir, "sl-submit-diff"))).toBe(true);
-    expect(existsSync(join(targetSkillsDir, "gh-commit"))).toBe(false);
-    expect(existsSync(join(targetSkillsDir, "gh-create-pr"))).toBe(false);
+    expect(existsSync(join(targetSkillsDir, "gh-commit"))).toBe(true);
+    expect(existsSync(join(targetSkillsDir, "gh-create-pr"))).toBe(true);
     expect(existsSync(join(targetSkillsDir, "custom-command"))).toBe(true);
     expect(existsSync(join(targetSkillsDir, "gh-user-custom"))).toBe(true);
   } finally {
@@ -52,7 +52,7 @@ test("reconcileScmVariants keeps Sapling variants and removes managed GitHub var
   }
 });
 
-test("reconcileScmVariants handles directory-based Copilot skills", async () => {
+test("reconcileScmVariants preserves existing directory-based Copilot skills", async () => {
   const root = await mkdtemp(join(tmpdir(), "atomic-init-scm-dirs-"));
 
   try {
@@ -79,8 +79,8 @@ test("reconcileScmVariants handles directory-based Copilot skills", async () => 
 
     expect(existsSync(join(targetSkillsDir, "gh-commit"))).toBe(true);
     expect(existsSync(join(targetSkillsDir, "gh-create-pr"))).toBe(true);
-    expect(existsSync(join(targetSkillsDir, "sl-commit"))).toBe(false);
-    expect(existsSync(join(targetSkillsDir, "sl-submit-diff"))).toBe(false);
+    expect(existsSync(join(targetSkillsDir, "sl-commit"))).toBe(true);
+    expect(existsSync(join(targetSkillsDir, "sl-submit-diff"))).toBe(true);
     expect(existsSync(join(targetSkillsDir, "sl-user-custom"))).toBe(true);
     expect(existsSync(join(targetSkillsDir, "my-team-skill"))).toBe(true);
   } finally {
@@ -104,6 +104,109 @@ test("reconcileScmVariants is a no-op when source or target directory is missing
         configRoot,
       })
     ).resolves.toBeUndefined();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("applyManagedOnboardingFiles merges Claude MCP and settings into project targets", async () => {
+  const root = await mkdtemp(join(tmpdir(), "atomic-init-claude-onboarding-"));
+
+  try {
+    const configRoot = join(root, "config");
+    const projectRoot = join(root, "project");
+
+    await makeFile(
+      join(configRoot, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          deepwiki: { type: "http", url: "https://mcp.deepwiki.com/mcp" },
+        },
+      }, null, 2) + "\n",
+    );
+    await makeFile(
+      join(configRoot, ".claude", "settings.json"),
+      JSON.stringify({ permissions: { allow: ["Read"] } }, null, 2) + "\n",
+    );
+    await makeFile(
+      join(projectRoot, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          existing: { type: "stdio", command: "existing-server" },
+        },
+      }, null, 2) + "\n",
+    );
+    await makeFile(
+      join(projectRoot, ".claude", "settings.json"),
+      JSON.stringify({ hooks: { PostToolUse: ["existing-hook"] } }, null, 2) + "\n",
+    );
+
+    await applyManagedOnboardingFiles("claude", projectRoot, configRoot);
+
+    const mergedMcp = JSON.parse(await readFile(join(projectRoot, ".mcp.json"), "utf-8")) as {
+      mcpServers: Record<string, unknown>;
+    };
+    const mergedSettings = JSON.parse(
+      await readFile(join(projectRoot, ".claude", "settings.json"), "utf-8"),
+    ) as Record<string, unknown>;
+
+    expect(mergedMcp.mcpServers.existing).toBeDefined();
+    expect(mergedMcp.mcpServers.deepwiki).toBeDefined();
+    expect(mergedSettings.hooks).toEqual({ PostToolUse: ["existing-hook"] });
+    expect(mergedSettings.permissions).toEqual({ allow: ["Read"] });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("applyManagedOnboardingFiles merges OpenCode and Copilot onboarding targets", async () => {
+  const root = await mkdtemp(join(tmpdir(), "atomic-init-provider-onboarding-"));
+
+  try {
+    const configRoot = join(root, "config");
+    const projectRoot = join(root, "project");
+
+    await makeFile(
+      join(configRoot, ".opencode", "opencode.json"),
+      JSON.stringify({ permission: "allow" }, null, 2) + "\n",
+    );
+    await makeFile(
+      join(configRoot, ".vscode", "mcp.json"),
+      JSON.stringify({
+        servers: {
+          deepwiki: { type: "http", url: "https://mcp.deepwiki.com/mcp" },
+        },
+      }, null, 2) + "\n",
+    );
+    await makeFile(
+      join(projectRoot, ".opencode", "opencode.json"),
+      JSON.stringify({ providers: { openai: { model: "gpt-5" } } }, null, 2) + "\n",
+    );
+    await makeFile(
+      join(projectRoot, ".vscode", "mcp.json"),
+      JSON.stringify({
+        servers: {
+          existing: { type: "local", command: "existing-server" },
+        },
+      }, null, 2) + "\n",
+    );
+
+    await applyManagedOnboardingFiles("opencode", projectRoot, configRoot);
+    await applyManagedOnboardingFiles("copilot", projectRoot, configRoot);
+
+    const mergedOpencode = JSON.parse(
+      await readFile(join(projectRoot, ".opencode", "opencode.json"), "utf-8"),
+    ) as Record<string, unknown>;
+    const mergedCopilot = JSON.parse(
+      await readFile(join(projectRoot, ".vscode", "mcp.json"), "utf-8"),
+    ) as {
+      servers: Record<string, unknown>;
+    };
+
+    expect(mergedOpencode.providers).toEqual({ openai: { model: "gpt-5" } });
+    expect(mergedOpencode.permission).toBe("allow");
+    expect(mergedCopilot.servers.existing).toBeDefined();
+    expect(mergedCopilot.servers.deepwiki).toBeDefined();
   } finally {
     await rm(root, { recursive: true, force: true });
   }

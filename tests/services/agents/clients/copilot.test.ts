@@ -4,6 +4,36 @@ import { resolveCopilotUserInputSessionId } from "@/services/agents/clients/copi
 import { CopilotClient } from "@/services/agents/clients/copilot.ts";
 import { getBundledCopilotCliPath } from "@/services/agents/clients/copilot.ts";
 
+function createBasicSdkSession(sessionId = "test-session") {
+  return {
+    sessionId,
+    on: mock(() => () => {}),
+    send: mock(() => Promise.resolve()),
+    sendAndWait: mock(() => Promise.resolve({ data: { content: "test" } })),
+    destroy: mock(() => Promise.resolve()),
+    abort: mock(() => Promise.resolve()),
+  };
+}
+
+function createBasicSdkClient(overrides: Record<string, unknown> = {}) {
+  return {
+    start: mock(() => Promise.resolve()),
+    stop: mock(() => Promise.resolve()),
+    createSession: mock(),
+    resumeSession: mock(),
+    listModels: mock(() => Promise.resolve([
+      {
+        id: "test-model",
+        capabilities: {
+          limits: { max_context_window_tokens: 128000 },
+          supports: {},
+        },
+      },
+    ])),
+    ...overrides,
+  };
+}
+
 describe("resolveCopilotUserInputSessionId", () => {
   test("keeps preferred session when it is active", () => {
     const resolved = resolveCopilotUserInputSessionId("copilot_123", [
@@ -479,6 +509,178 @@ describe("CopilotClient abort support", () => {
     abortController.abort();
 
     await expect(consumption).rejects.toMatchObject({ name: "AbortError" });
+  });
+});
+
+describe("CopilotClient session config parity", () => {
+  test("passes raw tool names through unchanged and auto-approves permissions on create", async () => {
+    const mockSdkSession = createBasicSdkSession();
+    const mockCreateSession = mock(async (config: Record<string, unknown>) => mockSdkSession);
+    const mockSdkClient = createBasicSdkClient({
+      createSession: mockCreateSession,
+    });
+
+    const client = new CopilotClient({});
+    (client as unknown as { sdkClient: unknown }).sdkClient = mockSdkClient;
+    (client as unknown as { isRunning: boolean }).isRunning = true;
+    (client as unknown as {
+      loadCopilotSessionArtifacts: () => Promise<{
+        customAgents?: Array<Record<string, unknown>>;
+        skillDirectories?: string[];
+      }>;
+    }).loadCopilotSessionArtifacts = async () => ({
+      customAgents: [
+        {
+          name: "worker",
+          description: "Worker agent",
+          tools: ["execute", "agent", "edit", "search", "read"],
+          prompt: "Do work",
+        },
+      ],
+      skillDirectories: ["/tmp/copilot-skills"],
+    });
+
+    await client.createSession({
+      sessionId: "test-session",
+      tools: ["execute", "read", "web"],
+    });
+
+    expect(mockCreateSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "test-session",
+        availableTools: ["execute", "read", "web"],
+        customAgents: [
+          expect.objectContaining({
+            name: "worker",
+            tools: ["execute", "agent", "edit", "search", "read"],
+          }),
+        ],
+        skillDirectories: ["/tmp/copilot-skills"],
+      }),
+    );
+
+    const createConfig = mockCreateSession.mock.calls[0]?.[0] as {
+      onPermissionRequest: () => Promise<{ kind: string }>;
+    };
+    await expect(createConfig.onPermissionRequest()).resolves.toEqual({ kind: "approved" });
+  });
+
+  test("preserves raw tool config and approve-all permissions during model switch", async () => {
+    const initialSdkSession = createBasicSdkSession("test-session");
+    const resumedSdkSession = createBasicSdkSession("test-session");
+    const mockCreateSession = mock(async () => initialSdkSession);
+    const mockResumeSession = mock(async (_sessionId: string, _config: Record<string, unknown>) => resumedSdkSession);
+    const mockSdkClient = createBasicSdkClient({
+      createSession: mockCreateSession,
+      resumeSession: mockResumeSession,
+    });
+
+    const client = new CopilotClient({});
+    (client as unknown as { sdkClient: unknown }).sdkClient = mockSdkClient;
+    (client as unknown as { isRunning: boolean }).isRunning = true;
+    (client as unknown as {
+      loadCopilotSessionArtifacts: () => Promise<{
+        customAgents?: Array<Record<string, unknown>>;
+        skillDirectories?: string[];
+      }>;
+    }).loadCopilotSessionArtifacts = async () => ({
+      customAgents: [
+        {
+          name: "planner",
+          description: "Planner agent",
+          tools: ["search", "read", "execute"],
+          prompt: "Plan work",
+        },
+      ],
+      skillDirectories: ["/tmp/copilot-skills"],
+    });
+
+    await client.createSession({
+      sessionId: "test-session",
+      model: "github-copilot/test-model",
+      additionalInstructions: "Follow repository conventions.",
+      tools: ["execute", "read", "web"],
+      mcpServers: [
+        {
+          name: "docs",
+          type: "stdio",
+          command: "bun",
+          args: ["run", "mcp"],
+          tools: ["lookup"],
+        },
+      ],
+    });
+
+    await client.setActiveSessionModel("github-copilot/test-model");
+
+    expect(mockResumeSession).toHaveBeenCalledTimes(1);
+    expect(mockResumeSession).toHaveBeenCalledWith(
+      "test-session",
+      expect.objectContaining({
+        model: "test-model",
+        availableTools: ["execute", "read", "web"],
+        systemMessage: {
+          mode: "append",
+          content: "Follow repository conventions.",
+        },
+        customAgents: [
+          expect.objectContaining({
+            name: "planner",
+            tools: ["search", "read", "execute"],
+          }),
+        ],
+        skillDirectories: ["/tmp/copilot-skills"],
+        mcpServers: {
+          docs: expect.objectContaining({
+            type: "stdio",
+            command: "bun",
+            args: ["run", "mcp"],
+            tools: ["lookup"],
+          }),
+        },
+      }),
+    );
+
+    const resumeConfig = mockResumeSession.mock.calls[0]?.[1] as {
+      onPermissionRequest: () => Promise<{ kind: string }>;
+    };
+    await expect(resumeConfig.onPermissionRequest()).resolves.toEqual({ kind: "approved" });
+  });
+
+  test("uses approve-all permissions for the startup probe session", async () => {
+    const probeSession = {
+      on: mock((_eventType: string, handler: (event: { data: Record<string, unknown> }) => void) => {
+        handler({ data: { currentTokens: 42 } });
+        return () => {};
+      }),
+      destroy: mock(() => Promise.resolve()),
+    };
+    const mockCreateSession = mock(async (config: Record<string, unknown>) => probeSession);
+
+    const client = new CopilotClient({});
+    (client as unknown as {
+      buildSdkOptions: () => Promise<Record<string, unknown>>;
+    }).buildSdkOptions = async () => ({ useStdio: true });
+    (client as unknown as {
+      createSdkClientInstance: (_options: Record<string, unknown>) => {
+        start: () => Promise<void>;
+        stop: () => Promise<void>;
+        createSession: typeof mockCreateSession;
+      };
+    }).createSdkClientInstance = () => ({
+      start: async () => {},
+      stop: async () => {},
+      createSession: mockCreateSession,
+    });
+
+    await client.start();
+    await client.stop();
+
+    expect(mockCreateSession).toHaveBeenCalledTimes(1);
+    const probeConfig = mockCreateSession.mock.calls[0]?.[0] as {
+      onPermissionRequest: () => Promise<{ kind: string }>;
+    };
+    await expect(probeConfig.onPermissionRequest()).resolves.toEqual({ kind: "approved" });
   });
 });
 

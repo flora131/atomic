@@ -10,15 +10,25 @@
  */
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve } from "node:path";
 import { homedir } from "node:os";
 import { SETTINGS_SCHEMA_URL } from "@/services/config/settings-schema.ts";
+import type { AgentKey } from "@/services/config/definitions.ts";
+
+export interface TrustedPathEntry {
+  workspacePath: string;
+  provider: AgentKey;
+}
 
 interface AtomicSettings {
   $schema?: string;
+  scm?: "github" | "sapling";
+  version?: number;
+  lastUpdated?: string;
   model?: Record<string, string>; // agentType -> modelId
   reasoningEffort?: Record<string, string>; // agentType -> effort level
   prerelease?: boolean;
+  trustedPaths?: TrustedPathEntry[];
 }
 
 const CLAUDE_CANONICAL_MODELS = ["opus", "sonnet", "haiku"] as const;
@@ -87,6 +97,44 @@ async function loadSettingsFile(path: string): Promise<AtomicSettings> {
   return {};
 }
 
+function writeGlobalSettingsSync(settings: AtomicSettings): void {
+  const path = globalSettingsPath();
+  const dir = dirname(path);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  const { agent: _legacyAgent, ...sanitizedSettings } = settings as AtomicSettings & {
+    agent?: AgentKey;
+  };
+  writeFileSync(path, JSON.stringify(sanitizedSettings, null, 2), "utf-8");
+}
+
+function normalizeTrustedPathEntry(entry: TrustedPathEntry): TrustedPathEntry {
+  return {
+    workspacePath: resolve(entry.workspacePath),
+    provider: entry.provider,
+  };
+}
+
+function normalizeTrustedPaths(entries: TrustedPathEntry[] | undefined): TrustedPathEntry[] {
+  const deduped = new Map<string, TrustedPathEntry>();
+
+  for (const entry of entries ?? []) {
+    if (
+      typeof entry.workspacePath !== "string" ||
+      typeof entry.provider !== "string"
+    ) {
+      continue;
+    }
+
+    const normalizedEntry = normalizeTrustedPathEntry(entry);
+    deduped.set(
+      `${normalizedEntry.provider}:${normalizedEntry.workspacePath}`,
+      normalizedEntry,
+    );
+  }
+
+  return Array.from(deduped.values());
+}
+
 /**
  * Get the effective model preference for an agent type.
  * Checks local (.atomic/settings.json) first, then global (~/.atomic/settings.json).
@@ -109,14 +157,11 @@ export async function getModelPreference(agentType: string): Promise<string | un
  */
 export function saveModelPreference(agentType: string, modelId: string): void {
   try {
-    const path = globalSettingsPath();
-    const settings = loadSettingsFileSync(path);
+    const settings = loadSettingsFileSync(globalSettingsPath());
     settings.$schema = SETTINGS_SCHEMA_URL;
     settings.model = settings.model ?? {};
     settings.model[agentType] = normalizeModelPreference(agentType, modelId);
-    const dir = dirname(path);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    writeFileSync(path, JSON.stringify(settings, null, 2), "utf-8");
+    writeGlobalSettingsSync(settings);
   } catch {
     // Silently fail
   }
@@ -140,14 +185,11 @@ export async function getReasoningEffortPreference(agentType: string): Promise<s
  */
 export function saveReasoningEffortPreference(agentType: string, effort: string): void {
   try {
-    const path = globalSettingsPath();
-    const settings = loadSettingsFileSync(path);
+    const settings = loadSettingsFileSync(globalSettingsPath());
     settings.$schema = SETTINGS_SCHEMA_URL;
     settings.reasoningEffort = settings.reasoningEffort ?? {};
     settings.reasoningEffort[agentType] = effort;
-    const dir = dirname(path);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    writeFileSync(path, JSON.stringify(settings, null, 2), "utf-8");
+    writeGlobalSettingsSync(settings);
   } catch {
     // Silently fail
   }
@@ -158,12 +200,11 @@ export function saveReasoningEffortPreference(agentType: string, effort: string)
  */
 export function clearReasoningEffortPreference(agentType: string): void {
   try {
-    const path = globalSettingsPath();
-    const settings = loadSettingsFileSync(path);
+    const settings = loadSettingsFileSync(globalSettingsPath());
     if (settings.reasoningEffort?.[agentType]) {
       delete settings.reasoningEffort[agentType];
       settings.$schema = SETTINGS_SCHEMA_URL;
-      writeFileSync(path, JSON.stringify(settings, null, 2), "utf-8");
+      writeGlobalSettingsSync(settings);
     }
   } catch {
     // Silently fail
@@ -176,4 +217,33 @@ export function clearReasoningEffortPreference(agentType: string): void {
  */
 export function getPrereleasePreference(): boolean {
   return loadSettingsFileSync(globalSettingsPath()).prerelease === true;
+}
+
+export async function isTrustedWorkspacePath(
+  workspacePath: string,
+  provider: AgentKey,
+): Promise<boolean> {
+  const settings = await loadSettingsFile(globalSettingsPath());
+  const normalizedWorkspacePath = resolve(workspacePath);
+
+  return normalizeTrustedPaths(settings.trustedPaths).some((entry) =>
+    entry.provider === provider && entry.workspacePath === normalizedWorkspacePath
+  );
+}
+
+export function upsertTrustedWorkspacePath(
+  workspacePath: string,
+  provider: AgentKey,
+): void {
+  try {
+    const settings = loadSettingsFileSync(globalSettingsPath());
+    settings.$schema = SETTINGS_SCHEMA_URL;
+    settings.trustedPaths = normalizeTrustedPaths([
+      ...(settings.trustedPaths ?? []),
+      { workspacePath, provider },
+    ]);
+    writeGlobalSettingsSync(settings);
+  } catch {
+    // Silently fail
+  }
 }

@@ -247,6 +247,16 @@ describe("copyFile", () => {
     const content = await Bun.file(destFile).text();
     expect(content).toBe("New content");
   });
+
+  test("should no-op when source and destination are the same file", async () => {
+    const filePath = join(tempDir, "same.txt");
+    await writeFile(filePath, "Hello, World!", "utf-8");
+
+    await copyFile(filePath, filePath);
+
+    const content = await Bun.file(filePath).text();
+    expect(content).toBe("Hello, World!");
+  });
 });
 
 describe("pathExists", () => {

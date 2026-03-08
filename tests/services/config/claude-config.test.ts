@@ -6,7 +6,7 @@ import { prepareClaudeConfigDir } from "@/services/config/claude-config.ts";
 import { pathExists } from "@/services/system/copy.ts";
 
 describe("prepareClaudeConfigDir", () => {
-  test("returns null when ~/.atomic/.claude is missing", async () => {
+  test("returns null when ~/.claude is missing", async () => {
     const root = await mkdtemp(join(tmpdir(), "atomic-claude-config-"));
     const homeDir = join(root, "home");
     const projectRoot = join(root, "project");
@@ -29,16 +29,10 @@ describe("prepareClaudeConfigDir", () => {
     const projectRoot = join(root, "project");
     const mergedDir = join(homeDir, ".atomic", ".tmp", "merged");
 
-    await mkdir(join(homeDir, ".atomic", ".claude", "agents"), {
-      recursive: true,
-    });
     await mkdir(join(homeDir, ".claude", "agents"), {
       recursive: true,
     });
     await mkdir(join(projectRoot, ".claude", "agents"), {
-      recursive: true,
-    });
-    await mkdir(join(homeDir, ".atomic", ".claude", "skills"), {
       recursive: true,
     });
     await mkdir(join(homeDir, ".claude", "skills"), {
@@ -46,11 +40,6 @@ describe("prepareClaudeConfigDir", () => {
     });
     await mkdir(join(projectRoot, ".claude"), { recursive: true });
 
-    await writeFile(
-      join(homeDir, ".atomic", ".claude", "agents", "example.md"),
-      "atomic",
-      "utf-8",
-    );
     await writeFile(
       join(homeDir, ".claude", "agents", "example.md"),
       "user",
@@ -61,13 +50,8 @@ describe("prepareClaudeConfigDir", () => {
       "project",
       "utf-8",
     );
-    await writeFile(
-      join(homeDir, ".atomic", ".claude", "agents", "atomic-only.md"),
-      "atomic-only",
-      "utf-8",
-    );
+    await writeFile(join(homeDir, ".claude", "agents", "home-only.md"), "home-only", "utf-8");
     await writeFile(join(homeDir, ".claude", "skills", "user-only.md"), "user-only", "utf-8");
-    await writeFile(join(homeDir, ".atomic", ".claude", "settings.json"), "atomic-settings", "utf-8");
     await writeFile(join(homeDir, ".claude", "settings.json"), "user-settings", "utf-8");
     await writeFile(join(projectRoot, ".claude", "settings.json"), "project-settings", "utf-8");
 
@@ -76,12 +60,12 @@ describe("prepareClaudeConfigDir", () => {
       expect(result).toBe(mergedDir);
 
       const mergedAgent = await readFile(join(mergedDir, "agents", "example.md"), "utf-8");
-      const mergedAtomicOnly = await readFile(join(mergedDir, "agents", "atomic-only.md"), "utf-8");
+      const mergedHomeOnly = await readFile(join(mergedDir, "agents", "home-only.md"), "utf-8");
       const mergedUserOnly = await readFile(join(mergedDir, "skills", "user-only.md"), "utf-8");
       const mergedSettings = await readFile(join(mergedDir, "settings.json"), "utf-8");
 
       expect(mergedAgent).toBe("project");
-      expect(mergedAtomicOnly).toBe("atomic-only");
+      expect(mergedHomeOnly).toBe("home-only");
       expect(mergedUserOnly).toBe("user-only");
       expect(mergedSettings).toBe("project-settings");
     } finally {
@@ -94,7 +78,6 @@ describe("prepareClaudeConfigDir", () => {
     const homeDir = join(root, "home");
     const projectRoot = join(root, "project");
 
-    await mkdir(join(homeDir, ".atomic", ".claude", "agents"), { recursive: true });
     await mkdir(join(homeDir, ".claude", "agents"), { recursive: true });
     await mkdir(projectRoot, { recursive: true });
     await writeFile(join(homeDir, ".claude", "agents", "example.md"), "legacy-agent", "utf-8");
@@ -115,7 +98,7 @@ describe("prepareClaudeConfigDir", () => {
     const projectRoot = join(root, "project");
     const mergedDir = join(homeDir, ".atomic", ".tmp", "merged");
 
-    await mkdir(join(homeDir, ".atomic", ".claude"), { recursive: true });
+    await mkdir(join(homeDir, ".claude"), { recursive: true });
     await mkdir(projectRoot, { recursive: true });
     await writeFile(join(homeDir, ".claude.json"), JSON.stringify({ key: "value" }), "utf-8");
 
@@ -134,7 +117,6 @@ describe("prepareClaudeConfigDir", () => {
     const projectRoot = join(root, "project");
     const mergedDir = join(homeDir, ".atomic", ".tmp", "merged");
 
-    await mkdir(join(homeDir, ".atomic", ".claude"), { recursive: true });
     await mkdir(projectRoot, { recursive: true });
     await mkdir(join(homeDir, ".claude", "skills", "my-skill", ".git", "objects"), {
       recursive: true,
@@ -166,7 +148,6 @@ describe("prepareClaudeConfigDir", () => {
     const projectRoot = join(root, "project");
     const escapedMergedDir = join(homeDir, ".atomic", "..", "escaped-merged");
 
-    await mkdir(join(homeDir, ".atomic", ".claude"), { recursive: true });
     await mkdir(projectRoot, { recursive: true });
 
     try {
@@ -185,7 +166,7 @@ describe("prepareClaudeConfigDir", () => {
     const outsideDir = join(root, "outside");
     const mergedDir = join(homeDir, ".atomic", ".tmp", "merged");
 
-    await mkdir(join(homeDir, ".atomic", ".claude"), { recursive: true });
+    await mkdir(join(homeDir, ".claude"), { recursive: true });
     await mkdir(projectRoot, { recursive: true });
     await mkdir(join(outsideDir, "agents"), { recursive: true });
     await writeFile(join(outsideDir, "agents", "escape.md"), "outside", "utf-8");

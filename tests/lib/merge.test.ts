@@ -236,6 +236,49 @@ describe("mergeJsonFile", () => {
     await mergeJsonFile(srcPath, destPath);
 
     const result = await readJson<{ mcpServers?: Record<string, unknown> }>(destPath);
-    expect(result.mcpServers).toEqual({});
+    expect(result.mcpServers).toBeUndefined();
+  });
+
+  test("should no-op when source and destination are the same file", async () => {
+    const filePath = join(tempDir, "same.json");
+    await writeFile(filePath, JSON.stringify({ key: "value" }, null, 2) + "\n");
+
+    await mergeJsonFile(filePath, filePath);
+
+    const result = await readJson<{ key: string }>(filePath);
+    expect(result).toEqual({ key: "value" });
+  });
+
+  test("should deep merge VS Code servers maps when present", async () => {
+    const srcPath = join(tempDir, "source.json");
+    const destPath = join(tempDir, "dest.json");
+
+    await writeFile(
+      srcPath,
+      JSON.stringify({
+        servers: {
+          deepwiki: { type: "http", url: "https://mcp.deepwiki.com/mcp" },
+        },
+      }),
+    );
+    await writeFile(
+      destPath,
+      JSON.stringify({
+        servers: {
+          existing: { type: "local", command: "existing-server" },
+        },
+      }),
+    );
+
+    await mergeJsonFile(srcPath, destPath);
+
+    const result = await readJson<{
+      servers: Record<string, unknown>;
+    }>(destPath);
+    expect(result.servers.existing).toEqual({ type: "local", command: "existing-server" });
+    expect(result.servers.deepwiki).toEqual({
+      type: "http",
+      url: "https://mcp.deepwiki.com/mcp",
+    });
   });
 });

@@ -49,12 +49,11 @@ describe("atomic-config", () => {
       );
 
       await expect(readAtomicConfig(projectDir)).resolves.toEqual({
-        agent: "opencode",
         scm: "sapling",
       });
     });
 
-    test("uses local .atomic/settings.json as override over global", async () => {
+    test("uses local .atomic/settings.json as override over global and ignores legacy agent", async () => {
       mkdirSync(join(globalHome, ".atomic"), { recursive: true });
       writeFileSync(globalSettingsPath(), JSON.stringify({ agent: "claude", scm: "github" }), "utf-8");
 
@@ -62,7 +61,6 @@ describe("atomic-config", () => {
       writeFileSync(localSettingsPath(), JSON.stringify({ scm: "sapling" }), "utf-8");
 
       await expect(readAtomicConfig(projectDir)).resolves.toEqual({
-        agent: "claude",
         scm: "sapling",
       });
     });
@@ -80,11 +78,10 @@ describe("atomic-config", () => {
 
   describe("saveAtomicConfig", () => {
     test("writes project config to .atomic/settings.json", async () => {
-      await saveAtomicConfig(projectDir, { agent: "copilot", scm: "github" });
+      await saveAtomicConfig(projectDir, { scm: "github" });
 
       expect(existsSync(localSettingsPath())).toBe(true);
       const saved = JSON.parse(readFileSync(localSettingsPath(), "utf-8")) as AtomicConfig;
-      expect(saved.agent).toBe("copilot");
       expect(saved.scm).toBe("github");
       expect(saved.version).toBe(1);
       expect(saved.lastUpdated).toBeDefined();
@@ -106,13 +103,29 @@ describe("atomic-config", () => {
       expect(saved.scm).toBe("sapling");
     });
 
+    test("removes legacy agent when rewriting settings", async () => {
+      mkdirSync(join(projectDir, ".atomic"), { recursive: true });
+      writeFileSync(
+        localSettingsPath(),
+        JSON.stringify({ agent: "claude", model: { claude: "opus" } }),
+        "utf-8"
+      );
+
+      await saveAtomicConfig(projectDir, { scm: "github" });
+
+      const saved = JSON.parse(readFileSync(localSettingsPath(), "utf-8")) as Record<string, unknown>;
+      expect(saved.agent).toBeUndefined();
+      expect(saved.model).toEqual({ claude: "opus" });
+      expect(saved.scm).toBe("github");
+    });
+
     test("formats JSON with 2-space indentation and trailing newline", async () => {
-      await saveAtomicConfig(projectDir, { agent: "claude", scm: "github" });
+      await saveAtomicConfig(projectDir, { scm: "github" });
 
       const content = readFileSync(localSettingsPath(), "utf-8");
       expect(content.endsWith("\n")).toBe(true);
       expect(content).toContain('  "version"');
-      expect(content).toContain('  "agent"');
+      expect(content).toContain('  "scm"');
     });
   });
 

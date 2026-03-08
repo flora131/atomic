@@ -13,8 +13,8 @@ import {
   note,
   log,
 } from "@clack/prompts";
-import { join } from "path";
-import { mkdir, readdir, rm } from "fs/promises";
+import { dirname, join, resolve } from "path";
+import { mkdir, readdir } from "fs/promises";
 
 import {
   AGENT_CONFIG,
@@ -33,6 +33,7 @@ import { mergeJsonFile } from "@/lib/merge.ts";
 import { isWindows, isWslInstalled, WSL_INSTALL_URL, getOppositeScriptExtension } from "@/services/system/detect.ts";
 import { trackAtomicCommand, handleTelemetryConsent, type AgentType } from "@/services/telemetry/index.ts";
 import { saveAtomicConfig } from "@/services/config/atomic-config.ts";
+import { upsertTrustedWorkspacePath } from "@/services/config/settings.ts";
 import {
   ensureAtomicGlobalAgentConfigsForInstallType,
   getTemplateAgentFolder,
@@ -72,43 +73,30 @@ interface ReconcileScmVariantsOptions {
 }
 
 /**
- * Keep only selected SCM variants (gh-* or sl-*) for managed entries.
+ * Preserve existing managed SCM variants.
  *
- * User-defined or unmanaged entries are preserved.
+ * Atomic init only ensures the selected SCM skills exist. It must not prune
+ * other managed variants that may already exist in development builds or from
+ * future onboarding behavior.
  */
 export async function reconcileScmVariants(options: ReconcileScmVariantsOptions): Promise<void> {
-  const { scmType, agentFolder, skillsSubfolder, targetDir, configRoot } = options;
-  const selectedPrefix = getScmPrefix(scmType);
+  const { agentFolder, skillsSubfolder, targetDir, configRoot } = options;
   const srcDir = join(configRoot, agentFolder, skillsSubfolder);
   const destDir = join(targetDir, agentFolder, skillsSubfolder);
 
-  if (!(await pathExists(srcDir))) {
-    if (process.env.DEBUG === "1") {
-      console.log(`[DEBUG] SCM source directory not found: ${srcDir}`);
-    }
+  if (!(await pathExists(srcDir)) || !(await pathExists(destDir))) {
     return;
   }
 
-  if (!(await pathExists(destDir))) return;
-
   const sourceEntries = await readdir(srcDir, { withFileTypes: true });
-  const managedEntries = new Set(
-    sourceEntries
-      .filter((entry) => isManagedScmEntry(entry.name))
-      .map((entry) => entry.name)
-  );
-  if (managedEntries.size === 0) return;
+  const managedEntries = sourceEntries.filter((entry) => isManagedScmEntry(entry.name));
 
-  const targetEntries = await readdir(destDir, { withFileTypes: true });
-  for (const entry of targetEntries) {
-    if (!managedEntries.has(entry.name)) continue;
-    if (entry.name.startsWith(selectedPrefix)) continue;
-
-    const entryPath = join(destDir, entry.name);
-    await rm(entryPath, { recursive: true, force: true });
-    if (process.env.DEBUG === "1") {
-      console.log(`[DEBUG] Removed SCM variant not selected (${scmType}): ${entryPath}`);
-    }
+  if (process.env.DEBUG === "1" && managedEntries.length > 0) {
+    console.log(
+      `[DEBUG] Preserving existing managed SCM variants in ${destDir}: ${managedEntries
+        .map((entry) => entry.name)
+        .join(", ")}`
+    );
   }
 }
 
@@ -187,6 +175,47 @@ async function syncProjectScmSkills(options: SyncProjectScmSkillsOptions): Promi
   }
 
   return copiedCount;
+}
+
+export async function applyManagedOnboardingFiles(
+  agentKey: AgentKey,
+  projectRoot: string,
+  configRoot: string,
+): Promise<void> {
+  const onboardingFiles = AGENT_CONFIG[agentKey].onboarding_files;
+
+  for (const managedFile of onboardingFiles) {
+    const sourcePath = join(configRoot, managedFile.source);
+    if (!(await pathExists(sourcePath))) {
+      continue;
+    }
+
+    const destinationPath = join(projectRoot, managedFile.destination);
+    await mkdir(dirname(destinationPath), { recursive: true });
+
+    if (managedFile.merge && (await pathExists(destinationPath))) {
+      await mergeJsonFile(sourcePath, destinationPath);
+    } else {
+      await copyFile(sourcePath, destinationPath);
+    }
+  }
+}
+
+export async function hasProjectOnboardingFiles(
+  agentKey: AgentKey,
+  projectRoot: string,
+): Promise<boolean> {
+  const onboardingFiles = AGENT_CONFIG[agentKey].onboarding_files;
+  if (onboardingFiles.length === 0) {
+    return true;
+  }
+
+  const checks = await Promise.all(
+    onboardingFiles.map((managedFile) =>
+      pathExists(join(projectRoot, managedFile.destination))
+    ),
+  );
+  return checks.every(Boolean);
 }
 
 function decodeSpawnOutput(output: Uint8Array): string {
@@ -417,25 +446,13 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
       configRoot,
     });
 
-    // Merge JSON config files (e.g., .mcp.json, mcp-config.json)
-    for (const file of agent.merge_files) {
-      const srcFile = join(configRoot, file);
-      const destFile = join(targetDir, file);
-
-      if (await pathExists(srcFile)) {
-        if (await pathExists(destFile)) {
-          await mergeJsonFile(srcFile, destFile);
-        } else {
-          await copyFile(srcFile, destFile);
-        }
-      }
-    }
+    await applyManagedOnboardingFiles(agentKey, targetDir, configRoot);
 
     // Save SCM selection to .atomic/settings.json
     await saveAtomicConfig(targetDir, {
       scm: scmType,
-      agent: agentKey,
     });
+    upsertTrustedWorkspacePath(resolve(targetDir), agentKey);
 
     s.stop("Source control skills configured successfully!");
 

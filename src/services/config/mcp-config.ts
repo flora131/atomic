@@ -10,7 +10,7 @@
 import { join, resolve } from "node:path";
 import type { McpServerConfig } from "@/services/agents/types.ts";
 import { assertRealPathWithinRoot } from "@/lib/path-root-guard.ts";
-import { resolveDefaultConfigHome } from "@/services/config/provider-discovery-plan.ts";
+import { resolveUserProviderRoot } from "@/services/config/provider-discovery-plan.ts";
 
 async function readJsoncConfig(
   filePath: string,
@@ -58,8 +58,10 @@ export async function parseClaudeMcpConfig(
 }
 
 /**
- * Parse Copilot CLI MCP config (mcp-config.json).
- * Format: { "mcpServers": { "<name>": { type, command?, args?, env?, url?, headers?, cwd?, tools?, timeout? } } }
+ * Parse Copilot MCP config (.vscode/mcp.json or ~/.copilot/mcp-config.json).
+ * Supported formats:
+ * - { "mcpServers": { "<name>": { ... } } }
+ * - { "servers": { "<name>": { ... } } }
  * Maps "local" type to "stdio".
  */
 export async function parseCopilotMcpConfig(
@@ -71,10 +73,10 @@ export async function parseCopilotMcpConfig(
     return [];
   }
 
-  const mcpServers = parsed.mcpServers;
+  const mcpServers = (parsed.mcpServers ?? parsed.servers) as Record<string, Record<string, unknown>> | undefined;
   if (!mcpServers || typeof mcpServers !== "object") return [];
 
-  return Object.entries(mcpServers as Record<string, Record<string, unknown>>).map(([name, cfg]) => {
+  return Object.entries(mcpServers).map(([name, cfg]) => {
     const type = cfg.type === "local" ? "stdio" : (cfg.type as McpServerConfig["type"]);
     return {
       name,
@@ -153,10 +155,9 @@ export async function parseOpenCodeMcpConfig(
  * (user-level), but configs from one ecosystem never override another's.
  *
  * Discovery order per ecosystem (low -> high precedence):
- * 1. Atomic global: ~/.atomic/.{claude,copilot,opencode}/...
- * 2. Canonical user config-home: <config-home>/.{copilot,opencode}/...
- * 3. User home roots: ~/.{claude,copilot,opencode}/...
- * 4. Project local: .mcp.json, .github/mcp-config.json, opencode.json[c], ...
+ * 1. User home roots: ~/.{claude,copilot,opencode}/...
+ * 2. Distinct XDG override roots for Copilot/OpenCode when configured
+ * 3. Project local: .mcp.json, .vscode/mcp.json, .opencode/opencode.json[c], ...
  *
  * @param cwd - Project root directory (defaults to process.cwd())
  * @returns Deduplicated array of McpServerConfig
@@ -175,72 +176,68 @@ interface TaggedSource {
 export async function discoverMcpConfigs(cwd?: string, options: DiscoverMcpConfigsOptions = {}): Promise<McpServerConfig[]> {
   const projectRoot = resolve(cwd ?? process.cwd());
   const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? "";
-  const atomicHome = homeDir.length > 0 ? join(homeDir, ".atomic") : "";
-  const configHome = homeDir.length > 0
-    ? resolveDefaultConfigHome({
+  const opencodeHomeRoot = homeDir.length > 0 ? join(homeDir, ".opencode") : "";
+  const opencodeOverrideRoot = homeDir.length > 0
+    ? resolveUserProviderRoot({
         homeDir,
+        providerFolder: ".opencode",
+        xdgConfigHome: process.env.XDG_CONFIG_HOME ?? undefined,
+        platform: process.platform,
       })
     : "";
-
-  const claudeAtomicPromise = atomicHome.length > 0
-    ? parseClaudeMcpConfig(join(atomicHome, ".claude", ".mcp.json"), homeDir)
-    : Promise.resolve<McpServerConfig[]>([]);
-  const copilotAtomicPromise = atomicHome.length > 0
-    ? parseCopilotMcpConfig(join(atomicHome, ".copilot", "mcp-config.json"), homeDir)
-    : Promise.resolve<McpServerConfig[]>([]);
-  const opencodeAtomicJsonPromise = atomicHome.length > 0
-    ? parseOpenCodeMcpConfig(join(atomicHome, ".opencode", "opencode.json"), homeDir)
-    : Promise.resolve<McpServerConfig[]>([]);
-  const opencodeAtomicJsoncPromise = atomicHome.length > 0
-    ? parseOpenCodeMcpConfig(join(atomicHome, ".opencode", "opencode.jsonc"), homeDir)
-    : Promise.resolve<McpServerConfig[]>([]);
+  const copilotHomeRoot = homeDir.length > 0 ? join(homeDir, ".copilot") : "";
+  const copilotOverrideRoot = homeDir.length > 0
+    ? resolveUserProviderRoot({
+        homeDir,
+        providerFolder: ".copilot",
+        xdgConfigHome: process.env.XDG_CONFIG_HOME ?? undefined,
+        platform: process.platform,
+      })
+    : "";
+  const hasDistinctOpenCodeOverride = opencodeOverrideRoot.length > 0 &&
+    resolve(opencodeOverrideRoot) !== resolve(opencodeHomeRoot);
+  const hasDistinctCopilotOverride = copilotOverrideRoot.length > 0 &&
+    resolve(copilotOverrideRoot) !== resolve(copilotHomeRoot);
 
   const claudeUserPromise = homeDir.length > 0
     ? parseClaudeMcpConfig(join(homeDir, ".claude", ".mcp.json"), homeDir)
     : Promise.resolve<McpServerConfig[]>([]);
-  const copilotCanonicalPromise = configHome.length > 0
-    ? parseCopilotMcpConfig(join(configHome, ".copilot", "mcp-config.json"), homeDir)
-    : Promise.resolve<McpServerConfig[]>([]);
-  const opencodeCanonicalJsonPromise = configHome.length > 0
-    ? parseOpenCodeMcpConfig(join(configHome, ".opencode", "opencode.json"), homeDir)
-    : Promise.resolve<McpServerConfig[]>([]);
-  const opencodeCanonicalJsoncPromise = configHome.length > 0
-    ? parseOpenCodeMcpConfig(join(configHome, ".opencode", "opencode.jsonc"), homeDir)
-    : Promise.resolve<McpServerConfig[]>([]);
   const copilotHomePromise = homeDir.length > 0
-    ? parseCopilotMcpConfig(join(homeDir, ".copilot", "mcp-config.json"), homeDir)
+    ? parseCopilotMcpConfig(join(copilotHomeRoot, "mcp-config.json"), homeDir)
+    : Promise.resolve<McpServerConfig[]>([]);
+  const copilotOverridePromise = hasDistinctCopilotOverride
+    ? parseCopilotMcpConfig(join(copilotOverrideRoot, "mcp-config.json"), homeDir)
     : Promise.resolve<McpServerConfig[]>([]);
   const opencodeHomeJsonPromise = homeDir.length > 0
-    ? parseOpenCodeMcpConfig(join(homeDir, ".opencode", "opencode.json"), homeDir)
+    ? parseOpenCodeMcpConfig(join(opencodeHomeRoot, "opencode.json"), homeDir)
     : Promise.resolve<McpServerConfig[]>([]);
   const opencodeHomeJsoncPromise = homeDir.length > 0
-    ? parseOpenCodeMcpConfig(join(homeDir, ".opencode", "opencode.jsonc"), homeDir)
+    ? parseOpenCodeMcpConfig(join(opencodeHomeRoot, "opencode.jsonc"), homeDir)
+    : Promise.resolve<McpServerConfig[]>([]);
+  const opencodeOverrideJsonPromise = hasDistinctOpenCodeOverride
+    ? parseOpenCodeMcpConfig(join(opencodeOverrideRoot, "opencode.json"), homeDir)
+    : Promise.resolve<McpServerConfig[]>([]);
+  const opencodeOverrideJsoncPromise = hasDistinctOpenCodeOverride
+    ? parseOpenCodeMcpConfig(join(opencodeOverrideRoot, "opencode.jsonc"), homeDir)
     : Promise.resolve<McpServerConfig[]>([]);
 
   // Fire all config reads concurrently with Bun.file()
   const [
-    claudeAtomic, copilotAtomic, opencodeAtomicJson, opencodeAtomicJsonc,
-    claudeUser, copilotCanonical, opencodeCanonicalJson, opencodeCanonicalJsonc,
-    copilotHome, opencodeHomeJson, opencodeHomeJsonc,
-    claudeProject, copilotProject, copilotVscode, copilotRoot,
+    claudeUser, copilotHome, copilotOverride, opencodeHomeJson, opencodeHomeJsonc,
+    opencodeOverrideJson, opencodeOverrideJsonc,
+    claudeProject, copilotProject,
     opencodeProjectJson, opencodeProjectJsonc,
     opencodeProjectDirJson, opencodeProjectDirJsonc,
   ] = await Promise.all([
-    claudeAtomicPromise,
-    copilotAtomicPromise,
-    opencodeAtomicJsonPromise,
-    opencodeAtomicJsoncPromise,
     claudeUserPromise,
-    copilotCanonicalPromise,
-    opencodeCanonicalJsonPromise,
-    opencodeCanonicalJsoncPromise,
     copilotHomePromise,
+    copilotOverridePromise,
     opencodeHomeJsonPromise,
     opencodeHomeJsoncPromise,
+    opencodeOverrideJsonPromise,
+    opencodeOverrideJsoncPromise,
     parseClaudeMcpConfig(join(projectRoot, ".mcp.json"), projectRoot),
-    parseCopilotMcpConfig(join(projectRoot, ".github", "mcp-config.json"), projectRoot),
     parseCopilotMcpConfig(join(projectRoot, ".vscode", "mcp.json"), projectRoot),
-    parseCopilotMcpConfig(join(projectRoot, "mcp-config.json"), projectRoot),
     parseOpenCodeMcpConfig(join(projectRoot, "opencode.json"), projectRoot),
     parseOpenCodeMcpConfig(join(projectRoot, "opencode.jsonc"), projectRoot),
     parseOpenCodeMcpConfig(join(projectRoot, ".opencode", "opencode.json"), projectRoot),
@@ -255,28 +252,20 @@ export async function discoverMcpConfigs(cwd?: string, options: DiscoverMcpConfi
     }
   }
 
-  // Atomic global configs (lowest priority within each ecosystem)
-  addSources(claudeAtomic, "claude");
-  addSources(copilotAtomic, "copilot");
-  addSources(opencodeAtomicJson, "opencode");
-  addSources(opencodeAtomicJsonc, "opencode");
-
-  // Canonical config-home roots
-  addSources(copilotCanonical, "copilot");
-  addSources(opencodeCanonicalJson, "opencode");
-  addSources(opencodeCanonicalJsonc, "opencode");
-
   // User home roots
   addSources(claudeUser, "claude");
   addSources(copilotHome, "copilot");
   addSources(opencodeHomeJson, "opencode");
   addSources(opencodeHomeJsonc, "opencode");
 
+  // Distinct XDG override roots
+  addSources(copilotOverride, "copilot");
+  addSources(opencodeOverrideJson, "opencode");
+  addSources(opencodeOverrideJsonc, "opencode");
+
   // Project-level configs (override user-level within the same ecosystem)
   addSources(claudeProject, "claude");
   addSources(copilotProject, "copilot");
-  addSources(copilotVscode, "copilot");
-  addSources(copilotRoot, "copilot");
   addSources(opencodeProjectJson, "opencode");
   addSources(opencodeProjectJsonc, "opencode");
   addSources(opencodeProjectDirJson, "opencode");

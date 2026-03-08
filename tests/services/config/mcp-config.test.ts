@@ -17,7 +17,7 @@ async function writeCopilotMcpConfig(
     filePath,
     JSON.stringify(
       {
-        mcpServers: {
+        servers: {
           [serverName]: {
             type: "local",
             command: "echo",
@@ -65,7 +65,7 @@ describe("discoverMcpConfigs path guardrails", () => {
 
     try {
       await writeCopilotMcpConfig(
-        join(projectRoot, ".github", "mcp-config.json"),
+        join(projectRoot, ".vscode", "mcp.json"),
         "project-server",
       );
 
@@ -118,8 +118,8 @@ describe("discoverMcpConfigs path guardrails", () => {
       const outsideConfig = join(outsideRoot, "mcp-config.json");
       await writeCopilotMcpConfig(outsideConfig, "outside-server");
 
-      await mkdir(join(projectRoot, ".github"), { recursive: true });
-      await symlink(outsideConfig, join(projectRoot, ".github", "mcp-config.json"));
+      await mkdir(join(projectRoot, ".vscode"), { recursive: true });
+      await symlink(outsideConfig, join(projectRoot, ".vscode", "mcp.json"));
 
       const configs = await discoverMcpConfigs(projectRoot);
       expect(configs.some((config) => config.name === "outside-server")).toBe(false);
@@ -143,8 +143,8 @@ describe("discoverMcpConfigs path guardrails", () => {
       const sharedConfig = join(projectRoot, "shared", "copilot-mcp.json");
       await writeCopilotMcpConfig(sharedConfig, "inside-server");
 
-      await mkdir(join(projectRoot, ".github"), { recursive: true });
-      await symlink(sharedConfig, join(projectRoot, ".github", "mcp-config.json"));
+      await mkdir(join(projectRoot, ".vscode"), { recursive: true });
+      await symlink(sharedConfig, join(projectRoot, ".vscode", "mcp.json"));
 
       const configs = await discoverMcpConfigs(projectRoot);
       expect(configs.some((config) => config.name === "inside-server")).toBe(true);

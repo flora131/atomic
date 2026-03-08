@@ -48,7 +48,7 @@ describe("copilot-paths", () => {
     ).toBe("/tmp/custom-xdg/.copilot");
   });
 
-  test("uses ~/.config as default config home on Unix when XDG is unset", () => {
+  test("uses ~/.copilot as default root on Unix when XDG is unset", () => {
     const homeDir = "/home/test-user";
 
     expect(
@@ -56,10 +56,10 @@ describe("copilot-paths", () => {
         xdgConfigHome: null,
         platform: "linux",
       }),
-    ).toBe("/home/test-user/.config/.copilot");
+    ).toBe("/home/test-user/.copilot");
   });
 
-  test("uses APPDATA as canonical config home on Windows", () => {
+  test("uses the home root on Windows", () => {
     const homeDir = "/Users/test-user";
     const appDataDir = "/Users/test-user/AppData/Roaming";
 
@@ -68,7 +68,7 @@ describe("copilot-paths", () => {
         appDataDir,
         platform: "win32",
       }),
-    ).toBe("/Users/test-user/AppData/Roaming/.copilot");
+    ).toBe("/Users/test-user/.copilot");
   });
 
   test("returns contract-aligned home and canonical root mappings", async () => {
@@ -80,13 +80,13 @@ describe("copilot-paths", () => {
     });
 
     expect(resolution.rootsById[COPILOT_CANONICAL_USER_ROOT_ID]).toBe(
-      "/home/test-user/.config/.copilot",
+      "/home/test-user/.copilot",
     );
     expect(resolution.rootsById[COPILOT_HOME_USER_ROOT_ID]).toBe(
       "/home/test-user/.copilot",
     );
     expect(resolution.rootsInPrecedenceOrder).toEqual([
-      "/home/test-user/.config/.copilot",
+      "/home/test-user/.copilot",
       "/home/test-user/.copilot",
     ]);
     expect(resolution.warnings).toEqual([]);

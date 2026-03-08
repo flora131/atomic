@@ -45,11 +45,11 @@ describe("resolveOpenCodeConfigDirEnv", () => {
     );
   });
 
-  test("falls back to Atomic default when env value is missing", () => {
-    const expectedAtomicPath = join(homedir(), ".atomic", ".opencode");
-    expect(resolveOpenCodeConfigDirEnv(undefined)).toBe(expectedAtomicPath);
-    expect(resolveOpenCodeConfigDirEnv("")).toBe(expectedAtomicPath);
-    expect(resolveOpenCodeConfigDirEnv("   ")).toBe(expectedAtomicPath);
+  test("falls back to ~/.opencode when env value is missing", () => {
+    const expectedHomePath = join(homedir(), ".opencode");
+    expect(resolveOpenCodeConfigDirEnv(undefined)).toBe(expectedHomePath);
+    expect(resolveOpenCodeConfigDirEnv("")).toBe(expectedHomePath);
+    expect(resolveOpenCodeConfigDirEnv("   ")).toBe(expectedHomePath);
   });
 });
 

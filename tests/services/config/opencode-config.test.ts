@@ -6,7 +6,7 @@ import { prepareOpenCodeConfigDir } from "@/services/config/opencode-config.ts";
 import { buildProviderDiscoveryPlan } from "@/services/config/provider-discovery-plan.ts";
 
 describe("prepareOpenCodeConfigDir", () => {
-  test("returns null when ~/.atomic/.opencode is missing", async () => {
+  test("returns null when ~/.opencode is missing", async () => {
     const root = await mkdtemp(join(tmpdir(), "atomic-opencode-config-"));
     const homeDir = join(root, "home");
     const projectRoot = join(root, "project");
@@ -61,7 +61,6 @@ describe("prepareOpenCodeConfigDir", () => {
     const xdgConfigHome = join(homeDir, ".xdg-config");
     const mergedDir = join(homeDir, ".atomic", ".tmp", "merged");
 
-    const atomicAgent = join(homeDir, ".atomic", ".opencode", "agents", "example.md");
     const canonicalAgent = join(xdgConfigHome, ".opencode", "agents", "example.md");
     const homeAgent = join(homeDir, ".opencode", "agents", "example.md");
     const projectAgent = join(projectRoot, ".opencode", "agents", "example.md");
@@ -79,7 +78,7 @@ describe("prepareOpenCodeConfigDir", () => {
       "user-precedence.md",
     );
 
-    const atomicOnlyAgent = join(homeDir, ".atomic", ".opencode", "agents", "atomic-only.md");
+    const homeOnlyAgent = join(homeDir, ".opencode", "agents", "home-only.md");
 
     const discoveryPlan = buildProviderDiscoveryPlan("opencode", {
       homeDir,
@@ -87,20 +86,17 @@ describe("prepareOpenCodeConfigDir", () => {
       xdgConfigHome,
     });
 
-    await mkdir(join(homeDir, ".atomic", ".opencode", "agents"), { recursive: true });
     await mkdir(join(xdgConfigHome, ".opencode", "agents"), { recursive: true });
     await mkdir(join(homeDir, ".opencode", "agents"), { recursive: true });
     await mkdir(join(projectRoot, ".opencode", "agents"), { recursive: true });
 
-    await writeFile(atomicAgent, "atomic", "utf-8");
     await writeFile(canonicalAgent, "canonical", "utf-8");
     await writeFile(homeAgent, "home", "utf-8");
     await writeFile(projectAgent, "project", "utf-8");
 
     await writeFile(userPrecedenceCanonical, "canonical", "utf-8");
     await writeFile(userPrecedenceHome, "home", "utf-8");
-
-    await writeFile(atomicOnlyAgent, "atomic-only", "utf-8");
+    await writeFile(homeOnlyAgent, "home-only", "utf-8");
 
     try {
       const result = await prepareOpenCodeConfigDir({
@@ -114,11 +110,11 @@ describe("prepareOpenCodeConfigDir", () => {
         join(mergedDir, "agents", "user-precedence.md"),
         "utf-8",
       );
-      const mergedAtomicOnly = await readFile(join(mergedDir, "agents", "atomic-only.md"), "utf-8");
+      const mergedHomeOnly = await readFile(join(mergedDir, "agents", "home-only.md"), "utf-8");
 
       expect(mergedExample).toBe("project");
-      expect(mergedUserPrecedence).toBe("home");
-      expect(mergedAtomicOnly).toBe("atomic-only");
+      expect(mergedUserPrecedence).toBe("canonical");
+      expect(mergedHomeOnly).toBe("home-only");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -130,7 +126,7 @@ describe("prepareOpenCodeConfigDir", () => {
     const projectRoot = join(root, "project");
     const escapedMergedDir = join(homeDir, ".atomic", "..", "escaped-merged");
 
-    await mkdir(join(homeDir, ".atomic", ".opencode"), { recursive: true });
+    await mkdir(join(homeDir, ".opencode"), { recursive: true });
     await mkdir(projectRoot, { recursive: true });
 
     try {
@@ -154,7 +150,7 @@ describe("prepareOpenCodeConfigDir", () => {
     const outsideDir = join(root, "outside");
     const mergedDir = join(homeDir, ".atomic", ".tmp", "merged");
 
-    await mkdir(join(homeDir, ".atomic", ".opencode", "agents"), {
+    await mkdir(join(homeDir, ".opencode", "agents"), {
       recursive: true,
     });
     await mkdir(projectRoot, { recursive: true });
@@ -176,7 +172,7 @@ describe("prepareOpenCodeConfigDir", () => {
           providerDiscoveryPlan: discoveryPlan,
           mergedDir,
         }),
-      ).rejects.toThrow("OpenCode canonical config root resolves outside allowed root");
+      ).rejects.toThrow("OpenCode XDG config root resolves outside allowed root");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -188,7 +184,7 @@ describe("prepareOpenCodeConfigDir", () => {
     const projectRoot = join(root, "project");
     const mergedDir = join(homeDir, ".atomic", ".tmp", "merged");
 
-    await mkdir(join(homeDir, ".atomic", ".opencode", "agents"), {
+    await mkdir(join(homeDir, ".opencode", "agents"), {
       recursive: true,
     });
     await mkdir(join(projectRoot, ".opencode", "agents"), {

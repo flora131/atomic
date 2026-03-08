@@ -31,15 +31,15 @@ test("deployPlaywrightSkill copies SKILL.md to each global agent folder", async 
     await deployPlaywrightSkill(configRoot, atomicHome);
 
     const claudeSkill = await readFile(
-      join(atomicHome, ".claude", PLAYWRIGHT_SKILL_RELATIVE_PATH),
+      join(root, ".claude", PLAYWRIGHT_SKILL_RELATIVE_PATH),
       "utf-8"
     );
     const opencodeSkill = await readFile(
-      join(atomicHome, ".opencode", PLAYWRIGHT_SKILL_RELATIVE_PATH),
+      join(root, ".opencode", PLAYWRIGHT_SKILL_RELATIVE_PATH),
       "utf-8"
     );
     const copilotSkill = await readFile(
-      join(atomicHome, ".copilot", PLAYWRIGHT_SKILL_RELATIVE_PATH),
+      join(root, ".copilot", PLAYWRIGHT_SKILL_RELATIVE_PATH),
       "utf-8"
     );
 

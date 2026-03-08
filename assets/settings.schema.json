@@ -12,11 +12,6 @@
       "type": "number",
       "description": "Config schema version."
     },
-    "agent": {
-      "type": "string",
-      "enum": ["claude", "opencode", "copilot"],
-      "description": "Selected coding agent."
-    },
     "scm": {
       "type": "string",
       "enum": ["github", "sapling"],
@@ -51,6 +46,26 @@
       "type": "boolean",
       "description": "When true, 'atomic update' fetches the latest prerelease instead of the latest stable release. Set automatically by the installer when using the --prerelease flag.",
       "default": false
+    },
+    "trustedPaths": {
+      "type": "array",
+      "description": "Globally trusted workspaces that have completed provider onboarding through 'atomic init'.",
+      "items": {
+        "type": "object",
+        "required": ["workspacePath", "provider"],
+        "properties": {
+          "workspacePath": {
+            "type": "string",
+            "description": "Absolute path to the initialized workspace."
+          },
+          "provider": {
+            "type": "string",
+            "enum": ["claude", "opencode", "copilot"],
+            "description": "Provider initialized for the trusted workspace."
+          }
+        },
+        "additionalProperties": false
+      }
     }
   },
   "additionalProperties": true

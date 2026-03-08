@@ -15,12 +15,12 @@ export interface AgentConfig {
   install_url: string;
   /** Paths to exclude when copying (relative to folder) */
   exclude: string[];
-  /** Additional files to copy from repo root */
-  additional_files: string[];
-  /** Files to skip if they already exist (e.g., CLAUDE.md, AGENTS.md) */
-  preserve_files: string[];
-  /** Files to merge instead of overwrite (e.g., .mcp.json) */
-  merge_files: string[];
+  /** Project files managed by `atomic init` for provider onboarding */
+  onboarding_files: Array<{
+    source: string;
+    destination: string;
+    merge: boolean;
+  }>;
 }
 
 const AGENT_KEYS = ["claude", "opencode", "copilot"] as const;
@@ -33,10 +33,19 @@ export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
     additional_flags: [],
     folder: ".claude",
     install_url: "https://code.claude.com/docs/en/setup",
-    exclude: [".DS_Store"],
-    additional_files: [".mcp.json"],
-    preserve_files: [],
-    merge_files: [".mcp.json"],
+    exclude: [".DS_Store", "settings.json"],
+    onboarding_files: [
+      {
+        source: ".mcp.json",
+        destination: ".mcp.json",
+        merge: true,
+      },
+      {
+        source: ".claude/settings.json",
+        destination: ".claude/settings.json",
+        merge: true,
+      },
+    ],
   },
   opencode: {
     name: "OpenCode",
@@ -50,10 +59,15 @@ export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
       "bun.lock",
       "package.json",
       ".DS_Store",
+      "opencode.json",
     ],
-    additional_files: [],
-    preserve_files: [],
-    merge_files: [],
+    onboarding_files: [
+      {
+        source: ".opencode/opencode.json",
+        destination: ".opencode/opencode.json",
+        merge: true,
+      },
+    ],
   },
   copilot: {
     name: "GitHub Copilot CLI",
@@ -62,10 +76,14 @@ export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
     folder: ".github",
     install_url:
       "https://github.com/github/copilot-cli?tab=readme-ov-file#installation",
-    exclude: ["workflows", "dependabot.yml", "mcp-config.json", ".DS_Store"],
-    additional_files: [".github/mcp-config.json"],
-    preserve_files: [],
-    merge_files: [".github/mcp-config.json"],
+    exclude: ["workflows", "dependabot.yml", ".DS_Store"],
+    onboarding_files: [
+      {
+        source: ".vscode/mcp.json",
+        destination: ".vscode/mcp.json",
+        merge: true,
+      },
+    ],
   },
 };
 

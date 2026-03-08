@@ -13,9 +13,8 @@ import {
 } from "@/services/config/provider-discovery-plan.ts";
 
 const OPENCODE_ROOT_LABEL_BY_ID: Record<string, string> = {
-  opencode_atomic: "Atomic OpenCode config root",
-  opencode_user_canonical_xdg: "OpenCode canonical config root",
   opencode_user_home_native: "OpenCode home config root",
+  opencode_user_canonical_xdg: "OpenCode XDG config root",
   opencode_project: "OpenCode project config root",
 };
 
@@ -34,9 +33,6 @@ function getOpenCodeRootAllowedPath(
   root: PlannedProviderDiscoveryRoot,
   context: OpenCodeRootGuardContext,
 ): string {
-  if (root.tier === "atomicBaseline") {
-    return context.atomicHomeDir;
-  }
   if (root.tier === "projectLocal") {
     return context.projectRoot;
   }
@@ -89,12 +85,11 @@ export interface PrepareOpenCodeConfigOptions {
  * Build a merged OpenCode config directory for OPENCODE_CONFIG_DIR.
  *
  * Precedence (low -> high):
- * 1) ~/.atomic/.opencode (Atomic-managed defaults)
- * 2) platform config-home/.opencode (canonical user config)
- * 3) ~/.opencode (user home config)
- * 4) <project>/.opencode (project-local overrides)
+ * 1) ~/.opencode (installed/user home config)
+ * 2) distinct XDG config root/.opencode (custom user override, if present)
+ * 3) <project>/.opencode (project-local overrides)
  *
- * @returns merged directory path, or null when Atomic base config is missing
+ * @returns merged directory path, or null when ~/.opencode is missing
  */
 export async function prepareOpenCodeConfigDir(
   options: PrepareOpenCodeConfigOptions = {}
@@ -106,12 +101,12 @@ export async function prepareOpenCodeConfigDir(
     fallbackHomeDir,
     fallbackProjectRoot,
   );
-  const atomicRoot = getRequiredOpenCodeRoot(discoveryPlan, "opencode_atomic");
+  const homeRoot = getRequiredOpenCodeRoot(discoveryPlan, "opencode_user_home_native");
   const projectRootConfig = getRequiredOpenCodeRoot(discoveryPlan, "opencode_project");
 
-  const atomicBaseDir = resolve(atomicRoot.resolvedPath);
-  const atomicHomeDir = resolve(atomicBaseDir, "..");
-  const homeDir = resolve(atomicHomeDir, "..");
+  const homeConfigDir = resolve(homeRoot.resolvedPath);
+  const homeDir = resolve(homeConfigDir, "..");
+  const atomicHomeDir = join(homeDir, ".atomic");
   const projectRoot = resolve(projectRootConfig.resolvedPath, "..");
 
   const mergedDir = resolve(
@@ -120,11 +115,11 @@ export async function prepareOpenCodeConfigDir(
 
   assertPathWithinRoot(atomicHomeDir, mergedDir, "OpenCode merged config directory");
 
-  if (!(await pathExists(atomicBaseDir))) {
+  if (!(await pathExists(homeConfigDir))) {
     return null;
   }
 
-  await assertRealPathWithinRoot(atomicHomeDir, atomicBaseDir, "Atomic OpenCode config root");
+  await assertRealPathWithinRoot(homeDir, homeConfigDir, "OpenCode home config root");
 
   await rm(mergedDir, { recursive: true, force: true });
   await mkdir(mergedDir, { recursive: true });

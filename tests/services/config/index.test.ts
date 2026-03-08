@@ -157,6 +157,31 @@ Agent with tools.`,
     }
   });
 
+  test("parses flow-sequence tool arrays without retaining quote characters", async () => {
+    const root = await mkdtemp(join(tmpdir(), "atomic-config-test-"));
+
+    try {
+      await mkdir(join(root, "agents"), { recursive: true });
+      await writeFile(
+        join(root, "agents", "flow-tools.md"),
+        `---
+name: Flow Tools
+description: Agent with flow-sequence tools
+tools: ["execute", "agent", "edit", "search", "read"]
+---
+Agent with flow tools.`,
+        "utf-8"
+      );
+
+      const agents = await loadAgentsFromDir(join(root, "agents"), "local");
+
+      expect(agents.length).toBe(1);
+      expect(agents[0]?.tools).toEqual(["execute", "agent", "edit", "search", "read"]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("ignores non-markdown files", async () => {
     const root = await mkdtemp(join(tmpdir(), "atomic-config-test-"));
 
@@ -249,7 +274,7 @@ describe("loadCopilotAgents", () => {
       } as unknown as FsOps;
 
       const agents = await loadCopilotAgents(root, mockFsOps, {
-        xdgConfigHome: null,
+        xdgConfigHome: join(root, ".config"),
       });
 
       // Should have 3 agents: global-agent, local-agent, and shared-agent (local version)
@@ -269,15 +294,15 @@ describe("loadCopilotAgents", () => {
     }
   });
 
-  test("loads agents from ~/.atomic global directories", async () => {
+  test("loads agents from ~/.copilot global directories", async () => {
     const root = await mkdtemp(join(tmpdir(), "atomic-config-test-"));
 
     try {
-      const atomicAgentsDir = join(root, ".atomic", ".copilot", "agents");
-      await mkdir(atomicAgentsDir, { recursive: true });
+      const homeAgentsDir = join(root, ".copilot", "agents");
+      await mkdir(homeAgentsDir, { recursive: true });
       await writeFile(
-        join(atomicAgentsDir, "atomic-agent.md"),
-        "---\nname: Atomic Global Agent\n---\nAtomic global content",
+        join(homeAgentsDir, "home-agent.md"),
+        "---\nname: Home Global Agent\n---\nHome global content",
         "utf-8"
       );
 
@@ -296,22 +321,22 @@ describe("loadCopilotAgents", () => {
 
       const agents = await loadCopilotAgents(root, mockFsOps);
       expect(agents.length).toBe(1);
-      expect(agents[0]?.name).toBe("Atomic Global Agent");
+      expect(agents[0]?.name).toBe("Home Global Agent");
       expect(agents[0]?.source).toBe("global");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  test("canonical global agents override ~/.atomic global agents", async () => {
+  test("distinct XDG-root agents override ~/.copilot home-root agents", async () => {
     const root = await mkdtemp(join(tmpdir(), "atomic-config-test-"));
 
     try {
-      const atomicDir = join(root, ".atomic", ".copilot", "agents");
-      await mkdir(atomicDir, { recursive: true });
+      const homeDir = join(root, ".copilot", "agents");
+      await mkdir(homeDir, { recursive: true });
       await writeFile(
-        join(atomicDir, "shared.md"),
-        "---\nname: Shared Agent\ndescription: From atomic\n---\nAtomic version",
+        join(homeDir, "shared.md"),
+        "---\nname: Shared Agent\ndescription: From home\n---\nHome version",
         "utf-8"
       );
 
@@ -336,7 +361,9 @@ describe("loadCopilotAgents", () => {
         },
       } as unknown as FsOps;
 
-      const agents = await loadCopilotAgents(root, mockFsOps);
+      const agents = await loadCopilotAgents(root, mockFsOps, {
+        xdgConfigHome: join(root, ".config"),
+      });
       expect(agents.length).toBe(1);
       expect(agents[0]?.name).toBe("Shared Agent");
       expect(agents[0]?.description).toBe("From canonical");
@@ -389,7 +416,7 @@ describe("loadCopilotAgents", () => {
     }
   });
 
-  test("loads agents from canonical XDG-default root", async () => {
+  test("loads agents from a distinct XDG root", async () => {
     const root = await mkdtemp(join(tmpdir(), "atomic-config-test-"));
 
     try {
@@ -414,7 +441,9 @@ describe("loadCopilotAgents", () => {
         },
       } as unknown as FsOps;
 
-      const agents = await loadCopilotAgents(root, mockFsOps);
+      const agents = await loadCopilotAgents(root, mockFsOps, {
+        xdgConfigHome: join(root, ".config"),
+      });
       expect(agents.length).toBe(1);
       expect(agents[0]?.name).toBe("Canonical Agent");
       expect(agents[0]?.source).toBe("global");
@@ -423,7 +452,7 @@ describe("loadCopilotAgents", () => {
     }
   });
 
-  test("loads ~/.copilot root with precedence over canonical root", async () => {
+  test("loads distinct XDG-root agents with precedence over ~/.copilot", async () => {
     const root = await mkdtemp(join(tmpdir(), "atomic-config-test-"));
 
     try {
@@ -458,13 +487,13 @@ describe("loadCopilotAgents", () => {
       } as unknown as FsOps;
 
       const agents = await loadCopilotAgents(root, mockFsOps, {
-        xdgConfigHome: null,
+        xdgConfigHome: join(root, ".config"),
         onPathConflictWarning: (warning) => warnings.push(warning.message),
       });
 
       expect(agents.length).toBe(1);
       expect(agents[0]?.name).toBe("Shared Agent");
-      expect(agents[0]?.description).toBe("From home");
+      expect(agents[0]?.description).toBe("From canonical");
       expect(warnings).toHaveLength(0);
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -654,7 +683,6 @@ describe("resolveCopilotSkillDirectories", () => {
         join(projectRoot, ".github", "skills"),
         join(projectRoot, ".claude", "skills"),
         join(canonicalRoot, "skills"),
-        join(root, ".atomic", ".copilot", "skills"),
       ];
 
       await Promise.all(
@@ -707,7 +735,7 @@ describe("loadCopilotInstructions", () => {
     }
   });
 
-  test("falls back to canonical global instructions when local and home globals are missing", async () => {
+  test("falls back to distinct XDG-root instructions when local and home globals are missing", async () => {
     const root = await mkdtemp(join(tmpdir(), "atomic-config-test-"));
 
     try {
@@ -724,14 +752,16 @@ describe("loadCopilotInstructions", () => {
         },
       } as unknown as FsOps;
 
-      const instructions = await loadCopilotInstructions(root, mockFsOps);
+      const instructions = await loadCopilotInstructions(root, mockFsOps, {
+        xdgConfigHome: join(root, ".config"),
+      });
       expect(instructions).toBe("Global user instructions");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  test("uses ~/.copilot instructions before canonical global instructions", async () => {
+  test("uses distinct XDG-root instructions before ~/.copilot instructions", async () => {
     const root = await mkdtemp(join(tmpdir(), "atomic-config-test-"));
 
     try {
@@ -752,32 +782,10 @@ describe("loadCopilotInstructions", () => {
         },
       } as unknown as FsOps;
 
-      const instructions = await loadCopilotInstructions(root, mockFsOps);
-      expect(instructions).toBe("Home instructions");
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  test("falls back to ~/.atomic global instructions when canonical global is missing", async () => {
-    const root = await mkdtemp(join(tmpdir(), "atomic-config-test-"));
-
-    try {
-      const atomicInstructionsPath = join(root, ".atomic", ".copilot", "copilot-instructions.md");
-      await mkdir(join(root, ".atomic", ".copilot"), { recursive: true });
-      await writeFile(atomicInstructionsPath, "Atomic global instructions", "utf-8");
-
-      const mockFsOps = {
-        readdir: async () => [],
-        readFile: async (file: string, encoding?: string) => {
-          const fs = await import("node:fs/promises");
-          const remappedFile = file.replace(homedir(), root);
-          return fs.readFile(remappedFile, encoding as BufferEncoding);
-        },
-      } as unknown as FsOps;
-
-      const instructions = await loadCopilotInstructions(root, mockFsOps);
-      expect(instructions).toBe("Atomic global instructions");
+      const instructions = await loadCopilotInstructions(root, mockFsOps, {
+        xdgConfigHome: join(root, ".config"),
+      });
+      expect(instructions).toBe("Canonical instructions");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

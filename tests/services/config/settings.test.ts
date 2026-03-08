@@ -8,6 +8,8 @@ import {
   getReasoningEffortPreference,
   saveReasoningEffortPreference,
   clearReasoningEffortPreference,
+  isTrustedWorkspacePath,
+  upsertTrustedWorkspacePath,
 } from "@/services/config/settings.ts";
 
 function writeJson(path: string, value: unknown): void {
@@ -170,6 +172,7 @@ describe("settings persistence", () => {
   test("saveModelPreference preserves existing settings", () => {
     const globalPath = join(homeDir, ".atomic", "settings.json");
     writeJson(globalPath, {
+      agent: "claude",
       model: { opencode: "gpt-4" },
       reasoningEffort: { copilot: "high" },
     });
@@ -177,9 +180,11 @@ describe("settings persistence", () => {
     saveModelPreference("claude", "sonnet");
 
     const settings = JSON.parse(readFileSync(globalPath, "utf-8")) as {
+      agent?: string;
       model?: Record<string, string>;
       reasoningEffort?: Record<string, string>;
     };
+    expect(settings.agent).toBeUndefined();
     expect(settings.model?.claude).toBe("sonnet");
     expect(settings.model?.opencode).toBe("gpt-4");
     expect(settings.reasoningEffort?.copilot).toBe("high");
@@ -211,5 +216,42 @@ describe("settings persistence", () => {
     };
     // Other preferences should remain
     expect(settings.reasoningEffort?.opencode).toBe("high");
+  });
+
+  test("upsertTrustedWorkspacePath writes to global settings and dedupes by provider and workspace", async () => {
+    const globalPath = join(homeDir, ".atomic", "settings.json");
+    writeJson(globalPath, {
+      model: { claude: "opus" },
+      trustedPaths: [{ workspacePath: join(cwdDir, "..", "project"), provider: "claude" }],
+    });
+
+    upsertTrustedWorkspacePath(join(cwdDir, "."), "claude");
+    upsertTrustedWorkspacePath(cwdDir, "opencode");
+
+    const settings = JSON.parse(readFileSync(globalPath, "utf-8")) as {
+      model?: Record<string, string>;
+      trustedPaths?: Array<{ workspacePath: string; provider: string }>;
+    };
+
+    expect(settings.model?.claude).toBe("opus");
+    expect(settings.trustedPaths).toEqual([
+      { workspacePath: cwdDir, provider: "claude" },
+      { workspacePath: cwdDir, provider: "opencode" },
+    ]);
+  });
+
+  test("isTrustedWorkspacePath only checks global trusted paths", async () => {
+    const localPath = join(cwdDir, ".atomic", "settings.json");
+    const globalPath = join(homeDir, ".atomic", "settings.json");
+
+    writeJson(localPath, {
+      trustedPaths: [{ workspacePath: cwdDir, provider: "copilot" }],
+    });
+    writeJson(globalPath, {
+      trustedPaths: [{ workspacePath: cwdDir, provider: "claude" }],
+    });
+
+    expect(await isTrustedWorkspacePath(cwdDir, "claude")).toBe(true);
+    expect(await isTrustedWorkspacePath(cwdDir, "copilot")).toBe(false);
   });
 });

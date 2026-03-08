@@ -14,11 +14,7 @@
  *   - ~/.claude/skills/
  *   - ~/.opencode/skills/
  *   - ~/.copilot/skills/
- *   - ~/.config/.opencode/skills/
- *   - ~/.config/.copilot/skills/
- *   - ~/.atomic/.claude/skills/
- *   - ~/.atomic/.opencode/skills/
- *   - ~/.atomic/.copilot/skills/
+ *   - distinct XDG override roots for OpenCode/Copilot when configured
  */
 
 import type {
@@ -33,7 +29,7 @@ import { homedir } from "node:os";
 import { parseMarkdownFrontmatter } from "@/lib/markdown.ts";
 import {
     getCompatibleDiscoveryRoots,
-    resolveDefaultConfigHome,
+    resolveUserProviderRoot,
     type ProviderCompatibilitySelection,
     type ProviderDiscoveryPlan,
 } from "@/services/config/provider-discovery-plan.ts";
@@ -64,13 +60,19 @@ function buildSkillInvocationMessage(skillName: string, args: string): string {
 // ============================================================================
 
 const HOME = homedir();
-const USER_CONFIG_HOME = resolveDefaultConfigHome({
+const OPENCODE_USER_OVERRIDE_ROOT = resolveUserProviderRoot({
     homeDir: HOME,
     xdgConfigHome: process.env.XDG_CONFIG_HOME ?? undefined,
-    appDataDir: process.env.APPDATA ?? undefined,
+    providerFolder: ".opencode",
     platform: process.platform,
 });
-const USER_DISCOVERY_ROOTS = [HOME, USER_CONFIG_HOME, join(HOME, ".atomic")];
+const COPILOT_USER_OVERRIDE_ROOT = resolveUserProviderRoot({
+    homeDir: HOME,
+    xdgConfigHome: process.env.XDG_CONFIG_HOME ?? undefined,
+    providerFolder: ".copilot",
+    platform: process.platform,
+});
+const USER_DISCOVERY_ROOTS = [HOME, OPENCODE_USER_OVERRIDE_ROOT, COPILOT_USER_OVERRIDE_ROOT];
 
 const SKILL_DISCOVERY_PATHS = [
     join(".claude", "skills"),
@@ -82,11 +84,8 @@ const GLOBAL_SKILL_PATHS = [
     join(HOME, ".claude", "skills"),
     join(HOME, ".opencode", "skills"),
     join(HOME, ".copilot", "skills"),
-    join(USER_CONFIG_HOME, ".opencode", "skills"),
-    join(USER_CONFIG_HOME, ".copilot", "skills"),
-    join(HOME, ".atomic", ".claude", "skills"),
-    join(HOME, ".atomic", ".opencode", "skills"),
-    join(HOME, ".atomic", ".copilot", "skills"),
+    join(OPENCODE_USER_OVERRIDE_ROOT, "skills"),
+    join(COPILOT_USER_OVERRIDE_ROOT, "skills"),
 ] as const;
 
 export type SkillSource = "project" | "user";

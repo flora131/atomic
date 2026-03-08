@@ -1,9 +1,9 @@
 import { mkdir, readdir, rm } from "fs/promises";
-import { join } from "path";
+import { join, resolve } from "path";
 import { homedir } from "os";
 
 import { AGENT_CONFIG, type AgentKey } from "@/services/config/index.ts";
-import { copyDir, copyFile, pathExists } from "@/services/system/copy.ts";
+import { copyDir, pathExists } from "@/services/system/copy.ts";
 import type { InstallationType } from "@/services/config/config-path.ts";
 
 const ATOMIC_HOME_DIR = join(homedir(), ".atomic");
@@ -19,20 +19,16 @@ const GLOBAL_AGENT_FOLDER_BY_KEY: Record<AgentKey, string> = {
 const TEMPLATE_AGENT_FOLDER_BY_KEY: Record<AgentKey, string> = {
   claude: AGENT_CONFIG.claude.folder,
   opencode: AGENT_CONFIG.opencode.folder,
-  // Copilot templates are sourced from .github but synced globally to ~/.atomic/.copilot
   copilot: AGENT_CONFIG.copilot.folder,
 };
 
 const REQUIRED_GLOBAL_CONFIG_ENTRIES: Record<AgentKey, string[]> = {
-  claude: ["agents", "skills", "settings.json"],
-  opencode: ["agents", "skills", "opencode.json"],
+  claude: ["agents", "skills"],
+  opencode: ["agents", "skills"],
   copilot: ["agents", "skills"],
 };
 
-const REQUIRED_ATOMIC_HOME_ENTRIES = [
-  ".mcp.json",
-  join(".copilot", "mcp-config.json"),
-] as const;
+const GLOBAL_SYNC_SUBDIRECTORIES = ["agents", "skills"] as const;
 
 /**
  * Return the Atomic home directory used for global workflows/tools/settings.
@@ -41,22 +37,40 @@ export function getAtomicHomeDir(): string {
   return ATOMIC_HOME_DIR;
 }
 
+function resolveHomeDirFromAtomicHome(baseDir: string): string {
+  return resolve(baseDir, "..");
+}
+
 /**
- * Get Atomic-managed global config directories in ~/.atomic.
+ * Get Atomic-managed provider config directories.
+ *
+ * Atomic now installs provider configs into the provider home roots while
+ * keeping Atomic-specific state under ~/.atomic.
  */
 export function getAtomicManagedConfigDirs(baseDir: string = ATOMIC_HOME_DIR): string[] {
+  const homeDir = resolveHomeDirFromAtomicHome(baseDir);
   return [
-    join(baseDir, GLOBAL_AGENT_FOLDER_BY_KEY.claude),
-    join(baseDir, GLOBAL_AGENT_FOLDER_BY_KEY.opencode),
-    join(baseDir, GLOBAL_AGENT_FOLDER_BY_KEY.copilot),
+    join(homeDir, GLOBAL_AGENT_FOLDER_BY_KEY.claude),
+    join(homeDir, GLOBAL_AGENT_FOLDER_BY_KEY.opencode),
+    join(homeDir, GLOBAL_AGENT_FOLDER_BY_KEY.copilot),
   ];
 }
 
 /**
- * Get the global ~/.atomic folder for the given agent.
+ * Get the provider home-folder suffix for the given agent.
  */
 export function getAtomicGlobalAgentFolder(agentKey: AgentKey): string {
   return GLOBAL_AGENT_FOLDER_BY_KEY[agentKey];
+}
+
+/**
+ * Resolve the destination directory where Atomic installs provider configs.
+ */
+export function getAtomicManagedAgentDir(
+  agentKey: AgentKey,
+  baseDir: string = ATOMIC_HOME_DIR,
+): string {
+  return join(resolveHomeDirFromAtomicHome(baseDir), getAtomicGlobalAgentFolder(agentKey));
 }
 
 /**
@@ -89,7 +103,7 @@ async function pruneManagedScmSkills(agentDir: string): Promise<void> {
 }
 
 /**
- * Build relative exclude paths for managed SCM skill directories.
+ * Build exclude names for managed SCM skill directories under a skills root.
  */
 async function getManagedScmSkillExcludes(sourceDir: string): Promise<string[]> {
   const skillsDir = join(sourceDir, "skills");
@@ -98,29 +112,122 @@ async function getManagedScmSkillExcludes(sourceDir: string): Promise<string[]> 
   const entries = await readdir(skillsDir, { withFileTypes: true });
   return entries
     .filter((entry) => entry.isDirectory() && isManagedScmSkillName(entry.name))
-    .map((entry) => join("skills", entry.name));
+    .map((entry) => entry.name);
+}
+
+interface ManagedTreeEntries {
+  directories: string[];
+  files: string[];
+}
+
+async function collectManagedTreeEntries(
+  sourceDir: string,
+  exclude: readonly string[],
+  relativeDir: string = "",
+): Promise<ManagedTreeEntries> {
+  if (!(await pathExists(sourceDir))) {
+    return {
+      directories: [],
+      files: [],
+    };
+  }
+
+  const directories: string[] = [];
+  const files: string[] = [];
+  const entries = await readdir(sourceDir, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const relativePath = relativeDir.length > 0
+      ? join(relativeDir, entry.name)
+      : entry.name;
+
+    if (exclude.includes(entry.name)) {
+      continue;
+    }
+
+    const normalizedRelativePath = relativePath.replace(/\\/g, "/");
+    if (exclude.some((excluded) =>
+      normalizedRelativePath === excluded.replace(/\\/g, "/") ||
+      normalizedRelativePath.startsWith(`${excluded.replace(/\\/g, "/")}/`)
+    )) {
+      continue;
+    }
+
+    const sourcePath = join(sourceDir, entry.name);
+    if (entry.isDirectory()) {
+      directories.push(relativePath);
+      const nestedEntries = await collectManagedTreeEntries(
+        sourcePath,
+        exclude,
+        relativePath,
+      );
+      directories.push(...nestedEntries.directories);
+      files.push(...nestedEntries.files);
+      continue;
+    }
+
+    if (entry.isFile()) {
+      files.push(relativePath);
+    }
+  }
+
+  return { directories, files };
+}
+
+async function removeEmptyDirectoryIfPresent(pathToDirectory: string): Promise<void> {
+  if (!(await pathExists(pathToDirectory))) {
+    return;
+  }
+
+  const entries = await readdir(pathToDirectory);
+  if (entries.length === 0) {
+    await rm(pathToDirectory, { recursive: false, force: true });
+  }
 }
 
 /**
- * Sync bundled MCP defaults into ~/.atomic.
+ * Remove only the Atomic-managed entries from provider-native global roots.
  */
-async function syncAtomicGlobalMcpConfigs(configRoot: string, baseDir: string): Promise<void> {
-  const claudeMcpSource = join(configRoot, ".mcp.json");
-  const claudeMcpDestination = join(baseDir, ".mcp.json");
-  if (await pathExists(claudeMcpSource)) {
-    await copyFile(claudeMcpSource, claudeMcpDestination);
-  }
+export async function removeAtomicManagedGlobalAgentConfigs(
+  configRoot: string,
+  baseDir: string = ATOMIC_HOME_DIR,
+): Promise<void> {
+  const agentKeys = Object.keys(AGENT_CONFIG) as AgentKey[];
 
-  const copilotMcpSource = join(configRoot, AGENT_CONFIG.copilot.folder, "mcp-config.json");
-  const copilotMcpDestination = join(baseDir, GLOBAL_AGENT_FOLDER_BY_KEY.copilot, "mcp-config.json");
-  if (await pathExists(copilotMcpSource)) {
-    await mkdir(join(baseDir, GLOBAL_AGENT_FOLDER_BY_KEY.copilot), { recursive: true });
-    await copyFile(copilotMcpSource, copilotMcpDestination);
+  for (const agentKey of agentKeys) {
+    const sourceFolder = join(configRoot, getTemplateAgentFolder(agentKey));
+    const destinationFolder = getAtomicManagedAgentDir(agentKey, baseDir);
+    for (const subdirectory of GLOBAL_SYNC_SUBDIRECTORIES) {
+      const sourceSubdirectory = join(sourceFolder, subdirectory);
+      if (!(await pathExists(sourceSubdirectory))) {
+        continue;
+      }
+
+      const scmSkillExcludes = subdirectory === "skills"
+        ? await getManagedScmSkillExcludes(sourceFolder)
+        : [];
+      const managedTree = await collectManagedTreeEntries(sourceSubdirectory, scmSkillExcludes);
+      const destinationSubdirectory = join(destinationFolder, subdirectory);
+
+      for (const relativeFile of managedTree.files) {
+        await rm(join(destinationSubdirectory, relativeFile), { force: true });
+      }
+
+      const managedDirectories = [...managedTree.directories].sort(
+        (left, right) => right.length - left.length,
+      );
+      for (const relativeDirectory of managedDirectories) {
+        await removeEmptyDirectoryIfPresent(join(destinationSubdirectory, relativeDirectory));
+      }
+      await removeEmptyDirectoryIfPresent(destinationSubdirectory);
+    }
+
+    await removeEmptyDirectoryIfPresent(destinationFolder);
   }
 }
 
 /**
- * Sync bundled agent templates into ~/.atomic for global discovery.
+ * Sync bundled agent templates into provider-native global roots.
  *
  * This installs baseline agent/skill configs globally while intentionally
  * excluding SCM-specific skills (gh-*, sl-*), which are configured per-project
@@ -128,7 +235,7 @@ async function syncAtomicGlobalMcpConfigs(configRoot: string, baseDir: string): 
  */
 export async function syncAtomicGlobalAgentConfigs(
   configRoot: string,
-  baseDir: string = ATOMIC_HOME_DIR
+  baseDir: string = ATOMIC_HOME_DIR,
 ): Promise<void> {
   await mkdir(baseDir, { recursive: true });
 
@@ -137,35 +244,41 @@ export async function syncAtomicGlobalAgentConfigs(
     const sourceFolder = join(configRoot, getTemplateAgentFolder(agentKey));
     if (!(await pathExists(sourceFolder))) continue;
 
-    const destinationFolder = join(baseDir, getAtomicGlobalAgentFolder(agentKey));
-    const scmSkillExcludes = await getManagedScmSkillExcludes(sourceFolder);
+    const destinationFolder = getAtomicManagedAgentDir(agentKey, baseDir);
+    await mkdir(destinationFolder, { recursive: true });
 
-    await copyDir(sourceFolder, destinationFolder, {
-      exclude: [...AGENT_CONFIG[agentKey].exclude, ...scmSkillExcludes],
-    });
+    const sourceAgentsDir = join(sourceFolder, "agents");
+    if (await pathExists(sourceAgentsDir)) {
+      await copyDir(sourceAgentsDir, join(destinationFolder, "agents"));
+    }
 
-    // Ensure stale managed SCM skills from previous installs are removed.
+    const sourceSkillsDir = join(sourceFolder, "skills");
+    if (await pathExists(sourceSkillsDir)) {
+      const scmSkillExcludes = await getManagedScmSkillExcludes(sourceFolder);
+      await copyDir(sourceSkillsDir, join(destinationFolder, "skills"), {
+        exclude: scmSkillExcludes,
+      });
+    }
+
     await pruneManagedScmSkills(destinationFolder);
   }
-
-  await syncAtomicGlobalMcpConfigs(configRoot, baseDir);
 }
 
 /**
- * Return true when Atomic-managed global config folders already exist.
+ * Return true when Atomic-managed provider config roots already exist.
  */
 export async function hasAtomicGlobalAgentConfigs(
-  baseDir: string = ATOMIC_HOME_DIR
+  baseDir: string = ATOMIC_HOME_DIR,
 ): Promise<boolean> {
   const agentKeys = Object.keys(AGENT_CONFIG) as AgentKey[];
 
   for (const agentKey of agentKeys) {
-    const agentDir = join(baseDir, getAtomicGlobalAgentFolder(agentKey));
+    const agentDir = getAtomicManagedAgentDir(agentKey, baseDir);
     if (!(await pathExists(agentDir))) return false;
 
     const requiredEntries = REQUIRED_GLOBAL_CONFIG_ENTRIES[agentKey];
     const entryChecks = await Promise.all(
-      requiredEntries.map((entryName) => pathExists(join(agentDir, entryName)))
+      requiredEntries.map((entryName) => pathExists(join(agentDir, entryName))),
     );
 
     if (entryChecks.some((exists) => !exists)) {
@@ -173,34 +286,28 @@ export async function hasAtomicGlobalAgentConfigs(
     }
   }
 
-  const atomicHomeChecks = await Promise.all(
-    REQUIRED_ATOMIC_HOME_ENTRIES.map((entryName) => pathExists(join(baseDir, entryName)))
-  );
-  if (atomicHomeChecks.some((exists) => !exists)) {
-    return false;
-  }
-
   return true;
 }
 
 /**
- * Ensure ~/.atomic contains Atomic-managed global agent configs.
+ * Ensure provider-native roots contain Atomic-managed global agent configs.
  */
 export async function ensureAtomicGlobalAgentConfigs(
   configRoot: string,
-  baseDir: string = ATOMIC_HOME_DIR
+  baseDir: string = ATOMIC_HOME_DIR,
 ): Promise<void> {
   if (await hasAtomicGlobalAgentConfigs(baseDir)) return;
   await syncAtomicGlobalAgentConfigs(configRoot, baseDir);
 }
 
 /**
- * Ensure ~/.atomic contains Atomic-managed global agent configs for all install types.
+ * Ensure provider-native roots contain Atomic-managed global agent configs
+ * for all install types.
  */
 export async function ensureAtomicGlobalAgentConfigsForInstallType(
   installType: InstallationType,
   configRoot: string,
-  baseDir: string = ATOMIC_HOME_DIR
+  baseDir: string = ATOMIC_HOME_DIR,
 ): Promise<void> {
   switch (installType) {
     case "source":

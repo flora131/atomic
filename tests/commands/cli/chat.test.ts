@@ -14,12 +14,20 @@ import {
   shouldAutoInitChat,
 } from "@/commands/cli/chat.ts";
 import { ENHANCED_SYSTEM_PROMPT } from "@/services/agents/enhanced-system-prompt.ts";
+import { upsertTrustedWorkspacePath } from "@/services/config/settings.ts";
 
 async function withTempDir(run: (dir: string) => Promise<void>): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), "atomic-chat-test-"));
+  const previousSettingsHome = process.env.ATOMIC_SETTINGS_HOME;
   try {
+    process.env.ATOMIC_SETTINGS_HOME = join(dir, "home");
     await run(dir);
   } finally {
+    if (previousSettingsHome === undefined) {
+      delete process.env.ATOMIC_SETTINGS_HOME;
+    } else {
+      process.env.ATOMIC_SETTINGS_HOME = previousSettingsHome;
+    }
     await rm(dir, { recursive: true, force: true });
   }
 }
@@ -42,8 +50,26 @@ async function writeProjectScmSetting(projectRoot: string, scm: "github" | "sapl
   await mkdir(join(settingsPath, ".."), { recursive: true });
   await writeFile(
     settingsPath,
-    JSON.stringify({ version: 1, agent: "claude", scm }, null, 2) + "\n",
+    JSON.stringify({ version: 1, scm }, null, 2) + "\n",
     "utf-8"
+  );
+}
+
+async function writeClaudeOnboardingFiles(projectRoot: string): Promise<void> {
+  await mkdir(join(projectRoot, ".claude"), { recursive: true });
+  await writeFile(
+    join(projectRoot, ".claude", "settings.json"),
+    JSON.stringify({ permissions: { allow: ["Bash"] } }, null, 2) + "\n",
+    "utf-8",
+  );
+  await writeFile(
+    join(projectRoot, ".mcp.json"),
+    JSON.stringify({
+      mcpServers: {
+        deepwiki: { type: "http", url: "https://mcp.deepwiki.com/mcp" },
+      },
+    }, null, 2) + "\n",
+    "utf-8",
   );
 }
 
@@ -80,7 +106,7 @@ test("hasProjectScmSkillsInSync returns false when selected SCM skills are incom
   });
 });
 
-test("hasProjectScmSkillsInSync returns false when opposite managed variant is present", async () => {
+test("hasProjectScmSkillsInSync preserves opposite managed variants when selected skills exist", async () => {
   await withTempDir(async (dir) => {
     const configRoot = join(dir, "config");
     const projectRoot = join(dir, "project");
@@ -92,7 +118,7 @@ test("hasProjectScmSkillsInSync returns false when opposite managed variant is p
 
     await expect(
       hasProjectScmSkillsInSync("claude", "github", projectRoot, configRoot)
-    ).resolves.toBe(false);
+    ).resolves.toBe(true);
   });
 });
 
@@ -114,13 +140,38 @@ test("hasProjectScmSkillsInSync ignores user custom scm-prefixed skills", async 
 
 test("shouldAutoInitChat returns true when no managed SCM skills are configured", async () => {
   await withTempDir(async (dir) => {
-    await mkdir(join(dir, ".claude"), { recursive: true });
+    await writeClaudeOnboardingFiles(dir);
+    upsertTrustedWorkspacePath(dir, "claude");
     await expect(shouldAutoInitChat("claude", dir)).resolves.toBe(true);
   });
 });
 
-test("shouldAutoInitChat returns false when managed SCM skills are configured", async () => {
+test("shouldAutoInitChat returns true when workspace is not trusted", async () => {
   await withTempDir(async (dir) => {
+    await writeClaudeOnboardingFiles(dir);
+    const commitSkillPath = join(dir, ".claude", "skills", "sl-commit", "SKILL.md");
+    await mkdir(join(commitSkillPath, ".."), { recursive: true });
+    await writeFile(commitSkillPath, "sapling commit", "utf-8");
+
+    await expect(shouldAutoInitChat("claude", dir)).resolves.toBe(true);
+  });
+});
+
+test("shouldAutoInitChat returns true when onboarding files are missing", async () => {
+  await withTempDir(async (dir) => {
+    upsertTrustedWorkspacePath(dir, "claude");
+    const commitSkillPath = join(dir, ".claude", "skills", "sl-commit", "SKILL.md");
+    await mkdir(join(commitSkillPath, ".."), { recursive: true });
+    await writeFile(commitSkillPath, "sapling commit", "utf-8");
+
+    await expect(shouldAutoInitChat("claude", dir)).resolves.toBe(true);
+  });
+});
+
+test("shouldAutoInitChat returns false when workspace is trusted, onboarded, and SCM skills are configured", async () => {
+  await withTempDir(async (dir) => {
+    await writeClaudeOnboardingFiles(dir);
+    upsertTrustedWorkspacePath(dir, "claude");
     const commitSkillPath = join(dir, ".claude", "skills", "sl-commit", "SKILL.md");
     await mkdir(join(commitSkillPath, ".."), { recursive: true });
     await writeFile(commitSkillPath, "sapling commit", "utf-8");
@@ -135,6 +186,8 @@ test("shouldAutoInitChat returns true when configured SCM skills are out of sync
     const projectRoot = join(dir, "project");
 
     await createTemplateScmSkills(configRoot, ".claude");
+    await writeClaudeOnboardingFiles(projectRoot);
+    upsertTrustedWorkspacePath(projectRoot, "claude");
     await writeProjectScmSetting(projectRoot, "github");
     await makeSkillDir(join(projectRoot, ".claude", "skills"), "gh-commit");
 
@@ -148,6 +201,8 @@ test("shouldAutoInitChat returns false when configured SCM skills are in sync", 
     const projectRoot = join(dir, "project");
 
     await createTemplateScmSkills(configRoot, ".claude");
+    await writeClaudeOnboardingFiles(projectRoot);
+    upsertTrustedWorkspacePath(projectRoot, "claude");
     await writeProjectScmSetting(projectRoot, "github");
     await makeSkillDir(join(projectRoot, ".claude", "skills"), "gh-commit");
     await makeSkillDir(join(projectRoot, ".claude", "skills"), "gh-create-pr");
@@ -168,7 +223,7 @@ test("buildChatStartupDiscoveryPlan keeps Copilot precedence and compatibility c
   });
 
   expect(plan.provider).toBe("copilot");
-  expect(plan.rootsInPrecedenceOrder[0]?.id).toBe("copilot_atomic_claude_compat");
+  expect(plan.rootsInPrecedenceOrder[0]?.id).toBe("copilot_user_home_native");
   expect(plan.rootsInPrecedenceOrder[plan.rootsInPrecedenceOrder.length - 1]?.id).toBe(
     "copilot_project_native"
   );
@@ -306,7 +361,7 @@ test("prepareClaudeRuntimeForChat throws when merged runtime cannot be prepared"
         providerDiscoveryPlan: plan,
         prepareClaudeConfigDir: async () => null,
       })
-    ).rejects.toThrow("Unable to prepare Claude runtime config from ~/.atomic/.claude");
+    ).rejects.toThrow("Unable to prepare Claude runtime config from ~/.claude");
   } finally {
     if (previousValue === undefined) {
       delete process.env.CLAUDE_CONFIG_DIR;

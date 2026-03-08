@@ -59,7 +59,6 @@ describe("provider-discovery-contract", () => {
       "claude",
     ).map((root) => root.id);
     expect(orderedRootIds).toEqual([
-      "claude_atomic",
       "claude_user",
       "claude_project",
     ]);
@@ -74,8 +73,8 @@ describe("provider-discovery-contract", () => {
 
     const userRootIds = contract.roots.userGlobal.map((root) => root.id);
     expect(userRootIds).toEqual([
-      "opencode_user_canonical_xdg",
       "opencode_user_home_native",
+      "opencode_user_canonical_xdg",
     ]);
   });
 
@@ -89,22 +88,22 @@ describe("provider-discovery-contract", () => {
     expect(
       shouldOverrideByProviderRoot(
         "copilot",
-        "copilot_atomic_native",
-        "copilot_atomic_claude_compat",
-      ),
-    ).toBe(true);
-    expect(
-      shouldOverrideByProviderRoot(
-        "copilot",
         "copilot_user_home_native",
         "copilot_user_canonical_native",
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       shouldOverrideByProviderRoot(
         "copilot",
         "copilot_user_canonical_native",
-        "copilot_atomic_native",
+        "copilot_user_home_native",
+      ),
+    ).toBe(true);
+    expect(
+      shouldOverrideByProviderRoot(
+        "copilot",
+        "copilot_project_claude_compat",
+        "copilot_user_canonical_native",
       ),
     ).toBe(true);
     expect(

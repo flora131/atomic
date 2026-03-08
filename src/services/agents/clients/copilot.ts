@@ -51,7 +51,6 @@ import {
   type CustomAgentConfig as SdkCustomAgentConfig,
 } from "@github/copilot-sdk";
 
-import { initCopilotSessionOptions } from "@/services/agents/init.ts";
 import {
   loadCopilotAgents,
   resolveCopilotDiscoveryPlan,
@@ -151,6 +150,11 @@ type CopilotSdkModelRecord = Record<string, unknown> & {
   defaultReasoningEffort?: unknown;
   capabilities?: Record<string, unknown>;
 };
+
+interface CopilotSessionArtifacts {
+  customAgents?: SdkCustomAgentConfig[];
+  skillDirectories?: string[];
+}
 
 const RECENT_EVENT_ID_WINDOW = 2048;
 
@@ -448,6 +452,109 @@ export class CopilotClient implements CodingAgentClient {
     }
 
     return opts;
+  }
+
+  private getCopilotPermissionHandler(): CopilotPermissionHandler {
+    return this.permissionHandler ?? createAutoApprovePermissionHandler();
+  }
+
+  private async loadCopilotSessionArtifacts(
+    projectRoot: string,
+  ): Promise<CopilotSessionArtifacts> {
+    const discoveryPlan = await resolveCopilotDiscoveryPlan(projectRoot, {
+      pathExistsFn: pathExists,
+    });
+    const [loadedAgents, skillDirectories] = await Promise.all([
+      loadCopilotAgents(projectRoot, undefined, {
+        providerDiscoveryPlan: discoveryPlan,
+      }),
+      resolveCopilotSkillDirectories(projectRoot, {
+        providerDiscoveryPlan: discoveryPlan,
+        pathExistsFn: pathExists,
+      }),
+    ]);
+
+    this.knownAgentNames = [
+      "general-purpose",
+      ...loadedAgents.map((agent) => agent.name),
+    ];
+
+    return {
+      customAgents: loadedAgents.length > 0
+        ? loadedAgents.map((agent) => ({
+          name: agent.name,
+          description: agent.description,
+          tools: agent.tools ?? null,
+          prompt: agent.systemPrompt,
+        }))
+        : undefined,
+      skillDirectories: skillDirectories.length > 0 ? skillDirectories : undefined,
+    };
+  }
+
+  private buildSdkMcpServers(
+    config: SessionConfig,
+  ): SdkSessionConfig["mcpServers"] | undefined {
+    if (!config.mcpServers) {
+      return undefined;
+    }
+
+    return Object.fromEntries(
+      config.mcpServers.map((server) => {
+        if (server.url) {
+          return [server.name, {
+            type: (server.type === "sse" ? "sse" : "http") as "http" | "sse",
+            url: server.url,
+            headers: server.headers,
+            tools: server.tools ?? ["*"],
+            timeout: server.timeout,
+          }];
+        }
+
+        return [server.name, {
+          type: "stdio" as const,
+          command: server.command ?? "",
+          args: server.args ?? [],
+          env: server.env,
+          cwd: server.cwd,
+          tools: server.tools ?? ["*"],
+          timeout: server.timeout,
+        }];
+      }),
+    );
+  }
+
+  private buildSdkSessionConfigBase(
+    config: SessionConfig,
+    options: {
+      sessionIdForUserInput: string;
+      model?: string;
+      reasoningEffort?: SdkSessionConfig["reasoningEffort"];
+      artifacts?: CopilotSessionArtifacts;
+    },
+  ): Omit<SdkSessionConfig, "sessionId"> {
+    return {
+      ...(options.model ? { model: options.model } : {}),
+      ...(options.reasoningEffort
+        ? { reasoningEffort: options.reasoningEffort }
+        : {}),
+      systemMessage: config.additionalInstructions
+        ? { mode: "append", content: config.additionalInstructions }
+        : undefined,
+      availableTools: config.tools,
+      streaming: true,
+      tools: this.registeredTools.map((tool) => this.convertTool(tool)),
+      onPermissionRequest: this.getCopilotPermissionHandler(),
+      onUserInputRequest: this.createUserInputHandler(options.sessionIdForUserInput),
+      skillDirectories: options.artifacts?.skillDirectories,
+      customAgents: options.artifacts?.customAgents,
+      infiniteSessions: {
+        enabled: true,
+        backgroundCompactionThreshold: BACKGROUND_COMPACTION_THRESHOLD,
+        bufferExhaustionThreshold: BUFFER_EXHAUSTION_THRESHOLD,
+      },
+      mcpServers: this.buildSdkMcpServers(config),
+    };
   }
 
   /**
@@ -1270,28 +1377,6 @@ export class CopilotClient implements CodingAgentClient {
   }
 
   /**
-   * Create a permission handler that auto-approves all operations (bypass mode).
-   * All tools execute without prompts, similar to Claude Code's bypass permission mode.
-   *
-   * Note: This enables full autonomous agent execution. All file edits, bash
-   * commands, and other tool operations are automatically approved without
-   * user confirmation. Only AskUserQuestion-style tools that explicitly
-   * request user input will pause for response.
-   *
-   * To implement HITL (Human-in-the-Loop) approval prompts for specific tools:
-   * 1. Call setPermissionHandler() with a custom handler
-   * 2. Check request.toolName for specific tools (e.g., "write", "bash")
-   * 3. Emit permission.requested event and await response
-   * 4. Return { kind: "approved" } or { kind: "denied-interactively-by-user" }
-   */
-  private createHITLPermissionHandler(_sessionId: string): CopilotPermissionHandler {
-    return async (_request: SdkPermissionRequest) => {
-      // Auto-approve all operations - all tools execute without prompts
-      return { kind: "approved" };
-    };
-  }
-
-  /**
    * Create an onUserInputRequest handler that enables the ask_user tool.
    * Maps Copilot SDK's UserInputRequest directly into the shared
    * `permission.requested` event used by the TUI.
@@ -1353,43 +1438,15 @@ export class CopilotClient implements CodingAgentClient {
     // Generate a session ID for permission handler events
     const tentativeSessionId = config.sessionId ?? `copilot_${Date.now()}`;
 
-    // Get default session options (auto-approve permissions)
-    const defaultOptions = initCopilotSessionOptions();
-
-    // Use provided permission handler, or default from initCopilotSessionOptions, or create HITL handler
-    const permissionHandler = this.permissionHandler ?? defaultOptions.OnPermissionRequest ?? this.createHITLPermissionHandler(tentativeSessionId);
-
     const projectRoot = this.clientOptions.cwd ?? process.cwd();
-    const discoveryPlan = await resolveCopilotDiscoveryPlan(projectRoot, {
-      pathExistsFn: pathExists,
-    });
-    const [loadedAgents, skillDirs] = await Promise.all([
-      loadCopilotAgents(projectRoot, undefined, {
-        providerDiscoveryPlan: discoveryPlan,
-      }),
-      resolveCopilotSkillDirectories(projectRoot, {
-        providerDiscoveryPlan: discoveryPlan,
-        pathExistsFn: pathExists,
-      }),
-    ]);
-
-    this.knownAgentNames = [
-      "general-purpose",
-      ...loadedAgents.map(a => a.name),
-    ];
-    const customAgents: SdkCustomAgentConfig[] = loadedAgents.map((agent) => ({
-      name: agent.name,
-      description: agent.description,
-      tools: agent.tools ?? null,
-      prompt: agent.systemPrompt,
-    }));
+    const artifacts = await this.loadCopilotSessionArtifacts(projectRoot);
 
     // Strip provider prefix from model ID (e.g. "github-copilot/claude-opus-4.6-fast" → "claude-opus-4.6-fast")
     const resolvedModel = config.model ? stripProviderPrefix(config.model) : undefined;
 
     // Resolve context window and reasoning effort support from listModels() BEFORE session creation
     let contextWindow: number | null = null;
-    let modelSupportsReasoning = false;
+    let sanitizedReasoningEffort: SdkSessionConfig["reasoningEffort"] | undefined;
     try {
       const models = await this.listSdkModelsFresh() as CopilotSdkModelRecord[];
       if (models?.length) {
@@ -1405,7 +1462,9 @@ export class CopilotClient implements CodingAgentClient {
         }
         // Check if model supports reasoning effort
         const supports = caps?.supports as Record<string, unknown> | undefined;
-        modelSupportsReasoning = supports?.reasoningEffort === true;
+        if (supports?.reasoningEffort === true && config.reasoningEffort) {
+          sanitizedReasoningEffort = config.reasoningEffort as SdkSessionConfig["reasoningEffort"];
+        }
       }
     } catch {
       // Fall through - contextWindow stays null
@@ -1414,57 +1473,29 @@ export class CopilotClient implements CodingAgentClient {
       throw new Error("Failed to resolve context window size from Copilot SDK listModels()");
     }
 
-    // Build SDK config - use type assertion to handle reasoningEffort which may not be in SDK types
-    const sdkConfig = {
+    const sdkConfig: SdkSessionConfig = {
       sessionId: config.sessionId,
-      model: resolvedModel,
-      ...(modelSupportsReasoning && config.reasoningEffort
-        ? { reasoningEffort: config.reasoningEffort }
-        : {}),
-      systemMessage: config.additionalInstructions
-        ? { mode: "append", content: config.additionalInstructions }
-        : undefined,
-      availableTools: config.tools,
-      streaming: true,
-      tools: this.registeredTools.map((t) => this.convertTool(t)),
-      onPermissionRequest: permissionHandler,
-      onUserInputRequest: this.createUserInputHandler(tentativeSessionId),
-      skillDirectories: skillDirs.length > 0 ? skillDirs : undefined,
-      customAgents: customAgents.length > 0 ? customAgents : undefined,
-      infiniteSessions: {
-        enabled: true,
-        backgroundCompactionThreshold: BACKGROUND_COMPACTION_THRESHOLD,
-        bufferExhaustionThreshold: BUFFER_EXHAUSTION_THRESHOLD,
-      },
-      mcpServers: config.mcpServers
-        ? Object.fromEntries(
-            config.mcpServers.map((s) => {
-              if (s.url) {
-                return [s.name, {
-                  type: (s.type === "sse" ? "sse" : "http") as "http" | "sse",
-                  url: s.url,
-                  headers: s.headers,
-                  tools: s.tools ?? ["*"],
-                  timeout: s.timeout,
-                }];
-              }
-              return [s.name, {
-                type: "stdio" as const,
-                command: s.command ?? "",
-                args: s.args ?? [],
-                env: s.env,
-                cwd: s.cwd,
-                tools: s.tools ?? ["*"],
-                timeout: s.timeout,
-              }];
-            })
-          )
-        : undefined,
-    } as SdkSessionConfig;
+      ...this.buildSdkSessionConfigBase(config, {
+        sessionIdForUserInput: tentativeSessionId,
+        model: resolvedModel,
+        reasoningEffort: sanitizedReasoningEffort,
+        artifacts,
+      }),
+    };
 
     const sdkSession = await this.sdkClient.createSession(sdkConfig);
 
-    const session = this.wrapSession(sdkSession, config);
+    const effectiveConfig: SessionConfig = {
+      ...config,
+      ...(sanitizedReasoningEffort !== undefined
+        ? { reasoningEffort: sanitizedReasoningEffort }
+        : {}),
+    };
+    if (sanitizedReasoningEffort === undefined) {
+      delete effectiveConfig.reasoningEffort;
+    }
+
+    const session = this.wrapSession(sdkSession, effectiveConfig);
 
     // Set the resolved context window on the session state
     const sessionState = this.sessions.get(sdkSession.sessionId);
@@ -1494,15 +1525,12 @@ export class CopilotClient implements CodingAgentClient {
 
     // Try to resume session from SDK
     try {
-      // Use provided permission handler or create HITL handler that emits events
-      const permissionHandler = this.permissionHandler ?? this.createHITLPermissionHandler(sessionId);
-
-      const resumeConfig: SdkResumeSessionConfig = {
-        streaming: true,
-        tools: this.registeredTools.map((t) => this.convertTool(t)),
-        onPermissionRequest: permissionHandler,
-        onUserInputRequest: this.createUserInputHandler(sessionId),
-      };
+      const projectRoot = this.clientOptions.cwd ?? process.cwd();
+      const artifacts = await this.loadCopilotSessionArtifacts(projectRoot);
+      const resumeConfig: SdkResumeSessionConfig = this.buildSdkSessionConfigBase({}, {
+        sessionIdForUserInput: sessionId,
+        artifacts,
+      });
       const sdkSession = await this.sdkClient.resumeSession(sessionId, resumeConfig);
       return this.wrapSession(sdkSession, {});
     } catch {
@@ -1549,34 +1577,31 @@ export class CopilotClient implements CodingAgentClient {
       }
     }
 
-    const defaultOptions = initCopilotSessionOptions();
-    const permissionHandler =
-      this.permissionHandler
-      ?? defaultOptions.OnPermissionRequest
-      ?? this.createHITLPermissionHandler(activeState.sessionId);
-
-    const resumeConfig: SdkResumeSessionConfig = {
-      model: resolvedModel,
-      ...(sanitizedReasoningEffort
-        ? { reasoningEffort: sanitizedReasoningEffort as SdkSessionConfig["reasoningEffort"] }
+    const projectRoot = this.clientOptions.cwd ?? process.cwd();
+    const artifacts = await this.loadCopilotSessionArtifacts(projectRoot);
+    const nextConfig: SessionConfig = {
+      ...activeState.config,
+      model,
+      ...(sanitizedReasoningEffort !== undefined
+        ? { reasoningEffort: sanitizedReasoningEffort }
         : {}),
-      streaming: true,
-      tools: this.registeredTools.map((t) => this.convertTool(t)),
-      onPermissionRequest: permissionHandler,
-      onUserInputRequest: this.createUserInputHandler(activeState.sessionId),
     };
+    if (sanitizedReasoningEffort === undefined) {
+      delete nextConfig.reasoningEffort;
+    }
+
+    const resumeConfig: SdkResumeSessionConfig = this.buildSdkSessionConfigBase(nextConfig, {
+      sessionIdForUserInput: activeState.sessionId,
+      model: resolvedModel,
+      reasoningEffort: sanitizedReasoningEffort as SdkSessionConfig["reasoningEffort"] | undefined,
+      artifacts,
+    });
 
     const resumedSession = await this.sdkClient.resumeSession(activeState.sessionId, resumeConfig);
 
     activeState.unsubscribe();
     activeState.sdkSession = resumedSession;
-    activeState.config = {
-      ...activeState.config,
-      model: resolvedModel,
-      ...(sanitizedReasoningEffort !== undefined
-        ? { reasoningEffort: sanitizedReasoningEffort }
-        : {}),
-    };
+    activeState.config = nextConfig;
     activeState.recentEventIds = new Set();
     activeState.recentEventOrder = [];
     activeState.unsubscribe = this.subscribeSessionEvents(
@@ -1631,8 +1656,8 @@ export class CopilotClient implements CodingAgentClient {
     this.probePromise = (async () => {
       try {
         const probeSession = await this.sdkClient!.createSession({
-          onPermissionRequest: () => ({ kind: "denied-by-rules" as const }),
-        } as SdkSessionConfig);
+          onPermissionRequest: this.getCopilotPermissionHandler(),
+        });
         const baseline = await new Promise<number | null>((resolve) => {
           let unsub: (() => void) | null = null;
           const timeout = setTimeout(() => {

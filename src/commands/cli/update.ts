@@ -287,7 +287,7 @@ export async function updateCommand(): Promise<void> {
       await rm(dataDir, { recursive: true, force: true });
       await extractConfig(configPath, dataDir);
 
-      // Sync globally discoverable agent configs into ~/.atomic
+      // Sync globally discoverable agent configs into provider home roots
       await syncAtomicGlobalAgentConfigs(dataDir);
       s.stop("Config files updated");
 

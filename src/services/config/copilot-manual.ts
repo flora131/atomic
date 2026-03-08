@@ -427,7 +427,7 @@ export async function loadCopilotAgents(
 /**
  * Load Copilot instructions from either local or global configuration.
  * Local instructions (.github/copilot-instructions.md) take priority over
- * ~/.copilot, then canonical global root, then ~/.atomic/.copilot.
+ * ~/.copilot, then a distinct XDG override root when configured.
  *
  * @param projectRoot - Path to the project root directory
  * @param fsOps - Optional fs operations for testing (defaults to Node.js fs/promises)
@@ -454,9 +454,8 @@ export async function loadCopilotInstructions(
 
   const instructionCandidates = dedupePaths([
     path.join(projectRoot, ".github", "copilot-instructions.md"),
-    path.join(copilotRoots.homeRoot, "copilot-instructions.md"),
     path.join(copilotRoots.canonicalRoot, "copilot-instructions.md"),
-    path.join(homeDir, ".atomic", ".copilot", "copilot-instructions.md"),
+    path.join(copilotRoots.homeRoot, "copilot-instructions.md"),
   ]);
 
   for (const candidatePath of instructionCandidates) {

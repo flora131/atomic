@@ -5,7 +5,6 @@
  * Provides a simple chat interface with SDK clients.
  *
  * Usage:
- *   atomic chat                      Start chat with default agent (claude)
  *   atomic chat -a <agent>           Start chat with specified agent
  *   atomic chat --theme <name>       Use specified theme (dark/light)
  *
@@ -21,9 +20,11 @@ import type {
 } from "@/services/config/provider-discovery-plan.ts";
 import type { PrepareClaudeConfigOptions } from "@/services/config/claude-config.ts";
 import { getModelPreference, getReasoningEffortPreference } from "@/services/config/settings.ts";
+import { isTrustedWorkspacePath } from "@/services/config/settings.ts";
 import { ENHANCED_SYSTEM_PROMPT } from "@/services/agents/enhanced-system-prompt.ts";
 import { pathExists } from "@/services/system/copy.ts";
 import { AGENT_CONFIG, type SourceControlType } from "@/services/config/index.ts";
+import { hasProjectOnboardingFiles } from "@/commands/cli/init.ts";
 // initCommand is lazy-loaded only when auto-init is needed
 import { join, relative, resolve, sep } from "path";
 import { readdir } from "fs/promises";
@@ -234,7 +235,7 @@ export async function prepareClaudeRuntimeForChat(
       },
     });
     throw new Error(
-      "Unable to prepare Claude runtime config from ~/.atomic/.claude. Run `atomic init` and retry.",
+      "Unable to prepare Claude runtime config from ~/.claude. Run `atomic init` and retry.",
     );
   }
 
@@ -424,7 +425,7 @@ export async function hasProjectScmSkills(
 }
 
 /**
- * Determine whether project-local SCM skills match bundled variants
+ * Determine whether project-local SCM skills include the bundled variants
  * for the selected source control system.
  */
 export async function hasProjectScmSkillsInSync(
@@ -456,12 +457,6 @@ export async function hasProjectScmSkillsInSync(
     }
   }
 
-  for (const skillName of projectManagedSkills) {
-    if (!sourceManagedSkills.has(skillName)) continue;
-    if (skillName.startsWith(selectedPrefix)) continue;
-    return false;
-  }
-
   return true;
 }
 
@@ -478,6 +473,14 @@ export async function shouldAutoInitChat(
   projectRoot: string = process.cwd(),
   options: AutoInitCheckOptions = {}
 ): Promise<boolean> {
+  if (!(await isTrustedWorkspacePath(projectRoot, agentType))) {
+    return true;
+  }
+
+  if (!(await hasProjectOnboardingFiles(agentType, projectRoot))) {
+    return true;
+  }
+
   const selectedScm = options.selectedScm ?? (await getSelectedScm(projectRoot));
   if (!selectedScm) {
     return !(await hasProjectScmSkills(agentType, projectRoot));
@@ -561,7 +564,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   } = options;
 
   if (!agentType) {
-    throw new Error("agentType is required — resolve via saved config or init before calling chatCommand");
+    throw new Error("agentType is required. Start chat with `atomic chat -a <agent>`.");
   }
 
   // Read settings asynchronously in parallel

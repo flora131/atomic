@@ -49,9 +49,6 @@ function getAllowedRootForTier(
   homeDir: string,
   projectRoot: string,
 ): string {
-  if (tier === "atomicBaseline") {
-    return atomicHomeDir;
-  }
   if (tier === "userGlobal") {
     return homeDir;
   }
@@ -61,8 +58,6 @@ function getAllowedRootForTier(
 
 function getClaudeRootLabel(rootId: string): string {
   switch (rootId) {
-    case "claude_atomic":
-      return "Atomic Claude config root";
     case "claude_user":
       return "User Claude config root";
     case "claude_project":
@@ -76,11 +71,10 @@ function getClaudeRootLabel(rootId: string): string {
  * Build a merged Claude config directory for CLAUDE_CONFIG_DIR.
  *
  * Precedence (low -> high):
- * 1) ~/.atomic/.claude (Atomic-managed defaults)
- * 2) ~/.claude (user global config)
- * 3) <project>/.claude (project-local overrides)
+ * 1) ~/.claude (installed/user global config)
+ * 2) <project>/.claude (project-local overrides)
  *
- * @returns merged directory path, or null when ~/.atomic/.claude is missing
+ * @returns merged directory path, or null when ~/.claude is missing
  */
 export async function prepareClaudeConfigDir(
   options: PrepareClaudeConfigOptions = {},
@@ -94,15 +88,15 @@ export async function prepareClaudeConfigDir(
   const stagingDir = join(atomicHomeDir, ".tmp", "claude-config-merge-staging");
   const discoveryPlan = resolveClaudeDiscoveryPlan(options, homeDir, projectRoot);
   const rootsInPrecedenceOrder = getCompatibleDiscoveryRoots(discoveryPlan, "native");
-  const atomicRoot = rootsInPrecedenceOrder.find((root) => root.id === "claude_atomic");
+  const homeRoot = rootsInPrecedenceOrder.find((root) => root.id === "claude_user");
 
   assertPathWithinRoot(atomicHomeDir, mergedDir, "Claude merged config directory");
 
-  if (!atomicRoot) {
-    throw new Error("Claude discovery plan is missing required root: claude_atomic");
+  if (!homeRoot) {
+    throw new Error("Claude discovery plan is missing required root: claude_user");
   }
 
-  if (!(await pathExists(atomicRoot.resolvedPath))) {
+  if (!(await pathExists(homeRoot.resolvedPath))) {
     return null;
   }
 

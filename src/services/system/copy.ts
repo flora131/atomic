@@ -44,6 +44,10 @@ interface CopyOptions {
  * @throws Error if the copy operation fails
  */
 export async function copyFile(src: string, dest: string): Promise<void> {
+  if (resolve(src) === resolve(dest)) {
+    return;
+  }
+
   try {
     const srcFile = Bun.file(src);
     await Bun.write(dest, srcFile);

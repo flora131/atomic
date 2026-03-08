@@ -49,11 +49,11 @@ describe("parseMarkdownFrontmatter", () => {
       expect(typeof result?.frontmatter.disabled).toBe("boolean");
     });
 
-    test("does not coerce string 'True' or 'False' (case-sensitive)", () => {
+    test("parses YAML boolean aliases like 'True' and 'False'", () => {
       const content = "---\nvalue1: True\nvalue2: False\n---\nBody";
       const result = parseMarkdownFrontmatter(content);
-      expect(result?.frontmatter.value1).toBe("True");
-      expect(result?.frontmatter.value2).toBe("False");
+      expect(result?.frontmatter.value1).toBe(true);
+      expect(result?.frontmatter.value2).toBe(false);
     });
   });
 
@@ -164,8 +164,25 @@ Body`;
       expect(result?.frontmatter.tags).toEqual(["one", "two"]);
     });
 
-    test("handles array with indented non-array content", () => {
-      // Indented content that doesn't match array pattern is skipped
+    test("parses flow-sequence arrays with quoted items", () => {
+      const content = `---
+tools: ["execute", "read", "web"]
+---
+Body`;
+      const result = parseMarkdownFrontmatter(content);
+      expect(result?.frontmatter.tools).toEqual(["execute", "read", "web"]);
+    });
+
+    test("preserves commas and numeric-like strings in quoted flow-sequence items", () => {
+      const content = `---
+values: ["one, two", "42", "true"]
+---
+Body`;
+      const result = parseMarkdownFrontmatter(content);
+      expect(result?.frontmatter.values).toEqual(["one, two", "42", "true"]);
+    });
+
+    test("preserves multiline array items using YAML folding", () => {
       const content = `---
 items:
   - first
@@ -175,7 +192,7 @@ title: Test
 ---
 Body`;
       const result = parseMarkdownFrontmatter(content);
-      expect(result?.frontmatter.items).toEqual(["first", "second"]);
+      expect(result?.frontmatter.items).toEqual(["first indented but not array", "second"]);
       expect(result?.frontmatter.title).toBe("Test");
     });
   });
@@ -256,8 +273,7 @@ Body`;
       });
     });
 
-    test("handles object with indented non-object content", () => {
-      // Indented content that doesn't match object pattern is skipped
+    test("preserves multiline object scalars using YAML folding", () => {
       const content = `---
 options:
   enabled: true
@@ -268,7 +284,7 @@ title: Test
 Body`;
       const result = parseMarkdownFrontmatter(content);
       expect(result?.frontmatter.options).toEqual({
-        enabled: true,
+        enabled: "true indented but not boolean",
         disabled: false,
       });
       expect(result?.frontmatter.title).toBe("Test");
@@ -320,18 +336,14 @@ Body`;
       });
     });
 
-    test("handles lines without colons gracefully", () => {
+    test("returns null for malformed YAML lines without colons", () => {
       const content = `---
 title: Test
 this line has no colon
 name: Value
 ---
 Body`;
-      const result = parseMarkdownFrontmatter(content);
-      expect(result?.frontmatter).toEqual({
-        title: "Test",
-        name: "Value",
-      });
+      expect(parseMarkdownFrontmatter(content)).toBeNull();
     });
 
     test("handles whitespace-only values", () => {
@@ -361,7 +373,7 @@ email: test@example.com
 ---
 Body`;
       const result = parseMarkdownFrontmatter(content);
-      expect(result?.frontmatter.title).toBe('"Hello: World"');
+      expect(result?.frontmatter.title).toBe("Hello: World");
       expect(result?.frontmatter.path).toBe("/some/path/with/slashes");
       expect(result?.frontmatter.email).toBe("test@example.com");
     });
@@ -420,20 +432,20 @@ This is the actual content.`;
       expect(parseMarkdownFrontmatter("")).toBeNull();
     });
 
-    test("skips lines where colon is at position 0 (colonIndex === 0)", () => {
+    test("preserves empty-string keys when YAML parses them", () => {
       const content = `---
 : orphan value
 title: Valid
 ---
 Body`;
       const result = parseMarkdownFrontmatter(content);
-      expect(result?.frontmatter).toEqual({ title: "Valid" });
-      expect(Object.keys(result!.frontmatter)).not.toContain("");
+      expect(result?.frontmatter).toEqual({
+        "": "orphan value",
+        title: "Valid",
+      });
     });
 
-    test("handles key with empty value on last line (no next line to check)", () => {
-      // When value is empty and there is no i+1 line, the !value branch
-      // falls through without entering array or object parsing
+    test("parses empty values as null", () => {
       const content = `---
 title: Test
 emptykey:
@@ -441,8 +453,7 @@ emptykey:
 Body`;
       const result = parseMarkdownFrontmatter(content);
       expect(result?.frontmatter.title).toBe("Test");
-      // emptykey has no value and no indented children, so it should not appear
-      expect(result?.frontmatter.emptykey).toBeUndefined();
+      expect(result?.frontmatter.emptykey).toBeNull();
     });
 
     test("handles frontmatter with no body after closing markers", () => {
@@ -529,9 +540,7 @@ Body`;
       });
     });
 
-    test("object with non-boolean indented value skips unmatched lines", () => {
-      // Indented lines matching /^\s+\w+:/ but NOT matching /^\s+(\w+):\s*(true|false)$/
-      // should be skipped (the else branch in object parsing at line 89)
+    test("parses nested objects with mixed scalar types", () => {
       const content = `---
 config:
   name: somestring
@@ -540,10 +549,11 @@ config:
 ---
 Body`;
       const result = parseMarkdownFrontmatter(content);
-      // Only "enabled: true" matches the strict boolean object pattern
-      // "name: somestring" and "count: 42" don't match /^\s+(\w+):\s*(true|false)$/
-      // They are skipped (else branch increments i)
-      expect(result?.frontmatter.config).toEqual({ enabled: true });
+      expect(result?.frontmatter.config).toEqual({
+        name: "somestring",
+        count: 42,
+        enabled: true,
+      });
     });
 
     test("handles value containing colons after the first colon", () => {
@@ -566,18 +576,14 @@ Body`;
       expect(result?.body).toBe("Body content");
     });
 
-    test("key with empty value followed by non-indented next line", () => {
-      // Value is empty, next line exists but is not indented (not array/object)
+    test("parses empty values as null before later keys", () => {
       const content = `---
 emptykey:
 nextkey: hello
 ---
 Body`;
       const result = parseMarkdownFrontmatter(content);
-      // emptykey has empty value, next line doesn't match array or object patterns
-      // so the if(!value && i+1 < lines.length) block enters but neither isArrayItem
-      // nor isObjectItem matches, falling through to the if(value) check which is false
-      expect(result?.frontmatter.emptykey).toBeUndefined();
+      expect(result?.frontmatter.emptykey).toBeNull();
       expect(result?.frontmatter.nextkey).toBe("hello");
     });
   });

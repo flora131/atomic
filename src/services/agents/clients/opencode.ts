@@ -23,8 +23,8 @@
  * ```
  *
  * Config locations (in order of precedence):
- * - Project root: opencode.json
- * - Global: ~/.config/.opencode/opencode.json
+ * - Project local: .opencode/opencode.json
+ * - Global: ~/.opencode/opencode.json
  * - Env var: OPENCODE_CONFIG path
  *
  * Note: When running in non-interactive/CLI mode, OpenCode auto-approves all
@@ -114,7 +114,7 @@ import {
  * Default OpenCode server configuration
  */
 const DEFAULT_OPENCODE_BASE_URL = "http://localhost:4096";
-const ATOMIC_OPENCODE_CONFIG_DIR = join(homedir(), ".atomic", ".opencode");
+const DEFAULT_OPENCODE_CONFIG_DIR = join(homedir(), ".opencode");
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_RETRY_DELAY = 1000;
 const PRE_PROMPT_TERMINAL_SETTLE_MS = 500;
@@ -248,7 +248,7 @@ export function resolveOpenCodeConfigDirEnv(
   if (trimmedPath && trimmedPath.length > 0) {
     return trimmedPath;
   }
-  return ATOMIC_OPENCODE_CONFIG_DIR;
+  return DEFAULT_OPENCODE_CONFIG_DIR;
 }
 
 function asErrorRecord(value: unknown): Record<string, unknown> | undefined {

@@ -10,7 +10,6 @@
 import { readFile, writeFile, mkdir } from "fs/promises";
 import { join, dirname } from "path";
 import { homedir } from "os";
-import { type AgentKey } from "@/services/config/index.ts";
 import { type SourceControlType } from "@/services/config/index.ts";
 import { SETTINGS_SCHEMA_URL } from "@/services/config/settings-schema.ts";
 
@@ -23,8 +22,6 @@ const SETTINGS_FILENAME = "settings.json";
 export interface AtomicConfig {
   /** Version of config schema */
   version?: number;
-  /** Selected agent type */
-  agent?: AgentKey;
   /** Selected source control type */
   scm?: SourceControlType;
   /** Timestamp of last init */
@@ -55,12 +52,10 @@ function pickAtomicConfig(record: JsonRecord | null): AtomicConfig | null {
 
   const config: AtomicConfig = {};
   const version = record.version;
-  const agent = record.agent;
   const scm = record.scm;
   const lastUpdated = record.lastUpdated;
 
   if (typeof version === "number") config.version = version;
-  if (typeof agent === "string") config.agent = agent as AgentKey;
   if (typeof scm === "string") config.scm = scm as SourceControlType;
   if (typeof lastUpdated === "string") config.lastUpdated = lastUpdated;
 
@@ -72,11 +67,15 @@ function mergeConfigs(...configs: Array<AtomicConfig | null>): AtomicConfig | nu
   for (const config of configs) {
     if (!config) continue;
     if (config.version !== undefined) merged.version = config.version;
-    if (config.agent !== undefined) merged.agent = config.agent;
     if (config.scm !== undefined) merged.scm = config.scm;
     if (config.lastUpdated !== undefined) merged.lastUpdated = config.lastUpdated;
   }
   return Object.keys(merged).length > 0 ? merged : null;
+}
+
+function stripLegacyAgentSetting(record: JsonRecord): JsonRecord {
+  const { agent: _legacyAgent, ...rest } = record;
+  return rest;
 }
 
 /**
@@ -111,7 +110,7 @@ export async function saveAtomicConfig(
   };
 
   const nextSettings: JsonRecord = {
-    ...localSettings,
+    ...stripLegacyAgentSetting(localSettings),
     ...newConfig,
     $schema: SETTINGS_SCHEMA_URL,
   };

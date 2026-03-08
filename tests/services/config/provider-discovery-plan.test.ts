@@ -3,7 +3,6 @@ import {
   buildProviderDiscoveryPlan,
   getCompatibleDiscoveryRoots,
   isRootInCompatibilitySet,
-  resolveDefaultConfigHome,
   resolveProviderDiscoveryCandidates,
 } from "@/services/config/provider-discovery-plan.ts";
 
@@ -18,7 +17,7 @@ describe("provider-discovery-plan", () => {
       homeDir: "/home/tester",
       projectRoot: "/workspace/repo",
       pathExists: createPathExists([
-        "/home/tester/.atomic/.claude",
+        "/home/tester/.claude",
         "/workspace/repo/.claude",
       ]),
     });
@@ -29,18 +28,17 @@ describe("provider-discovery-plan", () => {
     });
 
     expect(plan.paths).toEqual({
-      atomicBaseline: ["/home/tester/.atomic/.claude"],
+      atomicBaseline: [],
       userGlobal: ["/home/tester/.claude"],
       projectLocal: ["/workspace/repo/.claude"],
     });
 
     expect(plan.existingRoots.map((root) => root.id)).toEqual([
-      "claude_atomic",
+      "claude_user",
       "claude_project",
     ]);
 
     expect(Array.from(plan.compatibilitySets.nativeRootIds).sort()).toEqual([
-      "claude_atomic",
       "claude_project",
       "claude_user",
     ]);
@@ -56,8 +54,8 @@ describe("provider-discovery-plan", () => {
     });
 
     expect(plan.paths.userGlobal).toEqual([
-      "/xdg/config/.opencode",
       "/home/tester/.opencode",
+      "/xdg/config/.opencode",
     ]);
 
     const resolved = resolveProviderDiscoveryCandidates(plan, [
@@ -95,19 +93,16 @@ describe("provider-discovery-plan", () => {
     });
 
     expect(plan.paths.userGlobal).toEqual([
-      "/xdg/root/.copilot",
       "/home/alice/.copilot",
+      "/xdg/root/.copilot",
     ]);
 
     expect(Array.from(plan.compatibilitySets.nativeRootIds).sort()).toEqual([
-      "copilot_atomic_native",
       "copilot_project_native",
       "copilot_user_canonical_native",
       "copilot_user_home_native",
     ]);
     expect(Array.from(plan.compatibilitySets.compatibilityRootIds).sort()).toEqual([
-      "copilot_atomic_claude_compat",
-      "copilot_atomic_opencode_compat",
       "copilot_project_claude_compat",
       "copilot_project_opencode_compat",
     ]);
@@ -125,32 +120,22 @@ describe("provider-discovery-plan", () => {
     expect(
       getCompatibleDiscoveryRoots(plan, "native").map((root) => root.id),
     ).toEqual([
-      "copilot_atomic_native",
-      "copilot_user_canonical_native",
       "copilot_user_home_native",
+      "copilot_user_canonical_native",
       "copilot_project_native",
     ]);
   });
 
-  test("uses APPDATA as default config home on Windows", () => {
-    expect(
-      resolveDefaultConfigHome({
-        homeDir: "/Users/alice",
-        appDataDir: "/Users/alice/AppData/Roaming",
-        platform: "win32",
-      }),
-    ).toBe("/Users/alice/AppData/Roaming");
-
+  test("keeps home-root precedence on Windows", () => {
     const plan = buildProviderDiscoveryPlan("copilot", {
       homeDir: "/Users/alice",
-      appDataDir: "/Users/alice/AppData/Roaming",
+      xdgConfigHome: "/Users/alice/custom-xdg",
       platform: "win32",
       projectRoot: "/repo",
       pathExists: () => false,
     });
 
     expect(plan.paths.userGlobal).toEqual([
-      "/Users/alice/AppData/Roaming/.copilot",
       "/Users/alice/.copilot",
     ]);
   });
@@ -180,23 +165,18 @@ describe("provider-discovery-plan", () => {
       },
       {
         key: "fix",
-        rootId: "copilot_atomic_claude_compat",
-        value: "atomic-compat",
+        rootId: "copilot_user_home_native",
+        value: "home-native",
       },
       {
         key: "fix",
-        rootId: "copilot_atomic_native",
-        value: "atomic-native",
-      },
-      {
-        key: "fix",
-        rootId: "copilot_atomic_native",
-        value: "atomic-native-newer",
+        rootId: "copilot_user_canonical_native",
+        value: "canonical-native",
       },
     ]);
 
     expect(resolved.get("review")?.value).toBe("project-compat");
-    expect(resolved.get("fix")?.value).toBe("atomic-native-newer");
+    expect(resolved.get("fix")?.value).toBe("canonical-native");
   });
 
   test("throws when candidate references an unknown root", () => {

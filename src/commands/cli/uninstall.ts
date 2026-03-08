@@ -19,8 +19,12 @@ import {
   getBinaryPath,
   getBinaryDataDir,
   getBinaryInstallDir,
+  getConfigRoot,
 } from "@/services/config/config-path.ts";
-import { getAtomicManagedConfigDirs } from "@/services/config/atomic-global-config.ts";
+import {
+  getAtomicManagedConfigDirs,
+  removeAtomicManagedGlobalAgentConfigs,
+} from "@/services/config/atomic-global-config.ts";
 import { isWindows } from "@/services/system/detect.ts";
 import { cleanupBunTempNativeAddons } from "@/services/system/cleanup.ts";
 import { trackAtomicCommand } from "@/services/telemetry/index.ts";
@@ -108,9 +112,14 @@ export async function uninstallCommand(options: UninstallOptions = {}): Promise<
 
   const binaryExists = existsSync(binaryPath);
   const dataDirExists = existsSync(dataDir);
+  const configRoot = dataDirExists ? getConfigRoot() : null;
   const existingManagedConfigDirs = managedConfigDirs.filter((dir) => existsSync(dir));
 
-  if (!binaryExists && !dataDirExists && existingManagedConfigDirs.length === 0) {
+  if (
+    !binaryExists &&
+    !dataDirExists &&
+    existingManagedConfigDirs.length === 0
+  ) {
     log.success("Atomic is already uninstalled (no files found).");
     return;
   }
@@ -131,7 +140,7 @@ export async function uninstallCommand(options: UninstallOptions = {}): Promise<
     if (options.keepConfig) {
       log.info(`  - (keeping)  ${dir}`);
     } else {
-      log.info(`  - Config:    ${dir}`);
+      log.info(`  - Managed:   ${dir}`);
     }
   }
   log.info("");
@@ -156,19 +165,21 @@ export async function uninstallCommand(options: UninstallOptions = {}): Promise<
   }
 
   try {
+    if (!options.keepConfig) {
+      if (configRoot) {
+        log.step("Removing Atomic-managed provider config entries...");
+        await removeAtomicManagedGlobalAgentConfigs(configRoot);
+        log.success("Removed Atomic-managed provider config entries");
+      } else if (existingManagedConfigDirs.length > 0) {
+        log.warn("Skipped native provider-root cleanup because the Atomic data directory is missing.");
+      }
+    }
+
     // Remove data directory (unless --keep-config)
     if (dataDirExists && !options.keepConfig) {
       log.step("Removing data directory...");
       await rm(dataDir, { recursive: true, force: true });
       log.success("Data directory removed");
-    }
-
-    if (!options.keepConfig) {
-      for (const dir of existingManagedConfigDirs) {
-        log.step(`Removing managed config directory: ${dir}`);
-        await rm(dir, { recursive: true, force: true });
-        log.success(`Removed ${dir}`);
-      }
     }
 
     // Remove binary (self-deletion)

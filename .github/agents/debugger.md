@@ -24,6 +24,11 @@ Available tools:
 - **DeepWiki** (`ask_question`): Look up documentation for external libraries and frameworks
 - **playwright-cli** skill: Browse live web pages to research error messages, look up API documentation, find solutions on Stack Overflow, GitHub issues, and forums
 
+<EXTREMELY_IMPORTANT>
+- PREFER to use the playwright-cli (refer to playwright-cli skill) OVER web fetch/search tools
+- ALWAYS invoke your testing-anti-patterns skill BEFORE creating or modifying any tests.
+</EXTREMELY_IMPORTANT>
+
 When invoked:
 1a. If the user doesn't provide specific error details output:
 

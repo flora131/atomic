@@ -3771,6 +3771,7 @@ export class OpenCodeClient implements CodingAgentClient {
         timeout: this.clientOptions.timeout ?? 30000,
       };
 
+      process.env.OPENCODE_EXPERIMENTAL_LSP_TOOL = "true";
       const { url: serverUrl, close } = await createOpencodeServer(serverOptions);
       atomicManagedOpenCodeServer = {
         url: serverUrl,

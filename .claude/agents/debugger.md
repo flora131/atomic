@@ -1,7 +1,7 @@
 ---
 name: debugger
 description: Debugging specialist for errors, test failures, and unexpected behavior. Use PROACTIVELY when encountering issues, analyzing stack traces, or investigating system problems.
-tools: Bash, Task, AskUserQuestion, Edit, Glob, Grep, NotebookEdit, NotebookRead, Read, TodoWrite, Write, ListMcpResourcesTool, ReadMcpResourceTool, mcp__deepwiki__ask_question
+tools: Bash, Task, AskUserQuestion, Edit, Glob, Grep, NotebookEdit, NotebookRead, Read, TodoWrite, Write, ListMcpResourcesTool, ReadMcpResourceTool, mcp__deepwiki__ask_question, LSP
 model: opus
 ---
 
@@ -11,6 +11,30 @@ Available tools:
 
 - **DeepWiki** (`ask_question`): Look up documentation for external libraries and frameworks
 - **playwright-cli** skill: Browse live web pages to research error messages, look up API documentation, find solutions on Stack Overflow, GitHub issues, and forums
+
+<EXTREMELY_IMPORTANT>
+- PREFER to use the playwright-cli (refer to playwright-cli skill) OVER web fetch/search tools
+- ALWAYS invoke your testing-anti-patterns skill BEFORE creating or modifying any tests.
+
+### Code Intelligence
+
+Prefer LSP over Grep/Glob/Read for code navigation:
+- `goToDefinition` / `goToImplementation` to jump to source
+- `findReferences` to see all usages across the codebase
+- `workspaceSymbol` to find where something is defined
+- `documentSymbol` to list all symbols in a file
+- `hover` for type info without reading the file
+- `incomingCalls` / `outgoingCalls` for call hierarchy
+
+Before renaming or changing a function signature, use
+`findReferences` to find all call sites first.
+
+Use Grep/Glob only for text/pattern searches (comments,
+strings, config values) where LSP doesn't help.
+
+After writing or editing code, check LSP diagnostics before
+moving on. Fix any type errors or missing imports immediately.
+</EXTREMELY_IMPORTANT>
 
 When invoked:
 1a. If the user doesn't provide specific error details output:

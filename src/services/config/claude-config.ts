@@ -1,142 +1,138 @@
 import { homedir } from "os";
-import { join, resolve } from "path";
-import { mkdir, rm } from "fs/promises";
-import { copyDir, pathExists } from "@/services/system/copy.ts";
+import { resolve } from "path";
+import { buildProviderDiscoveryPlan, type ProviderDiscoveryPlan } from "@/services/config/provider-discovery-plan.ts";
 import {
-  buildProviderDiscoveryPlan,
-  getCompatibleDiscoveryRoots,
-  type ProviderDiscoveryPlan,
-} from "@/services/config/provider-discovery-plan.ts";
-import type { ProviderDiscoveryTier } from "@/services/config/provider-discovery-contract.ts";
+  getProviderDiscoverySessionCacheValue,
+  getStartupProviderDiscoveryPlan,
+  setProviderDiscoverySessionCacheValue,
+} from "@/services/config/provider-discovery-cache.ts";
 import {
-  assertPathWithinRoot,
-  assertRealPathWithinRoot,
-} from "@/lib/path-root-guard.ts";
+  defaultAgentDefinitionFsOps,
+  loadAgentDefinitionsFromDir,
+  type AgentDefinitionFsOps,
+  type RuntimeAgentDefinition,
+} from "@/services/config/agent-definition-loader.ts";
 
-const CLAUDE_CONFIG_MERGE_EXCLUDES = [".git"];
-
-export interface PrepareClaudeConfigOptions {
+export interface ClaudeArtifactLoadOptions {
   projectRoot?: string;
   homeDir?: string;
-  mergedDir?: string;
-  discoveryPlan?: ProviderDiscoveryPlan;
+  providerDiscoveryPlan?: ProviderDiscoveryPlan;
 }
 
-function resolveClaudeDiscoveryPlan(
-  options: PrepareClaudeConfigOptions,
-  homeDir: string,
-  projectRoot: string,
+function serializeDiscoveryPlanRoots(plan: ProviderDiscoveryPlan): string {
+  return plan.rootsInPrecedenceOrder
+    .map((root) => `${root.id}:${root.resolvedPath}`)
+    .join("|");
+}
+
+function assertClaudeArtifactDiscoveryPlan(
+  plan: ProviderDiscoveryPlan,
 ): ProviderDiscoveryPlan {
-  const discoveryPlan =
-    options.discoveryPlan ??
-    buildProviderDiscoveryPlan("claude", {
-      homeDir,
-      projectRoot,
-    });
-
-  if (discoveryPlan.provider !== "claude") {
-    throw new Error(
-      `Expected Claude discovery plan, received ${discoveryPlan.provider}`,
-    );
+  if (plan.provider !== "claude") {
+    throw new Error(`Expected Claude discovery plan, received ${plan.provider}`);
   }
 
-  return discoveryPlan;
+  return plan;
 }
 
-function getAllowedRootForTier(
-  tier: ProviderDiscoveryTier,
-  atomicHomeDir: string,
-  homeDir: string,
-  projectRoot: string,
-): string {
-  if (tier === "userGlobal") {
-    return homeDir;
+function resolveClaudeArtifactPlan(
+  options: ClaudeArtifactLoadOptions = {},
+): ProviderDiscoveryPlan {
+  if (options.providerDiscoveryPlan) {
+    return assertClaudeArtifactDiscoveryPlan(options.providerDiscoveryPlan);
   }
 
-  return projectRoot;
-}
-
-function getClaudeRootLabel(rootId: string): string {
-  switch (rootId) {
-    case "claude_user":
-      return "User Claude config root";
-    case "claude_project":
-      return "Project Claude config root";
-    default:
-      return `Claude config root (${rootId})`;
-  }
-}
-
-/**
- * Build a merged Claude config directory for CLAUDE_CONFIG_DIR.
- *
- * Precedence (low -> high):
- * 1) ~/.claude (installed/user global config)
- * 2) <project>/.claude (project-local overrides)
- *
- * @returns merged directory path, or null when ~/.claude is missing
- */
-export async function prepareClaudeConfigDir(
-  options: PrepareClaudeConfigOptions = {},
-): Promise<string | null> {
-  const homeDir = resolve(options.homeDir ?? homedir());
   const projectRoot = resolve(options.projectRoot ?? process.cwd());
-  const atomicHomeDir = join(homeDir, ".atomic");
-  const mergedDir = resolve(
-    options.mergedDir ?? join(atomicHomeDir, ".tmp", "claude-config-merged"),
+  const startupPlan = getStartupProviderDiscoveryPlan("claude", {
+    projectRoot,
+  });
+  if (startupPlan) {
+    return startupPlan;
+  }
+
+  return buildProviderDiscoveryPlan("claude", {
+    projectRoot,
+    homeDir: resolve(options.homeDir ?? homedir()),
+  });
+}
+
+function resolveClaudeSubdirectories(
+  options: ClaudeArtifactLoadOptions,
+  subdirectory: "agents" | "skills",
+): string[] {
+  const plan = resolveClaudeArtifactPlan(options);
+  const cacheKey = `claude:${subdirectory}:${serializeDiscoveryPlanRoots(plan)}`;
+  const cachedDirectories = getProviderDiscoverySessionCacheValue<string[]>(
+    cacheKey,
+    {
+      projectRoot: options.projectRoot,
+    },
   );
-  const stagingDir = join(atomicHomeDir, ".tmp", "claude-config-merge-staging");
-  const discoveryPlan = resolveClaudeDiscoveryPlan(options, homeDir, projectRoot);
-  const rootsInPrecedenceOrder = getCompatibleDiscoveryRoots(discoveryPlan, "native");
-  const homeRoot = rootsInPrecedenceOrder.find((root) => root.id === "claude_user");
-
-  assertPathWithinRoot(atomicHomeDir, mergedDir, "Claude merged config directory");
-
-  if (!homeRoot) {
-    throw new Error("Claude discovery plan is missing required root: claude_user");
+  if (cachedDirectories) {
+    return cachedDirectories;
   }
 
-  if (!(await pathExists(homeRoot.resolvedPath))) {
-    return null;
+  const directories = [...plan.rootsInPrecedenceOrder]
+    .reverse()
+    .map((root) => resolve(root.resolvedPath, subdirectory));
+
+  return setProviderDiscoverySessionCacheValue(cacheKey, directories, {
+    projectRoot: options.projectRoot,
+  });
+}
+
+export function resolveClaudeAgentDirectories(
+  options: ClaudeArtifactLoadOptions = {},
+): string[] {
+  return resolveClaudeSubdirectories(options, "agents");
+}
+
+export function resolveClaudeSkillDirectories(
+  options: ClaudeArtifactLoadOptions = {},
+): string[] {
+  return resolveClaudeSubdirectories(options, "skills");
+}
+
+export async function loadClaudeAgents(
+  options: ClaudeArtifactLoadOptions = {},
+  fsOps: AgentDefinitionFsOps = defaultAgentDefinitionFsOps,
+): Promise<RuntimeAgentDefinition[]> {
+  const plan = resolveClaudeArtifactPlan(options);
+  const cacheKey = `claude:agents:loaded:${serializeDiscoveryPlanRoots(plan)}`;
+  const cachedAgents = getProviderDiscoverySessionCacheValue<
+    RuntimeAgentDefinition[]
+  >(cacheKey, {
+    projectRoot: options.projectRoot,
+  });
+  if (cachedAgents) {
+    return cachedAgents;
   }
 
-  await rm(stagingDir, { recursive: true, force: true });
-  await mkdir(stagingDir, { recursive: true });
-  await assertRealPathWithinRoot(atomicHomeDir, stagingDir, "Claude staging config root");
+  const agentDirectories: Array<{
+    dir: string;
+    source: "local" | "global";
+  }> = plan.rootsInPrecedenceOrder.map((root) => ({
+    dir: resolve(root.resolvedPath, "agents"),
+    source: root.tier === "projectLocal" ? "local" : "global",
+  }));
+  const loadedAgentArrays = await Promise.all(
+    agentDirectories.map(({ dir, source }) =>
+      loadAgentDefinitionsFromDir(dir, source, fsOps),
+    ),
+  );
 
-  try {
-    for (const root of rootsInPrecedenceOrder) {
-      const sourcePath = root.resolvedPath;
-      if (!(await pathExists(sourcePath))) {
-        continue;
-      }
-
-      const allowedRoot = getAllowedRootForTier(
-        root.tier,
-        atomicHomeDir,
-        homeDir,
-        projectRoot,
-      );
-      const rootLabel = getClaudeRootLabel(root.id);
-
-      assertPathWithinRoot(allowedRoot, sourcePath, rootLabel);
-      await assertRealPathWithinRoot(allowedRoot, sourcePath, rootLabel);
-
-      await copyDir(sourcePath, stagingDir, {
-        exclude: CLAUDE_CONFIG_MERGE_EXCLUDES,
-      });
+  const mergedAgents = new Map<string, RuntimeAgentDefinition>();
+  for (const agents of loadedAgentArrays) {
+    for (const agent of agents) {
+      mergedAgents.set(agent.name.toLowerCase(), agent);
     }
-
-    await rm(mergedDir, { recursive: true, force: true });
-    await mkdir(mergedDir, { recursive: true });
-    await assertRealPathWithinRoot(atomicHomeDir, mergedDir, "Claude merged config directory");
-
-    await copyDir(stagingDir, mergedDir, {
-      exclude: CLAUDE_CONFIG_MERGE_EXCLUDES,
-    });
-
-    return mergedDir;
-  } finally {
-    await rm(stagingDir, { recursive: true, force: true });
   }
+
+  return setProviderDiscoverySessionCacheValue(
+    cacheKey,
+    [...mergedAgents.values()],
+    {
+      projectRoot: options.projectRoot,
+    },
+  );
 }

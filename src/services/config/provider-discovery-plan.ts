@@ -18,18 +18,15 @@ export interface ProviderDiscoveryPlanOptions {
   projectRoot?: string;
   homeDir?: string;
   xdgConfigHome?: string | null;
-  appDataDir?: string | null;
   platform?: NodeJS.Platform;
-  opencodeCanonicalUserRoot?: string;
-  copilotCanonicalUserRoot?: string;
   pathExists?: (path: string) => boolean;
 }
 
 interface TemplateResolutionContext {
   projectRoot: string;
   homeDir: string;
-  opencodeCanonicalUserRoot: string;
-  copilotCanonicalUserRoot: string;
+  opencodeXdgUserRoot: string;
+  copilotXdgUserRoot: string;
 }
 
 interface ResolveUserProviderRootOptions {
@@ -124,11 +121,11 @@ function resolveTemplatePath(
   pathTemplate: string,
   context: TemplateResolutionContext,
 ): string {
-  if (pathTemplate === "<opencode-canonical-user-root>") {
-    return context.opencodeCanonicalUserRoot;
+  if (pathTemplate === "<opencode-xdg-user-root>") {
+    return context.opencodeXdgUserRoot;
   }
-  if (pathTemplate === "<copilot-canonical-user-root>") {
-    return context.copilotCanonicalUserRoot;
+  if (pathTemplate === "<copilot-xdg-user-root>") {
+    return context.copilotXdgUserRoot;
   }
 
   if (pathTemplate === "~") {
@@ -163,62 +160,29 @@ function buildTemplateResolutionContext(
 ): TemplateResolutionContext {
   const resolvedHomeDir = resolve(options.homeDir ?? homedir());
   const resolvedProjectRoot = resolve(options.projectRoot ?? process.cwd());
-  const opencodeCanonicalUserRoot = resolve(
-    options.opencodeCanonicalUserRoot ??
-      resolveUserProviderRoot({
-        homeDir: resolvedHomeDir,
-        providerFolder: ".opencode",
-        xdgConfigHome: options.xdgConfigHome,
-        platform: options.platform,
-      }),
+  const opencodeXdgUserRoot = resolve(
+    resolveUserProviderRoot({
+      homeDir: resolvedHomeDir,
+      providerFolder: ".opencode",
+      xdgConfigHome: options.xdgConfigHome,
+      platform: options.platform,
+    }),
   );
-
-  const copilotCanonicalUserRoot = resolve(
-    options.copilotCanonicalUserRoot ??
-      resolveUserProviderRoot({
-        homeDir: resolvedHomeDir,
-        providerFolder: ".copilot",
-        xdgConfigHome: options.xdgConfigHome,
-        platform: options.platform,
-      }),
+  const copilotXdgUserRoot = resolve(
+    resolveUserProviderRoot({
+      homeDir: resolvedHomeDir,
+      providerFolder: ".copilot",
+      xdgConfigHome: options.xdgConfigHome,
+      platform: options.platform,
+    }),
   );
 
   return {
     projectRoot: resolvedProjectRoot,
     homeDir: resolvedHomeDir,
-    opencodeCanonicalUserRoot,
-    copilotCanonicalUserRoot,
+    opencodeXdgUserRoot,
+    copilotXdgUserRoot,
   };
-}
-
-interface ResolveDefaultConfigHomeOptions {
-  homeDir: string;
-  xdgConfigHome?: string | null;
-  appDataDir?: string | null;
-  platform?: NodeJS.Platform;
-}
-
-export function resolveDefaultConfigHome(
-  options: ResolveDefaultConfigHomeOptions,
-): string {
-  const resolvedPlatform = options.platform ?? process.platform;
-
-  if (resolvedPlatform === "win32") {
-    if (options.appDataDir !== undefined) {
-      return options.appDataDir ?? join(options.homeDir, "AppData", "Roaming");
-    }
-
-    return process.env.APPDATA ??
-      join(options.homeDir, "AppData", "Roaming");
-  }
-
-  if (options.xdgConfigHome !== undefined) {
-    return options.xdgConfigHome ??
-      join(options.homeDir, ".config");
-  }
-
-  return process.env.XDG_CONFIG_HOME ??
-    join(options.homeDir, ".config");
 }
 
 export function buildProviderDiscoveryPlan(

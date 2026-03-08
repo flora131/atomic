@@ -95,17 +95,14 @@ describe("agent command routing", () => {
     });
   });
 
-  test("routes Claude @agent via natural-language delegation with agent option", () => {
+  test("routes Claude @agent via natural-language delegation", () => {
     const sendSilentMessage = mock(() => {});
     const command = createAgentCommand(baseAgent);
 
     command.execute("do work", createContext({ agentType: "claude", sendSilentMessage }));
 
     expect(sendSilentMessage).toHaveBeenCalledWith(
-      'Invoke the "worker" sub-agent with the following task:\ndo work',
-      {
-        agent: "worker",
-      },
+      "Use the worker sub-agent to complete the following task: do work\n\nAfter the sub-agent completes, provide the output to the user.",
     );
   });
 
@@ -182,10 +179,9 @@ describe("agent command routing", () => {
     const searchPaths = getRuntimeCompatibleAgentDiscoveryPaths([copilotPlan]);
 
     expect(searchPaths).toContain(resolve("/workspace/repo/.github/agents"));
-    expect(searchPaths).toContain(resolve("/workspace/repo/.claude/agents"));
-    expect(searchPaths).toContain(resolve("/workspace/repo/.opencode/agents"));
     expect(searchPaths).toContain(resolve("/home/tester/.copilot/agents"));
     expect(searchPaths).toContain(resolve("/home/tester/.config/.copilot/agents"));
+    expect(searchPaths).toHaveLength(3);
   });
 
   test("treats absolute project discovery paths as project source", () => {
@@ -250,8 +246,8 @@ describe("agent command routing", () => {
 
       await registerAgentCommands(copilotPlan);
       expect(globalRegistry.has("copilot-only")).toBe(true);
-      expect(globalRegistry.has("claude-shared")).toBe(true);
-      expect(globalRegistry.has("opencode-shared")).toBe(true);
+      expect(globalRegistry.has("claude-shared")).toBe(false);
+      expect(globalRegistry.has("opencode-shared")).toBe(false);
 
       globalRegistry.clear();
 
@@ -361,9 +357,7 @@ describe("agent command routing", () => {
           event.tags.path.endsWith("copilot-only.md"),
       );
 
-      expect(compatibilityFilteredEvent?.tags.provider).toBe("claude");
-      expect(compatibilityFilteredEvent?.tags.installType).toBe("source");
-      expect(compatibilityFilteredEvent?.tags.path).toContain("copilot-only.md");
+      expect(compatibilityFilteredEvent).toBeUndefined();
 
       expect(
         warningMessages.some(
@@ -374,14 +368,8 @@ describe("agent command routing", () => {
       ).toBe(true);
 
       expect(
-        warningMessages.some(
-          (message) =>
-            message.includes("copilot-only.md") &&
-            message.includes(
-              "Definition is not compatible with active provider runtime(s): claude.",
-            ),
-        ),
-      ).toBe(true);
+        warningMessages.some((message) => message.includes("copilot-only.md")),
+      ).toBe(false);
     } finally {
       warnSpy.mockRestore();
       process.chdir(originalCwd);

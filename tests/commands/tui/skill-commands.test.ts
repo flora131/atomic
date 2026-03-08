@@ -245,11 +245,10 @@ describe("skill-commands builtins", () => {
         ).toBe(true);
     });
 
-    test("runtime filtering includes compatibility-root skills for Copilot", () => {
+    test("runtime filtering only includes Copilot AGENTS.md roots", () => {
         const plans = createAllProviderDiscoveryPlans({
             homeDir: "/home/tester",
             projectRoot: "/workspace/repo",
-            xdgConfigHome: "/home/tester/.config",
         });
 
         const copilotPlan = plans.find((plan) => plan.provider === "copilot");
@@ -258,7 +257,7 @@ describe("skill-commands builtins", () => {
         }
 
         const discoveryMatches = collectDefinitionDiscoveryMatches(
-            "/workspace/repo/.claude/skills/shared/SKILL.md",
+            "/workspace/repo/.github/skills/shared/SKILL.md",
             "skill",
             plans,
         );
@@ -271,7 +270,7 @@ describe("skill-commands builtins", () => {
             runtimeCompatibleMatches.some(
                 (match) =>
                     match.provider === "copilot" &&
-                    match.rootId === "copilot_project_claude_compat",
+                    match.rootId === "copilot_project",
             ),
         ).toBe(true);
     });
@@ -279,11 +278,11 @@ describe("skill-commands builtins", () => {
     test("builds runtime-compatible skill search paths from OpenCode discovery plan", () => {
         const projectRoot = "/workspace/repo";
         const homeDir = "/home/tester";
+        const xdgConfigHome = "/home/tester/.config";
         const opencodePlan = buildProviderDiscoveryPlan("opencode", {
             projectRoot,
             homeDir,
-            xdgConfigHome: "/home/tester/.config",
-            platform: "linux",
+            xdgConfigHome,
             pathExists: () => false,
         });
 
@@ -292,18 +291,15 @@ describe("skill-commands builtins", () => {
         ]);
 
         expect(searchPaths).toContain(resolve("/workspace/repo/.opencode/skills"));
-        expect(searchPaths).toContain(resolve("/home/tester/.opencode/skills"));
         expect(searchPaths).toContain(resolve("/home/tester/.config/.opencode/skills"));
-        expect(searchPaths).not.toContain(
-            resolve("/home/tester/.config/opencode/skills"),
-        );
+        expect(searchPaths).toContain(resolve("/home/tester/.opencode/skills"));
+        expect(searchPaths).toHaveLength(3);
     });
 
     test("accepts user home skill roots for OpenCode", () => {
         const plans = createAllProviderDiscoveryPlans({
             homeDir: "/home/tester",
             projectRoot: "/workspace/repo",
-            xdgConfigHome: "/home/tester/.config",
         });
 
         const result = validateDiskSkillDefinitionIntegrity(
@@ -325,7 +321,6 @@ describe("skill-commands builtins", () => {
         const plans = createAllProviderDiscoveryPlans({
             homeDir: "/home/tester",
             projectRoot: "/workspace/repo",
-            xdgConfigHome: "/home/tester/.config",
         });
 
         const claudePlan = plans.find((plan) => plan.provider === "claude");
@@ -446,11 +441,7 @@ describe("skill-commands builtins", () => {
                     event.tags.path.endsWith("copilot-only/SKILL.md"),
             );
 
-            expect(compatibilityFilteredEvent?.tags.provider).toBe("claude");
-            expect(compatibilityFilteredEvent?.tags.installType).toBe("source");
-            expect(compatibilityFilteredEvent?.tags.path).toContain(
-                "copilot-only/SKILL.md",
-            );
+            expect(compatibilityFilteredEvent).toBeUndefined();
 
             expect(
                 warningMessages.some(
@@ -461,14 +452,10 @@ describe("skill-commands builtins", () => {
             ).toBe(true);
 
             expect(
-                warningMessages.some(
-                    (message) =>
-                        message.includes("copilot-only/SKILL.md") &&
-                        message.includes(
-                            "Definition is not compatible with active provider runtime(s): claude.",
-                        ),
+                warningMessages.some((message) =>
+                    message.includes("copilot-only/SKILL.md"),
                 ),
-            ).toBe(true);
+            ).toBe(false);
         } finally {
             warnSpy.mockRestore();
             process.chdir(originalCwd);

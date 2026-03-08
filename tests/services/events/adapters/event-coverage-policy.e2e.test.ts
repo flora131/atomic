@@ -41,7 +41,7 @@ describe("event coverage policy e2e parity", () => {
     });
     expect(ADAPTER_EVENT_COVERAGE_POLICY.claude["message.complete"]).toMatchObject({
       disposition: "mapped_with_constraints",
-      canonicalEvents: ["stream.text.complete", "stream.thinking.complete"],
+      canonicalEvents: ["stream.text.complete", "stream.thinking.complete", "stream.tool.start"],
     });
     expect(ADAPTER_EVENT_COVERAGE_POLICY.copilot["message.complete"]).toMatchObject({
       disposition: "mapped_with_constraints",

@@ -8,8 +8,6 @@ import {
   hasProjectScmSkills,
   hasProjectScmSkillsInSync,
   logActiveProviderDiscoveryPlan,
-  prepareClaudeRuntimeForChat,
-  prepareOpenCodeRuntimeConfigForChat,
   resolveChatAdditionalInstructions,
   shouldAutoInitChat,
 } from "@/commands/cli/chat.ts";
@@ -211,34 +209,40 @@ test("shouldAutoInitChat returns false when configured SCM skills are in sync", 
   });
 });
 
-test("buildChatStartupDiscoveryPlan keeps Copilot precedence and compatibility contract", () => {
+test("buildChatStartupDiscoveryPlan keeps Copilot AGENTS.md precedence with XDG global root", () => {
   const projectRoot = "/tmp/atomic-chat-startup-project";
   const homeDir = "/tmp/atomic-chat-startup-home";
+  const xdgConfigHome = "/tmp/atomic-chat-startup-xdg";
 
   const plan = buildChatStartupDiscoveryPlan("copilot", {
     projectRoot,
     homeDir,
-    xdgConfigHome: join(homeDir, ".config"),
+    xdgConfigHome,
     pathExists: () => false,
   });
 
   expect(plan.provider).toBe("copilot");
-  expect(plan.rootsInPrecedenceOrder[0]?.id).toBe("copilot_user_home_native");
+  expect(plan.rootsInPrecedenceOrder[0]?.id).toBe("copilot_user_home");
   expect(plan.rootsInPrecedenceOrder[plan.rootsInPrecedenceOrder.length - 1]?.id).toBe(
-    "copilot_project_native"
+    "copilot_project"
   );
-  expect(plan.compatibilitySets.nativeRootIds.has("copilot_user_canonical_native")).toBe(true);
+  expect(plan.paths.userGlobal).toEqual([
+    join(homeDir, ".copilot"),
+    join(xdgConfigHome, ".copilot"),
+  ]);
+  expect(plan.compatibilitySets.nativeRootIds.has("copilot_user_home")).toBe(true);
+  expect(plan.compatibilitySets.nativeRootIds.has("copilot_user_xdg")).toBe(true);
 });
 
 test("buildProviderDiscoveryPlanDebugOutput redacts absolute discovery paths", () => {
   const projectRoot = "/tmp/atomic-chat-debug-project";
   const homeDir = "/tmp/atomic-chat-debug-home";
-  const externalCanonicalRoot = "/tmp/atomic-chat-external-canonical";
+  const externalXdgConfigHome = "/tmp/atomic-chat-external-xdg";
 
   const plan = buildChatStartupDiscoveryPlan("copilot", {
     projectRoot,
     homeDir,
-    copilotCanonicalUserRoot: externalCanonicalRoot,
+    xdgConfigHome: externalXdgConfigHome,
     pathExists: () => false,
   });
 
@@ -250,15 +254,15 @@ test("buildProviderDiscoveryPlanDebugOutput redacts absolute discovery paths", (
   const serialized = JSON.stringify(debugOutput);
   expect(serialized.includes(projectRoot)).toBe(false);
   expect(serialized.includes(homeDir)).toBe(false);
-  expect(serialized.includes(externalCanonicalRoot)).toBe(false);
+  expect(serialized.includes(externalXdgConfigHome)).toBe(false);
 
   const projectRootEntry = debugOutput.rootsInPrecedenceOrder.find(
-    (root) => root.id === "copilot_project_native"
+    (root) => root.id === "copilot_project"
   );
   expect(projectRootEntry?.resolvedPath).toBe("<project>/.github");
 
   const externalRootEntry = debugOutput.rootsInPrecedenceOrder.find(
-    (root) => root.id === "copilot_user_canonical_native"
+    (root) => root.id === "copilot_user_xdg"
   );
   expect(externalRootEntry?.resolvedPath).toBe("<external-path>");
 });
@@ -305,132 +309,6 @@ test("logActiveProviderDiscoveryPlan only emits when DEBUG=1", () => {
       process.env.DEBUG = originalDebug;
     }
   }
-});
-
-test("prepareClaudeRuntimeForChat returns merged dir without setting CLAUDE_CONFIG_DIR", async () => {
-  const previousValue = process.env.CLAUDE_CONFIG_DIR;
-  const projectRoot = "/tmp/atomic-chat-claude-project";
-  const mergedDir = "/tmp/atomic-chat-claude-merged";
-  const plan = buildChatStartupDiscoveryPlan("claude", {
-    homeDir: "/tmp/atomic-chat-claude-home",
-    projectRoot,
-    pathExists: () => false,
-  });
-
-  let capturedProjectRoot: string | undefined;
-  let capturedPlanProvider: string | undefined;
-
-  try {
-    const result = await prepareClaudeRuntimeForChat({
-      projectRoot,
-      providerDiscoveryPlan: plan,
-      prepareClaudeConfigDir: async (options) => {
-        capturedProjectRoot = options?.projectRoot;
-        capturedPlanProvider = options?.discoveryPlan?.provider;
-        return mergedDir;
-      },
-    });
-
-    expect(result).toBe(mergedDir);
-    expect(capturedProjectRoot).toBe(projectRoot);
-    expect(capturedPlanProvider).toBe("claude");
-    // CLAUDE_CONFIG_DIR must NOT be set — it breaks macOS native auth resolution
-    expect(process.env.CLAUDE_CONFIG_DIR).toBe(previousValue);
-  } finally {
-    if (previousValue === undefined) {
-      delete process.env.CLAUDE_CONFIG_DIR;
-    } else {
-      process.env.CLAUDE_CONFIG_DIR = previousValue;
-    }
-  }
-});
-
-test("prepareClaudeRuntimeForChat throws when merged runtime cannot be prepared", async () => {
-  const previousValue = process.env.CLAUDE_CONFIG_DIR;
-  const projectRoot = "/tmp/atomic-chat-claude-project";
-  const plan = buildChatStartupDiscoveryPlan("claude", {
-    homeDir: "/tmp/atomic-chat-claude-home",
-    projectRoot,
-    pathExists: () => false,
-  });
-
-  try {
-    await expect(
-      prepareClaudeRuntimeForChat({
-        projectRoot,
-        providerDiscoveryPlan: plan,
-        prepareClaudeConfigDir: async () => null,
-      })
-    ).rejects.toThrow("Unable to prepare Claude runtime config from ~/.claude");
-  } finally {
-    if (previousValue === undefined) {
-      delete process.env.CLAUDE_CONFIG_DIR;
-    } else {
-      process.env.CLAUDE_CONFIG_DIR = previousValue;
-    }
-  }
-});
-
-test("prepareOpenCodeRuntimeConfigForChat sets OPENCODE_CONFIG_DIR from merged runtime path", async () => {
-  const projectRoot = "/tmp/atomic-chat-opencode-project";
-  const mergedDir = "/tmp/atomic-chat-opencode-merged";
-  const plan = buildChatStartupDiscoveryPlan("opencode", {
-    homeDir: "/tmp/atomic-chat-opencode-home",
-    projectRoot,
-    xdgConfigHome: "/tmp/atomic-chat-opencode-home/.config",
-    pathExists: () => false,
-  });
-  const env: NodeJS.ProcessEnv = {};
-
-  let capturedProjectRoot: string | undefined;
-  let capturedPlanProvider: string | undefined;
-
-  const result = await prepareOpenCodeRuntimeConfigForChat(projectRoot, plan, {
-    env,
-    prepareOpenCodeConfigDir: async (options) => {
-      capturedProjectRoot = options?.projectRoot;
-      capturedPlanProvider = options?.providerDiscoveryPlan?.provider;
-      return mergedDir;
-    },
-  });
-
-  expect(result).toBe(mergedDir);
-  expect(capturedProjectRoot).toBe(projectRoot);
-  expect(capturedPlanProvider).toBe("opencode");
-  expect(env.OPENCODE_CONFIG_DIR).toBe(mergedDir);
-});
-
-test("prepareOpenCodeRuntimeConfigForChat leaves env unchanged when merge is unavailable", async () => {
-  const projectRoot = "/tmp/atomic-chat-opencode-project";
-  const plan = buildChatStartupDiscoveryPlan("opencode", {
-    homeDir: "/tmp/atomic-chat-opencode-home",
-    projectRoot,
-    xdgConfigHome: "/tmp/atomic-chat-opencode-home/.config",
-    pathExists: () => false,
-  });
-  const env: NodeJS.ProcessEnv = {};
-
-  const result = await prepareOpenCodeRuntimeConfigForChat(projectRoot, plan, {
-    env,
-    prepareOpenCodeConfigDir: async () => null,
-  });
-
-  expect(result).toBeNull();
-  expect(env.OPENCODE_CONFIG_DIR).toBeUndefined();
-});
-
-test("prepareOpenCodeRuntimeConfigForChat rejects non-opencode discovery plans", async () => {
-  const claudePlan = buildChatStartupDiscoveryPlan("claude", {
-    homeDir: "/tmp/atomic-chat-claude-home",
-    projectRoot: "/tmp/atomic-chat-claude-project",
-    pathExists: () => false,
-  });
-
-  await expect(
-    prepareOpenCodeRuntimeConfigForChat("/tmp/atomic-chat-claude-project", claudePlan)
-  ).rejects.toThrow(
-    "OpenCode runtime prep requires an OpenCode discovery plan, received claude",
-  );
 });
 
 test("resolveChatAdditionalInstructions defaults to the enhanced system prompt", () => {

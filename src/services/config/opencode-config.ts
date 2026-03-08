@@ -1,149 +1,96 @@
 import { homedir } from "os";
-import { join, resolve } from "path";
-import { mkdir, rm } from "fs/promises";
-import { copyDir, pathExists } from "@/services/system/copy.ts";
+import { resolve } from "path";
+import { buildProviderDiscoveryPlan, type ProviderDiscoveryPlan } from "@/services/config/provider-discovery-plan.ts";
 import {
-  assertPathWithinRoot,
-  assertRealPathWithinRoot,
-} from "@/lib/path-root-guard.ts";
-import {
-  buildProviderDiscoveryPlan,
-  type PlannedProviderDiscoveryRoot,
-  type ProviderDiscoveryPlan,
-} from "@/services/config/provider-discovery-plan.ts";
+  getProviderDiscoverySessionCacheValue,
+  getStartupProviderDiscoveryPlan,
+  setProviderDiscoverySessionCacheValue,
+} from "@/services/config/provider-discovery-cache.ts";
 
-const OPENCODE_ROOT_LABEL_BY_ID: Record<string, string> = {
-  opencode_user_home_native: "OpenCode home config root",
-  opencode_user_canonical_xdg: "OpenCode XDG config root",
-  opencode_project: "OpenCode project config root",
-};
-
-interface OpenCodeRootGuardContext {
-  atomicHomeDir: string;
-  homeDir: string;
-  projectRoot: string;
+export interface OpenCodeArtifactLoadOptions {
+  projectRoot?: string;
+  homeDir?: string;
+  xdgConfigHome?: string | null;
+  providerDiscoveryPlan?: ProviderDiscoveryPlan;
 }
 
-function getOpenCodeRootLabel(root: PlannedProviderDiscoveryRoot): string {
-  return OPENCODE_ROOT_LABEL_BY_ID[root.id] ??
-    `OpenCode discovery root (${root.id})`;
+function serializeDiscoveryPlanRoots(plan: ProviderDiscoveryPlan): string {
+  return plan.rootsInPrecedenceOrder
+    .map((root) => `${root.id}:${root.resolvedPath}`)
+    .join("|");
 }
 
-function getOpenCodeRootAllowedPath(
-  root: PlannedProviderDiscoveryRoot,
-  context: OpenCodeRootGuardContext,
-): string {
-  if (root.tier === "projectLocal") {
-    return context.projectRoot;
-  }
-  return context.homeDir;
-}
-
-function getRequiredOpenCodeRoot(
+function assertOpenCodeArtifactDiscoveryPlan(
   plan: ProviderDiscoveryPlan,
-  rootId: string,
-): PlannedProviderDiscoveryRoot {
-  const root = plan.rootsById.get(rootId);
-  if (!root) {
-    throw new Error(`OpenCode discovery plan missing required root: ${rootId}`);
+): ProviderDiscoveryPlan {
+  if (plan.provider !== "opencode") {
+    throw new Error(
+      `Expected opencode discovery plan, received ${plan.provider}`,
+    );
   }
-  return root;
+
+  return plan;
 }
 
-function resolveOpenCodeDiscoveryPlan(
-  options: PrepareOpenCodeConfigOptions,
-  homeDir: string,
-  projectRoot: string,
+export function resolveOpenCodeArtifactPlan(
+  options: OpenCodeArtifactLoadOptions = {},
 ): ProviderDiscoveryPlan {
   if (options.providerDiscoveryPlan) {
-    if (options.providerDiscoveryPlan.provider !== "opencode") {
-      throw new Error(
-        `prepareOpenCodeConfigDir expected opencode provider plan, received ${options.providerDiscoveryPlan.provider}`,
-      );
-    }
-    return options.providerDiscoveryPlan;
+    return assertOpenCodeArtifactDiscoveryPlan(options.providerDiscoveryPlan);
+  }
+
+  const projectRoot = resolve(options.projectRoot ?? process.cwd());
+  const startupPlan = getStartupProviderDiscoveryPlan("opencode", {
+    projectRoot,
+  });
+  if (startupPlan) {
+    return startupPlan;
   }
 
   return buildProviderDiscoveryPlan("opencode", {
-    homeDir,
     projectRoot,
+    homeDir: resolve(options.homeDir ?? homedir()),
+    xdgConfigHome: options.xdgConfigHome,
   });
 }
 
-export interface PrepareOpenCodeConfigOptions {
-  /** Project root used for local .opencode overrides */
-  projectRoot?: string;
-  /** Home directory override for tests */
-  homeDir?: string;
-  /** Startup discovery plan override for deterministic root ordering */
-  providerDiscoveryPlan?: ProviderDiscoveryPlan;
-  /** Explicit merged directory path override for tests */
-  mergedDir?: string;
+function resolveOpenCodeSubdirectories(
+  options: OpenCodeArtifactLoadOptions,
+  subdirectory: "agents" | "skills",
+): string[] {
+  const plan = resolveOpenCodeArtifactPlan(options);
+  const cacheKey = `opencode:${subdirectory}:${serializeDiscoveryPlanRoots(plan)}`;
+  const cachedDirectories = getProviderDiscoverySessionCacheValue<string[]>(
+    cacheKey,
+    {
+      projectRoot: options.projectRoot,
+    },
+  );
+  if (cachedDirectories) {
+    return cachedDirectories;
+  }
+
+  const directories = Array.from(
+    new Set(
+      [...plan.rootsInPrecedenceOrder]
+        .reverse()
+        .map((root) => resolve(root.resolvedPath, subdirectory)),
+    ),
+  );
+
+  return setProviderDiscoverySessionCacheValue(cacheKey, directories, {
+    projectRoot: options.projectRoot,
+  });
 }
 
-/**
- * Build a merged OpenCode config directory for OPENCODE_CONFIG_DIR.
- *
- * Precedence (low -> high):
- * 1) ~/.opencode (installed/user home config)
- * 2) distinct XDG config root/.opencode (custom user override, if present)
- * 3) <project>/.opencode (project-local overrides)
- *
- * @returns merged directory path, or null when ~/.opencode is missing
- */
-export async function prepareOpenCodeConfigDir(
-  options: PrepareOpenCodeConfigOptions = {}
-): Promise<string | null> {
-  const fallbackHomeDir = resolve(options.homeDir ?? homedir());
-  const fallbackProjectRoot = resolve(options.projectRoot ?? process.cwd());
-  const discoveryPlan = resolveOpenCodeDiscoveryPlan(
-    options,
-    fallbackHomeDir,
-    fallbackProjectRoot,
-  );
-  const homeRoot = getRequiredOpenCodeRoot(discoveryPlan, "opencode_user_home_native");
-  const projectRootConfig = getRequiredOpenCodeRoot(discoveryPlan, "opencode_project");
+export function resolveOpenCodeAgentDirectories(
+  options: OpenCodeArtifactLoadOptions = {},
+): string[] {
+  return resolveOpenCodeSubdirectories(options, "agents");
+}
 
-  const homeConfigDir = resolve(homeRoot.resolvedPath);
-  const homeDir = resolve(homeConfigDir, "..");
-  const atomicHomeDir = join(homeDir, ".atomic");
-  const projectRoot = resolve(projectRootConfig.resolvedPath, "..");
-
-  const mergedDir = resolve(
-    options.mergedDir ?? join(atomicHomeDir, ".tmp", "opencode-config-merged")
-  );
-
-  assertPathWithinRoot(atomicHomeDir, mergedDir, "OpenCode merged config directory");
-
-  if (!(await pathExists(homeConfigDir))) {
-    return null;
-  }
-
-  await assertRealPathWithinRoot(homeDir, homeConfigDir, "OpenCode home config root");
-
-  await rm(mergedDir, { recursive: true, force: true });
-  await mkdir(mergedDir, { recursive: true });
-
-  await assertRealPathWithinRoot(atomicHomeDir, mergedDir, "OpenCode merged config directory");
-
-  for (const root of discoveryPlan.rootsInPrecedenceOrder) {
-    if (!(await pathExists(root.resolvedPath))) {
-      continue;
-    }
-
-    const allowedRoot = getOpenCodeRootAllowedPath(root, {
-      atomicHomeDir,
-      homeDir,
-      projectRoot,
-    });
-
-    await assertRealPathWithinRoot(
-      allowedRoot,
-      root.resolvedPath,
-      getOpenCodeRootLabel(root),
-    );
-    await copyDir(root.resolvedPath, mergedDir);
-  }
-
-  return mergedDir;
+export function resolveOpenCodeSkillDirectories(
+  options: OpenCodeArtifactLoadOptions = {},
+): string[] {
+  return resolveOpenCodeSubdirectories(options, "skills");
 }

@@ -7,8 +7,7 @@
  *
  * Agents can be defined as:
  * - Project: Defined in .claude/agents, .opencode/agents, .github/agents
- * - User: Defined in ~/.claude/agents, ~/.opencode/agents, ~/.copilot/agents,
- *   and distinct XDG override roots for OpenCode/Copilot when configured
+ * - User: Defined in ~/.claude/agents, ~/.opencode/agents, ~/.copilot/agents
  */
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -20,12 +19,10 @@ import type {
     CommandResult,
 } from "@/commands/tui/registry.ts";
 import { globalRegistry } from "@/commands/tui/registry.ts";
-import {
-    getCompatibleDiscoveryRoots,
-    resolveUserProviderRoot,
-    type ProviderCompatibilitySelection,
-    type ProviderDiscoveryPlan,
-} from "@/services/config/provider-discovery-plan.ts";
+import { type ProviderDiscoveryPlan } from "@/services/config/provider-discovery-plan.ts";
+import { resolveClaudeAgentDirectories } from "@/services/config/claude-config.ts";
+import { resolveOpenCodeAgentDirectories } from "@/services/config/opencode-config.ts";
+import { resolveCopilotAgentDirectoriesFromPlan } from "@/services/config/copilot-config.ts";
 import {
     collectDefinitionDiscoveryMatches,
     createAllProviderDiscoveryPlans,
@@ -57,36 +54,13 @@ export const AGENT_DISCOVERY_PATHS = [
 ] as const;
 
 const HOME = homedir();
-const OPENCODE_USER_OVERRIDE_ROOT = resolveUserProviderRoot({
-    homeDir: HOME,
-    xdgConfigHome: process.env.XDG_CONFIG_HOME ?? undefined,
-    providerFolder: ".opencode",
-    platform: process.platform,
-});
-const COPILOT_USER_OVERRIDE_ROOT = resolveUserProviderRoot({
-    homeDir: HOME,
-    xdgConfigHome: process.env.XDG_CONFIG_HOME ?? undefined,
-    providerFolder: ".copilot",
-    platform: process.platform,
-});
-const USER_DISCOVERY_ROOTS = [
-    HOME,
-    OPENCODE_USER_OVERRIDE_ROOT,
-    COPILOT_USER_OVERRIDE_ROOT,
-];
 
 /**
  * User-global directories to search for agent definition files.
- * These paths use ~ to represent the user's home directory.
+ * OpenCode and Copilot may resolve through XDG_CONFIG_HOME when configured.
  * Project-local agents take precedence over user-global agents.
  */
-export const GLOBAL_AGENT_PATHS = [
-    "~/.claude/agents",
-    "~/.opencode/agents",
-    "~/.copilot/agents",
-    join(OPENCODE_USER_OVERRIDE_ROOT, "agents"),
-    join(COPILOT_USER_OVERRIDE_ROOT, "agents"),
-] as const;
+export const GLOBAL_AGENT_PATHS = ["~/.claude/agents"] as const;
 
 // ============================================================================
 // TYPES
@@ -141,18 +115,46 @@ interface AgentFileDiscoveryOptions {
     searchPaths?: readonly string[];
 }
 
+function getUserDiscoveryRoots(): string[] {
+    const roots = [HOME, join(HOME, ".opencode"), join(HOME, ".copilot")];
+    const xdgConfigHome = process.env.XDG_CONFIG_HOME?.trim();
+
+    if (xdgConfigHome) {
+        roots.push(join(xdgConfigHome, ".opencode"));
+        roots.push(join(xdgConfigHome, ".copilot"));
+    }
+
+    return Array.from(new Set(roots.map((rootPath) => resolve(rootPath))));
+}
+
+function getGlobalAgentPaths(): string[] {
+    const globalPaths = [
+        join(HOME, ".claude", "agents"),
+        join(HOME, ".opencode", "agents"),
+        join(HOME, ".copilot", "agents"),
+    ];
+    const xdgConfigHome = process.env.XDG_CONFIG_HOME?.trim();
+
+    if (xdgConfigHome) {
+        globalPaths.push(join(xdgConfigHome, ".opencode", "agents"));
+        globalPaths.push(join(xdgConfigHome, ".copilot", "agents"));
+    }
+
+    return Array.from(
+        new Set(globalPaths.map((searchPath) => resolve(searchPath))),
+    );
+}
+
 function buildRuntimeDiscoveryPlanOptions(): {
     projectRoot: string;
     homeDir?: string;
     xdgConfigHome?: string;
-    appDataDir?: string;
     platform: NodeJS.Platform;
 } {
     const discoveryPlanOptions: {
         projectRoot: string;
         homeDir?: string;
         xdgConfigHome?: string;
-        appDataDir?: string;
         platform: NodeJS.Platform;
     } = {
         projectRoot: process.cwd(),
@@ -164,9 +166,6 @@ function buildRuntimeDiscoveryPlanOptions(): {
     }
     if (process.env.XDG_CONFIG_HOME) {
         discoveryPlanOptions.xdgConfigHome = process.env.XDG_CONFIG_HOME;
-    }
-    if (process.env.APPDATA) {
-        discoveryPlanOptions.appDataDir = process.env.APPDATA;
     }
 
     return discoveryPlanOptions;
@@ -223,7 +222,7 @@ export function determineAgentSource(discoveryPath: string): AgentSource {
     }
 
     if (
-        USER_DISCOVERY_ROOTS.some((rootPath) =>
+        getUserDiscoveryRoots().some((rootPath) =>
             isPathWithinRoot(rootPath, resolvedPath),
         )
     ) {
@@ -236,34 +235,43 @@ export function determineAgentSource(discoveryPath: string): AgentSource {
 export function getRuntimeCompatibleAgentDiscoveryPaths(
     discoveryPlans: readonly ProviderDiscoveryPlan[],
 ): string[] {
-    return collectAgentDiscoveryPaths(
-        discoveryPlans,
-        getRuntimeCompatibilitySelection,
-    );
+    return collectAgentDiscoveryPaths(discoveryPlans);
 }
 
 function collectAgentDiscoveryPaths(
     discoveryPlans: readonly ProviderDiscoveryPlan[],
-    compatibilityResolver: (
-        plan: ProviderDiscoveryPlan,
-    ) => ProviderCompatibilitySelection,
 ): string[] {
     const searchPaths: string[] = [];
     const seen = new Set<string>();
 
     for (const plan of discoveryPlans) {
-        const compatibilitySelection = compatibilityResolver(plan);
-        const rootsByDescendingPrecedence = [
-            ...getCompatibleDiscoveryRoots(plan, compatibilitySelection),
-        ].reverse();
-        for (const root of rootsByDescendingPrecedence) {
-            const agentPath = resolve(join(root.resolvedPath, "agents"));
-            if (seen.has(agentPath)) {
+        const providerSearchPaths = (() => {
+            switch (plan.provider) {
+                case "claude":
+                    return resolveClaudeAgentDirectories({
+                        projectRoot: process.cwd(),
+                        providerDiscoveryPlan: plan,
+                    });
+                case "opencode":
+                    return resolveOpenCodeAgentDirectories({
+                        projectRoot: process.cwd(),
+                        providerDiscoveryPlan: plan,
+                    });
+                case "copilot":
+                    return resolveCopilotAgentDirectoriesFromPlan(plan);
+                default:
+                    return [] as string[];
+            }
+        })();
+
+        for (const agentPath of providerSearchPaths) {
+            const resolvedPath = resolve(agentPath);
+            if (seen.has(resolvedPath)) {
                 continue;
             }
 
-            seen.add(agentPath);
-            searchPaths.push(agentPath);
+            seen.add(resolvedPath);
+            searchPaths.push(resolvedPath);
         }
     }
 
@@ -343,7 +351,7 @@ function discoverAgentFilesWithOptions(
     }
 
     // Then, discover from user-global paths (lower priority)
-    for (const searchPath of GLOBAL_AGENT_PATHS) {
+    for (const searchPath of getGlobalAgentPaths()) {
         const source = determineAgentSource(searchPath);
         const files = discoverAgentFilesInPath(searchPath, source);
         discovered.push(...files);
@@ -594,7 +602,7 @@ export function parseAgentInfoLight(
  *
  * Priority order (highest to lowest):
  * 1. project - Project-local agents (.claude/agents, .opencode/agents, .github/agents)
- * 2. user - User-global agents (~/.claude/agents, ~/.config/.opencode/agents, etc.)
+ * 2. user - User-global agents (~/.claude/agents, XDG-or-home OpenCode/Copilot roots)
  *
  * @param newSource - Source of the new agent
  * @param existingSource - Source of the existing agent
@@ -615,7 +623,7 @@ export function shouldAgentOverride(
 /**
  * Discover all agents from config directories and return lightweight info.
  *
- * Scans AGENT_DISCOVERY_PATHS (project-local) and GLOBAL_AGENT_PATHS (user-global)
+ * Scans AGENT_DISCOVERY_PATHS (project-local) and AGENTS.md user-global roots
  * for .md files, reads only name + description from frontmatter.
  * Project-local agents take precedence over user-global agents with the same name.
  *
@@ -633,18 +641,8 @@ export function discoverAgentInfos(
     const activeRuntimeProviders = activeDiscoveryPlans
         .map((plan) => plan.provider)
         .join(", ");
-    const runtimeCompatibleSearchPaths =
+    const discoverySearchPaths =
         getRuntimeCompatibleAgentDiscoveryPaths(activeDiscoveryPlans);
-    const crossProviderProjectSearchPaths = AGENT_DISCOVERY_PATHS.map(
-        (searchPath) => resolve(searchPath),
-    );
-    const runtimeCompatiblePathSet = new Set(runtimeCompatibleSearchPaths);
-    const discoverySearchPaths = [
-        ...runtimeCompatibleSearchPaths,
-        ...crossProviderProjectSearchPaths.filter(
-            (searchPath) => !runtimeCompatiblePathSet.has(searchPath),
-        ),
-    ];
     const discoveredFiles = discoverAgentFilesWithOptions({
         searchPaths:
             discoverySearchPaths.length > 0 ? discoverySearchPaths : undefined,
@@ -760,12 +758,9 @@ export function createAgentCommand(agent: AgentInfo): CommandDefinition {
                 // and assistant continuation render like upstream OpenCode.
                 context.sendSilentMessage(task, { agent: agent.name });
             } else if (context.agentType === "claude") {
-                // Claude path: use natural-language delegation and also pass the
-                // selected agent through structured query options.
-                const instruction = `Invoke the "${agent.name}" sub-agent with the following task:\n${task}`;
-                context.sendSilentMessage(instruction, {
-                    agent: agent.name,
-                });
+                // Claude path: use natural-language steering (same approach as Copilot).
+                const instruction = `Use the ${agent.name} sub-agent to complete the following task: ${task}\n\nAfter the sub-agent completes, provide the output to the user.`;
+                context.sendSilentMessage(instruction);
             } else {
                 // Copilot SDK uses the Task tool for sub-agent dispatch.
                 // Strongly steer the model to use Task-tool sub-agent dispatch so
@@ -774,7 +769,7 @@ export function createAgentCommand(agent: AgentInfo): CommandDefinition {
                 // stream completion callbacks (handleStreamComplete). Setting it
                 // would trigger the premature agent-only finalizer, stopping the
                 // spinner while the main agent is still streaming its summary.
-                const instruction = `Use the Task tool to invoke the ${agent.name} sub-agent for this exact task: ${task}\n\nAfter the sub-agent completes, provide the output to the user.`;
+                const instruction = `Use the ${agent.name} sub-agent to complete the following task: ${task}\n\nAfter the sub-agent completes, provide the output to the user.`;
                 context.sendSilentMessage(instruction);
             }
 

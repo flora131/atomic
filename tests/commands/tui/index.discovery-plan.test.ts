@@ -31,7 +31,7 @@ test("initializeCommandsAsync forwards startup discovery plan to disk discovery"
 
   expect(skillDiscoveryPlans).toEqual([plan]);
   expect(agentDiscoveryPlans).toEqual([plan]);
-  expect(agentDiscoveryPlans[0]?.compatibilitySets.compatibilityRootIds.has("copilot_project_claude_compat")).toBe(
-    true
+  expect(agentDiscoveryPlans[0]?.compatibilitySets.compatibilityRootIds.size).toBe(
+    0
   );
 });

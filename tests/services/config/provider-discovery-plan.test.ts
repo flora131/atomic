@@ -26,8 +26,7 @@ describe("provider-discovery-plan", () => {
     });
 
     expect(plan.runtime).toEqual({
-      mode: "mergedConfigDir",
-      envVar: "CLAUDE_CONFIG_DIR",
+      mode: "nativeConfig",
     });
 
     expect(plan.paths).toEqual({
@@ -48,30 +47,29 @@ describe("provider-discovery-plan", () => {
     expect(Array.from(plan.compatibilitySets.compatibilityRootIds)).toEqual([]);
   });
 
-  test("resolves opencode user roots and precedence comparisons", () => {
+  test("resolves opencode home, XDG, and project roots with project precedence", () => {
     const plan = buildProviderDiscoveryPlan("opencode", {
       homeDir: "/home/tester",
       projectRoot: "/workspace/repo",
-      xdgConfigHome: "/xdg/config",
-      platform: "linux",
+      xdgConfigHome: "/home/tester/.config",
       pathExists: () => true,
     });
 
     expect(plan.paths.userGlobal).toEqual([
       resolve("/home/tester", ".opencode"),
-      resolve("/xdg/config", ".opencode"),
+      resolve("/home/tester/.config", ".opencode"),
     ]);
 
     const resolved = resolveProviderDiscoveryCandidates(plan, [
       {
         key: "lint",
-        rootId: "opencode_user_canonical_xdg",
-        value: "canonical",
+        rootId: "opencode_user_home",
+        value: "home",
       },
       {
         key: "lint",
-        rootId: "opencode_user_home_native",
-        value: "home",
+        rootId: "opencode_user_xdg",
+        value: "xdg",
       },
       {
         key: "lint",
@@ -83,12 +81,11 @@ describe("provider-discovery-plan", () => {
     expect(resolved.get("lint")?.value).toBe("project");
   });
 
-  test("builds copilot compatibility sets and canonical config-home paths", () => {
+  test("builds copilot plan with AGENTS.md home, XDG, and project roots", () => {
     const plan = buildProviderDiscoveryPlan("copilot", {
       homeDir: "/home/alice",
       projectRoot: "/workspace/repo",
-      xdgConfigHome: "/xdg/root",
-      platform: "linux",
+      xdgConfigHome: "/home/alice/.config",
       pathExists: () => true,
     });
 
@@ -99,43 +96,38 @@ describe("provider-discovery-plan", () => {
 
     expect(plan.paths.userGlobal).toEqual([
       resolve("/home/alice", ".copilot"),
-      resolve("/xdg/root", ".copilot"),
+      resolve("/home/alice/.config", ".copilot"),
     ]);
 
     expect(Array.from(plan.compatibilitySets.nativeRootIds).sort()).toEqual([
-      "copilot_project_native",
-      "copilot_user_canonical_native",
-      "copilot_user_home_native",
+      "copilot_project",
+      "copilot_user_home",
+      "copilot_user_xdg",
     ]);
-    expect(Array.from(plan.compatibilitySets.compatibilityRootIds).sort()).toEqual([
-      "copilot_project_claude_compat",
-      "copilot_project_opencode_compat",
-    ]);
+    expect(Array.from(plan.compatibilitySets.compatibilityRootIds)).toEqual([]);
 
-    expect(isRootInCompatibilitySet(plan, "copilot_project_native", "native")).toBe(
+    expect(isRootInCompatibilitySet(plan, "copilot_project", "native")).toBe(
       true,
     );
     expect(
-      isRootInCompatibilitySet(plan, "copilot_project_native", "compatibility"),
+      isRootInCompatibilitySet(plan, "copilot_project", "compatibility"),
     ).toBe(false);
     expect(
-      isRootInCompatibilitySet(plan, "copilot_project_native", "all"),
+      isRootInCompatibilitySet(plan, "copilot_project", "all"),
     ).toBe(true);
 
     expect(
       getCompatibleDiscoveryRoots(plan, "native").map((root) => root.id),
     ).toEqual([
-      "copilot_user_home_native",
-      "copilot_user_canonical_native",
-      "copilot_project_native",
+      "copilot_user_home",
+      "copilot_user_xdg",
+      "copilot_project",
     ]);
   });
 
   test("keeps home-root precedence on Windows", () => {
     const plan = buildProviderDiscoveryPlan("copilot", {
       homeDir: "/Users/alice",
-      xdgConfigHome: "/Users/alice/custom-xdg",
-      platform: "win32",
       projectRoot: "/repo",
       pathExists: () => false,
     });
@@ -145,7 +137,7 @@ describe("provider-discovery-plan", () => {
     ]);
   });
 
-  test("resolves candidate conflicts by precedence across compatibility classes", () => {
+  test("resolves candidate conflicts by precedence across AGENTS.md roots", () => {
     const plan = buildProviderDiscoveryPlan("copilot", {
       homeDir: "/home/alice",
       projectRoot: "/workspace/repo",
@@ -155,33 +147,28 @@ describe("provider-discovery-plan", () => {
     const resolved = resolveProviderDiscoveryCandidates(plan, [
       {
         key: "review",
-        rootId: "copilot_user_canonical_native",
-        value: "user-native",
+        rootId: "copilot_user_home",
+        value: "home",
       },
       {
         key: "review",
-        rootId: "copilot_user_home_native",
-        value: "user-home",
+        rootId: "copilot_user_xdg",
+        value: "xdg",
       },
       {
         key: "review",
-        rootId: "copilot_project_claude_compat",
-        value: "project-compat",
+        rootId: "copilot_project",
+        value: "project",
       },
       {
         key: "fix",
-        rootId: "copilot_user_home_native",
-        value: "home-native",
-      },
-      {
-        key: "fix",
-        rootId: "copilot_user_canonical_native",
-        value: "canonical-native",
+        rootId: "copilot_user_xdg",
+        value: "xdg",
       },
     ]);
 
-    expect(resolved.get("review")?.value).toBe("project-compat");
-    expect(resolved.get("fix")?.value).toBe("canonical-native");
+    expect(resolved.get("review")?.value).toBe("project");
+    expect(resolved.get("fix")?.value).toBe("xdg");
   });
 
   test("throws when candidate references an unknown root", () => {

@@ -6,4 +6,20 @@
  */
 
 export * from "@/services/config/definitions.ts";
-export { type CopilotAgent, loadCopilotAgents } from "@/services/config/copilot-manual.ts";
+export {
+  loadClaudeAgents,
+  resolveClaudeAgentDirectories,
+  resolveClaudeSkillDirectories,
+} from "@/services/config/claude-config.ts";
+export {
+  resolveOpenCodeAgentDirectories,
+  resolveOpenCodeArtifactPlan,
+  resolveOpenCodeSkillDirectories,
+} from "@/services/config/opencode-config.ts";
+export { type CopilotAgent, loadCopilotAgents } from "@/services/config/copilot-config.ts";
+export {
+  loadCopilotInstructions,
+  resolveCopilotAgentDirectories,
+  resolveCopilotDiscoveryPlan,
+  resolveCopilotSkillDirectories,
+} from "@/services/config/copilot-config.ts";

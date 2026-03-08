@@ -85,8 +85,6 @@ import type {
   ProviderStreamEventType,
 } from "@/services/agents/provider-events.ts";
 import { createSyntheticProviderNativeEvent } from "@/services/agents/provider-events.ts";
-import { homedir } from "os";
-import { join } from "path";
 
 // Import the real SDK
 import {
@@ -114,7 +112,6 @@ import {
  * Default OpenCode server configuration
  */
 const DEFAULT_OPENCODE_BASE_URL = "http://localhost:4096";
-const DEFAULT_OPENCODE_CONFIG_DIR = join(homedir(), ".opencode");
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_RETRY_DELAY = 1000;
 const PRE_PROMPT_TERMINAL_SETTLE_MS = 500;
@@ -240,16 +237,6 @@ interface AtomicManagedOpenCodeServerState {
 }
 
 let atomicManagedOpenCodeServer: AtomicManagedOpenCodeServerState | null = null;
-
-export function resolveOpenCodeConfigDirEnv(
-  configuredPath: string | undefined,
-): string {
-  const trimmedPath = configuredPath?.trim();
-  if (trimmedPath && trimmedPath.length > 0) {
-    return trimmedPath;
-  }
-  return DEFAULT_OPENCODE_CONFIG_DIR;
-}
 
 function asErrorRecord(value: unknown): Record<string, unknown> | undefined {
   if (typeof value === "object" && value !== null && !Array.isArray(value)) {
@@ -3778,10 +3765,6 @@ export class OpenCodeClient implements CodingAgentClient {
     const hostname = this.clientOptions.hostname ?? url.hostname ?? "localhost";
 
     try {
-      process.env.OPENCODE_CONFIG_DIR = resolveOpenCodeConfigDirEnv(
-        process.env.OPENCODE_CONFIG_DIR,
-      );
-
       const serverOptions: SdkServerOptions = {
         hostname,
         port,

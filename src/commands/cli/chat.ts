@@ -18,7 +18,6 @@ import type {
   ProviderDiscoveryPlan,
   ProviderDiscoveryPlanOptions,
 } from "@/services/config/provider-discovery-plan.ts";
-import type { PrepareClaudeConfigOptions } from "@/services/config/claude-config.ts";
 import { getModelPreference, getReasoningEffortPreference } from "@/services/config/settings.ts";
 import { isTrustedWorkspacePath } from "@/services/config/settings.ts";
 import { ENHANCED_SYSTEM_PROMPT } from "@/services/agents/enhanced-system-prompt.ts";
@@ -129,119 +128,6 @@ export function buildChatStartupDiscoveryPlan(
   options: ProviderDiscoveryPlanOptions = {}
 ): ProviderDiscoveryPlan {
   return buildProviderDiscoveryPlan(agentType, options);
-}
-
-interface OpenCodeRuntimePreparationDependencies {
-  env?: NodeJS.ProcessEnv;
-  prepareOpenCodeConfigDir?: (options: {
-    projectRoot?: string;
-    providerDiscoveryPlan?: ProviderDiscoveryPlan;
-  }) => Promise<string | null>;
-}
-
-export async function prepareOpenCodeRuntimeConfigForChat(
-  projectRoot: string,
-  providerDiscoveryPlan: ProviderDiscoveryPlan,
-  dependencies: OpenCodeRuntimePreparationDependencies = {},
-): Promise<string | null> {
-  if (providerDiscoveryPlan.provider !== "opencode") {
-    emitDiscoveryEvent("discovery.runtime.startup_error", {
-      level: "error",
-      tags: {
-        provider: providerDiscoveryPlan.provider,
-        path: projectRoot,
-      },
-      data: {
-        stage: "prepareOpenCodeRuntimeConfigForChat",
-        reason: "provider_mismatch",
-      },
-    });
-    throw new Error(
-      `OpenCode runtime prep requires an OpenCode discovery plan, received ${providerDiscoveryPlan.provider}`,
-    );
-  }
-
-  const prepareOpenCodeConfigDir = dependencies.prepareOpenCodeConfigDir ??
-    (await import("@/services/config/opencode-config.ts")).prepareOpenCodeConfigDir;
-
-  const mergedConfigDir = await prepareOpenCodeConfigDir({
-    projectRoot,
-    providerDiscoveryPlan,
-  });
-
-  if (!mergedConfigDir) {
-    return null;
-  }
-
-  if (providerDiscoveryPlan.runtime.mode === "mergedConfigDir") {
-    const env = dependencies.env ?? process.env;
-    env[providerDiscoveryPlan.runtime.envVar] = mergedConfigDir;
-  }
-
-  return mergedConfigDir;
-}
-
-type PrepareClaudeConfigDirFn = (
-  options?: PrepareClaudeConfigOptions,
-) => Promise<string | null>;
-
-interface PrepareClaudeRuntimeForChatOptions {
-  projectRoot: string;
-  providerDiscoveryPlan: ProviderDiscoveryPlan;
-  prepareClaudeConfigDir?: PrepareClaudeConfigDirFn;
-}
-
-export async function prepareClaudeRuntimeForChat(
-  options: PrepareClaudeRuntimeForChatOptions,
-): Promise<string> {
-  const { projectRoot, providerDiscoveryPlan } = options;
-
-  if (providerDiscoveryPlan.provider !== "claude") {
-    emitDiscoveryEvent("discovery.runtime.startup_error", {
-      level: "error",
-      tags: {
-        provider: providerDiscoveryPlan.provider,
-        path: projectRoot,
-      },
-      data: {
-        stage: "prepareClaudeRuntimeForChat",
-        reason: "provider_mismatch",
-      },
-    });
-    throw new Error(
-      `Claude runtime prep requires a Claude discovery plan, received ${providerDiscoveryPlan.provider}`,
-    );
-  }
-
-  const prepareClaudeConfigDir =
-    options.prepareClaudeConfigDir ??
-    (await import("@/services/config/claude-config.ts")).prepareClaudeConfigDir;
-
-  const mergedConfigDir = await prepareClaudeConfigDir({
-    projectRoot,
-    discoveryPlan: providerDiscoveryPlan,
-  });
-
-  if (!mergedConfigDir) {
-    emitDiscoveryEvent("discovery.runtime.startup_error", {
-      level: "error",
-      tags: {
-        provider: providerDiscoveryPlan.provider,
-        path: projectRoot,
-      },
-      data: {
-        stage: "prepareClaudeRuntimeForChat",
-        reason: "missing_merged_config",
-      },
-    });
-    throw new Error(
-      "Unable to prepare Claude runtime config from ~/.claude. Run `atomic init` and retry.",
-    );
-  }
-
-  // Do not set CLAUDE_CONFIG_DIR at runtime — it interferes with Claude's
-  // native auth resolution on macOS, causing authentication failures.
-  return mergedConfigDir;
 }
 
 interface ProviderDiscoveryPlanDebugOptions {
@@ -578,6 +464,8 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   const projectRoot = process.cwd();
   const providerDiscoveryPlan = buildChatStartupDiscoveryPlan(agentType, {
     projectRoot,
+    homeDir: process.env.HOME,
+    xdgConfigHome: process.env.XDG_CONFIG_HOME,
   });
   startProviderDiscoverySessionCache({
     projectRoot,
@@ -609,38 +497,11 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   const selectedScm = await getSelectedScm(projectRoot);
   const resolvedAdditionalInstructions = resolveChatAdditionalInstructions({ additionalInstructions });
 
-  // Parallelize independent config preparation steps
-  const configPrepTasks: Promise<void>[] = [];
   const ensureGlobalConfigsPromise = ensureAtomicGlobalAgentConfigsForInstallType(
     installType,
     configRoot,
   );
-
-  configPrepTasks.push(ensureGlobalConfigsPromise);
-
-  if (agentType === "opencode") {
-    configPrepTasks.push(
-      ensureGlobalConfigsPromise.then(() =>
-        prepareOpenCodeRuntimeConfigForChat(
-          projectRoot,
-          providerDiscoveryPlan,
-        ).then(() => undefined),
-      ),
-    );
-  }
-
-  if (agentType === "claude") {
-    configPrepTasks.push(
-      ensureGlobalConfigsPromise.then(() =>
-        prepareClaudeRuntimeForChat({
-          projectRoot,
-          providerDiscoveryPlan,
-        }).then(() => undefined),
-      ),
-    );
-  }
-
-  await Promise.all(configPrepTasks);
+  await ensureGlobalConfigsPromise;
 
   // Auto-init when project SCM skills are missing or out of sync
   if (await shouldAutoInitChat(agentType, projectRoot, { selectedScm, configRoot })) {

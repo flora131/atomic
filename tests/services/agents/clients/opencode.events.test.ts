@@ -1,12 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { homedir } from "os";
-import { join } from "path";
 import {
   COMPACTION_TERMINAL_ERROR_MESSAGE,
   isContextOverflowError,
   OpenCodeClient,
   OpenCodeCompactionError,
-  resolveOpenCodeConfigDirEnv,
   transitionOpenCodeCompactionControl,
 } from "@/services/agents/clients/opencode.ts";
 import {
@@ -35,21 +32,6 @@ describe("isContextOverflowError", () => {
     expect(isContextOverflowError("Rate limit exceeded")).toBe(false);
     expect(isContextOverflowError(new Error("Network connection reset"))).toBe(false);
     expect(isContextOverflowError("")).toBe(false);
-  });
-});
-
-describe("resolveOpenCodeConfigDirEnv", () => {
-  test("preserves explicit config path values", () => {
-    expect(resolveOpenCodeConfigDirEnv("/tmp/atomic-opencode-merged")).toBe(
-      "/tmp/atomic-opencode-merged",
-    );
-  });
-
-  test("falls back to ~/.opencode when env value is missing", () => {
-    const expectedHomePath = join(homedir(), ".opencode");
-    expect(resolveOpenCodeConfigDirEnv(undefined)).toBe(expectedHomePath);
-    expect(resolveOpenCodeConfigDirEnv("")).toBe(expectedHomePath);
-    expect(resolveOpenCodeConfigDirEnv("   ")).toBe(expectedHomePath);
   });
 });
 

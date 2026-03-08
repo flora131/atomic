@@ -53,6 +53,7 @@ import type {
     Session,
     SessionConfig,
     AgentMessage,
+    MessageCompleteEventData,
     ContextUsage,
     McpAuthStatus,
     McpRuntimeSnapshot,
@@ -65,7 +66,7 @@ import type {
 } from "@/services/agents/types.ts";
 import { stripProviderPrefix } from "@/services/agents/types.ts";
 import { initClaudeOptions } from "@/services/agents/init.ts";
-import { loadCopilotAgents } from "@/services/config/copilot-manual.ts";
+import { loadClaudeAgents } from "@/services/config/claude-config.ts";
 import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -298,6 +299,43 @@ export function extractMessageContent(message: SDKAssistantMessage): {
     return { type: "text", content: "" };
 }
 
+function extractToolRequestsFromAssistantMessage(
+    message: SDKAssistantMessage,
+): MessageCompleteEventData["toolRequests"] {
+    const toolRequests = message.message.content.flatMap((block: SDKAssistantMessage["message"]["content"][number]) => {
+        if (block.type !== "tool_use") {
+            return [];
+        }
+
+        return [{
+            toolCallId: block.id,
+            name: block.name,
+            arguments: block.input,
+        }];
+    });
+
+    return toolRequests.length > 0 ? toolRequests : undefined;
+}
+
+function createMessageCompleteEventData(
+    message: SDKAssistantMessage,
+): MessageCompleteEventData {
+    const { type, content } = extractMessageContent(message);
+    const toolRequests = extractToolRequestsFromAssistantMessage(message);
+
+    return {
+        message: {
+            type,
+            content,
+            role: "assistant",
+        },
+        ...(toolRequests ? { toolRequests } : {}),
+        ...(typeof message.parent_tool_use_id === "string"
+            ? { parentToolCallId: message.parent_tool_use_id }
+            : {}),
+    };
+}
+
 function getClaudeContentBlockIndex(
     event: Record<string, unknown>,
 ): number | null {
@@ -458,8 +496,8 @@ export class ClaudeAgentClient implements CodingAgentClient {
 
     protected async loadConfiguredAgents(
         projectRoot: string,
-    ): Promise<Awaited<ReturnType<typeof loadCopilotAgents>>> {
-        return loadCopilotAgents(projectRoot);
+    ): Promise<Awaited<ReturnType<typeof loadClaudeAgents>>> {
+        return loadClaudeAgents({ projectRoot });
     }
 
     /**
@@ -959,7 +997,6 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 };
                 // Capture SDK session ID for resume
                 const getSdkSessionId = () => state.sdkSessionId;
-                const requestedAgent = optionsArg?.agent?.trim();
                 const emitStreamingUsage = (outputTokens: number) => {
                     state.hasEmittedStreamingUsage = true;
                     this.emitEvent("usage", sessionId, {
@@ -997,10 +1034,6 @@ export class ClaudeAgentClient implements CodingAgentClient {
                         if (sdkSessionId) {
                             options.resume = sdkSessionId;
                         }
-                        if (requestedAgent) {
-                            options.agent = requestedAgent;
-                        }
-
                         const streamSource = query({
                             prompt: message,
                             options,
@@ -1286,6 +1319,24 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                         }
                                     }
                                 } else if (sdkMessage.type === "assistant") {
+                                    const messageCompleteData =
+                                        createMessageCompleteEventData(
+                                            sdkMessage,
+                                        );
+                                    emitProviderStreamingEvent(
+                                        "message.complete",
+                                        {
+                                            ...messageCompleteData,
+                                            nativeMessageId: sdkMessage.uuid,
+                                        },
+                                        {
+                                            native: sdkMessage,
+                                            nativeSessionId:
+                                                sdkMessage.session_id,
+                                            nativeEventId: sdkMessage.uuid,
+                                        },
+                                    );
+
                                     // Skip sub-agent assistant messages — they
                                     // belong to a child agent context and their
                                     // tool calls are handled by the hook path
@@ -1324,28 +1375,6 @@ export class ClaudeAgentClient implements CodingAgentClient {
 
                                     const { type, content, thinkingSourceKey } =
                                         extractMessageContent(sdkMessage);
-
-                                    if (type === "text") {
-                                        emitProviderStreamingEvent(
-                                            "message.complete",
-                                            {
-                                                message: {
-                                                    type,
-                                                    content,
-                                                    role: "assistant",
-                                                },
-                                                nativeMessageId:
-                                                    sdkMessage.uuid,
-                                            },
-                                            {
-                                                native: sdkMessage,
-                                                nativeSessionId:
-                                                    sdkMessage.session_id,
-                                                nativeEventId:
-                                                    sdkMessage.uuid,
-                                            },
-                                        );
-                                    }
 
                                     // Always yield tool_use messages so callers can track tool
                                     // invocations (e.g. spawnSubagentParallel counts them for
@@ -1703,7 +1732,9 @@ export class ClaudeAgentClient implements CodingAgentClient {
 
         // Map and emit events
         const eventType = mapSdkEventToEventType(sdkMessage.type);
-        if (eventType) {
+        if (eventType === "message.complete" && sdkMessage.type === "assistant") {
+            this.emitEvent(eventType, sessionId, createMessageCompleteEventData(sdkMessage));
+        } else if (eventType) {
             this.emitEvent(eventType, sessionId, { sdkMessage });
         }
 
@@ -1938,6 +1969,24 @@ export class ClaudeAgentClient implements CodingAgentClient {
         }
         this.providerEventBridgeInitialized = true;
 
+        const resolveProviderBridgeNativeSessionId = (
+            event: AgentEvent<EventType>,
+        ): string | undefined => {
+            const data = event.data;
+            if (
+                typeof data === "object" &&
+                data !== null &&
+                !Array.isArray(data)
+            ) {
+                const nativeSessionId = (data as Record<string, unknown>)
+                    .nativeSessionId;
+                if (typeof nativeSessionId === "string") {
+                    return nativeSessionId;
+                }
+            }
+            return event.sessionId;
+        };
+
         this.on("tool.start", (event) => {
             this.emitProviderEvent("tool.start", event.sessionId, {
                 toolName: String((event.data as { toolName?: unknown }).toolName ?? "unknown"),
@@ -1948,7 +1997,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 parentAgentId: (event.data as { parentAgentId?: string }).parentAgentId,
             }, {
                 native: event,
-                nativeSessionId: event.sessionId,
+                nativeSessionId: resolveProviderBridgeNativeSessionId(event),
             });
         });
 
@@ -1965,7 +2014,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 parentAgentId: (event.data as { parentAgentId?: string }).parentAgentId,
             }, {
                 native: event,
-                nativeSessionId: event.sessionId,
+                nativeSessionId: resolveProviderBridgeNativeSessionId(event),
             });
         });
 
@@ -1980,7 +2029,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 subagentSessionId: (event.data as { subagentSessionId?: string }).subagentSessionId,
             }, {
                 native: event,
-                nativeSessionId: event.sessionId,
+                nativeSessionId: resolveProviderBridgeNativeSessionId(event),
             });
         });
 
@@ -1991,7 +2040,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 toolUses: (event.data as { toolUses?: number }).toolUses,
             }, {
                 native: event,
-                nativeSessionId: event.sessionId,
+                nativeSessionId: resolveProviderBridgeNativeSessionId(event),
             });
         });
 
@@ -2002,7 +2051,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 result: (event.data as { result?: unknown }).result,
             }, {
                 native: event,
-                nativeSessionId: event.sessionId,
+                nativeSessionId: resolveProviderBridgeNativeSessionId(event),
             });
         });
 
@@ -2596,6 +2645,9 @@ export class ClaudeAgentClient implements CodingAgentClient {
                     const sessionId = hookSessionId
                         ? this.resolveHookSessionId(hookSessionId)
                         : this.resolveFallbackHookSessionId(resolvedToolUseId);
+                    if (hookSessionId) {
+                        eventData.nativeSessionId = hookSessionId;
+                    }
 
                     if (eventType === "skill.invoked") {
                         if (!isSkillToolName(hookInput.tool_name)) {

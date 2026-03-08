@@ -14,7 +14,6 @@
  *   - ~/.claude/skills/
  *   - ~/.opencode/skills/
  *   - ~/.copilot/skills/
- *   - distinct XDG override roots for OpenCode/Copilot when configured
  */
 
 import type {
@@ -27,16 +26,14 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
 import { parseMarkdownFrontmatter } from "@/lib/markdown.ts";
-import {
-    getCompatibleDiscoveryRoots,
-    resolveUserProviderRoot,
-    type ProviderCompatibilitySelection,
-    type ProviderDiscoveryPlan,
-} from "@/services/config/provider-discovery-plan.ts";
+import { type ProviderDiscoveryPlan } from "@/services/config/provider-discovery-plan.ts";
 import {
     emitDiscoveryEvent,
     isDiscoveryDebugLoggingEnabled,
 } from "@/services/config/discovery-events.ts";
+import { resolveClaudeSkillDirectories } from "@/services/config/claude-config.ts";
+import { resolveOpenCodeSkillDirectories } from "@/services/config/opencode-config.ts";
+import { resolveCopilotSkillDirectoriesFromPlan } from "@/services/config/copilot-config.ts";
 import {
     collectDefinitionDiscoveryMatches,
     createAllProviderDiscoveryPlans,
@@ -60,19 +57,6 @@ function buildSkillInvocationMessage(skillName: string, args: string): string {
 // ============================================================================
 
 const HOME = homedir();
-const OPENCODE_USER_OVERRIDE_ROOT = resolveUserProviderRoot({
-    homeDir: HOME,
-    xdgConfigHome: process.env.XDG_CONFIG_HOME ?? undefined,
-    providerFolder: ".opencode",
-    platform: process.platform,
-});
-const COPILOT_USER_OVERRIDE_ROOT = resolveUserProviderRoot({
-    homeDir: HOME,
-    xdgConfigHome: process.env.XDG_CONFIG_HOME ?? undefined,
-    providerFolder: ".copilot",
-    platform: process.platform,
-});
-const USER_DISCOVERY_ROOTS = [HOME, OPENCODE_USER_OVERRIDE_ROOT, COPILOT_USER_OVERRIDE_ROOT];
 
 const SKILL_DISCOVERY_PATHS = [
     join(".claude", "skills"),
@@ -80,13 +64,7 @@ const SKILL_DISCOVERY_PATHS = [
     join(".github", "skills"),
 ] as const;
 
-const GLOBAL_SKILL_PATHS = [
-    join(HOME, ".claude", "skills"),
-    join(HOME, ".opencode", "skills"),
-    join(HOME, ".copilot", "skills"),
-    join(OPENCODE_USER_OVERRIDE_ROOT, "skills"),
-    join(COPILOT_USER_OVERRIDE_ROOT, "skills"),
-] as const;
+const GLOBAL_SKILL_PATHS = [join(HOME, ".claude", "skills")] as const;
 
 export type SkillSource = "project" | "user";
 
@@ -125,18 +103,44 @@ export interface SkillDefinitionIntegrityResult {
     discoveryMatches: readonly DefinitionDiscoveryMatch[];
 }
 
+function getUserDiscoveryRoots(): string[] {
+    const roots = [HOME, join(HOME, ".opencode"), join(HOME, ".copilot")];
+    const xdgConfigHome = process.env.XDG_CONFIG_HOME?.trim();
+
+    if (xdgConfigHome) {
+        roots.push(join(xdgConfigHome, ".opencode"));
+        roots.push(join(xdgConfigHome, ".copilot"));
+    }
+
+    return Array.from(new Set(roots.map((rootPath) => resolve(rootPath))));
+}
+
+function getGlobalSkillPaths(): string[] {
+    const globalPaths = [
+        join(HOME, ".claude", "skills"),
+        join(HOME, ".opencode", "skills"),
+        join(HOME, ".copilot", "skills"),
+    ];
+    const xdgConfigHome = process.env.XDG_CONFIG_HOME?.trim();
+
+    if (xdgConfigHome) {
+        globalPaths.push(join(xdgConfigHome, ".opencode", "skills"));
+        globalPaths.push(join(xdgConfigHome, ".copilot", "skills"));
+    }
+
+    return Array.from(new Set(globalPaths.map((searchPath) => resolve(searchPath))));
+}
+
 function buildRuntimeDiscoveryPlanOptions(): {
     projectRoot: string;
     homeDir?: string;
     xdgConfigHome?: string;
-    appDataDir?: string;
     platform: NodeJS.Platform;
 } {
     const discoveryPlanOptions: {
         projectRoot: string;
         homeDir?: string;
         xdgConfigHome?: string;
-        appDataDir?: string;
         platform: NodeJS.Platform;
     } = {
         projectRoot: process.cwd(),
@@ -148,9 +152,6 @@ function buildRuntimeDiscoveryPlanOptions(): {
     }
     if (process.env.XDG_CONFIG_HOME) {
         discoveryPlanOptions.xdgConfigHome = process.env.XDG_CONFIG_HOME;
-    }
-    if (process.env.APPDATA) {
-        discoveryPlanOptions.appDataDir = process.env.APPDATA;
     }
 
     return discoveryPlanOptions;
@@ -183,7 +184,7 @@ function determineSkillSource(discoveryPath: string): SkillSource {
     }
 
     if (
-        USER_DISCOVERY_ROOTS.some((rootPath) =>
+        getUserDiscoveryRoots().some((rootPath) =>
             isPathWithinRoot(rootPath, resolvedPath),
         )
     ) {
@@ -196,34 +197,43 @@ function determineSkillSource(discoveryPath: string): SkillSource {
 export function getRuntimeCompatibleSkillDiscoveryPaths(
     discoveryPlans: readonly ProviderDiscoveryPlan[],
 ): string[] {
-    return collectSkillDiscoveryPaths(
-        discoveryPlans,
-        getRuntimeCompatibilitySelection,
-    );
+    return collectSkillDiscoveryPaths(discoveryPlans);
 }
 
 function collectSkillDiscoveryPaths(
     discoveryPlans: readonly ProviderDiscoveryPlan[],
-    compatibilityResolver: (
-        plan: ProviderDiscoveryPlan,
-    ) => ProviderCompatibilitySelection,
 ): string[] {
     const searchPaths: string[] = [];
     const seen = new Set<string>();
 
     for (const plan of discoveryPlans) {
-        const compatibilitySelection = compatibilityResolver(plan);
-        const rootsByDescendingPrecedence = [
-            ...getCompatibleDiscoveryRoots(plan, compatibilitySelection),
-        ].reverse();
-        for (const root of rootsByDescendingPrecedence) {
-            const skillPath = resolve(join(root.resolvedPath, "skills"));
-            if (seen.has(skillPath)) {
+        const providerSearchPaths = (() => {
+            switch (plan.provider) {
+                case "claude":
+                    return resolveClaudeSkillDirectories({
+                        projectRoot: process.cwd(),
+                        providerDiscoveryPlan: plan,
+                    });
+                case "opencode":
+                    return resolveOpenCodeSkillDirectories({
+                        projectRoot: process.cwd(),
+                        providerDiscoveryPlan: plan,
+                    });
+                case "copilot":
+                    return resolveCopilotSkillDirectoriesFromPlan(plan);
+                default:
+                    return [] as string[];
+            }
+        })();
+
+        for (const skillPath of providerSearchPaths) {
+            const resolvedPath = resolve(skillPath);
+            if (seen.has(resolvedPath)) {
                 continue;
             }
 
-            seen.add(skillPath);
-            searchPaths.push(skillPath);
+            seen.add(resolvedPath);
+            searchPaths.push(resolvedPath);
         }
     }
 
@@ -432,7 +442,7 @@ function discoverSkillFiles(
     const cwd = process.cwd();
     const discoveryPaths = options.searchPaths ?? [
         ...SKILL_DISCOVERY_PATHS.map((searchPath) => resolve(cwd, searchPath)),
-        ...GLOBAL_SKILL_PATHS.map((searchPath) => resolve(searchPath)),
+        ...getGlobalSkillPaths(),
     ];
 
     for (const discoveryPath of discoveryPaths) {
@@ -712,18 +722,8 @@ export async function discoverAndRegisterDiskSkills(
     const activeDiscoveryPlans = providerDiscoveryPlan
         ? [providerDiscoveryPlan]
         : allDiscoveryPlans;
-    const runtimeCompatibleSearchPaths =
+    const discoverySearchPaths =
         getRuntimeCompatibleSkillDiscoveryPaths(activeDiscoveryPlans);
-    const crossProviderProjectSearchPaths = SKILL_DISCOVERY_PATHS.map(
-        (searchPath) => resolve(process.cwd(), searchPath),
-    );
-    const runtimeCompatiblePathSet = new Set(runtimeCompatibleSearchPaths);
-    const discoverySearchPaths = [
-        ...runtimeCompatibleSearchPaths,
-        ...crossProviderProjectSearchPaths.filter(
-            (searchPath) => !runtimeCompatiblePathSet.has(searchPath),
-        ),
-    ];
     const files = discoverSkillFiles({
         searchPaths:
             discoverySearchPaths.length > 0 ? discoverySearchPaths : undefined,

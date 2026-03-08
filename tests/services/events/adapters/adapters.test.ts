@@ -3780,6 +3780,70 @@ describe("ClaudeStreamAdapter", () => {
     ).toBe(true);
   });
 
+  test("routes Claude provider tool events by native child session id", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+    adapter = new ClaudeStreamAdapter(bus, "test-session-123", client);
+
+    const stream = mockAsyncStream([{ type: "text", content: "done" }]);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test", {
+      runId: 104,
+      messageId: "msg-claude-provider-tool-child",
+    });
+
+    client.emit("subagent.start" as EventType, {
+      type: "subagent.start",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        subagentId: "agent-claude-tool-1",
+        subagentType: "debugger",
+        task: "Investigate tool routing",
+        toolUseID: "task-call-claude-tool-1",
+        subagentSessionId: "child-session-claude-tool-1",
+      },
+    } as AgentEvent<"subagent.start">);
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        toolName: "bash",
+        toolInput: { command: "echo child tool" },
+        toolUseId: "child-claude-tool-1",
+      },
+      nativeSessionId: "child-session-claude-tool-1",
+    } as AgentEvent<"tool.start"> & { nativeSessionId: string });
+
+    client.emit("tool.complete" as EventType, {
+      type: "tool.complete",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        toolName: "bash",
+        toolResult: "ok",
+        success: true,
+        toolUseId: "child-claude-tool-1",
+      },
+      nativeSessionId: "child-session-claude-tool-1",
+    } as AgentEvent<"tool.complete"> & { nativeSessionId: string });
+
+    await streamPromise;
+
+    const toolStart = events.find(
+      (e) => e.type === "stream.tool.start" && e.data.toolId === "child-claude-tool-1",
+    );
+    expect(toolStart?.data.parentAgentId).toBe("agent-claude-tool-1");
+
+    const toolComplete = events.find(
+      (e) => e.type === "stream.tool.complete" && e.data.toolId === "child-claude-tool-1",
+    );
+    expect(toolComplete?.data.parentAgentId).toBe("agent-claude-tool-1");
+  });
+
   test("tags Claude subagent skill invocations so the top-level skill UI can ignore them", async () => {
     const events = collectEvents(bus);
     const client = createMockClient();
@@ -5776,6 +5840,60 @@ describe("CopilotStreamAdapter", () => {
     // because no text was accumulated (no message.delta events were sent)
     const textCompletes = events.filter((e) => e.type === "stream.text.complete");
     expect(textCompletes.length).toBe(0);
+  });
+
+  test("replays child tool rows when Claude message.complete arrives before subagent.start", async () => {
+    const events = collectEvents(bus);
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream);
+
+    const streamPromise = adapter.startStreaming(session, "test", {
+      runId: 511,
+      messageId: "msg-early-child-tool",
+      knownAgentNames: ["codebase-online-researcher"],
+    });
+
+    client.emit("message.complete" as EventType, {
+      type: "message.complete",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        parentToolCallId: "parent-task-early-1",
+        toolRequests: [
+          {
+            toolCallId: "child-tool-early-1",
+            name: "Read",
+            arguments: { file_path: "docs/claude-agent-sdk.md" },
+          },
+        ],
+      },
+    } as AgentEvent<"message.complete">);
+
+    client.emit("subagent.start" as EventType, {
+      type: "subagent.start",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        subagentId: "parent-task-early-1",
+        subagentType: "codebase-online-researcher",
+        toolCallId: "parent-task-early-1",
+      },
+    } as AgentEvent<"subagent.start">);
+
+    await streamPromise;
+
+    const childToolStart = events.find(
+      (e) => e.type === "stream.tool.start" && e.data.toolId === "child-tool-early-1",
+    );
+    expect(childToolStart).toBeDefined();
+    expect(childToolStart?.data.parentAgentId).toBe("parent-task-early-1");
+
+    const agentUpdateEvents = events.filter(
+      (e) => e.type === "stream.agent.update" && e.data.agentId === "parent-task-early-1",
+    );
+    expect(agentUpdateEvents.some((event) => event.data.toolUses === 1)).toBe(true);
   });
 
   test("maps subagent.update events and sub-agent message deltas", async () => {

@@ -659,6 +659,43 @@ describe("CopilotClient session config parity", () => {
     await expect(resumeConfig.onPermissionRequest()).resolves.toEqual({ kind: "approved" });
   });
 
+  test("appends loaded Copilot instructions ahead of per-session instructions", async () => {
+    const mockSdkSession = createBasicSdkSession();
+    const mockCreateSession = mock(async (config: Record<string, unknown>) => mockSdkSession);
+    const mockSdkClient = createBasicSdkClient({
+      createSession: mockCreateSession,
+    });
+
+    const client = new CopilotClient({});
+    (client as unknown as { sdkClient: unknown }).sdkClient = mockSdkClient;
+    (client as unknown as { isRunning: boolean }).isRunning = true;
+    (client as unknown as {
+      loadCopilotSessionArtifacts: () => Promise<{
+        customAgents?: Array<Record<string, unknown>>;
+        skillDirectories?: string[];
+        instructions?: string;
+      }>;
+    }).loadCopilotSessionArtifacts = async () => ({
+      instructions: "Repository-wide Copilot instructions.",
+    });
+
+    await client.createSession({
+      sessionId: "instruction-session",
+      additionalInstructions: "Current task instructions.",
+    });
+
+    expect(mockCreateSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "instruction-session",
+        systemMessage: {
+          mode: "append",
+          content:
+            "Repository-wide Copilot instructions.\n\nCurrent task instructions.",
+        },
+      }),
+    );
+  });
+
   test("uses approve-all permissions for the startup probe session", async () => {
     const probeSession = {
       on: mock((_eventType: string, handler: (event: { data: Record<string, unknown> }) => void) => {

@@ -48,11 +48,10 @@ describe("provider-discovery-contract", () => {
     }
   });
 
-  test("claude contract includes deterministic runtime env binding", () => {
+  test("claude contract uses native config loading with home and project roots", () => {
     const contract = getProviderDiscoveryContract("claude");
     expect(contract.runtime).toEqual({
-      mode: "mergedConfigDir",
-      envVar: "CLAUDE_CONFIG_DIR",
+      mode: "nativeConfig",
     });
 
     const orderedRootIds = getProviderDiscoveryRootsInPrecedenceOrder(
@@ -64,21 +63,20 @@ describe("provider-discovery-contract", () => {
     ]);
   });
 
-  test("opencode contract keeps home root above canonical within user globals", () => {
+  test("opencode contract uses AGENTS.md global and project roots", () => {
     const contract = getProviderDiscoveryContract("opencode");
     expect(contract.runtime).toEqual({
-      mode: "mergedConfigDir",
-      envVar: "OPENCODE_CONFIG_DIR",
+      mode: "nativeConfig",
     });
 
     const userRootIds = contract.roots.userGlobal.map((root) => root.id);
     expect(userRootIds).toEqual([
-      "opencode_user_home_native",
-      "opencode_user_canonical_xdg",
+      "opencode_user_home",
+      "opencode_user_xdg",
     ]);
   });
 
-  test("copilot contract encodes native-over-compat precedence in each tier", () => {
+  test("copilot contract uses only AGENTS.md roots", () => {
     const contract = getProviderDiscoveryContract("copilot");
     expect(contract.runtime).toEqual({
       mode: "manualInjection",
@@ -88,29 +86,15 @@ describe("provider-discovery-contract", () => {
     expect(
       shouldOverrideByProviderRoot(
         "copilot",
-        "copilot_user_home_native",
-        "copilot_user_canonical_native",
-      ),
-    ).toBe(false);
-    expect(
-      shouldOverrideByProviderRoot(
-        "copilot",
-        "copilot_user_canonical_native",
-        "copilot_user_home_native",
+        "copilot_project",
+        "copilot_user_xdg",
       ),
     ).toBe(true);
     expect(
       shouldOverrideByProviderRoot(
         "copilot",
-        "copilot_project_claude_compat",
-        "copilot_user_canonical_native",
-      ),
-    ).toBe(true);
-    expect(
-      shouldOverrideByProviderRoot(
-        "copilot",
-        "copilot_project_native",
-        "copilot_project_opencode_compat",
+        "copilot_user_xdg",
+        "copilot_user_home",
       ),
     ).toBe(true);
   });
@@ -118,11 +102,11 @@ describe("provider-discovery-contract", () => {
   test("can resolve root metadata by provider and root id", () => {
     const root = getProviderDiscoveryRootById(
       "copilot",
-      "copilot_user_canonical_native",
+      "copilot_user_xdg",
     );
     expect(root).not.toBeNull();
     expect(root?.tier).toBe("userGlobal");
-    expect(root?.pathTemplate).toBe("<copilot-canonical-user-root>");
+    expect(root?.pathTemplate).toBe("<copilot-xdg-user-root>");
     expect(root?.compatibility).toBe("native");
 
     const missing = getProviderDiscoveryRootById("copilot", "missing-root");

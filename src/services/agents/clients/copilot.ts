@@ -53,9 +53,10 @@ import {
 
 import {
   loadCopilotAgents,
+  loadCopilotInstructions,
   resolveCopilotDiscoveryPlan,
   resolveCopilotSkillDirectories,
-} from "@/services/config/copilot-manual.ts";
+} from "@/services/config/copilot-config.ts";
 import {
   BACKGROUND_COMPACTION_THRESHOLD,
   BUFFER_EXHAUSTION_THRESHOLD,
@@ -154,6 +155,7 @@ type CopilotSdkModelRecord = Record<string, unknown> & {
 interface CopilotSessionArtifacts {
   customAgents?: SdkCustomAgentConfig[];
   skillDirectories?: string[];
+  instructions?: string;
 }
 
 const RECENT_EVENT_ID_WINDOW = 2048;
@@ -463,14 +465,18 @@ export class CopilotClient implements CodingAgentClient {
   ): Promise<CopilotSessionArtifacts> {
     const discoveryPlan = await resolveCopilotDiscoveryPlan(projectRoot, {
       pathExistsFn: pathExists,
+      xdgConfigHome: process.env.XDG_CONFIG_HOME,
     });
-    const [loadedAgents, skillDirectories] = await Promise.all([
+    const [loadedAgents, skillDirectories, instructions] = await Promise.all([
       loadCopilotAgents(projectRoot, undefined, {
         providerDiscoveryPlan: discoveryPlan,
       }),
       resolveCopilotSkillDirectories(projectRoot, {
         providerDiscoveryPlan: discoveryPlan,
         pathExistsFn: pathExists,
+      }),
+      loadCopilotInstructions(projectRoot, undefined, {
+        providerDiscoveryPlan: discoveryPlan,
       }),
     ]);
 
@@ -489,6 +495,25 @@ export class CopilotClient implements CodingAgentClient {
         }))
         : undefined,
       skillDirectories: skillDirectories.length > 0 ? skillDirectories : undefined,
+      instructions: instructions?.trim() || undefined,
+    };
+  }
+
+  private buildCopilotSystemMessage(
+    config: SessionConfig,
+    instructions?: string,
+  ): SdkSessionConfig["systemMessage"] {
+    const segments = [instructions?.trim(), config.additionalInstructions?.trim()].filter(
+      (segment): segment is string => typeof segment === "string" && segment.length > 0,
+    );
+
+    if (segments.length === 0) {
+      return undefined;
+    }
+
+    return {
+      mode: "append",
+      content: segments.join("\n\n"),
     };
   }
 
@@ -538,9 +563,10 @@ export class CopilotClient implements CodingAgentClient {
       ...(options.reasoningEffort
         ? { reasoningEffort: options.reasoningEffort }
         : {}),
-      systemMessage: config.additionalInstructions
-        ? { mode: "append", content: config.additionalInstructions }
-        : undefined,
+      systemMessage: this.buildCopilotSystemMessage(
+        config,
+        options.artifacts?.instructions,
+      ),
       availableTools: config.tools,
       streaming: true,
       tools: this.registeredTools.map((tool) => this.convertTool(tool)),

@@ -36,8 +36,7 @@ export interface ProviderDiscoveryRoots {
 
 export type ProviderRuntimeBinding =
   | {
-      mode: "mergedConfigDir";
-      envVar: "CLAUDE_CONFIG_DIR" | "OPENCODE_CONFIG_DIR";
+      mode: "nativeConfig";
     }
   | {
       mode: "manualInjection";
@@ -62,8 +61,7 @@ export const PROVIDER_DISCOVERY_CONTRACTS = {
     provider: "claude",
     precedence: PROVIDER_DISCOVERY_TIERS,
     runtime: {
-      mode: "mergedConfigDir",
-      envVar: "CLAUDE_CONFIG_DIR",
+      mode: "nativeConfig",
     },
     roots: {
       atomicBaseline: [],
@@ -89,24 +87,22 @@ export const PROVIDER_DISCOVERY_CONTRACTS = {
     provider: "opencode",
     precedence: PROVIDER_DISCOVERY_TIERS,
     runtime: {
-      mode: "mergedConfigDir",
-      envVar: "OPENCODE_CONFIG_DIR",
+      mode: "nativeConfig",
     },
     roots: {
       atomicBaseline: [],
       userGlobal: [
         {
-          id: "opencode_user_home_native",
+          id: "opencode_user_home",
           pathTemplate: "~/.opencode",
           compatibility: "native",
           description: "User OpenCode home config root",
         },
         {
-          id: "opencode_user_canonical_xdg",
-          pathTemplate: "<opencode-canonical-user-root>",
+          id: "opencode_user_xdg",
+          pathTemplate: "<opencode-xdg-user-root>",
           compatibility: "native",
-          description:
-            "Canonical OpenCode root resolved from the platform config home",
+          description: "User OpenCode XDG config root",
         },
       ],
       projectLocal: [
@@ -130,33 +126,21 @@ export const PROVIDER_DISCOVERY_CONTRACTS = {
       atomicBaseline: [],
       userGlobal: [
         {
-          id: "copilot_user_home_native",
+          id: "copilot_user_home",
           pathTemplate: "~/.copilot",
           compatibility: "native",
           description: "User Copilot home config root",
         },
         {
-          id: "copilot_user_canonical_native",
-          pathTemplate: "<copilot-canonical-user-root>",
+          id: "copilot_user_xdg",
+          pathTemplate: "<copilot-xdg-user-root>",
           compatibility: "native",
-          description: "Canonical Copilot root resolved from the platform config home",
+          description: "User Copilot XDG config root",
         },
       ],
       projectLocal: [
         {
-          id: "copilot_project_claude_compat",
-          pathTemplate: "<project>/.claude",
-          compatibility: "compatibility",
-          description: "Project Claude compatibility root",
-        },
-        {
-          id: "copilot_project_opencode_compat",
-          pathTemplate: "<project>/.opencode",
-          compatibility: "compatibility",
-          description: "Project OpenCode compatibility root",
-        },
-        {
-          id: "copilot_project_native",
+          id: "copilot_project",
           pathTemplate: "<project>/.github",
           compatibility: "native",
           description: "Project Copilot native root",

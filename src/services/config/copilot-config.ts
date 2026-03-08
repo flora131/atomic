@@ -1,12 +1,6 @@
 import defaultFs from "fs/promises";
 import path from "path";
 import os from "os";
-import { parseMarkdownFrontmatter } from "@/lib/markdown.ts";
-import {
-  emitCopilotPathConflictWarnings,
-  type CopilotPathConflictWarning,
-  resolveCopilotUserRoots,
-} from "@/services/config/copilot-paths.ts";
 import {
   buildProviderDiscoveryPlan,
   type ProviderDiscoveryPlan,
@@ -18,45 +12,33 @@ import {
   registerProviderDiscoveryCacheInvalidator,
   setProviderDiscoverySessionCacheValue,
 } from "@/services/config/provider-discovery-cache.ts";
+import {
+  defaultAgentDefinitionFsOps,
+  loadAgentDefinitionsFromDir,
+  type AgentDefinitionFsOps,
+  type RuntimeAgentDefinition,
+} from "@/services/config/agent-definition-loader.ts";
 
 /**
  * Represents a Copilot agent configuration parsed from manual format.
  */
-export interface CopilotAgent {
-  /** The name of the agent */
-  name: string;
-  /** Description of what the agent does */
-  description: string;
-  /** Optional list of tool names this agent can use */
-  tools?: string[];
-  /** The system prompt for the agent */
-  systemPrompt: string;
-  /** Where the agent was loaded from */
-  source: "local" | "global";
-}
+export type CopilotAgent = RuntimeAgentDefinition;
 
 /**
  * File system operations interface for dependency injection.
  * Allows testing with mock implementations.
  */
-export interface FsOps {
-  readdir: typeof defaultFs.readdir;
-  readFile: typeof defaultFs.readFile;
-}
+export type FsOps = AgentDefinitionFsOps;
 
 export interface CopilotPathResolutionOptions {
-  xdgConfigHome?: string | null;
-  appDataDir?: string | null;
-  platform?: NodeJS.Platform;
-  onPathConflictWarning?: (warning: CopilotPathConflictWarning) => void;
   pathExistsFn?: (candidatePath: string) => Promise<boolean>;
+  xdgConfigHome?: string | null;
   providerDiscoveryPlan?: ProviderDiscoveryPlan;
 }
 
 /** Default fs operations using Node.js fs/promises */
 export const defaultFsOps: FsOps = {
-  readdir: defaultFs.readdir,
-  readFile: defaultFs.readFile,
+  ...defaultAgentDefinitionFsOps,
 };
 
 function dedupeDirectoryEntries(
@@ -95,22 +77,6 @@ function dedupePaths(paths: string[]): string[] {
   return deduped;
 }
 
-function resolveXdgConfigHome(
-  options: CopilotPathResolutionOptions,
-): string | null {
-  return options.xdgConfigHome === undefined
-    ? process.env.XDG_CONFIG_HOME ?? null
-    : options.xdgConfigHome;
-}
-
-function resolveAppDataDir(
-  options: CopilotPathResolutionOptions,
-): string | null {
-  return options.appDataDir === undefined
-    ? process.env.APPDATA ?? null
-    : options.appDataDir;
-}
-
 function assertCopilotDiscoveryPlan(
   plan: ProviderDiscoveryPlan,
 ): ProviderDiscoveryPlan {
@@ -129,9 +95,9 @@ function serializeDiscoveryPlanRoots(plan: ProviderDiscoveryPlan): string {
     .join("|");
 }
 
-const AGENT_SESSION_CACHE_PREFIX = "copilot-manual:agents:";
+const AGENT_SESSION_CACHE_PREFIX = "copilot-config:agents:";
 const SKILL_DIRECTORY_SESSION_CACHE_PREFIX =
-  "copilot-manual:skill-directories:";
+  "copilot-config:skill-directories:";
 
 function buildSessionScopedCacheKey(
   prefix: string,
@@ -163,6 +129,17 @@ function getDiscoveryRootSubdirectory(
   return resolvedDirectory;
 }
 
+function resolveCopilotSubdirectoriesFromPlan(
+  plan: ProviderDiscoveryPlan,
+  subdirectory: "agents" | "skills",
+): string[] {
+  return dedupePaths(
+    [...plan.rootsInPrecedenceOrder]
+      .reverse()
+      .map((root) => getDiscoveryRootSubdirectory(root.resolvedPath, subdirectory)),
+  );
+}
+
 export async function resolveCopilotDiscoveryPlan(
   projectRoot: string,
   options: CopilotPathResolutionOptions = {},
@@ -178,27 +155,11 @@ export async function resolveCopilotDiscoveryPlan(
     return startupPlan;
   }
 
-  const xdgConfigHome = resolveXdgConfigHome(options);
-  const appDataDir = resolveAppDataDir(options);
   const homeDir = os.homedir();
-  const copilotRoots = await resolveCopilotUserRoots({
-    homeDir,
-    xdgConfigHome,
-    appDataDir,
-    platform: options.platform,
-  });
-  emitCopilotPathConflictWarnings(
-    copilotRoots.warnings,
-    options.onPathConflictWarning,
-  );
-
   return buildProviderDiscoveryPlan("copilot", {
     projectRoot,
     homeDir,
-    ...(xdgConfigHome ? { xdgConfigHome } : {}),
-    ...(appDataDir ? { appDataDir } : {}),
-    ...(options.platform ? { platform: options.platform } : {}),
-    copilotCanonicalUserRoot: copilotRoots.canonicalRoot,
+    xdgConfigHome: options.xdgConfigHome,
   });
 }
 
@@ -231,12 +192,7 @@ export async function resolveCopilotSkillDirectories(
     return cachedSkillDirectories.directories;
   }
 
-  const rootsInCompatibilityOrder = [...plan.rootsInPrecedenceOrder].reverse();
-  const candidateDirs = dedupePaths(
-    rootsInCompatibilityOrder.map((root) =>
-      getDiscoveryRootSubdirectory(root.resolvedPath, "skills"),
-    ),
-  );
+  const candidateDirs = resolveCopilotSubdirectoriesFromPlan(plan, "skills");
   const doesPathExist = options.pathExistsFn ?? defaultPathExists;
 
   const existingDirectories = await Promise.all(
@@ -260,6 +216,26 @@ export async function resolveCopilotSkillDirectories(
   return resolvedDirectories;
 }
 
+export async function resolveCopilotAgentDirectories(
+  projectRoot: string,
+  options: CopilotPathResolutionOptions = {},
+): Promise<string[]> {
+  const plan = await resolveCopilotDiscoveryPlan(projectRoot, options);
+  return resolveCopilotSubdirectoriesFromPlan(plan, "agents");
+}
+
+export function resolveCopilotAgentDirectoriesFromPlan(
+  plan: ProviderDiscoveryPlan,
+): string[] {
+  return resolveCopilotSubdirectoriesFromPlan(assertCopilotDiscoveryPlan(plan), "agents");
+}
+
+export function resolveCopilotSkillDirectoriesFromPlan(
+  plan: ProviderDiscoveryPlan,
+): string[] {
+  return resolveCopilotSubdirectoriesFromPlan(assertCopilotDiscoveryPlan(plan), "skills");
+}
+
 /**
  * Load agents from a directory containing .md files.
  * Each markdown file should have frontmatter with agent configuration.
@@ -276,60 +252,7 @@ export async function loadAgentsFromDir(
   source: "local" | "global",
   fsOps: FsOps = defaultFsOps
 ): Promise<CopilotAgent[]> {
-  try {
-    const files = await fsOps.readdir(agentsDir);
-    const mdFiles = (files as string[]).filter((f) => f.endsWith(".md"));
-
-    // Load all files in parallel
-    const agentResults = await Promise.allSettled(
-      mdFiles.map(async (file) => {
-        const filePath = path.join(agentsDir, file);
-        const content = await fsOps.readFile(filePath, "utf-8");
-        const parsed = parseMarkdownFrontmatter(content as string);
-
-        if (!parsed) {
-          // No frontmatter, use file content as system prompt
-          return {
-            name: file.replace(/\.md$/, ""),
-            description: `Agent: ${file.replace(/\.md$/, "")}`,
-            systemPrompt: (content as string).trim(),
-            source,
-          };
-        }
-
-        const { frontmatter, body } = parsed;
-        const name =
-          typeof frontmatter.name === "string"
-            ? frontmatter.name
-            : file.replace(/\.md$/, "");
-        const description =
-          typeof frontmatter.description === "string"
-            ? frontmatter.description
-            : `Agent: ${name}`;
-        const tools = Array.isArray(frontmatter.tools)
-          ? (frontmatter.tools.filter(
-              (t): t is string => typeof t === "string"
-            ) as string[])
-          : undefined;
-
-        return {
-          name,
-          description,
-          tools,
-          systemPrompt: body.trim(),
-          source,
-        };
-      })
-    );
-
-    // Filter out rejected promises and extract successful agents
-    return agentResults
-      .filter((result): result is PromiseFulfilledResult<CopilotAgent> => result.status === "fulfilled")
-      .map((result) => result.value);
-  } catch {
-    // Return empty array if directory doesn't exist or can't be read
-    return [];
-  }
+  return loadAgentDefinitionsFromDir(agentsDir, source, fsOps);
 }
 
 /**
@@ -427,7 +350,7 @@ export async function loadCopilotAgents(
 /**
  * Load Copilot instructions from either local or global configuration.
  * Local instructions (.github/copilot-instructions.md) take priority over
- * ~/.copilot, then a distinct XDG override root when configured.
+ * the configured global Copilot root from AGENTS.md.
  *
  * @param projectRoot - Path to the project root directory
  * @param fsOps - Optional fs operations for testing (defaults to Node.js fs/promises)
@@ -438,25 +361,12 @@ export async function loadCopilotInstructions(
   fsOps: FsOps = defaultFsOps,
   options: CopilotPathResolutionOptions = {},
 ): Promise<string | null> {
-  const homeDir = os.homedir();
-  const xdgConfigHome = resolveXdgConfigHome(options);
-  const appDataDir = resolveAppDataDir(options);
-  const copilotRoots = await resolveCopilotUserRoots({
-    homeDir,
-    xdgConfigHome,
-    appDataDir,
-    platform: options.platform,
-  });
-  emitCopilotPathConflictWarnings(
-    copilotRoots.warnings,
-    options.onPathConflictWarning,
+  const plan = await resolveCopilotDiscoveryPlan(projectRoot, options);
+  const instructionCandidates = dedupePaths(
+    [...plan.rootsInPrecedenceOrder]
+      .reverse()
+      .map((root) => path.join(root.resolvedPath, "copilot-instructions.md")),
   );
-
-  const instructionCandidates = dedupePaths([
-    path.join(projectRoot, ".github", "copilot-instructions.md"),
-    path.join(copilotRoots.canonicalRoot, "copilot-instructions.md"),
-    path.join(copilotRoots.homeRoot, "copilot-instructions.md"),
-  ]);
 
   for (const candidatePath of instructionCandidates) {
     try {

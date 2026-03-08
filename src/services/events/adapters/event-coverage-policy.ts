@@ -133,6 +133,11 @@ const OPENCODE_EVENT_COVERAGE: ProviderCoverage = {
 
 const CLAUDE_EVENT_COVERAGE: ProviderCoverage = {
   ...OPENCODE_EVENT_COVERAGE,
+  "message.complete": {
+    disposition: "mapped_with_constraints",
+    canonicalEvents: ["stream.text.complete", "stream.thinking.complete", "stream.tool.start"],
+    rationale: "Sub-agent message.complete toolRequests materialize inline tool rows; text completion still follows stream-end semantics.",
+  },
 };
 
 const COPILOT_EVENT_COVERAGE: ProviderCoverage = {

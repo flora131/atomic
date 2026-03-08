@@ -65,7 +65,7 @@ export function initOpenCodeConfigOverrides(): OpenCodePermissionRule[] {
  * NOTE: Unlike Claude and OpenCode SDKs, the Copilot SDK does NOT auto-load
  * agent configurations from .github/agents/, ~/.copilot/agents/, or
  * a distinct XDG override root.
- * Manual parsing is required via loadCopilotAgents() from src/services/config/copilot-manual.ts.
+ * Manual parsing is required via loadCopilotAgents() from src/services/config/copilot-config.ts.
  *
  * @returns Copilot session options with recommended defaults
  */

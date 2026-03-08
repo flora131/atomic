@@ -49,7 +49,7 @@ test("buildDiscoveryEventPayload returns a machine-parseable v1 discovery payloa
       rootCompatibility: "native",
     },
     data: {
-      runtimeMode: "mergedConfigDir",
+      runtimeMode: "nativeConfig",
       rootCount: 3,
       projectRoot,
       userRoot,
@@ -70,7 +70,7 @@ test("buildDiscoveryEventPayload returns a machine-parseable v1 discovery payloa
   expect(payload.tags.rootId).toBe("claude_project");
   expect(payload.tags.rootTier).toBe("projectLocal");
   expect(payload.tags.rootCompatibility).toBe("native");
-  expect(payload.data?.runtimeMode).toBe("mergedConfigDir");
+  expect(payload.data?.runtimeMode).toBe("nativeConfig");
   expect(payload.data?.rootCount).toBe(3);
   expect(payload.data?.projectRoot).toBe("<project>");
   expect(payload.data?.userRoot).toBe("~/.claude");

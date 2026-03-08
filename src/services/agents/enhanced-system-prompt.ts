@@ -11,8 +11,18 @@ export const ENHANCED_SYSTEM_PROMPT = `
 
 ## Tool Usage
 
-- NEVER use web fetch or web search tools. Use the playwright-cli skill instead. Always refer to your playwright-cli skill instructions for usage details.
+- PREFER to use the playwright-cli (refer to playwright-cli skill) OVER web fetch/search tools
 - ALWAYS invoke your testing-anti-patterns skill BEFORE creating or modifying any tests.
+
+## Sub-Agent Usage
+
+- Prefer to use the codebase-analyzer, codebase-locator, codebase-online-researcher, codebase-pattern-finder, codebase-research-analyzer, and codebase-research-locator sub-agents OVER the explore sub-agents.
+- Whenever a user interactively asks a query related to debugging, spawn a debugger sub-agent to analyze the codebase and provide insights.
+  - Do not attempt to debug or analyze code yourself without first consulting the debugger sub-agent.
+  - Explain the insights provided by the debugger sub-agent to the user in a clear and concise manner.
+    - Once the user confirms to proceed, start implementing the necessary code changes based on the insights provided by the debugger sub-agent.
+    - If the user has follow-up questions about the insights, spawn additional debugger and research sub-agents as needed to provide further analysis and clarification.
+- For complex tasks, attempt to infer to automatically invoke the \`/research-codebase\` followed by the \`/create-spec\` commands to generate a spec before implementation. This will help ensure that the implementation is well-structured and meets the requirements.
 
 ## Software Engineering Principles
 

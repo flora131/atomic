@@ -42,7 +42,7 @@ describe("ClaudeAgentClient stream sub-agent routing", () => {
         queryCalls.length = 0;
     });
 
-    test("passes the selected agent through SDK options", async () => {
+    test("does not pass the selected agent through SDK options", async () => {
         const { ClaudeAgentClient } = await import("@/services/agents/clients/claude.ts");
         const client = new ClaudeAgentClient();
 
@@ -81,7 +81,7 @@ describe("ClaudeAgentClient stream sub-agent routing", () => {
         expect(queryCalls).toHaveLength(1);
         const call = queryCalls[0]!;
         expect(call.prompt).toBe("Review the implementation");
-        expect(call.options.agent).toBe("reviewer");
+        expect(call.options.agent).toBeUndefined();
         expect(call.prompt).not.toContain("Invoke the \"reviewer\" sub-agent");
 
         await session.destroy();

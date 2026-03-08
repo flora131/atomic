@@ -165,6 +165,67 @@ describe("extractMessageContent thinking source identity", () => {
   });
 });
 
+describe("ClaudeAgentClient assistant message.complete preserves toolRequests", () => {
+  test("processMessage passes child tool requests through normalized message.complete events", () => {
+    const client = new ClaudeAgentClient();
+    const events: Array<Record<string, unknown>> = [];
+
+    client.on("message.complete", (event) => {
+      events.push(event.data as Record<string, unknown>);
+    });
+
+    const processMessage = (client as unknown as {
+      processMessage: (sdkMessage: unknown, sessionId: string, state: Record<string, unknown>) => void;
+    }).processMessage.bind(client);
+
+    processMessage({
+      type: "assistant",
+      uuid: "assistant-1",
+      session_id: "child-session-1",
+      parent_tool_use_id: "parent-task-1",
+      message: {
+        content: [
+          {
+            type: "tool_use",
+            id: "child-tool-1",
+            name: "Read",
+            input: { file_path: "test.ts" },
+          },
+        ],
+        usage: {
+          input_tokens: 11,
+          output_tokens: 7,
+        },
+        model: "sonnet",
+        stop_reason: "tool_use",
+      },
+    }, "wrapped-session", {
+      query: null,
+      sessionId: "wrapped-session",
+      sdkSessionId: "parent-session",
+      config: {},
+      inputTokens: 0,
+      outputTokens: 0,
+      isClosed: false,
+      contextWindow: null,
+      systemToolsBaseline: null,
+      hasEmittedStreamingUsage: false,
+      pendingAbortPromise: null,
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.parentToolCallId).toBe("parent-task-1");
+    expect(events[0]!.toolRequests).toEqual([
+      {
+        toolCallId: "child-tool-1",
+        name: "Read",
+        arguments: { file_path: "test.ts" },
+      },
+    ]);
+    expect((events[0]!.message as Record<string, unknown>).type).toBe("tool_use");
+  });
+});
+
 describe("ClaudeAgentClient observability and parity", () => {
   test("preserves nativeType and native payload on bridged provider events", () => {
     const client = new ClaudeAgentClient();

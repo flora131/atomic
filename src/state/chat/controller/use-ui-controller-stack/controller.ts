@@ -102,7 +102,6 @@ export function useChatUiControllerStack({
     continueQueuedConversation,
     dynamicPlaceholder,
     emitMessageSubmitTelemetry,
-    enqueueShortcutLabel,
     finalizeTaskItemsOnInterrupt,
     updateWorkflowState,
   } = orchestration;
@@ -426,7 +425,6 @@ export function useChatUiControllerStack({
     currentModelId,
     displayModel,
     dynamicPlaceholder,
-    enqueueShortcutLabel,
     footerBackgroundAgents,
     handleAutocompleteIndexChange,
     handleAutocompleteSelect,

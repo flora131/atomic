@@ -3,7 +3,6 @@ import { describe, expect, test } from "bun:test";
 import { getNextKittyKeyboardDetectionState } from "@/lib/ui/kitty-keyboard-detection.ts";
 import {
   shouldApplyBackslashLineContinuation,
-  shouldEnqueueMessageFromKeyEvent,
   shouldInsertNewlineFallbackFromKeyEvent,
   shouldInsertNewlineFromKeyEvent,
   type NewlineKeyEventLike,
@@ -55,16 +54,6 @@ function createInputHarness(options: InputHarnessOptions = {}): InputHarness {
       return;
     }
 
-    if (shouldEnqueueMessageFromKeyEvent(event, state.platform)) {
-      const trimmed = state.value.trim();
-      if (trimmed) {
-        state.enqueued.push(trimmed);
-      }
-      state.value = "";
-      return;
-    }
-
-    // Terminal-specific fallback newline detection (global hook tier).
     if (shouldInsertNewlineFallbackFromKeyEvent(event)) {
       state.value += "\n";
       return;
@@ -222,39 +211,41 @@ describe("Shift+Enter repeated newline regression E2E", () => {
     expect(input.value).toBe("");
   });
 
-  test("Cmd+Shift+Enter enqueues while streaming on macOS", () => {
+  test("Cmd+Shift+Enter inserts newline on macOS (no longer enqueues)", () => {
     const input = createInputHarness({ platform: "darwin", isStreaming: true });
 
     input.typeText("queued from mac");
     input.pressKey({ name: "return", shift: true, meta: true, raw: "\r" });
 
-    expect(input.enqueued).toEqual(["queued from mac"]);
+    // With enqueue keybind removed, Cmd+Shift+Enter is a newline
+    expect(input.enqueued).toHaveLength(0);
     expect(input.submitted).toHaveLength(0);
-    expect(input.value).toBe("");
+    expect(input.value).toBe("queued from mac\n");
   });
 
-  test("Ctrl+Shift+Enter enqueues while streaming on Linux/Windows", () => {
+  test("Ctrl+Shift+Enter inserts newline on Linux/Windows (no longer enqueues)", () => {
     const input = createInputHarness({ platform: "linux", isStreaming: true });
 
     input.typeText("queued from ctrl");
     input.pressKey({ name: "return", shift: true, ctrl: true, raw: "\r" });
 
-    expect(input.enqueued).toEqual(["queued from ctrl"]);
+    // With enqueue keybind removed, Ctrl+Shift+Enter is a newline
+    expect(input.enqueued).toHaveLength(0);
     expect(input.submitted).toHaveLength(0);
-    expect(input.value).toBe("");
+    expect(input.value).toBe("queued from ctrl\n");
   });
 
-  test("Cmd/Ctrl+Shift+Enter enqueues even when not streaming", () => {
+  test("Cmd/Ctrl+Shift+Enter inserts newline when not streaming", () => {
     const macInput = createInputHarness({ platform: "darwin", isStreaming: false });
     macInput.typeText("mac line");
     macInput.pressKey({ name: "return", shift: true, meta: true, raw: "\r" });
-    expect(macInput.enqueued).toEqual(["mac line"]);
-    expect(macInput.value).toBe("");
+    expect(macInput.enqueued).toHaveLength(0);
+    expect(macInput.value).toBe("mac line\n");
 
     const linuxInput = createInputHarness({ platform: "linux", isStreaming: false });
     linuxInput.typeText("linux line");
     linuxInput.pressKey({ name: "return", shift: true, ctrl: true, raw: "\r" });
-    expect(linuxInput.enqueued).toEqual(["linux line"]);
-    expect(linuxInput.value).toBe("");
+    expect(linuxInput.enqueued).toHaveLength(0);
+    expect(linuxInput.value).toBe("linux line\n");
   });
 });

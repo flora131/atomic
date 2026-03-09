@@ -3,7 +3,6 @@ import type { MutableRefObject } from "react";
 import { saveTasksToActiveSession } from "@/commands/tui/workflow-commands.ts";
 import type { DeferredCommandMessage } from "@/state/chat/command/executor-types.ts";
 import { dispatchNextQueuedMessage, shouldDispatchQueuedMessage } from "@/lib/ui/stream-continuation.ts";
-import { getEnqueueShortcutLabel } from "@/lib/ui/newline-strategies.ts";
 import { normalizeInterruptedTasks, snapshotTaskItems } from "@/lib/ui/workflow-task-state.ts";
 import type { UseMessageQueueReturn } from "@/hooks/use-message-queue.ts";
 import type { MessageSubmitTelemetry, TaskItem, WorkflowChatState } from "@/state/chat/types.ts";
@@ -99,17 +98,15 @@ export function useChatAppOrchestration({
     return snapshotTaskItems(updated) as TaskItem[] | undefined;
   }, [isWorkflowTaskUpdate, setTodoItems, todoItemsRef, workflowSessionIdRef]);
 
-  const enqueueShortcutLabel = useMemo(() => getEnqueueShortcutLabel(), []);
-
   const dynamicPlaceholder = useMemo(() => {
     if (messageQueue.count > 0) {
       return "Press ↑ to edit queued messages...";
     }
     if (isStreaming) {
-      return `Type a message (enter to interrupt, ${enqueueShortcutLabel} to enqueue)...`;
+      return "Type a message (enter to enqueue, ctrl+c to interrupt)...";
     }
     return "Enter a message...";
-  }, [enqueueShortcutLabel, isStreaming, messageQueue.count]);
+  }, [isStreaming, messageQueue.count]);
 
   const updateWorkflowState = useCallback((updates: Partial<WorkflowChatState>) => {
     applyWorkflowStateUpdate(setWorkflowState, updates);
@@ -123,7 +120,6 @@ export function useChatAppOrchestration({
     continueQueuedConversation,
     dynamicPlaceholder,
     emitMessageSubmitTelemetry,
-    enqueueShortcutLabel,
     finalizeTaskItemsOnInterrupt,
     updateWorkflowState,
   };

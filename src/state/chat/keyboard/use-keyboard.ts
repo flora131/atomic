@@ -204,10 +204,7 @@ export function useChatKeyboard({
       }
 
       if (handleComposeShortcutKey({
-        continueQueuedConversation,
-        emitMessageSubmitTelemetry,
         event,
-        messageQueue,
         textareaRef,
       })) {
         return;

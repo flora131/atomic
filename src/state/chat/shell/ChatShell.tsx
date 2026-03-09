@@ -44,7 +44,6 @@ export interface ChatShellProps {
   currentModelId?: string;
   displayModel: string;
   dynamicPlaceholder: string;
-  enqueueShortcutLabel: string;
   footerBackgroundAgents: readonly ParallelAgent[];
   handleAutocompleteIndexChange: (index: number) => void;
   handleAutocompleteSelect: (
@@ -108,7 +107,6 @@ export function ChatShell({
   currentModelId,
   displayModel,
   dynamicPlaceholder,
-  enqueueShortcutLabel,
   footerBackgroundAgents,
   handleAutocompleteIndexChange,
   handleAutocompleteSelect,
@@ -302,7 +300,6 @@ export function ChatShell({
                 <FooterStatus
                   isStreaming={isStreaming}
                   workflowActive={workflowState.workflowActive}
-                  enqueueShortcutLabel={enqueueShortcutLabel}
                   backgroundAgents={footerBackgroundAgents}
                 />
               </>

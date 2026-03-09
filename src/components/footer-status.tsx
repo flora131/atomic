@@ -26,8 +26,6 @@ export interface FooterStatusComponentProps {
   isStreaming?: boolean;
   /** Whether a workflow is currently active */
   workflowActive?: boolean;
-  /** Enqueue shortcut label (e.g. "ctrl+shift+enter") */
-  enqueueShortcutLabel?: string;
   /** Active background agents */
   backgroundAgents?: readonly ParallelAgent[];
 }
@@ -39,7 +37,6 @@ export interface FooterStatusComponentProps {
 export function FooterStatus({
   isStreaming = false,
   workflowActive = false,
-  enqueueShortcutLabel = "ctrl+shift+enter",
   backgroundAgents = [],
 }: FooterStatusComponentProps): React.ReactNode {
   const { theme } = useTheme();
@@ -73,8 +70,6 @@ export function FooterStatus({
       {(showStreamingHints || showWorkflowHints) && (
         <>
           <text style={{ fg: colors.muted }}>esc to interrupt</text>
-          <text style={{ fg: colors.muted }}>{MISC.separator}</text>
-          <text style={{ fg: colors.muted }}>{enqueueShortcutLabel} enqueue</text>
         </>
       )}
       {showWorkflowHints && (

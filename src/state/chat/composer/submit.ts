@@ -1,50 +1,26 @@
 import type { MutableRefObject } from "react";
 import type { TextareaRenderable } from "@opentui/core";
 import { parseSlashCommand } from "@/commands/tui/index.ts";
-import { finalizeStreamingReasoningInMessage, finalizeStreamingReasoningParts } from "@/state/parts/index.ts";
 import { parseAtMentions, processFileMentions } from "@/lib/ui/mention-parsing.ts";
 import { shouldApplyBackslashLineContinuation } from "@/lib/ui/newline-strategies.ts";
-import {
-  interruptRunningToolCalls,
-  interruptRunningToolParts,
-  shouldDeferComposerSubmit,
-} from "@/lib/ui/stream-continuation.ts";
+import { shouldDeferComposerSubmit } from "@/lib/ui/stream-continuation.ts";
 import { consumeWorkflowInputSubmission } from "@/lib/ui/workflow-input-resolver.ts";
-import type { ChatMessage } from "@/state/chat/types.ts";
 import type { UseComposerControllerArgs } from "@/state/chat/composer/types.ts";
 
 interface HandleComposerSubmitArgs extends Pick<
   UseComposerControllerArgs,
   | "addMessage"
   | "agentType"
-  | "clearDeferredCompletion"
-  | "currentModelRef"
   | "emitMessageSubmitTelemetry"
   | "executeCommand"
-  | "finalizeTaskItemsOnInterrupt"
-  | "finalizeThinkingSourceTracking"
-  | "getActiveStreamRunId"
   | "isStreamingRef"
-  | "lastStreamingContentRef"
   | "messageQueue"
-  | "onInterrupt"
-  | "parallelAgentsRef"
-  | "parallelInterruptHandlerRef"
-  | "resolveTrackedRun"
   | "runningAskQuestionToolIdsRef"
   | "sendMessage"
-  | "separateAndInterruptAgents"
   | "setIsStreaming"
-  | "setMessagesWindowed"
-  | "setParallelAgents"
   | "setTodoItems"
   | "setWorkflowSessionDir"
   | "setWorkflowSessionId"
-  | "shouldHideActiveStreamContent"
-  | "stopSharedStreamState"
-  | "streamingMessageIdRef"
-  | "streamingMetaRef"
-  | "streamingStartRef"
   | "todoItemsRef"
   | "updateWorkflowState"
   | "waitForUserInputResolverRef"
@@ -73,35 +49,17 @@ export function handleComposerSubmit({
   agentType,
   appendPromptHistory,
   clearComposerAutocomplete,
-  clearDeferredCompletion,
-  currentModelRef,
   emitMessageSubmitTelemetry,
   executeCommand,
-  finalizeTaskItemsOnInterrupt,
-  finalizeThinkingSourceTracking,
-  getActiveStreamRunId,
   isStreamingRef,
   kittyKeyboardDetectedRef,
-  lastStreamingContentRef,
   messageQueue,
-  onInterrupt,
-  parallelAgentsRef,
-  parallelInterruptHandlerRef,
-  resolveTrackedRun,
   runningAskQuestionToolIdsRef,
   sendMessage,
-  separateAndInterruptAgents,
   setIsStreaming,
-  setMessagesWindowed,
-  setParallelAgents,
   setTodoItems,
   setWorkflowSessionDir,
   setWorkflowSessionId,
-  shouldHideActiveStreamContent,
-  stopSharedStreamState,
-  streamingMessageIdRef,
-  streamingMetaRef,
-  streamingStartRef,
   textareaRef,
   todoItemsRef,
   updateWorkflowState,
@@ -218,65 +176,14 @@ export function handleComposerSubmit({
   const hasFileMentions = filesRead.length > 0;
 
   if (isStreamingRef.current) {
-    clearDeferredCompletion();
-    const currentAgents = parallelAgentsRef.current;
-    const { interruptedAgents, remainingLiveAgents } = separateAndInterruptAgents(currentAgents);
-    parallelAgentsRef.current = remainingLiveAgents;
-    setParallelAgents(remainingLiveAgents);
-
-    const interruptedId = streamingMessageIdRef.current;
-    const interruptedTaskItems = finalizeTaskItemsOnInterrupt();
-    if (interruptedId) {
-      const durationMs = streamingStartRef.current ? Date.now() - streamingStartRef.current : undefined;
-      const finalMeta = streamingMetaRef.current;
-      setMessagesWindowed((previousMessages: ChatMessage[]) =>
-        previousMessages.map((message: ChatMessage) =>
-          message.id === interruptedId
-            ? {
-              ...finalizeStreamingReasoningInMessage(message),
-              wasInterrupted: true,
-              streaming: false,
-              durationMs,
-              modelId: currentModelRef.current,
-              outputTokens: finalMeta?.outputTokens,
-              thinkingMs: finalMeta?.thinkingMs,
-              thinkingText: finalMeta?.thinkingText || undefined,
-              toolCalls: interruptRunningToolCalls(message.toolCalls),
-              parts: interruptRunningToolParts(
-                finalizeStreamingReasoningParts(message.parts ?? [], finalMeta?.thinkingMs || message.thinkingMs),
-              ),
-              taskItems: interruptedTaskItems,
-              parallelAgents: interruptedAgents,
-            }
-            : message,
-        ),
-      );
-    }
-
-    stopSharedStreamState();
-    finalizeThinkingSourceTracking();
-    const interruptedRunId = getActiveStreamRunId();
-    const hideInterruptedMessage = shouldHideActiveStreamContent();
-    resolveTrackedRun("interrupt", {
-      content: lastStreamingContentRef.current,
-      wasInterrupted: true,
-    }, { runId: interruptedRunId });
-    if (hideInterruptedMessage && interruptedId) {
-      setMessagesWindowed((previousMessages: ChatMessage[]) =>
-        previousMessages.filter((message: ChatMessage) => message.id !== interruptedId),
-      );
-    }
-
-    onInterrupt?.();
-    parallelInterruptHandlerRef.current?.();
     emitMessageSubmitTelemetry({
       messageLength: trimmedValue.length,
-      queued: false,
+      queued: true,
       fromInitialPrompt: false,
       hasFileMentions,
       hasAgentMentions: false,
     });
-    sendMessage(processedValue);
+    messageQueue.enqueue(processedValue);
     return;
   }
 

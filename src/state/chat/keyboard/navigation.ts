@@ -6,10 +6,8 @@ import type { UseMessageQueueReturn } from "@/hooks/use-message-queue.ts";
 import type { CommandExecutionTrigger, WorkflowChatState } from "@/state/chat/types.ts";
 import {
   shouldApplyBackslashLineContinuation,
-  shouldEnqueueMessageFromKeyEvent,
   shouldInsertNewlineFallbackFromKeyEvent,
 } from "@/lib/ui/newline-strategies.ts";
-import { hasAnyAtReferenceToken, parseAtMentions } from "@/lib/ui/mention-parsing.ts";
 import { resolveSlashAutocompleteExecution } from "@/state/chat/helpers.ts";
 import type { ChatAutocompleteSuggestion } from "@/state/chat/keyboard/types.ts";
 
@@ -226,49 +224,14 @@ export function handleNavigationKey({
 }
 
 interface HandleComposeShortcutKeyArgs {
-  continueQueuedConversation: () => void;
-  emitMessageSubmitTelemetry: (event: {
-    messageLength: number;
-    queued: boolean;
-    fromInitialPrompt: boolean;
-    hasFileMentions: boolean;
-    hasAgentMentions: boolean;
-  }) => void;
   event: KeyEvent;
-  messageQueue: UseMessageQueueReturn;
   textareaRef: MutableRefObject<TextareaRenderable | null>;
 }
 
 export function handleComposeShortcutKey({
-  continueQueuedConversation,
-  emitMessageSubmitTelemetry,
   event,
-  messageQueue,
   textareaRef,
 }: HandleComposeShortcutKeyArgs): boolean {
-  if (shouldEnqueueMessageFromKeyEvent(event)) {
-    const textarea = textareaRef.current;
-    const value = textarea?.plainText?.trim() ?? "";
-    if (value) {
-      const hasAgentMentions = parseAtMentions(value).length > 0;
-      const hasAnyMentionToken = hasAnyAtReferenceToken(value);
-      emitMessageSubmitTelemetry({
-        messageLength: value.length,
-        queued: true,
-        fromInitialPrompt: false,
-        hasFileMentions: hasAnyMentionToken && !hasAgentMentions,
-        hasAgentMentions,
-      });
-      messageQueue.enqueue(value);
-      continueQueuedConversation();
-      if (textarea) {
-        replaceTextareaValue(textarea, "");
-      }
-    }
-    event.stopPropagation();
-    return true;
-  }
-
   if (shouldInsertNewlineFallbackFromKeyEvent(event)) {
     const textarea = textareaRef.current;
     if (textarea) {

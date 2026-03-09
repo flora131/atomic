@@ -58,14 +58,14 @@
         "@clack/prompts": "^1.1.0",
         "@commander-js/extra-typings": "^14.0.0",
         "@github/copilot-sdk": "0.1.32",
-        "@opencode-ai/sdk": "^1.2.22",
+        "@opencode-ai/sdk": "^1.2.24",
         "@opentelemetry/api": "^1.9.0",
         "@opentelemetry/api-logs": "^0.213.0",
-        "@opentui/core": "^0.1.86",
-        "@opentui/react": "^0.1.86",
+        "@opentui/core": "^0.1.87",
+        "@opentui/react": "^0.1.87",
         "ci-info": "^4.4.0",
         "commander": "^14.0.3",
-        "web-tree-sitter": "0.26.6",
+        "web-tree-sitter": "^0.26.6",
         "yaml": "^2.8.2",
         "zod": "^4.3.6"
     }

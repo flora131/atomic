@@ -284,6 +284,7 @@ describe("skill-commands builtins", () => {
             homeDir,
             xdgConfigHome,
             pathExists: () => false,
+            platform: "linux",
         });
 
         const searchPaths = getRuntimeCompatibleSkillDiscoveryPaths([

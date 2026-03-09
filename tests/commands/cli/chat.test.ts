@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { mkdtemp, mkdir, rm, writeFile } from "fs/promises";
-import { join } from "path";
+import { join, resolve } from "path";
 import { tmpdir } from "os";
 import {
   buildProviderDiscoveryPlanDebugOutput,
@@ -219,6 +219,7 @@ test("buildChatStartupDiscoveryPlan keeps Copilot AGENTS.md precedence with XDG 
     homeDir,
     xdgConfigHome,
     pathExists: () => false,
+    platform: "linux",
   });
 
   expect(plan.provider).toBe("copilot");
@@ -227,8 +228,8 @@ test("buildChatStartupDiscoveryPlan keeps Copilot AGENTS.md precedence with XDG 
     "copilot_project"
   );
   expect(plan.paths.userGlobal).toEqual([
-    join(homeDir, ".copilot"),
-    join(xdgConfigHome, ".copilot"),
+    resolve(homeDir, ".copilot"),
+    resolve(xdgConfigHome, ".copilot"),
   ]);
   expect(plan.compatibilitySets.nativeRootIds.has("copilot_user_home")).toBe(true);
   expect(plan.compatibilitySets.nativeRootIds.has("copilot_user_xdg")).toBe(true);
@@ -244,6 +245,7 @@ test("buildProviderDiscoveryPlanDebugOutput redacts absolute discovery paths", (
     homeDir,
     xdgConfigHome: externalXdgConfigHome,
     pathExists: () => false,
+    platform: "linux",
   });
 
   const debugOutput = buildProviderDiscoveryPlanDebugOutput(plan, {

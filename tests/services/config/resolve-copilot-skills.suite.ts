@@ -39,6 +39,7 @@ describe("resolveCopilotSkillDirectories", () => {
         projectRoot,
         homeDir: root,
         xdgConfigHome,
+        platform: "linux",
       });
       const skillDirectories = await resolveCopilotSkillDirectories(projectRoot, { providerDiscoveryPlan: plan });
       expect(skillDirectories).toEqual(expectedDirectories);

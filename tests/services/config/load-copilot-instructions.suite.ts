@@ -60,7 +60,7 @@ describe("loadCopilotInstructions", () => {
       await mkdir(join(xdgConfigHome, ".copilot"), { recursive: true });
       await writeFile(xdgInstructionsPath, "XDG user instructions", "utf-8");
 
-      const plan = buildProviderDiscoveryPlan("copilot", { projectRoot, homeDir: root, xdgConfigHome });
+      const plan = buildProviderDiscoveryPlan("copilot", { projectRoot, homeDir: root, xdgConfigHome, platform: "linux" });
       const instructions = await loadCopilotInstructions(projectRoot, undefined, { providerDiscoveryPlan: plan });
       expect(instructions).toBe("XDG user instructions");
     } finally {
@@ -78,7 +78,7 @@ describe("loadCopilotInstructions", () => {
       await mkdir(join(xdgConfigHome, ".copilot"), { recursive: true });
       await writeFile(join(xdgConfigHome, ".copilot", "copilot-instructions.md"), "XDG instructions", "utf-8");
 
-      const plan = buildProviderDiscoveryPlan("copilot", { projectRoot, homeDir: root, xdgConfigHome });
+      const plan = buildProviderDiscoveryPlan("copilot", { projectRoot, homeDir: root, xdgConfigHome, platform: "linux" });
       const instructions = await loadCopilotInstructions(projectRoot, undefined, { providerDiscoveryPlan: plan });
       expect(instructions).toBe("XDG instructions");
     } finally {

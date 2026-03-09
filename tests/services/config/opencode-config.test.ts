@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { join } from "path";
+import { join, resolve } from "path";
 import {
   resolveOpenCodeAgentDirectories,
   resolveOpenCodeArtifactPlan,
   resolveOpenCodeSkillDirectories,
 } from "@/services/config/opencode-config.ts";
+import { buildProviderDiscoveryPlan } from "@/services/config/provider-discovery-plan.ts";
 
 describe("opencode-config", () => {
   test("resolves OpenCode discovery plan from AGENTS.md paths only", () => {
@@ -25,16 +26,24 @@ describe("opencode-config", () => {
     const projectRoot = "/tmp/opencode-project";
     const xdgConfigHome = "/tmp/opencode-xdg";
 
+    const plan = buildProviderDiscoveryPlan("opencode", {
+      homeDir,
+      projectRoot,
+      xdgConfigHome,
+      platform: "linux",
+    });
+
     expect(
       resolveOpenCodeAgentDirectories({
         homeDir,
         projectRoot,
         xdgConfigHome,
+        providerDiscoveryPlan: plan,
       }),
     ).toEqual([
-      join(projectRoot, ".opencode", "agents"),
-      join(xdgConfigHome, ".opencode", "agents"),
-      join(homeDir, ".opencode", "agents"),
+      resolve(projectRoot, ".opencode", "agents"),
+      resolve(xdgConfigHome, ".opencode", "agents"),
+      resolve(homeDir, ".opencode", "agents"),
     ]);
 
     expect(
@@ -42,11 +51,12 @@ describe("opencode-config", () => {
         homeDir,
         projectRoot,
         xdgConfigHome,
+        providerDiscoveryPlan: plan,
       }),
     ).toEqual([
-      join(projectRoot, ".opencode", "skills"),
-      join(xdgConfigHome, ".opencode", "skills"),
-      join(homeDir, ".opencode", "skills"),
+      resolve(projectRoot, ".opencode", "skills"),
+      resolve(xdgConfigHome, ".opencode", "skills"),
+      resolve(homeDir, ".opencode", "skills"),
     ]);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { join } from "path";
+import { join, resolve } from "path";
 import { tmpdir } from "os";
 import { mkdtemp, mkdir, rm, writeFile } from "fs/promises";
 import {
@@ -16,15 +16,15 @@ describe("claude-config", () => {
     expect(
       resolveClaudeAgentDirectories({ homeDir, projectRoot }),
     ).toEqual([
-      join(projectRoot, ".claude", "agents"),
-      join(homeDir, ".claude", "agents"),
+      resolve(projectRoot, ".claude", "agents"),
+      resolve(homeDir, ".claude", "agents"),
     ]);
 
     expect(
       resolveClaudeSkillDirectories({ homeDir, projectRoot }),
     ).toEqual([
-      join(projectRoot, ".claude", "skills"),
-      join(homeDir, ".claude", "skills"),
+      resolve(projectRoot, ".claude", "skills"),
+      resolve(homeDir, ".claude", "skills"),
     ]);
   });
 

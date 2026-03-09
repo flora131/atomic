@@ -89,6 +89,7 @@ describe("loadCopilotAgents", () => {
         projectRoot,
         homeDir: root,
         xdgConfigHome: join(root, ".config"),
+        platform: "linux",
       });
 
       const agents = await loadCopilotAgents(projectRoot, undefined, { providerDiscoveryPlan: plan });

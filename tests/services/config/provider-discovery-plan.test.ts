@@ -53,6 +53,7 @@ describe("provider-discovery-plan", () => {
       projectRoot: "/workspace/repo",
       xdgConfigHome: "/home/tester/.config",
       pathExists: () => true,
+      platform: "linux",
     });
 
     expect(plan.paths.userGlobal).toEqual([
@@ -87,6 +88,7 @@ describe("provider-discovery-plan", () => {
       projectRoot: "/workspace/repo",
       xdgConfigHome: "/home/alice/.config",
       pathExists: () => true,
+      platform: "linux",
     });
 
     expect(plan.runtime).toEqual({

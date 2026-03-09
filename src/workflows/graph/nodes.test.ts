@@ -64,7 +64,7 @@ function createMockMonitoringSession(options: {
   const session: Session = {
     id: "ses_monitor",
     send: async () => ({ type: "text", content: "" }),
-    stream: async function* () {},
+    stream: async function* () { },
     summarize: async () => {
       summarizeCalls += 1;
     },
@@ -72,9 +72,9 @@ function createMockMonitoringSession(options: {
     getSystemToolsTokens: () => 0,
     getCompactionState: () => ({
       isCompacting: options.isCompacting ?? false,
-      hasAutoCompacted: options.hasAutoCompacted,
+      compactionAttemptCount: options.hasAutoCompacted ? 1 : 0,
     }),
-    destroy: async () => {},
+    destroy: async () => { },
   };
   return {
     session,
@@ -134,7 +134,7 @@ describe("agentNode session instructions", () => {
       stream: async function* () {
         yield { type: "text", content: "done", role: "assistant" } as const;
       },
-      summarize: async () => {},
+      summarize: async () => { },
       getContextUsage: async () => ({
         inputTokens: 1,
         outputTokens: 1,
@@ -142,7 +142,7 @@ describe("agentNode session instructions", () => {
         usagePercentage: 2,
       }),
       getSystemToolsTokens: () => 0,
-      destroy: async () => {},
+      destroy: async () => { },
     };
 
     const client: CodingAgentClient = {
@@ -152,10 +152,10 @@ describe("agentNode session instructions", () => {
         return session;
       },
       resumeSession: async () => null,
-      on: () => () => {},
-      registerTool: () => {},
-      start: async () => {},
-      stop: async () => {},
+      on: () => () => { },
+      registerTool: () => { },
+      start: async () => { },
+      stop: async () => { },
       getModelDisplayInfo: async () => ({ model: "mock", tier: "mock" }),
       getSystemToolsTokens: () => null,
     };
@@ -297,7 +297,7 @@ describe("contextMonitorNode compaction conflict guard", () => {
     const session: Session = {
       id: "ses_monitor_error",
       send: async () => ({ type: "text", content: "" }),
-      stream: async function* () {},
+      stream: async function* () { },
       summarize: async () => {
         throw new Error("Compaction timed out");
       },
@@ -310,9 +310,9 @@ describe("contextMonitorNode compaction conflict guard", () => {
       getSystemToolsTokens: () => 0,
       getCompactionState: () => ({
         isCompacting: false,
-        hasAutoCompacted: false,
+        compactionAttemptCount: 0,
       }),
-      destroy: async () => {},
+      destroy: async () => { },
     };
     const node = contextMonitorNode<MonitorState>({
       id: "context-monitor",

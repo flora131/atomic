@@ -68,7 +68,12 @@ import {
   startToolDispatchServer,
   stopToolDispatchServer,
 } from "../tools/opencode-mcp-bridge.ts";
-import { BACKGROUND_COMPACTION_THRESHOLD } from "../../workflows/graph/types.ts";
+import {
+  BACKGROUND_COMPACTION_THRESHOLD,
+  COMPACTION_BASE_TIMEOUT_MS,
+  COMPACTION_TIMEOUT_PER_1K_TOKENS_MS,
+  COMPACTION_MAX_TIMEOUT_MS,
+} from "../../workflows/graph/types.ts";
 import {
   incrementRuntimeParityCounter,
   runtimeParityDebug,
@@ -127,7 +132,6 @@ const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_RETRY_DELAY = 1000;
 const PRE_PROMPT_TERMINAL_SETTLE_MS = 500;
 export const AUTO_COMPACTION_THRESHOLD = BACKGROUND_COMPACTION_THRESHOLD;
-export const MAX_COMPACTION_WAIT_MS = 15_000;
 export const COMPACTION_TERMINAL_ERROR_MESSAGE = "Compaction failed, please start a new chat.";
 const COMPACTION_COMPLETE_DEDUPE_WINDOW_MS = 1000;
 const SESSION_LIFECYCLE_EVENT_TYPES = new Set<string>([
@@ -139,6 +143,9 @@ const SESSION_LIFECYCLE_EVENT_TYPES = new Set<string>([
   "session.deleted",
 ]);
 const OPENCODE_SSE_DIAGNOSTICS_MARKER = "opencode.sse.diagnostics";
+
+const MAX_COMPACTION_RETRIES = 2;
+const COMPACTION_RETRY_BASE_DELAY_MS = 2_000;
 
 type OpenCodeSseDiagnosticsCounter =
   | "sse.watchdog.timeout.count"
@@ -174,10 +181,22 @@ interface OpenCodeSubagentSessionState {
 
 interface OpenCodeSessionCompactionState {
   isCompacting: boolean;
-  hasAutoCompacted: boolean;
+  compactionAttemptCount: number;
   pendingCompactionComplete: boolean;
   lastCompactionCompleteAt: number | null;
   control: OpenCodeCompactionControl;
+}
+
+interface CompactionErrorContext {
+  code: OpenCodeCompactionErrorCode;
+  message: string;
+  sessionId: string;
+  inputTokens: number;
+  outputTokens: number;
+  contextWindow: number | null;
+  usagePercentage: number;
+  attemptNumber: number;
+  elapsedMs: number;
 }
 
 interface OpenCodeSessionState {
@@ -205,6 +224,54 @@ export function resolveOpenCodeConfigDirEnv(
     return trimmedPath;
   }
   return ATOMIC_OPENCODE_CONFIG_DIR;
+}
+
+function createCompactionErrorContext(
+  code: OpenCodeCompactionErrorCode,
+  sessionState: OpenCodeSessionState,
+  sessionId: string,
+  attemptNumber: number,
+  startTime: number,
+): CompactionErrorContext {
+  const totalTokens = sessionState.inputTokens + sessionState.outputTokens;
+  const maxTokens = sessionState.contextWindow ?? 0;
+
+  return {
+    code,
+    message: COMPACTION_TERMINAL_ERROR_MESSAGE,
+    sessionId,
+    inputTokens: sessionState.inputTokens,
+    outputTokens: sessionState.outputTokens,
+    contextWindow: sessionState.contextWindow,
+    usagePercentage: maxTokens > 0 ? (totalTokens / maxTokens) * 100 : 0,
+    attemptNumber,
+    elapsedMs: Date.now() - startTime,
+  };
+}
+
+function emitCompactionMetrics(args: {
+  sessionId: string;
+  success: boolean;
+  errorCode?: OpenCodeCompactionErrorCode;
+  latencyMs: number;
+  tokensRemoved: number;
+  attemptNumber: number;
+}): void {
+  incrementRuntimeParityCounter("workflow.runtime.parity.compaction_total", {
+    provider: "opencode",
+    success: args.success ? "true" : "false",
+    code: args.errorCode ?? "none",
+  });
+
+  runtimeParityDebug("compaction_completed", {
+    provider: "opencode",
+    sessionId: args.sessionId,
+    success: args.success,
+    errorCode: args.errorCode,
+    latencyMs: args.latencyMs,
+    tokensRemoved: args.tokensRemoved,
+    attemptNumber: args.attemptNumber,
+  });
 }
 
 function parseOpenCodeSessionStatus(status: unknown): OpenCodeSessionStatus | undefined {
@@ -371,7 +438,10 @@ export function emitOpenCodeCompactionContractFailureObservability(args: {
   });
 }
 
-async function withCompactionTimeout<T>(operation: Promise<T>): Promise<T> {
+async function withCompactionTimeout<T>(
+  operation: Promise<T>,
+  timeoutMs: number = COMPACTION_BASE_TIMEOUT_MS,
+): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | null = null;
   try {
     return await Promise.race([
@@ -384,7 +454,7 @@ async function withCompactionTimeout<T>(operation: Promise<T>): Promise<T> {
               COMPACTION_TERMINAL_ERROR_MESSAGE,
             ),
           );
-        }, MAX_COMPACTION_WAIT_MS);
+        }, timeoutMs);
       }),
     ]);
   } finally {
@@ -472,8 +542,8 @@ function extractOpenCodeErrorMessage(error: unknown, fallback = "Unknown error")
  */
 const debugLog = process.env.DEBUG === "1"
   ? (label: string, data: Record<string, unknown>) =>
-      console.debug(`[opencode:${label}]`, JSON.stringify(data, null, 2))
-  : () => {};
+    console.debug(`[opencode:${label}]`, JSON.stringify(data, null, 2))
+  : () => { };
 
 /**
  * Part types accepted by OpenCode SDK's session.prompt().
@@ -2342,7 +2412,7 @@ export class OpenCodeClient implements CodingAgentClient {
       systemToolsBaseline: null as number | null,
       compaction: {
         isCompacting: false,
-        hasAutoCompacted: false,
+        compactionAttemptCount: 0,
         pendingCompactionComplete: false,
         lastCompactionCompleteAt: null,
         control: {
@@ -2501,7 +2571,7 @@ export class OpenCodeClient implements CodingAgentClient {
             }
             const sdkClient = client.sdkClient;
 
-            sessionState.compaction.hasAutoCompacted = false;
+            sessionState.compaction.compactionAttemptCount = 0;
             sessionState.compaction.pendingCompactionComplete = false;
             setCompactionControlState(sessionState, "stream.start");
 
@@ -2782,13 +2852,13 @@ export class OpenCodeClient implements CodingAgentClient {
             const unsubDelta = client.on("message.delta", handleDelta);
             const unsubSubagentStart = isSubagentDispatch
               ? client.on("subagent.start", handleSubagentStart)
-              : () => {};
+              : () => { };
             const unsubToolStart = isSubagentDispatch
               ? client.on("tool.start", handleToolStart)
-              : () => {};
+              : () => { };
             const unsubToolComplete = isSubagentDispatch
               ? client.on("tool.complete", handleToolComplete)
-              : () => {};
+              : () => { };
             const unsubIdle = client.on("session.idle", handleIdle);
             const unsubError = client.on("session.error", handleError);
             const unsubUsage = client.on("usage", handleUsage);
@@ -2910,7 +2980,7 @@ export class OpenCodeClient implements CodingAgentClient {
                     && usagePercentage >= AUTO_COMPACTION_THRESHOLD * 100
                     && !sessionState.compaction.isCompacting
                     && sessionState.compaction.control.state === "STREAMING"
-                    && !sessionState.compaction.hasAutoCompacted;
+                    && sessionState.compaction.compactionAttemptCount <= MAX_COMPACTION_RETRIES;
 
                   if (!shouldAttemptProactiveCompaction) {
                     break;
@@ -2925,7 +2995,7 @@ export class OpenCodeClient implements CodingAgentClient {
                     outputTokens: sessionState.outputTokens,
                     contextWindow: maxTokens ?? 0,
                   });
-                  sessionState.compaction.hasAutoCompacted = true;
+                  sessionState.compaction.compactionAttemptCount++;
                   await session.summarize();
                   break;
                 }
@@ -2938,7 +3008,7 @@ export class OpenCodeClient implements CodingAgentClient {
                 const shouldAttemptAutoCompaction = isContextOverflowError(streamError)
                   && !sessionState.compaction.isCompacting
                   && sessionState.compaction.control.state === "STREAMING"
-                  && !sessionState.compaction.hasAutoCompacted;
+                  && sessionState.compaction.compactionAttemptCount <= MAX_COMPACTION_RETRIES;
 
                 if (!shouldAttemptAutoCompaction) {
                   throw streamError;
@@ -2953,7 +3023,7 @@ export class OpenCodeClient implements CodingAgentClient {
                   contextWindow: sessionState.contextWindow ?? 0,
                   error: extractOpenCodeErrorMessage(streamError),
                 });
-                sessionState.compaction.hasAutoCompacted = true;
+                sessionState.compaction.compactionAttemptCount++;
 
                 await session.summarize();
 
@@ -2997,9 +3067,17 @@ export class OpenCodeClient implements CodingAgentClient {
 
         const preCompactionTokens = sessionState.inputTokens + sessionState.outputTokens;
         let summarizeSucceeded = false;
+        const compactionStartAt = Date.now();
+
         try {
-          const compactionStartAt = Date.now();
           setCompactionControlState(sessionState, "compaction.start", { now: compactionStartAt });
+
+          const tokensInThousands = preCompactionTokens / 1000;
+          const dynamicTimeoutMs = Math.min(
+            COMPACTION_BASE_TIMEOUT_MS + Math.floor(tokensInThousands * COMPACTION_TIMEOUT_PER_1K_TOKENS_MS),
+            COMPACTION_MAX_TIMEOUT_MS,
+          );
+
           debugLog("compaction.summarize_start", {
             sessionId,
             thresholdPercentage: AUTO_COMPACTION_THRESHOLD * 100,
@@ -3007,18 +3085,50 @@ export class OpenCodeClient implements CodingAgentClient {
             outputTokens: sessionState.outputTokens,
             preCompactionTokens,
             contextWindow: sessionState.contextWindow ?? 0,
-            maxCompactionWaitMs: MAX_COMPACTION_WAIT_MS,
+            dynamicTimeoutMs,
           });
           client.emitEvent("session.compaction", sessionId, {
             phase: "start",
           });
           sessionState.compaction.pendingCompactionComplete = true;
 
-          await withCompactionTimeout(client.sdkClient.session.summarize({
-            sessionID: sessionId,
-            directory: client.clientOptions.directory,
-          }));
-          summarizeSucceeded = true;
+          let lastError: Error | null = null;
+          let attemptNumber = 0;
+          for (; attemptNumber <= MAX_COMPACTION_RETRIES; attemptNumber++) {
+            try {
+              if (attemptNumber > 0) {
+                const delay = COMPACTION_RETRY_BASE_DELAY_MS * Math.pow(2, attemptNumber - 1);
+                await new Promise((resolve) => setTimeout(resolve, delay));
+                debugLog("compaction.retry", { sessionId, attemptNumber, delay });
+              }
+
+              await withCompactionTimeout(
+                client.sdkClient.session.summarize({
+                  sessionID: sessionId,
+                  directory: client.clientOptions.directory,
+                }),
+                dynamicTimeoutMs,
+              );
+              summarizeSucceeded = true;
+              break;
+            } catch (error) {
+              lastError = error instanceof Error ? error : new Error(String(error));
+
+              if (error instanceof OpenCodeCompactionError && error.code === "COMPACTION_INVALID_STATE") {
+                throw error;
+              }
+
+              debugLog("compaction.retry_failed", {
+                sessionId,
+                attemptNumber,
+                error: lastError.message,
+              });
+            }
+          }
+
+          if (!summarizeSucceeded) {
+            throw lastError;
+          }
 
           // Query actual post-compaction token counts from the SDK.
           // session.messages() returns each message with its token snapshot,
@@ -3061,6 +3171,15 @@ export class OpenCodeClient implements CodingAgentClient {
             tokensRemoved,
             tokenLimit: sessionState.contextWindow ?? 0,
           });
+
+          emitCompactionMetrics({
+            sessionId,
+            success: true,
+            latencyMs: Date.now() - compactionStartAt,
+            tokensRemoved,
+            attemptNumber,
+          });
+
           if (tokensRemoved > 0) {
             client.emitEvent("session.truncation", sessionId, {
               tokenLimit: sessionState.contextWindow ?? 0,
@@ -3076,6 +3195,8 @@ export class OpenCodeClient implements CodingAgentClient {
         } catch (error) {
           const sourceErrorMessage = extractOpenCodeErrorMessage(error);
           const terminalError = toOpenCodeCompactionTerminalError(error);
+          const elapsedMs = Date.now() - compactionStartAt;
+
           setCompactionControlState(sessionState, "compaction.complete.error", {
             errorCode: terminalError.code,
             errorMessage: terminalError.message,
@@ -3091,12 +3212,23 @@ export class OpenCodeClient implements CodingAgentClient {
             terminalErrorCode: terminalError.code,
             terminalError: terminalError.message,
           });
+
           emitOpenCodeCompactionContractFailureObservability({
             sessionId,
             code: terminalError.code,
             sourceError: sourceErrorMessage,
             terminalError: terminalError.message,
           });
+
+          emitCompactionMetrics({
+            sessionId,
+            success: false,
+            errorCode: terminalError.code,
+            latencyMs: elapsedMs,
+            tokensRemoved: 0,
+            attemptNumber: MAX_COMPACTION_RETRIES,
+          });
+
           client.emitEvent("session.compaction", sessionId, {
             phase: "complete",
             success: false,
@@ -3138,7 +3270,7 @@ export class OpenCodeClient implements CodingAgentClient {
 
       getCompactionState: (): SessionCompactionState => ({
         isCompacting: sessionState.compaction.isCompacting,
-        hasAutoCompacted: sessionState.compaction.hasAutoCompacted,
+        compactionAttemptCount: sessionState.compaction.compactionAttemptCount,
       }),
 
       getMcpSnapshot: async (): Promise<McpRuntimeSnapshot | null> => {

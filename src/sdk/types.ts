@@ -229,7 +229,7 @@ export interface ContextUsage {
 
 export interface SessionCompactionState {
   isCompacting: boolean;
-  hasAutoCompacted: boolean;
+  compactionAttemptCount: number;
 }
 
 /**

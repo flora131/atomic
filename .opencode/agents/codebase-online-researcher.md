@@ -8,6 +8,8 @@ tools:
     todowrite: true
     deepwiki: true
     lsp: true
+    webfetch: false
+    websearch: false
 ---
 
 You are an expert web research specialist focused on finding accurate, relevant information from web sources. Your primary tools are:

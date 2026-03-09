@@ -1,8 +1,9 @@
-import { mkdir, readdir, rm } from "fs/promises";
+import { copyFile, mkdir, readdir, rm } from "fs/promises";
 import { join, resolve } from "path";
 import { homedir } from "os";
 
 import { AGENT_CONFIG, type AgentKey } from "@/services/config/index.ts";
+import { mergeJsonFile } from "@/lib/merge.ts";
 import { copyDir, pathExists } from "@/services/system/copy.ts";
 import type { InstallationType } from "@/services/config/config-path.ts";
 
@@ -25,10 +26,20 @@ const TEMPLATE_AGENT_FOLDER_BY_KEY: Record<AgentKey, string> = {
 const REQUIRED_GLOBAL_CONFIG_ENTRIES: Record<AgentKey, string[]> = {
   claude: ["agents", "skills"],
   opencode: ["agents", "skills"],
-  copilot: ["agents", "skills"],
+  copilot: ["agents", "skills", "lsp-config.json"],
 };
 
 const GLOBAL_SYNC_SUBDIRECTORIES = ["agents", "skills"] as const;
+
+const GLOBAL_SYNC_FILES: Partial<Record<AgentKey, readonly string[]>> = {
+  copilot: ["lsp.json"],
+};
+
+const GLOBAL_SYNC_DESTINATION_FILE_NAMES: Partial<Record<AgentKey, Partial<Record<string, string>>>> = {
+  copilot: {
+    "lsp.json": "lsp-config.json",
+  },
+};
 
 /**
  * Return the Atomic home directory used for global workflows/tools/settings.
@@ -185,6 +196,24 @@ async function removeEmptyDirectoryIfPresent(pathToDirectory: string): Promise<v
   }
 }
 
+function getGlobalSyncDestinationFileName(agentKey: AgentKey, sourceFileName: string): string {
+  return GLOBAL_SYNC_DESTINATION_FILE_NAMES[agentKey]?.[sourceFileName] ?? sourceFileName;
+}
+
+async function syncManagedGlobalFile(
+  sourcePath: string,
+  destinationPath: string,
+): Promise<void> {
+  await mkdir(resolve(destinationPath, ".."), { recursive: true });
+
+  if (await pathExists(destinationPath)) {
+    await mergeJsonFile(sourcePath, destinationPath);
+    return;
+  }
+
+  await copyFile(sourcePath, destinationPath);
+}
+
 /**
  * Remove only the Atomic-managed entries from provider-native global roots.
  */
@@ -220,6 +249,20 @@ export async function removeAtomicManagedGlobalAgentConfigs(
         await removeEmptyDirectoryIfPresent(join(destinationSubdirectory, relativeDirectory));
       }
       await removeEmptyDirectoryIfPresent(destinationSubdirectory);
+    }
+
+    const managedFiles = GLOBAL_SYNC_FILES[agentKey] ?? [];
+    for (const fileName of managedFiles) {
+      const sourceFilePath = join(sourceFolder, fileName);
+      if (!(await pathExists(sourceFilePath))) {
+        continue;
+      }
+
+      const destinationFilePath = join(
+        destinationFolder,
+        getGlobalSyncDestinationFileName(agentKey, fileName),
+      );
+      await rm(destinationFilePath, { force: true });
     }
 
     await removeEmptyDirectoryIfPresent(destinationFolder);
@@ -258,6 +301,18 @@ export async function syncAtomicGlobalAgentConfigs(
       await copyDir(sourceSkillsDir, join(destinationFolder, "skills"), {
         exclude: scmSkillExcludes,
       });
+    }
+
+    const managedFiles = GLOBAL_SYNC_FILES[agentKey] ?? [];
+    for (const fileName of managedFiles) {
+      const sourceFilePath = join(sourceFolder, fileName);
+      if (!(await pathExists(sourceFilePath))) continue;
+
+      const destinationFilePath = join(
+        destinationFolder,
+        getGlobalSyncDestinationFileName(agentKey, fileName),
+      );
+      await syncManagedGlobalFile(sourceFilePath, destinationFilePath);
     }
 
     await pruneManagedScmSkills(destinationFolder);

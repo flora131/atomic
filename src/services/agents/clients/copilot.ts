@@ -1982,7 +1982,9 @@ export function resolveCopilotSdkCliLaunch(
   copilotCliPath: string,
   initialCliArgs: readonly string[] = [],
 ): { cliPath: string; cliArgs: string[] } {
-  const cliArgs = [...initialCliArgs];
+  const cliArgs = initialCliArgs.includes("--experimental")
+    ? [...initialCliArgs]
+    : ["--experimental", ...initialCliArgs];
   const nodePath = resolveNodePath();
 
   if (nodePath && copilotCliPath.endsWith(".js")) {

@@ -8,7 +8,13 @@ import { getConfigRoot } from "@/services/config/config-path.ts";
 import { deployPlaywrightSkill } from "@/scripts/postinstall-playwright.ts";
 
 const PLAYWRIGHT_SKILL_RELATIVE_PATH = join("skills", "playwright-cli", "SKILL.md");
-const LEGACY_WEB_TOOL_TOKENS = ["WebFetch", "WebSearch", "webfetch", '"web"'] as const;
+const LEGACY_WEB_TOOL_TOKENS = [
+  "WebFetch",
+  "WebSearch",
+  '"web"',
+  "webfetch: true",
+  "websearch: true",
+] as const;
 
 const CLAUDE_DEBUGGER_PATH = join(".claude", "agents", "debugger.md");
 const OPENCODE_DEBUGGER_PATH = join(".opencode", "agents", "debugger.md");
@@ -76,6 +82,9 @@ describe("postinstall integration", () => {
         expect(opencodeDebugger.includes(token)).toBe(false);
         expect(copilotDebugger.includes(token)).toBe(false);
       }
+
+      expect(opencodeDebugger.includes("webfetch: false")).toBe(true);
+      expect(opencodeDebugger.includes("websearch: false")).toBe(true);
 
       await rm(join(homeRoot, CLAUDE_GLOBAL_SKILL_PATH), { force: true });
       await rm(join(homeRoot, OPENCODE_GLOBAL_SKILL_PATH), { force: true });

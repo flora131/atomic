@@ -38,6 +38,11 @@ async function createTemplateAgentConfigs(configRoot: string): Promise<void> {
   await writeFile(join(configRoot, ".github", "agents", "debugger.md"), "# debugger\n", "utf-8");
   await writeFile(join(configRoot, ".github", "skills", "init", "SKILL.md"), "# init\n", "utf-8");
   await writeFile(
+    join(configRoot, ".github", "lsp.json"),
+    '{"lspServers":{"typescript-lsp":{"command":"typescript-language-server"}}}\n',
+    "utf-8",
+  );
+  await writeFile(
     join(configRoot, ".vscode", "mcp.json"),
     '{"servers":{"deepwiki":{"type":"http","url":"https://mcp.deepwiki.com/mcp"}}}\n',
     "utf-8",
@@ -69,6 +74,7 @@ test("syncAtomicGlobalAgentConfigs installs only global agents and skills into h
     expect(existsSync(join(root, ".opencode", "opencode.json"))).toBe(false);
     expect(existsSync(join(root, ".copilot", "agents", "debugger.md"))).toBe(true);
     expect(existsSync(join(root, ".copilot", "skills", "init", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(root, ".copilot", "lsp-config.json"))).toBe(true);
     expect(existsSync(join(root, ".copilot", "mcp-config.json"))).toBe(false);
 
     expect(existsSync(join(atomicHome, ".claude"))).toBe(false);
@@ -79,7 +85,7 @@ test("syncAtomicGlobalAgentConfigs installs only global agents and skills into h
   }
 });
 
-test("syncAtomicGlobalAgentConfigs preserves existing user-owned provider configs", async () => {
+test("syncAtomicGlobalAgentConfigs preserves user-owned configs and merges managed Copilot LSP config", async () => {
   const root = await mkdtemp(join(tmpdir(), "atomic-global-user-owned-configs-"));
 
   try {
@@ -110,6 +116,11 @@ test("syncAtomicGlobalAgentConfigs preserves existing user-owned provider config
       '{"mcpServers":{"existing":{"type":"local","command":"copilot-server"}}}\n',
       "utf-8",
     );
+    await writeFile(
+      join(root, ".copilot", "lsp-config.json"),
+      '{"lspServers":{"user-lsp":{"command":"user-language-server"}}}\n',
+      "utf-8",
+    );
 
     await syncAtomicGlobalAgentConfigs(configRoot, atomicHome);
 
@@ -125,6 +136,12 @@ test("syncAtomicGlobalAgentConfigs preserves existing user-owned provider config
     expect(await readFile(join(root, ".copilot", "mcp-config.json"), "utf-8")).toBe(
       '{"mcpServers":{"existing":{"type":"local","command":"copilot-server"}}}\n',
     );
+    expect(JSON.parse(await readFile(join(root, ".copilot", "lsp-config.json"), "utf-8"))).toEqual({
+      lspServers: {
+        "user-lsp": { command: "user-language-server" },
+        "typescript-lsp": { command: "typescript-language-server" },
+      },
+    });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -144,6 +161,12 @@ test("hasAtomicGlobalAgentConfigs requires only managed global agents and skills
     expect(await hasAtomicGlobalAgentConfigs(atomicHome)).toBe(false);
 
     await createTemplateAgentConfigs(configRoot);
+    await syncAtomicGlobalAgentConfigs(configRoot, atomicHome);
+    expect(await hasAtomicGlobalAgentConfigs(atomicHome)).toBe(true);
+
+    await rm(join(root, ".copilot", "lsp-config.json"), { force: true });
+    expect(await hasAtomicGlobalAgentConfigs(atomicHome)).toBe(false);
+
     await syncAtomicGlobalAgentConfigs(configRoot, atomicHome);
     expect(await hasAtomicGlobalAgentConfigs(atomicHome)).toBe(true);
 
@@ -171,6 +194,7 @@ test("ensureAtomicGlobalAgentConfigs re-syncs when provider home roots are incom
 
     expect(existsSync(join(root, ".claude", "agents", "debugger.md"))).toBe(true);
     expect(existsSync(join(root, ".copilot", "skills", "init", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(root, ".copilot", "lsp-config.json"))).toBe(true);
     expect(existsSync(join(root, ".claude", "settings.json"))).toBe(false);
     expect(existsSync(join(root, ".opencode", "opencode.json"))).toBe(false);
     expect(existsSync(join(root, ".copilot", "mcp-config.json"))).toBe(false);
@@ -195,6 +219,7 @@ for (const installType of INSTALL_TYPES) {
       expect(existsSync(join(root, ".claude", "agents", "debugger.md"))).toBe(true);
       expect(existsSync(join(root, ".opencode", "agents", "debugger.md"))).toBe(true);
       expect(existsSync(join(root, ".copilot", "skills", "init", "SKILL.md"))).toBe(true);
+      expect(existsSync(join(root, ".copilot", "lsp-config.json"))).toBe(true);
       expect(existsSync(join(root, ".claude", "settings.json"))).toBe(false);
       expect(existsSync(join(root, ".claude", ".mcp.json"))).toBe(false);
       expect(existsSync(join(root, ".opencode", "opencode.json"))).toBe(false);

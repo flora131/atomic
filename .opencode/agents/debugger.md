@@ -8,6 +8,8 @@ tools:
     todowrite: true
     deepwiki: true
     lsp: true
+    webfetch: false
+    websearch: false
 ---
 
 You are tasked with debugging and identifying errors, test failures, and unexpected behavior in the codebase. Your goal is to identify root causes and generate a report detailing the issues and proposed fixes.

@@ -281,4 +281,36 @@ describe("mergeJsonFile", () => {
       url: "https://mcp.deepwiki.com/mcp",
     });
   });
+
+  test("should deep merge Copilot lspServers maps when present", async () => {
+    const srcPath = join(tempDir, "source.json");
+    const destPath = join(tempDir, "dest.json");
+
+    await writeFile(
+      srcPath,
+      JSON.stringify({
+        lspServers: {
+          "typescript-lsp": { command: "typescript-language-server" },
+        },
+      }),
+    );
+    await writeFile(
+      destPath,
+      JSON.stringify({
+        lspServers: {
+          "user-lsp": { command: "user-language-server" },
+        },
+      }),
+    );
+
+    await mergeJsonFile(srcPath, destPath);
+
+    const result = await readJson<{
+      lspServers: Record<string, unknown>;
+    }>(destPath);
+    expect(result.lspServers["user-lsp"]).toEqual({ command: "user-language-server" });
+    expect(result.lspServers["typescript-lsp"]).toEqual({
+      command: "typescript-language-server",
+    });
+  });
 });

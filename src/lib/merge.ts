@@ -8,7 +8,22 @@ import { resolve } from "path";
 interface McpConfig {
   mcpServers?: Record<string, unknown>;
   servers?: Record<string, unknown>;
+  lspServers?: Record<string, unknown>;
   [key: string]: unknown;
+}
+
+function mergeNamedObjectMap(
+  destination: Record<string, unknown> | undefined,
+  source: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!destination && !source) {
+    return undefined;
+  }
+
+  return {
+    ...destination,
+    ...source,
+  };
 }
 
 /**
@@ -40,19 +55,9 @@ export async function mergeJsonFile(
     ...srcConfig,
   };
 
-  if (destConfig.mcpServers || srcConfig.mcpServers) {
-    mergedConfig.mcpServers = {
-      ...destConfig.mcpServers,
-      ...srcConfig.mcpServers,
-    };
-  }
-
-  if (destConfig.servers || srcConfig.servers) {
-    mergedConfig.servers = {
-      ...destConfig.servers,
-      ...srcConfig.servers,
-    };
-  }
+  mergedConfig.mcpServers = mergeNamedObjectMap(destConfig.mcpServers, srcConfig.mcpServers);
+  mergedConfig.servers = mergeNamedObjectMap(destConfig.servers, srcConfig.servers);
+  mergedConfig.lspServers = mergeNamedObjectMap(destConfig.lspServers, srcConfig.lspServers);
 
   await writeFile(destPath, JSON.stringify(mergedConfig, null, 2) + "\n");
 }

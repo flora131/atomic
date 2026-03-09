@@ -3,6 +3,7 @@ import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { resolveCopilotUserInputSessionId } from "@/services/agents/clients/copilot.ts";
+import { resolveCopilotSdkCliLaunch } from "@/services/agents/clients/copilot.ts";
 import { CopilotClient } from "@/services/agents/clients/copilot.ts";
 import { getBundledCopilotCliPath } from "@/services/agents/clients/copilot.ts";
 
@@ -130,6 +131,24 @@ describe("getBundledCopilotCliPath", () => {
     expect(cliPath).toBe(expectedPath);
   });
 
+});
+
+describe("resolveCopilotSdkCliLaunch", () => {
+  test("adds the experimental flag for direct Copilot launches", () => {
+    const launch = resolveCopilotSdkCliLaunch("/usr/local/bin/copilot", ["--server"]);
+
+    expect(launch.cliArgs).toContain("--experimental");
+    expect(launch.cliArgs).toContain("--server");
+  });
+
+  test("does not duplicate the experimental flag when already present", () => {
+    const launch = resolveCopilotSdkCliLaunch("/usr/local/bin/copilot", [
+      "--experimental",
+      "--server",
+    ]);
+
+    expect(launch.cliArgs.filter((arg) => arg === "--experimental")).toHaveLength(1);
+  });
 });
 
 describe("CopilotClient.getModelDisplayInfo", () => {

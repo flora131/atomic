@@ -776,6 +776,15 @@ export const BACKGROUND_COMPACTION_THRESHOLD = 0.45;
 /** Buffer exhaustion at 60% context usage. */
 export const BUFFER_EXHAUSTION_THRESHOLD = 0.6;
 
+/** Base timeout for compaction operations in milliseconds (30 seconds). */
+export const COMPACTION_BASE_TIMEOUT_MS = 30_000;
+
+/** Additional timeout per 1,000 tokens for compaction operations in milliseconds. */
+export const COMPACTION_TIMEOUT_PER_1K_TOKENS_MS = 5_000;
+
+/** Maximum timeout for compaction operations in milliseconds (180 seconds). */
+export const COMPACTION_MAX_TIMEOUT_MS = 180_000;
+
 /**
  * Default retry configuration.
  */

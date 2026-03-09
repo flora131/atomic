@@ -170,7 +170,7 @@ export function agentNode<TState extends BaseState = BaseState>(
       if (!client) {
         throw new Error(
           `No client provider configured for agent type "${agentType}". ` +
-            "Initialize WorkflowSDK with providers before executing agent nodes."
+          "Initialize WorkflowSDK with providers before executing agent nodes."
         );
       }
 
@@ -1139,7 +1139,7 @@ export function subgraphNode<
         if (!resolver) {
           throw new Error(
             `Cannot resolve workflow "${subgraph}": No workflow resolver configured. ` +
-              "Execute this graph through WorkflowSDK.init()."
+            "Execute this graph through WorkflowSDK.init()."
           );
         }
 
@@ -1166,11 +1166,11 @@ export function subgraphNode<
       const stateUpdate = outputMapper
         ? outputMapper(finalSubState, ctx.state)
         : ({
-            outputs: {
-              ...ctx.state.outputs,
-              [id]: finalSubState,
-            },
-          } as Partial<TState>);
+          outputs: {
+            ...ctx.state.outputs,
+            [id]: finalSubState,
+          },
+        } as Partial<TState>);
 
       return { stateUpdate };
     },
@@ -1391,7 +1391,7 @@ export function contextMonitorNode<TState extends ContextMonitoringState = Conte
             throw new Error("Context compaction failed: no session available for summarization");
           }
           const compactionState = session.getCompactionState?.();
-          if (compactionState?.isCompacting || compactionState?.hasAutoCompacted) {
+          if (compactionState?.isCompacting || (compactionState?.compactionAttemptCount ?? 0) > 0) {
             break;
           }
           await session.summarize();
@@ -1486,12 +1486,12 @@ export async function compactContext(
   agentType: AgentNodeAgentType
 ): Promise<boolean> {
   const action = getDefaultCompactionAction(agentType);
-  
+
   if (action === "summarize") {
     await session.summarize();
     return true;
   }
-  
+
   // "recreate" and "warn" don't perform automatic compaction
   return false;
 }

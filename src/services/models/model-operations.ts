@@ -1,137 +1,23 @@
-import {
-  type Model,
-  fromClaudeModelInfo,
-  fromCopilotModelInfo,
-  fromOpenCodeModel,
-  type OpenCodeModel,
-} from '@/services/models/model-transform.ts';
+import type { Model } from "@/services/models/model-transform.ts";
+import { CLAUDE_ALIASES, listClaudeModels, normalizeClaudeModelInput, type ClaudeSdkListModelsFn } from "@/services/models/model-operations/claude.ts";
+import { listCopilotModels, type CopilotSdkListModelsFn } from "@/services/models/model-operations/copilot.ts";
+import { listOpenCodeModels, type OpenCodeSdkListProvidersFn } from "@/services/models/model-operations/opencode.ts";
 
-/**
- * Claude model aliases - passed to SDK which resolves to latest versions
- * The Claude SDK handles these aliases and maps them to the current latest model
- */
-export const CLAUDE_ALIASES: Record<string, string> = {
-  /** SDK resolves to latest Sonnet */
-  sonnet: 'sonnet',
-  /** SDK resolves to latest Opus */
-  opus: 'opus',
-  /** SDK resolves to latest Haiku */
-  haiku: 'haiku',
-};
+export { CLAUDE_ALIASES } from "@/services/models/model-operations/claude.ts";
 
-const CLAUDE_CANONICAL_MODELS = ["opus", "sonnet", "haiku"] as const;
-type ClaudeCanonicalModel = (typeof CLAUDE_CANONICAL_MODELS)[number];
-const DEFAULT_CLAUDE_CONTEXT_WINDOW = 200000;
+export type AgentType = "claude" | "opencode" | "copilot";
 
-/**
- * The Claude Agent SDK ModelInfo does not expose a context window field.
- * Infer it from explicit model labels when available (e.g. "[1m]"),
- * otherwise fall back to the historical 200k default.
- *
- * Reference: docs/claude-agent-sdk.md (ModelInfo + context-1m beta notes).
- */
-function inferClaudeContextWindow(modelInfo: {
-  value: string;
-  displayName: string;
-  description: string;
-}): number {
-  const candidates = [modelInfo.displayName, modelInfo.description, modelInfo.value];
-
-  for (const text of candidates) {
-    const bracketed = text.match(/\[(\d+(?:\.\d+)?)\s*([kKmM])\]/);
-    if (bracketed) {
-      const amount = Number(bracketed[1]);
-      const unit = bracketed[2]?.toLowerCase();
-      if (!Number.isFinite(amount) || !unit) continue;
-      if (unit === "m") return Math.round(amount * 1_000_000);
-      if (unit === "k") return Math.round(amount * 1_000);
-    }
-
-    const windowLabel = text.match(/\b(\d+(?:\.\d+)?)\s*([kKmM])\b(?:\s*(?:ctx|context|context\s+window|tokens?))?/i);
-    if (windowLabel) {
-      const amount = Number(windowLabel[1]);
-      const unit = windowLabel[2]?.toLowerCase();
-      if (!Number.isFinite(amount) || !unit) continue;
-      if (unit === "m") return Math.round(amount * 1_000_000);
-      if (unit === "k") return Math.round(amount * 1_000);
-    }
-  }
-
-  return DEFAULT_CLAUDE_CONTEXT_WINDOW;
-}
-
-function normalizeClaudeModelInput(model: string): string {
-  const trimmed = model.trim();
-  if (trimmed.toLowerCase() === "default") {
-    return "opus";
-  }
-  if (trimmed.includes('/')) {
-    const parts = trimmed.split('/');
-    if (parts.length === 2 && parts[1]?.toLowerCase() === "default") {
-      return `${parts[0]}/opus`;
-    }
-  }
-  return trimmed;
-}
-
-function isClaudeCanonicalModel(model: string): model is ClaudeCanonicalModel {
-  return (CLAUDE_CANONICAL_MODELS as readonly string[]).includes(model);
-}
-
-/**
- * Supported agent types for model operations
- */
-export type AgentType = 'claude' | 'opencode' | 'copilot';
-
-/**
- * Result of a setModel operation
- */
 export interface SetModelResult {
   success: boolean;
-  /** If true, a new session is required for the model change to take effect */
   requiresNewSession?: boolean;
 }
 
-/**
- * Unified interface for model operations across different agent types
- */
 export interface ModelOperations {
-  /**
-   * List all available models for this agent type
-   * @returns Promise resolving to array of available models
-   */
   listAvailableModels(): Promise<Model[]>;
-
-  /**
-   * Clear any cached model list so the next /model invocation refetches
-   * from the provider and picks up newly added models.
-   */
   invalidateModelCache?(): void;
-
-  /**
-   * Set the model to use for subsequent operations
-   * @param model - Model identifier (format varies by agent type)
-   * @returns Promise resolving to result indicating success and whether new session is required
-   */
   setModel(model: string): Promise<SetModelResult>;
-
-  /**
-   * Get the currently active model
-   * @returns Promise resolving to current model identifier, or undefined if not set
-   */
   getCurrentModel(): Promise<string | undefined>;
-
-  /**
-   * Resolve a model alias to its full identifier
-   * @param alias - Model alias (e.g., 'opus', 'sonnet', 'haiku' for Claude)
-   * @returns Full model identifier, or undefined if alias not recognized
-   */
   resolveAlias(alias: string): string | undefined;
-
-  /**
-   * Get the pending model for agents that require new sessions (e.g., Copilot).
-   * @returns The pending model identifier, or undefined if no model change is pending
-   */
   getPendingModel?(): string | undefined;
 }
 
@@ -139,46 +25,13 @@ type SdkSetModelFn = (
   model: string,
   options?: { reasoningEffort?: string }
 ) => Promise<void>;
-type ClaudeSdkListModelsFn = () => Promise<
-  Array<{ value: string; displayName: string; description: string }>
->;
-type CopilotSdkListModelsFn = () => Promise<unknown[]>;
-type OpenCodeSdkProvider = {
-  id: string;
-  name: string;
-  api?: string;
-  models?: Record<string, OpenCodeModel>;
-};
-type OpenCodeSdkListProvidersFn = () => Promise<OpenCodeSdkProvider[]>;
 
-/**
- * Unified implementation of model operations using SDKs as the source of truth
- *
- * This class provides a consistent interface for model operations across all agent types:
- * - Claude: Uses @anthropic-ai/claude-agent-sdk supportedModels()
- * - OpenCode: Uses @opencode-ai/sdk provider.list() from the active client/runtime
- * - Copilot: Uses @github/copilot-sdk listModels()
- */
 export class UnifiedModelOperations implements ModelOperations {
-  /** Currently active model identifier */
   private currentModel?: string;
-
-  /** Pending model for agents that require new sessions (e.g., Copilot) */
   private pendingModel?: string;
-
-  /** Pending reasoning effort for agents that require new sessions (e.g., Copilot) */
   private pendingReasoningEffort?: string;
-
-  /** Cached available models for validation (opencode/copilot) */
   private cachedModels: Model[] | null = null;
 
-  /**
-   * Create a new UnifiedModelOperations instance
-   * @param agentType - The type of agent (claude, opencode, copilot)
-   * @param sdkSetModel - Optional SDK-specific function to set the model
-   * @param sdkListModels - Optional SDK-specific function to list models (used for Claude supportedModels())
-   * @param initialModel - Optional initial model ID so getCurrentModel() returns a value before any setModel() call
-   */
   constructor(
     private agentType: AgentType,
     private sdkSetModel?: SdkSetModelFn,
@@ -192,31 +45,12 @@ export class UnifiedModelOperations implements ModelOperations {
       : initialModel;
   }
 
-  /**
-   * List available models for this agent type using the appropriate SDK.
-   * Results are cached for the current chat session and reused by /model
-   * until the UI invalidates the cache on session reset/creation.
-   * Errors propagate to the caller.
-   */
   async listAvailableModels(): Promise<Model[]> {
     if (this.cachedModels) {
       return this.cachedModels;
     }
 
-    let models: Model[];
-    switch (this.agentType) {
-      case 'claude':
-        models = await this.listModelsForClaude();
-        break;
-      case 'copilot':
-        models = await this.listModelsForCopilot();
-        break;
-      case 'opencode':
-        models = await this.listModelsForOpenCode();
-        break;
-      default:
-        throw new Error(`Unsupported agent type: ${this.agentType}`);
-    }
+    const models = await this.loadAvailableModels();
     this.cachedModels = models;
     return models;
   }
@@ -225,185 +59,16 @@ export class UnifiedModelOperations implements ModelOperations {
     this.cachedModels = null;
   }
 
-  private async getValidatedModelRecord(model: string): Promise<Model | undefined> {
-    if (!this.cachedModels) {
-      this.cachedModels = await this.listAvailableModels();
-    }
-
-    return this.cachedModels?.find(
-      (entry) => entry.id === model || entry.modelID === model
-    );
-  }
-
-  /**
-   * List supported models for Claude using the SDK's supportedModels() API.
-   * Requires sdkListModels callback (from Query.supportedModels()) to be provided.
-   * Context window is inferred from model labels when present (e.g. [1m]) and
-   * otherwise defaults to 200k because SDK ModelInfo doesn't expose it directly.
-   * @private
-   */
-  private async listModelsForClaude(): Promise<Model[]> {
-    if (!this.sdkListModels) {
-      throw new Error('Claude model listing requires an active session (sdkListModels callback not provided)');
-    }
-    const modelInfos = await this.sdkListModels();
-
-    const canonicalInfo = new Map<ClaudeCanonicalModel, { value: string; displayName: string; description: string }>(
-      CLAUDE_CANONICAL_MODELS.map((model) => [
-        model,
-        {
-          value: model,
-          displayName: model.charAt(0).toUpperCase() + model.slice(1),
-          description: `Claude ${model} model alias`,
-        },
-      ])
-    );
-    const extraModels = new Map<string, { value: string; displayName: string; description: string }>();
-
-    for (const info of modelInfos) {
-      const value = info.value.trim();
-      if (!value) continue;
-      const key = value.toLowerCase();
-      if (key === "default") {
-        continue;
-      }
-
-      if (isClaudeCanonicalModel(key)) {
-        const existing = canonicalInfo.get(key)!;
-        canonicalInfo.set(key, {
-          value: key,
-          displayName: info.displayName || existing.displayName,
-          description: info.description || existing.description,
-        });
-        continue;
-      }
-
-      if (!extraModels.has(key)) {
-        extraModels.set(key, {
-          value,
-          displayName: info.displayName || value,
-          description: info.description || "",
-        });
-      }
-    }
-
-    const orderedModelInfos = [
-      ...CLAUDE_CANONICAL_MODELS.map((model) => canonicalInfo.get(model)!),
-      ...Array.from(extraModels.entries())
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([, info]) => info),
-    ];
-
-    return orderedModelInfos.map((info) =>
-      fromClaudeModelInfo(info, inferClaudeContextWindow(info))
-    );
-  }
-
-  /**
-   * List models using Copilot SDK's listModels()
-   * @private
-   */
-  private async listModelsForCopilot(): Promise<Model[]> {
-    if (this.sdkListCopilotModels) {
-      const modelInfos = await this.sdkListCopilotModels();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return modelInfos.map((m: any) => fromCopilotModelInfo(m));
-    }
-
-    // Dynamic import to avoid loading SDK when not needed
-    const { CopilotClient } = await import('@github/copilot-sdk');
-    const { getBundledCopilotCliPath, resolveCopilotSdkCliLaunch } = await import('@/services/agents/clients/index.ts');
-
-    // Reuse the same launch compatibility path as CopilotClient.buildSdkOptions:
-    // - Node host for npm package `index.js`
-    // - standalone shim to strip unsupported `--no-auto-update`
-    const clientOpts = resolveCopilotSdkCliLaunch(await getBundledCopilotCliPath());
-
-    const client = new CopilotClient(clientOpts);
-
-    try {
-      await client.start();
-      const modelInfos = await client.listModels();
-      await client.stop();
-
-      // Map SDK ModelInfo directly - SDK returns correct model names
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return modelInfos.map((m: any) => fromCopilotModelInfo(m));
-    } catch (error) {
-      try {
-        await client.stop();
-      } catch {
-        // Ignore stop errors
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * List OpenCode models from provider.list() using the active client/runtime.
-   * @private
-   */
-  private async listModelsForOpenCode(): Promise<Model[]> {
-    const providers = this.sdkListOpenCodeProviders
-      ? await this.sdkListOpenCodeProviders()
-      : await this.fetchOpenCodeProviders();
-    const models: Model[] = [];
-
-    for (const provider of providers) {
-      if (!provider.models) continue;
-
-      for (const [modelID, model] of Object.entries(provider.models)) {
-        // Skip deprecated models
-        if (model.status === 'deprecated') continue;
-
-        models.push(fromOpenCodeModel(provider.id, modelID, model as OpenCodeModel, provider.api, provider.name));
-      }
-    }
-
-    if (models.length === 0) {
-      throw new Error('No models available from connected OpenCode providers');
-    }
-
-    return models;
-  }
-
-  private async fetchOpenCodeProviders(): Promise<OpenCodeSdkProvider[]> {
-    const { createOpencodeClient } = await import('@opencode-ai/sdk');
-    const client = createOpencodeClient({
-      baseUrl: 'http://localhost:4096',
-      directory: process.cwd(),
-    });
-
-    const providerListResult = await client.provider.list();
-    const providerListData = providerListResult.data as
-      | {
-          all?: OpenCodeSdkProvider[];
-          connected?: string[];
-        }
-      | undefined;
-
-    if (!providerListData?.all) {
-      throw new Error('OpenCode SDK returned no provider data');
-    }
-
-    const connectedIds = new Set(providerListData.connected ?? []);
-    return providerListData.all.filter((provider) =>
-      connectedIds.size === 0 || connectedIds.has(provider.id)
-    );
-  }
-
   async setModel(model: string): Promise<SetModelResult> {
-    // Extract modelID from providerID/modelID format if present
     let modelId = model;
-    if (model.includes('/')) {
-      const parts = model.split('/');
+    if (model.includes("/")) {
+      const parts = model.split("/");
       if (parts.length !== 2 || !parts[0] || !parts[1]) {
         throw new Error(
           `Invalid model format: '${model}'. Expected 'providerID/modelID' format (e.g., 'anthropic/claude-sonnet-4').`
         );
       }
-      // For Claude, use just the modelID part (e.g., 'sonnet' from 'anthropic/sonnet')
-      if (this.agentType === 'claude') {
+      if (this.agentType === "claude") {
         modelId = parts[1];
       }
     }
@@ -412,7 +77,6 @@ export class UnifiedModelOperations implements ModelOperations {
       throw new Error("Model 'default' is not supported for Claude. Use one of: opus, sonnet, haiku.");
     }
 
-    // Resolve alias if possible, otherwise use the original model
     let resolvedModel: string;
     try {
       resolvedModel = this.resolveAlias(modelId) ?? modelId;
@@ -420,8 +84,7 @@ export class UnifiedModelOperations implements ModelOperations {
       resolvedModel = modelId;
     }
 
-    // Validate model exists for opencode and copilot
-    if (this.agentType === 'opencode' || this.agentType === 'copilot') {
+    if (this.agentType === "opencode" || this.agentType === "copilot") {
       await this.validateModelExists(resolvedModel);
     }
 
@@ -432,15 +95,12 @@ export class UnifiedModelOperations implements ModelOperations {
         )
       : undefined;
 
-    // Prefer runtime SDK model switching when available.
     if (this.sdkSetModel) {
       await this.sdkSetModel(
         resolvedModel,
-        this.agentType === "copilot"
-          ? (sanitizedReasoningEffort !== undefined
-              ? { reasoningEffort: sanitizedReasoningEffort }
-              : undefined)
-          : undefined
+        this.agentType === "copilot" && sanitizedReasoningEffort !== undefined
+          ? { reasoningEffort: sanitizedReasoningEffort }
+          : undefined,
       );
       this.pendingReasoningEffort = sanitizedReasoningEffort;
       this.pendingModel = undefined;
@@ -448,8 +108,7 @@ export class UnifiedModelOperations implements ModelOperations {
       return { success: true };
     }
 
-    // Fallback for SDKs that cannot switch the active session model.
-    if (this.agentType === 'copilot') {
+    if (this.agentType === "copilot") {
       this.pendingReasoningEffort = sanitizedReasoningEffort;
       this.pendingModel = resolvedModel;
       return { success: true, requiresNewSession: true };
@@ -457,21 +116,6 @@ export class UnifiedModelOperations implements ModelOperations {
 
     this.currentModel = resolvedModel;
     return { success: true };
-  }
-
-  /**
-   * Validate that a model exists in the available models list.
-   * Fetches and caches the model list if not already cached.
-   * @param model - Model identifier to validate (full ID or modelID)
-   * @throws Error if the model is not found
-   */
-  private async validateModelExists(model: string): Promise<void> {
-    const found = await this.getValidatedModelRecord(model);
-    if (!found) {
-      throw new Error(
-        `Model '${model}' is not available. Use /model to see available models.`
-      );
-    }
   }
 
   async sanitizeReasoningEffortForModel(
@@ -494,31 +138,53 @@ export class UnifiedModelOperations implements ModelOperations {
   }
 
   resolveAlias(alias: string): string | undefined {
-    if (this.agentType === 'claude') {
+    if (this.agentType === "claude") {
       return CLAUDE_ALIASES[alias.toLowerCase()];
     }
     return undefined;
   }
 
-  /**
-   * Get the pending model for agents that require new sessions (e.g., Copilot)
-   * @returns The pending model identifier, or undefined if no model change is pending
-   */
   getPendingModel(): string | undefined {
     return this.pendingModel;
   }
 
-  /**
-   * Set the pending reasoning effort for agents that require new sessions (e.g., Copilot)
-   */
   setPendingReasoningEffort(effort: string | undefined): void {
     this.pendingReasoningEffort = effort;
   }
 
-  /**
-   * Get the pending reasoning effort for agents that require new sessions (e.g., Copilot)
-   */
   getPendingReasoningEffort(): string | undefined {
     return this.pendingReasoningEffort;
+  }
+
+  private async loadAvailableModels(): Promise<Model[]> {
+    switch (this.agentType) {
+      case "claude":
+        return listClaudeModels(this.sdkListModels);
+      case "copilot":
+        return listCopilotModels(this.sdkListCopilotModels);
+      case "opencode":
+        return listOpenCodeModels(this.sdkListOpenCodeProviders);
+      default:
+        throw new Error(`Unsupported agent type: ${this.agentType}`);
+    }
+  }
+
+  private async getValidatedModelRecord(model: string): Promise<Model | undefined> {
+    if (!this.cachedModels) {
+      this.cachedModels = await this.listAvailableModels();
+    }
+
+    return this.cachedModels.find(
+      (entry) => entry.id === model || entry.modelID === model
+    );
+  }
+
+  private async validateModelExists(model: string): Promise<void> {
+    const found = await this.getValidatedModelRecord(model);
+    if (!found) {
+      throw new Error(
+        `Model '${model}' is not available. Use /model to see available models.`
+      );
+    }
   }
 }

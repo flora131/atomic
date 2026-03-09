@@ -1,150 +1,21 @@
-import type { CliRenderer } from "@opentui/core";
-import type { Root } from "@opentui/react";
-import type { AgentType } from "@/services/models/index.ts";
-import type { UnifiedModelOperations } from "@/services/models/model-operations.ts";
-import type {
-  CodingAgentClient,
-  Session,
-  SessionConfig,
-} from "@/services/agents/types.ts";
-import {
-  createTuiTelemetrySessionTracker,
-  type TuiTelemetrySessionTracker,
-} from "@/services/telemetry/index.ts";
-import { EventBus } from "@/services/events/event-bus.ts";
-import { BatchDispatcher } from "@/services/events/batch-dispatcher.ts";
-import { attachDebugSubscriber } from "@/services/events/debug-subscriber.ts";
-import { OpenCodeStreamAdapter } from "@/services/events/adapters/opencode-adapter.ts";
-import { ClaudeStreamAdapter } from "@/services/events/adapters/claude-adapter.ts";
-import { CopilotStreamAdapter } from "@/services/events/adapters/copilot-adapter.ts";
-import type { SDKStreamAdapter } from "@/services/events/adapters/types.ts";
-import { cleanupMcpBridgeScripts } from "@/services/agents/tools/opencode-mcp-bridge.ts";
-import { registerAgentToolNames } from "@/components/tool-registry/index.ts";
 import type {
   CommandExecutionTelemetry,
   MessageSubmitTelemetry,
   OnTerminateBackgroundAgents,
 } from "@/screens/chat-screen.tsx";
+import type { SessionConfig } from "@/services/agents/types.ts";
+import { cleanupMcpBridgeScripts } from "@/services/agents/tools/opencode-mcp-bridge.ts";
+import { registerAgentToolNames } from "@/components/tool-registry/index.ts";
+import { createChatUIRuntimeState } from "@/state/runtime/chat-ui-runtime-state.ts";
+import { createStreamAdapter } from "@/state/runtime/chat-ui-stream-adapter.ts";
+import type {
+  ChatUIDebugSubscription,
+  ChatUIState,
+  CreateChatUIControllerArgs,
+} from "@/state/runtime/chat-ui-controller-types.ts";
 
-const FLUSH_FRAME_MS = 16;
-
-export interface ChatUIState {
-  renderer: CliRenderer | null;
-  root: Root | null;
-  session: Session | null;
-  startTime: number;
-  messageCount: number;
-  cleanupHandlers: Array<() => void>;
-  interruptCount: number;
-  interruptTimeout: ReturnType<typeof setTimeout> | null;
-  streamAbortController: AbortController | null;
-  pendingAbortPromise: Promise<void> | null;
-  isStreaming: boolean;
-  ownedSessionIds: Set<string>;
-  sessionCreationPromise: Promise<void> | null;
-  runCounter: number;
-  currentRunId: number | null;
-  telemetryTracker: TuiTelemetrySessionTracker | null;
-  bus: EventBus;
-  dispatcher: BatchDispatcher;
-  backgroundAgentsTerminated: boolean;
-}
-
-export type ChatUIDebugSubscription = Awaited<
-  ReturnType<typeof attachDebugSubscriber>
->;
-
-interface CreateChatUIRuntimeStateArgs {
-  resolvedAgentType?: AgentType;
-  workflowEnabled: boolean;
-  initialPrompt?: string;
-}
-
-export async function createChatUIRuntimeState(
-  args: CreateChatUIRuntimeStateArgs,
-): Promise<{
-  state: ChatUIState;
-  debugSub: ChatUIDebugSubscription;
-}> {
-  const bus = new EventBus({
-    validatePayloads: process.env.ATOMIC_VALIDATE_BUS_EVENTS === "1",
-  });
-  const dispatcher = new BatchDispatcher(bus, FLUSH_FRAME_MS);
-  const debugSub = await attachDebugSubscriber(bus);
-
-  if (debugSub.logDirPath) {
-    console.info(`[Atomic] Stream debug logs: ${debugSub.logDirPath}`);
-    if (debugSub.logPath) {
-      console.info(`[Atomic] Stream events log: ${debugSub.logPath}`);
-    }
-    if (debugSub.rawLogPath) {
-      console.info(`[Atomic] Stream raw log: ${debugSub.rawLogPath}`);
-    }
-  }
-
-  const state: ChatUIState = {
-    renderer: null,
-    root: null,
-    session: null,
-    startTime: Date.now(),
-    messageCount: 0,
-    cleanupHandlers: [],
-    interruptCount: 0,
-    interruptTimeout: null,
-    streamAbortController: null,
-    pendingAbortPromise: null,
-    isStreaming: false,
-    ownedSessionIds: new Set(),
-    sessionCreationPromise: null,
-    runCounter: 0,
-    currentRunId: null,
-    telemetryTracker: args.resolvedAgentType
-      ? createTuiTelemetrySessionTracker({
-          agentType: args.resolvedAgentType,
-          workflowEnabled: args.workflowEnabled,
-          hasInitialPrompt: Boolean(args.initialPrompt),
-        })
-      : null,
-    bus,
-    dispatcher,
-    backgroundAgentsTerminated: false,
-  };
-
-  return { state, debugSub };
-}
-
-interface CreateChatUIControllerArgs {
-  client: CodingAgentClient;
-  resolvedAgentType?: AgentType;
-  sessionConfig?: SessionConfig;
-  clientStartPromise?: Promise<void>;
-  modelOps?: UnifiedModelOperations;
-  state: ChatUIState;
-  debugSub: ChatUIDebugSubscription;
-  onExitResolved: (result: { messageCount: number; duration: number }) => void;
-}
-
-function createStreamAdapter(args: {
-  client: CodingAgentClient;
-  state: ChatUIState;
-  resolvedAgentType?: AgentType;
-}): SDKStreamAdapter {
-  if (args.resolvedAgentType === "opencode") {
-    return new OpenCodeStreamAdapter(
-      args.state.bus,
-      args.state.session!.id,
-      args.client,
-    );
-  }
-  if (args.resolvedAgentType === "claude") {
-    return new ClaudeStreamAdapter(
-      args.state.bus,
-      args.state.session!.id,
-      args.client,
-    );
-  }
-  return new CopilotStreamAdapter(args.state.bus, args.client);
-}
+export type { ChatUIDebugSubscription, ChatUIState } from "@/state/runtime/chat-ui-controller-types.ts";
+export { createChatUIRuntimeState } from "@/state/runtime/chat-ui-runtime-state.ts";
 
 export function createChatUIController(args: CreateChatUIControllerArgs) {
   const {

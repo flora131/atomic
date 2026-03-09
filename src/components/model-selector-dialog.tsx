@@ -15,12 +15,8 @@ import type { KeyEvent, ScrollBoxRenderable, MouseEvent } from "@opentui/core";
 import { useTheme } from "@/theme/index.tsx";
 import type { Model } from "@/services/models/model-transform.ts";
 import { navigateUp, navigateDown } from "@/lib/ui/navigation.ts";
-import { PROMPT, CONNECTOR } from "@/theme/icons.ts";
-import { SPACING } from "@/theme/spacing.ts";
-
-// ============================================================================
-// TYPES
-// ============================================================================
+import { groupModelsByProvider } from "@/components/model-selector/helpers.ts";
+import { ModelListView, ReasoningEffortSelector } from "@/components/model-selector/views.tsx";
 
 export interface ModelSelectorDialogProps {
   /** List of available models */
@@ -34,67 +30,6 @@ export interface ModelSelectorDialogProps {
   /** Whether the dialog is visible */
   visible?: boolean;
 }
-
-interface GroupedModels {
-  providerID: string;
-  displayName: string;
-  models: Model[];
-}
-
-// ============================================================================
-// CONSTANTS
-// ============================================================================
-
-// ============================================================================
-// HELPER FUNCTIONS
-// ============================================================================
-
-/**
- * Group models by provider using SDK-provided providerName, falling back to raw providerID.
- */
-function groupModelsByProvider(models: Model[]): GroupedModels[] {
-  const groups = new Map<string, Model[]>();
-
-  for (const model of models) {
-    const arr = groups.get(model.providerID) ?? [];
-    arr.push(model);
-    groups.set(model.providerID, arr);
-  }
-
-  // Sort providers alphabetically
-  const sortedProviders = Array.from(groups.keys()).sort((a, b) =>
-    a.localeCompare(b)
-  );
-
-  return sortedProviders.map((providerID) => {
-    const groupModels = groups.get(providerID) ?? [];
-    const displayName = groupModels[0]?.providerName ?? providerID;
-    return { providerID, displayName, models: groupModels };
-  });
-}
-
-/**
- * Format context window size
- */
-function formatContextSize(context: number): string {
-  if (context >= 1000000) return `${(context / 1000000).toFixed(1)}M`;
-  if (context >= 1000) return `${Math.round(context / 1000)}k`;
-  return String(context);
-}
-
-/**
- * Get capability info for a model (context size only, no icons)
- */
-function getCapabilityInfo(model: Model): string | null {
-  if (model.limits?.context) {
-    return formatContextSize(model.limits.context);
-  }
-  return null;
-}
-
-// ============================================================================
-// MODEL SELECTOR DIALOG COMPONENT
-// ============================================================================
 
 export function ModelSelectorDialog({
   models,
@@ -295,222 +230,28 @@ export function ModelSelectorDialog({
 
   if (!visible) return null;
 
-  // --- Reasoning level selection phase ---
   if (reasoningModel && reasoningOptions.length > 0) {
     return (
-      <box
-        style={{
-          flexDirection: "column",
-          width: "100%",
-          paddingTop: 1,
-          paddingBottom: 1,
-        }}
-      >
-        {/* Header */}
-        <box style={{ flexDirection: "column", paddingLeft: 2, paddingBottom: 1 }}>
-          <text style={{ fg: colors.accent }} attributes={1}>
-            Select Effort Level for {reasoningModel.modelID}
-          </text>
-        </box>
-
-        {/* Reasoning options */}
-        <box style={{ flexDirection: "column", paddingLeft: 2 }}>
-          {reasoningOptions.map((option, idx) => {
-            const isSelected = idx === reasoningIndex;
-            const indicator = isSelected ? PROMPT.cursor : " ";
-            const number = idx + 1;
-
-            return (
-              <box
-                key={option.level}
-                style={{ flexDirection: "row", paddingLeft: 2 }}
-              >
-                <text
-                  style={{ fg: isSelected ? colors.accent : colors.muted }}
-                >
-                  {indicator}
-                </text>
-                <text
-                  style={{ fg: isSelected ? colors.accent : colors.muted }}
-                >
-                  {" "}{number}.{" "}
-                </text>
-                <text
-                  style={{ fg: isSelected ? colors.accent : colors.foreground }}
-                  attributes={isSelected ? 1 : undefined}
-                >
-                  {option.level}
-                </text>
-                {option.isDefault && (
-                  <text style={{ fg: colors.success }}>
-                    {" "}(default)
-                  </text>
-                )}
-              </box>
-            );
-          })}
-        </box>
-
-        {/* Footer */}
-        <box style={{ paddingLeft: 2, paddingTop: 1 }}>
-          <text style={{ fg: colors.muted }}>
-            Confirm with number keys or ↑↓ keys and Enter, Cancel with Esc
-          </text>
-        </box>
-      </box>
+      <ReasoningEffortSelector
+        colors={colors}
+        model={reasoningModel}
+        options={reasoningOptions}
+        selectedIndex={reasoningIndex}
+      />
     );
   }
 
-  // --- Model selection phase ---
-
-  // Calculate global index for each model
-  let globalIndex = 0;
-
   return (
-    <box
-      style={{
-        flexDirection: "column",
-        width: "100%",
-        paddingTop: 1,
-        paddingBottom: 1,
-      }}
-    >
-      {/* Header */}
-      <box style={{ flexDirection: "column", paddingLeft: 2, paddingBottom: 1 }}>
-        <text style={{ fg: colors.accent }} attributes={1}>
-          Select Model
-        </text>
-        <text style={{ fg: colors.muted }}>
-          Choose a model for this session
-        </text>
-      </box>
-
-      {/* Models List - Grouped by Provider */}
-      <scrollbox
-        ref={scrollRef}
-        height={listHeight}
-        scrollY={true}
-        scrollX={false}
-        paddingLeft={SPACING.INDENT}
-      >
-        {flatModels.length === 0 ? (
-          <box style={{ paddingLeft: 2, paddingTop: 1, paddingBottom: 1 }}>
-            <text style={{ fg: colors.muted }}>
-              No models available
-            </text>
-          </box>
-        ) : (
-          <box flexDirection="column" onMouseScroll={handleMouseScroll}>
-          {groupedModels.map((group, groupIdx) => {
-            const isLastGroup = groupIdx === groupedModels.length - 1;
-
-            return (
-              <box key={group.providerID} style={{ flexDirection: "column" }}>
-                {/* Provider Header */}
-                <box style={{ paddingTop: groupIdx > 0 ? 1 : 0 }}>
-                  <text style={{ fg: colors.foreground }}>
-                    {group.displayName}
-                  </text>
-                </box>
-
-                {/* Models in this group */}
-                {group.models.map((model) => {
-                  const currentGlobalIndex = globalIndex++;
-                  const isSelected = currentGlobalIndex === selectedIndex;
-                  const isCurrent =
-                    model.id === currentModel || model.modelID === currentModel;
-                  const contextInfo = getCapabilityInfo(model);
-
-                  // Selection indicator and number
-                  const indicator = isSelected ? PROMPT.cursor : " ";
-                  const number = currentGlobalIndex + 1;
-
-                  return (
-                    <box
-                      key={model.id}
-                      style={{
-                        flexDirection: "row",
-                        paddingLeft: 2,
-                      }}
-                    >
-                      {/* Selection indicator */}
-                      <text
-                        style={{
-                          fg: isSelected ? colors.accent : colors.muted,
-                        }}
-                      >
-                        {indicator}
-                      </text>
-
-                      {/* Number */}
-                      <text
-                        style={{
-                          fg: isSelected ? colors.accent : colors.muted,
-                        }}
-                      >
-                        {" "}{number < 10 ? ` ${number}` : number}.{" "}
-                      </text>
-
-                      {/* Model name */}
-                      <text
-                        style={{
-                          fg: isSelected
-                            ? colors.accent
-                            : isCurrent
-                              ? colors.success
-                              : colors.foreground,
-                        }}
-                        attributes={isSelected ? 1 : undefined}
-                      >
-                        {model.modelID}
-                      </text>
-
-                      {/* Reasoning effort indicator */}
-                      {(model.supportedReasoningEfforts?.length ?? 0) > 0 && model.defaultReasoningEffort && (
-                        <text style={{ fg: colors.muted }}>
-                          {" "}({model.defaultReasoningEffort})
-                        </text>
-                      )}
-
-
-                      {/* Current marker */}
-                      {isCurrent && (
-                        <text style={{ fg: colors.success }}>
-                          {" "}(current)
-                        </text>
-                      )}
-
-                      {/* Context size info */}
-                      {contextInfo && (
-                        <text style={{ fg: colors.muted }}>
-                          {"  "}{contextInfo}
-                        </text>
-                      )}
-                    </box>
-                  );
-                })}
-
-                {/* Separator between groups */}
-                {!isLastGroup && (
-                  <box style={{ paddingTop: 0 }}>
-                    <text style={{ fg: colors.border }}>
-                      {"  "}{CONNECTOR.horizontal.repeat(30)}
-                    </text>
-                  </box>
-                )}
-              </box>
-            );
-          })
-          }
-          </box>
-        )}
-      </scrollbox>
-      <box style={{ paddingLeft: 2, paddingTop: 1 }}>
-        <text style={{ fg: colors.muted }}>
-          j/k navigate · enter select · esc cancel
-        </text>
-      </box>
-    </box>
+    <ModelListView
+      colors={colors}
+      currentModel={currentModel}
+      groupedModels={groupedModels}
+      flatModelCount={flatModels.length}
+      listHeight={listHeight}
+      scrollRef={scrollRef}
+      selectedIndex={selectedIndex}
+      handleMouseScroll={handleMouseScroll}
+    />
   );
 }
 

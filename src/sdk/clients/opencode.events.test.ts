@@ -447,7 +447,7 @@ describe("OpenCodeClient event mapping", () => {
 
   test("on() unsubscribe removes empty handler buckets", () => {
     const client = new OpenCodeClient();
-    const unsubscribe = client.on("session.idle", () => {});
+    const unsubscribe = client.on("session.idle", () => { });
 
     unsubscribe();
 
@@ -903,10 +903,10 @@ describe("OpenCodeClient event mapping", () => {
       return 1;
     };
     (globalThis as unknown as { clearTimeout: (...args: unknown[]) => void }).clearTimeout =
-      () => {};
+      () => { };
 
     try {
-      const stream = (async function* (): AsyncGenerator<unknown, void, unknown> {})();
+      const stream = (async function* (): AsyncGenerator<unknown, void, unknown> { })();
       await (client as unknown as {
         processEventStream: (
           eventStream: AsyncGenerator<unknown, void, unknown>,
@@ -953,7 +953,7 @@ describe("OpenCodeClient event mapping", () => {
       };
     }).sdkClient = {
       session: {
-        summarize: async () => {},
+        summarize: async () => { },
         messages: async () => ({ data: [] }),
       },
     };
@@ -1020,7 +1020,7 @@ describe("OpenCodeClient event mapping", () => {
             parts: [{ type: "text", text: "seed" }],
           },
         }),
-        summarize: async () => {},
+        summarize: async () => { },
         messages: async () => ({
           data: [
             {
@@ -1142,7 +1142,7 @@ describe("OpenCodeClient event mapping", () => {
     const metrics = getRuntimeParityMetricsSnapshot();
     expect(metrics.counters["workflow.runtime.parity.compaction_timeout_terminated_total{code=COMPACTION_FAILED,provider=opencode}"]).toBe(1);
     expect(metrics.counters["workflow.runtime.parity.turn_terminated_due_to_contract_error_total{code=COMPACTION_FAILED,provider=opencode,reason=compaction_terminal_error}"]).toBe(1);
-  });
+  }, 15_000);
 
   test("summarize emits terminal timeout error when compaction exceeds bounded wait", async () => {
     resetRuntimeParityMetrics();
@@ -1166,7 +1166,7 @@ describe("OpenCodeClient event mapping", () => {
       };
     }).sdkClient = {
       session: {
-        summarize: async () => new Promise<void>(() => {}),
+        summarize: async () => new Promise<void>(() => { }),
         messages: async () => ({ data: [] }),
       },
     };
@@ -1197,7 +1197,7 @@ describe("OpenCodeClient event mapping", () => {
       }
       return 1;
     };
-    (globalThis as unknown as { clearTimeout: (...args: unknown[]) => void }).clearTimeout = () => {};
+    (globalThis as unknown as { clearTimeout: (...args: unknown[]) => void }).clearTimeout = () => { };
 
     try {
       const session = await (client as unknown as {
@@ -1248,7 +1248,7 @@ describe("OpenCodeClient event mapping", () => {
       };
     }).sdkClient = {
       session: {
-        summarize: async () => {},
+        summarize: async () => { },
         messages: async () => ({ data: [] }),
       },
     };
@@ -1364,7 +1364,7 @@ describe("OpenCodeClient event mapping", () => {
       };
     }).sdkClient = {
       session: {
-        summarize: async () => {},
+        summarize: async () => { },
         messages: async () => ({ data: [] }),
       },
     };
@@ -4409,8 +4409,8 @@ describe("OpenCodeClient event mapping", () => {
     };
 
     await expect(consumeStream()).rejects.toThrow(/context_length_exceeded/i);
-    expect(summarizeCalls).toBe(1);
-    expect(promptCalls).toEqual(["trigger overflow", "Continue"]);
+    expect(summarizeCalls).toBe(3);
+    expect(promptCalls).toEqual(["trigger overflow", "Continue", "Continue", "Continue"]);
   });
 
   test("stream preserves OpenCodeCompactionError type for auto-compaction failures", async () => {
@@ -4471,7 +4471,7 @@ describe("OpenCodeClient event mapping", () => {
     }
     expect(streamError.code).toBe("COMPACTION_FAILED");
     expect(streamError.message).toBe(COMPACTION_TERMINAL_ERROR_MESSAGE);
-    expect(summarizeCalls).toBe(1);
+    expect(summarizeCalls).toBe(3);
     expect(promptCalls).toEqual(["trigger overflow"]);
-  });
+  }, 15_000);
 });

@@ -12,11 +12,12 @@ export const ENHANCED_SYSTEM_PROMPT = `
 ## Tool Usage
 
 - PREFER to use the playwright-cli (refer to playwright-cli skill) OVER web fetch/search tools
+  - ALWAYS ASSUME you have the playwright-cli tool installed (if the \`playwright-cli\` command fails, fallback to \`bunx playwright-cli\`).
 - ALWAYS invoke your testing-anti-patterns skill BEFORE creating or modifying any tests.
 
 ## Sub-Agent Usage
 
-- Prefer to use the codebase-analyzer, codebase-locator, codebase-online-researcher, codebase-pattern-finder, codebase-research-analyzer, and codebase-research-locator sub-agents OVER the explore sub-agents.
+- PREFER to use the codebase-analyzer, codebase-locator, codebase-online-researcher, codebase-pattern-finder, codebase-research-analyzer, and codebase-research-locator sub-agents OVER the explore sub-agent.
 - Whenever a user interactively asks a query related to debugging, spawn a debugger sub-agent to analyze the codebase and provide insights.
   - Do not attempt to debug or analyze code yourself without first consulting the debugger sub-agent.
   - Explain the insights provided by the debugger sub-agent to the user in a clear and concise manner.

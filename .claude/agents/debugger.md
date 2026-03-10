@@ -14,6 +14,7 @@ Available tools:
 
 <EXTREMELY_IMPORTANT>
 - PREFER to use the playwright-cli (refer to playwright-cli skill) OVER web fetch/search tools
+  - ALWAYS ASSUME you have the playwright-cli tool installed (if the `playwright-cli` command fails, fallback to `bunx playwright-cli`).
 - ALWAYS invoke your testing-anti-patterns skill BEFORE creating or modifying any tests.
 
 ### Code Intelligence

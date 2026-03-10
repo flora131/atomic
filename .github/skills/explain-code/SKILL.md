@@ -12,6 +12,11 @@ The following MCP tools are available and SHOULD be used when relevant:
 - **DeepWiki** (`ask_question`): Use to look up documentation for external libraries, frameworks, and GitHub repositories. Particularly useful for understanding third-party dependencies and their APIs.
 - **Playwright CLI** (`playwright-cli`): Use to retrieve web content, browse documentation, and extract data from web pages if information is not found in DeepWiki. Invoke via the `/playwright-cli` skill or run `bunx playwright-cli` commands directly.
 
+<EXTREMELY_IMPORTANT>
+- PREFER to use the playwright-cli (refer to playwright-cli skill) OVER web fetch/search tools
+  - ALWAYS ASSUME you have the playwright-cli tool installed (if the `playwright-cli` command fails, fallback to `bunx playwright-cli`).
+</EXTREMELY_IMPORTANT>
+
 ## Instructions
 
 Follow this systematic approach to explain code: **$ARGUMENTS**

@@ -1,29 +1,93 @@
-import type { WorkflowRuntimeTask } from "@/services/workflows/runtime-contracts.ts";
+import { z } from "zod";
+import {
+  normalizeWorkflowRuntimeTaskStatus,
+  type WorkflowRuntimeTask,
+} from "@/services/workflows/runtime-contracts.ts";
 import type { TaskItem } from "@/services/workflows/ralph/prompts.ts";
 
-export function parseTasks(content: string): TaskItem[] {
-  const trimmed = content.trim();
-  let parsed: unknown = null;
+/**
+ * Normalize a raw task object from LLM output, supporting both the current
+ * schema (description/summary) and the legacy schema (content/activeForm).
+ */
+function normalizeRawTaskRecord(raw: unknown): Record<string, unknown> {
+  if (typeof raw !== "object" || raw === null) return {};
+  const record = raw as Record<string, unknown>;
+  return {
+    ...record,
+    description: record.description ?? record.content,
+    summary: record.summary ?? record.activeForm,
+  };
+}
+
+const taskItemSchema = z.object({
+  id: z.union([z.number(), z.string()]).optional().transform((val) => {
+    if (val === null || val === undefined) return undefined;
+    return String(val);
+  }),
+  description: z.string().catch("Untitled task"),
+  status: z.string().catch("pending"),
+  summary: z.string().catch("Working on task"),
+  blockedBy: z.array(
+    z.union([z.number(), z.string()]).transform((val) => String(val)),
+  ).optional().catch([]),
+});
+
+function extractJsonArray(text: string): unknown | null {
+  const trimmed = text.trim();
+
   try {
-    parsed = JSON.parse(trimmed);
-  } catch {
-    const match = trimmed.match(/\[[\s\S]*\]/);
-    if (match) {
+    return JSON.parse(trimmed);
+  } catch { /* continue */ }
+
+  const match = trimmed.match(/\[[\s\S]*\]/);
+  if (match) {
+    try {
+      return JSON.parse(match[0]);
+    } catch { /* continue */ }
+  }
+
+  // Last resort: extract individual JSON objects when the array is malformed
+  const objectMatches = [...trimmed.matchAll(/\{[^{}]*\}/g)];
+  if (objectMatches.length > 0) {
+    const recovered: unknown[] = [];
+    for (const objMatch of objectMatches) {
       try {
-        parsed = JSON.parse(match[0]);
-      } catch {
-        /* ignore */
-      }
+        recovered.push(JSON.parse(objMatch[0]));
+      } catch { /* skip malformed objects */ }
+    }
+    if (recovered.length > 0) return recovered;
+  }
+
+  return null;
+}
+
+export function parseTasks(content: string): TaskItem[] {
+  const parsed = extractJsonArray(content);
+  if (!Array.isArray(parsed) || parsed.length === 0) return [];
+
+  const tasks: TaskItem[] = [];
+  for (const [index, item] of parsed.entries()) {
+    const normalized = normalizeRawTaskRecord(item);
+    const result = taskItemSchema.safeParse(normalized);
+    if (result.success) {
+      const task = result.data;
+      tasks.push({
+        id: task.id ?? String(index + 1),
+        description: task.description,
+        status: task.status,
+        summary: task.summary,
+        blockedBy: task.blockedBy,
+      });
     }
   }
-  if (!Array.isArray(parsed) || parsed.length === 0) return [];
-  return parsed as TaskItem[];
+
+  return tasks;
 }
 
 export function getReadyTasks(tasks: TaskItem[]): TaskItem[] {
   const completedIds = new Set(
     tasks
-      .filter((t) => t.status === "completed" || t.status === "complete" || t.status === "done")
+      .filter((t) => t.status === "completed")
       .map((t) => t.id)
       .filter((id): id is string => Boolean(id))
       .map((id) => id.trim().toLowerCase().replace(/^#/, ""))
@@ -53,8 +117,8 @@ export function stripPriorityPrefix(title: string): string {
 export function toRuntimeTask(task: TaskItem, fallbackId: string): WorkflowRuntimeTask {
   return {
     id: task.id ?? fallbackId,
-    title: task.content,
-    status: task.status,
+    title: task.description,
+    status: normalizeWorkflowRuntimeTaskStatus(task.status),
     blockedBy: task.blockedBy,
     identity: task.identity,
     taskResult: task.taskResult,
@@ -80,9 +144,9 @@ export function buildReviewFixTasks(findings: ReadonlyArray<{
   if (findings.length === 0) {
     return [{
       id: "#review-fix-1",
-      content: "Address review feedback",
+      description: "Address review feedback",
       status: "pending",
-      activeForm: "Addressing review feedback",
+      summary: "Addressing review feedback",
       blockedBy: [],
     }];
   }
@@ -92,13 +156,13 @@ export function buildReviewFixTasks(findings: ReadonlyArray<{
     const normalizedTitle = typeof finding.title === "string"
       ? stripPriorityPrefix(finding.title)
       : "";
-    const content = normalizedTitle.length > 0 ? normalizedTitle : fallback;
+    const description = normalizedTitle.length > 0 ? normalizedTitle : fallback;
 
     return {
       id: `#review-fix-${index + 1}`,
-      content,
+      description,
       status: "pending",
-      activeForm: `Addressing ${content}`,
+      summary: `Addressing ${description}`,
       blockedBy: [],
     } satisfies TaskItem;
   });

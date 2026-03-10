@@ -39,7 +39,7 @@ const TASK_STATUS_ALIASES: Record<string, TaskStatus> = {
 
 export interface NormalizedTaskItem {
   id?: string;
-  content: string;
+  description: string;
   status: TaskStatus;
   blockedBy?: string[];
   identity?: {
@@ -50,7 +50,7 @@ export interface NormalizedTaskItem {
 }
 
 export interface NormalizedTodoItem extends NormalizedTaskItem {
-  activeForm: string;
+  summary: string;
 }
 
 function normalizeStatusToken(status: string): string {
@@ -211,8 +211,8 @@ function normalizeTaskResultEnvelope(value: unknown): WorkflowRuntimeTaskResultE
   };
 }
 
-function normalizeStableTaskContent(content: string): string {
-  return content.trim().toLowerCase().replace(/\s+/g, " ");
+function normalizeStableTaskDescription(description: string): string {
+  return description.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 function normalizeDependencyTaskId(id: string | undefined): string | undefined {
@@ -221,15 +221,15 @@ function normalizeDependencyTaskId(id: string | undefined): string | undefined {
   return normalized.length > 0 ? normalized : undefined;
 }
 
-function getStableTaskKey(task: { id?: string; content: string }): string {
+function getStableTaskKey(task: { id?: string; description: string }): string {
   const normalizedId = task.id?.trim().toLowerCase();
   if (normalizedId) {
     return `id:${normalizedId}`;
   }
 
-  const normalizedContent = normalizeStableTaskContent(task.content);
-  if (normalizedContent.length > 0) {
-    return `content:${normalizedContent}`;
+  const normalizedDescription = normalizeStableTaskDescription(task.description);
+  if (normalizedDescription.length > 0) {
+    return `description:${normalizedDescription}`;
   }
 
   return "";
@@ -297,7 +297,7 @@ export function normalizeTaskItem(input: unknown): NormalizedTaskItem {
   const taskResult = normalizeTaskResultEnvelope(record.taskResult ?? record.task_result);
   return {
     id: normalizeId(record.id),
-    content: String(record.content ?? ""),
+    description: String(record.description ?? record.content ?? ""),
     status: normalizeTaskStatus(record.status),
     blockedBy: normalizeBlockedBy(record.blockedBy),
     ...(identity ? { identity } : {}),
@@ -311,7 +311,7 @@ export function normalizeTodoItem(input: unknown): NormalizedTodoItem {
 
   return {
     ...normalized,
-    activeForm: String(record.activeForm ?? ""),
+    summary: String(record.summary ?? record.activeForm ?? ""),
   };
 }
 
@@ -349,35 +349,35 @@ export function mergeBlockedBy<T extends NormalizedTaskItem>(
 
   // Build a lookup from normalized ID → blockedBy from the previous state
   const prevBlockedById = new Map<string, string[]>();
-  const prevByContent = new Map<string, NormalizedTaskItem>();
+  const prevByDescription = new Map<string, NormalizedTaskItem>();
   for (const task of previous) {
     const id = normalizeDependencyTaskId(task.id);
     if (id && task.blockedBy) {
       prevBlockedById.set(id, task.blockedBy);
     }
 
-    const contentKey = task.content.trim().toLowerCase().replace(/\s+/g, " ");
-    if (contentKey.length > 0 && !prevByContent.has(contentKey)) {
-      prevByContent.set(contentKey, task);
+    const descriptionKey = task.description.trim().toLowerCase().replace(/\s+/g, " ");
+    if (descriptionKey.length > 0 && !prevByDescription.has(descriptionKey)) {
+      prevByDescription.set(descriptionKey, task);
     }
   }
 
-  if (prevBlockedById.size === 0 && prevByContent.size === 0) return updated;
+  if (prevBlockedById.size === 0 && prevByDescription.size === 0) return updated;
 
   return updated.map((task) => {
     const hasExplicitId =
       typeof task.id === "string" && task.id.trim().length > 0;
-    const contentKey = task.content.trim().toLowerCase().replace(/\s+/g, " ");
-    const prevByMatchingContent = contentKey.length > 0
-      ? prevByContent.get(contentKey)
+    const descriptionKey = task.description.trim().toLowerCase().replace(/\s+/g, " ");
+    const prevByMatchingDescription = descriptionKey.length > 0
+      ? prevByDescription.get(descriptionKey)
       : undefined;
 
-    const restoredId = hasExplicitId ? task.id : prevByMatchingContent?.id;
+    const restoredId = hasExplicitId ? task.id : prevByMatchingDescription?.id;
     const normalizedId = normalizeDependencyTaskId(restoredId);
 
     const restoredBlockedBy = task.blockedBy
       ?? (normalizedId ? prevBlockedById.get(normalizedId) : undefined)
-      ?? (!hasExplicitId ? prevByMatchingContent?.blockedBy : undefined);
+      ?? (!hasExplicitId ? prevByMatchingDescription?.blockedBy : undefined);
 
     if (restoredId === task.id && restoredBlockedBy === task.blockedBy) {
       return task;

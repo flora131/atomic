@@ -444,7 +444,7 @@ describe("executeWorkflow", () => {
     };
 
     interface TestState extends BaseState {
-      tasks: Array<{ id: string; content: string; status: string; activeForm: string }>;
+      tasks: Array<{ id: string; description: string; status: string; summary: string }>;
     }
 
     const compiledGraph = compileGraphConfig<TestState>({
@@ -455,7 +455,7 @@ describe("executeWorkflow", () => {
           execute: async () => ({
             stateUpdate: {
               tasks: [
-                { id: "t1", content: "Task 1", status: "pending", activeForm: "Task 1" },
+                { id: "t1", description: "Task 1", status: "pending", summary: "Task 1" },
               ],
             } as Partial<TestState>,
           }),
@@ -466,7 +466,7 @@ describe("executeWorkflow", () => {
           execute: async () => ({
             stateUpdate: {
               tasks: [
-                { id: "t1", content: "Task 1", status: "in_progress", activeForm: "Task 1" },
+                { id: "t1", description: "Task 1", status: "in_progress", summary: "Task 1" },
               ],
             } as Partial<TestState>,
           }),

@@ -28,10 +28,13 @@ describe("runtime-contracts", () => {
     expect(metrics.histograms["workflow.runtime.parity.task_blocked_by_count{path=schema_parse}"]).toEqual([0]);
   });
 
-  test("normalizes task status aliases", () => {
-    expect(normalizeWorkflowRuntimeTaskStatus("done")).toBe("completed");
+  test("normalizes canonical task statuses and defaults unknown to pending", () => {
+    expect(normalizeWorkflowRuntimeTaskStatus("completed")).toBe("completed");
+    expect(normalizeWorkflowRuntimeTaskStatus("in_progress")).toBe("in_progress");
     expect(normalizeWorkflowRuntimeTaskStatus("in progress")).toBe("in_progress");
-    expect(normalizeWorkflowRuntimeTaskStatus("failure")).toBe("failed");
+    expect(normalizeWorkflowRuntimeTaskStatus("failed")).toBe("failed");
+    expect(normalizeWorkflowRuntimeTaskStatus("done")).toBe("pending");
+    expect(normalizeWorkflowRuntimeTaskStatus("failure")).toBe("pending");
     expect(normalizeWorkflowRuntimeTaskStatus("unexpected-value")).toBe("pending");
   });
 
@@ -39,7 +42,7 @@ describe("runtime-contracts", () => {
     const task = toWorkflowRuntimeTask(
       {
         content: "Implement contract",
-        status: "done",
+        status: "completed",
         blockedBy: ["#1", "", null],
       },
       () => "generated-id",

@@ -314,9 +314,9 @@ export async function executeWorkflow(
             const state = step.state as BaseState & {
                 tasks?: Array<{
                     id?: string;
-                    content: string;
+                    description: string;
                     status: string;
-                    activeForm: string;
+                    summary: string;
                     blockedBy?: string[];
                     identity?: WorkflowRuntimeTask["identity"];
                     taskResult?: WorkflowRuntimeTask["taskResult"];
@@ -328,13 +328,13 @@ export async function executeWorkflow(
                         state.tasks as NormalizedTodoItem[],
                     );
                 }
-                
+
                 // Publish task update event
                 if (eventAdapter) {
                     const formattedTasks = toRuntimeTasks(
                         state.tasks.map((task) => ({
                             id: task.id,
-                            title: task.content,
+                            title: task.description,
                             status: task.status,
                             blockedBy: task.blockedBy,
                             identity: task.identity,

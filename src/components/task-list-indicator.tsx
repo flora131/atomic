@@ -27,7 +27,7 @@ import { AnimatedBlinkIndicator } from "@/components/animated-blink-indicator.ts
 
 export interface TaskItem {
   id?: string;
-  content: string;
+  description: string;
   status: "pending" | "in_progress" | "completed" | "error";
   blockedBy?: string[];
 }
@@ -131,7 +131,7 @@ export function TaskListIndicator({
         // Content truncation accounting for suffix overhead (e.g. " [FAILED]")
         const labelOverhead = statusLabel ? statusLabel.length + 3 : 0;
         const effectiveMax = (maxContentLength ?? MAX_CONTENT_LENGTH) - labelOverhead;
-        const displayContent = expanded ? item.content : truncateText(item.content, effectiveMax);
+        const displayContent = expanded ? item.description : truncateText(item.description, effectiveMax);
 
         const hasBlockers = item.blockedBy && item.blockedBy.length > 0;
         const blockersSuffix = hasBlockers

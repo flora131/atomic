@@ -159,9 +159,9 @@ export function createWorkflowTaskPersistence(args: {
         const taskKey = normalizeTaskKey(task.id);
         return {
           id: task.id,
-          content: task.title,
+          description: task.title,
           status: task.status as TaskStatus,
-          activeForm: task.title,
+          summary: task.title,
           blockedBy:
             task.blockedBy ??
             (taskKey ? previousById.get(taskKey)?.blockedBy : undefined),

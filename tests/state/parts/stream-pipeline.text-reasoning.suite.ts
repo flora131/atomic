@@ -51,8 +51,8 @@ describe("applyStreamPartEvent - text and reasoning", () => {
     expect(taskListPart?.type).toBe("task-list");
     if (taskListPart?.type === "task-list") {
       expect(taskListPart.items).toEqual([
-        { id: "#1", content: "Plan", status: "completed", blockedBy: [] },
-        { id: "#2", content: "Implement", status: "pending", blockedBy: ["#1"] },
+        { id: "#1", description: "Plan", status: "completed", blockedBy: [] },
+        { id: "#2", description: "Implement", status: "pending", blockedBy: ["#1"] },
       ]);
     }
   });

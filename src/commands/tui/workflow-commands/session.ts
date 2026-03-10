@@ -52,9 +52,9 @@ async function atomicWrite(
 export async function saveTasksToActiveSession(
   tasks: Array<{
     id?: string;
-    content: string;
+    description: string;
     status: string;
-    activeForm: string;
+    summary: string;
     blockedBy?: string[];
     taskResult?: WorkflowRuntimeTaskResultEnvelope;
   }>,

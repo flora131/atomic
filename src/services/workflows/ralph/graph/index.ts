@@ -13,7 +13,10 @@ import {
 } from "@/services/workflows/graph/index.ts";
 import type { NodeDefinition, ExecutionContext, NodeResult } from "@/services/workflows/graph/types.ts";
 import type { SubagentSpawnOptions } from "@/services/workflows/graph/types.ts";
-import type { WorkflowRuntimeTask } from "@/services/workflows/runtime-contracts.ts";
+import {
+  normalizeWorkflowRuntimeTaskStatus,
+  type WorkflowRuntimeTask,
+} from "@/services/workflows/runtime-contracts.ts";
 import { buildTaskResultEnvelope } from "@/services/workflows/task-result-envelope.ts";
 import type { RalphWorkflowState } from "@/services/workflows/ralph/state.ts";
 import {
@@ -169,8 +172,8 @@ export function createRalphWorkflow() {
                 const runtimeTask = toRuntimeTask(task, `${ctx.state.executionId}-${ctx.state.iteration}-${index}`);
                 return {
                   id: task.id ?? "",
-                  title: task.content,
-                  status: task.status,
+                  title: task.description,
+                  status: normalizeWorkflowRuntimeTaskStatus(task.status),
                   blockedBy: task.blockedBy,
                   identity: runtimeTask.identity,
                 };
@@ -255,9 +258,10 @@ export function createRalphWorkflow() {
       ],
       {
         until: (state) =>
-          (state.tasks.length > 0 && state.tasks.every((t) => t.status === "completed" || t.status === "error")) ||
+          state.tasks.length === 0 ||
+          state.tasks.every((t) => t.status === "completed" || t.status === "error") ||
           state.iteration >= state.maxIterations ||
-          (state.tasks.length > 0 && !hasActionableTasks(state.tasks)),
+          !hasActionableTasks(state.tasks),
         maxIterations: 100,
       }
     )
@@ -367,8 +371,8 @@ export function createRalphWorkflow() {
                 const runtimeTask = toRuntimeTask(task, `${ctx.state.executionId}-fix-${index}`);
                 return {
                   id: task.id ?? "",
-                  title: task.content,
-                  status: task.status,
+                  title: task.description,
+                  status: normalizeWorkflowRuntimeTaskStatus(task.status),
                   blockedBy: task.blockedBy,
                   identity: runtimeTask.identity,
                 };

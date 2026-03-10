@@ -161,9 +161,9 @@ describe("executeWorkflow - task status events", () => {
     const lastSave = saveCalls[saveCalls.length - 1]!;
     expect(lastSave.tasks[0]).toMatchObject({
       id: "t1",
-      content: "Task 1",
+      description: "Task 1",
       status: "in_progress",
-      activeForm: "Task 1",
+      summary: "Task 1",
     });
   });
 
@@ -355,7 +355,7 @@ describe("executeWorkflow - task status events", () => {
     };
 
     interface TestState extends BaseState {
-      tasks: Array<{ id: string; content: string; status: string; activeForm: string }>;
+      tasks: Array<{ id: string; description: string; status: string; summary: string }>;
     }
 
     const compiledGraph = compileGraphConfig<TestState>({
@@ -366,7 +366,7 @@ describe("executeWorkflow - task status events", () => {
           execute: async () => ({
             stateUpdate: {
               tasks: [
-                { id: "t1", content: "Task 1", status: "pending", activeForm: "Task 1" },
+                { id: "t1", description: "Task 1", status: "pending", summary: "Task 1" },
               ],
             } as Partial<TestState>,
           }),

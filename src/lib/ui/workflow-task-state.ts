@@ -6,7 +6,7 @@ export type WorkflowTaskStatus = "pending" | "in_progress" | "completed" | "erro
 
 export interface WorkflowTaskStateItem {
   id?: string;
-  content: string;
+  description: string;
   status: WorkflowTaskStatus;
   blockedBy?: string[];
 }
@@ -40,8 +40,8 @@ function extractLeadingTaskId(content: string): string | undefined {
   return match?.[1];
 }
 
-function normalizeTaskContent(content: string): string {
-  const normalized = content.trim().toLowerCase().replace(/\s+/g, " ");
+function normalizeTaskDescription(description: string): string {
+  const normalized = description.trim().toLowerCase().replace(/\s+/g, " ");
   return stripLeadingTaskPrefixes(normalized);
 }
 
@@ -52,7 +52,7 @@ function normalizeTaskContent(content: string): string {
 export function hasWorkflowTaskIdOverlap<T extends { id?: string }>(
   todos: readonly T[],
   knownTaskIds: ReadonlySet<string>,
-  previousTasks: readonly { content: string }[] = [],
+  previousTasks: readonly { description: string }[] = [],
 ): boolean {
   if (todos.length === 0) return false;
 
@@ -62,10 +62,10 @@ export function hasWorkflowTaskIdOverlap<T extends { id?: string }>(
       .map(normalizeWorkflowTaskId),
   );
 
-  const previousContentKeys = new Set(
+  const previousDescriptionKeys = new Set(
     previousTasks
-      .map((task) => normalizeTaskContent(task.content))
-      .filter((content) => content.length > 0),
+      .map((task) => normalizeTaskDescription(task.description))
+      .filter((d) => d.length > 0),
   );
 
   let hasAnchoredMatch = false;
@@ -81,9 +81,9 @@ export function hasWorkflowTaskIdOverlap<T extends { id?: string }>(
       continue;
     }
 
-    const maybeContent = (todo as { content?: unknown }).content;
-    const content = typeof maybeContent === "string" ? maybeContent : "";
-    const extractedId = extractLeadingTaskId(content);
+    const maybeDescription = (todo as { description?: unknown }).description;
+    const descriptionStr = typeof maybeDescription === "string" ? maybeDescription : "";
+    const extractedId = extractLeadingTaskId(descriptionStr);
     if (extractedId) {
       if (normalizedKnownIds.size > 0 && !normalizedKnownIds.has(extractedId)) {
         return false;
@@ -92,15 +92,15 @@ export function hasWorkflowTaskIdOverlap<T extends { id?: string }>(
       continue;
     }
 
-    if (previousContentKeys.size === 0) {
+    if (previousDescriptionKeys.size === 0) {
       continue;
     }
 
-    const contentKey = typeof maybeContent === "string"
-      ? normalizeTaskContent(maybeContent)
+    const descriptionKey = typeof maybeDescription === "string"
+      ? normalizeTaskDescription(maybeDescription)
       : "";
 
-    if (contentKey.length === 0 || !previousContentKeys.has(contentKey)) {
+    if (descriptionKey.length === 0 || !previousDescriptionKeys.has(descriptionKey)) {
       return false;
     }
     hasAnchoredMatch = true;
@@ -131,7 +131,7 @@ export function snapshotTaskItems(
   if (tasks.length === 0) return undefined;
   return tasks.map((task) => ({
     id: task.id,
-    content: task.content,
+    description: task.description,
     status: task.status,
     blockedBy: task.blockedBy,
   }));

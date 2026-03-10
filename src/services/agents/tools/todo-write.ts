@@ -22,9 +22,9 @@ const todoWriteInputSchema = {
         properties: {
           id: {
             type: "string",
-            description: "Unique identifier for the todo item (e.g., '#1', 'setup-project')",
+            description: "Unique identifier for the todo item (e.g., '1', 'setup-project')",
           },
-          content: {
+          description: {
             type: "string",
             description: "The todo item text",
           },
@@ -33,9 +33,9 @@ const todoWriteInputSchema = {
             enum: ["pending", "in_progress", "completed"],
             description: "Current status of the todo item",
           },
-          activeForm: {
+          summary: {
             type: "string",
-            description: "Active voice description of the task (e.g., 'Fixing bug')",
+            description: "Present-participle phrase for the task (e.g., 'Fixing bug')",
           },
           blockedBy: {
             type: "array",
@@ -43,7 +43,7 @@ const todoWriteInputSchema = {
             description: "IDs of todo items that must complete before this one can start",
           },
         },
-        required: ["content", "status", "activeForm"],
+        required: ["description", "status", "summary"],
       },
     },
   },
@@ -52,9 +52,9 @@ const todoWriteInputSchema = {
 
 export interface TodoItem {
   id?: string;
-  content: string;
+  description: string;
   status: "pending" | "in_progress" | "completed";
-  activeForm: string;
+  summary: string;
   blockedBy?: string[];
 }
 
@@ -85,7 +85,7 @@ export function createTodoWriteTool(): ToolDefinition {
       return {
         oldTodos,
         newTodos: currentTodos,
-        summary: `${todos.length} tasks: ${done} done, ${inProgress} in progress, ${pending} pending`,
+        statusSummary: `${todos.length} tasks: ${done} done, ${inProgress} in progress, ${pending} pending`,
       };
     },
   };

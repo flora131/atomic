@@ -2,7 +2,8 @@ import { CHECKBOX, STATUS } from "@/theme/icons.ts";
 import type { ToolRenderProps, ToolRenderResult, ToolRenderer } from "@/components/tool-registry/registry/types.ts";
 
 interface TodoWriteItem {
-  content: string;
+  description?: string;
+  content?: string;
   status: string;
 }
 
@@ -31,7 +32,7 @@ export const todoWriteToolRenderer: ToolRenderer = {
         : todo.status === "in_progress"
           ? `${STATUS.selected} `
           : `${STATUS.pending} `;
-      return prefix + todo.content;
+      return prefix + (todo.description ?? todo.content ?? "");
     });
 
     return {

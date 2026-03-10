@@ -77,7 +77,7 @@ describe("StreamPipelineConsumer", () => {
         data: {
           workflowId: "wf1",
           tasks: [
-            { id: "t1", title: "Plan", status: "complete", blockedBy: [] },
+            { id: "t1", title: "Plan", status: "completed", blockedBy: [] },
             { id: "t2", title: "Implement", status: "pending" },
           ],
         },
@@ -89,7 +89,7 @@ describe("StreamPipelineConsumer", () => {
       type: "task-list-update",
       runId: 1,
       tasks: [
-        { id: "t1", title: "Plan", status: "complete", blockedBy: [] },
+        { id: "t1", title: "Plan", status: "completed", blockedBy: [] },
         { id: "t2", title: "Implement", status: "pending" },
       ],
     });

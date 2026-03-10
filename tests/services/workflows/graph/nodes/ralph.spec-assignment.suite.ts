@@ -174,7 +174,7 @@ describe("buildWorkerAssignment", () => {
     expect(prompt).toContain("Second task");
   });
 
-  test("recognizes different completed status variants", () => {
+  test("only recognizes canonical completed status", () => {
     const task: TaskItem = {
       id: "#4",
       description: "New task",
@@ -183,8 +183,8 @@ describe("buildWorkerAssignment", () => {
     };
     const allTasks: TaskItem[] = [
       { id: "#1", description: "Task 1", status: "completed", summary: "Doing task 1" },
-      { id: "#2", description: "Task 2", status: "complete", summary: "Doing task 2" },
-      { id: "#3", description: "Task 3", status: "done", summary: "Doing task 3" },
+      { id: "#2", description: "Task 2", status: "completed", summary: "Doing task 2" },
+      { id: "#3", description: "Task 3", status: "completed", summary: "Doing task 3" },
       task,
     ];
 

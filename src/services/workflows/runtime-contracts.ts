@@ -17,28 +17,15 @@ const WORKFLOW_RUNTIME_TASK_STATUS_VALUES = [
 
 export type WorkflowRuntimeTaskStatus = (typeof WORKFLOW_RUNTIME_TASK_STATUS_VALUES)[number];
 
-const WORKFLOW_RUNTIME_TASK_STATUS_ALIASES: Record<string, WorkflowRuntimeTaskStatus> = {
-  pending: "pending",
-  todo: "pending",
-  open: "pending",
-  in_progress: "in_progress",
-  inprogress: "in_progress",
-  running: "in_progress",
-  doing: "in_progress",
-  complete: "completed",
-  completed: "completed",
-  done: "completed",
-  success: "completed",
-  failed: "failed",
-  failure: "failed",
-  blocked: "blocked",
-  error: "error",
-  errored: "error",
-};
-
 export const workflowRuntimeTaskStatusSchema = z.enum(WORKFLOW_RUNTIME_TASK_STATUS_VALUES);
 
-const workflowRuntimeLooseTaskStatusSchema = z.string().min(1);
+const workflowRuntimeTaskStatusWithFallbackSchema = z
+  .string()
+  .transform((val): WorkflowRuntimeTaskStatus => {
+    const normalized = val.trim().toLowerCase().replace(/[\s-]+/g, "_");
+    const result = workflowRuntimeTaskStatusSchema.safeParse(normalized);
+    return result.success ? result.data : "pending";
+  });
 
 const workflowRuntimeTaskIdentitySchema = z.object({
   canonicalId: z.string().min(1).optional(),
@@ -67,7 +54,7 @@ export type WorkflowRuntimeTaskResultEnvelope = z.infer<typeof workflowRuntimeTa
 const workflowRuntimeTaskBaseSchema = z.object({
   id: z.string().min(1),
   title: z.string(),
-  status: workflowRuntimeLooseTaskStatusSchema,
+  status: workflowRuntimeTaskStatusWithFallbackSchema,
   blockedBy: z.array(z.string()).optional(),
   error: z.string().optional(),
   identity: workflowRuntimeTaskIdentitySchema.optional(),
@@ -84,9 +71,9 @@ export type WorkflowRuntimeTask = z.infer<typeof workflowRuntimeTaskSchema>;
 
 export const workflowRuntimeStateTaskSchema = z.object({
   id: z.string().min(1).optional(),
-  content: z.string(),
-  status: workflowRuntimeLooseTaskStatusSchema,
-  activeForm: z.string(),
+  description: z.string(),
+  status: workflowRuntimeTaskStatusWithFallbackSchema,
+  summary: z.string(),
   blockedBy: z.array(z.string()).optional(),
   error: z.string().optional(),
 });
@@ -95,7 +82,7 @@ export type WorkflowRuntimeStateTask = z.infer<typeof workflowRuntimeStateTaskSc
 
 export const workflowRuntimeTaskStatusChangeSchema = z.object({
   taskIds: z.array(z.string()),
-  newStatus: workflowRuntimeLooseTaskStatusSchema,
+  newStatus: workflowRuntimeTaskStatusWithFallbackSchema,
   tasks: z.array(workflowRuntimeTaskSchema),
 });
 
@@ -126,9 +113,7 @@ export function normalizeWorkflowRuntimeTaskStatus(status: unknown): WorkflowRun
   if (typeof status !== "string") {
     return "pending";
   }
-
-  const normalized = status.trim().toLowerCase().replace(/[\s-]+/g, "_");
-  return WORKFLOW_RUNTIME_TASK_STATUS_ALIASES[normalized] ?? "pending";
+  return workflowRuntimeTaskStatusWithFallbackSchema.parse(status);
 }
 
 function normalizeBlockedBy(value: unknown): string[] | undefined {
@@ -358,7 +343,7 @@ export function toWorkflowRuntimeTask(
   }
 
   const record = asRecord(input);
-  const title = String(record.title ?? record.content ?? "");
+  const title = String(record.title ?? record.description ?? record.content ?? "");
   const id = typeof record.id === "string" && record.id.trim().length > 0
     ? record.id
     : fallbackId();

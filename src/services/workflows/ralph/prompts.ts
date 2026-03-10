@@ -19,21 +19,16 @@ import type {
 
 export interface TaskItem {
     id?: string;
-    content: string;
+    description: string;
     status: string;
-    activeForm: string;
+    summary: string;
     blockedBy?: string[];
     identity?: WorkflowRuntimeTaskIdentity;
     taskResult?: WorkflowRuntimeTaskResultEnvelope;
 }
 
 function isCompletedStatus(status: string): boolean {
-    const normalized = status.trim().toLowerCase();
-    return (
-        normalized === "completed" ||
-        normalized === "complete" ||
-        normalized === "done"
-    );
+    return status.trim().toLowerCase() === "completed";
 }
 
 // ============================================================================
@@ -42,45 +37,106 @@ function isCompletedStatus(status: string): boolean {
 
 /** Build the spec-to-tasks prompt for decomposing a spec into TodoItem[] */
 export function buildSpecToTasksPrompt(specContent: string): string {
-    return `You are tasked with decomposing a feature specification into an ordered task list.
-
-Read the following specification and create a comprehensive and structured JSON array of tasks to be implemented in order of highest to lowest priority.
+    return `You are a task decomposition engine. Your sole output is a JSON array.
 
 <specification>
 ${specContent}
 </specification>
 
-# Output Format
+<instructions>
+Decompose the specification above into an ordered list of implementation tasks.
 
-Produce a JSON array where each element follows this exact schema:
+1. Read the specification and identify every distinct deliverable.
+2. Order tasks by priority: foundational/infrastructure first, then features, then tests, then polish.
+3. Analyze technical dependencies between tasks and populate blockedBy arrays.
+4. Output the task list as a single raw JSON array. Nothing else.
+</instructions>
 
-\`\`\`json
+<schema>
+The output MUST validate against the following JSON Schema:
+
+{
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["id", "description", "status", "summary", "blockedBy"],
+    "additionalProperties": false,
+    "properties": {
+      "id": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "description": {
+        "type": "string",
+        "maxLength": 80
+      },
+      "status": {
+        "type": "string",
+        "const": "pending"
+      },
+      "summary": {
+        "type": "string",
+        "maxLength": 60
+      },
+      "blockedBy": {
+        "type": "array",
+        "items": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}
+
+Field definitions:
+
+| Field       | Type       | Constraint                                                                 |
+|-------------|------------|----------------------------------------------------------------------------|
+| id          | integer    | Sequential starting at 1. Values: 1, 2, 3, …                              |
+| description | string     | Concise imperative task description, under 80 characters.                  |
+| status      | string     | Always the literal value "pending".                                        |
+| summary     | string     | Present-participle phrase for UI display (e.g. "Implementing auth endpoint"). Under 60 characters. |
+| blockedBy   | integer[]  | Array of id values this task depends on. Use [] when there are no dependencies. Every integer in this array MUST be the id of another task in the list. |
+</schema>
+
+<example>
 [
   {
-    "id": "#1",
-    "content": "Concise description of the task",
+    "id": 1,
+    "description": "Set up project scaffolding and install dependencies",
     "status": "pending",
-    "activeForm": "Present-participle form (e.g., 'Implementing auth endpoint')",
+    "summary": "Setting up project scaffolding",
     "blockedBy": []
+  },
+  {
+    "id": 2,
+    "description": "Implement user authentication API endpoint",
+    "status": "pending",
+    "summary": "Implementing authentication endpoint",
+    "blockedBy": [1]
+  },
+  {
+    "id": 3,
+    "description": "Add unit tests for authentication flow",
+    "status": "pending",
+    "summary": "Adding authentication tests",
+    "blockedBy": [2]
   }
 ]
-\`\`\`
+</example>
 
-# Field Definitions
+<constraints>
+- Every task object MUST have all five fields. Do not omit any field.
+- Do not add fields beyond the five listed in the schema.
+- id is an integer, NOT a string. Correct: 1. Wrong: "#1" or "1".
+- blockedBy values are integers, NOT strings. Correct: [1, 2]. Wrong: ["#1", "#2"].
+- blockedBy must only reference id values that exist in the array.
+- Do not truncate or merge field values. Each field is independent.
+- status is always "pending". Do not use any other value.
+</constraints>
 
-- \`id\`: Sequential identifier ("#1", "#2", "#3", ...).
-- \`content\`: A concise, actionable description of the task.
-- \`status\`: Always "pending" for new tasks.
-- \`activeForm\`: Present-participle description shown in the UI spinner (e.g., "Implementing X", "Adding Y").
-- \`blockedBy\`: Array of task IDs that must complete before this task can start. Use this for technical dependencies (e.g., tests blocked by implementation, UI blocked by API). Leave empty ([]) for tasks with no dependencies.
-
-# Guidelines
-
-- Parse the specification thoroughly. Every distinct deliverable should be a separate task.
-- Order tasks by priority: foundational/infrastructure tasks first, then features, then tests, then polish.
-- Analyze technical dependencies between tasks and populate \`blockedBy\` arrays.
-- Keep \`content\` concise (under 80 characters).
-- Output ONLY the JSON array. No surrounding text, no markdown fences, no explanation.`;
+Output ONLY the raw JSON array. No markdown fences, no commentary, no explanation.`;
 }
 
 // ============================================================================
@@ -101,12 +157,12 @@ export function buildWorkerAssignment(
         if (!dependency) {
             return `- ${dependencyId}: (not found)`;
         }
-        return `- ${dependencyId}: ${dependency.content}`;
+        return `- ${dependencyId}: ${dependency.description}`;
     });
 
     const completedTasks = allTasks
         .filter((candidate) => isCompletedStatus(candidate.status))
-        .map((candidate) => `- ${candidate.id ?? "?"}: ${candidate.content}`);
+        .map((candidate) => `- ${candidate.id ?? "?"}: ${candidate.description}`);
 
     const dependencySection =
         dependencies.length > 0
@@ -129,7 +185,7 @@ ${completedTasks.join("\n")}
     return `# Task Assignment
 
 **Task ID:** ${taskId}
-**Task:** ${task.content}
+**Task:** ${task.description}
 
 ${dependencySection}${completedSection}# Instructions
 
@@ -172,7 +228,7 @@ export function buildReviewPrompt(
 ): string {
     const completedTasks = tasks
         .filter((t) => isCompletedStatus(t.status))
-        .map((t) => `- ${t.id ?? "?"}: ${t.content}`)
+        .map((t) => `- ${t.id ?? "?"}: ${t.description}`)
         .join("\n");
 
     return `# Code Review Request

@@ -25,8 +25,8 @@ describe("createRalphWorkflow - Parallel Worker Dispatch", () => {
       agentId: "planner-1",
       success: true,
       output: JSON.stringify([
-        { id: "#1", content: "Task 1", status: "pending", activeForm: "Doing 1", blockedBy: [] },
-        { id: "#2", content: "Task 2", status: "pending", activeForm: "Doing 2", blockedBy: [] },
+        { id: "#1", description: "Task 1", status: "pending", summary: "Doing 1", blockedBy: [] },
+        { id: "#2", description: "Task 2", status: "pending", summary: "Doing 2", blockedBy: [] },
       ]),
       toolUses: 0,
       durationMs: 10,
@@ -118,7 +118,7 @@ describe("createRalphWorkflow - Parallel Worker Dispatch", () => {
       agentId: "planner-1",
       success: true,
       output: JSON.stringify([
-        { id: "#1", content: "Task 1", status: "pending", activeForm: "Doing 1", blockedBy: [] },
+        { id: "#1", description: "Task 1", status: "pending", summary: "Doing 1", blockedBy: [] },
       ]),
       toolUses: 0,
       durationMs: 10,
@@ -179,8 +179,8 @@ describe("createRalphWorkflow - Parallel Worker Dispatch", () => {
       agentId: "planner-1",
       success: true,
       output: JSON.stringify([
-        { id: "#1", content: "Task 1", status: "pending", activeForm: "Doing 1", blockedBy: [] },
-        { id: "#2", content: "Task 2", status: "pending", activeForm: "Doing 2", blockedBy: ["#1"] },
+        { id: "#1", description: "Task 1", status: "pending", summary: "Doing 1", blockedBy: [] },
+        { id: "#2", description: "Task 2", status: "pending", summary: "Doing 2", blockedBy: ["#1"] },
       ]),
       toolUses: 0,
       durationMs: 10,

@@ -327,7 +327,7 @@ export function applyStreamPartEvent(
       const parts = [...(message.parts ?? [])];
       const taskItems = event.tasks.map((task) => ({
         id: task.id,
-        content: task.title,
+        description: task.title,
         status: normalizeTaskItemStatus(task.status),
         blockedBy: task.blockedBy,
       }));

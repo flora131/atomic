@@ -8,7 +8,7 @@ import {
 describe("buildReviewPrompt", () => {
   test("includes user prompt in review request", () => {
     const tasks: TaskItem[] = [
-      { id: "#1", content: "Add login", status: "completed", activeForm: "Adding login" },
+      { id: "#1", description: "Add login", status: "completed", summary: "Adding login" },
     ];
 
     const prompt = buildReviewPrompt(
@@ -24,9 +24,9 @@ describe("buildReviewPrompt", () => {
 
   test("lists all completed tasks", () => {
     const tasks: TaskItem[] = [
-      { id: "#1", content: "Setup DB", status: "completed", activeForm: "Setting up" },
-      { id: "#2", content: "Add API", status: "completed", activeForm: "Adding API" },
-      { id: "#3", content: "Not done yet", status: "pending", activeForm: "Working" },
+      { id: "#1", description: "Setup DB", status: "completed", summary: "Setting up" },
+      { id: "#2", description: "Add API", status: "completed", summary: "Adding API" },
+      { id: "#3", description: "Not done yet", status: "pending", summary: "Working" },
     ];
 
     const prompt = buildReviewPrompt(tasks, "Build backend", "/tmp/progress.txt");
@@ -40,7 +40,7 @@ describe("buildReviewPrompt", () => {
 
   test("includes progress file path", () => {
     const tasks: TaskItem[] = [
-      { id: "#1", content: "Task", status: "completed", activeForm: "Working" },
+      { id: "#1", description: "Task", status: "completed", summary: "Working" },
     ];
 
     expect(buildReviewPrompt(tasks, "Test", "/session/progress.txt")).toContain(
@@ -50,7 +50,7 @@ describe("buildReviewPrompt", () => {
 
   test("includes review focus areas", () => {
     const tasks: TaskItem[] = [
-      { id: "#1", content: "Task", status: "completed", activeForm: "Working" },
+      { id: "#1", description: "Task", status: "completed", summary: "Working" },
     ];
 
     const prompt = buildReviewPrompt(tasks, "Test", "/tmp/progress.txt");
@@ -65,7 +65,7 @@ describe("buildReviewPrompt", () => {
 
   test("specifies JSON output format", () => {
     const tasks: TaskItem[] = [
-      { id: "#1", content: "Task", status: "completed", activeForm: "Working" },
+      { id: "#1", description: "Task", status: "completed", summary: "Working" },
     ];
 
     const prompt = buildReviewPrompt(tasks, "Test", "/tmp/progress.txt");
@@ -78,7 +78,7 @@ describe("buildReviewPrompt", () => {
 
   test("defines priority levels", () => {
     const tasks: TaskItem[] = [
-      { id: "#1", content: "Task", status: "completed", activeForm: "Working" },
+      { id: "#1", description: "Task", status: "completed", summary: "Working" },
     ];
 
     const prompt = buildReviewPrompt(tasks, "Test", "/tmp/progress.txt");
@@ -93,7 +93,7 @@ describe("buildReviewPrompt", () => {
 
   test("handles tasks without IDs", () => {
     const tasks: TaskItem[] = [
-      { content: "Unnamed task", status: "completed", activeForm: "Working" },
+      { description: "Unnamed task", status: "completed", summary: "Working" },
     ];
 
     const prompt = buildReviewPrompt(tasks, "Test", "/tmp/progress.txt");

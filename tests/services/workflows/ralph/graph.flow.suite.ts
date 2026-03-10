@@ -21,16 +21,16 @@ describe("createRalphWorkflow - 3-Phase Flow", () => {
       output: JSON.stringify([
         {
           id: "#1",
-          content: "Task 1",
+          description: "Task 1",
           status: "pending",
-          activeForm: "Doing task 1",
+          summary: "Doing task 1",
           blockedBy: [],
         },
         {
           id: "#2",
-          content: "Task 2",
+          description: "Task 2",
           status: "pending",
-          activeForm: "Doing task 2",
+          summary: "Doing task 2",
           blockedBy: [],
         },
       ]),
@@ -97,16 +97,16 @@ describe("createRalphWorkflow - 3-Phase Flow", () => {
       output: JSON.stringify([
         {
           id: "#1",
-          content: "Task 1",
+          description: "Task 1",
           status: "pending",
-          activeForm: "Doing task 1",
+          summary: "Doing task 1",
           blockedBy: [],
         },
         {
           id: "#2",
-          content: "Task 2",
+          description: "Task 2",
           status: "pending",
-          activeForm: "Doing task 2",
+          summary: "Doing task 2",
           blockedBy: ["#1"],
         },
       ]),
@@ -173,9 +173,9 @@ describe("createRalphWorkflow - 3-Phase Flow", () => {
       output: JSON.stringify([
         {
           id: "#1",
-          content: "Task 1",
+          description: "Task 1",
           status: "pending",
-          activeForm: "Doing task 1",
+          summary: "Doing task 1",
           blockedBy: [],
         },
       ]),
@@ -257,9 +257,9 @@ describe("createRalphWorkflow - 3-Phase Flow", () => {
       output: JSON.stringify([
         {
           id: "#1",
-          content: "Task 1",
+          description: "Task 1",
           status: "pending",
-          activeForm: "Doing task 1",
+          summary: "Doing task 1",
           blockedBy: [],
         },
       ]),
@@ -338,9 +338,9 @@ describe("createRalphWorkflow - 3-Phase Flow", () => {
       output: JSON.stringify([
         {
           id: "#1",
-          content: "Task 1",
+          description: "Task 1",
           status: "pending",
-          activeForm: "Doing task 1",
+          summary: "Doing task 1",
           blockedBy: [],
         },
       ]),
@@ -411,9 +411,9 @@ describe("createRalphWorkflow - 3-Phase Flow", () => {
       output: JSON.stringify([
         {
           id: "#1",
-          content: "Task 1",
+          description: "Task 1",
           status: "pending",
-          activeForm: "Doing task 1",
+          summary: "Doing task 1",
           blockedBy: [],
         },
       ]),

@@ -57,7 +57,7 @@ describe("sortTasksTopologically", () => {
       task(undefined, "missing id"),
       task("#2", "valid"),
     ]);
-    expect(sorted.map((item) => item.content)).toEqual([
+    expect(sorted.map((item) => item.description)).toEqual([
       "valid",
       "duplicate one",
       "duplicate two",

@@ -72,14 +72,14 @@ describe("task item normalization", () => {
   test("normalizes malformed task item fields", () => {
     const normalized = normalizeTaskItem({
       id: 42,
-      content: "Run tests",
+      description: "Run tests",
       status: "in-progress",
       blockedBy: ["#1", 7, "", null],
     });
 
     expect(normalized).toEqual({
       id: "42",
-      content: "Run tests",
+      description: "Run tests",
       status: "in_progress",
       blockedBy: ["#1", "7"],
     });
@@ -87,22 +87,22 @@ describe("task item normalization", () => {
 
   test("normalizes todo item with defaults", () => {
     const normalized = normalizeTodoItem({
-      content: "Ship fix",
+      description: "Ship fix",
       status: "unknown",
     });
 
     expect(normalized).toEqual({
-      content: "Ship fix",
+      description: "Ship fix",
       status: "pending",
-      activeForm: "",
+      summary: "",
     });
   });
 
   test("normalizes todo item arrays", () => {
     const normalized = normalizeTodoItems([
-      { content: "A", status: "done", activeForm: "Doing A" },
-      { content: "B", status: "in progress", activeForm: "Doing B" },
-      { content: "C", status: "bogus" },
+      { description: "A", status: "done", summary: "Doing A" },
+      { description: "B", status: "in progress", summary: "Doing B" },
+      { description: "C", status: "bogus" },
     ]);
 
     expect(normalized.map((item) => item.status)).toEqual([
@@ -116,9 +116,9 @@ describe("task item normalization", () => {
     const normalized = normalizeTodoItems([
       {
         id: "#3",
-        content: "Persist worker output",
+        description: "Persist worker output",
         status: "completed",
-        activeForm: "Persisting worker output",
+        summary: "Persisting worker output",
         taskResult: {
           task_id: "#3",
           tool_name: "task",
@@ -156,15 +156,15 @@ describe("task item normalization", () => {
 describe("mergeBlockedBy", () => {
   test("restores blockedBy from previous state when omitted in update", () => {
     const previous = [
-      { id: "#1", content: "Setup", status: "completed" as const },
-      { id: "#2", content: "Implement", status: "pending" as const, blockedBy: ["#1"] },
-      { id: "#3", content: "Test", status: "pending" as const, blockedBy: ["#1", "#2"] },
+      { id: "#1", description: "Setup", status: "completed" as const },
+      { id: "#2", description: "Implement", status: "pending" as const, blockedBy: ["#1"] },
+      { id: "#3", description: "Test", status: "pending" as const, blockedBy: ["#1", "#2"] },
     ];
 
     const updated: NormalizedTaskItem[] = [
-      { id: "#1", content: "Setup", status: "completed" },
-      { id: "#2", content: "Implement", status: "in_progress" },
-      { id: "#3", content: "Test", status: "pending" },
+      { id: "#1", description: "Setup", status: "completed" },
+      { id: "#2", description: "Implement", status: "in_progress" },
+      { id: "#3", description: "Test", status: "pending" },
     ];
 
     const merged = mergeBlockedBy(updated, previous);
@@ -175,11 +175,11 @@ describe("mergeBlockedBy", () => {
 
   test("preserves explicitly provided blockedBy in update", () => {
     const previous = [
-      { id: "#1", content: "A", status: "pending" as const, blockedBy: ["#2"] },
+      { id: "#1", description: "A", status: "pending" as const, blockedBy: ["#2"] },
     ];
 
     const updated = [
-      { id: "#1", content: "A", status: "pending" as const, blockedBy: ["#3"] },
+      { id: "#1", description: "A", status: "pending" as const, blockedBy: ["#3"] },
     ];
 
     const merged = mergeBlockedBy(updated, previous);
@@ -188,7 +188,7 @@ describe("mergeBlockedBy", () => {
 
   test("returns updated as-is when previous is empty", () => {
     const updated = [
-      { id: "#1", content: "A", status: "pending" as const },
+      { id: "#1", description: "A", status: "pending" as const },
     ];
 
     const merged = mergeBlockedBy(updated, []);
@@ -197,11 +197,11 @@ describe("mergeBlockedBy", () => {
 
   test("handles tasks without IDs gracefully", () => {
     const previous: NormalizedTaskItem[] = [
-      { content: "No ID", status: "pending", blockedBy: ["#1"] },
+      { description: "No ID", status: "pending", blockedBy: ["#1"] },
     ];
 
     const updated: NormalizedTaskItem[] = [
-      { content: "No ID", status: "pending" },
+      { description: "No ID", status: "pending" },
     ];
 
     const merged = mergeBlockedBy(updated, previous);
@@ -211,11 +211,11 @@ describe("mergeBlockedBy", () => {
 
   test("matches IDs case-insensitively", () => {
     const previous: NormalizedTaskItem[] = [
-      { id: "#1", content: "A", status: "pending", blockedBy: ["#2"] },
+      { id: "#1", description: "A", status: "pending", blockedBy: ["#2"] },
     ];
 
     const updated: NormalizedTaskItem[] = [
-      { id: "#1", content: "A", status: "pending" },
+      { id: "#1", description: "A", status: "pending" },
     ];
 
     const merged = mergeBlockedBy(updated, previous);
@@ -224,11 +224,11 @@ describe("mergeBlockedBy", () => {
 
   test("matches IDs with and without leading #", () => {
     const previous: NormalizedTaskItem[] = [
-      { id: "#1", content: "A", status: "pending", blockedBy: ["#0"] },
+      { id: "#1", description: "A", status: "pending", blockedBy: ["#0"] },
     ];
 
     const updated: NormalizedTaskItem[] = [
-      { id: "1", content: "A", status: "in_progress" },
+      { id: "1", description: "A", status: "in_progress" },
     ];
 
     const merged = mergeBlockedBy(updated, previous);
@@ -237,11 +237,11 @@ describe("mergeBlockedBy", () => {
 
   test("restores missing IDs by matching task content", () => {
     const previous: NormalizedTaskItem[] = [
-      { id: "#1", content: "Implement login flow", status: "pending", blockedBy: ["#0"] },
+      { id: "#1", description: "Implement login flow", status: "pending", blockedBy: ["#0"] },
     ];
 
     const updated: NormalizedTaskItem[] = [
-      { content: "  implement   login flow ", status: "completed" },
+      { description: "  implement   login flow ", status: "completed" },
     ];
 
     const merged = mergeBlockedBy(updated, previous);
@@ -251,11 +251,11 @@ describe("mergeBlockedBy", () => {
 
   test("does not assign IDs when content does not match previous task", () => {
     const previous: NormalizedTaskItem[] = [
-      { id: "#1", content: "Implement login flow", status: "pending" },
+      { id: "#1", description: "Implement login flow", status: "pending" },
     ];
 
     const updated: NormalizedTaskItem[] = [
-      { content: "Write release notes", status: "completed" },
+      { description: "Write release notes", status: "completed" },
     ];
 
     const merged = mergeBlockedBy(updated, previous);
@@ -264,12 +264,12 @@ describe("mergeBlockedBy", () => {
 
   test("does not use content fallback for blockedBy when updated task already has explicit ID", () => {
     const previous: NormalizedTaskItem[] = [
-      { id: "#a", content: "Duplicate", status: "pending", blockedBy: ["#x"] },
-      { id: "#b", content: "Duplicate", status: "pending", blockedBy: ["#y"] },
+      { id: "#a", description: "Duplicate", status: "pending", blockedBy: ["#x"] },
+      { id: "#b", description: "Duplicate", status: "pending", blockedBy: ["#y"] },
     ];
 
     const updated: NormalizedTaskItem[] = [
-      { id: "#z", content: "Duplicate", status: "in_progress" },
+      { id: "#z", description: "Duplicate", status: "in_progress" },
     ];
 
     const merged = mergeBlockedBy(updated, previous);
@@ -281,27 +281,27 @@ describe("mergeBlockedBy", () => {
 describe("reconcileTodoWriteItems", () => {
   test("keeps todo updates topologically sorted by blockedBy", () => {
     const previous = [
-      { id: "#1", content: "Plan", status: "completed" as const, activeForm: "Planning" },
+      { id: "#1", description: "Plan", status: "completed" as const, summary: "Planning" },
       {
         id: "#2",
-        content: "Implement",
+        description: "Implement",
         status: "pending" as const,
         blockedBy: ["#1"],
-        activeForm: "Implementing",
+        summary: "Implementing",
       },
       {
         id: "#3",
-        content: "Test",
+        description: "Test",
         status: "pending" as const,
         blockedBy: ["#2"],
-        activeForm: "Testing",
+        summary: "Testing",
       },
     ];
 
     const incoming = [
-      { id: "#3", content: "Test", status: "pending", activeForm: "Testing" },
-      { id: "#1", content: "Plan", status: "completed", activeForm: "Planning" },
-      { id: "#2", content: "Implement", status: "in_progress", activeForm: "Implementing" },
+      { id: "#3", description: "Test", status: "pending", summary: "Testing" },
+      { id: "#1", description: "Plan", status: "completed", summary: "Planning" },
+      { id: "#2", description: "Implement", status: "in_progress", summary: "Implementing" },
     ];
 
     const reconciled = reconcileTodoWriteItems(incoming, previous);
@@ -314,27 +314,27 @@ describe("reconcileTodoWriteItems", () => {
 
   test("restores missing ids/blockedBy before sorting follow-up updates", () => {
     const previous = [
-      { id: "#1", content: "Plan", status: "completed" as const, activeForm: "Planning" },
+      { id: "#1", description: "Plan", status: "completed" as const, summary: "Planning" },
       {
         id: "#2",
-        content: "Implement",
+        description: "Implement",
         status: "in_progress" as const,
         blockedBy: ["#1"],
-        activeForm: "Implementing",
+        summary: "Implementing",
       },
       {
         id: "#3",
-        content: "Test",
+        description: "Test",
         status: "pending" as const,
         blockedBy: ["#2"],
-        activeForm: "Testing",
+        summary: "Testing",
       },
     ];
 
     const incomingWithoutIds = [
-      { content: "Test", status: "pending", activeForm: "Testing" },
-      { content: "Implement", status: "completed", activeForm: "Implementing" },
-      { content: "Plan", status: "completed", activeForm: "Planning" },
+      { description: "Test", status: "pending", summary: "Testing" },
+      { description: "Implement", status: "completed", summary: "Implementing" },
+      { description: "Plan", status: "completed", summary: "Planning" },
     ];
 
     const reconciled = reconcileTodoWriteItems(incomingWithoutIds, previous);
@@ -346,15 +346,15 @@ describe("reconcileTodoWriteItems", () => {
 
   test("keeps previous sibling order when blockedBy rank is equal", () => {
     const previous = [
-      { id: "#1", content: "Setup", status: "completed" as const, activeForm: "Setting up" },
-      { id: "#2", content: "Lint", status: "pending" as const, activeForm: "Linting" },
-      { id: "#3", content: "Test", status: "pending" as const, activeForm: "Testing" },
+      { id: "#1", description: "Setup", status: "completed" as const, summary: "Setting up" },
+      { id: "#2", description: "Lint", status: "pending" as const, summary: "Linting" },
+      { id: "#3", description: "Test", status: "pending" as const, summary: "Testing" },
     ];
 
     const incomingShuffled = [
-      { id: "#3", content: "Test", status: "in_progress", activeForm: "Testing" },
-      { id: "#1", content: "Setup", status: "completed", activeForm: "Setting up" },
-      { id: "#2", content: "Lint", status: "pending", activeForm: "Linting" },
+      { id: "#3", description: "Test", status: "in_progress", summary: "Testing" },
+      { id: "#1", description: "Setup", status: "completed", summary: "Setting up" },
+      { id: "#2", description: "Lint", status: "pending", summary: "Linting" },
     ];
 
     const reconciled = reconcileTodoWriteItems(incomingShuffled, previous);

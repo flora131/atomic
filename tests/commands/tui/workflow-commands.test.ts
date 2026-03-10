@@ -107,7 +107,7 @@ describe("watchTasksJson", () => {
       {
         watchImpl: () => ({ close: () => {} }) as unknown as import("fs").FSWatcher,
         readFileImpl: async () =>
-          JSON.stringify([{ id: "#1", content: "Task", status: "pending", activeForm: "Working" }]),
+          JSON.stringify([{ id: "#1", description: "Task", status: "pending", summary: "Working" }]),
       },
     );
 
@@ -155,12 +155,12 @@ describe("watchTasksJson", () => {
     void listener?.("change", "tasks.json");
 
     fastRead.resolve(
-      JSON.stringify([{ id: "#1", content: "Task", status: "completed", activeForm: "Done" }]),
+      JSON.stringify([{ id: "#1", description: "Task", status: "completed", summary: "Done" }]),
     );
     await Bun.sleep(0);
 
     slowRead.resolve(
-      JSON.stringify([{ id: "#1", content: "Task", status: "pending", activeForm: "Working" }]),
+      JSON.stringify([{ id: "#1", description: "Task", status: "pending", summary: "Working" }]),
     );
     await Bun.sleep(0);
 
@@ -194,7 +194,7 @@ describe("watchTasksJson", () => {
             throw err;
           }
           return JSON.stringify([
-            { id: "#1", content: "Task", status: "in_progress", activeForm: "Working" },
+            { id: "#1", description: "Task", status: "in_progress", summary: "Working" },
           ]);
         },
       },
@@ -310,9 +310,9 @@ describe("workflow-commands /ralph", () => {
               output: JSON.stringify([
                 {
                   id: "#1",
-                  content: "Add integration test for Claude sub-agent completion in Ralph",
+                  description: "Add integration test for Claude sub-agent completion in Ralph",
                   status: "pending",
-                  activeForm: "Adding integration test for Claude sub-agent completion in Ralph",
+                  summary: "Adding integration test for Claude sub-agent completion in Ralph",
                   blockedBy: [],
                 },
               ]),
@@ -421,7 +421,7 @@ describe("review step in /ralph", () => {
       streamAndWait: async () => {
         return {
           content: JSON.stringify([
-            { id: "#1", content: "Test task", status: "pending", activeForm: "Testing" },
+            { id: "#1", description: "Test task", status: "pending", summary: "Testing" },
           ]),
           wasInterrupted: false,
         };

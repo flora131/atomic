@@ -2,13 +2,13 @@ import type { TaskItem } from "@/components/task-list-indicator.tsx";
 
 export function task(
   id: string | undefined,
-  content: string,
+  description: string,
   blockedBy: string[] = [],
   status: TaskItem["status"] = "pending",
 ): TaskItem {
   return {
     id,
-    content,
+    description,
     status,
     blockedBy,
   };

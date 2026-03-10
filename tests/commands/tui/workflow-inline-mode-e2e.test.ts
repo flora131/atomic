@@ -100,9 +100,9 @@ describe("Workflow inline mode E2E", () => {
             content: JSON.stringify([
               {
                 id: "#1",
-                content: "Task 1",
+                description: "Task 1",
                 status: "pending",
-                activeForm: "Working on task 1",
+                summary: "Working on task 1",
               },
             ]),
             wasInterrupted: false,
@@ -189,7 +189,7 @@ describe("Workflow inline mode E2E", () => {
               agentId: a.agentId,
               success: true,
               output: JSON.stringify([
-                { id: "#1", content: "Add auth module", status: "pending", activeForm: "Adding auth", blockedBy: [] },
+                { id: "#1", description: "Add auth module", status: "pending", summary: "Adding auth", blockedBy: [] },
               ]),
               toolUses: 1,
               durationMs: 100,
@@ -335,8 +335,8 @@ describe("Workflow inline mode E2E", () => {
             agentId: firstAgent?.agentId ?? "planner-1",
             success: true,
             output: JSON.stringify([
-              { id: "#1", content: "Implement auth", status: "pending", activeForm: "Implementing auth", blockedBy: [] },
-              { id: "#2", content: "Add tests", status: "pending", activeForm: "Adding tests", blockedBy: [] },
+              { id: "#1", description: "Implement auth", status: "pending", summary: "Implementing auth", blockedBy: [] },
+              { id: "#2", description: "Add tests", status: "pending", summary: "Adding tests", blockedBy: [] },
             ]),
             toolUses: 1,
             durationMs: 100,

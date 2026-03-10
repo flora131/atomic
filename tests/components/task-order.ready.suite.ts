@@ -80,7 +80,7 @@ describe("getReadyTasks", () => {
   });
 
   test("handles missing blockedBy field", () => {
-    const ready = getReadyTasks([{ id: "#1", content: "first", status: "pending" }]);
+    const ready = getReadyTasks([{ id: "#1", description: "first", status: "pending" }]);
     expect(ready.map((item) => item.id)).toEqual(["#1"]);
   });
 

@@ -7,7 +7,7 @@ import { shouldAutoClearTaskPanel } from "@/lib/ui/task-list-lifecycle.ts";
 function task(status: TaskItem["status"]): TaskItem {
   return {
     id: "#1",
-    content: "task",
+    description: "task",
     status,
   };
 }

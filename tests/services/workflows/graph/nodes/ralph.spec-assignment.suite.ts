@@ -19,15 +19,15 @@ describe("buildSpecToTasksPrompt", () => {
     const prompt = buildSpecToTasksPrompt("test spec");
 
     expect(prompt).toContain("id");
-    expect(prompt).toContain("content");
+    expect(prompt).toContain("description");
     expect(prompt).toContain("status");
-    expect(prompt).toContain("activeForm");
+    expect(prompt).toContain("summary");
     expect(prompt).toContain("blockedBy");
   });
 
   test("instructs to output only JSON", () => {
     expect(buildSpecToTasksPrompt("test spec")).toContain(
-      "Output ONLY the JSON array",
+      "Output ONLY the raw JSON array",
     );
   });
 });
@@ -36,9 +36,9 @@ describe("buildWorkerAssignment", () => {
   test("includes task ID and content", () => {
     const task: TaskItem = {
       id: "#3",
-      content: "Implement login endpoint",
+      description: "Implement login endpoint",
       status: "pending",
-      activeForm: "Implementing login endpoint",
+      summary: "Implementing login endpoint",
     };
 
     const prompt = buildWorkerAssignment(task, [task]);
@@ -49,9 +49,9 @@ describe("buildWorkerAssignment", () => {
 
   test("handles task without ID", () => {
     const task: TaskItem = {
-      content: "Fix bug",
+      description: "Fix bug",
       status: "pending",
-      activeForm: "Fixing bug",
+      summary: "Fixing bug",
     };
 
     const prompt = buildWorkerAssignment(task, [task]);
@@ -63,23 +63,23 @@ describe("buildWorkerAssignment", () => {
   test("includes dependency information when blockedBy is present", () => {
     const task: TaskItem = {
       id: "#3",
-      content: "Write tests",
+      description: "Write tests",
       status: "pending",
-      activeForm: "Writing tests",
+      summary: "Writing tests",
       blockedBy: ["#1", "#2"],
     };
     const allTasks: TaskItem[] = [
       {
         id: "#1",
-        content: "Setup project",
+        description: "Setup project",
         status: "completed",
-        activeForm: "Setting up project",
+        summary: "Setting up project",
       },
       {
         id: "#2",
-        content: "Implement feature",
+        description: "Implement feature",
         status: "completed",
-        activeForm: "Implementing feature",
+        summary: "Implementing feature",
       },
       task,
     ];
@@ -96,9 +96,9 @@ describe("buildWorkerAssignment", () => {
   test("does not include dependency section when blockedBy is empty", () => {
     const task: TaskItem = {
       id: "#1",
-      content: "Independent task",
+      description: "Independent task",
       status: "pending",
-      activeForm: "Doing independent task",
+      summary: "Doing independent task",
       blockedBy: [],
     };
 
@@ -108,9 +108,9 @@ describe("buildWorkerAssignment", () => {
   test("does not include dependency section when blockedBy is undefined", () => {
     const task: TaskItem = {
       id: "#1",
-      content: "Independent task",
+      description: "Independent task",
       status: "pending",
-      activeForm: "Doing independent task",
+      summary: "Doing independent task",
     };
 
     expect(buildWorkerAssignment(task, [task])).not.toContain("Dependencies");
@@ -119,17 +119,17 @@ describe("buildWorkerAssignment", () => {
   test("handles missing dependency task gracefully", () => {
     const task: TaskItem = {
       id: "#2",
-      content: "Dependent task",
+      description: "Dependent task",
       status: "pending",
-      activeForm: "Doing dependent task",
+      summary: "Doing dependent task",
       blockedBy: ["#1", "#999"],
     };
     const allTasks: TaskItem[] = [
       {
         id: "#1",
-        content: "First task",
+        description: "First task",
         status: "completed",
-        activeForm: "Doing first task",
+        summary: "Doing first task",
       },
       task,
     ];
@@ -145,22 +145,22 @@ describe("buildWorkerAssignment", () => {
   test("includes completed tasks context when present", () => {
     const task: TaskItem = {
       id: "#3",
-      content: "New task",
+      description: "New task",
       status: "pending",
-      activeForm: "Doing new task",
+      summary: "Doing new task",
     };
     const allTasks: TaskItem[] = [
       {
         id: "#1",
-        content: "First task",
+        description: "First task",
         status: "completed",
-        activeForm: "Doing first task",
+        summary: "Doing first task",
       },
       {
         id: "#2",
-        content: "Second task",
+        description: "Second task",
         status: "completed",
-        activeForm: "Doing second task",
+        summary: "Doing second task",
       },
       task,
     ];
@@ -177,14 +177,14 @@ describe("buildWorkerAssignment", () => {
   test("recognizes different completed status variants", () => {
     const task: TaskItem = {
       id: "#4",
-      content: "New task",
+      description: "New task",
       status: "pending",
-      activeForm: "Doing new task",
+      summary: "Doing new task",
     };
     const allTasks: TaskItem[] = [
-      { id: "#1", content: "Task 1", status: "completed", activeForm: "Doing task 1" },
-      { id: "#2", content: "Task 2", status: "complete", activeForm: "Doing task 2" },
-      { id: "#3", content: "Task 3", status: "done", activeForm: "Doing task 3" },
+      { id: "#1", description: "Task 1", status: "completed", summary: "Doing task 1" },
+      { id: "#2", description: "Task 2", status: "complete", summary: "Doing task 2" },
+      { id: "#3", description: "Task 3", status: "done", summary: "Doing task 3" },
       task,
     ];
 
@@ -199,17 +199,17 @@ describe("buildWorkerAssignment", () => {
   test("does not include completed tasks section when none are completed", () => {
     const task: TaskItem = {
       id: "#1",
-      content: "First task",
+      description: "First task",
       status: "pending",
-      activeForm: "Doing first task",
+      summary: "Doing first task",
     };
     const allTasks: TaskItem[] = [
       task,
       {
         id: "#2",
-        content: "Second task",
+        description: "Second task",
         status: "pending",
-        activeForm: "Doing second task",
+        summary: "Doing second task",
       },
     ];
 
@@ -221,14 +221,14 @@ describe("buildWorkerAssignment", () => {
   test("includes both dependencies and completed tasks when applicable", () => {
     const task: TaskItem = {
       id: "#3",
-      content: "Third task",
+      description: "Third task",
       status: "pending",
-      activeForm: "Doing third task",
+      summary: "Doing third task",
       blockedBy: ["#1"],
     };
     const allTasks: TaskItem[] = [
-      { id: "#1", content: "First task", status: "completed", activeForm: "Doing first task" },
-      { id: "#2", content: "Second task", status: "completed", activeForm: "Doing second task" },
+      { id: "#1", description: "First task", status: "completed", summary: "Doing first task" },
+      { id: "#2", description: "Second task", status: "completed", summary: "Doing second task" },
       task,
     ];
 
@@ -243,9 +243,9 @@ describe("buildWorkerAssignment", () => {
   test("includes implementation instructions", () => {
     const task: TaskItem = {
       id: "#1",
-      content: "Task",
+      description: "Task",
       status: "pending",
-      activeForm: "Doing task",
+      summary: "Doing task",
     };
 
     const prompt = buildWorkerAssignment(task, [task]);
@@ -259,15 +259,15 @@ describe("buildWorkerAssignment", () => {
   test("handles task without id in completed tasks list", () => {
     const task: TaskItem = {
       id: "#2",
-      content: "New task",
+      description: "New task",
       status: "pending",
-      activeForm: "Doing new task",
+      summary: "Doing new task",
     };
     const allTasks: TaskItem[] = [
       {
-        content: "Unnamed task",
+        description: "Unnamed task",
         status: "completed",
-        activeForm: "Doing unnamed task",
+        summary: "Doing unnamed task",
       },
       task,
     ];
@@ -282,13 +282,13 @@ describe("buildWorkerAssignment", () => {
   test("produces deterministic output for same inputs", () => {
     const task: TaskItem = {
       id: "#1",
-      content: "Test task",
+      description: "Test task",
       status: "pending",
-      activeForm: "Testing",
+      summary: "Testing",
       blockedBy: ["#0"],
     };
     const allTasks: TaskItem[] = [
-      { id: "#0", content: "Setup", status: "completed", activeForm: "Setting up" },
+      { id: "#0", description: "Setup", status: "completed", summary: "Setting up" },
       task,
     ];
 
@@ -301,9 +301,9 @@ describe("buildWorkerAssignment", () => {
   test("handles empty allTasks array", () => {
     const task: TaskItem = {
       id: "#1",
-      content: "Standalone task",
+      description: "Standalone task",
       status: "pending",
-      activeForm: "Doing standalone task",
+      summary: "Doing standalone task",
     };
 
     const prompt = buildWorkerAssignment(task, [task]);
@@ -317,16 +317,16 @@ describe("buildWorkerAssignment", () => {
   test("handles multiple dependencies with mixed states", () => {
     const task: TaskItem = {
       id: "#5",
-      content: "Complex task",
+      description: "Complex task",
       status: "pending",
-      activeForm: "Doing complex task",
+      summary: "Doing complex task",
       blockedBy: ["#1", "#2", "#3"],
     };
     const allTasks: TaskItem[] = [
-      { id: "#1", content: "First dep", status: "completed", activeForm: "Doing first dep" },
-      { id: "#2", content: "Second dep", status: "complete", activeForm: "Doing second dep" },
-      { id: "#3", content: "Third dep", status: "done", activeForm: "Doing third dep" },
-      { id: "#4", content: "Unrelated", status: "pending", activeForm: "Doing unrelated" },
+      { id: "#1", description: "First dep", status: "completed", summary: "Doing first dep" },
+      { id: "#2", description: "Second dep", status: "complete", summary: "Doing second dep" },
+      { id: "#3", description: "Third dep", status: "done", summary: "Doing third dep" },
+      { id: "#4", description: "Unrelated", status: "pending", summary: "Doing unrelated" },
       task,
     ];
 
@@ -345,13 +345,13 @@ describe("buildWorkerAssignment", () => {
   test("formats prompt with proper sections and line breaks", () => {
     const task: TaskItem = {
       id: "#2",
-      content: "Test formatting",
+      description: "Test formatting",
       status: "pending",
-      activeForm: "Testing formatting",
+      summary: "Testing formatting",
       blockedBy: ["#1"],
     };
     const allTasks: TaskItem[] = [
-      { id: "#1", content: "Setup", status: "completed", activeForm: "Setting up" },
+      { id: "#1", description: "Setup", status: "completed", summary: "Setting up" },
       task,
     ];
 
@@ -368,9 +368,9 @@ describe("buildWorkerAssignment", () => {
   test("handles task content with special characters", () => {
     const task: TaskItem = {
       id: "#1",
-      content: 'Fix bug: handle "quotes" & <tags> properly',
+      description: 'Fix bug: handle "quotes" & <tags> properly',
       status: "pending",
-      activeForm: "Fixing bug",
+      summary: "Fixing bug",
     };
 
     expect(buildWorkerAssignment(task, [task])).toContain(
@@ -381,9 +381,9 @@ describe("buildWorkerAssignment", () => {
   test("handles very long task lists efficiently", () => {
     const task: TaskItem = {
       id: "#100",
-      content: "Final task",
+      description: "Final task",
       status: "pending",
-      activeForm: "Doing final task",
+      summary: "Doing final task",
       blockedBy: ["#50"],
     };
 
@@ -391,9 +391,9 @@ describe("buildWorkerAssignment", () => {
     for (let index = 1; index < 100; index += 1) {
       allTasks.push({
         id: `#${index}`,
-        content: `Task ${index}`,
+        description: `Task ${index}`,
         status: index % 2 === 0 ? "completed" : "pending",
-        activeForm: `Doing task ${index}`,
+        summary: `Doing task ${index}`,
       });
     }
     allTasks.push(task);

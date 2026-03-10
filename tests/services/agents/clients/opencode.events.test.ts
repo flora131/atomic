@@ -93,7 +93,7 @@ describe("OpenCode additional instruction routing", () => {
     ]);
   });
 
-  test("does not inject additional instructions into agent-dispatch prompt parts", async () => {
+  test("injects additional instructions into agent-dispatch prompt parts", async () => {
     const client = new OpenCodeClient();
     const sessionId = "ses_agent_prompt_no_additional_instructions";
     let capturedParams: Record<string, unknown> | undefined;
@@ -133,7 +133,13 @@ describe("OpenCode additional instruction routing", () => {
     expect(capturedParams?.parts).toEqual([
       {
         type: "text",
-        text: "Investigate the auth flow",
+        text: [
+          "<additional_instructions>",
+          "Follow repo conventions.",
+          "</additional_instructions>",
+          "",
+          "Investigate the auth flow",
+        ].join("\n"),
       },
       {
         type: "agent",

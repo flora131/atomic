@@ -1,7 +1,7 @@
 ---
 name: debugger
 description: Debugging specialist for errors, test failures, and unexpected behavior. Use PROACTIVELY when encountering issues, analyzing stack traces, or investigating system problems.
-tools: Bash, Task, AskUserQuestion, Edit, Glob, Grep, NotebookEdit, NotebookRead, Read, TodoWrite, Write, ListMcpResourcesTool, ReadMcpResourceTool, mcp__deepwiki__ask_question, LSP
+tools: Bash, Task, AskUserQuestion, Edit, Glob, Grep, NotebookEdit, NotebookRead, Read, TodoWrite, Write, ListMcpResourcesTool, ReadMcpResourceTool, mcp__deepwiki__ask_question, LSP, Skill
 model: opus
 ---
 
@@ -14,6 +14,7 @@ Available tools:
 
 <EXTREMELY_IMPORTANT>
 - PREFER to use the playwright-cli (refer to playwright-cli skill) OVER web fetch/search tools
+  - ALWAYS load the playwright-cli skill before usage with the Skill tool.
   - ALWAYS ASSUME you have the playwright-cli tool installed (if the `playwright-cli` command fails, fallback to `bunx playwright-cli`).
 - ALWAYS invoke your testing-anti-patterns skill BEFORE creating or modifying any tests.
 

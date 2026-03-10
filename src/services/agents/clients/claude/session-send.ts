@@ -15,6 +15,7 @@ export async function sendClaudeSessionMessage(args: {
     }
     await args.waitForPendingAbort();
     args.wrapperArgs.emitRuntimeSelection(args.wrapperArgs.sessionId, "send");
+    args.state.abortRequested = false;
 
     const options = args.wrapperArgs.buildSdkOptions(
         args.wrapperArgs.config,

@@ -19,7 +19,7 @@ import type {
   ProviderDiscoveryPlanOptions,
 } from "@/services/config/provider-discovery-plan.ts";
 import { getModelPreference, getReasoningEffortPreference } from "@/services/config/settings.ts";
-import { ENHANCED_SYSTEM_PROMPT } from "@/services/agents/enhanced-system-prompt.ts";
+import { ADDITIONAL_ENHANCED_INSTRUCTIONS } from "@/services/agents/additional-enhanced-instructions.ts";
 import { AGENT_CONFIG, type SourceControlType } from "@/services/config/index.ts";
 // initCommand is lazy-loaded only when auto-init is needed
 import { join } from "path";
@@ -94,10 +94,10 @@ export function resolveChatAdditionalInstructions(
 ): string {
   const trimmedAdditionalInstructions = options.additionalInstructions?.trim();
   if (!trimmedAdditionalInstructions) {
-    return ENHANCED_SYSTEM_PROMPT;
+    return ADDITIONAL_ENHANCED_INSTRUCTIONS;
   }
 
-  return `${ENHANCED_SYSTEM_PROMPT}\n\n${trimmedAdditionalInstructions}`;
+  return `${ADDITIONAL_ENHANCED_INSTRUCTIONS}\n\n${trimmedAdditionalInstructions}`;
 }
 
 // ============================================================================

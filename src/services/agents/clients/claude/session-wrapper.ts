@@ -25,6 +25,7 @@ export function wrapClaudeQuerySession(args: ClaudeSessionWrapperArgs): Session 
         systemToolsBaseline:
             args.persisted?.systemToolsBaseline ?? args.probeSystemToolsBaseline,
         hasEmittedStreamingUsage: false,
+        abortRequested: false,
         pendingAbortPromise: null,
     };
 
@@ -51,6 +52,7 @@ export function wrapClaudeQuerySession(args: ClaudeSessionWrapperArgs): Session 
                       interrupt?: () => Promise<void>;
                   })
                 | null;
+            state.abortRequested = true;
             if (!activeQuery) {
                 return;
             }

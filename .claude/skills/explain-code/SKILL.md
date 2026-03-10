@@ -14,6 +14,7 @@ The following MCP tools are available and SHOULD be used when relevant:
 
 <EXTREMELY_IMPORTANT>
 - PREFER to use the playwright-cli (refer to playwright-cli skill) OVER web fetch/search tools
+  - ALWAYS load the playwright-cli skill before usage with the Skill tool.
   - ALWAYS ASSUME you have the playwright-cli tool installed (if the `playwright-cli` command fails, fallback to `bunx playwright-cli`).
 </EXTREMELY_IMPORTANT>
 

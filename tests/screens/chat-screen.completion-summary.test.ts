@@ -21,4 +21,13 @@ describe("shouldShowCompletionSummary", () => {
   test("returns false when duration is missing", () => {
     expect(shouldShowCompletionSummary({ streaming: false }, false)).toBe(false);
   });
+
+  test("returns false for interrupted messages", () => {
+    expect(
+      shouldShowCompletionSummary(
+        { streaming: false, durationMs: 5000, wasInterrupted: true },
+        false,
+      ),
+    ).toBe(false);
+  });
 });

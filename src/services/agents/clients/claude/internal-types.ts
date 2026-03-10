@@ -37,6 +37,7 @@ export interface ClaudeSessionState {
     contextWindow: number | null;
     systemToolsBaseline: number | null;
     hasEmittedStreamingUsage: boolean;
+    abortRequested: boolean;
     pendingAbortPromise: Promise<void> | null;
 }
 
@@ -95,4 +96,3 @@ export function buildClaudeNativeHooks(
 
     return hooks;
 }
-

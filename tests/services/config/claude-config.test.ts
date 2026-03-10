@@ -59,9 +59,63 @@ describe("claude-config", () => {
       expect(agents[0]).toMatchObject({
         name: "reviewer",
         description: "Project reviewer",
-        systemPrompt: "Project reviewer prompt",
+        prompt: "Project reviewer prompt",
         source: "local",
       });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("parses Claude agent schema fields from markdown agent files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "atomic-claude-config-"));
+    const projectRoot = join(root, "project");
+
+    await mkdir(join(projectRoot, ".claude", "agents"), { recursive: true });
+    await writeFile(
+      join(projectRoot, ".claude", "agents", "debugger.md"),
+      `---
+name: debugger
+description: Debug repository issues
+tools: Bash, Read, Grep
+disallowed-tools: Task, Edit
+model: opus
+skills: research, testing
+max-turns: 7
+critical-system-reminder: Never skip repro steps
+mcp-servers:
+  deepwiki:
+    type: http
+    url: https://mcp.deepwiki.com/mcp
+---
+Debug the repository.`,
+      "utf-8",
+    );
+
+    try {
+      const agents = await loadClaudeAgents({ projectRoot, homeDir: join(root, "home") });
+      expect(agents).toHaveLength(1);
+      expect(agents[0]).toMatchObject({
+        name: "debugger",
+        description: "Debug repository issues",
+        prompt: "Debug the repository.",
+        tools: ["Bash", "Read", "Grep"],
+        disallowedTools: ["Task", "Edit"],
+        model: "opus",
+        skills: ["research", "testing"],
+        maxTurns: 7,
+        criticalSystemReminder_EXPERIMENTAL: "Never skip repro steps",
+        source: "local",
+      });
+      expect(agents[0]?.mcpServers).toEqual([
+        {
+          deepwiki: {
+            type: "http",
+            url: "https://mcp.deepwiki.com/mcp",
+            headers: undefined,
+          },
+        },
+      ]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

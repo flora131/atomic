@@ -65,6 +65,7 @@ export function streamClaudeSessionMessages(args: {
             }
             await args.waitForPendingAbort();
             args.state.hasEmittedStreamingUsage = false;
+            args.state.abortRequested = false;
             emitRuntimeSelection();
             const options: Options = {
                 ...buildOptions(),

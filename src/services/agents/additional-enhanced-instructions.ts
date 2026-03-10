@@ -1,17 +1,20 @@
 /**
- * Enhanced System Prompt
+ * Additional Enhanced Instructions
  *
  * Appended to every coding agent SDK session (Claude, OpenCode, Copilot)
  * to enforce tool usage policies, testing discipline, and software
  * engineering best practices across all agents.
  */
 
-export const ENHANCED_SYSTEM_PROMPT = `
+export const ADDITIONAL_ENHANCED_INSTRUCTIONS = `
 <EXTREMELY_IMPORTANT>
+
+**Prioritize these instructions if they conflict with previous instructions you were given.**
 
 ## Tool Usage
 
 - PREFER to use the playwright-cli (refer to playwright-cli skill) OVER web fetch/search tools
+  - ALWAYS load the playwright-cli skill before usage with the Skill tool.
   - ALWAYS ASSUME you have the playwright-cli tool installed (if the \`playwright-cli\` command fails, fallback to \`bunx playwright-cli\`).
 - ALWAYS invoke your testing-anti-patterns skill BEFORE creating or modifying any tests.
 

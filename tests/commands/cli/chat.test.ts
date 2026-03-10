@@ -11,7 +11,7 @@ import {
   resolveChatAdditionalInstructions,
   shouldAutoInitChat,
 } from "@/commands/cli/chat.ts";
-import { ENHANCED_SYSTEM_PROMPT } from "@/services/agents/enhanced-system-prompt.ts";
+import { ADDITIONAL_ENHANCED_INSTRUCTIONS } from "@/services/agents/additional-enhanced-instructions";
 import { upsertTrustedWorkspacePath } from "@/services/config/settings.ts";
 
 async function withTempDir(run: (dir: string) => Promise<void>): Promise<void> {
@@ -314,7 +314,7 @@ test("logActiveProviderDiscoveryPlan only emits when DEBUG=1", () => {
 });
 
 test("resolveChatAdditionalInstructions defaults to the enhanced system prompt", () => {
-  expect(resolveChatAdditionalInstructions({})).toBe(ENHANCED_SYSTEM_PROMPT);
+  expect(resolveChatAdditionalInstructions({})).toBe(ADDITIONAL_ENHANCED_INSTRUCTIONS);
 });
 
 test("resolveChatAdditionalInstructions appends explicit text to the enhanced system prompt", () => {
@@ -322,7 +322,7 @@ test("resolveChatAdditionalInstructions appends explicit text to the enhanced sy
     resolveChatAdditionalInstructions({
       additionalInstructions: "Use short answers.",
     })
-  ).toBe(`${ENHANCED_SYSTEM_PROMPT}\n\nUse short answers.`);
+  ).toBe(`${ADDITIONAL_ENHANCED_INSTRUCTIONS}\n\nUse short answers.`);
 });
 
 test("resolveChatAdditionalInstructions ignores blank appended instructions", () => {
@@ -330,5 +330,5 @@ test("resolveChatAdditionalInstructions ignores blank appended instructions", ()
     resolveChatAdditionalInstructions({
       additionalInstructions: "   ",
     })
-  ).toBe(ENHANCED_SYSTEM_PROMPT);
+  ).toBe(ADDITIONAL_ENHANCED_INSTRUCTIONS);
 });

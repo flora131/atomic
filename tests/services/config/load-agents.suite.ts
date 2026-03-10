@@ -151,6 +151,52 @@ Agent with flow tools.`,
     }
   });
 
+  test("preserves optional Copilot agent metadata from frontmatter", async () => {
+    const root = await mkdtemp(join(tmpdir(), "atomic-config-test-"));
+    try {
+      await mkdir(join(root, "agents"), { recursive: true });
+      await writeFile(
+        join(root, "agents", "metadata-agent.md"),
+        `---
+name: metadata-agent
+displayName: Metadata Agent
+description: Agent with provider-specific metadata
+tools: ["execute", "read"]
+infer: false
+mcp-servers:
+  deepwiki:
+    type: http
+    url: https://mcp.deepwiki.com/mcp
+    tools: ["ask_question"]
+---
+Agent with extra metadata.`,
+        "utf-8",
+      );
+
+      const agents = await loadAgentsFromDir(join(root, "agents"), "local");
+      expect(agents).toHaveLength(1);
+      expect(agents[0]).toMatchObject({
+        name: "metadata-agent",
+        displayName: "Metadata Agent",
+        description: "Agent with provider-specific metadata",
+        tools: ["execute", "read"],
+        infer: false,
+        systemPrompt: "Agent with extra metadata.",
+        source: "local",
+      });
+      expect(agents[0]?.mcpServers).toEqual([
+        {
+          name: "deepwiki",
+          type: "http",
+          url: "https://mcp.deepwiki.com/mcp",
+          tools: ["ask_question"],
+        },
+      ]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("ignores non-markdown files", async () => {
     const root = await mkdtemp(join(tmpdir(), "atomic-config-test-"));
     try {

@@ -386,7 +386,15 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
   };
 
   const createSubagentSession = async (config?: SessionConfig) => {
-    const session = await client.createSession(config);
+    const mergedConfig: SessionConfig = { ...config };
+    if (
+      mergedConfig.additionalInstructions === undefined
+      && sessionConfig?.additionalInstructions !== undefined
+    ) {
+      mergedConfig.additionalInstructions = sessionConfig.additionalInstructions;
+    }
+
+    const session = await client.createSession(mergedConfig);
     state.ownedSessionIds.add(session.id);
     return session;
   };

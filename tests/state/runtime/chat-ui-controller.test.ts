@@ -163,4 +163,97 @@ describe("createChatUIController", () => {
     expect(capturedConfigs[0]?.model).toBe("github-copilot/gpt-5.4");
     expect(capturedConfigs[0]?.reasoningEffort).toBeUndefined();
   });
+
+  test("inherits additional instructions when creating a subagent session", async () => {
+    const sessions = [createMockSession("session-1")];
+    const capturedConfigs: SessionConfig[] = [];
+    const client: CodingAgentClient = {
+      ...createMockClient(sessions),
+      createSession: async (config?: SessionConfig) => {
+        capturedConfigs.push({ ...(config ?? {}) });
+        return sessions[0] ?? createMockSession("session-1");
+      },
+    };
+    const state = createState();
+
+    const controller = createChatUIController({
+      client,
+      resolvedAgentType: "opencode",
+      sessionConfig: {
+        additionalInstructions: "Base prompt + enhanced prompt",
+      },
+      modelOps: {
+        invalidateModelCache: () => {},
+        getPendingModel: () => undefined,
+        getCurrentModel: async () => undefined,
+      } as never,
+      state,
+      debugSub: {
+        unsubscribe: async () => {},
+        logPath: null,
+        rawLogPath: null,
+        logDirPath: null,
+        writeRawLine: () => {},
+      },
+      onExitResolved: () => {},
+    });
+
+    await controller.createSubagentSession({
+      model: "claude-sonnet-4.5",
+      tools: ["bash"],
+    });
+
+    expect(capturedConfigs).toEqual([
+      {
+        model: "claude-sonnet-4.5",
+        tools: ["bash"],
+        additionalInstructions: "Base prompt + enhanced prompt",
+      },
+    ]);
+  });
+
+  test("preserves explicit subagent additional instructions when provided", async () => {
+    const sessions = [createMockSession("session-1")];
+    const capturedConfigs: SessionConfig[] = [];
+    const client: CodingAgentClient = {
+      ...createMockClient(sessions),
+      createSession: async (config?: SessionConfig) => {
+        capturedConfigs.push({ ...(config ?? {}) });
+        return sessions[0] ?? createMockSession("session-1");
+      },
+    };
+    const state = createState();
+
+    const controller = createChatUIController({
+      client,
+      resolvedAgentType: "opencode",
+      sessionConfig: {
+        additionalInstructions: "Parent instructions",
+      },
+      modelOps: {
+        invalidateModelCache: () => {},
+        getPendingModel: () => undefined,
+        getCurrentModel: async () => undefined,
+      } as never,
+      state,
+      debugSub: {
+        unsubscribe: async () => {},
+        logPath: null,
+        rawLogPath: null,
+        logDirPath: null,
+        writeRawLine: () => {},
+      },
+      onExitResolved: () => {},
+    });
+
+    await controller.createSubagentSession({
+      additionalInstructions: "Subagent override",
+    });
+
+    expect(capturedConfigs).toEqual([
+      {
+        additionalInstructions: "Subagent override",
+      },
+    ]);
+  });
 });

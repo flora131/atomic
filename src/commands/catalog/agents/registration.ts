@@ -26,13 +26,15 @@ export function createAgentCommand(agent: AgentInfo): CommandDefinition {
       const task =
         args.trim() || "Please proceed according to your instructions.";
 
+      const toolInstruction = "<EXTREMELY_IMPORTANT>Use your tools to effectively complete the task rather than relying on your built-in knowledge/capabilities.</EXTREMELY_IMPORTANT>";
+
       if (context.agentType === "opencode") {
-        context.sendSilentMessage(task, { agent: agent.name });
+        context.sendSilentMessage(`${task} ${toolInstruction}`, { agent: agent.name });
       } else if (context.agentType === "claude") {
-        const instruction = `Use the ${agent.name} sub-agent to complete the following task: ${task}\n\nAfter the sub-agent completes, provide the output to the user.`;
+        const instruction = `Use the ${agent.name} sub-agent to complete the following task: ${task} ${toolInstruction}\n\nAfter the sub-agent completes, provide the output to the user.`;
         context.sendSilentMessage(instruction);
       } else {
-        const instruction = `Use the ${agent.name} sub-agent to complete the following task: ${task}\n\nAfter the sub-agent completes, provide the output to the user.`;
+        const instruction = `Use the ${agent.name} sub-agent to complete the following task: ${task} ${toolInstruction}\n\nAfter the sub-agent completes, provide the output to the user.`;
         context.sendSilentMessage(instruction);
       }
 

@@ -1,4 +1,9 @@
-import { query, type Options, type Query } from "@anthropic-ai/claude-agent-sdk";
+import {
+    query,
+    type AgentDefinition,
+    type Options,
+    type Query,
+} from "@anthropic-ai/claude-agent-sdk";
 import type {
     Session,
     SessionConfig,
@@ -12,9 +17,16 @@ import type { ClaudeSessionState } from "@/services/agents/clients/claude/intern
 
 interface LoadedClaudeAgent {
     name: string;
+    source: "local" | "global";
     description: string;
-    systemPrompt: string;
+    prompt: string;
     tools?: string[];
+    disallowedTools?: string[];
+    model?: "sonnet" | "opus" | "haiku" | "inherit";
+    mcpServers?: AgentDefinition["mcpServers"];
+    skills?: string[];
+    maxTurns?: number;
+    criticalSystemReminder_EXPERIMENTAL?: string;
 }
 
 export async function createClaudeSession(args: {
@@ -56,40 +68,37 @@ export async function createClaudeSession(args: {
         args.config.sessionId ??
         `claude-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-    const projectRoot = process.cwd();
-    const loadedAgents = await args.loadConfiguredAgents(projectRoot);
-    const agentsMap: Record<
-        string,
-        {
-            description: string;
-            prompt: string;
-            tools?: string[];
-            model?: "sonnet" | "opus" | "haiku" | "inherit";
-        }
-    > = { ...args.config.agents };
+    const programmaticAgents = args.config.agents;
+    const hasProgrammaticAgents =
+        Boolean(programmaticAgents) &&
+        Object.keys(programmaticAgents ?? {}).length > 0;
+    const sessionConfig = { ...args.config };
 
-    for (const agent of loadedAgents) {
-        if (!agentsMap[agent.name]) {
-            agentsMap[agent.name] = {
-                description: agent.description,
-                prompt: agent.systemPrompt,
-                tools: agent.tools,
-            };
+    if (hasProgrammaticAgents) {
+        const projectRoot = process.cwd();
+        const loadedAgents = await args.loadConfiguredAgents(projectRoot);
+        const agentsMap: Record<string, AgentDefinition> = {
+            ...programmaticAgents,
+        };
+
+        for (const agent of loadedAgents) {
+            if (!agentsMap[agent.name]) {
+                const { name: _name, source: _source, ...definition } = agent;
+                agentsMap[agent.name] = definition;
+            }
         }
+
+        sessionConfig.agents = agentsMap;
     }
 
-    if (Object.keys(agentsMap).length > 0) {
-        args.config.agents = agentsMap;
-    }
-
-    args.emitEvent("session.start", sessionId, { config: args.config });
-    args.emitProviderEvent("session.start", sessionId, { config: args.config }, {
+    args.emitEvent("session.start", sessionId, { config: sessionConfig });
+    args.emitProviderEvent("session.start", sessionId, { config: sessionConfig }, {
         nativeSessionId: sessionId,
     });
     args.emitRuntimeSelection(sessionId, "create");
     args.pendingHookSessionBindings.push(sessionId);
 
-    return args.wrapQuery(null, sessionId, args.config);
+    return args.wrapQuery(null, sessionId, sessionConfig);
 }
 
 export async function resumeClaudeSession(args: {

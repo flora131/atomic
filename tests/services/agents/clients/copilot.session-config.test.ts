@@ -1,6 +1,10 @@
 import { describe, expect, test, mock } from "bun:test";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { CopilotClient } from "@/services/agents/clients/copilot.ts";
+import { loadCopilotSessionArtifacts } from "@/services/agents/clients/copilot/session-config.ts";
 
 function createBasicSdkSession(sessionId = "test-session") {
   return {
@@ -253,6 +257,64 @@ describe("CopilotClient abort support", () => {
 });
 
 describe("CopilotClient session config parity", () => {
+  test("loads and forwards custom agent metadata from .github agent profiles", async () => {
+    const root = await mkdtemp(join(tmpdir(), "copilot-session-artifacts-"));
+
+    try {
+      await mkdir(join(root, ".github", "agents"), { recursive: true });
+      await writeFile(
+        join(root, ".github", "agents", "debugger.md"),
+        `---
+name: debugger
+displayName: Debugger Agent
+description: Debug repository issues
+tools: ["execute", "read"]
+infer: false
+mcp-servers:
+  deepwiki:
+    type: http
+    url: https://mcp.deepwiki.com/mcp
+    tools: ["ask_question"]
+---
+Debug the repository.`,
+        "utf-8",
+      );
+
+      const knownAgentNames: string[] = [];
+      const artifacts = await loadCopilotSessionArtifacts(root, {
+        setKnownAgentNames: (names) => {
+          knownAgentNames.push(...names);
+        },
+      });
+
+      expect(knownAgentNames).toContain("general-purpose");
+      expect(knownAgentNames).toContain("debugger");
+      expect(artifacts.customAgents).toBeDefined();
+
+      const debuggerAgent = artifacts.customAgents?.find((agent) => agent.name === "debugger");
+
+      expect(debuggerAgent).toEqual({
+        name: "debugger",
+        displayName: "Debugger Agent",
+        description: "Debug repository issues",
+        tools: ["execute", "read"],
+        prompt: "Debug the repository.",
+        mcpServers: {
+          deepwiki: {
+            type: "http",
+            url: "https://mcp.deepwiki.com/mcp",
+            tools: ["ask_question"],
+            headers: undefined,
+            timeout: undefined,
+          },
+        },
+        infer: false,
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("passes raw tool names through unchanged and auto-approves permissions on create", async () => {
     const mockSdkSession = createBasicSdkSession();
     const mockCreateSession = mock(async (_config: Record<string, unknown>) => mockSdkSession);

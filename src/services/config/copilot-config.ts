@@ -1,6 +1,8 @@
 import defaultFs from "fs/promises";
 import path from "path";
 import os from "os";
+import { parseMarkdownFrontmatter } from "@/lib/markdown.ts";
+import type { McpServerConfig } from "@/services/agents/types.ts";
 import {
   buildProviderDiscoveryPlan,
   type ProviderDiscoveryPlan,
@@ -14,15 +16,22 @@ import {
 } from "@/services/config/provider-discovery-cache.ts";
 import {
   defaultAgentDefinitionFsOps,
-  loadAgentDefinitionsFromDir,
   type AgentDefinitionFsOps,
-  type RuntimeAgentDefinition,
 } from "@/services/config/agent-definition-loader.ts";
 
 /**
  * Represents a Copilot agent configuration parsed from manual format.
  */
-export type CopilotAgent = RuntimeAgentDefinition;
+export interface CopilotAgent {
+  name: string;
+  description: string;
+  displayName?: string;
+  tools?: string[] | null;
+  mcpServers?: McpServerConfig[];
+  infer?: boolean;
+  systemPrompt: string;
+  source: "local" | "global";
+}
 
 /**
  * File system operations interface for dependency injection.
@@ -40,6 +49,95 @@ export interface CopilotPathResolutionOptions {
 export const defaultFsOps: FsOps = {
   ...defaultAgentDefinitionFsOps,
 };
+
+function parseCopilotTools(value: unknown): string[] | null | undefined {
+  if (value === null) {
+    return null;
+  }
+
+  if (Array.isArray(value)) {
+    const parsed = value
+      .filter((entry): entry is string => typeof entry === "string")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+    return parsed.length > 0 ? parsed : undefined;
+  }
+
+  if (typeof value === "string") {
+    const parsed = value
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+    return parsed.length > 0 ? parsed : undefined;
+  }
+
+  return undefined;
+}
+
+function parseStringRecord(
+  value: unknown,
+): Record<string, string> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const entries = Object.entries(value);
+  if (
+    entries.some(
+      ([key, entryValue]) => key.length === 0 || typeof entryValue !== "string",
+    )
+  ) {
+    return undefined;
+  }
+
+  return Object.fromEntries(entries);
+}
+
+function parseCopilotAgentMcpServers(value: unknown): McpServerConfig[] | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const servers: McpServerConfig[] = [];
+  for (const [name, rawConfig] of Object.entries(value)) {
+    if (!rawConfig || typeof rawConfig !== "object" || Array.isArray(rawConfig)) {
+      continue;
+    }
+
+    const config = rawConfig as Record<string, unknown>;
+    const rawType = config.type;
+    const normalizedType =
+      rawType === "local"
+        ? "stdio"
+        : rawType === "remote"
+          ? "http"
+          : rawType === "stdio" || rawType === "http" || rawType === "sse"
+            ? rawType
+            : undefined;
+
+    servers.push({
+      name,
+      type: normalizedType,
+      command:
+        typeof config.command === "string" ? config.command : undefined,
+      args: Array.isArray(config.args)
+        ? config.args.filter((arg): arg is string => typeof arg === "string")
+        : undefined,
+      env: parseStringRecord(config.env),
+      url: typeof config.url === "string" ? config.url : undefined,
+      headers: parseStringRecord(config.headers),
+      cwd: typeof config.cwd === "string" ? config.cwd : undefined,
+      timeout: typeof config.timeout === "number" ? config.timeout : undefined,
+      enabled:
+        typeof config.enabled === "boolean" ? config.enabled : undefined,
+      tools: Array.isArray(config.tools)
+        ? config.tools.filter((tool): tool is string => typeof tool === "string")
+        : undefined,
+    });
+  }
+
+  return servers.length > 0 ? servers : undefined;
+}
 
 function dedupeDirectoryEntries(
   entries: Array<{ dir: string; source: "global" | "local" }>,
@@ -252,7 +350,69 @@ export async function loadAgentsFromDir(
   source: "local" | "global",
   fsOps: FsOps = defaultFsOps
 ): Promise<CopilotAgent[]> {
-  return loadAgentDefinitionsFromDir(agentsDir, source, fsOps);
+  try {
+    const files = await fsOps.readdir(agentsDir);
+    const markdownFiles = (files as string[]).filter((file) => file.endsWith(".md"));
+
+    const agentPromises: Promise<CopilotAgent>[] = markdownFiles.map(async (file) => {
+        const filePath = path.join(agentsDir, file);
+        const content = await fsOps.readFile(filePath, "utf-8");
+        const parsed = parseMarkdownFrontmatter(content as string);
+
+        if (!parsed) {
+          const fallbackName = file.replace(/\.md$/, "");
+          return {
+            name: fallbackName,
+            description: `Agent: ${fallbackName}`,
+            systemPrompt: (content as string).trim(),
+            source,
+          } satisfies CopilotAgent;
+        }
+
+        const { frontmatter, body } = parsed;
+        const name =
+          typeof frontmatter.name === "string"
+            ? frontmatter.name
+            : file.replace(/\.md$/, "");
+        const description =
+          typeof frontmatter.description === "string"
+            ? frontmatter.description
+            : `Agent: ${name}`;
+
+        return {
+          name,
+          description,
+          displayName:
+            typeof frontmatter.displayName === "string"
+              ? frontmatter.displayName
+              : typeof frontmatter["display-name"] === "string"
+                ? frontmatter["display-name"]
+                : undefined,
+          tools: parseCopilotTools(frontmatter.tools),
+          mcpServers: parseCopilotAgentMcpServers(
+            frontmatter["mcp-servers"] ?? frontmatter.mcpServers,
+          ),
+          infer:
+            typeof frontmatter.infer === "boolean"
+              ? frontmatter.infer
+              : undefined,
+          systemPrompt: body.trim(),
+          source,
+        } satisfies CopilotAgent;
+      });
+    const agentResults = await Promise.allSettled(agentPromises);
+
+    return agentResults
+      .filter(
+        (
+          result,
+        ): result is PromiseFulfilledResult<CopilotAgent> =>
+          result.status === "fulfilled",
+      )
+      .map((result) => result.value);
+  } catch {
+    return [];
+  }
 }
 
 /**

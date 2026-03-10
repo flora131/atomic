@@ -4,6 +4,7 @@ let queryCallCount = 0;
 let interruptCalls = 0;
 let closeCalls = 0;
 let forceClosed = false;
+let firstRunInterrupted = false;
 let releaseFirstRun: (() => void) | null = null;
 let resolveFirstQueryStarted: (() => void) | null = null;
 let firstQueryStarted: Promise<void> = Promise.resolve();
@@ -61,13 +62,21 @@ mock.module("@anthropic-ai/claude-agent-sdk", () => ({
 
                 yield {
                     type: "result",
-                    subtype: "success",
+                    subtype:
+                        callNumber === 1 && firstRunInterrupted
+                            ? "error_during_execution"
+                            : "success",
+                    errors:
+                        callNumber === 1 && firstRunInterrupted
+                            ? ["Claude turn failed"]
+                            : [],
                     usage: { input_tokens: 1, output_tokens: 1 },
                     session_id: sdkSessionId,
                 };
             },
             interrupt: async () => {
                 interruptCalls += 1;
+                firstRunInterrupted = true;
                 releaseFirstRun?.();
                 releaseFirstRun = null;
             },
@@ -94,6 +103,7 @@ describe("ClaudeAgentClient interrupt resume regression", () => {
         interruptCalls = 0;
         closeCalls = 0;
         forceClosed = false;
+        firstRunInterrupted = false;
         releaseFirstRun = null;
         capturedOptions.length = 0;
         firstQueryStarted = new Promise<void>((resolve) => {
@@ -107,56 +117,67 @@ describe("ClaudeAgentClient interrupt resume regression", () => {
     test("interrupting a run does not poison the next resumed stream", async () => {
         const { ClaudeAgentClient } = await import("@/services/agents/clients/claude.ts");
         const client = new ClaudeAgentClient();
+        const sessionErrors: Array<{ error?: string; code?: string }> = [];
 
-        const privateClient = client as unknown as {
-            buildSdkOptions: (
-                config: Record<string, unknown>,
-                sessionId?: string,
-            ) => Record<string, unknown>;
-            wrapQuery: (
-                queryInstance: null,
-                sessionId: string,
-                config: Record<string, unknown>,
-            ) => {
-                stream: (message: string) => AsyncIterable<{
-                    type: string;
-                    content?: unknown;
-                }>;
-                abort: () => Promise<void>;
-                destroy: () => Promise<void>;
+        const unsubscribe = client.on("session.error", (event) => {
+            const data = event.data as { error?: string; code?: string };
+            sessionErrors.push(data);
+        });
+
+        try {
+            const privateClient = client as unknown as {
+                buildSdkOptions: (
+                    config: Record<string, unknown>,
+                    sessionId?: string,
+                ) => Record<string, unknown>;
+                wrapQuery: (
+                    queryInstance: null,
+                    sessionId: string,
+                    config: Record<string, unknown>,
+                ) => {
+                    stream: (message: string) => AsyncIterable<{
+                        type: string;
+                        content?: unknown;
+                    }>;
+                    abort: () => Promise<void>;
+                    destroy: () => Promise<void>;
+                };
             };
-        };
 
-        privateClient.buildSdkOptions = () => ({});
-        const session = privateClient.wrapQuery(null, "interrupt-session", {});
+            privateClient.buildSdkOptions = () => ({});
+            const session = privateClient.wrapQuery(null, "interrupt-session", {});
 
-        const firstRunChunks: string[] = [];
-        const firstRunPromise = (async () => {
-            for await (const chunk of session.stream("first run")) {
+            const firstRunChunks: string[] = [];
+            const firstRunPromise = (async () => {
+                for await (const chunk of session.stream("first run")) {
+                    if (chunk.type === "text" && typeof chunk.content === "string") {
+                        firstRunChunks.push(chunk.content);
+                    }
+                }
+            })();
+
+            await firstQueryStarted;
+            await firstRunBlocked;
+            await session.abort();
+            await firstRunPromise;
+
+            const secondRunChunks: string[] = [];
+            for await (const chunk of session.stream("second run")) {
                 if (chunk.type === "text" && typeof chunk.content === "string") {
-                    firstRunChunks.push(chunk.content);
+                    secondRunChunks.push(chunk.content);
                 }
             }
-        })();
 
-        await firstQueryStarted;
-        await firstRunBlocked;
-        await session.abort();
-        await firstRunPromise;
+            expect(firstRunChunks.join("")).toBe("first");
+            expect(secondRunChunks.join("")).toBe("second");
+            expect(interruptCalls).toBe(1);
+            expect(closeCalls).toBe(0);
+            expect(sessionErrors).toEqual([]);
+            expect(capturedOptions[1]?.resume).toBe("sdk-interrupt-regression");
 
-        const secondRunChunks: string[] = [];
-        for await (const chunk of session.stream("second run")) {
-            if (chunk.type === "text" && typeof chunk.content === "string") {
-                secondRunChunks.push(chunk.content);
-            }
+            await session.destroy();
+        } finally {
+            unsubscribe();
         }
-
-        expect(firstRunChunks.join("")).toBe("first");
-        expect(secondRunChunks.join("")).toBe("second");
-        expect(interruptCalls).toBe(1);
-        expect(closeCalls).toBe(0);
-        expect(capturedOptions[1]?.resume).toBe("sdk-interrupt-regression");
-
-        await session.destroy();
     });
 });

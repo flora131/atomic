@@ -90,7 +90,8 @@ describe("agent command routing", () => {
 
     command.execute("do work", createContext({ agentType: "opencode", sendSilentMessage }));
 
-    expect(sendSilentMessage).toHaveBeenCalledWith("do work", {
+    const toolInstruction = "<EXTREMELY_IMPORTANT>Use your tools to effectively complete the task rather than relying on your built-in knowledge/capabilities.</EXTREMELY_IMPORTANT>";
+    expect(sendSilentMessage).toHaveBeenCalledWith(`do work ${toolInstruction}`, {
       agent: "worker",
     });
   });
@@ -101,8 +102,9 @@ describe("agent command routing", () => {
 
     command.execute("do work", createContext({ agentType: "claude", sendSilentMessage }));
 
+    const toolInstruction = "<EXTREMELY_IMPORTANT>Use your tools to effectively complete the task rather than relying on your built-in knowledge/capabilities.</EXTREMELY_IMPORTANT>";
     expect(sendSilentMessage).toHaveBeenCalledWith(
-      "Use the worker sub-agent to complete the following task: do work\n\nAfter the sub-agent completes, provide the output to the user.",
+      `Use the worker sub-agent to complete the following task: do work ${toolInstruction}\n\nAfter the sub-agent completes, provide the output to the user.`,
     );
   });
 

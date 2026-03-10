@@ -30,9 +30,10 @@ export function buildOpenCodePromptParts(
   agentName?: string,
   additionalInstructions?: string,
 ): OpenCodePromptPart[] {
-  const resolvedMessage = agentName
-    ? message
-    : buildOpenCodePromptText(message, additionalInstructions);
+  const resolvedMessage = buildOpenCodePromptText(
+    message,
+    additionalInstructions,
+  );
 
   if (!agentName) {
     return [{ type: "text", text: resolvedMessage }];

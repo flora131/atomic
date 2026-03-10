@@ -163,6 +163,11 @@ export function processClaudeMessage(args: {
             args.emitEvent("session.idle", sessionId, {
                 reason: result.stop_reason ?? "completed",
             });
+        } else if (
+            state.abortRequested &&
+            result.subtype === "error_during_execution"
+        ) {
+            state.abortRequested = false;
         } else {
             const errorMessage = result.errors.join("; ") || "Claude turn failed";
             const errorCode =
@@ -178,6 +183,7 @@ export function processClaudeMessage(args: {
                 code: errorCode,
             });
         }
+        state.abortRequested = false;
 
         if (result.usage) {
             state.inputTokens = result.usage.input_tokens;
@@ -297,4 +303,3 @@ export function processClaudeMessage(args: {
             assertNeverClaudeMessage(sdkMessage);
     }
 }
-

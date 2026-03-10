@@ -22,6 +22,49 @@ import type {
 
 import type { CopilotSessionArtifacts } from "@/services/agents/clients/copilot/types.ts";
 
+function buildCopilotCustomAgentMcpServers(
+  mcpServers: readonly {
+    name: string;
+    type?: "stdio" | "http" | "sse";
+    command?: string;
+    args?: string[];
+    env?: Record<string, string>;
+    url?: string;
+    headers?: Record<string, string>;
+    cwd?: string;
+    timeout?: number;
+    tools?: string[];
+  }[],
+): SdkSessionConfig["mcpServers"] | undefined {
+  if (mcpServers.length === 0) {
+    return undefined;
+  }
+
+  return Object.fromEntries(
+    mcpServers.map((server) => {
+      if (server.url) {
+        return [server.name, {
+          type: (server.type === "sse" ? "sse" : "http") as "http" | "sse",
+          url: server.url,
+          headers: server.headers,
+          tools: server.tools ?? ["*"],
+          timeout: server.timeout,
+        }];
+      }
+
+      return [server.name, {
+        type: "stdio" as const,
+        command: server.command ?? "",
+        args: server.args ?? [],
+        env: server.env,
+        cwd: server.cwd,
+        tools: server.tools ?? ["*"],
+        timeout: server.timeout,
+      }];
+    }),
+  );
+}
+
 export async function loadCopilotSessionArtifacts(
   projectRoot: string,
   options: {
@@ -55,9 +98,14 @@ export async function loadCopilotSessionArtifacts(
     customAgents: loadedAgents.length > 0
       ? loadedAgents.map((agent) => ({
           name: agent.name,
+          displayName: agent.displayName,
           description: agent.description,
           tools: agent.tools ?? null,
           prompt: agent.systemPrompt,
+          mcpServers: agent.mcpServers
+            ? buildCopilotCustomAgentMcpServers(agent.mcpServers)
+            : undefined,
+          infer: agent.infer,
         }))
       : undefined,
     skillDirectories: skillDirectories.length > 0 ? skillDirectories : undefined,

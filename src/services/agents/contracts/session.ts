@@ -1,3 +1,4 @@
+import type { AgentDefinition as ClaudeAgentDefinition } from "@anthropic-ai/claude-agent-sdk";
 import type { McpRuntimeSnapshot, McpServerConfig } from "@/services/agents/contracts/mcp.ts";
 import type { OpenCodeAgentMode } from "@/services/agents/contracts/models.ts";
 
@@ -15,12 +16,7 @@ export interface SessionConfig {
   agentMode?: OpenCodeAgentMode;
   reasoningEffort?: string;
   maxThinkingTokens?: number;
-  agents?: Record<string, {
-    description: string;
-    prompt: string;
-    tools?: string[];
-    model?: "sonnet" | "opus" | "haiku" | "inherit";
-  }>;
+  agents?: Record<string, ClaudeAgentDefinition>;
 }
 
 export type MessageRole = "user" | "assistant" | "system" | "tool";

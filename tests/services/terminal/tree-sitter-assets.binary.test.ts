@@ -57,6 +57,7 @@ describe("tree-sitter assets in compiled binaries", () => {
       [
         `import { initTreeSitterAssets } from ${JSON.stringify(treeSitterAssetsPath)};`,
         `import { TreeSitterClient, getDataPaths } from "@opentui/core";`,
+        `process.env.OTUI_TREE_SITTER_WORKER_PATH = OTUI_TREE_SITTER_WORKER_PATH;`,
         `initTreeSitterAssets();`,
         `const client = new TreeSitterClient({ dataPath: getDataPaths().globalDataPath });`,
         `await client.initialize();`,

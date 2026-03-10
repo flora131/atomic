@@ -67,12 +67,12 @@ export function hasLiveLoadingIndicator(
 }
 
 export function shouldShowCompletionSummary(
-  message: { streaming?: boolean; durationMs?: number },
+  message: { streaming?: boolean; durationMs?: number; wasInterrupted?: boolean },
   hasActiveBackgroundAgents: boolean,
 ): boolean {
   return !message.streaming
+    && !message.wasInterrupted
     && !hasActiveBackgroundAgents
     && message.durationMs != null
     && message.durationMs >= 1000;
 }
-

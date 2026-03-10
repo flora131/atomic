@@ -89,6 +89,7 @@ export class ClaudeSubagentEventHandlers {
       );
       if (
         eventSessionId !== this.deps.sessionId
+        && !this.deps.getOwnedSessionIds().has(eventSessionId)
         && !isKnownSubagent
         && !hasTaskCorrelation
         && !hasParentTaskCorrelation
@@ -200,7 +201,11 @@ export class ClaudeSubagentEventHandlers {
     return (event) => {
       const data = event.data as SubagentCompleteEventData;
       const eventSessionId = this.deps.resolveEventSessionId(event);
-      if (eventSessionId !== this.deps.sessionId && !this.deps.hasKnownSubagentId(data.subagentId)) {
+      if (
+        eventSessionId !== this.deps.sessionId
+        && !this.deps.getOwnedSessionIds().has(eventSessionId)
+        && !this.deps.hasKnownSubagentId(data.subagentId)
+      ) {
         return;
       }
       const agentId = this.deps.resolveCanonicalAgentId(data.subagentId) ?? data.subagentId;
@@ -250,7 +255,11 @@ export class ClaudeSubagentEventHandlers {
     return (event) => {
       const data = event.data as SubagentUpdateEventData;
       const eventSessionId = this.deps.resolveEventSessionId(event);
-      if (eventSessionId !== this.deps.sessionId && !this.deps.hasKnownSubagentId(data.subagentId)) {
+      if (
+        eventSessionId !== this.deps.sessionId
+        && !this.deps.getOwnedSessionIds().has(eventSessionId)
+        && !this.deps.hasKnownSubagentId(data.subagentId)
+      ) {
         return;
       }
       const agentId = this.deps.resolveCanonicalAgentId(data.subagentId) ?? data.subagentId;

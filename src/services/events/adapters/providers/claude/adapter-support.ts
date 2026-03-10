@@ -234,6 +234,13 @@ export class ClaudeAdapterSupport {
       ? event.data as Record<string, unknown>
       : undefined;
     const nativeSessionId = this.asString(dataRecord?.nativeSessionId);
+    // Auto-register the SDK's native session ID as owned when it originates
+    // from our wrapper session. Without this, main-session tool events are
+    // silently dropped by the isOwnedSession gate because the native ID
+    // never appears in ownedSessionIds.
+    if (nativeSessionId && event.sessionId === this.deps.sessionId) {
+      this.deps.toolState.ownedSessionIds.add(nativeSessionId);
+    }
     return nativeSessionId ?? event.sessionId;
   }
 

@@ -8,11 +8,12 @@
 
 import React from "react";
 import { getToolStatusColorKey, ToolResult } from "@/components/tool-result.tsx";
+import { isSdkAskQuestionToolName } from "@/components/tool-registry/index.ts";
 import { useThemeColors } from "@/theme/index.tsx";
 import { CONNECTOR, STATUS, TREE } from "@/theme/icons.ts";
 import type { ToolPart, ToolState } from "@/state/parts/types.ts";
 import type { ToolExecutionStatus } from "@/state/parts/types.ts";
-import type { HitlResponseRecord } from "@/lib/ui/hitl-response.ts";
+import { getHitlResponseRecord, type HitlResponseRecord } from "@/lib/ui/hitl-response.ts";
 import {
   formatSubagentToolSummary,
   getSubagentToolDisplayName,
@@ -104,6 +105,51 @@ function extractQuestionText(input: Record<string, unknown>): string {
 }
 
 /**
+ * Synthesizes an HitlResponseRecord from a completed HITL tool's metadata/output
+ * when the normal hitlResponse was never set (e.g. due to toolCallId mismatch
+ * between stream.tool.start and stream.human_input_required).
+ */
+function synthesizeHitlResponse(part: ToolPart): HitlResponseRecord | null {
+  if (part.state.status !== "completed") return null;
+
+  const fromOutput = getHitlResponseRecord({ output: part.output });
+  if (fromOutput) return fromOutput;
+
+  // metadata.answers format from OpenCode SDK question tool: [[answer1], [answer2]]
+  const metadata = part.metadata as { answers?: unknown[][] } | undefined;
+  if (metadata?.answers?.length) {
+    const answerText = metadata.answers
+      .flat()
+      .filter((a): a is string => typeof a === "string")
+      .join(", ");
+    if (answerText) {
+      return {
+        cancelled: false,
+        responseMode: "option",
+        answerText,
+        displayText: `User answered: "${answerText}"`,
+      };
+    }
+  }
+
+  // Fallback: extract from raw output string (e.g. "...\"Question\"=\"Answer\"...")
+  if (typeof part.output === "string" && part.output.trim()) {
+    const answerMatches = [...part.output.matchAll(/="([^"]+)"/g)];
+    if (answerMatches.length > 0) {
+      const answerText = answerMatches.map((m) => m[1]).join(", ");
+      return {
+        cancelled: false,
+        responseMode: "option",
+        answerText,
+        displayText: `User answered: "${answerText}"`,
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
  * Main ToolPartDisplay component.
  * Renders tool output with inline HITL overlay support.
  * HITL tools skip the standard ToolResult to avoid duplicate UI with the dialog.
@@ -112,6 +158,17 @@ export function ToolPartDisplay({ part, summaryOnly = false }: ToolPartDisplayPr
   const colors = useThemeColors();
 
   if (summaryOnly) {
+    if (isSdkAskQuestionToolName(part.toolName)) {
+      return (
+        <ToolResult
+          toolName={part.toolName}
+          input={part.input}
+          output={part.output}
+          status={toolStateToStatus(part.state)}
+        />
+      );
+    }
+
     const stateColor = colors[getToolStatusColorKey(part.state.status)];
     const toolLabel = getSubagentToolDisplayName(part.toolName);
     const summaryText = formatSubagentToolSummary(part.toolName, part.input);
@@ -129,17 +186,28 @@ export function ToolPartDisplay({ part, summaryOnly = false }: ToolPartDisplayPr
   const isHitlTool = HITL_TOOL_NAMES.has(part.toolName);
 
   if (isHitlTool) {
+    const resolvedResponse = part.hitlResponse ?? synthesizeHitlResponse(part);
+    const isCompleted = !part.pendingQuestion && resolvedResponse;
+    const isRunning = part.state.status === "running" && !part.pendingQuestion && !resolvedResponse;
+
     return (
       <box flexDirection="column">
         {/* Active HITL: rendered by the dedicated dialog in chat.tsx */}
 
         {/* Completed HITL: transparent record with question + answer */}
-        {part.hitlResponse && !part.pendingQuestion && (
+        {isCompleted && (
           <CompletedHitlDisplay
-            hitlResponse={part.hitlResponse}
+            hitlResponse={resolvedResponse}
             questionText={extractQuestionText(part.input)}
             toolName={part.toolName}
           />
+        )}
+
+        {/* Running HITL without pending dialog — show a minimal status line */}
+        {isRunning && (
+          <text wrapMode="word">
+            <span style={{ fg: colors.accent }}>{STATUS.active} ask_user</span>
+          </text>
         )}
       </box>
     );

@@ -259,12 +259,13 @@ export function useStreamSessionSubscriptions({
   useBusSubscription("stream.session.info", (event) => {
     const { message, infoType } = event.data;
     if (infoType === "cancellation") return;
-    if (message) {
-      setMessagesWindowed((prev) => [
-        ...prev,
-        createMessage("system", `${STATUS.active} ${message}`),
-      ]);
-    }
+    if (infoType === "snapshot") return;
+    if (!message) return;
+    if (message.startsWith("/") && !message.includes(" ")) return;
+    setMessagesWindowed((prev) => [
+      ...prev,
+      createMessage("system", `${STATUS.active} ${message}`),
+    ]);
   });
 
   useBusSubscription("stream.session.warning", (event) => {
@@ -430,6 +431,8 @@ export function useStreamSessionSubscriptions({
       header: data.header,
       options: data.options,
       nodeId: data.nodeId,
+      respond: data.respond as ((answer: string | string[]) => void) | undefined,
+      toolCallId: data.toolCallId,
     };
     handleAskUserQuestion(askEvent);
   });

@@ -9,6 +9,7 @@ import {
   shouldShowMessageLoadingIndicator,
 } from "@/lib/ui/loading-state.ts";
 import { TaskListPanel } from "@/components/task-list-panel.tsx";
+import { HitlResponseWidget } from "@/components/hitl-response-widget.tsx";
 import { MessageBubbleParts } from "@/components/message-parts/message-bubble-parts.tsx";
 import { CompletionSummary, LoadingIndicator } from "@/components/chat-loading-indicator.tsx";
 import type {
@@ -207,6 +208,9 @@ export function MessageBubble({
     };
 
     if (message.role === "user") {
+      const collapsedLabel = message.hitlContext
+        ? `${STATUS.success} ${truncate(message.hitlContext.question, 40)} → ${truncate(message.hitlContext.answer, 30)}`
+        : truncate(message.content, 78);
       return (
         <box
           paddingLeft={SPACING.CONTAINER_PAD}
@@ -216,7 +220,7 @@ export function MessageBubble({
           <text wrapMode="char" selectable>
             <span style={{ fg: themeColors.dim }}>{PROMPT.cursor} </span>
             <span style={{ fg: themeColors.muted }}>
-              {truncate(message.content, 78)}
+              {collapsedLabel}
             </span>
           </text>
         </box>
@@ -266,19 +270,23 @@ export function MessageBubble({
         paddingLeft={SPACING.CONTAINER_PAD}
         paddingRight={SPACING.CONTAINER_PAD}
       >
-        <box flexGrow={1} flexShrink={1} minWidth={0}>
-          <text wrapMode="char">
-            <span style={{ fg: themeColors.accent }}>{PROMPT.cursor} </span>
-            <span
-              style={{
-                bg: themeColors.userBubbleBg,
-                fg: themeColors.userBubbleFg,
-              }}
-            >
-              {" "}{message.content}{" "}
-            </span>
-          </text>
-        </box>
+        {message.hitlContext ? (
+          <HitlResponseWidget context={message.hitlContext} />
+        ) : (
+          <box flexGrow={1} flexShrink={1} minWidth={0}>
+            <text wrapMode="char">
+              <span style={{ fg: themeColors.accent }}>{PROMPT.cursor} </span>
+              <span
+                style={{
+                  bg: themeColors.userBubbleBg,
+                  fg: themeColors.userBubbleFg,
+                }}
+              >
+                {" "}{message.content}{" "}
+              </span>
+            </text>
+          </box>
+        )}
 
         {persistentTaskPanelSessionDir && (
           <TaskListPanel
@@ -381,6 +389,8 @@ export function MessageBubble({
     );
   }
 
+  const isErrorMessage = message.content.startsWith("[error]");
+
   return (
     <box
       flexDirection="column"
@@ -388,7 +398,7 @@ export function MessageBubble({
       paddingLeft={SPACING.CONTAINER_PAD}
       paddingRight={SPACING.CONTAINER_PAD}
     >
-      <text wrapMode="char" style={{ fg: themeColors.error }}>
+      <text wrapMode="char" style={{ fg: isErrorMessage ? themeColors.error : themeColors.muted }}>
         {message.content}
       </text>
     </box>

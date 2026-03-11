@@ -56,16 +56,15 @@ describe("Claude TUI E2E parity", () => {
       msg.parts = upsertPart(msg.parts ?? [], part);
     });
 
-    const offPermission = client.on("permission.requested", (event) => {
+    const offPermission = client.on("human_input_required", (event) => {
       if (event.sessionId !== sessionId) return;
       seen.push(event.type);
 
       const data = event.data as {
         requestId?: string;
-        toolName?: string;
         question?: string;
-        options?: Array<{ label: string; value: string; description?: string }>;
-        multiSelect?: boolean;
+        header?: string;
+        options?: Array<{ label: string; description?: string }>;
         respond?: (answer: string | string[]) => void;
       };
 
@@ -78,10 +77,10 @@ describe("Claude TUI E2E parity", () => {
         ...latestTool,
         pendingQuestion: {
           requestId: data.requestId ?? "req-1",
-          header: data.toolName ?? "AskUserQuestion",
+          header: data.header ?? "AskUserQuestion",
           question: data.question ?? "Continue?",
-          options: data.options ?? [{ label: "Yes", value: "yes" }],
-          multiSelect: data.multiSelect ?? false,
+          options: data.options?.map((o) => ({ label: o.label, value: o.label, description: o.description })) ?? [{ label: "Yes", value: "yes" }],
+          multiSelect: false,
           respond: data.respond ?? (() => {}),
         },
       };
@@ -191,7 +190,7 @@ describe("Claude TUI E2E parity", () => {
 
       expect(seen).toEqual([
         "tool.start",
-        "permission.requested",
+        "human_input_required",
         "subagent.start",
       ]);
 

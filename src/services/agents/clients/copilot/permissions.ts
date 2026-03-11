@@ -4,6 +4,14 @@ import type {
 } from "@github/copilot-sdk";
 
 import type { ProviderStreamEventDataMap } from "@/services/agents/provider-events.ts";
+import {
+  isToolDisabledBySubagentPolicy,
+  resolveSubagentToolPolicy,
+} from "@/services/agents/subagent-tool-policy.ts";
+import type {
+  CopilotAgentToolPolicy,
+  CopilotSessionState,
+} from "@/services/agents/clients/copilot/types.ts";
 
 export function resolveCopilotUserInputSessionId(
   preferredSessionId: string,
@@ -16,8 +24,57 @@ export function resolveCopilotUserInputSessionId(
   return latestActive ?? preferredSessionId;
 }
 
-export function createAutoApprovePermissionHandler(): SdkPermissionHandler {
-  return async () => ({ kind: "approved" });
+function getPermissionRequestToolName(request: unknown): string | undefined {
+  if (typeof request !== "object" || request === null) {
+    return undefined;
+  }
+
+  const record = request as Record<string, unknown>;
+  const toolName = typeof record.toolName === "string" ? record.toolName : undefined;
+  const mcpToolName = typeof record.mcpToolName === "string" ? record.mcpToolName : undefined;
+  return toolName ?? mcpToolName;
+}
+
+function getPermissionRequestToolCallId(request: unknown): string | undefined {
+  if (typeof request !== "object" || request === null) {
+    return undefined;
+  }
+
+  const record = request as Record<string, unknown>;
+  return typeof record.toolCallId === "string" ? record.toolCallId : undefined;
+}
+
+export function createAutoApprovePermissionHandler(args?: {
+  sessions?: Map<string, CopilotSessionState>;
+  agentToolPolicies?: Record<string, CopilotAgentToolPolicy>;
+  fallbackHandler?: SdkPermissionHandler;
+}): SdkPermissionHandler {
+  return async (request, invocation) => {
+    const sessionId = typeof invocation?.sessionId === "string"
+      ? invocation.sessionId
+      : "";
+    const toolCallId = getPermissionRequestToolCallId(request);
+    const toolName = getPermissionRequestToolName(request);
+    const subagentName = toolCallId && sessionId
+      ? args?.sessions?.get(sessionId)?.toolCallIdToSubagentName.get(toolCallId)
+      : undefined;
+    const policy = subagentName
+      ? resolveSubagentToolPolicy(args?.agentToolPolicies, subagentName)
+      : undefined;
+
+    if (
+      toolName
+      && isToolDisabledBySubagentPolicy(policy, toolName, { treatToolsAsAllowlist: true })
+    ) {
+      return { kind: "denied-interactively-by-user" as const };
+    }
+
+    if (args?.fallbackHandler) {
+      return await args.fallbackHandler(request, invocation);
+    }
+
+    return { kind: "approved" as const };
+  };
 }
 
 export function createDenyAllPermissionHandler(): SdkPermissionHandler {
@@ -27,13 +84,13 @@ export function createDenyAllPermissionHandler(): SdkPermissionHandler {
 export function createCopilotUserInputHandler(args: {
   preferredSessionId: string;
   getActiveSessionIds: () => string[];
-  emitPermissionRequested: (
+  emitHumanInputRequired: (
     sessionId: string,
-    data: ProviderStreamEventDataMap["permission.requested"],
+    data: ProviderStreamEventDataMap["human_input_required"],
   ) => void;
-  emitProviderPermissionRequested: (
+  emitProviderHumanInputRequired: (
     sessionId: string,
-    data: ProviderStreamEventDataMap["permission.requested"],
+    data: ProviderStreamEventDataMap["human_input_required"],
     options: { nativeSessionId: string; nativeEventId: string },
   ) => void;
 }): SdkSessionConfig["onUserInputRequest"] {
@@ -50,7 +107,6 @@ export function createCopilotUserInputHandler(args: {
     const options = request.choices
       ? request.choices.map((choice: string) => ({
           label: choice,
-          value: choice,
         }))
       : [];
 
@@ -58,15 +114,15 @@ export function createCopilotUserInputHandler(args: {
       const requestId = `ask_user_${Date.now()}`;
       const providerData = {
         requestId,
-        toolName: "ask_user",
         question: request.question,
         options,
+        nodeId: requestId,
         toolCallId,
         respond: resolve,
-      } satisfies ProviderStreamEventDataMap["permission.requested"];
+      } satisfies ProviderStreamEventDataMap["human_input_required"];
 
-      args.emitPermissionRequested(resolvedSessionId, providerData);
-      args.emitProviderPermissionRequested(resolvedSessionId, providerData, {
+      args.emitHumanInputRequired(resolvedSessionId, providerData);
+      args.emitProviderHumanInputRequired(resolvedSessionId, providerData, {
         nativeSessionId: resolvedSessionId,
         nativeEventId: requestId,
       });

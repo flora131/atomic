@@ -43,7 +43,9 @@ export class ClaudeAuxEventHandlers {
 
   createPermissionRequestedHandler(runId: number): EventHandler<"permission.requested"> {
     return (event) => {
-      if (event.sessionId !== this.deps.sessionId) {
+      const eventSessionId = this.deps.resolveEventSessionId(event);
+      if (!this.deps.isOwnedSession(eventSessionId)
+        && !this.deps.resolveSubagentSessionParentAgentId(eventSessionId)) {
         return;
       }
       const data = event.data as PermissionRequestedEventData;
@@ -71,7 +73,11 @@ export class ClaudeAuxEventHandlers {
 
   createHumanInputRequiredHandler(runId: number): EventHandler<"human_input_required"> {
     return (event) => {
-      if (event.sessionId !== this.deps.sessionId) return;
+      const eventSessionId = this.deps.resolveEventSessionId(event);
+      if (!this.deps.isOwnedSession(eventSessionId)
+        && !this.deps.resolveSubagentSessionParentAgentId(eventSessionId)) {
+        return;
+      }
       const data = event.data as HumanInputRequiredEventData;
       this.deps.bus.publish({
         type: "stream.human_input_required",
@@ -87,6 +93,7 @@ export class ClaudeAuxEventHandlers {
           respond: data.respond as
             | ((...args: unknown[]) => unknown)
             | undefined,
+          toolCallId: data.toolCallId,
         },
       });
     };

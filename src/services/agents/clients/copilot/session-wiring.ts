@@ -16,6 +16,7 @@ import type {
 } from "@/services/agents/provider-events.ts";
 
 import {
+  createAutoApprovePermissionHandler,
   createCopilotUserInputHandler,
 } from "@/services/agents/clients/copilot/permissions.ts";
 import {
@@ -70,6 +71,8 @@ export function buildCopilotClientSessionConfigBase(args: {
   emitEvent: EmitEventFn;
   emitProviderEvent: EmitProviderEventFn;
 }): Omit<SdkSessionConfig, "sessionId"> {
+  const defaultPermissionHandler = args.getCopilotPermissionHandler();
+
   return buildCopilotSdkSessionConfigBase({
     config: args.config,
     sessionIdForUserInput: args.options.sessionIdForUserInput,
@@ -81,22 +84,26 @@ export function buildCopilotClientSessionConfigBase(args: {
       cwd: args.clientCwd,
     })),
     availableTools: args.config.tools,
-    onPermissionRequest: args.getCopilotPermissionHandler(),
+    onPermissionRequest: createAutoApprovePermissionHandler({
+      sessions: args.sessions,
+      agentToolPolicies: args.options.artifacts?.agentToolPolicies,
+      fallbackHandler: defaultPermissionHandler,
+    }),
     onUserInputRequest: createCopilotUserInputHandler({
       preferredSessionId: args.options.sessionIdForUserInput,
       getActiveSessionIds: () =>
         Array.from(args.sessions.values())
           .filter((session) => !session.isClosed)
           .map((session) => session.sessionId),
-      emitPermissionRequested: (resolvedSessionId, data) => {
+      emitHumanInputRequired: (resolvedSessionId, data) => {
         args.emitEvent(
-          "permission.requested",
+          "human_input_required",
           resolvedSessionId,
           data as unknown as Record<string, unknown>,
         );
       },
-      emitProviderPermissionRequested: (resolvedSessionId, data, options) => {
-        args.emitProviderEvent("permission.requested", resolvedSessionId, data, options);
+      emitProviderHumanInputRequired: (resolvedSessionId, data, options) => {
+        args.emitProviderEvent("human_input_required", resolvedSessionId, data, options);
       },
     }),
   });

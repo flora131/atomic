@@ -1,4 +1,5 @@
 import type {
+    HookCallback,
     McpSdkServerConfigWithInstance,
     Options,
     ThinkingConfig,
@@ -10,7 +11,6 @@ import type {
 } from "@/services/agents/types.ts";
 import type {
     ProviderStreamEventDataMap,
-    ProviderStreamEventType,
 } from "@/services/agents/provider-events.ts";
 import type {
     AskUserQuestionInput,
@@ -18,6 +18,7 @@ import type {
     ReasoningEffort,
 } from "@/services/agents/clients/claude/internal-types.ts";
 import { buildClaudeNativeHooks } from "@/services/agents/clients/claude/internal-types.ts";
+import { createClaudeSubagentToolPermissionHook } from "@/services/agents/clients/claude/tool-permissions.ts";
 
 export function getClaudeReasoningEffort(
     effort: string | undefined,
@@ -45,14 +46,14 @@ export async function handleClaudeAskUserQuestion(args: {
     sessionId: string;
     toolInput: Record<string, unknown>;
     emitEvent: (
-        eventType: "permission.requested",
+        eventType: "human_input_required",
         sessionId: string,
-        data: ProviderStreamEventDataMap["permission.requested"],
+        data: ProviderStreamEventDataMap["human_input_required"],
     ) => void;
     emitProviderEvent: (
-        eventType: "permission.requested",
+        eventType: "human_input_required",
         sessionId: string,
-        data: ProviderStreamEventDataMap["permission.requested"],
+        data: ProviderStreamEventDataMap["human_input_required"],
         options?: {
             nativeSessionId?: string;
             nativeEventId?: string;
@@ -75,32 +76,27 @@ export async function handleClaudeAskUserQuestion(args: {
             const requestId = `ask_${Date.now()}`;
             const providerData = {
                 requestId,
-                toolName: "AskUserQuestion",
-                toolInput: question,
                 question: question.question,
                 header: question.header,
                 options: question.options?.map((option) => ({
                     label: option.label,
-                    value: option.label,
                     description: option.description,
                 })) ?? [
                     {
                         label: "Yes",
-                        value: "yes",
                         description: "Approve",
                     },
                     {
                         label: "No",
-                        value: "no",
                         description: "Deny",
                     },
                 ],
-                multiSelect: question.multiSelect ?? false,
+                nodeId: requestId,
                 respond: resolve,
-            } satisfies ProviderStreamEventDataMap["permission.requested"];
-            args.emitEvent("permission.requested", args.sessionId, providerData);
+            } satisfies ProviderStreamEventDataMap["human_input_required"];
+            args.emitEvent("human_input_required", args.sessionId, providerData);
             args.emitProviderEvent(
-                "permission.requested",
+                "human_input_required",
                 args.sessionId,
                 providerData,
                 {
@@ -205,6 +201,15 @@ export function buildClaudeSdkOptions(args: {
         toolInput: Record<string, unknown>,
     ) => Promise<{ behavior: "allow"; updatedInput: Record<string, unknown> }>;
 }): Options {
+    const registeredHooks = Object.fromEntries(
+        Object.entries(args.registeredHooks).filter(([, hooks]) => Array.isArray(hooks)),
+    ) as Record<string, HookCallback[]>;
+    const preToolUseHooks = registeredHooks.PreToolUse ?? [];
+    registeredHooks.PreToolUse = [
+        createClaudeSubagentToolPermissionHook(args.config),
+        ...preToolUseHooks,
+    ];
+
     const options: Options = {
         ...initClaudeOptions(),
         model: args.config.model,
@@ -220,7 +225,7 @@ export function buildClaudeSdkOptions(args: {
             args.adaptiveThinkingModels,
         ),
         hooks: buildClaudeNativeHooks(
-            args.registeredHooks as Record<string, NonNullable<ClaudeHookConfig[keyof ClaudeHookConfig]>>,
+            registeredHooks as Record<string, NonNullable<ClaudeHookConfig[keyof ClaudeHookConfig]>>,
         ),
         includePartialMessages: true,
         systemPrompt: args.config.additionalInstructions
@@ -271,4 +276,3 @@ export function buildClaudeSdkOptions(args: {
 
     return options;
 }
-

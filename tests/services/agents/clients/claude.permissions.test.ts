@@ -7,20 +7,17 @@ describe("ClaudeAgentClient permissions and options", () => {
     const client = new ClaudeAgentClient();
     const seenEvents: Array<{
       sessionId: string;
-      toolName: string;
       options: string[];
     }> = [];
 
-    const unsubscribe = client.on("permission.requested", (event) => {
+    const unsubscribe = client.on("human_input_required", (event) => {
       const data = event.data as {
-        toolName?: string;
         options?: Array<{ label: string }>;
         respond?: (answer: string | string[]) => void;
       };
 
       seenEvents.push({
         sessionId: event.sessionId,
-        toolName: data.toolName ?? "",
         options: (data.options ?? []).map((option) => option.label),
       });
       data.respond?.("yes");
@@ -55,7 +52,6 @@ describe("ClaudeAgentClient permissions and options", () => {
       expect(seenEvents).toEqual([
         {
           sessionId: "session-v1",
-          toolName: "AskUserQuestion",
           options: ["Yes", "No"],
         },
       ]);
@@ -66,17 +62,15 @@ describe("ClaudeAgentClient permissions and options", () => {
 
   test("normalizes AskUserQuestion custom options and multiselect answers", async () => {
     const client = new ClaudeAgentClient();
-    const seenEvents: Array<{ sessionId: string; multiSelect: boolean }> = [];
+    const seenEvents: Array<{ sessionId: string }> = [];
 
-    const unsubscribe = client.on("permission.requested", (event) => {
+    const unsubscribe = client.on("human_input_required", (event) => {
       const data = event.data as {
-        multiSelect?: boolean;
         respond?: (answer: string | string[]) => void;
       };
 
       seenEvents.push({
         sessionId: event.sessionId,
-        multiSelect: data.multiSelect ?? false,
       });
       data.respond?.(["alpha", "beta"]);
     });
@@ -114,7 +108,7 @@ describe("ClaudeAgentClient permissions and options", () => {
       expect((result?.updatedInput.answers as Record<string, string>)["pick values"]).toBe(
         "alpha, beta",
       );
-      expect(seenEvents).toEqual([{ sessionId: "session-v1", multiSelect: true }]);
+      expect(seenEvents).toEqual([{ sessionId: "session-v1" }]);
     } finally {
       unsubscribe();
     }

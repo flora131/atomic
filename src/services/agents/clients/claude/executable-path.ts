@@ -121,7 +121,14 @@ export function resolveClaudeCodeExecutablePath(
     return claudeFromPath?.invokePath ?? sdkCliPath?.invokePath ?? null;
   }
 
-  return sdkCliPath?.invokePath ?? claudeFromPath?.invokePath ?? null;
+  if (
+    claudeFromPath &&
+    !isLikelyNodeModulesClaudePath(claudeFromPath.canonicalPath)
+  ) {
+    return claudeFromPath.invokePath;
+  }
+
+  return claudeFromPath?.invokePath ?? sdkCliPath?.invokePath ?? null;
 }
 
 export function getBundledClaudeCodePath(): string {

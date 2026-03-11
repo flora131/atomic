@@ -161,7 +161,7 @@ export async function executeWorkflow(
                         agent.agentId,
                         agent.agentName,
                         agent.task,
-                        true, // Single workflow spawns also run as background agents
+                        false,
                     );
                 }
 
@@ -192,7 +192,7 @@ export async function executeWorkflow(
                             agent.agentId,
                             agent.agentName,
                             agent.task,
-                            true, // isBackground = true for parallel agent spawn
+                            false,
                         );
                     }
                 }

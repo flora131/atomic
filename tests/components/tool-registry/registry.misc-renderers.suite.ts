@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
-  CHECKBOX,
   STATUS,
+  askQuestionToolRenderer,
   defaultToolRenderer,
   getToolRenderer,
+  isSdkAskQuestionToolName,
   mcpToolRenderer,
   readToolRenderer,
   registerAgentToolNames,
@@ -115,6 +116,34 @@ describe("mcpToolRenderer.render()", () => {
     const result = mcpToolRenderer.render(props);
     expect(result.content).toContain("Input:");
     expect(result.content).not.toContain("Output:");
+  });
+});
+
+describe("askQuestionToolRenderer", () => {
+  test("renders question prompt and answer", () => {
+    const props: ToolRenderProps = {
+      input: {
+        repoName: ["anomalyco/opencode", "anomalyco/opentui"],
+        question: "How does the ask question widget work?",
+      },
+      output: "It renders through the tool registry.",
+    };
+    const result = askQuestionToolRenderer.render(props);
+    expect(result.title).toBe("How does the ask question widget work?");
+    expect(result.content).toContain("Repository: anomalyco/opencode, anomalyco/opentui");
+    expect(result.content).toContain("Question:");
+    expect(result.content).toContain("Answer:");
+    expect(result.content).toContain("It renders through the tool registry.");
+  });
+
+  test("routes only SDK ask_question tools through the custom renderer", () => {
+    expect(isSdkAskQuestionToolName("ask_question")).toBe(true);
+    expect(isSdkAskQuestionToolName("AskQuestion")).toBe(true);
+    expect(isSdkAskQuestionToolName("docs/ask_question")).toBe(false);
+    expect(isSdkAskQuestionToolName("mcp__docs__ask_question")).toBe(false);
+    expect(getToolRenderer("ask_question")).toBe(askQuestionToolRenderer);
+    expect(getToolRenderer("docs/ask_question")).toBe(mcpToolRenderer);
+    expect(getToolRenderer("mcp__docs__ask_question")).toBe(mcpToolRenderer);
   });
 });
 

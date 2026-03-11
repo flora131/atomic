@@ -9,7 +9,10 @@ import type {
   SessionConfig,
 } from "@/services/agents/types.ts";
 
-function createMockSession(id: string): Session {
+function createMockSession(
+  id: string,
+  overrides: Partial<Session> = {},
+): Session {
   return {
     id,
     send: async () => ({ type: "text", content: "" }),
@@ -22,7 +25,10 @@ function createMockSession(id: string): Session {
       usagePercentage: 0,
     }),
     getSystemToolsTokens: () => 0,
+    abort: async () => {},
+    abortBackgroundAgents: async () => {},
     destroy: async () => {},
+    ...overrides,
   };
 }
 
@@ -117,6 +123,119 @@ describe("createChatUIController", () => {
 
     expect(state.session?.id).toBe("session-2");
     expect(invalidationCalls).toBe(3);
+  });
+
+  test("aborts active work before resetting the session", async () => {
+    const events: string[] = [];
+    const session = createMockSession("session-1", {
+      abort: async () => {
+        events.push("session.abort");
+      },
+      abortBackgroundAgents: async () => {
+        events.push("background.abort");
+      },
+      destroy: async () => {
+        events.push("session.destroy");
+      },
+    });
+    const state = createState();
+    state.session = session;
+    state.streamAbortController = new AbortController();
+    state.streamAbortController.signal.addEventListener("abort", () => {
+      events.push("controller.abort");
+    });
+
+    const controller = createChatUIController({
+      client: createMockClient([]),
+      resolvedAgentType: "opencode",
+      sessionConfig: {},
+      modelOps: {
+        invalidateModelCache: () => {},
+        getPendingModel: () => undefined,
+        getCurrentModel: async () => undefined,
+      } as never,
+      state,
+      debugSub: {
+        unsubscribe: async () => {},
+        logPath: null,
+        rawLogPath: null,
+        logDirPath: null,
+        writeRawLine: () => {},
+      },
+      onExitResolved: () => {},
+    });
+
+    await controller.resetSession();
+
+    expect(events).toEqual([
+      "controller.abort",
+      "session.abort",
+      "background.abort",
+      "session.destroy",
+    ]);
+    expect(state.session).toBeNull();
+  });
+
+  test("waits for pending abort work before cleanup destroys the session", async () => {
+    const events: string[] = [];
+    let resolveAbort!: () => void;
+    const pendingAbortPromise = new Promise<void>((resolve) => {
+      resolveAbort = resolve;
+    }).then(() => {
+      events.push("pending.abort.resolved");
+    });
+    const session = createMockSession("session-1", {
+      abort: async () => {
+        events.push("session.abort");
+      },
+      abortBackgroundAgents: async () => {
+        events.push("background.abort");
+      },
+      destroy: async () => {
+        events.push("session.destroy");
+      },
+    });
+    const state = createState();
+    state.session = session;
+    state.pendingAbortPromise = pendingAbortPromise;
+    state.streamAbortController = new AbortController();
+    state.streamAbortController.signal.addEventListener("abort", () => {
+      events.push("controller.abort");
+    });
+
+    const controller = createChatUIController({
+      client: createMockClient([]),
+      resolvedAgentType: "opencode",
+      sessionConfig: {},
+      modelOps: {
+        invalidateModelCache: () => {},
+        getPendingModel: () => undefined,
+        getCurrentModel: async () => undefined,
+      } as never,
+      state,
+      debugSub: {
+        unsubscribe: async () => {},
+        logPath: null,
+        rawLogPath: null,
+        logDirPath: null,
+        writeRawLine: () => {},
+      },
+      onExitResolved: () => {},
+    });
+
+    const cleanupPromise = controller.cleanup();
+    events.push("cleanup.started");
+    resolveAbort();
+    await cleanupPromise;
+
+    expect(events).toEqual([
+      "cleanup.started",
+      "controller.abort",
+      "pending.abort.resolved",
+      "background.abort",
+      "session.destroy",
+    ]);
+    expect(state.session).toBeNull();
   });
 
   test("sanitizes stale Copilot reasoning effort before creating a session", async () => {

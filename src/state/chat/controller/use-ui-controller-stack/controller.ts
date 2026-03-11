@@ -393,7 +393,7 @@ export function useChatUiControllerStack({
     workflowState,
   });
 
-  const { footerBackgroundAgents, messageContent } = useChatRenderModel({
+  const { messageContent } = useChatRenderModel({
     activeQuestion,
     backgroundAgentMessageId: backgroundAgentMessageIdRef.current,
     handleAgentDoneRendered,
@@ -425,7 +425,6 @@ export function useChatUiControllerStack({
     currentModelId,
     displayModel,
     dynamicPlaceholder,
-    footerBackgroundAgents,
     handleAutocompleteIndexChange,
     handleAutocompleteSelect,
     handleBracketedPaste,

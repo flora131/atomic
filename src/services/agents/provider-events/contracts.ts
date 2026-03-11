@@ -279,6 +279,7 @@ export interface ProviderHumanInputRequiredData {
   options?: ProviderHumanInputOption[];
   nodeId: string;
   respond?: (answer: string | string[]) => void;
+  toolCallId?: string;
 }
 
 export interface ProviderUsageData {

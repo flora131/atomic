@@ -1,6 +1,5 @@
 import { useMemo, type ReactNode } from "react";
 import { MessageBubble } from "@/components/chat-message-bubble.tsx";
-import { resolveBackgroundAgentsForFooter } from "@/lib/ui/background-agent-footer.ts";
 import { shouldShowMessageLoadingIndicator } from "@/lib/ui/loading-state.ts";
 import { shouldHideStaleSubagentToolPlaceholder } from "@/state/chat/helpers.ts";
 import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
@@ -31,7 +30,6 @@ interface UseChatRenderModelArgs {
 }
 
 interface UseChatRenderModelResult {
-  footerBackgroundAgents: ParallelAgent[];
   messageContent: ReactNode;
   renderMessages: ChatMessage[];
 }
@@ -62,11 +60,6 @@ export function useChatRenderModel({
       (message) => !shouldHideStaleSubagentToolPlaceholder(message, activeMessageIds),
     );
   }, [backgroundAgentMessageId, lastStreamedMessageId, messages, streamingMessageId]);
-
-  const footerBackgroundAgents = useMemo(
-    () => resolveBackgroundAgentsForFooter(parallelAgents, messages),
-    [parallelAgents, messages],
-  );
 
   const messageContent = useMemo(() => {
     if (renderMessages.length === 0) {
@@ -121,7 +114,6 @@ export function useChatRenderModel({
   ]);
 
   return {
-    footerBackgroundAgents,
     messageContent,
     renderMessages,
   };

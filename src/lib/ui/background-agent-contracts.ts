@@ -31,29 +31,6 @@ export type BackgroundTerminationDecision =
   | { action: "terminate"; message: string };
 
 // ---------------------------------------------------------------------------
-// Footer Display Contract
-// ---------------------------------------------------------------------------
-
-export interface BackgroundFooterContract {
-  /** Minimum active agent count before the footer becomes visible. */
-  showWhenAgentCountAtLeast: number;
-  /** Whether the footer includes a terminate-key hint. */
-  includeTerminateHint: boolean;
-  /** Exact text for the terminate hint shown in the footer. */
-  terminateHintText: string;
-  /** Labeling style for the agent count. */
-  countFormat: "agents" | "tasks";
-}
-
-/** Canonical footer contract instance used at runtime. */
-export const BACKGROUND_FOOTER_CONTRACT: BackgroundFooterContract = {
-  showWhenAgentCountAtLeast: 1,
-  includeTerminateHint: true,
-  terminateHintText: "ctrl+f to kill all background tasks",
-  countFormat: "agents",
-};
-
-// ---------------------------------------------------------------------------
 // Tree Hint Contract
 // ---------------------------------------------------------------------------
 

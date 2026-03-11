@@ -174,6 +174,7 @@ export async function createManagedOpenCodeSession(args: {
   registerMcpServers: (servers: NonNullable<SessionConfig["mcpServers"]>) => Promise<void>;
   registerToolsMcpServer: () => Promise<void>;
   setCurrentSessionId: (sessionId: string) => void;
+  onSessionCreated?: (sessionId: string) => void;
   registerActiveSession: (sessionId: string) => void;
   emitEvent: <T extends EventType>(
     eventType: T,
@@ -208,6 +209,7 @@ export async function createManagedOpenCodeSession(args: {
 
   const sessionId = result.data.id;
   args.setCurrentSessionId(sessionId);
+  args.onSessionCreated?.(sessionId);
   args.registerActiveSession(sessionId);
   args.emitEvent("session.start", sessionId, { config: args.config });
 

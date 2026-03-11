@@ -153,6 +153,7 @@ export function handleCopilotHumanInputRequired(
       respond: data.respond as
         | ((...args: unknown[]) => unknown)
         | undefined,
+      toolCallId: data.toolCallId,
     },
   });
 }

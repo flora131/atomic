@@ -1,6 +1,7 @@
 export {
   TOOL_RENDERERS,
   applyPatchToolRenderer,
+  askQuestionToolRenderer,
   bashToolRenderer,
   defaultToolRenderer,
   editToolRenderer,
@@ -13,6 +14,7 @@ export {
   mcpToolRenderer,
   parseMcpToolName,
   readToolRenderer,
+  isSdkAskQuestionToolName,
   registerAgentToolNames,
   taskToolRenderer,
   todoWriteToolRenderer,

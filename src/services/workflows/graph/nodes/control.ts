@@ -172,6 +172,8 @@ export interface AskUserQuestionEventData {
   header?: string;
   options?: AskUserOption[];
   nodeId: string;
+  respond?: (answer: string | string[]) => void;
+  toolCallId?: string;
 }
 
 export function askUserNode<

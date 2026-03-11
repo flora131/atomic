@@ -219,6 +219,7 @@ function handleOpenCodeToolPart({
     const pending = sessionSubagentState.pendingAgentParts.shift();
     if (pending) {
       sessionSubagentState.childSessionToAgentPart.set(partSessionId, pending.partId);
+      sessionSubagentState.childSessionToAgentName.set(partSessionId, pending.agentName);
       agentPartId = pending.partId;
       context.childSessionToParentSession.set(partSessionId, parentSessionId);
       context.debugLog("child-session-discovered", {

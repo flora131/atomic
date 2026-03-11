@@ -23,7 +23,6 @@ import {
   isBackgroundTerminationKey,
 } from "@/lib/ui/background-agent-termination.ts";
 import {
-  BACKGROUND_FOOTER_CONTRACT,
   BACKGROUND_TREE_HINT_CONTRACT,
 } from "@/lib/ui/background-agent-contracts.ts";
 import { getActiveBackgroundAgents } from "@/lib/ui/background-agent-footer.ts";
@@ -318,7 +317,7 @@ describe("Ctrl+F double-press lifecycle integration", () => {
     }
   });
 
-  test("confirmation messages are consistent with footer and tree hint contracts", () => {
+  test("confirmation messages are consistent with tree hint contracts", () => {
     const agents: ParallelAgent[] = [
       createAgent({
         id: "bg-1",
@@ -326,10 +325,6 @@ describe("Ctrl+F double-press lifecycle integration", () => {
         background: true,
       }),
     ];
-
-    // Verify footer contract includes terminate hint
-    expect(BACKGROUND_FOOTER_CONTRACT.includeTerminateHint).toBe(true);
-    expect(BACKGROUND_FOOTER_CONTRACT.terminateHintText).toBe("ctrl+f to kill all background tasks");
 
     // Verify tree hint contract includes termination hint for running agents
     expect(BACKGROUND_TREE_HINT_CONTRACT.whenRunning).toContain("ctrl+f");

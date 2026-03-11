@@ -10,7 +10,9 @@ import {
   buildSyntheticForegroundAgentId,
   createSessionErrorEvent,
   createSessionStartEvent,
+  isSessionExpiredMessage,
   resolveAgentOnlyTaskLabel,
+  SessionExpiredError,
 } from "@/services/events/adapters/provider-shared.ts";
 import { publishCopilotBufferedEvent, cleanupCopilotOrphanedTools } from "@/services/events/adapters/providers/copilot/buffer.ts";
 import {
@@ -111,6 +113,8 @@ export async function startCopilotStreaming(
       return;
     }
 
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
     if (state.isActive) {
       publishSyntheticForegroundAgentComplete({
         syntheticForegroundAgent: state.syntheticForegroundAgent,
@@ -120,13 +124,19 @@ export async function startCopilotStreaming(
         runId: state.runId,
         accumulatedText: state.accumulatedText,
         success: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage,
       });
       publishCopilotBufferedEvent(
         state,
         deps.bus,
         createSessionErrorEvent(state.sessionId, state.runId, error),
       );
+    }
+
+    // Re-throw session-expired errors so the controller can invalidate the
+    // stale session and create a fresh one on the next message attempt.
+    if (isSessionExpiredMessage(errorMessage)) {
+      throw new SessionExpiredError(errorMessage);
     }
   } finally {
     cleanupCopilotOrphanedTools(state, deps.bus);

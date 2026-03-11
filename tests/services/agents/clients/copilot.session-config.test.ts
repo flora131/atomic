@@ -367,6 +367,70 @@ Debug the repository.`,
     await expect(createConfig.onPermissionRequest()).resolves.toEqual({ kind: "approved" });
   });
 
+  test("auto-denies tools disabled for the active sub-agent", async () => {
+    const mockSdkSession = createBasicSdkSession();
+    const mockCreateSession = mock(async (_config: Record<string, unknown>) => mockSdkSession);
+    const mockSdkClient = createBasicSdkClient({
+      createSession: mockCreateSession,
+    });
+
+    const client = new CopilotClient({});
+    (client as unknown as { sdkClient: unknown }).sdkClient = mockSdkClient;
+    (client as unknown as { isRunning: boolean }).isRunning = true;
+    (client as unknown as {
+      loadCopilotSessionArtifacts: () => Promise<{
+        customAgents?: Array<Record<string, unknown>>;
+        agentToolPolicies?: Record<string, { tools?: string[] | null; disallowedTools?: string[] | null }>;
+      }>;
+    }).loadCopilotSessionArtifacts = async () => ({
+      customAgents: [
+        {
+          name: "worker",
+          description: "Worker agent",
+          tools: ["execute", "read"],
+          prompt: "Do work",
+        },
+      ],
+      agentToolPolicies: {
+        worker: {
+          tools: ["execute", "read"],
+          disallowedTools: ["web"],
+        },
+      },
+    });
+
+    await client.createSession({
+      sessionId: "test-session",
+      tools: ["execute", "read", "web"],
+    });
+
+    const sessionState = (client as unknown as {
+      sessions: Map<string, { toolCallIdToSubagentName: Map<string, string> }>;
+    }).sessions.get("test-session");
+    sessionState?.toolCallIdToSubagentName.set("subagent-call-1", "worker");
+
+    const createConfig = mockCreateSession.mock.calls[0]?.[0] as {
+      onPermissionRequest: (
+        request: { toolCallId: string; toolName: string },
+        invocation: { sessionId: string },
+      ) => Promise<{ kind: string }>;
+    };
+
+    await expect(
+      createConfig.onPermissionRequest(
+        { toolCallId: "subagent-call-1", toolName: "web" },
+        { sessionId: "test-session" },
+      ),
+    ).resolves.toEqual({ kind: "denied-interactively-by-user" });
+
+    await expect(
+      createConfig.onPermissionRequest(
+        { toolCallId: "subagent-call-1", toolName: "read" },
+        { sessionId: "test-session" },
+      ),
+    ).resolves.toEqual({ kind: "approved" });
+  });
+
   test("preserves raw tool config and approve-all permissions during model switch", async () => {
     const initialSdkSession = createBasicSdkSession("test-session");
     const resumedSdkSession = createBasicSdkSession("test-session");

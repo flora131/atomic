@@ -108,6 +108,14 @@ export async function loadCopilotSessionArtifacts(
           infer: agent.infer,
         }))
       : undefined,
+    agentToolPolicies: loadedAgents.length > 0
+      ? Object.fromEntries(
+          loadedAgents.map((agent) => [agent.name, {
+            tools: agent.tools ?? null,
+            disallowedTools: agent.disallowedTools ?? null,
+          }]),
+        )
+      : undefined,
     skillDirectories: skillDirectories.length > 0 ? skillDirectories : undefined,
     instructions: instructions?.trim() || undefined,
   };

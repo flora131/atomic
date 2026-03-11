@@ -12,6 +12,7 @@ import { STATUS, MISC } from "@/theme/icons.ts";
 import { SPACING } from "@/theme/spacing.ts";
 import {
   getToolRenderer,
+  isSdkAskQuestionToolName,
   parseMcpToolName,
   type ToolRenderProps,
   type ToolRenderResult,
@@ -237,6 +238,16 @@ export function getToolSummary(
       return { text: truncated || "complete", count: undefined };
     }
     default: {
+      if (isSdkAskQuestionToolName(toolName)) {
+        const repoName = input.repoName;
+        const repoSummary = Array.isArray(repoName)
+          ? repoName.filter((value): value is string => typeof value === "string").join(", ")
+          : typeof repoName === "string"
+            ? repoName
+            : "";
+        const truncated = repoSummary.length > 35 ? `${repoSummary.slice(0, 32)}…` : repoSummary;
+        return { text: truncated || "answer", count: undefined };
+      }
       return { text: `${contentLines} line${contentLines !== 1 ? "s" : ""}`, count: contentLines };
     }
   }

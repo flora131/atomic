@@ -1,7 +1,7 @@
 import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
 import type { TaskItem } from "@/components/task-list-indicator.tsx";
 import type { McpSnapshotView } from "@/lib/ui/mcp-output.ts";
-import type { HitlResponseRecord } from "@/lib/ui/hitl-response.ts";
+import type { HitlResponseMode, HitlResponseRecord } from "@/lib/ui/hitl-response.ts";
 import type { ToolExecutionStatus } from "@/state/parts/types.ts";
 import type { Part } from "@/state/parts/index.ts";
 import type { FileReadInfo } from "@/lib/ui/mention-parsing.ts";
@@ -9,6 +9,15 @@ import type { FileReadInfo } from "@/lib/ui/mention-parsing.ts";
 export type { TaskItem } from "@/components/task-list-indicator.tsx";
 
 export type MessageRole = "user" | "assistant" | "system";
+
+/** Context for a HITL (human-in-the-loop) response rendered in the chat stream. */
+export interface HitlContext {
+  question: string;
+  header: string;
+  answer: string;
+  cancelled: boolean;
+  responseMode: HitlResponseMode;
+}
 
 export interface MessageToolCall {
   id: string;
@@ -60,4 +69,5 @@ export interface ChatMessage {
   thinkingMs?: number;
   thinkingText?: string;
   spinnerVerb?: string;
+  hitlContext?: HitlContext;
 }

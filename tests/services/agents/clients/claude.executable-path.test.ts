@@ -85,7 +85,7 @@ describe("resolveClaudeCodeExecutablePath", () => {
         expect(resolved).toBe(`${homeDir}/.bun/bin/claude`);
     });
 
-    test("prefers SDK bundled CLI on non-macOS", () => {
+    test("prefers installed Claude binary on non-macOS", () => {
         const fs = createFakeFs([
             "/usr/bin/claude",
             "/repo/node_modules/@anthropic-ai/claude-agent-sdk/cli.js",
@@ -95,6 +95,24 @@ describe("resolveClaudeCodeExecutablePath", () => {
             platform: "linux",
             homeDir: "/home/tester",
             claudeFromPath: "/usr/bin/claude",
+            sdkCliPath: "/repo/node_modules/@anthropic-ai/claude-agent-sdk/cli.js",
+            envOverridePath: null,
+            pathExists: fs.pathExists,
+            resolveRealPath: fs.resolveRealPath,
+        });
+
+        expect(resolved).toBe("/usr/bin/claude");
+    });
+
+    test("falls back to SDK bundled CLI on non-macOS when no Claude binary exists", () => {
+        const fs = createFakeFs([
+            "/repo/node_modules/@anthropic-ai/claude-agent-sdk/cli.js",
+        ]);
+
+        const resolved = resolveClaudeCodeExecutablePath({
+            platform: "linux",
+            homeDir: "/home/tester",
+            claudeFromPath: null,
             sdkCliPath: "/repo/node_modules/@anthropic-ai/claude-agent-sdk/cli.js",
             envOverridePath: null,
             pathExists: fs.pathExists,

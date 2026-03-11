@@ -10,6 +10,7 @@ const SESSION_LIFECYCLE_EVENT_TYPES = new Set<string>([
 export interface OpenCodeSubagentSessionState {
   pendingAgentParts: Array<{ partId: string; agentName: string }>;
   childSessionToAgentPart: Map<string, string>;
+  childSessionToAgentName: Map<string, string>;
   startedSubagentIds: Set<string>;
   subagentToolCounts: Map<string, number>;
   pendingTaskToolPartIds: string[];
@@ -113,6 +114,7 @@ export class OpenCodeSessionStateSupport {
     return {
       pendingAgentParts: [],
       childSessionToAgentPart: new Map(),
+      childSessionToAgentName: new Map(),
       startedSubagentIds: new Set(),
       subagentToolCounts: new Map(),
       pendingTaskToolPartIds: [],
@@ -247,6 +249,7 @@ export class OpenCodeSessionStateSupport {
         for (const [childSessionId, agentPartId] of state.childSessionToAgentPart.entries()) {
           if (agentPartId === partId) {
             state.childSessionToAgentPart.delete(childSessionId);
+            state.childSessionToAgentName.delete(childSessionId);
             this.deps.childSessionToParentSession.delete(childSessionId);
           }
         }
@@ -265,6 +268,19 @@ export class OpenCodeSessionStateSupport {
       return "reject";
     }
     return "once";
+  }
+
+  resolveParentSessionId(sessionId: string): string {
+    return this.deps.childSessionToParentSession.get(sessionId) ?? sessionId;
+  }
+
+  resolveSubagentNameForSession(sessionId: string): string | undefined {
+    const parentSessionId = this.deps.childSessionToParentSession.get(sessionId);
+    if (!parentSessionId) {
+      return undefined;
+    }
+
+    return this.deps.subagentStateByParentSession.get(parentSessionId)?.childSessionToAgentName.get(sessionId);
   }
 
   shouldEmitSkillInvocation(
@@ -306,6 +322,7 @@ export class OpenCodeSessionStateSupport {
     const state = this.deps.subagentStateByParentSession.get(parentSessionId);
     if (state) {
       for (const childSessionId of state.childSessionToAgentPart.keys()) {
+        state.childSessionToAgentName.delete(childSessionId);
         this.deps.childSessionToParentSession.delete(childSessionId);
       }
       this.deps.subagentStateByParentSession.delete(parentSessionId);
@@ -318,6 +335,7 @@ export class OpenCodeSessionStateSupport {
     if (ownerState) {
       const agentPartId = ownerState.childSessionToAgentPart.get(parentSessionId);
       ownerState.childSessionToAgentPart.delete(parentSessionId);
+      ownerState.childSessionToAgentName.delete(parentSessionId);
       if (agentPartId) {
         ownerState.startedSubagentIds.delete(agentPartId);
         ownerState.subagentToolCounts.delete(agentPartId);

@@ -27,6 +27,7 @@ export interface CopilotAgent {
   description: string;
   displayName?: string;
   tools?: string[] | null;
+  disallowedTools?: string[] | null;
   mcpServers?: McpServerConfig[];
   infer?: boolean;
   systemPrompt: string;
@@ -389,6 +390,9 @@ export async function loadAgentsFromDir(
                 ? frontmatter["display-name"]
                 : undefined,
           tools: parseCopilotTools(frontmatter.tools),
+          disallowedTools: parseCopilotTools(
+            frontmatter.disallowedTools ?? frontmatter["disallowed-tools"],
+          ),
           mcpServers: parseCopilotAgentMcpServers(
             frontmatter["mcp-servers"] ?? frontmatter.mcpServers,
           ),

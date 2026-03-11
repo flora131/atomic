@@ -14,6 +14,12 @@ import { createManagedOpenCodeSession, getOpenCodeSessionMessagesWithParts, list
 import { OpenCodeSessionStateSupport, type OpenCodeSubagentSessionState } from "@/services/agents/clients/opencode/session-state.ts";
 import { type OpenCodeSessionState } from "@/services/agents/clients/opencode/shared.ts";
 import type { OpenCodeProviderEventHandler, ProviderStreamEventDataMap, ProviderStreamEventType } from "@/services/agents/provider-events.ts";
+import { loadOpenCodeAgents } from "@/services/config/opencode-config.ts";
+import {
+  isToolDisabledBySubagentPolicy,
+  resolveSubagentToolPolicy,
+  type SubagentToolPolicy,
+} from "@/services/agents/subagent-tool-policy.ts";
 import { createOpencodeClient as createSdkClient, type Event as OpenCodeEvent, type EventMessagePartRemoved, type EventPermissionAsked, type EventQuestionAsked, type OpencodeClient as SdkClient } from "@opencode-ai/sdk/v2/client";
 
 const DEFAULT_OPENCODE_BASE_URL = "http://localhost:4096";
@@ -62,6 +68,7 @@ export class OpenCodeClient implements CodingAgentClient {
   private messageRolesBySession = new Map<string, Map<string, "user" | "assistant">>();
   private sessionTitlesById = new Map<string, string>();
   private skillInvocationsBySession = new Map<string, Set<string>>();
+  private subagentToolPoliciesBySession = new Map<string, Record<string, SubagentToolPolicy>>();
   private sessionStateSupport: OpenCodeSessionStateSupport;
 
   constructor(options: OpenCodeClientOptions = {}) {
@@ -228,6 +235,8 @@ export class OpenCodeClient implements CodingAgentClient {
         reasoningPartIds: this.reasoningPartIds,
         compactionCompleteDedupeWindowMs: COMPACTION_COMPLETE_DEDUPE_WINDOW_MS,
         debugLog,
+        resolveAutoDenyForPermission: (sessionId: string, toolName: string) =>
+          this.resolveAutoDenyForPermission(sessionId, toolName),
         maybeEmitSkillInvokedEvent: (skillArgs) => this.maybeEmitSkillInvokedEvent(skillArgs),
         emitEvent: (eventType, sessionId, data) => this.emitEvent(eventType, sessionId, data),
         emitProviderEvent: (eventType, sessionId, data, options) => this.emitProviderEvent(eventType, sessionId, data, options),
@@ -237,11 +246,34 @@ export class OpenCodeClient implements CodingAgentClient {
     }
   }
 
+  private resolveAutoDenyForPermission(
+    sessionId: string,
+    toolName: string,
+  ): { parentSessionId: string; subagentName: string } | null {
+    const parentSessionId = this.sessionStateSupport.resolveParentSessionId(sessionId);
+    const subagentName = this.sessionStateSupport.resolveSubagentNameForSession(sessionId);
+    if (!subagentName) {
+      return null;
+    }
+
+    const policy = resolveSubagentToolPolicy(
+      this.subagentToolPoliciesBySession.get(parentSessionId),
+      subagentName,
+    );
+    if (!isToolDisabledBySubagentPolicy(policy, toolName)) {
+      return null;
+    }
+
+    return { parentSessionId, subagentName };
+  }
+
   private handlePermissionAsked(event: EventPermissionAsked): void {
     handleOpenCodePermissionAsked(event, {
       sdkClient: this.sdkClient,
       directory: this.clientOptions.directory,
       sessionStateSupport: this.sessionStateSupport,
+      resolveAutoDenyForPermission: (sessionId: string, toolName: string) =>
+        this.resolveAutoDenyForPermission(sessionId, toolName),
       emitEvent: (eventType, sessionId, data) => this.emitEvent(eventType, sessionId, data),
       emitProviderEvent: (eventType, sessionId, data, options) => this.emitProviderEvent(eventType, sessionId, data, options),
     });
@@ -301,6 +333,10 @@ export class OpenCodeClient implements CodingAgentClient {
   }
 
   async createSession(config: SessionConfig = {}): Promise<Session> {
+    const configuredAgents = await loadOpenCodeAgents({
+      projectRoot: this.clientOptions.directory,
+    });
+
     return createManagedOpenCodeSession({
       isRunning: this.isRunning,
       sdkClient: this.sdkClient as never,
@@ -311,6 +347,18 @@ export class OpenCodeClient implements CodingAgentClient {
       registerToolsMcpServer: () => this.registerToolsMcpServer(),
       setCurrentSessionId: (sessionId) => {
         this.currentSessionId = sessionId;
+      },
+      onSessionCreated: (sessionId: string) => {
+        this.subagentToolPoliciesBySession.set(
+          sessionId,
+          Object.fromEntries(
+            configuredAgents.map((agent) => [agent.name, {
+              disallowedTools: Object.entries(agent.tools ?? {})
+                .filter(([, enabled]) => enabled === false)
+                .map(([toolName]) => toolName),
+            }]),
+          ),
+        );
       },
       registerActiveSession: (sessionId) => this.sessionStateSupport.registerActiveSession(sessionId),
       emitEvent: (eventType, sessionId, data) => this.emitEvent(eventType, sessionId, data),
@@ -374,6 +422,7 @@ export class OpenCodeClient implements CodingAgentClient {
       emitEvent: (eventType, targetSessionId, data) => this.emitEvent(eventType, targetSessionId, data),
       emitProviderEvent: (eventType, targetSessionId, data, options) => this.emitProviderEvent(eventType, targetSessionId, data, options),
       onDestroySession: (targetSessionId) => {
+        this.subagentToolPoliciesBySession.delete(targetSessionId);
         this.sessionStateSupport.unregisterActiveSession(targetSessionId);
       },
       debugLog,

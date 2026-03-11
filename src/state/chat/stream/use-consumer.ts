@@ -139,7 +139,15 @@ export function useChatStreamConsumer({
     const { queueMessagePartUpdate, updatesByMessageId } = createStreamPartBatch();
 
     for (const part of parts) {
-      if (!shouldProcessStreamPartEvent({
+      // Sub-agent tool events use independent runIds that differ from the
+      // main session's activeStreamRunId. Bypass the staleness check only
+      // for tool events so tool call blocks render in workflow sub-agent
+      // trees, while text/thinking deltas are intentionally excluded.
+      const isSubagentToolEvent =
+        "agentId" in part
+        && Boolean(part.agentId)
+        && (part.type === "tool-start" || part.type === "tool-complete" || part.type === "tool-partial-result");
+      if (!isSubagentToolEvent && !shouldProcessStreamPartEvent({
         activeRunId: activeStreamRunIdRef.current,
         partRunId: typeof part.runId === "number" ? part.runId : undefined,
         isStreaming: isStreamingRef.current,
@@ -165,7 +173,7 @@ export function useChatStreamConsumer({
         continue;
       }
       if (part.type === "tool-partial-result") {
-        if (isAgentOnlyStreamRef.current) continue;
+        if (isAgentOnlyStreamRef.current && !part.agentId) continue;
         const messageId =
           resolveAgentScopedMessageId(part.agentId)
           ?? toolMessageIdByIdRef.current.get(part.toolId)

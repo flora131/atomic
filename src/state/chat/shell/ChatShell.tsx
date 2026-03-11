@@ -9,7 +9,6 @@ import type {
 } from "@opentui/core";
 import type { Model } from "@/services/models/model-transform.ts";
 import { Autocomplete } from "@/components/autocomplete.tsx";
-import { BackgroundAgentFooter } from "@/components/background-agent-footer.tsx";
 import { FooterStatus } from "@/components/footer-status.tsx";
 import { ModelSelectorDialog } from "@/components/model-selector-dialog.tsx";
 import { QueueIndicator } from "@/components/queue-indicator.tsx";
@@ -44,7 +43,7 @@ export interface ChatShellProps {
   currentModelId?: string;
   displayModel: string;
   dynamicPlaceholder: string;
-  footerBackgroundAgents: readonly ParallelAgent[];
+
   handleAutocompleteIndexChange: (index: number) => void;
   handleAutocompleteSelect: (
     command: ComposerAutocompleteSuggestion,
@@ -107,7 +106,6 @@ export function ChatShell({
   currentModelId,
   displayModel,
   dynamicPlaceholder,
-  footerBackgroundAgents,
   handleAutocompleteIndexChange,
   handleAutocompleteSelect,
   handleBracketedPaste,
@@ -300,7 +298,6 @@ export function ChatShell({
                 <FooterStatus
                   isStreaming={isStreaming}
                   workflowActive={workflowState.workflowActive}
-                  backgroundAgents={footerBackgroundAgents}
                 />
               </>
             )}
@@ -337,7 +334,6 @@ export function ChatShell({
         </box>
       )}
 
-      {!isStreaming && <BackgroundAgentFooter agents={footerBackgroundAgents} />}
     </box>
   );
 }

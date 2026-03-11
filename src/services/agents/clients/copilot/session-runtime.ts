@@ -107,6 +107,7 @@ export function createWrappedCopilotSession(args: {
     recentEventIds: new Set(),
     recentEventOrder: [],
     toolCallIdToName: new Map(),
+    toolCallIdToSubagentName: new Map(),
     contextWindow: null,
     systemToolsBaseline: null,
     pendingAbortPromise: null,
@@ -294,6 +295,45 @@ export function createWrappedCopilotSession(args: {
                 });
                 notifyConsumer();
               }
+              return;
+            }
+
+            if (event.type === "tool.execution_start") {
+              const d = event.data as Record<string, unknown>;
+              const toolName = (d.toolName as string) ?? (d.mcpToolName as string) ?? "unknown";
+              chunks.push({
+                type: "tool_use",
+                content: {
+                  name: toolName,
+                  id: d.toolCallId,
+                  input: d.arguments,
+                },
+                role: "assistant",
+                metadata: {
+                  toolId: d.toolCallId as string,
+                  toolName,
+                },
+              } as AgentMessage);
+              notifyConsumer();
+              return;
+            }
+
+            if (event.type === "tool.execution_complete") {
+              const d = event.data as Record<string, unknown>;
+              const toolName = (d.toolName as string) ?? (d.mcpToolName as string) ?? "unknown";
+              chunks.push({
+                type: "tool_result",
+                content: d.result,
+                role: "assistant",
+                tool_use_id: d.toolCallId,
+                toolName,
+                is_error: d.success === false,
+                metadata: {
+                  toolId: d.toolCallId as string,
+                  toolName,
+                },
+              } as unknown as AgentMessage);
+              notifyConsumer();
               return;
             }
 

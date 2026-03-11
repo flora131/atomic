@@ -16,9 +16,15 @@ export interface CopilotSessionState {
   recentEventIds: Set<string>;
   recentEventOrder: string[];
   toolCallIdToName: Map<string, string>;
+  toolCallIdToSubagentName: Map<string, string>;
   contextWindow: number | null;
   systemToolsBaseline: number | null;
   pendingAbortPromise: Promise<void> | null;
+}
+
+export interface CopilotAgentToolPolicy {
+  tools?: string[] | null;
+  disallowedTools?: string[] | null;
 }
 
 export type CopilotSdkModelRecord = Record<string, unknown> & {
@@ -30,6 +36,7 @@ export type CopilotSdkModelRecord = Record<string, unknown> & {
 
 export interface CopilotSessionArtifacts {
   customAgents?: SdkCustomAgentConfig[];
+  agentToolPolicies?: Record<string, CopilotAgentToolPolicy>;
   skillDirectories?: string[];
   instructions?: string;
 }

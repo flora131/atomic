@@ -197,6 +197,30 @@ Agent with extra metadata.`,
     }
   });
 
+  test("parses explicit disallowed tools from frontmatter", async () => {
+    const root = await mkdtemp(join(tmpdir(), "atomic-config-test-"));
+    try {
+      await mkdir(join(root, "agents"), { recursive: true });
+      await writeFile(
+        join(root, "agents", "restricted-agent.md"),
+        `---
+name: restricted-agent
+tools: ["execute", "read"]
+disallowed-tools: ["web", "docs/lookup"]
+---
+Restricted agent.`,
+        "utf-8",
+      );
+
+      const agents = await loadAgentsFromDir(join(root, "agents"), "local");
+      expect(agents).toHaveLength(1);
+      expect(agents[0]?.tools).toEqual(["execute", "read"]);
+      expect(agents[0]?.disallowedTools).toEqual(["web", "docs/lookup"]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("ignores non-markdown files", async () => {
     const root = await mkdtemp(join(tmpdir(), "atomic-config-test-"));
     try {

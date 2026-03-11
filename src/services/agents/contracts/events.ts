@@ -204,6 +204,7 @@ export interface HumanInputRequiredEventData extends BaseEventData {
   options?: HumanInputOption[];
   nodeId: string;
   respond?: (answer: string | string[]) => void;
+  toolCallId?: string;
 }
 
 export interface EventDataMap {

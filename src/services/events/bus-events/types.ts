@@ -189,6 +189,7 @@ export interface BusEventDataMap {
     }>;
     nodeId: string;
     respond?: (...args: unknown[]) => unknown;
+    toolCallId?: string;
   };
   "stream.session.retry": {
     attempt: number;

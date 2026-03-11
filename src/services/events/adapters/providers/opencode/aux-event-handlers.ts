@@ -150,6 +150,7 @@ export class OpenCodeAuxEventHandlers {
           respond: data.respond as
             | ((...args: unknown[]) => unknown)
             | undefined,
+          toolCallId: data.toolCallId,
         },
       });
     };

@@ -329,4 +329,61 @@ describe("applyStreamPartEvent - tools and HITL", () => {
       expect(toolPart.hitlResponse?.answerText).toBe("yes");
     }
   });
+
+  test("hydrates question text onto HITL tool parts when the provider tool input is empty", () => {
+    let msg = createAssistantMessage();
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-start",
+      toolId: "tool_question",
+      toolName: "question",
+      input: {},
+    });
+
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-hitl-request",
+      toolId: "tool_question",
+      request: {
+        requestId: "req_question",
+        header: "Favorite color",
+        question: "What is your favorite color?",
+        options: [{ label: "Blue", value: "Blue" }],
+        multiSelect: false,
+        respond: () => {},
+      },
+    });
+
+    const toolPart = msg.parts?.find(
+      (part) => part.type === "tool" && part.toolCallId === "tool_question",
+    );
+    expect(toolPart?.type).toBe("tool");
+    if (toolPart?.type === "tool") {
+      expect(toolPart.input).toEqual(expect.objectContaining({
+        question: "What is your favorite color?",
+      }));
+      expect(toolPart.pendingQuestion?.question).toBe("What is your favorite color?");
+    }
+
+    const afterResponse = applyStreamPartEvent(msg, {
+      type: "tool-hitl-response",
+      toolId: "tool_question",
+      response: {
+        cancelled: false,
+        responseMode: "option",
+        answerText: "Blue",
+        displayText: "Blue",
+      },
+    });
+
+    const completedToolPart = afterResponse.parts?.find(
+      (part) => part.type === "tool" && part.toolCallId === "tool_question",
+    );
+    expect(completedToolPart?.type).toBe("tool");
+    if (completedToolPart?.type === "tool") {
+      expect(completedToolPart.pendingQuestion).toBeUndefined();
+      expect(completedToolPart.hitlResponse?.answerText).toBe("Blue");
+      expect(completedToolPart.input).toEqual(expect.objectContaining({
+        question: "What is your favorite color?",
+      }));
+    }
+  });
 });

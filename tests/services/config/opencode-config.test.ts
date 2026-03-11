@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join, resolve } from "path";
 import {
+  loadOpenCodeAgents,
   resolveOpenCodeAgentDirectories,
   resolveOpenCodeArtifactPlan,
   resolveOpenCodeSkillDirectories,
@@ -58,5 +61,45 @@ describe("opencode-config", () => {
       resolve(xdgConfigHome, ".opencode", "skills"),
       resolve(homeDir, ".opencode", "skills"),
     ]);
+  });
+
+  test("loads OpenCode agent tool toggles from frontmatter", async () => {
+    const root = await mkdtemp(join(tmpdir(), "opencode-agent-test-"));
+    try {
+      await mkdir(join(root, ".opencode", "agents"), { recursive: true });
+      await writeFile(
+        join(root, ".opencode", "agents", "debugger.md"),
+        `---
+name: debugger
+description: Debugger agent
+tools:
+  bash: true
+  webfetch: false
+  docs_*: false
+---
+Debug the repository.`,
+        "utf-8",
+      );
+
+      const agents = await loadOpenCodeAgents({
+        projectRoot: root,
+        homeDir: join(root, "home"),
+        xdgConfigHome: join(root, "xdg"),
+      });
+      expect(agents).toHaveLength(1);
+      expect(agents[0]).toMatchObject({
+        name: "debugger",
+        description: "Debugger agent",
+        systemPrompt: "Debug the repository.",
+        source: "local",
+      });
+      expect(agents[0]?.tools).toEqual({
+        bash: true,
+        webfetch: false,
+        "docs_*": false,
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

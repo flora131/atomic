@@ -28,6 +28,7 @@ function AgentPartDisplayInner({
       agents={part.agents}
       syntaxStyle={syntaxStyle}
       noTopMargin
+      maxVisible={Infinity}
       onAgentDoneRendered={onAgentDoneRendered}
     />
   );

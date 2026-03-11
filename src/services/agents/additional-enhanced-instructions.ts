@@ -26,7 +26,6 @@ export const ADDITIONAL_ENHANCED_INSTRUCTIONS = `
   - Explain the insights provided by the debugger sub-agent to the user in a clear and concise manner.
     - Once the user confirms to proceed, start implementing the necessary code changes based on the insights provided by the debugger sub-agent.
     - If the user has follow-up questions about the insights, spawn additional debugger and research sub-agents as needed to provide further analysis and clarification.
-- For complex tasks, attempt to infer to automatically invoke the \`/research-codebase\` followed by the \`/create-spec\` commands to generate a spec before implementation. This will help ensure that the implementation is well-structured and meets the requirements.
 
 ## Software Engineering Principles
 

@@ -167,6 +167,7 @@ export const BusEventSchemas: Record<BusEventType, z.ZodType> = {
     })).optional(),
     nodeId: z.string(),
     respond: z.function().optional(),
+    toolCallId: z.string().optional(),
   }),
   "stream.skill.invoked": z.object({
     skillName: z.string(),

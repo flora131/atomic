@@ -11,6 +11,11 @@ export function upsertHitlRequest(
   parts: Part[],
   event: HitlRequestEvent,
 ): Part[] {
+  const requestInput = {
+    header: event.request.header,
+    question: event.request.question,
+    options: event.request.options,
+  } satisfies Record<string, unknown>;
   const toolPartIdx = parts.findIndex(
     (part) =>
       part.type === "tool" && (part as ToolPart).toolCallId === event.toolId,
@@ -21,6 +26,7 @@ export function upsertHitlRequest(
     const updated = [...parts];
     updated[toolPartIdx] = {
       ...existing,
+      input: Object.keys(existing.input).length > 0 ? existing.input : requestInput,
       pendingQuestion: event.request,
     };
     return updated;
@@ -31,7 +37,7 @@ export function upsertHitlRequest(
     type: "tool",
     toolCallId: event.toolId,
     toolName: "AskUserQuestion",
-    input: {},
+    input: requestInput,
     state: { status: "running", startedAt: new Date().toISOString() },
     pendingQuestion: event.request,
     createdAt: new Date().toISOString(),

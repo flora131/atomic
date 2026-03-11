@@ -12,6 +12,7 @@ export {
   resolveClaudeSkillDirectories,
 } from "@/services/config/claude-config.ts";
 export {
+  loadOpenCodeAgents,
   resolveOpenCodeAgentDirectories,
   resolveOpenCodeArtifactPlan,
   resolveOpenCodeSkillDirectories,

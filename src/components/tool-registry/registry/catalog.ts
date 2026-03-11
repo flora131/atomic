@@ -1,5 +1,6 @@
 import { createToolRendererAliases } from "@/components/tool-registry/registry/aliases.ts";
 import { defaultToolRenderer } from "@/components/tool-registry/registry/renderers/default.ts";
+import { askQuestionToolRenderer, isSdkAskQuestionToolName } from "@/components/tool-registry/registry/renderers/ask-question.ts";
 import { mcpToolRenderer, parseMcpToolName } from "@/components/tool-registry/registry/renderers/mcp.ts";
 import { taskToolRenderer } from "@/components/tool-registry/registry/renderers/task.ts";
 import type { ToolRenderer } from "@/components/tool-registry/registry/types.ts";
@@ -17,6 +18,9 @@ export function registerAgentToolNames(agentNames: string[]): void {
 export function getToolRenderer(toolName: string): ToolRenderer {
   if (TOOL_RENDERERS[toolName]) {
     return TOOL_RENDERERS[toolName];
+  }
+  if (isSdkAskQuestionToolName(toolName)) {
+    return askQuestionToolRenderer;
   }
   if (parseMcpToolName(toolName)) {
     return mcpToolRenderer;

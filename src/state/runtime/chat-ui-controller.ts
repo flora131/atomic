@@ -5,6 +5,7 @@ import type {
 } from "@/screens/chat-screen.tsx";
 import type { SessionConfig } from "@/services/agents/types.ts";
 import { cleanupMcpBridgeScripts } from "@/services/agents/tools/opencode-mcp-bridge.ts";
+import { SessionExpiredError } from "@/services/events/adapters/provider-shared.ts";
 import { registerAgentToolNames } from "@/components/tool-registry/index.ts";
 import { createChatUIRuntimeState } from "@/state/runtime/chat-ui-runtime-state.ts";
 import { createStreamAdapter } from "@/state/runtime/chat-ui-stream-adapter.ts";
@@ -29,6 +30,43 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
     onExitResolved,
   } = args;
 
+  async function abortAndDestroySession(session: NonNullable<ChatUIState["session"]>): Promise<void> {
+    if (state.streamAbortController && !state.streamAbortController.signal.aborted) {
+      state.streamAbortController.abort();
+    }
+
+    const pendingAbort = state.pendingAbortPromise;
+    if (pendingAbort) {
+      try {
+        await pendingAbort;
+      } catch {
+      }
+    } else if (session.abort) {
+      const abortPromise = session.abort();
+      state.pendingAbortPromise = abortPromise;
+      try {
+        await abortPromise;
+      } catch {
+      } finally {
+        if (state.pendingAbortPromise === abortPromise) {
+          state.pendingAbortPromise = null;
+        }
+      }
+    }
+
+    if (session.abortBackgroundAgents) {
+      try {
+        await session.abortBackgroundAgents();
+      } catch {
+      }
+    }
+
+    try {
+      await session.destroy();
+    } catch {
+    }
+  }
+
   async function cleanup(): Promise<void> {
     state.currentRunId = null;
     state.isStreaming = false;
@@ -44,10 +82,7 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
     state.cleanupHandlers = [];
 
     if (state.session) {
-      try {
-        await state.session.destroy();
-      } catch {
-      }
+      await abortAndDestroySession(state.session);
       state.session = null;
     }
 
@@ -225,8 +260,11 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
         return;
       }
 
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      const isSessionError = /unknown.session|session.*(not found|expired|invalid)/i.test(errorMsg);
+      const isSessionError =
+        error instanceof SessionExpiredError ||
+        /unknown.session|session.*(not found|expired|invalid)/i.test(
+          error instanceof Error ? error.message : String(error),
+        );
       if (isSessionError && state.session) {
         adapter.dispose();
         state.session = null;
@@ -407,10 +445,7 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
     state.currentRunId = null;
     state.isStreaming = false;
     if (state.session) {
-      try {
-        await state.session.destroy();
-      } catch {
-      }
+      await abortAndDestroySession(state.session);
       state.session = null;
     }
     modelOps?.invalidateModelCache?.();

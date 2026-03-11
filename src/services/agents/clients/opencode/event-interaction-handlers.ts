@@ -5,17 +5,47 @@ import type {
 } from "@opencode-ai/sdk/v2/client";
 import type { ProviderStreamEventDataMap } from "@/services/agents/provider-events.ts";
 import type {
+  OpenCodeAutoDenyPermissionContext,
   OpenCodePermissionContext,
   OpenCodeProviderOnlyContext,
 } from "@/services/agents/clients/opencode/event-mapper-types.ts";
 
 export function handleOpenCodePermissionAsked(
   event: EventPermissionAsked,
-  context: OpenCodePermissionContext,
+  context: OpenCodeAutoDenyPermissionContext | OpenCodePermissionContext,
 ): void {
   const request = event.properties;
   const sessionId = request.sessionID;
   const toolInput = request.metadata;
+  const autoDeny = "resolveAutoDenyForPermission" in context
+    ? context.resolveAutoDenyForPermission(sessionId, request.permission)
+    : null;
+
+  if (autoDeny) {
+    context.sdkClient?.permission.reply({
+      requestID: request.id,
+      directory: context.directory,
+      reply: "reject",
+    }).catch((error) => {
+      console.error("Failed to auto-deny permission request:", error);
+    });
+
+    const message = `Auto-denied ${request.permission} because it is disabled in the ${autoDeny.subagentName} sub-agent frontmatter.`;
+    context.emitEvent("session.warning", autoDeny.parentSessionId, {
+      warningType: "permission_denied",
+      message,
+    });
+    context.emitProviderEvent("session.warning", autoDeny.parentSessionId, {
+      warningType: "permission_denied",
+      message,
+    }, {
+      native: event,
+      nativeEventId: request.id,
+      nativeSessionId: sessionId,
+    });
+    return;
+  }
+
   const providerData = {
     requestId: request.id,
     toolName: request.permission,
@@ -80,6 +110,7 @@ export function handleOpenCodeQuestionAsked(
         console.error("Failed to reply to question:", error);
       });
     },
+    toolCallId: request.tool?.callID,
   } satisfies ProviderStreamEventDataMap["human_input_required"];
 
   context.emitEvent("human_input_required", sessionId, providerData);

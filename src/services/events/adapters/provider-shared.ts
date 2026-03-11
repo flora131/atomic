@@ -74,15 +74,38 @@ export function createSessionErrorEvent(
   runId: number,
   error: unknown,
 ): BusEvent<"stream.session.error"> {
+  const errorMessage = toErrorMessage(error);
   return {
     type: "stream.session.error",
     sessionId,
     runId,
     timestamp: Date.now(),
     data: {
-      error: toErrorMessage(error),
+      error: errorMessage,
+      ...(isSessionExpiredMessage(errorMessage) ? { code: "session_expired" } : {}),
     },
   };
+}
+
+const SESSION_EXPIRED_PATTERNS = [
+  "unknown session",
+  "session not found",
+  "session expired",
+  "invalid session",
+  "session_expired",
+];
+
+export function isSessionExpiredMessage(message: string): boolean {
+  const lower = message.toLowerCase();
+  return SESSION_EXPIRED_PATTERNS.some((pattern) => lower.includes(pattern));
+}
+
+export class SessionExpiredError extends Error {
+  override readonly name = "SessionExpiredError";
+
+  constructor(message: string) {
+    super(message);
+  }
 }
 
 export function drainUnsubscribers(

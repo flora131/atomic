@@ -330,11 +330,15 @@ export function dispatchCopilotSdkEvent(args: {
         args.state?.toolCallIdToName.delete(toolCallId);
       }
       const errorData = asRecord(toolExecutionCompleteEvent.data.error);
-      const success = typeof toolExecutionCompleteEvent.data.success === "boolean"
+      const rawSuccess = typeof toolExecutionCompleteEvent.data.success === "boolean"
         ? toolExecutionCompleteEvent.data.success
         : true;
       const toolResult = extractCopilotToolResult(toolExecutionCompleteEvent.data.result);
       const error = asNonEmptyString(errorData?.message);
+      // The Copilot SDK sometimes reports success: false for tools that completed
+      // normally (e.g. show_file, create, edit). Override when a valid result was
+      // returned and no error message accompanies it.
+      const success = !rawSuccess && toolResult != null && !error ? true : rawSuccess;
       args.emitMappedSdkEvent("tool.complete", sessionId, {
         toolName,
         success,
@@ -368,6 +372,9 @@ export function dispatchCopilotSdkEvent(args: {
       }, event);
       return;
     case "subagent.started":
+      if (args.state && typeof event.data.toolCallId === "string" && typeof event.data.agentName === "string") {
+        args.state.toolCallIdToSubagentName.set(event.data.toolCallId, event.data.agentName);
+      }
       args.emitMappedSdkEvent("subagent.start", sessionId, {
         subagentId: event.data.toolCallId,
         subagentType: event.data.agentName,
@@ -376,12 +383,18 @@ export function dispatchCopilotSdkEvent(args: {
       }, event);
       return;
     case "subagent.completed":
+      if (args.state && typeof event.data.toolCallId === "string") {
+        args.state.toolCallIdToSubagentName.delete(event.data.toolCallId);
+      }
       args.emitMappedSdkEvent("subagent.complete", sessionId, {
         subagentId: event.data.toolCallId,
         success: true,
       }, event);
       return;
     case "subagent.failed":
+      if (args.state && typeof event.data.toolCallId === "string") {
+        args.state.toolCallIdToSubagentName.delete(event.data.toolCallId);
+      }
       args.emitMappedSdkEvent("subagent.complete", sessionId, {
         subagentId: event.data.toolCallId,
         success: false,

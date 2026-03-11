@@ -24,6 +24,10 @@ export interface OpenCodeEventMapperContext {
   reasoningPartIds: Set<string>;
   compactionCompleteDedupeWindowMs: number;
   debugLog: (label: string, data: Record<string, unknown>) => void;
+  resolveAutoDenyForPermission: (
+    sessionId: string,
+    toolName: string,
+  ) => OpenCodeSubagentAutoDenyResult | null;
   maybeEmitSkillInvokedEvent: (args: {
     sessionId: string;
     toolName: string;
@@ -66,5 +70,21 @@ export type OpenCodeProviderOnlyContext = Pick<
 
 export type OpenCodePermissionContext = Pick<
   OpenCodeEventMapperContext,
-  "sdkClient" | "directory" | "sessionStateSupport" | "emitEvent" | "emitProviderEvent"
+  | "sdkClient"
+  | "directory"
+  | "sessionStateSupport"
+  | "emitEvent"
+  | "emitProviderEvent"
 >;
+
+export interface OpenCodeSubagentAutoDenyResult {
+  parentSessionId: string;
+  subagentName: string;
+}
+
+export type OpenCodeAutoDenyPermissionContext = OpenCodePermissionContext & {
+  resolveAutoDenyForPermission: (
+    sessionId: string,
+    toolName: string,
+  ) => OpenCodeSubagentAutoDenyResult | null;
+};

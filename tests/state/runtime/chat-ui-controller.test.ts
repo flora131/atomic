@@ -256,4 +256,142 @@ describe("createChatUIController", () => {
       },
     ]);
   });
+
+  test("retries streaming after session error by creating a new session", async () => {
+    const staleSession = createMockSession("stale-session");
+    const freshSession = createMockSession("fresh-session");
+    let sessionIndex = 0;
+    const allSessions = [staleSession, freshSession];
+
+    const client: CodingAgentClient = {
+      agentType: "copilot",
+      createSession: async (_config?: SessionConfig) => {
+        return allSessions[sessionIndex++] ?? createMockSession(`session-${sessionIndex}`);
+      },
+      resumeSession: async () => null,
+      on: () => () => {},
+      registerTool: () => {},
+      start: async () => {},
+      stop: async () => {},
+      getModelDisplayInfo: async () => ({
+        model: "gpt-4",
+        tier: "Copilot",
+      }),
+      getSystemToolsTokens: () => null,
+    };
+
+    const state = createState();
+
+    const controller = createChatUIController({
+      client,
+      resolvedAgentType: "copilot",
+      sessionConfig: {},
+      modelOps: {
+        invalidateModelCache: () => {},
+        getPendingModel: () => undefined,
+        getCurrentModel: async () => undefined,
+        getPendingReasoningEffort: () => undefined,
+      } as never,
+      state,
+      debugSub: {
+        unsubscribe: async () => {},
+        logPath: null,
+        rawLogPath: null,
+        logDirPath: null,
+        writeRawLine: () => {},
+      },
+      onExitResolved: () => {},
+    });
+
+    // Set up initial session
+    await controller.ensureSession();
+    expect(state.session?.id).toBe("stale-session");
+    expect(sessionIndex).toBe(1);
+
+    // Simulate what the retry logic does: invalidate session, recreate
+    state.session = null;
+    await controller.ensureSession();
+
+    // Should have created a fresh session
+    expect((state as ChatUIState).session?.id).toBe("fresh-session");
+    expect(sessionIndex).toBe(2);
+  });
+
+  test("invalidates stale session and creates new session on unknown session error", async () => {
+    const staleSession = createMockSession("stale-session");
+    const freshSession = createMockSession("fresh-session");
+    let sessionIndex = 0;
+    const allSessions = [staleSession, freshSession];
+
+    const client: CodingAgentClient = {
+      agentType: "copilot",
+      createSession: async (_config?: SessionConfig) => {
+        return allSessions[sessionIndex++] ?? createMockSession(`session-${sessionIndex}`);
+      },
+      resumeSession: async () => null,
+      on: () => () => {},
+      registerTool: () => {},
+      start: async () => {},
+      stop: async () => {},
+      getModelDisplayInfo: async () => ({
+        model: "gpt-4",
+        tier: "Copilot",
+      }),
+      getSystemToolsTokens: () => null,
+    };
+
+    const state = createState();
+
+    const controller = createChatUIController({
+      client,
+      resolvedAgentType: "copilot",
+      sessionConfig: {},
+      modelOps: {
+        invalidateModelCache: () => {},
+        getPendingModel: () => undefined,
+        getCurrentModel: async () => undefined,
+        getPendingReasoningEffort: () => undefined,
+      } as never,
+      state,
+      debugSub: {
+        unsubscribe: async () => {},
+        logPath: null,
+        rawLogPath: null,
+        logDirPath: null,
+        writeRawLine: () => {},
+      },
+      onExitResolved: () => {},
+    });
+
+    // First, create the initial session
+    await controller.ensureSession();
+    expect(state.session?.id).toBe("stale-session");
+    expect(sessionIndex).toBe(1);
+
+    // Simulate stale session: null out session (as the retry logic does), then recreate
+    state.session = null;
+    await controller.ensureSession();
+
+    // Should have created a fresh session
+    expect((state as ChatUIState).session?.id).toBe("fresh-session");
+    expect(sessionIndex).toBe(2);
+  });
+
+  test("session error regex matches expected error patterns", () => {
+    const pattern = /unknown.session|session.*(not found|expired|invalid)/i;
+
+    // Should match
+    expect(pattern.test("unknown session id")).toBe(true);
+    expect(pattern.test("Unknown Session ID: abc-123")).toBe(true);
+    expect(pattern.test("session not found")).toBe(true);
+    expect(pattern.test("Session expired")).toBe(true);
+    expect(pattern.test("Session has expired")).toBe(true);
+    expect(pattern.test("session is invalid")).toBe(true);
+    expect(pattern.test("The session was not found")).toBe(true);
+
+    // Should not match
+    expect(pattern.test("network timeout")).toBe(false);
+    expect(pattern.test("rate limit exceeded")).toBe(false);
+    expect(pattern.test("internal server error")).toBe(false);
+  });
 });

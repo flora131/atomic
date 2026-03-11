@@ -224,6 +224,38 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
         state.currentRunId = null;
         return;
       }
+
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      const isSessionError = /unknown.session|session.*(not found|expired|invalid)/i.test(errorMsg);
+      if (isSessionError && state.session) {
+        adapter.dispose();
+        state.session = null;
+        try {
+          await ensureSession();
+          const retryAdapter = createStreamAdapter({ client, state, resolvedAgentType });
+          state.streamAbortController = new AbortController();
+          state.currentRunId = ++state.runCounter;
+          try {
+            await retryAdapter.startStreaming(state.session!, effectiveContent, {
+              runId: state.currentRunId,
+              messageId,
+              abortSignal: state.streamAbortController?.signal,
+              agent: options?.agent,
+              suppressSyntheticAgentLifecycle:
+                resolvedAgentType === "claude" && options?.isAgentOnlyStream === true,
+              knownAgentNames,
+              skillCommand: options?.skillCommand,
+            });
+            state.messageCount++;
+          } finally {
+            retryAdapter.dispose();
+          }
+        } catch {
+          state.currentRunId = null;
+        }
+        return;
+      }
+
       state.currentRunId = null;
     } finally {
       adapter.dispose();

@@ -249,13 +249,14 @@ export function MessageBubble({
       );
     }
 
+    const isCollapsedError = message.content.startsWith("[error]");
     return (
       <box
         paddingLeft={SPACING.CONTAINER_PAD}
         paddingRight={SPACING.CONTAINER_PAD}
         marginBottom={isLast ? SPACING.NONE : SPACING.ELEMENT}
       >
-        <text wrapMode="char" style={{ fg: themeColors.error }}>
+        <text wrapMode="char" style={{ fg: isCollapsedError ? themeColors.error : themeColors.muted }}>
           {truncate(message.content, 80)}
         </text>
       </box>

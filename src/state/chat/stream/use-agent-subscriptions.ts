@@ -136,10 +136,11 @@ export function useStreamAgentSubscriptions({
         ? existingIndex
         : (correlatedIndex >= 0 ? correlatedIndex : syntheticPlaceholderIndex);
 
+      let updated: typeof current;
       if (targetIndex >= 0) {
         const existing = current[targetIndex];
         if (existing && (existing.status === "completed" || existing.status === "error" || existing.status === "interrupted")) {
-          return [
+          updated = [
             ...current.filter((agent, index) => index !== targetIndex && agent.id !== data.agentId),
             {
               id: data.agentId,
@@ -152,38 +153,42 @@ export function useStreamAgentSubscriptions({
               currentTool: undefined,
             },
           ];
+        } else {
+          updated = current.map((agent, index) =>
+            index === targetIndex
+              ? {
+                ...agent,
+                id: data.agentId,
+                name: data.agentType || agent.name,
+                task: mergeAgentTaskLabel(agent.task, data.task, data.agentType),
+                status,
+                background: data.isBackground || agent.background,
+                taskToolCallId: correlationId ?? agent.taskToolCallId,
+                currentTool: agent.currentTool,
+                toolUses: agent.toolUses,
+              }
+              : agent,
+          );
         }
-
-        return current.map((agent, index) =>
-          index === targetIndex
-            ? {
-              ...agent,
-              id: data.agentId,
-              name: data.agentType || agent.name,
-              task: mergeAgentTaskLabel(agent.task, data.task, data.agentType),
-              status,
-              background: data.isBackground || agent.background,
-              taskToolCallId: correlationId ?? agent.taskToolCallId,
-              currentTool: agent.currentTool,
-              toolUses: agent.toolUses,
-            }
-            : agent,
-        );
+      } else {
+        updated = [
+          ...current,
+          {
+            id: data.agentId,
+            taskToolCallId: correlationId,
+            name: data.agentType || "agent",
+            task: resolveIncomingSubagentTaskLabel(data.task, data.agentType),
+            status,
+            startedAt,
+            background: data.isBackground,
+            currentTool: undefined,
+          },
+        ];
       }
-
-      return [
-        ...current,
-        {
-          id: data.agentId,
-          taskToolCallId: correlationId,
-          name: data.agentType || "agent",
-          task: resolveIncomingSubagentTaskLabel(data.task, data.agentType),
-          status,
-          startedAt,
-          background: data.isBackground,
-          currentTool: undefined,
-        },
-      ];
+      // Sync the ref so downstream handlers in the same event batch
+      // see the latest agent list immediately.
+      parallelAgentsRef.current = updated;
+      return updated;
     });
   });
 
@@ -306,8 +311,8 @@ export function useStreamAgentSubscriptions({
     const completingAgent = parallelAgentsRef.current.find((agent) => agent.id === data.agentId);
     const isBgAgent = completingAgent && isBackgroundAgent(completingAgent);
 
-    setParallelAgents((current) =>
-      isClaudeSyntheticForegroundAgentId(data.agentId)
+    setParallelAgents((current) => {
+      const updated = isClaudeSyntheticForegroundAgentId(data.agentId)
         && current.some((agent) => agent.id !== data.agentId && !isClaudeSyntheticForegroundAgentId(agent.id))
         ? current.filter((agent) => agent.id !== data.agentId)
         : current.map((agent) => {
@@ -318,7 +323,7 @@ export function useStreamAgentSubscriptions({
           const startedAtMs = new Date(agent.startedAt).getTime();
           return {
             ...agent,
-            status: data.success ? "completed" : "error",
+            status: data.success ? "completed" as const : "error" as const,
             currentTool: undefined,
             result: data.result ?? agent.result,
             error: data.error,
@@ -326,8 +331,13 @@ export function useStreamAgentSubscriptions({
               ? Math.max(0, Date.now() - startedAtMs)
               : agent.durationMs,
           };
-        }),
-    );
+        });
+      // Sync the ref so downstream handlers in the same event batch
+      // (e.g. stream.session.idle) see the updated agent state immediately,
+      // rather than reading a stale ref that blocks stream finalization.
+      parallelAgentsRef.current = updated;
+      return updated;
+    });
     backgroundProgressSnapshotRef.current.delete(data.agentId);
 
     if (!isBgAgent) {

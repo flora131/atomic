@@ -33,7 +33,9 @@ export {
   type NormalizedTodoItem,
 } from "@/lib/ui/task-status.ts";
 
-// Message window utilities
+// Session info filtering utilities
+export { isLikelyFilePath } from "@/lib/ui/session-info-filters.ts";
+
 // Tool preview truncation utilities
 export {
   MAIN_CHAT_TOOL_PREVIEW_LIMITS,

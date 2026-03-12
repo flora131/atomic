@@ -30,7 +30,7 @@ export function withSubagentLifecycleMetadata(
   lifecycle: SubagentLifecycleMetadata,
 ): MessageMetadata {
   return {
-    ...(metadata ?? {}),
+    ...metadata,
     [SUBAGENT_LIFECYCLE_METADATA_KEY]: lifecycle,
   };
 }
@@ -80,7 +80,7 @@ export function withSubagentRoutingMetadata(
   routing: SubagentRoutingMetadata,
 ): MessageMetadata {
   return {
-    ...(metadata ?? {}),
+    ...metadata,
     [SUBAGENT_ROUTING_METADATA_KEY]: routing,
   };
 }

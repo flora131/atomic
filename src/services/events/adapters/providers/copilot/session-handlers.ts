@@ -8,7 +8,6 @@ import type {
   SessionInfoEventData,
   SessionTitleChangedEventData,
   SessionTruncationEventData,
-  SessionWarningEventData,
   SkillInvokedEventData,
   ToolPartialResultEventData,
   TurnEndEventData,
@@ -26,6 +25,7 @@ import {
   publishSyntheticForegroundAgentComplete,
 } from "@/services/events/adapters/providers/copilot/support.ts";
 import type { CopilotSessionHandlerContext } from "@/services/events/adapters/providers/copilot/types.ts";
+import { isLikelyFilePath } from "@/lib/ui/session-info-filters.ts";
 
 export function handleCopilotSessionIdle(
   context: CopilotSessionHandlerContext,
@@ -317,6 +317,11 @@ export function handleCopilotSessionInfo(
   event: AgentEvent<"session.info">,
 ): void {
   const data = event.data as SessionInfoEventData;
+  const message = (data.message ?? "").trim();
+
+  // Suppress bare file-path info events — operational noise, not user-facing
+  if (isLikelyFilePath(message)) return;
+
   context.publishEvent({
     type: "stream.session.info",
     sessionId: context.sessionId,
@@ -329,22 +334,11 @@ export function handleCopilotSessionInfo(
   });
 }
 
+// No-op: suppress all Copilot session warnings to avoid noisy UI messages
 export function handleCopilotSessionWarning(
-  context: CopilotSessionHandlerContext,
-  event: AgentEvent<"session.warning">,
-): void {
-  const data = event.data as SessionWarningEventData;
-  context.publishEvent({
-    type: "stream.session.warning",
-    sessionId: context.sessionId,
-    runId: context.runId,
-    timestamp: Date.now(),
-    data: {
-      warningType: data.warningType ?? "general",
-      message: data.message ?? "",
-    },
-  });
-}
+  _context: CopilotSessionHandlerContext,
+  _event: AgentEvent<"session.warning">,
+): void {}
 
 export function handleCopilotSessionTitleChanged(
   context: CopilotSessionHandlerContext,

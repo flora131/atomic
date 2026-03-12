@@ -15,6 +15,7 @@ import {
   shouldResetLoadedSkillsForSessionChange,
   tryTrackLoadedSkill,
 } from "@/lib/ui/skill-load-tracking.ts";
+import { isLikelyFilePath } from "@/lib/ui/session-info-filters.ts";
 import {
   interruptRunningToolCalls,
   interruptRunningToolParts,
@@ -257,11 +258,14 @@ export function useStreamSessionSubscriptions({
   });
 
   useBusSubscription("stream.session.info", (event) => {
+    // Lifecycle guard — only process during active stream (defense-in-depth)
+    if (!shouldProcessStreamLifecycleEvent(activeStreamRunIdRef.current, event.runId)) return;
+
     const { message, infoType } = event.data;
     if (infoType === "cancellation") return;
     if (infoType === "snapshot") return;
     if (!message) return;
-    if (message.startsWith("/") && !message.includes(" ")) return;
+    if (isLikelyFilePath(message.trim())) return;
     setMessagesWindowed((prev) => [
       ...prev,
       createMessage("system", `${STATUS.active} ${message}`),
@@ -269,6 +273,9 @@ export function useStreamSessionSubscriptions({
   });
 
   useBusSubscription("stream.session.warning", (event) => {
+    // Lifecycle guard — only process during active stream (defense-in-depth)
+    if (!shouldProcessStreamLifecycleEvent(activeStreamRunIdRef.current, event.runId)) return;
+
     const { message } = event.data;
     if (message) {
       setMessagesWindowed((prev) => [

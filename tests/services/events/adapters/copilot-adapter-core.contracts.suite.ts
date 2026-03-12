@@ -129,6 +129,59 @@ describe("CopilotStreamAdapter completion and strict contracts", () => {
     expect(agentStartEvents[0].data.isBackground).toBe(false);
   });
 
+  test("suppresses session.info events whose message is a bare file path", async () => {
+    const events = collectEvents(bus);
+    const session = createMockSession(mockAsyncStream([{ type: "text", content: "done" }]));
+
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 200,
+      messageId: "msg-info-path",
+    });
+
+    client.emit("session.info" as EventType, {
+      type: "session.info",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: { infoType: "general", message: "C:\\dev\\streaming-reliability\\src\\index.ts" },
+    } as AgentEvent<"session.info">);
+    client.emit("session.info" as EventType, {
+      type: "session.info",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: { infoType: "general", message: "/home/user/project/file.ts" },
+    } as AgentEvent<"session.info">);
+
+    await streamPromise;
+
+    const infoEvents = events.filter((event) => event.type === "stream.session.info");
+    expect(infoEvents).toHaveLength(0);
+  });
+
+  test("forwards session.info events with non-path messages", async () => {
+    const events = collectEvents(bus);
+    const session = createMockSession(mockAsyncStream([{ type: "text", content: "done" }]));
+
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 200,
+      messageId: "msg-info-text",
+    });
+
+    client.emit("session.info" as EventType, {
+      type: "session.info",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: { infoType: "general", message: "Created 2 files successfully" },
+    } as AgentEvent<"session.info">);
+
+    await streamPromise;
+
+    const infoEvents = events.filter((event) => event.type === "stream.session.info");
+    expect(infoEvents).toHaveLength(1);
+    expect(infoEvents[0].data.message).toBe("Created 2 files successfully");
+    expect(infoEvents[0].data.infoType).toBe("general");
+    expect(infoEvents[0].runId).toBe(200);
+  });
+
   test("publishes thinking delta events from message.delta with thinking content", async () => {
     const events = collectEvents(bus);
     const session = createMockSession(mockAsyncStream([{ type: "text", content: "done" }]));

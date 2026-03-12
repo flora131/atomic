@@ -26,6 +26,10 @@ export function createAbortError(message = "The operation was aborted."): Error 
   return error;
 }
 
+function isSessionNotFoundError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes("Session not found");
+}
+
 export function subscribeCopilotSessionEvents(args: {
   sessionId: string;
   sdkSession: SdkCopilotSession;
@@ -130,7 +134,13 @@ export function createWrappedCopilotSession(args: {
       return state.pendingAbortPromise;
     }
 
-    const abortPromise = state.sdkSession.abort();
+    const abortPromise = state.sdkSession.abort().catch((error: unknown) => {
+      // Session may already have been torn down; suppress the error.
+      if (isSessionNotFoundError(error)) {
+        return;
+      }
+      throw error;
+    });
     state.pendingAbortPromise = abortPromise;
     void abortPromise
       .finally(() => {
@@ -165,6 +175,10 @@ export function createWrappedCopilotSession(args: {
       try {
         response = await state.sdkSession.sendAndWait({ prompt: message });
       } catch (error) {
+        if (isSessionNotFoundError(error)) {
+          state.isClosed = true;
+          throw new Error("Session is closed");
+        }
         throw new Error(args.extractErrorMessage(error));
       }
 
@@ -350,6 +364,12 @@ export function createWrappedCopilotSession(args: {
             try {
               await state.sdkSession.send({ prompt: message });
             } catch (error) {
+              // If the session was already torn down (e.g. via abort/cancel),
+              // treat it as an abort rather than surfacing an error to the UI.
+              if (isSessionNotFoundError(error)) {
+                state.isClosed = true;
+                throw createAbortError("Session was closed during send.");
+              }
               throw new Error(args.extractErrorMessage(error));
             }
 
@@ -384,7 +404,15 @@ export function createWrappedCopilotSession(args: {
       }
 
       await waitForPendingAbort();
-      await state.sdkSession.sendAndWait({ prompt: "/compact" });
+      try {
+        await state.sdkSession.sendAndWait({ prompt: "/compact" });
+      } catch (error) {
+        if (isSessionNotFoundError(error)) {
+          state.isClosed = true;
+          throw new Error("Session is closed");
+        }
+        throw error;
+      }
     },
 
     getContextUsage: async (): Promise<ContextUsage> => {
@@ -405,7 +433,14 @@ export function createWrappedCopilotSession(args: {
       if (!state.isClosed) {
         state.isClosed = true;
         state.unsubscribe();
-        await state.sdkSession.destroy();
+        try {
+          await state.sdkSession.destroy();
+        } catch (error) {
+          // Session may already have been torn down during abort/cancel.
+          if (!isSessionNotFoundError(error)) {
+            throw error;
+          }
+        }
         args.sessions.delete(sessionId);
         args.emitEvent("session.idle", sessionId, { reason: "destroyed" });
         args.emitProviderEvent("session.idle", sessionId, { reason: "destroyed" }, {

@@ -82,6 +82,8 @@ export function createOpenCodeSessionStream(args: {
       const {
         handleDelta,
         handleSubagentStart,
+        handleSubagentUpdate,
+        handleSubagentComplete,
         handleToolStart,
         handleToolComplete,
         handleIdle,
@@ -97,6 +99,12 @@ export function createOpenCodeSessionStream(args: {
       const unsubDelta = args.runtimeArgs.on("message.delta", handleDelta);
       const unsubSubagentStart = isSubagentDispatch
         ? args.runtimeArgs.on("subagent.start", handleSubagentStart)
+        : () => {};
+      const unsubSubagentUpdate = isSubagentDispatch
+        ? args.runtimeArgs.on("subagent.update", handleSubagentUpdate)
+        : () => {};
+      const unsubSubagentComplete = isSubagentDispatch
+        ? args.runtimeArgs.on("subagent.complete", handleSubagentComplete)
         : () => {};
       const unsubToolStart = isSubagentDispatch
         ? args.runtimeArgs.on("tool.start", handleToolStart)
@@ -272,6 +280,8 @@ export function createOpenCodeSessionStream(args: {
         }
         unsubDelta();
         unsubSubagentStart();
+        unsubSubagentUpdate();
+        unsubSubagentComplete();
         unsubToolStart();
         unsubToolComplete();
         unsubIdle();

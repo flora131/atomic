@@ -1,4 +1,8 @@
 import type { AgentEvent, AgentMessage } from "@/services/agents/types.ts";
+import {
+  withSubagentLifecycleMetadata,
+  withSubagentRoutingMetadata,
+} from "@/services/agents/contracts/subagent-stream.ts";
 import type { OpenCodeSessionState } from "@/services/agents/clients/opencode/shared.ts";
 import type { OpenCodeSessionRuntimeArgs } from "@/services/agents/clients/opencode/session-runtime-types.ts";
 import type {
@@ -13,12 +17,16 @@ export function createOpenCodeSessionStreamEventHandlers(args: {
 }): {
   handleDelta: (event: AgentEvent<"message.delta">) => void;
   handleSubagentStart: (event: AgentEvent<"subagent.start">) => void;
+  handleSubagentUpdate: (event: AgentEvent<"subagent.update">) => void;
+  handleSubagentComplete: (event: AgentEvent<"subagent.complete">) => void;
   handleToolStart: (event: AgentEvent<"tool.start">) => void;
   handleToolComplete: (event: AgentEvent<"tool.complete">) => void;
   handleIdle: (event: AgentEvent<"session.idle">) => void;
   handleError: (event: AgentEvent<"session.error">) => void;
   handleUsage: (event: AgentEvent<"usage">) => void;
 } {
+  const sessionAgentIds = new Map<string, string>();
+
   const enqueueDelta = (messageChunk: AgentMessage): void => {
     args.controller.enqueueDelta(messageChunk);
   };
@@ -28,6 +36,21 @@ export function createOpenCodeSessionStreamEventHandlers(args: {
     ?? (toolData.toolUseID as string | undefined)
     ?? (toolData.toolCallId as string | undefined)
     ?? args.controller.buildSyntheticToolUseId();
+
+  const asString = (value: unknown): string | undefined =>
+    typeof value === "string" && value.trim().length > 0 ? value : undefined;
+
+  const withRoutingMetadata = (
+    sessionId: string,
+    metadata?: Record<string, unknown>,
+  ): Record<string, unknown> | undefined => {
+    const agentId = sessionAgentIds.get(sessionId);
+    if (!agentId) {
+      return metadata && Object.keys(metadata).length > 0 ? metadata : undefined;
+    }
+
+    return withSubagentRoutingMetadata(metadata, { agentId, sessionId });
+  };
 
   return {
     handleDelta: (event) => {
@@ -46,22 +69,104 @@ export function createOpenCodeSessionStreamEventHandlers(args: {
         role: "assistant",
         ...(contentType === "thinking"
           ? {
-            metadata: {
+            metadata: withRoutingMetadata(event.sessionId, {
               provider: "opencode",
               thinkingSourceKey,
               streamingStats: {
                 thinkingMs: 0,
                 outputTokens: 0,
               },
-            },
+            }),
           }
-          : {}),
+          : (() => {
+            const metadata = withRoutingMetadata(event.sessionId);
+            return metadata ? { metadata } : {};
+          })()),
       });
     },
     handleSubagentStart: (event) => {
       if (!args.isSubagentDispatch) return;
       if (!args.controller.isRelatedSession(event.sessionId)) return;
-      args.controller.registerRelatedSession((event.data as Record<string, unknown>)?.subagentSessionId);
+
+      const data = event.data as Record<string, unknown>;
+      const subagentSessionId = asString(data.subagentSessionId);
+      const subagentId = asString(data.subagentId);
+      if (subagentSessionId) {
+        args.controller.registerRelatedSession(subagentSessionId);
+        if (subagentId) {
+          sessionAgentIds.set(subagentSessionId, subagentId);
+        }
+      }
+      if (!subagentId) {
+        return;
+      }
+
+      const toolCallId = asString(
+        data.toolUseId
+          ?? data.toolUseID
+          ?? data.toolCallId
+          ?? data.parentToolUseId
+          ?? data.parent_tool_use_id
+          ?? data.parentToolUseID,
+      );
+      enqueueDelta({
+        type: "text",
+        content: "",
+        role: "assistant",
+        metadata: withSubagentLifecycleMetadata(undefined, {
+          eventType: "start",
+          subagentId,
+          ...(asString(data.subagentType) ? { subagentType: asString(data.subagentType) } : {}),
+          ...(asString(data.task) ? { task: asString(data.task) } : {}),
+          ...(toolCallId ? { toolCallId, sdkCorrelationId: toolCallId } : {}),
+          ...(data.isBackground === true ? { isBackground: true } : {}),
+        }),
+      });
+    },
+    handleSubagentUpdate: (event) => {
+      if (!args.isSubagentDispatch) return;
+      if (!args.controller.isRelatedSession(event.sessionId)) return;
+
+      const data = event.data as Record<string, unknown>;
+      const subagentId = asString(data.subagentId);
+      if (!subagentId) {
+        return;
+      }
+
+      enqueueDelta({
+        type: "text",
+        content: "",
+        role: "assistant",
+        metadata: withSubagentLifecycleMetadata(undefined, {
+          eventType: "update",
+          subagentId,
+          ...(asString(data.currentTool) ? { currentTool: asString(data.currentTool) } : {}),
+          ...(typeof data.toolUses === "number" ? { toolUses: data.toolUses } : {}),
+        }),
+      });
+    },
+    handleSubagentComplete: (event) => {
+      if (!args.isSubagentDispatch) return;
+      if (!args.controller.isRelatedSession(event.sessionId)) return;
+
+      const data = event.data as Record<string, unknown>;
+      const subagentId = asString(data.subagentId);
+      if (!subagentId) {
+        return;
+      }
+
+      enqueueDelta({
+        type: "text",
+        content: "",
+        role: "assistant",
+        metadata: withSubagentLifecycleMetadata(undefined, {
+          eventType: "complete",
+          subagentId,
+          success: data.success !== false,
+          ...(data.result !== undefined ? { result: data.result } : {}),
+          ...(asString(data.error) ? { error: asString(data.error) } : {}),
+        }),
+      });
     },
     handleToolStart: (event) => {
       if (!args.isSubagentDispatch) return;
@@ -84,10 +189,10 @@ export function createOpenCodeSessionStreamEventHandlers(args: {
           toolUseId,
         },
         role: "assistant",
-        metadata: {
+        metadata: withRoutingMetadata(event.sessionId, {
           toolName,
           toolId: toolUseId,
-        },
+        }),
       });
     },
     handleToolComplete: (event) => {
@@ -111,11 +216,11 @@ export function createOpenCodeSessionStreamEventHandlers(args: {
         type: "tool_result",
         content: toolResult,
         role: "assistant",
-        metadata: {
+        metadata: withRoutingMetadata(event.sessionId, {
           toolName,
           toolId: toolUseId,
           error: !success,
-        },
+        }),
       });
     },
     handleIdle: (event) => {

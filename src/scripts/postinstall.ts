@@ -3,13 +3,13 @@
 import {
   hasAtomicGlobalAgentConfigs,
   syncAtomicGlobalAgentConfigs,
-} from "../utils/atomic-global-config";
-import { getConfigRoot } from "../utils/config-path";
+} from "@/services/config/atomic-global-config.ts";
+import { getConfigRoot } from "@/services/config/config-path.ts";
 import {
   deployPlaywrightSkill,
   ensurePlaywrightPackageManagers,
   installPlaywrightCli,
-} from "./postinstall-playwright";
+} from "@/scripts/postinstall-playwright.ts";
 
 function formatErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -21,7 +21,7 @@ function warnPostinstallStep(step: string, error: unknown): void {
 
 async function verifyAtomicGlobalConfigSync(): Promise<void> {
   if (!(await hasAtomicGlobalAgentConfigs())) {
-    throw new Error("Missing synced global config entries in ~/.atomic");
+    throw new Error("Missing synced global config entries in provider home roots");
   }
 }
 
@@ -31,7 +31,7 @@ async function main(): Promise<void> {
   try {
     await syncAtomicGlobalAgentConfigs(configRoot);
   } catch (error) {
-    warnPostinstallStep("failed to sync ~/.atomic global configs", error);
+    warnPostinstallStep("failed to sync provider home-root configs", error);
   }
 
   try {
@@ -55,7 +55,7 @@ async function main(): Promise<void> {
   try {
     await verifyAtomicGlobalConfigSync();
   } catch (error) {
-    warnPostinstallStep("failed to verify ~/.atomic global config sync", error);
+    warnPostinstallStep("failed to verify provider home-root config sync", error);
   }
 }
 

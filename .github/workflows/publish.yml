@@ -22,6 +22,9 @@ concurrency:
     group: publish-${{ github.ref }}
     cancel-in-progress: true
 
+env:
+    FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
     build:
         name: Build Binaries
@@ -40,19 +43,7 @@ jobs:
               run: bun ci
 
             - name: Install all platform-specific opentui native bindings
-              run: |
-                  # Platform packages have os/cpu fields that block install on foreign platforms.
-                  # Download and extract tarballs directly to bypass platform checks.
-                  OPENTUI_VERSION=$(bun -e "process.stdout.write(require('./package.json').dependencies['@opentui/core'].replace(/[\^~]/, ''))")
-                  for platform in darwin-x64 darwin-arm64 linux-arm64 win32-x64 win32-arm64; do
-                    pkg="@opentui/core-${platform}"
-                    dest="node_modules/@opentui/core-${platform}"
-                    if [ ! -d "$dest" ]; then
-                      mkdir -p "$dest"
-                      npm pack "${pkg}@${OPENTUI_VERSION}" --pack-destination /tmp 2>/dev/null
-                      tar -xzf "/tmp/opentui-core-${platform}-${OPENTUI_VERSION}.tgz" -C "$dest" --strip-components=1
-                    fi
-                  done
+              run: bun run prepare:opentui-bindings
 
             - name: Run tests
               run: bun test
@@ -88,7 +79,9 @@ jobs:
                   mkdir -p config-staging/.github
                   cp -r .github/skills config-staging/.github/
                   cp -r .github/agents config-staging/.github/
-                  cp .github/mcp-config.json config-staging/.github/
+                  cp .github/lsp.json config-staging/.github/
+                  mkdir -p config-staging/.vscode
+                  cp .vscode/mcp.json config-staging/.vscode/
 
                   # Remove node_modules from .opencode if present
                   rm -rf config-staging/.opencode/node_modules
@@ -201,33 +194,3 @@ jobs:
                       dist/atomic-config.tar.gz
                       dist/atomic-config.zip
                       dist/checksums.txt
-
-    publish-npm:
-        name: Publish to npm
-        runs-on: ubuntu-latest
-        needs: build
-        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
-        permissions:
-            contents: read
-            id-token: write # Required for OIDC provenance
-
-        steps:
-            - name: Checkout repository
-              uses: actions/checkout@v6
-
-            - name: Setup Bun
-              uses: oven-sh/setup-bun@v2
-              with:
-                  bun-version: latest
-
-            - name: Install dependencies
-              run: bun ci
-
-            - name: Setup Node.js for npm publish
-              uses: actions/setup-node@v6
-              with:
-                  node-version: "lts/*"
-                  registry-url: "https://registry.npmjs.org"
-
-            - name: Publish to npm with provenance
-              run: npm publish --provenance --access public

@@ -16,9 +16,9 @@
  */
 
 import { Command } from "@commander-js/extra-typings";
-import { VERSION } from "./version";
-import { COLORS } from "./utils/colors";
-import { AGENT_CONFIG, type AgentKey } from "./config";
+import { VERSION } from "@/version.ts";
+import { COLORS } from "@/theme/colors.ts";
+import { AGENT_CONFIG, type AgentKey } from "@/services/config/index.ts";
 
 /**
  * Create and configure the main CLI program
@@ -69,7 +69,7 @@ export function createProgram() {
         )
         .action(async (localOpts) => {
             const globalOpts = program.opts();
-            const { initCommand } = await import("./commands/init");
+            const { initCommand } = await import("@/commands/cli/init.ts");
 
             await initCommand({
                 showBanner: globalOpts.banner !== false,
@@ -99,12 +99,12 @@ export function createProgram() {
             "after",
             `
 Examples:
-  $ atomic chat                              Start chat (uses saved agent or runs init)
+  $ atomic chat -a claude                   Start chat with Claude
   $ atomic chat -a opencode                  Start chat with OpenCode
   $ atomic chat -a copilot --workflow        Start workflow-enabled chat with Copilot
-  $ atomic chat --theme light                Start chat with light theme
-  $ atomic chat --additional-instructions "Be concise" "review this patch"
-  $ atomic chat "fix the typecheck errors"   Start chat with an initial prompt
+  $ atomic chat -a claude --theme light      Start chat with light theme
+  $ atomic chat -a claude --additional-instructions "Be concise" "review this patch"
+  $ atomic chat -a claude "fix the typecheck errors"
   $ atomic chat -a claude "refactor utils"   Start chat with agent and prompt
 
 Slash Commands (in workflow mode):
@@ -114,30 +114,16 @@ Slash Commands (in workflow mode):
         )
         .action(async (promptParts: string[], localOpts) => {
             const validAgents = Object.keys(AGENT_CONFIG);
-            let agentType = localOpts.agent;
+            const agentType = localOpts.agent;
 
-            // If no agent flag provided, check saved config
             if (!agentType) {
-                const { readAtomicConfig } =
-                    await import("./utils/atomic-config");
-                const config = await readAtomicConfig(process.cwd());
-                agentType = config?.agent;
-            }
-
-            // If still no agent (first run), run init which prompts for selection
-            if (!agentType) {
-                const { initCommand } = await import("./commands/init");
-                await initCommand({ showBanner: true });
-                const { readAtomicConfig } =
-                    await import("./utils/atomic-config");
-                const config = await readAtomicConfig(process.cwd());
-                agentType = config?.agent;
-                if (!agentType) {
-                    console.error(
-                        `${COLORS.red}No agent selected. Run 'atomic init' to configure.${COLORS.reset}`,
-                    );
-                    process.exit(1);
-                }
+                console.error(
+                    `${COLORS.red}Error: Missing agent.${COLORS.reset}`,
+                );
+                console.error(
+                    "Start chat with an explicit provider, for example: atomic chat -a claude",
+                );
+                process.exit(1);
             }
 
             // Validate agent choice
@@ -160,7 +146,7 @@ Slash Commands (in workflow mode):
 
             const prompt =
                 promptParts.length > 0 ? promptParts.join(" ") : undefined;
-            const { chatCommand } = await import("./commands/chat");
+            const { chatCommand } = await import("@/commands/cli/chat.ts");
             const exitCode = await chatCommand({
                 agentType: agentType as "claude" | "opencode" | "copilot",
                 workflow: localOpts.workflow,
@@ -185,7 +171,7 @@ Slash Commands (in workflow mode):
         .argument("<key>", "Configuration key (e.g., telemetry)")
         .argument("<value>", "Value to set (e.g., true, false)")
         .action(async (key: string, value: string) => {
-            const { configCommand } = await import("./commands/config");
+            const { configCommand } = await import("@/commands/cli/config.ts");
             await configCommand("set", key, value);
         });
 
@@ -194,7 +180,7 @@ Slash Commands (in workflow mode):
         .command("update")
         .description("Self-update to the latest version (binary installs only)")
         .action(async () => {
-            const { updateCommand } = await import("./commands/update");
+            const { updateCommand } = await import("@/commands/cli/update.ts");
             await updateCommand();
         });
 
@@ -206,7 +192,7 @@ Slash Commands (in workflow mode):
         .option("--keep-config", "Keep configuration data, only remove binary")
         .action(async (localOpts) => {
             const globalOpts = program.opts();
-            const { uninstallCommand } = await import("./commands/uninstall");
+            const { uninstallCommand } = await import("@/commands/cli/uninstall.ts");
 
             await uninstallCommand({
                 yes: globalOpts.yes,
@@ -221,7 +207,7 @@ Slash Commands (in workflow mode):
         .description("Upload telemetry events (internal use)")
         .action(async () => {
             const { handleTelemetryUpload } =
-                await import("./telemetry/telemetry-upload");
+                await import("@/services/telemetry/telemetry-upload.ts");
             await handleTelemetryUpload();
         });
 
@@ -246,7 +232,7 @@ export async function spawnTelemetryUpload(): Promise<void> {
     // Check if telemetry is enabled (lazy-load to avoid pulling in telemetry at startup)
     let enabled = false;
     try {
-        const { isTelemetryEnabledSync } = await import("./telemetry");
+        const { isTelemetryEnabledSync } = await import("@/services/telemetry/index.ts");
         enabled = isTelemetryEnabledSync();
     } catch {
         return;
@@ -292,7 +278,7 @@ async function main(): Promise<void> {
     // Clean up leftover Windows files from previous uninstall/update operations
     // This is a no-op on non-Windows platforms
     if (process.platform === "win32") {
-        const { cleanupWindowsLeftoverFiles } = await import("./utils/cleanup");
+        const { cleanupWindowsLeftoverFiles } = await import("@/services/system/cleanup.ts");
         await cleanupWindowsLeftoverFiles();
     }
 
@@ -317,5 +303,5 @@ async function main(): Promise<void> {
 
 // Run the CLI
 if (import.meta.main) {
-    void main();
+    await main();
 }

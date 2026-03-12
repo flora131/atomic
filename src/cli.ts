@@ -303,5 +303,5 @@ async function main(): Promise<void> {
 
 // Run the CLI
 if (import.meta.main) {
-    void main();
+    await main();
 }

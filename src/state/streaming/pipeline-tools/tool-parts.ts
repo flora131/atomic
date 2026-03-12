@@ -1,7 +1,7 @@
 import { createPartId } from "@/state/parts/id.ts";
 import { upsertPart } from "@/state/parts/store.ts";
 import type { Part, ToolPart, ToolState } from "@/state/parts/types.ts";
-import { finalizeLastStreamingTextPart, removeLastStreamingTextPart } from "@/state/streaming/pipeline-thinking.ts";
+import { finalizeLastStreamingTextPart } from "@/state/streaming/pipeline-thinking.ts";
 import type {
   ToolCompleteEvent,
   ToolPartialResultEvent,
@@ -48,7 +48,7 @@ export function upsertToolPartStart(
     createdAt: new Date().toISOString(),
   };
 
-  return upsertPart(removeLastStreamingTextPart(parts), toolPart);
+  return upsertPart(finalizeLastStreamingTextPart(parts), toolPart);
 }
 
 export function upsertToolPartComplete(

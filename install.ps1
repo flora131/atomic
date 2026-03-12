@@ -81,22 +81,23 @@ function Install-NpmIfMissing {
 function Sync-GlobalAgentConfig {
     param([string]$SourceRoot)
 
-    $claudeDir = Join-Path $AtomicHome ".claude"
-    $opencodeDir = Join-Path $AtomicHome ".opencode"
-    $copilotDir = Join-Path $AtomicHome ".copilot"
+    $claudeDir = Join-Path $Home ".claude"
+    $opencodeDir = Join-Path $Home ".opencode"
+    $copilotDir = Join-Path $Home ".copilot"
 
-    $null = New-Item -ItemType Directory -Force -Path $claudeDir
-    $null = New-Item -ItemType Directory -Force -Path $opencodeDir
-    $null = New-Item -ItemType Directory -Force -Path $copilotDir
+    $null = New-Item -ItemType Directory -Force -Path (Join-Path $claudeDir "agents")
+    $null = New-Item -ItemType Directory -Force -Path (Join-Path $claudeDir "skills")
+    $null = New-Item -ItemType Directory -Force -Path (Join-Path $opencodeDir "agents")
+    $null = New-Item -ItemType Directory -Force -Path (Join-Path $opencodeDir "skills")
+    $null = New-Item -ItemType Directory -Force -Path (Join-Path $copilotDir "agents")
+    $null = New-Item -ItemType Directory -Force -Path (Join-Path $copilotDir "skills")
 
-    Copy-Item -Path (Join-Path $SourceRoot ".claude\*") -Destination $claudeDir -Recurse -Force
-    Copy-Item -Path (Join-Path $SourceRoot ".opencode\*") -Destination $opencodeDir -Recurse -Force
-    Copy-Item -Path (Join-Path $SourceRoot ".github\*") -Destination $copilotDir -Recurse -Force
-
-    $mcpConfigSource = Join-Path $SourceRoot ".mcp.json"
-    if (Test-Path $mcpConfigSource) {
-        Copy-Item -Path $mcpConfigSource -Destination (Join-Path $AtomicHome ".mcp.json") -Force
-    }
+    Copy-Item -Path (Join-Path $SourceRoot ".claude\agents\*") -Destination (Join-Path $claudeDir "agents") -Recurse -Force
+    Copy-Item -Path (Join-Path $SourceRoot ".claude\skills\*") -Destination (Join-Path $claudeDir "skills") -Recurse -Force
+    Copy-Item -Path (Join-Path $SourceRoot ".opencode\agents\*") -Destination (Join-Path $opencodeDir "agents") -Recurse -Force
+    Copy-Item -Path (Join-Path $SourceRoot ".opencode\skills\*") -Destination (Join-Path $opencodeDir "skills") -Recurse -Force
+    Copy-Item -Path (Join-Path $SourceRoot ".github\agents\*") -Destination (Join-Path $copilotDir "agents") -Recurse -Force
+    Copy-Item -Path (Join-Path $SourceRoot ".github\skills\*") -Destination (Join-Path $copilotDir "skills") -Recurse -Force
 
     foreach ($agentDir in @($claudeDir, $opencodeDir, $copilotDir)) {
         $skillsDir = Join-Path $agentDir "skills"
@@ -106,9 +107,6 @@ function Sync-GlobalAgentConfig {
                 ForEach-Object { Remove-Item -Recurse -Force $_.FullName -ErrorAction SilentlyContinue }
         }
     }
-
-    Remove-Item -Recurse -Force (Join-Path $copilotDir "workflows") -ErrorAction SilentlyContinue
-    Remove-Item -Force (Join-Path $copilotDir "dependabot.yml") -ErrorAction SilentlyContinue
 
     Install-BunIfMissing
     Install-NpmIfMissing
@@ -271,7 +269,7 @@ try {
     $null = New-Item -ItemType Directory -Force -Path $DataDir
     Expand-Archive -Path $TempConfig -DestinationPath $DataDir -Force
 
-    Write-Info "Syncing global agent configs to ${AtomicHome}..."
+    Write-Info "Syncing global agent configs to provider home roots..."
     Sync-GlobalAgentConfig -SourceRoot $DataDir
 
     # Verify installation
@@ -282,7 +280,7 @@ try {
 
     Write-Success "Installed ${BinaryName} ${Version} to ${BinaryPath}"
     Write-Success "Config files installed to ${DataDir}"
-    Write-Success "Global agent configs synced to ${AtomicHome}"
+    Write-Success "Global agent configs synced to ~/.claude, ~/.opencode, and ~/.copilot"
 
     # Persist prerelease channel preference in settings
     $SettingsFile = Join-Path $AtomicHome "settings.json"

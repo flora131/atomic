@@ -89,6 +89,25 @@ Use the "Gang of Four" patterns as a shared vocabulary to solve recurring proble
 - If a completion promise is set, you may ONLY output it when the statement is completely and unequivocally TRUE. Do not output false promises to escape the loop, even if you think you're stuck or should exit for other reasons. The loop is designed to continue until genuine completion.
 - Tip: For refactors or code cleanup tasks prioritize using sub-agents to help you with the work and prevent overloading your context window, especially for a large number of file edits
 
+### Code Intelligence
+
+Prefer LSP over Grep/Glob/Read for code navigation:
+- `goToDefinition` / `goToImplementation` to jump to source
+- `findReferences` to see all usages across the codebase
+- `workspaceSymbol` to find where something is defined
+- `documentSymbol` to list all symbols in a file
+- `hover` for type info without reading the file
+- `incomingCalls` / `outgoingCalls` for call hierarchy
+
+Before renaming or changing a function signature, use
+`findReferences` to find all call sites first.
+
+Use Grep/Glob only for text/pattern searches (comments,
+strings, config values) where LSP doesn't help.
+
+After writing or editing code, check LSP diagnostics before
+moving on. Fix any type errors or missing imports immediately.
+
 ## Bug Handling (CRITICAL)
 
 When you encounter ANY bug — whether introduced by your changes, discovered during testing, or pre-existing — you MUST follow this protocol:

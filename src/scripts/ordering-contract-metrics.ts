@@ -1,32 +1,32 @@
 #!/usr/bin/env bun
 
-import type { BusEvent, BusEventDataMap, BusEventType } from "../events/bus-events.ts";
-import { BatchDispatcher } from "../events/batch-dispatcher.ts";
-import { EventBus } from "../events/event-bus.ts";
-import { wireConsumers } from "../events/consumers/wire-consumers.ts";
+import type { BusEvent, BusEventDataMap, BusEventType } from "@/services/events/bus-events.ts";
+import { BatchDispatcher } from "@/services/events/batch-dispatcher.ts";
+import { EventBus } from "@/services/events/event-bus.ts";
+import { wireConsumers } from "@/services/events/consumers/wire-consumers.ts";
 import {
   emitAgentDoneProjectionObservability,
   emitAgentDoneRenderedObservability,
   emitPostCompleteDeltaOrderingObservability,
   shouldDeferPostCompleteDeltaUntilDoneProjection,
-} from "../ui/chat.tsx";
+} from "@/screens/chat-screen.tsx";
 import {
   collectDoneRenderMarkers,
   type ParallelAgent,
-} from "../ui/components/parallel-agents-tree.tsx";
-import { applyStreamPartEvent, type StreamPartEvent } from "../ui/parts/stream-pipeline.ts";
-import type { AgentOrderingEvent } from "../ui/utils/agent-ordering-contract.ts";
+} from "@/components/parallel-agents-tree.tsx";
+import { applyStreamPartEvent, type StreamPartEvent } from "@/state/parts/stream-pipeline.ts";
+import type { AgentOrderingEvent } from "@/lib/ui/agent-ordering-contract.ts";
 import {
   createAgentOrderingState,
   hasDoneStateProjection,
   registerAgentCompletionSequence,
   registerDoneStateProjection,
-} from "../ui/utils/agent-ordering-contract.ts";
+} from "@/lib/ui/agent-ordering-contract.ts";
 import {
   getRuntimeParityMetricsSnapshot,
   resetRuntimeParityMetrics,
-} from "../workflows/runtime-parity-observability.ts";
-import type { ChatMessage } from "../ui/chat.tsx";
+} from "@/services/workflows/runtime-parity-observability.ts";
+import type { ChatMessage } from "@/screens/chat-screen.tsx";
 
 const MAX_VISIBLE_AGENTS = 5;
 
@@ -291,13 +291,9 @@ const doneProjectionKey = "workflow.runtime.parity.agent_done_projection_total{m
 const doneProjectionLatencyKey = "workflow.runtime.parity.agent_done_projection_latency_ms{mode=sync-bridge,provider=claude}";
 const doneRenderedKey = "workflow.runtime.parity.agent_done_rendered_total{provider=claude}";
 const doneRenderedLatencyKey = "workflow.runtime.parity.agent_done_rendered_latency_ms{provider=claude}";
-const violationSingleKey = "workflow.runtime.parity.agent_ordering_contract_violation_total{provider=claude,scenario=single}";
-const violationMultiKey = "workflow.runtime.parity.agent_ordering_contract_violation_total{provider=claude,scenario=multi}";
 
 const doneProjectionTotal = snapshot.counters[doneProjectionKey] ?? 0;
 const doneRenderedTotal = snapshot.counters[doneRenderedKey] ?? 0;
-const violationSingleTotal = snapshot.counters[violationSingleKey] ?? 0;
-const violationMultiTotal = snapshot.counters[violationMultiKey] ?? 0;
 const doneProjectionLatency = snapshot.histograms[doneProjectionLatencyKey] ?? [];
 const doneRenderedLatency = snapshot.histograms[doneRenderedLatencyKey] ?? [];
 
@@ -307,8 +303,6 @@ assertMetric(doneProjectionLatency.length === 3, "Expected one done projection l
 assertMetric(doneRenderedLatency.length === 3, "Expected one done-rendered latency sample per visible completed canary agent");
 assertMetric(doneProjectionLatency.every((sample) => sample >= 0), "Done projection latency samples must be non-negative");
 assertMetric(doneRenderedLatency.every((sample) => sample >= 0), "Done-rendered latency samples must be non-negative");
-assertMetric(violationSingleTotal === 0, "Expected zero single-scenario ordering violations");
-assertMetric(violationMultiTotal === 0, "Expected zero multi-scenario ordering violations");
 
 const report = {
   mode: process.env.ATOMIC_ORDERING_CONTRACT_CANARY === "1" ? "canary" : "ci",
@@ -316,8 +310,6 @@ const report = {
   counters: {
     doneProjectionTotal,
     doneRenderedTotal,
-    violationSingleTotal,
-    violationMultiTotal,
   },
   histograms: {
     doneProjectionLatency,

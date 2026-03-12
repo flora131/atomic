@@ -156,6 +156,21 @@ export function useChatStreamConsumer({
       }
 
       if (part.type === "tool-start") {
+        // Flush any pending text-delta updates for this tool's target message
+        // BEFORE processing the tool-start.  In the Copilot SDK flow, text
+        // deltas (from assistant.message_delta) and tool-start events (from
+        // assistant.message with toolRequests) can arrive in the same batch.
+        // Text deltas are queued via queueMessagePartUpdate while tool-start
+        // events call handleToolStart immediately, which inverts the intended
+        // ordering: the tool-start would be applied first, then the deferred
+        // text deltas would create a NEW TextPart AFTER the ToolPart, causing
+        // text to "leak" below the tool indicators.  Flushing the pending text
+        // deltas first restores correct chronological ordering so that the
+        // tool-start's removeLastStreamingTextPart() can clean them up.
+        if (updatesByMessageId.size > 0) {
+          applyStreamPartBatchToMessages(updatesByMessageId, setMessagesWindowed);
+          updatesByMessageId.clear();
+        }
         handleToolStart(part.toolId, part.toolName, part.input, part.toolMetadata, part.agentId);
         continue;
       }

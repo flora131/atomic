@@ -25,7 +25,34 @@ function finalizeLastStreamingTextPart(parts: Part[]): Part[] {
   return updated;
 }
 
-export { finalizeLastStreamingTextPart };
+/**
+ * Remove the last streaming TextPart from parts instead of finalizing it.
+ *
+ * This is used when a tool-start arrives while text is still streaming
+ * (Copilot SDK flow). In the Copilot SDK, text deltas from
+ * `assistant.message_delta` are published immediately, but the tool
+ * requests only arrive when `assistant.message` completes. The
+ * preceding text (e.g. "I'll create the file:") is redundant with the
+ * tool indicator and should be removed rather than preserved.
+ *
+ * In the Claude SDK flow, TextParts are already finalized
+ * (`isStreaming: false`) before tool_use blocks start, so this
+ * function has no effect — the removal only targets streaming parts.
+ */
+function removeLastStreamingTextPart(parts: Part[]): Part[] {
+  const lastTextIdx = findLastPartIndex(
+    parts,
+    (part) => part.type === "text" && (part as TextPart).isStreaming,
+  );
+  if (lastTextIdx < 0) {
+    return parts;
+  }
+  const updated = [...parts];
+  updated.splice(lastTextIdx, 1);
+  return updated;
+}
+
+export { finalizeLastStreamingTextPart, removeLastStreamingTextPart };
 
 export function finalizeStreamingReasoningParts(
   parts: Part[],

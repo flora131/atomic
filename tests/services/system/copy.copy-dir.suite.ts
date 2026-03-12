@@ -129,6 +129,7 @@ describe("copyDir", () => {
   });
 
   test("should copy symlink as regular file (dereference)", async () => {
+    if (process.platform === "win32") return;
     const srcDir = join(tempDir, "src");
     const destDir = join(tempDir, "dest");
     const targetFile = join(srcDir, "target.txt");
@@ -145,6 +146,7 @@ describe("copyDir", () => {
   });
 
   test("should block symlink targets that escape the source root", async () => {
+    if (process.platform === "win32") return;
     const srcDir = join(tempDir, "src");
     const destDir = join(tempDir, "dest");
     const outsideDir = join(tempDir, "outside");

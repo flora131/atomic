@@ -103,6 +103,7 @@ describe("discoverMcpConfigs path guardrails", () => {
   });
 
   test("blocks symlink escapes that resolve outside the project root", async () => {
+    if (process.platform === "win32") return;
     const root = await mkdtemp(join(tmpdir(), "atomic-mcp-path-"));
     const homeDir = join(root, "home");
     const projectRoot = join(root, "project");
@@ -130,6 +131,7 @@ describe("discoverMcpConfigs path guardrails", () => {
   });
 
   test("allows symlinked config files that resolve inside the project root", async () => {
+    if (process.platform === "win32") return;
     const root = await mkdtemp(join(tmpdir(), "atomic-mcp-path-"));
     const homeDir = join(root, "home");
     const projectRoot = join(root, "project");

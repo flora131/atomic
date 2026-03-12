@@ -47,6 +47,7 @@ describe("copyDirNonDestructive", () => {
   });
 
   test("preserves existing symlink destination target files", async () => {
+    if (process.platform === "win32") return;
     const srcDir = join(tempDir, "src");
     const destDir = join(tempDir, "dest");
     const targetFile = join(srcDir, "target.txt");

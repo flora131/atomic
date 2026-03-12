@@ -3,6 +3,7 @@
 import { realpathSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { ensureWebTreeSitterWasmShim } from "@/services/terminal/web-tree-sitter-shim.ts";
 
 type BuildOptions = {
   outfile: string;
@@ -68,6 +69,8 @@ function getBunfsRoot(targetOs: NodeJS.Platform): string {
 }
 
 const options = parseBuildOptions(Bun.argv.slice(2));
+
+ensureWebTreeSitterWasmShim();
 
 const projectRoot = process.cwd();
 const parserWorker = realpathSync(resolve(projectRoot, "node_modules/@opentui/core/parser.worker.js"));

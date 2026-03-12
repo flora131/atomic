@@ -206,29 +206,27 @@ verify_checksum() {
     info "Checksum verified successfully"
 }
 
-# Sync bundled config templates into ~/.atomic for global discovery
-# Excludes SCM-specific skills (gh-*, sl-*), which are configured per-project via `atomic init`.
+# Sync bundled config templates into provider home roots for global discovery
+# Installs only Atomic-managed agents and skills; provider config JSON files are
+# onboarded per-workspace by `atomic init`.
 sync_global_agent_configs() {
     local source_root="$1"
 
-    mkdir -p "$ATOMIC_HOME/.claude" "$ATOMIC_HOME/.opencode" "$ATOMIC_HOME/.copilot"
+    mkdir -p "$HOME/.claude/agents" "$HOME/.claude/skills"
+    mkdir -p "$HOME/.opencode/agents" "$HOME/.opencode/skills"
+    mkdir -p "$HOME/.copilot/agents" "$HOME/.copilot/skills"
 
-    cp -R "$source_root/.claude/." "$ATOMIC_HOME/.claude/"
-    cp -R "$source_root/.opencode/." "$ATOMIC_HOME/.opencode/"
-    cp -R "$source_root/.github/." "$ATOMIC_HOME/.copilot/"
-
-    if [[ -f "$source_root/.mcp.json" ]]; then
-        cp "$source_root/.mcp.json" "$ATOMIC_HOME/.mcp.json"
-    fi
+    cp -R "$source_root/.claude/agents/." "$HOME/.claude/agents/"
+    cp -R "$source_root/.claude/skills/." "$HOME/.claude/skills/"
+    cp -R "$source_root/.opencode/agents/." "$HOME/.opencode/agents/"
+    cp -R "$source_root/.opencode/skills/." "$HOME/.opencode/skills/"
+    cp -R "$source_root/.github/agents/." "$HOME/.copilot/agents/"
+    cp -R "$source_root/.github/skills/." "$HOME/.copilot/skills/"
 
     # Remove SCM-managed skills from global config; these are project-scoped.
-    rm -rf "$ATOMIC_HOME/.claude/skills/gh-"* "$ATOMIC_HOME/.claude/skills/sl-"* 2>/dev/null || true
-    rm -rf "$ATOMIC_HOME/.opencode/skills/gh-"* "$ATOMIC_HOME/.opencode/skills/sl-"* 2>/dev/null || true
-    rm -rf "$ATOMIC_HOME/.copilot/skills/gh-"* "$ATOMIC_HOME/.copilot/skills/sl-"* 2>/dev/null || true
-
-    # Keep Copilot global config focused on skills/agents/instructions/MCP.
-    rm -rf "$ATOMIC_HOME/.copilot/workflows" 2>/dev/null || true
-    rm -f "$ATOMIC_HOME/.copilot/dependabot.yml" 2>/dev/null || true
+    rm -rf "$HOME/.claude/skills/gh-"* "$HOME/.claude/skills/sl-"* 2>/dev/null || true
+    rm -rf "$HOME/.opencode/skills/gh-"* "$HOME/.opencode/skills/sl-"* 2>/dev/null || true
+    rm -rf "$HOME/.copilot/skills/gh-"* "$HOME/.copilot/skills/sl-"* 2>/dev/null || true
 
     install_bun_if_missing || true
     install_npm_if_missing || true
@@ -335,7 +333,7 @@ main() {
     mkdir -p "$DATA_DIR"
     tar -xzf "${tmp_dir}/${BINARY_NAME}-config.tar.gz" -C "$DATA_DIR"
 
-    info "Syncing global agent configs to ${ATOMIC_HOME}..."
+    info "Syncing global agent configs to provider home roots..."
     sync_global_agent_configs "$DATA_DIR"
 
     # Verify installation
@@ -344,7 +342,7 @@ main() {
 
     success "Installed ${BINARY_NAME} ${version} to ${BIN_DIR}/${BINARY_NAME}"
     success "Config files installed to ${DATA_DIR}"
-    success "Global agent configs synced to ${ATOMIC_HOME}"
+    success "Global agent configs synced to ~/.claude, ~/.opencode, and ~/.copilot"
 
     # Persist prerelease channel preference in settings
     local settings_file="${ATOMIC_HOME}/settings.json"

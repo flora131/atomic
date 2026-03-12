@@ -322,7 +322,7 @@ Top-level Atomic CLI commands.
 
 | Flag | Default | Description |
 | ---- | ------- | ----------- |
-| `-a, --agent <name>` | `"claude"` | Agent to chat with (`claude`, `opencode`, `copilot`) |
+| `-a, --agent <name>` | (required) | Agent to chat with (`claude`, `opencode`, `copilot`) |
 | `-w, --workflow` | `false` | Enable graph workflow mode |
 | `-t, --theme <name>` | `"dark"` | UI theme (`dark`, `light`) |
 | `-m, --model <name>` | (none) | Model to use for the chat session |
@@ -493,7 +493,6 @@ Atomic no longer reads or writes `.atomic.json`.
 ```json
 {
     "version": 1,
-    "agent": "claude",
     "scm": "github",
     "lastUpdated": "2026-02-12T12:00:00.000Z"
 }
@@ -504,7 +503,6 @@ Atomic no longer reads or writes `.atomic.json`.
 | Field         | Type   | Description                                             |
 | ------------- | ------ | ------------------------------------------------------- |
 | `version`     | number | Config schema version (currently `1`)                   |
-| `agent`       | string | Selected coding agent (`claude`, `opencode`, `copilot`) |
 | `scm`         | string | Source control type (`github`, `sapling`)               |
 | `lastUpdated` | string | ISO 8601 timestamp of last configuration update         |
 

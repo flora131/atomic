@@ -48,12 +48,12 @@
         "@types/ci-info": "^3.1.4",
         "@types/react": "^19.2.14",
         "lefthook": "^2.1.3",
-        "oxlint": "^1.52.0",
+        "oxlint": "^1.53.0",
         "typescript": "^5.9.3",
         "typescript-language-server": "^5.1.3"
     },
     "dependencies": {
-        "@anthropic-ai/claude-agent-sdk": "^0.2.72",
+        "@anthropic-ai/claude-agent-sdk": "^0.2.73",
         "@azure/monitor-opentelemetry": "^1.16.0",
         "@clack/prompts": "^1.1.0",
         "@commander-js/extra-typings": "^14.0.0",

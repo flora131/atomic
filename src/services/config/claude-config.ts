@@ -26,6 +26,7 @@ export interface ClaudeArtifactLoadOptions {
 export interface ClaudeAgent extends AgentDefinition {
   name: string;
   source: "local" | "global";
+  model?: "sonnet" | "opus" | "haiku" | "inherit";
 }
 
 function parseClaudeStringList(
@@ -152,7 +153,7 @@ function parseClaudeAgentMcpServers(value: unknown): AgentMcpServerSpec[] | unde
   return configRecord ? [configRecord] : undefined;
 }
 
-function parseClaudeAgentModel(value: unknown): AgentDefinition["model"] | undefined {
+function parseClaudeAgentModel(value: unknown): ClaudeAgent["model"] {
   return value === "sonnet" ||
       value === "opus" ||
       value === "haiku" ||

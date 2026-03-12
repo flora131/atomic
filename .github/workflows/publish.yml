@@ -76,7 +76,9 @@ jobs:
                   mkdir -p config-staging/.github
                   cp -r .github/skills config-staging/.github/
                   cp -r .github/agents config-staging/.github/
-                  cp .github/mcp-config.json config-staging/.github/
+                  cp .github/lsp.json config-staging/.github/
+                  mkdir -p config-staging/.vscode
+                  cp .vscode/mcp.json config-staging/.vscode/
 
                   # Remove node_modules from .opencode if present
                   rm -rf config-staging/.opencode/node_modules

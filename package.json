@@ -27,6 +27,7 @@
         ".mcp.json",
         ".github/skills",
         ".github/agents",
+        ".github/lsp.json",
         ".vscode/mcp.json"
     ],
     "scripts": {

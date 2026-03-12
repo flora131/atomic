@@ -242,12 +242,21 @@ export async function spawnTelemetryUpload(): Promise<void> {
     }
 
     try {
-        // Get the script path, with fallback for edge cases
+        // Build the spawn argv for the upload-telemetry hidden command.
+        // In compiled binaries, process.argv[1] is the $bunfs virtual-FS path
+        // to the bundled entry (e.g. "B:/~BUN/root/src/cli.js"). Passing it as
+        // a user argument to the re-spawned binary would add a phantom arg that
+        // prevents Commander from finding the upload-telemetry command.  The
+        // binary already embeds its entry — just pass the command directly.
         const scriptPath = process.argv[1] ?? "atomic";
+        const isBunfsEntry = /[\\/]\$bunfs[\\/]|^[Bb]:[\\/]~BUN[\\/]/.test(scriptPath);
+        const spawnArgv = isBunfsEntry
+            ? [process.execPath, "upload-telemetry"]
+            : [process.execPath, scriptPath, "upload-telemetry"];
 
         // Spawn detached process that outlives parent
         const child = Bun.spawn(
-            [process.execPath, scriptPath, "upload-telemetry"],
+            spawnArgv,
             {
                 detached: true,
                 stdin: "ignore",
@@ -275,14 +284,16 @@ export async function spawnTelemetryUpload(): Promise<void> {
  * - Error handling with colored output
  */
 async function main(): Promise<void> {
-    // Clean up leftover Windows files from previous uninstall/update operations
-    // This is a no-op on non-Windows platforms
-    if (process.platform === "win32") {
-        const { cleanupWindowsLeftoverFiles } = await import("@/services/system/cleanup.ts");
-        await cleanupWindowsLeftoverFiles();
-    }
-
     try {
+        // Clean up leftover Windows files from previous uninstall/update operations
+        // This is a no-op on non-Windows platforms.
+        // Runs inside try/catch so a failure in the dynamic import or cleanup
+        // never surfaces as an unhandled rejection.
+        if (process.platform === "win32") {
+            const { cleanupWindowsLeftoverFiles } = await import("@/services/system/cleanup.ts");
+            await cleanupWindowsLeftoverFiles();
+        }
+
         // Parse and execute the command
         // Commander.js handles all argument parsing including the hidden upload-telemetry command
         await program.parseAsync();
@@ -302,6 +313,10 @@ async function main(): Promise<void> {
 }
 
 // Run the CLI
-if (import.meta.main) {
+// Bun compiled binaries (as of Bun ≤ 1.3.x) incorrectly set import.meta.main
+// to false even for the primary entrypoint.  Detect compiled-binary mode via the
+// $bunfs virtual-filesystem prefix that Bun injects into import.meta.path.
+const _isCompiledBinary = /[\\/]\$bunfs[\\/]|^[Bb]:[\\/]~BUN[\\/]/.test(import.meta.path);
+if (import.meta.main || _isCompiledBinary) {
     await main();
 }

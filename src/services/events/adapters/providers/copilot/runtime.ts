@@ -44,6 +44,7 @@ export async function startCopilotStreaming(
   state.messageId = options.messageId;
   state.accumulatedText = "";
   state.accumulatedOutputTokens = 0;
+  state.pendingIdleReason = null;
   state.thinkingStreams.clear();
   state.toolNameById.clear();
   state.emittedToolStartIds.clear();
@@ -140,6 +141,17 @@ export async function startCopilotStreaming(
     }
   } finally {
     cleanupCopilotOrphanedTools(state, deps.bus);
+    const pendingIdleReason = state.pendingIdleReason;
+    state.pendingIdleReason = null;
+    if (!abortedBySignal && pendingIdleReason !== null) {
+      publishCopilotBufferedEvent(state, deps.bus, {
+        type: "stream.session.idle",
+        sessionId: state.sessionId,
+        runId: state.runId,
+        timestamp: Date.now(),
+        data: { reason: pendingIdleReason },
+      });
+    }
     state.isActive = false;
     options.abortSignal?.removeEventListener("abort", abortListener);
   }
@@ -156,6 +168,7 @@ export function disposeCopilotStreamAdapter(
   state.thinkingStreams.clear();
   state.accumulatedText = "";
   state.accumulatedOutputTokens = 0;
+  state.pendingIdleReason = null;
   state.toolNameById.clear();
   state.emittedToolStartIds.clear();
   state.taskToolMetadata.clear();

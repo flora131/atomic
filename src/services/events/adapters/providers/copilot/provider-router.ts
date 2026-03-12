@@ -334,6 +334,9 @@ function createSessionHandlerContext(
     updateAccumulatedOutputTokens: (value: number) => {
       state.accumulatedOutputTokens = value;
     },
+    updatePendingIdleReason: (reason: string | null) => {
+      state.pendingIdleReason = reason;
+    },
   };
 }
 

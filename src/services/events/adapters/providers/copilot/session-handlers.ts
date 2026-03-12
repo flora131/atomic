@@ -41,14 +41,7 @@ export function handleCopilotSessionIdle(
     accumulatedText: context.accumulatedText,
     success: reason === "idle",
   });
-
-  context.publishEvent({
-    type: "stream.session.idle",
-    sessionId: context.sessionId,
-    runId: context.runId,
-    timestamp: Date.now(),
-    data: { reason },
-  });
+  context.updatePendingIdleReason(typeof reason === "string" ? reason : null);
 }
 
 export function handleCopilotSessionError(

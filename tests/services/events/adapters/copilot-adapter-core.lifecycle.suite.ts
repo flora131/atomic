@@ -168,6 +168,59 @@ describe("CopilotStreamAdapter lifecycle behavior", () => {
     expect(toolCompleteEvents[0].runId).toBe(200);
   });
 
+  test("defers session idle until late tool completions are published", async () => {
+    const events = collectEvents(bus);
+
+    async function* slowStream(): AsyncGenerator<AgentMessage> {
+      yield { type: "text", content: "start" };
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      yield { type: "text", content: "end" };
+    }
+
+    const session = createMockSession(slowStream());
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 201,
+      messageId: "msg-late-tool-after-idle",
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    client.emit("session.idle" as EventType, {
+      type: "session.idle",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: { reason: "idle" },
+    } as AgentEvent<"session.idle">);
+    client.emit("tool.complete" as EventType, {
+      type: "tool.complete",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        toolName: "write",
+        toolResult: { filePath: "src/example.ts" },
+        success: true,
+        toolCallId: "tool-late-write",
+      },
+    } as AgentEvent<"tool.complete">);
+
+    await streamPromise;
+
+    const toolCompleteIndex = events.findIndex(
+      (event) =>
+        event.type === "stream.tool.complete"
+        && event.data.toolId === "tool-late-write",
+    );
+    const idleIndex = events.findIndex(
+      (event) =>
+        event.type === "stream.session.idle"
+        && event.runId === 201,
+    );
+
+    expect(toolCompleteIndex).toBeGreaterThan(-1);
+    expect(idleIndex).toBeGreaterThan(-1);
+    expect(toolCompleteIndex).toBeLessThan(idleIndex);
+  });
+
   test("publishes session error on stream error", async () => {
     const events = collectEvents(bus);
     const errorStream: AsyncIterable<AgentMessage> = {

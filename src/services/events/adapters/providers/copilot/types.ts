@@ -74,6 +74,7 @@ export interface CopilotStreamAdapterState {
   thinkingStreams: Map<string, CopilotThinkingStreamState>;
   accumulatedText: string;
   accumulatedOutputTokens: number;
+  pendingIdleReason: string | null;
   runtimeFeatureFlags: WorkflowRuntimeFeatureFlags;
   turnMetadataState: ReturnType<typeof createTurnMetadataState>;
 }
@@ -99,6 +100,7 @@ export interface CopilotSessionHandlerContext {
     rawParentToolCallId: string | undefined,
   ) => string | undefined;
   updateAccumulatedOutputTokens: (value: number) => void;
+  updatePendingIdleReason: (reason: string | null) => void;
 }
 
 export interface CopilotProviderHandlerDeps {

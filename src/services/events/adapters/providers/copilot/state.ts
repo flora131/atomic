@@ -26,6 +26,7 @@ export function createCopilotStreamAdapterState(): CopilotStreamAdapterState {
     thinkingStreams: new Map(),
     accumulatedText: "",
     accumulatedOutputTokens: 0,
+    pendingIdleReason: null,
     runtimeFeatureFlags: resetCopilotRuntimeFeatureFlags(),
     turnMetadataState: createTurnMetadataState(),
   };

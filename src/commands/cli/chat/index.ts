@@ -179,13 +179,22 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     const configNotFoundMessage =
       `Source control skills are missing or out of sync for ${agentName}. Starting setup...`;
 
-    const { initCommand } = await import("@/commands/cli/init.ts");
-    await initCommand({
-      showBanner: false,
-      preSelectedAgent: agentType,
-      preSelectedScm: selectedScm ?? undefined,
-      configNotFoundMessage,
-    });
+    const { initCommand, InitCancelledError } = await import("@/commands/cli/init.ts");
+    try {
+      await initCommand({
+        showBanner: false,
+        preSelectedAgent: agentType,
+        preSelectedScm: selectedScm ?? undefined,
+        configNotFoundMessage,
+        callerHandlesExit: true,
+      });
+    } catch (error) {
+      if (error instanceof InitCancelledError) {
+        // User cancelled auto-init — exit gracefully without starting chat
+        return 0;
+      }
+      throw error;
+    }
   }
 
   console.log(`Starting ${agentName} chat interface...`);

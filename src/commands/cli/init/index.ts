@@ -47,6 +47,21 @@ import {
   hasProjectOnboardingFiles,
 } from "./onboarding.ts";
 
+/**
+ * Thrown when the user cancels an interactive prompt during init.
+ *
+ * When `initCommand` is invoked from a caller that sets
+ * `callerHandlesExit: true` (e.g. the auto-init path inside
+ * `chatCommand`), cancellation throws this error instead of calling
+ * `process.exit(0)` so the caller can decide what to do.
+ */
+export class InitCancelledError extends Error {
+  constructor(message = "Operation cancelled.") {
+    super(message);
+    this.name = "InitCancelledError";
+  }
+}
+
 interface InitOptions {
   showBanner?: boolean;
   preSelectedAgent?: AgentKey;
@@ -57,6 +72,12 @@ interface InitOptions {
   force?: boolean;
   /** Auto-confirm all prompts (non-interactive mode for CI/testing) */
   yes?: boolean;
+  /**
+   * When true, throw `InitCancelledError` instead of calling
+   * `process.exit()` on user cancellation.  This allows callers like
+   * `chatCommand` auto-init to handle the cancellation gracefully.
+   */
+  callerHandlesExit?: boolean;
 }
 
 export {
@@ -98,7 +119,17 @@ function runPlaywrightCliInstall(): void {
  * Run the interactive init command
  */
 export async function initCommand(options: InitOptions = {}): Promise<void> {
-  const { showBanner = true, configNotFoundMessage } = options;
+  const { showBanner = true, configNotFoundMessage, callerHandlesExit = false } = options;
+
+  /** Exit-or-throw helper: when a caller (e.g. chatCommand auto-init) sets
+   *  `callerHandlesExit`, we throw so the caller can handle the cancellation.
+   *  Otherwise we call `process.exit()` directly (standalone `atomic init`). */
+  function exitOrThrow(code: number, message?: string): never {
+    if (callerHandlesExit) {
+      throw new InitCancelledError(message);
+    }
+    process.exit(code);
+  }
 
   // Display banner
   if (showBanner) {
@@ -124,7 +155,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     // Pre-selected agent - validate and skip selection prompt
     if (!isValidAgent(options.preSelectedAgent)) {
       cancel(`Unknown agent: ${options.preSelectedAgent}`);
-      process.exit(1);
+      exitOrThrow(1, `Unknown agent: ${options.preSelectedAgent}`);
     }
     agentKey = options.preSelectedAgent;
     log.info(`Configuring ${AGENT_CONFIG[agentKey].name}...`);
@@ -144,7 +175,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
 
     if (isCancel(selectedAgent)) {
       cancel("Operation cancelled.");
-      process.exit(0);
+      exitOrThrow(0);
     }
 
     agentKey = selectedAgent as AgentKey;
@@ -162,7 +193,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     // Pre-selected SCM - validate and skip selection prompt
     if (!isValidScm(options.preSelectedScm)) {
       cancel(`Unknown source control: ${options.preSelectedScm}`);
-      process.exit(1);
+      exitOrThrow(1, `Unknown source control: ${options.preSelectedScm}`);
     }
     scmType = options.preSelectedScm;
     log.info(`Using ${SCM_CONFIG[scmType].displayName} for source control...`);
@@ -185,7 +216,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
 
     if (isCancel(selectedScm)) {
       cancel("Operation cancelled.");
-      process.exit(0);
+      exitOrThrow(0);
     }
 
     scmType = selectedScm as SourceControlType;
@@ -214,12 +245,12 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
 
     if (isCancel(confirmDir)) {
       cancel("Operation cancelled.");
-      process.exit(0);
+      exitOrThrow(0);
     }
 
     if (!confirmDir) {
       cancel("Operation cancelled.");
-      process.exit(0);
+      exitOrThrow(0);
     }
   }
 
@@ -250,12 +281,12 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
 
     if (isCancel(update)) {
       cancel("Operation cancelled.");
-      process.exit(0);
+      exitOrThrow(0);
     }
 
     if (!update) {
       cancel("Operation cancelled. Existing config preserved.");
-      process.exit(0);
+      exitOrThrow(0);
     }
   }
 
@@ -316,7 +347,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     console.error(
       error instanceof Error ? error.message : "Unknown error occurred"
     );
-    process.exit(1);
+    exitOrThrow(1, error instanceof Error ? error.message : "Unknown error occurred");
   }
 
   const playwrightInstallSpinner = spinner();

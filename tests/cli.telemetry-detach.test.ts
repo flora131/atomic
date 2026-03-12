@@ -38,7 +38,15 @@ describe("spawnTelemetryUpload", () => {
     expect(spawnSpy!.mock.calls.length).toBe(1);
 
     const [argv, options] = spawnSpy!.mock.calls[0]!;
-    expect(argv).toEqual([process.execPath, process.argv[1] ?? "atomic", "upload-telemetry"]);
+    // In source/npm mode process.argv[1] is the real script path; in compiled
+    // binaries ($bunfs) the virtual entry is detected and omitted so that
+    // Commander receives only the "upload-telemetry" command.
+    const scriptPath = process.argv[1] ?? "atomic";
+    const isBunfsEntry = /[\\/]\$bunfs[\\/]|^[Bb]:[\\/]~BUN[\\/]/.test(scriptPath);
+    const expectedArgv = isBunfsEntry
+      ? [process.execPath, "upload-telemetry"]
+      : [process.execPath, scriptPath, "upload-telemetry"];
+    expect(argv).toEqual(expectedArgv);
     expect(options).toMatchObject({
       detached: true,
       stdin: "ignore",

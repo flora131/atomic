@@ -1,0 +1,98 @@
+import type { UseChatAgentProjectionArgs } from "@/state/chat/agent/projection-types.ts";
+import { useChatAgentMessageProjection } from "@/state/chat/agent/use-message-projection.ts";
+import { useChatAgentOrderingMaintenance } from "@/state/chat/agent/use-ordering-maintenance.ts";
+import { useChatAgentStreamFinalization } from "@/state/chat/agent/use-stream-finalization.ts";
+
+export function useChatAgentProjection({
+  activeStreamRunIdRef,
+  agentAnchorSyncVersion,
+  agentLifecycleLedgerRef,
+  agentMessageIdByIdRef,
+  agentOrderingStateRef,
+  agentType,
+  awaitedStreamRunIdsRef,
+  backgroundAgentMessageIdRef,
+  completionOrderingEventByAgentRef,
+  continueQueuedConversation,
+  deferredCompleteTimeoutRef,
+  deferredPostCompleteDeltasByAgentRef,
+  deleteAgentMessageBinding,
+  doneRenderedSequenceByAgentRef,
+  finalizeThinkingSourceTracking,
+  getActiveStreamRunId,
+  hasRunningToolRef,
+  isAgentOnlyStreamRef,
+  isStreamingRef,
+  lastStreamedMessageIdRef,
+  lastStreamingContentRef,
+  messages,
+  parallelAgents,
+  parallelAgentsRef,
+  pendingCompleteRef,
+  resolveTrackedRun,
+  setBackgroundAgentMessageId,
+  setMessagesWindowed,
+  setParallelAgents,
+  stopSharedStreamState,
+  streamingMessageIdRef,
+  streamingStartRef,
+  todoItemsRef,
+  toolCompletionVersion,
+  workflowActiveRef,
+}: UseChatAgentProjectionArgs) {
+  const { handleAgentDoneRendered } = useChatAgentMessageProjection({
+    activeStreamRunIdRef,
+    agentAnchorSyncVersion,
+    agentLifecycleLedgerRef,
+    agentMessageIdByIdRef,
+    agentOrderingStateRef,
+    agentType,
+    backgroundAgentMessageIdRef,
+    completionOrderingEventByAgentRef,
+    doneRenderedSequenceByAgentRef,
+    lastStreamedMessageIdRef,
+    parallelAgents,
+    setBackgroundAgentMessageId,
+    setMessagesWindowed,
+    streamingMessageIdRef,
+    streamingStartRef,
+    workflowActiveRef,
+  });
+
+  useChatAgentOrderingMaintenance({
+    agentMessageIdByIdRef,
+    agentOrderingStateRef,
+    completionOrderingEventByAgentRef,
+    deferredPostCompleteDeltasByAgentRef,
+    deleteAgentMessageBinding,
+    doneRenderedSequenceByAgentRef,
+    parallelAgents,
+  });
+
+  useChatAgentStreamFinalization({
+    awaitedStreamRunIdsRef,
+    continueQueuedConversation,
+    deferredCompleteTimeoutRef,
+    finalizeThinkingSourceTracking,
+    getActiveStreamRunId,
+    hasRunningToolRef,
+    isAgentOnlyStreamRef,
+    isStreamingRef,
+    lastStreamingContentRef,
+    messages,
+    parallelAgents,
+    parallelAgentsRef,
+    pendingCompleteRef,
+    resolveTrackedRun,
+    setBackgroundAgentMessageId,
+    setMessagesWindowed,
+    setParallelAgents,
+    stopSharedStreamState,
+    streamingMessageIdRef,
+    streamingStartRef,
+    todoItemsRef,
+    toolCompletionVersion,
+  });
+
+  return { handleAgentDoneRendered };
+}

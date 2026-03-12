@@ -1,0 +1,112 @@
+/**
+ * MessageBubbleParts Component
+ *
+ * Renders a ChatMessage using the parts-based rendering system.
+ * Each part is dispatched to its corresponding renderer via PART_REGISTRY.
+ */
+
+import React from "react";
+import type { SyntaxStyle } from "@opentui/core";
+import type { ChatMessage } from "@/screens/chat-screen.tsx";
+import type { Part } from "@/state/parts/types.ts";
+import { PART_REGISTRY } from "@/components/message-parts/registry.tsx";
+import { SPACING } from "@/theme/spacing.ts";
+
+export function orderPartsForTaskOutputDisplay(parts: ReadonlyArray<Part>): Part[] {
+  return [...parts];
+}
+
+/**
+ * Legacy helper kept for API compatibility.
+ *
+ * Tool parts are no longer hidden behind a sub-agent tree, so no
+ * toolCallIds are consumed.
+ */
+export function getConsumedTaskToolCallIds(parts: ReadonlyArray<Part>): Set<string> {
+  void parts;
+  return new Set<string>();
+}
+
+export interface MessageBubblePartsProps {
+  message: ChatMessage;
+  syntaxStyle?: SyntaxStyle;
+  onAgentDoneRendered?: (marker: { agentId: string; timestampMs: number }) => void;
+}
+
+function getReasoningSourceKey(part: Part): string {
+  if (part.type !== "reasoning") {
+    return "";
+  }
+
+  const sourceKey = part.thinkingSourceKey;
+  if (typeof sourceKey !== "string") {
+    return "";
+  }
+
+  return sourceKey.trim();
+}
+
+function getPartRenderKeyBase(part: Part): string {
+  const sourceKey = getReasoningSourceKey(part);
+  if (sourceKey.length > 0) {
+    return `reasoning-source:${sourceKey}`;
+  }
+
+  return part.id;
+}
+
+export function buildPartRenderKeys(parts: ReadonlyArray<Part>): string[] {
+  const seen = new Map<string, number>();
+
+  return parts.map((part) => {
+    const baseKey = getPartRenderKeyBase(part);
+    const existingCount = seen.get(baseKey) ?? 0;
+    seen.set(baseKey, existingCount + 1);
+
+    if (existingCount === 0) {
+      return baseKey;
+    }
+
+    return `${baseKey}#${existingCount}`;
+  });
+}
+
+/**
+ * Renders a message from its parts array using the PART_REGISTRY.
+ * Returns null if the message has no parts.
+ *
+ * Spacing principle: the parent container owns all inter-part spacing
+ * via `gap`. Child part components must NOT add their own marginBottom
+ * to avoid double-spacing. Parts that need extra section-level
+ * separation can add marginTop internally.
+ */
+export function MessageBubbleParts({
+  message,
+  syntaxStyle,
+  onAgentDoneRendered,
+}: MessageBubblePartsProps): React.ReactNode {
+  const parts = orderPartsForTaskOutputDisplay(message.parts ?? []);
+  const renderKeys = buildPartRenderKeys(parts);
+
+  if (parts.length === 0) {
+    return null;
+  }
+
+  return (
+    <box flexDirection="column" gap={SPACING.ELEMENT}>
+      {parts.map((part, index) => {
+        const Renderer = PART_REGISTRY[part.type];
+        if (!Renderer) return null;
+        return (
+          <Renderer
+            key={renderKeys[index] ?? part.id}
+            part={part}
+            isLast={index === parts.length - 1}
+            syntaxStyle={syntaxStyle}
+            onAgentDoneRendered={onAgentDoneRendered}
+          />
+        );
+      })}
+    </box>
+  );
+}

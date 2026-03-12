@@ -47,6 +47,7 @@ export class SubagentStreamAdapter {
       textAccumulator: "",
       toolUseCount: 0,
       tokenUsage: { inputTokens: 0, outputTokens: 0 },
+      tokenUsageByAgent: new Map<string, { inputTokens: number; outputTokens: number }>(),
       thinkingDurationMs: 0,
       thinkingStartTimes: new Map<string, number>(),
       toolDetails: [],

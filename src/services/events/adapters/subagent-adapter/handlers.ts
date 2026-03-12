@@ -1,5 +1,10 @@
 import type { AgentMessage } from "@/services/agents/types.ts";
 import type { BusEvent } from "@/services/events/bus-events.ts";
+import {
+  readSubagentLifecycleMetadata,
+  readSubagentRoutingMetadata,
+  type SubagentLifecycleMetadata,
+} from "@/services/agents/contracts/subagent-stream.ts";
 import type { SubagentStreamResult } from "@/services/workflows/graph/types.ts";
 import {
   asRecord,
@@ -17,6 +22,12 @@ export function processSubagentChunk(
   state: SubagentStreamAdapterState,
   chunk: AgentMessage,
 ): void {
+  const lifecycle = readSubagentLifecycleMetadata(chunk.metadata);
+  if (lifecycle) {
+    handleNestedSubagentLifecycle(state, lifecycle);
+    return;
+  }
+
   switch (chunk.type) {
     case "text":
       handleSubagentText(state, chunk);
@@ -41,8 +52,11 @@ export function handleSubagentText(
 ): void {
   if (typeof chunk.content !== "string") return;
 
+  const agentId = resolveChunkAgentId(state, chunk);
   const delta = chunk.content;
-  state.textAccumulator += delta;
+  if (agentId === state.agentId) {
+    state.textAccumulator += delta;
+  }
 
   const event: BusEvent<"stream.text.delta"> = {
     type: "stream.text.delta",
@@ -51,8 +65,8 @@ export function handleSubagentText(
     timestamp: Date.now(),
     data: {
       delta,
-      messageId: state.messageId,
-      agentId: state.agentId,
+      messageId: buildMessageId(agentId),
+      agentId,
     },
   };
 
@@ -63,13 +77,15 @@ export function handleSubagentThinking(
   state: SubagentStreamAdapterState,
   chunk: AgentMessage,
 ): void {
+  const agentId = resolveChunkAgentId(state, chunk);
   const metadata = chunk.metadata;
   const thinkingSourceKey =
     (metadata?.thinkingSourceKey as string | undefined) ?? "default";
+  const thinkingStateKey = `${agentId}:${thinkingSourceKey}`;
 
   if (typeof chunk.content === "string" && chunk.content.length > 0) {
-    if (!state.thinkingStartTimes.has(thinkingSourceKey)) {
-      state.thinkingStartTimes.set(thinkingSourceKey, Date.now());
+    if (!state.thinkingStartTimes.has(thinkingStateKey)) {
+      state.thinkingStartTimes.set(thinkingStateKey, Date.now());
     }
 
     state.bus.publish({
@@ -80,8 +96,8 @@ export function handleSubagentThinking(
       data: {
         delta: chunk.content,
         sourceKey: thinkingSourceKey,
-        messageId: state.messageId,
-        agentId: state.agentId,
+        messageId: buildMessageId(agentId),
+        agentId,
       },
     });
   }
@@ -90,11 +106,13 @@ export function handleSubagentThinking(
     | { thinkingMs?: number; outputTokens?: number }
     | undefined;
   if (streamingStats?.thinkingMs !== undefined && chunk.content === "") {
-    const startTime = state.thinkingStartTimes.get(thinkingSourceKey);
+    const startTime = state.thinkingStartTimes.get(thinkingStateKey);
     const durationMs =
       streamingStats.thinkingMs ?? (startTime ? Date.now() - startTime : 0);
-    state.thinkingStartTimes.delete(thinkingSourceKey);
-    state.thinkingDurationMs += durationMs;
+    state.thinkingStartTimes.delete(thinkingStateKey);
+    if (agentId === state.agentId) {
+      state.thinkingDurationMs += durationMs;
+    }
 
     state.bus.publish({
       type: "stream.thinking.complete",
@@ -104,7 +122,7 @@ export function handleSubagentThinking(
       data: {
         sourceKey: thinkingSourceKey,
         durationMs,
-        agentId: state.agentId,
+        agentId,
       },
     });
   }
@@ -114,6 +132,7 @@ export function handleSubagentToolUse(
   state: SubagentStreamAdapterState,
   chunk: AgentMessage,
 ): void {
+  const agentId = resolveChunkAgentId(state, chunk);
   state.toolUseCount++;
 
   const chunkRecord = chunk as unknown as Record<string, unknown>;
@@ -137,14 +156,17 @@ export function handleSubagentToolUse(
   );
   const toolInput = asRecord(contentRecord.input ?? chunkRecord.input) ?? {};
   const toolId = explicitToolId ?? createSyntheticToolId(
-    state.agentId,
+    agentId,
     toolName,
     ++state.syntheticToolCounter,
   );
 
   state.toolStartTimes.set(toolId, Date.now());
   state.toolNames.set(toolId, toolName);
-  state.toolTracker.onToolStart(state.agentId, toolName);
+  if (!state.toolTracker.hasAgent(agentId)) {
+    state.toolTracker.registerAgent(agentId);
+  }
+  state.toolTracker.onToolStart(agentId, toolName);
 
   state.bus.publish({
     type: "stream.tool.start",
@@ -156,7 +178,7 @@ export function handleSubagentToolUse(
       toolName,
       toolInput,
       sdkCorrelationId: explicitToolId ?? toolId,
-      parentAgentId: state.agentId,
+      parentAgentId: agentId,
     },
   });
 }
@@ -165,6 +187,7 @@ export function handleSubagentToolResult(
   state: SubagentStreamAdapterState,
   chunk: AgentMessage,
 ): void {
+  const agentId = resolveChunkAgentId(state, chunk);
   const chunkRecord = chunk as unknown as Record<string, unknown>;
   const content = chunkRecord.content;
   const metadataRecord = asRecord(chunk.metadata) ?? {};
@@ -185,7 +208,7 @@ export function handleSubagentToolResult(
     resolveToolCompleteId(
       state.toolNames,
       (name) =>
-        createSyntheticToolId(state.agentId, name, ++state.syntheticToolCounter),
+        createSyntheticToolId(agentId, name, ++state.syntheticToolCounter),
       toolName,
     );
 
@@ -209,7 +232,7 @@ export function handleSubagentToolResult(
     success: !isError,
   });
 
-  state.toolTracker.onToolComplete(state.agentId);
+  state.toolTracker.onToolComplete(agentId);
 
   state.bus.publish({
     type: "stream.tool.complete",
@@ -227,7 +250,7 @@ export function handleSubagentToolResult(
           : String(content)
         : undefined,
       sdkCorrelationId: explicitToolId ?? toolId,
-      parentAgentId: state.agentId,
+      parentAgentId: agentId,
     },
   });
 }
@@ -236,6 +259,7 @@ export function handleSubagentUsage(
   state: SubagentStreamAdapterState,
   chunk: AgentMessage,
 ): void {
+  const agentId = resolveChunkAgentId(state, chunk);
   const tokenUsage = chunk.metadata?.tokenUsage as
     | { inputTokens?: number; outputTokens?: number }
     | undefined;
@@ -245,8 +269,17 @@ export function handleSubagentUsage(
   const outputTokens = tokenUsage.outputTokens ?? 0;
   if (inputTokens <= 0 && outputTokens <= 0) return;
 
-  state.tokenUsage.inputTokens += inputTokens;
-  state.tokenUsage.outputTokens += outputTokens;
+  const agentUsage = state.tokenUsageByAgent.get(agentId) ?? {
+    inputTokens: 0,
+    outputTokens: 0,
+  };
+  agentUsage.inputTokens += inputTokens;
+  agentUsage.outputTokens += outputTokens;
+  state.tokenUsageByAgent.set(agentId, agentUsage);
+
+  if (agentId === state.agentId) {
+    state.tokenUsage = { ...agentUsage };
+  }
 
   state.bus.publish({
     type: "stream.usage",
@@ -254,10 +287,10 @@ export function handleSubagentUsage(
     runId: state.runId,
     timestamp: Date.now(),
     data: {
-      inputTokens: state.tokenUsage.inputTokens,
-      outputTokens: state.tokenUsage.outputTokens,
+      inputTokens: agentUsage.inputTokens,
+      outputTokens: agentUsage.outputTokens,
       model: chunk.metadata?.model as string | undefined,
-      agentId: state.agentId,
+      agentId,
     },
   });
 }
@@ -317,8 +350,10 @@ export function finalizeSubagentThinking(
   state: SubagentStreamAdapterState,
 ): void {
   const now = Date.now();
-  for (const [, startTime] of state.thinkingStartTimes) {
-    state.thinkingDurationMs += now - startTime;
+  for (const [key, startTime] of state.thinkingStartTimes) {
+    if (key.startsWith(`${state.agentId}:`)) {
+      state.thinkingDurationMs += now - startTime;
+    }
   }
   state.thinkingStartTimes.clear();
 }
@@ -361,6 +396,7 @@ export function resetSubagentStreamState(
   state.textAccumulator = "";
   state.toolUseCount = 0;
   state.tokenUsage = { inputTokens: 0, outputTokens: 0 };
+  state.tokenUsageByAgent.clear();
   state.thinkingDurationMs = 0;
   state.thinkingStartTimes.clear();
   state.toolDetails = [];
@@ -369,4 +405,81 @@ export function resetSubagentStreamState(
   state.syntheticToolCounter = 0;
   state.toolTracker.removeAgent(state.agentId);
   state.toolTracker.registerAgent(state.agentId);
+}
+
+function resolveChunkAgentId(
+  state: SubagentStreamAdapterState,
+  chunk: AgentMessage,
+): string {
+  return readSubagentRoutingMetadata(chunk.metadata)?.agentId ?? state.agentId;
+}
+
+function buildMessageId(agentId: string): string {
+  return `subagent-${agentId}`;
+}
+
+function handleNestedSubagentLifecycle(
+  state: SubagentStreamAdapterState,
+  lifecycle: SubagentLifecycleMetadata,
+): void {
+  switch (lifecycle.eventType) {
+    case "start":
+      state.toolTracker.registerAgent(lifecycle.subagentId);
+      state.bus.publish({
+        type: "stream.agent.start",
+        sessionId: state.sessionId,
+        runId: state.runId,
+        timestamp: Date.now(),
+        data: {
+          agentId: lifecycle.subagentId,
+          toolCallId:
+            lifecycle.toolCallId
+            ?? lifecycle.sdkCorrelationId
+            ?? lifecycle.subagentId,
+          agentType: lifecycle.subagentType ?? "unknown",
+          task: lifecycle.task ?? lifecycle.subagentType ?? "sub-agent task",
+          isBackground: lifecycle.isBackground ?? false,
+          ...(lifecycle.sdkCorrelationId
+            ? { sdkCorrelationId: lifecycle.sdkCorrelationId }
+            : {}),
+        },
+      });
+      return;
+    case "update":
+      state.bus.publish({
+        type: "stream.agent.update",
+        sessionId: state.sessionId,
+        runId: state.runId,
+        timestamp: Date.now(),
+        data: {
+          agentId: lifecycle.subagentId,
+          ...(lifecycle.currentTool ? { currentTool: lifecycle.currentTool } : {}),
+          ...(lifecycle.toolUses !== undefined ? { toolUses: lifecycle.toolUses } : {}),
+        },
+      });
+      return;
+    case "complete":
+      state.toolTracker.removeAgent(lifecycle.subagentId);
+      state.bus.publish({
+        type: "stream.agent.complete",
+        sessionId: state.sessionId,
+        runId: state.runId,
+        timestamp: Date.now(),
+        data: {
+          agentId: lifecycle.subagentId,
+          success: lifecycle.success !== false,
+          ...(typeof lifecycle.result === "string" ? { result: lifecycle.result } : {}),
+          ...(
+            lifecycle.success === false
+              ? {
+                error:
+                  lifecycle.error
+                  ?? (lifecycle.result !== undefined ? String(lifecycle.result) : undefined),
+              }
+              : {}
+          ),
+        },
+      });
+      return;
+  }
 }

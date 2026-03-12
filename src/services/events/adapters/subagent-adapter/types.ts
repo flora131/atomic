@@ -17,6 +17,7 @@ export interface SubagentStreamAdapterState {
   textAccumulator: string;
   toolUseCount: number;
   tokenUsage: { inputTokens: number; outputTokens: number };
+  tokenUsageByAgent: Map<string, { inputTokens: number; outputTokens: number }>;
   thinkingDurationMs: number;
   thinkingStartTimes: Map<string, number>;
   toolDetails: SubagentToolDetail[];

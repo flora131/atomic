@@ -121,6 +121,7 @@ atomic chat -a claude "/research-codebase Research implementing GraphRAG using \
 ### Prerequisites
 
 - **Operating Systems**: macOS, Linux, or Windows (with PowerShell)
+- **Windows users: PowerShell 7+ is required.** You can install it from [Microsoft's official guide](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-windows).
 - **At least one coding agent installed**:
     - [Claude Code](https://code.claude.com/docs/en/quickstart)
     - [OpenCode](https://opencode.ai)

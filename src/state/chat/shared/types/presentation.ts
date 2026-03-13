@@ -14,7 +14,6 @@ export interface MessageBubbleProps {
   message: ChatMessage;
   isLast?: boolean;
   syntaxStyle?: SyntaxStyle;
-  hideAskUserQuestion?: boolean;
   hideLoading?: boolean;
   todoItems?: TaskItem[];
   tasksExpanded?: boolean;

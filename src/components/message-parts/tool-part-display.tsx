@@ -10,7 +10,7 @@ import React from "react";
 import { getToolStatusColorKey, ToolResult } from "@/components/tool-result.tsx";
 import { isSdkAskQuestionToolName } from "@/components/tool-registry/index.ts";
 import { useThemeColors } from "@/theme/index.tsx";
-import { CONNECTOR, STATUS, TREE } from "@/theme/icons.ts";
+import { CONNECTOR, STATUS } from "@/theme/icons.ts";
 import type { ToolPart, ToolState } from "@/state/parts/types.ts";
 import type { ToolExecutionStatus } from "@/state/parts/types.ts";
 import { getHitlResponseRecord, type HitlResponseRecord } from "@/lib/ui/hitl-response.ts";
@@ -27,6 +27,17 @@ export interface ToolPartDisplayProps {
 const HITL_TOOL_NAMES = new Set(["AskUserQuestion", "question", "ask_user"]);
 
 /**
+ * Returns true when a ToolPart is a completed HITL tool that renders nothing.
+ * Used by MessageBubbleParts to filter these out before layout so they don't
+ * create phantom gap slots in OpenTUI flex containers.
+ */
+export function isCompletedHitlPart(part: ToolPart): boolean {
+  if (!HITL_TOOL_NAMES.has(part.toolName)) return false;
+  const resolvedResponse = part.hitlResponse ?? synthesizeHitlResponse(part);
+  return !part.pendingQuestion && resolvedResponse !== null;
+}
+
+/**
  * Converts ToolState (discriminated union) to ToolExecutionStatus (simple string).
  * This allows us to bridge between the parts model and the existing ToolResult component.
  */
@@ -35,47 +46,27 @@ function toolStateToStatus(state: ToolState): ToolExecutionStatus {
 }
 
 /**
- * Displays a completed HITL response inline showing both the original
- * question and the user's answer in a clear tree hierarchy:
- *   ✓ ask_user
- *   ├ Question text here...
- *   └ User answered: "answer text"
+ * Displays a pending HITL question inline in the message parts.
+ * Provides a visible footprint of the question in the chat history
+ * while the interactive dialog handles the actual answering.
  */
-function CompletedHitlDisplay({ hitlResponse, questionText }: {
-  hitlResponse: HitlResponseRecord;
+function PendingHitlDisplay({ questionText }: {
   questionText: string;
-  toolName: string;
 }): React.ReactNode {
   const colors = useThemeColors();
-  const isDeclined = hitlResponse.cancelled || hitlResponse.responseMode === "declined";
-  const statusIcon = isDeclined ? STATUS.error : STATUS.success;
-  const statusColor = isDeclined ? colors.warning : colors.success;
-  const responseColor = isDeclined ? colors.muted : colors.foreground;
   const hasQuestion = questionText.length > 0;
 
   return (
     <box flexDirection="column">
-      {/* Header: status icon + tool label */}
       <text wrapMode="word">
-        <span style={{ fg: statusColor }}>{statusIcon}</span>
-        <span style={{ fg: colors.accent }}> ask_user</span>
+        <span style={{ fg: colors.accent }}>{STATUS.active} ask_user</span>
       </text>
-
-      {/* Question line — show the full original question */}
       {hasQuestion && (
         <text wrapMode="word">
-          <span style={{ fg: colors.border }}>  {TREE.branch} </span>
-          <span style={{ fg: colors.foreground }}>{questionText}</span>
+          <span style={{ fg: colors.border }}>  {CONNECTOR.subStatus} </span>
+          <span style={{ fg: colors.muted }}>{questionText}</span>
         </text>
       )}
-
-      {/* Response line — tree connector for visual hierarchy */}
-      <text wrapMode="word">
-        <span style={{ fg: colors.border }}>  {CONNECTOR.subStatus} </span>
-        <span style={{ fg: responseColor }}>
-          {isDeclined ? "Declined" : `User answered: "${hitlResponse.answerText}"`}
-        </span>
-      </text>
     </box>
   );
 }
@@ -188,29 +179,30 @@ export function ToolPartDisplay({ part, summaryOnly = false }: ToolPartDisplayPr
   if (isHitlTool) {
     const resolvedResponse = part.hitlResponse ?? synthesizeHitlResponse(part);
     const isCompleted = !part.pendingQuestion && resolvedResponse;
+    const isPending = Boolean(part.pendingQuestion);
     const isRunning = part.state.status === "running" && !part.pendingQuestion && !resolvedResponse;
 
-    return (
-      <box flexDirection="column">
-        {/* Active HITL: rendered by the dedicated dialog in chat.tsx */}
+    // Completed HITL: the full Q&A is already rendered in the HitlResponseWidget
+    // user message, so collapse this to nothing to avoid redundant spacing.
+    if (isCompleted) {
+      return null;
+    }
 
-        {/* Completed HITL: transparent record with question + answer */}
-        {isCompleted && (
-          <CompletedHitlDisplay
-            hitlResponse={resolvedResponse}
-            questionText={extractQuestionText(part.input)}
-            toolName={part.toolName}
-          />
-        )}
+    // Pending HITL: inline footprint showing question while dialog is active
+    if (isPending) {
+      return <PendingHitlDisplay questionText={extractQuestionText(part.input)} />;
+    }
 
-        {/* Running HITL without pending dialog — show a minimal status line */}
-        {isRunning && (
-          <text wrapMode="word">
-            <span style={{ fg: colors.accent }}>{STATUS.active} ask_user</span>
-          </text>
-        )}
-      </box>
-    );
+    // Running HITL without pending dialog — show a minimal status line
+    if (isRunning) {
+      return (
+        <text wrapMode="word">
+          <span style={{ fg: colors.accent }}>{STATUS.active} ask_user</span>
+        </text>
+      );
+    }
+
+    return null;
   }
 
   return (

@@ -58,9 +58,11 @@ export function useChatRenderModel({
     if (streamingMessageId) activeMessageIds.add(streamingMessageId);
     if (lastStreamedMessageId) activeMessageIds.add(lastStreamedMessageId);
     if (backgroundAgentMessageId) activeMessageIds.add(backgroundAgentMessageId);
-    return messages.filter(
+    const filtered = messages.filter(
       (message) => !shouldHideStaleSubagentToolPlaceholder(message, activeMessageIds),
     );
+
+    return reorderStreamingMessageToEnd(filtered, streamingMessageId);
   }, [backgroundAgentMessageId, lastStreamedMessageId, messages, streamingMessageId]);
 
   const messageContent = useMemo(() => {
@@ -84,7 +86,6 @@ export function useChatRenderModel({
               message={msg}
               isLast={index === renderMessages.length - 1}
               syntaxStyle={markdownSyntaxStyle}
-              hideAskUserQuestion={activeQuestion !== null}
               hideLoading={activeQuestion !== null}
               activeBackgroundAgentCount={activeBackgroundAgentCount}
               todoItems={msg.streaming ? todoItems : undefined}
@@ -121,4 +122,26 @@ export function useChatRenderModel({
     messageContent,
     renderMessages,
   };
+}
+
+/**
+ * Ensure the streaming message is always rendered last so that system
+ * messages (info, warning, retry) appended during streaming appear
+ * above the spinner and chatbox rather than below them.
+ */
+export function reorderStreamingMessageToEnd(
+  messages: ChatMessage[],
+  streamingMessageId: string | null,
+): ChatMessage[] {
+  if (!streamingMessageId) return messages;
+
+  const streamIdx = messages.findIndex((m) => m.id === streamingMessageId);
+  if (streamIdx < 0 || streamIdx >= messages.length - 1) return messages;
+
+  const streamingMsg = messages[streamIdx]!;
+  return [
+    ...messages.slice(0, streamIdx),
+    ...messages.slice(streamIdx + 1),
+    streamingMsg,
+  ];
 }

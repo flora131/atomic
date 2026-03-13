@@ -50,7 +50,6 @@ export function HitlResponseWidget({ context }: HitlResponseWidgetProps): React.
   return (
     <box
       flexDirection="column"
-      marginBottom={SPACING.ELEMENT}
     >
       {/* Header badge — rounded connector style matching UserQuestionDialog */}
       <box marginBottom={SPACING.NONE}>

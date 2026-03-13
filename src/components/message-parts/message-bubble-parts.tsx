@@ -10,6 +10,7 @@ import type { SyntaxStyle } from "@opentui/core";
 import type { ChatMessage } from "@/screens/chat-screen.tsx";
 import type { Part } from "@/state/parts/types.ts";
 import { PART_REGISTRY } from "@/components/message-parts/registry.tsx";
+import { isCompletedHitlPart } from "@/components/message-parts/tool-part-display.tsx";
 import { SPACING } from "@/theme/spacing.ts";
 
 export function orderPartsForTaskOutputDisplay(parts: ReadonlyArray<Part>): Part[] {
@@ -85,7 +86,13 @@ export function MessageBubbleParts({
   syntaxStyle,
   onAgentDoneRendered,
 }: MessageBubblePartsProps): React.ReactNode {
-  const parts = orderPartsForTaskOutputDisplay(message.parts ?? []);
+  const allParts = orderPartsForTaskOutputDisplay(message.parts ?? []);
+  // Filter out completed HITL tool parts — their Q&A is already rendered by
+  // HitlResponseWidget in the preceding user message. Removing them here
+  // avoids phantom gap slots in the flex container.
+  const parts = allParts.filter(
+    (p) => !(p.type === "tool" && isCompletedHitlPart(p)),
+  );
   const renderKeys = buildPartRenderKeys(parts);
 
   if (parts.length === 0) {

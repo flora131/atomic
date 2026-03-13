@@ -69,7 +69,7 @@ export const PROGRESS = {
 
 // ── Checkbox ───────────────────────────────────────────────────
 export const CHECKBOX = {
-  checked: "✔", // U+2714 Heavy Check Mark
+  checked: "✓", // U+2713 Check Mark (text-safe; U+2714 renders as emoji on Windows)
   unchecked: "○", // U+25CB White Circle
 } as const;
 

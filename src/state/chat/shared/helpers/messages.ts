@@ -1,6 +1,6 @@
 import { normalizeSkillTrackingKey } from "@/lib/ui/skill-load-tracking.ts";
 import type { ChatMessage, MessageRole, MessageSkillLoad } from "@/state/chat/shared/types/index.ts";
-import type { Part } from "@/state/parts/index.ts";
+import type { Part, SkillLoadPart } from "@/state/parts/index.ts";
 import {
   createPartId,
   finalizeStreamingReasoningInMessage,
@@ -58,18 +58,42 @@ export function appendSkillLoadToLatestAssistantMessage(
       return messages;
     }
 
+    const nextSkillLoads = [...existingLoads, skillLoad];
+    const nextParts = upsertSkillLoadPart(lastMsg.parts ?? [], nextSkillLoads);
+
     return [
       ...messages.slice(0, -1),
       {
         ...lastMsg,
-        skillLoads: [...existingLoads, skillLoad],
+        skillLoads: nextSkillLoads,
+        parts: nextParts,
       },
     ];
   }
 
   const msg = createMessage("assistant", "");
   msg.skillLoads = [skillLoad];
+  msg.parts = upsertSkillLoadPart(msg.parts ?? [], [skillLoad]);
   return [...messages, msg];
+}
+
+function upsertSkillLoadPart(parts: Part[], skills: MessageSkillLoad[]): Part[] {
+  const nextParts = [...parts];
+  const existingIdx = nextParts.findIndex((part) => part.type === "skill-load");
+  const skillPart: SkillLoadPart = {
+    id: existingIdx >= 0 ? nextParts[existingIdx]!.id : createPartId(),
+    type: "skill-load",
+    skills,
+    createdAt: existingIdx >= 0
+      ? nextParts[existingIdx]!.createdAt
+      : new Date().toISOString(),
+  };
+  if (existingIdx >= 0) {
+    nextParts[existingIdx] = skillPart;
+  } else {
+    nextParts.push(skillPart);
+  }
+  return nextParts;
 }
 
 export function appendUniqueMessagesById(existing: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {

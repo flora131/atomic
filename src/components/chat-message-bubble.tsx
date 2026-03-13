@@ -15,13 +15,10 @@ import { CompletionSummary, LoadingIndicator } from "@/components/chat-loading-i
 import type {
   ChatMessage,
   MessageBubbleProps,
-  MessageSkillLoad,
 } from "@/state/chat/types.ts";
 import type {
   CompactionPart,
-  McpSnapshotPart,
   Part,
-  SkillLoadPart,
   TextPart,
   ToolPart,
 } from "@/state/parts/index.ts";
@@ -81,42 +78,6 @@ function getRenderableAssistantParts(
       effectiveParallelAgents,
       message.timestamp,
     );
-  }
-
-  if (message.mcpSnapshot) {
-    const existingMcpIdx = parts.findIndex((part) => part.type === "mcp-snapshot");
-    const mcpPart: McpSnapshotPart = {
-      id: existingMcpIdx >= 0 ? parts[existingMcpIdx]!.id : `mcp-${message.id}`,
-      type: "mcp-snapshot",
-      snapshot: message.mcpSnapshot,
-      createdAt: existingMcpIdx >= 0
-        ? parts[existingMcpIdx]!.createdAt
-        : message.timestamp,
-    };
-    if (existingMcpIdx >= 0) {
-      parts[existingMcpIdx] = mcpPart;
-    } else {
-      parts.push(mcpPart);
-    }
-  }
-
-  if (message.skillLoads && message.skillLoads.length > 0) {
-    const existingSkillIdx = parts.findIndex((part) => part.type === "skill-load");
-    const skillPart: SkillLoadPart = {
-      id: existingSkillIdx >= 0
-        ? parts[existingSkillIdx]!.id
-        : `skill-load-${message.id}`,
-      type: "skill-load",
-      skills: message.skillLoads as MessageSkillLoad[],
-      createdAt: existingSkillIdx >= 0
-        ? parts[existingSkillIdx]!.createdAt
-        : message.timestamp,
-    };
-    if (existingSkillIdx >= 0) {
-      parts[existingSkillIdx] = skillPart;
-    } else {
-      parts.push(skillPart);
-    }
   }
 
   if (message.id.startsWith("compact_")) {

@@ -4,6 +4,8 @@ import { createMessage } from "@/state/chat/helpers.ts";
 import { tryTrackLoadedSkill } from "@/lib/ui/skill-load-tracking.ts";
 import type { MessageSkillLoad } from "@/state/chat/types.ts";
 import type { UseCommandExecutorArgs } from "@/state/chat/command/executor-types.ts";
+import { createPartId } from "@/state/parts/id.ts";
+import type { McpSnapshotPart } from "@/state/parts/types.ts";
 
 export async function applyCommandResult(
   args: UseCommandExecutorArgs,
@@ -100,13 +102,15 @@ export async function applyCommandResult(
     args.setMessagesWindowed((previousMessages) => {
       const lastMessage = previousMessages[previousMessages.length - 1];
       if (lastMessage && lastMessage.role === "assistant") {
+        const nextParts = upsertMcpSnapshotPart(lastMessage.parts ?? [], mcpSnapshot, lastMessage.id);
         return [
           ...previousMessages.slice(0, -1),
-          { ...lastMessage, mcpSnapshot },
+          { ...lastMessage, mcpSnapshot, parts: nextParts },
         ];
       }
       const message = createMessage("assistant", "");
       message.mcpSnapshot = mcpSnapshot;
+      message.parts = upsertMcpSnapshotPart(message.parts ?? [], mcpSnapshot, message.id);
       return [...previousMessages, message];
     });
   }
@@ -142,4 +146,27 @@ export async function applyCommandResult(
       args.setTheme(result.themeChange === "light" ? lightTheme : darkTheme);
     }
   }
+}
+
+function upsertMcpSnapshotPart(
+  parts: import("@/state/parts/types.ts").Part[],
+  snapshot: import("@/lib/ui/mcp-output.ts").McpSnapshotView,
+  messageId: string,
+): import("@/state/parts/types.ts").Part[] {
+  const nextParts = [...parts];
+  const existingIdx = nextParts.findIndex((part) => part.type === "mcp-snapshot");
+  const mcpPart: McpSnapshotPart = {
+    id: existingIdx >= 0 ? nextParts[existingIdx]!.id : createPartId(),
+    type: "mcp-snapshot",
+    snapshot,
+    createdAt: existingIdx >= 0
+      ? nextParts[existingIdx]!.createdAt
+      : new Date().toISOString(),
+  };
+  if (existingIdx >= 0) {
+    nextParts[existingIdx] = mcpPart;
+  } else {
+    nextParts.push(mcpPart);
+  }
+  return nextParts;
 }

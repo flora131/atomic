@@ -80,6 +80,8 @@ export interface SubagentSpawnOptions {
   model?: string;
   tools?: string[];
   timeout?: number;
+  /** Abort if no stream chunks arrive within this duration (ms). Defaults to 5 minutes. Set 0 to disable. */
+  staleTimeoutMs?: number;
   abortSignal?: AbortSignal;
 }
 
@@ -106,7 +108,7 @@ export interface GraphRuntimeDependencies {
   clientProvider?: (agentType: string) => CodingAgentClient | null;
   workflowResolver?: (name: string) => RuntimeSubgraph | null;
   spawnSubagent?: (agent: SubagentSpawnOptions, abortSignal?: AbortSignal) => Promise<SubagentStreamResult>;
-  spawnSubagentParallel?: (agents: SubagentSpawnOptions[], abortSignal?: AbortSignal) => Promise<SubagentStreamResult[]>;
+  spawnSubagentParallel?: (agents: SubagentSpawnOptions[], abortSignal?: AbortSignal, onAgentComplete?: (result: SubagentStreamResult) => void) => Promise<SubagentStreamResult[]>;
   taskIdentity?: WorkflowRuntimeTaskIdentityRuntime;
   featureFlags?: WorkflowRuntimeFeatureFlags;
   subagentRegistry?: {

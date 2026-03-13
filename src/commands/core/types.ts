@@ -70,7 +70,7 @@ export interface CommandContext {
   sendSilentMessage: (content: string, options?: StreamMessageOptions) => void;
   startStreamRun?: (content: string, options?: StreamMessageOptions) => StreamRunHandle | null;
   spawnSubagent: (options: SpawnSubagentOptions) => Promise<SpawnSubagentResult>;
-  spawnSubagentParallel?: (agents: SubagentSpawnOptions[], abortSignal?: AbortSignal) => Promise<SubagentStreamResult[]>;
+  spawnSubagentParallel?: (agents: SubagentSpawnOptions[], abortSignal?: AbortSignal, onAgentComplete?: (result: SubagentStreamResult) => void) => Promise<SubagentStreamResult[]>;
   streamAndWait: (prompt: string, options?: { hideContent?: boolean }) => Promise<StreamResult>;
   clearContext: () => Promise<void>;
   setTodoItems: (items: TodoItem[]) => void;

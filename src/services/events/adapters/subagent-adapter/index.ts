@@ -66,6 +66,7 @@ export class SubagentStreamAdapter {
   async consumeStream(
     stream: AsyncIterable<AgentMessage>,
     abortSignal?: AbortSignal,
+    onChunk?: () => void,
   ): Promise<SubagentStreamResult> {
     const startTime = Date.now();
 
@@ -78,6 +79,7 @@ export class SubagentStreamAdapter {
           break;
         }
         processSubagentChunk(this.state, chunk);
+        onChunk?.();
       }
 
       finalizeSubagentThinking(this.state);

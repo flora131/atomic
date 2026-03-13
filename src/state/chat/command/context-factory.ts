@@ -58,10 +58,20 @@ function createSilentAssistantRunDispatcher(args: UseCommandExecutorArgs) {
   };
 }
 
+/** Default stale timeout: abort agent if no stream chunks arrive within 5 minutes */
+const DEFAULT_STALE_TIMEOUT_MS = 5 * 60 * 1000;
+
+/** Maximum retries per agent after stall detection */
+const MAX_STALE_RETRIES = 3;
+
+/** Error marker for stall-aborted agents (used by retry logic) */
+const STALL_ERROR_MARKER = "[stalled]";
+
 async function spawnParallelSubagents(
   args: UseCommandExecutorArgs,
   agents: SubagentSpawnOptions[],
   externalAbortSignal?: AbortSignal,
+  onAgentComplete?: (result: SubagentStreamResult) => void,
 ): Promise<SubagentStreamResult[]> {
   if (!args.createSubagentSession) {
     throw new Error("createSubagentSession not available. Cannot spawn parallel sub-agents.");
@@ -111,6 +121,20 @@ async function spawnParallelSubagents(
         timeoutId = setTimeout(() => agentAbort.abort(), options.timeout);
       }
 
+      // Stall detection: abort if no stream chunks arrive within stallTimeoutMs
+      const stallTimeoutMs = options.staleTimeoutMs ?? DEFAULT_STALE_TIMEOUT_MS;
+      let stalledAbort = false;
+      let staleTimerId: ReturnType<typeof setTimeout> | undefined;
+      const resetStaleTimer = stallTimeoutMs > 0
+        ? () => {
+          if (staleTimerId) clearTimeout(staleTimerId);
+          staleTimerId = setTimeout(() => {
+            stalledAbort = true;
+            agentAbort.abort();
+          }, stallTimeoutMs);
+        }
+        : undefined;
+
       const parentSignal = options.abortSignal ?? parallelAbortController.signal;
       if (parentSignal.aborted) {
         agentAbort.abort();
@@ -150,24 +174,35 @@ async function spawnParallelSubagents(
           abortSignal: agentAbort.signal,
         });
 
-        const result = await adapter.consumeStream(stream, agentAbort.signal);
-        if (agentAbort.signal.aborted && result.success) {
+        // Start stale timer before consuming stream
+        resetStaleTimer?.();
+
+        const result = await adapter.consumeStream(stream, agentAbort.signal, resetStaleTimer);
+
+        // Clear stale timer on completion
+        if (staleTimerId) clearTimeout(staleTimerId);
+
+        if (agentAbort.signal.aborted) {
           if (session.abort) {
             await session.abort().catch(() => {});
           }
           const wasExternalAbort = options.abortSignal?.aborted || parallelAbortController.signal.aborted;
+          const error = wasExternalAbort
+            ? `Sub-agent "${options.agentName}" was cancelled`
+            : stalledAbort
+              ? `Sub-agent "${options.agentName}" stalled (no activity for ${stallTimeoutMs / 1000}s) ${STALL_ERROR_MARKER}`
+              : `Sub-agent "${options.agentName}" timed out after ${options.timeout}ms`;
           return {
             ...result,
             success: false,
-            error: wasExternalAbort
-              ? `Sub-agent "${options.agentName}" was cancelled`
-              : `Sub-agent "${options.agentName}" timed out after ${options.timeout}ms`,
+            error,
           };
         }
 
         return result;
       } finally {
         if (timeoutId) clearTimeout(timeoutId);
+        if (staleTimerId) clearTimeout(staleTimerId);
         correlationService?.unregisterSubagent(options.agentId);
       }
     } catch (error) {
@@ -190,8 +225,43 @@ async function spawnParallelSubagents(
   };
 
   try {
+    // Retry wrapper: retries stalled agents up to MAX_STALE_RETRIES times.
+    // If any agent exceeds the retry limit, the entire batch is aborted.
+    const executeWithRetry = async (
+      agent: SubagentSpawnOptions,
+    ): Promise<SubagentStreamResult> => {
+      let retryCount = 0;
+
+      for (;;) {
+        const result = await spawnOne(agent);
+
+        // If stalled and retries remain, resubmit
+        if (
+          !result.success &&
+          result.error?.includes(STALL_ERROR_MARKER) &&
+          retryCount < MAX_STALE_RETRIES
+        ) {
+          retryCount++;
+          continue;
+        }
+
+        // Circuit breaker: stall persisted after max retries — abort entire batch
+        if (
+          !result.success &&
+          result.error?.includes(STALL_ERROR_MARKER) &&
+          retryCount >= MAX_STALE_RETRIES
+        ) {
+          parallelAbortController.abort();
+        }
+
+        // Notify caller of completion (progressive result)
+        onAgentComplete?.(result);
+        return result;
+      }
+    };
+
     const results = await Promise.allSettled(
-      agents.map((agent) => spawnOne(agent)),
+      agents.map((agent) => executeWithRetry(agent)),
     );
     return results.map((result, index) => {
       if (result.status === "fulfilled") {
@@ -287,8 +357,8 @@ export function createCommandContext(args: UseCommandExecutorArgs): CommandConte
         output: result.content,
       };
     },
-    spawnSubagentParallel: async (agents, externalAbortSignal) => {
-      return spawnParallelSubagents(args, agents, externalAbortSignal);
+    spawnSubagentParallel: async (agents, externalAbortSignal, onAgentComplete) => {
+      return spawnParallelSubagents(args, agents, externalAbortSignal, onAgentComplete);
     },
     streamAndWait: (prompt: string, options?: { hideContent?: boolean }) => {
       const handle = args.trackAwaitedRun(

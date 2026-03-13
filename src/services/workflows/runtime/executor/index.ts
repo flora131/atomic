@@ -4,7 +4,7 @@
  * bridge/registry setup, graph streaming with progress, and error handling.
  */
 
-import type { BaseState, CompiledGraph } from "@/services/workflows/graph/types.ts";
+import type { BaseState, CompiledGraph, SubagentStreamResult } from "@/services/workflows/graph/types.ts";
 import { type WorkflowDefinition } from "@/commands/tui/workflow-commands.ts";
 import type { CommandContext, CommandResult } from "@/commands/tui/registry.ts";
 import { streamGraph } from "@/services/workflows/graph/compiled.ts";
@@ -183,7 +183,7 @@ export async function executeWorkflow(
 
                 return result;
             },
-            spawnSubagentParallel: async (agents, abortSignal) => {
+            spawnSubagentParallel: async (agents, abortSignal, onAgentComplete) => {
                 const effectiveAbortSignal = abortSignal ?? workflowAbortSignal;
                 // Publish agent start events for all agents if adapter is available
                 if (eventAdapter) {
@@ -197,23 +197,42 @@ export async function executeWorkflow(
                     }
                 }
 
-                const results = await spawnFn(
-                    agents.map((agent) => ({
-                        ...agent,
-                        abortSignal: agent.abortSignal ?? effectiveAbortSignal,
-                    })),
-                    effectiveAbortSignal,
-                );
-
-                // Publish agent complete events for all agents if adapter is available
-                if (eventAdapter) {
-                    for (const result of results) {
+                // Publish agent.complete events progressively as each agent finishes
+                const completedAgentIds = new Set<string>();
+                const publishProgressiveComplete = (result: SubagentStreamResult) => {
+                    completedAgentIds.add(result.agentId);
+                    if (eventAdapter) {
                         eventAdapter.publishAgentComplete(
                             result.agentId,
                             result.success,
                             result.output,
                             result.error,
                         );
+                    }
+                    onAgentComplete?.(result);
+                };
+
+                const results = await spawnFn(
+                    agents.map((agent) => ({
+                        ...agent,
+                        abortSignal: agent.abortSignal ?? effectiveAbortSignal,
+                    })),
+                    effectiveAbortSignal,
+                    publishProgressiveComplete,
+                );
+
+                // Fallback: publish agent.complete for any agents not already handled
+                // by the progressive callback (e.g., when spawnFn is mocked in tests)
+                if (eventAdapter) {
+                    for (const result of results) {
+                        if (!completedAgentIds.has(result.agentId)) {
+                            eventAdapter.publishAgentComplete(
+                                result.agentId,
+                                result.success,
+                                result.output,
+                                result.error,
+                            );
+                        }
                     }
                 }
 

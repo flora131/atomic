@@ -167,14 +167,17 @@ export function useStreamSessionSubscriptions({
       return;
     }
 
+    // Always reset the background agent counter when the session goes idle,
+    // even if isStreamingRef is already false (e.g. deferred completion
+    // finalized the stream before this event arrived).
+    activeBackgroundAgentCountRef.current = 0;
+    setActiveBackgroundAgentCount(0);
+
     if (!isStreamingRef.current) {
       return;
     }
 
     batchDispatcher.flush();
-
-    activeBackgroundAgentCountRef.current = 0;
-    setActiveBackgroundAgentCount(0);
 
     const idleReason = typeof event.data.reason === "string"
       ? event.data.reason.trim().toLowerCase()
@@ -242,6 +245,43 @@ export function useStreamSessionSubscriptions({
 
       handleStreamComplete();
       return;
+    }
+
+    // When the session goes idle, any remaining active agents are stale —
+    // the SDK has definitively declared that no more events will be produced.
+    // Transition them to "completed" so the continuation check below doesn't
+    // block on phantom foreground agents that never received stream.agent.complete
+    // (e.g. when a task tool call is aborted without a corresponding agent
+    // lifecycle event).
+    const currentAgents = parallelAgentsRef.current;
+    const hasStaleActiveAgents = currentAgents.some(
+      (agent) =>
+        agent.status === "running"
+        || agent.status === "pending"
+        || agent.status === "background",
+    );
+    if (hasStaleActiveAgents) {
+      const now = Date.now();
+      const cleanedAgents = currentAgents.map((agent) => {
+        if (
+          agent.status !== "running"
+          && agent.status !== "pending"
+          && agent.status !== "background"
+        ) {
+          return agent;
+        }
+        const startedAtMs = new Date(agent.startedAt).getTime();
+        return {
+          ...agent,
+          status: "completed" as const,
+          currentTool: undefined,
+          durationMs: Number.isFinite(startedAtMs)
+            ? Math.max(0, now - startedAtMs)
+            : agent.durationMs,
+        };
+      });
+      parallelAgentsRef.current = cleanedAgents;
+      setParallelAgents(cleanedAgents);
     }
 
     const continuationSignal = shouldContinueParentSessionLoop({

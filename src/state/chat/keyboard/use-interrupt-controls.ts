@@ -21,6 +21,7 @@ import { useBackgroundTerminationControls } from "@/state/chat/keyboard/use-back
 import { useInterruptConfirmation } from "@/state/chat/keyboard/use-interrupt-confirmation.ts";
 
 export function useChatInterruptControls({
+  activeBackgroundAgentCountRef,
   activeQuestion,
   activeHitlToolCallIdRef,
   addMessage,
@@ -41,6 +42,7 @@ export function useChatInterruptControls({
   parallelInterruptHandlerRef,
   resetHitlState,
   resolveTrackedRun,
+  setActiveBackgroundAgentCount,
   setBackgroundAgentMessageId,
   setMessagesWindowed,
   setParallelAgents,
@@ -62,6 +64,7 @@ export function useChatInterruptControls({
   isStreamingRef,
 }: Pick<
   UseChatKeyboardArgs,
+  | "activeBackgroundAgentCountRef"
   | "activeQuestion"
   | "activeHitlToolCallIdRef"
   | "addMessage"
@@ -86,6 +89,7 @@ export function useChatInterruptControls({
   | "resetHitlState"
   | "resolveTrackedRun"
   | "separateAndInterruptAgents"
+  | "setActiveBackgroundAgentCount"
   | "setBackgroundAgentMessageId"
   | "setMessagesWindowed"
   | "setParallelAgents"
@@ -113,6 +117,7 @@ export function useChatInterruptControls({
     handleBackgroundTerminationKey,
     isBackgroundTerminationKey,
   } = useBackgroundTerminationControls({
+    activeBackgroundAgentCountRef,
     addMessage,
     backgroundAgentMessageIdRef,
     clearDeferredCompletion,
@@ -120,6 +125,7 @@ export function useChatInterruptControls({
     onTerminateBackgroundAgents,
     parallelAgents,
     parallelAgentsRef,
+    setActiveBackgroundAgentCount,
     setBackgroundAgentMessageId,
     setMessagesWindowed,
     setParallelAgents,
@@ -209,6 +215,9 @@ export function useChatInterruptControls({
             parallelAgentsRef.current = remainingLiveAgents;
             setParallelAgents(remainingLiveAgents);
           }
+          // Reset the background agent counter so the spinner stops
+          activeBackgroundAgentCountRef.current = 0;
+          setActiveBackgroundAgentCount(0);
         });
       }
 
@@ -283,6 +292,7 @@ export function useChatInterruptControls({
     scheduleInterruptConfirmation(nextCount);
     return true;
   }, [
+    activeBackgroundAgentCountRef,
     activeHitlToolCallIdRef,
     activeQuestion,
     awaitedStreamRunIdsRef,
@@ -305,6 +315,7 @@ export function useChatInterruptControls({
     parallelInterruptHandlerRef,
     scheduleInterruptConfirmation,
     separateAndInterruptAgents,
+    setActiveBackgroundAgentCount,
     setMessagesWindowed,
     setParallelAgents,
     shouldHideActiveStreamContent,

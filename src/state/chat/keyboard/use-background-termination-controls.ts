@@ -16,6 +16,7 @@ export interface UseBackgroundTerminationControlsResult {
 }
 
 export function useBackgroundTerminationControls({
+  activeBackgroundAgentCountRef,
   addMessage,
   backgroundAgentMessageIdRef,
   clearDeferredCompletion,
@@ -23,6 +24,7 @@ export function useBackgroundTerminationControls({
   onTerminateBackgroundAgents,
   parallelAgents,
   parallelAgentsRef,
+  setActiveBackgroundAgentCount,
   setBackgroundAgentMessageId,
   setMessagesWindowed,
   setParallelAgents,
@@ -31,6 +33,7 @@ export function useBackgroundTerminationControls({
   workflowActiveRef,
 }: Pick<
   UseChatKeyboardArgs,
+  | "activeBackgroundAgentCountRef"
   | "addMessage"
   | "backgroundAgentMessageIdRef"
   | "clearDeferredCompletion"
@@ -38,6 +41,7 @@ export function useBackgroundTerminationControls({
   | "onTerminateBackgroundAgents"
   | "parallelAgents"
   | "parallelAgentsRef"
+  | "setActiveBackgroundAgentCount"
   | "setBackgroundAgentMessageId"
   | "setMessagesWindowed"
   | "setParallelAgents"
@@ -153,6 +157,10 @@ export function useBackgroundTerminationControls({
           parallelAgentsRef.current = remainingLiveAgents;
           setParallelAgents(remainingLiveAgents);
           setBackgroundAgentMessageId(null);
+
+          // Reset the background agent counter so the spinner stops
+          activeBackgroundAgentCountRef.current = 0;
+          setActiveBackgroundAgentCount(0);
           if (!workflowActiveRef.current) {
             streamingStartRef.current = null;
           }
@@ -177,6 +185,7 @@ export function useBackgroundTerminationControls({
     }, 1000);
     return true;
   }, [
+    activeBackgroundAgentCountRef,
     addMessage,
     backgroundAgentMessageIdRef,
     clearBackgroundTerminationConfirmation,
@@ -184,6 +193,7 @@ export function useBackgroundTerminationControls({
     lastStreamedMessageIdRef,
     onTerminateBackgroundAgents,
     parallelAgentsRef,
+    setActiveBackgroundAgentCount,
     setBackgroundAgentMessageId,
     setMessagesWindowed,
     setParallelAgents,

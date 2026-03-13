@@ -18,6 +18,7 @@ export interface ChatAutocompleteSuggestion {
 }
 
 export interface UseChatKeyboardArgs {
+  activeBackgroundAgentCountRef: MutableRefObject<number>;
   activeQuestion: unknown;
   activeHitlToolCallIdRef: MutableRefObject<string | null>;
   addMessage: (role: "user" | "assistant" | "system", content: string) => void;
@@ -71,6 +72,7 @@ export interface UseChatKeyboardArgs {
     interruptedAgents: ParallelAgent[];
     remainingLiveAgents: ParallelAgent[];
   };
+  setActiveBackgroundAgentCount: Dispatch<SetStateAction<number>>;
   setBackgroundAgentMessageId: (messageId: string | null) => void;
   setIsEditingQueue: Dispatch<SetStateAction<boolean>>;
   setMessagesWindowed: (next: SetStateAction<ChatMessage[]>) => void;

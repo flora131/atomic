@@ -18,11 +18,12 @@ import {
   resetAgentOrderingForAgent,
   type AgentOrderingEvent,
 } from "@/lib/ui/agent-ordering-contract.ts";
-import { isBackgroundAgent } from "@/lib/ui/background-agent-footer.ts";
+import { getActiveBackgroundAgents, isBackgroundAgent } from "@/lib/ui/background-agent-footer.ts";
 import { hasActiveBackgroundAgentsForSpinner } from "@/state/parts/guards.ts";
 import type { UseStreamSubscriptionsArgs } from "@/state/chat/stream/subscription-types.ts";
 
 export function useStreamAgentSubscriptions({
+  activeBackgroundAgentCountRef,
   agentLifecycleLedgerRef,
   agentMessageIdByIdRef,
   agentOrderingStateRef,
@@ -38,6 +39,7 @@ export function useStreamAgentSubscriptions({
   pendingCompleteRef,
   resolveAgentScopedMessageId,
   sendBackgroundMessageToAgent,
+  setActiveBackgroundAgentCount,
   setAgentMessageBinding,
   setParallelAgents,
   streamingMessageIdRef,
@@ -45,6 +47,7 @@ export function useStreamAgentSubscriptions({
   toolMessageIdByIdRef,
 }: Pick<
   UseStreamSubscriptionsArgs,
+  | "activeBackgroundAgentCountRef"
   | "agentLifecycleLedgerRef"
   | "agentMessageIdByIdRef"
   | "agentOrderingStateRef"
@@ -60,6 +63,7 @@ export function useStreamAgentSubscriptions({
   | "pendingCompleteRef"
   | "resolveAgentScopedMessageId"
   | "sendBackgroundMessageToAgent"
+  | "setActiveBackgroundAgentCount"
   | "setAgentMessageBinding"
   | "setParallelAgents"
   | "streamingMessageIdRef"
@@ -341,6 +345,16 @@ export function useStreamAgentSubscriptions({
       // (e.g. stream.session.idle) see the updated agent state immediately,
       // rather than reading a stale ref that blocks stream finalization.
       parallelAgentsRef.current = updated;
+
+      // Keep activeBackgroundAgentCount in sync as agents complete so the
+      // spinner text and footer reflect the live count rather than staying
+      // pinned to the value set by the last stream.session.partial-idle event.
+      const newActiveCount = getActiveBackgroundAgents(updated).length;
+      if (activeBackgroundAgentCountRef.current !== newActiveCount) {
+        activeBackgroundAgentCountRef.current = newActiveCount;
+        setActiveBackgroundAgentCount(newActiveCount);
+      }
+
       return updated;
     });
     backgroundProgressSnapshotRef.current.delete(data.agentId);

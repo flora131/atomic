@@ -117,6 +117,7 @@ export function useChatUiControllerStack({
       workflowSessionDir,
     },
     setters: {
+      setActiveBackgroundAgentCount,
       setCompactionSummary,
       setIsAutoCompacting,
       setParallelAgents,
@@ -126,6 +127,7 @@ export function useChatUiControllerStack({
       setWorkflowSessionId,
     },
     refs: {
+      activeBackgroundAgentCountRef,
       activeStreamRunIdRef,
       autoCompactionIndicatorRef,
       awaitedStreamRunIdsRef,
@@ -332,6 +334,7 @@ export function useChatUiControllerStack({
     ctrlCPressed,
     ctrlFPressed,
   } = useChatKeyboard({
+    activeBackgroundAgentCountRef,
     activeQuestion,
     activeHitlToolCallIdRef,
     addMessage,
@@ -372,6 +375,7 @@ export function useChatUiControllerStack({
     savedInputRef,
     scrollboxRef,
     separateAndInterruptAgents,
+    setActiveBackgroundAgentCount,
     setBackgroundAgentMessageId,
     setIsEditingQueue,
     setMessagesWindowed,

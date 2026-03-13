@@ -64,7 +64,7 @@ export function isShadowForegroundAgent(
   });
 }
 
-function isActiveBackgroundStatus(status: ParallelAgent["status"]): boolean {
+export function isActiveBackgroundStatus(status: ParallelAgent["status"]): boolean {
   return status === "background" || status === "running" || status === "pending";
 }
 

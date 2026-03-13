@@ -22,6 +22,11 @@ import {
   shouldContinueParentSessionLoop,
 } from "@/lib/ui/stream-continuation.ts";
 import { hasActiveForegroundAgents } from "@/state/parts/index.ts";
+import {
+  getActiveBackgroundAgents,
+  isActiveBackgroundStatus,
+  isBackgroundAgent,
+} from "@/lib/ui/background-agent-footer.ts";
 import type { UseStreamSubscriptionsArgs } from "@/state/chat/stream/subscription-types.ts";
 
 export function useStreamSessionSubscriptions({
@@ -312,6 +317,34 @@ export function useStreamSessionSubscriptions({
       : 0;
     activeBackgroundAgentCountRef.current = count;
     setActiveBackgroundAgentCount(count);
+
+    // Sync parallelAgents when the provider reports fewer active background
+    // agents than the local state tracks.  This handles cases where
+    // stream.agent.complete events were missed (e.g. SDK omission) so the
+    // footer count decrements promptly instead of waiting for session idle.
+    const currentAgents = parallelAgentsRef.current;
+    const localActiveBackground = getActiveBackgroundAgents(currentAgents);
+    if (localActiveBackground.length > count) {
+      let excess = localActiveBackground.length - count;
+      const now = Date.now();
+      const updatedAgents = currentAgents.map((agent) => {
+        if (excess > 0 && isBackgroundAgent(agent) && isActiveBackgroundStatus(agent.status)) {
+          excess--;
+          const startedAtMs = new Date(agent.startedAt).getTime();
+          return {
+            ...agent,
+            status: "completed" as const,
+            currentTool: undefined,
+            durationMs: Number.isFinite(startedAtMs)
+              ? Math.max(0, now - startedAtMs)
+              : agent.durationMs,
+          };
+        }
+        return agent;
+      });
+      parallelAgentsRef.current = updatedAgents;
+      setParallelAgents(updatedAgents);
+    }
 
     handleStreamComplete();
   });

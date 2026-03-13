@@ -197,6 +197,17 @@ export function useStreamAgentSubscriptions({
       // Sync the ref so downstream handlers in the same event batch
       // see the latest agent list immediately.
       parallelAgentsRef.current = updated;
+
+      // Keep activeBackgroundAgentCount in sync when background agents start
+      // so the footer count reflects the live value immediately.
+      if (data.isBackground) {
+        const newActiveCount = getActiveBackgroundAgents(updated).length;
+        if (activeBackgroundAgentCountRef.current !== newActiveCount) {
+          activeBackgroundAgentCountRef.current = newActiveCount;
+          setActiveBackgroundAgentCount(newActiveCount);
+        }
+      }
+
       return updated;
     });
   });

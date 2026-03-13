@@ -47,6 +47,20 @@ export class ClaudeAdapterSupport {
     });
   }
 
+  publishSessionPartialIdle(
+    runId: number,
+    completionReason: string,
+    activeBackgroundAgentCount: number,
+  ): void {
+    this.deps.busPublish({
+      type: "stream.session.partial-idle",
+      sessionId: this.deps.sessionId,
+      runId,
+      timestamp: Date.now(),
+      data: { completionReason, activeBackgroundAgentCount },
+    });
+  }
+
   publishTextComplete(runId: number, messageId: string): void {
     this.deps.busPublish({
       type: "stream.text.complete",

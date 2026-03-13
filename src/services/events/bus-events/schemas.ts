@@ -86,6 +86,10 @@ export const BusEventSchemas: Record<BusEventType, z.ZodType> = {
   "stream.session.idle": z.object({
     reason: z.string().optional(),
   }),
+  "stream.session.partial-idle": z.object({
+    completionReason: z.string(),
+    activeBackgroundAgentCount: z.number(),
+  }),
   "stream.session.error": z.object({
     error: z.string(),
     code: z.string().optional(),

@@ -60,6 +60,7 @@ export interface CopilotStreamAdapterState {
   runId: number;
   messageId: string;
   isActive: boolean;
+  isBackgroundOnly: boolean;
   toolNameById: Map<string, string>;
   subagentTracker: SubagentToolTracker | null;
   emittedToolStartIds: Set<string>;

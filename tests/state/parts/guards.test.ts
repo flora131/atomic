@@ -3,6 +3,7 @@ import {
   shouldFinalizeOnToolComplete,
   hasActiveForegroundAgents,
   shouldFinalizeDeferredStream,
+  hasActiveBackgroundAgentsForSpinner,
 } from "@/state/parts/guards.ts";
 import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
 
@@ -117,8 +118,90 @@ describe("shouldFinalizeDeferredStream", () => {
     expect(shouldFinalizeDeferredStream(agents, true)).toBe(false);
   });
 
-  test("returns true when only background agents remain", () => {
+  test("returns false when only background agents remain", () => {
     const agents = [createMockAgent({ status: "background", background: true })];
+    expect(shouldFinalizeDeferredStream(agents, false)).toBe(false);
+  });
+
+  test("returns false when both foreground and background agents are active", () => {
+    const agents = [
+      createMockAgent({ status: "running", background: false }),
+      createMockAgent({ status: "background", background: true }),
+    ];
+    expect(shouldFinalizeDeferredStream(agents, false)).toBe(false);
+  });
+
+  test("returns true when all agents (foreground and background) are done", () => {
+    const agents = [
+      createMockAgent({ status: "completed", background: false }),
+      createMockAgent({ status: "completed", background: true }),
+    ];
     expect(shouldFinalizeDeferredStream(agents, false)).toBe(true);
+  });
+});
+
+describe("hasActiveBackgroundAgentsForSpinner", () => {
+  test("returns true for background agent with 'background' status", () => {
+    const agents = [createMockAgent({ background: true, status: "background" })];
+    expect(hasActiveBackgroundAgentsForSpinner(agents)).toBe(true);
+  });
+
+  test("returns true for background agent with 'running' status", () => {
+    const agents = [createMockAgent({ background: true, status: "running" })];
+    expect(hasActiveBackgroundAgentsForSpinner(agents)).toBe(true);
+  });
+
+  test("returns true for background agent with 'pending' status", () => {
+    const agents = [createMockAgent({ background: true, status: "pending" })];
+    expect(hasActiveBackgroundAgentsForSpinner(agents)).toBe(true);
+  });
+
+  test("returns false for background agent with 'completed' status", () => {
+    const agents = [createMockAgent({ background: true, status: "completed" })];
+    expect(hasActiveBackgroundAgentsForSpinner(agents)).toBe(false);
+  });
+
+  test("returns false for background agent with 'error' status", () => {
+    const agents = [createMockAgent({ background: true, status: "error" })];
+    expect(hasActiveBackgroundAgentsForSpinner(agents)).toBe(false);
+  });
+
+  test("returns false for background agent with 'interrupted' status", () => {
+    const agents = [createMockAgent({ background: true, status: "interrupted" })];
+    expect(hasActiveBackgroundAgentsForSpinner(agents)).toBe(false);
+  });
+
+  test("returns false for foreground agents regardless of status", () => {
+    const agents = [
+      createMockAgent({ background: false, status: "running" }),
+      createMockAgent({ id: "agent-2", background: false, status: "pending" }),
+    ];
+    expect(hasActiveBackgroundAgentsForSpinner(agents)).toBe(false);
+  });
+
+  test("returns false for empty agents array", () => {
+    expect(hasActiveBackgroundAgentsForSpinner([])).toBe(false);
+  });
+
+  test("returns true when mix of foreground and active background agents", () => {
+    const agents = [
+      createMockAgent({ id: "fg-1", background: false, status: "completed" }),
+      createMockAgent({ id: "bg-1", background: true, status: "background" }),
+    ];
+    expect(hasActiveBackgroundAgentsForSpinner(agents)).toBe(true);
+  });
+
+  test("returns false when all background agents are terminal", () => {
+    const agents = [
+      createMockAgent({ id: "bg-1", background: true, status: "completed" }),
+      createMockAgent({ id: "bg-2", background: true, status: "error" }),
+      createMockAgent({ id: "bg-3", background: true, status: "interrupted" }),
+    ];
+    expect(hasActiveBackgroundAgentsForSpinner(agents)).toBe(false);
+  });
+
+  test("detects background via status 'background' even without background flag", () => {
+    const agents = [createMockAgent({ background: false, status: "background" })];
+    expect(hasActiveBackgroundAgentsForSpinner(agents)).toBe(true);
   });
 });

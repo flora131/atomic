@@ -492,6 +492,18 @@ export class ClaudeToolState {
     return normalizeToolName(value);
   }
 
+  hasActiveBackgroundAgents(): boolean {
+    return Array.from(this.activeSubagentBackgroundById.entries()).some(
+      ([_, isBackground]) => isBackground,
+    );
+  }
+
+  getActiveBackgroundAgentCount(): number {
+    return Array.from(this.activeSubagentBackgroundById.values()).filter(
+      (isBackground) => isBackground,
+    ).length;
+  }
+
   isTaskTool(toolName: string): boolean {
     return isBuiltInTaskTool(toolName);
   }

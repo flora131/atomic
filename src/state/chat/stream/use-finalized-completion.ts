@@ -104,6 +104,7 @@ export function useChatStreamFinalizedCompletion({
     stopSharedStreamState({
       preserveStreamingStart: hasRemainingBackgroundAgents,
       preserveStreamingMeta: hasRemainingBackgroundAgents,
+      hasActiveBackgroundAgents: hasRemainingBackgroundAgents,
     });
     finalizeThinkingSourceTracking({ preserveStreamingMeta: hasRemainingBackgroundAgents });
 

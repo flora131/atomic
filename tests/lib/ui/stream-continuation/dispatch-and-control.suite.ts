@@ -142,6 +142,7 @@ describe("stream continuation helpers", () => {
         hasRunningTool: true,
         isAgentOnlyStream: true,
         hasPendingCompletion: true,
+        hasPendingBackgroundWork: true,
       });
 
       expect(stopped).toEqual({
@@ -152,6 +153,7 @@ describe("stream continuation helpers", () => {
         hasRunningTool: false,
         isAgentOnlyStream: false,
         hasPendingCompletion: false,
+        hasPendingBackgroundWork: false,
       });
     });
 
@@ -165,12 +167,213 @@ describe("stream continuation helpers", () => {
           hasRunningTool: false,
           isAgentOnlyStream: false,
           hasPendingCompletion: false,
+          hasPendingBackgroundWork: false,
         },
         { preserveStreamingStart: true },
       );
 
       expect(stopped.streamingStart).toBe(999);
       expect(stopped.isStreaming).toBe(false);
+    });
+
+    test("createStoppedStreamControlState marks pending background work when agents active", () => {
+      const stopped = createStoppedStreamControlState(
+        {
+          isStreaming: true,
+          streamingMessageId: "msg_1",
+          streamingStart: 500,
+          hasStreamingMeta: true,
+          hasRunningTool: true,
+          isAgentOnlyStream: false,
+          hasPendingCompletion: false,
+          hasPendingBackgroundWork: false,
+        },
+        { hasActiveBackgroundAgents: true },
+      );
+
+      expect(stopped.hasPendingBackgroundWork).toBe(true);
+      expect(stopped.isStreaming).toBe(false);
+      expect(stopped.hasRunningTool).toBe(false);
+    });
+
+    test("createStoppedStreamControlState clears background work when no agents active", () => {
+      const stopped = createStoppedStreamControlState(
+        {
+          isStreaming: true,
+          streamingMessageId: "msg_1",
+          streamingStart: 500,
+          hasStreamingMeta: false,
+          hasRunningTool: false,
+          isAgentOnlyStream: false,
+          hasPendingCompletion: false,
+          hasPendingBackgroundWork: true,
+        },
+        { hasActiveBackgroundAgents: false },
+      );
+
+      expect(stopped.hasPendingBackgroundWork).toBe(false);
+    });
+
+    test("createStoppedStreamControlState defaults background work to false when option omitted", () => {
+      const stopped = createStoppedStreamControlState({
+        isStreaming: true,
+        streamingMessageId: "msg_1",
+        streamingStart: 500,
+        hasStreamingMeta: false,
+        hasRunningTool: false,
+        isAgentOnlyStream: false,
+        hasPendingCompletion: false,
+        hasPendingBackgroundWork: true,
+      });
+
+      expect(stopped.hasPendingBackgroundWork).toBe(false);
+    });
+
+    test("createStoppedStreamControlState defaults background work to false with empty options", () => {
+      const stopped = createStoppedStreamControlState(
+        {
+          isStreaming: true,
+          streamingMessageId: "msg_1",
+          streamingStart: 500,
+          hasStreamingMeta: false,
+          hasRunningTool: false,
+          isAgentOnlyStream: false,
+          hasPendingCompletion: false,
+          hasPendingBackgroundWork: true,
+        },
+        {},
+      );
+
+      expect(stopped.hasPendingBackgroundWork).toBe(false);
+    });
+
+    test("createStoppedStreamControlState defaults background work to false with explicit undefined", () => {
+      const stopped = createStoppedStreamControlState(
+        {
+          isStreaming: true,
+          streamingMessageId: "msg_1",
+          streamingStart: 500,
+          hasStreamingMeta: false,
+          hasRunningTool: false,
+          isAgentOnlyStream: false,
+          hasPendingCompletion: false,
+          hasPendingBackgroundWork: true,
+        },
+        { hasActiveBackgroundAgents: undefined },
+      );
+
+      expect(stopped.hasPendingBackgroundWork).toBe(false);
+    });
+
+    test("createStoppedStreamControlState combines preserveStreamingStart with background agents", () => {
+      const stopped = createStoppedStreamControlState(
+        {
+          isStreaming: true,
+          streamingMessageId: "msg_1",
+          streamingStart: 999,
+          hasStreamingMeta: true,
+          hasRunningTool: true,
+          isAgentOnlyStream: false,
+          hasPendingCompletion: false,
+          hasPendingBackgroundWork: false,
+        },
+        { preserveStreamingStart: true, hasActiveBackgroundAgents: true },
+      );
+
+      expect(stopped.streamingStart).toBe(999);
+      expect(stopped.hasPendingBackgroundWork).toBe(true);
+      expect(stopped.isStreaming).toBe(false);
+      expect(stopped.hasRunningTool).toBe(false);
+    });
+
+    test("createStoppedStreamControlState combines preserveStreamingStart with no background agents", () => {
+      const stopped = createStoppedStreamControlState(
+        {
+          isStreaming: true,
+          streamingMessageId: "msg_1",
+          streamingStart: 999,
+          hasStreamingMeta: true,
+          hasRunningTool: false,
+          isAgentOnlyStream: false,
+          hasPendingCompletion: false,
+          hasPendingBackgroundWork: true,
+        },
+        { preserveStreamingStart: true, hasActiveBackgroundAgents: false },
+      );
+
+      expect(stopped.streamingStart).toBe(999);
+      expect(stopped.hasPendingBackgroundWork).toBe(false);
+    });
+
+    test("createStoppedStreamControlState double stop toggles background work off", () => {
+      const base: Parameters<typeof createStoppedStreamControlState>[0] = {
+        isStreaming: true,
+        streamingMessageId: "msg_1",
+        streamingStart: 500,
+        hasStreamingMeta: true,
+        hasRunningTool: true,
+        isAgentOnlyStream: false,
+        hasPendingCompletion: false,
+        hasPendingBackgroundWork: false,
+      };
+
+      const firstStop = createStoppedStreamControlState(base, {
+        hasActiveBackgroundAgents: true,
+      });
+      expect(firstStop.hasPendingBackgroundWork).toBe(true);
+
+      const secondStop = createStoppedStreamControlState(firstStop, {
+        hasActiveBackgroundAgents: false,
+      });
+      expect(secondStop.hasPendingBackgroundWork).toBe(false);
+    });
+
+    test("createStoppedStreamControlState double stop preserves background work when still active", () => {
+      const base: Parameters<typeof createStoppedStreamControlState>[0] = {
+        isStreaming: true,
+        streamingMessageId: "msg_1",
+        streamingStart: 500,
+        hasStreamingMeta: true,
+        hasRunningTool: true,
+        isAgentOnlyStream: false,
+        hasPendingCompletion: false,
+        hasPendingBackgroundWork: false,
+      };
+
+      const firstStop = createStoppedStreamControlState(base, {
+        hasActiveBackgroundAgents: true,
+      });
+      const secondStop = createStoppedStreamControlState(firstStop, {
+        hasActiveBackgroundAgents: true,
+      });
+
+      expect(firstStop.hasPendingBackgroundWork).toBe(true);
+      expect(secondStop.hasPendingBackgroundWork).toBe(true);
+      expect(secondStop.isStreaming).toBe(false);
+    });
+
+    test("createStartedStreamControlState clears pending background work from prior stop", () => {
+      const stoppedWithBackground = createStoppedStreamControlState(
+        {
+          isStreaming: true,
+          streamingMessageId: "msg_1",
+          streamingStart: 500,
+          hasStreamingMeta: true,
+          hasRunningTool: true,
+          isAgentOnlyStream: false,
+          hasPendingCompletion: false,
+          hasPendingBackgroundWork: false,
+        },
+        { hasActiveBackgroundAgents: true },
+      );
+      expect(stoppedWithBackground.hasPendingBackgroundWork).toBe(true);
+
+      const restarted = createStartedStreamControlState(stoppedWithBackground, {
+        messageId: "msg_2",
+        startedAt: 1000,
+      });
+      expect(restarted.hasPendingBackgroundWork).toBe(false);
+      expect(restarted.isStreaming).toBe(true);
     });
 
     test("createStartedStreamControlState tracks command spinner as active stream", () => {
@@ -183,6 +386,7 @@ describe("stream continuation helpers", () => {
           hasRunningTool: true,
           isAgentOnlyStream: true,
           hasPendingCompletion: true,
+          hasPendingBackgroundWork: true,
         },
         { messageId: "spinner_1", startedAt: 456 },
       );
@@ -195,6 +399,7 @@ describe("stream continuation helpers", () => {
         hasRunningTool: false,
         isAgentOnlyStream: false,
         hasPendingCompletion: false,
+        hasPendingBackgroundWork: false,
       });
     });
 
@@ -208,6 +413,7 @@ describe("stream continuation helpers", () => {
           hasRunningTool: false,
           isAgentOnlyStream: false,
           hasPendingCompletion: false,
+          hasPendingBackgroundWork: false,
         },
         { messageId: "assistant_stream", startedAt: 2000 },
       );

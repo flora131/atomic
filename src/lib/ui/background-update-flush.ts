@@ -1,5 +1,6 @@
 export interface BackgroundUpdateFlushStartState {
   hasFlushInFlight: boolean;
+  isAgentOnlyStream: boolean;
   isStreaming: boolean;
   pendingUpdateCount: number;
 }
@@ -7,12 +8,14 @@ export interface BackgroundUpdateFlushStartState {
 export function shouldStartBackgroundUpdateFlush(
   state: BackgroundUpdateFlushStartState,
 ): boolean {
+  const streamBlocksFlush = state.isStreaming && !state.isAgentOnlyStream;
   return !state.hasFlushInFlight
-    && !state.isStreaming
+    && !streamBlocksFlush
     && state.pendingUpdateCount > 0;
 }
 
 export interface BackgroundUpdateFlushFollowUpState {
+  isAgentOnlyStream: boolean;
   sendSucceeded: boolean;
   isStreaming: boolean;
   pendingUpdateCount: number;
@@ -21,7 +24,8 @@ export interface BackgroundUpdateFlushFollowUpState {
 export function shouldScheduleBackgroundUpdateFollowUpFlush(
   state: BackgroundUpdateFlushFollowUpState,
 ): boolean {
+  const streamBlocksFlush = state.isStreaming && !state.isAgentOnlyStream;
   return state.sendSucceeded
-    && !state.isStreaming
+    && !streamBlocksFlush
     && state.pendingUpdateCount > 0;
 }

@@ -15,6 +15,7 @@ export type BusEventType =
   | "stream.agent.complete"
   | "stream.session.start"
   | "stream.session.idle"
+  | "stream.session.partial-idle"
   | "stream.session.error"
   | "stream.session.info"
   | "stream.session.warning"
@@ -102,6 +103,10 @@ export interface BusEventDataMap {
   };
   "stream.session.idle": {
     reason?: string;
+  };
+  "stream.session.partial-idle": {
+    completionReason: string;
+    activeBackgroundAgentCount: number;
   };
   "stream.session.error": {
     error: string;

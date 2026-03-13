@@ -1,4 +1,5 @@
 import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import { hasActiveBackgroundAgentsForSpinner } from "@/state/parts/guards.ts";
 
 type TaskProgressStatus = "pending" | "in_progress" | "completed" | "error";
 
@@ -35,23 +36,29 @@ export function isTaskProgressComplete(taskItems?: readonly TaskProgressItem[] |
 export function shouldShowMessageLoadingIndicator(
   message: LoadingStateMessage,
   liveTodoItems?: readonly TaskProgressItem[],
+  activeBackgroundAgentCount?: number,
 ): boolean {
+  // When the external count says background agents are running, keep the
+  // spinner alive regardless of task-progress or streaming state.
+  if (activeBackgroundAgentCount != null && activeBackgroundAgentCount > 0) {
+    return true;
+  }
+
   const taskItems = resolveTaskProgressItems(message, liveTodoItems);
   if (isTaskProgressComplete(taskItems)) {
     return false;
   }
 
-  const hasActiveBackgroundAgents = (message.parallelAgents ?? []).some(
-    (agent) => agent.background && agent.status === "background",
-  );
+  const agents = message.parallelAgents ?? [];
+  const hasActiveBackground = hasActiveBackgroundAgentsForSpinner(agents);
 
   // Also drive re-renders while foreground agents are running/pending
   // so the elapsed timer in ParallelAgentsTree stays live.
-  const hasActiveForegroundAgents = (message.parallelAgents ?? []).some(
+  const hasActiveForeground = agents.some(
     (agent) => !agent.background && (agent.status === "running" || agent.status === "pending"),
   );
 
-  return Boolean(message.streaming) || hasActiveBackgroundAgents || hasActiveForegroundAgents;
+  return Boolean(message.streaming) || hasActiveBackground || hasActiveForeground;
 }
 
 export function hasLiveLoadingIndicator(
@@ -66,10 +73,64 @@ export function hasLiveLoadingIndicator(
   );
 }
 
+/**
+ * Context for resolving the loading indicator verb text.
+ *
+ * Mirrors the information available at the call-site so the function
+ * remains a pure, testable helper with no React dependencies.
+ */
+export interface LoadingIndicatorTextContext {
+  /** Whether the foreground stream is still actively producing tokens. */
+  isStreaming: boolean;
+  /** Number of background agents currently active (from the bus-event count). */
+  activeBackgroundAgentCount: number;
+  /** Optional verb override already set on the message (e.g. "Compacting"). */
+  verbOverride?: string;
+  /** Milliseconds spent in thinking/reasoning (drives "Reasoning" default). */
+  thinkingMs?: number;
+}
+
+/**
+ * Return the spinner verb text for the loading indicator.
+ *
+ * Priority chain:
+ *   1. Explicit `verbOverride` (e.g. "Compacting", "Running workflow")
+ *   2. Background-agent-specific text when agents are active and foreground
+ *      streaming has ended
+ *   3. Thinking-based inference ("Reasoning" vs "Composing")
+ */
+export function getLoadingIndicatorText(context: LoadingIndicatorTextContext): string {
+  // 1. Explicit override always wins.
+  if (context.verbOverride) {
+    return context.verbOverride;
+  }
+
+  // 2. When the foreground stream has ended but background agents remain,
+  //    show a count-aware label so the user knows what the spinner represents.
+  if (!context.isStreaming && context.activeBackgroundAgentCount > 0) {
+    const count = context.activeBackgroundAgentCount;
+    return count === 1
+      ? "1 background agent running"
+      : `${count} background agents running`;
+  }
+
+  // 3. Default verb based on thinking state (matches LoadingIndicator component).
+  return context.thinkingMs != null && context.thinkingMs > 0
+    ? "Reasoning"
+    : "Composing";
+}
+
 export function shouldShowCompletionSummary(
   message: { streaming?: boolean; durationMs?: number; wasInterrupted?: boolean },
   hasActiveBackgroundAgents: boolean,
+  activeBackgroundAgentCount?: number,
 ): boolean {
+  // Defer the completion summary when the external bus-event count
+  // indicates background agents are still running.
+  if (activeBackgroundAgentCount != null && activeBackgroundAgentCount > 0) {
+    return false;
+  }
+
   return !message.streaming
     && !message.wasInterrupted
     && !hasActiveBackgroundAgents

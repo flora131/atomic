@@ -67,6 +67,8 @@ export interface UseStreamSubscriptionsArgs {
   streamingMessageIdRef: MutableRefObject<string | null>;
   streamingMetaRef: MutableRefObject<StreamingMeta | null>;
   streamingStartRef: MutableRefObject<number | null>;
+  deferredCompleteTimeoutRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
+  pendingCompleteRef: MutableRefObject<(() => void) | null>;
   terminateAgentLifecycleContractViolation: (args: {
     code: AgentLifecycleViolationCode;
     eventType: "stream.agent.start" | "stream.agent.update" | "stream.agent.complete";

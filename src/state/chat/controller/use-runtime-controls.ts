@@ -227,6 +227,7 @@ export function useChatRuntimeControls({
   const stopSharedStreamState = useCallback((options?: {
     preserveStreamingStart?: boolean;
     preserveStreamingMeta?: boolean;
+    hasActiveBackgroundAgents?: boolean;
   }) => {
     const next = createStoppedStreamControlState(
       {
@@ -237,8 +238,12 @@ export function useChatRuntimeControls({
         hasRunningTool: hasRunningToolRef.current,
         isAgentOnlyStream: isAgentOnlyStreamRef.current,
         hasPendingCompletion: pendingCompleteRef.current !== null,
+        hasPendingBackgroundWork: false,
       },
-      { preserveStreamingStart: options?.preserveStreamingStart },
+      {
+        preserveStreamingStart: options?.preserveStreamingStart,
+        hasActiveBackgroundAgents: options?.hasActiveBackgroundAgents,
+      },
     );
 
     setStreamingMessageId(next.streamingMessageId);

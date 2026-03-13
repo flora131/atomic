@@ -48,6 +48,8 @@ export function coalescingKey(event: BusEvent): string | undefined {
       return `session.start:${event.sessionId}`;
     case "stream.session.idle":
       return `session.idle:${event.sessionId}`;
+    case "stream.session.partial-idle":
+      return `session.partial-idle:${event.sessionId}`;
     case "stream.session.error":
       return `session.error:${event.sessionId}`;
     case "stream.session.retry":

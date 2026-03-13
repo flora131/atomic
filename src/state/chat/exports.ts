@@ -1,8 +1,10 @@
 export {
+  getLoadingIndicatorText,
   isTaskProgressComplete,
   shouldShowMessageLoadingIndicator,
   shouldShowCompletionSummary,
 } from "@/lib/ui/loading-state.ts";
+export type { LoadingIndicatorTextContext } from "@/lib/ui/loading-state.ts";
 
 export type {
   ChatAppProps,

@@ -309,7 +309,7 @@ export function publishSyntheticForegroundAgentStart(args: {
     return;
   }
   syntheticAgent.started = true;
-  args.subagentTracker?.registerAgent(syntheticAgent.id);
+  args.subagentTracker?.registerAgent(syntheticAgent.id, { isBackground: false });
   args.publishEvent({
     type: "stream.agent.start",
     sessionId: args.sessionId,

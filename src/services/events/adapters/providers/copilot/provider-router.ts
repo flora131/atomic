@@ -48,6 +48,13 @@ import type {
   CopilotStreamAdapterState,
 } from "@/services/events/adapters/providers/copilot/types.ts";
 
+const FOREGROUND_ONLY_EVENT_TYPES: ReadonlySet<string> = new Set([
+  "message.delta",
+  "message.complete",
+  "reasoning.delta",
+  "reasoning.complete",
+]);
+
 export function subscribeToCopilotEvents(
   deps: CopilotStreamAdapterDeps,
   state: CopilotStreamAdapterState,
@@ -59,7 +66,13 @@ export function subscribeToCopilotEvents(
   }
 
   const unsubProvider = providerClient.onProviderEvent((event) => {
-    if (!state.isActive || event.sessionId !== state.sessionId) {
+    if (event.sessionId !== state.sessionId) {
+      return;
+    }
+    if (!state.isActive && !state.isBackgroundOnly) {
+      return;
+    }
+    if (state.isBackgroundOnly && FOREGROUND_ONLY_EVENT_TYPES.has(event.type)) {
       return;
     }
     routeCopilotProviderEvent(deps, state, event);

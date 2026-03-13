@@ -1,5 +1,5 @@
 import { getToolRenderer, parseMcpToolName } from "@/components/tool-registry/index.ts";
-import { truncateText } from "@/lib/ui/format.ts";
+import { collapseNewlines, truncateText } from "@/lib/ui/format.ts";
 
 export function getSubagentToolDisplayName(toolName: string): string {
   const parsed = parseMcpToolName(toolName);
@@ -128,16 +128,16 @@ export function formatSubagentToolSummary(
 
   if (normalized === "read" || normalized === "view" || normalized === "open") {
     const paths = formatPathList(extractPathList(input));
-    return paths ? `${toolLabel} ${truncateText(paths, 110)}` : toolLabel;
+    return paths ? collapseNewlines(`${toolLabel} ${truncateText(paths, 110)}`) : toolLabel;
   }
 
   if (normalized === "grep" || normalized === "search" || normalized === "glob") {
-    return summarizeSearchLikeTool(toolLabel, input);
+    return collapseNewlines(summarizeSearchLikeTool(toolLabel, input));
   }
 
   if (normalized === "bash" || normalized === "shell") {
     const command = firstNonEmptyString(input.command, input.cmd);
-    return command ? `${toolLabel} ${truncateText(command, 110)}` : toolLabel;
+    return command ? collapseNewlines(`${toolLabel} ${truncateText(command, 110)}`) : toolLabel;
   }
 
   if (
@@ -147,7 +147,7 @@ export function formatSubagentToolSummary(
     || normalized === "create"
   ) {
     const paths = formatPathList(extractPathList(input));
-    return paths ? `${toolLabel} ${truncateText(paths, 110)}` : toolLabel;
+    return paths ? collapseNewlines(`${toolLabel} ${truncateText(paths, 110)}`) : toolLabel;
   }
 
   if (
@@ -164,13 +164,13 @@ export function formatSubagentToolSummary(
       input.agent_type,
       input.agent,
     );
-    return description ? `${toolLabel} ${truncateText(description, 100)}` : toolLabel;
+    return description ? collapseNewlines(`${toolLabel} ${truncateText(description, 100)}`) : toolLabel;
   }
 
   const renderer = getToolRenderer(toolName);
   const title = renderer.getTitle({ input });
   if (title && title !== "Tool execution" && title !== "MCP tool call") {
-    return `${toolLabel} ${truncateText(title, 100)}`;
+    return collapseNewlines(`${toolLabel} ${truncateText(title, 100)}`);
   }
 
   const fallback = Object.entries(input)
@@ -179,6 +179,6 @@ export function formatSubagentToolSummary(
     .join(", ");
 
   return fallback.length > 0
-    ? `${toolLabel} ${fallback}`
+    ? collapseNewlines(`${toolLabel} ${fallback}`)
     : toolLabel;
 }

@@ -242,6 +242,8 @@ export function collectDoneRenderMarkers(
   return markers;
 }
 
+export const MAX_VISIBLE_INLINE_TOOLS = 3;
+
 function AgentSummaryBlock({
   agent,
   compact,
@@ -252,7 +254,11 @@ function AgentSummaryBlock({
   syntaxStyle?: SyntaxStyle;
 }): React.ReactNode {
   const colors = useThemeColors();
-  const visibleTools = getAgentInlineDisplayParts(agent.inlineParts ?? []);
+  const allTools = getAgentInlineDisplayParts(agent.inlineParts ?? []);
+  const hiddenToolCount = Math.max(0, allTools.length - MAX_VISIBLE_INLINE_TOOLS);
+  const visibleTools = hiddenToolCount > 0
+    ? allTools.slice(-MAX_VISIBLE_INLINE_TOOLS)
+    : allTools;
   const indicatorColor = getStatusIndicatorColor(agent.status, colors);
   const animateIndicator = shouldAnimateAgentStatus(agent.status);
   const label = truncateText(agent.name, compact ? 40 : 60);
@@ -267,6 +273,20 @@ function AgentSummaryBlock({
         )}
         <span style={{ fg: colors.foreground, attributes: 1 }}> {label}</span>
       </text>
+      {hiddenToolCount > 0 && (
+        <box flexDirection="row">
+          <box flexShrink={0}>
+            <text style={{ fg: colors.muted }}>
+              {buildAgentInlineBranchPrefix("", false)}
+            </text>
+          </box>
+          <box flexGrow={1} flexShrink={1}>
+            <text style={{ fg: colors.muted }}>
+              +{hiddenToolCount} earlier tool call{hiddenToolCount === 1 ? "" : "s"}
+            </text>
+          </box>
+        </box>
+      )}
       {visibleTools.map((part, index) => (
         <box key={part.id} flexDirection="row">
           <box flexShrink={0}>

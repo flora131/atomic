@@ -14,6 +14,7 @@ interface UseChatBackgroundDispatchArgs {
   backgroundAgentSendChainRef: MutableRefObject<Promise<void>>;
   backgroundUpdateFlushInFlightRef: MutableRefObject<boolean>;
   getSession?: () => Session | null;
+  isAgentOnlyStreamRef: MutableRefObject<boolean>;
   isStreamingRef: MutableRefObject<boolean>;
   pendingBackgroundUpdatesRef: MutableRefObject<string[]>;
   setMessagesWindowed: (next: React.SetStateAction<ChatMessage[]>) => void;
@@ -23,6 +24,7 @@ export function useChatBackgroundDispatch({
   backgroundAgentSendChainRef,
   backgroundUpdateFlushInFlightRef,
   getSession,
+  isAgentOnlyStreamRef,
   isStreamingRef,
   pendingBackgroundUpdatesRef,
   setMessagesWindowed,
@@ -30,6 +32,7 @@ export function useChatBackgroundDispatch({
   const flushPendingBackgroundUpdatesToAgent = useCallback(() => {
     if (!shouldStartBackgroundUpdateFlush({
       hasFlushInFlight: backgroundUpdateFlushInFlightRef.current,
+      isAgentOnlyStream: isAgentOnlyStreamRef.current,
       isStreaming: isStreamingRef.current,
       pendingUpdateCount: pendingBackgroundUpdatesRef.current.length,
     })) {
@@ -59,6 +62,7 @@ export function useChatBackgroundDispatch({
       .finally(() => {
         backgroundUpdateFlushInFlightRef.current = false;
         if (shouldScheduleBackgroundUpdateFollowUpFlush({
+          isAgentOnlyStream: isAgentOnlyStreamRef.current,
           sendSucceeded,
           isStreaming: isStreamingRef.current,
           pendingUpdateCount: pendingBackgroundUpdatesRef.current.length,
@@ -72,6 +76,7 @@ export function useChatBackgroundDispatch({
     backgroundAgentSendChainRef,
     backgroundUpdateFlushInFlightRef,
     getSession,
+    isAgentOnlyStreamRef,
     isStreamingRef,
     pendingBackgroundUpdatesRef,
   ]);

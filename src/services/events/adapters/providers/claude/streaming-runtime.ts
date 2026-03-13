@@ -49,6 +49,9 @@ export async function startClaudeStreaming(args: {
   publishSessionError: (runId: number, error: unknown) => void;
   cleanupOrphanedTools: (runId: number) => void;
   publishSessionIdle: (runId: number, reason: "generator-complete" | "aborted" | "error") => void;
+  hasActiveBackgroundAgents: () => boolean;
+  getActiveBackgroundAgentCount: () => number;
+  publishSessionPartialIdle: (runId: number, completionReason: string, activeBackgroundAgentCount: number) => void;
   processStreamChunk: (chunk: AgentMessage, runId: number, messageId: string) => void;
   createAgentEvent: <T extends EventType>(event: {
     type: T;
@@ -230,7 +233,21 @@ export async function startClaudeStreaming(args: {
       streamCompletionReason = "aborted";
       args.publishSyntheticAgentComplete(runId, false, "Tool execution aborted");
     }
+    const hadActiveBackgroundAgents = args.hasActiveBackgroundAgents();
+    const activeBackgroundAgentCount = hadActiveBackgroundAgents
+      ? args.getActiveBackgroundAgentCount()
+      : 0;
+
     args.cleanupOrphanedTools(runId);
-    args.publishSessionIdle(runId, streamCompletionReason);
+
+    if (hadActiveBackgroundAgents) {
+      args.publishSessionPartialIdle(
+        runId,
+        streamCompletionReason,
+        activeBackgroundAgentCount,
+      );
+    } else {
+      args.publishSessionIdle(runId, streamCompletionReason);
+    }
   }
 }

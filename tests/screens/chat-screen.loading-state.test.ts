@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
 import {
+  getLoadingIndicatorText,
   hasLiveLoadingIndicator,
   isTaskProgressComplete,
+  shouldShowCompletionSummary,
   shouldShowMessageLoadingIndicator,
 } from "@/lib/ui/loading-state.ts";
+import type { LoadingIndicatorTextContext } from "@/lib/ui/loading-state.ts";
 
 const backgroundAgent: ParallelAgent = {
   id: "agent-1",
@@ -177,6 +180,57 @@ describe("shouldShowMessageLoadingIndicator", () => {
       }),
     ).toBe(false);
   });
+
+  test("returns true when activeBackgroundAgentCount > 0 even if not streaming", () => {
+    expect(
+      shouldShowMessageLoadingIndicator(
+        { streaming: false },
+        undefined,
+        2,
+      ),
+    ).toBe(true);
+  });
+
+  test("returns true when activeBackgroundAgentCount > 0 even if tasks are complete", () => {
+    expect(
+      shouldShowMessageLoadingIndicator(
+        {
+          streaming: false,
+          taskItems: [
+            { status: "completed" },
+            { status: "completed" },
+          ],
+        },
+        undefined,
+        1,
+      ),
+    ).toBe(true);
+  });
+
+  test("falls through to normal logic when activeBackgroundAgentCount is 0", () => {
+    expect(
+      shouldShowMessageLoadingIndicator(
+        {
+          streaming: false,
+          taskItems: [
+            { status: "completed" },
+            { status: "completed" },
+          ],
+        },
+        undefined,
+        0,
+      ),
+    ).toBe(false);
+  });
+
+  test("falls through to normal logic when activeBackgroundAgentCount is undefined", () => {
+    expect(
+      shouldShowMessageLoadingIndicator(
+        { streaming: true },
+        [{ status: "in_progress" }],
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("hasLiveLoadingIndicator", () => {
@@ -249,6 +303,250 @@ describe("hasLiveLoadingIndicator", () => {
           ],
         },
       ]),
+    ).toBe(false);
+  });
+});
+
+describe("getLoadingIndicatorText", () => {
+  function ctx(overrides: Partial<LoadingIndicatorTextContext> = {}): LoadingIndicatorTextContext {
+    return {
+      isStreaming: false,
+      activeBackgroundAgentCount: 0,
+      ...overrides,
+    };
+  }
+
+  // --- Priority 1: verbOverride always wins ---
+
+  test("returns verbOverride when provided, regardless of other state", () => {
+    expect(getLoadingIndicatorText(ctx({ verbOverride: "Compacting" }))).toBe("Compacting");
+  });
+
+  test("returns verbOverride even when background agents are active", () => {
+    expect(
+      getLoadingIndicatorText(ctx({
+        verbOverride: "Running workflow",
+        activeBackgroundAgentCount: 3,
+      })),
+    ).toBe("Running workflow");
+  });
+
+  test("returns verbOverride even when streaming with thinking", () => {
+    expect(
+      getLoadingIndicatorText(ctx({
+        verbOverride: "Compacting",
+        isStreaming: true,
+        thinkingMs: 5000,
+      })),
+    ).toBe("Compacting");
+  });
+
+  // --- Priority 2: Background agent text when not streaming ---
+
+  test("returns singular text for 1 background agent when not streaming", () => {
+    expect(
+      getLoadingIndicatorText(ctx({ activeBackgroundAgentCount: 1 })),
+    ).toBe("1 background agent running");
+  });
+
+  test("returns plural text for multiple background agents when not streaming", () => {
+    expect(
+      getLoadingIndicatorText(ctx({ activeBackgroundAgentCount: 3 })),
+    ).toBe("3 background agents running");
+  });
+
+  test("returns plural text for 2 background agents", () => {
+    expect(
+      getLoadingIndicatorText(ctx({ activeBackgroundAgentCount: 2 })),
+    ).toBe("2 background agents running");
+  });
+
+  test("does not show background agent text while still streaming", () => {
+    // When foreground stream is active, use standard verb even if background agents exist
+    expect(
+      getLoadingIndicatorText(ctx({
+        isStreaming: true,
+        activeBackgroundAgentCount: 2,
+      })),
+    ).toBe("Composing");
+  });
+
+  // --- Priority 3: Default verb based on thinking state ---
+
+  test("returns 'Reasoning' when thinkingMs > 0", () => {
+    expect(
+      getLoadingIndicatorText(ctx({ isStreaming: true, thinkingMs: 1500 })),
+    ).toBe("Reasoning");
+  });
+
+  test("returns 'Composing' as default fallback", () => {
+    expect(getLoadingIndicatorText(ctx({ isStreaming: true }))).toBe("Composing");
+  });
+
+  test("returns 'Composing' when thinkingMs is 0", () => {
+    expect(
+      getLoadingIndicatorText(ctx({ isStreaming: true, thinkingMs: 0 })),
+    ).toBe("Composing");
+  });
+
+  test("returns 'Composing' when thinkingMs is undefined", () => {
+    expect(
+      getLoadingIndicatorText(ctx({ isStreaming: true, thinkingMs: undefined })),
+    ).toBe("Composing");
+  });
+
+  test("returns 'Composing' when not streaming and no background agents", () => {
+    expect(getLoadingIndicatorText(ctx())).toBe("Composing");
+  });
+});
+
+describe("shouldShowCompletionSummary", () => {
+  // --- Base case: all conditions met ---
+
+  test("returns true when stream finished, no bg agents, and duration >= 1000ms", () => {
+    expect(
+      shouldShowCompletionSummary(
+        { streaming: false, durationMs: 2500, wasInterrupted: false },
+        false,
+      ),
+    ).toBe(true);
+  });
+
+  test("returns true at exact 1000ms boundary", () => {
+    expect(
+      shouldShowCompletionSummary(
+        { streaming: false, durationMs: 1000 },
+        false,
+      ),
+    ).toBe(true);
+  });
+
+  // --- Defers when streaming ---
+
+  test("returns false while still streaming", () => {
+    expect(
+      shouldShowCompletionSummary(
+        { streaming: true, durationMs: 5000 },
+        false,
+      ),
+    ).toBe(false);
+  });
+
+  // --- Defers when interrupted ---
+
+  test("returns false when stream was interrupted", () => {
+    expect(
+      shouldShowCompletionSummary(
+        { streaming: false, durationMs: 5000, wasInterrupted: true },
+        false,
+      ),
+    ).toBe(false);
+  });
+
+  // --- Duration thresholds ---
+
+  test("returns false when durationMs is below 1000", () => {
+    expect(
+      shouldShowCompletionSummary(
+        { streaming: false, durationMs: 999 },
+        false,
+      ),
+    ).toBe(false);
+  });
+
+  test("returns false when durationMs is undefined", () => {
+    expect(
+      shouldShowCompletionSummary(
+        { streaming: false },
+        false,
+      ),
+    ).toBe(false);
+  });
+
+  // --- Background agents via hasActiveBackgroundAgents flag ---
+
+  test("returns false when hasActiveBackgroundAgents is true", () => {
+    expect(
+      shouldShowCompletionSummary(
+        { streaming: false, durationMs: 5000 },
+        true,
+      ),
+    ).toBe(false);
+  });
+
+  // --- Background agents via activeBackgroundAgentCount (bus-event count) ---
+
+  test("returns false when activeBackgroundAgentCount > 0 even if all other conditions pass", () => {
+    expect(
+      shouldShowCompletionSummary(
+        { streaming: false, durationMs: 5000, wasInterrupted: false },
+        false,
+        2,
+      ),
+    ).toBe(false);
+  });
+
+  test("returns false when activeBackgroundAgentCount is 1", () => {
+    expect(
+      shouldShowCompletionSummary(
+        { streaming: false, durationMs: 3000 },
+        false,
+        1,
+      ),
+    ).toBe(false);
+  });
+
+  test("activeBackgroundAgentCount takes priority over hasActiveBackgroundAgents=false", () => {
+    // Even though the flag says no bg agents, the external count overrides
+    expect(
+      shouldShowCompletionSummary(
+        { streaming: false, durationMs: 5000 },
+        false,
+        3,
+      ),
+    ).toBe(false);
+  });
+
+  // --- Falls through when activeBackgroundAgentCount is 0 or undefined ---
+
+  test("falls through to normal logic when activeBackgroundAgentCount is 0", () => {
+    expect(
+      shouldShowCompletionSummary(
+        { streaming: false, durationMs: 2000 },
+        false,
+        0,
+      ),
+    ).toBe(true);
+  });
+
+  test("falls through to normal logic when activeBackgroundAgentCount is undefined", () => {
+    expect(
+      shouldShowCompletionSummary(
+        { streaming: false, durationMs: 2000 },
+        false,
+      ),
+    ).toBe(true);
+  });
+
+  // --- Combined edge cases ---
+
+  test("returns false when both hasActiveBackgroundAgents and activeBackgroundAgentCount indicate bg work", () => {
+    expect(
+      shouldShowCompletionSummary(
+        { streaming: false, durationMs: 5000 },
+        true,
+        2,
+      ),
+    ).toBe(false);
+  });
+
+  test("returns false when streaming even with activeBackgroundAgentCount=0", () => {
+    expect(
+      shouldShowCompletionSummary(
+        { streaming: true, durationMs: 5000 },
+        false,
+        0,
+      ),
     ).toBe(false);
   });
 });

@@ -143,6 +143,7 @@ export interface UseChatStreamRuntimeResult {
     stopSharedStreamState: (options?: {
       preserveStreamingStart?: boolean;
       preserveStreamingMeta?: boolean;
+      hasActiveBackgroundAgents?: boolean;
     }) => void;
     terminateAgentLifecycleContractViolation: (args: {
       code: AgentLifecycleViolationCode;

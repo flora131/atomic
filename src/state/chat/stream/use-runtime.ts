@@ -217,6 +217,7 @@ export function useChatStreamRuntime({
     backgroundAgentSendChainRef,
     backgroundUpdateFlushInFlightRef,
     getSession,
+    isAgentOnlyStreamRef,
     isStreamingRef,
     pendingBackgroundUpdatesRef,
     setMessagesWindowed,

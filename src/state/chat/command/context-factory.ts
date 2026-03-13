@@ -397,6 +397,7 @@ export function startCommandSpinner(
           hasRunningTool: args.hasRunningToolRef.current,
           isAgentOnlyStream: args.isAgentOnlyStreamRef.current,
           hasPendingCompletion: args.pendingCompleteRef.current !== null,
+          hasPendingBackgroundWork: false,
         },
         { messageId: message.id, startedAt: Date.now() },
       );

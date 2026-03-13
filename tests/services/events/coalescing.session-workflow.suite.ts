@@ -79,6 +79,43 @@ describe("coalescingKey()", () => {
 
       expect(coalescingKey(start)).not.toBe(coalescingKey(idle));
     });
+
+    it("should return session.partial-idle:${sessionId} for stream.session.partial-idle", () => {
+      const event: BusEvent<"stream.session.partial-idle"> = {
+        type: "stream.session.partial-idle",
+        sessionId: "session-pi",
+        runId: 1,
+        timestamp: Date.now(),
+        data: {
+          completionReason: "foreground_stream_ended",
+          activeBackgroundAgentCount: 3,
+        },
+      };
+
+      expect(coalescingKey(event)).toBe("session.partial-idle:session-pi");
+    });
+
+    it("should NOT coalesce session.partial-idle with session.idle", () => {
+      const partialIdle: BusEvent<"stream.session.partial-idle"> = {
+        type: "stream.session.partial-idle",
+        sessionId: "session-1",
+        runId: 1,
+        timestamp: Date.now(),
+        data: {
+          completionReason: "foreground_stream_ended",
+          activeBackgroundAgentCount: 1,
+        },
+      };
+      const idle: BusEvent<"stream.session.idle"> = {
+        type: "stream.session.idle",
+        sessionId: "session-1",
+        runId: 1,
+        timestamp: Date.now(),
+        data: {},
+      };
+
+      expect(coalescingKey(partialIdle)).not.toBe(coalescingKey(idle));
+    });
   });
 
   describe("workflow events (return workflow.tasks:{workflowId})", () => {

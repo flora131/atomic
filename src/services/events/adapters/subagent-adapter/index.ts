@@ -33,7 +33,9 @@ export class SubagentStreamAdapter {
       options.sessionId,
       options.runId,
     );
-    toolTracker.registerAgent(options.agentId);
+    toolTracker.registerAgent(options.agentId, {
+      isBackground: options.isBackground,
+    });
 
     this.state = {
       bus: options.bus,

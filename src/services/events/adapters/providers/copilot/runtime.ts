@@ -45,6 +45,7 @@ export async function startCopilotStreaming(
   state.accumulatedText = "";
   state.accumulatedOutputTokens = 0;
   state.pendingIdleReason = null;
+  state.isBackgroundOnly = false;
   state.thinkingStreams.clear();
   state.toolNameById.clear();
   state.emittedToolStartIds.clear();
@@ -143,16 +144,37 @@ export async function startCopilotStreaming(
     cleanupCopilotOrphanedTools(state, deps.bus);
     const pendingIdleReason = state.pendingIdleReason;
     state.pendingIdleReason = null;
+
+    const hasBackgroundAgents = state.subagentTracker?.hasActiveBackgroundAgents() ?? false;
+
     if (!abortedBySignal && pendingIdleReason !== null) {
-      publishCopilotBufferedEvent(state, deps.bus, {
-        type: "stream.session.idle",
-        sessionId: state.sessionId,
-        runId: state.runId,
-        timestamp: Date.now(),
-        data: { reason: pendingIdleReason },
-      });
+      if (hasBackgroundAgents) {
+        state.isBackgroundOnly = true;
+        publishCopilotBufferedEvent(state, deps.bus, {
+          type: "stream.session.partial-idle",
+          sessionId: state.sessionId,
+          runId: state.runId,
+          timestamp: Date.now(),
+          data: {
+            completionReason: pendingIdleReason,
+            activeBackgroundAgentCount:
+              state.subagentTracker?.getActiveBackgroundAgentCount() ?? 0,
+          },
+        });
+      } else {
+        publishCopilotBufferedEvent(state, deps.bus, {
+          type: "stream.session.idle",
+          sessionId: state.sessionId,
+          runId: state.runId,
+          timestamp: Date.now(),
+          data: { reason: pendingIdleReason },
+        });
+      }
     }
-    state.isActive = false;
+
+    if (!hasBackgroundAgents) {
+      state.isActive = false;
+    }
     options.abortSignal?.removeEventListener("abort", abortListener);
   }
 }
@@ -162,6 +184,7 @@ export function disposeCopilotStreamAdapter(
   state: CopilotStreamAdapterState,
 ): void {
   state.isActive = false;
+  state.isBackgroundOnly = false;
   cleanupCopilotSubscriptions(state);
   state.eventBuffer = [];
   state.eventBufferHead = 0;

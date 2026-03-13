@@ -103,6 +103,23 @@ describe("BusEvent Type Definitions", () => {
     expect(event.data.outputTokens).toBe(50);
   });
 
+  it("should create a valid partial-idle event", () => {
+    const event: BusEvent<"stream.session.partial-idle"> = {
+      type: "stream.session.partial-idle",
+      sessionId: "test-session",
+      runId: 1,
+      timestamp: Date.now(),
+      data: {
+        completionReason: "foreground_stream_ended",
+        activeBackgroundAgentCount: 2,
+      },
+    };
+
+    expect(event.type).toBe("stream.session.partial-idle");
+    expect(event.data.completionReason).toBe("foreground_stream_ended");
+    expect(event.data.activeBackgroundAgentCount).toBe(2);
+  });
+
   it("should create enriched events with correlation data", () => {
     const enrichedEvent: EnrichedBusEvent = {
       type: "stream.tool.start",
@@ -138,6 +155,7 @@ describe("BusEvent Type Definitions", () => {
       "stream.agent.complete",
       "stream.session.start",
       "stream.session.idle",
+      "stream.session.partial-idle",
       "stream.session.error",
       "workflow.step.start",
       "workflow.step.complete",

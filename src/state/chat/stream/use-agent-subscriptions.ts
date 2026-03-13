@@ -19,6 +19,7 @@ import {
   type AgentOrderingEvent,
 } from "@/lib/ui/agent-ordering-contract.ts";
 import { isBackgroundAgent } from "@/lib/ui/background-agent-footer.ts";
+import { hasActiveBackgroundAgentsForSpinner } from "@/state/parts/guards.ts";
 import type { UseStreamSubscriptionsArgs } from "@/state/chat/stream/subscription-types.ts";
 
 export function useStreamAgentSubscriptions({
@@ -29,10 +30,12 @@ export function useStreamAgentSubscriptions({
   backgroundAgentMessageIdRef,
   backgroundProgressSnapshotRef,
   completionOrderingEventByAgentRef,
+  deferredCompleteTimeoutRef,
   deferredPostCompleteDeltasByAgentRef,
   doneRenderedSequenceByAgentRef,
   lastStreamedMessageIdRef,
   parallelAgentsRef,
+  pendingCompleteRef,
   resolveAgentScopedMessageId,
   sendBackgroundMessageToAgent,
   setAgentMessageBinding,
@@ -49,10 +52,12 @@ export function useStreamAgentSubscriptions({
   | "backgroundAgentMessageIdRef"
   | "backgroundProgressSnapshotRef"
   | "completionOrderingEventByAgentRef"
+  | "deferredCompleteTimeoutRef"
   | "deferredPostCompleteDeltasByAgentRef"
   | "doneRenderedSequenceByAgentRef"
   | "lastStreamedMessageIdRef"
   | "parallelAgentsRef"
+  | "pendingCompleteRef"
   | "resolveAgentScopedMessageId"
   | "sendBackgroundMessageToAgent"
   | "setAgentMessageBinding"
@@ -352,14 +357,26 @@ export function useStreamAgentSubscriptions({
       } else {
         sendBackgroundMessageToAgent(`Background task "${agentName}" completed.`);
       }
-      return;
+    } else {
+      const errorText = data.error?.trim();
+      if (errorText) {
+        sendBackgroundMessageToAgent(`Background task "${agentName}" failed:\n\n${errorText}`);
+      } else {
+        sendBackgroundMessageToAgent(`Background task "${agentName}" failed.`);
+      }
     }
 
-    const errorText = data.error?.trim();
-    if (errorText) {
-      sendBackgroundMessageToAgent(`Background task "${agentName}" failed:\n\n${errorText}`);
-    } else {
-      sendBackgroundMessageToAgent(`Background task "${agentName}" failed.`);
+    // Trigger deferred completion when the last background agent finishes.
+    // parallelAgentsRef.current is already synced above so the completing
+    // agent is already marked "completed"/"error".
+    if (!hasActiveBackgroundAgentsForSpinner(parallelAgentsRef.current) && pendingCompleteRef.current) {
+      if (deferredCompleteTimeoutRef.current) {
+        clearTimeout(deferredCompleteTimeoutRef.current);
+        deferredCompleteTimeoutRef.current = null;
+      }
+      const pendingComplete = pendingCompleteRef.current;
+      pendingCompleteRef.current = null;
+      pendingComplete();
     }
   });
 }

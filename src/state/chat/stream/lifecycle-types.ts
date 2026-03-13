@@ -60,6 +60,7 @@ export interface UseChatStreamLifecycleArgs {
   stopSharedStreamState: (options?: {
     preserveStreamingStart?: boolean;
     preserveStreamingMeta?: boolean;
+    hasActiveBackgroundAgents?: boolean;
   }) => void;
   streamingMessageIdRef: MutableRefObject<string | null>;
   streamingMetaRef: MutableRefObject<StreamingMeta | null>;

@@ -48,6 +48,7 @@ export interface BatchMetrics {
 const LIFECYCLE_EVENT_TYPES = new Set([
   "stream.session.start",
   "stream.session.idle",
+  "stream.session.partial-idle",
   "stream.session.error",
   "stream.session.retry",
 ]);

@@ -249,6 +249,20 @@ export function useStreamSessionSubscriptions({
     }
   });
 
+  useBusSubscription("stream.session.partial-idle", (event) => {
+    if (!shouldProcessStreamLifecycleEvent(activeStreamRunIdRef.current, event.runId)) {
+      return;
+    }
+
+    if (!isStreamingRef.current) {
+      return;
+    }
+
+    batchDispatcher.flush();
+
+    handleStreamComplete();
+  });
+
   useBusSubscription("stream.session.error", (event) => {
     if (!shouldProcessStreamLifecycleEvent(activeStreamRunIdRef.current, event.runId)) {
       return;

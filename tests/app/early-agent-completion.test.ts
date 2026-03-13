@@ -115,12 +115,14 @@ describe("Early agent completion detection", () => {
     expect(shouldEagerlyResolve(agents, "a1", true, true, true)).toBe(false);
   });
 
-  test("resolves when only background agents remain after last foreground completes", () => {
+  test("does NOT eagerly resolve when background agents remain after last foreground completes", () => {
+    // Background agents keep the deferral pending — completion is handled by
+    // the background agent lifecycle handler (spec 5.2.7), not eager resolution.
     const agents = [
       createAgent({ id: "fg1", status: "running", background: false }),
       createAgent({ id: "bg1", status: "background", background: true }),
     ];
-    expect(shouldEagerlyResolve(agents, "fg1", true, true, false)).toBe(true);
+    expect(shouldEagerlyResolve(agents, "fg1", true, true, false)).toBe(false);
   });
 
   test("resolves when all other foreground agents are already terminal", () => {
@@ -132,14 +134,16 @@ describe("Early agent completion detection", () => {
     expect(shouldEagerlyResolve(agents, "a1", true, true, false)).toBe(true);
   });
 
-  test("resolves for mixed terminal + background agents", () => {
+  test("does NOT eagerly resolve for mixed terminal + background agents", () => {
+    // Even when all foreground agents are terminal, active background agents
+    // prevent eager resolution — background lifecycle handler takes over.
     const agents = [
       createAgent({ id: "fg1", status: "running", background: false }),
       createAgent({ id: "fg2", status: "completed", background: false }),
       createAgent({ id: "bg1", status: "background", background: true }),
       createAgent({ id: "bg2", status: "running", background: true }),
     ];
-    expect(shouldEagerlyResolve(agents, "fg1", true, true, false)).toBe(true);
+    expect(shouldEagerlyResolve(agents, "fg1", true, true, false)).toBe(false);
   });
 
   test("does NOT resolve for non-existent agent id (no-op update)", () => {

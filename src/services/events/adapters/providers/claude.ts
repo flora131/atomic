@@ -277,6 +277,10 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       publishSessionError: (runId, error) => this.support.publishSessionError(runId, error),
       cleanupOrphanedTools: (runId) => this.support.cleanupOrphanedTools(runId),
       publishSessionIdle: (runId, reason) => this.support.publishSessionIdle(runId, reason),
+      hasActiveBackgroundAgents: () => this.toolState.hasActiveBackgroundAgents(),
+      getActiveBackgroundAgentCount: () => this.toolState.getActiveBackgroundAgentCount(),
+      publishSessionPartialIdle: (runId, completionReason, activeBackgroundAgentCount) =>
+        this.support.publishSessionPartialIdle(runId, completionReason, activeBackgroundAgentCount),
       processStreamChunk: (chunk, runId, messageId) => {
         this.streamChunkProcessor.process(chunk, runId, messageId);
       },

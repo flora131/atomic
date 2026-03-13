@@ -40,10 +40,12 @@ export interface StreamControlState {
   hasRunningTool: boolean;
   isAgentOnlyStream: boolean;
   hasPendingCompletion: boolean;
+  hasPendingBackgroundWork: boolean;
 }
 
 export interface StopStreamOptions {
   preserveStreamingStart?: boolean;
+  hasActiveBackgroundAgents?: boolean;
 }
 
 export interface StartStreamOptions {
@@ -157,6 +159,7 @@ export function createStoppedStreamControlState(
     hasRunningTool: false,
     isAgentOnlyStream: false,
     hasPendingCompletion: false,
+    hasPendingBackgroundWork: options?.hasActiveBackgroundAgents ?? false,
   };
 }
 
@@ -173,6 +176,7 @@ export function createStartedStreamControlState(
     hasRunningTool: false,
     isAgentOnlyStream: options.isAgentOnlyStream ?? false,
     hasPendingCompletion: false,
+    hasPendingBackgroundWork: false,
   };
 }
 

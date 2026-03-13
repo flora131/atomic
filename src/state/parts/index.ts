@@ -26,6 +26,7 @@ export {
   shouldFinalizeOnToolComplete,
   hasActiveForegroundAgents,
   shouldFinalizeDeferredStream,
+  hasActiveBackgroundAgentsForSpinner,
 } from "@/state/parts/guards.ts";
 export { getMessageText } from "@/state/parts/helpers.ts";
 export { handleTextDelta } from "@/state/parts/handlers.ts";

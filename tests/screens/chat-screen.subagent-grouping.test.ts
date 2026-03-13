@@ -9,17 +9,6 @@ import {
   upsertSyntheticTaskAgentForToolStart,
 } from "@/state/chat/exports.ts";
 
-function createCompletedAgent(): ParallelAgent {
-  return {
-    id: "agent-1",
-    taskToolCallId: "task-1",
-    name: "codebase-analyzer",
-    task: "Analyze app structure",
-    status: "completed",
-    startedAt: "2026-01-01T00:00:00.000Z",
-  };
-}
-
 describe("mergeAgentTaskLabel", () => {
   test("preserves descriptive task labels when incoming label is generic", () => {
     expect(mergeAgentTaskLabel("Debug stuck spinner", "Sub-agent task", "debugger")).toBe("Debug stuck spinner");
@@ -137,6 +126,106 @@ describe("finalizeCorrelatedSubagentDispatchForToolComplete", () => {
     expect(result[0]!.currentTool).toBeUndefined();
     expect(result[0]!.durationMs).toBeGreaterThan(0);
     expect(result[1]!.status).toBe("running");
+  });
+
+  test("skips finalization for copilot provider to prevent premature completion", () => {
+    const agents: ParallelAgent[] = [
+      {
+        id: "agent-1",
+        taskToolCallId: "tool-1",
+        name: "codebase-analyzer",
+        task: "Analyze rendering",
+        status: "running",
+        startedAt: "2026-03-02T08:17:49.941Z",
+        currentTool: "Read",
+      },
+    ];
+
+    const result = finalizeCorrelatedSubagentDispatchForToolComplete({
+      agents,
+      provider: "copilot",
+      toolName: "Task",
+      toolId: "tool-1",
+      success: true,
+      completedAtMs: new Date("2026-03-02T08:18:59.188Z").getTime(),
+    });
+
+    expect(result).toBe(agents);
+    expect(result[0]!.status).toBe("running");
+  });
+
+  test("still finalizes correlated agents for opencode provider", () => {
+    const agents: ParallelAgent[] = [
+      {
+        id: "agent-1",
+        taskToolCallId: "tool-1",
+        name: "codebase-analyzer",
+        task: "Analyze rendering",
+        status: "running",
+        startedAt: "2026-03-02T08:17:49.941Z",
+        currentTool: "Read",
+      },
+    ];
+
+    const result = finalizeCorrelatedSubagentDispatchForToolComplete({
+      agents,
+      provider: "opencode",
+      toolName: "Task",
+      toolId: "tool-1",
+      success: true,
+      completedAtMs: new Date("2026-03-02T08:18:59.188Z").getTime(),
+    });
+
+    expect(result[0]!.status).toBe("completed");
+  });
+
+  test("still finalizes correlated agents for claude provider", () => {
+    const agents: ParallelAgent[] = [
+      {
+        id: "agent-1",
+        taskToolCallId: "tool-1",
+        name: "codebase-analyzer",
+        task: "Analyze rendering",
+        status: "running",
+        startedAt: "2026-03-02T08:17:49.941Z",
+        currentTool: "Read",
+      },
+    ];
+
+    const result = finalizeCorrelatedSubagentDispatchForToolComplete({
+      agents,
+      provider: "claude",
+      toolName: "Task",
+      toolId: "tool-1",
+      success: true,
+      completedAtMs: new Date("2026-03-02T08:18:59.188Z").getTime(),
+    });
+
+    expect(result[0]!.status).toBe("completed");
+  });
+
+  test("still finalizes correlated agents when provider is undefined", () => {
+    const agents: ParallelAgent[] = [
+      {
+        id: "agent-1",
+        taskToolCallId: "tool-1",
+        name: "codebase-analyzer",
+        task: "Analyze rendering",
+        status: "running",
+        startedAt: "2026-03-02T08:17:49.941Z",
+        currentTool: "Read",
+      },
+    ];
+
+    const result = finalizeCorrelatedSubagentDispatchForToolComplete({
+      agents,
+      toolName: "Task",
+      toolId: "tool-1",
+      success: true,
+      completedAtMs: new Date("2026-03-02T08:18:59.188Z").getTime(),
+    });
+
+    expect(result[0]!.status).toBe("completed");
   });
 });
 

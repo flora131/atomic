@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useThemeColors } from "@/theme/index.tsx";
 import { ARROW, MISC, SPINNER_COMPLETE, SPINNER_FRAMES } from "@/theme/icons.ts";
 import { formatDuration } from "@/lib/ui/format.ts";
+import { getLoadingIndicatorText } from "@/lib/ui/loading-state.ts";
 
 interface LoadingIndicatorProps {
   speed?: number;
@@ -9,6 +10,8 @@ interface LoadingIndicatorProps {
   elapsedMs?: number;
   outputTokens?: number;
   thinkingMs?: number;
+  activeBackgroundAgentCount?: number;
+  isStreaming?: boolean;
 }
 
 function formatTokenCount(tokens: number): string {
@@ -37,11 +40,17 @@ export function LoadingIndicator({
   elapsedMs,
   outputTokens,
   thinkingMs,
+  activeBackgroundAgentCount,
+  isStreaming,
 }: LoadingIndicatorProps): React.ReactNode {
   const themeColors = useThemeColors();
   const [frameIndex, setFrameIndex] = useState(0);
-  const verb = verbOverride
-    ?? (thinkingMs != null && thinkingMs > 0 ? "Reasoning" : "Composing");
+  const verb = getLoadingIndicatorText({
+    isStreaming: isStreaming ?? true,
+    activeBackgroundAgentCount: activeBackgroundAgentCount ?? 0,
+    verbOverride,
+    thinkingMs,
+  });
 
   useEffect(() => {
     const interval = setInterval(() => {

@@ -76,4 +76,6 @@ export interface UseStreamSubscriptionsArgs {
   }) => void;
   toolMessageIdByIdRef: MutableRefObject<Map<string, string>>;
   toolNameByIdRef: MutableRefObject<Map<string, string>>;
+  activeBackgroundAgentCountRef: MutableRefObject<number>;
+  setActiveBackgroundAgentCount: Dispatch<SetStateAction<number>>;
 }

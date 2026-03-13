@@ -25,6 +25,7 @@ import { hasActiveForegroundAgents } from "@/state/parts/index.ts";
 import type { UseStreamSubscriptionsArgs } from "@/state/chat/stream/subscription-types.ts";
 
 export function useStreamSessionSubscriptions({
+  activeBackgroundAgentCountRef,
   activeSkillSessionIdRef,
   activeStreamRunIdRef,
   appendSkillLoadIndicator,
@@ -47,6 +48,7 @@ export function useStreamSessionSubscriptions({
   resolveAgentScopedMessageId,
   runningAskQuestionToolIdsRef,
   runningBlockingToolIdsRef,
+  setActiveBackgroundAgentCount,
   setIsStreaming,
   setMessagesWindowed,
   setParallelAgents,
@@ -59,6 +61,7 @@ export function useStreamSessionSubscriptions({
   toolNameByIdRef,
 }: Pick<
   UseStreamSubscriptionsArgs,
+  | "activeBackgroundAgentCountRef"
   | "activeSkillSessionIdRef"
   | "activeStreamRunIdRef"
   | "appendSkillLoadIndicator"
@@ -81,6 +84,7 @@ export function useStreamSessionSubscriptions({
   | "resolveAgentScopedMessageId"
   | "runningAskQuestionToolIdsRef"
   | "runningBlockingToolIdsRef"
+  | "setActiveBackgroundAgentCount"
   | "setIsStreaming"
   | "setMessagesWindowed"
   | "setParallelAgents"
@@ -168,6 +172,9 @@ export function useStreamSessionSubscriptions({
     }
 
     batchDispatcher.flush();
+
+    activeBackgroundAgentCountRef.current = 0;
+    setActiveBackgroundAgentCount(0);
 
     const idleReason = typeof event.data.reason === "string"
       ? event.data.reason.trim().toLowerCase()
@@ -259,6 +266,12 @@ export function useStreamSessionSubscriptions({
     }
 
     batchDispatcher.flush();
+
+    const count = typeof event.data.activeBackgroundAgentCount === "number"
+      ? event.data.activeBackgroundAgentCount
+      : 0;
+    activeBackgroundAgentCountRef.current = count;
+    setActiveBackgroundAgentCount(count);
 
     handleStreamComplete();
   });

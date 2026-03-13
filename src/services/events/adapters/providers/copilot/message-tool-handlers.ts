@@ -310,6 +310,27 @@ export function handleCopilotToolComplete(
   const resolvedToolName = normalizeToolName(
     toolName ?? state.toolNameById.get(resolvedToolCallId),
   );
+
+  // Suppress the SDK's tool.execution_complete for root task tools.
+  // The Copilot SDK fires tool.execution_complete BEFORE subagent.completed,
+  // so publishing stream.tool.complete here would cause
+  // finalizeCorrelatedSubagentDispatchForToolComplete in the UI layer to
+  // prematurely mark the agent as "completed" while it is still running.
+  // handleCopilotSubagentComplete already publishes the synthetic task tool
+  // complete at the correct time (after the sub-agent actually finishes).
+  //
+  // We must check this BEFORE resolveCopilotToolCompleteId because that
+  // function deletes the entry from toolNameById, which
+  // publishSyntheticTaskToolComplete needs to find the tool name.
+  const rawParentToolCallId = asString(
+    (event.data as Record<string, unknown>).parentToolCallId,
+  );
+  const isRootTaskToolComplete =
+    !rawParentToolCallId && isCopilotTaskTool(state, resolvedToolName);
+  if (isRootTaskToolComplete) {
+    return;
+  }
+
   const toolId = resolveCopilotToolCompleteId(
     state.toolNameById,
     resolvedToolCallId,
@@ -326,9 +347,6 @@ export function handleCopilotToolComplete(
   state.emittedToolStartIds.delete(resolvedToolCallId);
 
   const normalizedSuccess = typeof success === "boolean" ? success : true;
-  const rawParentToolCallId = asString(
-    (event.data as Record<string, unknown>).parentToolCallId,
-  );
   const resolvedParentId = deps.resolveParentAgentId(rawParentToolCallId);
   if (!resolvedParentId && rawParentToolCallId) {
     queueCopilotEarlyToolEvent(state, rawParentToolCallId, {
@@ -344,13 +362,10 @@ export function handleCopilotToolComplete(
     return;
   }
 
-  const isRootTaskToolComplete =
-    !rawParentToolCallId && isCopilotTaskTool(state, resolvedToolName);
-  const effectiveParentAgentId = isRootTaskToolComplete
-    ? undefined
-    : (resolvedParentId ??
-      activeToolContext?.parentAgentId ??
-      deps.getSyntheticForegroundAgentIdForAttribution());
+  const effectiveParentAgentId =
+    resolvedParentId ??
+    activeToolContext?.parentAgentId ??
+    deps.getSyntheticForegroundAgentIdForAttribution();
   if (effectiveParentAgentId && state.subagentTracker?.hasAgent(effectiveParentAgentId)) {
     state.subagentTracker.onToolComplete(effectiveParentAgentId);
   }

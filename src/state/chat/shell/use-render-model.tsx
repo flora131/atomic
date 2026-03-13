@@ -8,6 +8,7 @@ import type { SyntaxStyle } from "@opentui/core";
 import type { NormalizedTodoItem } from "@/lib/ui/task-status.ts";
 
 interface UseChatRenderModelArgs {
+  activeBackgroundAgentCount: number;
   activeQuestion: unknown;
   handleAgentDoneRendered: (marker: {
     messageId: string;
@@ -35,6 +36,7 @@ interface UseChatRenderModelResult {
 }
 
 export function useChatRenderModel({
+  activeBackgroundAgentCount,
   activeQuestion,
   backgroundAgentMessageId,
   handleAgentDoneRendered,
@@ -70,7 +72,7 @@ export function useChatRenderModel({
       <>
         {renderMessages.map((msg, index) => {
           const liveTaskItems = msg.streaming ? todoItems : undefined;
-          const showLive = shouldShowMessageLoadingIndicator(msg, liveTaskItems);
+          const showLive = shouldShowMessageLoadingIndicator(msg, liveTaskItems, activeBackgroundAgentCount);
           const scopedStreamingMeta = showLive
             ? (streamingMessageId
               ? (msg.id === streamingMessageId ? streamingMeta : null)
@@ -84,6 +86,7 @@ export function useChatRenderModel({
               syntaxStyle={markdownSyntaxStyle}
               hideAskUserQuestion={activeQuestion !== null}
               hideLoading={activeQuestion !== null}
+              activeBackgroundAgentCount={activeBackgroundAgentCount}
               todoItems={msg.streaming ? todoItems : undefined}
               elapsedMs={showLive ? streamingElapsedMs : undefined}
               streamingMeta={scopedStreamingMeta}
@@ -99,6 +102,7 @@ export function useChatRenderModel({
       </>
     );
   }, [
+    activeBackgroundAgentCount,
     activeQuestion,
     handleAgentDoneRendered,
     markdownSyntaxStyle,

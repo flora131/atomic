@@ -41,6 +41,7 @@ export interface UseChatStreamRuntimeResult {
     streamingElapsedMs: number;
     todoItems: NormalizedTodoItem[];
     toolCompletionVersion: number;
+    activeBackgroundAgentCount: number;
     workflowSessionDir: string | null;
     workflowSessionId: string | null;
   };
@@ -51,10 +52,12 @@ export interface UseChatStreamRuntimeResult {
     setShowCompactionHistory: Dispatch<SetStateAction<boolean>>;
     setTodoItems: Dispatch<SetStateAction<NormalizedTodoItem[]>>;
     setToolCompletionVersion: Dispatch<SetStateAction<number>>;
+    setActiveBackgroundAgentCount: Dispatch<SetStateAction<number>>;
     setWorkflowSessionDir: Dispatch<SetStateAction<string | null>>;
     setWorkflowSessionId: Dispatch<SetStateAction<string | null>>;
   };
   refs: {
+    activeBackgroundAgentCountRef: MutableRefObject<number>;
     activeForegroundRunHandleIdRef: MutableRefObject<string | null>;
     activeSkillSessionIdRef: MutableRefObject<string | null>;
     activeStreamRunIdRef: MutableRefObject<number | null>;

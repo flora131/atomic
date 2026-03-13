@@ -54,6 +54,7 @@ export function useChatRuntimeStack({
       workflowSessionDir,
     },
     setters: {
+      setActiveBackgroundAgentCount,
       setParallelAgents,
       setTodoItems,
       setToolCompletionVersion,
@@ -61,6 +62,7 @@ export function useChatRuntimeStack({
       setWorkflowSessionId,
     },
     refs: {
+      activeBackgroundAgentCountRef,
       activeSkillSessionIdRef,
       activeStreamRunIdRef,
       agentLifecycleLedgerRef,
@@ -151,6 +153,7 @@ export function useChatRuntimeStack({
   });
 
   useStreamSubscriptions({
+    activeBackgroundAgentCountRef,
     activeSkillSessionIdRef,
     activeStreamRunIdRef,
     agentLifecycleLedgerRef,
@@ -185,6 +188,7 @@ export function useChatRuntimeStack({
     runningAskQuestionToolIdsRef,
     runningBlockingToolIdsRef,
     sendBackgroundMessageToAgent,
+    setActiveBackgroundAgentCount,
     setAgentMessageBinding,
     setIsStreaming,
     setMessagesWindowed,

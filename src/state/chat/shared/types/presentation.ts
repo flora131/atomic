@@ -10,6 +10,7 @@ export interface AtomicHeaderProps {
 }
 
 export interface MessageBubbleProps {
+  activeBackgroundAgentCount?: number;
   message: ChatMessage;
   isLast?: boolean;
   syntaxStyle?: SyntaxStyle;

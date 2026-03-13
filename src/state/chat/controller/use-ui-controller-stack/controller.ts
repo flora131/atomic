@@ -108,6 +108,7 @@ export function useChatUiControllerStack({
 
   const {
     state: {
+      activeBackgroundAgentCount,
       compactionSummary,
       parallelAgents,
       showCompactionHistory,
@@ -394,6 +395,7 @@ export function useChatUiControllerStack({
   });
 
   const { messageContent } = useChatRenderModel({
+    activeBackgroundAgentCount,
     activeQuestion,
     backgroundAgentMessageId: backgroundAgentMessageIdRef.current,
     handleAgentDoneRendered,

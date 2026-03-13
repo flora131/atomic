@@ -271,6 +271,7 @@ export function useChatStreamToolEvents({
       });
       return finalizeCorrelatedSubagentDispatchForToolComplete({
         agents: withSyntheticFinalization,
+        provider: agentType,
         toolName: completedToolName,
         toolId,
         success,

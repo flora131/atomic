@@ -96,7 +96,7 @@ function getRenderableAssistantParts(
     if (existingMcpIdx >= 0) {
       parts[existingMcpIdx] = mcpPart;
     } else {
-      parts.unshift(mcpPart);
+      parts.push(mcpPart);
     }
   }
 
@@ -115,12 +115,7 @@ function getRenderableAssistantParts(
     if (existingSkillIdx >= 0) {
       parts[existingSkillIdx] = skillPart;
     } else {
-      const insertIndex = parts.findIndex((part) => part.type !== "mcp-snapshot");
-      if (insertIndex === -1) {
-        parts.push(skillPart);
-      } else {
-        parts.splice(insertIndex, 0, skillPart);
-      }
+      parts.push(skillPart);
     }
   }
 
@@ -141,7 +136,7 @@ function getRenderableAssistantParts(
     if (existingCompactionIdx >= 0) {
       parts[existingCompactionIdx] = compactionPart;
     } else {
-      parts.unshift(compactionPart);
+      parts.push(compactionPart);
     }
     return parts;
   }
@@ -155,12 +150,7 @@ function getRenderableAssistantParts(
       isStreaming: Boolean(message.streaming),
       createdAt: message.timestamp,
     };
-    const insertIndex = parts.findIndex((part) => part.type !== "mcp-snapshot");
-    if (insertIndex === -1) {
-      parts.push(textPart);
-    } else {
-      parts.splice(insertIndex, 0, textPart);
-    }
+    parts.push(textPart);
   }
 
   if (hideAskUserQuestion) {
@@ -178,6 +168,7 @@ function getRenderableAssistantParts(
 }
 
 export function MessageBubble({
+  activeBackgroundAgentCount,
   message,
   isLast,
   syntaxStyle,
@@ -321,6 +312,7 @@ export function MessageBubble({
     const showLoadingIndicator = shouldShowMessageLoadingIndicator(
       message,
       liveTaskItems,
+      activeBackgroundAgentCount,
     );
 
     return (
@@ -372,12 +364,14 @@ export function MessageBubble({
                 elapsedMs={elapsedMs}
                 outputTokens={streamingMeta?.outputTokens ?? message.outputTokens}
                 thinkingMs={streamingMeta?.thinkingMs ?? message.thinkingMs}
+                activeBackgroundAgentCount={activeBackgroundAgentCount}
+                isStreaming={Boolean(message.streaming)}
               />
             </text>
           </box>
         )}
 
-        {shouldShowCompletionSummary(message, hasActiveBackgroundAgents) && (
+        {shouldShowCompletionSummary(message, hasActiveBackgroundAgents, activeBackgroundAgentCount) && (
           <box marginTop={SPACING.ELEMENT}>
             <CompletionSummary
               durationMs={message.durationMs!}

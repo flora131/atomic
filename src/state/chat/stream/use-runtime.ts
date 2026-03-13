@@ -59,9 +59,11 @@ export function useChatStreamRuntime({
   const [workflowSessionDir, setWorkflowSessionDir] = useState<string | null>(null);
   const [workflowSessionId, setWorkflowSessionId] = useState<string | null>(null);
   const [toolCompletionVersion, setToolCompletionVersion] = useState(0);
+  const [activeBackgroundAgentCount, setActiveBackgroundAgentCount] = useState(0);
   const [agentAnchorSyncVersion, setAgentAnchorSyncVersion] = useState(0);
   const [streamingElapsedMs, setStreamingElapsedMs] = useState(0);
 
+  const activeBackgroundAgentCountRef = useRef(0);
   const todoItemsRef = useRef<NormalizedTodoItem[]>([]);
   const lastStreamingContentRef = useRef("");
   const streamRunRuntimeRef = useRef(new StreamRunRuntime());
@@ -396,6 +398,7 @@ export function useChatStreamRuntime({
 
   return {
     state: {
+      activeBackgroundAgentCount,
       agentAnchorSyncVersion,
       compactionSummary,
       parallelAgents,
@@ -407,6 +410,7 @@ export function useChatStreamRuntime({
       workflowSessionId,
     },
     setters: {
+      setActiveBackgroundAgentCount,
       setCompactionSummary,
       setIsAutoCompacting,
       setParallelAgents,
@@ -417,6 +421,7 @@ export function useChatStreamRuntime({
       setWorkflowSessionId,
     },
     refs: {
+      activeBackgroundAgentCountRef,
       activeForegroundRunHandleIdRef,
       activeSkillSessionIdRef,
       activeStreamRunIdRef,

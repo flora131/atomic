@@ -28,6 +28,9 @@ import {
     compileGraphConfig,
     createSubagentRegistry,
 } from "./graph-helpers.ts";
+
+/** Workflow sub-agents get a longer stale timeout (20 min) than the global default (5 min). */
+const WORKFLOW_STALE_TIMEOUT_MS = 20 * 60 * 1000;
 import { initializeWorkflowExecutionSession } from "./session-runtime.ts";
 import { createWorkflowTaskPersistence } from "./task-persistence.ts";
 
@@ -166,7 +169,7 @@ export async function executeWorkflow(
                 }
 
                 const [result] = await spawnFn(
-                    [{ ...agent, abortSignal: effectiveAbortSignal }],
+                    [{ ...agent, staleTimeoutMs: agent.staleTimeoutMs ?? WORKFLOW_STALE_TIMEOUT_MS, abortSignal: effectiveAbortSignal }],
                     effectiveAbortSignal,
                 );
                 if (!result) throw new Error("Subagent spawn returned no results");
@@ -215,6 +218,7 @@ export async function executeWorkflow(
                 const results = await spawnFn(
                     agents.map((agent) => ({
                         ...agent,
+                        staleTimeoutMs: agent.staleTimeoutMs ?? WORKFLOW_STALE_TIMEOUT_MS,
                         abortSignal: agent.abortSignal ?? effectiveAbortSignal,
                     })),
                     effectiveAbortSignal,

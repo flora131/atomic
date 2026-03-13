@@ -59,7 +59,7 @@
         "@clack/prompts": "^1.1.0",
         "@commander-js/extra-typings": "^14.0.0",
         "@github/copilot-sdk": "0.1.32",
-        "@opencode-ai/sdk": "^1.2.25",
+        "@opencode-ai/sdk": "^1.2.26",
         "@opentelemetry/api": "^1.9.0",
         "@opentelemetry/api-logs": "^0.213.0",
         "@opentui/core": "^0.1.87",

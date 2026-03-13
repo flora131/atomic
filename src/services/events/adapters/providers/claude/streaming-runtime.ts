@@ -48,6 +48,7 @@ export async function startClaudeStreaming(args: {
   publishTextComplete: (runId: number, messageId: string) => void;
   publishSessionError: (runId: number, error: unknown) => void;
   cleanupOrphanedTools: (runId: number) => void;
+  flushOrphanedAgentCompletions: (runId: number) => void;
   publishSessionIdle: (runId: number, reason: "generator-complete" | "aborted" | "error") => void;
   hasActiveBackgroundAgents: () => boolean;
   getActiveBackgroundAgentCount: () => number;
@@ -239,6 +240,7 @@ export async function startClaudeStreaming(args: {
       : 0;
 
     args.cleanupOrphanedTools(runId);
+    args.flushOrphanedAgentCompletions(runId);
 
     if (hadActiveBackgroundAgents) {
       args.publishSessionPartialIdle(

@@ -87,6 +87,7 @@ export function cleanupClaudeOrphanedTools(args: {
   runId: number;
   sessionId: string;
   subagentSessionToAgentId: Map<string, string>;
+  toolUseIdToSubagentId: Map<string, string>;
 }): string | null {
   const {
     activeSubagentIds,
@@ -100,10 +101,18 @@ export function cleanupClaudeOrphanedTools(args: {
     runId,
     sessionId,
     subagentSessionToAgentId,
+    toolUseIdToSubagentId,
   } = args;
+
+  // Sub-agent task tools are handled by flushClaudeOrphanedAgentCompletions.
+  // Aborting them here would produce null toolResult values in the UI.
+  const subagentToolIds = new Set(toolUseIdToSubagentId.keys());
 
   for (const [toolName, toolIds] of pendingToolIdsByName.entries()) {
     for (const toolId of toolIds) {
+      if (subagentToolIds.has(toolId)) {
+        continue;
+      }
       const context = resolveActiveSubagentToolContext(toolId);
       const event: BusEvent<"stream.tool.complete"> = {
         type: "stream.tool.complete",
@@ -124,11 +133,82 @@ export function cleanupClaudeOrphanedTools(args: {
     }
   }
 
-  pendingToolIdsByName.clear();
+  // Preserve pending entries for sub-agent task tools so
+  // flushClaudeOrphanedAgentCompletions can emit proper tool completions.
+  for (const [toolName, toolIds] of pendingToolIdsByName.entries()) {
+    const remaining = toolIds.filter(id => subagentToolIds.has(id));
+    if (remaining.length > 0) {
+      pendingToolIdsByName.set(toolName, remaining);
+    } else {
+      pendingToolIdsByName.delete(toolName);
+    }
+  }
+
   activeSubagentIds.clear();
   activeSubagentBackgroundById.clear();
   activeSubagentToolsById.clear();
   subagentSessionToAgentId.clear();
   nativeSubagentIdToAgentId.clear();
   return null;
+}
+
+/**
+ * Synthesize `stream.agent.complete` and `stream.tool.complete` events for
+ * background agents whose completion was never received from the Claude SDK.
+ *
+ * Call this in the `finally` block of `runClaudeStreamConsumer`, after
+ * `cleanupOrphanedTools`.
+ */
+export function flushClaudeOrphanedAgentCompletions(args: {
+  bus: EventBus;
+  pendingToolIdsByName: Map<string, string[]>;
+  runId: number;
+  sessionId: string;
+  subagentTracker: SubagentToolTracker | null;
+  toolUseIdToSubagentId: Map<string, string>;
+}): void {
+  const { bus, pendingToolIdsByName, runId, sessionId, subagentTracker, toolUseIdToSubagentId } = args;
+
+  for (const [toolId, agentId] of toolUseIdToSubagentId) {
+    // Emit the tool completion that cleanupClaudeOrphanedTools skipped.
+    let toolName: string | undefined;
+    for (const [name, ids] of pendingToolIdsByName) {
+      if (ids.includes(toolId)) {
+        toolName = name;
+        break;
+      }
+    }
+    if (toolName) {
+      bus.publish({
+        type: "stream.tool.complete",
+        sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          toolId,
+          toolName,
+          toolResult: null,
+          success: true,
+          sdkCorrelationId: toolId,
+        },
+      });
+    }
+
+    if (subagentTracker?.hasAgent(agentId)) {
+      subagentTracker.removeAgent(agentId);
+    }
+    bus.publish({
+      type: "stream.agent.complete",
+      sessionId,
+      runId,
+      timestamp: Date.now(),
+      data: {
+        agentId,
+        success: true,
+      },
+    });
+  }
+
+  pendingToolIdsByName.clear();
+  toolUseIdToSubagentId.clear();
 }

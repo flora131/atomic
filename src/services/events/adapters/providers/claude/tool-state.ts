@@ -10,6 +10,7 @@ import {
 import { SubagentToolTracker } from "@/services/events/adapters/subagent-tool-tracker.ts";
 import {
   cleanupClaudeOrphanedTools,
+  flushClaudeOrphanedAgentCompletions,
   publishClaudeSyntheticAgentComplete,
   publishClaudeSyntheticAgentStart,
 } from "@/services/events/adapters/providers/claude/tool-state-events.ts";
@@ -465,8 +466,20 @@ export class ClaudeToolState {
       runId,
       sessionId: this.sessionId,
       subagentSessionToAgentId: this.subagentSessionToAgentId,
+      toolUseIdToSubagentId: this.toolUseIdToSubagentId,
     });
     this.ownedSessionIds = new Set([this.sessionId]);
+  }
+
+  flushOrphanedAgentCompletions(runId: number): void {
+    flushClaudeOrphanedAgentCompletions({
+      bus: this.bus,
+      pendingToolIdsByName: this.pendingToolIdsByName,
+      runId,
+      sessionId: this.sessionId,
+      subagentTracker: this.getSubagentTracker(),
+      toolUseIdToSubagentId: this.toolUseIdToSubagentId,
+    });
   }
 
   isOwnedSession(eventSessionId: string): boolean {

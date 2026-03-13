@@ -295,6 +295,10 @@ export class OpenCodeAdapterSupport {
     this.deps.toolState.cleanupOrphanedTools(runId);
   }
 
+  flushOrphanedAgentCompletions(runId: number): void {
+    this.deps.toolState.flushOrphanedAgentCompletions(runId);
+  }
+
   cleanupSubscriptions(unsubscribers: Array<() => void>): Array<() => void> {
     const drained = drainUnsubscribers(unsubscribers);
     this.deps.childSessionSync.reset();

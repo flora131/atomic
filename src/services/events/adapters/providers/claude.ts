@@ -276,6 +276,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       publishTextComplete: (runId, messageId) => this.support.publishTextComplete(runId, messageId),
       publishSessionError: (runId, error) => this.support.publishSessionError(runId, error),
       cleanupOrphanedTools: (runId) => this.support.cleanupOrphanedTools(runId),
+      flushOrphanedAgentCompletions: (runId) => this.support.flushOrphanedAgentCompletions(runId),
       publishSessionIdle: (runId, reason) => this.support.publishSessionIdle(runId, reason),
       hasActiveBackgroundAgents: () => this.toolState.hasActiveBackgroundAgents(),
       getActiveBackgroundAgentCount: () => this.toolState.getActiveBackgroundAgentCount(),

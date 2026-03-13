@@ -231,6 +231,10 @@ export class ClaudeAdapterSupport {
     this.deps.toolState.cleanupOrphanedTools(runId);
   }
 
+  flushOrphanedAgentCompletions(runId: number): void {
+    this.deps.toolState.flushOrphanedAgentCompletions(runId);
+  }
+
   cleanupSubscriptions(unsubscribers: Array<() => void>): Array<() => void> {
     return drainUnsubscribers(unsubscribers);
   }

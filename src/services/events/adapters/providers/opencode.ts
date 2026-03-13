@@ -294,6 +294,7 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
 
     await runOpenCodeStreamingRuntime({
       cleanupOrphanedTools: (streamRunId) => this.support.cleanupOrphanedTools(streamRunId),
+      flushOrphanedAgentCompletions: (streamRunId) => this.support.flushOrphanedAgentCompletions(streamRunId),
       getAbortController: () => this.abortController,
       getTextAccumulator: () => this.textAccumulator,
       message,

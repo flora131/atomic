@@ -368,10 +368,10 @@ export function useChatStreamRuntime({
   };
 
   const hasLiveLoadingIndicator = useMemo(
-    () => messages.some((message) => {
+    () => activeBackgroundAgentCount > 0 || messages.some((message) => {
       return message.streaming || todoItems.some((item) => item.status === "in_progress");
     }),
-    [messages, todoItems],
+    [activeBackgroundAgentCount, messages, todoItems],
   );
 
   useChatRuntimeEffects({

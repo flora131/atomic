@@ -305,6 +305,26 @@ describe("hasLiveLoadingIndicator", () => {
       ]),
     ).toBe(false);
   });
+
+  test("keeps the timer alive when activeBackgroundAgentCount > 0 even if not streaming", () => {
+    expect(
+      hasLiveLoadingIndicator(
+        [{ streaming: false }],
+        undefined,
+        3,
+      ),
+    ).toBe(true);
+  });
+
+  test("stops the timer when activeBackgroundAgentCount is 0 and not streaming", () => {
+    expect(
+      hasLiveLoadingIndicator(
+        [{ streaming: false }],
+        undefined,
+        0,
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("getLoadingIndicatorText", () => {

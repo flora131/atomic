@@ -64,11 +64,13 @@ export function shouldShowMessageLoadingIndicator(
 export function hasLiveLoadingIndicator(
   messages: readonly LoadingStateMessage[],
   liveTodoItems?: readonly TaskProgressItem[],
+  activeBackgroundAgentCount?: number,
 ): boolean {
   return messages.some((message) =>
     shouldShowMessageLoadingIndicator(
       message,
       message.streaming ? liveTodoItems : undefined,
+      activeBackgroundAgentCount,
     )
   );
 }

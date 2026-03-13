@@ -218,43 +218,51 @@ export function useWorkflowHitl({
       setDisplayedQuestion(entry);
     }
 
-    if (targetToolId) {
-      setMessagesWindowed((previousMessages) =>
-        previousMessages.map((message) => {
+    setMessagesWindowed((previousMessages) =>
+      previousMessages.map((message) => {
+        let resolvedToolId: string | null = targetToolId ?? null;
+
+        if (targetToolId) {
           const hasToolCall = message.toolCalls?.some((toolCall) => toolCall.id === targetToolId) ?? false;
           const hasToolPart = message.parts?.some(
             (part) => part.type === "tool" && part.toolCallId === targetToolId,
           ) ?? false;
 
-          let resolvedToolId = targetToolId;
           if (!hasToolCall && !hasToolPart) {
-            const runningHitlPart = message.parts?.find(
-              (p) =>
-                p.type === "tool" &&
-                isHitlToolName((p as ToolPart).toolName) &&
-                (p as ToolPart).state.status === "running" &&
-                !(p as ToolPart).pendingQuestion,
-            ) as ToolPart | undefined;
-            if (!runningHitlPart) return message;
-            resolvedToolId = runningHitlPart.toolCallId;
+            resolvedToolId = null;
+          }
+        }
+
+        if (!resolvedToolId) {
+          const runningHitlPart = message.parts?.find(
+            (p) =>
+              p.type === "tool" &&
+              isHitlToolName((p as ToolPart).toolName) &&
+              (p as ToolPart).state.status === "running" &&
+              !(p as ToolPart).pendingQuestion,
+          ) as ToolPart | undefined;
+          if (!runningHitlPart) return message;
+          resolvedToolId = runningHitlPart.toolCallId;
+          if (targetToolId) {
             hitlToolIdMapRef.current.set(targetToolId, resolvedToolId);
           }
+          entry.toolCallId = resolvedToolId;
+        }
 
-          return applyStreamPartEvent(message, {
-            type: "tool-hitl-request",
-            toolId: resolvedToolId,
-            request: {
-              requestId,
-              header: header || toolName,
-              question,
-              options,
-              multiSelect: false,
-              respond,
-            },
-          });
-        }),
-      );
-    }
+        return applyStreamPartEvent(message, {
+          type: "tool-hitl-request",
+          toolId: resolvedToolId,
+          request: {
+            requestId,
+            header: header || toolName,
+            question,
+            options,
+            multiSelect: false,
+            respond,
+          },
+        });
+      }),
+    );
   }, [addPendingQuestion, setDisplayedQuestion, setMessagesWindowed, workflowState.workflowActive]);
 
   const handleAskUserQuestion = useCallback((eventData: AskUserQuestionEventData) => {
@@ -296,46 +304,60 @@ export function useWorkflowHitl({
       setDisplayedQuestion(entry);
     }
 
-    if (targetToolId) {
-      const respond = eventData.respond ?? (() => {});
-      setMessagesWindowed((previousMessages) =>
-        previousMessages.map((message) => {
+    const respond = eventData.respond ?? (() => {});
+    setMessagesWindowed((previousMessages) =>
+      previousMessages.map((message) => {
+        // Resolve the tool ID: use the provided toolCallId if it matches an
+        // existing tool call/part, otherwise fall back to scanning for the
+        // most recent running HITL tool part by name.
+        let resolvedToolId: string | null = targetToolId;
+
+        if (targetToolId) {
           const hasToolCall = message.toolCalls?.some((toolCall) => toolCall.id === targetToolId) ?? false;
           const hasToolPart = message.parts?.some(
             (part) => part.type === "tool" && part.toolCallId === targetToolId,
           ) ?? false;
 
-          // Fallback: when toolCallId doesn't match (SDK ID != stream ID),
-          // find the most recent running HITL tool part by name
-          let resolvedToolId = targetToolId;
           if (!hasToolCall && !hasToolPart) {
-            const runningHitlPart = message.parts?.find(
-              (p) =>
-                p.type === "tool" &&
-                isHitlToolName((p as ToolPart).toolName) &&
-                (p as ToolPart).state.status === "running" &&
-                !(p as ToolPart).pendingQuestion,
-            ) as ToolPart | undefined;
-            if (!runningHitlPart) return message;
-            resolvedToolId = runningHitlPart.toolCallId;
+            resolvedToolId = null;
+          }
+        }
+
+        // Fallback: when toolCallId is missing or doesn't match any part
+        // (e.g. Claude SDK / Copilot SDK don't always include toolCallId
+        // in human_input_required events), find the running HITL tool part.
+        if (!resolvedToolId) {
+          const runningHitlPart = message.parts?.find(
+            (p) =>
+              p.type === "tool" &&
+              isHitlToolName((p as ToolPart).toolName) &&
+              (p as ToolPart).state.status === "running" &&
+              !(p as ToolPart).pendingQuestion,
+          ) as ToolPart | undefined;
+          if (!runningHitlPart) return message;
+          resolvedToolId = runningHitlPart.toolCallId;
+          if (targetToolId) {
             hitlToolIdMapRef.current.set(targetToolId, resolvedToolId);
           }
+          // Backfill the entry's toolCallId so handleQuestionAnswer can
+          // match the answer back to the correct tool part later.
+          entry.toolCallId = resolvedToolId;
+        }
 
-          return applyStreamPartEvent(message, {
-            type: "tool-hitl-request",
-            toolId: resolvedToolId,
-            request: {
-              requestId: eventData.requestId,
-              header: eventData.header || "Question",
-              question: eventData.question,
-              options: mappedOptions,
-              multiSelect: false,
-              respond,
-            },
-          });
-        }),
-      );
-    }
+        return applyStreamPartEvent(message, {
+          type: "tool-hitl-request",
+          toolId: resolvedToolId,
+          request: {
+            requestId: eventData.requestId,
+            header: eventData.header || "Question",
+            question: eventData.question,
+            options: mappedOptions,
+            multiSelect: false,
+            respond,
+          },
+        });
+      }),
+    );
   }, [addPendingQuestion, onWorkflowResumeWithAnswer, setDisplayedQuestion, setMessagesWindowed, workflowState.workflowActive]);
 
   const handleQuestionAnswer = useCallback((answer: QuestionAnswer) => {

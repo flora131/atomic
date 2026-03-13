@@ -204,6 +204,7 @@ export function useChatRuntimeStack({
   });
 
   const { handleAgentDoneRendered } = useChatAgentProjection({
+    activeBackgroundAgentCountRef,
     activeStreamRunIdRef,
     agentAnchorSyncVersion,
     agentLifecycleLedgerRef,
@@ -232,6 +233,7 @@ export function useChatRuntimeStack({
     pendingCompleteRef,
     resolveTrackedRun,
     sendBackgroundMessageToAgent,
+    setActiveBackgroundAgentCount,
     setBackgroundAgentMessageId,
     setMessagesWindowed,
     setParallelAgents,

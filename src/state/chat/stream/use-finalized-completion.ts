@@ -14,11 +14,14 @@ import { interruptRunningToolCalls, interruptRunningToolParts } from "@/lib/ui/s
 
 type UseChatStreamFinalizedCompletionArgs = Pick<
   UseChatStreamCompletionArgs,
+  | "activeBackgroundAgentCountRef"
   | "continueQueuedConversationRef"
   | "currentModelRef"
   | "finalizeThinkingSourceTracking"
   | "lastStreamingContentRef"
+  | "parallelAgentsRef"
   | "resolveTrackedRun"
+  | "setActiveBackgroundAgentCount"
   | "setBackgroundAgentMessageId"
   | "setMessagesWindowed"
   | "setParallelAgents"
@@ -27,11 +30,14 @@ type UseChatStreamFinalizedCompletionArgs = Pick<
 >;
 
 export function useChatStreamFinalizedCompletion({
+  activeBackgroundAgentCountRef,
   continueQueuedConversationRef,
   currentModelRef,
   finalizeThinkingSourceTracking,
   lastStreamingContentRef,
+  parallelAgentsRef,
   resolveTrackedRun,
+  setActiveBackgroundAgentCount,
   setBackgroundAgentMessageId,
   setMessagesWindowed,
   setParallelAgents,
@@ -91,6 +97,13 @@ export function useChatStreamFinalizedCompletion({
     });
 
     setParallelAgents(remaining);
+    parallelAgentsRef.current = remaining;
+
+    const newActiveCount = remaining.length;
+    if (activeBackgroundAgentCountRef.current !== newActiveCount) {
+      activeBackgroundAgentCountRef.current = newActiveCount;
+      setActiveBackgroundAgentCount(newActiveCount);
+    }
 
     const hasRemainingBackgroundAgents = remaining.length > 0;
     resolveTrackedRun("complete", {
@@ -112,11 +125,14 @@ export function useChatStreamFinalizedCompletion({
       continueQueuedConversationRef.current();
     }
   }, [
+    activeBackgroundAgentCountRef,
     continueQueuedConversationRef,
     currentModelRef,
     finalizeThinkingSourceTracking,
     lastStreamingContentRef,
+    parallelAgentsRef,
     resolveTrackedRun,
+    setActiveBackgroundAgentCount,
     setBackgroundAgentMessageId,
     setMessagesWindowed,
     setParallelAgents,

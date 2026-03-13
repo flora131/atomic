@@ -4,6 +4,7 @@ import { useChatAgentOrderingMaintenance } from "@/state/chat/agent/use-ordering
 import { useChatAgentStreamFinalization } from "@/state/chat/agent/use-stream-finalization.ts";
 
 export function useChatAgentProjection({
+  activeBackgroundAgentCountRef,
   activeStreamRunIdRef,
   agentAnchorSyncVersion,
   agentLifecycleLedgerRef,
@@ -30,6 +31,7 @@ export function useChatAgentProjection({
   parallelAgentsRef,
   pendingCompleteRef,
   resolveTrackedRun,
+  setActiveBackgroundAgentCount,
   setBackgroundAgentMessageId,
   setMessagesWindowed,
   setParallelAgents,
@@ -70,6 +72,7 @@ export function useChatAgentProjection({
   });
 
   useChatAgentStreamFinalization({
+    activeBackgroundAgentCountRef,
     awaitedStreamRunIdsRef,
     continueQueuedConversation,
     deferredCompleteTimeoutRef,
@@ -84,6 +87,7 @@ export function useChatAgentProjection({
     parallelAgentsRef,
     pendingCompleteRef,
     resolveTrackedRun,
+    setActiveBackgroundAgentCount,
     setBackgroundAgentMessageId,
     setMessagesWindowed,
     setParallelAgents,

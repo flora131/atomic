@@ -310,6 +310,7 @@ export function useChatStreamRuntime({
     startAssistantStream,
     terminateAgentLifecycleContractViolation,
   } = useChatStreamLifecycle({
+    activeBackgroundAgentCountRef,
     activeStreamRunIdRef,
     agentType,
     awaitedStreamRunIdsRef,
@@ -337,6 +338,7 @@ export function useChatStreamRuntime({
     runningAskQuestionToolIdsRef,
     runningBlockingToolIdsRef,
     sendBackgroundMessageToAgent,
+    setActiveBackgroundAgentCount,
     setBackgroundAgentMessageId,
     setIsStreaming,
     setLastStreamedMessageId,

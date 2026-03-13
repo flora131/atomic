@@ -7,11 +7,13 @@ import type {
 
 type UseChatStreamInterruptedCompletionArgs = Pick<
   UseChatStreamCompletionArgs,
+  | "activeBackgroundAgentCountRef"
   | "continueQueuedConversationRef"
   | "currentModelRef"
   | "finalizeThinkingSourceTracking"
   | "lastStreamingContentRef"
   | "resolveTrackedRun"
+  | "setActiveBackgroundAgentCount"
   | "setMessagesWindowed"
   | "setParallelAgents"
   | "stopSharedStreamState"
@@ -19,11 +21,13 @@ type UseChatStreamInterruptedCompletionArgs = Pick<
 >;
 
 export function useChatStreamInterruptedCompletion({
+  activeBackgroundAgentCountRef,
   continueQueuedConversationRef,
   currentModelRef,
   finalizeThinkingSourceTracking,
   lastStreamingContentRef,
   resolveTrackedRun,
+  setActiveBackgroundAgentCount,
   setMessagesWindowed,
   setParallelAgents,
   stopSharedStreamState,
@@ -51,6 +55,12 @@ export function useChatStreamInterruptedCompletion({
       ),
     );
     setParallelAgents([]);
+
+    if (activeBackgroundAgentCountRef.current !== 0) {
+      activeBackgroundAgentCountRef.current = 0;
+      setActiveBackgroundAgentCount(0);
+    }
+
     stopSharedStreamState();
     finalizeThinkingSourceTracking();
 
@@ -66,11 +76,13 @@ export function useChatStreamInterruptedCompletion({
     }
     return true;
   }, [
+    activeBackgroundAgentCountRef,
     continueQueuedConversationRef,
     currentModelRef,
     finalizeThinkingSourceTracking,
     lastStreamingContentRef,
     resolveTrackedRun,
+    setActiveBackgroundAgentCount,
     setMessagesWindowed,
     setParallelAgents,
     stopSharedStreamState,

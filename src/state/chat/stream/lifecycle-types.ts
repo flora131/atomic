@@ -69,6 +69,8 @@ export interface UseChatStreamLifecycleArgs {
   toolMessageIdByIdRef: MutableRefObject<Map<string, string>>;
   toolNameByIdRef: MutableRefObject<Map<string, string>>;
   wasInterruptedRef: MutableRefObject<boolean>;
+  activeBackgroundAgentCountRef: MutableRefObject<number>;
+  setActiveBackgroundAgentCount: Dispatch<SetStateAction<number>>;
 }
 
 export interface UseChatStreamLifecycleResult {

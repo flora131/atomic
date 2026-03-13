@@ -394,3 +394,297 @@ describe("background agent count: full lifecycle", () => {
     expect(idleState.parallelAgentsRef.current[0]!.status).toBe("completed");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Extracted logic mirroring use-finalized-completion.ts count sync
+// (the fix: sync activeBackgroundAgentCount + parallelAgentsRef after
+// setParallelAgents(remaining) on stream completion)
+// ---------------------------------------------------------------------------
+
+interface FinalizedCompletionSyncState {
+  parallelAgentsRef: { current: readonly ParallelAgent[] };
+  activeBackgroundAgentCountRef: { current: number };
+  setActiveBackgroundAgentCount: (count: number) => void;
+  setParallelAgents: (agents: readonly ParallelAgent[]) => void;
+}
+
+function applyFinalizedCompletionSync(
+  state: FinalizedCompletionSyncState,
+  currentAgents: readonly ParallelAgent[],
+): { remaining: readonly ParallelAgent[] } {
+  const remaining = getActiveBackgroundAgents(currentAgents);
+  state.setParallelAgents(remaining);
+  state.parallelAgentsRef.current = remaining;
+
+  const newActiveCount = remaining.length;
+  if (state.activeBackgroundAgentCountRef.current !== newActiveCount) {
+    state.activeBackgroundAgentCountRef.current = newActiveCount;
+    state.setActiveBackgroundAgentCount(newActiveCount);
+  }
+  return { remaining };
+}
+
+function createFinalizedCompletionState(
+  agents: readonly ParallelAgent[],
+  initialCount: number,
+): FinalizedCompletionSyncState {
+  return {
+    parallelAgentsRef: { current: agents },
+    activeBackgroundAgentCountRef: { current: initialCount },
+    setActiveBackgroundAgentCount: mock(),
+    setParallelAgents: mock(),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Tests: activeBackgroundAgentCount sync on stream finalized completion
+// ---------------------------------------------------------------------------
+
+describe("finalized completion: activeBackgroundAgentCount sync", () => {
+  test("decrements count when foreground agents complete but background remain", () => {
+    const agents: ParallelAgent[] = [
+      createAgent({ id: "fg-1", status: "running", background: false }),
+      createAgent({ id: "bg-1", status: "background", background: true }),
+    ];
+    const state = createFinalizedCompletionState(agents, 1);
+
+    const { remaining } = applyFinalizedCompletionSync(state, agents);
+
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]!.id).toBe("bg-1");
+    expect(state.activeBackgroundAgentCountRef.current).toBe(1);
+    // Count was already 1, so setter should NOT be called
+    expect(state.setActiveBackgroundAgentCount).not.toHaveBeenCalled();
+  });
+
+  test("resets count to 0 when no background agents remain", () => {
+    const agents: ParallelAgent[] = [
+      createAgent({ id: "fg-1", status: "running", background: false }),
+      createAgent({ id: "bg-done", status: "completed", background: true }),
+    ];
+    const state = createFinalizedCompletionState(agents, 1);
+
+    const { remaining } = applyFinalizedCompletionSync(state, agents);
+
+    expect(remaining).toHaveLength(0);
+    expect(state.activeBackgroundAgentCountRef.current).toBe(0);
+    expect(state.setActiveBackgroundAgentCount).toHaveBeenCalledWith(0);
+  });
+
+  test("syncs parallelAgentsRef to remaining agents", () => {
+    const agents: ParallelAgent[] = [
+      createAgent({ id: "bg-1", status: "background", background: true }),
+      createAgent({ id: "bg-2", status: "background", background: true }),
+    ];
+    const state = createFinalizedCompletionState(agents, 2);
+
+    applyFinalizedCompletionSync(state, agents);
+
+    expect(state.parallelAgentsRef.current).toHaveLength(2);
+    expect(state.setParallelAgents).toHaveBeenCalledTimes(1);
+  });
+
+  test("decrements from 2 to 1 when one background agent completed", () => {
+    const agents: ParallelAgent[] = [
+      createAgent({ id: "bg-1", status: "background", background: true }),
+      createAgent({ id: "bg-2", status: "completed", background: true }),
+    ];
+    const state = createFinalizedCompletionState(agents, 2);
+
+    const { remaining } = applyFinalizedCompletionSync(state, agents);
+
+    expect(remaining).toHaveLength(1);
+    expect(state.activeBackgroundAgentCountRef.current).toBe(1);
+    expect(state.setActiveBackgroundAgentCount).toHaveBeenCalledWith(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Extracted logic mirroring use-interrupted-completion.ts count sync
+// (the fix: reset activeBackgroundAgentCount to 0 after setParallelAgents([]))
+// ---------------------------------------------------------------------------
+
+interface InterruptedCompletionSyncState {
+  activeBackgroundAgentCountRef: { current: number };
+  setActiveBackgroundAgentCount: (count: number) => void;
+  setParallelAgents: (agents: readonly ParallelAgent[]) => void;
+}
+
+function applyInterruptedCompletionSync(
+  state: InterruptedCompletionSyncState,
+): void {
+  state.setParallelAgents([]);
+
+  if (state.activeBackgroundAgentCountRef.current !== 0) {
+    state.activeBackgroundAgentCountRef.current = 0;
+    state.setActiveBackgroundAgentCount(0);
+  }
+}
+
+function createInterruptedCompletionState(
+  initialCount: number,
+): InterruptedCompletionSyncState {
+  return {
+    activeBackgroundAgentCountRef: { current: initialCount },
+    setActiveBackgroundAgentCount: mock(),
+    setParallelAgents: mock(),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Tests: activeBackgroundAgentCount sync on interrupted completion
+// ---------------------------------------------------------------------------
+
+describe("interrupted completion: activeBackgroundAgentCount sync", () => {
+  test("resets count to 0 when interrupting with active background agents", () => {
+    const state = createInterruptedCompletionState(3);
+
+    applyInterruptedCompletionSync(state);
+
+    expect(state.activeBackgroundAgentCountRef.current).toBe(0);
+    expect(state.setActiveBackgroundAgentCount).toHaveBeenCalledWith(0);
+    expect(state.setParallelAgents).toHaveBeenCalledWith([]);
+  });
+
+  test("does not call setter when count is already 0", () => {
+    const state = createInterruptedCompletionState(0);
+
+    applyInterruptedCompletionSync(state);
+
+    expect(state.activeBackgroundAgentCountRef.current).toBe(0);
+    expect(state.setActiveBackgroundAgentCount).not.toHaveBeenCalled();
+    expect(state.setParallelAgents).toHaveBeenCalledWith([]);
+  });
+
+  test("resets count from 1 to 0", () => {
+    const state = createInterruptedCompletionState(1);
+
+    applyInterruptedCompletionSync(state);
+
+    expect(state.activeBackgroundAgentCountRef.current).toBe(0);
+    expect(state.setActiveBackgroundAgentCount).toHaveBeenCalledWith(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Extracted logic mirroring use-stream-finalization.ts (agent/) count sync
+// (the fix: sync activeBackgroundAgentCount after setParallelAgents in both
+// branches — remainingBg.length > 0 and the else/clear branch)
+// ---------------------------------------------------------------------------
+
+interface AgentStreamFinalizationSyncState {
+  parallelAgentsRef: { current: readonly ParallelAgent[] };
+  activeBackgroundAgentCountRef: { current: number };
+  setActiveBackgroundAgentCount: (count: number) => void;
+  setParallelAgents: (agents: readonly ParallelAgent[]) => void;
+}
+
+function applyAgentStreamFinalizationSync(
+  state: AgentStreamFinalizationSyncState,
+  parallelAgents: readonly ParallelAgent[],
+  hasMessageId: boolean,
+): void {
+  const remainingBg = getActiveBackgroundAgents(parallelAgents);
+
+  if (remainingBg.length > 0 && hasMessageId) {
+    state.setParallelAgents(remainingBg);
+    state.parallelAgentsRef.current = remainingBg;
+
+    const newActiveCount = remainingBg.length;
+    if (state.activeBackgroundAgentCountRef.current !== newActiveCount) {
+      state.activeBackgroundAgentCountRef.current = newActiveCount;
+      state.setActiveBackgroundAgentCount(newActiveCount);
+    }
+  } else {
+    state.setParallelAgents([]);
+    state.parallelAgentsRef.current = [];
+
+    if (state.activeBackgroundAgentCountRef.current !== 0) {
+      state.activeBackgroundAgentCountRef.current = 0;
+      state.setActiveBackgroundAgentCount(0);
+    }
+  }
+}
+
+function createAgentStreamFinalizationState(
+  agents: readonly ParallelAgent[],
+  initialCount: number,
+): AgentStreamFinalizationSyncState {
+  return {
+    parallelAgentsRef: { current: agents },
+    activeBackgroundAgentCountRef: { current: initialCount },
+    setActiveBackgroundAgentCount: mock(),
+    setParallelAgents: mock(),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Tests: activeBackgroundAgentCount sync on agent-only stream finalization
+// ---------------------------------------------------------------------------
+
+describe("agent stream finalization: activeBackgroundAgentCount sync", () => {
+  test("keeps count for remaining background agents with messageId", () => {
+    const agents: ParallelAgent[] = [
+      createAgent({ id: "bg-1", status: "background", background: true }),
+      createAgent({ id: "bg-2", status: "background", background: true }),
+    ];
+    const state = createAgentStreamFinalizationState(agents, 2);
+
+    applyAgentStreamFinalizationSync(state, agents, true);
+
+    expect(state.parallelAgentsRef.current).toHaveLength(2);
+    expect(state.activeBackgroundAgentCountRef.current).toBe(2);
+    expect(state.setActiveBackgroundAgentCount).not.toHaveBeenCalled();
+  });
+
+  test("decrements count when some background agents completed", () => {
+    const agents: ParallelAgent[] = [
+      createAgent({ id: "bg-1", status: "background", background: true }),
+      createAgent({ id: "bg-2", status: "completed", background: true }),
+    ];
+    const state = createAgentStreamFinalizationState(agents, 2);
+
+    applyAgentStreamFinalizationSync(state, agents, true);
+
+    expect(state.parallelAgentsRef.current).toHaveLength(1);
+    expect(state.activeBackgroundAgentCountRef.current).toBe(1);
+    expect(state.setActiveBackgroundAgentCount).toHaveBeenCalledWith(1);
+  });
+
+  test("resets count to 0 when no background agents remain", () => {
+    const agents: ParallelAgent[] = [
+      createAgent({ id: "fg-1", status: "running", background: false }),
+    ];
+    const state = createAgentStreamFinalizationState(agents, 1);
+
+    applyAgentStreamFinalizationSync(state, agents, true);
+
+    // No active background agents in the list
+    expect(state.parallelAgentsRef.current).toHaveLength(0);
+    expect(state.activeBackgroundAgentCountRef.current).toBe(0);
+    expect(state.setActiveBackgroundAgentCount).toHaveBeenCalledWith(0);
+  });
+
+  test("resets count to 0 when no messageId (else branch)", () => {
+    const agents: ParallelAgent[] = [
+      createAgent({ id: "bg-1", status: "background", background: true }),
+    ];
+    const state = createAgentStreamFinalizationState(agents, 1);
+
+    applyAgentStreamFinalizationSync(state, agents, false);
+
+    expect(state.parallelAgentsRef.current).toHaveLength(0);
+    expect(state.activeBackgroundAgentCountRef.current).toBe(0);
+    expect(state.setActiveBackgroundAgentCount).toHaveBeenCalledWith(0);
+  });
+
+  test("does not call setter when count already 0 in else branch", () => {
+    const agents: ParallelAgent[] = [];
+    const state = createAgentStreamFinalizationState(agents, 0);
+
+    applyAgentStreamFinalizationSync(state, agents, false);
+
+    expect(state.activeBackgroundAgentCountRef.current).toBe(0);
+    expect(state.setActiveBackgroundAgentCount).not.toHaveBeenCalled();
+  });
+});

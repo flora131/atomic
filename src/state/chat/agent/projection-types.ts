@@ -1,4 +1,4 @@
-import type { MutableRefObject } from "react";
+import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
 import type { AgentOrderingEvent, AgentOrderingState } from "@/lib/ui/agent-ordering-contract.ts";
 import type { AgentLifecycleLedger } from "@/lib/ui/agent-lifecycle-ledger.ts";
@@ -13,6 +13,7 @@ export interface DeferredPostCompleteDelta {
 }
 
 export interface UseChatAgentProjectionArgs {
+  activeBackgroundAgentCountRef: MutableRefObject<number>;
   activeStreamRunIdRef: MutableRefObject<number | null>;
   agentAnchorSyncVersion: number;
   agentLifecycleLedgerRef: MutableRefObject<AgentLifecycleLedger>;
@@ -45,6 +46,7 @@ export interface UseChatAgentProjectionArgs {
     options?: { runId?: string | null; clearActive?: boolean },
   ) => unknown;
   sendBackgroundMessageToAgent: (content: string) => void;
+  setActiveBackgroundAgentCount: Dispatch<SetStateAction<number>>;
   setBackgroundAgentMessageId: (messageId: string | null) => void;
   setMessagesWindowed: (next: React.SetStateAction<ChatMessage[]>) => void;
   setParallelAgents: React.Dispatch<React.SetStateAction<ParallelAgent[]>>;

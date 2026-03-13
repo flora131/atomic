@@ -98,3 +98,44 @@ export function cleanupCopilotOrphanedTools(
   state.toolNameById.clear();
   state.activeSubagentToolsById.clear();
 }
+
+/**
+ * Synthesize `stream.agent.complete` events for background agents whose
+ * `subagent.complete` event was never received from the Copilot SDK.
+ *
+ * The SDK does not reliably emit `subagent.complete` after the main stream
+ * iterator is exhausted. Without this flush, tracked background agents remain
+ * permanently "running" in the UI — the footer count never decrements and the
+ * spinner never stops.
+ *
+ * Call this in the `finally` block of `startCopilotStreaming`, after
+ * `cleanupCopilotOrphanedTools`.
+ */
+export function flushCopilotOrphanedAgentCompletions(
+  state: CopilotStreamAdapterState,
+  bus: EventBus,
+): void {
+  if (!state.subagentTracker) {
+    return;
+  }
+
+  for (const [, agentId] of state.toolCallIdToSubagentId) {
+    if (!state.subagentTracker.hasAgent(agentId)) {
+      continue;
+    }
+
+    state.subagentTracker.removeAgent(agentId);
+    publishCopilotBufferedEvent(state, bus, {
+      type: "stream.agent.complete",
+      sessionId: state.sessionId,
+      runId: state.runId,
+      timestamp: Date.now(),
+      data: {
+        agentId,
+        success: true,
+      },
+    });
+  }
+
+  state.toolCallIdToSubagentId.clear();
+}

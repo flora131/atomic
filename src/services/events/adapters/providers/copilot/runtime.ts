@@ -14,7 +14,7 @@ import {
   resolveAgentOnlyTaskLabel,
   SessionExpiredError,
 } from "@/services/events/adapters/provider-shared.ts";
-import { publishCopilotBufferedEvent, cleanupCopilotOrphanedTools } from "@/services/events/adapters/providers/copilot/buffer.ts";
+import { publishCopilotBufferedEvent, cleanupCopilotOrphanedTools, flushCopilotOrphanedAgentCompletions } from "@/services/events/adapters/providers/copilot/buffer.ts";
 import {
   cleanupCopilotSubscriptions,
   subscribeToCopilotEvents,
@@ -142,6 +142,7 @@ export async function startCopilotStreaming(
     }
   } finally {
     cleanupCopilotOrphanedTools(state, deps.bus);
+    flushCopilotOrphanedAgentCompletions(state, deps.bus);
     const pendingIdleReason = state.pendingIdleReason;
     state.pendingIdleReason = null;
 

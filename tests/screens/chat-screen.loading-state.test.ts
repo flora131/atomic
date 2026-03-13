@@ -311,7 +311,6 @@ describe("getLoadingIndicatorText", () => {
   function ctx(overrides: Partial<LoadingIndicatorTextContext> = {}): LoadingIndicatorTextContext {
     return {
       isStreaming: false,
-      activeBackgroundAgentCount: 0,
       ...overrides,
     };
   }
@@ -320,15 +319,6 @@ describe("getLoadingIndicatorText", () => {
 
   test("returns verbOverride when provided, regardless of other state", () => {
     expect(getLoadingIndicatorText(ctx({ verbOverride: "Compacting" }))).toBe("Compacting");
-  });
-
-  test("returns verbOverride even when background agents are active", () => {
-    expect(
-      getLoadingIndicatorText(ctx({
-        verbOverride: "Running workflow",
-        activeBackgroundAgentCount: 3,
-      })),
-    ).toBe("Running workflow");
   });
 
   test("returns verbOverride even when streaming with thinking", () => {
@@ -341,37 +331,7 @@ describe("getLoadingIndicatorText", () => {
     ).toBe("Compacting");
   });
 
-  // --- Priority 2: Background agent text when not streaming ---
-
-  test("returns singular text for 1 background agent when not streaming", () => {
-    expect(
-      getLoadingIndicatorText(ctx({ activeBackgroundAgentCount: 1 })),
-    ).toBe("1 background agent running");
-  });
-
-  test("returns plural text for multiple background agents when not streaming", () => {
-    expect(
-      getLoadingIndicatorText(ctx({ activeBackgroundAgentCount: 3 })),
-    ).toBe("3 background agents running");
-  });
-
-  test("returns plural text for 2 background agents", () => {
-    expect(
-      getLoadingIndicatorText(ctx({ activeBackgroundAgentCount: 2 })),
-    ).toBe("2 background agents running");
-  });
-
-  test("does not show background agent text while still streaming", () => {
-    // When foreground stream is active, use standard verb even if background agents exist
-    expect(
-      getLoadingIndicatorText(ctx({
-        isStreaming: true,
-        activeBackgroundAgentCount: 2,
-      })),
-    ).toBe("Composing");
-  });
-
-  // --- Priority 3: Default verb based on thinking state ---
+  // --- Priority 2: Default verb based on thinking state ---
 
   test("returns 'Reasoning' when thinkingMs > 0", () => {
     expect(
@@ -395,7 +355,7 @@ describe("getLoadingIndicatorText", () => {
     ).toBe("Composing");
   });
 
-  test("returns 'Composing' when not streaming and no background agents", () => {
+  test("returns 'Composing' when not streaming", () => {
     expect(getLoadingIndicatorText(ctx())).toBe("Composing");
   });
 });

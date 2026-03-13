@@ -10,7 +10,6 @@ interface LoadingIndicatorProps {
   elapsedMs?: number;
   outputTokens?: number;
   thinkingMs?: number;
-  activeBackgroundAgentCount?: number;
   isStreaming?: boolean;
 }
 
@@ -40,14 +39,12 @@ export function LoadingIndicator({
   elapsedMs,
   outputTokens,
   thinkingMs,
-  activeBackgroundAgentCount,
   isStreaming,
 }: LoadingIndicatorProps): React.ReactNode {
   const themeColors = useThemeColors();
   const [frameIndex, setFrameIndex] = useState(0);
   const verb = getLoadingIndicatorText({
     isStreaming: isStreaming ?? true,
-    activeBackgroundAgentCount: activeBackgroundAgentCount ?? 0,
     verbOverride,
     thinkingMs,
   });

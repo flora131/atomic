@@ -30,7 +30,6 @@ import {
 function getRenderableAssistantParts(
   message: ChatMessage,
   _isLastMessage: boolean,
-  hideAskUserQuestion: boolean,
 ): Part[] {
   const skillIndicatorKeys = new Set(
     (message.skillLoads ?? [])
@@ -114,17 +113,6 @@ function getRenderableAssistantParts(
     parts.push(textPart);
   }
 
-  if (hideAskUserQuestion) {
-    parts = parts.filter((part) => {
-      if (part.type !== "tool") return true;
-      const toolPart = part as ToolPart;
-      const isHitlTool = toolPart.toolName === "AskUserQuestion"
-        || toolPart.toolName === "question"
-        || toolPart.toolName === "ask_user";
-      return !(isHitlTool && toolPart.pendingQuestion);
-    });
-  }
-
   return parts;
 }
 
@@ -133,7 +121,6 @@ export function MessageBubble({
   message,
   isLast,
   syntaxStyle,
-  hideAskUserQuestion = false,
   hideLoading = false,
   todoItems,
   tasksExpanded = false,
@@ -256,7 +243,6 @@ export function MessageBubble({
     const assistantParts = getRenderableAssistantParts(
       message,
       Boolean(isLast),
-      hideAskUserQuestion,
     );
     const renderableMessage = {
       ...message,
@@ -325,7 +311,6 @@ export function MessageBubble({
                 elapsedMs={elapsedMs}
                 outputTokens={streamingMeta?.outputTokens ?? message.outputTokens}
                 thinkingMs={streamingMeta?.thinkingMs ?? message.thinkingMs}
-                activeBackgroundAgentCount={activeBackgroundAgentCount}
                 isStreaming={Boolean(message.streaming)}
               />
             </text>

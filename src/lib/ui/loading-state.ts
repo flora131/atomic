@@ -82,8 +82,6 @@ export function hasLiveLoadingIndicator(
 export interface LoadingIndicatorTextContext {
   /** Whether the foreground stream is still actively producing tokens. */
   isStreaming: boolean;
-  /** Number of background agents currently active (from the bus-event count). */
-  activeBackgroundAgentCount: number;
   /** Optional verb override already set on the message (e.g. "Compacting"). */
   verbOverride?: string;
   /** Milliseconds spent in thinking/reasoning (drives "Reasoning" default). */
@@ -95,9 +93,7 @@ export interface LoadingIndicatorTextContext {
  *
  * Priority chain:
  *   1. Explicit `verbOverride` (e.g. "Compacting", "Running workflow")
- *   2. Background-agent-specific text when agents are active and foreground
- *      streaming has ended
- *   3. Thinking-based inference ("Reasoning" vs "Composing")
+ *   2. Thinking-based inference ("Reasoning" vs "Composing")
  */
 export function getLoadingIndicatorText(context: LoadingIndicatorTextContext): string {
   // 1. Explicit override always wins.
@@ -105,16 +101,7 @@ export function getLoadingIndicatorText(context: LoadingIndicatorTextContext): s
     return context.verbOverride;
   }
 
-  // 2. When the foreground stream has ended but background agents remain,
-  //    show a count-aware label so the user knows what the spinner represents.
-  if (!context.isStreaming && context.activeBackgroundAgentCount > 0) {
-    const count = context.activeBackgroundAgentCount;
-    return count === 1
-      ? "1 background agent running"
-      : `${count} background agents running`;
-  }
-
-  // 3. Default verb based on thinking state (matches LoadingIndicator component).
+  // 2. Default verb based on thinking state (matches LoadingIndicator component).
   return context.thinkingMs != null && context.thinkingMs > 0
     ? "Reasoning"
     : "Composing";

@@ -1,6 +1,6 @@
 import { normalizeSkillTrackingKey } from "@/lib/ui/skill-load-tracking.ts";
 import type { ChatMessage, MessageRole, MessageSkillLoad } from "@/state/chat/shared/types/index.ts";
-import type { Part, SkillLoadPart } from "@/state/parts/index.ts";
+import type { Part, SkillLoadPart, ToolPart } from "@/state/parts/index.ts";
 import {
   createPartId,
   finalizeStreamingReasoningInMessage,
@@ -48,9 +48,20 @@ export function appendSkillLoadToLatestAssistantMessage(
     return messages;
   }
 
-  const lastMsg = messages[messages.length - 1];
-  if (lastMsg && lastMsg.role === "assistant") {
-    const existingLoads = lastMsg.skillLoads ?? [];
+  // Search backward to find the last assistant message (not just the very last message).
+  // System messages (info/warning/error) may have been appended after the assistant message
+  // during streaming, so we need to look past them.
+  let assistantIdx = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]!.role === "assistant") {
+      assistantIdx = i;
+      break;
+    }
+  }
+
+  if (assistantIdx >= 0) {
+    const assistantMsg = messages[assistantIdx]!;
+    const existingLoads = assistantMsg.skillLoads ?? [];
     const hasExistingSkill = existingLoads.some(
       (existingLoad) => normalizeSkillTrackingKey(existingLoad.skillName) === normalizedSkillKey,
     );
@@ -59,15 +70,16 @@ export function appendSkillLoadToLatestAssistantMessage(
     }
 
     const nextSkillLoads = [...existingLoads, skillLoad];
-    const nextParts = upsertSkillLoadPart(lastMsg.parts ?? [], nextSkillLoads);
+    const nextParts = upsertSkillLoadPart(assistantMsg.parts ?? [], nextSkillLoads);
 
     return [
-      ...messages.slice(0, -1),
+      ...messages.slice(0, assistantIdx),
       {
-        ...lastMsg,
+        ...assistantMsg,
         skillLoads: nextSkillLoads,
         parts: nextParts,
       },
+      ...messages.slice(assistantIdx + 1),
     ];
   }
 
@@ -91,7 +103,17 @@ function upsertSkillLoadPart(parts: Part[], skills: MessageSkillLoad[]): Part[] 
   if (existingIdx >= 0) {
     nextParts[existingIdx] = skillPart;
   } else {
-    nextParts.push(skillPart);
+    // Insert at the position of the first "skill" tool call so the skill-load
+    // indicator renders in chronological order (the tool call itself gets hidden
+    // by shouldHideSkillToolIndicator in getRenderableAssistantParts).
+    const skillToolIdx = nextParts.findIndex(
+      (part) => part.type === "tool" && (part as ToolPart).toolName.trim().toLowerCase() === "skill",
+    );
+    if (skillToolIdx >= 0) {
+      nextParts.splice(skillToolIdx, 0, skillPart);
+    } else {
+      nextParts.push(skillPart);
+    }
   }
   return nextParts;
 }

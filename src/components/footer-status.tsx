@@ -22,6 +22,8 @@ export interface FooterStatusComponentProps {
   isStreaming?: boolean;
   /** Whether a workflow is currently active */
   workflowActive?: boolean;
+  /** Number of active background agents (running/pending/background status) */
+  backgroundAgentCount?: number;
 }
 
 // ============================================================================
@@ -31,14 +33,16 @@ export interface FooterStatusComponentProps {
 export function FooterStatus({
   isStreaming = false,
   workflowActive = false,
+  backgroundAgentCount = 0,
 }: FooterStatusComponentProps): React.ReactNode {
   const { theme } = useTheme();
   const colors = theme.colors;
 
   const showStreamingHints = isStreaming && !workflowActive;
   const showWorkflowHints = workflowActive;
+  const showBackgroundHints = backgroundAgentCount > 0;
 
-  if (!showStreamingHints && !showWorkflowHints) {
+  if (!showStreamingHints && !showWorkflowHints && !showBackgroundHints) {
     return null;
   }
 
@@ -67,6 +71,18 @@ export function FooterStatus({
         <>
           <text style={{ fg: colors.muted }}>{MISC.separator}</text>
           <text style={{ fg: colors.muted }}>ctrl+c twice to exit workflow</text>
+        </>
+      )}
+      {showBackgroundHints && (
+        <>
+          {(showStreamingHints || showWorkflowHints) && (
+            <text style={{ fg: colors.muted }}>{MISC.separator}</text>
+          )}
+          <text style={{ fg: colors.accent }}>
+            [{backgroundAgentCount}] local agent{backgroundAgentCount !== 1 ? "s" : ""}
+          </text>
+          <text style={{ fg: colors.muted }}>{MISC.separator}</text>
+          <text style={{ fg: colors.muted }}>ctrl+f to kill all background tasks</text>
         </>
       )}
     </box>

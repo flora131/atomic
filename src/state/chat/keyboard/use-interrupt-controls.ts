@@ -1,6 +1,9 @@
 import { useCallback } from "react";
 import type { KeyEvent } from "@opentui/core";
-import { isBackgroundAgent } from "@/lib/ui/background-agent-footer.ts";
+import { getActiveBackgroundAgents, isBackgroundAgent } from "@/lib/ui/background-agent-footer.ts";
+import {
+  executeBackgroundTermination,
+} from "@/lib/ui/background-agent-termination.ts";
 import {
   interruptRunningToolCalls,
   interruptRunningToolParts,
@@ -113,7 +116,6 @@ export function useChatInterruptControls({
     addMessage,
     backgroundAgentMessageIdRef,
     clearDeferredCompletion,
-    isStreamingRef,
     lastStreamedMessageIdRef,
     onTerminateBackgroundAgents,
     parallelAgents,
@@ -191,6 +193,24 @@ export function useChatInterruptControls({
         }),
         wasInterruptedRef,
       });
+
+      // Also terminate any active background agents on Ctrl+C
+      const activeBackgroundAgents = getActiveBackgroundAgents(parallelAgentsRef.current);
+      if (activeBackgroundAgents.length > 0) {
+        void executeBackgroundTermination({
+          getAgents: () => parallelAgentsRef.current,
+          onTerminateBackgroundAgents,
+        }).then((result) => {
+          if (result.status === "terminated" && result.interruptedIds.length > 0) {
+            const interruptedIdSet = new Set(result.interruptedIds);
+            const remainingLiveAgents = result.agents.filter(
+              (agent) => !interruptedIdSet.has(agent.id),
+            );
+            parallelAgentsRef.current = remainingLiveAgents;
+            setParallelAgents(remainingLiveAgents);
+          }
+        });
+      }
 
       if (workflowState.workflowActive) {
         const nextCount = interruptCount + 1;
@@ -280,6 +300,7 @@ export function useChatInterruptControls({
     lastStreamingContentRef,
     onExit,
     onInterrupt,
+    onTerminateBackgroundAgents,
     parallelAgentsRef,
     parallelInterruptHandlerRef,
     scheduleInterruptConfirmation,

@@ -19,7 +19,6 @@ export function useBackgroundTerminationControls({
   addMessage,
   backgroundAgentMessageIdRef,
   clearDeferredCompletion,
-  isStreamingRef,
   lastStreamedMessageIdRef,
   onTerminateBackgroundAgents,
   parallelAgents,
@@ -35,7 +34,6 @@ export function useBackgroundTerminationControls({
   | "addMessage"
   | "backgroundAgentMessageIdRef"
   | "clearDeferredCompletion"
-  | "isStreamingRef"
   | "lastStreamedMessageIdRef"
   | "onTerminateBackgroundAgents"
   | "parallelAgents"
@@ -86,7 +84,7 @@ export function useBackgroundTerminationControls({
   }, []);
 
   const handleBackgroundTerminationKey = useCallback((): boolean => {
-    if (isStreamingRef.current || backgroundTerminationInFlightRef.current) {
+    if (backgroundTerminationInFlightRef.current) {
       return true;
     }
 
@@ -183,7 +181,6 @@ export function useBackgroundTerminationControls({
     backgroundAgentMessageIdRef,
     clearBackgroundTerminationConfirmation,
     clearDeferredCompletion,
-    isStreamingRef,
     lastStreamedMessageIdRef,
     onTerminateBackgroundAgents,
     parallelAgentsRef,

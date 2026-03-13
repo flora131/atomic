@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import type {
   KeyBinding,
   MacOSScrollAccel,
@@ -25,6 +25,7 @@ import type { ThemeColors } from "@/theme/index.tsx";
 import type { ChatMessage, StreamingMeta, WorkflowChatState } from "@/state/chat/types.ts";
 import type { UseMessageQueueReturn } from "@/hooks/use-message-queue.ts";
 import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import { getActiveBackgroundAgents } from "@/lib/ui/background-agent-footer.ts";
 import type { ComposerAutocompleteSuggestion } from "@/state/chat/composer/types.ts";
 
 interface InputScrollbarState {
@@ -145,6 +146,11 @@ export function ChatShell({
   workingDir,
   workflowState,
 }: ChatShellProps): React.ReactNode {
+  const backgroundAgentCount = useMemo(
+    () => getActiveBackgroundAgents(parallelAgents).length,
+    [parallelAgents],
+  );
+
   return (
     <box
       flexDirection="column"
@@ -298,6 +304,7 @@ export function ChatShell({
                 <FooterStatus
                   isStreaming={isStreaming}
                   workflowActive={workflowState.workflowActive}
+                  backgroundAgentCount={backgroundAgentCount}
                 />
               </>
             )}

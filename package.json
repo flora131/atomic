@@ -40,7 +40,8 @@
         "metrics:ordering-contract": "bun run src/scripts/ordering-contract-metrics.ts",
         "canary:ordering-contract": "ATOMIC_ORDERING_CONTRACT_CANARY=1 bun run test:ordering-contract && ATOMIC_ORDERING_CONTRACT_CANARY=1 bun run metrics:ordering-contract",
         "typecheck": "tsc --noEmit",
-        "lint": "oxlint --config=oxlint.json src tests",
+        "lint": "oxlint --config=oxlint.json src tests && bun run src/scripts/check-submodule-boundaries.ts",
+        "lint:boundaries": "bun run src/scripts/check-submodule-boundaries.ts",
         "lint:fix": "oxlint --config=oxlint.json --fix src tests",
         "postinstall": "lefthook install && bun run src/scripts/postinstall.ts"
     },

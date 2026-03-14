@@ -31,10 +31,10 @@ import type {
   UseChatStreamRuntimeArgs,
   UseChatStreamRuntimeResult,
 } from "@/state/chat/stream/runtime-types.ts";
-import { useChatBackgroundDispatch } from "@/state/chat/controller/use-background-dispatch.ts";
-import { useChatRunTracking } from "@/state/chat/controller/use-run-tracking.ts";
-import { useChatRuntimeControls } from "@/state/chat/controller/use-runtime-controls.ts";
-import { useChatRuntimeEffects } from "@/state/chat/controller/use-runtime-effects.ts";
+import { useChatBackgroundDispatch } from "@/state/chat/stream/use-background-dispatch.ts";
+import { useChatRunTracking } from "@/state/chat/stream/use-run-tracking.ts";
+import { useChatRuntimeControls } from "@/state/chat/stream/use-runtime-controls.ts";
+import { useChatRuntimeEffects } from "@/state/chat/stream/use-runtime-effects.ts";
 import { useChatStreamConsumer } from "@/state/chat/stream/use-consumer.ts";
 import { useChatStreamLifecycle } from "@/state/chat/stream/use-lifecycle.ts";
 

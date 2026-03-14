@@ -1,8 +1,8 @@
 import { useCallback } from "react";
 import { useChatDispatchController } from "@/state/chat/controller/use-dispatch-controller.ts";
-import { useChatKeyboard } from "@/state/chat/keyboard/use-keyboard.ts";
-import { useChatRenderModel } from "@/state/chat/shell/use-render-model.tsx";
-import { useComposerController } from "@/state/chat/composer/use-controller.ts";
+import { useChatKeyboard } from "@/state/chat/keyboard/index.ts";
+import { useChatRenderModel } from "@/state/chat/shell/index.ts";
+import { useComposerController } from "@/state/chat/composer/index.ts";
 import { buildUiControllerChatShellProps } from "@/state/chat/controller/use-ui-controller-stack/chat-shell-props.ts";
 import type { UseChatUiControllerStackArgs } from "@/state/chat/controller/use-ui-controller-stack/types.ts";
 

@@ -5,7 +5,7 @@ import {
   globalRegistry,
   parseSlashCommand,
 } from "@/commands/tui/index.ts";
-import { useCommandExecutor } from "@/state/chat/command/use-executor.ts";
+import { useCommandExecutor } from "@/state/chat/command/index.ts";
 import type { DeferredCommandMessage, UseCommandExecutorArgs } from "@/state/chat/shared/types/command.ts";
 import type {
   CommandExecutionTrigger,

@@ -8,13 +8,13 @@ import {
   appendToHistoryBuffer,
   readHistoryBuffer,
   clearHistoryBuffer,
-} from "@/lib/ui/conversation-history-buffer.ts";
+} from "@/state/chat/shared/helpers/conversation-history-buffer.ts";
 import { appendUniqueMessagesById } from "@/state/chat/helpers.ts";
 import { createClipboardAdapter, type ClipboardAdapter } from "@/lib/ui/clipboard.ts";
 import { useVerboseMode } from "@/hooks/use-verbose-mode.ts";
 import type { DeferredCommandMessage } from "@/state/chat/command/executor-types.ts";
 import type { ChatMessage, WorkflowChatState } from "@/state/chat/types.ts";
-import type { WorkflowInputResolver } from "@/lib/ui/workflow-input-resolver.ts";
+import type { WorkflowInputResolver } from "@/services/workflows/helpers/workflow-input-resolver.ts";
 import type { Model } from "@/services/models/model-transform.ts";
 import type { McpServerToggleMap } from "@/lib/ui/mcp-output.ts";
 

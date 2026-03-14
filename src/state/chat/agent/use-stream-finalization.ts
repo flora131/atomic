@@ -5,11 +5,11 @@ import {
 } from "@/state/parts/index.ts";
 import {
   getActiveBackgroundAgents,
-} from "@/lib/ui/background-agent-footer.ts";
+} from "@/state/chat/shared/helpers/background-agent-footer.ts";
 import {
   shouldFinalizeAgentOnlyStream,
 } from "@/state/chat/helpers.ts";
-import { snapshotTaskItems } from "@/lib/ui/workflow-task-state.ts";
+import { snapshotTaskItems } from "@/state/chat/shared/helpers/workflow-task-state.ts";
 import type { TaskItem } from "@/state/chat/types.ts";
 import type { UseChatAgentProjectionArgs } from "@/state/chat/agent/projection-types.ts";
 

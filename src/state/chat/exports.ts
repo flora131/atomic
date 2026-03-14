@@ -3,8 +3,8 @@ export {
   isTaskProgressComplete,
   shouldShowMessageLoadingIndicator,
   shouldShowCompletionSummary,
-} from "@/lib/ui/loading-state.ts";
-export type { LoadingIndicatorTextContext } from "@/lib/ui/loading-state.ts";
+} from "@/state/chat/shared/helpers/loading-state.ts";
+export type { LoadingIndicatorTextContext } from "@/state/chat/shared/helpers/loading-state.ts";
 
 export type {
   ChatAppProps,

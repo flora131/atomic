@@ -2,12 +2,12 @@ import React from "react";
 import { PROMPT, STATUS, CONNECTOR, MISC } from "@/theme/icons.ts";
 import { SPACING } from "@/theme/spacing.ts";
 import { useThemeColors } from "@/theme/index.tsx";
-import { getActiveBackgroundAgents } from "@/lib/ui/background-agent-footer.ts";
-import { normalizeSkillTrackingKey } from "@/lib/ui/skill-load-tracking.ts";
+import { getActiveBackgroundAgents } from "@/state/chat/shared/helpers/background-agent-footer.ts";
+import { normalizeSkillTrackingKey } from "@/state/chat/shared/helpers/skill-load-tracking.ts";
 import {
   shouldShowCompletionSummary,
   shouldShowMessageLoadingIndicator,
-} from "@/lib/ui/loading-state.ts";
+} from "@/state/chat/shared/helpers/loading-state.ts";
 import { TaskListPanel } from "@/components/task-list-panel.tsx";
 import { HitlResponseWidget } from "@/components/hitl-response-widget.tsx";
 import { MessageBubbleParts } from "@/components/message-parts/message-bubble-parts.tsx";

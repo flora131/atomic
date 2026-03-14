@@ -7,7 +7,7 @@ import type { CommandExecutionTrigger, WorkflowChatState } from "@/state/chat/ty
 import {
   shouldApplyBackslashLineContinuation,
   shouldInsertNewlineFallbackFromKeyEvent,
-} from "@/lib/ui/newline-strategies.ts";
+} from "@/state/chat/shared/helpers/newline-strategies.ts";
 import { resolveSlashAutocompleteExecution } from "@/state/chat/helpers.ts";
 import type { ChatAutocompleteSuggestion } from "@/state/chat/keyboard/types.ts";
 

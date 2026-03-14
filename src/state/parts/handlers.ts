@@ -5,7 +5,7 @@
  * These handlers manage the creation and updates of parts during streaming.
  */
 
-import type { ChatMessage } from "@/screens/chat-screen.tsx";
+import type { ChatMessage } from "@/types/chat.ts";
 import type { TextPart } from "@/state/parts/types.ts";
 import { createPartId } from "@/state/parts/id.ts";
 import { findLastPartIndex } from "@/state/parts/store.ts";

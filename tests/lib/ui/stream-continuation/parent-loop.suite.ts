@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { shouldContinueParentSessionLoop } from "@/lib/ui/stream-continuation.ts";
+import { shouldContinueParentSessionLoop } from "@/state/chat/shared/helpers/stream-continuation.ts";
 import {
   getRuntimeParityMetricsSnapshot,
   resetRuntimeParityMetrics,

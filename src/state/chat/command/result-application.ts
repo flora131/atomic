@@ -1,7 +1,7 @@
 import { darkTheme, lightTheme } from "@/theme/index.tsx";
 import type { CommandResult } from "@/commands/tui/registry.ts";
 import { createMessage } from "@/state/chat/helpers.ts";
-import { tryTrackLoadedSkill } from "@/lib/ui/skill-load-tracking.ts";
+import { tryTrackLoadedSkill } from "@/state/chat/shared/helpers/skill-load-tracking.ts";
 import type { MessageSkillLoad } from "@/state/chat/types.ts";
 import type { UseCommandExecutorArgs } from "@/state/chat/command/executor-types.ts";
 import { createPartId } from "@/state/parts/id.ts";

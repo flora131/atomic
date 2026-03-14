@@ -16,16 +16,16 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import {
   getBackgroundTerminationDecision,
   interruptActiveBackgroundAgents,
   isBackgroundTerminationKey,
-} from "@/lib/ui/background-agent-termination.ts";
+} from "@/state/chat/shared/helpers/background-agent-termination.ts";
 import {
   BACKGROUND_TREE_HINT_CONTRACT,
-} from "@/lib/ui/background-agent-contracts.ts";
-import { getActiveBackgroundAgents } from "@/lib/ui/background-agent-footer.ts";
+} from "@/state/chat/shared/helpers/background-agent-contracts.ts";
+import { getActiveBackgroundAgents } from "@/state/chat/shared/helpers/background-agent-footer.ts";
 
 // ============================================================================
 // TEST HELPERS

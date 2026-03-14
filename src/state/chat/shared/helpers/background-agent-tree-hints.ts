@@ -1,4 +1,4 @@
-import { BACKGROUND_TREE_HINT_CONTRACT } from "@/lib/ui/background-agent-contracts.ts";
+import { BACKGROUND_TREE_HINT_CONTRACT } from "@/state/chat/shared/helpers/background-agent-contracts.ts";
 
 export type BackgroundAgentHintStatus =
   | "pending"

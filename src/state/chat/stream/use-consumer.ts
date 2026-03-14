@@ -5,9 +5,9 @@ import type { StreamRunRuntime } from "@/state/runtime/stream-run-runtime.ts";
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type { ChatMessage, StreamingMeta, ThinkingDropDiagnostics } from "@/state/chat/types.ts";
 import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
-import type { AgentLifecycleLedger } from "@/lib/ui/agent-lifecycle-ledger.ts";
-import type { AgentOrderingEvent, AgentOrderingState } from "@/lib/ui/agent-ordering-contract.ts";
-import type { AutoCompactionIndicatorState } from "@/lib/ui/auto-compaction-lifecycle.ts";
+import type { AgentLifecycleLedger } from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
+import type { AgentOrderingEvent, AgentOrderingState } from "@/state/chat/shared/helpers/agent-ordering-contract.ts";
+import type { AutoCompactionIndicatorState } from "@/state/chat/shared/helpers/auto-compaction-lifecycle.ts";
 import {
   isRuntimeEnvelopePartEvent,
   resolveValidatedThinkingMetaEvent,

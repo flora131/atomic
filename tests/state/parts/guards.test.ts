@@ -5,7 +5,7 @@ import {
   shouldFinalizeDeferredStream,
   hasActiveBackgroundAgentsForSpinner,
 } from "@/state/parts/guards.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 
 // Create minimal ParallelAgent objects for testing
 function createMockAgent(overrides: Partial<ParallelAgent>): ParallelAgent {

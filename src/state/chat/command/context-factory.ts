@@ -6,7 +6,7 @@ import { normalizeTodoItems } from "@/state/parts/helpers/task-status.ts";
 import {
   createStartedStreamControlState,
   shouldDeferComposerSubmit,
-} from "@/lib/ui/stream-continuation.ts";
+} from "@/state/chat/shared/helpers/stream-continuation.ts";
 import {
   createMessage,
   getSpinnerVerbForCommand,

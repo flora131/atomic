@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useThemeColors } from "@/theme/index.tsx";
 import { ARROW, MISC, SPINNER_COMPLETE, SPINNER_FRAMES } from "@/theme/icons.ts";
 import { formatDuration } from "@/lib/ui/format.ts";
-import { getLoadingIndicatorText } from "@/lib/ui/loading-state.ts";
+import { getLoadingIndicatorText } from "@/state/chat/shared/helpers/loading-state.ts";
 
 interface LoadingIndicatorProps {
   speed?: number;

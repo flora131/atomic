@@ -1,6 +1,6 @@
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
-import { getActiveBackgroundAgents } from "@/lib/ui/background-agent-footer.ts";
-import type { BackgroundTerminationDecision } from "@/lib/ui/background-agent-contracts.ts";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
+import { getActiveBackgroundAgents } from "@/state/chat/shared/helpers/background-agent-footer.ts";
+import type { BackgroundTerminationDecision } from "@/state/chat/shared/helpers/background-agent-contracts.ts";
 
 export interface BackgroundTerminationKeyEvent {
   name?: string | null;

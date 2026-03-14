@@ -5,7 +5,7 @@
  * streaming events (text, thinking metadata, tools, HITL, and agents).
  */
 
-import type { ChatMessage } from "@/screens/chat-screen.tsx";
+import type { ChatMessage } from "@/types/chat.ts";
 import { handleTextDelta } from "@/state/parts/handlers.ts";
 import type { AgentPart, TaskListPart, TextPart } from "@/state/parts/types.ts";
 import {

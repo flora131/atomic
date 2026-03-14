@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import { hasActiveBackgroundAgentsForSpinner } from "@/state/parts/guards.ts";
 
 /**

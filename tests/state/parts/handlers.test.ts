@@ -1,7 +1,7 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { handleTextDelta } from "@/state/parts/handlers.ts";
 import { _resetPartCounter } from "@/state/parts/id.ts";
-import type { ChatMessage } from "@/screens/chat-screen.tsx";
+import type { ChatMessage } from "@/types/chat.ts";
 import type { TextPart } from "@/state/parts/types.ts";
 
 beforeEach(() => _resetPartCounter());

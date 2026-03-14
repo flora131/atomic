@@ -6,7 +6,7 @@ import {
   registerAgentLifecycleComplete,
   registerAgentLifecycleStart,
   registerAgentLifecycleUpdate,
-} from "@/lib/ui/agent-lifecycle-ledger.ts";
+} from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
 
 describe("agent lifecycle ledger", () => {
   test("allows ordered start update complete transitions", () => {

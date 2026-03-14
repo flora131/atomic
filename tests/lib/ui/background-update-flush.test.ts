@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   shouldScheduleBackgroundUpdateFollowUpFlush,
   shouldStartBackgroundUpdateFlush,
-} from "@/lib/ui/background-update-flush.ts";
+} from "@/state/chat/shared/helpers/background-update-flush.ts";
 
 describe("shouldStartBackgroundUpdateFlush", () => {
   test("returns true when idle with pending updates", () => {

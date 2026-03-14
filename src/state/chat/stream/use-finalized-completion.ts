@@ -1,6 +1,6 @@
 import { useCallback } from "react";
-import { snapshotTaskItems } from "@/lib/ui/workflow-task-state.ts";
-import { getActiveBackgroundAgents } from "@/lib/ui/background-agent-footer.ts";
+import { snapshotTaskItems } from "@/state/chat/shared/helpers/workflow-task-state.ts";
+import { getActiveBackgroundAgents } from "@/state/chat/shared/helpers/background-agent-footer.ts";
 import {
   finalizeStreamingReasoningInMessage,
   finalizeStreamingReasoningParts,
@@ -10,7 +10,7 @@ import type {
   FinalizedStreamCompletionContext,
   UseChatStreamCompletionArgs,
 } from "@/state/chat/stream/completion-types.ts";
-import { interruptRunningToolCalls, interruptRunningToolParts } from "@/lib/ui/stream-continuation.ts";
+import { interruptRunningToolCalls, interruptRunningToolParts } from "@/state/chat/shared/helpers/stream-continuation.ts";
 
 type UseChatStreamFinalizedCompletionArgs = Pick<
   UseChatStreamCompletionArgs,

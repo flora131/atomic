@@ -1,4 +1,4 @@
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import { hasActiveBackgroundAgentsForSpinner } from "@/state/parts/guards.ts";
 
 type TaskProgressStatus = "pending" | "in_progress" | "completed" | "error";

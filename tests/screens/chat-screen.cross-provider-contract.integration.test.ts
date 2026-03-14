@@ -8,7 +8,7 @@ import {
   registerAgentLifecycleComplete,
   registerAgentLifecycleStart,
   registerAgentLifecycleUpdate,
-} from "@/lib/ui/agent-lifecycle-ledger.ts";
+} from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
 import {
   resetRuntimeParityMetrics,
 } from "@/services/workflows/runtime-parity-observability.ts";

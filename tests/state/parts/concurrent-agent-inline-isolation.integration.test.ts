@@ -3,8 +3,9 @@ import { EventBus } from "@/services/events/event-bus.ts";
 import { BatchDispatcher } from "@/services/events/batch-dispatcher.ts";
 import { wireConsumers } from "@/services/events/consumers/wire-consumers.ts";
 import type { BusEvent, BusEventDataMap, BusEventType } from "@/services/events/bus-events.ts";
-import type { ChatMessage } from "@/screens/chat-screen.tsx";
-import { getAgentInlineDisplayParts, type ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ChatMessage } from "@/types/chat.ts";
+import { getAgentInlineDisplayParts } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import { _resetPartCounter } from "@/state/parts/id.ts";
 import { applyStreamPartEvent, type StreamPartEvent } from "@/state/parts/stream-pipeline.ts";
 

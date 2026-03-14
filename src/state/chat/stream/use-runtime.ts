@@ -4,18 +4,18 @@ import {
   useRef,
   useState,
 } from "react";
-import { isBackgroundAgent } from "@/lib/ui/background-agent-footer.ts";
+import { isBackgroundAgent } from "@/state/chat/shared/helpers/background-agent-footer.ts";
 import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
-import type { AutoCompactionIndicatorState } from "@/lib/ui/auto-compaction-lifecycle.ts";
-import { type SessionLoopFinishReason } from "@/lib/ui/stream-continuation.ts";
-import { createAgentLifecycleLedger } from "@/lib/ui/agent-lifecycle-ledger.ts";
+import type { AutoCompactionIndicatorState } from "@/state/chat/shared/helpers/auto-compaction-lifecycle.ts";
+import { type SessionLoopFinishReason } from "@/state/chat/shared/helpers/stream-continuation.ts";
+import { createAgentLifecycleLedger } from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
 import type {
   AgentOrderingEvent,
-} from "@/lib/ui/agent-ordering-contract.ts";
+} from "@/state/chat/shared/helpers/agent-ordering-contract.ts";
 import {
   createAgentOrderingState,
-} from "@/lib/ui/agent-ordering-contract.ts";
-import { createLoadedSkillTrackingSet } from "@/lib/ui/skill-load-tracking.ts";
+} from "@/state/chat/shared/helpers/agent-ordering-contract.ts";
+import { createLoadedSkillTrackingSet } from "@/state/chat/shared/helpers/skill-load-tracking.ts";
 import {
   StreamRunRuntime,
 } from "@/state/runtime/stream-run-runtime.ts";

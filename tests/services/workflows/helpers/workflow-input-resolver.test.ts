@@ -3,7 +3,7 @@ import {
   consumeWorkflowInputSubmission,
   rejectPendingWorkflowInput,
   STALE_WORKFLOW_INPUT_REASON,
-} from "@/lib/ui/workflow-input-resolver.ts";
+} from "@/services/workflows/helpers/workflow-input-resolver.ts";
 
 describe("consumeWorkflowInputSubmission", () => {
   test("resolves pending workflow input when workflow is active", () => {

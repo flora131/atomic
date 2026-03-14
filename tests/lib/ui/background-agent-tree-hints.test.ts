@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { buildParallelAgentsHeaderHint } from "@/lib/ui/background-agent-tree-hints.ts";
-import { BACKGROUND_TREE_HINT_CONTRACT } from "@/lib/ui/background-agent-contracts.ts";
+import { buildParallelAgentsHeaderHint } from "@/state/chat/shared/helpers/background-agent-tree-hints.ts";
+import { BACKGROUND_TREE_HINT_CONTRACT } from "@/state/chat/shared/helpers/background-agent-contracts.ts";
 
 describe("background agent tree hints", () => {
   test("shows Ctrl+F terminate hint for active background agents", () => {

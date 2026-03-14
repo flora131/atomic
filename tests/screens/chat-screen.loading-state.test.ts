@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import {
   getLoadingIndicatorText,
   hasLiveLoadingIndicator,
   isTaskProgressComplete,
   shouldShowCompletionSummary,
   shouldShowMessageLoadingIndicator,
-} from "@/lib/ui/loading-state.ts";
-import type { LoadingIndicatorTextContext } from "@/lib/ui/loading-state.ts";
+} from "@/state/chat/shared/helpers/loading-state.ts";
+import type { LoadingIndicatorTextContext } from "@/state/chat/shared/helpers/loading-state.ts";
 
 const backgroundAgent: ParallelAgent = {
   id: "agent-1",

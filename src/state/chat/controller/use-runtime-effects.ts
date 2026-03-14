@@ -2,8 +2,8 @@ import { useEffect } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
-import type { AgentLifecycleLedger } from "@/lib/ui/agent-lifecycle-ledger.ts";
-import type { AgentOrderingEvent } from "@/lib/ui/agent-ordering-contract.ts";
+import type { AgentLifecycleLedger } from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
+import type { AgentOrderingEvent } from "@/state/chat/shared/helpers/agent-ordering-contract.ts";
 import { StreamRunRuntime } from "@/state/runtime/stream-run-runtime.ts";
 
 interface UseChatRuntimeEffectsArgs {

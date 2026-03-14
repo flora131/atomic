@@ -6,7 +6,7 @@ import {
   shouldInsertNewlineFallbackFromKeyEvent,
   shouldInsertNewlineFromKeyEvent,
   type NewlineKeyEventLike,
-} from "@/lib/ui/newline-strategies.ts";
+} from "@/state/chat/shared/helpers/newline-strategies.ts";
 
 interface SimulatedKeyEvent extends NewlineKeyEventLike {
   raw?: string;

@@ -1,4 +1,4 @@
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import {
   isClaudeSyntheticForegroundAgentId,
 } from "@/state/chat/shared/helpers/subagents.ts";

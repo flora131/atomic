@@ -4,7 +4,7 @@ import {
   createStoppedStreamControlState,
   dispatchNextQueuedMessage,
   interruptRunningToolCalls,
-} from "@/lib/ui/stream-continuation.ts";
+} from "@/state/chat/shared/helpers/stream-continuation.ts";
 import {
   getRuntimeParityMetricsSnapshot,
   resetRuntimeParityMetrics,

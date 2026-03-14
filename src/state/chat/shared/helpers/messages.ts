@@ -1,4 +1,4 @@
-import { normalizeSkillTrackingKey } from "@/lib/ui/skill-load-tracking.ts";
+import { normalizeSkillTrackingKey } from "@/state/chat/shared/helpers/skill-load-tracking.ts";
 import type { ChatMessage, MessageRole, MessageSkillLoad } from "@/state/chat/shared/types/index.ts";
 import type { Part, SkillLoadPart, ToolPart } from "@/state/parts/index.ts";
 import {

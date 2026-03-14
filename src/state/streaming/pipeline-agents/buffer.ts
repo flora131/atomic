@@ -1,4 +1,4 @@
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import { createPartId } from "@/state/parts/id.ts";
 import type { Part, TextPart } from "@/state/parts/types.ts";
 import { upsertThinkingMetaPart } from "@/state/streaming/pipeline-thinking.ts";

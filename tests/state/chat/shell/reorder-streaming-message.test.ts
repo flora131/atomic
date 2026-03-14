@@ -1,6 +1,6 @@
 import { test, expect, describe } from "bun:test";
 import { reorderStreamingMessageToEnd } from "@/state/chat/shell/use-render-model.tsx";
-import type { ChatMessage } from "@/screens/chat-screen.tsx";
+import type { ChatMessage } from "@/types/chat.ts";
 
 function createMsg(id: string, role: "user" | "assistant" | "system", streaming?: boolean): ChatMessage {
   return {

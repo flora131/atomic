@@ -4,7 +4,7 @@ import type { Session } from "@/services/agents/types.ts";
 import {
   shouldScheduleBackgroundUpdateFollowUpFlush,
   shouldStartBackgroundUpdateFlush,
-} from "@/lib/ui/background-update-flush.ts";
+} from "@/state/chat/shared/helpers/background-update-flush.ts";
 import {
   appendSkillLoadToLatestAssistantMessage,
 } from "@/state/chat/helpers.ts";

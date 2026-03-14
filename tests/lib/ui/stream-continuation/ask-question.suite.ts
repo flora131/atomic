@@ -5,7 +5,7 @@ import {
   shouldDeferComposerSubmit,
   shouldDispatchQueuedMessage,
   shouldTrackToolAsBlocking,
-} from "@/lib/ui/stream-continuation.ts";
+} from "@/state/chat/shared/helpers/stream-continuation.ts";
 
 describe("stream continuation helpers", () => {
   describe("ask_question and blocking tool guards", () => {

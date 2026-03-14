@@ -1,13 +1,13 @@
 import { useCallback } from "react";
 import type { KeyEvent } from "@opentui/core";
-import { getActiveBackgroundAgents, isBackgroundAgent } from "@/lib/ui/background-agent-footer.ts";
+import { getActiveBackgroundAgents, isBackgroundAgent } from "@/state/chat/shared/helpers/background-agent-footer.ts";
 import {
   executeBackgroundTermination,
-} from "@/lib/ui/background-agent-termination.ts";
+} from "@/state/chat/shared/helpers/background-agent-termination.ts";
 import {
   interruptRunningToolCalls,
   interruptRunningToolParts,
-} from "@/lib/ui/stream-continuation.ts";
+} from "@/state/chat/shared/helpers/stream-continuation.ts";
 import {
   finalizeStreamingReasoningInMessage,
   finalizeStreamingReasoningParts,

@@ -1,6 +1,6 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type { ScrollBoxRenderable, TextareaRenderable } from "@opentui/core";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type { UseMessageQueueReturn } from "@/hooks/use-message-queue.ts";
 import type { ClipboardAdapter } from "@/lib/ui/clipboard.ts";
 import type {

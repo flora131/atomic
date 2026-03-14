@@ -1,6 +1,6 @@
 import { useBusSubscription } from "@/services/events/hooks.ts";
 import { runtimeParityDebug } from "@/services/workflows/runtime-parity-observability.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import {
   isClaudeSyntheticForegroundAgentId,
   mergeAgentTaskLabel,
@@ -12,13 +12,13 @@ import {
   registerAgentLifecycleComplete,
   registerAgentLifecycleStart,
   registerAgentLifecycleUpdate,
-} from "@/lib/ui/agent-lifecycle-ledger.ts";
+} from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
 import {
   registerAgentCompletionSequence,
   resetAgentOrderingForAgent,
   type AgentOrderingEvent,
-} from "@/lib/ui/agent-ordering-contract.ts";
-import { getActiveBackgroundAgents, isBackgroundAgent } from "@/lib/ui/background-agent-footer.ts";
+} from "@/state/chat/shared/helpers/agent-ordering-contract.ts";
+import { getActiveBackgroundAgents, isBackgroundAgent } from "@/state/chat/shared/helpers/background-agent-footer.ts";
 import { hasActiveBackgroundAgentsForSpinner } from "@/state/parts/guards.ts";
 import type { UseStreamSubscriptionsArgs } from "@/state/chat/stream/subscription-types.ts";
 

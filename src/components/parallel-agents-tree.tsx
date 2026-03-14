@@ -10,39 +10,9 @@ import { ReasoningPartDisplay } from "@/components/message-parts/reasoning-part-
 import { TextPartDisplay } from "@/components/message-parts/text-part-display.tsx";
 import { ToolPartDisplay } from "@/components/message-parts/tool-part-display.tsx";
 
+import type { AgentStatus, ParallelAgent, ParallelAgentsTreeProps } from "@/types/parallel-agents.ts";
+
 export { truncateText };
-
-export type AgentStatus = "pending" | "running" | "completed" | "error" | "background" | "interrupted";
-
-export interface ParallelAgent {
-  id: string;
-  taskToolCallId?: string;
-  name: string;
-  task: string;
-  status: AgentStatus;
-  model?: string;
-  startedAt: string;
-  durationMs?: number;
-  background?: boolean;
-  error?: string;
-  result?: string;
-  toolUses?: number;
-  tokens?: number;
-  thinkingMs?: number;
-  currentTool?: string;
-  inlineParts?: import("@/state/parts/types.ts").Part[];
-}
-
-export interface ParallelAgentsTreeProps {
-  agents: ParallelAgent[];
-  syntaxStyle?: SyntaxStyle;
-  compact?: boolean;
-  maxVisible?: number;
-  noTopMargin?: boolean;
-  background?: boolean;
-  showExpandHint?: boolean;
-  onAgentDoneRendered?: (marker: { agentId: string; timestampMs: number }) => void;
-}
 
 export const STATUS_ICONS: Record<AgentStatus, string> = {
   pending: "●",

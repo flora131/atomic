@@ -1,4 +1,4 @@
-import type { MessageToolCall } from "@/screens/chat-screen.tsx";
+import type { MessageToolCall } from "@/types/chat.ts";
 import { createPartId, type PartId } from "@/state/parts/id.ts";
 import type { Part, ToolPart } from "@/state/parts/types.ts";
 import type {

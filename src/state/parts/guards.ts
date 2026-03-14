@@ -6,8 +6,8 @@
  * handleComplete, agent-only finalization).
  */
 
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
-import { isBackgroundAgent, isShadowForegroundAgent } from "@/lib/ui/background-agent-footer.ts";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
+import { isBackgroundAgent, isShadowForegroundAgent } from "@/state/chat/shared/helpers/background-agent-footer.ts";
 
 /**
  * Determines whether an agent should be finalized when a tool completes.

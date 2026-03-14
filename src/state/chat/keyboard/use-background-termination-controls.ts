@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { STATUS } from "@/theme/icons.ts";
-import { getActiveBackgroundAgents } from "@/lib/ui/background-agent-footer.ts";
+import { getActiveBackgroundAgents } from "@/state/chat/shared/helpers/background-agent-footer.ts";
 import {
   evaluateBackgroundTerminationPress,
   executeBackgroundTermination,
   isBackgroundTerminationKey,
-} from "@/lib/ui/background-agent-termination.ts";
+} from "@/state/chat/shared/helpers/background-agent-termination.ts";
 import type { ChatMessage } from "@/state/chat/types.ts";
 import type { UseChatKeyboardArgs } from "@/state/chat/keyboard/types.ts";
 

@@ -29,7 +29,7 @@ import {
 import {
   applyTaskSnapshotToLatestAssistantMessage,
   preferTerminalTaskItems,
-} from "@/lib/ui/workflow-task-state.ts";
+} from "@/state/chat/shared/helpers/workflow-task-state.ts";
 
 interface UseWorkflowHitlArgs {
   getSession?: () => import("@/services/agents/types.ts").Session | null;

@@ -1,10 +1,10 @@
 import type { MutableRefObject } from "react";
 import type { TextareaRenderable } from "@opentui/core";
-import { parseSlashCommand } from "@/commands/tui/index.ts";
+import { globalRegistry, parseSlashCommand } from "@/commands/tui/index.ts";
 import { parseAtMentions, processFileMentions } from "@/lib/ui/mention-parsing.ts";
-import { shouldApplyBackslashLineContinuation } from "@/lib/ui/newline-strategies.ts";
-import { shouldDeferComposerSubmit } from "@/lib/ui/stream-continuation.ts";
-import { consumeWorkflowInputSubmission } from "@/lib/ui/workflow-input-resolver.ts";
+import { shouldApplyBackslashLineContinuation } from "@/state/chat/shared/helpers/newline-strategies.ts";
+import { shouldDeferComposerSubmit } from "@/state/chat/shared/helpers/stream-continuation.ts";
+import { consumeWorkflowInputSubmission } from "@/services/workflows/helpers/workflow-input-resolver.ts";
 import type { UseComposerControllerArgs } from "@/state/chat/composer/types.ts";
 
 interface HandleComposerSubmitArgs extends Pick<
@@ -140,7 +140,11 @@ export function handleComposerSubmit({
   }
 
   if (trimmedValue.startsWith("@")) {
-    const atMentions = parseAtMentions(trimmedValue);
+    const isAgentCommand = (name: string): boolean => {
+      const cmd = globalRegistry.get(name);
+      return cmd?.category === "agent";
+    };
+    const atMentions = parseAtMentions(trimmedValue, isAgentCommand);
     if (atMentions.length > 0) {
       if (isStreamingRef.current) {
         emitMessageSubmitTelemetry({
@@ -172,7 +176,11 @@ export function handleComposerSubmit({
     }
   }
 
-  const { message: processedValue, filesRead } = processFileMentions(trimmedValue);
+  const isAgentCmd = (name: string): boolean => {
+    const cmd = globalRegistry.get(name);
+    return cmd?.category === "agent";
+  };
+  const { message: processedValue, filesRead } = processFileMentions(trimmedValue, isAgentCmd);
   const hasFileMentions = filesRead.length > 0;
 
   if (isStreamingRef.current) {

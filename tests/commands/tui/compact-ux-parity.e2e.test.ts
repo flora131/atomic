@@ -11,7 +11,7 @@ import {
   appendToHistoryBuffer,
   clearHistoryBuffer,
   readHistoryBuffer,
-} from "@/lib/ui/conversation-history-buffer.ts";
+} from "@/state/chat/shared/helpers/conversation-history-buffer.ts";
 
 const PROVIDERS: AgentType[] = ["claude", "opencode", "copilot"];
 

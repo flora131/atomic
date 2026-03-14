@@ -1,4 +1,4 @@
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type { TaskItem } from "@/components/task-list-indicator.tsx";
 import type { McpSnapshotView } from "@/lib/ui/mcp-output.ts";
 import type { HitlResponseMode, HitlResponseRecord } from "@/lib/ui/hitl-response.ts";

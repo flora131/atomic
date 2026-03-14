@@ -12,9 +12,9 @@
  */
 
 import { describe, expect, test, mock, beforeEach } from "bun:test";
-import { shouldContinueParentSessionLoop } from "@/lib/ui/stream-continuation.ts";
+import { shouldContinueParentSessionLoop } from "@/state/chat/shared/helpers/stream-continuation.ts";
 import { hasActiveForegroundAgents } from "@/state/parts/guards.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 
 // ---------------------------------------------------------------------------
 // Extracted handler logic mirroring the real stream.session.idle handler

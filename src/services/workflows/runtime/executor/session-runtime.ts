@@ -1,7 +1,8 @@
 import type { EventBus } from "@/services/events/event-bus.ts";
 import { WorkflowEventAdapter } from "@/services/events/adapters/workflow-adapter.ts";
 import { pipelineError } from "@/services/events/pipeline-logger.ts";
-import { type WorkflowDefinition, registerActiveSession } from "@/commands/tui/workflow-commands.ts";
+import type { WorkflowDefinition } from "@/commands/tui/workflow-commands.ts";
+import { registerActiveSession } from "@/services/agent-discovery/index.ts";
 import type { CommandContext } from "@/commands/tui/registry.ts";
 import { getWorkflowSessionDir, initWorkflowSession } from "@/services/workflows/session.ts";
 

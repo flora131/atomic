@@ -6,16 +6,16 @@ import {
   mergeClosedThinkingSources,
   traceThinkingSourceLifecycle,
 } from "@/state/chat/helpers.ts";
-import type { AutoCompactionIndicatorState } from "@/lib/ui/auto-compaction-lifecycle.ts";
+import type { AutoCompactionIndicatorState } from "@/state/chat/shared/helpers/auto-compaction-lifecycle.ts";
 import {
   clearRunningAutoCompactionIndicator,
-} from "@/lib/ui/auto-compaction-lifecycle.ts";
+} from "@/state/chat/shared/helpers/auto-compaction-lifecycle.ts";
 import {
   createStoppedStreamControlState,
   type SessionLoopFinishReason,
-} from "@/lib/ui/stream-continuation.ts";
+} from "@/state/chat/shared/helpers/stream-continuation.ts";
 import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
-import { hasWorkflowTaskIdOverlap } from "@/lib/ui/workflow-task-state.ts";
+import { hasWorkflowTaskIdOverlap } from "@/state/chat/shared/helpers/workflow-task-state.ts";
 
 interface UseChatRuntimeControlsArgs {
   activeForegroundRunHandleIdRef: MutableRefObject<string | null>;

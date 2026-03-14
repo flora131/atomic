@@ -16,7 +16,7 @@ import {
   parseAtMentions,
   processFileMentions,
 } from "@/lib/ui/mention-parsing.ts";
-import { snapshotTaskItems } from "@/lib/ui/workflow-task-state.ts";
+import { snapshotTaskItems } from "@/state/chat/shared/helpers/workflow-task-state.ts";
 import { createMessage } from "@/state/chat/helpers.ts";
 import { finalizeStreamingReasoningInMessage } from "@/state/parts/index.ts";
 
@@ -137,8 +137,13 @@ export function useChatDispatchController({
     deferredCommandQueueRef.current.unshift(message);
   }, [deferredCommandQueueRef]);
 
+  const isAgentCommand = useCallback((name: string): boolean => {
+    const cmd = globalRegistry.get(name);
+    return cmd?.category === "agent";
+  }, []);
+
   const dispatchQueuedMessage = useCallback((queuedMessage: QueuedMessage) => {
-    const atMentions = parseAtMentions(queuedMessage.content);
+    const atMentions = parseAtMentions(queuedMessage.content, isAgentCommand);
     if (atMentions.length > 0 && executeCommandRef.current) {
       if (!queuedMessage.skipUserMessage) {
         const visibleContent = queuedMessage.displayContent ?? queuedMessage.content;
@@ -159,7 +164,7 @@ export function useChatDispatchController({
         queuedMessage.skipUserMessage ? { skipUserMessage: true } : undefined,
       );
     }
-  }, [isStreamingRef, setIsStreaming, setMessagesWindowed]);
+  }, [isAgentCommand, isStreamingRef, setIsStreaming, setMessagesWindowed]);
 
   useEffect(() => {
     dispatchQueuedMessageRef.current = dispatchQueuedMessage;
@@ -423,7 +428,7 @@ export function useChatDispatchController({
         }
       }
 
-      const { message: processed, filesRead } = processFileMentions(initialPrompt);
+      const { message: processed, filesRead } = processFileMentions(initialPrompt, isAgentCommand);
       emitMessageSubmitTelemetry({
         messageLength: initialPrompt.length,
         queued: false,

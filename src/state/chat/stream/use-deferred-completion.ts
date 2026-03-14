@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { interruptRunningToolCalls, interruptRunningToolParts } from "@/lib/ui/stream-continuation.ts";
+import { interruptRunningToolCalls, interruptRunningToolParts } from "@/state/chat/shared/helpers/stream-continuation.ts";
 import { hasActiveForegroundAgents, hasActiveBackgroundAgentsForSpinner } from "@/state/parts/index.ts";
 import type {
   DeferredStreamCompletionContext,

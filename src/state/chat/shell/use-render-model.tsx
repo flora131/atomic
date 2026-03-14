@@ -1,6 +1,6 @@
 import { useMemo, type ReactNode } from "react";
 import { MessageBubble } from "@/components/chat-message-bubble.tsx";
-import { shouldShowMessageLoadingIndicator } from "@/lib/ui/loading-state.ts";
+import { shouldShowMessageLoadingIndicator } from "@/state/chat/shared/helpers/loading-state.ts";
 import { shouldHideStaleSubagentToolPlaceholder } from "@/state/chat/helpers.ts";
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type { ChatMessage, StreamingMeta, WorkflowChatState } from "@/state/chat/types.ts";

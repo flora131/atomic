@@ -1,4 +1,4 @@
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type { AgentType } from "@/services/models/index.ts";
 import { isSubagentToolName } from "@/state/parts/index.ts";
 

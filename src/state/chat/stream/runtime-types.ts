@@ -2,10 +2,10 @@ import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type { CorrelationService } from "@/services/events/consumers/correlation-service.ts";
 import type { Session } from "@/services/agents/types.ts";
 import type { AgentType } from "@/services/models/index.ts";
-import type { AgentLifecycleLedger, AgentLifecycleViolationCode } from "@/lib/ui/agent-lifecycle-ledger.ts";
-import type { AgentOrderingEvent, AgentOrderingState } from "@/lib/ui/agent-ordering-contract.ts";
-import type { AutoCompactionIndicatorState } from "@/lib/ui/auto-compaction-lifecycle.ts";
-import type { SessionLoopFinishReason } from "@/lib/ui/stream-continuation.ts";
+import type { AgentLifecycleLedger, AgentLifecycleViolationCode } from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
+import type { AgentOrderingEvent, AgentOrderingState } from "@/state/chat/shared/helpers/agent-ordering-contract.ts";
+import type { AutoCompactionIndicatorState } from "@/state/chat/shared/helpers/auto-compaction-lifecycle.ts";
+import type { SessionLoopFinishReason } from "@/state/chat/shared/helpers/stream-continuation.ts";
 import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 import type { StreamRunHandle, StreamRunResult } from "@/state/runtime/stream-run-runtime.ts";
 import type {

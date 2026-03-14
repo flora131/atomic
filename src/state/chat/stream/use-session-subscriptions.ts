@@ -14,19 +14,19 @@ import {
   shouldDisplaySkillLoadIndicator,
   shouldResetLoadedSkillsForSessionChange,
   tryTrackLoadedSkill,
-} from "@/lib/ui/skill-load-tracking.ts";
+} from "@/state/chat/shared/helpers/skill-load-tracking.ts";
 import { isLikelyFilePath } from "@/lib/ui/session-info-filters.ts";
 import {
   interruptRunningToolCalls,
   interruptRunningToolParts,
   shouldContinueParentSessionLoop,
-} from "@/lib/ui/stream-continuation.ts";
+} from "@/state/chat/shared/helpers/stream-continuation.ts";
 import { hasActiveForegroundAgents } from "@/state/parts/index.ts";
 import {
   getActiveBackgroundAgents,
   isActiveBackgroundStatus,
   isBackgroundAgent,
-} from "@/lib/ui/background-agent-footer.ts";
+} from "@/state/chat/shared/helpers/background-agent-footer.ts";
 import type { UseStreamSubscriptionsArgs } from "@/state/chat/stream/subscription-types.ts";
 
 export function useStreamSessionSubscriptions({

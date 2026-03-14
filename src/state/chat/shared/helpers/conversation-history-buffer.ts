@@ -16,7 +16,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import type { ChatMessage } from "@/screens/chat-screen.tsx";
+import type { ChatMessage } from "@/types/chat.ts";
 
 const BUFFER_DIR = join(tmpdir(), "atomic-cli");
 const BUFFER_FILE = join(BUFFER_DIR, `history-${process.pid}.json`);

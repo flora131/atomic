@@ -1,6 +1,6 @@
 import type { MutableRefObject } from "react";
 import type { ChatMessage, StreamingMeta, TaskItem } from "@/state/chat/types.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 
 interface InterruptSharedStateArgs {
   clearDeferredCompletion: () => void;

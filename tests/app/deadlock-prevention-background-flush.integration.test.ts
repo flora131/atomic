@@ -21,11 +21,11 @@
  */
 
 import { describe, expect, mock, test } from "bun:test";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import {
   shouldScheduleBackgroundUpdateFollowUpFlush,
   shouldStartBackgroundUpdateFlush,
-} from "@/lib/ui/background-update-flush.ts";
+} from "@/state/chat/shared/helpers/background-update-flush.ts";
 import { hasActiveBackgroundAgentsForSpinner } from "@/state/parts/guards.ts";
 import {
   applySubagentCompleteTransform,

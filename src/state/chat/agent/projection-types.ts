@@ -1,7 +1,7 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
-import type { AgentOrderingEvent, AgentOrderingState } from "@/lib/ui/agent-ordering-contract.ts";
-import type { AgentLifecycleLedger } from "@/lib/ui/agent-lifecycle-ledger.ts";
+import type { AgentOrderingEvent, AgentOrderingState } from "@/state/chat/shared/helpers/agent-ordering-contract.ts";
+import type { AgentLifecycleLedger } from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
 import type { ChatMessage, TaskItem } from "@/state/chat/types.ts";
 import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 

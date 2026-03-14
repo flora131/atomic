@@ -2,7 +2,7 @@ import type {
   CommandExecutionTelemetry,
   MessageSubmitTelemetry,
   OnTerminateBackgroundAgents,
-} from "@/screens/chat-screen.tsx";
+} from "@/types/chat.ts";
 import type { SessionConfig } from "@/services/agents/types.ts";
 import { cleanupMcpBridgeScripts } from "@/services/agents/tools/opencode-mcp-bridge.ts";
 import { SessionExpiredError } from "@/services/events/adapters/provider-shared.ts";

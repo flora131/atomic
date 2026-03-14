@@ -24,8 +24,8 @@ import { SPACING } from "@/theme/spacing.ts";
 import type { ThemeColors } from "@/theme/index.tsx";
 import type { ChatMessage, StreamingMeta, WorkflowChatState } from "@/state/chat/types.ts";
 import type { UseMessageQueueReturn } from "@/hooks/use-message-queue.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
-import { getActiveBackgroundAgents } from "@/lib/ui/background-agent-footer.ts";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
+import { getActiveBackgroundAgents } from "@/state/chat/shared/helpers/background-agent-footer.ts";
 import type { ComposerAutocompleteSuggestion } from "@/state/chat/composer/types.ts";
 
 interface InputScrollbarState {

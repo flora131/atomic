@@ -14,7 +14,7 @@ import {
   MAX_VISIBLE_INLINE_TOOLS,
 } from "@/components/parallel-agents-tree.tsx";
 import type { Part } from "@/state/parts/types.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import { PART_REGISTRY } from "@/components/message-parts/registry.tsx";
 
 describe("ParallelAgentsTree status indicator colors", () => {

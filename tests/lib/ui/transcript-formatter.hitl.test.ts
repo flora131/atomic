@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { formatTranscript, type TranscriptLine } from "@/lib/ui/transcript-formatter.ts";
-import type { ChatMessage } from "@/screens/chat-screen.tsx";
+import type { ChatMessage } from "@/types/chat.ts";
 
 describe("formatTranscript HITL rendering", () => {
   test("renders canonical HITL response text instead of raw JSON", () => {

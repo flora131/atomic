@@ -8,8 +8,8 @@ import {
   isTodoWriteToolName,
   reconcileTodoWriteItems,
 } from "@/state/parts/helpers/task-status.ts";
-import { isAutoCompactionToolName, type AutoCompactionIndicatorState } from "@/lib/ui/auto-compaction-lifecycle.ts";
-import { isAskQuestionToolName, shouldTrackToolAsBlocking } from "@/lib/ui/stream-continuation.ts";
+import { isAutoCompactionToolName, type AutoCompactionIndicatorState } from "@/state/chat/shared/helpers/auto-compaction-lifecycle.ts";
+import { isAskQuestionToolName, shouldTrackToolAsBlocking } from "@/state/chat/shared/helpers/stream-continuation.ts";
 import {
   finalizeCorrelatedSubagentDispatchForToolComplete,
   finalizeSyntheticTaskAgentForToolComplete,

@@ -1,10 +1,10 @@
 import { describe, expect, test, mock } from "bun:test";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import {
   getActiveBackgroundAgents,
   isActiveBackgroundStatus,
   isBackgroundAgent,
-} from "@/lib/ui/background-agent-footer.ts";
+} from "@/state/chat/shared/helpers/background-agent-footer.ts";
 
 // ---------------------------------------------------------------------------
 // Extracted handler logic mirroring the real stream.agent.start handler's

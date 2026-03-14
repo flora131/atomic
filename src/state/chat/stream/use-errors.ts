@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { formatAgentLifecycleViolation } from "@/lib/ui/agent-lifecycle-ledger.ts";
+import { formatAgentLifecycleViolation } from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
 import { finalizeStreamingReasoningInMessage } from "@/state/parts/index.ts";
 import { createMessage } from "@/state/chat/helpers.ts";
 import type { UseChatStreamLifecycleArgs } from "@/state/chat/stream/lifecycle-types.ts";
@@ -101,7 +101,7 @@ export function useChatStreamErrors({
   ]);
 
   const terminateAgentLifecycleContractViolation = useCallback((args: {
-    code: import("@/lib/ui/agent-lifecycle-ledger.ts").AgentLifecycleViolationCode;
+    code: import("@/state/chat/shared/helpers/agent-lifecycle-ledger.ts").AgentLifecycleViolationCode;
     eventType: "stream.agent.start" | "stream.agent.update" | "stream.agent.complete";
     agentId: string;
   }) => {

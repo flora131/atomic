@@ -1,4 +1,4 @@
-import type { ChatMessage } from "@/screens/chat-screen.tsx";
+import type { ChatMessage } from "@/types/chat.ts";
 import { type PartId, createPartId } from "@/state/parts/id.ts";
 import type { Part, ReasoningPart } from "@/state/parts/types.ts";
 import { findLastPartIndex } from "@/state/parts/store.ts";

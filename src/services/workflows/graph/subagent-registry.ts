@@ -7,8 +7,8 @@
  *
  */
 
-import type { AgentInfo, AgentSource } from "@/commands/tui/agent-commands.ts";
-import { discoverAgentInfos } from "@/commands/tui/agent-commands.ts";
+import type { AgentInfo, AgentSource } from "@/services/agent-discovery/index.ts";
+import { discoverAgentInfos } from "@/services/agent-discovery/index.ts";
 
 // ============================================================================
 // Types

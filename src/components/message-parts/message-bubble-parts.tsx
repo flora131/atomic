@@ -7,7 +7,7 @@
 
 import React from "react";
 import type { SyntaxStyle } from "@opentui/core";
-import type { ChatMessage } from "@/screens/chat-screen.tsx";
+import type { ChatMessage } from "@/types/chat.ts";
 import type { Part } from "@/state/parts/types.ts";
 import { PART_REGISTRY } from "@/components/message-parts/registry.tsx";
 import { isCompletedHitlPart } from "@/components/message-parts/tool-part-display.tsx";

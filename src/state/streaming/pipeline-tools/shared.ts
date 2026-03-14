@@ -1,4 +1,4 @@
-import type { MessageToolCall } from "@/screens/chat-screen.tsx";
+import type { MessageToolCall } from "@/types/chat.ts";
 import type { ToolState } from "@/state/parts/types.ts";
 import type { ToolStatus } from "@/state/streaming/pipeline-types.ts";
 

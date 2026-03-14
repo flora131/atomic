@@ -10,23 +10,21 @@ import {
   emitPostCompleteDeltaOrderingObservability,
   shouldDeferPostCompleteDeltaUntilDoneProjection,
 } from "@/screens/chat-screen.tsx";
-import {
-  collectDoneRenderMarkers,
-  type ParallelAgent,
-} from "@/components/parallel-agents-tree.tsx";
+import { collectDoneRenderMarkers } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import { applyStreamPartEvent, type StreamPartEvent } from "@/state/parts/stream-pipeline.ts";
-import type { AgentOrderingEvent } from "@/lib/ui/agent-ordering-contract.ts";
+import type { AgentOrderingEvent } from "@/state/chat/shared/helpers/agent-ordering-contract.ts";
 import {
   createAgentOrderingState,
   hasDoneStateProjection,
   registerAgentCompletionSequence,
   registerDoneStateProjection,
-} from "@/lib/ui/agent-ordering-contract.ts";
+} from "@/state/chat/shared/helpers/agent-ordering-contract.ts";
 import {
   getRuntimeParityMetricsSnapshot,
   resetRuntimeParityMetrics,
 } from "@/services/workflows/runtime-parity-observability.ts";
-import type { ChatMessage } from "@/screens/chat-screen.tsx";
+import type { ChatMessage } from "@/types/chat.ts";
 
 const MAX_VISIBLE_AGENTS = 5;
 

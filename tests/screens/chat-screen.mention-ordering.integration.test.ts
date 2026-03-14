@@ -8,7 +8,7 @@ import {
   registerAgentCompletionSequence,
   registerDoneStateProjection,
   type DoneStateProjection,
-} from "@/lib/ui/agent-ordering-contract.ts";
+} from "@/state/chat/shared/helpers/agent-ordering-contract.ts";
 
 type OrderingScenario = "single" | "multi";
 

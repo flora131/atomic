@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isLikelyFilePath } from "@/lib/ui/session-info-filters.ts";
+import { isLikelyFilePath } from "@/services/events/session-info-filters.ts";
 
 describe("isLikelyFilePath", () => {
   describe("Windows absolute paths", () => {

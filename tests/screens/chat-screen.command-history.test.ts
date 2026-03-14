@@ -19,7 +19,7 @@ import {
   appendCommandHistory,
   clearCommandHistory,
   getCommandHistoryPath,
-} from "@/lib/ui/command-history.ts";
+} from "@/state/chat/composer/command-history.ts";
 
 // Isolated temp directory for each test run
 const TEST_HOME = join(tmpdir(), `atomic-chat-hist-integ-${process.pid}`);

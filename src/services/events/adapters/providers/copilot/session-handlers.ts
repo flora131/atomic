@@ -25,7 +25,7 @@ import {
   publishSyntheticForegroundAgentComplete,
 } from "@/services/events/adapters/providers/copilot/support.ts";
 import type { CopilotSessionHandlerContext } from "@/services/events/adapters/providers/copilot/types.ts";
-import { isLikelyFilePath } from "@/lib/ui/session-info-filters.ts";
+import { isLikelyFilePath } from "@/services/events/session-info-filters.ts";
 
 export function handleCopilotSessionIdle(
   context: CopilotSessionHandlerContext,

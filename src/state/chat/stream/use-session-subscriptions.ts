@@ -15,7 +15,7 @@ import {
   shouldResetLoadedSkillsForSessionChange,
   tryTrackLoadedSkill,
 } from "@/state/chat/shared/helpers/skill-load-tracking.ts";
-import { isLikelyFilePath } from "@/lib/ui/session-info-filters.ts";
+import { isLikelyFilePath } from "@/services/events/session-info-filters.ts";
 import {
   interruptRunningToolCalls,
   interruptRunningToolParts,

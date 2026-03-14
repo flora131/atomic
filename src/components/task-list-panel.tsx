@@ -20,7 +20,7 @@ import { useThemeColors, useTheme, getCatppuccinPalette } from "@/theme/index.ts
 import { TaskListIndicator, type TaskItem } from "@/components/task-list-indicator.tsx";
 import { sortTasksTopologically } from "@/components/task-order.ts";
 import { normalizeTaskItem } from "@/state/parts/helpers/task-status.ts";
-import { shouldAutoClearTaskPanel } from "@/lib/ui/task-list-lifecycle.ts";
+import { shouldAutoClearTaskPanel } from "@/components/task-list-lifecycle.ts";
 import { SPACING } from "@/theme/spacing.ts";
 
 // ============================================================================

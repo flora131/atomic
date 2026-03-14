@@ -10,7 +10,7 @@ import {
 } from "react";
 import type { KeyBinding, PasteEvent, TextareaRenderable } from "@opentui/core";
 import type { CommandDefinition } from "@/commands/tui/index.ts";
-import { loadCommandHistory } from "@/lib/ui/command-history.ts";
+import { loadCommandHistory } from "@/state/chat/composer/command-history.ts";
 import {
   applyAutocompleteSelection,
   applyComposerHighlights,

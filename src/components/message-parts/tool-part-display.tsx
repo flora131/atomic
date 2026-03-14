@@ -17,7 +17,7 @@ import { getHitlResponseRecord, type HitlResponseRecord } from "@/lib/ui/hitl-re
 import {
   formatSubagentToolSummary,
   getSubagentToolDisplayName,
-} from "@/lib/ui/subagent-tool-summary.ts";
+} from "@/components/message-parts/subagent-tool-summary.ts";
 
 export interface ToolPartDisplayProps {
   part: ToolPart;

@@ -34,7 +34,7 @@ export {
 } from "@/state/parts/helpers/task-status.ts";
 
 // Session info filtering utilities
-export { isLikelyFilePath } from "@/lib/ui/session-info-filters.ts";
+export { isLikelyFilePath } from "@/services/events/session-info-filters.ts";
 
 // Tool preview truncation utilities
 export {
@@ -47,4 +47,4 @@ export {
   type ToolPreviewTruncationLimits,
   type TruncateToolLinesOptions,
   type TruncateToolLinesResult,
-} from "@/lib/ui/tool-preview-truncation.ts";
+} from "@/components/tool-preview-truncation.ts";

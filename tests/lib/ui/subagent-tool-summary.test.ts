@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatSubagentToolSummary } from "@/lib/ui/subagent-tool-summary.ts";
+import { formatSubagentToolSummary } from "@/components/message-parts/subagent-tool-summary.ts";
 
 describe("formatSubagentToolSummary", () => {
   test("formats read tools with compact basename lists", () => {

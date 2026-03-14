@@ -6,7 +6,7 @@ import {
   parseSlashCommand,
 } from "@/commands/tui/index.ts";
 import { useCommandExecutor } from "@/state/chat/command/use-executor.ts";
-import type { DeferredCommandMessage, UseCommandExecutorArgs } from "@/state/chat/command/executor-types.ts";
+import type { DeferredCommandMessage, UseCommandExecutorArgs } from "@/state/chat/shared/types/command.ts";
 import type {
   CommandExecutionTrigger,
   MessageSubmitTelemetry,

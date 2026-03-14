@@ -6,13 +6,7 @@ import type { ChatMessage, MessageSkillLoad, StreamingMeta } from "@/state/chat/
 import type { AgentLifecycleLedger, AgentLifecycleViolationCode } from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
 import type { AgentOrderingEvent, AgentOrderingState } from "@/state/chat/shared/helpers/agent-ordering-contract.ts";
 import type { SessionLoopFinishReason } from "@/state/chat/shared/helpers/stream-continuation.ts";
-
-export interface DeferredPostCompleteDelta {
-  messageId: string;
-  runId?: number;
-  delta: string;
-  completionSequence: number;
-}
+import type { DeferredPostCompleteDelta } from "@/state/chat/shared/types/stream-runtime.ts";
 
 export interface UseStreamSubscriptionsArgs {
   activeSkillSessionIdRef: MutableRefObject<string | null>;

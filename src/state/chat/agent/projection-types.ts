@@ -4,13 +4,7 @@ import type { AgentOrderingEvent, AgentOrderingState } from "@/state/chat/shared
 import type { AgentLifecycleLedger } from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
 import type { ChatMessage, TaskItem } from "@/state/chat/types.ts";
 import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
-
-export interface DeferredPostCompleteDelta {
-  messageId: string;
-  runId?: number;
-  delta: string;
-  completionSequence: number;
-}
+import type { DeferredPostCompleteDelta } from "@/state/chat/shared/types/stream-runtime.ts";
 
 export interface UseChatAgentProjectionArgs {
   activeBackgroundAgentCountRef: MutableRefObject<number>;

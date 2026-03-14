@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from "react";
 import type { MutableRefObject } from "react";
 import { saveTasksToActiveSession } from "@/commands/tui/workflow-commands.ts";
-import type { DeferredCommandMessage } from "@/state/chat/command/executor-types.ts";
+import type { DeferredCommandMessage } from "@/state/chat/shared/types/command.ts";
 import { dispatchNextQueuedMessage, shouldDispatchQueuedMessage } from "@/state/chat/shared/helpers/stream-continuation.ts";
 import { normalizeInterruptedTasks, snapshotTaskItems } from "@/state/chat/shared/helpers/workflow-task-state.ts";
 import type { UseMessageQueueReturn } from "@/hooks/use-message-queue.ts";

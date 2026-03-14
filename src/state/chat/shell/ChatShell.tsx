@@ -26,7 +26,7 @@ import type { ChatMessage, StreamingMeta, WorkflowChatState } from "@/state/chat
 import type { UseMessageQueueReturn } from "@/hooks/use-message-queue.ts";
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import { getActiveBackgroundAgents } from "@/state/chat/shared/helpers/background-agent-footer.ts";
-import type { ComposerAutocompleteSuggestion } from "@/state/chat/composer/types.ts";
+import type { ComposerAutocompleteSuggestion } from "@/state/chat/shared/types/composer.ts";
 
 interface InputScrollbarState {
   visible: boolean;

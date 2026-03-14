@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatTranscript, type TranscriptLine } from "@/lib/ui/transcript-formatter.ts";
+import { formatTranscript, type TranscriptLine } from "@/components/transcript/transcript-formatter.ts";
 import type { ChatMessage } from "@/types/chat.ts";
 
 describe("formatTranscript HITL rendering", () => {

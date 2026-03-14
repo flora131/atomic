@@ -1,6 +1,6 @@
 import type { ChatMessage } from "@/state/chat/shared/types/message.ts";
 import { formatTimestamp as formatTimestampFull } from "@/lib/ui/format.ts";
-import type { TranscriptLine, TranscriptLineType } from "@/lib/ui/transcript/types.ts";
+import type { TranscriptLine, TranscriptLineType } from "@/components/transcript/types.ts";
 
 export function formatTranscriptTimestamp(iso: string): string {
   return formatTimestampFull(iso).text;

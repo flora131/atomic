@@ -4,9 +4,9 @@ import {
   getThinkingBlocks,
   formatTranscriptTimestamp,
   transcriptLine,
-} from "@/lib/ui/transcript/helpers.ts";
-import { formatToolInput, formatToolTitle } from "@/lib/ui/transcript/tool-formatters.ts";
-import type { TranscriptLine } from "@/lib/ui/transcript/types.ts";
+} from "@/components/transcript/helpers.ts";
+import { formatToolInput, formatToolTitle } from "@/components/transcript/tool-formatters.ts";
+import type { TranscriptLine } from "@/components/transcript/types.ts";
 import type { ChatMessage, StreamingMeta } from "@/state/chat/shared/types/message.ts";
 import { MISC, PROMPT, SEPARATOR, SPINNER_COMPLETE, SPINNER_FRAMES, STATUS } from "@/theme/icons.ts";
 

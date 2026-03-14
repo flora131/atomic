@@ -1,3 +1,3 @@
-export type { TranscriptLine, TranscriptLineType } from "@/lib/ui/transcript/types.ts";
-export type { FormatTranscriptOptions } from "@/lib/ui/transcript/format-transcript.ts";
-export { formatTranscript } from "@/lib/ui/transcript/format-transcript.ts";
+export type { TranscriptLine, TranscriptLineType } from "@/components/transcript/types.ts";
+export type { FormatTranscriptOptions } from "@/components/transcript/format-transcript.ts";
+export { formatTranscript } from "@/components/transcript/format-transcript.ts";

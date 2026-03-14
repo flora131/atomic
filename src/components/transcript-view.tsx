@@ -7,7 +7,7 @@
 
 import React, { useMemo } from "react";
 import { useTheme } from "@/theme/index.tsx";
-import { formatTranscript, type TranscriptLine, type TranscriptLineType } from "@/lib/ui/transcript-formatter.ts";
+import { formatTranscript, type TranscriptLine, type TranscriptLineType } from "@/components/transcript/transcript-formatter.ts";
 import type { ChatMessage, StreamingMeta } from "@/types/chat.ts";
 import { SPACING } from "@/theme/spacing.ts";
 

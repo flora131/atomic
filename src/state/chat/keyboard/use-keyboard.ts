@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { useKeyboard } from "@opentui/react";
 import type { KeyEvent } from "@opentui/core";
-import { getNextKittyKeyboardDetectionState } from "@/lib/ui/kitty-keyboard-detection.ts";
+import { getNextKittyKeyboardDetectionState } from "@/state/chat/keyboard/kitty-keyboard-detection.ts";
 import {
   handleAutocompleteSelectionKey,
   handleComposeShortcutKey,

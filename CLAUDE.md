@@ -72,12 +72,12 @@ The codebase follows a **strict layered architecture with a shared types layer**
 
 **Unidirectional flow — no upward or circular imports:**
 
-| Source Layer | May Import From | Must NOT Import From |
-|---|---|---|
-| UI (screens, components) | State, Services, Shared | — |
-| State | Services, Shared | UI |
-| Services | Shared | UI, State |
-| Shared (types, lib) | — | UI, State, Services |
+| Source Layer             | May Import From         | Must NOT Import From |
+| ------------------------ | ----------------------- | -------------------- |
+| UI (screens, components) | State, Services, Shared | —                    |
+| State                    | Services, Shared        | UI                   |
+| Services                 | Shared                  | UI, State            |
+| Shared (types, lib)      | —                       | UI, State, Services  |
 
 - `services/` must never import from `commands/` (use `services/agent-discovery/` for shared discovery logic)
 - `state/` must never import types from UI components (use `types/` for shared type definitions)
@@ -117,15 +117,15 @@ state/chat/
 
 ### Key Architectural Patterns
 
-| Pattern | Usage |
-|---|---|
-| Strategy | `CodingAgentClient` interface with 3 SDK implementations |
-| Pub/Sub | `EventBus` with 30 typed events + batched dispatch |
-| Builder | `GraphBuilder` fluent API (LangGraph-inspired) |
-| Registry | `ToolRegistry`, `PART_REGISTRY`, `CommandRegistry`, `ProviderRegistry` |
-| Adapter | 3 SDK-specific stream adapters → unified `BusEvent` |
-| Reducer | `applyStreamPartEvent` pure state reducer |
-| Factory | `createChatUIController()`, `createStreamAdapter()` |
+| Pattern               | Usage                                                                   |
+| --------------------- | ----------------------------------------------------------------------- |
+| Strategy              | `CodingAgentClient` interface with 3 SDK implementations                |
+| Pub/Sub               | `EventBus` with 30 typed events + batched dispatch                      |
+| Builder               | `GraphBuilder` fluent API (LangGraph-inspired)                          |
+| Registry              | `ToolRegistry`, `PART_REGISTRY`, `CommandRegistry`, `ProviderRegistry`  |
+| Adapter               | 3 SDK-specific stream adapters → unified `BusEvent`                     |
+| Reducer               | `applyStreamPartEvent` pure state reducer                               |
+| Factory               | `createChatUIController()`, `createStreamAdapter()`                     |
 | Interface Segregation | `RalphWorkflowContext` (workflow-specific) vs `CommandContext` (shared) |
 
 ### Key Interfaces
@@ -177,12 +177,12 @@ The codebase follows a **strict layered architecture with a shared types layer**
 
 **Unidirectional flow — no upward or circular imports:**
 
-| Source Layer | May Import From | Must NOT Import From |
-|---|---|---|
-| UI (screens, components) | State, Services, Shared | — |
-| State | Services, Shared | UI |
-| Services | Shared | UI, State |
-| Shared (types, lib) | — | UI, State, Services |
+| Source Layer             | May Import From         | Must NOT Import From |
+| ------------------------ | ----------------------- | -------------------- |
+| UI (screens, components) | State, Services, Shared | —                    |
+| State                    | Services, Shared        | UI                   |
+| Services                 | Shared                  | UI, State            |
+| Shared (types, lib)      | —                       | UI, State, Services  |
 
 - `services/` must never import from `commands/` (use `services/agent-discovery/` for shared discovery logic)
 - `state/` must never import types from UI components (use `types/` for shared type definitions)
@@ -222,15 +222,15 @@ state/chat/
 
 ### Key Architectural Patterns
 
-| Pattern | Usage |
-|---|---|
-| Strategy | `CodingAgentClient` interface with 3 SDK implementations |
-| Pub/Sub | `EventBus` with 30 typed events + batched dispatch |
-| Builder | `GraphBuilder` fluent API (LangGraph-inspired) |
-| Registry | `ToolRegistry`, `PART_REGISTRY`, `CommandRegistry`, `ProviderRegistry` |
-| Adapter | 3 SDK-specific stream adapters → unified `BusEvent` |
-| Reducer | `applyStreamPartEvent` pure state reducer |
-| Factory | `createChatUIController()`, `createStreamAdapter()` |
+| Pattern               | Usage                                                                   |
+| --------------------- | ----------------------------------------------------------------------- |
+| Strategy              | `CodingAgentClient` interface with 3 SDK implementations                |
+| Pub/Sub               | `EventBus` with 30 typed events + batched dispatch                      |
+| Builder               | `GraphBuilder` fluent API (LangGraph-inspired)                          |
+| Registry              | `ToolRegistry`, `PART_REGISTRY`, `CommandRegistry`, `ProviderRegistry`  |
+| Adapter               | 3 SDK-specific stream adapters → unified `BusEvent`                     |
+| Reducer               | `applyStreamPartEvent` pure state reducer                               |
+| Factory               | `createChatUIController()`, `createStreamAdapter()`                     |
 | Interface Segregation | `RalphWorkflowContext` (workflow-specific) vs `CommandContext` (shared) |
 
 ### Key Interfaces
@@ -285,9 +285,10 @@ Relevant resources (use the deepwiki mcp `ask_question` tool for repos):
 2. OpenTUI repo: `anomalyco/opentui`
 3. Copilot:
     1. SDK repo: `github/copilot-sdk`
-    2. [CLI](docs/copilot-cli/usage.md)
-        1. [Hooks](docs/copilot-cli/hooks.md)
-        2. [Skills](docs/copilot-cli/skills.md)
+    2. CLI repo: `github/copilot-cli`
+        1. [Usage](docs/copilot-cli/usage.md)
+        2. [Hooks](docs/copilot-cli/hooks.md)
+        3. [Skills](docs/copilot-cli/skills.md)
 4. [Claude Agent SDK](docs/claude-agent-sdk.md)
     - v1 preferred (v2 is unstable and has many bugs)
 

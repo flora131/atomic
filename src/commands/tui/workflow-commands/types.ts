@@ -1,22 +1,28 @@
-import type { BaseState, Edge, NodeDefinition } from "@/services/workflows/graph/types.ts";
+import type { BaseState, CompiledGraph, Edge, NodeDefinition } from "@/services/workflows/graph/types.ts";
 import type { WorkflowRuntimeFeatureFlagOverrides } from "@/services/workflows/runtime-contracts.ts";
 
-export interface RalphCommandArgs {
+export interface WorkflowCommandArgs {
   prompt: string;
 }
 
-export function parseRalphArgs(args: string): RalphCommandArgs {
+/** @deprecated Use {@link WorkflowCommandArgs} instead. */
+export type RalphCommandArgs = WorkflowCommandArgs;
+
+export function parseWorkflowArgs(args: string, workflowName = "workflow"): WorkflowCommandArgs {
   const trimmed = args.trim();
 
   if (!trimmed) {
     throw new Error(
-      'Usage: /ralph "<prompt-or-spec-path>"\n' +
+      `Usage: /${workflowName} "<prompt-or-spec-path>"\n` +
         "A prompt argument is required.",
     );
   }
 
   return { prompt: trimmed };
 }
+
+/** @deprecated Use {@link parseWorkflowArgs} instead. */
+export const parseRalphArgs = (args: string): WorkflowCommandArgs => parseWorkflowArgs(args, "ralph");
 
 export type WorkflowStateMigrator = (
   oldState: unknown,
@@ -60,6 +66,12 @@ export interface WorkflowStateParams {
 
 export interface WorkflowDefinition extends WorkflowMetadata {
   graphConfig?: WorkflowGraphConfig;
+  /**
+   * Factory function returning a pre-compiled graph (builder pattern).
+   * Used by workflows like Ralph that build graphs programmatically
+   * instead of providing declarative graphConfig.
+   */
+  createGraph?: () => CompiledGraph<BaseState>;
   createState?: (params: WorkflowStateParams) => BaseState;
   nodeDescriptions?: Record<string, string>;
   runtime?: {

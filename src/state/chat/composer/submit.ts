@@ -101,14 +101,18 @@ export function handleComposerSubmit({
 
   const parsed = parseSlashCommand(trimmedValue);
   if (parsed.isCommand) {
-    if (agentType === "copilot" && workflowSessionDirRef.current && parsed.name !== "ralph") {
-      setWorkflowSessionDir(null);
-      setWorkflowSessionId(null);
-      workflowSessionDirRef.current = null;
-      workflowSessionIdRef.current = null;
-      workflowTaskIdsRef.current = new Set();
-      todoItemsRef.current = [];
-      setTodoItems([]);
+    if (agentType === "copilot" && workflowSessionDirRef.current) {
+      const cmd = globalRegistry.get(parsed.name);
+      const isWorkflowCommand = cmd?.category === "workflow";
+      if (!isWorkflowCommand) {
+        setWorkflowSessionDir(null);
+        setWorkflowSessionId(null);
+        workflowSessionDirRef.current = null;
+        workflowSessionIdRef.current = null;
+        workflowTaskIdsRef.current = new Set();
+        todoItemsRef.current = [];
+        setTodoItems([]);
+      }
     }
 
     addMessage("user", trimmedValue);
@@ -129,7 +133,7 @@ export function handleComposerSubmit({
     }
   }
 
-  if (agentType === "copilot" && workflowSessionDirRef.current && !trimmedValue.startsWith("/ralph")) {
+  if (agentType === "copilot" && workflowSessionDirRef.current) {
     setWorkflowSessionDir(null);
     setWorkflowSessionId(null);
     workflowSessionDirRef.current = null;

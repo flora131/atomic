@@ -12,6 +12,7 @@ import {
   getWorkflowCommands,
   loadWorkflowsFromDisk,
   parseRalphArgs,
+  parseWorkflowArgs,
   watchTasksJson,
 } from "@/commands/tui/workflow-commands.ts";
 
@@ -79,6 +80,36 @@ describe("parseRalphArgs", () => {
   test("trims whitespace from prompt", () => {
     const result = parseRalphArgs("  Build a feature  ");
     expect(result).toEqual({ prompt: "Build a feature" });
+  });
+});
+
+describe("parseWorkflowArgs", () => {
+  test("parses a prompt argument", () => {
+    const result = parseWorkflowArgs("Build a feature");
+    expect(result).toEqual({ prompt: "Build a feature" });
+  });
+
+  test("throws on empty prompt with default workflow name", () => {
+    expect(() => parseWorkflowArgs("")).toThrow(
+      'Usage: /workflow "<prompt-or-spec-path>"',
+    );
+  });
+
+  test("throws on empty prompt with custom workflow name", () => {
+    expect(() => parseWorkflowArgs("", "deploy")).toThrow(
+      'Usage: /deploy "<prompt-or-spec-path>"',
+    );
+  });
+
+  test("trims whitespace from prompt", () => {
+    const result = parseWorkflowArgs("  Build a feature  ");
+    expect(result).toEqual({ prompt: "Build a feature" });
+  });
+
+  test("parseRalphArgs is a deprecated alias for parseWorkflowArgs", () => {
+    const ralphResult = parseRalphArgs("hello world");
+    const workflowResult = parseWorkflowArgs("hello world");
+    expect(ralphResult).toEqual(workflowResult);
   });
 });
 

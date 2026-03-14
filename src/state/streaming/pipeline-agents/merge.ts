@@ -7,14 +7,12 @@ import { normalizeParallelAgents } from "@/state/streaming/pipeline-agents/norma
 
 function getAgentInsertIndex(parts: Part[]): number {
   let lastTaskToolIdx = -1;
-  let lastToolIdx = -1;
 
   for (let index = 0; index < parts.length; index++) {
     const part = parts[index];
     if (!part || part.type !== "tool") {
       continue;
     }
-    lastToolIdx = index;
     if (isSubagentToolName((part as ToolPart).toolName)) {
       lastTaskToolIdx = index;
     }
@@ -23,8 +21,6 @@ function getAgentInsertIndex(parts: Part[]): number {
   let insertIndex = parts.length;
   if (lastTaskToolIdx >= 0) {
     insertIndex = lastTaskToolIdx + 1;
-  } else if (lastToolIdx >= 0) {
-    insertIndex = lastToolIdx + 1;
   }
 
   while (insertIndex < parts.length && parts[insertIndex]?.type === "agent") {

@@ -3,7 +3,7 @@ import { useStreamConsumer } from "@/services/events/hooks.ts";
 import type { AgentType } from "@/services/models/index.ts";
 import type { StreamRunRuntime } from "@/state/runtime/stream-run-runtime.ts";
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
-import type { ChatMessage, StreamingMeta, ThinkingDropDiagnostics } from "@/state/chat/types.ts";
+import type { ChatMessage, StreamingMeta, ThinkingDropDiagnostics } from "@/state/chat/shared/types/index.ts";
 import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 import type { AgentLifecycleLedger } from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
 import type { AgentOrderingEvent, AgentOrderingState } from "@/state/chat/shared/helpers/agent-ordering-contract.ts";
@@ -13,7 +13,7 @@ import {
   resolveValidatedThinkingMetaEvent,
   shouldProcessStreamPartEvent,
   toWorkflowStepCompletionMessage,
-} from "@/state/chat/helpers.ts";
+} from "@/state/chat/shared/helpers/index.ts";
 import { joinThinkingBlocks } from "@/lib/ui/format.ts";
 import { createStreamPartBatch, applyStreamPartBatchToMessages } from "@/state/chat/stream/part-batch.ts";
 import { useChatStreamAgentOrdering } from "@/state/chat/stream/use-agent-ordering.ts";

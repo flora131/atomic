@@ -124,7 +124,7 @@ export function parallelSubagentNode<TState extends BaseState>(
       const spawnSubagentParallel = ctx.config.runtime?.spawnSubagentParallel;
       if (!spawnSubagentParallel) {
         throw new Error(
-          "spawnSubagentParallel not initialized. Execute this graph through WorkflowSDK.init().",
+          "spawnSubagentParallel not initialized. Execute this graph through executeWorkflow().",
         );
       }
 

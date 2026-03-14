@@ -13,6 +13,7 @@ export interface MessageBubbleProps {
   activeBackgroundAgentCount?: number;
   message: ChatMessage;
   isLast?: boolean;
+  isVerbose?: boolean;
   syntaxStyle?: SyntaxStyle;
   hideLoading?: boolean;
   todoItems?: TaskItem[];

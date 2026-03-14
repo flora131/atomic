@@ -1,7 +1,7 @@
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import { createPartId } from "@/state/parts/id.ts";
 import type { AgentPart, Part, TextPart, ToolPart } from "@/state/parts/types.ts";
-import { isClaudeSyntheticForegroundAgentId } from "@/state/chat/shared/helpers/subagents.ts";
+import { isClaudeSyntheticForegroundAgentId } from "@/state/chat/exports.ts";
 import { isSubagentToolName } from "@/state/streaming/pipeline-tools/shared.ts";
 import { normalizeParallelAgents } from "@/state/streaming/pipeline-agents/normalization.ts";
 

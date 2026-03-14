@@ -9,7 +9,7 @@ import type {
   StreamingMeta,
   TaskItem,
   WorkflowChatState,
-} from "@/state/chat/types.ts";
+} from "@/state/chat/shared/types/index.ts";
 
 export interface ChatAutocompleteSuggestion {
   name: string;

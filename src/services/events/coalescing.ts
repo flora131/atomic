@@ -1,4 +1,4 @@
-import type { BusEvent, BusEventDataMap } from "@/services/events/bus-events.ts";
+import type { BusEvent, BusEventDataMap } from "@/services/events/bus-events/index.ts";
 
 /**
  * Generate a coalescing key for an event. Events with the same key

@@ -16,7 +16,7 @@ import {
   parseMcpToolName,
   type ToolRenderProps,
   type ToolRenderResult,
-} from "@/components/tool-registry/index.ts";
+} from "@/components/tool-registry/registry/index.ts";
 import { SkillLoadIndicator, type SkillLoadStatus } from "@/components/skill-load-indicator.tsx";
 import type { ToolExecutionStatus } from "@/state/parts/types.ts";
 import {

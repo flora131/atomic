@@ -8,7 +8,7 @@ import type {
   StreamingMeta,
   TaskItem,
   WorkflowChatState,
-} from "@/state/chat/types.ts";
+} from "@/state/chat/shared/types/index.ts";
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type { UseMessageQueueReturn } from "@/hooks/use-message-queue.ts";
 import type { WorkflowInputResolver } from "@/services/workflows/helpers/workflow-input-resolver.ts";

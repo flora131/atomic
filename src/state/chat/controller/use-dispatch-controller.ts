@@ -10,14 +10,14 @@ import type { DeferredCommandMessage, UseCommandExecutorArgs } from "@/state/cha
 import type {
   CommandExecutionTrigger,
   MessageSubmitTelemetry,
-} from "@/state/chat/types.ts";
+} from "@/state/chat/shared/types/index.ts";
 import type { QueuedMessage } from "@/hooks/use-message-queue.ts";
 import {
   parseAtMentions,
   processFileMentions,
 } from "@/lib/ui/mention-parsing.ts";
 import { snapshotTaskItems } from "@/state/chat/shared/helpers/workflow-task-state.ts";
-import { createMessage } from "@/state/chat/helpers.ts";
+import { createMessage } from "@/state/chat/shared/helpers/index.ts";
 import { finalizeStreamingReasoningInMessage } from "@/state/parts/index.ts";
 
 interface UseChatDispatchControllerArgs extends Omit<

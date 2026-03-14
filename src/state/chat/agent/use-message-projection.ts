@@ -13,7 +13,7 @@ import {
 import {
   emitAgentDoneProjectionObservability,
   emitAgentDoneRenderedObservability,
-} from "@/state/chat/helpers.ts";
+} from "@/state/chat/shared/helpers/index.ts";
 import type { UseChatAgentProjectionArgs } from "@/state/chat/agent/projection-types.ts";
 
 interface UseChatAgentMessageProjectionArgs extends Pick<

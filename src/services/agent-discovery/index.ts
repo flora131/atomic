@@ -15,7 +15,14 @@
  */
 
 // Agent discovery
-export { discoverAgentInfos, getDiscoveredAgent } from "./discovery.ts";
+export {
+  discoverAgentInfos,
+  getDiscoveredAgent,
+  parseAgentInfoLight,
+  shouldAgentOverride,
+  validateAgentInfoIntegrity,
+  warnSkippedAgentDefinition,
+} from "./discovery.ts";
 
 // Active session lifecycle
 export {
@@ -28,8 +35,10 @@ export {
 
 // Types
 export type {
+  AgentDefinitionIntegrityResult,
   AgentFileDiscoveryOptions,
   AgentInfo,
+  AgentParseResult,
   AgentSource,
   DiscoveredAgentFile,
   WorkflowSession,

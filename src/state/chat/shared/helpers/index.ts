@@ -5,7 +5,6 @@ export * from "@/state/chat/shared/helpers/autocomplete.ts";
 export * from "@/state/chat/shared/helpers/background-agent-contracts.ts";
 export * from "@/state/chat/shared/helpers/background-agent-footer.ts";
 export * from "@/state/chat/shared/helpers/background-agent-termination.ts";
-export * from "@/state/chat/shared/helpers/background-agent-tree-hints.ts";
 export * from "@/state/chat/shared/helpers/background-update-flush.ts";
 export * from "@/state/chat/shared/helpers/conversation-history-buffer.ts";
 export * from "@/state/chat/shared/helpers/loading-state.ts";

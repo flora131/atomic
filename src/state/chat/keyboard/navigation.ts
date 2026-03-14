@@ -3,12 +3,12 @@ import type { KeyEvent, ScrollBoxRenderable, TextareaRenderable } from "@opentui
 import { navigateDown, navigateUp } from "@/components/autocomplete.tsx";
 import { globalRegistry } from "@/commands/tui/index.ts";
 import type { UseMessageQueueReturn } from "@/hooks/use-message-queue.ts";
-import type { CommandExecutionTrigger, WorkflowChatState } from "@/state/chat/types.ts";
+import type { CommandExecutionTrigger, WorkflowChatState } from "@/state/chat/shared/types/index.ts";
 import {
   shouldApplyBackslashLineContinuation,
   shouldInsertNewlineFallbackFromKeyEvent,
 } from "@/state/chat/shared/helpers/newline-strategies.ts";
-import { resolveSlashAutocompleteExecution } from "@/state/chat/helpers.ts";
+import { resolveSlashAutocompleteExecution } from "@/state/chat/shared/helpers/index.ts";
 import type { ChatAutocompleteSuggestion } from "@/state/chat/keyboard/types.ts";
 
 function replaceTextareaValue(textarea: TextareaRenderable, value: string) {

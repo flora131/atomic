@@ -1,9 +1,9 @@
 import { useMemo, type ReactNode } from "react";
 import { MessageBubble } from "@/components/chat-message-bubble.tsx";
 import { shouldShowMessageLoadingIndicator } from "@/state/chat/shared/helpers/loading-state.ts";
-import { shouldHideStaleSubagentToolPlaceholder } from "@/state/chat/helpers.ts";
+import { shouldHideStaleSubagentToolPlaceholder } from "@/state/chat/shared/helpers/index.ts";
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
-import type { ChatMessage, StreamingMeta, WorkflowChatState } from "@/state/chat/types.ts";
+import type { ChatMessage, StreamingMeta, WorkflowChatState } from "@/state/chat/shared/types/index.ts";
 import type { SyntaxStyle } from "@opentui/core";
 import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 
@@ -15,6 +15,7 @@ interface UseChatRenderModelArgs {
     agentId: string;
     timestampMs: number;
   }) => void;
+  isVerbose: boolean;
   markdownSyntaxStyle: SyntaxStyle;
   messages: ChatMessage[];
   parallelAgents: ParallelAgent[];
@@ -40,6 +41,7 @@ export function useChatRenderModel({
   activeQuestion,
   backgroundAgentMessageId,
   handleAgentDoneRendered,
+  isVerbose,
   lastStreamedMessageId,
   markdownSyntaxStyle,
   messages,
@@ -85,6 +87,7 @@ export function useChatRenderModel({
               key={msg.id}
               message={msg}
               isLast={index === renderMessages.length - 1}
+              isVerbose={isVerbose}
               syntaxStyle={markdownSyntaxStyle}
               hideLoading={activeQuestion !== null}
               activeBackgroundAgentCount={activeBackgroundAgentCount}
@@ -106,6 +109,7 @@ export function useChatRenderModel({
     activeBackgroundAgentCount,
     activeQuestion,
     handleAgentDoneRendered,
+    isVerbose,
     markdownSyntaxStyle,
     renderMessages,
     showTodoPanel,

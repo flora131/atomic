@@ -6,7 +6,7 @@ import {
   executeBackgroundTermination,
   isBackgroundTerminationKey,
 } from "@/state/chat/shared/helpers/background-agent-termination.ts";
-import type { ChatMessage } from "@/state/chat/types.ts";
+import type { ChatMessage } from "@/state/chat/shared/types/index.ts";
 import type { UseChatKeyboardArgs } from "@/state/chat/keyboard/types.ts";
 
 export interface UseBackgroundTerminationControlsResult {

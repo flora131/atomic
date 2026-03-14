@@ -9,11 +9,11 @@ import {
   readHistoryBuffer,
   clearHistoryBuffer,
 } from "@/state/chat/shared/helpers/conversation-history-buffer.ts";
-import { appendUniqueMessagesById } from "@/state/chat/helpers.ts";
+import { appendUniqueMessagesById } from "@/state/chat/shared/helpers/index.ts";
 import { createClipboardAdapter, type ClipboardAdapter } from "@/lib/ui/clipboard.ts";
 import { useVerboseMode } from "@/hooks/use-verbose-mode.ts";
 import type { DeferredCommandMessage } from "@/state/chat/shared/types/command.ts";
-import type { ChatMessage, WorkflowChatState } from "@/state/chat/types.ts";
+import type { ChatMessage, WorkflowChatState } from "@/state/chat/shared/types/index.ts";
 import type { WorkflowInputResolver } from "@/services/workflows/helpers/workflow-input-resolver.ts";
 import type { Model } from "@/services/models/model-transform.ts";
 import type { McpServerToggleMap } from "@/lib/ui/mcp-output.ts";
@@ -40,6 +40,7 @@ export interface UseChatShellStateResult {
   historyBufferMessages: ChatMessage[];
   inputFocused: boolean;
   inputSyntaxStyle: SyntaxStyle;
+  isVerbose: boolean;
   markdownSyntaxStyle: SyntaxStyle;
   mcpServerToggles: McpServerToggleMap;
   scrollAcceleration: MacOSScrollAccel;
@@ -109,7 +110,7 @@ export function useChatShellState({
 
   const { theme, toggleTheme, setTheme } = useTheme();
   const themeColors = theme.colors;
-  const { toggle: toggleVerbose } = useVerboseMode();
+  const { toggle: toggleVerbose, isVerbose } = useVerboseMode();
 
   const inputSyntaxStyleRef = useRef<SyntaxStyle | null>(null);
   const commandStyleIdRef = useRef<number>(0);
@@ -232,6 +233,7 @@ export function useChatShellState({
     historyBufferMessages,
     inputFocused,
     inputSyntaxStyle,
+    isVerbose,
     markdownSyntaxStyle,
     mcpServerToggles,
     scrollAcceleration,

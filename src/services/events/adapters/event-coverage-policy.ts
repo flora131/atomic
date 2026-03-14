@@ -1,4 +1,4 @@
-import type { BusEventType } from "@/services/events/bus-events.ts";
+import type { BusEventType } from "@/services/events/bus-events/index.ts";
 import type { EventType } from "@/services/agents/types.ts";
 import {
   incrementRuntimeParityCounter,

@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { formatAgentLifecycleViolation } from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
 import { finalizeStreamingReasoningInMessage } from "@/state/parts/index.ts";
-import { createMessage } from "@/state/chat/helpers.ts";
+import { createMessage } from "@/state/chat/shared/helpers/index.ts";
 import type { UseChatStreamLifecycleArgs } from "@/state/chat/stream/lifecycle-types.ts";
 
 type UseChatStreamErrorsArgs = Pick<

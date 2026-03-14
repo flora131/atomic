@@ -7,8 +7,8 @@ import {
 } from "@/state/chat/shared/helpers/background-update-flush.ts";
 import {
   appendSkillLoadToLatestAssistantMessage,
-} from "@/state/chat/helpers.ts";
-import type { ChatMessage, MessageSkillLoad } from "@/state/chat/types.ts";
+} from "@/state/chat/shared/helpers/index.ts";
+import type { ChatMessage, MessageSkillLoad } from "@/state/chat/shared/types/index.ts";
 
 interface UseChatBackgroundDispatchArgs {
   backgroundAgentSendChainRef: MutableRefObject<Promise<void>>;

@@ -37,7 +37,7 @@ export {
   shouldAgentOverride,
   validateAgentInfoIntegrity,
   warnSkippedAgentDefinition,
-} from "@/commands/catalog/agents/discovery.ts";
+} from "@/services/agent-discovery/index.ts";
 
 export {
   determineAgentSource,
@@ -51,7 +51,7 @@ export {
 export type {
   AgentDefinitionIntegrityResult,
   AgentParseResult,
-} from "@/commands/catalog/agents/types.ts";
+} from "@/services/agent-discovery/index.ts";
 
 export {
   AGENT_DISCOVERY_PATHS,

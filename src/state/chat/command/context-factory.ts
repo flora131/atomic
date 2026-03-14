@@ -11,8 +11,8 @@ import {
   createMessage,
   getSpinnerVerbForCommand,
   reconcilePreviousStreamingPlaceholder,
-} from "@/state/chat/helpers.ts";
-import type { ChatMessage, WorkflowChatState } from "@/state/chat/types.ts";
+} from "@/state/chat/shared/helpers/index.ts";
+import type { ChatMessage, WorkflowChatState } from "@/state/chat/shared/types/index.ts";
 import { SubagentStreamAdapter } from "@/services/events/adapters/subagent-adapter.ts";
 import type { Session, SessionConfig } from "@/services/agents/types.ts";
 import type { StreamRunHandle } from "@/state/runtime/stream-run-runtime.ts";
@@ -33,13 +33,6 @@ export function createCommandContextState(
     workflowActive: workflowState.workflowActive,
     workflowType: workflowState.workflowType,
     initialPrompt: workflowState.initialPrompt,
-    currentNode: workflowState.currentNode,
-    iteration: workflowState.iteration,
-    maxIterations: workflowState.maxIterations,
-    featureProgress: workflowState.featureProgress,
-    pendingApproval: workflowState.pendingApproval,
-    specApproved: workflowState.specApproved,
-    feedback: workflowState.feedback,
   };
 }
 

@@ -5,7 +5,7 @@ import {
   finalizeStreamingReasoningInMessage,
   finalizeStreamingReasoningParts,
 } from "@/state/parts/index.ts";
-import type { TaskItem } from "@/state/chat/types.ts";
+import type { TaskItem } from "@/state/chat/shared/types/index.ts";
 import type {
   FinalizedStreamCompletionContext,
   UseChatStreamCompletionArgs,

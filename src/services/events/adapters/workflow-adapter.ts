@@ -20,7 +20,7 @@
  */
 
 import type { EventBus } from "@/services/events/event-bus.ts";
-import type { BusEvent } from "@/services/events/bus-events.ts";
+import type { BusEvent } from "@/services/events/bus-events/index.ts";
 import type { WorkflowRuntimeTask } from "@/services/workflows/runtime-contracts.ts";
 
 /**

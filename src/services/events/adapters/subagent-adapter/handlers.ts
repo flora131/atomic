@@ -1,5 +1,5 @@
 import type { AgentMessage } from "@/services/agents/types.ts";
-import type { BusEvent } from "@/services/events/bus-events.ts";
+import type { BusEvent } from "@/services/events/bus-events/index.ts";
 import {
   readSubagentLifecycleMetadata,
   readSubagentRoutingMetadata,

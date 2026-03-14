@@ -324,7 +324,7 @@ export {
   hasCustomRenderer,
   getLanguageFromExtension,
   registerAgentToolNames,
-} from "@/components/tool-registry/index.ts";
+} from "@/components/tool-registry/registry/index.ts";
 
 // Commands module
 export {
@@ -335,7 +335,6 @@ export {
   type CommandContext,
   type CommandContextState,
   type CommandResult,
-  type FeatureProgressState,
 
   // Built-in commands
   registerBuiltinCommands,

@@ -13,7 +13,7 @@
  * - Frame-aligned 16ms default flush interval
  */
 
-import type { BusEvent } from "@/services/events/bus-events.ts";
+import type { BusEvent } from "@/services/events/bus-events/index.ts";
 import { coalescingKey } from "@/services/events/coalescing.ts";
 import type { EventBus } from "@/services/events/event-bus.ts";
 import { pipelineLog } from "@/services/events/pipeline-logger.ts";

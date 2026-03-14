@@ -12,13 +12,13 @@ import {
 import { sortTasksTopologically } from "@/components/task-order.ts";
 import { isHitlToolName } from "@/state/streaming/pipeline-tools/shared.ts";
 import type { ToolPart } from "@/state/parts/types.ts";
-import type { ChatMessage, WorkflowChatState } from "@/state/chat/types.ts";
+import type { ChatMessage, WorkflowChatState } from "@/state/chat/shared/types/index.ts";
 import type {
   QuestionAnswer,
   UserQuestion,
 } from "@/components/user-question-dialog.tsx";
 import type { AskUserQuestionEventData } from "@/services/workflows/graph/index.ts";
-import { createMessage } from "@/state/chat/helpers.ts";
+import { createMessage } from "@/state/chat/shared/helpers/index.ts";
 import { applyStreamPartEvent } from "@/state/parts/index.ts";
 import { normalizeHitlAnswer } from "@/lib/ui/hitl-response.ts";
 import { rejectPendingWorkflowInput, type WorkflowInputResolver } from "@/services/workflows/helpers/workflow-input-resolver.ts";
@@ -479,9 +479,9 @@ export function useWorkflowHitl({
 
     const selectedArray = Array.isArray(answer.selected) ? answer.selected : [answer.selected];
     if (selectedArray.includes("Approve")) {
-      updateWorkflowState({ specApproved: true, pendingApproval: false });
+      updateWorkflowState({ ralphState: { ...workflowState.ralphState, specApproved: true, pendingApproval: false } });
     } else if (selectedArray.includes("Reject")) {
-      updateWorkflowState({ specApproved: false, pendingApproval: false });
+      updateWorkflowState({ ralphState: { ...workflowState.ralphState, specApproved: false, pendingApproval: false } });
     }
   }, [getSession, onWorkflowResumeWithAnswer, removePendingQuestion, setMessagesWindowed, updateWorkflowState, workflowState.workflowActive]);
 

@@ -4,7 +4,7 @@ import type {
   EventType,
 } from "@/services/agents/types.ts";
 import type { CopilotProviderEventSource } from "@/services/agents/provider-events.ts";
-import type { BusEvent } from "@/services/events/bus-events.ts";
+import type { BusEvent } from "@/services/events/bus-events/index.ts";
 import { drainUnsubscribers } from "@/services/events/adapters/provider-shared.ts";
 import { publishCopilotBufferedEvent } from "@/services/events/adapters/providers/copilot/buffer.ts";
 import {

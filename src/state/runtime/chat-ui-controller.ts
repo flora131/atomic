@@ -6,7 +6,7 @@ import type {
 import type { SessionConfig } from "@/services/agents/types.ts";
 import { cleanupMcpBridgeScripts } from "@/services/agents/tools/opencode-mcp-bridge.ts";
 import { SessionExpiredError } from "@/services/events/adapters/provider-shared.ts";
-import { registerAgentToolNames } from "@/components/tool-registry/index.ts";
+import { registerAgentToolNames } from "@/components/tool-registry/registry/index.ts";
 import { createChatUIRuntimeState } from "@/state/runtime/chat-ui-runtime-state.ts";
 import { createStreamAdapter } from "@/state/runtime/chat-ui-stream-adapter.ts";
 import type {

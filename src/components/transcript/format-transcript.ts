@@ -7,7 +7,7 @@ import {
 } from "@/components/transcript/helpers.ts";
 import { formatToolInput, formatToolTitle } from "@/components/transcript/tool-formatters.ts";
 import type { TranscriptLine } from "@/components/transcript/types.ts";
-import type { ChatMessage, StreamingMeta } from "@/state/chat/shared/types/message.ts";
+import type { ChatMessage, StreamingMeta } from "@/state/chat/exports.ts";
 import { MISC, PROMPT, SEPARATOR, SPINNER_COMPLETE, SPINNER_FRAMES, STATUS } from "@/theme/icons.ts";
 
 export interface FormatTranscriptOptions {

@@ -7,7 +7,7 @@ import {
   resolveAgentCurrentToolForUpdate,
   resolveIncomingSubagentTaskLabel,
   resolveSubagentStartCorrelationId,
-} from "@/state/chat/helpers.ts";
+} from "@/state/chat/shared/helpers/index.ts";
 import {
   registerAgentLifecycleComplete,
   registerAgentLifecycleStart,

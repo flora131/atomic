@@ -1,25 +1,23 @@
 #!/usr/bin/env bun
 
-import type { BusEvent, BusEventDataMap, BusEventType } from "@/services/events/bus-events.ts";
+import type { BusEvent, BusEventDataMap, BusEventType } from "@/services/events/bus-events/index.ts";
 import { BatchDispatcher } from "@/services/events/batch-dispatcher.ts";
 import { EventBus } from "@/services/events/event-bus.ts";
 import { wireConsumers } from "@/services/events/consumers/wire-consumers.ts";
-import {
-  emitAgentDoneProjectionObservability,
-  emitAgentDoneRenderedObservability,
-  emitPostCompleteDeltaOrderingObservability,
-  shouldDeferPostCompleteDeltaUntilDoneProjection,
-} from "@/screens/chat-screen.tsx";
 import { collectDoneRenderMarkers } from "@/components/parallel-agents-tree.tsx";
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import { applyStreamPartEvent, type StreamPartEvent } from "@/state/parts/stream-pipeline.ts";
-import type { AgentOrderingEvent } from "@/state/chat/shared/helpers/agent-ordering-contract.ts";
 import {
   createAgentOrderingState,
+  emitAgentDoneProjectionObservability,
+  emitAgentDoneRenderedObservability,
+  emitPostCompleteDeltaOrderingObservability,
   hasDoneStateProjection,
   registerAgentCompletionSequence,
   registerDoneStateProjection,
-} from "@/state/chat/shared/helpers/agent-ordering-contract.ts";
+  shouldDeferPostCompleteDeltaUntilDoneProjection,
+  type AgentOrderingEvent,
+} from "@/state/chat/exports.ts";
 import {
   getRuntimeParityMetricsSnapshot,
   resetRuntimeParityMetrics,

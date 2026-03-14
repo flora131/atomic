@@ -7,7 +7,7 @@
  */
 
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
-import { isBackgroundAgent, isShadowForegroundAgent } from "@/state/chat/shared/helpers/background-agent-footer.ts";
+import { isBackgroundAgent, isShadowForegroundAgent } from "@/state/chat/exports.ts";
 
 /**
  * Determines whether an agent should be finalized when a tool completes.

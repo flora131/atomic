@@ -1,4 +1,4 @@
-import type { BusEvent } from "@/services/events/bus-events.ts";
+import type { BusEvent } from "@/services/events/bus-events/index.ts";
 import type { EventBus } from "@/services/events/event-bus.ts";
 import type { CodingAgentClient } from "@/services/agents/types.ts";
 import type { OpenCodeTaskToolMetadata } from "@/services/events/adapters/providers/opencode/tool-state.ts";

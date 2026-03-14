@@ -31,7 +31,7 @@
  * ```
  */
 
-import type { EnrichedBusEvent, BusEventDataMap } from "@/services/events/bus-events.ts";
+import type { EnrichedBusEvent, BusEventDataMap } from "@/services/events/bus-events/index.ts";
 import type { CorrelationService } from "@/services/events/consumers/correlation-service.ts";
 import type { EchoSuppressor } from "@/services/events/consumers/echo-suppressor.ts";
 import type { StreamPartEvent } from "@/state/parts/stream-pipeline.ts";

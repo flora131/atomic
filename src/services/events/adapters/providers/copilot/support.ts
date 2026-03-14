@@ -1,4 +1,4 @@
-import type { BusEvent } from "@/services/events/bus-events.ts";
+import type { BusEvent } from "@/services/events/bus-events/index.ts";
 import type { SubagentToolTracker } from "@/services/events/adapters/subagent-tool-tracker.ts";
 import {
   asRecord,

@@ -1,6 +1,6 @@
 import { useBusSubscription } from "@/services/events/hooks.ts";
 import type { AskUserQuestionEventData } from "@/services/workflows/graph/index.ts";
-import type { ChatMessage, MessageSkillLoad, StreamingMeta } from "@/state/chat/types.ts";
+import type { ChatMessage, MessageSkillLoad, StreamingMeta } from "@/state/chat/shared/types/index.ts";
 import { STATUS, MISC } from "@/theme/icons.ts";
 import {
   createMessage,
@@ -8,7 +8,7 @@ import {
   getAutoCompactionIndicatorState,
   shouldBindStreamSessionRun,
   shouldProcessStreamLifecycleEvent,
-} from "@/state/chat/helpers.ts";
+} from "@/state/chat/shared/helpers/index.ts";
 import {
   normalizeSessionTrackingKey,
   shouldDisplaySkillLoadIndicator,

@@ -29,7 +29,7 @@
  * ```
  */
 
-import type { BusEvent, EnrichedBusEvent, BusEventDataMap } from "@/services/events/bus-events.ts";
+import type { BusEvent, EnrichedBusEvent, BusEventDataMap } from "@/services/events/bus-events/index.ts";
 
 /**
  * Context for a registered sub-agent, mapping it to its parent workflow agent.

@@ -8,7 +8,7 @@
 
 import React from "react";
 import { getToolStatusColorKey, ToolResult } from "@/components/tool-result.tsx";
-import { isSdkAskQuestionToolName } from "@/components/tool-registry/index.ts";
+import { isSdkAskQuestionToolName } from "@/components/tool-registry/registry/index.ts";
 import { useThemeColors } from "@/theme/index.tsx";
 import { CONNECTOR, STATUS } from "@/theme/icons.ts";
 import type { ToolPart, ToolState } from "@/state/parts/types.ts";

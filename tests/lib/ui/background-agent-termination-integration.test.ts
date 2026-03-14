@@ -22,9 +22,7 @@ import {
   interruptActiveBackgroundAgents,
   isBackgroundTerminationKey,
 } from "@/state/chat/shared/helpers/background-agent-termination.ts";
-import {
-  BACKGROUND_TREE_HINT_CONTRACT,
-} from "@/state/chat/shared/helpers/background-agent-contracts.ts";
+
 import { getActiveBackgroundAgents } from "@/state/chat/shared/helpers/background-agent-footer.ts";
 
 // ============================================================================
@@ -317,7 +315,7 @@ describe("Ctrl+F double-press lifecycle integration", () => {
     }
   });
 
-  test("confirmation messages are consistent with tree hint contracts", () => {
+  test("confirmation messages reference correct key combination", () => {
     const agents: ParallelAgent[] = [
       createAgent({
         id: "bg-1",
@@ -325,10 +323,6 @@ describe("Ctrl+F double-press lifecycle integration", () => {
         background: true,
       }),
     ];
-
-    // Verify tree hint contract includes termination hint for running agents
-    expect(BACKGROUND_TREE_HINT_CONTRACT.whenRunning).toContain("ctrl+f");
-    expect(BACKGROUND_TREE_HINT_CONTRACT.whenRunning).toContain("kill");
 
     // Verify decision messages reference the same key combination
     const press1 = simulateCtrlFPress(0, agents);

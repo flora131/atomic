@@ -35,7 +35,7 @@
 
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useEventBusContext } from "@/services/events/event-bus-provider.tsx";
-import type { BusEvent, BusEventType, BusHandler, WildcardHandler } from "@/services/events/bus-events.ts";
+import type { BusEvent, BusEventType, BusHandler, WildcardHandler } from "@/services/events/bus-events/index.ts";
 import { wireConsumers } from "@/services/events/consumers/wire-consumers.ts";
 import type { CorrelationService } from "@/services/events/consumers/correlation-service.ts";
 import type { StreamPartEvent } from "@/state/parts/stream-pipeline.ts";

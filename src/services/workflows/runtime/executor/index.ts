@@ -5,8 +5,8 @@
  */
 
 import type { BaseState, CompiledGraph, SubagentStreamResult } from "@/services/workflows/graph/types.ts";
-import { type WorkflowDefinition } from "@/commands/tui/workflow-commands.ts";
-import type { CommandContext, CommandResult } from "@/commands/tui/registry.ts";
+import { type WorkflowDefinition } from "@/services/workflows/workflow-types.ts";
+import type { CommandContext, CommandResult } from "@/types/command.ts";
 import { streamGraph } from "@/services/workflows/graph/compiled.ts";
 import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 import type { EventBus } from "@/services/events/event-bus.ts";
@@ -106,13 +106,15 @@ export async function executeWorkflow(
         let compiled: CompiledGraph<BaseState>;
         if (options?.compiledGraph) {
             compiled = options.compiledGraph;
+        } else if (definition.createGraph) {
+            compiled = definition.createGraph();
         } else if (definition.graphConfig) {
             compiled = compileGraphConfig(definition.graphConfig);
         } else {
             context.setStreaming(false);
             return {
                 success: false,
-                message: `Workflow "${definition.name}" has no graphConfig or pre-compiled graph.`,
+                message: `Workflow "${definition.name}" has no createGraph, graphConfig, or pre-compiled graph.`,
                 stateUpdate: {
                     workflowActive: false,
                     workflowType: null,

@@ -14,7 +14,7 @@
 import React, { useState, useEffect } from "react";
 import { useTerminalDimensions } from "@opentui/react";
 
-import { watchTasksJson } from "@/commands/tui/workflow-commands.ts";
+import { watchTasksJson } from "@/commands/tui/workflow-commands/index.ts";
 import { MISC, TASK as TASK_ICONS } from "@/theme/icons.ts";
 import { useThemeColors, useTheme, getCatppuccinPalette } from "@/theme/index.tsx";
 import { TaskListIndicator, type TaskItem } from "@/components/task-list-indicator.tsx";

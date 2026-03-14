@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { UseMessageQueueReturn } from "@/hooks/use-message-queue.ts";
-import type { ChatAppProps, ChatMessage, StreamingMeta, WorkflowChatState } from "@/state/chat/types.ts";
+import type { ChatAppProps, ChatMessage, StreamingMeta, WorkflowChatState } from "@/state/chat/shared/types/index.ts";
 import type { UseChatStreamRuntimeResult } from "@/state/chat/shared/types/stream-runtime.ts";
 import { useChatDispatchController } from "@/state/chat/controller/use-dispatch-controller.ts";
 import type { UseChatShellStateResult } from "@/state/chat/controller/use-shell-state.ts";

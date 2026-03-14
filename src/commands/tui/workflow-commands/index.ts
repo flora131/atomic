@@ -158,9 +158,6 @@ function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
                     workflowActive: true,
                     workflowType: metadata.name,
                     initialPrompt,
-                    pendingApproval: false,
-                    specApproved: undefined,
-                    feedback: null,
                 },
             };
         },

@@ -22,10 +22,10 @@ import {
 import type {
   StreamingMeta,
   ThinkingDropDiagnostics,
-} from "@/state/chat/types.ts";
+} from "@/state/chat/shared/types/index.ts";
 import {
   createThinkingDropDiagnostics,
-} from "@/state/chat/helpers.ts";
+} from "@/state/chat/shared/helpers/index.ts";
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type {
   UseChatStreamRuntimeArgs,

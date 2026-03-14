@@ -22,7 +22,7 @@ import {
 import { SCROLLBAR, PROMPT } from "@/theme/icons.ts";
 import { SPACING } from "@/theme/spacing.ts";
 import type { ThemeColors } from "@/theme/index.tsx";
-import type { ChatMessage, StreamingMeta, WorkflowChatState } from "@/state/chat/types.ts";
+import type { ChatMessage, StreamingMeta, WorkflowChatState } from "@/state/chat/shared/types/index.ts";
 import type { UseMessageQueueReturn } from "@/hooks/use-message-queue.ts";
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import { getActiveBackgroundAgents } from "@/state/chat/shared/helpers/background-agent-footer.ts";

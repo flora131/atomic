@@ -15,7 +15,7 @@ import React from "react";
 import { useThemeColors } from "@/theme/index.tsx";
 import { STATUS, CONNECTOR, PROMPT } from "@/theme/icons.ts";
 import { SPACING } from "@/theme/spacing.ts";
-import type { HitlContext } from "@/state/chat/types.ts";
+import type { HitlContext } from "@/state/chat/shared/types/index.ts";
 
 export interface HitlResponseWidgetProps {
   context: HitlContext;

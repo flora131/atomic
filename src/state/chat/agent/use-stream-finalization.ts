@@ -8,9 +8,9 @@ import {
 } from "@/state/chat/shared/helpers/background-agent-footer.ts";
 import {
   shouldFinalizeAgentOnlyStream,
-} from "@/state/chat/helpers.ts";
+} from "@/state/chat/shared/helpers/index.ts";
 import { snapshotTaskItems } from "@/state/chat/shared/helpers/workflow-task-state.ts";
-import type { TaskItem } from "@/state/chat/types.ts";
+import type { TaskItem } from "@/state/chat/shared/types/index.ts";
 import type { UseChatAgentProjectionArgs } from "@/state/chat/agent/projection-types.ts";
 
 type UseChatAgentStreamFinalizationArgs = Pick<

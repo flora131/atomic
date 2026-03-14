@@ -7,7 +7,7 @@ import type { BaseState } from "@/services/workflows/graph/types.ts";
 import { createMockContext } from "./executor.fixtures.ts";
 
 describe("executeWorkflow", () => {
-  test("returns error when no graphConfig or compiledGraph provided", async () => {
+  test("returns error when no createGraph, graphConfig, or compiledGraph provided", async () => {
     const context = createMockContext();
     const definition = {
       name: "test-workflow",
@@ -18,7 +18,7 @@ describe("executeWorkflow", () => {
     const result = await executeWorkflow(definition, "test prompt", context as any);
 
     expect(result.success).toBe(false);
-    expect(result.message).toContain("no graphConfig");
+    expect(result.message).toContain("no createGraph, graphConfig, or pre-compiled graph");
     expect(context._getStreaming()).toBe(false);
   });
 

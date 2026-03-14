@@ -1,5 +1,5 @@
 import type { MutableRefObject } from "react";
-import type { ChatMessage, StreamingMeta, TaskItem } from "@/state/chat/types.ts";
+import type { ChatMessage, StreamingMeta, TaskItem } from "@/state/chat/shared/types/index.ts";
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
 
 interface InterruptSharedStateArgs {

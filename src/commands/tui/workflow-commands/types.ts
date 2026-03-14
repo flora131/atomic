@@ -1,12 +1,23 @@
-import type { BaseState, CompiledGraph, Edge, NodeDefinition } from "@/services/workflows/graph/types.ts";
-import type { WorkflowRuntimeFeatureFlagOverrides } from "@/services/workflows/runtime-contracts.ts";
+/**
+ * Workflow command types and argument parsing.
+ *
+ * Type definitions are re-exported from their canonical location in
+ * `services/workflows/workflow-types.ts`. Parse functions remain here
+ * since they are command-layer concerns.
+ */
 
-export interface WorkflowCommandArgs {
-  prompt: string;
-}
+export type {
+  RalphCommandArgs,
+  WorkflowCommandArgs,
+  WorkflowDefinition,
+  WorkflowGraphConfig,
+  WorkflowMetadata,
+  WorkflowStateMigrator,
+  WorkflowStateParams,
+  WorkflowTask,
+} from "@/services/workflows/workflow-types.ts";
 
-/** @deprecated Use {@link WorkflowCommandArgs} instead. */
-export type RalphCommandArgs = WorkflowCommandArgs;
+import type { WorkflowCommandArgs } from "@/services/workflows/workflow-types.ts";
 
 export function parseWorkflowArgs(args: string, workflowName = "workflow"): WorkflowCommandArgs {
   const trimmed = args.trim();
@@ -23,58 +34,3 @@ export function parseWorkflowArgs(args: string, workflowName = "workflow"): Work
 
 /** @deprecated Use {@link parseWorkflowArgs} instead. */
 export const parseRalphArgs = (args: string): WorkflowCommandArgs => parseWorkflowArgs(args, "ralph");
-
-export type WorkflowStateMigrator = (
-  oldState: unknown,
-  fromVersion: number,
-) => BaseState;
-
-export interface WorkflowMetadata {
-  name: string;
-  description: string;
-  aliases?: string[];
-  defaultConfig?: Record<string, unknown>;
-  version?: string;
-  minSDKVersion?: string;
-  stateVersion?: number;
-  migrateState?: WorkflowStateMigrator;
-  source?: "builtin" | "global" | "local";
-  argumentHint?: string;
-}
-
-export interface WorkflowTask {
-  id: string;
-  title: string;
-  status: "pending" | "in_progress" | "completed" | "failed" | "blocked";
-  blockedBy?: string[];
-  error?: string;
-}
-
-export interface WorkflowGraphConfig<TState extends BaseState = BaseState> {
-  nodes: NodeDefinition<TState>[];
-  edges: Edge<TState>[];
-  startNode: string;
-  maxIterations?: number;
-}
-
-export interface WorkflowStateParams {
-  prompt: string;
-  sessionId: string;
-  sessionDir: string;
-  maxIterations: number;
-}
-
-export interface WorkflowDefinition extends WorkflowMetadata {
-  graphConfig?: WorkflowGraphConfig;
-  /**
-   * Factory function returning a pre-compiled graph (builder pattern).
-   * Used by workflows like Ralph that build graphs programmatically
-   * instead of providing declarative graphConfig.
-   */
-  createGraph?: () => CompiledGraph<BaseState>;
-  createState?: (params: WorkflowStateParams) => BaseState;
-  nodeDescriptions?: Record<string, string>;
-  runtime?: {
-    featureFlags?: WorkflowRuntimeFeatureFlagOverrides;
-  };
-}

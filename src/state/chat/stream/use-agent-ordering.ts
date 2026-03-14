@@ -14,7 +14,7 @@ import {
   emitPostCompleteDeltaOrderingObservability,
   queueAgentTerminalBeforeDeferredDeltas,
   shouldDeferPostCompleteDeltaUntilDoneProjection,
-} from "@/state/chat/helpers.ts";
+} from "@/state/chat/shared/helpers/index.ts";
 
 type AgentTerminalPart = Extract<StreamPartEvent, { type: "agent-terminal" }>;
 type TextDeltaPart = Extract<StreamPartEvent, { type: "text-delta" }>;

@@ -1,9 +1,9 @@
 /**
  * Background Agent UX Contracts (Issue #258)
  *
- * Canonical behavior contracts for background-agent footer, termination flow,
- * and tree hint wording. These contracts eliminate UX ambiguity and provide
- * a stable specification for parity tests across providers and runtime modes.
+ * Canonical behavior contracts for background-agent footer and termination flow.
+ * These contracts eliminate UX ambiguity and provide a stable specification
+ * for parity tests across providers and runtime modes.
  *
  * **CI Enforcement:**
  * These contracts are enforced automatically in CI via parity tests that verify:
@@ -30,22 +30,3 @@ export type BackgroundTerminationDecision =
   | { action: "warn"; message: string }
   | { action: "terminate"; message: string };
 
-// ---------------------------------------------------------------------------
-// Tree Hint Contract
-// ---------------------------------------------------------------------------
-
-export interface BackgroundTreeHintContract {
-  /** Hint shown while at least one background agent is actively running. */
-  whenRunning: string;
-  /** Hint shown when all background agents have completed. */
-  whenComplete: string;
-  /** Fallback hint when no background agents exist. */
-  defaultHint: string;
-}
-
-/** Canonical tree hint contract instance used at runtime. */
-export const BACKGROUND_TREE_HINT_CONTRACT: BackgroundTreeHintContract = {
-  whenRunning: "background running · ctrl+f to kill all background tasks",
-  whenComplete: "background complete · ctrl+o to expand",
-  defaultHint: "ctrl+o to expand",
-};

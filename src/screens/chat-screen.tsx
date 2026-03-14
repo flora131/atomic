@@ -8,22 +8,22 @@
  */
 
 import React, { useState, useCallback, useRef } from "react";
-import { ChatShell } from "@/state/chat/shell/ChatShell.tsx";
-import { useChatStreamRuntime } from "@/state/chat/stream/use-runtime.ts";
-import { useChatAppOrchestration } from "@/state/chat/controller/use-app-orchestration.ts";
-import { useChatRuntimeStack } from "@/state/chat/controller/use-runtime-stack.ts";
-import { useChatUiControllerStack } from "@/state/chat/controller/use-ui-controller-stack.ts";
-import { useChatShellState } from "@/state/chat/controller/use-shell-state.ts";
-import type { DeferredCommandMessage } from "@/state/chat/command/executor-types.ts";
+import {
+  ChatShell,
+  useChatStreamRuntime,
+  useChatAppOrchestration,
+  useChatRuntimeStack,
+  useChatUiControllerStack,
+  useChatShellState,
+  defaultWorkflowChatState,
+  type DeferredCommandMessage,
+  type ChatAppProps,
+  type ChatMessage,
+  type StreamingMeta,
+  type WorkflowChatState,
+} from "@/state/chat/exports.ts";
 import { useMessageQueue } from "@/hooks/use-message-queue.ts";
 import { useEventBusContext } from "@/services/events/event-bus-provider.tsx";
-import type {
-  ChatAppProps,
-  ChatMessage,
-  StreamingMeta,
-  WorkflowChatState,
-} from "@/state/chat/types.ts";
-import { defaultWorkflowChatState } from "@/state/chat/types.ts";
 
 export * from "@/state/chat/exports.ts";
 

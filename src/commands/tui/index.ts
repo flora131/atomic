@@ -22,7 +22,6 @@ export {
     type CommandContextState,
     type CommandResult,
     type CommandCategory,
-    type FeatureProgressState,
 } from "@/commands/tui/registry.ts";
 
 // ============================================================================
@@ -34,7 +33,7 @@ import { registerBuiltinCommands } from "@/commands/tui/builtin-commands.ts";
 import {
     registerWorkflowCommands,
     loadWorkflowsFromDisk,
-} from "@/commands/tui/workflow-commands.ts";
+} from "@/commands/tui/workflow-commands/index.ts";
 import { discoverAndRegisterDiskSkills } from "@/commands/tui/skill-commands.ts";
 import { registerAgentCommands } from "@/commands/tui/agent-commands.ts";
 import type { ProviderDiscoveryPlan } from "@/services/config/provider-discovery-plan.ts";
@@ -64,7 +63,7 @@ export {
     getWorkflowCommands,
     saveTasksToActiveSession,
     type WorkflowMetadata,
-} from "@/commands/tui/workflow-commands.ts";
+} from "@/commands/tui/workflow-commands/index.ts";
 
 export {
     // Disk skill discovery

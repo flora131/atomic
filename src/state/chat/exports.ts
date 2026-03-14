@@ -4,8 +4,8 @@
  */
 
 // ── Shared types & helpers (depth 0) ──────────────────────────────────
-export * from "@/state/chat/types.ts";
-export * from "@/state/chat/helpers.ts";
+export * from "@/state/chat/shared/types/index.ts";
+export * from "@/state/chat/shared/helpers/index.ts";
 
 // ── Agent sub-module (depth 1) ────────────────────────────────────────
 export type {

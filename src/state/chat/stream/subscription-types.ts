@@ -2,7 +2,7 @@ import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type { BatchDispatcher } from "@/services/events/batch-dispatcher.ts";
 import type { AskUserQuestionEventData } from "@/services/workflows/graph/index.ts";
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
-import type { ChatMessage, MessageSkillLoad, StreamingMeta } from "@/state/chat/types.ts";
+import type { ChatMessage, MessageSkillLoad, StreamingMeta } from "@/state/chat/shared/types/index.ts";
 import type { AgentLifecycleLedger, AgentLifecycleViolationCode } from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
 import type { AgentOrderingEvent, AgentOrderingState } from "@/state/chat/shared/helpers/agent-ordering-contract.ts";
 import type { SessionLoopFinishReason } from "@/state/chat/shared/helpers/stream-continuation.ts";

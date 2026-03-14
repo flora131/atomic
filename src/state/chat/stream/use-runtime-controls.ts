@@ -1,11 +1,11 @@
 import { useCallback } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
-import type { ChatMessage, StreamingMeta } from "@/state/chat/types.ts";
+import type { ChatMessage, StreamingMeta } from "@/state/chat/shared/types/index.ts";
 import {
   createMessage,
   mergeClosedThinkingSources,
   traceThinkingSourceLifecycle,
-} from "@/state/chat/helpers.ts";
+} from "@/state/chat/shared/helpers/index.ts";
 import type { AutoCompactionIndicatorState } from "@/state/chat/shared/helpers/auto-compaction-lifecycle.ts";
 import {
   clearRunningAutoCompactionIndicator,

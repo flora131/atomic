@@ -1,11 +1,12 @@
 import { darkTheme, lightTheme } from "@/theme/index.tsx";
 import type { CommandResult } from "@/commands/tui/registry.ts";
-import { createMessage } from "@/state/chat/helpers.ts";
+import { createMessage } from "@/state/chat/shared/helpers/index.ts";
 import { tryTrackLoadedSkill } from "@/state/chat/shared/helpers/skill-load-tracking.ts";
-import type { MessageSkillLoad } from "@/state/chat/types.ts";
+import type { MessageSkillLoad } from "@/state/chat/shared/types/index.ts";
 import type { UseCommandExecutorArgs } from "@/state/chat/command/executor-types.ts";
 import { createPartId } from "@/state/parts/id.ts";
 import type { McpSnapshotPart } from "@/state/parts/types.ts";
+import { defaultWorkflowChatState } from "@/state/chat/shared/types/workflow.ts";
 
 export async function applyCommandResult(
   args: UseCommandExecutorArgs,
@@ -17,13 +18,7 @@ export async function applyCommandResult(
       workflowActive: false,
       workflowType: null,
       initialPrompt: null,
-      currentNode: null,
-      iteration: 0,
-      maxIterations: undefined,
-      featureProgress: null,
-      pendingApproval: false,
-      specApproved: false,
-      feedback: null,
+      ralphState: { ...defaultWorkflowChatState.ralphState },
       workflowConfig: undefined,
     });
     args.setCompactionSummary(null);
@@ -71,13 +66,6 @@ export async function applyCommandResult(
       workflowActive: result.stateUpdate.workflowActive !== undefined ? result.stateUpdate.workflowActive : args.workflowState.workflowActive,
       workflowType: result.stateUpdate.workflowType !== undefined ? result.stateUpdate.workflowType : args.workflowState.workflowType,
       initialPrompt: result.stateUpdate.initialPrompt !== undefined ? result.stateUpdate.initialPrompt : args.workflowState.initialPrompt,
-      currentNode: result.stateUpdate.currentNode !== undefined ? result.stateUpdate.currentNode : args.workflowState.currentNode,
-      iteration: result.stateUpdate.iteration !== undefined ? result.stateUpdate.iteration : args.workflowState.iteration,
-      maxIterations: result.stateUpdate.maxIterations !== undefined ? result.stateUpdate.maxIterations : args.workflowState.maxIterations,
-      featureProgress: result.stateUpdate.featureProgress !== undefined ? result.stateUpdate.featureProgress : args.workflowState.featureProgress,
-      pendingApproval: result.stateUpdate.pendingApproval !== undefined ? result.stateUpdate.pendingApproval : args.workflowState.pendingApproval,
-      specApproved: result.stateUpdate.specApproved !== undefined ? result.stateUpdate.specApproved : args.workflowState.specApproved,
-      feedback: result.stateUpdate.feedback !== undefined ? result.stateUpdate.feedback : args.workflowState.feedback,
       workflowConfig: result.stateUpdate.workflowConfig !== undefined ? result.stateUpdate.workflowConfig : args.workflowState.workflowConfig,
     });
 

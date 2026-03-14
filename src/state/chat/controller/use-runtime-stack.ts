@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { BatchDispatcher } from "@/services/events/batch-dispatcher.ts";
-import type { ChatAppProps, ChatMessage, StreamingMeta, WorkflowChatState } from "@/state/chat/types.ts";
+import type { ChatAppProps, ChatMessage, StreamingMeta, WorkflowChatState } from "@/state/chat/shared/types/index.ts";
 import { useChatAgentProjection } from "@/state/chat/agent/index.ts";
 import type { UseChatStreamRuntimeResult } from "@/state/chat/shared/types/stream-runtime.ts";
 import type { UseChatShellStateResult } from "@/state/chat/controller/use-shell-state.ts";

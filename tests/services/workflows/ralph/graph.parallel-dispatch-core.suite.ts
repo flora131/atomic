@@ -147,7 +147,7 @@ describe("createRalphWorkflow - Parallel Worker Dispatch", () => {
       return typeof error === "string" ? error : error?.message ?? "";
     });
     expect(errorMessages.some((message: string) =>
-      message.includes("spawnSubagentParallel not available in runtime config"),
+      message.includes("RalphWorkflowContext requires spawnSubagentParallel in runtime config"),
     )).toBe(true);
   });
 

@@ -1,4 +1,4 @@
-import { getToolRenderer, parseMcpToolName } from "@/components/tool-registry/index.ts";
+import { getToolRenderer, parseMcpToolName } from "@/components/tool-registry/registry/index.ts";
 import { collapseNewlines, truncateText } from "@/lib/ui/format.ts";
 
 export function getSubagentToolDisplayName(toolName: string): string {

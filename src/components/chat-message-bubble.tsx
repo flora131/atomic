@@ -2,20 +2,21 @@ import React from "react";
 import { PROMPT, STATUS, CONNECTOR, MISC } from "@/theme/icons.ts";
 import { SPACING } from "@/theme/spacing.ts";
 import { useThemeColors } from "@/theme/index.tsx";
-import { getActiveBackgroundAgents } from "@/state/chat/shared/helpers/background-agent-footer.ts";
-import { normalizeSkillTrackingKey } from "@/state/chat/shared/helpers/skill-load-tracking.ts";
 import {
+  getActiveBackgroundAgents,
+  normalizeSkillTrackingKey,
   shouldShowCompletionSummary,
   shouldShowMessageLoadingIndicator,
-} from "@/state/chat/shared/helpers/loading-state.ts";
+} from "@/state/chat/shared/helpers/index.ts";
 import { TaskListPanel } from "@/components/task-list-panel.tsx";
 import { HitlResponseWidget } from "@/components/hitl-response-widget.tsx";
 import { MessageBubbleParts } from "@/components/message-parts/message-bubble-parts.tsx";
 import { CompletionSummary, LoadingIndicator } from "@/components/chat-loading-indicator.tsx";
+import { TimestampDisplay } from "@/components/timestamp-display.tsx";
 import type {
   ChatMessage,
   MessageBubbleProps,
-} from "@/state/chat/types.ts";
+} from "@/state/chat/shared/types/index.ts";
 import type {
   CompactionPart,
   Part,
@@ -120,6 +121,7 @@ export function MessageBubble({
   activeBackgroundAgentCount,
   message,
   isLast,
+  isVerbose = false,
   syntaxStyle,
   hideLoading = false,
   todoItems,
@@ -323,6 +325,16 @@ export function MessageBubble({
               durationMs={message.durationMs!}
               outputTokens={message.outputTokens}
               thinkingMs={message.thinkingMs}
+            />
+          </box>
+        )}
+
+        {isVerbose && !message.streaming && message.timestamp && (
+          <box marginTop={SPACING.ELEMENT}>
+            <TimestampDisplay
+              timestamp={message.timestamp}
+              durationMs={message.durationMs}
+              modelId={message.modelId}
             />
           </box>
         )}

@@ -194,3 +194,23 @@ export interface WorkflowToolContext {
 }
 
 export type { DebugReport };
+
+/**
+ * Widen a compiled graph from a specific state type to BaseState.
+ *
+ * This cast is safe when the graph and state are created together from
+ * the same workflow definition: the executor always creates state via
+ * `createState()`, so the concrete state type is preserved at runtime.
+ * TypeScript's invariance on function parameters prevents a direct
+ * assignment, but the runtime contract guarantees type safety.
+ */
+export function asBaseGraph<TState extends BaseState>(
+  graph: CompiledGraph<TState>,
+): CompiledGraph<BaseState> {
+  // The intermediate `unknown` is required because CompiledGraph<TState>
+  // contains function parameters that are contravariant in TState, making
+  // direct assignment unsound in TypeScript's type system. At runtime the
+  // executor always provides a state value whose concrete type matches
+  // TState, so this widening is safe in practice.
+  return graph as unknown as CompiledGraph<BaseState>;
+}

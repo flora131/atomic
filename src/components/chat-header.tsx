@@ -3,7 +3,7 @@ import { useTerminalDimensions } from "@opentui/react";
 import { useTheme } from "@/theme/index.tsx";
 import { MISC } from "@/theme/icons.ts";
 import { SPACING } from "@/theme/spacing.ts";
-import type { AtomicHeaderProps } from "@/state/chat/types.ts";
+import type { AtomicHeaderProps } from "@/state/chat/shared/types/index.ts";
 
 const ATOMIC_BLOCK_LOGO = [
   "█▀▀█ ▀▀█▀▀ █▀▀█ █▀▄▀█ ▀█▀ █▀▀",

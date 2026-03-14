@@ -2,7 +2,7 @@ import { useCallback } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type { AgentType } from "@/services/models/index.ts";
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
-import type { ChatMessage } from "@/state/chat/types.ts";
+import type { ChatMessage } from "@/state/chat/shared/types/index.ts";
 import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 import {
   isTodoWriteToolName,
@@ -14,7 +14,7 @@ import {
   finalizeCorrelatedSubagentDispatchForToolComplete,
   finalizeSyntheticTaskAgentForToolComplete,
   upsertSyntheticTaskAgentForToolStart,
-} from "@/state/chat/helpers.ts";
+} from "@/state/chat/shared/helpers/index.ts";
 import { applyStreamPartEvent } from "@/state/parts/index.ts";
 
 interface UseChatStreamToolEventsArgs {

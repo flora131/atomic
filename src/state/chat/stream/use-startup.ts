@@ -2,7 +2,7 @@ import { useCallback } from "react";
 import {
   finalizeStreamingReasoningInMessage,
 } from "@/state/parts/index.ts";
-import { createMessage } from "@/state/chat/helpers.ts";
+import { createMessage } from "@/state/chat/shared/helpers/index.ts";
 import type { UseChatStreamLifecycleArgs } from "@/state/chat/stream/lifecycle-types.ts";
 
 type UseChatStreamStartupArgs = Pick<

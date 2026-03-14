@@ -2,6 +2,7 @@ import type { EventBus } from "@/services/events/event-bus.ts";
 import type { AgentMessage } from "@/services/agents/types.ts";
 import type { SubagentStreamResult } from "@/services/workflows/graph/types.ts";
 import { SubagentToolTracker } from "@/services/events/adapters/subagent-tool-tracker.ts";
+import { pipelineLog, pipelineError } from "@/services/events/pipeline-logger.ts";
 import {
   buildSubagentStreamResult,
   finalizeSubagentThinking,
@@ -60,6 +61,12 @@ export class SubagentStreamAdapter {
       agentStartPublished: false,
     };
 
+    pipelineLog("Subagent", "adapter_init", {
+      agentId: options.agentId,
+      agentType: options.agentType,
+      isBackground: options.isBackground,
+    });
+
     publishSubagentAgentStart(this.state);
   }
 
@@ -73,6 +80,11 @@ export class SubagentStreamAdapter {
     resetSubagentStreamState(this.state);
     publishSubagentAgentStart(this.state);
 
+    pipelineLog("Subagent", "stream_start", {
+      agentId: this.state.agentId,
+      runId: this.state.runId,
+    });
+
     try {
       for await (const chunk of stream) {
         if (abortSignal?.aborted) {
@@ -85,15 +97,30 @@ export class SubagentStreamAdapter {
       finalizeSubagentThinking(this.state);
       publishSubagentTextComplete(this.state);
 
-      return buildSubagentStreamResult(this.state, {
+      const result = buildSubagentStreamResult(this.state, {
         startTime,
         success: !abortSignal?.aborted,
         ...(abortSignal?.aborted ? { error: "Sub-agent was aborted" } : {}),
       });
+
+      pipelineLog("Subagent", "stream_complete", {
+        agentId: this.state.agentId,
+        durationMs: result.durationMs,
+        toolUses: result.toolUses,
+        aborted: abortSignal?.aborted ?? false,
+      });
+
+      return result;
     } catch (error) {
       finalizeSubagentThinking(this.state);
       const errorMessage =
         error instanceof Error ? error.message : String(error);
+
+      pipelineError("Subagent", "stream_error", {
+        agentId: this.state.agentId,
+        error: errorMessage,
+      });
+
       publishSubagentSessionError(this.state, errorMessage);
       publishSubagentTextComplete(this.state);
       return buildSubagentStreamResult(this.state, {

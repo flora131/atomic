@@ -6,4 +6,4 @@
 
 export { getToolRegistry, setToolRegistry, ToolRegistry } from "@/services/agents/tools/registry.ts";
 export type { ToolEntry } from "@/services/agents/tools/registry.ts";
-export { registerCustomTools } from "@/services/agents/tools/discovery.ts";
+export { registerCustomTools, cleanupTempToolFiles } from "@/services/agents/tools/discovery.ts";

@@ -201,7 +201,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   console.log("");
 
   // Lazy-load SDK tools and create client
-  const [{ createTodoWriteTool }, { registerCustomTools }] = await Promise.all([
+  const [{ createTodoWriteTool }, { registerCustomTools, cleanupTempToolFiles }] = await Promise.all([
     import("@/services/agents/tools/todo-write.ts"),
     import("@/services/agents/tools/index.ts"),
   ]);
@@ -301,6 +301,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     return 1;
   } finally {
     await client.stop();
+    cleanupTempToolFiles();
     clearProviderDiscoverySessionCache();
   }
 }

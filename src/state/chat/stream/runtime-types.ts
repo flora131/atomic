@@ -6,7 +6,7 @@ import type { AgentLifecycleLedger, AgentLifecycleViolationCode } from "@/lib/ui
 import type { AgentOrderingEvent, AgentOrderingState } from "@/lib/ui/agent-ordering-contract.ts";
 import type { AutoCompactionIndicatorState } from "@/lib/ui/auto-compaction-lifecycle.ts";
 import type { SessionLoopFinishReason } from "@/lib/ui/stream-continuation.ts";
-import type { NormalizedTodoItem } from "@/lib/ui/task-status.ts";
+import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 import type { StreamRunHandle, StreamRunResult } from "@/state/runtime/stream-run-runtime.ts";
 import type {
   ChatMessage,
@@ -14,7 +14,7 @@ import type {
   StreamingMeta,
   ThinkingDropDiagnostics,
 } from "@/state/chat/types.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 
 export interface UseChatStreamRuntimeArgs {
   agentType?: AgentType;

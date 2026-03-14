@@ -2,7 +2,7 @@ import { flushSync } from "@opentui/react";
 import type { CommandContext, CommandContextState } from "@/commands/tui/index.ts";
 import type { SpawnSubagentOptions, StreamMessageOptions } from "@/commands/tui/registry.ts";
 import { sortTasksTopologically } from "@/components/task-order.ts";
-import { normalizeTodoItems } from "@/lib/ui/task-status.ts";
+import { normalizeTodoItems } from "@/state/parts/helpers/task-status.ts";
 import {
   createStartedStreamControlState,
   shouldDeferComposerSubmit,

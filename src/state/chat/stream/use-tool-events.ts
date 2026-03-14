@@ -1,13 +1,13 @@
 import { useCallback } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type { AgentType } from "@/services/models/index.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type { ChatMessage } from "@/state/chat/types.ts";
-import type { NormalizedTodoItem } from "@/lib/ui/task-status.ts";
+import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 import {
   isTodoWriteToolName,
   reconcileTodoWriteItems,
-} from "@/lib/ui/task-status.ts";
+} from "@/state/parts/helpers/task-status.ts";
 import { isAutoCompactionToolName, type AutoCompactionIndicatorState } from "@/lib/ui/auto-compaction-lifecycle.ts";
 import { isAskQuestionToolName, shouldTrackToolAsBlocking } from "@/lib/ui/stream-continuation.ts";
 import {

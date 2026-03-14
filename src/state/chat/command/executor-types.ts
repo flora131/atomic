@@ -7,10 +7,10 @@ import type {
   StreamingMeta,
   WorkflowChatState,
 } from "@/state/chat/types.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
-import type { NormalizedTodoItem } from "@/lib/ui/task-status.ts";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
+import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 import type { McpServerToggleMap } from "@/lib/ui/mcp-output.ts";
-import type { WorkflowInputResolver } from "@/lib/ui/workflow-input-resolver.ts";
+import type { WorkflowInputResolver } from "@/services/workflows/helpers/workflow-input-resolver.ts";
 import type { Model } from "@/services/models/model-transform.ts";
 import type { AgentType, ModelOperations } from "@/services/models/index.ts";
 import type { CreateSessionFn } from "@/services/workflows/graph/types.ts";

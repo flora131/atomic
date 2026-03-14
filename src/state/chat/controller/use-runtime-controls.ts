@@ -14,7 +14,7 @@ import {
   createStoppedStreamControlState,
   type SessionLoopFinishReason,
 } from "@/lib/ui/stream-continuation.ts";
-import type { NormalizedTodoItem } from "@/lib/ui/task-status.ts";
+import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 import { hasWorkflowTaskIdOverlap } from "@/lib/ui/workflow-task-state.ts";
 
 interface UseChatRuntimeControlsArgs {

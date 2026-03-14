@@ -19,7 +19,7 @@ import { MISC, TASK as TASK_ICONS } from "@/theme/icons.ts";
 import { useThemeColors, useTheme, getCatppuccinPalette } from "@/theme/index.tsx";
 import { TaskListIndicator, type TaskItem } from "@/components/task-list-indicator.tsx";
 import { sortTasksTopologically } from "@/components/task-order.ts";
-import { normalizeTaskItem } from "@/lib/ui/task-status.ts";
+import { normalizeTaskItem } from "@/state/parts/helpers/task-status.ts";
 import { shouldAutoClearTaskPanel } from "@/lib/ui/task-list-lifecycle.ts";
 import { SPACING } from "@/theme/spacing.ts";
 

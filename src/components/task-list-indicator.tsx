@@ -18,7 +18,7 @@ import React from "react";
 import { CONNECTOR, TASK } from "@/theme/icons.ts";
 import { useThemeColors, useTheme, getCatppuccinPalette } from "@/theme/index.tsx";
 import { truncateText } from "@/lib/ui/format.ts";
-import { normalizeTaskStatus } from "@/lib/ui/task-status.ts";
+import { normalizeTaskStatus } from "@/state/parts/helpers/task-status.ts";
 import { AnimatedBlinkIndicator } from "@/components/animated-blink-indicator.tsx";
 
 // ============================================================================

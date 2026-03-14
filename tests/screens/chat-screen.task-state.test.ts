@@ -7,7 +7,7 @@ import {
   snapshotTaskItems,
   type WorkflowTaskStateItem,
 } from "@/lib/ui/workflow-task-state.ts";
-import { mergeBlockedBy, type NormalizedTodoItem } from "@/lib/ui/task-status.ts";
+import { mergeBlockedBy, type NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 
 describe("workflow task state helpers", () => {
   test("normalizeInterruptedTasks only resets in_progress to pending", () => {

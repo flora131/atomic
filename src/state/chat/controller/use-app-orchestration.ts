@@ -7,7 +7,7 @@ import { normalizeInterruptedTasks, snapshotTaskItems } from "@/lib/ui/workflow-
 import type { UseMessageQueueReturn } from "@/hooks/use-message-queue.ts";
 import type { MessageSubmitTelemetry, TaskItem, WorkflowChatState } from "@/state/chat/types.ts";
 import type { QueuedMessage } from "@/hooks/use-message-queue.ts";
-import type { NormalizedTodoItem } from "@/lib/ui/task-status.ts";
+import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 
 interface UseChatAppOrchestrationArgs {
   applyWorkflowStateUpdate: (

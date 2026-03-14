@@ -21,11 +21,11 @@ import type { AskUserQuestionEventData } from "@/services/workflows/graph/index.
 import { createMessage } from "@/state/chat/helpers.ts";
 import { applyStreamPartEvent } from "@/state/parts/index.ts";
 import { normalizeHitlAnswer } from "@/lib/ui/hitl-response.ts";
-import { rejectPendingWorkflowInput, type WorkflowInputResolver } from "@/lib/ui/workflow-input-resolver.ts";
+import { rejectPendingWorkflowInput, type WorkflowInputResolver } from "@/services/workflows/helpers/workflow-input-resolver.ts";
 import {
   normalizeTodoItems,
   type NormalizedTodoItem,
-} from "@/lib/ui/task-status.ts";
+} from "@/state/parts/helpers/task-status.ts";
 import {
   applyTaskSnapshotToLatestAssistantMessage,
   preferTerminalTaskItems,

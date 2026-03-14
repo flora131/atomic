@@ -5,7 +5,7 @@ import {
   useState,
 } from "react";
 import { isBackgroundAgent } from "@/lib/ui/background-agent-footer.ts";
-import type { NormalizedTodoItem } from "@/lib/ui/task-status.ts";
+import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 import type { AutoCompactionIndicatorState } from "@/lib/ui/auto-compaction-lifecycle.ts";
 import { type SessionLoopFinishReason } from "@/lib/ui/stream-continuation.ts";
 import { createAgentLifecycleLedger } from "@/lib/ui/agent-lifecycle-ledger.ts";
@@ -26,7 +26,7 @@ import type {
 import {
   createThinkingDropDiagnostics,
 } from "@/state/chat/helpers.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type {
   UseChatStreamRuntimeArgs,
   UseChatStreamRuntimeResult,

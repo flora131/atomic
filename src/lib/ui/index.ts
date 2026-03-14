@@ -19,7 +19,7 @@ export {
   navigateDown,
 } from "@/lib/ui/navigation.ts";
 
-// Task status normalization utilities
+// Task status normalization utilities (re-exported from canonical location)
 export {
   TASK_STATUS_VALUES,
   isTaskStatus,
@@ -31,7 +31,7 @@ export {
   type TaskStatus,
   type NormalizedTaskItem,
   type NormalizedTodoItem,
-} from "@/lib/ui/task-status.ts";
+} from "@/state/parts/helpers/task-status.ts";
 
 // Session info filtering utilities
 export { isLikelyFilePath } from "@/lib/ui/session-info-filters.ts";

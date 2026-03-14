@@ -10,10 +10,10 @@ import type {
   TaskItem,
   WorkflowChatState,
 } from "@/state/chat/types.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type { UseMessageQueueReturn } from "@/hooks/use-message-queue.ts";
-import type { WorkflowInputResolver } from "@/lib/ui/workflow-input-resolver.ts";
-import type { NormalizedTodoItem } from "@/lib/ui/task-status.ts";
+import type { WorkflowInputResolver } from "@/services/workflows/helpers/workflow-input-resolver.ts";
+import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 
 export interface InputScrollbarState {
   visible: boolean;

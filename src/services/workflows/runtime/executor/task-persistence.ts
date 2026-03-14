@@ -1,5 +1,5 @@
 import type { EventBus } from "@/services/events/event-bus.ts";
-import type { NormalizedTodoItem, TaskStatus } from "@/lib/ui/task-status.ts";
+import type { NormalizedTodoItem, TaskStatus } from "@/state/parts/helpers/task-status.ts";
 import type { WorkflowRuntimeTask } from "@/services/workflows/runtime-contracts.ts";
 import {
   incrementRuntimeParityCounter,

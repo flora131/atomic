@@ -2,7 +2,7 @@
  * Helper utilities for working with Parts and ChatMessages
  */
 
-import type { ChatMessage } from "@/screens/chat-screen.tsx";
+import type { ChatMessage } from "@/types/chat.ts";
 import type { TextPart } from "@/state/parts/types.ts";
 
 /**

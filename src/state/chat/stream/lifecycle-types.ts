@@ -1,10 +1,10 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type { AgentType } from "@/services/models/index.ts";
 import type { AgentLifecycleViolationCode } from "@/lib/ui/agent-lifecycle-ledger.ts";
-import type { NormalizedTodoItem } from "@/lib/ui/task-status.ts";
+import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 import type { SessionLoopFinishReason } from "@/lib/ui/stream-continuation.ts";
 import type { ChatMessage, StreamingMeta } from "@/state/chat/types.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type { StreamRunHandle, StreamRunResult } from "@/state/runtime/stream-run-runtime.ts";
 import type { StreamMessageOptions } from "@/commands/tui/registry.ts";
 

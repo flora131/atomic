@@ -20,11 +20,9 @@ import { globalRegistry } from "@/commands/tui/registry.ts";
 import type { TodoItem } from "@/services/agents/tools/todo-write.ts";
 import type { WorkflowRuntimeFeatureFlagOverrides } from "@/services/workflows/runtime-contracts.ts";
 
-import type { NormalizedTodoItem } from "@/lib/ui/task-status.ts";
-import {
-    initWorkflowSession,
-    type WorkflowSession,
-} from "@/services/workflows/session.ts";
+import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
+import { initWorkflowSession } from "@/services/workflows/session.ts";
+import type { WorkflowSession } from "@/services/agent-discovery/index.ts";
 import type { BaseState } from "@/services/workflows/graph/types.ts";
 import { executeWorkflow } from "@/services/workflows/executor.ts";
 import { createRalphWorkflow } from "@/services/workflows/ralph/graph.ts";

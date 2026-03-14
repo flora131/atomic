@@ -8,7 +8,7 @@ import type { BaseState, CompiledGraph, SubagentStreamResult } from "@/services/
 import { type WorkflowDefinition } from "@/commands/tui/workflow-commands.ts";
 import type { CommandContext, CommandResult } from "@/commands/tui/registry.ts";
 import { streamGraph } from "@/services/workflows/graph/compiled.ts";
-import type { NormalizedTodoItem } from "@/lib/ui/task-status.ts";
+import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 import type { EventBus } from "@/services/events/event-bus.ts";
 import {
     resolveWorkflowRuntimeFeatureFlags,

@@ -2,10 +2,10 @@ import { useMemo, type ReactNode } from "react";
 import { MessageBubble } from "@/components/chat-message-bubble.tsx";
 import { shouldShowMessageLoadingIndicator } from "@/lib/ui/loading-state.ts";
 import { shouldHideStaleSubagentToolPlaceholder } from "@/state/chat/helpers.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type { ChatMessage, StreamingMeta, WorkflowChatState } from "@/state/chat/types.ts";
 import type { SyntaxStyle } from "@opentui/core";
-import type { NormalizedTodoItem } from "@/lib/ui/task-status.ts";
+import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 
 interface UseChatRenderModelArgs {
   activeBackgroundAgentCount: number;

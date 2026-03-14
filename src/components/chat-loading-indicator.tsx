@@ -134,8 +134,10 @@ export function StreamingBullet({
   }, [speed]);
 
   return (
-    <span style={{ fg: themeColors.accent }}>
-      {visible ? "\u25cf" : MISC.separator}{" "}
-    </span>
+    <text>
+      <span style={{ fg: themeColors.accent }}>
+        {visible ? "\u25cf" : MISC.separator}{" "}
+      </span>
+    </text>
   );
 }

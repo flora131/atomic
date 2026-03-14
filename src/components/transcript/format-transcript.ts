@@ -62,11 +62,9 @@ export function formatTranscript(options: FormatTranscriptOptions): TranscriptLi
         const isHitlTool = toolCall.toolName === "AskUserQuestion"
           || toolCall.toolName === "question"
           || toolCall.toolName === "ask_user";
-        const statusIcon = toolCall.status === "error"
-          ? STATUS.error
-          : toolCall.status === "pending"
-            ? STATUS.pending
-            : STATUS.active;
+        const statusIcon = toolCall.status === "pending"
+          ? STATUS.pending
+          : STATUS.active;
 
         if (isHitlTool) {
           lines.push(transcriptLine("tool-header", `${statusIcon} ${toolCall.toolName}`));

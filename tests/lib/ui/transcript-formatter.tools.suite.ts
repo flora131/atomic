@@ -256,7 +256,7 @@ describe("formatTranscript - Non-HITL Tool Calls", () => {
 
     const headerLine = findFirstLineByType(lines, "tool-header");
     expect(headerLine).toBeDefined();
-    expect(headerLine!.content).toContain("✗");
+    expect(headerLine!.content).toContain("●");
   });
 
   test("renders unknown tool with default input formatting", () => {

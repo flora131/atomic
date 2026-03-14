@@ -127,6 +127,26 @@ describe("StreamPipelineConsumer", () => {
     });
   });
 
+  it("emits thinking-complete event on stream.thinking.complete", () => {
+    consumer.processBatch([
+      {
+        type: "stream.thinking.complete",
+        sessionId: "test",
+        runId: 1,
+        timestamp: Date.now(),
+        data: { sourceKey: "0", durationMs: 500 },
+      },
+    ]);
+
+    expect(receivedEvents).toHaveLength(1);
+    expect(receivedEvents[0]).toMatchObject({
+      type: "thinking-complete",
+      runId: 1,
+      sourceKey: "0",
+      durationMs: 500,
+    });
+  });
+
   it("should map stream.thinking.delta agentId to thinking-meta agentId", () => {
     consumer.processBatch([
       {

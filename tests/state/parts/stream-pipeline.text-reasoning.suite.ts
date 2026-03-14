@@ -185,20 +185,20 @@ describe("applyStreamPartEvent - text and reasoning", () => {
 
     const next = applyStreamPartEvent(msg, { type: "text-delta", delta: "continues" });
 
-    expect(next.parts?.map((part) => part.type)).toEqual(["reasoning", "text"]);
+    expect(next.parts?.map((part) => part.type)).toEqual(["text", "reasoning"]);
     expect(next.content).toBe("Answer continues");
 
-    const reasoningPart = next.parts?.[0];
+    const textPart = next.parts?.[0];
+    expect(textPart?.type).toBe("text");
+    if (textPart?.type === "text") {
+      expect(textPart.content).toBe("Answer continues");
+    }
+
+    const reasoningPart = next.parts?.[1];
     expect(reasoningPart?.type).toBe("reasoning");
     if (reasoningPart?.type === "reasoning") {
       expect(reasoningPart.content).toBe("initial thought with refinement");
       expect(reasoningPart.durationMs).toBe(1250);
-    }
-
-    const textPart = next.parts?.[1];
-    expect(textPart?.type).toBe("text");
-    if (textPart?.type === "text") {
-      expect(textPart.content).toBe("Answer continues");
     }
   });
 

@@ -196,7 +196,7 @@ export class StreamPipelineConsumer {
           runId: event.runId,
           thinkingSourceKey: data.sourceKey,
           targetMessageId: data.messageId,
-          streamGeneration: 0, // Default value - updated by correlation service if needed
+          streamGeneration: 0,
           thinkingText: data.delta,
           thinkingMs: 0, // Duration tracking handled elsewhere
           ...(data.agentId ? { agentId: data.agentId } : {}),
@@ -394,9 +394,20 @@ export class StreamPipelineConsumer {
       case "stream.agent.update":
         return null;
 
-      // Thinking finalization — consumed by useStreamSessionSubscriptions (direct bus subscriptions)
-      case "stream.thinking.complete":
-        return null;
+      // Thinking finalization — also consumed by useStreamSessionSubscriptions
+      // (direct bus subscriptions) for thinkingMs metadata.  The pipeline
+      // event finalizes the reasoning part so subsequent thinking deltas
+      // with the same sourceKey create a new part in chronological order.
+      case "stream.thinking.complete": {
+        const data = event.data as BusEventDataMap["stream.thinking.complete"];
+        return [{
+          type: "thinking-complete",
+          runId: event.runId,
+          sourceKey: data.sourceKey,
+          durationMs: data.durationMs,
+          ...(data.agentId ? { agentId: data.agentId } : {}),
+        }];
+      }
 
       // Interactive flows — consumed by useStreamSessionSubscriptions (direct bus subscriptions)
       case "stream.permission.requested":

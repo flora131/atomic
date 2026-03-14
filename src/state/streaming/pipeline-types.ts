@@ -61,6 +61,14 @@ export interface ThinkingMetaEvent {
   provider?: ThinkingProvider;
 }
 
+export interface ThinkingCompleteEvent {
+  type: "thinking-complete";
+  runId?: number;
+  sourceKey: string;
+  durationMs: number;
+  agentId?: string;
+}
+
 export interface HitlRequestEvent {
   type: "tool-hitl-request";
   runId?: number;
@@ -148,6 +156,7 @@ export type StreamPartEvent =
   | TextDeltaEvent
   | TextCompleteEvent
   | ThinkingMetaEvent
+  | ThinkingCompleteEvent
   | ToolStartEvent
   | ToolCompleteEvent
   | ToolPartialResultEvent

@@ -253,6 +253,26 @@ export function useChatStreamConsumer({
         }
         continue;
       }
+      if (part.type === "thinking-complete") {
+        const messageId = resolveAgentScopedMessageId(part.agentId);
+        if (!messageId) continue;
+        // Clear accumulated text so the next thinking block with the
+        // same sourceKey starts fresh instead of appending.
+        const previousMeta = streamingMetaRef.current;
+        if (previousMeta?.thinkingTextBySource?.[part.sourceKey] !== undefined) {
+          const thinkingTextBySource = { ...previousMeta.thinkingTextBySource };
+          delete thinkingTextBySource[part.sourceKey];
+          const nextMeta: StreamingMeta = {
+            ...previousMeta,
+            thinkingTextBySource,
+            thinkingText: joinThinkingBlocks(Object.values(thinkingTextBySource)),
+          };
+          streamingMetaRef.current = nextMeta;
+          setStreamingMeta(nextMeta);
+        }
+        queueMessagePartUpdate(messageId, part);
+        continue;
+      }
       if (part.type === "thinking-meta") {
         const messageId = resolveAgentScopedMessageId(part.agentId);
         if (!messageId) continue;

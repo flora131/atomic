@@ -254,7 +254,6 @@ describe("StreamPipelineConsumer", () => {
       { ...base, type: "stream.turn.end", data: { turnId: "t1" } },
       { ...base, type: "stream.agent.start", data: { agentId: "a1", toolCallId: "tc1", agentType: "task", task: "do it", isBackground: false } },
       { ...base, type: "stream.agent.update", data: { agentId: "a1" } },
-      { ...base, type: "stream.thinking.complete", data: { sourceKey: "sk1", durationMs: 100 } },
       { ...base, type: "stream.permission.requested", data: { requestId: "r1", toolName: "bash", question: "allow?", options: [{ label: "Yes", value: "yes" }] } },
       { ...base, type: "stream.human_input_required", data: { requestId: "r1", question: "input?", nodeId: "n1" } },
       { ...base, type: "stream.usage", data: { inputTokens: 100, outputTokens: 50 } },

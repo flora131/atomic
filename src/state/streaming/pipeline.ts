@@ -24,6 +24,7 @@ import {
   carryReasoningPartRegistry,
   finalizeStreamingReasoningInMessage,
   finalizeStreamingReasoningParts,
+  finalizeThinkingSource,
   upsertThinkingMeta,
   upsertThinkingMetaPart,
 } from "@/state/streaming/pipeline-thinking.ts";
@@ -42,6 +43,7 @@ import {
 } from "@/state/streaming/pipeline-workflow.ts";
 import type {
   StreamPartEvent,
+  ThinkingCompleteEvent,
   ThinkingMetaEvent,
   ThinkingProvider,
 } from "@/state/streaming/pipeline-types.ts";
@@ -49,6 +51,7 @@ import { createPartId } from "@/state/parts/id.ts";
 
 export type {
   StreamPartEvent,
+  ThinkingCompleteEvent,
   ThinkingMetaEvent,
   ThinkingProvider,
 } from "@/state/streaming/pipeline-types.ts";
@@ -140,6 +143,9 @@ export function applyStreamPartEvent(
       }
       return upsertThinkingMeta(message, event);
     }
+
+    case "thinking-complete":
+      return finalizeThinkingSource(message, event.sourceKey, event.durationMs);
 
     case "tool-start": {
       if (event.agentId && message.parts) {

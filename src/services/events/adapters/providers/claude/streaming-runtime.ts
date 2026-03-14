@@ -111,6 +111,18 @@ export async function startClaudeStreaming(args: {
   const providerClient = client as (CodingAgentClient & ClaudeProviderEventSource) | undefined;
   if (providerClient && typeof providerClient.onProviderEvent === "function") {
     args.setPreferClientToolHooks(true);
+    // Intentionally omitted SDK event types:
+    //
+    // - session.start: The adapter publishes stream.session.start directly
+    //   via publishSessionStart() above, before event subscription begins.
+    //   See event-coverage-policy.ts (no_op).
+    //
+    // - session.idle: Handled by the streaming runtime's own completion
+    //   logic in the finally block (publishSessionIdle / publishSessionPartialIdle),
+    //   not via provider events.
+    //
+    // - session.retry: Emitted by the retry loop below directly to the bus,
+    //   bypassing the provider event handler path entirely.
     const providerEventTypes: ProviderStreamEventType[] = [
       "tool.start",
       "tool.complete",

@@ -284,6 +284,14 @@ function routeCopilotProviderEvent(
         ),
       );
       break;
+    // Intentionally unhandled SDK events:
+    //
+    // - session.start: The adapter publishes stream.session.start directly in
+    //   the runtime startup path (runtime.ts) before event subscription begins,
+    //   so this SDK event is never observed here. See event-coverage-policy.ts (no_op).
+    //
+    // - session.retry: Emitted by the streaming runtime retry loop (runtime.ts)
+    //   directly to the bus, bypassing the provider event handler path entirely.
     default:
       break;
   }

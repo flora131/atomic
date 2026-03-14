@@ -48,6 +48,10 @@ export const ALL_SDK_EVENT_TYPES: EventType[] = [
 type ProviderCoverage = Record<EventType, EventCoverageRule>;
 
 const OPENCODE_EVENT_COVERAGE: ProviderCoverage = {
+  // Intentionally no_op: the adapter publishes stream.session.start directly
+  // in startStreaming() before provider events are subscribed, so this SDK
+  // event is never observed by the handler factory. The canonical event is
+  // guaranteed to be emitted exactly once per streaming run.
   "session.start": {
     disposition: "no_op",
     canonicalEvents: [],

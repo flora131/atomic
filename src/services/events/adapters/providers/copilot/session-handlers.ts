@@ -334,7 +334,11 @@ export function handleCopilotSessionInfo(
   });
 }
 
-// No-op: suppress all Copilot session warnings to avoid noisy UI messages
+// No-op: Copilot SDK session.warning events are suppressed because they carry
+// internal SDK diagnostics (e.g. deprecation notices, config hints) that are
+// operational noise rather than user-actionable information. The corresponding
+// stream.session.warning bus event is still consumed by useStreamSessionSubscriptions
+// for providers that do emit meaningful warnings (e.g. OpenCode, Claude).
 export function handleCopilotSessionWarning(
   _context: CopilotSessionHandlerContext,
   _event: AgentEvent<"session.warning">,

@@ -297,6 +297,34 @@ export class StreamPipelineConsumer {
         return mapped;
       }
 
+      case "workflow.task.statusChange": {
+        const data = event.data as BusEventDataMap["workflow.task.statusChange"];
+        const mapped: StreamPartEvent[] = [{
+          type: "task-list-update",
+          runId: event.runId,
+          tasks: data.tasks.map((task) => ({
+            id: task.id,
+            title: task.title,
+            status: task.status,
+            ...(task.blockedBy ? { blockedBy: task.blockedBy } : {}),
+          })),
+        }];
+
+        for (const task of data.tasks) {
+          if (!task.taskResult) {
+            continue;
+          }
+
+          mapped.push({
+            type: "task-result-upsert",
+            runId: event.runId,
+            envelope: task.taskResult,
+          });
+        }
+
+        return mapped;
+      }
+
       case "workflow.step.start": {
         const data = event.data as BusEventDataMap["workflow.step.start"];
         return [{
@@ -323,10 +351,61 @@ export class StreamPipelineConsumer {
         }];
       }
 
-      default:
-        // Other event types are not mapped to StreamPartEvents
-        // (they may be handled by other consumers)
-        pipelineLog("Consumer", "unmapped", { type: event.type });
+      // ─── Intentionally unhandled in the pipeline consumer ───
+      //
+      // The following canonical bus events are NOT mapped to StreamPartEvents
+      // because they are consumed by direct bus subscriptions elsewhere in the
+      // UI layer. The pipeline consumer only produces StreamPartEvents for the
+      // streaming message reducer (applyStreamPartEvent); all other UI effects
+      // are driven by the typed bus subscriptions listed below.
+      //
+      // Modifying this list? Update event-coverage-policy.ts and the
+      // corresponding useStream*Subscriptions hooks in state/chat/stream/.
+
+      // Session lifecycle — consumed by useStreamSessionSubscriptions (direct bus subscriptions)
+      case "stream.session.start":
+      case "stream.session.idle":
+      case "stream.session.partial-idle":
+      case "stream.session.error":
+        return null;
+
+      // Session retry — emitted by the adapter retry loop for diagnostics.
+      // Consumed by the debug-subscriber for logging; no UI representation
+      // because retries are transparent to the user (the adapter re-enters
+      // the streaming loop automatically).
+      case "stream.session.retry":
+        return null;
+
+      // Session metadata — consumed by useStreamSessionSubscriptions (direct bus subscriptions)
+      case "stream.session.info":
+      case "stream.session.warning":
+      case "stream.session.title_changed":
+      case "stream.session.truncation":
+      case "stream.session.compaction":
+        return null;
+
+      // Turn lifecycle — consumed by useStreamSessionSubscriptions (direct bus subscriptions)
+      case "stream.turn.start":
+      case "stream.turn.end":
+        return null;
+
+      // Agent lifecycle — consumed by useStreamAgentSubscriptions (direct bus subscriptions)
+      case "stream.agent.start":
+      case "stream.agent.update":
+        return null;
+
+      // Thinking finalization — consumed by useStreamSessionSubscriptions (direct bus subscriptions)
+      case "stream.thinking.complete":
+        return null;
+
+      // Interactive flows — consumed by useStreamSessionSubscriptions (direct bus subscriptions)
+      case "stream.permission.requested":
+      case "stream.human_input_required":
+        return null;
+
+      // Metadata — consumed by useStreamSessionSubscriptions (direct bus subscriptions)
+      case "stream.usage":
+      case "stream.skill.invoked":
         return null;
     }
   }

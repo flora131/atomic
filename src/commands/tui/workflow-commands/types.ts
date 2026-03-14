@@ -14,7 +14,6 @@ export type {
   WorkflowMetadata,
   WorkflowStateMigrator,
   WorkflowStateParams,
-  WorkflowTask,
 } from "@/services/workflows/workflow-types.ts";
 
 import type { WorkflowCommandArgs } from "@/services/workflows/workflow-types.ts";

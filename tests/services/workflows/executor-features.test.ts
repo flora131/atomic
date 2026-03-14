@@ -4,17 +4,18 @@
  */
 
 import { test, expect, describe } from "bun:test";
-import type { WorkflowTask, WorkflowDefinition } from "@/commands/tui/workflow-commands.ts";
+import type { WorkflowDefinition } from "@/commands/tui/workflow-commands.ts";
+import type { WorkflowRuntimeTask } from "@/services/workflows/runtime-contracts.ts";
 import type { BaseState } from "@/services/workflows/graph/types.ts";
 
 // ============================================================================
-// Task #46: Integration test — task list updates with WorkflowTask
+// Task #46: Integration test — task list updates with WorkflowRuntimeTask
 // ============================================================================
 
-describe("WorkflowTask interface shape", () => {
-    test("WorkflowTask has all required fields (id, title, status)", () => {
-        // Create a sample WorkflowTask object
-        const task: WorkflowTask = {
+describe("WorkflowRuntimeTask interface shape", () => {
+    test("WorkflowRuntimeTask has all required fields (id, title, status)", () => {
+        // Create a sample WorkflowRuntimeTask object
+        const task: WorkflowRuntimeTask = {
             id: "#1",
             title: "Implement feature X",
             status: "pending",
@@ -26,18 +27,19 @@ describe("WorkflowTask interface shape", () => {
         expect(task.status).toBe("pending");
     });
 
-    test("WorkflowTask allows all valid status values", () => {
+    test("WorkflowRuntimeTask allows all valid status values", () => {
         // Test each valid status value
-        const statuses: Array<WorkflowTask["status"]> = [
+        const statuses: Array<WorkflowRuntimeTask["status"]> = [
             "pending",
             "in_progress",
             "completed",
             "failed",
             "blocked",
+            "error",
         ];
 
         for (const status of statuses) {
-            const task: WorkflowTask = {
+            const task: WorkflowRuntimeTask = {
                 id: `#${status}`,
                 title: `Task with ${status} status`,
                 status,
@@ -47,9 +49,9 @@ describe("WorkflowTask interface shape", () => {
         }
     });
 
-    test("WorkflowTask blockedBy field is optional", () => {
+    test("WorkflowRuntimeTask blockedBy field is optional", () => {
         // Task without blockedBy
-        const task1: WorkflowTask = {
+        const task1: WorkflowRuntimeTask = {
             id: "#1",
             title: "Independent task",
             status: "pending",
@@ -58,7 +60,7 @@ describe("WorkflowTask interface shape", () => {
         expect(task1.blockedBy).toBeUndefined();
 
         // Task with blockedBy
-        const task2: WorkflowTask = {
+        const task2: WorkflowRuntimeTask = {
             id: "#2",
             title: "Dependent task",
             status: "blocked",
@@ -68,9 +70,9 @@ describe("WorkflowTask interface shape", () => {
         expect(task2.blockedBy).toEqual(["#1"]);
     });
 
-    test("WorkflowTask error field is optional", () => {
+    test("WorkflowRuntimeTask error field is optional", () => {
         // Task without error
-        const task1: WorkflowTask = {
+        const task1: WorkflowRuntimeTask = {
             id: "#1",
             title: "Successful task",
             status: "completed",
@@ -79,7 +81,7 @@ describe("WorkflowTask interface shape", () => {
         expect(task1.error).toBeUndefined();
 
         // Task with error
-        const task2: WorkflowTask = {
+        const task2: WorkflowRuntimeTask = {
             id: "#2",
             title: "Failed task",
             status: "failed",
@@ -89,9 +91,9 @@ describe("WorkflowTask interface shape", () => {
         expect(task2.error).toBe("Network timeout");
     });
 
-    test("WorkflowTask with all optional fields", () => {
+    test("WorkflowRuntimeTask with all optional fields", () => {
         // Complete task with all fields
-        const task: WorkflowTask = {
+        const task: WorkflowRuntimeTask = {
             id: "#3",
             title: "Complex task",
             status: "blocked",
@@ -106,9 +108,9 @@ describe("WorkflowTask interface shape", () => {
         expect(task.error).toBe("Waiting for dependencies");
     });
 
-    test("WorkflowTask array with mixed configurations", () => {
+    test("WorkflowRuntimeTask array with mixed configurations", () => {
         // Array of tasks with different configurations
-        const tasks: WorkflowTask[] = [
+        const tasks: WorkflowRuntimeTask[] = [
             {
                 id: "#1",
                 title: "First task",

@@ -1,5 +1,5 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
-import type { CorrelationService } from "@/services/events/consumers/correlation-service.ts";
+import type { OwnershipTracker } from "@/services/events/consumers/wire-consumers.ts";
 import type { Session } from "@/services/agents/types.ts";
 import type { AgentType } from "@/services/models/index.ts";
 import type { AgentLifecycleLedger, AgentLifecycleViolationCode } from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
@@ -120,7 +120,7 @@ export interface UseChatStreamRuntimeResult {
     deleteAgentMessageBinding: (agentId: string) => void;
     finalizeThinkingSourceTracking: (options?: { preserveStreamingMeta?: boolean }) => void;
     getActiveStreamRunId: () => string | null;
-    getCorrelationService: () => CorrelationService | null;
+    getOwnershipTracker: () => OwnershipTracker | null;
     handleStreamComplete: () => void;
     handleStreamStartupError: (error: unknown) => void;
     hasPendingTaskResultContract: () => boolean;

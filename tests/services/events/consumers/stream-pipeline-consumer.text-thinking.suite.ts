@@ -1,20 +1,17 @@
 import { beforeEach, describe, expect, it } from "bun:test";
-import { CorrelationService } from "@/services/events/consumers/correlation-service.ts";
 import { EchoSuppressor } from "@/services/events/consumers/echo-suppressor.ts";
 import { StreamPipelineConsumer } from "@/services/events/consumers/stream-pipeline-consumer.ts";
 import type { EnrichedBusEvent } from "@/services/events/bus-events.ts";
 import type { StreamPartEvent } from "@/state/parts/stream-pipeline.ts";
 
 describe("StreamPipelineConsumer", () => {
-  let correlation: CorrelationService;
   let echoSuppressor: EchoSuppressor;
   let consumer: StreamPipelineConsumer;
   let receivedEvents: StreamPartEvent[] = [];
 
   beforeEach(() => {
-    correlation = new CorrelationService();
     echoSuppressor = new EchoSuppressor();
-    consumer = new StreamPipelineConsumer(correlation, echoSuppressor);
+    consumer = new StreamPipelineConsumer(echoSuppressor);
     receivedEvents = [];
     consumer.onStreamParts((events) => {
       receivedEvents.push(...events);

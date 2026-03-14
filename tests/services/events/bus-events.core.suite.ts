@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { BusEventSchemas } from "@/services/events/bus-events.ts";
 import type { BusEvent, BusEventDataMap, BusEventType, EnrichedBusEvent } from "@/services/events/bus-events.ts";
 
 describe("BusEvent Type Definitions", () => {
@@ -143,34 +144,25 @@ describe("BusEvent Type Definitions", () => {
   });
 
   it("should ensure all event types are covered in BusEventDataMap", () => {
-    const eventTypes: BusEventType[] = [
-      "stream.text.delta",
-      "stream.text.complete",
-      "stream.thinking.delta",
-      "stream.thinking.complete",
-      "stream.tool.start",
-      "stream.tool.complete",
-      "stream.agent.start",
-      "stream.agent.update",
-      "stream.agent.complete",
-      "stream.session.start",
-      "stream.session.idle",
-      "stream.session.partial-idle",
-      "stream.session.error",
-      "workflow.step.start",
-      "workflow.step.complete",
-      "workflow.task.update",
-      "workflow.task.statusChange",
-      "stream.permission.requested",
-      "stream.human_input_required",
-      "stream.skill.invoked",
-      "stream.usage",
-    ];
+    const eventTypes = Object.keys(BusEventSchemas) as BusEventType[];
 
     eventTypes.forEach((type) => {
       const check: keyof BusEventDataMap = type;
       expect(check).toBeDefined();
     });
+  });
+
+  it("should parse workflow.task.statusChange payloads with workflowId", () => {
+    const parsed = BusEventSchemas["workflow.task.statusChange"].parse({
+      workflowId: "workflow-1",
+      taskIds: ["task-1"],
+      newStatus: "completed",
+      tasks: [{ id: "task-1", title: "First task", status: "completed" }],
+    });
+
+    expect(parsed.workflowId).toBe("workflow-1");
+    expect(parsed.newStatus).toBe("completed");
+    expect(parsed.tasks[0]?.status).toBe("completed");
   });
 
   it("should create a valid workflow.task.statusChange event", () => {

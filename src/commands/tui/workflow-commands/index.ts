@@ -67,7 +67,6 @@ export type {
     WorkflowMetadata,
     WorkflowStateMigrator,
     WorkflowStateParams,
-    WorkflowTask,
 } from "./types.ts";
 
 // ============================================================================

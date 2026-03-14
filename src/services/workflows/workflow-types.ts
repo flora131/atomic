@@ -36,14 +36,6 @@ export interface WorkflowMetadata {
   argumentHint?: string;
 }
 
-export interface WorkflowTask {
-  id: string;
-  title: string;
-  status: "pending" | "in_progress" | "completed" | "failed" | "blocked";
-  blockedBy?: string[];
-  error?: string;
-}
-
 export interface WorkflowGraphConfig<TState extends BaseState = BaseState> {
   nodes: NodeDefinition<TState>[];
   edges: Edge<TState>[];

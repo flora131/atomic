@@ -106,7 +106,7 @@ async function replayScenario(runId: number, sessionId: string, agentIds: string
   const scenario = agentIds.length > 1 ? "multi" : "single";
   const bus = new EventBus();
   const dispatcher = new BatchDispatcher(bus);
-  const { pipeline, correlation, dispose } = wireConsumers(bus, dispatcher);
+  const { pipeline, dispose } = wireConsumers(bus, dispatcher);
   const streamEvents: StreamPartEvent[] = [];
   const orderingState = createAgentOrderingState();
   const deferredByAgent = new Map<string, Array<{ delta: string; runId?: number }>>();
@@ -230,7 +230,7 @@ async function replayScenario(runId: number, sessionId: string, agentIds: string
   };
 
   try {
-    correlation.startRun(runId, sessionId);
+    publishEvent(bus, sessionId, runId, "stream.session.start", {});
     message = applyStreamPartEvent(message, {
       type: "parallel-agents",
       runId,

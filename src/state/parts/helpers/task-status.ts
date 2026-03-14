@@ -1,5 +1,5 @@
 import { sortTasksTopologically } from "@/components/task-order.ts";
-import type { WorkflowRuntimeTaskResultEnvelope } from "@/services/workflows/runtime-contracts.ts";
+import type { WorkflowRuntimeTaskIdentity, WorkflowRuntimeTaskResultEnvelope } from "@/services/workflows/runtime-contracts.ts";
 
 /**
  * Task status normalization helpers.
@@ -42,10 +42,7 @@ export interface NormalizedTaskItem {
   description: string;
   status: TaskStatus;
   blockedBy?: string[];
-  identity?: {
-    canonicalId?: string;
-    providerBindings?: Record<string, string[]>;
-  };
+  identity?: WorkflowRuntimeTaskIdentity;
   taskResult?: WorkflowRuntimeTaskResultEnvelope;
 }
 

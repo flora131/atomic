@@ -21,6 +21,7 @@ import type {
 import type {
   WorkflowRuntimeTask,
   WorkflowRuntimeTaskIdentityRuntime,
+  WorkflowRuntimeTaskStatus,
 } from "@/services/workflows/runtime-contracts.ts";
 
 /**
@@ -88,7 +89,7 @@ export interface RalphRuntimeDependencies {
   /** Publish workflow.task.statusChange events (optional — degrades gracefully). */
   notifyTaskStatusChange?: (
     taskIds: string[],
-    newStatus: string,
+    newStatus: WorkflowRuntimeTaskStatus,
     tasks: WorkflowRuntimeTask[],
   ) => void;
 }

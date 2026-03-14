@@ -18,6 +18,7 @@ import type {
   WorkflowRuntimeFeatureFlags,
   WorkflowRuntimeTask,
   WorkflowRuntimeTaskIdentityRuntime,
+  WorkflowRuntimeTaskStatus,
 } from "@/services/workflows/runtime-contracts.ts";
 
 export interface NodeResult<TState extends BaseState = BaseState> {
@@ -117,7 +118,7 @@ export interface GraphRuntimeDependencies {
   };
   notifyTaskStatusChange?: (
     taskIds: string[],
-    newStatus: string,
+    newStatus: WorkflowRuntimeTaskStatus,
     tasks: WorkflowRuntimeTask[],
   ) => void;
 }

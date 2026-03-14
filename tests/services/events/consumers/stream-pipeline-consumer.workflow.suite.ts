@@ -1,24 +1,31 @@
-import { beforeEach, describe, expect, it } from "bun:test";
-import { CorrelationService } from "@/services/events/consumers/correlation-service.ts";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { EchoSuppressor } from "@/services/events/consumers/echo-suppressor.ts";
 import { StreamPipelineConsumer } from "@/services/events/consumers/stream-pipeline-consumer.ts";
-import type { EnrichedBusEvent } from "@/services/events/bus-events.ts";
+import {
+  EventHandlerRegistry,
+  getEventHandlerRegistry,
+  setEventHandlerRegistry,
+} from "@/services/events/registry/index.ts";
+import type { BusEventDataMap, EnrichedBusEvent } from "@/services/events/bus-events.ts";
 import type { StreamPartEvent } from "@/state/parts/stream-pipeline.ts";
 
 describe("StreamPipelineConsumer", () => {
-  let correlation: CorrelationService;
+  const originalRegistry = getEventHandlerRegistry();
   let echoSuppressor: EchoSuppressor;
   let consumer: StreamPipelineConsumer;
   let receivedEvents: StreamPartEvent[] = [];
 
   beforeEach(() => {
-    correlation = new CorrelationService();
     echoSuppressor = new EchoSuppressor();
-    consumer = new StreamPipelineConsumer(correlation, echoSuppressor);
+    consumer = new StreamPipelineConsumer(echoSuppressor);
     receivedEvents = [];
     consumer.onStreamParts((events) => {
       receivedEvents.push(...events);
     });
+  });
+
+  afterEach(() => {
+    setEventHandlerRegistry(originalRegistry);
   });
 
   it("should map workflow.step.start to workflow-step-start event", () => {
@@ -265,6 +272,36 @@ describe("StreamPipelineConsumer", () => {
     }
 
     expect(receivedEvents).toHaveLength(0);
+  });
+
+  it("dispatches stream-part mapping through the registry", () => {
+    const customRegistry = new EventHandlerRegistry();
+    customRegistry.register("stream.session.info", {
+      toStreamPart: (event) => ({
+        type: "text-delta",
+        runId: event.runId,
+        delta: (event.data as BusEventDataMap["stream.session.info"]).message,
+      }),
+    });
+    setEventHandlerRegistry(customRegistry);
+
+    consumer.processBatch([
+      {
+        type: "stream.session.info",
+        sessionId: "test",
+        runId: 1,
+        timestamp: Date.now(),
+        data: { infoType: "test", message: "registry mapped" },
+      },
+    ]);
+
+    expect(receivedEvents).toEqual([
+      {
+        type: "text-delta",
+        runId: 1,
+        delta: "registry mapped",
+      },
+    ]);
   });
 
   it("should support callback unsubscribe", () => {

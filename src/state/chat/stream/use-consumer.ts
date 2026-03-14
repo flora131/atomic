@@ -135,7 +135,7 @@ export function useChatStreamConsumer({
     deferredPostCompleteDeltasByAgentRef,
   });
 
-  const { resetConsumers, getCorrelationService } = useStreamConsumer((parts) => {
+  const { resetConsumers, getOwnershipTracker } = useStreamConsumer((parts) => {
     const { queueMessagePartUpdate, updatesByMessageId } = createStreamPartBatch();
 
     for (const part of parts) {
@@ -366,5 +366,5 @@ export function useChatStreamConsumer({
     applyStreamPartBatchToMessages(updatesByMessageId, setMessagesWindowed);
   });
 
-  return { getCorrelationService, resetConsumers };
+  return { getOwnershipTracker, resetConsumers };
 }

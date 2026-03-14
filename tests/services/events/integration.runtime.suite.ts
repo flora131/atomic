@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { ClaudeStreamAdapter } from "@/services/events/adapters/claude-adapter.ts";
 import { OpenCodeStreamAdapter } from "@/services/events/adapters/opencode-adapter.ts";
 import { wireConsumers } from "@/services/events/consumers/wire-consumers.ts";
-import type { BusEvent, EnrichedBusEvent } from "@/services/events/bus-events.ts";
+import type { BusEvent } from "@/services/events/bus-events.ts";
 import type { AgentEvent, AgentMessage, EventType } from "@/services/agents/types.ts";
 import type { StreamPartEvent } from "@/state/parts/stream-pipeline.ts";
 import {
@@ -252,66 +252,7 @@ describe("Event Bus Integration", () => {
     adapter.dispose();
   });
 
-  test("correlation enriches tool events with agent metadata", async () => {
-    const { correlation, dispose } = wireConsumers(bus, dispatcher);
-    const enrichedEvents: EnrichedBusEvent[] = [];
-    bus.onAll((event) => {
-      enrichedEvents.push(correlation.enrich(event));
-    });
-
-    const client = createMockClient();
-
-    async function* slowStream(): AsyncGenerator<AgentMessage> {
-      yield { type: "text", content: "start" };
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      yield { type: "text", content: "end" };
-    }
-
-    const session = createMockSession(slowStream(), client);
-    const adapter = new OpenCodeStreamAdapter(bus, "test-session-corr");
-    const streamPromise = adapter.startStreaming(session, "test message", {
-      runId: 10,
-      messageId: "msg-10",
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 5));
-
-    correlation.registerTool("tool-789", "agent-parent", true);
-
-    client.emit("tool.start" as EventType, {
-      type: "tool.start",
-      sessionId: "test-session-corr",
-      timestamp: Date.now(),
-      data: {
-        toolName: "view",
-        toolInput: { path: "/test.ts" },
-        toolUseId: "tool-789",
-      },
-    } as AgentEvent<"tool.start">);
-
-    client.emit("tool.complete" as EventType, {
-      type: "tool.complete",
-      sessionId: "test-session-corr",
-      timestamp: Date.now(),
-      data: {
-        toolName: "view",
-        toolResult: "file contents",
-        success: true,
-        toolUseId: "tool-789",
-      },
-    } as AgentEvent<"tool.complete">);
-
-    await streamPromise;
-    await flushMicrotasks();
-    await waitForBatchFlush();
-
-    const toolCompletes = enrichedEvents.filter((event) => event.type === "stream.tool.complete");
-    expect(toolCompletes.length).toBeGreaterThan(0);
-    const toolComplete = toolCompletes[0];
-    expect(toolComplete.resolvedAgentId).toBe("agent-parent");
-    expect(toolComplete.isSubagentTool).toBe(true);
-
-    dispose();
-    adapter.dispose();
-  });
+  // Test removed: "correlation enriches tool events with agent metadata"
+  // Correlation enrichment is now handled at the adapter layer via correlate()
+  // in adapters/shared/adapter-correlation.ts. See adapter-level tests for coverage.
 });

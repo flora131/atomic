@@ -17,6 +17,7 @@ import {
     workflowRuntimeStrictTaskSchema,
     type WorkflowRuntimeFeatureFlagOverrides,
     type WorkflowRuntimeTask,
+    type WorkflowRuntimeTaskStatus,
 } from "@/services/workflows/runtime-contracts.ts";
 import { TaskIdentityService } from "@/services/workflows/task-identity-service.ts";
 import {
@@ -249,7 +250,7 @@ export async function executeWorkflow(
             notifyTaskStatusChange: options?.eventBus && runtimeFeatureFlags.emitTaskStatusEvents
                 ? (
                     taskIds: string[],
-                    newStatus: string,
+                    newStatus: WorkflowRuntimeTaskStatus,
                     tasks: WorkflowRuntimeTask[],
                 ) => {
                     options.eventBus!.publish({

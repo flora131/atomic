@@ -66,12 +66,12 @@ describe("concurrent agent inline part isolation (integration)", () => {
   test("keeps interleaved concurrent agent events isolated per inlineParts branch", async () => {
     const bus = new EventBus();
     const dispatcher = new BatchDispatcher(bus);
-    const { pipeline, correlation, dispose } = wireConsumers(bus, dispatcher);
+    const { pipeline, dispose } = wireConsumers(bus, dispatcher);
     const streamEvents: StreamPartEvent[] = [];
     pipeline.onStreamParts((events) => streamEvents.push(...events));
 
     try {
-      correlation.startRun(RUN_ID, SESSION_ID);
+      publishEvent(bus, "stream.session.start", {});
 
       let msg = createAssistantMessage();
       msg = applyStreamPartEvent(msg, {
@@ -232,12 +232,12 @@ describe("concurrent agent inline part isolation (integration)", () => {
   test("replays buffered agent events into the correct concurrent inline branches when agents appear", async () => {
     const bus = new EventBus();
     const dispatcher = new BatchDispatcher(bus);
-    const { pipeline, correlation, dispose } = wireConsumers(bus, dispatcher);
+    const { pipeline, dispose } = wireConsumers(bus, dispatcher);
     const streamEvents: StreamPartEvent[] = [];
     pipeline.onStreamParts((events) => streamEvents.push(...events));
 
     try {
-      correlation.startRun(RUN_ID, SESSION_ID);
+      publishEvent(bus, "stream.session.start", {});
 
       let msg = createAssistantMessage();
       msg = applyStreamPartEvent(msg, {

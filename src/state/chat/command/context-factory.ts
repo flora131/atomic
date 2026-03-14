@@ -93,12 +93,11 @@ async function spawnParallelSubagents(
 
   const parentSessionId = args.getSession?.()?.id ?? "workflow";
   const subagentRunId = crypto.getRandomValues(new Uint32Array(1))[0]!;
-  const outerCorrelationService = args.getCorrelationService();
-  outerCorrelationService?.addOwnedSession(parentSessionId);
+  const ownershipTracker = args.getOwnershipTracker();
+  ownershipTracker?.addOwnedSession(parentSessionId);
 
   const spawnOne = async (options: SubagentSpawnOptions): Promise<SubagentStreamResult> => {
     let session: Session | null = null;
-    const correlationService = args.getCorrelationService();
     const startTime = Date.now();
 
     try {
@@ -156,11 +155,6 @@ async function spawnParallelSubagents(
         task: options.task,
       });
 
-      correlationService?.registerSubagent(options.agentId, {
-        parentAgentId: parentSessionId,
-        workflowRunId: String(subagentRunId),
-      });
-
       try {
         const stream = session.stream(options.task, {
           agent: options.agentName,
@@ -196,7 +190,6 @@ async function spawnParallelSubagents(
       } finally {
         if (timeoutId) clearTimeout(timeoutId);
         if (staleTimerId) clearTimeout(staleTimerId);
-        correlationService?.unregisterSubagent(options.agentId);
       }
     } catch (error) {
       return {

@@ -17,6 +17,7 @@ import type { BusEvent } from "@/services/events/bus-events/index.ts";
 import { coalescingKey } from "@/services/events/coalescing.ts";
 import type { EventBus } from "@/services/events/event-bus.ts";
 import { pipelineLog } from "@/services/events/pipeline-logger.ts";
+import { getEventHandlerRegistry } from "@/services/events/registry/index.ts";
 
 const FLUSH_INTERVAL_MS = 16; // ~60 FPS alignment
 
@@ -88,6 +89,7 @@ const LIFECYCLE_EVENT_TYPES = new Set([
  */
 export class BatchDispatcher {
   private bus: EventBus;
+  private registry = getEventHandlerRegistry();
   private writeBuffer: BusEvent[] = [];
   private readBuffer: BusEvent[] = [];
   private coalescingMap = new Map<string, number>(); // key → index in writeBuffer
@@ -140,19 +142,22 @@ export class BatchDispatcher {
     if (key !== undefined) {
       const idx = this.coalescingMap.get(key);
       if (idx !== undefined) {
+        const previous = this.writeBuffer[idx];
+        if (previous?.type === event.type) {
+          const isStale = this.registry.getStalePredicate(event.type);
+          if (isStale?.(event, previous)) {
+            pipelineLog("Dispatcher", "drop_stale", { key, type: event.type });
+            return;
+          }
+        }
+
         // Replace in-place — only latest state matters
         this.writeBuffer[idx] = event;
         this._metrics.totalCoalesced++;
 
-        // When a complete event coalesces (replaces an earlier complete),
-        // mark corresponding deltas in the buffer as stale since the
-        // latest complete already contains the full accumulated state.
-        if (event.type === "stream.text.complete") {
-          const data = event.data as { messageId: string };
-          this.staleDeltas.add(`text.delta:${event.sessionId}:${data.messageId}`);
-        } else if (event.type === "stream.thinking.complete") {
-          const data = event.data as { sourceKey: string };
-          this.staleDeltas.add(`thinking.delta:${event.sessionId}:${data.sourceKey}`);
+        const supersedingStaleKey = this.registry.getSupersedingStaleKeyFn(event.type)?.(event);
+        if (supersedingStaleKey) {
+          this.staleDeltas.add(supersedingStaleKey);
         }
 
         pipelineLog("Dispatcher", "coalesce", { key, type: event.type });
@@ -226,15 +231,8 @@ export class BatchDispatcher {
     let filteredFlush = toFlush;
     if (skip) {
       filteredFlush = toFlush.filter((event) => {
-        if (event.type === "stream.text.delta") {
-          const data = event.data as { messageId: string };
-          return !skip.has(`text.delta:${event.sessionId}:${data.messageId}`);
-        }
-        if (event.type === "stream.thinking.delta") {
-          const data = event.data as { sourceKey: string };
-          return !skip.has(`thinking.delta:${event.sessionId}:${data.sourceKey}`);
-        }
-        return true;
+        const staleKey = this.registry.getStaleKeyFn(event.type)?.(event);
+        return staleKey === undefined || !skip.has(staleKey);
       });
     }
 

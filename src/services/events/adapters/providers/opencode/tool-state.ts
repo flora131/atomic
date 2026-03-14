@@ -6,6 +6,7 @@ import {
   isBuiltInTaskTool,
   normalizeToolName,
 } from "@/services/events/adapters/provider-shared.ts";
+import { resolveCorrelationIds } from "@/services/events/adapters/shared/adapter-correlation.ts";
 import { SubagentToolTracker } from "@/services/events/adapters/subagent-tool-tracker.ts";
 
 export type OpenCodeTaskToolMetadata = {
@@ -302,9 +303,10 @@ export class OpenCodeToolState {
     ...correlationIds: Array<string | undefined>
   ): void {
     const context = { parentAgentId, toolName };
-    const ids = [toolId, ...correlationIds]
-      .map((id) => this.resolveToolCorrelationId(id) ?? id)
-      .filter((id): id is string => Boolean(id));
+    const ids = resolveCorrelationIds(
+      [toolId, ...correlationIds],
+      (id) => this.resolveToolCorrelationId(id),
+    );
     for (const id of ids) {
       this.activeSubagentToolsById.set(id, context);
     }
@@ -314,9 +316,10 @@ export class OpenCodeToolState {
     toolId: string,
     ...correlationIds: Array<string | undefined>
   ): void {
-    const ids = [toolId, ...correlationIds]
-      .map((id) => this.resolveToolCorrelationId(id) ?? id)
-      .filter((id): id is string => Boolean(id));
+    const ids = resolveCorrelationIds(
+      [toolId, ...correlationIds],
+      (id) => this.resolveToolCorrelationId(id),
+    );
     for (const id of ids) {
       this.activeSubagentToolsById.delete(id);
     }

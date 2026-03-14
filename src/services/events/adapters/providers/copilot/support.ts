@@ -6,6 +6,11 @@ import {
   normalizeToolName,
 } from "@/services/events/adapters/provider-shared.ts";
 import {
+  resolveCorrelationIds,
+  type AdapterCorrelationContext,
+  type SubagentRegistryEntry,
+} from "@/services/events/adapters/shared/adapter-correlation.ts";
+import {
   DEFAULT_WORKFLOW_RUNTIME_FEATURE_FLAGS,
   resolveWorkflowRuntimeFeatureFlags,
   type WorkflowRuntimeFeatureFlagOverrides,
@@ -194,9 +199,7 @@ export function recordCopilotActiveSubagentToolContext(
   ...correlationIds: Array<string | undefined>
 ): void {
   const context = { parentAgentId, toolName };
-  const ids = [toolId, ...correlationIds].filter((id): id is string =>
-    Boolean(id)
-  );
+  const ids = resolveCorrelationIds([toolId, ...correlationIds]);
   for (const id of ids) {
     activeSubagentToolsById.set(id, context);
   }
@@ -207,9 +210,7 @@ export function removeCopilotActiveSubagentToolContext(
   toolId: string,
   ...correlationIds: Array<string | undefined>
 ): void {
-  const ids = [toolId, ...correlationIds].filter((id): id is string =>
-    Boolean(id)
-  );
+  const ids = resolveCorrelationIds([toolId, ...correlationIds]);
   for (const id of ids) {
     activeSubagentToolsById.delete(id);
   }
@@ -393,6 +394,51 @@ export function promoteSyntheticForegroundAgentIdentity(args: {
     ]);
     args.earlyToolEvents.delete(syntheticAgent.id);
   }
+}
+
+/**
+ * Build an AdapterCorrelationContext from Copilot adapter state.
+ *
+ * This bridges the Copilot-specific tracking structures (activeSubagentToolsById,
+ * toolCallIdToSubagentId, syntheticForegroundAgent) to the provider-agnostic
+ * AdapterCorrelationContext consumed by the shared correlate() utility.
+ */
+export function buildCopilotCorrelationContext(args: {
+  activeSubagentToolsById: ReadonlyMap<string, CopilotActiveSubagentToolContext>;
+  toolCallIdToSubagentId: ReadonlyMap<string, string>;
+  syntheticForegroundAgent: CopilotSyntheticForegroundAgent | null;
+}): AdapterCorrelationContext {
+  // Derive toolToAgent: toolId -> owning agentId
+  const toolToAgent = new Map<string, string>();
+  for (const [toolId, ctx] of args.activeSubagentToolsById) {
+    toolToAgent.set(toolId, ctx.parentAgentId);
+  }
+
+  // All tracked sub-agent tool IDs
+  const subAgentTools = new Set(args.activeSubagentToolsById.keys());
+
+  // Main agent from synthetic foreground agent (when active and not completed)
+  const mainAgentId = getSyntheticForegroundAgentIdForAttribution(
+    args.syntheticForegroundAgent,
+  ) ?? null;
+
+  // Build subagent registry: agentId -> { parentAgentId }
+  // For Copilot sub-agents, the parent is the synthetic foreground agent.
+  const subagentRegistry = new Map<string, SubagentRegistryEntry>();
+  if (mainAgentId) {
+    for (const [, subagentId] of args.toolCallIdToSubagentId) {
+      if (!subagentRegistry.has(subagentId)) {
+        subagentRegistry.set(subagentId, { parentAgentId: mainAgentId });
+      }
+    }
+  }
+
+  return {
+    subagentRegistry,
+    toolToAgent,
+    subAgentTools,
+    mainAgentId,
+  };
 }
 
 export { asRecord, asString, normalizeToolName };

@@ -1,5 +1,7 @@
 import type { BusEvent } from "@/services/events/bus-events/index.ts";
 import type { EventBus } from "@/services/events/event-bus.ts";
+import { correlate } from "@/services/events/adapters/shared/adapter-correlation.ts";
+import { buildCopilotCorrelationContext } from "@/services/events/adapters/providers/copilot/support.ts";
 import type { CopilotStreamAdapterState } from "@/services/events/adapters/providers/copilot/types.ts";
 
 const MAX_BUFFER_SIZE = 1000;
@@ -39,7 +41,15 @@ function processCopilotEventBuffer(
     }
 
     try {
-      bus.publish(event);
+      const enriched = correlate(
+        event,
+        buildCopilotCorrelationContext({
+          activeSubagentToolsById: state.activeSubagentToolsById,
+          toolCallIdToSubagentId: state.toolCallIdToSubagentId,
+          syntheticForegroundAgent: state.syntheticForegroundAgent,
+        }),
+      );
+      bus.publish(enriched);
     } catch (error) {
       console.error(
         `[CopilotStreamAdapter] Error publishing event type=${event.type}:`,
@@ -87,6 +97,7 @@ export function cleanupCopilotOrphanedTools(
     if (subagentToolCallIds.has(toolId)) {
       continue;
     }
+    const activeToolContext = state.activeSubagentToolsById.get(toolId);
     publishCopilotBufferedEvent(state, bus, {
       type: "stream.tool.complete",
       sessionId: state.sessionId,
@@ -98,6 +109,9 @@ export function cleanupCopilotOrphanedTools(
         toolResult: null,
         success: false,
         error: "Tool execution aborted",
+        ...(activeToolContext?.parentAgentId
+          ? { parentAgentId: activeToolContext.parentAgentId }
+          : {}),
       },
     });
   }
@@ -107,9 +121,9 @@ export function cleanupCopilotOrphanedTools(
   for (const toolId of state.toolNameById.keys()) {
     if (!subagentToolCallIds.has(toolId)) {
       state.toolNameById.delete(toolId);
+      state.activeSubagentToolsById.delete(toolId);
     }
   }
-  state.activeSubagentToolsById.clear();
 }
 
 /**
@@ -147,6 +161,7 @@ export function flushCopilotOrphanedAgentCompletions(
     // Emit the tool completion that cleanupCopilotOrphanedTools skipped.
     const toolName = state.toolNameById.get(toolCallId);
     if (toolName) {
+      const activeToolContext = state.activeSubagentToolsById.get(toolCallId);
       publishCopilotBufferedEvent(state, bus, {
         type: "stream.tool.complete",
         sessionId: state.sessionId,
@@ -158,11 +173,15 @@ export function flushCopilotOrphanedAgentCompletions(
           toolResult: null,
           success: true,
           sdkCorrelationId: toolCallId,
+          ...(activeToolContext?.parentAgentId
+            ? { parentAgentId: activeToolContext.parentAgentId }
+            : {}),
         },
       });
       state.toolNameById.delete(toolCallId);
     }
 
+    state.activeSubagentToolsById.delete(toolCallId);
     state.subagentTracker.removeAgent(agentId);
     publishCopilotBufferedEvent(state, bus, {
       type: "stream.agent.complete",

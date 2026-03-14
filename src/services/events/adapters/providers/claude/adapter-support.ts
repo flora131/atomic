@@ -19,6 +19,10 @@ import type {
   ClaudeActiveSubagentToolContext,
   ClaudeToolState,
 } from "@/services/events/adapters/providers/claude/tool-state.ts";
+import {
+  correlate,
+  type AdapterCorrelationContext,
+} from "@/services/events/adapters/shared/adapter-correlation.ts";
 
 type ClaudeAdapterSupportDependencies = {
   sessionId: string;
@@ -38,7 +42,7 @@ export class ClaudeAdapterSupport {
     runId: number,
     reason: "generator-complete" | "aborted" | "error",
   ): void {
-    this.deps.busPublish({
+    this.correlatingPublish({
       type: "stream.session.idle",
       sessionId: this.deps.sessionId,
       runId,
@@ -52,7 +56,7 @@ export class ClaudeAdapterSupport {
     completionReason: string,
     activeBackgroundAgentCount: number,
   ): void {
-    this.deps.busPublish({
+    this.correlatingPublish({
       type: "stream.session.partial-idle",
       sessionId: this.deps.sessionId,
       runId,
@@ -62,7 +66,7 @@ export class ClaudeAdapterSupport {
   }
 
   publishTextComplete(runId: number, messageId: string): void {
-    this.deps.busPublish({
+    this.correlatingPublish({
       type: "stream.text.complete",
       sessionId: this.deps.sessionId,
       runId,
@@ -268,5 +272,43 @@ export class ClaudeAdapterSupport {
 
   resolveSubagentSessionParentAgentId(eventSessionId: string): string | undefined {
     return this.deps.toolState.resolveSubagentSessionParentAgentId(eventSessionId);
+  }
+
+  /**
+   * Build an AdapterCorrelationContext snapshot from the current tool state.
+   *
+   * The context captures:
+   * - toolToAgent: maps tool IDs to their owning agent from activeSubagentToolsById
+   * - subAgentTools: the set of tool IDs that belong to sub-agents
+   * - mainAgentId: the synthetic foreground agent ID (if any)
+   * - subagentRegistry: empty (workflow-level parent tracking is managed upstream)
+   */
+  buildCorrelationContext(): AdapterCorrelationContext {
+    const toolToAgent = new Map<string, string>();
+    const subAgentTools = new Set<string>();
+    for (const [toolId, ctx] of this.deps.toolState.activeSubagentToolsById) {
+      toolToAgent.set(toolId, ctx.parentAgentId);
+      subAgentTools.add(toolId);
+    }
+
+    return {
+      subagentRegistry: new Map(),
+      toolToAgent,
+      subAgentTools,
+      mainAgentId: this.deps.toolState.getSyntheticAgentIdForAttribution() ?? null,
+    };
+  }
+
+  /**
+   * Publish a BusEvent after enriching it with correlation metadata.
+   *
+   * This is the preferred publish path for events that carry agent/tool
+   * correlation (tool.start, tool.complete, agent lifecycle, text deltas, etc.).
+   * Events arrive at the consumer pipeline pre-correlated, reducing work
+   * in the downstream consumer pipeline.
+   */
+  correlatingPublish(event: BusEvent): void {
+    const enriched = correlate(event, this.buildCorrelationContext());
+    this.deps.busPublish(enriched);
   }
 }

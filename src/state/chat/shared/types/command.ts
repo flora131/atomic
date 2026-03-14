@@ -14,7 +14,7 @@ import type { WorkflowInputResolver } from "@/services/workflows/helpers/workflo
 import type { Model } from "@/services/models/model-transform.ts";
 import type { AgentType, ModelOperations } from "@/services/models/index.ts";
 import type { CreateSessionFn } from "@/services/workflows/graph/types.ts";
-import type { CorrelationService } from "@/services/events/consumers/correlation-service.ts";
+import type { OwnershipTracker } from "@/services/events/consumers/wire-consumers.ts";
 import type { EventBus } from "@/services/events/event-bus.ts";
 import type { StreamRunHandle } from "@/state/runtime/stream-run-runtime.ts";
 import type {
@@ -43,7 +43,7 @@ export interface UseCommandExecutorArgs {
   deferredCommandQueueRef: MutableRefObject<DeferredCommandMessage[]>;
   ensureSession?: () => Promise<void>;
   eventBus: EventBus;
-  getCorrelationService: () => CorrelationService | null;
+  getOwnershipTracker: () => OwnershipTracker | null;
   getModelDisplayInfo?: (modelHint?: string) => Promise<ModelDisplayInfo>;
   getSession?: () => Session | null;
   hasRunningToolRef: MutableRefObject<boolean>;

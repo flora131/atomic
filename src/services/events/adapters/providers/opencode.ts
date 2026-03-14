@@ -1,4 +1,5 @@
 import type { EventBus } from "@/services/events/event-bus.ts";
+import type { BusEvent } from "@/services/events/bus-events/index.ts";
 import type {
   SDKStreamAdapter,
   StreamAdapterOptions,
@@ -42,8 +43,23 @@ import { OpenCodeToolState } from "@/services/events/adapters/providers/opencode
 
 const TOOL_START_PLACEHOLDER_SIGNATURE = "__placeholder__";
 
+function createCorrelatingBus(
+  bus: EventBus,
+  getSupport: () => OpenCodeAdapterSupport,
+): EventBus {
+  return new Proxy(bus, {
+    get(target, prop, receiver) {
+      if (prop === "publish") {
+        return (event: BusEvent) => getSupport().correlatingPublish(event);
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+}
+
 export class OpenCodeStreamAdapter implements SDKStreamAdapter {
   private bus: EventBus;
+  private correlatingBus: EventBus;
   private sessionId: string;
   private client?: CodingAgentClient;
   private abortController: AbortController | null = null;
@@ -71,13 +87,16 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     this.bus = bus;
     this.sessionId = sessionId;
     this.client = client;
+
+    const correlatingBus = createCorrelatingBus(bus, () => this.support);
+    this.correlatingBus = correlatingBus;
     this.toolState = new OpenCodeToolState(
-      bus,
+      correlatingBus,
       sessionId,
       () => this.subagentTracker,
     );
     this.childSessionSync = new OpenCodeChildSessionSync({
-      bus,
+      bus: correlatingBus,
       sessionId,
       getClient: () => this.client,
       taskToolMetadata: this.toolState.taskToolMetadata,
@@ -110,7 +129,7 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
       thinkingBlocks: this.thinkingBlocks,
     });
     this.toolEventHandlers = new OpenCodeToolEventHandlers({
-      bus,
+      bus: correlatingBus,
       sessionId,
       taskPlaceholderSignature: TOOL_START_PLACEHOLDER_SIGNATURE,
       toolStartSignatureByToolId: this.toolState.toolStartSignatureByToolId,
@@ -168,7 +187,7 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
         ),
     });
     this.auxEventHandlers = new OpenCodeAuxEventHandlers({
-      bus,
+      bus: correlatingBus,
       sessionId,
       isOwnedSession: (eventSessionId) => this.support.isOwnedSession(eventSessionId),
       resolveParentAgentId: (eventSessionId, data) => this.support.resolveParentAgentId(eventSessionId, data),
@@ -190,7 +209,7 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
       buildTurnEndData: (data) => normalizeTurnEndMetadata(data, this.turnMetadataState),
     });
     this.subagentEventHandlers = new OpenCodeSubagentEventHandlers({
-      bus,
+      bus: correlatingBus,
       sessionId,
       getSubagentTracker: () => this.subagentTracker,
       isOwnedSession: (eventSessionId) => this.support.isOwnedSession(eventSessionId),
@@ -218,7 +237,7 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
       replayEarlyToolEvents: (agentId, ...keys) => this.support.replayEarlyToolEvents(agentId, ...keys),
     });
     this.streamChunkProcessor = new OpenCodeStreamChunkProcessor({
-      bus,
+      bus: correlatingBus,
       sessionId,
       getAbortSignal: () => this.abortController?.signal,
       getTextAccumulator: () => this.textAccumulator,
@@ -258,7 +277,7 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     this.childSessionSync.reset();
     this.ownedSessionIds = new Set([this.sessionId]);
     this.subagentSessionToAgentId.clear();
-    this.subagentTracker = new SubagentToolTracker(this.bus, this.sessionId, runId);
+    this.subagentTracker = new SubagentToolTracker(this.correlatingBus, this.sessionId, runId);
     this.lastSeenOutputTokens = 0;
     this.accumulatedOutputTokens = 0;
     this.runtimeFeatureFlags = this.support.resolveRuntimeFeatureFlags(runtimeFeatureFlags);
@@ -307,7 +326,7 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
       publishSessionIdle: (streamRunId, reason) => this.support.publishSessionIdle(streamRunId, reason),
       publishTextComplete: (streamRunId, streamMessageId) =>
         this.support.publishTextComplete(streamRunId, streamMessageId),
-      publishToBus: (event) => this.bus.publish(event),
+      publishToBus: (event) => this.support.correlatingPublish(event),
       pushUnsubscriber: (unsubscriber) => {
         this.unsubscribers.push(unsubscriber);
       },

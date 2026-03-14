@@ -80,7 +80,7 @@ describe("@ mention mixed output timing windows e2e regression", () => {
   test("preserves done-before-post-complete text ordering across direct-vs-batched mixed output windows", async () => {
     const bus = new EventBus();
     const dispatcher = new BatchDispatcher(bus);
-    const { pipeline, correlation, dispose } = wireConsumers(bus, dispatcher);
+    const { pipeline, dispose } = wireConsumers(bus, dispatcher);
     const orderingState = createAgentOrderingState();
     const deferredByAgent = new Map<string, DeferredDelta[]>();
     const streamEvents: StreamPartEvent[] = [];
@@ -88,7 +88,7 @@ describe("@ mention mixed output timing windows e2e regression", () => {
     pipeline.onStreamParts((events) => streamEvents.push(...events));
 
     try {
-      correlation.startRun(RUN_ID, SESSION_ID);
+      publishEvent(bus, "stream.session.start", {});
 
       let message = createAssistantMessage();
       message = applyStreamPartEvent(message, {

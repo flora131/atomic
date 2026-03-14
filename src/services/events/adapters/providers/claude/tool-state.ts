@@ -14,6 +14,7 @@ import {
   publishClaudeSyntheticAgentComplete,
   publishClaudeSyntheticAgentStart,
 } from "@/services/events/adapters/providers/claude/tool-state-events.ts";
+import { resolveCorrelationIds } from "@/services/events/adapters/shared/adapter-correlation.ts";
 
 export type ClaudeEarlyToolStartEvent = {
   phase: "start";
@@ -293,9 +294,10 @@ export class ClaudeToolState {
   resolveActiveSubagentToolContext(
     ...correlationIds: Array<string | undefined>
   ): ClaudeActiveSubagentToolContext | undefined {
-    const ids = correlationIds
-      .map((id) => this.resolveToolCorrelationId(id) ?? id)
-      .filter((id): id is string => Boolean(id));
+    const ids = resolveCorrelationIds(
+      correlationIds,
+      (id) => this.resolveToolCorrelationId(id),
+    );
     for (const id of ids) {
       const context = this.activeSubagentToolsById.get(id);
       if (context) {
@@ -373,9 +375,10 @@ export class ClaudeToolState {
     ...correlationIds: Array<string | undefined>
   ): void {
     const context = { parentAgentId, toolName };
-    const ids = [toolId, ...correlationIds]
-      .map((id) => this.resolveToolCorrelationId(id) ?? id)
-      .filter((id): id is string => Boolean(id));
+    const ids = resolveCorrelationIds(
+      [toolId, ...correlationIds],
+      (id) => this.resolveToolCorrelationId(id),
+    );
     for (const id of ids) {
       this.activeSubagentToolsById.set(id, context);
     }
@@ -385,9 +388,10 @@ export class ClaudeToolState {
     toolId: string,
     ...correlationIds: Array<string | undefined>
   ): void {
-    const ids = [toolId, ...correlationIds]
-      .map((id) => this.resolveToolCorrelationId(id) ?? id)
-      .filter((id): id is string => Boolean(id));
+    const ids = resolveCorrelationIds(
+      [toolId, ...correlationIds],
+      (id) => this.resolveToolCorrelationId(id),
+    );
     for (const id of ids) {
       this.activeSubagentToolsById.delete(id);
     }

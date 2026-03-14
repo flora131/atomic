@@ -265,7 +265,7 @@ export function useChatStreamRuntime({
     workflowSessionIdRef,
     workflowTaskIdsRef,
   });
-  const { resetConsumers, getCorrelationService } = useChatStreamConsumer({
+  const { resetConsumers, getOwnershipTracker } = useChatStreamConsumer({
     agentType,
     activeForegroundRunHandleIdRef,
     activeStreamRunIdRef,
@@ -474,7 +474,7 @@ export function useChatStreamRuntime({
       deleteAgentMessageBinding,
       finalizeThinkingSourceTracking,
       getActiveStreamRunId,
-      getCorrelationService,
+      getOwnershipTracker,
       handleStreamComplete,
       handleStreamStartupError,
       hasPendingTaskResultContract,

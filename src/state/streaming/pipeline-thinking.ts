@@ -54,6 +54,24 @@ function removeLastStreamingTextPart(parts: Part[]): Part[] {
 
 export { finalizeLastStreamingTextPart, removeLastStreamingTextPart };
 
+/**
+ * Clear `isStreaming` on ALL text parts in the array.
+ *
+ * Used during stream finalization (normal completion, interruption, error)
+ * to ensure `StreamingBullet` stops animating once the stream is done.
+ */
+export function finalizeStreamingTextParts(parts: Part[]): Part[] {
+  let changed = false;
+  const updated = parts.map((part) => {
+    if (part.type !== "text" || !(part as TextPart).isStreaming) {
+      return part;
+    }
+    changed = true;
+    return { ...part, isStreaming: false };
+  });
+  return changed ? updated : parts;
+}
+
 export function finalizeStreamingReasoningParts(
   parts: Part[],
   fallbackDurationMs?: number,

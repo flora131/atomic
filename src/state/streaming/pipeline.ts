@@ -55,6 +55,7 @@ export type {
 export {
   finalizeStreamingReasoningInMessage,
   finalizeStreamingReasoningParts,
+  finalizeStreamingTextParts,
 } from "@/state/streaming/pipeline-thinking.ts";
 export {
   isSubagentToolName,

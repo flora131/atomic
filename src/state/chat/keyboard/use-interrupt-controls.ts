@@ -11,6 +11,7 @@ import {
 import {
   finalizeStreamingReasoningInMessage,
   finalizeStreamingReasoningParts,
+  finalizeStreamingTextParts,
 } from "@/state/parts/index.ts";
 import {
   interruptForegroundAgents,
@@ -190,11 +191,13 @@ export function useChatInterruptControls({
           parallelAgents: context.interruptedAgents,
           taskItems: context.interruptedTaskItems,
           toolCalls: interruptRunningToolCalls(message.toolCalls),
-          parts: interruptRunningToolParts(
-            finalizeStreamingReasoningParts(
-              message.parts ?? [],
-              context.finalMeta?.thinkingMs || message.thinkingMs,
-            ),
+          parts: finalizeStreamingTextParts(
+            interruptRunningToolParts(
+              finalizeStreamingReasoningParts(
+                message.parts ?? [],
+                context.finalMeta?.thinkingMs || message.thinkingMs,
+              ),
+            ) ?? [],
           ),
         }),
         wasInterruptedRef,
@@ -263,7 +266,9 @@ export function useChatInterruptControls({
             parallelAgents: context.interruptedAgents,
             taskItems: context.interruptedTaskItems,
             toolCalls: interruptRunningToolCalls(message.toolCalls),
-            parts: interruptRunningToolParts(message.parts),
+            parts: finalizeStreamingTextParts(
+              interruptRunningToolParts(message.parts) ?? [],
+            ),
           }),
           wasInterruptedRef,
         });
@@ -372,11 +377,13 @@ export function useChatInterruptControls({
           parallelAgents: context.interruptedAgents,
           taskItems: context.interruptedTaskItems,
           toolCalls: interruptRunningToolCalls(message.toolCalls),
-          parts: interruptRunningToolParts(
-            finalizeStreamingReasoningParts(
-              message.parts ?? [],
-              context.finalMeta?.thinkingMs || message.thinkingMs,
-            ),
+          parts: finalizeStreamingTextParts(
+            interruptRunningToolParts(
+              finalizeStreamingReasoningParts(
+                message.parts ?? [],
+                context.finalMeta?.thinkingMs || message.thinkingMs,
+              ),
+            ) ?? [],
           ),
         }),
         wasInterruptedRef,
@@ -408,7 +415,9 @@ export function useChatInterruptControls({
             parallelAgents: context.interruptedAgents,
             taskItems: context.interruptedTaskItems,
             toolCalls: interruptRunningToolCalls(message.toolCalls),
-            parts: interruptRunningToolParts(message.parts),
+            parts: finalizeStreamingTextParts(
+              interruptRunningToolParts(message.parts) ?? [],
+            ),
           }),
           wasInterruptedRef,
         });

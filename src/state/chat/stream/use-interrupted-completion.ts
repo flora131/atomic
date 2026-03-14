@@ -1,5 +1,13 @@
 import { useCallback } from "react";
 import { finalizeStreamingReasoningInMessage } from "@/state/parts/index.ts";
+import {
+  interruptRunningToolCalls,
+  interruptRunningToolParts,
+} from "@/state/chat/shared/helpers/stream-continuation.ts";
+import {
+  finalizeStreamingReasoningParts,
+  finalizeStreamingTextParts,
+} from "@/state/parts/index.ts";
 import type {
   StreamCompletionContext,
   UseChatStreamCompletionArgs,
@@ -45,11 +53,21 @@ export function useChatStreamInterruptedCompletion({
           ? {
             ...finalizeStreamingReasoningInMessage(msg),
             streaming: false,
+            wasInterrupted: true,
             durationMs: context.durationMs,
             modelId: currentModelRef.current,
             outputTokens: context.finalMeta?.outputTokens || msg.outputTokens,
             thinkingMs: context.finalMeta?.thinkingMs || msg.thinkingMs,
             thinkingText: context.finalMeta?.thinkingText || msg.thinkingText || undefined,
+            toolCalls: interruptRunningToolCalls(msg.toolCalls),
+            parts: finalizeStreamingTextParts(
+              interruptRunningToolParts(
+                finalizeStreamingReasoningParts(
+                  msg.parts ?? [],
+                  context.finalMeta?.thinkingMs || msg.thinkingMs,
+                ),
+              ) ?? [],
+            ),
           }
           : msg,
       ),

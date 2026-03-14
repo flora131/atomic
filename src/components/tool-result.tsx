@@ -54,7 +54,7 @@ type ToolStatusColorKey = "muted" | "accent" | "success" | "error" | "warning";
 const STATUS_ICONS: Record<ToolExecutionStatus, string> = {
   pending: STATUS.pending,
   running: STATUS.active,
-  completed: STATUS.active,
+  completed: STATUS.success,
   error: STATUS.error,
   interrupted: STATUS.active,
 };

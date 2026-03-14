@@ -4,6 +4,7 @@ import { getActiveBackgroundAgents } from "@/state/chat/shared/helpers/backgroun
 import {
   finalizeStreamingReasoningInMessage,
   finalizeStreamingReasoningParts,
+  finalizeStreamingTextParts,
 } from "@/state/parts/index.ts";
 import type { TaskItem } from "@/state/chat/shared/types/index.ts";
 import type {
@@ -86,8 +87,10 @@ export function useChatStreamFinalizedCompletion({
             thinkingMs: context.finalMeta?.thinkingMs || msg.thinkingMs,
             thinkingText: context.finalMeta?.thinkingText || msg.thinkingText || undefined,
             toolCalls: interruptRunningToolCalls(msg.toolCalls),
-            parts: interruptRunningToolParts(
-              finalizeStreamingReasoningParts(msg.parts ?? [], context.finalMeta?.thinkingMs || msg.thinkingMs),
+            parts: finalizeStreamingTextParts(
+              interruptRunningToolParts(
+                finalizeStreamingReasoningParts(msg.parts ?? [], context.finalMeta?.thinkingMs || msg.thinkingMs),
+              ) ?? [],
             ),
             parallelAgents: finalizedAgents,
             taskItems: snapshotTaskItems(todoItemsRef.current) as TaskItem[] | undefined,

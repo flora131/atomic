@@ -54,4 +54,5 @@ export {
   syncToolCallsIntoParts,
   finalizeStreamingReasoningParts,
   finalizeStreamingReasoningInMessage,
+  finalizeStreamingTextParts,
 } from "@/state/parts/stream-pipeline.ts";

@@ -1,6 +1,13 @@
 import { useCallback } from "react";
 import { formatAgentLifecycleViolation } from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
-import { finalizeStreamingReasoningInMessage } from "@/state/parts/index.ts";
+import {
+  finalizeStreamingReasoningInMessage,
+  finalizeStreamingTextParts,
+} from "@/state/parts/index.ts";
+import {
+  interruptRunningToolCalls,
+  interruptRunningToolParts,
+} from "@/state/chat/shared/helpers/stream-continuation.ts";
 import { createMessage } from "@/state/chat/shared/helpers/index.ts";
 import type { UseChatStreamLifecycleArgs } from "@/state/chat/stream/lifecycle-types.ts";
 
@@ -44,7 +51,15 @@ export function useChatStreamErrors({
 
         return prev.map((msg) =>
           msg.id === failedMessageId
-            ? { ...finalizeStreamingReasoningInMessage(msg), streaming: false, modelId: currentModelRef.current }
+            ? {
+              ...finalizeStreamingReasoningInMessage(msg),
+              streaming: false,
+              modelId: currentModelRef.current,
+              toolCalls: interruptRunningToolCalls(msg.toolCalls),
+              parts: finalizeStreamingTextParts(
+                interruptRunningToolParts(msg.parts) ?? [],
+              ),
+            }
             : msg,
         );
       });

@@ -293,7 +293,7 @@ export function MessageBubble({
 
         {message.wasInterrupted && !message.streaming && (
           <box marginTop={SPACING.ELEMENT}>
-            <text style={{ fg: themeColors.error }}>
+            <text style={{ fg: themeColors.warning }}>
               {STATUS.active} Operation cancelled by user
             </text>
           </box>

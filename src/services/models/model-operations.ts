@@ -84,11 +84,12 @@ export class UnifiedModelOperations implements ModelOperations {
       resolvedModel = modelId;
     }
 
-    if (this.agentType === "opencode" || this.agentType === "copilot") {
+    if (this.shouldValidateSelectedModel()) {
       await this.validateModelExists(resolvedModel);
     }
 
-    const sanitizedReasoningEffort = this.agentType === "copilot"
+    const sanitizedReasoningEffort =
+      this.agentType === "copilot" || this.agentType === "opencode" || this.agentType === "claude"
       ? await this.sanitizeReasoningEffortForModel(
           resolvedModel,
           this.pendingReasoningEffort,
@@ -98,7 +99,7 @@ export class UnifiedModelOperations implements ModelOperations {
     if (this.sdkSetModel) {
       await this.sdkSetModel(
         resolvedModel,
-        this.agentType === "copilot" && sanitizedReasoningEffort !== undefined
+        sanitizedReasoningEffort !== undefined
           ? { reasoningEffort: sanitizedReasoningEffort }
           : undefined,
       );
@@ -114,6 +115,7 @@ export class UnifiedModelOperations implements ModelOperations {
       return { success: true, requiresNewSession: true };
     }
 
+    this.pendingReasoningEffort = sanitizedReasoningEffort;
     this.currentModel = resolvedModel;
     return { success: true };
   }
@@ -122,12 +124,35 @@ export class UnifiedModelOperations implements ModelOperations {
     model: string,
     effort: string | undefined,
   ): Promise<string | undefined> {
-    if (this.agentType !== "copilot" || effort === undefined) {
+    if (
+      (
+        this.agentType !== "copilot"
+        && this.agentType !== "opencode"
+        && this.agentType !== "claude"
+      )
+      || effort === undefined
+    ) {
       return effort;
     }
 
     const targetModel = await this.getValidatedModelRecord(model);
-    return targetModel?.capabilities.reasoning ? effort : undefined;
+    if (!targetModel) {
+      return undefined;
+    }
+
+    if (this.agentType === "opencode") {
+      return targetModel.supportedReasoningEfforts?.includes(effort)
+        ? effort
+        : undefined;
+    }
+
+    if (targetModel.supportedReasoningEfforts?.length) {
+      return targetModel.supportedReasoningEfforts.includes(effort)
+        ? effort
+        : undefined;
+    }
+
+    return targetModel.capabilities.reasoning ? effort : undefined;
   }
 
   async getCurrentModel(): Promise<string | undefined> {
@@ -154,6 +179,18 @@ export class UnifiedModelOperations implements ModelOperations {
 
   getPendingReasoningEffort(): string | undefined {
     return this.pendingReasoningEffort;
+  }
+
+  private shouldValidateSelectedModel(): boolean {
+    if (this.agentType === "copilot") {
+      return true;
+    }
+
+    if (this.agentType === "opencode") {
+      return true;
+    }
+
+    return this.cachedModels !== null || this.sdkListModels !== undefined;
   }
 
   private async loadAvailableModels(): Promise<Model[]> {

@@ -27,10 +27,13 @@ export function createChatUIModelOperations(
     : undefined;
   const sdkSetModel = resolvedAgentType === "opencode"
     && "setActivePromptModel" in client
-    ? async (selectedModel: string) => {
+    ? async (
+        selectedModel: string,
+        options?: { reasoningEffort?: string },
+      ) => {
         await (
           client as import("@/services/agents/clients/index.ts").OpenCodeClient
-        ).setActivePromptModel(selectedModel);
+        ).setActivePromptModel(selectedModel, options);
       }
     : resolvedAgentType && "setActiveSessionModel" in client
       ? async (

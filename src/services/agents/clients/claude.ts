@@ -390,7 +390,13 @@ export class ClaudeAgentClient implements CodingAgentClient {
         });
     }
 
-    async listSupportedModels(): Promise<Array<{ value: string; displayName: string; description: string }>> {
+    async listSupportedModels(): Promise<Array<{
+        value: string;
+        displayName: string;
+        description: string;
+        supportsEffort?: boolean;
+        supportedEffortLevels?: Array<"low" | "medium" | "high" | "max">;
+    }>> {
         return listClaudeSupportedModels({
             isRunning: this.isRunning,
             sessions: this.sessions,
@@ -399,13 +405,23 @@ export class ClaudeAgentClient implements CodingAgentClient {
         });
     }
 
-    private async fetchFreshSupportedModels(): Promise<Array<{ value: string; displayName: string; description: string }>> {
+    private async fetchFreshSupportedModels(): Promise<Array<{
+        value: string;
+        displayName: string;
+        description: string;
+        supportsEffort?: boolean;
+        supportedEffortLevels?: Array<"low" | "medium" | "high" | "max">;
+    }>> {
         return fetchFreshClaudeSupportedModels();
     }
 
-    async setActiveSessionModel(model: string): Promise<void> {
+    async setActiveSessionModel(
+        model: string,
+        options?: { reasoningEffort?: string },
+    ): Promise<void> {
         setClaudeActiveSessionModel({
             model,
+            options,
             sessions: this.sessions,
         });
     }
@@ -431,12 +447,23 @@ export class ClaudeAgentClient implements CodingAgentClient {
         });
     }
 
-    async getModelDisplayInfo(modelHint?: string): Promise<{ model: string; tier: string; contextWindow?: number }> {
+    async getModelDisplayInfo(modelHint?: string): Promise<{
+        model: string;
+        tier: string;
+        supportsReasoning?: boolean;
+        supportedReasoningEfforts?: string[];
+        defaultReasoningEffort?: string;
+        contextWindow?: number;
+    }> {
+        const supportedModels = this.isRunning
+            ? await this.listSupportedModels().catch(() => undefined)
+            : undefined;
         return getClaudeModelDisplayInfo({
             modelHint,
             detectedModel: this.detectedModel,
             capturedModelContextWindows: this.capturedModelContextWindows,
             probeContextWindow: this.probeContextWindow,
+            supportedModels,
         });
     }
 

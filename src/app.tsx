@@ -220,6 +220,7 @@ export async function startChatUI(
                       agentType: resolvedAgentType,
                       modelOps,
                       initialModelId: sessionConfig?.model,
+                      initialReasoningEffort: sessionConfig?.reasoningEffort,
                       getModelDisplayInfo: (hint?: string) => client.getModelDisplayInfo(hint),
                       onSendMessage: controller.handleSendMessage,
                       onStreamMessage: controller.handleStreamMessage,

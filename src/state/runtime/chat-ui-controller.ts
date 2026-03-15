@@ -144,8 +144,16 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
             sessionConfig.model = currentModel;
           }
 
-          if (resolvedAgentType === "copilot") {
-            const pendingEffort = modelOps.getPendingReasoningEffort();
+          if (
+            resolvedAgentType === "copilot"
+            || resolvedAgentType === "opencode"
+            || resolvedAgentType === "claude"
+          ) {
+            const pendingEffort =
+              "getPendingReasoningEffort" in modelOps
+              && typeof modelOps.getPendingReasoningEffort === "function"
+                ? modelOps.getPendingReasoningEffort()
+                : undefined;
             const selectedModel = sessionConfig.model;
             const preferredEffort =
               pendingEffort !== undefined

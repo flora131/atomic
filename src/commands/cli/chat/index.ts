@@ -235,20 +235,31 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
       mcpDiscoveryPromise,
     ]);
 
-    // For Copilot, show explicit reasoning effort when available:
-    // user preference first, otherwise SDK-reported model default.
+    // For providers with explicit reasoning effort selection, prefer the
+    // persisted user choice and fall back to the SDK-reported default.
     const resolvedReasoningEffort =
-      agentType === "copilot"
+      agentType === "copilot" || agentType === "claude"
         ? (
             modelDisplayInfo.supportsReasoning
               ? (effectiveReasoningEffort ?? modelDisplayInfo.defaultReasoningEffort)
               : undefined
           )
-        : effectiveReasoningEffort;
+        : agentType === "opencode"
+          ? (
+              effectiveReasoningEffort
+              && modelDisplayInfo.supportedReasoningEfforts?.includes(effectiveReasoningEffort)
+                ? effectiveReasoningEffort
+                : undefined
+            )
+          : effectiveReasoningEffort;
 
-    // For copilot, append reasoning effort to model display if the model supports it
+    // For providers with explicit reasoning effort selection, append the selected level.
     let displayModelName = modelDisplayInfo.model;
-    if (agentType === "copilot" && resolvedReasoningEffort && modelDisplayInfo.supportsReasoning) {
+    if (
+      (agentType === "copilot" || agentType === "opencode" || agentType === "claude")
+      && resolvedReasoningEffort
+      && modelDisplayInfo.supportsReasoning
+    ) {
       displayModelName += ` (${resolvedReasoningEffort})`;
     }
 

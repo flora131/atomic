@@ -42,6 +42,7 @@ export interface ChatShellProps {
   ctrlCPressed: boolean;
   ctrlFPressed: boolean;
   currentModelId?: string;
+  currentReasoningEffort?: string;
   displayModel: string;
   dynamicPlaceholder: string;
 
@@ -105,6 +106,7 @@ export function ChatShell({
   ctrlCPressed,
   ctrlFPressed,
   currentModelId,
+  currentReasoningEffort,
   displayModel,
   dynamicPlaceholder,
   handleAutocompleteIndexChange,
@@ -226,6 +228,7 @@ export function ChatShell({
               <ModelSelectorDialog
                 models={availableModels}
                 currentModel={currentModelId}
+                currentReasoningEffort={currentReasoningEffort}
                 onSelect={handleModelSelect}
                 onCancel={handleModelSelectorCancel}
                 visible={true}

@@ -27,6 +27,7 @@ export async function sendOpenCodeSessionPrompt(args: {
     directory: args.runtimeArgs.directory,
     agent: args.agentMode,
     model: args.runtimeArgs.getActivePromptModel() ?? args.initialPromptModel,
+    variant: args.runtimeArgs.getActiveReasoningEffort(),
     parts: buildOpenCodePromptParts(
       args.message,
       undefined,
@@ -97,6 +98,7 @@ export async function sendOpenCodeSessionPromptAsync(args: {
       directory: args.runtimeArgs.directory,
       agent: args.agentMode,
       model: args.runtimeArgs.getActivePromptModel() ?? args.initialPromptModel,
+      variant: args.runtimeArgs.getActiveReasoningEffort(),
       parts: buildOpenCodePromptParts(
         args.message,
         args.options?.agent,
@@ -139,6 +141,7 @@ export async function runOpenCodeSessionCommand(args: {
       directory: args.runtimeArgs.directory,
       agent: args.agentMode,
       model: modelString,
+      variant: args.runtimeArgs.getActiveReasoningEffort(),
       command: args.commandName,
       arguments: args.commandArgs,
     },

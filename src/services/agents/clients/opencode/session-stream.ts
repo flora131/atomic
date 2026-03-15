@@ -125,6 +125,7 @@ export function createOpenCodeSessionStream(args: {
               directory: args.runtimeArgs.directory,
               agent: args.agentMode,
               model: args.runtimeArgs.getActivePromptModel() ?? args.initialPromptModel,
+              variant: args.runtimeArgs.getActiveReasoningEffort(),
               parts: buildOpenCodePromptParts(
                 promptMessage,
                 args.options?.agent,

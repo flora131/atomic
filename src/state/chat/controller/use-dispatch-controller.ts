@@ -90,6 +90,7 @@ export function useChatDispatchController({
   setCompactionSummary,
   setCurrentModelDisplayName,
   setCurrentModelId,
+  setCurrentReasoningEffort,
   setIsAutoCompacting,
   setIsStreaming,
   setLastStreamedMessageId,
@@ -296,6 +297,7 @@ export function useChatDispatchController({
     setCompactionSummary,
     setCurrentModelDisplayName,
     setCurrentModelId,
+    setCurrentReasoningEffort,
     setIsAutoCompacting,
     setIsStreaming,
     setMcpServerToggles,
@@ -371,8 +373,12 @@ export function useChatDispatchController({
       }
 
       setCurrentModelId(effectiveModel);
+      setCurrentReasoningEffort(reasoningEffort);
       onModelChange?.(effectiveModel);
-      const displaySuffix = agentType === "copilot" && reasoningEffort ? ` (${reasoningEffort})` : "";
+      const displaySuffix =
+        (agentType === "copilot" || agentType === "opencode" || agentType === "claude") && reasoningEffort
+          ? ` (${reasoningEffort})`
+          : "";
       setCurrentModelDisplayName(`${selectedModel.modelID}${displaySuffix}`);
       if (agentType) {
         saveModelPreference(agentType, effectiveModel);
@@ -393,6 +399,7 @@ export function useChatDispatchController({
     onModelChange,
     setCurrentModelDisplayName,
     setCurrentModelId,
+    setCurrentReasoningEffort,
     setShowModelSelector,
   ]);
 

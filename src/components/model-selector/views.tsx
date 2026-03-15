@@ -81,6 +81,7 @@ export function ReasoningEffortSelector({
 interface ModelListViewProps {
   colors: ThemeColors;
   currentModel?: string;
+  currentReasoningEffort?: string;
   groupedModels: GroupedModels[];
   flatModelCount: number;
   listHeight: number;
@@ -92,6 +93,7 @@ interface ModelListViewProps {
 export function ModelListView({
   colors,
   currentModel,
+  currentReasoningEffort,
   groupedModels,
   flatModelCount,
   listHeight,
@@ -152,6 +154,7 @@ export function ModelListView({
                       model.id === currentModel || model.modelID === currentModel;
                     const contextInfo = getCapabilityInfo(model);
                     const indicator = isSelected ? PROMPT.cursor : " ";
+                    const shouldShowCurrentEffort = isCurrent && Boolean(currentReasoningEffort);
 
                     return (
                       <box
@@ -179,11 +182,18 @@ export function ModelListView({
                         >
                           {model.modelID}
                         </text>
-                        {(model.supportedReasoningEfforts?.length ?? 0) > 0 && model.defaultReasoningEffort && (
+                        {shouldShowCurrentEffort && (
+                          <text style={{ fg: colors.muted }}>
+                            {" "}({currentReasoningEffort})
+                          </text>
+                        )}
+                        {!shouldShowCurrentEffort
+                          && (model.supportedReasoningEfforts?.length ?? 0) > 0
+                          && model.defaultReasoningEffort && (
                           <text style={{ fg: colors.muted }}>
                             {" "}({model.defaultReasoningEffort})
                           </text>
-                        )}
+                          )}
                         {isCurrent && (
                           <text style={{ fg: colors.success }}>
                             {" "}(current)

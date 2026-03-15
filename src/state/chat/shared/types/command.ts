@@ -69,6 +69,7 @@ export interface UseCommandExecutorArgs {
   setCompactionSummary: Dispatch<SetStateAction<string | null>>;
   setCurrentModelDisplayName: Dispatch<SetStateAction<string | undefined>>;
   setCurrentModelId: Dispatch<SetStateAction<string | undefined>>;
+  setCurrentReasoningEffort: Dispatch<SetStateAction<string | undefined>>;
   setIsAutoCompacting: Dispatch<SetStateAction<boolean>>;
   setIsStreaming: Dispatch<SetStateAction<boolean>>;
   setMcpServerToggles: Dispatch<SetStateAction<McpServerToggleMap>>;

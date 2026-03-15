@@ -20,6 +20,7 @@ import type { McpServerToggleMap } from "@/lib/ui/mcp-output.ts";
 
 export interface UseChatShellStateArgs {
   initialModelId?: string;
+  initialReasoningEffort?: string;
   model: string;
 }
 
@@ -30,6 +31,7 @@ export interface UseChatShellStateResult {
   continueQueuedConversationRef: React.MutableRefObject<() => void>;
   currentModelDisplayName?: string;
   currentModelId?: string;
+  currentReasoningEffort?: string;
   currentModelRef: React.MutableRefObject<string>;
   copyRendererSelection: () => boolean;
   dispatchDeferredCommandMessageRef: React.MutableRefObject<(message: DeferredCommandMessage) => void>;
@@ -48,6 +50,7 @@ export interface UseChatShellStateResult {
   setAvailableModels: React.Dispatch<React.SetStateAction<Model[]>>;
   setCurrentModelDisplayName: React.Dispatch<React.SetStateAction<string | undefined>>;
   setCurrentModelId: React.Dispatch<React.SetStateAction<string | undefined>>;
+  setCurrentReasoningEffort: React.Dispatch<React.SetStateAction<string | undefined>>;
   setMcpServerToggles: React.Dispatch<React.SetStateAction<McpServerToggleMap>>;
   setShowModelSelector: React.Dispatch<React.SetStateAction<boolean>>;
   setShowTodoPanel: React.Dispatch<React.SetStateAction<boolean>>;
@@ -76,6 +79,7 @@ export interface UseChatShellStateResult {
 
 export function useChatShellState({
   initialModelId,
+  initialReasoningEffort,
   model,
 }: UseChatShellStateArgs): UseChatShellStateResult {
   const renderer = useRenderer();
@@ -91,6 +95,9 @@ export function useChatShellState({
   const [availableModels, setAvailableModels] = useState<Model[]>([]);
   const [currentModelId, setCurrentModelId] = useState<string | undefined>(undefined);
   const [currentModelDisplayName, setCurrentModelDisplayName] = useState<string | undefined>(undefined);
+  const [currentReasoningEffort, setCurrentReasoningEffort] = useState<string | undefined>(
+    initialReasoningEffort,
+  );
   const [mcpServerToggles, setMcpServerToggles] = useState<McpServerToggleMap>({});
   const [showTodoPanel, setShowTodoPanel] = useState(true);
   const [inputFocused] = useState(true);
@@ -223,6 +230,7 @@ export function useChatShellState({
     continueQueuedConversationRef,
     currentModelDisplayName,
     currentModelId,
+    currentReasoningEffort,
     currentModelRef,
     copyRendererSelection,
     dispatchDeferredCommandMessageRef,
@@ -241,6 +249,7 @@ export function useChatShellState({
     setAvailableModels,
     setCurrentModelDisplayName,
     setCurrentModelId,
+    setCurrentReasoningEffort,
     setMcpServerToggles,
     setShowModelSelector,
     setShowTodoPanel,

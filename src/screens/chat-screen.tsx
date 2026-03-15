@@ -76,6 +76,7 @@ export function ChatApp({
   onModelChange,
   onSessionMcpServersChange,
   initialModelId,
+  initialReasoningEffort,
   onCommandExecutionTelemetry,
   onMessageSubmitTelemetry,
 }: ChatAppProps): React.ReactNode {
@@ -94,6 +95,7 @@ export function ChatApp({
   const [workflowState, setWorkflowState] = useState<WorkflowChatState>(defaultWorkflowChatState);
   const shellState = useChatShellState({
     initialModelId,
+    initialReasoningEffort,
     model,
   });
 

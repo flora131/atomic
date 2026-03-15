@@ -77,6 +77,7 @@ export async function applyCommandResult(
     if (typeof modelUpdate === "string") {
       args.setCurrentModelId(modelUpdate);
       args.setCurrentModelDisplayName(modelUpdate);
+      args.setCurrentReasoningEffort(undefined);
       args.onModelChange?.(modelUpdate);
     }
   }

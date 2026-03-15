@@ -283,6 +283,51 @@ describe("createChatUIController", () => {
     expect(capturedConfigs[0]?.reasoningEffort).toBeUndefined();
   });
 
+  test("sanitizes stale Claude reasoning effort before creating a session", async () => {
+    const sessions = [createMockSession("session-1")];
+    const capturedConfigs: SessionConfig[] = [];
+    const client: CodingAgentClient = {
+      ...createMockClient(sessions),
+      agentType: "claude",
+      createSession: async (config?: SessionConfig) => {
+        capturedConfigs.push({ ...(config ?? {}) });
+        return sessions[0] ?? createMockSession("session-1");
+      },
+    };
+    const state = createState();
+
+    const controller = createChatUIController({
+      client,
+      resolvedAgentType: "claude",
+      sessionConfig: {
+        model: "sonnet",
+        reasoningEffort: "high",
+      },
+      modelOps: {
+        invalidateModelCache: () => {},
+        getPendingModel: () => undefined,
+        getCurrentModel: async () => "sonnet",
+        getPendingReasoningEffort: () => undefined,
+        sanitizeReasoningEffortForModel: async () => undefined,
+      } as never,
+      state,
+      debugSub: {
+        unsubscribe: async () => {},
+        logPath: null,
+        rawLogPath: null,
+        logDirPath: null,
+        writeRawLine: () => {},
+      },
+      onExitResolved: () => {},
+    });
+
+    await controller.ensureSession();
+
+    expect(capturedConfigs).toHaveLength(1);
+    expect(capturedConfigs[0]?.model).toBe("sonnet");
+    expect(capturedConfigs[0]?.reasoningEffort).toBeUndefined();
+  });
+
   test("inherits additional instructions when creating a subagent session", async () => {
     const sessions = [createMockSession("session-1")];
     const capturedConfigs: SessionConfig[] = [];

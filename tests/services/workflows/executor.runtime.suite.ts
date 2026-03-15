@@ -402,15 +402,6 @@ describe("executeWorkflow", () => {
       startNode: "notify-node",
     });
 
-    const mockEventBus = {
-      publish: () => {},
-      on: () => () => {},
-      onAll: () => () => {},
-      clear: () => {},
-      hasHandlers: () => false,
-      get handlerCount() { return 0; },
-    };
-
     const definition = {
       name: "test-workflow",
       description: "Disable status events",
@@ -428,7 +419,6 @@ describe("executeWorkflow", () => {
       context as any,
       {
         compiledGraph: compiledGraph as any,
-        eventBus: mockEventBus as any,
       },
     );
 

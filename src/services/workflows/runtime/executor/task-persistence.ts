@@ -1,4 +1,3 @@
-import type { EventBus } from "@/services/events/event-bus.ts";
 import type { NormalizedTodoItem, TaskStatus } from "@/state/parts/helpers/task-status.ts";
 import type { WorkflowRuntimeTask } from "@/services/workflows/runtime-contracts.ts";
 import {
@@ -12,7 +11,6 @@ export function createWorkflowTaskPersistence(args: {
   sessionId: string;
   workflowRunId: number;
   workflowName: string;
-  eventBus?: EventBus;
   saveTasksToSession?: (
     tasks: NormalizedTodoItem[],
     sessionId: string,
@@ -22,7 +20,8 @@ export function createWorkflowTaskPersistence(args: {
 }): {
   saveTasks: (tasks: NormalizedTodoItem[]) => void;
   flush: () => Promise<void>;
-  subscribeStatusChange: () => (() => void) | undefined;
+  /** Direct callback for task status change events (replaces bus subscription). */
+  handleTaskStatusChange: (taskIds: string[], newStatus: string, tasks: WorkflowRuntimeTask[]) => void;
 } {
   let saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   let pendingSaveTasks: NormalizedTodoItem[] | null = null;
@@ -81,109 +80,100 @@ export function createWorkflowTaskPersistence(args: {
     }
   };
 
-  const subscribeStatusChange = (): (() => void) | undefined => {
-    if (
-      !args.eventBus ||
-      !args.saveTasksToSession ||
-      !args.persistTaskStatusEvents
-    ) {
-      return undefined;
+  const handleTaskStatusChange = (taskIds: string[], _newStatus: string, tasks: WorkflowRuntimeTask[]): void => {
+    if (!args.saveTasksToSession || !args.persistTaskStatusEvents) {
+      return;
     }
 
-    return args.eventBus.on("workflow.task.statusChange", (event) => {
-      if (event.sessionId !== args.sessionId) {
-        return;
-      }
-      incrementRuntimeParityCounter(
-        "workflow.runtime.parity.status_snapshot_total",
-        {
-          phase: "received",
-          workflow: args.workflowName,
-        },
-      );
-      runtimeParityDebug("status_snapshot_received", {
-        sessionId: args.sessionId,
-        workflowRunId: args.workflowRunId,
+    incrementRuntimeParityCounter(
+      "workflow.runtime.parity.status_snapshot_total",
+      {
+        phase: "received",
         workflow: args.workflowName,
-        taskIds: event.data.taskIds,
-        taskCount: event.data.tasks.length,
-      });
-
-      const runtimeTasks = args.toRuntimeTasks(event.data.tasks);
-      for (const runtimeTask of runtimeTasks) {
-        const canonicalId = runtimeTask.identity?.canonicalId;
-        if (!canonicalId || canonicalId.trim().length === 0) {
-          incrementRuntimeParityCounter(
-            "workflow.runtime.parity.status_snapshot_failures_total",
-            {
-              reason: "missing_canonical_id",
-              workflow: args.workflowName,
-            },
-          );
-          throw new Error(
-            `workflow.task.statusChange invariant failed: task ${runtimeTask.id} missing canonical identity`,
-          );
-        }
-
-        if (
-          runtimeTask.taskResult &&
-          runtimeTask.taskResult.task_id !== canonicalId
-        ) {
-          incrementRuntimeParityCounter(
-            "workflow.runtime.parity.status_snapshot_failures_total",
-            {
-              reason: "task_result_identity_mismatch",
-              workflow: args.workflowName,
-            },
-          );
-          throw new Error(
-            `workflow.task.statusChange invariant failed: taskResult.task_id ${runtimeTask.taskResult.task_id} does not match canonical task identity ${canonicalId}`,
-          );
-        }
-      }
-
-      observeRuntimeParityHistogram(
-        "workflow.runtime.parity.status_snapshot_task_count",
-        runtimeTasks.length,
-        { workflow: args.workflowName },
-      );
-
-      const previousById = new Map<string, NormalizedTodoItem>();
-      for (const task of latestWorkflowTasks) {
-        const key = normalizeTaskKey(task.id);
-        if (!key || previousById.has(key)) continue;
-        previousById.set(key, task);
-      }
-
-      const normalized: NormalizedTodoItem[] = runtimeTasks.map((task) => {
-        const taskKey = normalizeTaskKey(task.id);
-        return {
-          id: task.id,
-          description: task.title,
-          status: task.status as TaskStatus,
-          summary: task.title,
-          blockedBy:
-            task.blockedBy ??
-            (taskKey ? previousById.get(taskKey)?.blockedBy : undefined),
-          identity: task.identity,
-          taskResult: task.taskResult,
-        };
-      });
-
-      incrementRuntimeParityCounter(
-        "workflow.runtime.parity.status_snapshot_total",
-        {
-          phase: "persisted",
-          workflow: args.workflowName,
-        },
-      );
-      saveTasks(normalized);
+      },
+    );
+    runtimeParityDebug("status_snapshot_received", {
+      sessionId: args.sessionId,
+      workflowRunId: args.workflowRunId,
+      workflow: args.workflowName,
+      taskIds,
+      taskCount: tasks.length,
     });
+
+    const runtimeTasks = args.toRuntimeTasks(tasks);
+    for (const runtimeTask of runtimeTasks) {
+      const canonicalId = runtimeTask.identity?.canonicalId;
+      if (!canonicalId || canonicalId.trim().length === 0) {
+        incrementRuntimeParityCounter(
+          "workflow.runtime.parity.status_snapshot_failures_total",
+          {
+            reason: "missing_canonical_id",
+            workflow: args.workflowName,
+          },
+        );
+        throw new Error(
+          `workflow.task.statusChange invariant failed: task ${runtimeTask.id} missing canonical identity`,
+        );
+      }
+
+      if (
+        runtimeTask.taskResult &&
+        runtimeTask.taskResult.task_id !== canonicalId
+      ) {
+        incrementRuntimeParityCounter(
+          "workflow.runtime.parity.status_snapshot_failures_total",
+          {
+            reason: "task_result_identity_mismatch",
+            workflow: args.workflowName,
+          },
+        );
+        throw new Error(
+          `workflow.task.statusChange invariant failed: taskResult.task_id ${runtimeTask.taskResult.task_id} does not match canonical task identity ${canonicalId}`,
+        );
+      }
+    }
+
+    observeRuntimeParityHistogram(
+      "workflow.runtime.parity.status_snapshot_task_count",
+      runtimeTasks.length,
+      { workflow: args.workflowName },
+    );
+
+    const previousById = new Map<string, NormalizedTodoItem>();
+    for (const task of latestWorkflowTasks) {
+      const key = normalizeTaskKey(task.id);
+      if (!key || previousById.has(key)) continue;
+      previousById.set(key, task);
+    }
+
+    const normalized: NormalizedTodoItem[] = runtimeTasks.map((task) => {
+      const taskKey = normalizeTaskKey(task.id);
+      return {
+        id: task.id,
+        description: task.title,
+        status: task.status as TaskStatus,
+        summary: task.title,
+        blockedBy:
+          task.blockedBy ??
+          (taskKey ? previousById.get(taskKey)?.blockedBy : undefined),
+        identity: task.identity,
+        taskResult: task.taskResult,
+      };
+    });
+
+    incrementRuntimeParityCounter(
+      "workflow.runtime.parity.status_snapshot_total",
+      {
+        phase: "persisted",
+        workflow: args.workflowName,
+      },
+    );
+    saveTasks(normalized);
   };
 
   return {
     saveTasks,
     flush,
-    subscribeStatusChange,
+    handleTaskStatusChange,
   };
 }

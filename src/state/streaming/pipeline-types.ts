@@ -118,26 +118,6 @@ export interface TaskListUpdateEvent {
   }>;
 }
 
-export interface WorkflowStepStartEvent {
-  type: "workflow-step-start";
-  runId?: number;
-  workflowId: string;
-  nodeId: string;
-  nodeName: string;
-  startedAt?: string;
-}
-
-export interface WorkflowStepCompleteEvent {
-  type: "workflow-step-complete";
-  runId?: number;
-  workflowId: string;
-  nodeId: string;
-  nodeName?: string;
-  status: "success" | "error" | "skipped";
-  result?: unknown;
-  completedAt?: string;
-}
-
 export interface TaskResultUpsertEvent {
   type: "task-result-upsert";
   runId?: number;
@@ -165,6 +145,4 @@ export type StreamPartEvent =
   | ParallelAgentsEvent
   | AgentTerminalEvent
   | TaskListUpdateEvent
-  | WorkflowStepStartEvent
-  | WorkflowStepCompleteEvent
   | TaskResultUpsertEvent;

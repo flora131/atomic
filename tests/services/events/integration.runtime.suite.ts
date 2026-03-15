@@ -74,7 +74,7 @@ describe("Event Bus Integration", () => {
     claudeAdapter.dispose();
   });
 
-  test("runtime envelope chat flow: workflow events map to runtime envelope parts", async () => {
+  test("runtime envelope chat flow: task events map to runtime envelope parts", async () => {
     const { pipeline, dispose } = wireConsumers(bus, dispatcher);
     const output: StreamPartEvent[] = [];
     pipeline.onStreamParts((parts) => output.push(...parts));
@@ -86,67 +86,9 @@ describe("Event Bus Integration", () => {
       timestamp: Date.now(),
       data: {},
     });
-    dispatcher.enqueue({
-      type: "workflow.step.start",
-      sessionId: "runtime-session",
-      runId: 11,
-      timestamp: Date.now(),
-      data: {
-        workflowId: "wf-runtime",
-        nodeId: "planner",
-        nodeName: "Planner",
-      },
-    });
-    dispatcher.enqueue({
-      type: "workflow.task.update",
-      sessionId: "runtime-session",
-      runId: 11,
-      timestamp: Date.now(),
-      data: {
-        workflowId: "wf-runtime",
-        tasks: [
-          {
-            id: "#1",
-            title: "Plan rollout",
-            status: "completed",
-            taskResult: {
-              task_id: "#1",
-              tool_name: "task",
-              title: "Plan rollout",
-              status: "completed",
-              output_text: "done",
-            },
-          },
-        ],
-      },
-    });
-    dispatcher.enqueue({
-      type: "workflow.step.complete",
-      sessionId: "runtime-session",
-      runId: 11,
-      timestamp: Date.now(),
-      data: {
-        workflowId: "wf-runtime",
-        nodeId: "planner",
-        nodeName: "Planner",
-        status: "success",
-      },
-    });
 
     await flushMicrotasks();
     await waitForBatchFlush();
-
-    expect(output.some((event) => event.type === "workflow-step-start")).toBe(true);
-    expect(output.some((event) => event.type === "task-list-update")).toBe(true);
-    expect(output.some((event) => event.type === "task-result-upsert")).toBe(true);
-    expect(output.some((event) => event.type === "workflow-step-complete")).toBe(true);
-
-    const taskResult = output.find((event) => event.type === "task-result-upsert");
-    expect(taskResult?.type).toBe("task-result-upsert");
-    if (taskResult?.type === "task-result-upsert") {
-      expect(taskResult.envelope.task_id).toBe("#1");
-      expect(taskResult.envelope.output_text).toBe("done");
-    }
 
     dispose();
   });

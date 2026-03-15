@@ -118,47 +118,6 @@ describe("coalescingKey()", () => {
     });
   });
 
-  describe("workflow events (return workflow.tasks:{workflowId})", () => {
-    it("should return workflow.tasks:${workflowId} for workflow.task.update", () => {
-      const event: BusEvent<"workflow.task.update"> = {
-        type: "workflow.task.update",
-        sessionId: "test-session",
-        runId: 1,
-        timestamp: Date.now(),
-        data: {
-          workflowId: "workflow-abc",
-          tasks: [
-            { id: "task-1", title: "First task", status: "pending" },
-            { id: "task-2", title: "Second task", status: "in_progress" },
-          ],
-        },
-      };
-
-      expect(coalescingKey(event)).toBe("workflow.tasks:workflow-abc");
-    });
-
-    it("should generate different keys for different workflowIds", () => {
-      const event1: BusEvent<"workflow.task.update"> = {
-        type: "workflow.task.update",
-        sessionId: "test-session",
-        runId: 1,
-        timestamp: Date.now(),
-        data: { workflowId: "workflow-1", tasks: [] },
-      };
-      const event2: BusEvent<"workflow.task.update"> = {
-        type: "workflow.task.update",
-        sessionId: "test-session",
-        runId: 1,
-        timestamp: Date.now(),
-        data: { workflowId: "workflow-2", tasks: [] },
-      };
-
-      expect(coalescingKey(event1)).toBe("workflow.tasks:workflow-1");
-      expect(coalescingKey(event2)).toBe("workflow.tasks:workflow-2");
-      expect(coalescingKey(event1)).not.toBe(coalescingKey(event2));
-    });
-  });
-
   describe("usage events (return usage:{sessionId})", () => {
     it("should return usage:${sessionId} for stream.usage", () => {
       const event: BusEvent<"stream.usage"> = {

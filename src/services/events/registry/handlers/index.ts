@@ -13,11 +13,7 @@ import "./stream-thinking.ts";
 import "./stream-tool.ts";
 import "./stream-turn.ts";
 import "./stream-usage.ts";
-import "./workflow-step.ts";
-import "./workflow-task.ts";
 
 export * from "./stream-session-lifecycle.ts";
 export * from "./stream-interaction.ts";
 export * from "./stream-turn.ts";
-export * from "./workflow-step.ts";
-export * from "./workflow-task.ts";

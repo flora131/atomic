@@ -1,8 +1,4 @@
 import { z } from "zod";
-import {
-  workflowRuntimeTaskSchema,
-  workflowRuntimeTaskStatusChangeSchema,
-} from "@/services/workflows/runtime-contracts.ts";
 
 export function defineBusEvent<T extends string, S extends z.ZodType>(
   type: T,
@@ -127,25 +123,6 @@ export const BusEventSchemas = {
     turnId: z.string(),
     finishReason: z.enum(["tool-calls", "stop", "max-tokens", "max-turns", "error", "unknown"]).optional(),
     rawFinishReason: z.string().optional(),
-  }),
-  "workflow.step.start": z.object({
-    workflowId: z.string(),
-    nodeId: z.string(),
-    nodeName: z.string(),
-  }),
-  "workflow.step.complete": z.object({
-    workflowId: z.string(),
-    nodeId: z.string(),
-    nodeName: z.string(),
-    status: z.enum(["success", "error", "skipped"]),
-    result: z.unknown().optional(),
-  }),
-  "workflow.task.update": z.object({
-    workflowId: z.string(),
-    tasks: z.array(workflowRuntimeTaskSchema),
-  }),
-  "workflow.task.statusChange": workflowRuntimeTaskStatusChangeSchema.extend({
-    workflowId: z.string(),
   }),
   "stream.permission.requested": z.object({
     requestId: z.string(),

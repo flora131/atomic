@@ -21,6 +21,9 @@ import type {
   SubagentStreamResult,
 } from "@/services/workflows/graph/types.ts";
 import type { UseCommandExecutorArgs } from "@/state/chat/command/executor-types.ts";
+import type { WorkflowRuntimeTask } from "@/services/workflows/runtime-contracts.ts";
+import { applyStreamPartEvent } from "@/state/parts/index.ts";
+import type { StreamPartEvent } from "@/state/streaming/pipeline-types.ts";
 
 export function createCommandContextState(
   isStreaming: boolean,
@@ -398,6 +401,43 @@ export function createCommandContext(args: UseCommandExecutorArgs): CommandConte
     },
     setWorkflowTaskIds: (ids: Set<string>) => {
       args.workflowTaskIdsRef.current = ids;
+    },
+    updateTaskList: (tasks: WorkflowRuntimeTask[]) => {
+      const streamingMessageId = args.streamingMessageIdRef.current;
+      if (!streamingMessageId) return;
+
+      const runId = 0;
+      const streamEvents: StreamPartEvent[] = [{
+        type: "task-list-update",
+        runId,
+        tasks: tasks.map((task) => ({
+          id: task.id,
+          title: task.title,
+          status: task.status,
+          ...(task.blockedBy ? { blockedBy: task.blockedBy } : {}),
+        })),
+      }];
+
+      for (const task of tasks) {
+        if (task.taskResult) {
+          streamEvents.push({
+            type: "task-result-upsert",
+            runId,
+            envelope: task.taskResult,
+          });
+        }
+      }
+
+      args.setMessagesWindowed((previousMessages) =>
+        previousMessages.map((message) => {
+          if (message.id !== streamingMessageId) return message;
+          let updated = message;
+          for (const event of streamEvents) {
+            updated = applyStreamPartEvent(updated, event);
+          }
+          return updated;
+        }),
+      );
     },
     updateWorkflowState: (update) => {
       args.updateWorkflowState(update);

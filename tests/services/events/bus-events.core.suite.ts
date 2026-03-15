@@ -53,23 +53,6 @@ describe("BusEvent Type Definitions", () => {
     expect(event.data.agentType).toBe("explore");
   });
 
-  it("should create a valid workflow step start event", () => {
-    const event: BusEvent<"workflow.step.start"> = {
-      type: "workflow.step.start",
-      sessionId: "test-session",
-      runId: 1,
-      timestamp: Date.now(),
-      data: {
-        workflowId: "workflow-1",
-        nodeId: "node-1",
-        nodeName: "Initialize",
-      },
-    };
-
-    expect(event.type).toBe("workflow.step.start");
-    expect(event.data.nodeName).toBe("Initialize");
-  });
-
   it("should create a valid permission requested event", () => {
     const event: BusEvent<"stream.permission.requested"> = {
       type: "stream.permission.requested",
@@ -152,41 +135,4 @@ describe("BusEvent Type Definitions", () => {
     });
   });
 
-  it("should parse workflow.task.statusChange payloads with workflowId", () => {
-    const parsed = BusEventSchemas["workflow.task.statusChange"].parse({
-      workflowId: "workflow-1",
-      taskIds: ["task-1"],
-      newStatus: "completed",
-      tasks: [{ id: "task-1", title: "First task", status: "completed" }],
-    });
-
-    expect(parsed.workflowId).toBe("workflow-1");
-    expect(parsed.newStatus).toBe("completed");
-    expect(parsed.tasks[0]?.status).toBe("completed");
-  });
-
-  it("should create a valid workflow.task.statusChange event", () => {
-    const event: BusEvent<"workflow.task.statusChange"> = {
-      type: "workflow.task.statusChange",
-      sessionId: "test-session",
-      runId: 1,
-      timestamp: Date.now(),
-      data: {
-        workflowId: "workflow-1",
-        taskIds: ["task-1", "task-2"],
-        newStatus: "in_progress",
-        tasks: [
-          { id: "task-1", title: "First task", status: "in_progress" },
-          { id: "task-2", title: "Second task", status: "in_progress" },
-          { id: "task-3", title: "Third task", status: "pending" },
-        ],
-      },
-    };
-
-    expect(event.type).toBe("workflow.task.statusChange");
-    expect(event.data.taskIds).toEqual(["task-1", "task-2"]);
-    expect(event.data.newStatus).toBe("in_progress");
-    expect(event.data.tasks).toHaveLength(3);
-    expect(event.data.tasks[0]!.status).toBe("in_progress");
-  });
 });

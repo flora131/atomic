@@ -101,32 +101,6 @@ describe("applyStreamPartEvent - text and reasoning", () => {
     expect((updated.parts ?? []).filter((part) => part.type === "task-result")).toHaveLength(1);
   });
 
-  test("ignores workflow step events", () => {
-    const msg = createAssistantMessage();
-    const startedAt = "2026-03-01T00:00:00.000Z";
-    const completedAt = "2026-03-01T00:00:02.000Z";
-
-    const withStepStart = applyStreamPartEvent(msg, {
-      type: "workflow-step-start",
-      workflowId: "wf-1",
-      nodeId: "worker",
-      nodeName: "Worker Node",
-      startedAt,
-    });
-
-    expect(withStepStart.parts ?? []).toHaveLength(0);
-
-    const withStepComplete = applyStreamPartEvent(withStepStart, {
-      type: "workflow-step-complete",
-      workflowId: "wf-1",
-      nodeId: "worker",
-      status: "success",
-      completedAt,
-    });
-
-    expect(withStepComplete.parts ?? []).toHaveLength(0);
-  });
-
   test("streams thinking as a dedicated reasoning part when enabled", () => {
     let msg = createAssistantMessage();
     msg = applyStreamPartEvent(msg, {

@@ -9,8 +9,6 @@ import {
   interactionRegistrations,
   sessionLifecycleRegistrations,
   turnLifecycleRegistrations,
-  workflowStepRegistrations,
-  workflowTaskRegistrations,
 } from "@/services/events/registry/handlers/index.ts";
 import { BusEventSchemas, type BusEvent, type BusEventDataMap, type BusEventType, type EnrichedBusEvent } from "@/services/events/bus-events/index.ts";
 import type { StreamPartContext } from "@/services/events/registry/types.ts";
@@ -191,19 +189,19 @@ describe("EventHandlerRegistry", () => {
     });
 
     test("mapper can return an array of events", () => {
-      registry.register("workflow.task.update", {
+      registry.register("stream.session.info", {
         toStreamPart: (event) => {
           const result: StreamPartEvent[] = [
-            { type: "task-list-update", runId: event.runId, tasks: [] },
+            { type: "text-delta", runId: event.runId, delta: "info" },
           ];
           return result;
         },
       });
 
-      const mapper = registry.getStreamPartMapper("workflow.task.update");
-      const event = makeEnrichedEvent("workflow.task.update", {
-        workflowId: "wf-1",
-        tasks: [],
+      const mapper = registry.getStreamPartMapper("stream.session.info");
+      const event = makeEnrichedEvent("stream.session.info", {
+        infoType: "test",
+        message: "info",
       });
       const result = mapper!(event, stubContext);
       expect(Array.isArray(result)).toBe(true);
@@ -379,8 +377,6 @@ describe("EventHandlerRegistry singleton", () => {
     expect(registry.has("stream.turn.start")).toBe(true);
     expect(registry.has("stream.text.delta")).toBe(true);
     expect(registry.has("stream.tool.start")).toBe(true);
-    expect(registry.has("workflow.step.start")).toBe(true);
-    expect(registry.has("workflow.task.update")).toBe(true);
   });
 
   test("handler barrel re-exports turn and workflow registrations", () => {
@@ -406,16 +402,6 @@ describe("EventHandlerRegistry singleton", () => {
     expect(turnLifecycleRegistrations.map(({ eventType }) => eventType)).toEqual([
       "stream.turn.start",
       "stream.turn.end",
-    ]);
-
-    expect(workflowStepRegistrations.map(({ eventType }) => eventType)).toEqual([
-      "workflow.step.start",
-      "workflow.step.complete",
-    ]);
-
-    expect(workflowTaskRegistrations.map(({ eventType }) => eventType)).toEqual([
-      "workflow.task.update",
-      "workflow.task.statusChange",
     ]);
   });
 

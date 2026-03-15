@@ -13,6 +13,9 @@ export function createMockContext() {
       isStreaming: false,
       messageCount: 0,
     },
+    onTaskStatusChange: undefined as
+      | ((taskIds: string[], newStatus: string, tasks: any[]) => void)
+      | undefined,
     addMessage: (role: string, content: string) => {
       messages.push({ role, content });
     },

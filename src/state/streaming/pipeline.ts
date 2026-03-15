@@ -356,10 +356,6 @@ export function applyStreamPartEvent(
       return carryReasoningPartRegistry(message, { ...message, parts });
     }
 
-    case "workflow-step-start":
-    case "workflow-step-complete":
-      return message;
-
     case "task-result-upsert":
       return carryReasoningPartRegistry(message, {
         ...message,

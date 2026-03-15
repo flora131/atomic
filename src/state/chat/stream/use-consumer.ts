@@ -12,7 +12,6 @@ import {
   isRuntimeEnvelopePartEvent,
   resolveValidatedThinkingMetaEvent,
   shouldProcessStreamPartEvent,
-  toWorkflowStepCompletionMessage,
 } from "@/state/chat/shared/helpers/index.ts";
 import { joinThinkingBlocks } from "@/lib/ui/format.ts";
 import { createStreamPartBatch, applyStreamPartBatchToMessages } from "@/state/chat/stream/part-batch.ts";
@@ -341,13 +340,6 @@ export function useChatStreamConsumer({
         continue;
       }
       if (isRuntimeEnvelopePartEvent(part)) {
-        if (part.type === "workflow-step-complete") {
-          sendBackgroundMessageToAgent(toWorkflowStepCompletionMessage(part));
-          continue;
-        }
-        if (part.type === "workflow-step-start") {
-          continue;
-        }
         if (part.type === "task-result-upsert") {
           const resultText = part.envelope.output_text;
           if (typeof resultText === "string" && resultText.trim().length > 0) {

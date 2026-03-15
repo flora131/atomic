@@ -12,6 +12,7 @@ import type { AgentType, ModelOperations } from "@/services/models/index.ts";
 import type { TodoItem } from "@/services/agents/tools/todo-write.ts";
 import type { McpServerToggleMap, McpSnapshotView } from "@/lib/ui/mcp-output.ts";
 import type { SubagentSpawnOptions, SubagentStreamResult } from "@/services/workflows/graph/types.ts";
+import type { WorkflowRuntimeTask, WorkflowRuntimeTaskStatus } from "@/services/workflows/runtime-contracts.ts";
 import type {
   StreamRunHandle,
   StreamRunKind,
@@ -73,6 +74,14 @@ export interface CommandContext {
   setWorkflowSessionDir: (dir: string | null) => void;
   setWorkflowSessionId: (id: string | null) => void;
   setWorkflowTaskIds: (ids: Set<string>) => void;
+  /** Direct task list update — bypasses bus events. Used by workflow executor. */
+  updateTaskList?: (tasks: WorkflowRuntimeTask[]) => void;
+  /** Direct task status change notification — bypasses bus events. */
+  onTaskStatusChange?: (
+    taskIds: string[],
+    newStatus: WorkflowRuntimeTaskStatus,
+    tasks: WorkflowRuntimeTask[],
+  ) => void;
   waitForUserInput: () => Promise<string>;
   updateWorkflowState: (update: Partial<CommandContextState>) => void;
   eventBus?: import("@/services/events/event-bus.ts").EventBus;

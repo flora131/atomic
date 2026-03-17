@@ -159,8 +159,8 @@ export function MessageBubble({
           marginBottom={SPACING.NONE}
         >
           <text wrapMode="char" selectable>
-            <span style={{ fg: themeColors.dim }}>{PROMPT.cursor} </span>
-            <span style={{ fg: themeColors.muted }}>
+            <span fg={themeColors.dim}>{PROMPT.cursor} </span>
+            <span fg={themeColors.muted}>
               {collapsedLabel}
             </span>
           </text>
@@ -180,11 +180,11 @@ export function MessageBubble({
           marginBottom={isLast ? SPACING.NONE : SPACING.ELEMENT}
         >
           <text wrapMode="char">
-            <span style={{ fg: themeColors.dim }}>  {CONNECTOR.subStatus} </span>
-            <span style={{ fg: themeColors.muted }}>
+            <span fg={themeColors.dim}>  {CONNECTOR.subStatus} </span>
+            <span fg={themeColors.muted}>
               {truncate(message.content, 74)}
             </span>
-            <span style={{ fg: themeColors.dim }}>{toolLabel}</span>
+            <span fg={themeColors.dim}>{toolLabel}</span>
           </text>
         </box>
       );
@@ -197,7 +197,7 @@ export function MessageBubble({
         paddingRight={SPACING.CONTAINER_PAD}
         marginBottom={isLast ? SPACING.NONE : SPACING.ELEMENT}
       >
-        <text wrapMode="char" style={{ fg: isCollapsedError ? themeColors.error : themeColors.muted }}>
+        <text wrapMode="char" fg={isCollapsedError ? themeColors.error : themeColors.muted}>
           {truncate(message.content, 80)}
         </text>
       </box>
@@ -217,12 +217,10 @@ export function MessageBubble({
         ) : (
           <box flexGrow={1} flexShrink={1} minWidth={0}>
             <text wrapMode="char">
-              <span style={{ fg: themeColors.accent }}>{PROMPT.cursor} </span>
+              <span fg={themeColors.accent}>{PROMPT.cursor} </span>
               <span
-                style={{
-                  bg: themeColors.userBubbleBg,
-                  fg: themeColors.userBubbleFg,
-                }}
+                bg={themeColors.userBubbleBg}
+                fg={themeColors.userBubbleFg}
               >
                 {" "}{message.content}{" "}
               </span>
@@ -293,7 +291,7 @@ export function MessageBubble({
 
         {message.wasInterrupted && !message.streaming && (
           <box marginTop={SPACING.ELEMENT}>
-            <text style={{ fg: themeColors.warning }}>
+            <text fg={themeColors.warning}>
               {STATUS.active} Operation cancelled by user
             </text>
           </box>
@@ -351,7 +349,7 @@ export function MessageBubble({
       paddingLeft={SPACING.CONTAINER_PAD}
       paddingRight={SPACING.CONTAINER_PAD}
     >
-      <text wrapMode="char" style={{ fg: isErrorMessage ? themeColors.error : themeColors.muted }}>
+      <text wrapMode="char" fg={isErrorMessage ? themeColors.error : themeColors.muted}>
         {message.content}
       </text>
     </box>

@@ -1,8 +1,8 @@
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const OPEN_TUI_TREE_WASM_IMPORT = '"web-tree-sitter/tree-sitter.wasm"';
-const BUN_COMPAT_TREE_WASM_IMPORT = '"web-tree-sitter/web-tree-sitter.wasm"';
+const CORRECT_WASM_IMPORT = '"web-tree-sitter/tree-sitter.wasm"';
+const BROKEN_WASM_IMPORT = '"web-tree-sitter/web-tree-sitter.wasm"';
 
 export interface WebTreeSitterShimPaths {
   packageDir: string;
@@ -30,33 +30,36 @@ function ensurePatchedParserWorkerImport(parserWorkerPath: string): void {
   }
 
   const current = readFileSync(parserWorkerPath, "utf8");
-  if (!current.includes(OPEN_TUI_TREE_WASM_IMPORT)) {
+  if (!current.includes(BROKEN_WASM_IMPORT)) {
     return;
   }
 
   writeFileSync(
     parserWorkerPath,
-    current.replaceAll(OPEN_TUI_TREE_WASM_IMPORT, BUN_COMPAT_TREE_WASM_IMPORT),
+    current.replaceAll(BROKEN_WASM_IMPORT, CORRECT_WASM_IMPORT),
     "utf8",
   );
 }
 
 /**
- * Bun currently resolves `web-tree-sitter/web-tree-sitter.wasm` but not the
- * package export alias used by OpenTUI's worker (`web-tree-sitter/tree-sitter.wasm`).
- * Keep both a filesystem shim and a one-line worker patch in place so source
- * runs and compiled binaries can both load the tree-sitter core WASM asset.
+ * Bun resolves the `web-tree-sitter/tree-sitter.wasm` package export but NOT
+ * the bare filename `web-tree-sitter/web-tree-sitter.wasm`. OpenTUI's bundled
+ * parser worker may ship with the non-resolvable path; this shim:
+ *
+ * 1. Creates a `web-tree-sitter.wasm` alias (for any code using the filename
+ *    directly outside the module resolver).
+ * 2. Patches the worker import back to the correct package export path.
  */
 export function ensureWebTreeSitterWasmShim(paths: WebTreeSitterShimPaths = getDefaultWebTreeSitterShimPaths()): void {
   const { packageDir, parserWorkerPath } = paths;
 
   ensureFileCopy(
-    resolve(packageDir, "web-tree-sitter.wasm"),
     resolve(packageDir, "tree-sitter.wasm"),
+    resolve(packageDir, "web-tree-sitter.wasm"),
   );
   ensureFileCopy(
-    resolve(packageDir, "web-tree-sitter.wasm.map"),
     resolve(packageDir, "tree-sitter.wasm.map"),
+    resolve(packageDir, "web-tree-sitter.wasm.map"),
   );
   ensurePatchedParserWorkerImport(parserWorkerPath);
 }

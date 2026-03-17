@@ -185,7 +185,7 @@ export function useComposerInputState({
     if (!textarea) return;
 
     event.preventDefault();
-    const normalized = normalizePastedText(event.text);
+    const normalized = normalizePastedText(new TextDecoder().decode(event.bytes));
     const pastedContent = normalized.trim();
     if (!pastedContent) {
       const clipboardText = clipboard.readText();

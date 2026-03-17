@@ -124,19 +124,19 @@ export function TaskListBox({
     <box flexDirection="column" border borderStyle="rounded" borderColor={themeColors.dim} paddingLeft={SPACING.CONTAINER_PAD} paddingRight={SPACING.CONTAINER_PAD}>
       {/* Header */}
       <text wrapMode="none" attributes={1}>
-        <span style={{ fg: palette.teal }}>{headerLabel}</span>
+        <span fg={palette.teal}>{headerLabel}</span>
       </text>
 
       {/* Progress bar */}
       <text wrapMode="none">
-        <span style={{ fg: themeColors.success }}>{filled}</span>
-        <span style={{ fg: themeColors.dim }}>{empty}</span>
+        <span fg={themeColors.success}>{filled}</span>
+        <span fg={themeColors.dim}>{empty}</span>
       </text>
 
       {/* Status summary */}
       {summaryLine.length > 0 && (
         <text wrapMode="none">
-          <span style={{ fg: themeColors.muted }}>{summaryLine}</span>
+          <span fg={themeColors.muted}>{summaryLine}</span>
         </text>
       )}
 

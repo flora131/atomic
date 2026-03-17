@@ -74,10 +74,10 @@ export function LoadingIndicator({
 
   return (
     <>
-      <span style={{ fg: themeColors.accent }}>{spinChar} </span>
-      <span style={{ fg: themeColors.accent }}>{verb}…</span>
+      <span fg={themeColors.accent}>{spinChar} </span>
+      <span fg={themeColors.accent}>{verb}…</span>
       {infoText && (
-        <span style={{ fg: themeColors.muted }}>{infoText}</span>
+        <span fg={themeColors.muted}>{infoText}</span>
       )}
     </>
   );
@@ -110,8 +110,8 @@ export function CompletionSummary({
 
   return (
     <box flexDirection="row">
-      <text style={{ fg: themeColors.muted }}>
-        <span style={{ fg: themeColors.accent }}>{spinChar} </span>
+      <text fg={themeColors.muted}>
+        <span fg={themeColors.accent}>{spinChar} </span>
         <span>{parts.join(` ${MISC.separator} `)}</span>
       </text>
     </box>
@@ -135,7 +135,7 @@ export function StreamingBullet({
 
   return (
     <text>
-      <span style={{ fg: themeColors.accent }}>
+      <span fg={themeColors.accent}>
         {visible ? "\u25cf" : MISC.separator}{" "}
       </span>
     </text>

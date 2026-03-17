@@ -239,19 +239,19 @@ function AgentSummaryBlock({
         {animateIndicator ? (
           <AnimatedBlinkIndicator color={indicatorColor} speed={500} />
         ) : (
-          <span style={{ fg: indicatorColor }}>{getStatusIcon(agent.status)}</span>
+          <span fg={indicatorColor}>{getStatusIcon(agent.status)}</span>
         )}
-        <span style={{ fg: colors.foreground, attributes: 1 }}> {label}</span>
+        <span fg={colors.foreground} attributes={1}> {label}</span>
       </text>
       {hiddenToolCount > 0 && (
         <box flexDirection="row">
           <box flexShrink={0}>
-            <text style={{ fg: colors.muted }}>
+            <text fg={colors.muted}>
               {buildAgentInlineBranchPrefix("", false)}
             </text>
           </box>
           <box flexGrow={1} flexShrink={1}>
-            <text style={{ fg: colors.muted }}>
+            <text fg={colors.muted}>
               +{hiddenToolCount} earlier tool call{hiddenToolCount === 1 ? "" : "s"}
             </text>
           </box>
@@ -260,7 +260,7 @@ function AgentSummaryBlock({
       {visibleTools.map((part, index) => (
         <box key={part.id} flexDirection="row">
           <box flexShrink={0}>
-            <text style={{ fg: colors.muted }}>
+            <text fg={colors.muted}>
               {buildAgentInlineBranchPrefix("", index === visibleTools.length - 1)}
             </text>
           </box>
@@ -325,7 +325,7 @@ export function ParallelAgentsTree({
         />
       ))}
       {hiddenCount > 0 && (
-        <text style={{ fg: colors.muted }}>
+        <text fg={colors.muted}>
           +{hiddenCount} more agent{hiddenCount === 1 ? "" : "s"}
         </text>
       )}

@@ -57,20 +57,20 @@ function ErrorScreen({ error, onExit, isDark = true }: ErrorScreenProps): React.
         maxWidth={100}
       >
         {/* Header */}
-        <text style={{ fg: palette.red, attributes: 1 }}>
+        <text fg={palette.red} attributes={1}>
           {"  Error"}
         </text>
         <text>{" "}</text>
 
         {/* Error message */}
-        <text style={{ fg: palette.text }}>
+        <text fg={palette.text}>
           {error.message}
         </text>
         <text>{" "}</text>
 
         {/* Stack trace (dimmed) */}
         {stackLines.slice(1).map((line, i) => (
-          <text key={i} style={{ fg: palette.overlay0 }}>
+          <text key={i} fg={palette.overlay0}>
             {line.trim()}
           </text>
         ))}
@@ -78,7 +78,7 @@ function ErrorScreen({ error, onExit, isDark = true }: ErrorScreenProps): React.
 
         {/* Exit instruction */}
         <box flexDirection="row">
-          <text style={{ fg: palette.subtext0 }}>
+          <text fg={palette.subtext0}>
             Press any key to exit
           </text>
         </box>

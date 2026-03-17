@@ -11,28 +11,15 @@
  */
 
 import React, { useMemo } from "react";
-import { MarkdownRenderable, type SyntaxStyle } from "@opentui/core";
+import type { SyntaxStyle } from "@opentui/core";
 import type { TextPart } from "@/state/parts/types.ts";
 import { createMarkdownSyntaxStyle, useTheme, useThemeColors } from "@/theme/index.tsx";
 import { normalizeMarkdownNewlines } from "@/lib/ui/format.ts";
 import { STATUS } from "@/theme/icons.ts";
 import { StreamingBullet } from "@/components/chat-loading-indicator.tsx";
 
-// Patch MarkdownRenderable to support text selection.
-// MarkdownRenderable extends Renderable (not TextBufferRenderable), so its
-// shouldStartSelection() always returns false, preventing selection from
-// starting when the hit test returns a MarkdownRenderable. This patch
-// delegates to a bounds check so selection can initiate and then walk into
-// the child TextRenderable instances that hold the actual text.
-MarkdownRenderable.prototype.shouldStartSelection = function (
-  x: number,
-  y: number,
-) {
-  if (!this.selectable) return false;
-  const localX = x - this.x;
-  const localY = y - this.y;
-  return localX >= 0 && localX < this.width && localY >= 0 && localY < this.height;
-};
+// Apply MarkdownRenderable selection patch (idempotent, guarded)
+import "@/lib/ui/markdown-selection-patch.ts";
 
 export interface TextPartDisplayProps {
   part: TextPart;

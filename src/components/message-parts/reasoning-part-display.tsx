@@ -9,29 +9,15 @@
  */
 
 import React, { useMemo } from "react";
-import { MarkdownRenderable, type SyntaxStyle } from "@opentui/core";
+import type { SyntaxStyle } from "@opentui/core";
 import type { ReasoningPart } from "@/state/parts/types.ts";
 import { createDimmedSyntaxStyle, createMarkdownSyntaxStyle, useTheme, useThemeColors } from "@/theme/index.tsx";
 import { SPACING } from "@/theme/spacing.ts";
 import { MISC } from "@/theme/icons.ts";
 import { normalizeMarkdownNewlines } from "@/lib/ui/format.ts";
 
-// Patch MarkdownRenderable for text selection (same as TextPartDisplay).
-// MarkdownRenderable extends Renderable (not TextBufferRenderable), so its
-// shouldStartSelection() always returns false. This patch delegates to a
-// bounds check so selection can initiate inside child TextRenderable instances.
-if (!(MarkdownRenderable.prototype as any).__reasoningSelectionPatched) {
-  MarkdownRenderable.prototype.shouldStartSelection = function (
-    x: number,
-    y: number,
-  ) {
-    if (!this.selectable) return false;
-    const localX = x - this.x;
-    const localY = y - this.y;
-    return localX >= 0 && localX < this.width && localY >= 0 && localY < this.height;
-  };
-  (MarkdownRenderable.prototype as any).__reasoningSelectionPatched = true;
-}
+// Apply MarkdownRenderable selection patch (idempotent, guarded)
+import "@/lib/ui/markdown-selection-patch.ts";
 
 export interface ReasoningPartDisplayProps {
   part: ReasoningPart;

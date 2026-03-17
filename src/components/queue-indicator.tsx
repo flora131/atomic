@@ -152,13 +152,13 @@ export function QueueIndicator({
   const renderMessage = (msg: QueuedMessage, index: number): React.ReactNode => {
     const isEditing = editable && editIndex === index;
     const prefix = isEditing ? "› " : `${PROMPT.cursor} `;
-    const style = {
-      fg: isEditing ? theme.colors.accent : theme.colors.muted,
-      attributes: isEditing ? 1 : 0, // bold when editing
-    };
 
     return (
-      <text key={msg.id} style={style}>
+      <text
+        key={msg.id}
+        fg={isEditing ? theme.colors.accent : theme.colors.muted}
+        attributes={isEditing ? 1 : 0}
+      >
         {prefix}{truncateContent(msg.displayContent ?? msg.content, queueMaxLength)}
       </text>
     );

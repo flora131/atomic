@@ -73,13 +73,13 @@ export function LoadingIndicator({
     : "";
 
   return (
-    <>
+    <text>
       <span fg={themeColors.accent}>{spinChar} </span>
       <span fg={themeColors.accent}>{verb}…</span>
       {infoText && (
         <span fg={themeColors.muted}>{infoText}</span>
       )}
-    </>
+    </text>
   );
 }
 

@@ -54,12 +54,12 @@ export function HitlResponseWidget({ context }: HitlResponseWidgetProps): React.
       {/* Header badge — rounded connector style matching UserQuestionDialog */}
       <box marginBottom={SPACING.NONE}>
         <text>
-          <span style={{ fg: colors.border }}>
+          <span fg={colors.border}>
             {CONNECTOR.roundedTopLeft}{CONNECTOR.horizontal}
           </span>
-          <span style={{ fg: statusColor }}> {statusIcon} </span>
-          <span style={{ fg: colors.foreground }}>{headerLabel} </span>
-          <span style={{ fg: colors.border }}>
+          <span fg={statusColor}> {statusIcon} </span>
+          <span fg={colors.foreground}>{headerLabel} </span>
+          <span fg={colors.border}>
             {CONNECTOR.horizontal}{CONNECTOR.roundedTopRight}
           </span>
         </text>
@@ -67,7 +67,7 @@ export function HitlResponseWidget({ context }: HitlResponseWidgetProps): React.
 
       {/* Question text — muted, wrapping */}
       {context.question.length > 0 && (
-        <text wrapMode="word" style={{ fg: colors.muted }}>
+        <text wrapMode="word" fg={colors.muted}>
           {"  "}{context.question}
         </text>
       )}
@@ -75,8 +75,8 @@ export function HitlResponseWidget({ context }: HitlResponseWidgetProps): React.
       {/* Answer line — prominent with accent prompt cursor */}
       <box marginTop={SPACING.NONE}>
         <text wrapMode="word">
-          <span style={{ fg: colors.accent }}> {PROMPT.cursor} </span>
-          <span style={{ bg: answerBg, fg: answerColor, attributes: isDeclined ? undefined : 1 }}>
+          <span fg={colors.accent}> {PROMPT.cursor} </span>
+          <span bg={answerBg} fg={answerColor} attributes={isDeclined ? undefined : 1}>
             {isDeclined ? answerDisplay : ` ${answerDisplay} `}
           </span>
         </text>

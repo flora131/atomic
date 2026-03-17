@@ -305,15 +305,13 @@ export function MessageBubble({
               ? SPACING.ELEMENT
               : SPACING.NONE}
           >
-            <text>
-              <LoadingIndicator
-                verbOverride={message.spinnerVerb}
-                elapsedMs={elapsedMs}
-                outputTokens={streamingMeta?.outputTokens ?? message.outputTokens}
-                thinkingMs={streamingMeta?.thinkingMs ?? message.thinkingMs}
-                isStreaming={Boolean(message.streaming)}
-              />
-            </text>
+            <LoadingIndicator
+              verbOverride={message.spinnerVerb}
+              elapsedMs={elapsedMs}
+              outputTokens={streamingMeta?.outputTokens ?? message.outputTokens}
+              thinkingMs={streamingMeta?.thinkingMs ?? message.thinkingMs}
+              isStreaming={Boolean(message.streaming)}
+            />
           </box>
         )}
 

@@ -59,12 +59,12 @@ function PendingHitlDisplay({ questionText }: {
   return (
     <box flexDirection="column">
       <text wrapMode="word">
-        <span style={{ fg: colors.accent }}>{STATUS.active} ask_user</span>
+        <span fg={colors.accent}>{STATUS.active} ask_user</span>
       </text>
       {hasQuestion && (
         <text wrapMode="word">
-          <span style={{ fg: colors.border }}>  {CONNECTOR.subStatus} </span>
-          <span style={{ fg: colors.muted }}>{questionText}</span>
+          <span fg={colors.border}>  {CONNECTOR.subStatus} </span>
+          <span fg={colors.muted}>{questionText}</span>
         </text>
       )}
     </box>
@@ -168,8 +168,8 @@ export function ToolPartDisplay({ part, summaryOnly = false }: ToolPartDisplayPr
       : ` ${summaryText}`;
     return (
       <text wrapMode="word">
-        <span style={{ fg: colors.accent, attributes: 1 }}>{toolLabel}</span>
-        <span style={{ fg: stateColor }}>{suffix}</span>
+        <span fg={colors.accent} attributes={1}>{toolLabel}</span>
+        <span fg={stateColor}>{suffix}</span>
       </text>
     );
   }
@@ -197,7 +197,7 @@ export function ToolPartDisplay({ part, summaryOnly = false }: ToolPartDisplayPr
     if (isRunning) {
       return (
         <text wrapMode="word">
-          <span style={{ fg: colors.accent }}>{STATUS.active} ask_user</span>
+          <span fg={colors.accent}>{STATUS.active} ask_user</span>
         </text>
       );
     }

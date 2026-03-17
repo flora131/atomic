@@ -56,7 +56,7 @@ export function TextPartDisplay({ part, syntaxStyle }: TextPartDisplayProps) {
   // Animated ● / · blinker when streaming; static ● otherwise.
   const bullet = part.isStreaming
     ? <StreamingBullet />
-    : <text style={{ fg: colors.foreground }}>{STATUS.active}</text>;
+    : <text fg={colors.foreground}>{STATUS.active}</text>;
 
   return (
     <box flexDirection="row">

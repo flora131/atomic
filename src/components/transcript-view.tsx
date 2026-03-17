@@ -109,7 +109,7 @@ export function TranscriptView({
         // Special rendering for thinking header with icon
         if (tl.type === "thinking-header") {
           return (
-            <text key={idx} wrapMode="char" selectable style={{ fg: color }}>
+            <text key={idx} wrapMode="char" selectable fg={color}>
               {indent}{tl.content}
             </text>
           );
@@ -119,13 +119,13 @@ export function TranscriptView({
         if (tl.type === "timestamp") {
           return (
             <box key={idx} flexDirection="row" justifyContent="flex-end" paddingRight={SPACING.CONTAINER_PAD}>
-              <text selectable style={{ fg: color }}>{tl.content}</text>
+              <text selectable fg={color}>{tl.content}</text>
             </box>
           );
         }
 
         return (
-          <text key={idx} wrapMode="char" selectable style={{ fg: color }}>
+          <text key={idx} wrapMode="char" selectable fg={color}>
             {indent}{tl.content}
           </text>
         );

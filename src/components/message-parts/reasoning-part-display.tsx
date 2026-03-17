@@ -63,7 +63,7 @@ export function ReasoningPartDisplay({ part, syntaxStyle }: ReasoningPartDisplay
 
   return (
     <box flexDirection="column">
-      <text style={{ fg: colors.muted }}>
+      <text fg={colors.muted}>
         {part.isStreaming
           ? `${MISC.thinking} Thinking...`
           : `${MISC.thinking} Thought${durationLabel ? ` (${durationLabel})` : ""}`}

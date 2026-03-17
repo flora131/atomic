@@ -29,5 +29,5 @@ export function AnimatedBlinkIndicator({
     return () => clearInterval(interval);
   }, [speed]);
 
-  return <span style={{ fg: color }}>{visible ? STATUS.active : MISC.separator}</span>;
+  return <span fg={color}>{visible ? STATUS.active : MISC.separator}</span>;
 }

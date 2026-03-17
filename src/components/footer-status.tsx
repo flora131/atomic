@@ -58,31 +58,31 @@ export function FooterStatus({
     >
       {showWorkflowHints && (
         <>
-          <text style={{ fg: colors.accent }}>workflow</text>
-          <text style={{ fg: colors.muted }}>{MISC.separator}</text>
+          <text fg={colors.accent}>workflow</text>
+          <text fg={colors.muted}>{MISC.separator}</text>
         </>
       )}
       {(showStreamingHints || showWorkflowHints) && (
         <>
-          <text style={{ fg: colors.muted }}>esc to interrupt</text>
+          <text fg={colors.muted}>esc to interrupt</text>
         </>
       )}
       {showWorkflowHints && (
         <>
-          <text style={{ fg: colors.muted }}>{MISC.separator}</text>
-          <text style={{ fg: colors.muted }}>ctrl+c twice to exit workflow</text>
+          <text fg={colors.muted}>{MISC.separator}</text>
+          <text fg={colors.muted}>ctrl+c twice to exit workflow</text>
         </>
       )}
       {showBackgroundHints && (
         <>
           {(showStreamingHints || showWorkflowHints) && (
-            <text style={{ fg: colors.muted }}>{MISC.separator}</text>
+            <text fg={colors.muted}>{MISC.separator}</text>
           )}
-          <text style={{ fg: colors.accent }}>
+          <text fg={colors.accent}>
             [{backgroundAgentCount}] local agent{backgroundAgentCount !== 1 ? "s" : ""}
           </text>
-          <text style={{ fg: colors.muted }}>{MISC.separator}</text>
-          <text style={{ fg: colors.muted }}>ctrl+f to kill all background tasks</text>
+          <text fg={colors.muted}>{MISC.separator}</text>
+          <text fg={colors.muted}>ctrl+f to kill all background tasks</text>
         </>
       )}
     </box>

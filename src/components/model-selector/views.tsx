@@ -27,40 +27,38 @@ export function ReasoningEffortSelector({
 }: ReasoningEffortSelectorProps): React.ReactNode {
   return (
     <box
-      style={{
-        flexDirection: "column",
-        width: "100%",
-        paddingTop: 1,
-        paddingBottom: 1,
-      }}
+      flexDirection="column"
+      width="100%"
+      paddingTop={1}
+      paddingBottom={1}
     >
-      <box style={{ flexDirection: "column", paddingLeft: 2, paddingBottom: 1 }}>
-        <text style={{ fg: colors.accent }} attributes={1}>
+      <box flexDirection="column" paddingLeft={2} paddingBottom={1}>
+        <text fg={colors.accent} attributes={1}>
           Select Effort Level for {model.modelID}
         </text>
       </box>
 
-      <box style={{ flexDirection: "column", paddingLeft: 2 }}>
+      <box flexDirection="column" paddingLeft={2}>
         {options.map((option, index) => {
           const isSelected = index === selectedIndex;
           const indicator = isSelected ? PROMPT.cursor : " ";
 
           return (
-            <box key={option.level} style={{ flexDirection: "row", paddingLeft: 2 }}>
-              <text style={{ fg: isSelected ? colors.accent : colors.muted }}>
+            <box key={option.level} flexDirection="row" paddingLeft={2}>
+              <text fg={isSelected ? colors.accent : colors.muted}>
                 {indicator}
               </text>
-              <text style={{ fg: isSelected ? colors.accent : colors.muted }}>
+              <text fg={isSelected ? colors.accent : colors.muted}>
                 {" "}{index + 1}.{" "}
               </text>
               <text
-                style={{ fg: isSelected ? colors.accent : colors.foreground }}
+                fg={isSelected ? colors.accent : colors.foreground}
                 attributes={isSelected ? 1 : undefined}
               >
                 {option.level}
               </text>
               {option.isDefault && (
-                <text style={{ fg: colors.success }}>
+                <text fg={colors.success}>
                   {" "}(default)
                 </text>
               )}
@@ -69,8 +67,8 @@ export function ReasoningEffortSelector({
         })}
       </box>
 
-      <box style={{ paddingLeft: 2, paddingTop: 1 }}>
-        <text style={{ fg: colors.muted }}>
+      <box paddingLeft={2} paddingTop={1}>
+        <text fg={colors.muted}>
           Confirm with number keys or ↑↓ keys and Enter, Cancel with Esc
         </text>
       </box>
@@ -105,18 +103,16 @@ export function ModelListView({
 
   return (
     <box
-      style={{
-        flexDirection: "column",
-        width: "100%",
-        paddingTop: 1,
-        paddingBottom: 1,
-      }}
+      flexDirection="column"
+      width="100%"
+      paddingTop={1}
+      paddingBottom={1}
     >
-      <box style={{ flexDirection: "column", paddingLeft: 2, paddingBottom: 1 }}>
-        <text style={{ fg: colors.accent }} attributes={1}>
+      <box flexDirection="column" paddingLeft={2} paddingBottom={1}>
+        <text fg={colors.accent} attributes={1}>
           Select Model
         </text>
-        <text style={{ fg: colors.muted }}>
+        <text fg={colors.muted}>
           Choose a model for this session
         </text>
       </box>
@@ -129,8 +125,8 @@ export function ModelListView({
         paddingLeft={SPACING.INDENT}
       >
         {flatModelCount === 0 ? (
-          <box style={{ paddingLeft: 2, paddingTop: 1, paddingBottom: 1 }}>
-            <text style={{ fg: colors.muted }}>
+          <box paddingLeft={2} paddingTop={1} paddingBottom={1}>
+            <text fg={colors.muted}>
               No models available
             </text>
           </box>
@@ -140,9 +136,9 @@ export function ModelListView({
               const isLastGroup = groupIndex === groupedModels.length - 1;
 
               return (
-                <box key={group.providerID} style={{ flexDirection: "column" }}>
-                  <box style={{ paddingTop: groupIndex > 0 ? 1 : 0 }}>
-                    <text style={{ fg: colors.foreground }}>
+                <box key={group.providerID} flexDirection="column">
+                  <box paddingTop={groupIndex > 0 ? 1 : 0}>
+                    <text fg={colors.foreground}>
                       {group.displayName}
                     </text>
                   </box>
@@ -159,48 +155,44 @@ export function ModelListView({
                     return (
                       <box
                         key={model.id}
-                        style={{
-                          flexDirection: "row",
-                          paddingLeft: 2,
-                        }}
+                        flexDirection="row"
+                        paddingLeft={2}
                       >
-                        <text style={{ fg: isSelected ? colors.accent : colors.muted }}>
+                        <text fg={isSelected ? colors.accent : colors.muted}>
                           {indicator}
                         </text>
-                        <text style={{ fg: isSelected ? colors.accent : colors.muted }}>
+                        <text fg={isSelected ? colors.accent : colors.muted}>
                           {" "}{currentGlobalIndex + 1 < 10 ? ` ${currentGlobalIndex + 1}` : currentGlobalIndex + 1}.{" "}
                         </text>
                         <text
-                          style={{
-                            fg: isSelected
-                              ? colors.accent
-                              : isCurrent
-                                ? colors.success
-                                : colors.foreground,
-                          }}
+                          fg={isSelected
+                            ? colors.accent
+                            : isCurrent
+                              ? colors.success
+                              : colors.foreground}
                           attributes={isSelected ? 1 : undefined}
                         >
                           {model.modelID}
                         </text>
                         {shouldShowCurrentEffort && (
-                          <text style={{ fg: colors.muted }}>
+                          <text fg={colors.muted}>
                             {" "}({currentReasoningEffort})
                           </text>
                         )}
                         {!shouldShowCurrentEffort
                           && (model.supportedReasoningEfforts?.length ?? 0) > 0
                           && model.defaultReasoningEffort && (
-                          <text style={{ fg: colors.muted }}>
+                          <text fg={colors.muted}>
                             {" "}({model.defaultReasoningEffort})
                           </text>
                           )}
                         {isCurrent && (
-                          <text style={{ fg: colors.success }}>
+                          <text fg={colors.success}>
                             {" "}(current)
                           </text>
                         )}
                         {contextInfo && (
-                          <text style={{ fg: colors.muted }}>
+                          <text fg={colors.muted}>
                             {"  "}{contextInfo}
                           </text>
                         )}
@@ -210,7 +202,7 @@ export function ModelListView({
 
                   {!isLastGroup && (
                     <box>
-                      <text style={{ fg: colors.border }}>
+                      <text fg={colors.border}>
                         {"  "}{CONNECTOR.horizontal.repeat(30)}
                       </text>
                     </box>
@@ -222,8 +214,8 @@ export function ModelListView({
         )}
       </scrollbox>
 
-      <box style={{ paddingLeft: 2, paddingTop: 1 }}>
-        <text style={{ fg: colors.muted }}>
+      <box paddingLeft={2} paddingTop={1}>
+        <text fg={colors.muted}>
           j/k navigate · enter select · esc cancel
         </text>
       </box>

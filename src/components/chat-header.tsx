@@ -89,7 +89,7 @@ function GradientText({
           length > 1 ? index / (length - 1) : 0,
         );
         return (
-          <span key={index} style={{ fg: color }}>
+          <span key={index} fg={color}>
             {char}
           </span>
         );
@@ -130,12 +130,12 @@ export function AtomicHeader({
 
       <box flexDirection="column" paddingTop={SPACING.NONE}>
         <text>
-          <span style={{ fg: theme.colors.foreground }}>v{version}</span>
+          <span fg={theme.colors.foreground}>v{version}</span>
         </text>
-        <text style={{ fg: theme.colors.muted }}>
+        <text fg={theme.colors.muted}>
           {model} {MISC.separator} {tier}
         </text>
-        <text style={{ fg: theme.colors.muted }}>{workingDir}</text>
+        <text fg={theme.colors.muted}>{workingDir}</text>
       </box>
     </box>
   );

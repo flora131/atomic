@@ -429,4 +429,53 @@ describe("HITL inline position", () => {
     expect(t1.id < t2.id).toBe(true);
     expect(t2.id < t3.id).toBe(true);
   });
+
+  test("fallback scan skips answered HITL tools still in running state", () => {
+    // Regression: previously-answered ask_user tools stay in "running" state
+    // until stream.tool.complete fires. The fallback scan that resolves HITL
+    // tool parts must exclude parts with hitlResponse set, otherwise the
+    // pendingQuestion (and its footprint) appears on the old message at the
+    // top of the chat instead of inline on the current streaming message.
+
+    // Build two messages simulating an answered HITL on msg1 and a new one on msg2.
+    let msg1 = createMockMessage();
+    msg1 = { ...msg1, id: "old-msg", streaming: false };
+
+    // Old ask_user tool: answered but still "running" (no tool.complete yet)
+    const oldTool = createToolPart("tc-old", "ask_user", "running");
+    const oldToolAnswered: ToolPart = {
+      ...oldTool,
+      pendingQuestion: undefined,
+      hitlResponse: {
+        cancelled: false,
+        responseMode: "option",
+        answerText: "blue",
+        displayText: 'User answered: "blue"',
+      },
+    };
+    msg1.parts = upsertPart(msg1.parts ?? [], oldToolAnswered);
+
+    let msg2 = createMockMessage();
+    msg2 = { ...msg2, id: "current-msg", streaming: true };
+
+    // New ask_user tool: running, no response yet
+    const newTool = createToolPart("tc-new", "ask_user", "running");
+    msg2.parts = upsertPart(msg2.parts ?? [], newTool);
+
+    // Simulate the fallback scan condition used in handleAskUserQuestion.
+    // The scan should NOT match msg1's old tool (it has hitlResponse).
+    const isEligibleHitlPart = (p: Part): boolean =>
+      p.type === "tool" &&
+      ((p as ToolPart).toolName === "ask_user") &&
+      (p as ToolPart).state.status === "running" &&
+      !(p as ToolPart).pendingQuestion &&
+      !(p as ToolPart).hitlResponse;
+
+    const msg1Match = msg1.parts!.find(isEligibleHitlPart);
+    const msg2Match = msg2.parts!.find(isEligibleHitlPart);
+
+    expect(msg1Match).toBeUndefined(); // old answered tool must NOT match
+    expect(msg2Match).toBeDefined();   // new unanswered tool must match
+    expect((msg2Match as ToolPart).toolCallId).toBe("tc-new");
+  });
 });

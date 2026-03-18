@@ -242,7 +242,8 @@ export function useWorkflowHitl({
               p.type === "tool" &&
               isHitlToolName((p as ToolPart).toolName) &&
               (p as ToolPart).state.status === "running" &&
-              !(p as ToolPart).pendingQuestion,
+              !(p as ToolPart).pendingQuestion &&
+              !(p as ToolPart).hitlResponse,
           ) as ToolPart | undefined;
           if (!runningHitlPart) return message;
           resolvedToolId = runningHitlPart.toolCallId;
@@ -250,6 +251,10 @@ export function useWorkflowHitl({
             hitlToolIdMapRef.current.set(targetToolId, resolvedToolId);
           }
           entry.toolCallId = resolvedToolId;
+          if (activeQuestionEntryRef.current === entry) {
+            activeHitlToolCallIdRef.current = resolvedToolId;
+            setActiveHitlToolCallId(resolvedToolId);
+          }
         }
 
         return applyStreamPartEvent(message, {
@@ -335,7 +340,8 @@ export function useWorkflowHitl({
               p.type === "tool" &&
               isHitlToolName((p as ToolPart).toolName) &&
               (p as ToolPart).state.status === "running" &&
-              !(p as ToolPart).pendingQuestion,
+              !(p as ToolPart).pendingQuestion &&
+              !(p as ToolPart).hitlResponse,
           ) as ToolPart | undefined;
           if (!runningHitlPart) return message;
           resolvedToolId = runningHitlPart.toolCallId;
@@ -345,6 +351,10 @@ export function useWorkflowHitl({
           // Backfill the entry's toolCallId so handleQuestionAnswer can
           // match the answer back to the correct tool part later.
           entry.toolCallId = resolvedToolId;
+          if (activeQuestionEntryRef.current === entry) {
+            activeHitlToolCallIdRef.current = resolvedToolId;
+            setActiveHitlToolCallId(resolvedToolId);
+          }
         }
 
         return applyStreamPartEvent(message, {

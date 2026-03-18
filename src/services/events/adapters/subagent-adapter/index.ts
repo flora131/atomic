@@ -70,6 +70,27 @@ export class SubagentStreamAdapter {
     publishSubagentAgentStart(this.state);
   }
 
+  private publishAgentComplete(result: SubagentStreamResult): void {
+    if (!this.state.agentStartPublished) return;
+
+    this.state.bus.publish({
+      type: "stream.agent.complete",
+      sessionId: this.state.sessionId,
+      runId: this.state.runId,
+      timestamp: Date.now(),
+      data: {
+        agentId: this.state.agentId,
+        success: result.success,
+        ...(typeof result.output === "string" && result.output.length > 0
+          ? { result: result.output }
+          : {}),
+        ...(typeof result.error === "string"
+          ? { error: result.error }
+          : {}),
+      },
+    });
+  }
+
   async consumeStream(
     stream: AsyncIterable<AgentMessage>,
     abortSignal?: AbortSignal,
@@ -103,6 +124,8 @@ export class SubagentStreamAdapter {
         ...(abortSignal?.aborted ? { error: "Sub-agent was aborted" } : {}),
       });
 
+      this.publishAgentComplete(result);
+
       pipelineLog("Subagent", "stream_complete", {
         agentId: this.state.agentId,
         durationMs: result.durationMs,
@@ -123,11 +146,15 @@ export class SubagentStreamAdapter {
 
       publishSubagentSessionError(this.state, errorMessage);
       publishSubagentTextComplete(this.state);
-      return buildSubagentStreamResult(this.state, {
+      const result = buildSubagentStreamResult(this.state, {
         startTime,
         success: false,
         error: errorMessage,
       });
+
+      this.publishAgentComplete(result);
+
+      return result;
     }
   }
 }

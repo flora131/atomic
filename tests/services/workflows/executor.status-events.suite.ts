@@ -181,6 +181,81 @@ describe("executeWorkflow - task status events", () => {
     expect(task2.blockedBy).toEqual(["#1"]);
   });
 
+  test("merges per-task status snapshots into the latest persisted task list", async () => {
+    const context = createMockContext();
+    const saveCalls: Array<{ tasks: any[]; sessionId: string }> = [];
+    const saveTasksToSession = async (tasks: any[], sessionId: string) => {
+      saveCalls.push({ tasks, sessionId });
+    };
+
+    interface TestState extends BaseState {
+      value: string;
+    }
+
+    const compiledGraph = compileGraphConfig<TestState>({
+      nodes: [
+        {
+          id: "test-node",
+          type: "tool",
+          execute: async (ctx: any) => {
+            const notifyFn = (ctx.config.runtime as any)?.notifyTaskStatusChange;
+            notifyFn?.(
+              ["#1", "#2"],
+              "pending",
+              [
+                { id: "#1", title: "Task 1", status: "pending", blockedBy: [] },
+                { id: "#2", title: "Task 2", status: "pending", blockedBy: ["#1"] },
+              ],
+            );
+            notifyFn?.(
+              ["#1"],
+              "in_progress",
+              [{ id: "#1", title: "Task 1", status: "in_progress" }],
+            );
+            return { stateUpdate: { value: "done" } as Partial<TestState> };
+          },
+        },
+      ],
+      edges: [],
+      startNode: "test-node",
+    });
+
+    const definition = {
+      name: "test-workflow",
+      description: "Merge partial task snapshots",
+      command: "/test",
+    };
+
+    const result = await executeWorkflow(
+      definition,
+      "test prompt",
+      context as any,
+      {
+        compiledGraph: compiledGraph as any,
+        saveTasksToSession,
+      },
+    );
+
+    expect(result.success).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    const lastSave = saveCalls[saveCalls.length - 1]!;
+    expect(lastSave.tasks).toHaveLength(2);
+    const task1 = lastSave.tasks.find((task: any) => task.id === "#1");
+    const task2 = lastSave.tasks.find((task: any) => task.id === "#2");
+    expect(task1).toMatchObject({
+      id: "#1",
+      description: "Task 1",
+      status: "in_progress",
+    });
+    expect(task2).toMatchObject({
+      id: "#2",
+      description: "Task 2",
+      status: "pending",
+      blockedBy: ["#1"],
+    });
+  });
+
   test("backfills task identity metadata when status snapshots are legacy", async () => {
     const context = createMockContext();
     const saveCalls: Array<{ tasks: any[]; sessionId: string }> = [];

@@ -60,6 +60,64 @@ export function createWorkflowTaskPersistence(args: {
     }, 100);
   };
 
+  const mergeNormalizedTasks = (
+    previousTasks: readonly NormalizedTodoItem[],
+    incomingTasks: readonly NormalizedTodoItem[],
+  ): NormalizedTodoItem[] => {
+    if (previousTasks.length === 0) {
+      return [...incomingTasks];
+    }
+
+    const incomingByKey = new Map<string, NormalizedTodoItem>();
+    const incomingWithoutKey: NormalizedTodoItem[] = [];
+    for (const task of incomingTasks) {
+      const key = normalizeTaskKey(task.id);
+      if (!key) {
+        incomingWithoutKey.push(task);
+        continue;
+      }
+      incomingByKey.set(key, task);
+    }
+
+    const merged: NormalizedTodoItem[] = [];
+    const seenKeys = new Set<string>();
+    for (const previousTask of previousTasks) {
+      const key = normalizeTaskKey(previousTask.id);
+      if (!key) {
+        merged.push(previousTask);
+        continue;
+      }
+
+      const incomingTask = incomingByKey.get(key);
+      if (!incomingTask) {
+        merged.push(previousTask);
+        continue;
+      }
+
+      merged.push({
+        ...previousTask,
+        ...incomingTask,
+        blockedBy: incomingTask.blockedBy ?? previousTask.blockedBy,
+        identity: incomingTask.identity ?? previousTask.identity,
+        taskResult: incomingTask.taskResult ?? previousTask.taskResult,
+      });
+      seenKeys.add(key);
+    }
+
+    for (const task of incomingTasks) {
+      const key = normalizeTaskKey(task.id);
+      if (key) {
+        if (seenKeys.has(key)) {
+          continue;
+        }
+        seenKeys.add(key);
+      }
+      merged.push(task);
+    }
+
+    return merged;
+  };
+
   const flush = async (): Promise<void> => {
     if (saveDebounceTimer) {
       clearTimeout(saveDebounceTimer);
@@ -161,6 +219,8 @@ export function createWorkflowTaskPersistence(args: {
       };
     });
 
+    const mergedTasks = mergeNormalizedTasks(latestWorkflowTasks, normalized);
+
     incrementRuntimeParityCounter(
       "workflow.runtime.parity.status_snapshot_total",
       {
@@ -168,7 +228,7 @@ export function createWorkflowTaskPersistence(args: {
         workflow: args.workflowName,
       },
     );
-    saveTasks(normalized);
+    saveTasks(mergedTasks);
   };
 
   return {

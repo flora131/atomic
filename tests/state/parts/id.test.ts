@@ -19,79 +19,91 @@ test("IDs are unique", () => {
   expect(ids.size).toBe(100);
 });
 
-test("ID format matches expected pattern", () => {
+test("ID format matches expected composite pattern", () => {
   const id = createPartId();
-  // Format: part_<12-hex-timestamp>_<4-hex-counter>
-  const pattern = /^part_[0-9a-f]{12}_[0-9a-f]{4}$/;
+  // Format: part_<12-hex-composite>
+  const pattern = /^part_[0-9a-f]{12,}$/;
   expect(pattern.test(id)).toBe(true);
 });
 
-test("counter increments for each ID", () => {
+test("counter increments within the same millisecond", () => {
   const id1 = createPartId();
   const id2 = createPartId();
   const id3 = createPartId();
-  
-  // Extract counter portion (last 4 hex digits)
-  const getCounter = (id: string) => id.slice(-4);
-  
-  const counter1 = parseInt(getCounter(id1), 16);
-  const counter2 = parseInt(getCounter(id2), 16);
-  const counter3 = parseInt(getCounter(id3), 16);
-  
-  expect(counter2).toBe(counter1 + 1);
-  expect(counter3).toBe(counter2 + 1);
+
+  // Extract composite value (everything after "part_")
+  const getComposite = (id: string) => BigInt(`0x${id.slice(5)}`);
+
+  const c1 = getComposite(id1);
+  const c2 = getComposite(id2);
+  const c3 = getComposite(id3);
+
+  // Within the same ms the composite increments by exactly 1
+  expect(c2 - c1).toBe(1n);
+  expect(c3 - c2).toBe(1n);
 });
 
-test("_resetPartCounter resets to zero", () => {
+test("_resetPartCounter resets counter and timestamp", () => {
   createPartId();
   createPartId();
   createPartId();
-  
+
   _resetPartCounter();
-  
+
   const id = createPartId();
-  const counter = parseInt(id.slice(-4), 16);
-  expect(counter).toBe(0);
+  // After reset, the counter portion (lowest 12 bits) should be 0
+  const composite = BigInt(`0x${id.slice(5)}`);
+  expect(composite & BigInt(0xfff)).toBe(0n);
 });
 
-test("timestamp is encoded in hex format", () => {
+test("timestamp is encoded in the composite", () => {
   const beforeTimestamp = Date.now();
   const id = createPartId();
   const afterTimestamp = Date.now();
-  
-  // Extract timestamp portion (12 hex digits after "part_")
-  const timestampHex = id.slice(5, 17);
-  const decodedTimestamp = parseInt(timestampHex, 16);
-  
+
+  // Extract timestamp from composite: composite / 0x1000
+  const composite = BigInt(`0x${id.slice(5)}`);
+  const decodedTimestamp = Number(composite / BigInt(0x1000));
+
   expect(decodedTimestamp).toBeGreaterThanOrEqual(beforeTimestamp);
   expect(decodedTimestamp).toBeLessThanOrEqual(afterTimestamp);
 });
 
-test("large counter values are padded correctly", () => {
-  _resetPartCounter();
-  
-  // Create many IDs to test counter padding
+test("counter resets when millisecond changes", async () => {
+  createPartId();
+  createPartId();
+  createPartId();
+
+  // Wait for the millisecond to tick over
+  await new Promise((resolve) => setTimeout(resolve, 2));
+
+  const id = createPartId();
+  // Counter should have reset to 0 for the new millisecond
+  const composite = BigInt(`0x${id.slice(5)}`);
+  expect(composite & BigInt(0xfff)).toBe(0n);
+});
+
+test("supports up to 4096 IDs per millisecond", () => {
+  // Create many IDs rapidly (all within the same ms)
   const ids = Array.from({ length: 256 }, () => createPartId());
-  
-  // All IDs should maintain the same format
+
+  // All IDs should match the composite format
   ids.forEach((id) => {
-    expect(id).toMatch(/^part_[0-9a-f]{12}_[0-9a-f]{4}$/);
+    expect(id).toMatch(/^part_[0-9a-f]{12,}$/);
   });
-  
-  // Last ID should have counter = 255 (0x00ff)
-  const lastId = ids[255];
-  expect(lastId).toBeDefined();
-  const lastCounter = parseInt(lastId!.slice(-4), 16);
-  expect(lastCounter).toBe(255);
+
+  // The last ID's counter portion should be 255 (0x0ff)
+  const lastComposite = BigInt(`0x${ids[255]!.slice(5)}`);
+  expect(lastComposite & BigInt(0xfff)).toBe(255n);
 });
 
 test("IDs created in different milliseconds maintain chronological order", async () => {
   const id1 = createPartId();
-  
+
   // Wait at least 1ms to ensure timestamp changes
   await new Promise((resolve) => setTimeout(resolve, 2));
-  
+
   const id2 = createPartId();
-  
+
   expect(id1 < id2).toBe(true);
 });

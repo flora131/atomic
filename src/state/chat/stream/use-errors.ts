@@ -5,7 +5,6 @@ import {
   finalizeStreamingTextParts,
 } from "@/state/parts/index.ts";
 import {
-  interruptRunningToolCalls,
   interruptRunningToolParts,
 } from "@/state/chat/shared/helpers/stream-continuation.ts";
 import { createMessage } from "@/state/chat/shared/helpers/index.ts";
@@ -55,7 +54,6 @@ export function useChatStreamErrors({
               ...finalizeStreamingReasoningInMessage(msg),
               streaming: false,
               modelId: currentModelRef.current,
-              toolCalls: interruptRunningToolCalls(msg.toolCalls),
               parts: finalizeStreamingTextParts(
                 interruptRunningToolParts(msg.parts) ?? [],
               ),

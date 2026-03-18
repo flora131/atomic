@@ -3,7 +3,6 @@ import {
   createStartedStreamControlState,
   createStoppedStreamControlState,
   dispatchNextQueuedMessage,
-  interruptRunningToolCalls,
 } from "@/state/chat/shared/helpers/stream-continuation.ts";
 import {
   getRuntimeParityMetricsSnapshot,
@@ -424,34 +423,6 @@ describe("stream continuation helpers", () => {
       expect(afterFirstInterrupt.isStreaming).toBe(false);
       expect(afterFirstInterrupt.streamingMessageId).toBeNull();
       expect(afterSecondInterrupt).toEqual(afterFirstInterrupt);
-    });
-
-    test("double interrupt keeps tool calls in interrupted terminal state", () => {
-      const firstPass = interruptRunningToolCalls([
-        { id: "1", status: "running" },
-        { id: "2", status: "completed" },
-      ]);
-      const secondPass = interruptRunningToolCalls(firstPass);
-
-      expect(firstPass).toEqual([
-        { id: "1", status: "interrupted" },
-        { id: "2", status: "completed" },
-      ]);
-      expect(secondPass).toEqual(firstPass);
-    });
-
-    test("interruptRunningToolCalls only changes running tools", () => {
-      const interrupted = interruptRunningToolCalls([
-        { id: "1", status: "running" },
-        { id: "2", status: "completed" },
-        { id: "3", status: "error" },
-      ]);
-
-      expect(interrupted).toEqual([
-        { id: "1", status: "interrupted" },
-        { id: "2", status: "completed" },
-        { id: "3", status: "error" },
-      ]);
     });
   });
 });

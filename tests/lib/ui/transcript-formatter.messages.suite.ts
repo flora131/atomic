@@ -174,8 +174,16 @@ describe("formatTranscript - Multiple Messages", () => {
         content: "Response",
         timestamp: new Date().toISOString(),
         modelId: "test-model",
-        toolCalls: [
-          { id: "t1", toolName: "Read", status: "completed", input: { file_path: "test.ts" } },
+        parts: [
+          {
+            id: "t1",
+            type: "tool",
+            toolCallId: "t1",
+            toolName: "Read",
+            input: { file_path: "test.ts" },
+            state: { status: "completed", output: undefined, durationMs: 0 },
+            createdAt: new Date().toISOString(),
+          },
         ],
       },
       { id: "m3", role: "system", content: "Info", timestamp: new Date().toISOString() },

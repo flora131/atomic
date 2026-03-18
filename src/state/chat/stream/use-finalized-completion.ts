@@ -11,7 +11,7 @@ import type {
   FinalizedStreamCompletionContext,
   UseChatStreamCompletionArgs,
 } from "@/state/chat/stream/completion-types.ts";
-import { interruptRunningToolCalls, interruptRunningToolParts } from "@/state/chat/shared/helpers/stream-continuation.ts";
+import { interruptRunningToolParts } from "@/state/chat/shared/helpers/stream-continuation.ts";
 
 type UseChatStreamFinalizedCompletionArgs = Pick<
   UseChatStreamCompletionArgs,
@@ -86,7 +86,6 @@ export function useChatStreamFinalizedCompletion({
             outputTokens: context.finalMeta?.outputTokens || msg.outputTokens,
             thinkingMs: context.finalMeta?.thinkingMs || msg.thinkingMs,
             thinkingText: context.finalMeta?.thinkingText || msg.thinkingText || undefined,
-            toolCalls: interruptRunningToolCalls(msg.toolCalls),
             parts: finalizeStreamingTextParts(
               interruptRunningToolParts(
                 finalizeStreamingReasoningParts(msg.parts ?? [], context.finalMeta?.thinkingMs || msg.thinkingMs),

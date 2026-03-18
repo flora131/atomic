@@ -1,7 +1,6 @@
 import { useCallback } from "react";
 import { finalizeStreamingReasoningInMessage } from "@/state/parts/index.ts";
 import {
-  interruptRunningToolCalls,
   interruptRunningToolParts,
 } from "@/state/chat/shared/helpers/stream-continuation.ts";
 import {
@@ -59,7 +58,6 @@ export function useChatStreamInterruptedCompletion({
             outputTokens: context.finalMeta?.outputTokens || msg.outputTokens,
             thinkingMs: context.finalMeta?.thinkingMs || msg.thinkingMs,
             thinkingText: context.finalMeta?.thinkingText || msg.thinkingText || undefined,
-            toolCalls: interruptRunningToolCalls(msg.toolCalls),
             parts: finalizeStreamingTextParts(
               interruptRunningToolParts(
                 finalizeStreamingReasoningParts(

@@ -285,7 +285,6 @@ export {
   StreamingBullet,
   type ChatAppProps,
   type ChatMessage,
-  type MessageToolCall,
   type WorkflowChatState,
   type OnInterrupt,
   type OnTerminateBackgroundAgents,

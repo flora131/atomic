@@ -5,7 +5,6 @@ import {
   executeBackgroundTermination,
 } from "@/state/chat/shared/helpers/background-agent-termination.ts";
 import {
-  interruptRunningToolCalls,
   interruptRunningToolParts,
 } from "@/state/chat/shared/helpers/stream-continuation.ts";
 import {
@@ -190,7 +189,6 @@ export function useChatInterruptControls({
           thinkingText: context.finalMeta?.thinkingText || undefined,
           parallelAgents: context.interruptedAgents,
           taskItems: context.interruptedTaskItems,
-          toolCalls: interruptRunningToolCalls(message.toolCalls),
           parts: finalizeStreamingTextParts(
             interruptRunningToolParts(
               finalizeStreamingReasoningParts(
@@ -265,7 +263,6 @@ export function useChatInterruptControls({
             ...message,
             parallelAgents: context.interruptedAgents,
             taskItems: context.interruptedTaskItems,
-            toolCalls: interruptRunningToolCalls(message.toolCalls),
             parts: finalizeStreamingTextParts(
               interruptRunningToolParts(message.parts) ?? [],
             ),
@@ -376,7 +373,6 @@ export function useChatInterruptControls({
           ...(context.finalMeta && { streamingMeta: { ...context.finalMeta } }),
           parallelAgents: context.interruptedAgents,
           taskItems: context.interruptedTaskItems,
-          toolCalls: interruptRunningToolCalls(message.toolCalls),
           parts: finalizeStreamingTextParts(
             interruptRunningToolParts(
               finalizeStreamingReasoningParts(
@@ -414,7 +410,6 @@ export function useChatInterruptControls({
             ...message,
             parallelAgents: context.interruptedAgents,
             taskItems: context.interruptedTaskItems,
-            toolCalls: interruptRunningToolCalls(message.toolCalls),
             parts: finalizeStreamingTextParts(
               interruptRunningToolParts(message.parts) ?? [],
             ),

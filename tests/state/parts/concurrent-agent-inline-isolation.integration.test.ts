@@ -20,7 +20,6 @@ function createAssistantMessage(): ChatMessage {
     timestamp: new Date().toISOString(),
     streaming: true,
     parts: [],
-    toolCalls: [],
   };
 }
 

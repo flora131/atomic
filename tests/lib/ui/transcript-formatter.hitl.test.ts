@@ -9,11 +9,12 @@ describe("formatTranscript HITL rendering", () => {
       role: "assistant",
       content: "",
       timestamp: new Date().toISOString(),
-      toolCalls: [
+      parts: [
         {
           id: "t1",
+          type: "tool",
+          toolCallId: "t1",
           toolName: "question",
-          status: "completed",
           input: {
             question: "Pick one",
           },
@@ -21,6 +22,8 @@ describe("formatTranscript HITL rendering", () => {
             answer: "",
             cancelled: false,
           },
+          state: { status: "completed", output: { answer: "", cancelled: false }, durationMs: 0 },
+          createdAt: new Date().toISOString(),
         },
       ],
     };

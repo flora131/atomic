@@ -12,8 +12,8 @@ import { testRender } from "@opentui/react/test-utils";
 import { ThemeProvider, darkTheme } from "@/theme/index.tsx";
 import { MessageBubble } from "@/components/chat-message-bubble.tsx";
 import { PROMPT, CONNECTOR, MISC, STATUS } from "@/theme/icons.ts";
-import type { ChatMessage, MessageToolCall } from "@/state/chat/shared/types/message.ts";
-import type { TextPart } from "@/state/parts/types.ts";
+import type { ChatMessage } from "@/state/chat/shared/types/message.ts";
+import type { TextPart, ToolPart } from "@/state/parts/types.ts";
 
 // ============================================================================
 // HELPERS
@@ -52,14 +52,18 @@ function createTextPart(content: string, id?: string): TextPart {
 }
 
 /**
- * Creates a simple MessageToolCall for testing collapsed assistant messages.
+ * Creates a simple ToolPart for testing collapsed assistant messages.
  */
-function createToolCall(toolName: string, id?: string): MessageToolCall {
+function createToolPart(toolName: string, id?: string): ToolPart {
+  const partId = id ?? `tool-${Date.now()}`;
   return {
-    id: id ?? `tool-${Date.now()}`,
+    id: partId,
+    type: "tool",
+    toolCallId: partId,
     toolName,
     input: {},
-    status: "completed",
+    state: { status: "completed", output: undefined, durationMs: 0 },
+    createdAt: new Date().toISOString(),
   };
 }
 
@@ -245,10 +249,10 @@ describe("MessageBubble collapsed mode E2E", () => {
     const message = createMessage({
       role: "assistant",
       content: "I analyzed the codebase and found several issues",
-      toolCalls: [
-        createToolCall("bash", "tool-1"),
-        createToolCall("read", "tool-2"),
-        createToolCall("edit", "tool-3"),
+      parts: [
+        createToolPart("bash", "tool-1"),
+        createToolPart("read", "tool-2"),
+        createToolPart("edit", "tool-3"),
       ],
     });
 

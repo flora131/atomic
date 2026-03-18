@@ -51,7 +51,6 @@ export {
   toToolState,
   isSubagentToolName,
   mergeParallelAgentsIntoParts,
-  syncToolCallsIntoParts,
   finalizeStreamingReasoningParts,
   finalizeStreamingReasoningInMessage,
   finalizeStreamingTextParts,

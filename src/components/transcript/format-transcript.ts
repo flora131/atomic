@@ -8,6 +8,7 @@ import {
 import { formatToolInput, formatToolTitle } from "@/components/transcript/tool-formatters.ts";
 import type { TranscriptLine } from "@/components/transcript/types.ts";
 import type { ChatMessage, StreamingMeta } from "@/state/chat/exports.ts";
+import type { ToolPart } from "@/state/parts/types.ts";
 import { MISC, PROMPT, SEPARATOR, SPINNER_COMPLETE, SPINNER_FRAMES, STATUS } from "@/theme/icons.ts";
 
 export interface FormatTranscriptOptions {
@@ -58,42 +59,43 @@ export function formatTranscript(options: FormatTranscriptOptions): TranscriptLi
         }
       }
 
-      for (const toolCall of message.toolCalls ?? []) {
-        const isHitlTool = toolCall.toolName === "AskUserQuestion"
-          || toolCall.toolName === "question"
-          || toolCall.toolName === "ask_user";
-        const statusIcon = toolCall.status === "pending"
+      const toolParts = (message.parts ?? []).filter((p): p is ToolPart => p.type === "tool");
+      for (const toolPart of toolParts) {
+        const isHitlTool = toolPart.toolName === "AskUserQuestion"
+          || toolPart.toolName === "question"
+          || toolPart.toolName === "ask_user";
+        const statusIcon = toolPart.state.status === "pending"
           ? STATUS.pending
           : STATUS.active;
 
         if (isHitlTool) {
-          lines.push(transcriptLine("tool-header", `${statusIcon} ${toolCall.toolName}`));
+          lines.push(transcriptLine("tool-header", `${statusIcon} ${toolPart.toolName}`));
 
-          const questions = toolCall.input.questions as Array<{ question?: string }> | undefined;
-          const questionText = (toolCall.input.question as string) || questions?.[0]?.question || "";
+          const questions = toolPart.input.questions as Array<{ question?: string }> | undefined;
+          const questionText = (toolPart.input.question as string) || questions?.[0]?.question || "";
           if (questionText) {
             lines.push(transcriptLine("tool-content", `  ${questionText}`, 1));
           }
 
-          const hitlResponse = getHitlResponseRecord(toolCall);
+          const hitlResponse = getHitlResponseRecord(toolPart);
           if (hitlResponse) {
             lines.push(transcriptLine("tool-content", `  ${PROMPT.cursor} ${hitlResponse.displayText}`, 1));
           }
           continue;
         }
 
-        const toolTitle = formatToolTitle(toolCall.toolName, toolCall.input);
-        lines.push(transcriptLine("tool-header", `${statusIcon} ${toolCall.toolName} ${toolTitle}`));
+        const toolTitle = formatToolTitle(toolPart.toolName, toolPart.input);
+        lines.push(transcriptLine("tool-header", `${statusIcon} ${toolPart.toolName} ${toolTitle}`));
 
-        const inputSummary = formatToolInput(toolCall.toolName, toolCall.input);
+        const inputSummary = formatToolInput(toolPart.toolName, toolPart.input);
         if (inputSummary) {
           lines.push(transcriptLine("tool-content", `  ${inputSummary}`, 1));
         }
 
-        if (toolCall.output !== undefined) {
-          const outputString = typeof toolCall.output === "string"
-            ? toolCall.output
-            : JSON.stringify(toolCall.output);
+        if (toolPart.output !== undefined) {
+          const outputString = typeof toolPart.output === "string"
+            ? toolPart.output
+            : JSON.stringify(toolPart.output);
           const outputLines = outputString.split("\n").filter((line) => line.trim());
           const previewCount = Math.min(outputLines.length, 8);
           for (const outputLine of outputLines.slice(0, previewCount)) {

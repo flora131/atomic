@@ -17,7 +17,6 @@ import {
 } from "@/state/chat/shared/helpers/skill-load-tracking.ts";
 import { isLikelyFilePath } from "@/services/events/session-info-filters.ts";
 import {
-  interruptRunningToolCalls,
   interruptRunningToolParts,
   shouldContinueParentSessionLoop,
 } from "@/state/chat/shared/helpers/stream-continuation.ts";
@@ -207,7 +206,6 @@ export function useStreamSessionSubscriptions({
               msg.id === interruptedMessageId
                 ? {
                   ...msg,
-                  toolCalls: interruptRunningToolCalls(msg.toolCalls),
                   parts: interruptRunningToolParts(msg.parts),
                 }
                 : msg,

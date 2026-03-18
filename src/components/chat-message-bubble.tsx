@@ -25,7 +25,6 @@ import type {
 } from "@/state/parts/index.ts";
 import {
   mergeParallelAgentsIntoParts,
-  syncToolCallsIntoParts,
 } from "@/state/parts/index.ts";
 
 function getRenderableAssistantParts(
@@ -65,11 +64,6 @@ function getRenderableAssistantParts(
     const toolPart = part as ToolPart;
     return !shouldHideSkillToolIndicator(toolPart.toolName, toolPart.input);
   });
-
-  const visibleToolCalls = (message.toolCalls ?? []).filter(
-    (toolCall) => !shouldHideSkillToolIndicator(toolCall.toolName, toolCall.input),
-  );
-  parts = syncToolCallsIntoParts(parts, visibleToolCalls, message.timestamp, message.id);
 
   const effectiveParallelAgents = message.parallelAgents;
   if (effectiveParallelAgents && effectiveParallelAgents.length > 0) {
@@ -172,7 +166,7 @@ export function MessageBubble({
     }
 
     if (message.role === "assistant") {
-      const toolCount = message.toolCalls?.length ?? 0;
+      const toolCount = (message.parts ?? []).filter((p) => p.type === "tool").length;
       const toolLabel = toolCount > 0
         ? ` ${MISC.separator} ${toolCount} tool${toolCount !== 1 ? "s" : ""}`
         : "";

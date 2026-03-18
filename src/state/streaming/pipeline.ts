@@ -12,11 +12,8 @@ import {
   applyHitlResponse,
   applyToolPartialResultToParts,
   isSubagentToolName,
-  syncToolCallsIntoParts,
   toToolState,
   upsertHitlRequest,
-  upsertToolCallComplete,
-  upsertToolCallStart,
   upsertToolPartComplete,
   upsertToolPartStart,
 } from "@/state/streaming/pipeline-tools.ts";
@@ -48,6 +45,7 @@ import type {
   ThinkingProvider,
 } from "@/state/streaming/pipeline-types.ts";
 import { createPartId } from "@/state/parts/id.ts";
+import { upsertPart } from "@/state/parts/store.ts";
 
 export type {
   StreamPartEvent,
@@ -62,7 +60,6 @@ export {
 } from "@/state/streaming/pipeline-thinking.ts";
 export {
   isSubagentToolName,
-  syncToolCallsIntoParts,
   toToolState,
 } from "@/state/streaming/pipeline-tools.ts";
 export { mergeParallelAgentsIntoParts } from "@/state/streaming/pipeline-agents.ts";
@@ -166,7 +163,6 @@ export function applyStreamPartEvent(
 
       return carryReasoningPartRegistry(message, {
         ...message,
-        toolCalls: upsertToolCallStart(message.toolCalls, event),
         parts: upsertToolPartStart(message.parts ?? [], event),
       });
     }
@@ -190,7 +186,6 @@ export function applyStreamPartEvent(
 
       return carryReasoningPartRegistry(message, {
         ...message,
-        toolCalls: upsertToolCallComplete(message.toolCalls, event),
         parts: upsertToolPartComplete(message.parts ?? [], event),
       });
     }
@@ -331,29 +326,29 @@ export function applyStreamPartEvent(
     }
 
     case "task-list-update": {
-      const parts = [...(message.parts ?? [])];
+      const parts = message.parts ?? [];
       const taskItems = event.tasks.map((task) => ({
         id: task.id,
         description: task.title,
         status: normalizeTaskItemStatus(task.status),
         blockedBy: task.blockedBy,
       }));
-      const existingIdx = parts.findIndex((part) => part.type === "task-list");
-      if (existingIdx >= 0) {
-        parts[existingIdx] = {
-          ...(parts[existingIdx] as TaskListPart),
-          items: taskItems,
-        };
-      } else {
-        parts.push({
-          id: createPartId(),
-          type: "task-list",
-          items: taskItems,
-          expanded: false,
-          createdAt: new Date().toISOString(),
-        });
-      }
-      return carryReasoningPartRegistry(message, { ...message, parts });
+      const existing = parts.find(
+        (part): part is TaskListPart => part.type === "task-list",
+      );
+      const updatedPart: TaskListPart = existing
+        ? { ...existing, items: taskItems }
+        : {
+            id: createPartId(),
+            type: "task-list",
+            items: taskItems,
+            expanded: false,
+            createdAt: new Date().toISOString(),
+          };
+      return carryReasoningPartRegistry(message, {
+        ...message,
+        parts: upsertPart(parts, updatedPart),
+      });
     }
 
     case "task-result-upsert":

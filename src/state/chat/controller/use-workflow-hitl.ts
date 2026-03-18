@@ -226,12 +226,11 @@ export function useWorkflowHitl({
         let resolvedToolId: string | null = targetToolId ?? null;
 
         if (targetToolId) {
-          const hasToolCall = message.toolCalls?.some((toolCall) => toolCall.id === targetToolId) ?? false;
           const hasToolPart = message.parts?.some(
             (part) => part.type === "tool" && part.toolCallId === targetToolId,
           ) ?? false;
 
-          if (!hasToolCall && !hasToolPart) {
+          if (!hasToolPart) {
             resolvedToolId = null;
           }
         }
@@ -316,17 +315,16 @@ export function useWorkflowHitl({
     setMessagesWindowed((previousMessages) =>
       previousMessages.map((message) => {
         // Resolve the tool ID: use the provided toolCallId if it matches an
-        // existing tool call/part, otherwise fall back to scanning for the
+        // existing part, otherwise fall back to scanning for the
         // most recent running HITL tool part by name.
         let resolvedToolId: string | null = targetToolId;
 
         if (targetToolId) {
-          const hasToolCall = message.toolCalls?.some((toolCall) => toolCall.id === targetToolId) ?? false;
           const hasToolPart = message.parts?.some(
             (part) => part.type === "tool" && part.toolCallId === targetToolId,
           ) ?? false;
 
-          if (!hasToolCall && !hasToolPart) {
+          if (!hasToolPart) {
             resolvedToolId = null;
           }
         }
@@ -418,12 +416,11 @@ export function useWorkflowHitl({
 
       setMessagesWindowed((previousMessages) =>
         previousMessages.map((message) => {
-          const hasMatchingToolCall = message.toolCalls?.some((toolCall) => toolCall.id === hitlToolId) ?? false;
           const hasMatchingToolPart = message.parts?.some(
             (part) => part.type === "tool" && part.toolCallId === hitlToolId,
           ) ?? false;
 
-          if (hasMatchingToolCall || hasMatchingToolPart) {
+          if (hasMatchingToolPart) {
             return applyStreamPartEvent(message, {
               type: "tool-hitl-response",
               toolId: hitlToolId,

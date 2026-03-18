@@ -137,12 +137,15 @@ describe("formatTranscript - Non-HITL Tool Calls", () => {
       role: "assistant",
       content: "",
       timestamp: new Date().toISOString(),
-      toolCalls: [
+      parts: [
         {
           id: "t1",
+          type: "tool",
+          toolCallId: "t1",
           toolName: "Read",
-          status: "completed",
           input: { file_path: "/src/test.ts" },
+          state: { status: "completed", output: undefined, durationMs: 0 },
+          createdAt: new Date().toISOString(),
         },
       ],
     };
@@ -162,12 +165,15 @@ describe("formatTranscript - Non-HITL Tool Calls", () => {
       role: "assistant",
       content: "",
       timestamp: new Date().toISOString(),
-      toolCalls: [
+      parts: [
         {
           id: "t1",
+          type: "tool",
+          toolCallId: "t1",
           toolName: "Bash",
-          status: "running",
           input: { command: "bun test" },
+          state: { status: "running", startedAt: new Date().toISOString() },
+          createdAt: new Date().toISOString(),
         },
       ],
     };
@@ -189,13 +195,16 @@ describe("formatTranscript - Non-HITL Tool Calls", () => {
       role: "assistant",
       content: "",
       timestamp: new Date().toISOString(),
-      toolCalls: [
+      parts: [
         {
           id: "t1",
+          type: "tool",
+          toolCallId: "t1",
           toolName: "Bash",
-          status: "completed",
           input: { command: "ls" },
           output: outputLines.join("\n"),
+          state: { status: "completed", output: outputLines.join("\n"), durationMs: 0 },
+          createdAt: new Date().toISOString(),
         },
       ],
     };
@@ -214,13 +223,16 @@ describe("formatTranscript - Non-HITL Tool Calls", () => {
       role: "assistant",
       content: "",
       timestamp: new Date().toISOString(),
-      toolCalls: [
+      parts: [
         {
           id: "t1",
+          type: "tool",
+          toolCallId: "t1",
           toolName: "Bash",
-          status: "completed",
           input: { command: "echo hello" },
           output: "hello\nworld",
+          state: { status: "completed", output: "hello\nworld", durationMs: 0 },
+          createdAt: new Date().toISOString(),
         },
       ],
     };
@@ -242,12 +254,15 @@ describe("formatTranscript - Non-HITL Tool Calls", () => {
       role: "assistant",
       content: "",
       timestamp: new Date().toISOString(),
-      toolCalls: [
+      parts: [
         {
           id: "t1",
+          type: "tool",
+          toolCallId: "t1",
           toolName: "Read",
-          status: "error",
           input: { file_path: "/nonexistent.ts" },
+          state: { status: "error", error: "error" },
+          createdAt: new Date().toISOString(),
         },
       ],
     };
@@ -265,12 +280,15 @@ describe("formatTranscript - Non-HITL Tool Calls", () => {
       role: "assistant",
       content: "",
       timestamp: new Date().toISOString(),
-      toolCalls: [
+      parts: [
         {
           id: "t1",
+          type: "tool",
+          toolCallId: "t1",
           toolName: "CustomMCPTool",
-          status: "completed",
           input: { query: "find stuff", limit: 10 },
+          state: { status: "completed", output: undefined, durationMs: 0 },
+          createdAt: new Date().toISOString(),
         },
       ],
     };
@@ -295,13 +313,16 @@ describe("formatTranscript - HITL Tool Calls", () => {
       role: "assistant",
       content: "",
       timestamp: new Date().toISOString(),
-      toolCalls: [
+      parts: [
         {
           id: "t1",
+          type: "tool",
+          toolCallId: "t1",
           toolName: "AskUserQuestion",
-          status: "completed",
           input: { question: "Choose an option", options: ["A", "B"] },
           output: { answer: "A", cancelled: false },
+          state: { status: "completed", output: { answer: "A", cancelled: false }, durationMs: 0 },
+          createdAt: new Date().toISOString(),
         },
       ],
     };
@@ -325,13 +346,16 @@ describe("formatTranscript - HITL Tool Calls", () => {
       role: "assistant",
       content: "",
       timestamp: new Date().toISOString(),
-      toolCalls: [
+      parts: [
         {
           id: "t1",
+          type: "tool",
+          toolCallId: "t1",
           toolName: "question",
-          status: "completed",
           input: { question: "Pick one" },
           output: { answer: "Option A", cancelled: false },
+          state: { status: "completed", output: { answer: "Option A", cancelled: false }, durationMs: 0 },
+          createdAt: new Date().toISOString(),
         },
       ],
     };
@@ -353,12 +377,15 @@ describe("formatTranscript - HITL Tool Calls", () => {
       role: "assistant",
       content: "",
       timestamp: new Date().toISOString(),
-      toolCalls: [
+      parts: [
         {
           id: "t1",
+          type: "tool",
+          toolCallId: "t1",
           toolName: "ask_user",
-          status: "completed",
           input: { question: "What do you think?" },
+          state: { status: "completed", output: undefined, durationMs: 0 },
+          createdAt: new Date().toISOString(),
         },
       ],
     };
@@ -377,14 +404,17 @@ describe("formatTranscript - HITL Tool Calls", () => {
       role: "assistant",
       content: "",
       timestamp: new Date().toISOString(),
-      toolCalls: [
+      parts: [
         {
           id: "t1",
+          type: "tool",
+          toolCallId: "t1",
           toolName: "AskUserQuestion",
-          status: "running",
           input: {
             questions: [{ question: "Which framework?" }],
           },
+          state: { status: "running", startedAt: new Date().toISOString() },
+          createdAt: new Date().toISOString(),
         },
       ],
     };
@@ -405,12 +435,15 @@ describe("formatTranscript - Tool Formatting Helpers", () => {
       role: "assistant",
       content: "",
       timestamp: new Date().toISOString(),
-      toolCalls: [
+      parts: [
         {
           id: "t1",
+          type: "tool",
+          toolCallId: "t1",
           toolName: "Read",
-          status: "completed",
           input: { file_path: "/path/to/file.ts" },
+          state: { status: "completed", output: undefined, durationMs: 0 },
+          createdAt: new Date().toISOString(),
         },
       ],
     };
@@ -432,12 +465,15 @@ describe("formatTranscript - Tool Formatting Helpers", () => {
       role: "assistant",
       content: "",
       timestamp: new Date().toISOString(),
-      toolCalls: [
+      parts: [
         {
           id: "t1",
+          type: "tool",
+          toolCallId: "t1",
           toolName: "Glob",
-          status: "completed",
           input: { pattern: "**/*.ts" },
+          state: { status: "completed", output: undefined, durationMs: 0 },
+          createdAt: new Date().toISOString(),
         },
       ],
     };
@@ -454,12 +490,15 @@ describe("formatTranscript - Tool Formatting Helpers", () => {
       role: "assistant",
       content: "",
       timestamp: new Date().toISOString(),
-      toolCalls: [
+      parts: [
         {
           id: "t1",
+          type: "tool",
+          toolCallId: "t1",
           toolName: "Grep",
-          status: "completed",
           input: { pattern: "TODO|FIXME" },
+          state: { status: "completed", output: undefined, durationMs: 0 },
+          createdAt: new Date().toISOString(),
         },
       ],
     };
@@ -480,12 +519,15 @@ describe("formatTranscript - Tool Formatting Helpers", () => {
       role: "assistant",
       content: "",
       timestamp: new Date().toISOString(),
-      toolCalls: [
+      parts: [
         {
           id: "t1",
+          type: "tool",
+          toolCallId: "t1",
           toolName: "Task",
-          status: "running",
           input: { description: "Debug the issue", prompt: "Help me debug" },
+          state: { status: "running", startedAt: new Date().toISOString() },
+          createdAt: new Date().toISOString(),
         },
       ],
     };

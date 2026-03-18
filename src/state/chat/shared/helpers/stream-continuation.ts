@@ -181,17 +181,6 @@ export function createStartedStreamControlState(
   };
 }
 
-export function interruptRunningToolCalls<T extends { status: string }>(
-  toolCalls?: readonly T[],
-): T[] | undefined {
-  if (!toolCalls) return undefined;
-  return toolCalls.map((toolCall) =>
-    toolCall.status === "running"
-      ? { ...toolCall, status: "interrupted" }
-      : { ...toolCall },
-  );
-}
-
 /**
  * Freeze running tool parts by transitioning them to "interrupted" with
  * their elapsed duration captured, so tool timers stop on Ctrl+C / ESC.

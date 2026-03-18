@@ -56,7 +56,6 @@ export interface ChatMessage {
   timestamp: string;
   streaming?: boolean;
   parts?: Part[];
-  toolCalls?: MessageToolCall[];
   durationMs?: number;
   modelId?: string;
   wasInterrupted?: boolean;

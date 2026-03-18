@@ -1,7 +1,7 @@
 import type { ChatMessage } from "@/types/chat.ts";
 import { type PartId, createPartId } from "@/state/parts/id.ts";
 import type { Part, ReasoningPart } from "@/state/parts/types.ts";
-import { findLastPartIndex } from "@/state/parts/store.ts";
+import { findLastPartIndex, upsertPart } from "@/state/parts/store.ts";
 import type { TextPart } from "@/state/parts/types.ts";
 import type { ThinkingMetaEvent } from "@/state/streaming/pipeline-types.ts";
 
@@ -202,7 +202,7 @@ export function upsertThinkingMeta(
     });
   }
 
-  const parts = [...(message.parts ?? [])];
+  let parts = [...(message.parts ?? [])];
   const registry = cloneReasoningPartRegistry(message);
 
   let existingIdx = -1;
@@ -247,22 +247,7 @@ export function upsertThinkingMeta(
       isStreaming: true,
       createdAt: new Date().toISOString(),
     };
-    // Insert before the first text part only if no text has been emitted yet
-    // (i.e. thinking arrived before any text). If text already exists, append
-    // at the end to preserve chronological order.
-    const hasAnyText = parts.some(
-      (part) => part.type === "text" && (part as TextPart).content.trim().length > 0,
-    );
-    if (!hasAnyText) {
-      const firstTextIdx = parts.findIndex((part) => part.type === "text");
-      if (firstTextIdx >= 0) {
-        parts.splice(firstTextIdx, 0, reasoningPart);
-      } else {
-        parts.push(reasoningPart);
-      }
-    } else {
-      parts.push(reasoningPart);
-    }
+    parts = upsertPart(parts, reasoningPart);
     registry.set(event.thinkingSourceKey, reasoningPart.id);
   }
 

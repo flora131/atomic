@@ -67,6 +67,7 @@ export interface QueueResumeGuardState {
 const DEFAULT_QUEUE_DISPATCH_DELAY_MS = 50;
 
 const ASK_QUESTION_TOOL_SUFFIX = "ask_question";
+const ASK_USER_TOOL_SUFFIX = "ask_user";
 const NON_BLOCKING_TOOL_SUFFIX = "skill";
 
 const CONTINUE_FINISH_REASONS = new Set<SessionLoopFinishReason>([
@@ -214,7 +215,10 @@ export function isAskQuestionToolName(toolName: string): boolean {
   const normalized = toolName.trim().toLowerCase();
   return normalized === ASK_QUESTION_TOOL_SUFFIX
     || normalized.endsWith(`/${ASK_QUESTION_TOOL_SUFFIX}`)
-    || normalized.endsWith(`__${ASK_QUESTION_TOOL_SUFFIX}`);
+    || normalized.endsWith(`__${ASK_QUESTION_TOOL_SUFFIX}`)
+    || normalized === ASK_USER_TOOL_SUFFIX
+    || normalized.endsWith(`/${ASK_USER_TOOL_SUFFIX}`)
+    || normalized.endsWith(`__${ASK_USER_TOOL_SUFFIX}`);
 }
 
 /**

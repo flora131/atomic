@@ -518,6 +518,10 @@ export function useStreamSessionSubscriptions({
   });
 
   useBusSubscription("stream.permission.requested", (event) => {
+    // Flush the batch dispatcher so any pending stream.tool.start events
+    // are processed before permission resolution needs to match tool parts.
+    batchDispatcher.flush();
+
     const data = event.data;
     handlePermissionRequest(
       data.requestId,
@@ -531,7 +535,20 @@ export function useStreamSessionSubscriptions({
   });
 
   useBusSubscription("stream.human_input_required", (event) => {
+    // Flush the batch dispatcher so any pending stream.tool.start events
+    // are processed first — this creates the ToolPart and populates
+    // runningAskQuestionToolIdsRef before we try to resolve the toolCallId.
+    batchDispatcher.flush();
+
     const data = event.data;
+    // When the SDK doesn't provide a toolCallId (e.g. Copilot SDK's
+    // onUserInputRequest), resolve it from the running ask-question tool
+    // IDs that were registered synchronously during stream.tool.start.
+    let resolvedToolCallId = data.toolCallId as string | undefined;
+    if (!resolvedToolCallId && runningAskQuestionToolIdsRef.current.size > 0) {
+      const ids = [...runningAskQuestionToolIdsRef.current];
+      resolvedToolCallId = ids[ids.length - 1];
+    }
     const askEvent: AskUserQuestionEventData = {
       requestId: data.requestId,
       question: data.question,
@@ -539,7 +556,7 @@ export function useStreamSessionSubscriptions({
       options: data.options,
       nodeId: data.nodeId,
       respond: data.respond as ((answer: string | string[]) => void) | undefined,
-      toolCallId: data.toolCallId,
+      toolCallId: resolvedToolCallId,
     };
     handleAskUserQuestion(askEvent);
   });

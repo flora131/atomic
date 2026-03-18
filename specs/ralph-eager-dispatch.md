@@ -3,7 +3,7 @@
 | Document Metadata      | Details                                                                                              |
 | ---------------------- | ---------------------------------------------------------------------------------------------------- |
 | Author(s)              | lavaman131                                                                                           |
-| Status                 | Draft (WIP)                                                                                          |
+| Status                 | In Review (RFC)                                                                                      |
 | Team / Owner           | Atomic CLI                                                                                           |
 | Created / Last Updated | 2026-03-18                                                                                           |
 | Research               | `research/docs/2026-03-18-ralph-eager-dispatch-research.md`                                          |
@@ -193,7 +193,10 @@ interface EagerDispatchConfig {
   buildSpawnConfig: (task: TaskItem, index: number) => SubagentSpawnOptions;
   onTaskDispatched?: (task: TaskItem, spawnConfig: SubagentSpawnOptions) => void;
   onTaskCompleted?: (task: TaskItem, result: SubagentStreamResult) => void;
+  onTaskRetry?: (task: TaskItem, attempt: number, error: string) => void;
+  onWorkflowAbort?: (failedTask: TaskItem, error: string) => void;
   abortSignal?: AbortSignal;
+  maxTaskRetries?: number; // default: 3
 }
 
 interface EagerDispatchResult {
@@ -208,6 +211,10 @@ export class EagerDispatchCoordinator {
   private readonly dispatchedTaskIds: Set<string>;
   private readonly config: EagerDispatchConfig;
   private readonly pendingPromises: Map<string, Promise<SubagentStreamResult[]>>;
+  private readonly taskRetryCount: Map<string, number>;
+  private readonly maxTaskRetries: number;
+  private aborted = false;
+  private abortController: AbortController;
 
   constructor(tasks: TaskItem[], config: EagerDispatchConfig) {
     this.tasks = tasks;
@@ -216,6 +223,18 @@ export class EagerDispatchCoordinator {
     this.results = new Map();
     this.dispatchedTaskIds = new Set();
     this.pendingPromises = new Map();
+    this.taskRetryCount = new Map();
+    this.maxTaskRetries = config.maxTaskRetries ?? 3;
+    this.abortController = new AbortController();
+
+    // Chain external abort signal
+    if (config.abortSignal) {
+      config.abortSignal.addEventListener(
+        "abort",
+        () => this.abortController.abort(),
+        { once: true },
+      );
+    }
 
     // Snapshot initial statuses
     for (const task of tasks) {
@@ -239,6 +258,8 @@ export class EagerDispatchCoordinator {
   }
 
   private dispatchReadyTasks(): void {
+    if (this.aborted) return;
+
     // Build a virtual task list with current statuses
     const virtualTasks = this.tasks.map((task) => ({
       ...task,
@@ -267,7 +288,7 @@ export class EagerDispatchCoordinator {
     const batchId = crypto.randomUUID();
     const promise = this.config.spawnSubagentParallel(
       spawnConfigs,
-      this.config.abortSignal,
+      this.abortController.signal,
       (result) => this.handleAgentComplete(result),
     );
 
@@ -283,18 +304,50 @@ export class EagerDispatchCoordinator {
 
     // Find the task this result belongs to and update status
     const task = this.findTaskByAgentId(result.agentId);
-    if (task?.id) {
-      this.taskStatuses.set(task.id, result.success ? "completed" : "error");
+    if (!task?.id) return;
+
+    if (!result.success) {
+      const retryCount = this.taskRetryCount.get(task.id) ?? 0;
+      if (retryCount < this.maxTaskRetries) {
+        // Retry the failed task
+        this.taskRetryCount.set(task.id, retryCount + 1);
+        this.config.onTaskRetry?.(task, retryCount + 1, result.error ?? "Unknown error");
+        this.dispatchedTaskIds.delete(task.id);
+        this.taskStatuses.set(task.id, "pending");
+        this.dispatchReadyTasks();
+        return;
+      }
+      // Exhausted retries — abort entire workflow
+      this.taskStatuses.set(task.id, "error");
       this.config.onTaskCompleted?.(task, result);
+      this.config.onWorkflowAbort?.(task, result.error ?? "Unknown error");
+      this.abortAllInFlight();
+      return;
     }
 
+    this.taskStatuses.set(task.id, "completed");
+    this.config.onTaskCompleted?.(task, result);
+
     // Re-evaluate: are new tasks now unblocked?
-    this.dispatchReadyTasks();
+    if (!this.aborted) {
+      this.dispatchReadyTasks();
+    }
   }
 
   private findTaskByAgentId(agentId: string): TaskItem | undefined {
     // Agent IDs follow the pattern "worker-{taskId}"
     return this.tasks.find((t) => t.id && agentId.startsWith(`worker-${t.id}`));
+  }
+
+  private abortAllInFlight(): void {
+    this.aborted = true;
+    this.abortController.abort();
+    // Mark all remaining in_progress tasks as error
+    for (const [taskId, status] of this.taskStatuses) {
+      if (status === "in_progress") {
+        this.taskStatuses.set(taskId, "error");
+      }
+    }
   }
 
   private async awaitAllPending(): Promise<void> {
@@ -376,13 +429,21 @@ The coordinator's `buildSpawnConfig` callback encapsulates agent ID generation w
 
 | Scenario | Current Behavior | Eager Dispatch Behavior |
 |----------|-----------------|------------------------|
-| External abort signal | Aborts entire batch | Aborts all in-flight waves (all share the same abort signal) |
+| External abort signal | Aborts entire batch | Aborts all in-flight waves (all share the coordinator's abort controller, which chains to the external signal) |
 | Circuit breaker (stall retries exhausted) | Aborts entire batch via `parallelAbortController` | Same — abort propagates to all in-flight spawns |
-| Individual task failure | Task marked `"error"`, batch continues | Task marked `"error"`, dependents naturally not dispatched (they remain blocked) |
+| Individual task failure | Task marked `"error"`, batch continues | **Task retried up to 3 times**. If still failing, **entire workflow aborts**: all in-flight agents cancelled, remaining in-progress tasks marked `"error"` |
 | `maxIterations` reached | Loop exits after current batch | Loop exits after current worker node completes (all in-flight tasks finish) |
 | All tasks error in a wave | Loop exits via `hasActionableTasks()` returning false | Same — coordinator stops dispatching, returns results |
 
-**Error propagation for dependents:** If a task fails, its `status` is set to `"error"` in the coordinator's status map. Dependent tasks will never satisfy `getReadyTasks()` because their `blockedBy` entries won't have `status === "completed"`. They remain `"pending"` and are naturally skipped — no explicit blocking logic needed.
+**Task-level retry**: The `EagerDispatchCoordinator` retries failed tasks up to `maxTaskRetries` (default: 3) times. This is distinct from the per-agent stall retry in `executeWithRetry()` which handles hung/stale agents. The coordinator retry handles logical failures (agent completes but reports `success: false`). On retry, the task is re-marked as `pending`, removed from `dispatchedTaskIds`, and re-dispatched on the next readiness check.
+
+**Workflow abort on exhausted retries**: If a task fails after all retries, the coordinator calls `abortAllInFlight()` which:
+1. Sets the `aborted` flag (prevents new dispatches)
+2. Fires the coordinator's `AbortController` (cancels all in-flight agents)
+3. Marks all remaining `in_progress` tasks as `"error"`
+4. Invokes the `onWorkflowAbort` callback for logging/notification
+
+**Error propagation for dependents:** Dependent tasks whose `blockedBy` entries point to failed tasks will never satisfy `getReadyTasks()` because their dependency's status is `"error"`, not `"completed"`. They remain `"pending"` and are naturally excluded from dispatch. Since the workflow aborts on any task failure (after retries), these pending tasks will never be attempted.
 
 ### 5.6 EventBus Integration
 
@@ -491,6 +552,11 @@ executeWorkerNode()
 | `does not dispatch tasks whose dependencies have errors` | A fails → B (blockedBy A) stays pending |
 | `handles concurrent multi-wave dispatch` | Deep chain: A→B→C dispatches B when A completes, C when B completes |
 | `does not double-dispatch tasks` | Same task never appears in two `spawnSubagentParallel` calls |
+| `retries failed tasks up to maxTaskRetries times` | Task fails → re-dispatched with incremented retry count → succeeds on retry |
+| `aborts entire workflow when task exhausts retries` | Task fails 3 times → `abortAllInFlight()` called → all in-flight agents cancelled |
+| `does not retry tasks on abort (external signal)` | External abort → tasks marked error without retry |
+| `invokes onTaskRetry callback on each retry attempt` | Callback receives task, attempt number, and error message |
+| `invokes onWorkflowAbort callback when retries exhausted` | Callback receives failed task and final error message |
 | `returns all results after all waves complete` | `execute()` promise resolves only when every in-flight agent finishes |
 | `respects abort signal across all waves` | Abort propagates to eagerly-dispatched waves |
 | `handles empty ready set gracefully` | All tasks blocked → no dispatch, returns empty results |
@@ -521,14 +587,98 @@ The change is fully backward-compatible:
 - **No loop structure changes**: `select-ready-tasks`, `loop_check`, and the loop DSL are unchanged
 - **Behavioral equivalence for flat DAGs**: When no task has `blockedBy` dependencies, the coordinator dispatches all tasks in a single `spawnSubagentParallel` call — identical to current behavior
 
-## 9. Open Questions / Unresolved Issues
+## 9. Resolved Design Decisions
 
-- [ ] **Concurrency limits**: Should there be a maximum number of simultaneously-running sub-agents? With eager dispatch continuously spawning new tasks as others complete, large DAGs could lead to many concurrent agents. Options: (a) No limit (current behavior), (b) Configurable cap (e.g., `maxConcurrentAgents`), (c) Backpressure via semaphore.
+All open questions have been resolved:
 
-- [ ] **Per-task vs per-batch status notification**: Should `notifyTaskStatusChange` be called once per task as each is dispatched/completed (more responsive UI), or should we batch notifications within a debounce window (fewer EventBus events)? The current spec proposes per-task.
+| # | Question | Decision | Rationale |
+|---|----------|----------|-----------|
+| 1 | **Concurrency limits** | No limit for now — match current behavior | Can be added later as a follow-up without changing the coordinator's interface |
+| 2 | **Status notification granularity** | Per-task, real-time notifications | More responsive UI; the `BatchDispatcher` already coalesces at 16ms so EventBus traffic is manageable |
+| 3 | **Coordinator extraction scope** | Separate class in `eager-dispatch.ts` | Testable in isolation, clear SRP, aligns with project's class-per-file conventions |
+| 4 | **Wave-level logging** | Debug-level logs only | Visible when needed, no EventBus noise; avoids adding new event types |
+| 5 | **Error cascade behavior** | Retry failed tasks up to 3 times, then error out the entire workflow | See §9.1 below |
 
-- [ ] **Coordinator extraction scope**: Should `EagerDispatchCoordinator` be a standalone class in its own file (`eager-dispatch.ts`), or should it be inlined as a function within `executeWorkerNode()`? The spec proposes a separate class for testability, but a simpler function-based approach may suffice.
+### 9.1 Error Handling: Task-Level Retry and Workflow-Level Abort
 
-- [ ] **Wave-level logging**: Should the coordinator emit structured logs or debug events for each "wave" of eager dispatch (useful for debugging dispatch timing)? Options: (a) No logging, (b) Debug-level logs, (c) Emit a new `workflow.dispatch.wave` EventBus event.
+When a task fails within the eager dispatch coordinator:
 
-- [ ] **Error cascade behavior**: When a task fails, should we immediately mark all transitively-dependent tasks as `"error"` (fail-fast), or leave them as `"pending"` so they could theoretically be retried in a future iteration? The current spec proposes leaving them `"pending"` (they simply never become ready since their dependency isn't `"completed"`).
+1. **Retry up to 3 times**: The coordinator retries the failed task up to 3 times before marking it as `"error"`. This is a coordinator-level retry, distinct from the per-agent stall retry in `executeWithRetry()` (which handles stale/hung agents). The coordinator retry handles logical failures (e.g., agent returns `success: false`).
+
+2. **Workflow abort on exhausted retries**: If a task fails after 3 retries, the **entire workflow errors out** and cleanly exits. The coordinator:
+   - Marks the failed task as `"error"`
+   - Aborts all in-flight agents via the shared `AbortSignal`
+   - Marks all remaining `in_progress` tasks as `"error"`
+   - Marks all remaining `pending` tasks as `"pending"` (unchanged — they were never started)
+   - Returns results immediately, which propagates up to `executeWorkerNode()` → graph engine → loop exit
+
+3. **Clean exit**: The loop's `until` condition (`hasActionableTasks()`) evaluates to `false` when tasks are in terminal states (`completed`/`error`) with no pending tasks ready to dispatch, causing a clean loop exit into the reviewer phase.
+
+**Implementation in `EagerDispatchCoordinator`:**
+
+```typescript
+interface EagerDispatchConfig {
+  // ... existing fields ...
+  maxTaskRetries?: number; // default: 3
+  onTaskRetry?: (task: TaskItem, attempt: number, error: string) => void;
+  onWorkflowAbort?: (failedTask: TaskItem, error: string) => void;
+}
+```
+
+The retry loop wraps each `spawnSubagentParallel` result check:
+
+```typescript
+private handleAgentComplete(result: SubagentStreamResult): void {
+  const task = this.findTaskByAgentId(result.agentId);
+  if (!task?.id) return;
+
+  if (!result.success) {
+    const retryCount = this.taskRetryCount.get(task.id) ?? 0;
+    if (retryCount < this.maxTaskRetries) {
+      this.taskRetryCount.set(task.id, retryCount + 1);
+      this.config.onTaskRetry?.(task, retryCount + 1, result.error ?? "Unknown error");
+      // Re-dispatch the same task
+      this.dispatchedTaskIds.delete(task.id);
+      this.taskStatuses.set(task.id, "pending");
+      this.dispatchReadyTasks();
+      return;
+    }
+    // Exhausted retries — abort entire workflow
+    this.config.onWorkflowAbort?.(task, result.error ?? "Unknown error");
+    this.abortAllInFlight();
+    return;
+  }
+
+  // ... success handling ...
+}
+```
+
+### 9.2 Task List UI: Blinker Behavior for Non-Active States
+
+The existing `TaskListIndicator` already handles blinker lifecycle correctly for most states:
+
+| State | Current Behavior | Change Required |
+|-------|-----------------|-----------------|
+| `in_progress` | `AnimatedBlinkIndicator` (blink ●↔·) | **No change** |
+| `completed` | Static `✓` (dimmed) | **No change** |
+| `error` | Static `✗` + `[FAILED]` label (red) | **No change** |
+| `pending` | Static `○` (muted) | **No change** |
+| Interrupt | `normalizeInterruptedTasks()` resets `in_progress` → `pending` | **No change** — blinker unmounts on status change |
+
+**Key existing mechanisms that ensure correctness:**
+
+1. **Interrupt**: `normalizeInterruptedTasks()` (`src/state/chat/shared/helpers/workflow-task-state.ts:115-123`) converts all `in_progress` → `pending`, which causes React to unmount `AnimatedBlinkIndicator` instances (clearing `setInterval` via `useEffect` cleanup).
+
+2. **Error**: Error tasks render static `✗` icon — no `AnimatedBlinkIndicator` is mounted. The coordinator's abort-on-failure path will mark in-flight tasks as `"error"`, which transitions them from blinker to static `✗`.
+
+3. **Workflow abort**: When the coordinator aborts, all in-flight tasks transition to `"error"` via `notifyTaskStatusChange`. The `TaskListIndicator` receives the updated statuses and unmounts any active `AnimatedBlinkIndicator` instances.
+
+**New behavior for eager dispatch abort:**
+
+When the coordinator aborts due to exhausted retries:
+- The failed task shows `✗ [FAILED]` (already supported)
+- All aborted in-flight tasks transition to `"error"` and show `✗ [FAILED]`
+- All unstarted pending tasks remain `○` (pending) — they were never dispatched
+- The progress header in `TaskListBox` updates to reflect the final counts (e.g., `"● Task Progress · 2/5 · 40%"`)
+
+No component-level changes are required to `AnimatedBlinkIndicator`, `TaskListIndicator`, or `TaskListPanel`. The blinker lifecycle is already correctly governed by the task status value — the coordinator just needs to ensure it sets the right statuses on abort.

@@ -12,7 +12,6 @@ import {
   toolNode,
 } from "@/services/workflows/graph/index.ts";
 import type { NodeDefinition, ExecutionContext, NodeResult } from "@/services/workflows/graph/types.ts";
-import type { SubagentSpawnOptions } from "@/services/workflows/graph/types.ts";
 import {
   normalizeWorkflowRuntimeTaskStatus,
 } from "@/services/workflows/runtime-contracts.ts";
@@ -24,7 +23,6 @@ import {
 } from "@/services/workflows/ralph/types.ts";
 import {
   buildSpecToTasksPrompt,
-  buildWorkerAssignment,
   buildReviewPrompt,
   buildFixSpecFromReview,
   buildFixSpecFromRawReview,
@@ -39,6 +37,7 @@ import {
   parseTasks,
   toRuntimeTask,
 } from "./task-helpers.ts";
+import { createWorkerDispatchAdapter } from "./worker-dispatch.ts";
 
 // ============================================================================
 // EXTRACTED NODE IMPLEMENTATIONS
@@ -54,152 +53,54 @@ import {
 async function executeWorkerNode(
   ralphCtx: RalphWorkflowContext,
 ): Promise<NodeResult<RalphWorkflowState>> {
-  const { spawnSubagentParallel, taskIdentity, notifyTaskStatusChange } = ralphCtx.runtime;
   const state = ralphCtx.state;
+  const remainingReadyDispatchWaves = Math.max(state.maxIterations - state.iteration, 0);
 
   const ready = state.currentTasks;
   if (ready.length === 0) {
     return { stateUpdate: { iteration: state.iteration + 1 } as Partial<RalphWorkflowState> };
   }
-
-  // Build a stable ready-task index once so status/result mapping stays
-  // deterministic even when task IDs are missing or duplicated.
-  const readyIndexByTask = new Map<TaskItem, number>();
-  for (const [index, task] of ready.entries()) {
-    readyIndexByTask.set(task, index);
+  if (remainingReadyDispatchWaves === 0) {
+    return { stateUpdate: { iteration: state.maxIterations } as Partial<RalphWorkflowState> };
   }
 
-  // Set all ready tasks to "in_progress" before dispatch
-  const tasksWithProgress = state.tasks.map((task) =>
-    readyIndexByTask.has(task)
-      ? { ...task, status: "in_progress" }
-      : task,
-  );
-
-  // Build spawn configs for ALL ready tasks.
-  // Keep IDs stable for normal flows while guaranteeing uniqueness
-  // when tasks have duplicate IDs.
-  const agentIdCounts = new Map<string, number>();
-  const spawnConfigs: SubagentSpawnOptions[] = ready.map((task, index) => {
-    const baseAgentId = `worker-${task.id ?? `${state.executionId}-${state.iteration}-${index}`}`;
-    const nextCount = (agentIdCounts.get(baseAgentId) ?? 0) + 1;
-    agentIdCounts.set(baseAgentId, nextCount);
-
-    return {
-      agentId: nextCount === 1 ? baseAgentId : `${baseAgentId}-${nextCount}`,
-      agentName: "worker",
-      task: buildWorkerAssignment(task, tasksWithProgress),
-    };
+  const { coordinator, reconcileDispatchedTask } = createWorkerDispatchAdapter({
+    tasks: state.tasks,
+    executionId: state.executionId,
+    iteration: state.iteration,
+    maxReadyDispatchWaves: remainingReadyDispatchWaves,
+    runtime: ralphCtx.runtime,
+    abortSignal: ralphCtx.abortSignal,
   });
-
-  const readyTaskProviderBindings = new Map<TaskItem, string>();
-  for (const [index, task] of ready.entries()) {
-    const spawnConfig = spawnConfigs[index];
-    if (!spawnConfig) {
-      continue;
-    }
-    readyTaskProviderBindings.set(task, spawnConfig.agentId);
+  const {
+    dispatchedTaskIndices,
+    readyDispatchWaveCount,
+    resultsByTaskIndex,
+    taskStatuses,
+  } = await coordinator.execute();
+  if (readyDispatchWaveCount === 0) {
+    throw new Error(
+      "Worker dispatch reconciliation invariant failed: ready tasks were present but no eager waves were dispatched",
+    );
   }
 
-  const identityBoundTasks = tasksWithProgress.map((task, taskIndex) => {
-    const sourceTask = state.tasks[taskIndex];
-    const providerTaskId = sourceTask ? readyTaskProviderBindings.get(sourceTask) : undefined;
-
-    if (!providerTaskId || !taskIdentity) {
+  const updatedTasks = state.tasks.map((task, taskIndex) => {
+    if (!dispatchedTaskIndices.has(taskIndex)) {
       return task;
     }
 
-    const runtimeTask = toRuntimeTask(task, `${state.executionId}-${state.iteration}-${taskIndex}`);
-    const boundTask = taskIdentity.bindProviderId(runtimeTask, "subagent_id", providerTaskId);
-    return applyRuntimeTask(task, boundTask);
-  });
-
-  // Publish workflow.task.statusChange event before spawning.
-  notifyTaskStatusChange?.(
-    ready.map((r) => r.id).filter((id): id is string => Boolean(id)),
-    "in_progress",
-    identityBoundTasks.map((task, index) => {
-      const runtimeTask = toRuntimeTask(task, `${state.executionId}-${state.iteration}-${index}`);
-      return {
-        id: task.id ?? "",
-        title: task.description,
-        status: normalizeWorkflowRuntimeTaskStatus(task.status),
-        blockedBy: task.blockedBy,
-        identity: runtimeTask.identity,
-      };
-    }),
-  );
-
-  // Dispatch all concurrently via spawnSubagentParallel
-  const results = await spawnSubagentParallel(spawnConfigs, ralphCtx.abortSignal);
-
-  const statusByCanonicalTaskId = new Map<string, "completed" | "error">();
-  const resultByCanonicalTaskId = new Map<string, { output: string; error?: string; success: boolean; agentId: string }>();
-  for (const result of results) {
-    const canonicalTaskId = taskIdentity?.resolveCanonicalTaskId("subagent_id", result.agentId);
-    if (!canonicalTaskId) {
-      continue;
-    }
-    statusByCanonicalTaskId.set(canonicalTaskId, result.success ? "completed" : "error");
-    resultByCanonicalTaskId.set(canonicalTaskId, {
-      output: result.output,
-      error: result.error,
-      success: result.success,
-      agentId: result.agentId,
-    });
-  }
-
-  // Map results back independently — each result corresponds to the
-  // matched ready task index from the precomputed map.
-  const updatedTasks = identityBoundTasks.map((task, taskIndex) => {
-    if (taskIdentity) {
-      const runtimeTask = toRuntimeTask(task, `${state.executionId}-${state.iteration}-${taskIndex}`);
-      const canonicalTaskId = runtimeTask.identity?.canonicalId ?? runtimeTask.id;
-      const nextStatus = statusByCanonicalTaskId.get(canonicalTaskId);
-      const mappedResult = resultByCanonicalTaskId.get(canonicalTaskId);
-      if (nextStatus) {
-        const taskResult = mappedResult
-          ? buildTaskResultEnvelope({
-            task: runtimeTask,
-            result: mappedResult,
-            sessionId: state.executionId,
-          })
-          : runtimeTask.taskResult;
-        return applyRuntimeTask(task, {
-          ...runtimeTask,
-          status: nextStatus,
-          taskResult,
-        });
-      }
-    }
-
-    const sourceTask = state.tasks[taskIndex];
-    if (!sourceTask) return task;
-    const readyIndex = readyIndexByTask.get(sourceTask);
-    if (readyIndex === undefined) return task;
-    const result = results[readyIndex];
-    if (!result) {
-      return task;
-    }
-
-    const runtimeTask = toRuntimeTask(task, `${state.executionId}-${state.iteration}-${taskIndex}`);
-    const terminalStatus = result.success ? "completed" : "error";
-    const taskResult = buildTaskResultEnvelope({
-      task: runtimeTask,
-      result,
-      sessionId: state.executionId,
-    });
-
-    return applyRuntimeTask(task, {
-      ...runtimeTask,
-      status: terminalStatus,
-      taskResult,
-    });
+    return reconcileDispatchedTask(
+      task,
+      taskIndex,
+      taskStatuses.get(taskIndex) ?? task.status,
+      resultsByTaskIndex.get(taskIndex),
+      state.executionId,
+    );
   });
 
   return {
     stateUpdate: {
-      iteration: state.iteration + 1,
+      iteration: state.iteration + readyDispatchWaveCount,
       tasks: updatedTasks,
     } as Partial<RalphWorkflowState>,
   };

@@ -1,12 +1,46 @@
 import { describe, expect, test } from "bun:test";
 import { executeGraph } from "@/services/workflows/graph/compiled.ts";
+import { createRalphWorkflow } from "@/services/workflows/ralph/graph.ts";
 import type {
   SubagentSpawnOptions,
   SubagentStreamResult,
 } from "@/services/workflows/graph/types.ts";
 import { createRalphState } from "@/services/workflows/ralph/state.ts";
 import type { RalphWorkflowState } from "@/services/workflows/ralph/state.ts";
-import { createWorkflowWithMockBridge } from "./graph.fixtures.ts";
+import {
+  createMockRegistry,
+  createMockSpawnFunctions,
+  createWorkflowWithMockBridge,
+} from "./graph.fixtures.ts";
+
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+async function flushMicrotasks(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+async function waitFor(
+  predicate: () => boolean,
+  attempts = 50,
+): Promise<void> {
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    if (predicate()) {
+      return;
+    }
+    await flushMicrotasks();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  throw new Error("Timed out waiting for test condition");
+}
 
 describe("createRalphWorkflow - 3-Phase Flow", () => {
   test("executes 3-phase flow with simple tasks", async () => {
@@ -159,6 +193,153 @@ describe("createRalphWorkflow - 3-Phase Flow", () => {
     expect(result.state.tasks[0]?.status).toBe("completed");
     expect(result.state.tasks[1]?.status).toBe("completed");
     expect(executionOrder).toEqual(["#1", "#2"]);
+  });
+
+  test("completes review flow after eagerly dispatching newly unblocked tasks", async () => {
+    const mockResponses = new Map<
+      string,
+      (opts: SubagentSpawnOptions) => SubagentStreamResult
+    >();
+
+    mockResponses.set("planner", () => ({
+      agentId: "planner-eager-flow",
+      success: true,
+      output: JSON.stringify([
+        {
+          id: "#1",
+          description: "Task 1",
+          status: "pending",
+          summary: "Doing task 1",
+          blockedBy: [],
+        },
+        {
+          id: "#2",
+          description: "Task 2",
+          status: "pending",
+          summary: "Doing task 2",
+          blockedBy: [],
+        },
+        {
+          id: "#3",
+          description: "Task 3",
+          status: "pending",
+          summary: "Doing task 3",
+          blockedBy: ["#1"],
+        },
+      ]),
+      toolUses: 0,
+      durationMs: 10,
+    }));
+
+    let reviewerCallCount = 0;
+    mockResponses.set("reviewer", () => {
+      reviewerCallCount++;
+      return {
+        agentId: "reviewer-eager-flow",
+        success: true,
+        output: JSON.stringify({
+          findings: [],
+          overall_correctness: "patch is correct",
+          overall_explanation: "Eager dispatch completed before review",
+        }),
+        toolUses: 1,
+        durationMs: 30,
+      };
+    });
+
+    const { spawnSubagent } = createMockSpawnFunctions(mockResponses);
+    const workerBatches: string[][] = [];
+    const pendingWorkerResults = new Map<
+      string,
+      ReturnType<typeof createDeferred<SubagentStreamResult>>
+    >();
+
+    const workflow = createRalphWorkflow();
+    const workflowWithMocks = {
+      ...workflow,
+      config: {
+        ...workflow.config,
+        runtime: {
+          spawnSubagent,
+          spawnSubagentParallel: async (
+            agents: SubagentSpawnOptions[],
+            _abortSignal?: AbortSignal,
+            onAgentComplete?: (result: SubagentStreamResult) => void,
+          ) => {
+            workerBatches.push(agents.map((agent) => agent.agentId));
+            return Promise.all(
+              agents.map((agent) => {
+                const deferred = createDeferred<SubagentStreamResult>();
+                pendingWorkerResults.set(agent.agentId, deferred);
+                return deferred.promise.then((result) => {
+                  onAgentComplete?.(result);
+                  return result;
+                });
+              }),
+            );
+          },
+          subagentRegistry: createMockRegistry(),
+        },
+      },
+    };
+
+    const execution = executeGraph(workflowWithMocks, {
+      initialState: {
+        ...createRalphState("test-eager-flow", { yoloPrompt: "test prompt" }),
+        maxIterations: 10,
+        ralphSessionDir: "/tmp/test-session",
+      },
+      executionId: "test-eager-flow",
+    });
+
+    await waitFor(() => workerBatches.length === 1);
+    expect(workerBatches).toEqual([["worker-#1", "worker-#2"]]);
+
+    pendingWorkerResults.get("worker-#1")?.resolve({
+      agentId: "worker-#1",
+      success: true,
+      output: "Completed #1",
+      toolUses: 1,
+      durationMs: 10,
+    });
+
+    await waitFor(() => workerBatches.length === 2);
+    expect(workerBatches).toEqual([
+      ["worker-#1", "worker-#2"],
+      ["worker-#3"],
+    ]);
+
+    pendingWorkerResults.get("worker-#3")?.resolve({
+      agentId: "worker-#3",
+      success: true,
+      output: "Completed #3",
+      toolUses: 1,
+      durationMs: 10,
+    });
+
+    await flushMicrotasks();
+    expect(reviewerCallCount).toBe(0);
+
+    pendingWorkerResults.get("worker-#2")?.resolve({
+      agentId: "worker-#2",
+      success: true,
+      output: "Completed #2",
+      toolUses: 1,
+      durationMs: 10,
+    });
+
+    const result = await execution;
+
+    expect(result.status).toBe("completed");
+    expect(result.state.tasks.map((task: any) => task.status)).toEqual([
+      "completed",
+      "completed",
+      "completed",
+    ]);
+    expect(result.state.iteration).toBe(2);
+    expect(reviewerCallCount).toBe(1);
+    expect(result.state.reviewResult?.overall_correctness).toBe("patch is correct");
+    expect(result.state.fixesApplied).toBe(false);
   });
 
   test("triggers fixer when review has findings", async () => {

@@ -9,7 +9,7 @@ import type { RalphWorkflowState } from "@/services/workflows/ralph/state.ts";
 import { createWorkflowWithMockBridge } from "./graph.fixtures.ts";
 
 describe("createRalphWorkflow - Worker Loop", () => {
-  test("exits loop when no actionable tasks remain", async () => {
+  test("exits loop when no actionable tasks remain after retries exhaust", async () => {
     const mockResponses = new Map<
       string,
       (opts: SubagentSpawnOptions) => SubagentStreamResult
@@ -78,14 +78,14 @@ describe("createRalphWorkflow - Worker Loop", () => {
     });
 
     expect(result.status).toBe("completed");
-    expect(workerCallCount).toBe(1);
+    expect(workerCallCount).toBe(4);
     const task1 = result.state.tasks.find((task: any) => task.id === "#1");
     const task2 = result.state.tasks.find((task: any) => task.id === "#2");
     expect(task1?.status).toBe("error");
     expect(task2?.status).toBe("pending");
   });
 
-  test("respects maxIterations limit", async () => {
+  test("stops eager cascades once maxIterations is exhausted", async () => {
     const mockResponses = new Map<
       string,
       (opts: SubagentSpawnOptions) => SubagentStreamResult
@@ -123,7 +123,7 @@ describe("createRalphWorkflow - Worker Loop", () => {
       output: JSON.stringify({
         findings: [],
         overall_correctness: "patch is correct",
-        overall_explanation: "Iteration limit reached",
+        overall_explanation: "Iteration limit enforced",
       }),
       toolUses: 1,
       durationMs: 30,
@@ -149,6 +149,7 @@ describe("createRalphWorkflow - Worker Loop", () => {
     const pending = result.state.tasks.filter((task: any) => task.status === "pending");
     expect(completed).toHaveLength(3);
     expect(pending).toHaveLength(2);
+    expect(result.state.iteration).toBe(3);
   });
 });
 

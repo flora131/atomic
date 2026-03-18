@@ -12,7 +12,7 @@ import { TaskListPanel } from "@/components/task-list-panel.tsx";
 import { HitlResponseWidget } from "@/components/hitl-response-widget.tsx";
 import { MessageBubbleParts } from "@/components/message-parts/message-bubble-parts.tsx";
 import { CompletionSummary, LoadingIndicator } from "@/components/chat-loading-indicator.tsx";
-import { TimestampDisplay } from "@/components/timestamp-display.tsx";
+
 import type {
   ChatMessage,
   MessageBubbleProps,
@@ -331,15 +331,7 @@ export function MessageBubble({
           </box>
         )}
 
-        {isVerbose && !message.streaming && message.timestamp && (
-          <box marginTop={SPACING.ELEMENT}>
-            <TimestampDisplay
-              timestamp={message.timestamp}
-              durationMs={message.durationMs}
-              modelId={message.modelId}
-            />
-          </box>
-        )}
+
       </box>
     );
   }

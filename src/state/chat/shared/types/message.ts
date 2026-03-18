@@ -1,8 +1,7 @@
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type { TaskItem } from "@/components/task-list-indicator.tsx";
 import type { McpSnapshotView } from "@/lib/ui/mcp-output.ts";
-import type { HitlResponseMode, HitlResponseRecord } from "@/lib/ui/hitl-response.ts";
-import type { ToolExecutionStatus } from "@/state/parts/types.ts";
+import type { HitlResponseMode } from "@/lib/ui/hitl-response.ts";
 import type { Part } from "@/state/parts/index.ts";
 import type { FileReadInfo } from "@/lib/ui/mention-parsing.ts";
 
@@ -17,15 +16,6 @@ export interface HitlContext {
   answer: string;
   cancelled: boolean;
   responseMode: HitlResponseMode;
-}
-
-export interface MessageToolCall {
-  id: string;
-  toolName: string;
-  input: Record<string, unknown>;
-  output?: unknown;
-  status: ToolExecutionStatus;
-  hitlResponse?: HitlResponseRecord;
 }
 
 export interface MessageSkillLoad {

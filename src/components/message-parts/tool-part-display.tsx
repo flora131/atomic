@@ -18,13 +18,12 @@ import {
   formatSubagentToolSummary,
   getSubagentToolDisplayName,
 } from "@/components/message-parts/subagent-tool-summary.ts";
+import { isHitlToolName } from "@/state/streaming/pipeline-tools/shared.ts";
 
 export interface ToolPartDisplayProps {
   part: ToolPart;
   summaryOnly?: boolean;
 }
-
-const HITL_TOOL_NAMES = new Set(["AskUserQuestion", "question", "ask_user"]);
 
 /**
  * Returns true when a ToolPart is a completed HITL tool that renders nothing.
@@ -32,7 +31,7 @@ const HITL_TOOL_NAMES = new Set(["AskUserQuestion", "question", "ask_user"]);
  * create phantom gap slots in OpenTUI flex containers.
  */
 export function isCompletedHitlPart(part: ToolPart): boolean {
-  if (!HITL_TOOL_NAMES.has(part.toolName)) return false;
+  if (!isHitlToolName(part.toolName)) return false;
   const resolvedResponse = part.hitlResponse ?? synthesizeHitlResponse(part);
   return !part.pendingQuestion && resolvedResponse !== null;
 }
@@ -174,7 +173,7 @@ export function ToolPartDisplay({ part, summaryOnly = false }: ToolPartDisplayPr
     );
   }
 
-  const isHitlTool = HITL_TOOL_NAMES.has(part.toolName);
+  const isHitlTool = isHitlToolName(part.toolName);
 
   if (isHitlTool) {
     const resolvedResponse = part.hitlResponse ?? synthesizeHitlResponse(part);

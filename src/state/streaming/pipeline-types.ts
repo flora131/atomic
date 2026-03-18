@@ -2,9 +2,9 @@ import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type { HitlResponseRecord } from "@/lib/ui/hitl-response.ts";
 import type { PermissionOption } from "@/services/agents/types.ts";
 import type { WorkflowRuntimeTaskResultEnvelope } from "@/services/workflows/runtime-contracts.ts";
-import type { MessageToolCall } from "@/types/chat.ts";
+import type { ToolExecutionStatus } from "@/state/parts/types.ts";
 
-type ToolStatus = MessageToolCall["status"];
+type ToolStatus = ToolExecutionStatus;
 
 export type { ToolStatus };
 

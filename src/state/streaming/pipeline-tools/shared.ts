@@ -1,13 +1,13 @@
-import type { MessageToolCall } from "@/types/chat.ts";
 import type { ToolState } from "@/state/parts/types.ts";
 import type { ToolStatus } from "@/state/streaming/pipeline-types.ts";
 
+const HITL_EXACT_NAMES = new Set(["askuserquestion", "question", "ask_user", "ask_question"]);
+const HITL_SUFFIXES = ["/ask_user", "__ask_user", "/ask_question", "__ask_question"];
+
 export function isHitlToolName(toolName: string): boolean {
-  return (
-    toolName === "AskUserQuestion" ||
-    toolName === "question" ||
-    toolName === "ask_user"
-  );
+  const normalized = toolName.trim().toLowerCase();
+  if (HITL_EXACT_NAMES.has(normalized)) return true;
+  return HITL_SUFFIXES.some((suffix) => normalized.endsWith(suffix));
 }
 
 export function isSubagentToolName(toolName: string): boolean {
@@ -70,23 +70,4 @@ export function toToolState(
   throw new Error(`Unsupported tool status: ${String(unreachableStatus)}`);
 }
 
-export function mergeToolCallOutput(
-  toolCall: MessageToolCall,
-  output: unknown,
-): unknown {
-  if (!isHitlToolName(toolCall.toolName) || !toolCall.hitlResponse) {
-    return output !== undefined ? output : toolCall.output;
-  }
 
-  const outputObject =
-    output !== null && typeof output === "object"
-      ? (output as Record<string, unknown>)
-      : {};
-  return {
-    ...outputObject,
-    answer: toolCall.hitlResponse.answerText,
-    cancelled: toolCall.hitlResponse.cancelled,
-    responseMode: toolCall.hitlResponse.responseMode,
-    displayText: toolCall.hitlResponse.displayText,
-  };
-}

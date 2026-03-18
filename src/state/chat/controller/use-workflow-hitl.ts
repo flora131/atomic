@@ -206,7 +206,7 @@ export function useWorkflowHitl({
       multiSelect: false,
     };
 
-    const targetToolId = toolCallId ?? activeHitlToolCallIdRef.current;
+    const targetToolId = toolCallId ?? null;
     const entry: QueuedQuestionEntry = {
       question: userQuestion,
       requestId,

@@ -301,21 +301,5 @@ export function upsertThinkingMetaPart(
     isStreaming: true,
     createdAt: new Date().toISOString(),
   };
-  const updated = [...parts];
-  // Insert before the first text part only if no text has been emitted yet.
-  // If text already exists, append at the end to preserve chronological order.
-  const hasAnyText = updated.some(
-    (part) => part.type === "text" && (part as TextPart).content.trim().length > 0,
-  );
-  if (!hasAnyText) {
-    const firstTextIdx = updated.findIndex((part) => part.type === "text");
-    if (firstTextIdx >= 0) {
-      updated.splice(firstTextIdx, 0, reasoningPart);
-    } else {
-      updated.push(reasoningPart);
-    }
-  } else {
-    updated.push(reasoningPart);
-  }
-  return updated;
+  return upsertPart(parts, reasoningPart);
 }

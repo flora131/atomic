@@ -56,6 +56,49 @@ test("_resetPartCounter resets counter and timestamp", () => {
   expect(composite & BigInt(0xfff)).toBe(0n);
 });
 
+test("_resetPartCounter produces deterministic IDs with mocked Date.now", () => {
+  const originalNow = Date.now;
+  try {
+    Date.now = () => 5000;
+
+    // Advance state: create several IDs to move counter forward
+    const firstBatch = Array.from({ length: 5 }, () => createPartId());
+
+    _resetPartCounter();
+
+    // After reset, recreating at the same timestamp must reproduce the same IDs
+    const secondBatch = Array.from({ length: 5 }, () => createPartId());
+
+    for (let i = 0; i < 5; i++) {
+      expect(secondBatch[i]).toBe(firstBatch[i]);
+    }
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
+test("_resetPartCounter is idempotent", () => {
+  const originalNow = Date.now;
+  try {
+    Date.now = () => 7000;
+
+    createPartId();
+    createPartId();
+
+    _resetPartCounter();
+    _resetPartCounter(); // double reset
+
+    const id = createPartId();
+    const composite = BigInt(`0x${id.slice(5)}`);
+    // Timestamp portion should match the mocked time
+    expect(Number(composite / BigInt(0x1000))).toBe(7000);
+    // Counter should be 0
+    expect(composite & BigInt(0xfff)).toBe(0n);
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
 test("timestamp is encoded in the composite", () => {
   const beforeTimestamp = Date.now();
   const id = createPartId();

@@ -29,7 +29,7 @@ describe("handleTextDelta", () => {
     // Simulate finalized TextPart (after tool boundary) with mid-sentence continuation
     const msg = {
       parts: [{
-        id: "part_000000000001_0001" as any,
+        id: "part_000000001001" as any,
         type: "text",
         content: "Before tool",
         isStreaming: false,
@@ -45,7 +45,7 @@ describe("handleTextDelta", () => {
   test("creates new TextPart when delta starts with paragraph break", () => {
     const msg = {
       parts: [{
-        id: "part_000000000001_0001" as any,
+        id: "part_000000001001" as any,
         type: "text",
         content: "Before tool",
         isStreaming: false,
@@ -61,7 +61,7 @@ describe("handleTextDelta", () => {
   test("creates new TextPart when previous ends with paragraph break", () => {
     const msg = {
       parts: [{
-        id: "part_000000000001_0001" as any,
+        id: "part_000000001001" as any,
         type: "text",
         content: "Before tool\n\n",
         isStreaming: false,

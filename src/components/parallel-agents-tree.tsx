@@ -117,8 +117,13 @@ export function buildAgentHeaderLabel(count: number, dominantType: string): stri
     return `${count} agent${plural ? "s" : ""}`;
   }
 
-  if (lower.endsWith(" agent") || lower.endsWith(" agents")) {
+  if (lower.endsWith(" agents")) {
     return `${count} ${normalized}`;
+  }
+
+  if (lower.endsWith(" agent")) {
+    const base = normalized.slice(0, -" agent".length);
+    return `${count} ${base} agent${plural ? "s" : ""}`;
   }
 
   return `${count} ${normalized} agent${plural ? "s" : ""}`;

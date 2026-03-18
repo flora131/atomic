@@ -110,8 +110,36 @@ describe("startChatUI protocol escape ordering", () => {
 
     mock.module("@/theme/index.tsx", () => ({
       ThemeProvider: ({ children }: { children?: unknown }) => children ?? null,
-      useTheme: () => null,
-      useThemeColors: () => null,
+      useTheme: () => ({
+        theme: {
+          isDark: true,
+          colors: {
+            foreground: "#cdd6f4",
+            background: "#1e1e2e",
+            accent: "#89b4fa",
+            muted: "#6c7086",
+            success: "#a6e3a1",
+            error: "#f38ba8",
+            warning: "#f9e2af",
+            info: "#89dceb",
+            surface: "#313244",
+            border: "#45475a",
+          },
+        },
+        isDark: true,
+      }),
+      useThemeColors: () => ({
+        foreground: "#cdd6f4",
+        background: "#1e1e2e",
+        accent: "#89b4fa",
+        muted: "#6c7086",
+        success: "#a6e3a1",
+        error: "#f38ba8",
+        warning: "#f9e2af",
+        info: "#89dceb",
+        surface: "#313244",
+        border: "#45475a",
+      }),
       createMarkdownSyntaxStyle: () =>
         opentuiCore.SyntaxStyle.fromStyles({
           keyword: { fg: opentuiCore.RGBA.fromHex("#cba6f7"), bold: true },

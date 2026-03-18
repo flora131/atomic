@@ -127,6 +127,16 @@ function pressEscapeAct(setup: TestSetup): void {
   act(() => { setup.mockInput.pressEscape(); });
 }
 
+/**
+ * Extracts the first call arguments from a mock, safely handling strict
+ * noUncheckedIndexedAccess by double-casting through unknown.
+ */
+function getFirstCallArgs(fn: ReturnType<typeof mock>): unknown[] {
+  const calls = fn.mock.calls;
+  expect(calls.length).toBeGreaterThan(0);
+  return calls[0] as unknown as unknown[];
+}
+
 afterEach(() => {
   if (testSetup) {
     testSetup.renderer.destroy();
@@ -247,7 +257,8 @@ describe("ModelSelectorDialog E2E", () => {
 
     // gpt-4o has no reasoning efforts, so onSelect should be called directly
     expect(onSelect).toHaveBeenCalledTimes(1);
-    const calledModel = onSelect.mock.calls[0]![0] as unknown as Model;
+    const args = getFirstCallArgs(onSelect);
+    const calledModel = args[0] as Model;
     expect(calledModel.modelID).toBe("gpt-4o");
   });
 
@@ -264,7 +275,8 @@ describe("ModelSelectorDialog E2E", () => {
 
     // claude-sonnet-4 has no reasoning efforts → direct onSelect
     expect(onSelect).toHaveBeenCalledTimes(1);
-    const calledModel = onSelect.mock.calls[0]![0] as unknown as Model;
+    const args = getFirstCallArgs(onSelect);
+    const calledModel = args[0] as Model;
     expect(calledModel.modelID).toBe("claude-sonnet-4");
   });
 
@@ -358,8 +370,9 @@ describe("ModelSelectorDialog E2E", () => {
     await setup.renderOnce();
 
     expect(onSelect).toHaveBeenCalledTimes(1);
-    const calledModel = onSelect.mock.calls[0]![0] as unknown as Model;
-    const calledEffort = onSelect.mock.calls[0]![1] as unknown as string;
+    const args = getFirstCallArgs(onSelect);
+    const calledModel = args[0] as Model;
+    const calledEffort = args[1] as string;
     expect(calledModel.modelID).toBe("claude-opus-4");
     expect(calledEffort).toBe("high");
   });
@@ -409,8 +422,9 @@ describe("ModelSelectorDialog E2E", () => {
     await setup.renderOnce();
 
     expect(onSelect).toHaveBeenCalledTimes(1);
-    const calledModel = onSelect.mock.calls[0]![0] as unknown as Model;
-    const calledEffort = onSelect.mock.calls[0]![1] as unknown as string;
+    const args = getFirstCallArgs(onSelect);
+    const calledModel = args[0] as Model;
+    const calledEffort = args[1] as string;
     expect(calledModel.modelID).toBe("claude-opus-4");
     expect(calledEffort).toBe("high");
   });

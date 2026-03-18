@@ -79,6 +79,7 @@ export function useWorkflowHitl({
   workflowState,
 }: UseWorkflowHitlArgs) {
   const [activeQuestion, setActiveQuestion] = useState<UserQuestion | null>(null);
+  const [activeHitlToolCallId, setActiveHitlToolCallId] = useState<string | null>(null);
   const pendingQuestionsRef = useRef<QueuedQuestionEntry[]>([]);
   const activeHitlToolCallIdRef = useRef<string | null>(null);
   const activeQuestionEntryRef = useRef<QueuedQuestionEntry | null>(null);
@@ -88,7 +89,9 @@ export function useWorkflowHitl({
 
   const setDisplayedQuestion = useCallback((entry: QueuedQuestionEntry | null) => {
     activeQuestionEntryRef.current = entry;
-    activeHitlToolCallIdRef.current = entry?.toolCallId ?? null;
+    const toolCallId = entry?.toolCallId ?? null;
+    activeHitlToolCallIdRef.current = toolCallId;
+    setActiveHitlToolCallId(toolCallId);
     setActiveQuestion(entry?.question ?? null);
   }, []);
 
@@ -491,6 +494,7 @@ export function useWorkflowHitl({
   }, [setDisplayedQuestion]);
 
   return {
+    activeHitlToolCallId,
     activeHitlToolCallIdRef,
     activeQuestion,
     handleAskUserQuestion,

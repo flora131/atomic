@@ -126,6 +126,7 @@ export function useChatRuntimeStack({
   } = shellState;
 
   const {
+    activeHitlToolCallId,
     activeHitlToolCallIdRef,
     activeQuestion,
     handleAskUserQuestion,
@@ -247,6 +248,7 @@ export function useChatRuntimeStack({
   });
 
   return {
+    activeHitlToolCallId,
     activeHitlToolCallIdRef,
     activeQuestion,
     handleAgentDoneRendered,

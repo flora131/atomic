@@ -7,14 +7,18 @@ import type { ChatMessage, StreamingMeta, WorkflowChatState } from "@/state/chat
 import type { SyntaxStyle } from "@opentui/core";
 import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 
+import type { QuestionAnswer, UserQuestion } from "@/components/user-question-dialog.tsx";
+
 interface UseChatRenderModelArgs {
   activeBackgroundAgentCount: number;
+  activeHitlToolCallId: string | null;
   activeQuestion: unknown;
   handleAgentDoneRendered: (marker: {
     messageId: string;
     agentId: string;
     timestampMs: number;
   }) => void;
+  handleQuestionAnswer: (answer: QuestionAnswer) => void;
   isVerbose: boolean;
   markdownSyntaxStyle: SyntaxStyle;
   messages: ChatMessage[];
@@ -38,9 +42,11 @@ interface UseChatRenderModelResult {
 
 export function useChatRenderModel({
   activeBackgroundAgentCount,
+  activeHitlToolCallId,
   activeQuestion,
   backgroundAgentMessageId,
   handleAgentDoneRendered,
+  handleQuestionAnswer,
   isVerbose,
   lastStreamedMessageId,
   markdownSyntaxStyle,
@@ -91,6 +97,9 @@ export function useChatRenderModel({
               syntaxStyle={markdownSyntaxStyle}
               hideLoading={activeQuestion !== null}
               activeBackgroundAgentCount={activeBackgroundAgentCount}
+              activeHitlToolCallId={activeHitlToolCallId}
+              activeQuestion={activeQuestion as UserQuestion | null}
+              handleQuestionAnswer={handleQuestionAnswer}
               todoItems={msg.streaming ? todoItems : undefined}
               elapsedMs={showLive ? streamingElapsedMs : undefined}
               streamingMeta={scopedStreamingMeta}
@@ -107,8 +116,10 @@ export function useChatRenderModel({
     );
   }, [
     activeBackgroundAgentCount,
+    activeHitlToolCallId,
     activeQuestion,
     handleAgentDoneRendered,
+    handleQuestionAnswer,
     isVerbose,
     markdownSyntaxStyle,
     renderMessages,

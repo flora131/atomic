@@ -340,15 +340,7 @@ export function useChatStreamConsumer({
         continue;
       }
       if (isRuntimeEnvelopePartEvent(part)) {
-        if (part.type === "task-result-upsert") {
-          const resultText = part.envelope.output_text;
-          if (typeof resultText === "string" && resultText.trim().length > 0) {
-            const statusLabel = part.envelope.status === "error" ? "failed" : "completed";
-            sendBackgroundMessageToAgent(
-              `Task "${part.envelope.title}" (${part.envelope.task_id}) ${statusLabel}:\n\n${resultText}`,
-            );
-          }
-        }
+        if (part.type === "task-result-upsert") continue;
         const messageId = resolveAgentScopedMessageId();
         if (!messageId) continue;
         queueMessagePartUpdate(messageId, part);

@@ -407,7 +407,7 @@ export function createCommandContext(args: UseCommandExecutorArgs): CommandConte
       if (!streamingMessageId) return;
 
       const runId = 0;
-      const streamEvents: StreamPartEvent[] = [{
+      const taskListEvent: StreamPartEvent = {
         type: "task-list-update",
         runId,
         tasks: tasks.map((task) => ({
@@ -416,26 +416,12 @@ export function createCommandContext(args: UseCommandExecutorArgs): CommandConte
           status: task.status,
           ...(task.blockedBy ? { blockedBy: task.blockedBy } : {}),
         })),
-      }];
-
-      for (const task of tasks) {
-        if (task.taskResult) {
-          streamEvents.push({
-            type: "task-result-upsert",
-            runId,
-            envelope: task.taskResult,
-          });
-        }
-      }
+      };
 
       args.setMessagesWindowed((previousMessages) =>
         previousMessages.map((message) => {
           if (message.id !== streamingMessageId) return message;
-          let updated = message;
-          for (const event of streamEvents) {
-            updated = applyStreamPartEvent(updated, event);
-          }
-          return updated;
+          return applyStreamPartEvent(message, taskListEvent);
         }),
       );
     },

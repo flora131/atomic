@@ -1,6 +1,7 @@
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type { TaskItem } from "@/components/task-list-indicator.tsx";
 import type { McpSnapshotView } from "@/lib/ui/mcp-output.ts";
+import type { AgentListView } from "@/lib/ui/agent-list-output.ts";
 import type { HitlResponseMode } from "@/lib/ui/hitl-response.ts";
 import type { Part } from "@/state/parts/index.ts";
 import type { FileReadInfo } from "@/lib/ui/mention-parsing.ts";
@@ -54,6 +55,7 @@ export interface ChatMessage {
   skillLoads?: MessageSkillLoad[];
   taskItems?: TaskItem[];
   mcpSnapshot?: McpSnapshotView;
+  agentListView?: AgentListView;
   outputTokens?: number;
   thinkingMs?: number;
   thinkingText?: string;

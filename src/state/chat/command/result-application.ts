@@ -5,7 +5,7 @@ import { tryTrackLoadedSkill } from "@/state/chat/shared/helpers/skill-load-trac
 import type { MessageSkillLoad } from "@/state/chat/shared/types/index.ts";
 import type { UseCommandExecutorArgs } from "@/state/chat/command/executor-types.ts";
 import { createPartId } from "@/state/parts/id.ts";
-import type { McpSnapshotPart } from "@/state/parts/types.ts";
+import type { McpSnapshotPart, AgentListPart } from "@/state/parts/types.ts";
 import { defaultWorkflowChatState } from "@/state/chat/shared/types/workflow.ts";
 
 export async function applyCommandResult(
@@ -104,6 +104,24 @@ export async function applyCommandResult(
     });
   }
 
+  if (result.agentListView) {
+    const agentListView = result.agentListView;
+    args.setMessagesWindowed((previousMessages) => {
+      const lastMessage = previousMessages[previousMessages.length - 1];
+      if (lastMessage && lastMessage.role === "assistant") {
+        const nextParts = upsertAgentListPart(lastMessage.parts ?? [], agentListView);
+        return [
+          ...previousMessages.slice(0, -1),
+          { ...lastMessage, agentListView, parts: nextParts },
+        ];
+      }
+      const message = createMessage("assistant", "");
+      message.agentListView = agentListView;
+      message.parts = upsertAgentListPart(message.parts ?? [], agentListView);
+      return [...previousMessages, message];
+    });
+  }
+
   if (result.skillLoaded && tryTrackLoadedSkill(args.loadedSkillsRef.current, result.skillLoaded)) {
     const skillLoad: MessageSkillLoad = {
       skillName: result.skillLoaded,
@@ -156,6 +174,28 @@ function upsertMcpSnapshotPart(
     nextParts[existingIdx] = mcpPart;
   } else {
     nextParts.push(mcpPart);
+  }
+  return nextParts;
+}
+
+function upsertAgentListPart(
+  parts: import("@/state/parts/types.ts").Part[],
+  view: import("@/lib/ui/agent-list-output.ts").AgentListView,
+): import("@/state/parts/types.ts").Part[] {
+  const nextParts = [...parts];
+  const existingIdx = nextParts.findIndex((part) => part.type === "agent-list");
+  const agentPart: AgentListPart = {
+    id: existingIdx >= 0 ? nextParts[existingIdx]!.id : createPartId(),
+    type: "agent-list",
+    view,
+    createdAt: existingIdx >= 0
+      ? nextParts[existingIdx]!.createdAt
+      : new Date().toISOString(),
+  };
+  if (existingIdx >= 0) {
+    nextParts[existingIdx] = agentPart;
+  } else {
+    nextParts.push(agentPart);
   }
   return nextParts;
 }

@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useRef, type MutableRefObject } from "react";
 import { saveModelPreference, saveReasoningEffortPreference, clearReasoningEffortPreference } from "@/services/config/settings.ts";
 import type { Model } from "@/services/models/model-transform.ts";
-import {
-  globalRegistry,
-  parseSlashCommand,
-} from "@/commands/tui/index.ts";
+import { parseSlashCommand } from "@/commands/tui/index.ts";
 import { useCommandExecutor } from "@/state/chat/command/index.ts";
 import type { DeferredCommandMessage, UseCommandExecutorArgs } from "@/state/chat/shared/types/command.ts";
 import type {
@@ -12,10 +9,7 @@ import type {
   MessageSubmitTelemetry,
 } from "@/state/chat/shared/types/index.ts";
 import type { QueuedMessage } from "@/hooks/use-message-queue.ts";
-import {
-  parseAtMentions,
-  processFileMentions,
-} from "@/lib/ui/mention-parsing.ts";
+import { processFileMentions } from "@/lib/ui/mention-parsing.ts";
 import { snapshotTaskItems } from "@/state/chat/shared/helpers/workflow-task-state.ts";
 import { createMessage } from "@/state/chat/shared/helpers/index.ts";
 import { finalizeStreamingReasoningInMessage } from "@/state/parts/index.ts";
@@ -138,34 +132,14 @@ export function useChatDispatchController({
     deferredCommandQueueRef.current.unshift(message);
   }, [deferredCommandQueueRef]);
 
-  const isAgentCommand = useCallback((name: string): boolean => {
-    const cmd = globalRegistry.get(name);
-    return cmd?.category === "agent";
-  }, []);
-
   const dispatchQueuedMessage = useCallback((queuedMessage: QueuedMessage) => {
-    const atMentions = parseAtMentions(queuedMessage.content, isAgentCommand);
-    if (atMentions.length > 0 && executeCommandRef.current) {
-      if (!queuedMessage.skipUserMessage) {
-        const visibleContent = queuedMessage.displayContent ?? queuedMessage.content;
-        setMessagesWindowed((prev) => [...prev, createMessage("user", visibleContent)]);
-      }
-
-      isStreamingRef.current = true;
-      setIsStreaming(true);
-      for (const mention of atMentions) {
-        void executeCommandRef.current(mention.agentName, mention.args, "mention");
-      }
-      return;
-    }
-
     if (sendMessageRef.current) {
       sendMessageRef.current(
         queuedMessage.content,
         queuedMessage.skipUserMessage ? { skipUserMessage: true } : undefined,
       );
     }
-  }, [isAgentCommand, isStreamingRef, setIsStreaming, setMessagesWindowed]);
+  }, []);
 
   useEffect(() => {
     dispatchQueuedMessageRef.current = dispatchQueuedMessage;
@@ -422,20 +396,7 @@ export function useChatDispatchController({
         return;
       }
 
-      if (initialPrompt.startsWith("@")) {
-        const afterAt = initialPrompt.slice(1);
-        const spaceIndex = afterAt.indexOf(" ");
-        const agentName = spaceIndex === -1 ? afterAt : afterAt.slice(0, spaceIndex);
-        const agentArgs = spaceIndex === -1 ? "" : afterAt.slice(spaceIndex + 1).trim();
-        const agentCommand = globalRegistry.get(agentName);
-        if (agentCommand && agentCommand.category === "agent") {
-          addMessage("user", initialPrompt);
-          void executeCommand(agentName, agentArgs, "mention");
-          return;
-        }
-      }
-
-      const { message: processed, filesRead } = processFileMentions(initialPrompt, isAgentCommand);
+      const { message: processed, filesRead } = processFileMentions(initialPrompt);
       emitMessageSubmitTelemetry({
         messageLength: initialPrompt.length,
         queued: false,

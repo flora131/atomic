@@ -11,6 +11,7 @@ import type { Session, ModelDisplayInfo, McpServerConfig } from "@/services/agen
 import type { AgentType, ModelOperations } from "@/services/models/index.ts";
 import type { TodoItem } from "@/services/agents/tools/todo-write.ts";
 import type { McpServerToggleMap, McpSnapshotView } from "@/lib/ui/mcp-output.ts";
+import type { AgentListView } from "@/lib/ui/agent-list-output.ts";
 import type { SubagentSpawnOptions, SubagentStreamResult } from "@/services/workflows/graph/types.ts";
 import type { WorkflowRuntimeTask, WorkflowRuntimeTaskStatus } from "@/services/workflows/runtime-contracts.ts";
 import type {
@@ -108,6 +109,7 @@ export interface CommandResult {
   showMcpOverlay?: boolean;
   mcpServers?: McpServerConfig[];
   mcpSnapshot?: McpSnapshotView;
+  agentListView?: AgentListView;
   modelDisplayName?: string;
 }
 

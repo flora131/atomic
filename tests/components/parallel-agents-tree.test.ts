@@ -214,6 +214,7 @@ describe("collectDoneRenderMarkers", () => {
 describe("agent inline display helpers", () => {
   const expectedInlinePartTypes: Array<Part["type"]> = [
     "agent",
+    "agent-list",
     "compaction",
     "mcp-snapshot",
     "reasoning",

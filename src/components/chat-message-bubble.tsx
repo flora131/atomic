@@ -113,14 +113,11 @@ function getRenderableAssistantParts(
 
 export function MessageBubble({
   activeBackgroundAgentCount,
-  activeHitlToolCallId,
-  activeQuestion,
   message,
   isLast,
   isVerbose = false,
   syntaxStyle,
   hideLoading = false,
-  handleQuestionAnswer,
   todoItems,
   tasksExpanded = false,
   workflowSessionDir,
@@ -269,9 +266,6 @@ export function MessageBubble({
         <MessageBubbleParts
           message={renderableMessage}
           syntaxStyle={syntaxStyle}
-          activeHitlToolCallId={activeHitlToolCallId}
-          activeQuestion={activeQuestion}
-          handleQuestionAnswer={handleQuestionAnswer}
           onAgentDoneRendered={(marker) => {
             onAgentDoneRendered?.({
               messageId: message.id,

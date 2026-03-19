@@ -56,9 +56,11 @@ export interface OpenCodeSessionRuntimeArgs {
   defaultAgentMode?: string;
   getSdkClient: () => OpenCodeSdkSessionClient | null;
   getActivePromptModel: () => OpenCodeResolvedPromptModel | undefined;
+  getActiveReasoningEffort: () => string | undefined;
   setActivePromptModelIfMissing: (
     model: OpenCodeResolvedPromptModel | undefined,
   ) => void;
+  setActiveReasoningEffortIfMissing: (effort: string | undefined) => void;
   getActiveContextWindow: () => number | null;
   resolveModelForPrompt: (
     model?: string,

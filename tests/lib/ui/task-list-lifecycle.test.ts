@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import type { TaskItem } from "@/components/task-list-indicator.tsx";
-import { preferTerminalTaskItems } from "@/lib/ui/workflow-task-state.ts";
-import { shouldAutoClearTaskPanel } from "@/lib/ui/task-list-lifecycle.ts";
+import { preferTerminalTaskItems } from "@/state/chat/shared/helpers/workflow-task-state.ts";
+import { shouldAutoClearTaskPanel } from "@/components/task-list-lifecycle.ts";
 
 function task(status: TaskItem["status"]): TaskItem {
   return {

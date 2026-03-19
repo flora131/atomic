@@ -61,6 +61,7 @@ export class OpenCodeClient implements CodingAgentClient {
     "sse.abort.unknown.count": 0,
   };
   private activePromptModel: OpenCodeResolvedPromptModel | undefined;
+  private activeReasoningEffort: string | undefined;
   private activeContextWindow: number | null = null;
   private subagentStateByParentSession = new Map<string, OpenCodeSubagentSessionState>();
   private childSessionToParentSession = new Map<string, string>();
@@ -131,6 +132,7 @@ export class OpenCodeClient implements CodingAgentClient {
         this.reasoningPartIds.clear();
         this.messageRolesBySession.clear();
         this.skillInvocationsBySession.clear();
+        this.activeReasoningEffort = undefined;
       },
       emitEvent: (eventType, sessionId, data) => this.emitEvent(eventType, sessionId, data),
     });
@@ -404,8 +406,14 @@ export class OpenCodeClient implements CodingAgentClient {
       defaultAgentMode: this.clientOptions.defaultAgentMode,
       getSdkClient: () => this.sdkClient as ReturnType<OpenCodeSessionRuntimeArgs["getSdkClient"]>,
       getActivePromptModel: () => this.activePromptModel,
+      getActiveReasoningEffort: () => this.activeReasoningEffort,
       setActivePromptModelIfMissing: (model) => {
         if (!this.activePromptModel && model) this.activePromptModel = model;
+      },
+      setActiveReasoningEffortIfMissing: (effort) => {
+        if (this.activeReasoningEffort === undefined && effort !== undefined) {
+          this.activeReasoningEffort = effort;
+        }
       },
       getActiveContextWindow: () => this.activeContextWindow,
       resolveModelForPrompt: (model) => this.resolveModelForPrompt(model),
@@ -502,8 +510,12 @@ export class OpenCodeClient implements CodingAgentClient {
     return this.clientOptions.baseUrl ?? DEFAULT_OPENCODE_BASE_URL;
   }
 
-  async setActivePromptModel(model?: string): Promise<void> {
+  async setActivePromptModel(
+    model?: string,
+    options?: { reasoningEffort?: string },
+  ): Promise<void> {
     this.activePromptModel = this.resolveModelForPrompt(model);
+    this.activeReasoningEffort = options?.reasoningEffort;
     try {
       this.activeContextWindow = await this.resolveModelContextWindow(model);
     } catch {
@@ -515,7 +527,13 @@ export class OpenCodeClient implements CodingAgentClient {
     return this.activeContextWindow;
   }
 
-  async getModelDisplayInfo(modelHint?: string): Promise<{ model: string; tier: string; contextWindow?: number }> {
+  async getModelDisplayInfo(modelHint?: string): Promise<{
+    model: string;
+    tier: string;
+    supportsReasoning?: boolean;
+    supportedReasoningEfforts?: string[];
+    contextWindow?: number;
+  }> {
     return getOpenCodeModelDisplayInfo({
       modelHint,
       activeContextWindow: this.activeContextWindow,
@@ -523,6 +541,7 @@ export class OpenCodeClient implements CodingAgentClient {
       sdkClient: this.sdkClient,
       resolveModelContextWindow: (hint) => this.resolveModelContextWindow(hint),
       lookupRawModelIdFromProviders: () => this.lookupRawModelIdFromProviders(),
+      listProviderModels: () => this.listProviderModels(),
     });
   }
 

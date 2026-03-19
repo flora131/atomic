@@ -5,16 +5,17 @@ import {
 } from "@/state/parts/index.ts";
 import {
   getActiveBackgroundAgents,
-} from "@/lib/ui/background-agent-footer.ts";
+} from "@/state/chat/shared/helpers/background-agent-footer.ts";
 import {
   shouldFinalizeAgentOnlyStream,
-} from "@/state/chat/helpers.ts";
-import { snapshotTaskItems } from "@/lib/ui/workflow-task-state.ts";
-import type { TaskItem } from "@/state/chat/types.ts";
+} from "@/state/chat/shared/helpers/index.ts";
+import { snapshotTaskItems } from "@/state/chat/shared/helpers/workflow-task-state.ts";
+import type { TaskItem } from "@/state/chat/shared/types/index.ts";
 import type { UseChatAgentProjectionArgs } from "@/state/chat/agent/projection-types.ts";
 
 type UseChatAgentStreamFinalizationArgs = Pick<
   UseChatAgentProjectionArgs,
+  | "activeBackgroundAgentCountRef"
   | "awaitedStreamRunIdsRef"
   | "continueQueuedConversation"
   | "deferredCompleteTimeoutRef"
@@ -29,6 +30,7 @@ type UseChatAgentStreamFinalizationArgs = Pick<
   | "parallelAgentsRef"
   | "pendingCompleteRef"
   | "resolveTrackedRun"
+  | "setActiveBackgroundAgentCount"
   | "setBackgroundAgentMessageId"
   | "setMessagesWindowed"
   | "setParallelAgents"
@@ -40,6 +42,7 @@ type UseChatAgentStreamFinalizationArgs = Pick<
 >;
 
 export function useChatAgentStreamFinalization({
+  activeBackgroundAgentCountRef,
   awaitedStreamRunIdsRef,
   continueQueuedConversation,
   deferredCompleteTimeoutRef,
@@ -54,6 +57,7 @@ export function useChatAgentStreamFinalization({
   parallelAgentsRef,
   pendingCompleteRef,
   resolveTrackedRun,
+  setActiveBackgroundAgentCount,
   setBackgroundAgentMessageId,
   setMessagesWindowed,
   setParallelAgents,
@@ -149,17 +153,29 @@ export function useChatAgentStreamFinalization({
       setBackgroundAgentMessageId(messageId);
       setParallelAgents(remainingBg);
       parallelAgentsRef.current = remainingBg;
+
+      const newActiveCount = remainingBg.length;
+      if (activeBackgroundAgentCountRef.current !== newActiveCount) {
+        activeBackgroundAgentCountRef.current = newActiveCount;
+        setActiveBackgroundAgentCount(newActiveCount);
+      }
     } else {
       stopSharedStreamState();
       finalizeThinkingSourceTracking();
       setParallelAgents([]);
       parallelAgentsRef.current = [];
+
+      if (activeBackgroundAgentCountRef.current !== 0) {
+        activeBackgroundAgentCountRef.current = 0;
+        setActiveBackgroundAgentCount(0);
+      }
     }
 
     if (!suppressQueueContinuation) {
       continueQueuedConversation();
     }
   }, [
+    activeBackgroundAgentCountRef,
     awaitedStreamRunIdsRef,
     continueQueuedConversation,
     deferredCompleteTimeoutRef,
@@ -174,6 +190,7 @@ export function useChatAgentStreamFinalization({
     parallelAgentsRef,
     pendingCompleteRef,
     resolveTrackedRun,
+    setActiveBackgroundAgentCount,
     setBackgroundAgentMessageId,
     setMessagesWindowed,
     setParallelAgents,

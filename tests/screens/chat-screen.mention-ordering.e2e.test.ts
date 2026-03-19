@@ -3,7 +3,7 @@ import type { BusEvent, BusEventDataMap, BusEventType } from "@/services/events/
 import { BatchDispatcher } from "@/services/events/batch-dispatcher.ts";
 import { EventBus } from "@/services/events/event-bus.ts";
 import { wireConsumers } from "@/services/events/consumers/wire-consumers.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type { ChatMessage } from "@/state/chat/exports.ts";
 import { shouldDeferPostCompleteDeltaUntilDoneProjection } from "@/state/chat/exports.ts";
 import { _resetPartCounter } from "@/state/parts/id.ts";
@@ -14,7 +14,7 @@ import {
   hasDoneStateProjection,
   registerAgentCompletionSequence,
   registerDoneStateProjection,
-} from "@/lib/ui/agent-ordering-contract.ts";
+} from "@/state/chat/shared/helpers/agent-ordering-contract.ts";
 
 const SESSION_ID = "mention-ordering-e2e";
 const RUN_ID = 1;
@@ -27,7 +27,6 @@ function createAssistantMessage(): ChatMessage {
     timestamp: new Date().toISOString(),
     streaming: true,
     parts: [],
-    toolCalls: [],
   };
 }
 
@@ -80,7 +79,7 @@ describe("@ mention mixed output timing windows e2e regression", () => {
   test("preserves done-before-post-complete text ordering across direct-vs-batched mixed output windows", async () => {
     const bus = new EventBus();
     const dispatcher = new BatchDispatcher(bus);
-    const { pipeline, correlation, dispose } = wireConsumers(bus, dispatcher);
+    const { pipeline, dispose } = wireConsumers(bus, dispatcher);
     const orderingState = createAgentOrderingState();
     const deferredByAgent = new Map<string, DeferredDelta[]>();
     const streamEvents: StreamPartEvent[] = [];
@@ -88,7 +87,7 @@ describe("@ mention mixed output timing windows e2e regression", () => {
     pipeline.onStreamParts((events) => streamEvents.push(...events));
 
     try {
-      correlation.startRun(RUN_ID, SESSION_ID);
+      publishEvent(bus, "stream.session.start", {});
 
       let message = createAssistantMessage();
       message = applyStreamPartEvent(message, {

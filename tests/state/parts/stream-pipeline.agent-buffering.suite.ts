@@ -25,7 +25,6 @@ describe("applyStreamPartEvent - agent buffering and hydration", () => {
       agentId: "agent_1",
     });
 
-    expect(msg.toolCalls).toEqual([]);
     expect(msg.parts?.map((part) => part.type)).toEqual(["text"]);
 
     const textPart = msg.parts?.[0];

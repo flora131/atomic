@@ -43,6 +43,25 @@ describe("fromClaudeModelInfo", () => {
     expect(result.name).toBe("Claude Opus 4");
     expect(result.limits.context).toBe(300000);
   });
+
+  test("passes Claude reasoning effort metadata through only when explicitly advertised", () => {
+    const supported = fromClaudeModelInfo(makeClaudeModelInfo({
+      supportsEffort: true,
+      supportedEffortLevels: ["low", "medium", "high", "max"],
+    }), 200000);
+
+    expect(supported.capabilities.reasoning).toBe(true);
+    expect(supported.supportedReasoningEfforts).toEqual(["low", "medium", "high", "max"]);
+    expect(supported.defaultReasoningEffort).toBe("high");
+
+    const unsupported = fromClaudeModelInfo(makeClaudeModelInfo({
+      supportsEffort: true,
+    }), 200000);
+
+    expect(unsupported.capabilities.reasoning).toBe(false);
+    expect(unsupported.supportedReasoningEfforts).toBeUndefined();
+    expect(unsupported.defaultReasoningEffort).toBeUndefined();
+  });
 });
 
 describe("fromCopilotModelInfo", () => {

@@ -1,6 +1,6 @@
 import { beforeEach } from "bun:test";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
-import type { ChatMessage } from "@/screens/chat-screen.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
+import type { ChatMessage } from "@/types/chat.ts";
 import { _resetPartCounter, createPartId } from "@/state/parts/id.ts";
 
 export type { ChatMessage, ParallelAgent };
@@ -20,7 +20,6 @@ export function createAssistantMessage(): ChatMessage {
     timestamp: new Date().toISOString(),
     streaming: true,
     parts: [],
-    toolCalls: [],
   };
 }
 

@@ -1,13 +1,13 @@
 import { useCallback, useMemo } from "react";
 import type { MutableRefObject } from "react";
-import { saveTasksToActiveSession } from "@/commands/tui/workflow-commands.ts";
-import type { DeferredCommandMessage } from "@/state/chat/command/executor-types.ts";
-import { dispatchNextQueuedMessage, shouldDispatchQueuedMessage } from "@/lib/ui/stream-continuation.ts";
-import { normalizeInterruptedTasks, snapshotTaskItems } from "@/lib/ui/workflow-task-state.ts";
+import { saveTasksToActiveSession } from "@/commands/tui/workflow-commands/index.ts";
+import type { DeferredCommandMessage } from "@/state/chat/shared/types/command.ts";
+import { dispatchNextQueuedMessage, shouldDispatchQueuedMessage } from "@/state/chat/shared/helpers/stream-continuation.ts";
+import { normalizeInterruptedTasks, snapshotTaskItems } from "@/state/chat/shared/helpers/workflow-task-state.ts";
 import type { UseMessageQueueReturn } from "@/hooks/use-message-queue.ts";
-import type { MessageSubmitTelemetry, TaskItem, WorkflowChatState } from "@/state/chat/types.ts";
+import type { MessageSubmitTelemetry, TaskItem, WorkflowChatState } from "@/state/chat/shared/types/index.ts";
 import type { QueuedMessage } from "@/hooks/use-message-queue.ts";
-import type { NormalizedTodoItem } from "@/lib/ui/task-status.ts";
+import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 
 interface UseChatAppOrchestrationArgs {
   applyWorkflowStateUpdate: (

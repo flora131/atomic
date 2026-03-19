@@ -1,7 +1,7 @@
 import type { SetStateAction } from "react";
 import { applyStreamPartEvent } from "@/state/parts/index.ts";
 import type { StreamPartEvent } from "@/state/parts/index.ts";
-import type { ChatMessage } from "@/state/chat/types.ts";
+import type { ChatMessage } from "@/state/chat/shared/types/index.ts";
 
 export interface StreamPartBatch {
   queueMessagePartUpdate: (messageId: string, update: StreamPartEvent) => void;

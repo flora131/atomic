@@ -167,6 +167,7 @@ export async function getCopilotModelDisplayInfoForClient(args: {
   model: string;
   tier: string;
   supportsReasoning?: boolean;
+  supportedReasoningEfforts?: string[];
   defaultReasoningEffort?: string;
   contextWindow?: number;
 }> {

@@ -370,6 +370,76 @@ describe("BatchDispatcher", () => {
       expect(publishedEvents[0]).toEqual(tool1Event2); // tool-123 updated
       expect(publishedEvents[1]).toEqual(tool2Event1); // tool-456 unchanged
     });
+
+    it("should drop stale coalesced snapshots via the registry predicate", () => {
+      createDispatcher(1000);
+
+      const newer: BusEvent<"stream.text.complete"> = {
+        type: "stream.text.complete",
+        sessionId: "test-session",
+        runId: 1,
+        timestamp: 200,
+        data: { messageId: "msg-1", fullText: "newer" },
+      };
+
+      const stale: BusEvent<"stream.text.complete"> = {
+        type: "stream.text.complete",
+        sessionId: "test-session",
+        runId: 1,
+        timestamp: 100,
+        data: { messageId: "msg-1", fullText: "stale" },
+      };
+
+      dispatcher.enqueue(newer);
+      dispatcher.enqueue(stale);
+      dispatcher.flush();
+
+      expect(publishedEvents).toEqual([newer]);
+    });
+
+    it("should filter stale deltas via registry stale key lookups", () => {
+      createDispatcher(1000);
+
+      const delta1: BusEvent<"stream.text.delta"> = {
+        type: "stream.text.delta",
+        sessionId: "test-session",
+        runId: 1,
+        timestamp: 100,
+        data: { delta: "Hello", messageId: "msg-1" },
+      };
+
+      const complete1: BusEvent<"stream.text.complete"> = {
+        type: "stream.text.complete",
+        sessionId: "test-session",
+        runId: 1,
+        timestamp: 150,
+        data: { messageId: "msg-1", fullText: "Hello" },
+      };
+
+      const delta2: BusEvent<"stream.text.delta"> = {
+        type: "stream.text.delta",
+        sessionId: "test-session",
+        runId: 1,
+        timestamp: 175,
+        data: { delta: " world", messageId: "msg-1" },
+      };
+
+      const complete2: BusEvent<"stream.text.complete"> = {
+        type: "stream.text.complete",
+        sessionId: "test-session",
+        runId: 1,
+        timestamp: 200,
+        data: { messageId: "msg-1", fullText: "Hello world" },
+      };
+
+      dispatcher.enqueue(delta1);
+      dispatcher.enqueue(complete1);
+      dispatcher.enqueue(delta2);
+      dispatcher.enqueue(complete2);
+      dispatcher.flush();
+
+      expect(publishedEvents).toEqual([complete2]);
+    });
   });
 
   describe("timer lifecycle", () => {

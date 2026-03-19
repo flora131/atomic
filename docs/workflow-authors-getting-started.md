@@ -2,33 +2,44 @@
 
 This guide is for authors creating custom workflows with the graph SDK and registering workflow metadata for discovery.
 
-## 1) Initialize `WorkflowSDK`
+## 1) Define a `WorkflowDefinition`
 
-Use `WorkflowSDK.init()` as the single entry point for providers, workflow registration, and runtime defaults.
+Use `WorkflowDefinition` to declare your workflow's metadata, graph factory, and state factory. The `executeWorkflow()` function is the single entry point for running all workflows.
 
 ```ts
-import { WorkflowSDK } from "@bastani/atomic/graph";
+import type { WorkflowDefinition } from "@/commands/tui/workflow-commands.ts";
+import type { BaseState, CompiledGraph } from "@/services/workflows/graph/types.ts";
 
-const sdk = WorkflowSDK.init({
-  providers: {
-    claude: claudeClient,
-    opencode: opencodeClient,
-    copilot: copilotClient,
-  },
-  checkpointer: "session",
-  validation: true,
-  defaultModel: "claude/claude-sonnet-4.5",
-  maxSteps: 100,
-});
+export const myWorkflowDefinition: WorkflowDefinition = {
+  name: "my-workflow",
+  description: "My custom workflow",
+  version: "1.0.0",
+  minSDKVersion: "0.4.19",
+  stateVersion: 1,
+  source: "builtin",
+
+  // Option A: Provide a graph factory (builder pattern)
+  createGraph: () => buildMyGraph() as unknown as CompiledGraph<BaseState>,
+
+  // Option B: Provide declarative graphConfig instead
+  // graphConfig: { nodes: [...], edges: [...] },
+
+  createState: (params) => ({
+    executionId: params.executionId,
+    lastUpdated: new Date().toISOString(),
+    outputs: {},
+    prompt: params.prompt,
+  }),
+};
 ```
 
 ## 2) Build your first workflow graph
 
-Define state as `BaseState` plus your domain fields, then compose nodes with `sdk.graph()` (or templates).
+Define state as `BaseState` plus your domain fields, then compose nodes with the builder pattern or templates.
 
 ```ts
 import { z } from "zod";
-import { WorkflowSDK, createNode, sequential, type BaseState } from "@bastani/atomic/graph";
+import { createNode, sequential, type BaseState } from "@bastani/atomic/graph";
 
 interface DraftWorkflowState extends BaseState {
   prompt?: string;
@@ -73,24 +84,17 @@ const graph = sequential<DraftWorkflowState>([planNode, draftNode]).compile({
   }),
 });
 
-const result = await sdk.execute(graph, {
-  initialState: { prompt: "Write a release summary" },
-});
+// The graph is compiled and ready. Provide it via createGraph in your WorkflowDefinition.
+// executeWorkflow() will call definition.createGraph() to obtain the compiled graph.
 ```
 
 ## 3) Stream workflow execution
 
-`sdk.stream()` supports multi-mode output (`values`, `updates`, `events`, `debug`).
+`executeWorkflow()` handles streaming internally. The executor emits events through the configured event bus.
 
 ```ts
-for await (const event of sdk.stream(graph, {
-  initialState: { prompt: "Write a release summary" },
-  modes: ["updates", "events", "debug"],
-})) {
-  if (event.mode === "updates") {
-    console.log("state update:", event.update);
-  }
-}
+// Events are emitted through the executor's event bus.
+// Use ctx.emit(type, data) inside node execution to produce custom events.
 ```
 
 Use `ctx.emit(type, data)` inside node execution to produce custom `events` mode payloads.
@@ -138,13 +142,16 @@ If `minSDKVersion` is invalid semver or newer than the current SDK, the loader l
 
 ## 6) Migration quick reference
 
-Legacy globals were removed from the public graph API.
+Legacy globals and `WorkflowSDK` were removed from the public graph API.
 
 | Removed API | Use instead |
 | --- | --- |
-| `setClientProvider()` | `WorkflowSDK.init({ providers: ... })` |
-| `setSubagentBridge()` / `getSubagentBridge()` | Managed by `WorkflowSDK.init()` / `sdk.getSubagentBridge()` |
-| `setSubagentRegistry()` | `WorkflowSDK.init({ agents: ... })` |
-| `setWorkflowResolver()` / `getWorkflowResolver()` | `WorkflowSDK.init({ workflows: ... })` |
+| `WorkflowSDK.init()` | `executeWorkflow()` via `WorkflowDefinition` |
+| `WorkflowSDK.init({ providers: ... })` | Providers configured through `executeWorkflow()` options |
+| `sdk.execute(graph, ...)` | `executeWorkflow(definition, prompt, context, options)` |
+| `setClientProvider()` | Providers configured through `executeWorkflow()` options |
+| `setSubagentBridge()` / `getSubagentBridge()` | Managed internally by `executeWorkflow()` |
+| `setSubagentRegistry()` | Managed internally by `executeWorkflow()` |
+| `setWorkflowResolver()` / `getWorkflowResolver()` | Managed internally by `executeWorkflow()` |
 
 Ralph state types were moved out of `@bastani/atomic/graph`; import them from `src/services/workflows/ralph/state.ts` in this repository.

@@ -2,18 +2,18 @@ import { useCallback, useEffect, useRef } from "react";
 import {
   applyStreamPartEvent,
 } from "@/state/parts/index.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
-import type { AgentOrderingEvent } from "@/lib/ui/agent-ordering-contract.ts";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
+import type { AgentOrderingEvent } from "@/state/chat/shared/helpers/agent-ordering-contract.ts";
 import {
   registerDoneStateProjection,
-} from "@/lib/ui/agent-ordering-contract.ts";
+} from "@/state/chat/shared/helpers/agent-ordering-contract.ts";
 import {
   getActiveBackgroundAgents,
-} from "@/lib/ui/background-agent-footer.ts";
+} from "@/state/chat/shared/helpers/background-agent-footer.ts";
 import {
   emitAgentDoneProjectionObservability,
   emitAgentDoneRenderedObservability,
-} from "@/state/chat/helpers.ts";
+} from "@/state/chat/shared/helpers/index.ts";
 import type { UseChatAgentProjectionArgs } from "@/state/chat/agent/projection-types.ts";
 
 interface UseChatAgentMessageProjectionArgs extends Pick<

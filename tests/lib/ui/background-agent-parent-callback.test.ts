@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import {
   getBackgroundTerminationDecision,
   interruptActiveBackgroundAgents,
-} from "@/lib/ui/background-agent-termination.ts";
-import { getActiveBackgroundAgents } from "@/lib/ui/background-agent-footer.ts";
+} from "@/state/chat/shared/helpers/background-agent-termination.ts";
+import { getActiveBackgroundAgents } from "@/state/chat/shared/helpers/background-agent-footer.ts";
 
 function createAgent(overrides: Partial<ParallelAgent>): ParallelAgent {
   return {

@@ -136,6 +136,13 @@ describe("ClaudeStreamAdapter child-session routing", () => {
           && event.data.toolId === "child-claude-tool-1",
       )?.data.parentAgentId,
     ).toBe("task-call-claude-tool-1");
+    expect(
+      events.filter(
+        (event) =>
+          event.type === "stream.agent.update"
+          && event.data.agentId === "task-call-claude-tool-1",
+      ).every((event) => event.resolvedAgentId === "task-call-claude-tool-1"),
+    ).toBe(true);
   });
 
   test("routes Claude child-session tool requests to the parent tool id before subagent.start", async () => {

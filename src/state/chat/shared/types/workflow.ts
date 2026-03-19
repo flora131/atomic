@@ -1,3 +1,6 @@
+import type { RalphCommandState } from "@/services/workflows/ralph/types.ts";
+import { defaultRalphCommandState } from "@/services/workflows/ralph/types.ts";
+
 export interface WorkflowChatState {
   showAutocomplete: boolean;
   autocompleteInput: string;
@@ -8,18 +11,13 @@ export interface WorkflowChatState {
   workflowActive: boolean;
   workflowType: string | null;
   initialPrompt: string | null;
-  currentNode: string | null;
-  iteration: number;
-  maxIterations: number | undefined;
-  featureProgress: { completed: number; total: number; currentFeature?: string } | null;
-  pendingApproval: boolean;
-  specApproved: boolean;
-  feedback: string | null;
   workflowConfig?: {
     userPrompt: string | null;
     sessionId?: string;
     workflowName?: string;
   };
+  /** Ralph-specific workflow state. Isolated from the generic workflow fields. */
+  ralphState: RalphCommandState;
 }
 
 export const defaultWorkflowChatState: WorkflowChatState = {
@@ -32,11 +30,5 @@ export const defaultWorkflowChatState: WorkflowChatState = {
   workflowActive: false,
   workflowType: null,
   initialPrompt: null,
-  currentNode: null,
-  iteration: 0,
-  maxIterations: undefined,
-  featureProgress: null,
-  pendingApproval: false,
-  specApproved: false,
-  feedback: null,
+  ralphState: { ...defaultRalphCommandState },
 };

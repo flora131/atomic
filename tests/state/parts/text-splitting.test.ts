@@ -11,7 +11,7 @@ import { handleTextDelta } from "@/state/parts/handlers.ts";
 import { upsertPart, findLastPartIndex } from "@/state/parts/store.ts";
 import { createPartId, _resetPartCounter } from "@/state/parts/id.ts";
 import type { Part, TextPart, ToolPart } from "@/state/parts/types.ts";
-import type { ChatMessage } from "@/screens/chat-screen.tsx";
+import type { ChatMessage } from "@/types/chat.ts";
 
 /**
  * Create a minimal ChatMessage mock for testing.

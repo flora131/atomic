@@ -12,7 +12,11 @@ function submitAtCommandInvocation(
     executeCommand: (commandName: string, args: string, trigger: "mention") => void;
   },
 ): void {
-  const atMentions = parseAtMentions(message);
+  const isAgentCommand = (name: string): boolean => {
+    const cmd = globalRegistry.get(name);
+    return cmd?.category === "agent" === true;
+  };
+  const atMentions = parseAtMentions(message, isAgentCommand);
   if (atMentions.length === 0) return;
 
   deps.setMessagesWindowed((prev) => [...prev, createMessage("user", message)]);

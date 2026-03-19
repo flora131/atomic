@@ -1,13 +1,16 @@
 import { useCallback } from "react";
 import type { KeyEvent } from "@opentui/core";
-import { isBackgroundAgent } from "@/lib/ui/background-agent-footer.ts";
+import { getActiveBackgroundAgents, isBackgroundAgent } from "@/state/chat/shared/helpers/background-agent-footer.ts";
 import {
-  interruptRunningToolCalls,
+  executeBackgroundTermination,
+} from "@/state/chat/shared/helpers/background-agent-termination.ts";
+import {
   interruptRunningToolParts,
-} from "@/lib/ui/stream-continuation.ts";
+} from "@/state/chat/shared/helpers/stream-continuation.ts";
 import {
   finalizeStreamingReasoningInMessage,
   finalizeStreamingReasoningParts,
+  finalizeStreamingTextParts,
 } from "@/state/parts/index.ts";
 import {
   interruptForegroundAgents,
@@ -18,6 +21,7 @@ import { useBackgroundTerminationControls } from "@/state/chat/keyboard/use-back
 import { useInterruptConfirmation } from "@/state/chat/keyboard/use-interrupt-confirmation.ts";
 
 export function useChatInterruptControls({
+  activeBackgroundAgentCountRef,
   activeQuestion,
   activeHitlToolCallIdRef,
   addMessage,
@@ -38,6 +42,7 @@ export function useChatInterruptControls({
   parallelInterruptHandlerRef,
   resetHitlState,
   resolveTrackedRun,
+  setActiveBackgroundAgentCount,
   setBackgroundAgentMessageId,
   setMessagesWindowed,
   setParallelAgents,
@@ -59,6 +64,7 @@ export function useChatInterruptControls({
   isStreamingRef,
 }: Pick<
   UseChatKeyboardArgs,
+  | "activeBackgroundAgentCountRef"
   | "activeQuestion"
   | "activeHitlToolCallIdRef"
   | "addMessage"
@@ -83,6 +89,7 @@ export function useChatInterruptControls({
   | "resetHitlState"
   | "resolveTrackedRun"
   | "separateAndInterruptAgents"
+  | "setActiveBackgroundAgentCount"
   | "setBackgroundAgentMessageId"
   | "setMessagesWindowed"
   | "setParallelAgents"
@@ -110,14 +117,15 @@ export function useChatInterruptControls({
     handleBackgroundTerminationKey,
     isBackgroundTerminationKey,
   } = useBackgroundTerminationControls({
+    activeBackgroundAgentCountRef,
     addMessage,
     backgroundAgentMessageIdRef,
     clearDeferredCompletion,
-    isStreamingRef,
     lastStreamedMessageIdRef,
     onTerminateBackgroundAgents,
     parallelAgents,
     parallelAgentsRef,
+    setActiveBackgroundAgentCount,
     setBackgroundAgentMessageId,
     setMessagesWindowed,
     setParallelAgents,
@@ -181,16 +189,38 @@ export function useChatInterruptControls({
           thinkingText: context.finalMeta?.thinkingText || undefined,
           parallelAgents: context.interruptedAgents,
           taskItems: context.interruptedTaskItems,
-          toolCalls: interruptRunningToolCalls(message.toolCalls),
-          parts: interruptRunningToolParts(
-            finalizeStreamingReasoningParts(
-              message.parts ?? [],
-              context.finalMeta?.thinkingMs || message.thinkingMs,
-            ),
+          parts: finalizeStreamingTextParts(
+            interruptRunningToolParts(
+              finalizeStreamingReasoningParts(
+                message.parts ?? [],
+                context.finalMeta?.thinkingMs || message.thinkingMs,
+              ),
+            ) ?? [],
           ),
         }),
         wasInterruptedRef,
       });
+
+      // Also terminate any active background agents on Ctrl+C
+      const activeBackgroundAgents = getActiveBackgroundAgents(parallelAgentsRef.current);
+      if (activeBackgroundAgents.length > 0) {
+        void executeBackgroundTermination({
+          getAgents: () => parallelAgentsRef.current,
+          onTerminateBackgroundAgents,
+        }).then((result) => {
+          if (result.status === "terminated" && result.interruptedIds.length > 0) {
+            const interruptedIdSet = new Set(result.interruptedIds);
+            const remainingLiveAgents = result.agents.filter(
+              (agent) => !interruptedIdSet.has(agent.id),
+            );
+            parallelAgentsRef.current = remainingLiveAgents;
+            setParallelAgents(remainingLiveAgents);
+          }
+          // Reset the background agent counter so the spinner stops
+          activeBackgroundAgentCountRef.current = 0;
+          setActiveBackgroundAgentCount(0);
+        });
+      }
 
       if (workflowState.workflowActive) {
         const nextCount = interruptCount + 1;
@@ -233,8 +263,9 @@ export function useChatInterruptControls({
             ...message,
             parallelAgents: context.interruptedAgents,
             taskItems: context.interruptedTaskItems,
-            toolCalls: interruptRunningToolCalls(message.toolCalls),
-            parts: interruptRunningToolParts(message.parts),
+            parts: finalizeStreamingTextParts(
+              interruptRunningToolParts(message.parts) ?? [],
+            ),
           }),
           wasInterruptedRef,
         });
@@ -263,6 +294,7 @@ export function useChatInterruptControls({
     scheduleInterruptConfirmation(nextCount);
     return true;
   }, [
+    activeBackgroundAgentCountRef,
     activeHitlToolCallIdRef,
     activeQuestion,
     awaitedStreamRunIdsRef,
@@ -280,10 +312,12 @@ export function useChatInterruptControls({
     lastStreamingContentRef,
     onExit,
     onInterrupt,
+    onTerminateBackgroundAgents,
     parallelAgentsRef,
     parallelInterruptHandlerRef,
     scheduleInterruptConfirmation,
     separateAndInterruptAgents,
+    setActiveBackgroundAgentCount,
     setMessagesWindowed,
     setParallelAgents,
     shouldHideActiveStreamContent,
@@ -339,12 +373,13 @@ export function useChatInterruptControls({
           ...(context.finalMeta && { streamingMeta: { ...context.finalMeta } }),
           parallelAgents: context.interruptedAgents,
           taskItems: context.interruptedTaskItems,
-          toolCalls: interruptRunningToolCalls(message.toolCalls),
-          parts: interruptRunningToolParts(
-            finalizeStreamingReasoningParts(
-              message.parts ?? [],
-              context.finalMeta?.thinkingMs || message.thinkingMs,
-            ),
+          parts: finalizeStreamingTextParts(
+            interruptRunningToolParts(
+              finalizeStreamingReasoningParts(
+                message.parts ?? [],
+                context.finalMeta?.thinkingMs || message.thinkingMs,
+              ),
+            ) ?? [],
           ),
         }),
         wasInterruptedRef,
@@ -375,8 +410,9 @@ export function useChatInterruptControls({
             ...message,
             parallelAgents: context.interruptedAgents,
             taskItems: context.interruptedTaskItems,
-            toolCalls: interruptRunningToolCalls(message.toolCalls),
-            parts: interruptRunningToolParts(message.parts),
+            parts: finalizeStreamingTextParts(
+              interruptRunningToolParts(message.parts) ?? [],
+            ),
           }),
           wasInterruptedRef,
         });

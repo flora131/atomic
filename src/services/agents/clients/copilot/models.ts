@@ -33,6 +33,7 @@ function toModelDisplayInfo(model: CopilotSdkModelRecord): {
   model: string;
   tier: string;
   supportsReasoning?: boolean;
+  supportedReasoningEfforts?: string[];
   defaultReasoningEffort?: string;
   contextWindow?: number;
 } {
@@ -41,6 +42,11 @@ function toModelDisplayInfo(model: CopilotSdkModelRecord): {
     model: model.id ?? "Copilot",
     tier: "GitHub Copilot",
     supportsReasoning,
+    supportedReasoningEfforts: supportsReasoning && Array.isArray(model.supportedReasoningEfforts)
+      ? model.supportedReasoningEfforts.filter(
+          (value): value is string => typeof value === "string" && value.length > 0,
+        )
+      : undefined,
     defaultReasoningEffort: supportsReasoning && typeof model.defaultReasoningEffort === "string"
       ? model.defaultReasoningEffort
       : undefined,
@@ -179,6 +185,7 @@ export function buildCopilotModelDisplayInfo(
   model: string;
   tier: string;
   supportsReasoning?: boolean;
+  supportedReasoningEfforts?: string[];
   defaultReasoningEffort?: string;
   contextWindow?: number;
 } | null {

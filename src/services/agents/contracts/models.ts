@@ -4,6 +4,7 @@ export interface ModelDisplayInfo {
   model: string;
   tier: string;
   supportsReasoning?: boolean;
+  supportedReasoningEfforts?: string[];
   defaultReasoningEffort?: string;
   contextWindow?: number;
 }

@@ -57,6 +57,78 @@ describe("ClaudeAgentClient.getModelDisplayInfo", () => {
     const canonicalInfo = await client.getModelDisplayInfo("claude-3-opus-20240229");
     expect(canonicalInfo.contextWindow).toBe(300_000);
   });
+
+  test("includes Claude reasoning metadata only when the SDK advertises it", async () => {
+    const client = new ClaudeAgentClient();
+    (client as unknown as { isRunning: boolean }).isRunning = true;
+    (
+      client as unknown as {
+        listSupportedModels: () => Promise<Array<{
+          value: string;
+          displayName: string;
+          description: string;
+          supportsEffort?: boolean;
+          supportedEffortLevels?: Array<"low" | "medium" | "high" | "max">;
+        }>>;
+      }
+    ).listSupportedModels = async () => ([
+      {
+        value: "sonnet",
+        displayName: "Claude Sonnet",
+        description: "Balanced",
+        supportsEffort: true,
+        supportedEffortLevels: ["low", "medium", "high", "max"],
+      },
+      {
+        value: "haiku",
+        displayName: "Claude Haiku",
+        description: "Fast",
+      },
+    ]);
+
+    const supported = await client.getModelDisplayInfo("anthropic/sonnet");
+    expect(supported.model).toBe("sonnet");
+    expect(supported.supportsReasoning).toBe(true);
+    expect(supported.supportedReasoningEfforts).toEqual(["low", "medium", "high", "max"]);
+    expect(supported.defaultReasoningEffort).toBe("high");
+
+    const unsupported = await client.getModelDisplayInfo("anthropic/haiku");
+    expect(unsupported.model).toBe("haiku");
+    expect(unsupported.supportsReasoning).toBe(false);
+    expect(unsupported.supportedReasoningEfforts).toBeUndefined();
+    expect(unsupported.defaultReasoningEffort).toBeUndefined();
+  });
+
+  test("maps SDK default reasoning metadata onto canonical opus display info", async () => {
+    const client = new ClaudeAgentClient();
+    (client as unknown as { isRunning: boolean }).isRunning = true;
+    (
+      client as unknown as {
+        listSupportedModels: () => Promise<Array<{
+          value: string;
+          displayName: string;
+          description: string;
+          supportsEffort?: boolean;
+          supportedEffortLevels?: Array<"low" | "medium" | "high" | "max">;
+        }>>;
+      }
+    ).listSupportedModels = async () => ([
+      {
+        value: "default",
+        displayName: "Default",
+        description: "Recommended",
+        supportsEffort: true,
+        supportedEffortLevels: ["low", "medium", "high", "max"],
+      },
+    ]);
+
+    const info = await client.getModelDisplayInfo("anthropic/opus");
+
+    expect(info.model).toBe("opus");
+    expect(info.supportsReasoning).toBe(true);
+    expect(info.supportedReasoningEfforts).toEqual(["low", "medium", "high", "max"]);
+    expect(info.defaultReasoningEffort).toBe("high");
+  });
 });
 
 describe("ClaudeAgentClient.setActiveSessionModel", () => {
@@ -82,9 +154,10 @@ describe("ClaudeAgentClient.setActiveSessionModel", () => {
     };
     sessions.set("test-session", state);
 
-    await client.setActiveSessionModel("anthropic/sonnet");
+    await client.setActiveSessionModel("anthropic/sonnet", { reasoningEffort: "max" });
 
     expect((state.config as { model?: string }).model).toBe("sonnet");
+    expect((state.config as { reasoningEffort?: string }).reasoningEffort).toBe("max");
     expect(setModelCalls).toHaveLength(0);
   });
 

@@ -26,8 +26,24 @@ export {
   shouldFinalizeOnToolComplete,
   hasActiveForegroundAgents,
   shouldFinalizeDeferredStream,
+  hasActiveBackgroundAgentsForSpinner,
 } from "@/state/parts/guards.ts";
-export { getMessageText } from "@/state/parts/helpers.ts";
+export { getMessageText } from "@/state/parts/helpers/message-text.ts";
+export {
+  TASK_STATUS_VALUES,
+  isTaskStatus,
+  isTodoWriteToolName,
+  normalizeTaskStatus,
+  normalizeTaskItem,
+  normalizeTaskItems,
+  normalizeTodoItem,
+  normalizeTodoItems,
+  mergeBlockedBy,
+  reconcileTodoWriteItems,
+  type TaskStatus,
+  type NormalizedTaskItem,
+  type NormalizedTodoItem,
+} from "@/state/parts/helpers/task-status.ts";
 export { handleTextDelta } from "@/state/parts/handlers.ts";
 export {
   type StreamPartEvent,
@@ -35,7 +51,7 @@ export {
   toToolState,
   isSubagentToolName,
   mergeParallelAgentsIntoParts,
-  syncToolCallsIntoParts,
   finalizeStreamingReasoningParts,
   finalizeStreamingReasoningInMessage,
+  finalizeStreamingTextParts,
 } from "@/state/parts/stream-pipeline.ts";

@@ -1,5 +1,12 @@
 import { useCallback } from "react";
 import { finalizeStreamingReasoningInMessage } from "@/state/parts/index.ts";
+import {
+  interruptRunningToolParts,
+} from "@/state/chat/shared/helpers/stream-continuation.ts";
+import {
+  finalizeStreamingReasoningParts,
+  finalizeStreamingTextParts,
+} from "@/state/parts/index.ts";
 import type {
   StreamCompletionContext,
   UseChatStreamCompletionArgs,
@@ -7,11 +14,13 @@ import type {
 
 type UseChatStreamInterruptedCompletionArgs = Pick<
   UseChatStreamCompletionArgs,
+  | "activeBackgroundAgentCountRef"
   | "continueQueuedConversationRef"
   | "currentModelRef"
   | "finalizeThinkingSourceTracking"
   | "lastStreamingContentRef"
   | "resolveTrackedRun"
+  | "setActiveBackgroundAgentCount"
   | "setMessagesWindowed"
   | "setParallelAgents"
   | "stopSharedStreamState"
@@ -19,11 +28,13 @@ type UseChatStreamInterruptedCompletionArgs = Pick<
 >;
 
 export function useChatStreamInterruptedCompletion({
+  activeBackgroundAgentCountRef,
   continueQueuedConversationRef,
   currentModelRef,
   finalizeThinkingSourceTracking,
   lastStreamingContentRef,
   resolveTrackedRun,
+  setActiveBackgroundAgentCount,
   setMessagesWindowed,
   setParallelAgents,
   stopSharedStreamState,
@@ -41,16 +52,31 @@ export function useChatStreamInterruptedCompletion({
           ? {
             ...finalizeStreamingReasoningInMessage(msg),
             streaming: false,
+            wasInterrupted: true,
             durationMs: context.durationMs,
             modelId: currentModelRef.current,
             outputTokens: context.finalMeta?.outputTokens || msg.outputTokens,
             thinkingMs: context.finalMeta?.thinkingMs || msg.thinkingMs,
             thinkingText: context.finalMeta?.thinkingText || msg.thinkingText || undefined,
+            parts: finalizeStreamingTextParts(
+              interruptRunningToolParts(
+                finalizeStreamingReasoningParts(
+                  msg.parts ?? [],
+                  context.finalMeta?.thinkingMs || msg.thinkingMs,
+                ),
+              ) ?? [],
+            ),
           }
           : msg,
       ),
     );
     setParallelAgents([]);
+
+    if (activeBackgroundAgentCountRef.current !== 0) {
+      activeBackgroundAgentCountRef.current = 0;
+      setActiveBackgroundAgentCount(0);
+    }
+
     stopSharedStreamState();
     finalizeThinkingSourceTracking();
 
@@ -66,11 +92,13 @@ export function useChatStreamInterruptedCompletion({
     }
     return true;
   }, [
+    activeBackgroundAgentCountRef,
     continueQueuedConversationRef,
     currentModelRef,
     finalizeThinkingSourceTracking,
     lastStreamingContentRef,
     resolveTrackedRun,
+    setActiveBackgroundAgentCount,
     setMessagesWindowed,
     setParallelAgents,
     stopSharedStreamState,

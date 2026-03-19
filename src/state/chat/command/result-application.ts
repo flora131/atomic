@@ -1,9 +1,12 @@
 import { darkTheme, lightTheme } from "@/theme/index.tsx";
 import type { CommandResult } from "@/commands/tui/registry.ts";
-import { createMessage } from "@/state/chat/helpers.ts";
-import { tryTrackLoadedSkill } from "@/lib/ui/skill-load-tracking.ts";
-import type { MessageSkillLoad } from "@/state/chat/types.ts";
+import { createMessage } from "@/state/chat/shared/helpers/index.ts";
+import { tryTrackLoadedSkill } from "@/state/chat/shared/helpers/skill-load-tracking.ts";
+import type { MessageSkillLoad } from "@/state/chat/shared/types/index.ts";
 import type { UseCommandExecutorArgs } from "@/state/chat/command/executor-types.ts";
+import { createPartId } from "@/state/parts/id.ts";
+import type { McpSnapshotPart } from "@/state/parts/types.ts";
+import { defaultWorkflowChatState } from "@/state/chat/shared/types/workflow.ts";
 
 export async function applyCommandResult(
   args: UseCommandExecutorArgs,
@@ -15,13 +18,7 @@ export async function applyCommandResult(
       workflowActive: false,
       workflowType: null,
       initialPrompt: null,
-      currentNode: null,
-      iteration: 0,
-      maxIterations: undefined,
-      featureProgress: null,
-      pendingApproval: false,
-      specApproved: false,
-      feedback: null,
+      ralphState: { ...defaultWorkflowChatState.ralphState },
       workflowConfig: undefined,
     });
     args.setCompactionSummary(null);
@@ -69,13 +66,6 @@ export async function applyCommandResult(
       workflowActive: result.stateUpdate.workflowActive !== undefined ? result.stateUpdate.workflowActive : args.workflowState.workflowActive,
       workflowType: result.stateUpdate.workflowType !== undefined ? result.stateUpdate.workflowType : args.workflowState.workflowType,
       initialPrompt: result.stateUpdate.initialPrompt !== undefined ? result.stateUpdate.initialPrompt : args.workflowState.initialPrompt,
-      currentNode: result.stateUpdate.currentNode !== undefined ? result.stateUpdate.currentNode : args.workflowState.currentNode,
-      iteration: result.stateUpdate.iteration !== undefined ? result.stateUpdate.iteration : args.workflowState.iteration,
-      maxIterations: result.stateUpdate.maxIterations !== undefined ? result.stateUpdate.maxIterations : args.workflowState.maxIterations,
-      featureProgress: result.stateUpdate.featureProgress !== undefined ? result.stateUpdate.featureProgress : args.workflowState.featureProgress,
-      pendingApproval: result.stateUpdate.pendingApproval !== undefined ? result.stateUpdate.pendingApproval : args.workflowState.pendingApproval,
-      specApproved: result.stateUpdate.specApproved !== undefined ? result.stateUpdate.specApproved : args.workflowState.specApproved,
-      feedback: result.stateUpdate.feedback !== undefined ? result.stateUpdate.feedback : args.workflowState.feedback,
       workflowConfig: result.stateUpdate.workflowConfig !== undefined ? result.stateUpdate.workflowConfig : args.workflowState.workflowConfig,
     });
 
@@ -87,6 +77,7 @@ export async function applyCommandResult(
     if (typeof modelUpdate === "string") {
       args.setCurrentModelId(modelUpdate);
       args.setCurrentModelDisplayName(modelUpdate);
+      args.setCurrentReasoningEffort(undefined);
       args.onModelChange?.(modelUpdate);
     }
   }
@@ -100,13 +91,15 @@ export async function applyCommandResult(
     args.setMessagesWindowed((previousMessages) => {
       const lastMessage = previousMessages[previousMessages.length - 1];
       if (lastMessage && lastMessage.role === "assistant") {
+        const nextParts = upsertMcpSnapshotPart(lastMessage.parts ?? [], mcpSnapshot, lastMessage.id);
         return [
           ...previousMessages.slice(0, -1),
-          { ...lastMessage, mcpSnapshot },
+          { ...lastMessage, mcpSnapshot, parts: nextParts },
         ];
       }
       const message = createMessage("assistant", "");
       message.mcpSnapshot = mcpSnapshot;
+      message.parts = upsertMcpSnapshotPart(message.parts ?? [], mcpSnapshot, message.id);
       return [...previousMessages, message];
     });
   }
@@ -142,4 +135,27 @@ export async function applyCommandResult(
       args.setTheme(result.themeChange === "light" ? lightTheme : darkTheme);
     }
   }
+}
+
+function upsertMcpSnapshotPart(
+  parts: import("@/state/parts/types.ts").Part[],
+  snapshot: import("@/lib/ui/mcp-output.ts").McpSnapshotView,
+  messageId: string,
+): import("@/state/parts/types.ts").Part[] {
+  const nextParts = [...parts];
+  const existingIdx = nextParts.findIndex((part) => part.type === "mcp-snapshot");
+  const mcpPart: McpSnapshotPart = {
+    id: existingIdx >= 0 ? nextParts[existingIdx]!.id : createPartId(),
+    type: "mcp-snapshot",
+    snapshot,
+    createdAt: existingIdx >= 0
+      ? nextParts[existingIdx]!.createdAt
+      : new Date().toISOString(),
+  };
+  if (existingIdx >= 0) {
+    nextParts[existingIdx] = mcpPart;
+  } else {
+    nextParts.push(mcpPart);
+  }
+  return nextParts;
 }

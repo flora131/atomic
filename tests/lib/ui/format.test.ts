@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatDuration, formatTimestamp, joinThinkingBlocks, normalizeMarkdownNewlines, truncateText } from "@/lib/ui/format.ts";
+import { formatDuration, formatTimestamp, joinThinkingBlocks, normalizeMarkdownNewlines, truncateText, collapseNewlines } from "@/lib/ui/format.ts";
 
 describe("formatDuration", () => {
   test("formats sub-second values as seconds", () => {
@@ -201,5 +201,36 @@ describe("truncateText", () => {
     const result = truncateText(text, 20);
     expect(result).toBe("The quick brown f...");
     expect(result.length).toBe(20);
+  });
+});
+
+describe("collapseNewlines", () => {
+  test("returns text unchanged when no newlines present", () => {
+    expect(collapseNewlines("hello world")).toBe("hello world");
+  });
+
+  test("replaces single newlines with spaces", () => {
+    expect(collapseNewlines("hello\nworld")).toBe("hello world");
+    expect(collapseNewlines("a\nb\nc")).toBe("a b c");
+  });
+
+  test("truncates at double newline with ellipsis", () => {
+    expect(collapseNewlines("first paragraph\n\nsecond paragraph")).toBe("first paragraph…");
+  });
+
+  test("truncates at double newline before replacing remaining single newlines", () => {
+    expect(collapseNewlines("line one\nline two\n\nline three\nline four")).toBe("line one line two…");
+  });
+
+  test("handles text starting with double newline", () => {
+    expect(collapseNewlines("\n\nafter")).toBe("…");
+  });
+
+  test("handles empty string", () => {
+    expect(collapseNewlines("")).toBe("");
+  });
+
+  test("handles triple+ newlines as double newline truncation", () => {
+    expect(collapseNewlines("before\n\n\nafter")).toBe("before…");
   });
 });

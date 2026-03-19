@@ -45,13 +45,13 @@ These env vars come from the parent session, not the `tmux-cli` session:
     - If it prints `MODE: REMOTE ...`, create windows with:
 
         ```bash
-        tmux-cli launch "zsh"
+        tmux-cli launch "bash"
         ```
 
     - If it prints `MODE: LOCAL ...`, create windows with:
 
         ```bash
-        tmux new-window -P -F '#S:#I.0' -n atomic-e2e "zsh"
+        tmux new-window -P -F '#S:#I.0' -n atomic-e2e "bash"
         ```
 
         Use the returned pane target (for example, `dev:3.0`) as `WINDOW_ID` for all `tmux-cli send/capture/wait_idle/kill` commands.
@@ -95,9 +95,9 @@ Every test MUST be executed in a dedicated tmux window. Follow this protocol for
 
     ```bash
     # REMOTE mode:
-    tmux-cli launch "zsh"
+    tmux-cli launch "bash"
     # OR LOCAL mode:
-    tmux new-window -P -F '#S:#I.0' -n atomic-e2e "zsh"
+    tmux new-window -P -F '#S:#I.0' -n atomic-e2e "bash"
     # Save the returned target (e.g., "remote-cli-session:2.0" or "dev:3.0") as WINDOW_ID
     ```
 
@@ -193,7 +193,7 @@ The polling captures transient UI states (tool status transitions, spinner anima
 
 | Command                                            | Description                                                                                     |
 | -------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `tmux-cli launch "[cmd]"`                          | Launches in a new window when `MODE: REMOTE`. **Always launch `zsh` first.**                    |
+| `tmux-cli launch "[cmd]"`                          | Launches in a new window when `MODE: REMOTE`. **Always launch `bash` first.**                   |
 | `tmux new-window -P -F '#S:#I.0' -n name "[cmd]"`  | Creates a new window when `MODE: LOCAL`; use the returned `session:window.pane` as `WINDOW_ID`. |
 | `tmux-cli send "text" --pane=ID`                   | Send text + Enter to a window's main pane                                                       |
 | `tmux-cli send "text" --pane=ID --enter=False`     | Send text without pressing Enter                                                                |
@@ -244,9 +244,9 @@ mkdir -p /tmp/snake_game/<AGENT>
 
 # 2. Launch a shell window
 # REMOTE mode:
-tmux-cli launch "zsh"
+tmux-cli launch "bash"
 # OR LOCAL mode:
-tmux new-window -P -F '#S:#I.0' -n atomic-e2e "zsh"
+tmux new-window -P -F '#S:#I.0' -n atomic-e2e "bash"
 # Save the returned window target as WINDOW_ID
 
 # 3. Start polling to catch startup UI events
@@ -324,7 +324,7 @@ tmux-cli send "" --pane=<WINDOW_ID> --enter=False
 tmux-cli send $'\x1b' --pane=<WINDOW_ID> --enter=False
 ```
 
-**Verify:** Model list shows providers and context window sizes. Selector dialog appears with keyboard navigation hints.
+**Verify:** Model list shows providers and context window sizes. Selector dialog appears with keyboard navigation hints. If a model supports reasoning, a second menu should show where the user can select the reasoning level for the model.
 
 #### 2.4 — `/mcp`
 
@@ -354,7 +354,7 @@ tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGEN
 
 **Verify:**
 
-- Tool call status indicators appear: `○` (pending) → `●` blinking (running) → `●` green (completed)
+- Tool call status indicators appear: `○` (pending) → `●` blinking (running) → green `●` (completed) / yellow `●` (interrupted) / red `●` (failed)
 - Bash tool calls show the commands executed (`cargo init`, editing `Cargo.toml`)
 - File creation/edit tools show paths and content with syntax highlighting
 
@@ -375,9 +375,9 @@ tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGEN
 - Streaming metadata visible: elapsed time, token count, spinner animation
 - On completion: summary line shows total time + tokens
 
-#### 3.3 — Message Queuing (Cmd/Ctrl+Shift+Enter)
+#### 3.3 — Message Queuing (Auto-Queue on Enter)
 
-While the agent is still streaming from the previous step (or send a new long prompt), test message queuing. The queue enqueue shortcut is **Cmd+Shift+Enter** on macOS and **Ctrl+Shift+Enter** on Linux/Windows.
+While the agent is still streaming from the previous step (or send a new long prompt), test message queuing. Any message submitted with **Enter** while a stream is active should be automatically queued--there is no keybind.
 
 ```bash
 POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 10-message-queue)
@@ -385,22 +385,16 @@ POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 10-message-queue)
 # Send a prompt that will trigger a long response
 tmux-cli send "Add a high score system that persists to a file called highscores.txt, and add a pause feature with the P key." --pane=<WINDOW_ID>
 
-# Wait for streaming to start, then type a follow-up and enqueue it
-# Ctrl+Shift+Enter escape sequence: \x1b[13;6u (Linux/Windows)
-# Cmd+Shift+Enter escape sequence: \x1b[13;10u (macOS)
+# Wait for streaming to start, then type a follow-up and submit it (auto-queued)
 sleep 2
-tmux-cli send "Also add a speed increase every 5 points to make the game progressively harder." --pane=<WINDOW_ID> --enter=False
-sleep 0.3
-tmux-cli send $'\x1b[13;6u' --pane=<WINDOW_ID> --enter=False
+tmux-cli send "Also add a speed increase every 5 points to make the game progressively harder." --pane=<WINDOW_ID>
 
 # Capture while streaming to verify queue indicator
 sleep 2
 tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-10-message-queue-during-stream.txt
 
-# Queue a second message
-tmux-cli send "And add a game-over animation when the snake dies." --pane=<WINDOW_ID> --enter=False
-sleep 0.3
-tmux-cli send $'\x1b[13;6u' --pane=<WINDOW_ID> --enter=False
+# Queue a second message (also just Enter)
+tmux-cli send "And add a game-over animation when the snake dies." --pane=<WINDOW_ID>
 
 tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=15.0
 stop_polling $POLL_PID
@@ -410,8 +404,8 @@ tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGEN
 **Verify:**
 
 - **Queue indicator** appears above the chatbox showing queue icon, count text ("1 message queued" / "2 messages queued"), and a preview of the first queued message
-- **Footer during streaming** shows: `esc to interrupt · ctrl+shift+enter enqueue`
-- **Chatbox placeholder** changes to `"Type a message (enter to interrupt, ctrl+shift+enter to enqueue)..."` while streaming
+- **Footer during streaming** shows: `esc to interrupt`
+- **Chatbox placeholder** changes to `"Type a message (enter to queue)..."` while streaming
 - **Auto-dispatch**: After the first response completes, the next queued message is automatically dispatched (50ms delay) without user intervention
 - **Sequential processing**: All queued messages process one-by-one in FIFO order
 
@@ -426,13 +420,9 @@ POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 10b-queue-edit)
 tmux-cli send "Write unit tests for every function in the snake game module." --pane=<WINDOW_ID>
 sleep 2
 
-# Queue two messages
-tmux-cli send "Fix any compilation warnings." --pane=<WINDOW_ID> --enter=False
-sleep 0.3
-tmux-cli send $'\x1b[13;6u' --pane=<WINDOW_ID> --enter=False
-tmux-cli send "Run cargo clippy." --pane=<WINDOW_ID> --enter=False
-sleep 0.3
-tmux-cli send $'\x1b[13;6u' --pane=<WINDOW_ID> --enter=False
+# Queue two messages (Enter auto-queues during active stream)
+tmux-cli send "Fix any compilation warnings." --pane=<WINDOW_ID>
+tmux-cli send "Run cargo clippy." --pane=<WINDOW_ID>
 
 # Wait for streaming to complete so we can edit the queue
 tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=10.0
@@ -544,7 +534,7 @@ stop_polling $POLL_PID
 tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-18-compact-final.txt
 ```
 
-**Verify:** Context compaction summary appears. Token usage reduced. Session continues working.
+**Verify:** Context compaction summary appears. Token usage reduced. The current chat message list in the TUI should get cleared, but the session continues working.
 
 ### Phase 5: Agent & Skill Invocation
 
@@ -570,84 +560,97 @@ tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGEN
 
 **Verify:**
 
-- Agent part renders with agent name and status
-- Parallel agent tree shows live status updates (pending → running → completed)
-- Sub-agent state displayed inline in sub-agent tree:
-    - Tools and tool counts are streamed in the single agent case
-    - Tools and tool counts are streamed in ALL branches of parallel agent case
-- The parallel agent tree should look roughly like this during initialization:
+- Each sub-agent renders as its own independent block prefixed with `●` — parallel sub-agents are **not** nested under a parent grouping node, they are listed sequentially
+- Each sub-agent shows its tool calls as a flat tree with `├─` / `└─` connectors
+- Tool call format: `ToolName args-summary` (e.g., `Glob **/* in src`, `Read src/state/store.ts`)
+- The sub-agents should look roughly like this during initialization:
 
 **Foreground Sub-agent Invocation**
 
-1. During initialization (no tool calls or streaming started)
+1. During initialization (no tool calls or streaming started):
+
+    ```
+    ● codebase-locator
+    └─ Initializing…
+
+    ● codebase-pattern-finder
+    └─ Initializing…
+    ```
+
+2. During execution (tool calls stream for each sub-agent):
+
+    ```
+    ● codebase-locator
+    ├─ Glob **/* in .github
+    ├─ Glob **/* in src
+    └─ Read src/services/events/bus.ts
+
+    ● codebase-pattern-finder
+    ├─ Grep "EventBus" in src
+    ├─ Read src/state/store.ts
+    └─ Read src/state/reducer.ts
+    ```
+
+3. During execution with many tool calls (truncated view):
+
+    When a sub-agent has more than 3 tool calls, show only the **last 3 tool calls** with a `+N earlier tool calls` indicator:
+
+    ```
+    ● codebase-locator
+    ├─ +1 earlier tool call
+    ├─ Glob **/* in .github
+    ├─ Glob **/* in src
+    └─ Glob **/* in tests
+
+    ● codebase-analyzer
+    ├─ +2 earlier tool calls
+    ├─ Glob **/Cargo.toml in opencode
+    ├─ Glob **/go.mod in opencode
+    └─ Glob **/pyproject.toml in opencode
+    ```
+
+    **Truncation rules:**
+    - Maximum visible tool calls per sub-agent: **3**
+    - Truncation line format: `+N earlier tool calls` (singular `call` when N = 1)
+    - Tool calls shown are always the **most recent** (tail of the list)
+
+    Here's how an **incorrect** UI looks (sub-agents should NOT be nested under a parent grouping node):
 
     ```
     ● Running 2 agents…
-    ├─● Locate sub-agent message handling
-    │    ╰  Initializing codebase-locator… (2s)
-    └─● Find sub-agent text rendering code
-         ╰  Initializing codebase-pattern-finder… (5s)
-    ```
-
-2. During execution (tools and tool counts stream for each branch):
-
-    Here's how a correct UI looks during execution:
-
-    ```
-    ● Running 2 agents…
-    ├─● Locate sub-agent message handling
-    │    ╰ codebase-locator: (10 tool uses)
-    │      · rg
-    └─● Find sub-agent text rendering code
-         ╰ codebase-pattern-finder: (5 tool uses)
-           · ls
-    ```
-
-    Here's how an incorrect UI looks:
-
-    ```
-    ● Running 2 codebase-analyzer agents…
-    ├─● codebase-analyzer
-    · 39 tool uses
-    │    ╰  bash (2m 22s)
-    └─● codebase-analyzer
-    · 35 tool uses
-        ╰  view (2m 22s)
+    ├─● codebase-locator (10 tool uses)
+    └─● codebase-analyzer (5 tool uses)
     ```
 
 #### 5.1.1 — Background Sub-Agent Invocation
 
-Similar procedure for background agents, but verify the sub-agent tree renders **without** tool counts or streaming metadata:
+Similar procedure for background agents, but verify the sub-agents render **without** tool call streaming — each shows only a "Running in background…" status line:
 
 **Background Sub-agent Invocation**
 
-1. During initialization (no tool calls or streaming started)
+1. During initialization (no tool calls or streaming started):
 
-```
-● 2 Task agents launched…
-├─● Locate OpenCode SDK integration
-│    ╰  Running codebase-locator in background…
-└─● Analyze SDK tool display patterns
-      ╰  Running codebase-analyzer in background…
-```
+    ```
+    ● codebase-locator
+    └─ Running in background…
 
-Background agent progress is shown via the footer status text below the chatbox:
+    ● codebase-analyzer
+    └─ Running in background…
+    ```
 
-```
+    Background agent progress is shown via the footer status text below the chatbox:
 
-[CHATBOX]
-[N] local agents · ctrl+f to kill all background tasks
+    ```
+    [CHATBOX]
+    [N] local agents · ctrl+f to kill all background tasks
+    ```
 
-```
+    When the chatbox is streaming AND background agents are running, the footer combines both:
 
-When the chatbox is streaming AND background agents are running, the footer combines both:
-
-```
-
-[CHATBOX]
-esc to interrupt · ctrl+shift+enter enqueue · [N] local agents · ctrl+f to kill all background tasks
-
-```
+    ```
+    [CHATBOX]
+    esc to interrupt · [N] local agents · ctrl+f to kill all background tasks
+    ```
 
 2. During execution: N/A, under the chatbox ui contains status and should be updated
 
@@ -777,10 +780,8 @@ POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 22d-ask-with-queue)
 tmux-cli send "Refactor the game rendering. Ask me whether to use double buffering or direct rendering before you start. Also add comments to all functions." --pane=<WINDOW_ID>
 sleep 2
 
-# Queue a follow-up message while streaming
-tmux-cli send "After refactoring, run cargo check to verify." --pane=<WINDOW_ID> --enter=False
-sleep 0.3
-tmux-cli send $'\x1b[13;6u' --pane=<WINDOW_ID> --enter=False
+# Queue a follow-up message while streaming (Enter auto-queues)
+tmux-cli send "After refactoring, run cargo check to verify." --pane=<WINDOW_ID>
 
 # Wait for ask_question dialog to appear
 tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=10.0
@@ -968,10 +969,8 @@ POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 28-interrupt-with-queue)
 tmux-cli send "Write a complete README.md for the snake game project with installation instructions, gameplay guide, and screenshots placeholder." --pane=<WINDOW_ID>
 sleep 2
 
-# Queue a follow-up message during streaming
-tmux-cli send "Also add a CHANGELOG.md file." --pane=<WINDOW_ID> --enter=False
-sleep 0.3
-tmux-cli send $'\x1b[13;6u' --pane=<WINDOW_ID> --enter=False
+# Queue a follow-up message during streaming (Enter auto-queues)
+tmux-cli send "Also add a CHANGELOG.md file." --pane=<WINDOW_ID>
 sleep 1
 
 # Verify queue indicator shows "1 message queued"
@@ -1047,7 +1046,7 @@ tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGEN
 **Verify:**
 
 - First Ctrl+C during workflow: interrupts the stream, sets `wasInterrupted: true`, workflow pauses
-- Footer shows: `workflow · esc to interrupt · ctrl+shift+enter enqueue · ctrl+c twice to exit workflow`
+- Footer shows: `workflow · esc to interrupt · ctrl+c twice to exit workflow`
 - Second Ctrl+C: sets `wasCancelled: true`, terminates the workflow, rejects `waitForUserInputResolver`
 - After termination, the chatbox returns to normal (non-workflow) mode
 - **Note**: ESC in a workflow only interrupts (single behavior) — it does **not** support double-press workflow termination
@@ -1155,10 +1154,8 @@ Every feature below MUST be verified during the test run. Check each one as you 
 - [ ] `ESC` + follow-up message — chatbox is immediately input-ready after interrupt
 - [ ] `ESC` — dismisses autocomplete or queue editing before interrupting stream
 - [ ] `Ctrl+O` — toggles verbose/compact transcript mode
-- [ ] `Ctrl+T` — toggles task list panel
 - [ ] `Ctrl+F` — double-press to terminate all background agents
-- [ ] `Cmd+Shift+Enter` (macOS) / `Ctrl+Shift+Enter` (Linux/Windows) — queues message during streaming
-- [ ] `Enter` — submits message
+- [ ] `Enter` — submits message (auto-queued if a stream is active)
 - [ ] `Shift+Enter` — inserts newline (multi-line input)
 - [ ] `Up/Down` arrows — scrolls messages, navigates history, or edits queued messages
 - [ ] `PageUp/PageDown` — half-screen scroll
@@ -1169,7 +1166,7 @@ Every feature below MUST be verified during the test run. Check each one as you 
 - [ ] Bash tool — shows command + output with syntax highlighting
 - [ ] Edit/Create tool — shows file path + diff coloring
 - [ ] Read tool — shows file path + content
-- [ ] Tool status indicators — `○` pending, `●` blinking running, `●` green completed, `●` red error
+- [ ] Tool status indicators — `○` pending, `●` blinking running, green `●` completed, yellow `●` interrupted, red `●` failed
 - [ ] Expandable tool output — long outputs collapsed with expand option
 
 ### MCP Tool Calls
@@ -1180,13 +1177,12 @@ Every feature below MUST be verified during the test run. Check each one as you 
 
 ### Message Queuing
 
-- [ ] `Cmd+Shift+Enter` (macOS) / `Ctrl+Shift+Enter` (Linux/Windows) enqueues message during streaming
+- [ ] `Enter` during active stream auto-queues the message (no special keybind needed)
 - [ ] Queue indicator appears above chatbox with icon, count, and first message preview
 - [ ] Queued messages process sequentially (FIFO) after response completes (50ms dispatch delay)
 - [ ] Queue is preserved on Ctrl+C interrupt — auto-dispatches after interruption
 - [ ] `Up/Down` arrows edit queued messages (loads content into textarea, auto-saves on navigation)
 - [ ] Queue indicator expands to non-compact mode during editing (shows numbered list)
-- [ ] Footer shows enqueue shortcut hint during streaming
 - [ ] Placeholder changes to `"Press ↑ to edit queued messages..."` when queue is non-empty and not streaming
 
 ### Ask-Question / HITL Dialog
@@ -1217,7 +1213,7 @@ Every feature below MUST be verified during the test run. Check each one as you 
 
 - [ ] Sub-agent invocation (`@agent-name <task>`)
 - [ ] Agent autocomplete (`@` triggers dropdown)
-- [ ] Parallel agent tree renders with live status
+- [ ] Parallel sub-agents render as independent flat blocks (not nested under a parent node) with live tool call status
 - [ ] `/research-codebase` skill executes and produces output
 - [ ] Skill loading indicator appears
 
@@ -1259,8 +1255,8 @@ Every feature below MUST be verified during the test run. Check each one as you 
 ### Footer Status Bar
 
 - [ ] Model ID displayed
-- [ ] Streaming footer shows: `esc to interrupt · ctrl+shift+enter enqueue`
-- [ ] Workflow footer shows: `workflow · esc to interrupt · ctrl+shift+enter enqueue · ctrl+c twice to exit workflow`
+- [ ] Streaming footer shows: `esc to interrupt`
+- [ ] Workflow footer shows: `workflow · esc to interrupt · ctrl+c twice to exit workflow`
 - [ ] Background agents: `[N] local agents · ctrl+f to kill all background tasks`
 - [ ] Verbose/compact mode shown
 - [ ] Queue count displayed (in queue indicator above chatbox, not in footer)

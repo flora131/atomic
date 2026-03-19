@@ -35,9 +35,9 @@
 
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useEventBusContext } from "@/services/events/event-bus-provider.tsx";
-import type { BusEvent, BusEventType, BusHandler, WildcardHandler } from "@/services/events/bus-events.ts";
+import type { BusEvent, BusEventType, BusHandler, WildcardHandler } from "@/services/events/bus-events/index.ts";
 import { wireConsumers } from "@/services/events/consumers/wire-consumers.ts";
-import type { CorrelationService } from "@/services/events/consumers/correlation-service.ts";
+import type { OwnershipTracker } from "@/services/events/consumers/wire-consumers.ts";
 import type { StreamPartEvent } from "@/state/parts/stream-pipeline.ts";
 import type { SDKStreamAdapter, StreamAdapterOptions } from "@/services/events/adapters/types.ts";
 import type { Session } from "@/services/agents/types.ts";
@@ -179,7 +179,7 @@ export function useBusWildcard(handler: WildcardHandler): void {
  *
  * Replaces the legacy handleChunk/handleMeta/handleComplete callback pattern
  * by setting up the complete event processing pipeline:
- * - CorrelationService: Enriches events with metadata
+ * - OwnershipTracker: Filters events by session/run ownership
  * - EchoSuppressor: Filters duplicate text echoes
  * - StreamPipelineConsumer: Transforms BusEvents to StreamPartEvents
  *
@@ -215,7 +215,7 @@ export function useStreamConsumer(
   onStreamParts: (parts: StreamPartEvent[]) => void
 ): {
   resetConsumers: () => void;
-  getCorrelationService: () => CorrelationService | null;
+  getOwnershipTracker: () => OwnershipTracker | null;
   startStreaming: (
     adapter: SDKStreamAdapter,
     session: Session,
@@ -252,8 +252,8 @@ export function useStreamConsumer(
     consumersRef.current?.pipeline.reset();
   }, []);
 
-  const getCorrelationService = useCallback((): CorrelationService | null => {
-    return consumersRef.current?.correlation ?? null;
+  const getOwnershipTracker = useCallback((): OwnershipTracker | null => {
+    return consumersRef.current?.ownership ?? null;
   }, []);
 
   const stopStreaming = useCallback(() => {
@@ -290,5 +290,5 @@ export function useStreamConsumer(
     };
   }, [stopStreaming]);
 
-  return { resetConsumers, getCorrelationService, startStreaming, stopStreaming, isStreaming };
+  return { resetConsumers, getOwnershipTracker, startStreaming, stopStreaming, isStreaming };
 }

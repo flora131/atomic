@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { getNextKittyKeyboardDetectionState } from "@/lib/ui/kitty-keyboard-detection.ts";
+import { getNextKittyKeyboardDetectionState } from "@/state/chat/keyboard/kitty-keyboard-detection.ts";
 
 describe("kitty keyboard detection state", () => {
   test("does not activate for Backspace CSI-u", () => {

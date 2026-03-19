@@ -78,23 +78,23 @@ export function SkillLoadIndicator({
           {status === "loading" ? (
             <AnimatedDot color={statusColor} />
           ) : (
-            <text style={{ fg: statusColor }}>{icon}</text>
+            <text fg={statusColor}>{icon}</text>
           )}
         </box>
         <box flexShrink={0}>
           <text> </text>
         </box>
         <box flexShrink={0}>
-          <text style={{ fg: colors.foreground }}>
+          <text fg={colors.foreground}>
             Skill({skillName})
           </text>
         </box>
       </box>
       <box flexDirection="row">
         <box flexShrink={0}>
-          <text style={{ fg: colors.muted }}>  └ </text>
+          <text fg={colors.muted}>  └ </text>
         </box>
-        <text style={{ fg: colors.muted }}>{message}</text>
+        <text fg={colors.muted}>{message}</text>
       </box>
     </box>
   );
@@ -111,7 +111,7 @@ function AnimatedDot({ color }: { color: string }): React.ReactNode {
   }, []);
 
   return (
-    <text style={{ fg: color }}>
+    <text fg={color}>
       {visible ? STATUS.active : MISC.separator}
     </text>
   );

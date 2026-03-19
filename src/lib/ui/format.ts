@@ -182,6 +182,26 @@ export function joinThinkingBlocks(blocks: Iterable<string>): string {
 }
 
 // ============================================================================
+// NEWLINE COLLAPSING
+// ============================================================================
+
+/**
+ * Collapse newlines in text to keep it on a single display line.
+ *
+ * - Truncates at the first double-newline (`\n\n`), appending "…"
+ * - Replaces remaining single newlines with a space
+ *
+ * This prevents multi-line tool call text from breaking tree branch rendering.
+ */
+export function collapseNewlines(text: string): string {
+  const doubleNewlineIndex = text.indexOf("\n\n");
+  const truncated = doubleNewlineIndex >= 0
+    ? `${text.slice(0, doubleNewlineIndex)}…`
+    : text;
+  return truncated.replace(/\n/g, " ");
+}
+
+// ============================================================================
 // TEXT TRUNCATION
 // ============================================================================
 
@@ -212,4 +232,5 @@ export default {
   formatTimestamp,
   joinThinkingBlocks,
   truncateText,
+  collapseNewlines,
 };

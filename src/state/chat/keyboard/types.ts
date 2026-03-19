@@ -1,6 +1,6 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type { ScrollBoxRenderable, TextareaRenderable } from "@opentui/core";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type { UseMessageQueueReturn } from "@/hooks/use-message-queue.ts";
 import type { ClipboardAdapter } from "@/lib/ui/clipboard.ts";
 import type {
@@ -9,7 +9,7 @@ import type {
   StreamingMeta,
   TaskItem,
   WorkflowChatState,
-} from "@/state/chat/types.ts";
+} from "@/state/chat/shared/types/index.ts";
 
 export interface ChatAutocompleteSuggestion {
   name: string;
@@ -18,6 +18,7 @@ export interface ChatAutocompleteSuggestion {
 }
 
 export interface UseChatKeyboardArgs {
+  activeBackgroundAgentCountRef: MutableRefObject<number>;
   activeQuestion: unknown;
   activeHitlToolCallIdRef: MutableRefObject<string | null>;
   addMessage: (role: "user" | "assistant" | "system", content: string) => void;
@@ -71,6 +72,7 @@ export interface UseChatKeyboardArgs {
     interruptedAgents: ParallelAgent[];
     remainingLiveAgents: ParallelAgent[];
   };
+  setActiveBackgroundAgentCount: Dispatch<SetStateAction<number>>;
   setBackgroundAgentMessageId: (messageId: string | null) => void;
   setIsEditingQueue: Dispatch<SetStateAction<boolean>>;
   setMessagesWindowed: (next: SetStateAction<ChatMessage[]>) => void;

@@ -1,9 +1,4 @@
 import { z } from "zod";
-import {
-  workflowRuntimeTaskSchema,
-  workflowRuntimeTaskStatusChangeSchema,
-} from "@/services/workflows/runtime-contracts.ts";
-import type { BusEventType } from "./types.ts";
 
 export function defineBusEvent<T extends string, S extends z.ZodType>(
   type: T,
@@ -16,7 +11,7 @@ export function defineBusEvent<T extends string, S extends z.ZodType>(
   } as const;
 }
 
-export const BusEventSchemas: Record<BusEventType, z.ZodType> = {
+export const BusEventSchemas = {
   "stream.text.delta": z.object({
     delta: z.string(),
     messageId: z.string(),
@@ -86,6 +81,10 @@ export const BusEventSchemas: Record<BusEventType, z.ZodType> = {
   "stream.session.idle": z.object({
     reason: z.string().optional(),
   }),
+  "stream.session.partial-idle": z.object({
+    completionReason: z.string(),
+    activeBackgroundAgentCount: z.number(),
+  }),
   "stream.session.error": z.object({
     error: z.string(),
     code: z.string().optional(),
@@ -125,23 +124,6 @@ export const BusEventSchemas: Record<BusEventType, z.ZodType> = {
     finishReason: z.enum(["tool-calls", "stop", "max-tokens", "max-turns", "error", "unknown"]).optional(),
     rawFinishReason: z.string().optional(),
   }),
-  "workflow.step.start": z.object({
-    workflowId: z.string(),
-    nodeId: z.string(),
-    nodeName: z.string(),
-  }),
-  "workflow.step.complete": z.object({
-    workflowId: z.string(),
-    nodeId: z.string(),
-    nodeName: z.string(),
-    status: z.enum(["success", "error", "skipped"]),
-    result: z.unknown().optional(),
-  }),
-  "workflow.task.update": z.object({
-    workflowId: z.string(),
-    tasks: z.array(workflowRuntimeTaskSchema),
-  }),
-  "workflow.task.statusChange": workflowRuntimeTaskStatusChangeSchema,
   "stream.permission.requested": z.object({
     requestId: z.string(),
     toolName: z.string(),
@@ -154,7 +136,7 @@ export const BusEventSchemas: Record<BusEventType, z.ZodType> = {
       description: z.string().optional(),
     })),
     multiSelect: z.boolean().optional(),
-    respond: z.function().optional(),
+    respond: z.custom<(...args: unknown[]) => unknown>().optional(),
     toolCallId: z.string().optional(),
   }),
   "stream.human_input_required": z.object({
@@ -166,7 +148,7 @@ export const BusEventSchemas: Record<BusEventType, z.ZodType> = {
       description: z.string().optional(),
     })).optional(),
     nodeId: z.string(),
-    respond: z.function().optional(),
+    respond: z.custom<(...args: unknown[]) => unknown>().optional(),
     toolCallId: z.string().optional(),
   }),
   "stream.skill.invoked": z.object({
@@ -180,4 +162,4 @@ export const BusEventSchemas: Record<BusEventType, z.ZodType> = {
     model: z.string().optional(),
     agentId: z.string().optional(),
   }),
-};
+} satisfies Record<string, z.ZodType>;

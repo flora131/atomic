@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { UnifiedModelOperations } from "@/services/models/model-operations.ts";
+import type { ClaudeSdkModelInfo } from "@/services/models/model-operations/claude.ts";
 import {
   createMockOpenCodeProviderModel,
 } from "./model-operations.test-support.ts";
@@ -19,6 +20,26 @@ describe("UnifiedModelOperations - Claude model listing", () => {
     expect(modelIDs.slice(0, 3)).toEqual(["opus", "sonnet", "haiku"]);
     expect(modelIDs).not.toContain("default");
     expect(modelIDs).toContain("claude-3-7-sonnet-20250101");
+  });
+
+  test("maps Claude default model effort metadata onto the canonical opus alias", async () => {
+    const sdkListModels = async (): Promise<ClaudeSdkModelInfo[]> => [
+      {
+        value: "default",
+        displayName: "Default (recommended)",
+        description: "Opus 4.6",
+        supportsEffort: true,
+        supportedEffortLevels: ["low", "medium", "high", "max"],
+      },
+    ];
+    const ops = new UnifiedModelOperations("claude", undefined, sdkListModels);
+
+    const models = await ops.listAvailableModels();
+    const opusModel = models.find((model) => model.modelID === "opus");
+
+    expect(opusModel?.supportedReasoningEfforts).toEqual(["low", "medium", "high", "max"]);
+    expect(opusModel?.defaultReasoningEffort).toBe("high");
+    expect(opusModel?.description).toBe("Opus 4.6");
   });
 
   test("deduplicates canonical aliases from SDK results", async () => {
@@ -98,7 +119,14 @@ describe("UnifiedModelOperations - listAvailableModels with mocks", () => {
           name: "OpenAI",
           api: "openai",
           models: {
-            "gpt-5.4": createMockOpenCodeProviderModel({ name: "GPT-5.4" }),
+            "gpt-5.4": createMockOpenCodeProviderModel({
+              name: "GPT-5.4",
+              variants: {
+                low: { reasoningEffort: "low" },
+                high: { reasoningEffort: "high" },
+                custom: { reasoningEffort: "medium" },
+              },
+            }),
           },
         },
       ],
@@ -110,6 +138,7 @@ describe("UnifiedModelOperations - listAvailableModels with mocks", () => {
       "openai/gpt-5.4",
     ]);
     expect(models[0]?.name).toBe("GPT-5.4");
+    expect(models[0]?.supportedReasoningEfforts).toEqual(["low", "high"]);
   });
 
   test("falls back to provider.list models for OpenCode when no injected lister is provided", async () => {
@@ -207,6 +236,43 @@ describe("UnifiedModelOperations - listAvailableModels with mocks", () => {
 
     expect(sonnetModel?.name).toBe("Claude 3.5 Sonnet");
     expect(opusModel?.name).toBe("Claude 3.5 Opus");
+  });
+
+  test("preserves Claude effort metadata only for models that explicitly advertise it", async () => {
+    mockSdkListModels = async () => [
+      {
+        value: "sonnet",
+        displayName: "Claude Sonnet",
+        description: "Balanced",
+        supportsEffort: true,
+        supportedEffortLevels: ["low", "medium", "high", "max"],
+      },
+      {
+        value: "claude-opus-4-6",
+        displayName: "Claude Opus 4.6",
+        description: "Most capable",
+        supportsEffort: true,
+        supportedEffortLevels: ["medium", "max"],
+      },
+      {
+        value: "haiku",
+        displayName: "Claude Haiku",
+        description: "Fast",
+      },
+    ];
+    const ops = new UnifiedModelOperations("claude", undefined, mockSdkListModels);
+
+    const models = await ops.listAvailableModels();
+    const sonnetModel = models.find((model) => model.modelID === "sonnet");
+    const opusModel = models.find((model) => model.modelID === "claude-opus-4-6");
+    const haikuModel = models.find((model) => model.modelID === "haiku");
+
+    expect(sonnetModel?.supportedReasoningEfforts).toEqual(["low", "medium", "high", "max"]);
+    expect(sonnetModel?.defaultReasoningEffort).toBe("high");
+    expect(opusModel?.supportedReasoningEfforts).toEqual(["medium", "max"]);
+    expect(opusModel?.defaultReasoningEffort).toBe("medium");
+    expect(haikuModel?.supportedReasoningEfforts).toBeUndefined();
+    expect(haikuModel?.defaultReasoningEffort).toBeUndefined();
   });
 
   test("falls back to default displayName when SDK returns empty", async () => {

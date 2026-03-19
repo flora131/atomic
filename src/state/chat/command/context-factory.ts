@@ -2,17 +2,17 @@ import { flushSync } from "@opentui/react";
 import type { CommandContext, CommandContextState } from "@/commands/tui/index.ts";
 import type { SpawnSubagentOptions, StreamMessageOptions } from "@/commands/tui/registry.ts";
 import { sortTasksTopologically } from "@/components/task-order.ts";
-import { normalizeTodoItems } from "@/lib/ui/task-status.ts";
+import { normalizeTodoItems } from "@/state/parts/helpers/task-status.ts";
 import {
   createStartedStreamControlState,
   shouldDeferComposerSubmit,
-} from "@/lib/ui/stream-continuation.ts";
+} from "@/state/chat/shared/helpers/stream-continuation.ts";
 import {
   createMessage,
   getSpinnerVerbForCommand,
   reconcilePreviousStreamingPlaceholder,
-} from "@/state/chat/helpers.ts";
-import type { ChatMessage, WorkflowChatState } from "@/state/chat/types.ts";
+} from "@/state/chat/shared/helpers/index.ts";
+import type { ChatMessage, WorkflowChatState } from "@/state/chat/shared/types/index.ts";
 import { SubagentStreamAdapter } from "@/services/events/adapters/subagent-adapter.ts";
 import type { Session, SessionConfig } from "@/services/agents/types.ts";
 import type { StreamRunHandle } from "@/state/runtime/stream-run-runtime.ts";
@@ -21,6 +21,9 @@ import type {
   SubagentStreamResult,
 } from "@/services/workflows/graph/types.ts";
 import type { UseCommandExecutorArgs } from "@/state/chat/command/executor-types.ts";
+import type { WorkflowRuntimeTask } from "@/services/workflows/runtime-contracts.ts";
+import { applyStreamPartEvent } from "@/state/parts/index.ts";
+import type { StreamPartEvent } from "@/state/streaming/pipeline-types.ts";
 
 export function createCommandContextState(
   isStreaming: boolean,
@@ -33,13 +36,6 @@ export function createCommandContextState(
     workflowActive: workflowState.workflowActive,
     workflowType: workflowState.workflowType,
     initialPrompt: workflowState.initialPrompt,
-    currentNode: workflowState.currentNode,
-    iteration: workflowState.iteration,
-    maxIterations: workflowState.maxIterations,
-    featureProgress: workflowState.featureProgress,
-    pendingApproval: workflowState.pendingApproval,
-    specApproved: workflowState.specApproved,
-    feedback: workflowState.feedback,
   };
 }
 
@@ -58,10 +54,20 @@ function createSilentAssistantRunDispatcher(args: UseCommandExecutorArgs) {
   };
 }
 
+/** Default stale timeout: abort agent if no stream chunks arrive within 5 minutes */
+const DEFAULT_STALE_TIMEOUT_MS = 5 * 60 * 1000;
+
+/** Maximum retries per agent after stall detection */
+const MAX_STALE_RETRIES = 3;
+
+/** Error marker for stall-aborted agents (used by retry logic) */
+const STALL_ERROR_MARKER = "[stalled]";
+
 async function spawnParallelSubagents(
   args: UseCommandExecutorArgs,
   agents: SubagentSpawnOptions[],
   externalAbortSignal?: AbortSignal,
+  onAgentComplete?: (result: SubagentStreamResult) => void,
 ): Promise<SubagentStreamResult[]> {
   if (!args.createSubagentSession) {
     throw new Error("createSubagentSession not available. Cannot spawn parallel sub-agents.");
@@ -90,12 +96,11 @@ async function spawnParallelSubagents(
 
   const parentSessionId = args.getSession?.()?.id ?? "workflow";
   const subagentRunId = crypto.getRandomValues(new Uint32Array(1))[0]!;
-  const outerCorrelationService = args.getCorrelationService();
-  outerCorrelationService?.addOwnedSession(parentSessionId);
+  const ownershipTracker = args.getOwnershipTracker();
+  ownershipTracker?.addOwnedSession(parentSessionId);
 
   const spawnOne = async (options: SubagentSpawnOptions): Promise<SubagentStreamResult> => {
     let session: Session | null = null;
-    const correlationService = args.getCorrelationService();
     const startTime = Date.now();
 
     try {
@@ -110,6 +115,20 @@ async function spawnParallelSubagents(
       if (options.timeout) {
         timeoutId = setTimeout(() => agentAbort.abort(), options.timeout);
       }
+
+      // Stall detection: abort if no stream chunks arrive within stallTimeoutMs
+      const stallTimeoutMs = options.staleTimeoutMs ?? DEFAULT_STALE_TIMEOUT_MS;
+      let stalledAbort = false;
+      let staleTimerId: ReturnType<typeof setTimeout> | undefined;
+      const resetStaleTimer = stallTimeoutMs > 0
+        ? () => {
+          if (staleTimerId) clearTimeout(staleTimerId);
+          staleTimerId = setTimeout(() => {
+            stalledAbort = true;
+            agentAbort.abort();
+          }, stallTimeoutMs);
+        }
+        : undefined;
 
       const parentSignal = options.abortSignal ?? parallelAbortController.signal;
       if (parentSignal.aborted) {
@@ -139,36 +158,41 @@ async function spawnParallelSubagents(
         task: options.task,
       });
 
-      correlationService?.registerSubagent(options.agentId, {
-        parentAgentId: parentSessionId,
-        workflowRunId: String(subagentRunId),
-      });
-
       try {
         const stream = session.stream(options.task, {
           agent: options.agentName,
           abortSignal: agentAbort.signal,
         });
 
-        const result = await adapter.consumeStream(stream, agentAbort.signal);
-        if (agentAbort.signal.aborted && result.success) {
+        // Start stale timer before consuming stream
+        resetStaleTimer?.();
+
+        const result = await adapter.consumeStream(stream, agentAbort.signal, resetStaleTimer);
+
+        // Clear stale timer on completion
+        if (staleTimerId) clearTimeout(staleTimerId);
+
+        if (agentAbort.signal.aborted) {
           if (session.abort) {
             await session.abort().catch(() => {});
           }
           const wasExternalAbort = options.abortSignal?.aborted || parallelAbortController.signal.aborted;
+          const error = wasExternalAbort
+            ? `Sub-agent "${options.agentName}" was cancelled`
+            : stalledAbort
+              ? `Sub-agent "${options.agentName}" stalled (no activity for ${stallTimeoutMs / 1000}s) ${STALL_ERROR_MARKER}`
+              : `Sub-agent "${options.agentName}" timed out after ${options.timeout}ms`;
           return {
             ...result,
             success: false,
-            error: wasExternalAbort
-              ? `Sub-agent "${options.agentName}" was cancelled`
-              : `Sub-agent "${options.agentName}" timed out after ${options.timeout}ms`,
+            error,
           };
         }
 
         return result;
       } finally {
         if (timeoutId) clearTimeout(timeoutId);
-        correlationService?.unregisterSubagent(options.agentId);
+        if (staleTimerId) clearTimeout(staleTimerId);
       }
     } catch (error) {
       return {
@@ -190,8 +214,43 @@ async function spawnParallelSubagents(
   };
 
   try {
+    // Retry wrapper: retries stalled agents up to MAX_STALE_RETRIES times.
+    // If any agent exceeds the retry limit, the entire batch is aborted.
+    const executeWithRetry = async (
+      agent: SubagentSpawnOptions,
+    ): Promise<SubagentStreamResult> => {
+      let retryCount = 0;
+
+      for (;;) {
+        const result = await spawnOne(agent);
+
+        // If stalled and retries remain, resubmit
+        if (
+          !result.success &&
+          result.error?.includes(STALL_ERROR_MARKER) &&
+          retryCount < MAX_STALE_RETRIES
+        ) {
+          retryCount++;
+          continue;
+        }
+
+        // Circuit breaker: stall persisted after max retries — abort entire batch
+        if (
+          !result.success &&
+          result.error?.includes(STALL_ERROR_MARKER) &&
+          retryCount >= MAX_STALE_RETRIES
+        ) {
+          parallelAbortController.abort();
+        }
+
+        // Notify caller of completion (progressive result)
+        onAgentComplete?.(result);
+        return result;
+      }
+    };
+
     const results = await Promise.allSettled(
-      agents.map((agent) => spawnOne(agent)),
+      agents.map((agent) => executeWithRetry(agent)),
     );
     return results.map((result, index) => {
       if (result.status === "fulfilled") {
@@ -287,8 +346,8 @@ export function createCommandContext(args: UseCommandExecutorArgs): CommandConte
         output: result.content,
       };
     },
-    spawnSubagentParallel: async (agents, externalAbortSignal) => {
-      return spawnParallelSubagents(args, agents, externalAbortSignal);
+    spawnSubagentParallel: async (agents, externalAbortSignal, onAgentComplete) => {
+      return spawnParallelSubagents(args, agents, externalAbortSignal, onAgentComplete);
     },
     streamAndWait: (prompt: string, options?: { hideContent?: boolean }) => {
       const handle = args.trackAwaitedRun(
@@ -342,6 +401,29 @@ export function createCommandContext(args: UseCommandExecutorArgs): CommandConte
     },
     setWorkflowTaskIds: (ids: Set<string>) => {
       args.workflowTaskIdsRef.current = ids;
+    },
+    updateTaskList: (tasks: WorkflowRuntimeTask[]) => {
+      const streamingMessageId = args.streamingMessageIdRef.current;
+      if (!streamingMessageId) return;
+
+      const runId = 0;
+      const taskListEvent: StreamPartEvent = {
+        type: "task-list-update",
+        runId,
+        tasks: tasks.map((task) => ({
+          id: task.id,
+          title: task.title,
+          status: task.status,
+          ...(task.blockedBy ? { blockedBy: task.blockedBy } : {}),
+        })),
+      };
+
+      args.setMessagesWindowed((previousMessages) =>
+        previousMessages.map((message) => {
+          if (message.id !== streamingMessageId) return message;
+          return applyStreamPartEvent(message, taskListEvent);
+        }),
+      );
     },
     updateWorkflowState: (update) => {
       args.updateWorkflowState(update);
@@ -397,6 +479,7 @@ export function startCommandSpinner(
           hasRunningTool: args.hasRunningToolRef.current,
           isAgentOnlyStream: args.isAgentOnlyStreamRef.current,
           hasPendingCompletion: args.pendingCompleteRef.current !== null,
+          hasPendingBackgroundWork: false,
         },
         { messageId: message.id, startedAt: Date.now() },
       );

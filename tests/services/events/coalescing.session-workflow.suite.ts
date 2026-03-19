@@ -79,46 +79,42 @@ describe("coalescingKey()", () => {
 
       expect(coalescingKey(start)).not.toBe(coalescingKey(idle));
     });
-  });
 
-  describe("workflow events (return workflow.tasks:{workflowId})", () => {
-    it("should return workflow.tasks:${workflowId} for workflow.task.update", () => {
-      const event: BusEvent<"workflow.task.update"> = {
-        type: "workflow.task.update",
-        sessionId: "test-session",
+    it("should return session.partial-idle:${sessionId} for stream.session.partial-idle", () => {
+      const event: BusEvent<"stream.session.partial-idle"> = {
+        type: "stream.session.partial-idle",
+        sessionId: "session-pi",
         runId: 1,
         timestamp: Date.now(),
         data: {
-          workflowId: "workflow-abc",
-          tasks: [
-            { id: "task-1", title: "First task", status: "pending" },
-            { id: "task-2", title: "Second task", status: "in_progress" },
-          ],
+          completionReason: "foreground_stream_ended",
+          activeBackgroundAgentCount: 3,
         },
       };
 
-      expect(coalescingKey(event)).toBe("workflow.tasks:workflow-abc");
+      expect(coalescingKey(event)).toBe("session.partial-idle:session-pi");
     });
 
-    it("should generate different keys for different workflowIds", () => {
-      const event1: BusEvent<"workflow.task.update"> = {
-        type: "workflow.task.update",
-        sessionId: "test-session",
+    it("should NOT coalesce session.partial-idle with session.idle", () => {
+      const partialIdle: BusEvent<"stream.session.partial-idle"> = {
+        type: "stream.session.partial-idle",
+        sessionId: "session-1",
         runId: 1,
         timestamp: Date.now(),
-        data: { workflowId: "workflow-1", tasks: [] },
+        data: {
+          completionReason: "foreground_stream_ended",
+          activeBackgroundAgentCount: 1,
+        },
       };
-      const event2: BusEvent<"workflow.task.update"> = {
-        type: "workflow.task.update",
-        sessionId: "test-session",
+      const idle: BusEvent<"stream.session.idle"> = {
+        type: "stream.session.idle",
+        sessionId: "session-1",
         runId: 1,
         timestamp: Date.now(),
-        data: { workflowId: "workflow-2", tasks: [] },
+        data: {},
       };
 
-      expect(coalescingKey(event1)).toBe("workflow.tasks:workflow-1");
-      expect(coalescingKey(event2)).toBe("workflow.tasks:workflow-2");
-      expect(coalescingKey(event1)).not.toBe(coalescingKey(event2));
+      expect(coalescingKey(partialIdle)).not.toBe(coalescingKey(idle));
     });
   });
 

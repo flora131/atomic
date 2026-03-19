@@ -1,8 +1,8 @@
 import { useCallback } from "react";
 import { useChatDispatchController } from "@/state/chat/controller/use-dispatch-controller.ts";
-import { useChatKeyboard } from "@/state/chat/keyboard/use-keyboard.ts";
-import { useChatRenderModel } from "@/state/chat/shell/use-render-model.tsx";
-import { useComposerController } from "@/state/chat/composer/use-controller.ts";
+import { useChatKeyboard } from "@/state/chat/keyboard/index.ts";
+import { useChatRenderModel } from "@/state/chat/shell/index.ts";
+import { useComposerController } from "@/state/chat/composer/index.ts";
 import { buildUiControllerChatShellProps } from "@/state/chat/controller/use-ui-controller-stack/chat-shell-props.ts";
 import type { UseChatUiControllerStackArgs } from "@/state/chat/controller/use-ui-controller-stack/types.ts";
 
@@ -48,6 +48,7 @@ export function useChatUiControllerStack({
   } = app;
 
   const {
+    activeHitlToolCallId,
     activeHitlToolCallIdRef,
     activeQuestion,
     handleAgentDoneRendered,
@@ -61,6 +62,7 @@ export function useChatUiControllerStack({
     commandStyleIdRef,
     copyRendererSelection,
     currentModelId,
+    currentReasoningEffort,
     currentModelRef,
     dispatchDeferredCommandMessageRef,
     dispatchQueuedMessageRef,
@@ -77,6 +79,7 @@ export function useChatUiControllerStack({
     setAvailableModels,
     setCurrentModelDisplayName,
     setCurrentModelId,
+    setCurrentReasoningEffort,
     setMcpServerToggles,
     setShowModelSelector,
     setShowTodoPanel,
@@ -86,6 +89,7 @@ export function useChatUiControllerStack({
     showTodoPanel,
     tasksExpanded,
     themeColors,
+    isVerbose,
     toggleVerbose,
     toggleTheme,
     transcriptMode,
@@ -108,6 +112,7 @@ export function useChatUiControllerStack({
 
   const {
     state: {
+      activeBackgroundAgentCount,
       compactionSummary,
       parallelAgents,
       showCompactionHistory,
@@ -116,6 +121,7 @@ export function useChatUiControllerStack({
       workflowSessionDir,
     },
     setters: {
+      setActiveBackgroundAgentCount,
       setCompactionSummary,
       setIsAutoCompacting,
       setParallelAgents,
@@ -125,6 +131,7 @@ export function useChatUiControllerStack({
       setWorkflowSessionId,
     },
     refs: {
+      activeBackgroundAgentCountRef,
       activeStreamRunIdRef,
       autoCompactionIndicatorRef,
       awaitedStreamRunIdsRef,
@@ -154,7 +161,7 @@ export function useChatUiControllerStack({
       clearDeferredCompletion,
       finalizeThinkingSourceTracking,
       getActiveStreamRunId,
-      getCorrelationService,
+      getOwnershipTracker,
       resetLoadedSkillTracking,
       resolveTrackedRun,
       separateAndInterruptAgents,
@@ -192,7 +199,7 @@ export function useChatUiControllerStack({
     emitMessageSubmitTelemetry,
     ensureSession,
     eventBus,
-    getCorrelationService,
+    getOwnershipTracker,
     getModelDisplayInfo,
     getSession,
     hasRunningToolRef,
@@ -217,6 +224,7 @@ export function useChatUiControllerStack({
     setCompactionSummary,
     setCurrentModelDisplayName,
     setCurrentModelId,
+    setCurrentReasoningEffort,
     setIsAutoCompacting,
     setIsStreaming,
     setLastStreamedMessageId,
@@ -331,6 +339,7 @@ export function useChatUiControllerStack({
     ctrlCPressed,
     ctrlFPressed,
   } = useChatKeyboard({
+    activeBackgroundAgentCountRef,
     activeQuestion,
     activeHitlToolCallIdRef,
     addMessage,
@@ -371,6 +380,7 @@ export function useChatUiControllerStack({
     savedInputRef,
     scrollboxRef,
     separateAndInterruptAgents,
+    setActiveBackgroundAgentCount,
     setBackgroundAgentMessageId,
     setIsEditingQueue,
     setMessagesWindowed,
@@ -394,9 +404,13 @@ export function useChatUiControllerStack({
   });
 
   const { messageContent } = useChatRenderModel({
+    activeBackgroundAgentCount,
+    activeHitlToolCallId,
     activeQuestion,
     backgroundAgentMessageId: backgroundAgentMessageIdRef.current,
     handleAgentDoneRendered,
+    handleQuestionAnswer,
+    isVerbose,
     lastStreamedMessageId: lastStreamedMessageIdRef.current,
     markdownSyntaxStyle,
     messages,
@@ -423,6 +437,7 @@ export function useChatUiControllerStack({
     ctrlCPressed,
     ctrlFPressed,
     currentModelId,
+    currentReasoningEffort,
     displayModel,
     dynamicPlaceholder,
     handleAutocompleteIndexChange,
@@ -431,7 +446,6 @@ export function useChatUiControllerStack({
     handleModelSelect,
     handleModelSelectorCancel,
     handleMouseUp,
-    handleQuestionAnswer,
     handleSubmit,
     handleTextareaContentChange,
     handleTextareaCursorChange,

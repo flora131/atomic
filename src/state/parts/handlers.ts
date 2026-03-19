@@ -5,10 +5,10 @@
  * These handlers manage the creation and updates of parts during streaming.
  */
 
-import type { ChatMessage } from "@/screens/chat-screen.tsx";
+import type { ChatMessage } from "@/types/chat.ts";
 import type { TextPart } from "@/state/parts/types.ts";
 import { createPartId } from "@/state/parts/id.ts";
-import { findLastPartIndex } from "@/state/parts/store.ts";
+import { findLastPartIndex, upsertPart } from "@/state/parts/store.ts";
 
 /**
  * Handle text streaming delta with natural tool boundary splitting.
@@ -19,7 +19,7 @@ import { findLastPartIndex } from "@/state/parts/store.ts";
  * - Otherwise create a new TextPart for text after a tool completes
  */
 export function handleTextDelta(msg: ChatMessage, delta: string): ChatMessage {
-  const parts = [...(msg.parts ?? [])];
+  let parts = [...(msg.parts ?? [])];
   const lastTextIdx = findLastPartIndex(parts, (p) => p.type === "text");
 
   if (lastTextIdx >= 0 && (parts[lastTextIdx] as TextPart).isStreaming) {
@@ -39,7 +39,7 @@ export function handleTextDelta(msg: ChatMessage, delta: string): ChatMessage {
     parts[lastTextIdx] = { ...textPart, content: textPart.content + delta };
   } else {
     // Create new TextPart (new paragraph after tool completes)
-    parts.push({
+    parts = upsertPart(parts, {
       id: createPartId(),
       type: "text" as const,
       content: delta,

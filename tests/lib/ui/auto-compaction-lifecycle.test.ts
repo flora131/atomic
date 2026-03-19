@@ -8,7 +8,7 @@ import {
   shouldShowAutoCompactionIndicator,
   startAutoCompactionIndicator,
   type AutoCompactionIndicatorState,
-} from "@/lib/ui/auto-compaction-lifecycle.ts";
+} from "@/state/chat/shared/helpers/auto-compaction-lifecycle.ts";
 
 describe("auto compaction lifecycle", () => {
   test("detects compact tool name variants", () => {

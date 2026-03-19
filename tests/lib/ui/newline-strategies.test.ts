@@ -4,7 +4,7 @@ import {
   isBareLinefeedEvent,
   shouldApplyBackslashLineContinuation,
   shouldInsertNewlineFromKeyEvent,
-} from "@/lib/ui/newline-strategies.ts";
+} from "@/state/chat/shared/helpers/newline-strategies.ts";
 
 describe("newline strategies", () => {
   test("supports linefeed newline path for Ctrl+J-compatible terminals", () => {

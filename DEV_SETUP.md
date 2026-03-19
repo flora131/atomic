@@ -16,7 +16,7 @@
 | `bun test` | Run all tests with coverage |
 | `bun test --bail` | Stop on first failure (fast feedback) |
 | `bun run typecheck` | TypeScript type checking |
-| `bun run lint` | Run oxlint |
+| `bun run lint` | Run oxlint + sub-module boundary checks |
 | `bun run lint:fix` | Auto-fix linting issues |
 | `bun run dev` | Run CLI in development mode |
 
@@ -80,15 +80,35 @@ git push --no-verify
 ## Project Structure
 ```
 src/
-├── commands/      # CLI command implementations
-├── config/        # Configuration loading and merging
-├── graph/         # Graph workflow engine
-├── models/        # Model operations and management
-├── sdk/           # SDK adapters (OpenCode, Claude, Copilot)
-├── telemetry/     # Telemetry and monitoring
-├── ui/            # UI components, commands, tools, utils
-├── utils/         # Shared utilities
-└── workflows/     # Workflow definitions
+├── commands/          # CLI + TUI command implementations
+│   ├── cli/           # CLI commands (chat, init, update, uninstall)
+│   ├── tui/           # TUI slash commands + registry
+│   └── catalog/       # Agent and skill discovery catalogs
+├── components/        # React/OpenTUI UI components
+│   ├── message-parts/ # Message part renderers (PART_REGISTRY)
+│   └── tool-registry/ # Tool output renderers
+├── hooks/             # Shared React hooks
+├── lib/               # Domain-agnostic utilities only
+├── screens/           # Top-level screen components
+├── scripts/           # Build, lint, and boundary-check scripts
+├── services/          # Business logic and SDK integrations
+│   ├── agent-discovery/ # Agent info discovery + session registration
+│   ├── agents/        # CodingAgentClient strategy + 3 SDK clients
+│   ├── config/        # Multi-tier config resolution
+│   ├── events/        # EventBus + stream adapters + consumers
+│   ├── models/        # Model operations and transforms
+│   ├── telemetry/     # Telemetry tracking and upload
+│   ├── system/        # System detection, clipboard, downloads
+│   ├── terminal/      # Terminal integration (tree-sitter)
+│   └── workflows/     # Graph engine + Ralph workflow + runtime
+├── state/             # State management
+│   ├── chat/          # 8 sub-modules + shared (boundary-enforced)
+│   ├── parts/         # Part store + helpers
+│   ├── runtime/       # Controller + adapters
+│   └── streaming/     # Pipeline reducers
+├── theme/             # Palettes, icons, spacing
+├── types/             # Shared type definitions (pure types, no runtime)
+└── version.ts
 ```
 
 ## CI/CD

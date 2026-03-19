@@ -7,8 +7,8 @@
 
 import React, { useMemo } from "react";
 import { useTheme } from "@/theme/index.tsx";
-import { formatTranscript, type TranscriptLine, type TranscriptLineType } from "@/lib/ui/transcript-formatter.ts";
-import type { ChatMessage, StreamingMeta } from "@/screens/chat-screen.tsx";
+import { formatTranscript, type TranscriptLine, type TranscriptLineType } from "@/components/transcript/transcript-formatter.ts";
+import type { ChatMessage, StreamingMeta } from "@/types/chat.ts";
 import { SPACING } from "@/theme/spacing.ts";
 
 // ============================================================================
@@ -109,7 +109,7 @@ export function TranscriptView({
         // Special rendering for thinking header with icon
         if (tl.type === "thinking-header") {
           return (
-            <text key={idx} wrapMode="char" selectable style={{ fg: color }}>
+            <text key={idx} wrapMode="char" selectable fg={color}>
               {indent}{tl.content}
             </text>
           );
@@ -119,13 +119,13 @@ export function TranscriptView({
         if (tl.type === "timestamp") {
           return (
             <box key={idx} flexDirection="row" justifyContent="flex-end" paddingRight={SPACING.CONTAINER_PAD}>
-              <text selectable style={{ fg: color }}>{tl.content}</text>
+              <text selectable fg={color}>{tl.content}</text>
             </box>
           );
         }
 
         return (
-          <text key={idx} wrapMode="char" selectable style={{ fg: color }}>
+          <text key={idx} wrapMode="char" selectable fg={color}>
             {indent}{tl.content}
           </text>
         );

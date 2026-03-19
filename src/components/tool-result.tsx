@@ -16,7 +16,7 @@ import {
   parseMcpToolName,
   type ToolRenderProps,
   type ToolRenderResult,
-} from "@/components/tool-registry/index.ts";
+} from "@/components/tool-registry/registry/index.ts";
 import { SkillLoadIndicator, type SkillLoadStatus } from "@/components/skill-load-indicator.tsx";
 import type { ToolExecutionStatus } from "@/state/parts/types.ts";
 import {
@@ -25,7 +25,7 @@ import {
   truncateToolHeader,
   truncateToolLines,
   truncateToolText,
-} from "@/lib/ui/tool-preview-truncation.ts";
+} from "@/components/tool-preview-truncation.ts";
 
 // ============================================================================
 // TYPES
@@ -55,7 +55,7 @@ const STATUS_ICONS: Record<ToolExecutionStatus, string> = {
   pending: STATUS.pending,
   running: STATUS.active,
   completed: STATUS.active,
-  error: STATUS.error,
+  error: STATUS.active,
   interrupted: STATUS.active,
 };
 
@@ -92,7 +92,7 @@ function StatusIndicator({
   const icon = STATUS_ICONS[status];
 
   return (
-    <text style={{ fg: color }}>
+    <text fg={color}>
       {icon}
     </text>
   );
@@ -154,7 +154,7 @@ function CollapsibleContent({
           }
 
           return (
-            <text key={index} style={{ fg: lineColor }}>
+            <text key={index} fg={lineColor}>
               {line || " "}
             </text>
           );
@@ -164,7 +164,7 @@ function CollapsibleContent({
       {/* Collapse indicator */}
       {isCollapsible && !expanded && (
         <box marginLeft={SPACING.CONTAINER_PAD}>
-          <text style={{ fg: colors.muted }}>
+          <text fg={colors.muted}>
             {MISC.collapsed} {hiddenCount} more lines
           </text>
         </box>
@@ -344,21 +344,21 @@ export function ToolResult({
         {/* Status indicator + icon — fixed-width prefix so they stay on line 1 */}
         <box flexDirection="row" gap={SPACING.ELEMENT} flexShrink={0} width={3}>
           <StatusIndicator status={status} theme={theme} />
-          <text style={{ fg: iconColor }}>
+          <text fg={iconColor}>
             {renderer.icon}
           </text>
         </box>
 
         {/* Tool name + title + summary — wraps as a single inline block */}
         <text>
-          <span style={{ fg: colors.accent, attributes: 1 }}>
+          <span fg={colors.accent} attributes={1}>
             {truncatedDisplayLabel}
           </span>
-          <span style={{ fg: colors.muted }}>
+          <span fg={colors.muted}>
             {" "}{linkifiedTitle}
           </span>
           {status === "completed" && !isExpanded && (
-            <span style={{ fg: colors.muted }}>
+            <span fg={colors.muted}>
               {" "}— {truncatedSummaryText} (ctrl+o to expand)
             </span>
           )}
@@ -383,7 +383,7 @@ export function ToolResult({
       {hasError && typeof output === "string" && !renderResult.content.includes(output) && (
         <box marginTop={SPACING.NONE} marginLeft={SPACING.CONTAINER_PAD}>
           {truncatedErrorLines.map((line, index) => (
-            <text key={index} style={{ fg: colors.error }}>
+            <text key={index} fg={colors.error}>
               {line || " "}
             </text>
           ))}

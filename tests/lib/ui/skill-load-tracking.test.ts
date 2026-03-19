@@ -6,7 +6,7 @@ import {
   shouldDisplaySkillLoadIndicator,
   shouldResetLoadedSkillsForSessionChange,
   tryTrackLoadedSkill,
-} from "@/lib/ui/skill-load-tracking.ts";
+} from "@/state/chat/shared/helpers/skill-load-tracking.ts";
 
 describe("skill-load-tracking", () => {
   test("normalizes skill names for case-insensitive tracking", () => {

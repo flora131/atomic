@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { BusEventSchemas } from "@/services/events/bus-events.ts";
 import type { BusEvent, BusEventDataMap, BusEventType, EnrichedBusEvent } from "@/services/events/bus-events.ts";
 
 describe("BusEvent Type Definitions", () => {
@@ -52,23 +53,6 @@ describe("BusEvent Type Definitions", () => {
     expect(event.data.agentType).toBe("explore");
   });
 
-  it("should create a valid workflow step start event", () => {
-    const event: BusEvent<"workflow.step.start"> = {
-      type: "workflow.step.start",
-      sessionId: "test-session",
-      runId: 1,
-      timestamp: Date.now(),
-      data: {
-        workflowId: "workflow-1",
-        nodeId: "node-1",
-        nodeName: "Initialize",
-      },
-    };
-
-    expect(event.type).toBe("workflow.step.start");
-    expect(event.data.nodeName).toBe("Initialize");
-  });
-
   it("should create a valid permission requested event", () => {
     const event: BusEvent<"stream.permission.requested"> = {
       type: "stream.permission.requested",
@@ -103,6 +87,23 @@ describe("BusEvent Type Definitions", () => {
     expect(event.data.outputTokens).toBe(50);
   });
 
+  it("should create a valid partial-idle event", () => {
+    const event: BusEvent<"stream.session.partial-idle"> = {
+      type: "stream.session.partial-idle",
+      sessionId: "test-session",
+      runId: 1,
+      timestamp: Date.now(),
+      data: {
+        completionReason: "foreground_stream_ended",
+        activeBackgroundAgentCount: 2,
+      },
+    };
+
+    expect(event.type).toBe("stream.session.partial-idle");
+    expect(event.data.completionReason).toBe("foreground_stream_ended");
+    expect(event.data.activeBackgroundAgentCount).toBe(2);
+  });
+
   it("should create enriched events with correlation data", () => {
     const enrichedEvent: EnrichedBusEvent = {
       type: "stream.tool.start",
@@ -126,28 +127,7 @@ describe("BusEvent Type Definitions", () => {
   });
 
   it("should ensure all event types are covered in BusEventDataMap", () => {
-    const eventTypes: BusEventType[] = [
-      "stream.text.delta",
-      "stream.text.complete",
-      "stream.thinking.delta",
-      "stream.thinking.complete",
-      "stream.tool.start",
-      "stream.tool.complete",
-      "stream.agent.start",
-      "stream.agent.update",
-      "stream.agent.complete",
-      "stream.session.start",
-      "stream.session.idle",
-      "stream.session.error",
-      "workflow.step.start",
-      "workflow.step.complete",
-      "workflow.task.update",
-      "workflow.task.statusChange",
-      "stream.permission.requested",
-      "stream.human_input_required",
-      "stream.skill.invoked",
-      "stream.usage",
-    ];
+    const eventTypes = Object.keys(BusEventSchemas) as BusEventType[];
 
     eventTypes.forEach((type) => {
       const check: keyof BusEventDataMap = type;
@@ -155,28 +135,4 @@ describe("BusEvent Type Definitions", () => {
     });
   });
 
-  it("should create a valid workflow.task.statusChange event", () => {
-    const event: BusEvent<"workflow.task.statusChange"> = {
-      type: "workflow.task.statusChange",
-      sessionId: "test-session",
-      runId: 1,
-      timestamp: Date.now(),
-      data: {
-        workflowId: "workflow-1",
-        taskIds: ["task-1", "task-2"],
-        newStatus: "in_progress",
-        tasks: [
-          { id: "task-1", title: "First task", status: "in_progress" },
-          { id: "task-2", title: "Second task", status: "in_progress" },
-          { id: "task-3", title: "Third task", status: "pending" },
-        ],
-      },
-    };
-
-    expect(event.type).toBe("workflow.task.statusChange");
-    expect(event.data.taskIds).toEqual(["task-1", "task-2"]);
-    expect(event.data.newStatus).toBe("in_progress");
-    expect(event.data.tasks).toHaveLength(3);
-    expect(event.data.tasks[0]!.status).toBe("in_progress");
-  });
 });

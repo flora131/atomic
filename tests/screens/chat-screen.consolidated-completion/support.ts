@@ -1,5 +1,5 @@
 import { finalizeStreamingReasoningInMessage } from "@/state/parts/index.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type { ChatMessage } from "@/state/chat/exports.ts";
 
 export function createAgent(overrides: Partial<ParallelAgent>): ParallelAgent {

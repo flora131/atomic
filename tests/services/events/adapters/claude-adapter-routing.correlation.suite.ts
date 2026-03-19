@@ -67,6 +67,9 @@ describe("ClaudeStreamAdapter", () => {
     const agentStartEvents = events.filter((e) => e.type === "stream.agent.start");
     expect(agentStartEvents[0].data.agentType).toBe("debugger");
     expect(agentStartEvents[0].data.task).toBe("Investigate auth retries");
+    expect(events.find((e) => e.type === "stream.text.complete")?.resolvedAgentId).toBe(
+      agentStartEvents[0].data.agentId,
+    );
   });
 
   test("agent-only streams attribute early reasoning to the synthetic foreground agent", async () => {

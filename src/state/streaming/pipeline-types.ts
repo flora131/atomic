@@ -1,10 +1,10 @@
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type { HitlResponseRecord } from "@/lib/ui/hitl-response.ts";
 import type { PermissionOption } from "@/services/agents/types.ts";
 import type { WorkflowRuntimeTaskResultEnvelope } from "@/services/workflows/runtime-contracts.ts";
-import type { MessageToolCall } from "@/screens/chat-screen.tsx";
+import type { ToolExecutionStatus } from "@/state/parts/types.ts";
 
-type ToolStatus = MessageToolCall["status"];
+type ToolStatus = ToolExecutionStatus;
 
 export type { ToolStatus };
 
@@ -61,6 +61,14 @@ export interface ThinkingMetaEvent {
   provider?: ThinkingProvider;
 }
 
+export interface ThinkingCompleteEvent {
+  type: "thinking-complete";
+  runId?: number;
+  sourceKey: string;
+  durationMs: number;
+  agentId?: string;
+}
+
 export interface HitlRequestEvent {
   type: "tool-hitl-request";
   runId?: number;
@@ -110,26 +118,6 @@ export interface TaskListUpdateEvent {
   }>;
 }
 
-export interface WorkflowStepStartEvent {
-  type: "workflow-step-start";
-  runId?: number;
-  workflowId: string;
-  nodeId: string;
-  nodeName: string;
-  startedAt?: string;
-}
-
-export interface WorkflowStepCompleteEvent {
-  type: "workflow-step-complete";
-  runId?: number;
-  workflowId: string;
-  nodeId: string;
-  nodeName?: string;
-  status: "success" | "error" | "skipped";
-  result?: unknown;
-  completedAt?: string;
-}
-
 export interface TaskResultUpsertEvent {
   type: "task-result-upsert";
   runId?: number;
@@ -148,6 +136,7 @@ export type StreamPartEvent =
   | TextDeltaEvent
   | TextCompleteEvent
   | ThinkingMetaEvent
+  | ThinkingCompleteEvent
   | ToolStartEvent
   | ToolCompleteEvent
   | ToolPartialResultEvent
@@ -156,6 +145,4 @@ export type StreamPartEvent =
   | ParallelAgentsEvent
   | AgentTerminalEvent
   | TaskListUpdateEvent
-  | WorkflowStepStartEvent
-  | WorkflowStepCompleteEvent
   | TaskResultUpsertEvent;

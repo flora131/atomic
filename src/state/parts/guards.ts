@@ -6,8 +6,8 @@
  * handleComplete, agent-only finalization).
  */
 
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
-import { isShadowForegroundAgent } from "@/lib/ui/background-agent-footer.ts";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
+import { isBackgroundAgent, isShadowForegroundAgent } from "@/state/chat/exports.ts";
 
 /**
  * Determines whether an agent should be finalized when a tool completes.
@@ -38,10 +38,31 @@ export function hasActiveForegroundAgents(agents: readonly ParallelAgent[]): boo
 
 /**
  * Stream completion can proceed only when no blocking sub-agents or tools remain.
+ * Blocks on both foreground and background agents to prevent the reactive effect
+ * in use-stream-finalization from prematurely resolving background-only deferrals.
  */
 export function shouldFinalizeDeferredStream(
   agents: readonly ParallelAgent[],
   hasRunningTool: boolean,
 ): boolean {
-  return !hasRunningTool && !hasActiveForegroundAgents(agents);
+  return !hasRunningTool
+    && !hasActiveForegroundAgents(agents)
+    && !hasActiveBackgroundAgentsForSpinner(agents);
+}
+
+/**
+ * Checks whether any background agents are still actively running.
+ * Used for spinner/loading indicator lifecycle — distinct from
+ * shouldFinalizeOnToolComplete which controls stream finalization.
+ */
+export function hasActiveBackgroundAgentsForSpinner(
+  agents: readonly ParallelAgent[],
+): boolean {
+  return agents.some(
+    (agent) =>
+      isBackgroundAgent(agent)
+      && (agent.status === "running"
+        || agent.status === "pending"
+        || agent.status === "background"),
+  );
 }

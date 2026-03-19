@@ -4,8 +4,8 @@ import { globalRegistry } from "@/commands/tui/index.ts";
 import {
   getMentionSuggestions,
   resolveSlashAutocompleteExecution,
-} from "@/state/chat/helpers.ts";
-import type { WorkflowChatState } from "@/state/chat/types.ts";
+} from "@/state/chat/shared/helpers/index.ts";
+import type { WorkflowChatState } from "@/state/chat/shared/types/index.ts";
 import type {
   ComposerAutocompleteSelectionArgs,
   ComposerAutocompleteSuggestion,

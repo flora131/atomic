@@ -86,7 +86,7 @@ export function agentNode<TState extends BaseState = BaseState>(
       if (!client) {
         throw new Error(
           `No client provider configured for agent type "${agentType}". ` +
-            "Initialize WorkflowSDK with providers before executing agent nodes.",
+            "Execute this graph through executeWorkflow() with providers configured.",
         );
       }
 

@@ -5,24 +5,16 @@ interface NormalizeAgentTaskMetadataInput {
   toolInput?: unknown;
 }
 
+import type { BusEventDataMap } from "@/services/events/bus-events/types.ts";
+
 interface TurnMetadataState {
   activeTurnId: string | null;
   syntheticCounter: number;
 }
 
-export type NormalizedTurnFinishReason =
-  | "tool-calls"
-  | "stop"
-  | "max-tokens"
-  | "max-turns"
-  | "error"
-  | "unknown";
+export type NormalizedTurnFinishReason = NonNullable<BusEventDataMap["stream.turn.end"]["finishReason"]>;
 
-export interface NormalizedTurnEndMetadata {
-  turnId: string;
-  finishReason?: NormalizedTurnFinishReason;
-  rawFinishReason?: string;
-}
+export type NormalizedTurnEndMetadata = BusEventDataMap["stream.turn.end"];
 
 export interface NormalizedAgentTaskMetadata {
   task: string;

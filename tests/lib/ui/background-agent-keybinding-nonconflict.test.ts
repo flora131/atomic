@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isBackgroundTerminationKey } from "@/lib/ui/background-agent-termination.ts";
+import { isBackgroundTerminationKey } from "@/state/chat/shared/helpers/background-agent-termination.ts";
 
 describe("background-agent keybinding non-conflict", () => {
   test("Ctrl+O is NOT detected as background termination key", () => {

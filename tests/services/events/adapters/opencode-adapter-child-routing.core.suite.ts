@@ -68,18 +68,27 @@ describe("OpenCodeStreamAdapter child-session core routing", () => {
 
     await streamPromise;
 
+    const childAgentStart = events.find(
+      (event) => event.type === "stream.agent.start" && event.data.agentId === "agent-child-1",
+    );
+    const childToolStart = events.find(
+      (event) => event.type === "stream.tool.start" && event.data.toolId === "child-tool-1",
+    );
+    const childToolComplete = events.find(
+      (event) => event.type === "stream.tool.complete" && event.data.toolId === "child-tool-1",
+    );
+
+    expect(childAgentStart?.resolvedAgentId).toBe("agent-child-1");
+    expect(childToolStart?.resolvedAgentId).toBe("agent-child-1");
+    expect(childToolStart?.isSubagentTool).toBe(true);
+    expect(childToolComplete?.resolvedAgentId).toBe("agent-child-1");
+    expect(childToolComplete?.isSubagentTool).toBe(true);
+
     expect(
-      events.find(
-        (event) =>
-          event.type === "stream.tool.start" && event.data.toolId === "child-tool-1",
-      )?.data.parentAgentId,
+      childToolStart?.data.parentAgentId,
     ).toBe("agent-child-1");
     expect(
-      events.find(
-        (event) =>
-          event.type === "stream.tool.complete"
-          && event.data.toolId === "child-tool-1",
-      )?.data.parentAgentId,
+      childToolComplete?.data.parentAgentId,
     ).toBe("agent-child-1");
 
     const updates = events.filter(
@@ -87,6 +96,7 @@ describe("OpenCodeStreamAdapter child-session core routing", () => {
         event.type === "stream.agent.update" && event.data.agentId === "agent-child-1",
     );
     expect(updates.length).toBeGreaterThanOrEqual(2);
+    expect(updates.every((event) => event.resolvedAgentId === "agent-child-1")).toBe(true);
     expect(
       updates.some(
         (event) => event.data.currentTool === "bash" && event.data.toolUses === 1,

@@ -16,9 +16,12 @@ describe("applyStreamPartEvent - tools and HITL", () => {
       input: { filePath: "README.md" },
     });
 
-    expect(next.toolCalls).toHaveLength(1);
-    expect(next.toolCalls?.[0]?.status).toBe("running");
     expect(next.parts?.map((part) => part.type)).toEqual(["text", "tool"]);
+    const toolPart = next.parts?.find((part) => part.type === "tool");
+    expect(toolPart?.type).toBe("tool");
+    if (toolPart?.type === "tool") {
+      expect(toolPart.state.status).toBe("running");
+    }
     expect(next.parts?.[0] && "isStreaming" in next.parts[0] ? next.parts[0].isStreaming : false).toBe(false);
   });
 
@@ -38,7 +41,6 @@ describe("applyStreamPartEvent - tools and HITL", () => {
       success: true,
     });
 
-    expect(next.toolCalls?.[0]?.status).toBe("completed");
     const toolPart = next.parts?.find((part) => part.type === "tool");
     expect(toolPart?.type).toBe("tool");
     if (toolPart?.type === "tool") {

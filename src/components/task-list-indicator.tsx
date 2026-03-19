@@ -18,7 +18,7 @@ import React from "react";
 import { CONNECTOR, TASK } from "@/theme/icons.ts";
 import { useThemeColors, useTheme, getCatppuccinPalette } from "@/theme/index.tsx";
 import { truncateText } from "@/lib/ui/format.ts";
-import { normalizeTaskStatus } from "@/lib/ui/task-status.ts";
+import { normalizeTaskStatus } from "@/state/parts/helpers/task-status.ts";
 import { AnimatedBlinkIndicator } from "@/components/animated-blink-indicator.tsx";
 
 // ============================================================================
@@ -144,38 +144,38 @@ export function TaskListIndicator({
           // when setInterval triggers a state change.
           <box key={item.id ?? i} flexDirection="row">
             <text wrapMode="none">
-              <span style={{ fg: themeColors.dim }}>{showConnector && i === 0 ? `${CONNECTOR.subStatus} ` : `${rail} `}</span>
+              <span fg={themeColors.dim}>{showConnector && i === 0 ? `${CONNECTOR.subStatus} ` : `${rail} `}</span>
             </text>
             <text><AnimatedBlinkIndicator color={color} speed={500} /></text>
             <text wrapMode="none">
-              <span style={{ fg: contentColor }}>{` ${displayContent}`}</span>
+              <span fg={contentColor}>{` ${displayContent}`}</span>
               {hasBlockers && (
-                <span style={{ fg: themeColors.muted }}>{blockersSuffix}</span>
+                <span fg={themeColors.muted}>{blockersSuffix}</span>
               )}
             </text>
           </box>
         ) : (
           <text key={item.id ?? i} wrapMode="none">
             {/* Left rail */}
-            <span style={{ fg: themeColors.dim }}>{showConnector && i === 0 ? `${CONNECTOR.subStatus} ` : `${rail} `}</span>
+            <span fg={themeColors.dim}>{showConnector && i === 0 ? `${CONNECTOR.subStatus} ` : `${rail} `}</span>
             {/* Status icon */}
-            <span style={{ fg: textColor }}>{icon}</span>
+            <span fg={textColor}>{icon}</span>
             {/* Content */}
-            <span style={{ fg: contentColor }}>{` ${displayContent}`}</span>
+            <span fg={contentColor}>{` ${displayContent}`}</span>
             {/* Status label for active/error */}
             {statusLabel && (
-              <span style={{ fg: textColor, }}>{` [${statusLabel}]`}</span>
+              <span fg={textColor}>{` [${statusLabel}]`}</span>
             )}
             {/* Blocked-by info inline */}
             {hasBlockers && (
-              <span style={{ fg: themeColors.muted }}>{blockersSuffix}</span>
+              <span fg={themeColors.muted}>{blockersSuffix}</span>
             )}
           </text>
         );
       })}
       {overflowCount > 0 && (
         <text>
-          <span style={{ fg: themeColors.dim }}>
+          <span fg={themeColors.dim}>
             {"   "}
             {`… +${overflowCount} more`}
           </span>

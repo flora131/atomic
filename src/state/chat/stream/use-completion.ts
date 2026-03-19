@@ -5,6 +5,7 @@ import { useChatStreamFinalizedCompletion } from "@/state/chat/stream/use-finali
 import { useChatStreamInterruptedCompletion } from "@/state/chat/stream/use-interrupted-completion.ts";
 
 export function useChatStreamCompletion({
+  activeBackgroundAgentCountRef,
   awaitedStreamRunIdsRef,
   continueQueuedConversationRef,
   currentModelRef,
@@ -19,6 +20,7 @@ export function useChatStreamCompletion({
   runningAskQuestionToolIdsRef,
   runningBlockingToolIdsRef,
   setBackgroundAgentMessageId,
+  setActiveBackgroundAgentCount,
   setLastStreamedMessageId,
   setMessagesWindowed,
   setParallelAgents,
@@ -34,11 +36,13 @@ export function useChatStreamCompletion({
   wasInterruptedRef,
 }: UseChatStreamCompletionArgs) {
   const { finishInterruptedStreamIfNeeded } = useChatStreamInterruptedCompletion({
+    activeBackgroundAgentCountRef,
     continueQueuedConversationRef,
     currentModelRef,
     finalizeThinkingSourceTracking,
     lastStreamingContentRef,
     resolveTrackedRun,
+    setActiveBackgroundAgentCount,
     setMessagesWindowed,
     setParallelAgents,
     stopSharedStreamState,
@@ -60,11 +64,14 @@ export function useChatStreamCompletion({
   });
 
   const { finalizeCompletedStream } = useChatStreamFinalizedCompletion({
+    activeBackgroundAgentCountRef,
     continueQueuedConversationRef,
     currentModelRef,
     finalizeThinkingSourceTracking,
     lastStreamingContentRef,
+    parallelAgentsRef,
     resolveTrackedRun,
+    setActiveBackgroundAgentCount,
     setBackgroundAgentMessageId,
     setMessagesWindowed,
     setParallelAgents,

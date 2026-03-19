@@ -33,7 +33,7 @@ export function WorkflowStepPartDisplay({ part }: WorkflowStepPartDisplayProps):
 
   return (
     <box flexDirection="column">
-      <text style={{ fg: color }}>
+      <text fg={color}>
         {`${MISC.separator} ${status.icon} Step: ${part.nodeName} ${status.label}${formatStepDuration(part.durationMs)} ${MISC.separator}`}
       </text>
     </box>

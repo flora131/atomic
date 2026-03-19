@@ -26,17 +26,6 @@ export interface ToolPartDisplayProps {
 }
 
 /**
- * Returns true when a ToolPart is a completed HITL tool that renders nothing.
- * Used by MessageBubbleParts to filter these out before layout so they don't
- * create phantom gap slots in OpenTUI flex containers.
- */
-export function isCompletedHitlPart(part: ToolPart): boolean {
-  if (!isHitlToolName(part.toolName)) return false;
-  const resolvedResponse = part.hitlResponse ?? synthesizeHitlResponse(part);
-  return !part.pendingQuestion && resolvedResponse !== null;
-}
-
-/**
  * Converts ToolState (discriminated union) to ToolExecutionStatus (simple string).
  * This allows us to bridge between the parts model and the existing ToolResult component.
  */
@@ -181,10 +170,30 @@ export function ToolPartDisplay({ part, summaryOnly = false }: ToolPartDisplayPr
     const isPending = Boolean(part.pendingQuestion);
     const isRunning = part.state.status === "running" && !part.pendingQuestion && !resolvedResponse;
 
-    // Completed HITL: the full Q&A is already rendered in the HitlResponseWidget
-    // user message, so collapse this to nothing to avoid redundant spacing.
+    // Completed HITL: render the Q&A inline on the tool part
     if (isCompleted) {
-      return null;
+      const questionText = extractQuestionText(part.input);
+      const answerText = resolvedResponse.answerText || resolvedResponse.displayText;
+      const cancelled = resolvedResponse.cancelled;
+      const statusIcon = cancelled ? STATUS.error : STATUS.success;
+      const answerColor = cancelled ? colors.warning : colors.success;
+      return (
+        <box flexDirection="column">
+          <text wrapMode="word">
+            <span fg={colors.accent}>{statusIcon} ask_user</span>
+          </text>
+          {questionText.length > 0 && (
+            <text wrapMode="word">
+              <span fg={colors.border}>  {CONNECTOR.subStatus} </span>
+              <span fg={colors.muted}>{questionText}</span>
+            </text>
+          )}
+          <text wrapMode="word">
+            <span fg={colors.border}>  {CONNECTOR.subStatus} </span>
+            <span fg={answerColor}>{cancelled ? "Declined" : answerText}</span>
+          </text>
+        </box>
+      );
     }
 
     // Pending HITL: inline footprint showing question while dialog is active

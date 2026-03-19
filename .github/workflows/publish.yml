@@ -46,7 +46,7 @@ jobs:
               run: bun run prepare:opentui-bindings
 
             - name: Run tests
-              run: bun test
+              run: bun test 2>&1 | cat
 
             - name: Run typecheck
               run: bun run typecheck

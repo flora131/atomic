@@ -279,7 +279,7 @@ export function handleAutocompleteSelectionKey({
         const mentionEnd = mentionStart + 1 + workflowState.autocompleteInput.length;
         const before = fullText.slice(0, mentionStart);
         const after = fullText.slice(mentionEnd);
-        const replacement = `@${selectedCommand.name}${suffix}`;
+        const replacement = `${selectedCommand.name}${suffix}`;
         const nextText = before + replacement + after;
         const nextCursor = mentionStart + replacement.length;
 
@@ -335,9 +335,9 @@ export function handleAutocompleteSelectionKey({
         const after = fullText.slice(mentionEnd);
 
         if (isDirectoryMention) {
-          const nextText = `${before}@${selectedCommand.name}${after}`;
+          const nextText = `${before}${selectedCommand.name}${after}`;
           replaceTextareaValue(textarea, nextText);
-          textarea.cursorOffset = mentionStart + 1 + selectedCommand.name.length;
+          textarea.cursorOffset = mentionStart + selectedCommand.name.length;
           updateWorkflowState({
             showAutocomplete: true,
             autocompleteInput: selectedCommand.name,
@@ -346,22 +346,8 @@ export function handleAutocompleteSelectionKey({
             mentionStartOffset: mentionStart,
             argumentHint: "",
           });
-        } else if (selectedCommand.category === "agent") {
-          const remaining = (before + after).trim();
-          replaceTextareaValue(textarea, "");
-          updateWorkflowState({
-            showAutocomplete: false,
-            autocompleteInput: "",
-            selectedSuggestionIndex: 0,
-            autocompleteMode: "command",
-          });
-          const displayText = remaining
-            ? `@${selectedCommand.name} ${remaining}`
-            : `@${selectedCommand.name}`;
-          addMessage("user", displayText);
-          void executeCommand(selectedCommand.name, remaining, "mention");
         } else {
-          const replacement = `@${selectedCommand.name} `;
+          const replacement = `${selectedCommand.name} `;
           const nextText = before + replacement + after;
           replaceTextareaValue(textarea, nextText);
           textarea.cursorOffset = mentionStart + replacement.length;

@@ -16,6 +16,7 @@ export {
   type TaskListPart,
   type SkillLoadPart,
   type McpSnapshotPart,
+  type AgentListPart,
   type CompactionPart,
   type TaskResultPart,
   type WorkflowStepPart,

@@ -15,6 +15,7 @@ import { AgentPartDisplay } from "@/components/message-parts/agent-part-display.
 import { TaskListPartDisplay } from "@/components/message-parts/task-list-part-display.tsx";
 import { SkillLoadPartDisplay } from "@/components/message-parts/skill-load-part-display.tsx";
 import { McpSnapshotPartDisplay } from "@/components/message-parts/mcp-snapshot-part-display.tsx";
+import { AgentListPartDisplay } from "@/components/message-parts/agent-list-part-display.tsx";
 import { CompactionPartDisplay } from "@/components/message-parts/compaction-part-display.tsx";
 import { TaskResultPartDisplay } from "@/components/message-parts/task-result-part-display.tsx";
 import { WorkflowStepPartDisplay } from "@/components/message-parts/workflow-step-part-display.tsx";
@@ -34,6 +35,7 @@ export const PART_REGISTRY: Record<Part["type"], PartRenderer> = {
   "task-list": TaskListPartDisplay,
   "skill-load": SkillLoadPartDisplay,
   "mcp-snapshot": McpSnapshotPartDisplay,
+  "agent-list": AgentListPartDisplay,
   "compaction": CompactionPartDisplay,
   "task-result": TaskResultPartDisplay,
   "workflow-step": WorkflowStepPartDisplay,

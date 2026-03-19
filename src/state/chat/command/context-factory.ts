@@ -457,7 +457,7 @@ export function startCommandSpinner(
   commandName: string,
 ): {
   cancelTimer: () => void;
-  finalizeWithResult: (result: { message?: string; clearMessages?: boolean; mcpSnapshot?: unknown; skillLoaded?: string }) => void;
+  finalizeWithResult: (result: { message?: string; clearMessages?: boolean; mcpSnapshot?: unknown; agentListView?: unknown; skillLoaded?: string }) => void;
   clearSpinner: () => void;
   wasShown: () => boolean;
 } {
@@ -525,7 +525,7 @@ export function startCommandSpinner(
       }
 
       const messageId = commandSpinnerMessageId;
-      const hasStructuredPayload = Boolean(result.mcpSnapshot || result.skillLoaded);
+      const hasStructuredPayload = Boolean(result.mcpSnapshot || result.agentListView || result.skillLoaded);
       if ((result.message || hasStructuredPayload) && !result.clearMessages) {
         args.setMessagesWindowed((previousMessages) =>
           previousMessages.map((message) =>

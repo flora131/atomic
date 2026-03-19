@@ -48,7 +48,6 @@ export function useChatUiControllerStack({
   } = app;
 
   const {
-    activeHitlToolCallId,
     activeHitlToolCallIdRef,
     activeQuestion,
     handleAgentDoneRendered,
@@ -405,11 +404,9 @@ export function useChatUiControllerStack({
 
   const { messageContent } = useChatRenderModel({
     activeBackgroundAgentCount,
-    activeHitlToolCallId,
     activeQuestion,
     backgroundAgentMessageId: backgroundAgentMessageIdRef.current,
     handleAgentDoneRendered,
-    handleQuestionAnswer,
     isVerbose,
     lastStreamedMessageId: lastStreamedMessageIdRef.current,
     markdownSyntaxStyle,
@@ -446,6 +443,7 @@ export function useChatUiControllerStack({
     handleModelSelect,
     handleModelSelectorCancel,
     handleMouseUp,
+    handleQuestionAnswer,
     handleSubmit,
     handleTextareaContentChange,
     handleTextareaCursorChange,

@@ -10,7 +10,7 @@ import {
 } from "react";
 import type { KeyBinding, PasteEvent, TextareaRenderable } from "@opentui/core";
 import type { CommandDefinition } from "@/commands/tui/index.ts";
-import { loadCommandHistory } from "@/lib/ui/command-history.ts";
+import { loadCommandHistory } from "@/state/chat/composer/command-history.ts";
 import {
   applyAutocompleteSelection,
   applyComposerHighlights,
@@ -185,7 +185,7 @@ export function useComposerInputState({
     if (!textarea) return;
 
     event.preventDefault();
-    const normalized = normalizePastedText(event.text);
+    const normalized = normalizePastedText(new TextDecoder().decode(event.bytes));
     const pastedContent = normalized.trim();
     if (!pastedContent) {
       const clipboardText = clipboard.readText();

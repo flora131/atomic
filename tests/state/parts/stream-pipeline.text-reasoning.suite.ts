@@ -101,32 +101,6 @@ describe("applyStreamPartEvent - text and reasoning", () => {
     expect((updated.parts ?? []).filter((part) => part.type === "task-result")).toHaveLength(1);
   });
 
-  test("ignores workflow step events", () => {
-    const msg = createAssistantMessage();
-    const startedAt = "2026-03-01T00:00:00.000Z";
-    const completedAt = "2026-03-01T00:00:02.000Z";
-
-    const withStepStart = applyStreamPartEvent(msg, {
-      type: "workflow-step-start",
-      workflowId: "wf-1",
-      nodeId: "worker",
-      nodeName: "Worker Node",
-      startedAt,
-    });
-
-    expect(withStepStart.parts ?? []).toHaveLength(0);
-
-    const withStepComplete = applyStreamPartEvent(withStepStart, {
-      type: "workflow-step-complete",
-      workflowId: "wf-1",
-      nodeId: "worker",
-      status: "success",
-      completedAt,
-    });
-
-    expect(withStepComplete.parts ?? []).toHaveLength(0);
-  });
-
   test("streams thinking as a dedicated reasoning part when enabled", () => {
     let msg = createAssistantMessage();
     msg = applyStreamPartEvent(msg, {
@@ -185,20 +159,20 @@ describe("applyStreamPartEvent - text and reasoning", () => {
 
     const next = applyStreamPartEvent(msg, { type: "text-delta", delta: "continues" });
 
-    expect(next.parts?.map((part) => part.type)).toEqual(["reasoning", "text"]);
+    expect(next.parts?.map((part) => part.type)).toEqual(["text", "reasoning"]);
     expect(next.content).toBe("Answer continues");
 
-    const reasoningPart = next.parts?.[0];
+    const textPart = next.parts?.[0];
+    expect(textPart?.type).toBe("text");
+    if (textPart?.type === "text") {
+      expect(textPart.content).toBe("Answer continues");
+    }
+
+    const reasoningPart = next.parts?.[1];
     expect(reasoningPart?.type).toBe("reasoning");
     if (reasoningPart?.type === "reasoning") {
       expect(reasoningPart.content).toBe("initial thought with refinement");
       expect(reasoningPart.durationMs).toBe(1250);
-    }
-
-    const textPart = next.parts?.[1];
-    expect(textPart?.type).toBe("text");
-    if (textPart?.type === "text") {
-      expect(textPart.content).toBe("Answer continues");
     }
   });
 
@@ -366,6 +340,69 @@ describe("applyStreamPartEvent - text and reasoning", () => {
     }
 
     expect((next.parts ?? []).filter((part) => part.type === "reasoning")).toHaveLength(1);
+  });
+
+  test("reasoning part uses sorted insertion via upsertPart for correct ID-based ordering", () => {
+    let msg = createAssistantMessage();
+    msg = applyStreamPartEvent(msg, {
+      type: "thinking-meta",
+      thinkingSourceKey: "source:first",
+      targetMessageId: "msg-test",
+      streamGeneration: 1,
+      thinkingMs: 100,
+      thinkingText: "first thought",
+      includeReasoningPart: true,
+    });
+
+    msg = applyStreamPartEvent(msg, { type: "text-delta", delta: "Hello" });
+
+    msg = applyStreamPartEvent(msg, {
+      type: "thinking-meta",
+      thinkingSourceKey: "source:second",
+      targetMessageId: "msg-test",
+      streamGeneration: 1,
+      thinkingMs: 200,
+      thinkingText: "second thought",
+      includeReasoningPart: true,
+    });
+
+    expect(msg.parts?.map((p) => p.type)).toEqual(["reasoning", "text", "reasoning"]);
+
+    const ids = msg.parts!.map((p) => p.id);
+    for (let i = 1; i < ids.length; i++) {
+      expect(ids[i]! > ids[i - 1]!).toBe(true);
+    }
+  });
+
+  test("reasoning parts maintain sorted order across multiple sources", () => {
+    let msg = createAssistantMessage();
+    msg = applyStreamPartEvent(msg, {
+      type: "thinking-meta",
+      thinkingSourceKey: "source:a",
+      targetMessageId: "msg-test",
+      streamGeneration: 1,
+      thinkingMs: 100,
+      thinkingText: "alpha",
+      includeReasoningPart: true,
+    });
+
+    msg = applyStreamPartEvent(msg, { type: "text-delta", delta: "text" });
+
+    msg = applyStreamPartEvent(msg, {
+      type: "thinking-meta",
+      thinkingSourceKey: "source:b",
+      targetMessageId: "msg-test",
+      streamGeneration: 1,
+      thinkingMs: 200,
+      thinkingText: "beta",
+      includeReasoningPart: true,
+    });
+
+    msg = applyStreamPartEvent(msg, { type: "text-delta", delta: " more" });
+
+    const partIds = msg.parts!.map((p) => p.id);
+    const sortedIds = [...partIds].sort();
+    expect(partIds).toEqual(sortedIds);
   });
 
   test("text-complete is a no-op in the reducer (reconciliation handled upstream)", () => {

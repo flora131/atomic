@@ -1,20 +1,17 @@
 import { beforeEach, describe, expect, it } from "bun:test";
-import { CorrelationService } from "@/services/events/consumers/correlation-service.ts";
 import { EchoSuppressor } from "@/services/events/consumers/echo-suppressor.ts";
 import { StreamPipelineConsumer } from "@/services/events/consumers/stream-pipeline-consumer.ts";
 import type { EnrichedBusEvent } from "@/services/events/bus-events.ts";
 import type { StreamPartEvent } from "@/state/parts/stream-pipeline.ts";
 
 describe("StreamPipelineConsumer", () => {
-  let correlation: CorrelationService;
   let echoSuppressor: EchoSuppressor;
   let consumer: StreamPipelineConsumer;
   let receivedEvents: StreamPartEvent[] = [];
 
   beforeEach(() => {
-    correlation = new CorrelationService();
     echoSuppressor = new EchoSuppressor();
-    consumer = new StreamPipelineConsumer(correlation, echoSuppressor);
+    consumer = new StreamPipelineConsumer(echoSuppressor);
     receivedEvents = [];
     consumer.onStreamParts((events) => {
       receivedEvents.push(...events);
@@ -42,16 +39,19 @@ describe("StreamPipelineConsumer", () => {
     });
   });
 
-  it("uses resolvedAgentId for stream.tool.start when event is sub-agent scoped", () => {
+  it("uses parentAgentId for stream.tool.start agent attribution", () => {
     consumer.processBatch([
       {
         type: "stream.tool.start",
         sessionId: "test",
         runId: 1,
         timestamp: Date.now(),
-        resolvedAgentId: "subagent_1",
-        isSubagentTool: true,
-        data: { toolId: "tool1", toolName: "bash", toolInput: { command: "ls" } },
+        data: {
+          toolId: "tool1",
+          toolName: "bash",
+          toolInput: { command: "ls" },
+          parentAgentId: "subagent_1",
+        },
       },
     ]);
 
@@ -66,7 +66,7 @@ describe("StreamPipelineConsumer", () => {
     });
   });
 
-  it("does not use resolvedAgentId for stream.tool.start when event is not sub-agent scoped", () => {
+  it("ignores enrichment metadata for stream.tool.start without parentAgentId", () => {
     consumer.processBatch([
       {
         type: "stream.tool.start",
@@ -117,20 +117,19 @@ describe("StreamPipelineConsumer", () => {
     });
   });
 
-  it("uses resolvedAgentId for stream.tool.complete when event is sub-agent scoped", () => {
+  it("uses parentAgentId for stream.tool.complete agent attribution", () => {
     consumer.processBatch([
       {
         type: "stream.tool.complete",
         sessionId: "test",
         runId: 1,
         timestamp: Date.now(),
-        resolvedAgentId: "subagent_1",
-        isSubagentTool: true,
         data: {
           toolId: "tool1",
           toolName: "bash",
           toolResult: "ok",
           success: true,
+          parentAgentId: "subagent_1",
         },
       },
     ]);
@@ -148,7 +147,7 @@ describe("StreamPipelineConsumer", () => {
     });
   });
 
-  it("does not use resolvedAgentId for stream.tool.complete when event is not sub-agent scoped", () => {
+  it("ignores enrichment metadata for stream.tool.complete without parentAgentId", () => {
     consumer.processBatch([
       {
         type: "stream.tool.complete",
@@ -265,6 +264,31 @@ describe("StreamPipelineConsumer", () => {
       toolId: "tool1",
       partialOutput: "line\n",
       agentId: "subagent_1",
+    });
+  });
+
+  it("ignores enrichment metadata for stream.tool.partial_result without parentAgentId", () => {
+    consumer.processBatch([
+      {
+        type: "stream.tool.partial_result",
+        sessionId: "test",
+        runId: 1,
+        timestamp: Date.now(),
+        resolvedAgentId: "subagent_1",
+        isSubagentTool: true,
+        data: {
+          toolCallId: "tool1",
+          partialOutput: "line\n",
+        },
+      },
+    ]);
+
+    expect(receivedEvents).toHaveLength(1);
+    expect(receivedEvents[0]).toEqual({
+      type: "tool-partial-result",
+      runId: 1,
+      toolId: "tool1",
+      partialOutput: "line\n",
     });
   });
 

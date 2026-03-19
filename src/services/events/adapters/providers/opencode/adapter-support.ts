@@ -1,4 +1,4 @@
-import type { BusEvent } from "@/services/events/bus-events.ts";
+import type { BusEvent } from "@/services/events/bus-events/index.ts";
 import type {
   WorkflowRuntimeFeatureFlags,
   WorkflowRuntimeFeatureFlagOverrides,
@@ -13,6 +13,11 @@ import {
   isBuiltInTaskTool,
   normalizeToolName,
 } from "@/services/events/adapters/provider-shared.ts";
+import {
+  correlate,
+  type AdapterCorrelationContext,
+  type SubagentRegistryEntry,
+} from "@/services/events/adapters/shared/adapter-correlation.ts";
 import type { OpenCodeChildSessionSync } from "@/services/events/adapters/providers/opencode/child-session-sync.ts";
 import type {
   OpenCodeTaskToolMetadata,
@@ -40,8 +45,42 @@ type OpenCodeAdapterSupportDependencies = {
 export class OpenCodeAdapterSupport {
   constructor(private readonly deps: OpenCodeAdapterSupportDependencies) {}
 
+  buildCorrelationContext(): AdapterCorrelationContext {
+    const toolToAgent = new Map<string, string>();
+    const subAgentTools = new Set<string>();
+    const subagentRegistry = new Map<string, SubagentRegistryEntry>();
+
+    for (const [toolId, context] of this.deps.toolState.activeSubagentToolsById) {
+      toolToAgent.set(toolId, context.parentAgentId);
+      subAgentTools.add(toolId);
+    }
+
+    for (const [correlationId, subagentId] of this.deps.toolState.toolUseIdToSubagentId) {
+      const canonicalCorrelationId = this.deps.toolState.resolveToolCorrelationId(correlationId)
+        ?? correlationId;
+      const parentContext = this.deps.toolState.activeSubagentToolsById.get(canonicalCorrelationId)
+        ?? this.deps.toolState.activeSubagentToolsById.get(correlationId);
+      if (!parentContext || subagentRegistry.has(subagentId)) {
+        continue;
+      }
+      subagentRegistry.set(subagentId, { parentAgentId: parentContext.parentAgentId });
+    }
+
+    return {
+      subagentRegistry,
+      toolToAgent,
+      subAgentTools,
+      mainAgentId: null,
+    };
+  }
+
+  correlatingPublish(event: BusEvent): void {
+    const enriched = correlate(event, this.buildCorrelationContext());
+    this.deps.busPublish(enriched);
+  }
+
   publishTextComplete(runId: number, messageId: string): void {
-    this.deps.busPublish({
+    this.correlatingPublish({
       type: "stream.text.complete",
       sessionId: this.deps.sessionId,
       runId,
@@ -54,7 +93,7 @@ export class OpenCodeAdapterSupport {
   }
 
   publishSessionIdle(runId: number, reason: string): void {
-    this.deps.busPublish({
+    this.correlatingPublish({
       type: "stream.session.idle",
       sessionId: this.deps.sessionId,
       runId,
@@ -64,11 +103,11 @@ export class OpenCodeAdapterSupport {
   }
 
   publishSessionStart(runId: number): void {
-    this.deps.busPublish(createSessionStartEvent(this.deps.sessionId, runId));
+    this.correlatingPublish(createSessionStartEvent(this.deps.sessionId, runId));
   }
 
   publishSessionError(runId: number, error: unknown): void {
-    this.deps.busPublish(createSessionErrorEvent(this.deps.sessionId, runId, error));
+    this.correlatingPublish(createSessionErrorEvent(this.deps.sessionId, runId, error));
   }
 
   asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -295,6 +334,10 @@ export class OpenCodeAdapterSupport {
     this.deps.toolState.cleanupOrphanedTools(runId);
   }
 
+  flushOrphanedAgentCompletions(runId: number): void {
+    this.deps.toolState.flushOrphanedAgentCompletions(runId);
+  }
+
   cleanupSubscriptions(unsubscribers: Array<() => void>): Array<() => void> {
     const drained = drainUnsubscribers(unsubscribers);
     this.deps.childSessionSync.reset();
@@ -352,7 +395,7 @@ export class OpenCodeAdapterSupport {
       if ((block.agentId ?? undefined) !== agentId) {
         continue;
       }
-      this.deps.busPublish({
+      this.correlatingPublish({
         type: "stream.thinking.complete",
         sessionId: this.deps.sessionId,
         runId,

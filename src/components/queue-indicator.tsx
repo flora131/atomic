@@ -122,17 +122,17 @@ export function QueueIndicator({
       <box flexDirection="column" gap={SPACING.NONE}>
         <box flexDirection="row" gap={SPACING.ELEMENT}>
           <box width={1} flexShrink={0}>
-            <text style={{ fg: theme.colors.accent }}>{icon}</text>
+            <text fg={theme.colors.accent}>{icon}</text>
           </box>
-          <text style={{ fg: theme.colors.muted }}>{countText}</text>
+          <text fg={theme.colors.muted}>{countText}</text>
         </box>
         {firstMessage && (
           <box paddingLeft={SPACING.CONTAINER_PAD}>
-            <text style={{ fg: theme.colors.foreground }}>
+            <text fg={theme.colors.foreground}>
               {PROMPT.cursor} {preview}
             </text>
             {count > 1 && (
-              <text style={{ fg: theme.colors.muted }}>
+              <text fg={theme.colors.muted}>
                 {" "}(+{count - 1} more)
               </text>
             )}
@@ -152,13 +152,13 @@ export function QueueIndicator({
   const renderMessage = (msg: QueuedMessage, index: number): React.ReactNode => {
     const isEditing = editable && editIndex === index;
     const prefix = isEditing ? "› " : `${PROMPT.cursor} `;
-    const style = {
-      fg: isEditing ? theme.colors.accent : theme.colors.muted,
-      attributes: isEditing ? 1 : 0, // bold when editing
-    };
 
     return (
-      <text key={msg.id} style={style}>
+      <text
+        key={msg.id}
+        fg={isEditing ? theme.colors.accent : theme.colors.muted}
+        attributes={isEditing ? 1 : 0}
+      >
         {prefix}{truncateContent(msg.displayContent ?? msg.content, queueMaxLength)}
       </text>
     );
@@ -169,9 +169,9 @@ export function QueueIndicator({
     <box flexDirection="column" gap={SPACING.NONE}>
       <box flexDirection="row" gap={SPACING.ELEMENT}>
         <box width={1} flexShrink={0}>
-          <text style={{ fg: theme.colors.accent }}>{icon}</text>
+          <text fg={theme.colors.accent}>{icon}</text>
         </box>
-        <text style={{ fg: theme.colors.foreground, attributes: 1 }}>
+        <text fg={theme.colors.foreground} attributes={1}>
           {countText}
         </text>
       </box>
@@ -179,7 +179,7 @@ export function QueueIndicator({
         <box flexDirection="column" paddingLeft={SPACING.CONTAINER_PAD}>
         {queue.slice(0, 3).map((msg, index) => renderMessage(msg, index))}
           {queue.length > 3 && (
-            <text style={{ fg: theme.colors.muted }}>
+            <text fg={theme.colors.muted}>
               ...and {queue.length - 3} more
             </text>
           )}

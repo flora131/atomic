@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { getActiveBackgroundAgents } from "@/lib/ui/background-agent-footer.ts";
+import { getActiveBackgroundAgents } from "@/state/chat/shared/helpers/background-agent-footer.ts";
 import {
   computeFinalizedAgents,
   createAgent,

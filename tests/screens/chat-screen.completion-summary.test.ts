@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { shouldShowCompletionSummary } from "@/lib/ui/loading-state.ts";
+import { shouldShowCompletionSummary } from "@/state/chat/shared/helpers/loading-state.ts";
 
 describe("shouldShowCompletionSummary", () => {
   test("returns true for completed assistant messages >= 1s with no active background agents", () => {
@@ -29,5 +29,21 @@ describe("shouldShowCompletionSummary", () => {
         false,
       ),
     ).toBe(false);
+  });
+
+  test("returns false when activeBackgroundAgentCount > 0", () => {
+    expect(shouldShowCompletionSummary({ streaming: false, durationMs: 5000 }, false, 2)).toBe(false);
+  });
+
+  test("returns true when activeBackgroundAgentCount is 0", () => {
+    expect(shouldShowCompletionSummary({ streaming: false, durationMs: 5000 }, false, 0)).toBe(true);
+  });
+
+  test("returns true when activeBackgroundAgentCount is undefined", () => {
+    expect(shouldShowCompletionSummary({ streaming: false, durationMs: 5000 }, false)).toBe(true);
+  });
+
+  test("activeBackgroundAgentCount takes precedence over hasActiveBackgroundAgents=false", () => {
+    expect(shouldShowCompletionSummary({ streaming: false, durationMs: 5000 }, false, 3)).toBe(false);
   });
 });

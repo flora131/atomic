@@ -2,8 +2,6 @@ import type { StreamPartEvent } from "@/state/parts/index.ts";
 
 const RUNTIME_ENVELOPE_PART_TYPES = new Set<StreamPartEvent["type"]>([
   "task-list-update",
-  "workflow-step-start",
-  "workflow-step-complete",
   "task-result-upsert",
 ]);
 
@@ -11,23 +9,9 @@ export function isRuntimeEnvelopePartEvent(
   part: StreamPartEvent,
 ): part is Extract<
   StreamPartEvent,
-  { type: "task-list-update" | "workflow-step-start" | "workflow-step-complete" | "task-result-upsert" }
+  { type: "task-list-update" | "task-result-upsert" }
 > {
   return RUNTIME_ENVELOPE_PART_TYPES.has(part.type);
-}
-
-export function toWorkflowStepCompletionMessage(
-  part: Extract<StreamPartEvent, { type: "workflow-step-complete" }>,
-): string {
-  const stepLabel = part.nodeName?.trim() || part.nodeId;
-  switch (part.status) {
-    case "success":
-      return `Workflow step "${stepLabel}" completed.`;
-    case "skipped":
-      return `Workflow step "${stepLabel}" skipped.`;
-    case "error":
-      return `Workflow step "${stepLabel}" failed.`;
-  }
 }
 
 export function shouldProcessStreamLifecycleEvent(

@@ -1,18 +1,12 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type { BatchDispatcher } from "@/services/events/batch-dispatcher.ts";
 import type { AskUserQuestionEventData } from "@/services/workflows/graph/index.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
-import type { ChatMessage, MessageSkillLoad, StreamingMeta } from "@/state/chat/types.ts";
-import type { AgentLifecycleLedger, AgentLifecycleViolationCode } from "@/lib/ui/agent-lifecycle-ledger.ts";
-import type { AgentOrderingEvent, AgentOrderingState } from "@/lib/ui/agent-ordering-contract.ts";
-import type { SessionLoopFinishReason } from "@/lib/ui/stream-continuation.ts";
-
-export interface DeferredPostCompleteDelta {
-  messageId: string;
-  runId?: number;
-  delta: string;
-  completionSequence: number;
-}
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
+import type { ChatMessage, MessageSkillLoad, StreamingMeta } from "@/state/chat/shared/types/index.ts";
+import type { AgentLifecycleLedger, AgentLifecycleViolationCode } from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
+import type { AgentOrderingEvent, AgentOrderingState } from "@/state/chat/shared/helpers/agent-ordering-contract.ts";
+import type { SessionLoopFinishReason } from "@/state/chat/shared/helpers/stream-continuation.ts";
+import type { DeferredPostCompleteDelta } from "@/state/chat/shared/types/stream-runtime.ts";
 
 export interface UseStreamSubscriptionsArgs {
   activeSkillSessionIdRef: MutableRefObject<string | null>;
@@ -67,6 +61,8 @@ export interface UseStreamSubscriptionsArgs {
   streamingMessageIdRef: MutableRefObject<string | null>;
   streamingMetaRef: MutableRefObject<StreamingMeta | null>;
   streamingStartRef: MutableRefObject<number | null>;
+  deferredCompleteTimeoutRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
+  pendingCompleteRef: MutableRefObject<(() => void) | null>;
   terminateAgentLifecycleContractViolation: (args: {
     code: AgentLifecycleViolationCode;
     eventType: "stream.agent.start" | "stream.agent.update" | "stream.agent.complete";
@@ -74,4 +70,6 @@ export interface UseStreamSubscriptionsArgs {
   }) => void;
   toolMessageIdByIdRef: MutableRefObject<Map<string, string>>;
   toolNameByIdRef: MutableRefObject<Map<string, string>>;
+  activeBackgroundAgentCountRef: MutableRefObject<number>;
+  setActiveBackgroundAgentCount: Dispatch<SetStateAction<number>>;
 }

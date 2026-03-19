@@ -9,9 +9,9 @@
 import type { PartId } from "@/state/parts/id.ts";
 import type { HitlResponseRecord } from "@/lib/ui/hitl-response.ts";
 import type { PermissionOption } from "@/services/agents/types.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type { TaskItem } from "@/components/task-list-indicator.tsx";
-import type { MessageSkillLoad } from "@/screens/chat-screen.tsx";
+import type { MessageSkillLoad } from "@/types/chat.ts";
 import type { McpSnapshotView } from "@/lib/ui/mcp-output.ts";
 
 /**

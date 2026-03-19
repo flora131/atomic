@@ -100,10 +100,13 @@ export {
   getElapsedTime,
   STATUS_ICONS,
   AGENT_COLORS,
-  type ParallelAgentsTreeProps,
-  type ParallelAgent,
-  type AgentStatus,
 } from "@/components/parallel-agents-tree.tsx";
+
+export type {
+  ParallelAgentsTreeProps,
+  ParallelAgent,
+  AgentStatus,
+} from "@/types/parallel-agents.ts";
 
 // ============================================================================
 // MODEL SELECTOR DIALOG COMPONENT

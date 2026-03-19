@@ -1,7 +1,7 @@
-import type { ChatMessage } from "@/screens/chat-screen.tsx";
+import type { ChatMessage } from "@/types/chat.ts";
 import { type PartId, createPartId } from "@/state/parts/id.ts";
 import type { Part, ReasoningPart } from "@/state/parts/types.ts";
-import { findLastPartIndex } from "@/state/parts/store.ts";
+import { findLastPartIndex, upsertPart } from "@/state/parts/store.ts";
 import type { TextPart } from "@/state/parts/types.ts";
 import type { ThinkingMetaEvent } from "@/state/streaming/pipeline-types.ts";
 
@@ -53,6 +53,24 @@ function removeLastStreamingTextPart(parts: Part[]): Part[] {
 }
 
 export { finalizeLastStreamingTextPart, removeLastStreamingTextPart };
+
+/**
+ * Clear `isStreaming` on ALL text parts in the array.
+ *
+ * Used during stream finalization (normal completion, interruption, error)
+ * to ensure `StreamingBullet` stops animating once the stream is done.
+ */
+export function finalizeStreamingTextParts(parts: Part[]): Part[] {
+  let changed = false;
+  const updated = parts.map((part) => {
+    if (part.type !== "text" || !(part as TextPart).isStreaming) {
+      return part;
+    }
+    changed = true;
+    return { ...part, isStreaming: false };
+  });
+  return changed ? updated : parts;
+}
 
 export function finalizeStreamingReasoningParts(
   parts: Part[],
@@ -107,7 +125,11 @@ function cloneReasoningPartRegistry(message: ChatMessage): Map<string, PartId> {
     if (part.type !== "reasoning") {
       continue;
     }
-    const sourceKey = (part as ReasoningPart).thinkingSourceKey;
+    const reasoningPart = part as ReasoningPart;
+    if (!reasoningPart.isStreaming) {
+      continue;
+    }
+    const sourceKey = reasoningPart.thinkingSourceKey;
     if (sourceKey && sourceKey.trim().length > 0) {
       rebuilt.set(sourceKey, part.id);
     }
@@ -126,6 +148,48 @@ export function carryReasoningPartRegistry(
   return to;
 }
 
+/**
+ * Finalize the reasoning part for a completed thinking block.
+ *
+ * Sets `isStreaming: false` and removes the sourceKey from the registry
+ * so that subsequent thinking deltas with the same sourceKey create a
+ * new reasoning part in chronological order.
+ */
+export function finalizeThinkingSource(
+  message: ChatMessage,
+  sourceKey: string,
+  durationMs: number,
+): ChatMessage {
+  const parts = message.parts ?? [];
+  const registry = cloneReasoningPartRegistry(message);
+
+  let idx = -1;
+  const partId = registry.get(sourceKey);
+  if (partId) {
+    idx = parts.findIndex((p) => p.id === partId && p.type === "reasoning");
+  }
+  if (idx < 0) {
+    idx = parts.findIndex(
+      (p) => p.type === "reasoning" && (p as ReasoningPart).thinkingSourceKey === sourceKey && p.isStreaming,
+    );
+  }
+  if (idx < 0) {
+    return message;
+  }
+
+  const updated = [...parts];
+  updated[idx] = {
+    ...(updated[idx] as ReasoningPart),
+    isStreaming: false,
+    durationMs,
+  };
+  registry.delete(sourceKey);
+
+  const nextMessage: ChatMessage = { ...message, parts: updated };
+  reasoningPartIdBySourceRegistry.set(nextMessage, registry);
+  return nextMessage;
+}
+
 export function upsertThinkingMeta(
   message: ChatMessage,
   event: ThinkingMetaEvent,
@@ -138,14 +202,14 @@ export function upsertThinkingMeta(
     });
   }
 
-  const parts = [...(message.parts ?? [])];
+  let parts = [...(message.parts ?? [])];
   const registry = cloneReasoningPartRegistry(message);
 
   let existingIdx = -1;
   const existingPartId = registry.get(event.thinkingSourceKey);
   if (existingPartId) {
     existingIdx = parts.findIndex(
-      (part) => part.id === existingPartId && part.type === "reasoning",
+      (part) => part.id === existingPartId && part.type === "reasoning" && part.isStreaming,
     );
     if (existingIdx < 0) {
       registry.delete(event.thinkingSourceKey);
@@ -156,7 +220,8 @@ export function upsertThinkingMeta(
     existingIdx = parts.findIndex(
       (part) =>
         part.type === "reasoning" &&
-        (part as ReasoningPart).thinkingSourceKey === event.thinkingSourceKey,
+        (part as ReasoningPart).thinkingSourceKey === event.thinkingSourceKey &&
+        (part as ReasoningPart).isStreaming,
     );
     if (existingIdx >= 0) {
       registry.set(event.thinkingSourceKey, parts[existingIdx]!.id);
@@ -182,12 +247,7 @@ export function upsertThinkingMeta(
       isStreaming: true,
       createdAt: new Date().toISOString(),
     };
-    const firstTextIdx = parts.findIndex((part) => part.type === "text");
-    if (firstTextIdx >= 0) {
-      parts.splice(firstTextIdx, 0, reasoningPart);
-    } else {
-      parts.push(reasoningPart);
-    }
+    parts = upsertPart(parts, reasoningPart);
     registry.set(event.thinkingSourceKey, reasoningPart.id);
   }
 
@@ -241,12 +301,5 @@ export function upsertThinkingMetaPart(
     isStreaming: true,
     createdAt: new Date().toISOString(),
   };
-  const updated = [...parts];
-  const firstTextIdx = updated.findIndex((part) => part.type === "text");
-  if (firstTextIdx >= 0) {
-    updated.splice(firstTextIdx, 0, reasoningPart);
-  } else {
-    updated.push(reasoningPart);
-  }
-  return updated;
+  return upsertPart(parts, reasoningPart);
 }

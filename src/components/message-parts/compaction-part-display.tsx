@@ -20,12 +20,12 @@ export function CompactionPartDisplay({ part }: CompactionPartDisplayProps): Rea
 
   return (
     <box flexDirection="column">
-      <text style={{ fg: colors.muted }}>
+      <text fg={colors.muted}>
         {`${MISC.separator} Conversation compacted ${MISC.separator}`}
       </text>
       {part.summary && (
         <box marginLeft={SPACING.INDENT}>
-          <text style={{ fg: colors.muted }}>{part.summary}</text>
+          <text fg={colors.muted}>{part.summary}</text>
         </box>
       )}
     </box>

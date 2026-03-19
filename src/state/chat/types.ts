@@ -1,1 +1,1 @@
-export * from "@/state/chat/shared/types.ts";
+export * from "@/state/chat/shared/types/index.ts";

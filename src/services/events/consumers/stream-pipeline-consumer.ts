@@ -13,7 +13,7 @@
  *
  * Usage:
  * ```typescript
- * const consumer = new StreamPipelineConsumer(correlationService, echoSuppressor);
+ * const consumer = new StreamPipelineConsumer(echoSuppressor);
  *
  * // Register callback to receive batched StreamPartEvents
  * const unsubscribe = consumer.onStreamParts((events) => {
@@ -31,9 +31,9 @@
  * ```
  */
 
-import type { EnrichedBusEvent, BusEventDataMap } from "@/services/events/bus-events.ts";
-import type { CorrelationService } from "@/services/events/consumers/correlation-service.ts";
+import type { EnrichedBusEvent } from "@/services/events/bus-events/index.ts";
 import type { EchoSuppressor } from "@/services/events/consumers/echo-suppressor.ts";
+import { getEventHandlerRegistry, type StreamPartContext } from "@/services/events/registry/index.ts";
 import type { StreamPartEvent } from "@/state/parts/stream-pipeline.ts";
 import { pipelineLog } from "@/services/events/pipeline-logger.ts";
 
@@ -52,26 +52,26 @@ export type StreamPartEventCallback = (events: StreamPartEvent[]) => void;
  * 1. Mapping enriched BusEvents to the appropriate StreamPartEvent types
  * 2. Filtering text deltas through the EchoSuppressor
  * 3. Batching mapped events and delivering them via callback
- * 4. Coordinating with CorrelationService for enrichment metadata
  *
  * The consumer is designed to work with the BatchDispatcher's frame-aligned
  * batching system, processing all events from a batch and then delivering
  * the resulting StreamPartEvents in a single callback invocation.
  */
 export class StreamPipelineConsumer {
-  private correlation: CorrelationService;
   private echoSuppressor: EchoSuppressor;
   private callback: StreamPartEventCallback | null = null;
+  private readonly streamPartContext: StreamPartContext;
 
   /**
    * Construct a new StreamPipelineConsumer.
    *
-   * @param correlation - Service for event correlation and enrichment
    * @param echoSuppressor - Service for filtering duplicate text echoes
    */
-  constructor(correlation: CorrelationService, echoSuppressor: EchoSuppressor) {
-    this.correlation = correlation;
+  constructor(echoSuppressor: EchoSuppressor) {
     this.echoSuppressor = echoSuppressor;
+    this.streamPartContext = {
+      filterDelta: (delta) => this.echoSuppressor.filterDelta(delta),
+    };
   }
 
   /**
@@ -169,173 +169,31 @@ export class StreamPipelineConsumer {
   /**
    * Map a single BusEvent to zero or more StreamPartEvents.
    *
-   * This method handles the type-specific transformation logic for each
-   * BusEvent type. Some events map to a single StreamPartEvent, some map
-   * to multiple, and some are ignored (return null).
+   * Dispatches through the event handler registry so per-event mapping logic
+   * stays colocated with the registered descriptors. Some events map to a
+   * single StreamPartEvent, some map to multiple, and some are ignored.
    *
    * @param event - The enriched BusEvent to map
    * @returns Array of StreamPartEvents, or null if the event should be ignored
    */
   private mapToStreamPart(event: EnrichedBusEvent): StreamPartEvent[] | null {
-    switch (event.type) {
-      case "stream.text.delta": {
-        const data = event.data as BusEventDataMap["stream.text.delta"];
-        if (data.agentId) {
-          return [{ type: "text-delta", runId: event.runId, delta: data.delta, agentId: data.agentId }];
-        }
-        // Run through echo suppressor to filter duplicate tool result echoes
-        const filtered = this.echoSuppressor.filterDelta(data.delta);
-        if (!filtered) return null;
-        return [{ type: "text-delta", runId: event.runId, delta: filtered }];
-      }
-
-      case "stream.thinking.delta": {
-        const data = event.data as BusEventDataMap["stream.thinking.delta"];
-        return [{
-          type: "thinking-meta",
-          runId: event.runId,
-          thinkingSourceKey: data.sourceKey,
-          targetMessageId: data.messageId,
-          streamGeneration: 0, // Default value - updated by correlation service if needed
-          thinkingText: data.delta,
-          thinkingMs: 0, // Duration tracking handled elsewhere
-          ...(data.agentId ? { agentId: data.agentId } : {}),
-        }];
-      }
-
-      case "stream.tool.start": {
-        const data = event.data as BusEventDataMap["stream.tool.start"];
-        const correlatedAgentId = data.parentAgentId
-          ?? (event.isSubagentTool ? event.resolvedAgentId : undefined);
-        return [{
-          type: "tool-start",
-          runId: event.runId,
-          toolId: data.toolId,
-          toolName: data.toolName,
-          input: data.toolInput,
-          ...(data.toolMetadata ? { toolMetadata: data.toolMetadata } : {}),
-          ...(correlatedAgentId ? { agentId: correlatedAgentId } : {}),
-        }];
-      }
-
-      case "stream.tool.complete": {
-        const data = event.data as BusEventDataMap["stream.tool.complete"];
-        const correlatedAgentId = data.parentAgentId
-          ?? (event.isSubagentTool ? event.resolvedAgentId : undefined);
-        const mapped: StreamPartEvent = {
-          type: "tool-complete",
-          runId: event.runId,
-          toolId: data.toolId,
-          toolName: data.toolName,
-          output: data.toolResult,
-          success: data.success,
-          error: data.error,
-          ...(data.toolInput ? { input: data.toolInput } : {}),
-          ...(data.toolMetadata ? { toolMetadata: data.toolMetadata } : {}),
-          ...(correlatedAgentId ? { agentId: correlatedAgentId } : {}),
-        };
-        return [mapped];
-      }
-
-      case "stream.tool.partial_result": {
-        const data = event.data as BusEventDataMap["stream.tool.partial_result"];
-        const correlatedAgentId = data.parentAgentId
-          ?? (event.isSubagentTool ? event.resolvedAgentId : undefined);
-        return [{
-          type: "tool-partial-result",
-          runId: event.runId,
-          toolId: data.toolCallId,
-          partialOutput: data.partialOutput,
-          ...(correlatedAgentId ? { agentId: correlatedAgentId } : {}),
-        }];
-      }
-
-      case "stream.text.complete": {
-        const data = event.data as BusEventDataMap["stream.text.complete"];
-        if (!data.fullText) return [];
-        return [{ type: "text-complete", runId: event.runId, fullText: data.fullText, messageId: data.messageId }];
-      }
-
-      case "stream.agent.complete": {
-        const data = event.data as BusEventDataMap["stream.agent.complete"];
-        return [{
-          type: "agent-terminal",
-          runId: event.runId,
-          agentId: data.agentId,
-          status: data.success ? "completed" : "error",
-          ...(typeof data.result === "string" ? { result: data.result } : {}),
-          ...(typeof data.error === "string" ? { error: data.error } : {}),
-          completedAt: new Date(event.timestamp).toISOString(),
-        }];
-      }
-
-      case "workflow.task.update": {
-        const data = event.data as BusEventDataMap["workflow.task.update"];
-        const mapped: StreamPartEvent[] = [{
-          type: "task-list-update",
-          runId: event.runId,
-          tasks: data.tasks.map((task) => ({
-            id: task.id,
-            title: task.title,
-            status: task.status,
-            ...(task.blockedBy ? { blockedBy: task.blockedBy } : {}),
-          })),
-        }];
-
-        for (const task of data.tasks) {
-          if (!task.taskResult) {
-            continue;
-          }
-
-          mapped.push({
-            type: "task-result-upsert",
-            runId: event.runId,
-            envelope: task.taskResult,
-          });
-        }
-
-        return mapped;
-      }
-
-      case "workflow.step.start": {
-        const data = event.data as BusEventDataMap["workflow.step.start"];
-        return [{
-          type: "workflow-step-start",
-          runId: event.runId,
-          workflowId: data.workflowId,
-          nodeId: data.nodeId,
-          nodeName: data.nodeName,
-          startedAt: new Date(event.timestamp).toISOString(),
-        }];
-      }
-
-      case "workflow.step.complete": {
-        const data = event.data as BusEventDataMap["workflow.step.complete"];
-        return [{
-          type: "workflow-step-complete",
-          runId: event.runId,
-          workflowId: data.workflowId,
-          nodeId: data.nodeId,
-          nodeName: data.nodeName,
-          status: data.status,
-          ...(data.result !== undefined ? { result: data.result } : {}),
-          completedAt: new Date(event.timestamp).toISOString(),
-        }];
-      }
-
-      default:
-        // Other event types are not mapped to StreamPartEvents
-        // (they may be handled by other consumers)
-        pipelineLog("Consumer", "unmapped", { type: event.type });
-        return null;
+    const mapper = getEventHandlerRegistry().getStreamPartMapper(event.type);
+    if (!mapper) {
+      return null;
     }
+
+    const mapped = mapper(event, this.streamPartContext);
+    if (!mapped) {
+      return null;
+    }
+
+    return Array.isArray(mapped) ? mapped : [mapped];
   }
 
   /**
    * Reset all consumer state.
    *
-   * This method delegates reset to the correlation service and echo suppressor,
-   * preparing the consumer for a new streaming session.
+   * Resets the echo suppressor, preparing the consumer for a new streaming session.
    *
    * Should be called:
    * - Before starting a new stream
@@ -344,6 +202,5 @@ export class StreamPipelineConsumer {
    */
   reset(): void {
     this.echoSuppressor.reset();
-    this.correlation.reset();
   }
 }

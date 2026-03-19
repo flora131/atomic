@@ -1,4 +1,4 @@
-import type { BusEvent } from "@/services/events/bus-events.ts";
+import type { BusEvent } from "@/services/events/bus-events/index.ts";
 import type { StreamAdapterOptions } from "@/services/events/adapters/types.ts";
 import type {
   CodingAgentClient,
@@ -48,7 +48,11 @@ export async function startClaudeStreaming(args: {
   publishTextComplete: (runId: number, messageId: string) => void;
   publishSessionError: (runId: number, error: unknown) => void;
   cleanupOrphanedTools: (runId: number) => void;
+  flushOrphanedAgentCompletions: (runId: number) => void;
   publishSessionIdle: (runId: number, reason: "generator-complete" | "aborted" | "error") => void;
+  hasActiveBackgroundAgents: () => boolean;
+  getActiveBackgroundAgentCount: () => number;
+  publishSessionPartialIdle: (runId: number, completionReason: string, activeBackgroundAgentCount: number) => void;
   processStreamChunk: (chunk: AgentMessage, runId: number, messageId: string) => void;
   createAgentEvent: <T extends EventType>(event: {
     type: T;
@@ -107,6 +111,18 @@ export async function startClaudeStreaming(args: {
   const providerClient = client as (CodingAgentClient & ClaudeProviderEventSource) | undefined;
   if (providerClient && typeof providerClient.onProviderEvent === "function") {
     args.setPreferClientToolHooks(true);
+    // Intentionally omitted SDK event types:
+    //
+    // - session.start: The adapter publishes stream.session.start directly
+    //   via publishSessionStart() above, before event subscription begins.
+    //   See event-coverage-policy.ts (no_op).
+    //
+    // - session.idle: Handled by the streaming runtime's own completion
+    //   logic in the finally block (publishSessionIdle / publishSessionPartialIdle),
+    //   not via provider events.
+    //
+    // - session.retry: Emitted by the retry loop below directly to the bus,
+    //   bypassing the provider event handler path entirely.
     const providerEventTypes: ProviderStreamEventType[] = [
       "tool.start",
       "tool.complete",
@@ -230,7 +246,22 @@ export async function startClaudeStreaming(args: {
       streamCompletionReason = "aborted";
       args.publishSyntheticAgentComplete(runId, false, "Tool execution aborted");
     }
+    const hadActiveBackgroundAgents = args.hasActiveBackgroundAgents();
+    const activeBackgroundAgentCount = hadActiveBackgroundAgents
+      ? args.getActiveBackgroundAgentCount()
+      : 0;
+
     args.cleanupOrphanedTools(runId);
-    args.publishSessionIdle(runId, streamCompletionReason);
+    args.flushOrphanedAgentCompletions(runId);
+
+    if (hadActiveBackgroundAgents) {
+      args.publishSessionPartialIdle(
+        runId,
+        streamCompletionReason,
+        activeBackgroundAgentCount,
+      );
+    } else {
+      args.publishSessionIdle(runId, streamCompletionReason);
+    }
   }
 }

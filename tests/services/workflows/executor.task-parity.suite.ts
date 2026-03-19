@@ -19,25 +19,6 @@ describe("executeWorkflow - task parity", () => {
       saveCalls.push({ tasks, sessionId });
     };
 
-    const subscriptions: Array<{ type: string; handler: any }> = [];
-    const mockEventBus = {
-      publish: (event: any) => {
-        for (const sub of subscriptions) {
-          if (sub.type === event.type) {
-            sub.handler(event);
-          }
-        }
-      },
-      on: (type: string, handler: any) => {
-        subscriptions.push({ type, handler });
-        return () => {};
-      },
-      onAll: () => () => {},
-      clear: () => {},
-      hasHandlers: () => false,
-      get handlerCount() { return 0; },
-    };
-
     interface TestState extends BaseState {
       value: string;
     }
@@ -98,7 +79,6 @@ describe("executeWorkflow - task parity", () => {
       context as any,
       {
         compiledGraph: compiledGraph as any,
-        eventBus: mockEventBus as any,
         saveTasksToSession,
       },
     );
@@ -130,25 +110,6 @@ describe("executeWorkflow - task parity", () => {
   test("fails fast when task result task_id mismatches canonical identity", async () => {
     resetRuntimeParityMetrics();
     const context = createMockContext();
-
-    const subscriptions: Array<{ type: string; handler: any }> = [];
-    const mockEventBus = {
-      publish: (event: any) => {
-        for (const sub of subscriptions) {
-          if (sub.type === event.type) {
-            sub.handler(event);
-          }
-        }
-      },
-      on: (type: string, handler: any) => {
-        subscriptions.push({ type, handler });
-        return () => {};
-      },
-      onAll: () => () => {},
-      clear: () => {},
-      hasHandlers: () => false,
-      get handlerCount() { return 0; },
-    };
 
     interface TestState extends BaseState {
       value: string;
@@ -203,7 +164,6 @@ describe("executeWorkflow - task parity", () => {
       context as any,
       {
         compiledGraph: compiledGraph as any,
-        eventBus: mockEventBus as any,
         saveTasksToSession: async () => {},
       },
     );

@@ -1,4 +1,4 @@
-import type { BusEvent } from "@/services/events/bus-events.ts";
+import type { BusEvent } from "@/services/events/bus-events/index.ts";
 import type { StreamAdapterOptions } from "@/services/events/adapters/types.ts";
 import type {
   CodingAgentClient,
@@ -15,6 +15,7 @@ import {
 
 export async function runOpenCodeStreamingRuntime(args: {
   cleanupOrphanedTools: (runId: number) => void;
+  flushOrphanedAgentCompletions: (runId: number) => void;
   getAbortController: () => AbortController | null;
   getTextAccumulator: () => string;
   message: string;
@@ -35,6 +36,7 @@ export async function runOpenCodeStreamingRuntime(args: {
 }): Promise<void> {
   const {
     cleanupOrphanedTools,
+    flushOrphanedAgentCompletions,
     getAbortController,
     getTextAccumulator,
     message,
@@ -155,6 +157,7 @@ export async function runOpenCodeStreamingRuntime(args: {
       }
 
       cleanupOrphanedTools(runId);
+      flushOrphanedAgentCompletions(runId);
       publishSessionIdle(runId, completion.reason);
       return;
     }
@@ -174,6 +177,7 @@ export async function runOpenCodeStreamingRuntime(args: {
           publishTextComplete(runId, messageId);
         }
         cleanupOrphanedTools(runId);
+        flushOrphanedAgentCompletions(runId);
         publishSessionIdle(runId, "generator-complete");
         lastError = null;
         break;
@@ -214,8 +218,10 @@ export async function runOpenCodeStreamingRuntime(args: {
       publishSessionError(runId, error);
     }
     cleanupOrphanedTools(runId);
+    flushOrphanedAgentCompletions(runId);
     publishSessionIdle(runId, "error");
   } finally {
     cleanupOrphanedTools(runId);
+    flushOrphanedAgentCompletions(runId);
   }
 }

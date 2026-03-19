@@ -13,15 +13,17 @@ const CLAUDE_CANONICAL_MODELS = ["opus", "sonnet", "haiku"] as const;
 type ClaudeCanonicalModel = (typeof CLAUDE_CANONICAL_MODELS)[number];
 const DEFAULT_CLAUDE_CONTEXT_WINDOW = 200000;
 
-export type ClaudeSdkListModelsFn = () => Promise<
-  Array<{ value: string; displayName: string; description: string }>
->;
-
-function inferClaudeContextWindow(modelInfo: {
+export interface ClaudeSdkModelInfo {
   value: string;
   displayName: string;
   description: string;
-}): number {
+  supportsEffort?: boolean;
+  supportedEffortLevels?: Array<"low" | "medium" | "high" | "max">;
+}
+
+export type ClaudeSdkListModelsFn = () => Promise<ClaudeSdkModelInfo[]>;
+
+function inferClaudeContextWindow(modelInfo: ClaudeSdkModelInfo): number {
   const candidates = [modelInfo.displayName, modelInfo.description, modelInfo.value];
 
   for (const text of candidates) {
@@ -85,7 +87,7 @@ export async function listClaudeModels(
   }
 
   const modelInfos = await sdkListModels();
-  const canonicalInfo = new Map<ClaudeCanonicalModel, { value: string; displayName: string; description: string }>(
+  const canonicalInfo = new Map<ClaudeCanonicalModel, ClaudeSdkModelInfo>(
     CLAUDE_CANONICAL_MODELS.map((model) => [
       model,
       {
@@ -95,7 +97,7 @@ export async function listClaudeModels(
       },
     ]),
   );
-  const extraModels = new Map<string, { value: string; displayName: string; description: string }>();
+  const extraModels = new Map<string, ClaudeSdkModelInfo>();
 
   for (const info of modelInfos) {
     const value = info.value.trim();
@@ -105,6 +107,18 @@ export async function listClaudeModels(
 
     const key = value.toLowerCase();
     if (key === "default") {
+      const existing = canonicalInfo.get("opus")!;
+      canonicalInfo.set("opus", {
+        value: "opus",
+        displayName: existing.displayName,
+        description: info.description || existing.description,
+        supportsEffort: info.supportsEffort ?? existing.supportsEffort,
+        supportedEffortLevels: info.supportedEffortLevels
+          ? [...info.supportedEffortLevels]
+          : existing.supportedEffortLevels
+            ? [...existing.supportedEffortLevels]
+            : undefined,
+      });
       continue;
     }
 
@@ -114,6 +128,12 @@ export async function listClaudeModels(
         value: key,
         displayName: info.displayName || existing.displayName,
         description: info.description || existing.description,
+        supportsEffort: info.supportsEffort ?? existing.supportsEffort,
+        supportedEffortLevels: info.supportedEffortLevels
+          ? [...info.supportedEffortLevels]
+          : existing.supportedEffortLevels
+            ? [...existing.supportedEffortLevels]
+            : undefined,
       });
       continue;
     }
@@ -123,6 +143,10 @@ export async function listClaudeModels(
         value,
         displayName: info.displayName || value,
         description: info.description || "",
+        supportsEffort: info.supportsEffort,
+        supportedEffortLevels: info.supportedEffortLevels
+          ? [...info.supportedEffortLevels]
+          : undefined,
       });
     }
   }

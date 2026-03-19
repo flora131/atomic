@@ -103,4 +103,29 @@ describe("fromOpenCodeModel", () => {
     const result = fromOpenCodeModel("test", "old-model", makeOpenCodeModel({ status: "deprecated" }));
     expect(result.status).toBe("deprecated");
   });
+
+  test("maps built-in OpenCode reasoning variants to supported effort levels", () => {
+    const result = fromOpenCodeModel("openai", "gpt-5", makeOpenCodeModel({
+      variants: {
+        low: { reasoningEffort: "low" },
+        medium: { reasoningEffort: "medium" },
+        high: { reasoningEffort: "high" },
+      },
+    }));
+
+    expect(result.supportedReasoningEfforts).toEqual(["low", "medium", "high"]);
+    expect(result.defaultReasoningEffort).toBeUndefined();
+  });
+
+  test("ignores custom and disabled OpenCode variants when deriving effort levels", () => {
+    const result = fromOpenCodeModel("anthropic", "claude-sonnet-4-5", makeOpenCodeModel({
+      variants: {
+        low: { thinking: { budgetTokens: 4000 } },
+        max: { disabled: true },
+        focused: { reasoningEffort: "high" },
+      },
+    }));
+
+    expect(result.supportedReasoningEfforts).toEqual(["low"]);
+  });
 });

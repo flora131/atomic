@@ -10,7 +10,7 @@ import {
   registerAgentLifecycleComplete,
   registerAgentLifecycleStart,
   registerAgentLifecycleUpdate,
-} from "@/lib/ui/agent-lifecycle-ledger.ts";
+} from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
 
 const PROVIDERS: AgentType[] = ["claude", "opencode", "copilot"];
 

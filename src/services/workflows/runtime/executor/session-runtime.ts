@@ -1,12 +1,10 @@
-import type { EventBus } from "@/services/events/event-bus.ts";
-import { WorkflowEventAdapter } from "@/services/events/adapters/workflow-adapter.ts";
 import { pipelineError } from "@/services/events/pipeline-logger.ts";
-import { type WorkflowDefinition, registerActiveSession } from "@/commands/tui/workflow-commands.ts";
-import type { CommandContext } from "@/commands/tui/registry.ts";
+import type { WorkflowDefinition } from "@/services/workflows/workflow-types.ts";
+import { registerActiveSession } from "@/services/agent-discovery/index.ts";
+import type { CommandContext } from "@/types/command.ts";
 import { getWorkflowSessionDir, initWorkflowSession } from "@/services/workflows/session.ts";
 
 export interface WorkflowExecutionSessionRuntime {
-  eventAdapter?: WorkflowEventAdapter;
   sessionDir: string;
   sessionId: string;
   workflowRunId: number;
@@ -15,26 +13,12 @@ export interface WorkflowExecutionSessionRuntime {
 export function initializeWorkflowExecutionSession(args: {
   context: CommandContext;
   definition: WorkflowDefinition;
-  eventBus?: EventBus;
   prompt: string;
 }): WorkflowExecutionSessionRuntime {
-  const { context, definition, eventBus, prompt } = args;
+  const { context, definition, prompt } = args;
   const sessionId = crypto.randomUUID();
   const sessionDir = getWorkflowSessionDir(sessionId);
   const workflowRunId = crypto.getRandomValues(new Uint32Array(1))[0]!;
-  const eventAdapter = eventBus
-    ? new WorkflowEventAdapter(eventBus, sessionId, workflowRunId)
-    : undefined;
-
-  if (eventBus) {
-    eventBus.publish({
-      type: "stream.session.start",
-      sessionId,
-      runId: workflowRunId,
-      timestamp: Date.now(),
-      data: { config: { workflowName: definition.name } },
-    });
-  }
 
   void initWorkflowSession(definition.name, sessionId).then((session) => {
     registerActiveSession(session);
@@ -54,7 +38,6 @@ export function initializeWorkflowExecutionSession(args: {
   context.setStreaming(true);
 
   return {
-    eventAdapter,
     sessionDir,
     sessionId,
     workflowRunId,

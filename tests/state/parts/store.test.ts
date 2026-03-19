@@ -62,67 +62,68 @@ describe("binarySearchById", () => {
   
   test("returns bitwise complement when not found - should insert at start", () => {
     const parts: Part[] = [
-      makeTextPart("second", "part_000000000002_0000"),
-      makeTextPart("third", "part_000000000003_0000"),
+      makeTextPart("second", "part_000000002000"),
+      makeTextPart("third", "part_000000003000"),
     ];
     
-    const idx = binarySearchById(parts, "part_000000000001_0000");
+    const idx = binarySearchById(parts, "part_000000001000");
     expect(idx).toBeLessThan(0);
     expect(~idx).toBe(0); // Should insert at position 0
   });
   
   test("returns bitwise complement when not found - should insert in middle", () => {
     const parts: Part[] = [
-      makeTextPart("first", "part_000000000001_0000"),
-      makeTextPart("third", "part_000000000003_0000"),
+      makeTextPart("first", "part_000000001000"),
+      makeTextPart("third", "part_000000003000"),
     ];
     
-    const idx = binarySearchById(parts, "part_000000000002_0000");
+    const idx = binarySearchById(parts, "part_000000002000");
     expect(idx).toBeLessThan(0);
     expect(~idx).toBe(1); // Should insert at position 1
   });
   
   test("returns bitwise complement when not found - should insert at end", () => {
     const parts: Part[] = [
-      makeTextPart("first", "part_000000000001_0000"),
-      makeTextPart("second", "part_000000000002_0000"),
+      makeTextPart("first", "part_000000001000"),
+      makeTextPart("second", "part_000000002000"),
     ];
     
-    const idx = binarySearchById(parts, "part_000000000004_0000");
+    const idx = binarySearchById(parts, "part_000000004000");
     expect(idx).toBeLessThan(0);
     expect(~idx).toBe(2); // Should insert at position 2 (end)
   });
   
   test("works on empty array", () => {
     const parts: Part[] = [];
-    const idx = binarySearchById(parts, "part_000000000001_0000");
+    const idx = binarySearchById(parts, "part_000000001000");
     expect(idx).toBeLessThan(0);
     expect(~idx).toBe(0); // Should insert at position 0
   });
   
   test("works on single element array - found", () => {
-    const parts: Part[] = [makeTextPart("only", "part_000000000001_0000")];
-    const idx = binarySearchById(parts, "part_000000000001_0000");
+    const parts: Part[] = [makeTextPart("only", "part_000000001000")];
+    const idx = binarySearchById(parts, "part_000000001000");
     expect(idx).toBe(0);
   });
   
   test("works on single element array - not found before", () => {
-    const parts: Part[] = [makeTextPart("only", "part_000000000002_0000")];
-    const idx = binarySearchById(parts, "part_000000000001_0000");
+    const parts: Part[] = [makeTextPart("only", "part_000000002000")];
+    const idx = binarySearchById(parts, "part_000000001000");
     expect(idx).toBeLessThan(0);
     expect(~idx).toBe(0);
   });
   
   test("works on single element array - not found after", () => {
-    const parts: Part[] = [makeTextPart("only", "part_000000000001_0000")];
-    const idx = binarySearchById(parts, "part_000000000002_0000");
+    const parts: Part[] = [makeTextPart("only", "part_000000001000")];
+    const idx = binarySearchById(parts, "part_000000002000");
     expect(idx).toBeLessThan(0);
     expect(~idx).toBe(1);
   });
   
   test("handles large sorted array", () => {
+    // Generate IDs using the new composite format: timestamp * 0x1000
     const parts: Part[] = Array.from({ length: 1000 }, (_, i) =>
-      makeTextPart(`part${i}`, `part_${i.toString(16).padStart(12, "0")}_0000`)
+      makeTextPart(`part${i}`, `part_${(i * 0x1000).toString(16).padStart(12, "0")}`)
     );
     
     // Search for existing elements
@@ -131,7 +132,7 @@ describe("binarySearchById", () => {
     expect(binarySearchById(parts, parts[999]!.id)).toBe(999);
     
     // Search for non-existing element
-    const nonExistentId = "part_999999999999_0000";
+    const nonExistentId = "part_ffffffffffff";
     const idx = binarySearchById(parts, nonExistentId);
     expect(idx).toBeLessThan(0);
   });
@@ -150,9 +151,9 @@ describe("upsertPart", () => {
   });
   
   test("updates existing part by ID", () => {
-    const id1 = "part_000000000001_0000";
-    const id2 = "part_000000000002_0000";
-    const id3 = "part_000000000003_0000";
+    const id1 = "part_000000001000";
+    const id2 = "part_000000002000";
+    const id3 = "part_000000003000";
     
     const parts: Part[] = [
       makeTextPart("first", id1),
@@ -171,11 +172,11 @@ describe("upsertPart", () => {
   
   test("maintains sorted order on insert at start", () => {
     const parts: Part[] = [
-      makeTextPart("second", "part_000000000002_0000"),
-      makeTextPart("third", "part_000000000003_0000"),
+      makeTextPart("second", "part_000000002000"),
+      makeTextPart("third", "part_000000003000"),
     ];
     
-    const newPart = makeTextPart("first", "part_000000000001_0000");
+    const newPart = makeTextPart("first", "part_000000001000");
     const result = upsertPart(parts, newPart);
     
     expect(result.length).toBe(3);
@@ -186,11 +187,11 @@ describe("upsertPart", () => {
   
   test("maintains sorted order on insert in middle", () => {
     const parts: Part[] = [
-      makeTextPart("first", "part_000000000001_0000"),
-      makeTextPart("third", "part_000000000003_0000"),
+      makeTextPart("first", "part_000000001000"),
+      makeTextPart("third", "part_000000003000"),
     ];
     
-    const newPart = makeTextPart("second", "part_000000000002_0000");
+    const newPart = makeTextPart("second", "part_000000002000");
     const result = upsertPart(parts, newPart);
     
     expect(result.length).toBe(3);
@@ -201,11 +202,11 @@ describe("upsertPart", () => {
   
   test("maintains sorted order on insert at end", () => {
     const parts: Part[] = [
-      makeTextPart("first", "part_000000000001_0000"),
-      makeTextPart("second", "part_000000000002_0000"),
+      makeTextPart("first", "part_000000001000"),
+      makeTextPart("second", "part_000000002000"),
     ];
     
-    const newPart = makeTextPart("third", "part_000000000003_0000");
+    const newPart = makeTextPart("third", "part_000000003000");
     const result = upsertPart(parts, newPart);
     
     expect(result.length).toBe(3);
@@ -224,8 +225,8 @@ describe("upsertPart", () => {
   });
   
   test("handles upsert with different part types", () => {
-    const textPart = makeTextPart("text", "part_000000000001_0000");
-    const reasoningPart = makeReasoningPart("reasoning", "part_000000000002_0000");
+    const textPart = makeTextPart("text", "part_000000001000");
+    const reasoningPart = makeReasoningPart("reasoning", "part_000000002000");
     
     const parts: Part[] = [textPart];
     const result = upsertPart(parts, reasoningPart);
@@ -238,9 +239,9 @@ describe("upsertPart", () => {
   test("handles multiple sequential upserts", () => {
     let parts: Part[] = [];
     
-    const part1 = makeTextPart("first", "part_000000000001_0000");
-    const part2 = makeTextPart("second", "part_000000000002_0000");
-    const part3 = makeTextPart("third", "part_000000000003_0000");
+    const part1 = makeTextPart("first", "part_000000001000");
+    const part2 = makeTextPart("second", "part_000000002000");
+    const part3 = makeTextPart("third", "part_000000003000");
     
     parts = upsertPart(parts, part2);
     parts = upsertPart(parts, part1);
@@ -253,7 +254,7 @@ describe("upsertPart", () => {
   });
   
   test("handles update then insert", () => {
-    const id1 = "part_000000000001_0000";
+    const id1 = "part_000000001000";
     const parts: Part[] = [makeTextPart("first", id1)];
     
     // Update existing
@@ -262,7 +263,7 @@ describe("upsertPart", () => {
     expect((result[0] as TextPart)!.content).toBe("UPDATED");
     
     // Insert new
-    const newPart = makeTextPart("second", "part_000000000002_0000");
+    const newPart = makeTextPart("second", "part_000000002000");
     result = upsertPart(result, newPart);
     expect(result.length).toBe(2);
     expect((result[1] as TextPart)!.content).toBe("second");

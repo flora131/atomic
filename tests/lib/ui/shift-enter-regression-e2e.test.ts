@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
-import { getNextKittyKeyboardDetectionState } from "@/lib/ui/kitty-keyboard-detection.ts";
+import { getNextKittyKeyboardDetectionState } from "@/state/chat/keyboard/kitty-keyboard-detection.ts";
 import {
   shouldApplyBackslashLineContinuation,
   shouldInsertNewlineFallbackFromKeyEvent,
   shouldInsertNewlineFromKeyEvent,
   type NewlineKeyEventLike,
-} from "@/lib/ui/newline-strategies.ts";
+} from "@/state/chat/shared/helpers/newline-strategies.ts";
 
 interface SimulatedKeyEvent extends NewlineKeyEventLike {
   raw?: string;

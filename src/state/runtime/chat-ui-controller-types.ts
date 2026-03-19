@@ -10,7 +10,7 @@ import type {
 import type { TuiTelemetrySessionTracker } from "@/services/telemetry/index.ts";
 import type { EventBus } from "@/services/events/event-bus.ts";
 import type { BatchDispatcher } from "@/services/events/batch-dispatcher.ts";
-import type { attachDebugSubscriber } from "@/services/events/debug-subscriber.ts";
+import type { attachDebugSubscriber } from "@/services/events/debug-subscriber/index.ts";
 
 export interface ChatUIState {
   renderer: CliRenderer | null;

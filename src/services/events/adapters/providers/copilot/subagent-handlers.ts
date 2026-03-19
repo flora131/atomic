@@ -110,7 +110,9 @@ export function handleCopilotSubagentStart(
     isBackground: metadata?.isBackground,
   });
 
-  state.subagentTracker?.registerAgent(data.subagentId);
+  state.subagentTracker?.registerAgent(data.subagentId, {
+    isBackground: normalizedMetadata.isBackground,
+  });
   promoteSyntheticForegroundAgentIdentity({
     syntheticForegroundAgent: state.syntheticForegroundAgent,
     subagentTracker: state.subagentTracker,
@@ -199,6 +201,21 @@ export function handleCopilotSubagentComplete(
       error,
     },
   });
+
+  if (
+    state.isBackgroundOnly &&
+    !state.subagentTracker?.hasActiveBackgroundAgents()
+  ) {
+    deps.publishEvent({
+      type: "stream.session.idle",
+      sessionId: state.sessionId,
+      runId: state.runId,
+      timestamp: Date.now(),
+      data: { reason: "background-complete" },
+    });
+    state.isBackgroundOnly = false;
+    state.isActive = false;
+  }
 }
 
 export function handleCopilotSubagentUpdate(

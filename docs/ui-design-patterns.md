@@ -39,82 +39,92 @@
 
 ### Sub-agents
 
-Sub-agents use a tree-based UI with the following design patterns depending on whether they are invoked in the foreground or background.
+Each sub-agent renders as its own independent block prefixed with `●`. Parallel sub-agents are **not** nested under a parent grouping node — they are listed sequentially. Each sub-agent shows its tool calls as a flat tree with `├─` / `└─` connectors, and tool calls display the tool name plus a brief argument summary.
 
 **Foreground Sub-agent Invocation**
 
-1. During initialization (no tool calls or streaming started)
+1. During initialization (no tool calls or streaming started):
 
     ```
-    ● Running 2 agents…
-    ├─● Locate sub-agent message handling
-    │    ╰  Initializing codebase-locator… (2s)
-    └─● Find sub-agent text rendering code
-         ╰  Initializing codebase-pattern-finder… (5s)
+    ● codebase-locator
+    └─ Initializing…
+
+    ● codebase-analyzer
+    └─ Initializing…
     ```
 
-2. During execution (tools and tool counts stream for each branch):
-
-    Here's how a correct UI looks during execution:
+2. During execution (tool calls stream for each sub-agent):
 
     ```
-    ● Running 2 agents…
-    ├─● Locate sub-agent message handling
-    │    ╰ codebase-locator: (10 tool uses)
-    │      · rg
-    └─● Find sub-agent text rendering code
-         ╰ codebase-pattern-finder: (5 tool uses)
-           · ls
+    ● codebase-locator
+    ├─ Glob **/* in .github
+    ├─ Glob **/* in src
+    └─ Read src/services/events/bus.ts
+
+    ● codebase-analyzer
+    ├─ Grep "EventBus" in src
+    ├─ Read src/state/store.ts
+    └─ Read src/state/reducer.ts
     ```
 
-    Here's how an incorrect UI looks:
+3. During execution with many tool calls (truncated view):
+
+    When a sub-agent has made more than 3 tool calls, show only the **last 3 tool calls** with a `+N earlier tool calls` indicator. This keeps the tree compact while preserving recency (what the agent is doing *now*) and total count.
 
     ```
-    ● Running 2 codebase-analyzer agents…
-    ├─● codebase-analyzer
-    · 39 tool uses
-    │    ╰  bash (2m 22s)
-    └─● codebase-analyzer
-    · 35 tool uses
-        ╰  view (2m 22s)
+    ● codebase-locator
+    ├─ +1 earlier tool call
+    ├─ Glob **/* in .github
+    ├─ Glob **/* in src
+    └─ Glob **/* in tests
+
+    ● codebase-analyzer
+    ├─ +2 earlier tool calls
+    ├─ Glob **/Cargo.toml in opencode
+    ├─ Glob **/go.mod in opencode
+    └─ Glob **/pyproject.toml in opencode
     ```
+
+    When 3 or fewer tool calls have been made, no truncation indicator is shown.
+
+    **Rules:**
+    - Maximum visible tool calls per sub-agent: **3**
+    - Truncation line format: `+N earlier tool calls` (singular `call` when N = 1)
+    - Tool calls shown are always the **most recent** (tail of the list)
+    - Tool call format: `ToolName args-summary` (e.g., `Glob **/* in src`, `Read src/state/store.ts`)
 
 **Background Sub-agent Invocation**
 
-1. During initialization (no tool calls or streaming started)
+1. During initialization (no tool calls or streaming started):
 
-```
-● 2 Task agents launched…
-├─● Locate OpenCode SDK integration
-│    ╰  Running codebase-locator in background…
-└─● Analyze SDK tool display patterns
-      ╰  Running codebase-analyzer in background…
-```
+    ```
+    ● codebase-locator
+    └─ Running in background…
 
-Background agent progress is shown via the footer status text below the chatbox:
+    ● codebase-analyzer
+    └─ Running in background…
+    ```
 
-```
+    Background agent progress is shown via the footer status text below the chatbox:
 
-[CHATBOX]
-[N] local agents · ctrl+f to kill all background tasks
+    ```
+    [CHATBOX]
+    [N] local agents · ctrl+f to kill all background tasks
+    ```
 
-```
+    When the chatbox is streaming AND background agents are running, the footer combines both:
 
-When the chatbox is streaming AND background agents are running, the footer combines both:
+    ```
+    [CHATBOX]
+    esc to interrupt · [N] local agents · ctrl+f to kill all background tasks
+    ```
 
-```
-
-[CHATBOX]
-esc to interrupt · ctrl+shift+enter enqueue · [N] local agents · ctrl+f to kill all background tasks
-
-```
-
-2. During execution: N/A, under the chatbox ui contains status and should be updated
+2. During execution: N/A, footer status text is updated with agent count.
 
 3. Finished state:
 
-```
-● Agent "Explore Claude adapter for comparison" completed
+    ```
+    ● Agent "Explore Claude adapter for comparison" completed
 
-● Agent [TASK_DESCRIPTION] completed
-```
+    ● Agent [TASK_DESCRIPTION] completed
+    ```

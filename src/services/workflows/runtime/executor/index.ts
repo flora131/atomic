@@ -5,11 +5,10 @@
  */
 
 import type { BaseState, CompiledGraph } from "@/services/workflows/graph/types.ts";
-import { type WorkflowDefinition } from "@/commands/tui/workflow-commands.ts";
-import type { CommandContext, CommandResult } from "@/commands/tui/registry.ts";
+import { type WorkflowDefinition } from "@/services/workflows/workflow-types.ts";
+import type { CommandContext, CommandResult } from "@/types/command.ts";
 import { streamGraph } from "@/services/workflows/graph/compiled.ts";
-import type { NormalizedTodoItem } from "@/lib/ui/task-status.ts";
-import type { EventBus } from "@/services/events/event-bus.ts";
+import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 import {
     resolveWorkflowRuntimeFeatureFlags,
     toWorkflowRuntimeTask,
@@ -17,6 +16,7 @@ import {
     workflowRuntimeStrictTaskSchema,
     type WorkflowRuntimeFeatureFlagOverrides,
     type WorkflowRuntimeTask,
+    type WorkflowRuntimeTaskStatus,
 } from "@/services/workflows/runtime-contracts.ts";
 import { TaskIdentityService } from "@/services/workflows/task-identity-service.ts";
 import {
@@ -28,6 +28,9 @@ import {
     compileGraphConfig,
     createSubagentRegistry,
 } from "./graph-helpers.ts";
+
+/** Workflow sub-agents get a longer stale timeout (20 min) than the global default (5 min). */
+const WORKFLOW_STALE_TIMEOUT_MS = 20 * 60 * 1000;
 import { initializeWorkflowExecutionSession } from "./session-runtime.ts";
 import { createWorkflowTaskPersistence } from "./task-persistence.ts";
 
@@ -69,25 +72,22 @@ export async function executeWorkflow(
     options?: {
         compiledGraph?: CompiledGraph<BaseState>;
         saveTasksToSession?: (tasks: NormalizedTodoItem[], sessionId: string) => Promise<void>;
-        eventBus?: EventBus;
         featureFlags?: WorkflowRuntimeFeatureFlagOverrides;
         abortSignal?: AbortSignal;
     },
 ): Promise<CommandResult> {
     const {
-        eventAdapter,
         sessionDir,
         sessionId,
         workflowRunId,
     } = initializeWorkflowExecutionSession({
         context,
         definition,
-        eventBus: options?.eventBus,
         prompt,
     });
 
-    let unsubscribeStatusChange: (() => void) | undefined;
     pipelineLog("Workflow", "start", { workflow: definition.name, sessionId });
+    let lastStepStatus: string | null = null;
     incrementRuntimeParityCounter("workflow.runtime.parity.execution_total", {
         phase: "start",
         workflow: definition.name,
@@ -103,13 +103,15 @@ export async function executeWorkflow(
         let compiled: CompiledGraph<BaseState>;
         if (options?.compiledGraph) {
             compiled = options.compiledGraph;
+        } else if (definition.createGraph) {
+            compiled = definition.createGraph();
         } else if (definition.graphConfig) {
             compiled = compileGraphConfig(definition.graphConfig);
         } else {
             context.setStreaming(false);
             return {
                 success: false,
-                message: `Workflow "${definition.name}" has no graphConfig or pre-compiled graph.`,
+                message: `Workflow "${definition.name}" has no createGraph, graphConfig, or pre-compiled graph.`,
                 stateUpdate: {
                     workflowActive: false,
                     workflowType: null,
@@ -155,90 +157,39 @@ export async function executeWorkflow(
             featureFlags: runtimeFeatureFlags,
             spawnSubagent: async (agent, abortSignal) => {
                 const effectiveAbortSignal = agent.abortSignal ?? abortSignal ?? workflowAbortSignal;
-                // Publish agent start event if adapter is available
-                if (eventAdapter) {
-                    eventAdapter.publishAgentStart(
-                        agent.agentId,
-                        agent.agentName,
-                        agent.task,
-                        false,
-                    );
-                }
 
                 const [result] = await spawnFn(
-                    [{ ...agent, abortSignal: effectiveAbortSignal }],
+                    [{ ...agent, staleTimeoutMs: agent.staleTimeoutMs ?? WORKFLOW_STALE_TIMEOUT_MS, abortSignal: effectiveAbortSignal }],
                     effectiveAbortSignal,
                 );
                 if (!result) throw new Error("Subagent spawn returned no results");
 
-                // Publish agent complete event if adapter is available
-                if (eventAdapter) {
-                    eventAdapter.publishAgentComplete(
-                        agent.agentId,
-                        result.success,
-                        result.output,
-                        result.error,
-                    );
-                }
-
                 return result;
             },
-            spawnSubagentParallel: async (agents, abortSignal) => {
+            spawnSubagentParallel: async (agents, abortSignal, onAgentComplete) => {
                 const effectiveAbortSignal = abortSignal ?? workflowAbortSignal;
-                // Publish agent start events for all agents if adapter is available
-                if (eventAdapter) {
-                    for (const agent of agents) {
-                        eventAdapter.publishAgentStart(
-                            agent.agentId,
-                            agent.agentName,
-                            agent.task,
-                            false,
-                        );
-                    }
-                }
 
                 const results = await spawnFn(
                     agents.map((agent) => ({
                         ...agent,
+                        staleTimeoutMs: agent.staleTimeoutMs ?? WORKFLOW_STALE_TIMEOUT_MS,
                         abortSignal: agent.abortSignal ?? effectiveAbortSignal,
                     })),
                     effectiveAbortSignal,
+                    onAgentComplete,
                 );
-
-                // Publish agent complete events for all agents if adapter is available
-                if (eventAdapter) {
-                    for (const result of results) {
-                        eventAdapter.publishAgentComplete(
-                            result.agentId,
-                            result.success,
-                            result.output,
-                            result.error,
-                        );
-                    }
-                }
 
                 return results;
             },
             taskIdentity,
             subagentRegistry: registry,
-            notifyTaskStatusChange: options?.eventBus && runtimeFeatureFlags.emitTaskStatusEvents
+            notifyTaskStatusChange: runtimeFeatureFlags.emitTaskStatusEvents
                 ? (
                     taskIds: string[],
-                    newStatus: string,
+                    newStatus: WorkflowRuntimeTaskStatus,
                     tasks: WorkflowRuntimeTask[],
                 ) => {
-                    options.eventBus!.publish({
-                        type: "workflow.task.statusChange",
-                        sessionId,
-                        runId: workflowRunId,
-                        timestamp: Date.now(),
-                        data: {
-                            workflowId: sessionId,
-                            taskIds,
-                            newStatus,
-                            tasks: tasks.map(toRuntimeTask),
-                        },
-                    });
+                    context.onTaskStatusChange?.(taskIds, newStatus, tasks.map(toRuntimeTask));
                 }
                 : undefined,
         };
@@ -268,12 +219,15 @@ export async function executeWorkflow(
             sessionId,
             workflowRunId,
             workflowName: definition.name,
-            eventBus: options?.eventBus,
             saveTasksToSession: options?.saveTasksToSession,
             toRuntimeTasks,
             persistTaskStatusEvents: runtimeFeatureFlags.persistTaskStatusEvents,
         });
-        unsubscribeStatusChange = taskPersistence.subscribeStatusChange();
+
+        // Wire onTaskStatusChange on context to the persistence handler
+        context.onTaskStatusChange = (taskIds, newStatus, tasks) => {
+            taskPersistence.handleTaskStatusChange(taskIds, newStatus, tasks);
+        };
 
         for await (const step of streamGraph(compiled, { initialState, abortSignal: workflowAbortSignal })) {
             const currentCompletionStatus = mapStepStatusToCompletionStatus(step.status);
@@ -287,23 +241,7 @@ export async function executeWorkflow(
                 const description = nodeDescriptions?.[step.nodeId];
                 
                 // Publish step complete event for previous node (if any)
-                if (lastNodeId !== null && eventAdapter) {
-                    eventAdapter.publishStepComplete(
-                        sessionId,
-                        nodeDescriptions?.[lastNodeId] ?? lastNodeId,
-                        lastNodeId,
-                        lastNodeCompletionStatus,
-                    );
-                }
-                
-                // Publish step start event for new node
-                if (eventAdapter) {
-                    eventAdapter.publishStepStart(
-                        sessionId,
-                        description ?? step.nodeId,
-                        step.nodeId,
-                    );
-                }
+                // (Step events are informational only — no bus events needed)
                 
                 lastNodeId = step.nodeId;
             }
@@ -329,20 +267,18 @@ export async function executeWorkflow(
                     );
                 }
 
-                // Publish task update event
-                if (eventAdapter) {
-                    const formattedTasks = toRuntimeTasks(
-                        state.tasks.map((task) => ({
-                            id: task.id,
-                            title: task.description,
-                            status: task.status,
-                            blockedBy: task.blockedBy,
-                            identity: task.identity,
-                            taskResult: task.taskResult,
-                        })),
-                    );
-                    eventAdapter.publishTaskUpdate(sessionId, formattedTasks);
-                }
+                // Directly update task list in the streaming message
+                const formattedTasks = toRuntimeTasks(
+                    state.tasks.map((task) => ({
+                        id: task.id,
+                        title: task.description,
+                        status: task.status,
+                        blockedBy: task.blockedBy,
+                        identity: task.identity,
+                        taskResult: task.taskResult,
+                    })),
+                );
+                context.updateTaskList?.(formattedTasks);
 
                 if (!sessionTracked) {
                     context.setWorkflowSessionDir(sessionDir);
@@ -361,21 +297,11 @@ export async function executeWorkflow(
             }
         }
         
-        // Unsubscribe from statusChange events before cleanup
-        unsubscribeStatusChange?.();
-
         // Flush any pending debounced save
         await taskPersistence.flush();
-        
-        // Publish final step complete event
-        if (lastNodeId !== null && eventAdapter) {
-            eventAdapter.publishStepComplete(
-                sessionId,
-                nodeDescriptions?.[lastNodeId] ?? lastNodeId,
-                lastNodeId,
-                lastNodeCompletionStatus,
-            );
-        }
+
+        // Clear onTaskStatusChange handler
+        context.onTaskStatusChange = undefined;
 
         // Phase 6: Check execution status and report result
         context.setStreaming(false);
@@ -440,7 +366,7 @@ export async function executeWorkflow(
             },
         };
     } catch (error) {
-        unsubscribeStatusChange?.();
+        context.onTaskStatusChange = undefined;
         context.setStreaming(false);
 
         // Silent exit for workflow cancellation (double Ctrl+C)

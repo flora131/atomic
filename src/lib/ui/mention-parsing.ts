@@ -1,6 +1,5 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { globalRegistry } from "@/commands/tui/index.ts";
 
 export interface ParsedAtMention {
   agentName: string;
@@ -55,13 +54,15 @@ export function hasAnyAtReferenceToken(message: string): boolean {
  * Parse @mentions in a message and extract agent invocations.
  * Returns an array of { agentName, args } for each agent mention found.
  */
-export function parseAtMentions(message: string): ParsedAtMention[] {
+export function parseAtMentions(
+  message: string,
+  isAgentCommand: (name: string) => boolean,
+): ParsedAtMention[] {
   const atMentions: ParsedAtMention[] = [];
   const agentPositions: Array<{ name: string; start: number; end: number }> = [];
 
   for (const token of tokenizeAtReferences(message)) {
-    const cmd = globalRegistry.get(token.token);
-    if (cmd && cmd.category === "agent") {
+    if (isAgentCommand(token.token)) {
       agentPositions.push({
         name: token.token,
         start: token.start,
@@ -86,11 +87,13 @@ export function parseAtMentions(message: string): ParsedAtMention[] {
  * Process file @mentions in a message. Resolves @filepath references and collects
  * metadata about mentioned files without loading their content into the context window.
  */
-export function processFileMentions(message: string): ProcessedMention {
+export function processFileMentions(
+  message: string,
+  isAgentCommand: (name: string) => boolean,
+): ProcessedMention {
   const filesRead: FileReadInfo[] = [];
   const cleanedMessage = message.replace(AT_REFERENCE_REGEX, (match, filePath: string) => {
-    const cmd = globalRegistry.get(filePath);
-    if (cmd && cmd.category === "agent") return match;
+    if (isAgentCommand(filePath)) return match;
 
     try {
       const fullPath = join(process.cwd(), filePath);

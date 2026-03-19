@@ -1,6 +1,6 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "path";
-import type { BaseState } from "@/services/workflows/graph/types.ts";
+import type { BaseState, CompiledGraph } from "@/services/workflows/graph/types.ts";
 import { VERSION } from "@/version.ts";
 import { ralphWorkflowDefinition } from "@/services/workflows/ralph/definition.ts";
 import type {
@@ -124,6 +124,9 @@ export async function loadWorkflowsFromDisk(): Promise<WorkflowDefinition[]> {
           : undefined;
 
       const graphConfig = module.graphConfig as WorkflowGraphConfig | undefined;
+      const createGraph = typeof module.createGraph === "function"
+        ? (module.createGraph as () => CompiledGraph<BaseState>)
+        : undefined;
       const createState = module.createState as ((params: WorkflowStateParams) => BaseState) | undefined;
       const nodeDescriptions = module.nodeDescriptions as Record<string, string> | undefined;
       const runtime = module.runtime as WorkflowDefinition["runtime"] | undefined;
@@ -168,6 +171,7 @@ export async function loadWorkflowsFromDisk(): Promise<WorkflowDefinition[]> {
         migrateState,
         source,
         graphConfig,
+        createGraph,
         createState,
         nodeDescriptions,
         runtime,

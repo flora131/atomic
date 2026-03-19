@@ -34,14 +34,14 @@ function query({
 
 #### Parameters
 
-| Parameter | Type | Description |
-| :-------- | :--- | :---------- |
-| `prompt` | `string \| AsyncIterable<`[`SDKUserMessage`](#sdkusermessage)`>` | The input prompt as a string or async iterable for streaming mode |
-| `options` | [`Options`](#options) | Optional configuration object (see Options type below) |
+| Parameter | Type                                                              | Description                                                       |
+| :-------- | :---------------------------------------------------------------- | :---------------------------------------------------------------- |
+| `prompt`  | `string \| AsyncIterable<`[`SDKUserMessage`](#sdkuser-message)`>` | The input prompt as a string or async iterable for streaming mode |
+| `options` | [`Options`](#options)                                             | Optional configuration object (see Options type below)            |
 
 #### Returns
 
-Returns a [`Query`](#query-object) object that extends `AsyncGenerator<`[`SDKMessage`](#sdkmessage)`, void>` with additional methods.
+Returns a [`Query`](#query-object) object that extends `AsyncGenerator<`[`SDKMessage`](#sdk-message)`, void>` with additional methods.
 
 ### `tool()`
 
@@ -59,13 +59,13 @@ function tool<Schema extends AnyZodRawShape>(
 
 #### Parameters
 
-| Parameter | Type | Description |
-| :-------- | :--- | :---------- |
-| `name` | `string` | The name of the tool |
-| `description` | `string` | A description of what the tool does |
-| `inputSchema` | `Schema extends AnyZodRawShape` | Zod schema defining the tool's input parameters (supports both Zod 3 and Zod 4) |
-| `handler` | `(args, extra) => Promise<`[`CallToolResult`](#calltoolresult)`>` | Async function that executes the tool logic |
-| `extras` | `{ annotations?: ToolAnnotations }` | Optional extra configuration including MCP tool annotations (e.g., `readOnly`, `destructive`, `openWorld`) |
+| Parameter     | Type                                                                | Description                                                                                                |
+| :------------ | :------------------------------------------------------------------ | :--------------------------------------------------------------------------------------------------------- |
+| `name`        | `string`                                                            | The name of the tool                                                                                       |
+| `description` | `string`                                                            | A description of what the tool does                                                                        |
+| `inputSchema` | `Schema extends AnyZodRawShape`                                     | Zod schema defining the tool's input parameters (supports both Zod 3 and Zod 4)                            |
+| `handler`     | `(args, extra) => Promise<`[`CallToolResult`](#call-tool-result)`>` | Async function that executes the tool logic                                                                |
+| `extras`      | `{ annotations?: ToolAnnotations }`                                 | Optional extra configuration including MCP tool annotations (e.g., `readOnly`, `destructive`, `openWorld`) |
 
 ### `createSdkMcpServer()`
 
@@ -81,11 +81,11 @@ function createSdkMcpServer(options: {
 
 #### Parameters
 
-| Parameter | Type | Description |
-| :-------- | :--- | :---------- |
-| `options.name` | `string` | The name of the MCP server |
-| `options.version` | `string` | Optional version string |
-| `options.tools` | `Array<SdkMcpToolDefinition>` | Array of tool definitions created with [`tool()`](#tool) |
+| Parameter         | Type                          | Description                                              |
+| :---------------- | :---------------------------- | :------------------------------------------------------- |
+| `options.name`    | `string`                      | The name of the MCP server                               |
+| `options.version` | `string`                      | Optional version string                                  |
+| `options.tools`   | `Array<SdkMcpToolDefinition>` | Array of tool definitions created with [`tool()`](#tool) |
 
 ### `listSessions()`
 
@@ -97,38 +97,86 @@ function listSessions(options?: ListSessionsOptions): Promise<SDKSessionInfo[]>;
 
 #### Parameters
 
-| Parameter | Type | Default | Description |
-| :-------- | :--- | :------ | :---------- |
-| `options.dir` | `string` | `undefined` | Directory to list sessions for. Returns sessions for this project (and its git worktrees). When omitted, returns sessions across all projects |
-| `options.limit` | `number` | `undefined` | Maximum number of sessions to return |
+| Parameter                  | Type      | Default     | Description                                                                        |
+| :------------------------- | :-------- | :---------- | :--------------------------------------------------------------------------------- |
+| `options.dir`              | `string`  | `undefined` | Directory to list sessions for. When omitted, returns sessions across all projects |
+| `options.limit`            | `number`  | `undefined` | Maximum number of sessions to return                                               |
+| `options.includeWorktrees` | `boolean` | `true`      | When `dir` is inside a git repository, include sessions from all worktree paths    |
 
 #### Return type: `SDKSessionInfo`
 
-| Property | Type | Description |
-| :------- | :--- | :---------- |
-| `sessionId` | `string` | Unique session identifier (UUID) |
-| `summary` | `string` | Display title: custom title, auto-generated summary, or first prompt |
-| `lastModified` | `number` | Last modified time in milliseconds since epoch |
-| `fileSize` | `number` | Session file size in bytes |
-| `customTitle` | `string \| undefined` | User-set session title (via `/rename`) |
-| `firstPrompt` | `string \| undefined` | First meaningful user prompt in the session |
-| `gitBranch` | `string \| undefined` | Git branch at the end of the session |
-| `cwd` | `string \| undefined` | Working directory for the session |
+| Property       | Type                  | Description                                                          |
+| :------------- | :-------------------- | :------------------------------------------------------------------- |
+| `sessionId`    | `string`              | Unique session identifier (UUID)                                     |
+| `summary`      | `string`              | Display title: custom title, auto-generated summary, or first prompt |
+| `lastModified` | `number`              | Last modified time in milliseconds since epoch                       |
+| `fileSize`     | `number`              | Session file size in bytes                                           |
+| `customTitle`  | `string \| undefined` | User-set session title (via `/rename`)                               |
+| `firstPrompt`  | `string \| undefined` | First meaningful user prompt in the session                          |
+| `gitBranch`    | `string \| undefined` | Git branch at the end of the session                                 |
+| `cwd`          | `string \| undefined` | Working directory for the session                                    |
 
 #### Example
+
+Print the 10 most recent sessions for a project. Results are sorted by `lastModified` descending, so the first item is the newest. Omit `dir` to search across all projects.
 
 ```typescript
 import { listSessions } from "@anthropic-ai/claude-agent-sdk";
 
-// List sessions for a specific project
-const sessions = await listSessions({ dir: "/path/to/project" });
+const sessions = await listSessions({ dir: "/path/to/project", limit: 10 });
 
 for (const session of sessions) {
-  console.log(`${session.summary} (${new Date(session.lastModified).toLocaleDateString()})`);
+  console.log(`${session.summary} (${session.sessionId})`);
 }
+```
 
-// List all sessions across all projects, limited to 10
-const recent = await listSessions({ limit: 10 });
+### `getSessionMessages()`
+
+Reads user and assistant messages from a past session transcript.
+
+```typescript
+function getSessionMessages(
+  sessionId: string,
+  options?: GetSessionMessagesOptions
+): Promise<SessionMessage[]>;
+```
+
+#### Parameters
+
+| Parameter        | Type     | Default     | Description                                                                   |
+| :--------------- | :------- | :---------- | :---------------------------------------------------------------------------- |
+| `sessionId`      | `string` | required    | Session UUID to read (see `listSessions()`)                                   |
+| `options.dir`    | `string` | `undefined` | Project directory to find the session in. When omitted, searches all projects |
+| `options.limit`  | `number` | `undefined` | Maximum number of messages to return                                          |
+| `options.offset` | `number` | `undefined` | Number of messages to skip from the start                                     |
+
+#### Return type: `SessionMessage`
+
+| Property             | Type                    | Description                             |
+| :------------------- | :---------------------- | :-------------------------------------- |
+| `type`               | `"user" \| "assistant"` | Message role                            |
+| `uuid`               | `string`                | Unique message identifier               |
+| `session_id`         | `string`                | Session this message belongs to         |
+| `message`            | `unknown`               | Raw message payload from the transcript |
+| `parent_tool_use_id` | `null`                  | Reserved                                |
+
+#### Example
+
+```typescript
+import { listSessions, getSessionMessages } from "@anthropic-ai/claude-agent-sdk";
+
+const [latest] = await listSessions({ dir: "/path/to/project", limit: 1 });
+
+if (latest) {
+  const messages = await getSessionMessages(latest.sessionId, {
+    dir: "/path/to/project",
+    limit: 20
+  });
+
+  for (const msg of messages) {
+    console.log(`[${msg.type}] ${msg.uuid}`);
+  }
+}
 ```
 
 ## Types
@@ -137,54 +185,55 @@ const recent = await listSessions({ limit: 10 });
 
 Configuration object for the `query()` function.
 
-| Property | Type | Default | Description |
-| :------- | :--- | :------ | :---------- |
-| `abortController` | `AbortController` | `new AbortController()` | Controller for cancelling operations |
-| `additionalDirectories` | `string[]` | `[]` | Additional directories Claude can access |
-| `agent` | `string` | `undefined` | Agent name for the main thread. The agent must be defined in the `agents` option or in settings |
-| `agents` | `Record<string, [`AgentDefinition`](#agentdefinition)>` | `undefined` | Programmatically define subagents |
-| `allowDangerouslySkipPermissions` | `boolean` | `false` | Enable bypassing permissions. Required when using `permissionMode: 'bypassPermissions'` |
-| `allowedTools` | `string[]` | `[]` | Tools to auto-approve without prompting. This does not restrict Claude to only these tools; unlisted tools fall through to `permissionMode` and `canUseTool`. Use `disallowedTools` to block tools. See [Permissions](/docs/en/agent-sdk/permissions#allow-and-deny-rules) |
-| `betas` | [`SdkBeta`](#sdkbeta)`[]` | `[]` | Enable beta features (e.g., `['context-1m-2025-08-07']`) |
-| `canUseTool` | [`CanUseTool`](#canusetool) | `undefined` | Custom permission function for tool usage |
-| `continue` | `boolean` | `false` | Continue the most recent conversation |
-| `cwd` | `string` | `process.cwd()` | Current working directory |
-| `debug` | `boolean` | `false` | Enable debug mode for the Claude Code process |
-| `debugFile` | `string` | `undefined` | Write debug logs to a specific file path. Implicitly enables debug mode |
-| `disallowedTools` | `string[]` | `[]` | Tools to always deny. Deny rules are checked first and override `allowedTools` and `permissionMode` (including `bypassPermissions`) |
-| `effort` | `'low' \| 'medium' \| 'high' \| 'max'` | `'high'` | Controls how much effort Claude puts into its response. Works with adaptive thinking to guide thinking depth |
-| `enableFileCheckpointing` | `boolean` | `false` | Enable file change tracking for rewinding. See [File checkpointing](/docs/en/agent-sdk/file-checkpointing) |
-| `env` | `Record<string, string \| undefined>` | `process.env` | Environment variables. Set `CLAUDE_AGENT_SDK_CLIENT_APP` to identify your app in the User-Agent header |
-| `executable` | `'bun' \| 'deno' \| 'node'` | Auto-detected | JavaScript runtime to use |
-| `executableArgs` | `string[]` | `[]` | Arguments to pass to the executable |
-| `extraArgs` | `Record<string, string \| null>` | `{}` | Additional arguments |
-| `fallbackModel` | `string` | `undefined` | Model to use if primary fails |
-| `forkSession` | `boolean` | `false` | When resuming with `resume`, fork to a new session ID instead of continuing the original session |
-| `hooks` | `Partial<Record<`[`HookEvent`](#hookevent)`, `[`HookCallbackMatcher`](#hookcallbackmatcher)`[]>>` | `{}` | Hook callbacks for events |
-| `includePartialMessages` | `boolean` | `false` | Include partial message events |
-| `maxBudgetUsd` | `number` | `undefined` | Maximum budget in USD for the query |
-| `maxThinkingTokens` | `number` | `undefined` | _Deprecated:_ Use `thinking` instead. Maximum tokens for thinking process |
-| `maxTurns` | `number` | `undefined` | Maximum agentic turns (tool-use round trips) |
-| `mcpServers` | `Record<string, [`McpServerConfig`](#mcpserverconfig)>` | `{}` | MCP server configurations |
-| `model` | `string` | Default from CLI | Claude model to use |
-| `outputFormat` | `{ type: 'json_schema', schema: JSONSchema }` | `undefined` | Define output format for agent results. See [Structured outputs](/docs/en/agent-sdk/structured-outputs) for details |
-| `pathToClaudeCodeExecutable` | `string` | Uses built-in executable | Path to Claude Code executable |
-| `permissionMode` | [`PermissionMode`](#permissionmode) | `'default'` | Permission mode for the session |
-| `permissionPromptToolName` | `string` | `undefined` | MCP tool name for permission prompts |
-| `persistSession` | `boolean` | `true` | When `false`, disables session persistence to disk. Sessions cannot be resumed later |
-| `plugins` | [`SdkPluginConfig`](#sdkpluginconfig)`[]` | `[]` | Load custom plugins from local paths. See [Plugins](/docs/en/agent-sdk/plugins) for details |
-| `promptSuggestions` | `boolean` | `false` | Enable prompt suggestions. Emits a `prompt_suggestion` message after each turn with a predicted next user prompt |
-| `resume` | `string` | `undefined` | Session ID to resume |
-| `resumeSessionAt` | `string` | `undefined` | Resume session at a specific message UUID |
-| `sandbox` | [`SandboxSettings`](#sandboxsettings) | `undefined` | Configure sandbox behavior programmatically. See [Sandbox settings](#sandboxsettings) for details |
-| `sessionId` | `string` | Auto-generated | Use a specific UUID for the session instead of auto-generating one |
-| `settingSources` | [`SettingSource`](#setting-source)`[]` | `[]` (no settings) | Control which filesystem settings to load. When omitted, no settings are loaded. **Note:** Must include `'project'` to load CLAUDE.md files |
-| `spawnClaudeCodeProcess` | `(options: SpawnOptions) => SpawnedProcess` | `undefined` | Custom function to spawn the Claude Code process. Use to run Claude Code in VMs, containers, or remote environments |
-| `stderr` | `(data: string) => void` | `undefined` | Callback for stderr output |
-| `strictMcpConfig` | `boolean` | `false` | Enforce strict MCP validation |
-| `systemPrompt` | `string \| { type: 'preset'; preset: 'claude_code'; append?: string }` | `undefined` (minimal prompt) | System prompt configuration. Pass a string for custom prompt, or `{ type: 'preset', preset: 'claude_code' }` to use Claude Code's system prompt. When using the preset object form, add `append` to extend the system prompt with additional instructions |
-| `thinking` | [`ThinkingConfig`](#thinkingconfig) | `{ type: 'adaptive' }` for supported models | Controls Claude's thinking/reasoning behavior. See [`ThinkingConfig`](#thinkingconfig) for options |
-| `tools` | `string[] \| { type: 'preset'; preset: 'claude_code' }` | `undefined` | Tool configuration. Pass an array of tool names or use the preset to get Claude Code's default tools |
+| Property                          | Type                                                                                                 | Default                                     | Description                                                                                                                                                                                                                                                                |
+| :-------------------------------- | :--------------------------------------------------------------------------------------------------- | :------------------------------------------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `abortController`                 | `AbortController`                                                                                    | `new AbortController()`                     | Controller for cancelling operations                                                                                                                                                                                                                                       |
+| `additionalDirectories`           | `string[]`                                                                                           | `[]`                                        | Additional directories Claude can access                                                                                                                                                                                                                                   |
+| `agent`                           | `string`                                                                                             | `undefined`                                 | Agent name for the main thread. The agent must be defined in the `agents` option or in settings                                                                                                                                                                            |
+| `agents`                          | `Record<string, [`AgentDefinition`](#agent-definition)>`                                             | `undefined`                                 | Programmatically define subagents                                                                                                                                                                                                                                          |
+| `allowDangerouslySkipPermissions` | `boolean`                                                                                            | `false`                                     | Enable bypassing permissions. Required when using `permissionMode: 'bypassPermissions'`                                                                                                                                                                                    |
+| `allowedTools`                    | `string[]`                                                                                           | `[]`                                        | Tools to auto-approve without prompting. This does not restrict Claude to only these tools; unlisted tools fall through to `permissionMode` and `canUseTool`. Use `disallowedTools` to block tools. See [Permissions](/docs/en/agent-sdk/permissions#allow-and-deny-rules) |
+| `betas`                           | [`SdkBeta`](#sdk-beta)`[]`                                                                           | `[]`                                        | Enable beta features (e.g., `['context-1m-2025-08-07']`)                                                                                                                                                                                                                   |
+| `canUseTool`                      | [`CanUseTool`](#can-use-tool)                                                                        | `undefined`                                 | Custom permission function for tool usage                                                                                                                                                                                                                                  |
+| `continue`                        | `boolean`                                                                                            | `false`                                     | Continue the most recent conversation                                                                                                                                                                                                                                      |
+| `cwd`                             | `string`                                                                                             | `process.cwd()`                             | Current working directory                                                                                                                                                                                                                                                  |
+| `debug`                           | `boolean`                                                                                            | `false`                                     | Enable debug mode for the Claude Code process                                                                                                                                                                                                                              |
+| `debugFile`                       | `string`                                                                                             | `undefined`                                 | Write debug logs to a specific file path. Implicitly enables debug mode                                                                                                                                                                                                    |
+| `disallowedTools`                 | `string[]`                                                                                           | `[]`                                        | Tools to always deny. Deny rules are checked first and override `allowedTools` and `permissionMode` (including `bypassPermissions`)                                                                                                                                        |
+| `effort`                          | `'low' \| 'medium' \| 'high' \| 'max'`                                                               | `'high'`                                    | Controls how much effort Claude puts into its response. Works with adaptive thinking to guide thinking depth                                                                                                                                                               |
+| `enableFileCheckpointing`         | `boolean`                                                                                            | `false`                                     | Enable file change tracking for rewinding. See [File checkpointing](/docs/en/agent-sdk/file-checkpointing)                                                                                                                                                                 |
+| `env`                             | `Record<string, string \| undefined>`                                                                | `process.env`                               | Environment variables. Set `CLAUDE_AGENT_SDK_CLIENT_APP` to identify your app in the User-Agent header                                                                                                                                                                     |
+| `executable`                      | `'bun' \| 'deno' \| 'node'`                                                                          | Auto-detected                               | JavaScript runtime to use                                                                                                                                                                                                                                                  |
+| `executableArgs`                  | `string[]`                                                                                           | `[]`                                        | Arguments to pass to the executable                                                                                                                                                                                                                                        |
+| `extraArgs`                       | `Record<string, string \| null>`                                                                     | `{}`                                        | Additional arguments                                                                                                                                                                                                                                                       |
+| `fallbackModel`                   | `string`                                                                                             | `undefined`                                 | Model to use if primary fails                                                                                                                                                                                                                                              |
+| `forkSession`                     | `boolean`                                                                                            | `false`                                     | When resuming with `resume`, fork to a new session ID instead of continuing the original session                                                                                                                                                                           |
+| `hooks`                           | `Partial<Record<`[`HookEvent`](#hook-event)`, `[`HookCallbackMatcher`](#hook-callback-matcher)`[]>>` | `{}`                                        | Hook callbacks for events                                                                                                                                                                                                                                                  |
+| `includePartialMessages`          | `boolean`                                                                                            | `false`                                     | Include partial message events                                                                                                                                                                                                                                             |
+| `maxBudgetUsd`                    | `number`                                                                                             | `undefined`                                 | Maximum budget in USD for the query                                                                                                                                                                                                                                        |
+| `maxThinkingTokens`               | `number`                                                                                             | `undefined`                                 | _Deprecated:_ Use `thinking` instead. Maximum tokens for thinking process                                                                                                                                                                                                  |
+| `maxTurns`                        | `number`                                                                                             | `undefined`                                 | Maximum agentic turns (tool-use round trips)                                                                                                                                                                                                                               |
+| `mcpServers`                      | `Record<string, [`McpServerConfig`](#mcp-server-config)>`                                            | `{}`                                        | MCP server configurations                                                                                                                                                                                                                                                  |
+| `model`                           | `string`                                                                                             | Default from CLI                            | Claude model to use                                                                                                                                                                                                                                                        |
+| `outputFormat`                    | `{ type: 'json_schema', schema: JSONSchema }`                                                        | `undefined`                                 | Define output format for agent results. See [Structured outputs](/docs/en/agent-sdk/structured-outputs) for details                                                                                                                                                        |
+| `pathToClaudeCodeExecutable`      | `string`                                                                                             | Uses built-in executable                    | Path to Claude Code executable                                                                                                                                                                                                                                             |
+| `permissionMode`                  | [`PermissionMode`](#permission-mode)                                                                 | `'default'`                                 | Permission mode for the session                                                                                                                                                                                                                                            |
+| `permissionPromptToolName`        | `string`                                                                                             | `undefined`                                 | MCP tool name for permission prompts                                                                                                                                                                                                                                       |
+| `persistSession`                  | `boolean`                                                                                            | `true`                                      | When `false`, disables session persistence to disk. Sessions cannot be resumed later                                                                                                                                                                                       |
+| `plugins`                         | [`SdkPluginConfig`](#sdk-plugin-config)`[]`                                                          | `[]`                                        | Load custom plugins from local paths. See [Plugins](/docs/en/agent-sdk/plugins) for details                                                                                                                                                                                |
+| `promptSuggestions`               | `boolean`                                                                                            | `false`                                     | Enable prompt suggestions. Emits a `prompt_suggestion` message after each turn with a predicted next user prompt                                                                                                                                                           |
+| `resume`                          | `string`                                                                                             | `undefined`                                 | Session ID to resume                                                                                                                                                                                                                                                       |
+| `resumeSessionAt`                 | `string`                                                                                             | `undefined`                                 | Resume session at a specific message UUID                                                                                                                                                                                                                                  |
+| `sandbox`                         | [`SandboxSettings`](#sandbox-settings)                                                               | `undefined`                                 | Configure sandbox behavior programmatically. See [Sandbox settings](#sandbox-settings) for details                                                                                                                                                                         |
+| `sessionId`                       | `string`                                                                                             | Auto-generated                              | Use a specific UUID for the session instead of auto-generating one                                                                                                                                                                                                         |
+| `settingSources`                  | [`SettingSource`](#setting-source)`[]`                                                               | `[]` (no settings)                          | Control which filesystem settings to load. When omitted, no settings are loaded. **Note:** Must include `'project'` to load CLAUDE.md files                                                                                                                                |
+| `spawnClaudeCodeProcess`          | `(options: SpawnOptions) => SpawnedProcess`                                                          | `undefined`                                 | Custom function to spawn the Claude Code process. Use to run Claude Code in VMs, containers, or remote environments                                                                                                                                                        |
+| `stderr`                          | `(data: string) => void`                                                                             | `undefined`                                 | Callback for stderr output                                                                                                                                                                                                                                                 |
+| `strictMcpConfig`                 | `boolean`                                                                                            | `false`                                     | Enforce strict MCP validation                                                                                                                                                                                                                                              |
+| `systemPrompt`                    | `string \| { type: 'preset'; preset: 'claude_code'; append?: string }`                               | `undefined` (minimal prompt)                | System prompt configuration. Pass a string for custom prompt, or `{ type: 'preset', preset: 'claude_code' }` to use Claude Code's system prompt. When using the preset object form, add `append` to extend the system prompt with additional instructions                  |
+| `thinking`                        | [`ThinkingConfig`](#thinking-config)                                                                 | `{ type: 'adaptive' }` for supported models | Controls Claude's thinking/reasoning behavior. See [`ThinkingConfig`](#thinking-config) for options                                                                                                                                                                        |
+| `toolConfig`                      | [`ToolConfig`](#tool-config)                                                                         | `undefined`                                 | Configuration for built-in tool behavior. See [`ToolConfig`](#tool-config) for details                                                                                                                                                                                     |
+| `tools`                           | `string[] \| { type: 'preset'; preset: 'claude_code' }`                                              | `undefined`                                 | Tool configuration. Pass an array of tool names or use the preset to get Claude Code's default tools                                                                                                                                                                       |
 
 ### `Query` object
 
@@ -217,25 +266,25 @@ interface Query extends AsyncGenerator<SDKMessage, void> {
 
 #### Methods
 
-| Method | Description |
-| :----- | :---------- |
-| `interrupt()` | Interrupts the query (only available in streaming input mode) |
+| Method                                 | Description                                                                                                                                                                                                        |
+| :------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `interrupt()`                          | Interrupts the query (only available in streaming input mode)                                                                                                                                                      |
 | `rewindFiles(userMessageId, options?)` | Restores files to their state at the specified user message. Pass `{ dryRun: true }` to preview changes. Requires `enableFileCheckpointing: true`. See [File checkpointing](/docs/en/agent-sdk/file-checkpointing) |
-| `setPermissionMode()` | Changes the permission mode (only available in streaming input mode) |
-| `setModel()` | Changes the model (only available in streaming input mode) |
-| `setMaxThinkingTokens()` | _Deprecated:_ Use the `thinking` option instead. Changes the maximum thinking tokens |
-| `initializationResult()` | Returns the full initialization result including supported commands, models, account info, and output style configuration |
-| `supportedCommands()` | Returns available slash commands |
-| `supportedModels()` | Returns available models with display info |
-| `supportedAgents()` | Returns available subagents |
-| `mcpServerStatus()` | Returns status of connected MCP servers |
-| `accountInfo()` | Returns account information |
-| `reconnectMcpServer(serverName)` | Reconnect an MCP server by name |
-| `toggleMcpServer(serverName, enabled)` | Enable or disable an MCP server by name |
-| `setMcpServers(servers)` | Dynamically replace the set of MCP servers for this session. Returns info about which servers were added, removed, and any errors |
-| `streamInput(stream)` | Stream input messages to the query for multi-turn conversations |
-| `stopTask(taskId)` | Stop a running background task by ID |
-| `close()` | Close the query and terminate the underlying process. Forcefully ends the query and cleans up all resources |
+| `setPermissionMode()`                  | Changes the permission mode (only available in streaming input mode)                                                                                                                                               |
+| `setModel()`                           | Changes the model (only available in streaming input mode)                                                                                                                                                         |
+| `setMaxThinkingTokens()`               | _Deprecated:_ Use the `thinking` option instead. Changes the maximum thinking tokens                                                                                                                               |
+| `initializationResult()`               | Returns the full initialization result including supported commands, models, account info, and output style configuration                                                                                          |
+| `supportedCommands()`                  | Returns available slash commands                                                                                                                                                                                   |
+| `supportedModels()`                    | Returns available models with display info                                                                                                                                                                         |
+| `supportedAgents()`                    | Returns available subagents                                                                                                                                                                                        |
+| `mcpServerStatus()`                    | Returns status of connected MCP servers                                                                                                                                                                            |
+| `accountInfo()`                        | Returns account information                                                                                                                                                                                        |
+| `reconnectMcpServer(serverName)`       | Reconnect an MCP server by name                                                                                                                                                                                    |
+| `toggleMcpServer(serverName, enabled)` | Enable or disable an MCP server by name                                                                                                                                                                            |
+| `setMcpServers(servers)`               | Dynamically replace the set of MCP servers for this session. Returns info about which servers were added, removed, and any errors                                                                                  |
+| `streamInput(stream)`                  | Stream input messages to the query for multi-turn conversations                                                                                                                                                    |
+| `stopTask(taskId)`                     | Stop a running background task by ID                                                                                                                                                                               |
+| `close()`                              | Close the query and terminate the underlying process. Forcefully ends the query and cleans up all resources                                                                                                        |
 
 ### `SDKControlInitializeResponse`
 
@@ -270,17 +319,17 @@ type AgentDefinition = {
 };
 ```
 
-| Field | Required | Description |
-|:------|:---------|:------------|
-| `description` | Yes | Natural language description of when to use this agent |
-| `tools` | No | Array of allowed tool names. If omitted, inherits all tools from parent |
-| `disallowedTools` | No | Array of tool names to explicitly disallow for this agent |
-| `prompt` | Yes | The agent's system prompt |
-| `model` | No | Model override for this agent. If omitted or `'inherit'`, uses the main model |
-| `mcpServers` | No | MCP server specifications for this agent |
-| `skills` | No | Array of skill names to preload into the agent context |
-| `maxTurns` | No | Maximum number of agentic turns (API round-trips) before stopping |
-| `criticalSystemReminder_EXPERIMENTAL` | No | Experimental: Critical reminder added to the system prompt |
+| Field                                 | Required | Description                                                                   |
+| :------------------------------------ | :------- | :---------------------------------------------------------------------------- |
+| `description`                         | Yes      | Natural language description of when to use this agent                        |
+| `tools`                               | No       | Array of allowed tool names. If omitted, inherits all tools from parent       |
+| `disallowedTools`                     | No       | Array of tool names to explicitly disallow for this agent                     |
+| `prompt`                              | Yes      | The agent's system prompt                                                     |
+| `model`                               | No       | Model override for this agent. If omitted or `'inherit'`, uses the main model |
+| `mcpServers`                          | No       | MCP server specifications for this agent                                      |
+| `skills`                              | No       | Array of skill names to preload into the agent context                        |
+| `maxTurns`                            | No       | Maximum number of agentic turns (API round-trips) before stopping             |
+| `criticalSystemReminder_EXPERIMENTAL` | No       | Experimental: Critical reminder added to the system prompt                    |
 
 ### `AgentMcpServerSpec`
 
@@ -300,11 +349,11 @@ Controls which filesystem-based configuration sources the SDK loads settings fro
 type SettingSource = "user" | "project" | "local";
 ```
 
-| Value | Description | Location |
-|:------|:------------|:---------|
-| `'user'` | Global user settings | `~/.claude/settings.json` |
-| `'project'` | Shared project settings (version controlled) | `.claude/settings.json` |
-| `'local'` | Local project settings (gitignored) | `.claude/settings.local.json` |
+| Value       | Description                                  | Location                      |
+| :---------- | :------------------------------------------- | :---------------------------- |
+| `'user'`    | Global user settings                         | `~/.claude/settings.json`     |
+| `'project'` | Shared project settings (version controlled) | `.claude/settings.json`       |
+| `'local'`   | Local project settings (gitignored)          | `.claude/settings.local.json` |
 
 #### Default behavior
 
@@ -420,14 +469,14 @@ type CanUseTool = (
 ) => Promise<PermissionResult>;
 ```
 
-| Option | Type | Description |
-| :----- | :--- | :---------- |
-| `signal` | `AbortSignal` | Signaled if the operation should be aborted |
-| `suggestions` | [`PermissionUpdate`](#permissionupdate)`[]` | Suggested permission updates so the user is not prompted again for this tool |
-| `blockedPath` | `string` | The file path that triggered the permission request, if applicable |
-| `decisionReason` | `string` | Explains why this permission request was triggered |
-| `toolUseID` | `string` | Unique identifier for this specific tool call within the assistant message |
-| `agentID` | `string` | If running within a sub-agent, the sub-agent's ID |
+| Option           | Type                                         | Description                                                                  |
+| :--------------- | :------------------------------------------- | :--------------------------------------------------------------------------- |
+| `signal`         | `AbortSignal`                                | Signaled if the operation should be aborted                                  |
+| `suggestions`    | [`PermissionUpdate`](#permission-update)`[]` | Suggested permission updates so the user is not prompted again for this tool |
+| `blockedPath`    | `string`                                     | The file path that triggered the permission request, if applicable           |
+| `decisionReason` | `string`                                     | Explains why this permission request was triggered                           |
+| `toolUseID`      | `string`                                     | Unique identifier for this specific tool call within the assistant message   |
+| `agentID`        | `string`                                     | If running within a sub-agent, the sub-agent's ID                            |
 
 ### `PermissionResult`
 
@@ -448,6 +497,22 @@ type PermissionResult =
       toolUseID?: string;
     };
 ```
+
+### `ToolConfig`
+
+Configuration for built-in tool behavior.
+
+```typescript
+type ToolConfig = {
+  askUserQuestion?: {
+    previewFormat?: "markdown" | "html";
+  };
+};
+```
+
+| Field                           | Type                   | Description                                                                                                                                                                        |
+| :------------------------------ | :--------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `askUserQuestion.previewFormat` | `'markdown' \| 'html'` | Opts into the `preview` field on [`AskUserQuestion`](/docs/en/agent-sdk/user-input#question-format) options and sets its content format. When unset, Claude does not emit previews |
 
 ### `McpServerConfig`
 
@@ -523,10 +588,10 @@ type SdkPluginConfig = {
 };
 ```
 
-| Field | Type | Description |
-|:------|:-----|:------------|
+| Field  | Type      | Description                                                |
+| :----- | :-------- | :--------------------------------------------------------- |
 | `type` | `'local'` | Must be `'local'` (only local plugins currently supported) |
-| `path` | `string` | Absolute or relative path to the plugin directory |
+| `path` | `string`  | Absolute or relative path to the plugin directory          |
 
 **Example:**
 ```typescript
@@ -827,6 +892,8 @@ type BaseHookInput = {
   transcript_path: string;
   cwd: string;
   permission_mode?: string;
+  agent_id?: string;
+  agent_type?: string;
 };
 ```
 
@@ -1142,9 +1209,9 @@ type ToolInputSchemas =
   | WebSearchInput;
 ```
 
-### Task
+### Agent
 
-**Tool name:** `Task`
+**Tool name:** `Agent` (previously `Task`, which is still accepted as an alias)
 
 ```typescript
 type AgentInput = {
@@ -1173,7 +1240,7 @@ type AskUserQuestionInput = {
   questions: Array<{
     question: string;
     header: string;
-    options: Array<{ label: string; description: string }>;
+    options: Array<{ label: string; description: string; preview?: string }>;
     multiSelect: boolean;
   }>;
 };
@@ -1459,9 +1526,9 @@ type ToolOutputSchemas =
   | WebSearchOutput;
 ```
 
-### Task
+### Agent
 
-**Tool name:** `Task`
+**Tool name:** `Agent` (previously `Task`, which is still accepted as an alias)
 
 ```typescript
 type AgentOutput =
@@ -1515,7 +1582,7 @@ type AskUserQuestionOutput = {
   questions: Array<{
     question: string;
     header: string;
-    options: Array<{ label: string; description: string }>;
+    options: Array<{ label: string; description: string; preview?: string }>;
     multiSelect: boolean;
   }>;
   answers: Record<string, string>;
@@ -1960,9 +2027,13 @@ Available beta features that can be enabled via the `betas` option. See [Beta he
 type SdkBeta = "context-1m-2025-08-07";
 ```
 
-| Value | Description | Compatible Models |
-|:------|:------------|:------------------|
-| `'context-1m-2025-08-07'` | Enables 1 million token [context window](/docs/en/build-with-claude/context-windows) | Claude Opus 4.6, Claude Sonnet 4.5, Claude Sonnet 4 |
+| Value                     | Description                                                                               | Compatible Models                  |
+| :------------------------ | :---------------------------------------------------------------------------------------- | :--------------------------------- |
+| `'context-1m-2025-08-07'` | Enables the 1 million token [context window](/docs/en/build-with-claude/context-windows). | Claude Sonnet 4.5, Claude Sonnet 4 |
+
+<Note>
+Claude Opus 4.6 and Sonnet 4.6 have a 1M token context window. Including `context-1m-2025-08-07` has no effect on those models.
+</Note>
 
 ### `SlashCommand`
 
@@ -1988,12 +2059,13 @@ type ModelInfo = {
   supportsEffort?: boolean;
   supportedEffortLevels?: ("low" | "medium" | "high" | "max")[];
   supportsAdaptiveThinking?: boolean;
+  supportsFastMode?: boolean;
 };
 ```
 
 ### `AgentInfo`
 
-Information about an available subagent that can be invoked via the Task tool.
+Information about an available subagent that can be invoked via the Agent tool.
 
 ```typescript
 type AgentInfo = {
@@ -2003,11 +2075,11 @@ type AgentInfo = {
 };
 ```
 
-| Field | Type | Description |
-|:------|:-----|:------------|
-| `name` | `string` | Agent type identifier (e.g., `"Explore"`, `"general-purpose"`) |
-| `description` | `string` | Description of when to use this agent |
-| `model` | `string \| undefined` | Model alias this agent uses. If omitted, inherits the parent's model |
+| Field         | Type                  | Description                                                          |
+| :------------ | :-------------------- | :------------------------------------------------------------------- |
+| `name`        | `string`              | Agent type identifier (e.g., `"Explore"`, `"general-purpose"`)       |
+| `description` | `string`              | Description of when to use this agent                                |
+| `model`       | `string \| undefined` | Model alias this agent uses. If omitted, inherits the parent's model |
 
 ### `McpServerStatus`
 
@@ -2049,7 +2121,7 @@ type McpServerStatusConfig =
   | McpClaudeAIProxyServerConfig;
 ```
 
-See [`McpServerConfig`](#mcpserverconfig) for details on each transport type.
+See [`McpServerConfig`](#mcp-server-config) for details on each transport type.
 
 ### `AccountInfo`
 
@@ -2458,17 +2530,17 @@ type SandboxSettings = {
 };
 ```
 
-| Property | Type | Default | Description |
-| :------- | :--- | :------ | :---------- |
-| `enabled` | `boolean` | `false` | Enable sandbox mode for command execution |
-| `autoAllowBashIfSandboxed` | `boolean` | `true` | Auto-approve bash commands when sandbox is enabled |
-| `excludedCommands` | `string[]` | `[]` | Commands that always bypass sandbox restrictions (e.g., `['docker']`). These run unsandboxed automatically without model involvement |
-| `allowUnsandboxedCommands` | `boolean` | `true` | Allow the model to request running commands outside the sandbox. When `true`, the model can set `dangerouslyDisableSandbox` in tool input, which falls back to the [permissions system](#permissions-fallback-for-unsandboxed-commands) |
-| `network` | [`SandboxNetworkConfig`](#sandboxnetworkconfig) | `undefined` | Network-specific sandbox configuration |
-| `filesystem` | [`SandboxFilesystemConfig`](#sandboxfilesystemconfig) | `undefined` | Filesystem-specific sandbox configuration for read/write restrictions |
-| `ignoreViolations` | `Record<string, string[]>` | `undefined` | Map of violation categories to patterns to ignore (e.g., `{ file: ['/tmp/*'], network: ['localhost'] }`) |
-| `enableWeakerNestedSandbox` | `boolean` | `false` | Enable a weaker nested sandbox for compatibility |
-| `ripgrep` | `{ command: string; args?: string[] }` | `undefined` | Custom ripgrep binary configuration for sandbox environments |
+| Property                    | Type                                                    | Default     | Description                                                                                                                                                                                                                             |
+| :-------------------------- | :------------------------------------------------------ | :---------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`                   | `boolean`                                               | `false`     | Enable sandbox mode for command execution                                                                                                                                                                                               |
+| `autoAllowBashIfSandboxed`  | `boolean`                                               | `true`      | Auto-approve bash commands when sandbox is enabled                                                                                                                                                                                      |
+| `excludedCommands`          | `string[]`                                              | `[]`        | Commands that always bypass sandbox restrictions (e.g., `['docker']`). These run unsandboxed automatically without model involvement                                                                                                    |
+| `allowUnsandboxedCommands`  | `boolean`                                               | `true`      | Allow the model to request running commands outside the sandbox. When `true`, the model can set `dangerouslyDisableSandbox` in tool input, which falls back to the [permissions system](#permissions-fallback-for-unsandboxed-commands) |
+| `network`                   | [`SandboxNetworkConfig`](#sandbox-network-config)       | `undefined` | Network-specific sandbox configuration                                                                                                                                                                                                  |
+| `filesystem`                | [`SandboxFilesystemConfig`](#sandbox-filesystem-config) | `undefined` | Filesystem-specific sandbox configuration for read/write restrictions                                                                                                                                                                   |
+| `ignoreViolations`          | `Record<string, string[]>`                              | `undefined` | Map of violation categories to patterns to ignore (e.g., `{ file: ['/tmp/*'], network: ['localhost'] }`)                                                                                                                                |
+| `enableWeakerNestedSandbox` | `boolean`                                               | `false`     | Enable a weaker nested sandbox for compatibility                                                                                                                                                                                        |
+| `ripgrep`                   | `{ command: string; args?: string[] }`                  | `undefined` | Custom ripgrep binary configuration for sandbox environments                                                                                                                                                                            |
 
 #### Example usage
 
@@ -2511,15 +2583,15 @@ type SandboxNetworkConfig = {
 };
 ```
 
-| Property | Type | Default | Description |
-| :------- | :--- | :------ | :---------- |
-| `allowedDomains` | `string[]` | `[]` | Domain names that sandboxed processes can access |
-| `allowManagedDomainsOnly` | `boolean` | `false` | Restrict network access to only the domains in `allowedDomains` |
-| `allowLocalBinding` | `boolean` | `false` | Allow processes to bind to local ports (e.g., for dev servers) |
-| `allowUnixSockets` | `string[]` | `[]` | Unix socket paths that processes can access (e.g., Docker socket) |
-| `allowAllUnixSockets` | `boolean` | `false` | Allow access to all Unix sockets |
-| `httpProxyPort` | `number` | `undefined` | HTTP proxy port for network requests |
-| `socksProxyPort` | `number` | `undefined` | SOCKS proxy port for network requests |
+| Property                  | Type       | Default     | Description                                                       |
+| :------------------------ | :--------- | :---------- | :---------------------------------------------------------------- |
+| `allowedDomains`          | `string[]` | `[]`        | Domain names that sandboxed processes can access                  |
+| `allowManagedDomainsOnly` | `boolean`  | `false`     | Restrict network access to only the domains in `allowedDomains`   |
+| `allowLocalBinding`       | `boolean`  | `false`     | Allow processes to bind to local ports (e.g., for dev servers)    |
+| `allowUnixSockets`        | `string[]` | `[]`        | Unix socket paths that processes can access (e.g., Docker socket) |
+| `allowAllUnixSockets`     | `boolean`  | `false`     | Allow access to all Unix sockets                                  |
+| `httpProxyPort`           | `number`   | `undefined` | HTTP proxy port for network requests                              |
+| `socksProxyPort`          | `number`   | `undefined` | SOCKS proxy port for network requests                             |
 
 ### `SandboxFilesystemConfig`
 
@@ -2533,11 +2605,11 @@ type SandboxFilesystemConfig = {
 };
 ```
 
-| Property | Type | Default | Description |
-| :------- | :--- | :------ | :---------- |
-| `allowWrite` | `string[]` | `[]` | File path patterns to allow write access to |
-| `denyWrite` | `string[]` | `[]` | File path patterns to deny write access to |
-| `denyRead` | `string[]` | `[]` | File path patterns to deny read access to |
+| Property     | Type       | Default | Description                                 |
+| :----------- | :--------- | :------ | :------------------------------------------ |
+| `allowWrite` | `string[]` | `[]`    | File path patterns to allow write access to |
+| `denyWrite`  | `string[]` | `[]`    | File path patterns to deny write access to  |
+| `denyRead`   | `string[]` | `[]`    | File path patterns to deny read access to   |
 
 ### Permissions Fallback for Unsandboxed Commands
 

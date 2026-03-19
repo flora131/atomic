@@ -4,37 +4,37 @@ import {
   useRef,
   useState,
 } from "react";
-import { isBackgroundAgent } from "@/lib/ui/background-agent-footer.ts";
-import type { NormalizedTodoItem } from "@/lib/ui/task-status.ts";
-import type { AutoCompactionIndicatorState } from "@/lib/ui/auto-compaction-lifecycle.ts";
-import { type SessionLoopFinishReason } from "@/lib/ui/stream-continuation.ts";
-import { createAgentLifecycleLedger } from "@/lib/ui/agent-lifecycle-ledger.ts";
+import { isBackgroundAgent } from "@/state/chat/shared/helpers/background-agent-footer.ts";
+import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
+import type { AutoCompactionIndicatorState } from "@/state/chat/shared/helpers/auto-compaction-lifecycle.ts";
+import { type SessionLoopFinishReason } from "@/state/chat/shared/helpers/stream-continuation.ts";
+import { createAgentLifecycleLedger } from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
 import type {
   AgentOrderingEvent,
-} from "@/lib/ui/agent-ordering-contract.ts";
+} from "@/state/chat/shared/helpers/agent-ordering-contract.ts";
 import {
   createAgentOrderingState,
-} from "@/lib/ui/agent-ordering-contract.ts";
-import { createLoadedSkillTrackingSet } from "@/lib/ui/skill-load-tracking.ts";
+} from "@/state/chat/shared/helpers/agent-ordering-contract.ts";
+import { createLoadedSkillTrackingSet } from "@/state/chat/shared/helpers/skill-load-tracking.ts";
 import {
   StreamRunRuntime,
 } from "@/state/runtime/stream-run-runtime.ts";
 import type {
   StreamingMeta,
   ThinkingDropDiagnostics,
-} from "@/state/chat/types.ts";
+} from "@/state/chat/shared/types/index.ts";
 import {
   createThinkingDropDiagnostics,
-} from "@/state/chat/helpers.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+} from "@/state/chat/shared/helpers/index.ts";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type {
   UseChatStreamRuntimeArgs,
   UseChatStreamRuntimeResult,
 } from "@/state/chat/stream/runtime-types.ts";
-import { useChatBackgroundDispatch } from "@/state/chat/controller/use-background-dispatch.ts";
-import { useChatRunTracking } from "@/state/chat/controller/use-run-tracking.ts";
-import { useChatRuntimeControls } from "@/state/chat/controller/use-runtime-controls.ts";
-import { useChatRuntimeEffects } from "@/state/chat/controller/use-runtime-effects.ts";
+import { useChatBackgroundDispatch } from "@/state/chat/stream/use-background-dispatch.ts";
+import { useChatRunTracking } from "@/state/chat/stream/use-run-tracking.ts";
+import { useChatRuntimeControls } from "@/state/chat/stream/use-runtime-controls.ts";
+import { useChatRuntimeEffects } from "@/state/chat/stream/use-runtime-effects.ts";
 import { useChatStreamConsumer } from "@/state/chat/stream/use-consumer.ts";
 import { useChatStreamLifecycle } from "@/state/chat/stream/use-lifecycle.ts";
 
@@ -59,9 +59,11 @@ export function useChatStreamRuntime({
   const [workflowSessionDir, setWorkflowSessionDir] = useState<string | null>(null);
   const [workflowSessionId, setWorkflowSessionId] = useState<string | null>(null);
   const [toolCompletionVersion, setToolCompletionVersion] = useState(0);
+  const [activeBackgroundAgentCount, setActiveBackgroundAgentCount] = useState(0);
   const [agentAnchorSyncVersion, setAgentAnchorSyncVersion] = useState(0);
   const [streamingElapsedMs, setStreamingElapsedMs] = useState(0);
 
+  const activeBackgroundAgentCountRef = useRef(0);
   const todoItemsRef = useRef<NormalizedTodoItem[]>([]);
   const lastStreamingContentRef = useRef("");
   const streamRunRuntimeRef = useRef(new StreamRunRuntime());
@@ -217,6 +219,7 @@ export function useChatStreamRuntime({
     backgroundAgentSendChainRef,
     backgroundUpdateFlushInFlightRef,
     getSession,
+    isAgentOnlyStreamRef,
     isStreamingRef,
     pendingBackgroundUpdatesRef,
     setMessagesWindowed,
@@ -262,7 +265,7 @@ export function useChatStreamRuntime({
     workflowSessionIdRef,
     workflowTaskIdsRef,
   });
-  const { resetConsumers, getCorrelationService } = useChatStreamConsumer({
+  const { resetConsumers, getOwnershipTracker } = useChatStreamConsumer({
     agentType,
     activeForegroundRunHandleIdRef,
     activeStreamRunIdRef,
@@ -307,6 +310,7 @@ export function useChatStreamRuntime({
     startAssistantStream,
     terminateAgentLifecycleContractViolation,
   } = useChatStreamLifecycle({
+    activeBackgroundAgentCountRef,
     activeStreamRunIdRef,
     agentType,
     awaitedStreamRunIdsRef,
@@ -334,6 +338,7 @@ export function useChatStreamRuntime({
     runningAskQuestionToolIdsRef,
     runningBlockingToolIdsRef,
     sendBackgroundMessageToAgent,
+    setActiveBackgroundAgentCount,
     setBackgroundAgentMessageId,
     setIsStreaming,
     setLastStreamedMessageId,
@@ -363,10 +368,10 @@ export function useChatStreamRuntime({
   };
 
   const hasLiveLoadingIndicator = useMemo(
-    () => messages.some((message) => {
+    () => activeBackgroundAgentCount > 0 || messages.some((message) => {
       return message.streaming || todoItems.some((item) => item.status === "in_progress");
     }),
-    [messages, todoItems],
+    [activeBackgroundAgentCount, messages, todoItems],
   );
 
   useChatRuntimeEffects({
@@ -395,6 +400,7 @@ export function useChatStreamRuntime({
 
   return {
     state: {
+      activeBackgroundAgentCount,
       agentAnchorSyncVersion,
       compactionSummary,
       parallelAgents,
@@ -406,6 +412,7 @@ export function useChatStreamRuntime({
       workflowSessionId,
     },
     setters: {
+      setActiveBackgroundAgentCount,
       setCompactionSummary,
       setIsAutoCompacting,
       setParallelAgents,
@@ -416,6 +423,7 @@ export function useChatStreamRuntime({
       setWorkflowSessionId,
     },
     refs: {
+      activeBackgroundAgentCountRef,
       activeForegroundRunHandleIdRef,
       activeSkillSessionIdRef,
       activeStreamRunIdRef,
@@ -466,7 +474,7 @@ export function useChatStreamRuntime({
       deleteAgentMessageBinding,
       finalizeThinkingSourceTracking,
       getActiveStreamRunId,
-      getCorrelationService,
+      getOwnershipTracker,
       handleStreamComplete,
       handleStreamStartupError,
       hasPendingTaskResultContract,

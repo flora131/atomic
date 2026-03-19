@@ -18,11 +18,11 @@ async function createShimFixture(): Promise<{
   await mkdir(packageDir, { recursive: true });
   await mkdir(join(root, "node_modules", "@opentui", "core"), { recursive: true });
 
-  await writeFile(join(packageDir, "web-tree-sitter.wasm"), "wasm-binary", "utf8");
-  await writeFile(join(packageDir, "web-tree-sitter.wasm.map"), "wasm-map", "utf8");
+  await writeFile(join(packageDir, "tree-sitter.wasm"), "wasm-binary", "utf8");
+  await writeFile(join(packageDir, "tree-sitter.wasm.map"), "wasm-map", "utf8");
   await writeFile(
     parserWorkerPath,
-    'await import("web-tree-sitter/tree-sitter.wasm", { with: { type: "wasm" } });\n',
+    'await import("web-tree-sitter/web-tree-sitter.wasm", { with: { type: "wasm" } });\n',
     "utf8",
   );
 
@@ -43,12 +43,12 @@ describe("ensureWebTreeSitterWasmShim", () => {
       ensureWebTreeSitterWasmShim(fixture.paths);
       ensureWebTreeSitterWasmShim(fixture.paths);
 
-      expect(await readFile(join(fixture.paths.packageDir, "tree-sitter.wasm"), "utf8")).toBe("wasm-binary");
-      expect(await readFile(join(fixture.paths.packageDir, "tree-sitter.wasm.map"), "utf8")).toBe("wasm-map");
+      expect(await readFile(join(fixture.paths.packageDir, "web-tree-sitter.wasm"), "utf8")).toBe("wasm-binary");
+      expect(await readFile(join(fixture.paths.packageDir, "web-tree-sitter.wasm.map"), "utf8")).toBe("wasm-map");
 
       const parserWorker = await readFile(fixture.paths.parserWorkerPath, "utf8");
-      expect(parserWorker.includes('"web-tree-sitter/tree-sitter.wasm"')).toBe(false);
-      expect(parserWorker.includes('"web-tree-sitter/web-tree-sitter.wasm"')).toBe(true);
+      expect(parserWorker.includes('"web-tree-sitter/web-tree-sitter.wasm"')).toBe(false);
+      expect(parserWorker.includes('"web-tree-sitter/tree-sitter.wasm"')).toBe(true);
     } finally {
       await rm(fixture.root, { recursive: true, force: true });
     }

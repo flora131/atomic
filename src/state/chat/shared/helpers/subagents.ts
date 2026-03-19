@@ -1,4 +1,4 @@
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type { AgentType } from "@/services/models/index.ts";
 import { isSubagentToolName } from "@/state/parts/index.ts";
 
@@ -276,6 +276,7 @@ export function finalizeSyntheticTaskAgentForToolComplete(args: {
 
 export function finalizeCorrelatedSubagentDispatchForToolComplete(args: {
   agents: ParallelAgent[];
+  provider?: AgentType;
   toolName: string;
   toolId: string;
   success: boolean;
@@ -284,6 +285,12 @@ export function finalizeCorrelatedSubagentDispatchForToolComplete(args: {
   agentId?: string;
 }): ParallelAgent[] {
   if (args.agentId) return args.agents;
+  // Copilot agent completion is driven exclusively by stream.agent.complete
+  // events from handleCopilotSubagentComplete. The SDK fires
+  // tool.execution_complete for the task tool BEFORE subagent.completed, so
+  // allowing tool-complete events to finalize agents here would prematurely
+  // mark them as completed while they are still running.
+  if (args.provider === "copilot") return args.agents;
   if (!isSubagentToolName(args.toolName)) return args.agents;
   const status: ParallelAgent["status"] = args.success
     ? "completed"

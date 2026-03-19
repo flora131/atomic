@@ -4,7 +4,7 @@ import {
 } from "@/services/telemetry/index.ts";
 import { EventBus } from "@/services/events/event-bus.ts";
 import { BatchDispatcher } from "@/services/events/batch-dispatcher.ts";
-import { attachDebugSubscriber } from "@/services/events/debug-subscriber.ts";
+import { attachDebugSubscriber } from "@/services/events/debug-subscriber/index.ts";
 import type {
   ChatUIState,
   CreateChatUIRuntimeStateArgs,

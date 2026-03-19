@@ -19,20 +19,20 @@ export function TaskResultPartDisplay({ part }: TaskResultPartDisplayProps): Rea
 
   return (
     <box flexDirection="column">
-      <text style={{ fg: statusColor }}>
+      <text fg={statusColor}>
         {`${statusIcon} Task result ${part.taskId} (${statusLabel})`}
       </text>
       <box marginLeft={SPACING.INDENT}>
-        <text style={{ fg: colors.foreground }}>{part.title}</text>
+        <text fg={colors.foreground}>{part.title}</text>
       </box>
       {output.length > 0 && (
         <box marginLeft={SPACING.INDENT}>
-          <text style={{ fg: colors.muted }}>{output}</text>
+          <text fg={colors.muted}>{output}</text>
         </box>
       )}
       {isError && part.error && (
         <box marginLeft={SPACING.INDENT}>
-          <text style={{ fg: colors.error }}>{part.error}</text>
+          <text fg={colors.error}>{part.error}</text>
         </box>
       )}
     </box>

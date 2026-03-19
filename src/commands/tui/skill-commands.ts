@@ -5,4 +5,4 @@
  * original `commands/tui/skill-commands.ts` import path remains stable.
  */
 
-export * from "@/commands/catalog/skills.ts";
+export * from "@/commands/catalog/skills/index.ts";

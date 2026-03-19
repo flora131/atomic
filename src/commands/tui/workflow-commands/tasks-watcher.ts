@@ -4,7 +4,7 @@ import { join } from "path";
 import {
   normalizeTodoItems,
   type NormalizedTodoItem,
-} from "@/lib/ui/task-status.ts";
+} from "@/state/parts/helpers/task-status.ts";
 
 export function watchTasksJson(
   sessionDir: string,

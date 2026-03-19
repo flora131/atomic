@@ -1,7 +1,13 @@
 import { useCallback } from "react";
-import { formatAgentLifecycleViolation } from "@/lib/ui/agent-lifecycle-ledger.ts";
-import { finalizeStreamingReasoningInMessage } from "@/state/parts/index.ts";
-import { createMessage } from "@/state/chat/helpers.ts";
+import { formatAgentLifecycleViolation } from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
+import {
+  finalizeStreamingReasoningInMessage,
+  finalizeStreamingTextParts,
+} from "@/state/parts/index.ts";
+import {
+  interruptRunningToolParts,
+} from "@/state/chat/shared/helpers/stream-continuation.ts";
+import { createMessage } from "@/state/chat/shared/helpers/index.ts";
 import type { UseChatStreamLifecycleArgs } from "@/state/chat/stream/lifecycle-types.ts";
 
 type UseChatStreamErrorsArgs = Pick<
@@ -44,7 +50,14 @@ export function useChatStreamErrors({
 
         return prev.map((msg) =>
           msg.id === failedMessageId
-            ? { ...finalizeStreamingReasoningInMessage(msg), streaming: false, modelId: currentModelRef.current }
+            ? {
+              ...finalizeStreamingReasoningInMessage(msg),
+              streaming: false,
+              modelId: currentModelRef.current,
+              parts: finalizeStreamingTextParts(
+                interruptRunningToolParts(msg.parts) ?? [],
+              ),
+            }
             : msg,
         );
       });
@@ -101,7 +114,7 @@ export function useChatStreamErrors({
   ]);
 
   const terminateAgentLifecycleContractViolation = useCallback((args: {
-    code: import("@/lib/ui/agent-lifecycle-ledger.ts").AgentLifecycleViolationCode;
+    code: import("@/state/chat/shared/helpers/agent-lifecycle-ledger.ts").AgentLifecycleViolationCode;
     eventType: "stream.agent.start" | "stream.agent.update" | "stream.agent.complete";
     agentId: string;
   }) => {

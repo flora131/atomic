@@ -1,5 +1,5 @@
-import { formatTranscript, type TranscriptLine, type TranscriptLineType } from "@/lib/ui/transcript-formatter.ts";
-import type { ChatMessage, StreamingMeta } from "@/screens/chat-screen.tsx";
+import { formatTranscript, type TranscriptLine, type TranscriptLineType } from "@/components/transcript/transcript-formatter.ts";
+import type { ChatMessage, StreamingMeta } from "@/types/chat.ts";
 
 export { formatTranscript };
 export type { ChatMessage, StreamingMeta, TranscriptLine, TranscriptLineType };

@@ -1,7 +1,7 @@
 import { join } from "path";
 import { homedir } from "os";
 import { readdir, rm } from "fs/promises";
-import type { BusEvent } from "@/services/events/bus-events.ts";
+import type { BusEvent } from "@/services/events/bus-events/index.ts";
 
 export const DEFAULT_LOG_DIR = join(homedir(), ".local", "share", "atomic", "log", "events");
 export const MAX_LOG_SESSIONS = 10;

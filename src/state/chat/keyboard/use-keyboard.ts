@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { useKeyboard } from "@opentui/react";
 import type { KeyEvent } from "@opentui/core";
-import { getNextKittyKeyboardDetectionState } from "@/lib/ui/kitty-keyboard-detection.ts";
+import { getNextKittyKeyboardDetectionState } from "@/state/chat/keyboard/kitty-keyboard-detection.ts";
 import {
   handleAutocompleteSelectionKey,
   handleComposeShortcutKey,
@@ -11,6 +11,7 @@ import type { UseChatKeyboardArgs } from "@/state/chat/keyboard/types.ts";
 import { useChatInterruptControls } from "@/state/chat/keyboard/use-interrupt-controls.ts";
 
 export function useChatKeyboard({
+  activeBackgroundAgentCountRef,
   activeQuestion,
   addMessage,
   activeHitlToolCallIdRef,
@@ -51,6 +52,7 @@ export function useChatKeyboard({
   savedInputRef,
   scrollboxRef,
   separateAndInterruptAgents,
+  setActiveBackgroundAgentCount,
   setBackgroundAgentMessageId,
   setIsEditingQueue,
   setMessagesWindowed,
@@ -80,6 +82,7 @@ export function useChatKeyboard({
     handleEscapeKey,
     isBackgroundTerminationKey,
   } = useChatInterruptControls({
+    activeBackgroundAgentCountRef,
     activeQuestion,
     activeHitlToolCallIdRef,
     addMessage,
@@ -104,6 +107,7 @@ export function useChatKeyboard({
     resetHitlState,
     resolveTrackedRun,
     separateAndInterruptAgents,
+    setActiveBackgroundAgentCount,
     setBackgroundAgentMessageId,
     setMessagesWindowed,
     setParallelAgents,

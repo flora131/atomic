@@ -6,7 +6,7 @@ import {
   clearHistoryBuffer,
   readHistoryBuffer,
   replaceHistoryBuffer,
-} from "@/lib/ui/conversation-history-buffer.ts";
+} from "@/state/chat/shared/helpers/conversation-history-buffer.ts";
 import {
   BUFFER_FILE,
   cleanupConversationHistoryBuffer,

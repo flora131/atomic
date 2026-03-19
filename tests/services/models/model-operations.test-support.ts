@@ -32,6 +32,7 @@ export function createMockOpenCodeProviderModel(
     tool_call: boolean;
     limit: { context: number; output: number };
     options: Record<string, unknown>;
+    variants: Record<string, { disabled?: boolean; [key: string]: unknown }>;
   }> = {},
 ) {
   return {
@@ -45,6 +46,7 @@ export function createMockOpenCodeProviderModel(
       output: 16384,
     },
     options: {},
+    variants: {},
     ...overrides,
   };
 }

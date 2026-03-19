@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useThemeColors } from "@/theme/index.tsx";
 import { ARROW, MISC, SPINNER_COMPLETE, SPINNER_FRAMES } from "@/theme/icons.ts";
 import { formatDuration } from "@/lib/ui/format.ts";
+import { getLoadingIndicatorText } from "@/state/chat/shared/helpers/index.ts";
 
 interface LoadingIndicatorProps {
   speed?: number;
@@ -9,6 +10,7 @@ interface LoadingIndicatorProps {
   elapsedMs?: number;
   outputTokens?: number;
   thinkingMs?: number;
+  isStreaming?: boolean;
 }
 
 function formatTokenCount(tokens: number): string {
@@ -37,11 +39,15 @@ export function LoadingIndicator({
   elapsedMs,
   outputTokens,
   thinkingMs,
+  isStreaming,
 }: LoadingIndicatorProps): React.ReactNode {
   const themeColors = useThemeColors();
   const [frameIndex, setFrameIndex] = useState(0);
-  const verb = verbOverride
-    ?? (thinkingMs != null && thinkingMs > 0 ? "Reasoning" : "Composing");
+  const verb = getLoadingIndicatorText({
+    isStreaming: isStreaming ?? true,
+    verbOverride,
+    thinkingMs,
+  });
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -67,13 +73,13 @@ export function LoadingIndicator({
     : "";
 
   return (
-    <>
-      <span style={{ fg: themeColors.accent }}>{spinChar} </span>
-      <span style={{ fg: themeColors.accent }}>{verb}…</span>
+    <text>
+      <span fg={themeColors.accent}>{spinChar} </span>
+      <span fg={themeColors.accent}>{verb}…</span>
       {infoText && (
-        <span style={{ fg: themeColors.muted }}>{infoText}</span>
+        <span fg={themeColors.muted}>{infoText}</span>
       )}
-    </>
+    </text>
   );
 }
 
@@ -104,8 +110,8 @@ export function CompletionSummary({
 
   return (
     <box flexDirection="row">
-      <text style={{ fg: themeColors.muted }}>
-        <span style={{ fg: themeColors.accent }}>{spinChar} </span>
+      <text fg={themeColors.muted}>
+        <span fg={themeColors.accent}>{spinChar} </span>
         <span>{parts.join(` ${MISC.separator} `)}</span>
       </text>
     </box>
@@ -128,8 +134,10 @@ export function StreamingBullet({
   }, [speed]);
 
   return (
-    <span style={{ fg: themeColors.accent }}>
-      {visible ? "\u25cf" : MISC.separator}{" "}
-    </span>
+    <text>
+      <span fg={themeColors.accent}>
+        {visible ? "\u25cf" : MISC.separator}{" "}
+      </span>
+    </text>
   );
 }

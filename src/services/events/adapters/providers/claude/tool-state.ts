@@ -10,9 +10,11 @@ import {
 import { SubagentToolTracker } from "@/services/events/adapters/subagent-tool-tracker.ts";
 import {
   cleanupClaudeOrphanedTools,
+  flushClaudeOrphanedAgentCompletions,
   publishClaudeSyntheticAgentComplete,
   publishClaudeSyntheticAgentStart,
 } from "@/services/events/adapters/providers/claude/tool-state-events.ts";
+import { resolveCorrelationIds } from "@/services/events/adapters/shared/adapter-correlation.ts";
 
 export type ClaudeEarlyToolStartEvent = {
   phase: "start";
@@ -292,9 +294,10 @@ export class ClaudeToolState {
   resolveActiveSubagentToolContext(
     ...correlationIds: Array<string | undefined>
   ): ClaudeActiveSubagentToolContext | undefined {
-    const ids = correlationIds
-      .map((id) => this.resolveToolCorrelationId(id) ?? id)
-      .filter((id): id is string => Boolean(id));
+    const ids = resolveCorrelationIds(
+      correlationIds,
+      (id) => this.resolveToolCorrelationId(id),
+    );
     for (const id of ids) {
       const context = this.activeSubagentToolsById.get(id);
       if (context) {
@@ -372,9 +375,10 @@ export class ClaudeToolState {
     ...correlationIds: Array<string | undefined>
   ): void {
     const context = { parentAgentId, toolName };
-    const ids = [toolId, ...correlationIds]
-      .map((id) => this.resolveToolCorrelationId(id) ?? id)
-      .filter((id): id is string => Boolean(id));
+    const ids = resolveCorrelationIds(
+      [toolId, ...correlationIds],
+      (id) => this.resolveToolCorrelationId(id),
+    );
     for (const id of ids) {
       this.activeSubagentToolsById.set(id, context);
     }
@@ -384,9 +388,10 @@ export class ClaudeToolState {
     toolId: string,
     ...correlationIds: Array<string | undefined>
   ): void {
-    const ids = [toolId, ...correlationIds]
-      .map((id) => this.resolveToolCorrelationId(id) ?? id)
-      .filter((id): id is string => Boolean(id));
+    const ids = resolveCorrelationIds(
+      [toolId, ...correlationIds],
+      (id) => this.resolveToolCorrelationId(id),
+    );
     for (const id of ids) {
       this.activeSubagentToolsById.delete(id);
     }
@@ -465,8 +470,20 @@ export class ClaudeToolState {
       runId,
       sessionId: this.sessionId,
       subagentSessionToAgentId: this.subagentSessionToAgentId,
+      toolUseIdToSubagentId: this.toolUseIdToSubagentId,
     });
     this.ownedSessionIds = new Set([this.sessionId]);
+  }
+
+  flushOrphanedAgentCompletions(runId: number): void {
+    flushClaudeOrphanedAgentCompletions({
+      bus: this.bus,
+      pendingToolIdsByName: this.pendingToolIdsByName,
+      runId,
+      sessionId: this.sessionId,
+      subagentTracker: this.getSubagentTracker(),
+      toolUseIdToSubagentId: this.toolUseIdToSubagentId,
+    });
   }
 
   isOwnedSession(eventSessionId: string): boolean {
@@ -490,6 +507,18 @@ export class ClaudeToolState {
 
   normalizeToolName(value: unknown): string {
     return normalizeToolName(value);
+  }
+
+  hasActiveBackgroundAgents(): boolean {
+    return Array.from(this.activeSubagentBackgroundById.entries()).some(
+      ([_, isBackground]) => isBackground,
+    );
+  }
+
+  getActiveBackgroundAgentCount(): number {
+    return Array.from(this.activeSubagentBackgroundById.values()).filter(
+      (isBackground) => isBackground,
+    ).length;
   }
 
   isTaskTool(toolName: string): boolean {

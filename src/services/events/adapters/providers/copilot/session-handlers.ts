@@ -25,7 +25,7 @@ import {
   publishSyntheticForegroundAgentComplete,
 } from "@/services/events/adapters/providers/copilot/support.ts";
 import type { CopilotSessionHandlerContext } from "@/services/events/adapters/providers/copilot/types.ts";
-import { isLikelyFilePath } from "@/lib/ui/session-info-filters.ts";
+import { isLikelyFilePath } from "@/services/events/session-info-filters.ts";
 
 export function handleCopilotSessionIdle(
   context: CopilotSessionHandlerContext,
@@ -334,7 +334,11 @@ export function handleCopilotSessionInfo(
   });
 }
 
-// No-op: suppress all Copilot session warnings to avoid noisy UI messages
+// No-op: Copilot SDK session.warning events are suppressed because they carry
+// internal SDK diagnostics (e.g. deprecation notices, config hints) that are
+// operational noise rather than user-actionable information. The corresponding
+// stream.session.warning bus event is still consumed by useStreamSessionSubscriptions
+// for providers that do emit meaningful warnings (e.g. OpenCode, Claude).
 export function handleCopilotSessionWarning(
   _context: CopilotSessionHandlerContext,
   _event: AgentEvent<"session.warning">,

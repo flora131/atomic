@@ -27,11 +27,18 @@ export interface OpenCodeListableProvider {
   models?: Record<string, {
     id?: string;
     name?: string;
+    family?: string;
     status?: "alpha" | "beta" | "deprecated";
     reasoning?: boolean;
     attachment?: boolean;
     temperature?: boolean;
     tool_call?: boolean;
+    capabilities?: {
+      reasoning?: boolean;
+      attachment?: boolean;
+      temperature?: boolean;
+      toolcall?: boolean;
+    };
     limit?: {
       context?: number;
       input?: number;
@@ -49,5 +56,14 @@ export interface OpenCodeListableProvider {
     };
     options?: Record<string, unknown>;
     headers?: Record<string, string>;
+    api?: {
+      id?: string;
+      url?: string;
+      npm?: string;
+    };
+    variants?: Record<string, {
+      disabled?: boolean;
+      [key: string]: unknown;
+    }>;
   }>;
 }

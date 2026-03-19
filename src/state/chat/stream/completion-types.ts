@@ -2,6 +2,7 @@ import type { UseChatStreamLifecycleArgs } from "@/state/chat/stream/lifecycle-t
 
 export type UseChatStreamCompletionArgs = Pick<
   UseChatStreamLifecycleArgs,
+  | "activeBackgroundAgentCountRef"
   | "activeStreamRunIdRef"
   | "agentType"
   | "awaitedStreamRunIdsRef"
@@ -20,6 +21,7 @@ export type UseChatStreamCompletionArgs = Pick<
   | "runningAskQuestionToolIdsRef"
   | "runningBlockingToolIdsRef"
   | "sendBackgroundMessageToAgent"
+  | "setActiveBackgroundAgentCount"
   | "setBackgroundAgentMessageId"
   | "setLastStreamedMessageId"
   | "setMessagesWindowed"

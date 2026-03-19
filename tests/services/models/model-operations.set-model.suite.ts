@@ -6,6 +6,13 @@ describe("UnifiedModelOperations - setModel", () => {
   test("sets model for Claude without requiring new session", async () => {
     const mockSetModel = async (_model: string) => {};
     const ops = new UnifiedModelOperations("claude", mockSetModel);
+    spyOn(ops, "listAvailableModels").mockResolvedValue([
+      createMockModel({
+        id: "anthropic/sonnet",
+        providerID: "anthropic",
+        modelID: "sonnet",
+      }),
+    ]);
     const result = await ops.setModel("sonnet");
 
     expect(result.success).toBe(true);
@@ -19,6 +26,13 @@ describe("UnifiedModelOperations - setModel", () => {
       capturedModel = model;
     };
     const ops = new UnifiedModelOperations("claude", mockSetModel);
+    spyOn(ops, "listAvailableModels").mockResolvedValue([
+      createMockModel({
+        id: "anthropic/opus",
+        providerID: "anthropic",
+        modelID: "opus",
+      }),
+    ]);
     await ops.setModel("opus");
 
     expect(capturedModel).toBe("opus");
@@ -31,6 +45,13 @@ describe("UnifiedModelOperations - setModel", () => {
       capturedModel = model;
     };
     const ops = new UnifiedModelOperations("claude", mockSetModel);
+    spyOn(ops, "listAvailableModels").mockResolvedValue([
+      createMockModel({
+        id: "anthropic/sonnet",
+        providerID: "anthropic",
+        modelID: "sonnet",
+      }),
+    ]);
     await ops.setModel("anthropic/sonnet");
 
     expect(capturedModel).toBe("sonnet");
@@ -54,6 +75,74 @@ describe("UnifiedModelOperations - setModel", () => {
     await expect(ops.setModel("anthropic/default")).rejects.toThrow(
       "Model 'default' is not supported for Claude"
     );
+  });
+
+  test("passes sanitized Claude reasoning effort to the provider setter", async () => {
+    let capturedModel: string | undefined;
+    let capturedReasoningEffort: string | undefined;
+    const mockSetModel = async (
+      model: string,
+      options?: { reasoningEffort?: string },
+    ) => {
+      capturedModel = model;
+      capturedReasoningEffort = options?.reasoningEffort;
+    };
+    const ops = new UnifiedModelOperations("claude", mockSetModel);
+    const mockModels = [
+      createMockModel({
+        id: "anthropic/sonnet",
+        providerID: "anthropic",
+        modelID: "sonnet",
+        capabilities: {
+          reasoning: true,
+          attachment: false,
+          temperature: true,
+          toolCall: true,
+        },
+        supportedReasoningEfforts: ["low", "medium", "high", "max"],
+      }),
+    ];
+    spyOn(ops, "listAvailableModels").mockResolvedValue(mockModels);
+    ops.setPendingReasoningEffort("max");
+
+    const result = await ops.setModel("anthropic/sonnet");
+
+    expect(result.success).toBe(true);
+    expect(capturedModel).toBe("sonnet");
+    expect(capturedReasoningEffort).toBe("max");
+    expect(ops.getPendingReasoningEffort()).toBe("max");
+  });
+
+  test("clears stale Claude reasoning effort when the selected model does not advertise it", async () => {
+    let capturedReasoningEffort = "unset";
+    const mockSetModel = async (
+      _model: string,
+      options?: { reasoningEffort?: string },
+    ) => {
+      capturedReasoningEffort = options?.reasoningEffort ?? "omitted";
+    };
+    const ops = new UnifiedModelOperations("claude", mockSetModel);
+    const mockModels = [
+      createMockModel({
+        id: "anthropic/haiku",
+        providerID: "anthropic",
+        modelID: "haiku",
+        capabilities: {
+          reasoning: false,
+          attachment: false,
+          temperature: true,
+          toolCall: true,
+        },
+      }),
+    ];
+    spyOn(ops, "listAvailableModels").mockResolvedValue(mockModels);
+    ops.setPendingReasoningEffort("high");
+
+    const result = await ops.setModel("haiku");
+
+    expect(result.success).toBe(true);
+    expect(capturedReasoningEffort).toBe("omitted");
+    expect(ops.getPendingReasoningEffort()).toBeUndefined();
   });
 
   test("returns requiresNewSession for Copilot", async () => {
@@ -237,5 +326,71 @@ describe("UnifiedModelOperations - setModel", () => {
 
     expect(result.success).toBe(true);
     expect(await ops.getCurrentModel()).toBe("claude-3-opus");
+  });
+
+  test("passes sanitized OpenCode reasoning effort to the provider setter", async () => {
+    let capturedReasoningEffort: string | undefined;
+    const mockSetModel = async (
+      _model: string,
+      options?: { reasoningEffort?: string },
+    ) => {
+      capturedReasoningEffort = options?.reasoningEffort;
+    };
+    const ops = new UnifiedModelOperations("opencode", mockSetModel);
+    const mockModels = [
+      createMockModel({
+        id: "openai/gpt-5",
+        providerID: "openai",
+        modelID: "gpt-5",
+        capabilities: {
+          reasoning: true,
+          attachment: true,
+          temperature: true,
+          toolCall: true,
+        },
+        supportedReasoningEfforts: ["low", "medium", "high"],
+      }),
+    ];
+    spyOn(ops, "listAvailableModels").mockResolvedValue(mockModels);
+    ops.setPendingReasoningEffort("high");
+
+    const result = await ops.setModel("openai/gpt-5");
+
+    expect(result.success).toBe(true);
+    expect(capturedReasoningEffort).toBe("high");
+    expect(ops.getPendingReasoningEffort()).toBe("high");
+  });
+
+  test("clears stale OpenCode reasoning effort when the model does not advertise it", async () => {
+    let capturedReasoningEffort = "unset";
+    const mockSetModel = async (
+      _model: string,
+      options?: { reasoningEffort?: string },
+    ) => {
+      capturedReasoningEffort = options?.reasoningEffort ?? "omitted";
+    };
+    const ops = new UnifiedModelOperations("opencode", mockSetModel);
+    const mockModels = [
+      createMockModel({
+        id: "anthropic/claude-sonnet-4-5",
+        providerID: "anthropic",
+        modelID: "claude-sonnet-4-5",
+        capabilities: {
+          reasoning: true,
+          attachment: true,
+          temperature: true,
+          toolCall: true,
+        },
+        supportedReasoningEfforts: ["low", "high"],
+      }),
+    ];
+    spyOn(ops, "listAvailableModels").mockResolvedValue(mockModels);
+    ops.setPendingReasoningEffort("medium");
+
+    const result = await ops.setModel("anthropic/claude-sonnet-4-5");
+
+    expect(result.success).toBe(true);
+    expect(capturedReasoningEffort).toBe("omitted");
+    expect(ops.getPendingReasoningEffort()).toBeUndefined();
   });
 });

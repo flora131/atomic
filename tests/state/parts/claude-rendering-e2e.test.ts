@@ -3,7 +3,7 @@ import { ClaudeAgentClient } from "@/services/agents/clients/index.ts";
 import { createPartId, _resetPartCounter } from "@/state/parts/id.ts";
 import { upsertPart } from "@/state/parts/store.ts";
 import type { AgentPart, Part, ToolPart } from "@/state/parts/types.ts";
-import type { ChatMessage } from "@/screens/chat-screen.tsx";
+import type { ChatMessage } from "@/types/chat.ts";
 
 function createMockMessage(): ChatMessage {
   return {

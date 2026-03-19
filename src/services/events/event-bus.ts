@@ -17,8 +17,8 @@ import type {
   BusEventType,
   BusHandler,
   WildcardHandler,
-} from "@/services/events/bus-events.ts";
-import { BusEventSchemas } from "@/services/events/bus-events.ts";
+} from "@/services/events/bus-events/index.ts";
+import { BusEventSchemas } from "@/services/events/bus-events/index.ts";
 import { pipelineLog, pipelineError } from "@/services/events/pipeline-logger.ts";
 
 /**

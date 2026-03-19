@@ -20,14 +20,10 @@ import { globalRegistry } from "@/commands/tui/registry.ts";
 import type { TodoItem } from "@/services/agents/tools/todo-write.ts";
 import type { WorkflowRuntimeFeatureFlagOverrides } from "@/services/workflows/runtime-contracts.ts";
 
-import type { NormalizedTodoItem } from "@/lib/ui/task-status.ts";
-import {
-    initWorkflowSession,
-    type WorkflowSession,
-} from "@/services/workflows/session.ts";
-import type { BaseState } from "@/services/workflows/graph/types.ts";
+import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
+import { initWorkflowSession } from "@/services/workflows/session.ts";
+import type { WorkflowSession } from "@/services/agent-discovery/index.ts";
 import { executeWorkflow } from "@/services/workflows/executor.ts";
-import { createRalphWorkflow } from "@/services/workflows/ralph/graph.ts";
 import {
     completeSession,
     getActiveSession,
@@ -42,8 +38,10 @@ import {
     loadWorkflowsFromDisk,
 } from "./workflow-files.ts";
 import {
+    parseWorkflowArgs,
     parseRalphArgs,
     type RalphCommandArgs,
+    type WorkflowCommandArgs,
     type WorkflowDefinition,
     type WorkflowMetadata,
 } from "./types.ts";
@@ -56,18 +54,19 @@ export {
     getAllWorkflows,
     loadWorkflowsFromDisk,
     parseRalphArgs,
+    parseWorkflowArgs,
     registerActiveSession,
     saveTasksToActiveSession,
     watchTasksJson,
 };
 export type {
     RalphCommandArgs,
+    WorkflowCommandArgs,
     WorkflowDefinition,
     WorkflowGraphConfig,
     WorkflowMetadata,
     WorkflowStateMigrator,
     WorkflowStateParams,
-    WorkflowTask,
 } from "./types.ts";
 
 // ============================================================================
@@ -83,7 +82,7 @@ export type {
  */
 function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
     const definition = metadata as WorkflowDefinition;
-    const hasExecutionLogic = definition.createState || definition.graphConfig;
+    const hasExecutionLogic = definition.createState || definition.graphConfig || definition.createGraph;
 
     if (hasExecutionLogic) {
         // Graph-based workflow — use executeWorkflow() for full lifecycle
@@ -104,9 +103,9 @@ function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
                     };
                 }
 
-                let parsed: RalphCommandArgs;
+                let parsed: WorkflowCommandArgs;
                 try {
-                    parsed = parseRalphArgs(args);
+                    parsed = parseWorkflowArgs(args, metadata.name);
                 } catch (e) {
                     return {
                         success: false,
@@ -114,15 +113,8 @@ function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
                     };
                 }
 
-                // Ralph uses builder pattern (createRalphWorkflow) instead of declarative graphConfig
-                const compiledGraph = definition.name === "ralph"
-                    ? createRalphWorkflow() as unknown as import("@/services/workflows/graph/types.ts").CompiledGraph<BaseState>
-                    : undefined;
-
                 return executeWorkflow(definition, parsed.prompt, context, {
-                    compiledGraph,
                     saveTasksToSession: saveTasksToActiveSession,
-                    eventBus: context.eventBus,
                 });
             },
         };
@@ -164,9 +156,6 @@ function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
                     workflowActive: true,
                     workflowType: metadata.name,
                     initialPrompt,
-                    pendingApproval: false,
-                    specApproved: undefined,
-                    feedback: null,
                 },
             };
         },

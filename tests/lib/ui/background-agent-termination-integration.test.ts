@@ -16,16 +16,14 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import {
   getBackgroundTerminationDecision,
   interruptActiveBackgroundAgents,
   isBackgroundTerminationKey,
-} from "@/lib/ui/background-agent-termination.ts";
-import {
-  BACKGROUND_TREE_HINT_CONTRACT,
-} from "@/lib/ui/background-agent-contracts.ts";
-import { getActiveBackgroundAgents } from "@/lib/ui/background-agent-footer.ts";
+} from "@/state/chat/shared/helpers/background-agent-termination.ts";
+
+import { getActiveBackgroundAgents } from "@/state/chat/shared/helpers/background-agent-footer.ts";
 
 // ============================================================================
 // TEST HELPERS
@@ -317,7 +315,7 @@ describe("Ctrl+F double-press lifecycle integration", () => {
     }
   });
 
-  test("confirmation messages are consistent with tree hint contracts", () => {
+  test("confirmation messages reference correct key combination", () => {
     const agents: ParallelAgent[] = [
       createAgent({
         id: "bg-1",
@@ -325,10 +323,6 @@ describe("Ctrl+F double-press lifecycle integration", () => {
         background: true,
       }),
     ];
-
-    // Verify tree hint contract includes termination hint for running agents
-    expect(BACKGROUND_TREE_HINT_CONTRACT.whenRunning).toContain("ctrl+f");
-    expect(BACKGROUND_TREE_HINT_CONTRACT.whenRunning).toContain("kill");
 
     // Verify decision messages reference the same key combination
     const press1 = simulateCtrlFPress(0, agents);

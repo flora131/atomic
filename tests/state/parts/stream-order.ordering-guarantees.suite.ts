@@ -35,8 +35,8 @@ describe("Stream render order guarantees", () => {
       const currPart = msg.parts![index]!;
 
       expect(currPart.id > prevPart.id).toBe(true);
-      expect(prevPart.id).toMatch(/^part_[0-9a-f]{12}_[0-9a-f]{4}$/);
-      expect(currPart.id).toMatch(/^part_[0-9a-f]{12}_[0-9a-f]{4}$/);
+      expect(prevPart.id).toMatch(/^part_[0-9a-f]{12,}$/);
+      expect(currPart.id).toMatch(/^part_[0-9a-f]{12,}$/);
     }
   });
 

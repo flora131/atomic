@@ -1,7 +1,7 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { handleTextDelta } from "@/state/parts/handlers.ts";
 import { _resetPartCounter } from "@/state/parts/id.ts";
-import type { ChatMessage } from "@/screens/chat-screen.tsx";
+import type { ChatMessage } from "@/types/chat.ts";
 import type { TextPart } from "@/state/parts/types.ts";
 
 beforeEach(() => _resetPartCounter());
@@ -29,7 +29,7 @@ describe("handleTextDelta", () => {
     // Simulate finalized TextPart (after tool boundary) with mid-sentence continuation
     const msg = {
       parts: [{
-        id: "part_000000000001_0001" as any,
+        id: "part_000000001001" as any,
         type: "text",
         content: "Before tool",
         isStreaming: false,
@@ -45,7 +45,7 @@ describe("handleTextDelta", () => {
   test("creates new TextPart when delta starts with paragraph break", () => {
     const msg = {
       parts: [{
-        id: "part_000000000001_0001" as any,
+        id: "part_000000001001" as any,
         type: "text",
         content: "Before tool",
         isStreaming: false,
@@ -61,7 +61,7 @@ describe("handleTextDelta", () => {
   test("creates new TextPart when previous ends with paragraph break", () => {
     const msg = {
       parts: [{
-        id: "part_000000000001_0001" as any,
+        id: "part_000000001001" as any,
         type: "text",
         content: "Before tool\n\n",
         isStreaming: false,

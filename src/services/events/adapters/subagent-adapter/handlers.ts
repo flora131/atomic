@@ -1,5 +1,5 @@
 import type { AgentMessage } from "@/services/agents/types.ts";
-import type { BusEvent } from "@/services/events/bus-events.ts";
+import type { BusEvent } from "@/services/events/bus-events/index.ts";
 import {
   readSubagentLifecycleMetadata,
   readSubagentRoutingMetadata,
@@ -404,7 +404,9 @@ export function resetSubagentStreamState(
   state.toolNames.clear();
   state.syntheticToolCounter = 0;
   state.toolTracker.removeAgent(state.agentId);
-  state.toolTracker.registerAgent(state.agentId);
+  state.toolTracker.registerAgent(state.agentId, {
+    isBackground: state.isBackground,
+  });
 }
 
 function resolveChunkAgentId(
@@ -424,7 +426,9 @@ function handleNestedSubagentLifecycle(
 ): void {
   switch (lifecycle.eventType) {
     case "start":
-      state.toolTracker.registerAgent(lifecycle.subagentId);
+      state.toolTracker.registerAgent(lifecycle.subagentId, {
+        isBackground: lifecycle.isBackground,
+      });
       state.bus.publish({
         type: "stream.agent.start",
         sessionId: state.sessionId,

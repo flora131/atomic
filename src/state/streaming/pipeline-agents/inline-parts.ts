@@ -1,7 +1,7 @@
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import {
   isClaudeSyntheticForegroundAgentId,
-} from "@/state/chat/shared/helpers/subagents.ts";
+} from "@/state/chat/exports.ts";
 import type { AgentPart, Part } from "@/state/parts/types.ts";
 
 function findAgentIndexByIdOrCorrelation(

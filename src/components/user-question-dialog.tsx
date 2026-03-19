@@ -322,14 +322,14 @@ export function UserQuestionDialog({
       {/* Header badge - Claude Code style: compact inline badge */}
       <box marginBottom={SPACING.SECTION}>
         <text>
-          <span style={{ fg: colors.border }}>{CONNECTOR.roundedTopLeft}{CONNECTOR.horizontal}</span>
-          <span style={{ fg: colors.foreground }}> {STATUS.pending} {question.header} </span>
-          <span style={{ fg: colors.border }}>{CONNECTOR.horizontal}{CONNECTOR.roundedTopRight}</span>
+          <span fg={colors.border}>{CONNECTOR.roundedTopLeft}{CONNECTOR.horizontal}</span>
+          <span fg={colors.foreground}> {STATUS.pending} {question.header} </span>
+          <span fg={colors.border}>{CONNECTOR.horizontal}{CONNECTOR.roundedTopRight}</span>
         </text>
       </box>
 
       {/* Question text - bold */}
-      <text style={{ fg: colors.foreground, attributes: 1 }} wrapMode="word">
+      <text fg={colors.foreground} attributes={1} wrapMode="word">
         {question.question}
       </text>
 
@@ -345,7 +345,7 @@ export function UserQuestionDialog({
             flexDirection="row"
             alignItems="center"
           >
-            <text style={{ fg: colors.accent }}>{PROMPT.cursor} </text>
+            <text fg={colors.accent}>{PROMPT.cursor} </text>
             <textarea
               ref={textareaRef}
               placeholder={isChatAboutThis ? "Type your thoughts..." : "Type your answer..."}
@@ -356,7 +356,7 @@ export function UserQuestionDialog({
               wrapMode="word"
             />
           </box>
-          <text style={{ fg: colors.muted }}>
+          <text fg={colors.muted}>
             Enter to submit · Esc to go back
           </text>
         </box>
@@ -386,23 +386,23 @@ export function UserQuestionDialog({
                 <React.Fragment key={option.value}>
                   {/* Label line: ❯ N. Label */}
                   <text>
-                    <span style={{ fg: isHighlighted ? colors.accent : colors.muted }}>
+                    <span fg={isHighlighted ? colors.accent : colors.muted}>
                       {isHighlighted ? `${PROMPT.cursor} ` : "  "}
                     </span>
-                    <span style={{ fg: labelColor }}>
+                    <span fg={labelColor}>
                       {displayNumber}. {question.multiSelect && !isSpecialOption ? (
-                        <span style={{ fg: isSelected ? colors.success : colors.muted }}>
+                        <span fg={isSelected ? colors.success : colors.muted}>
                           {isSelected ? `[${STATUS.success}] ` : "[ ] "}
                         </span>
                       ) : null}
-                      <span style={{ fg: labelColor, attributes: isHighlighted ? 1 : undefined }}>
+                      <span fg={labelColor} attributes={isHighlighted ? 1 : undefined}>
                         {option.label}
                       </span>
                     </span>
                   </text>
                   {/* Description on next line - indented past number to avoid blending */}
                   {option.description && (
-                    <text style={{ fg: descColor }}>
+                    <text fg={descColor}>
                       {"     "}{option.description}
                     </text>
                   )}
@@ -412,7 +412,7 @@ export function UserQuestionDialog({
             </box>
           </scrollbox>
           <box marginTop={SPACING.ELEMENT}>
-            <text style={{ fg: colors.muted }}>
+            <text fg={colors.muted}>
               {question.multiSelect
                 ? "Enter/Space to toggle · Ctrl+Enter to submit · ↑/↓ to navigate · Esc to cancel"
                 : "Enter to select · ↑/↓ to navigate · Esc to cancel"}

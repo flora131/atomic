@@ -82,7 +82,7 @@ describe("Event Bus Integration", () => {
   });
 
   test("tool lifecycle: tool.start → tool.complete flows through pipeline", async () => {
-    const { pipeline, correlation, dispose } = wireConsumers(bus, dispatcher);
+    const { pipeline, dispose } = wireConsumers(bus, dispatcher);
     const output: StreamPartEvent[] = [];
     pipeline.onStreamParts((parts) => output.push(...parts));
 
@@ -96,8 +96,6 @@ describe("Event Bus Integration", () => {
 
     const session = createMockSession(slowStream(), client);
     const adapter = new OpenCodeStreamAdapter(bus, "test-session-789");
-
-    correlation.registerTool("tool-123", null, false);
 
     const streamPromise = adapter.startStreaming(session, "test message", {
       runId: 3,

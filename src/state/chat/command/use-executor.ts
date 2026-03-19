@@ -4,7 +4,7 @@ import type { CommandResult } from "@/commands/tui/registry.ts";
 import type {
   CommandExecutionTelemetry,
   CommandExecutionTrigger,
-} from "@/state/chat/types.ts";
+} from "@/state/chat/shared/types/index.ts";
 import { createCommandContext, startCommandSpinner } from "@/state/chat/command/context-factory.ts";
 import { applyCommandResult } from "@/state/chat/command/result-application.ts";
 import type { UseCommandExecutorArgs } from "@/state/chat/command/executor-types.ts";

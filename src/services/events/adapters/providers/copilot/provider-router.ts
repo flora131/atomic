@@ -4,7 +4,7 @@ import type {
   EventType,
 } from "@/services/agents/types.ts";
 import type { CopilotProviderEventSource } from "@/services/agents/provider-events.ts";
-import type { BusEvent } from "@/services/events/bus-events.ts";
+import type { BusEvent } from "@/services/events/bus-events/index.ts";
 import { drainUnsubscribers } from "@/services/events/adapters/provider-shared.ts";
 import { publishCopilotBufferedEvent } from "@/services/events/adapters/providers/copilot/buffer.ts";
 import {
@@ -48,6 +48,13 @@ import type {
   CopilotStreamAdapterState,
 } from "@/services/events/adapters/providers/copilot/types.ts";
 
+const FOREGROUND_ONLY_EVENT_TYPES: ReadonlySet<string> = new Set([
+  "message.delta",
+  "message.complete",
+  "reasoning.delta",
+  "reasoning.complete",
+]);
+
 export function subscribeToCopilotEvents(
   deps: CopilotStreamAdapterDeps,
   state: CopilotStreamAdapterState,
@@ -59,7 +66,13 @@ export function subscribeToCopilotEvents(
   }
 
   const unsubProvider = providerClient.onProviderEvent((event) => {
-    if (!state.isActive || event.sessionId !== state.sessionId) {
+    if (event.sessionId !== state.sessionId) {
+      return;
+    }
+    if (!state.isActive && !state.isBackgroundOnly) {
+      return;
+    }
+    if (state.isBackgroundOnly && FOREGROUND_ONLY_EVENT_TYPES.has(event.type)) {
       return;
     }
     routeCopilotProviderEvent(deps, state, event);
@@ -271,6 +284,14 @@ function routeCopilotProviderEvent(
         ),
       );
       break;
+    // Intentionally unhandled SDK events:
+    //
+    // - session.start: The adapter publishes stream.session.start directly in
+    //   the runtime startup path (runtime.ts) before event subscription begins,
+    //   so this SDK event is never observed here. See event-coverage-policy.ts (no_op).
+    //
+    // - session.retry: Emitted by the streaming runtime retry loop (runtime.ts)
+    //   directly to the bus, bypassing the provider event handler path entirely.
     default:
       break;
   }

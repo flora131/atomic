@@ -1,20 +1,20 @@
 import { useCallback } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type { AgentType } from "@/services/models/index.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
-import type { ChatMessage } from "@/state/chat/types.ts";
-import type { NormalizedTodoItem } from "@/lib/ui/task-status.ts";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
+import type { ChatMessage } from "@/state/chat/shared/types/index.ts";
+import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 import {
   isTodoWriteToolName,
   reconcileTodoWriteItems,
-} from "@/lib/ui/task-status.ts";
-import { isAutoCompactionToolName, type AutoCompactionIndicatorState } from "@/lib/ui/auto-compaction-lifecycle.ts";
-import { isAskQuestionToolName, shouldTrackToolAsBlocking } from "@/lib/ui/stream-continuation.ts";
+} from "@/state/parts/helpers/task-status.ts";
+import { isAutoCompactionToolName, type AutoCompactionIndicatorState } from "@/state/chat/shared/helpers/auto-compaction-lifecycle.ts";
+import { isAskQuestionToolName, shouldTrackToolAsBlocking } from "@/state/chat/shared/helpers/stream-continuation.ts";
 import {
   finalizeCorrelatedSubagentDispatchForToolComplete,
   finalizeSyntheticTaskAgentForToolComplete,
   upsertSyntheticTaskAgentForToolStart,
-} from "@/state/chat/helpers.ts";
+} from "@/state/chat/shared/helpers/index.ts";
 import { applyStreamPartEvent } from "@/state/parts/index.ts";
 
 interface UseChatStreamToolEventsArgs {
@@ -271,6 +271,7 @@ export function useChatStreamToolEvents({
       });
       return finalizeCorrelatedSubagentDispatchForToolComplete({
         agents: withSyntheticFinalization,
+        provider: agentType,
         toolName: completedToolName,
         toolId,
         success,

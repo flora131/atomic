@@ -1,5 +1,5 @@
 import { MISC } from "@/theme/icons.ts";
-import type { AutoCompactionIndicatorState } from "@/lib/ui/auto-compaction-lifecycle.ts";
+import type { AutoCompactionIndicatorState } from "@/state/chat/shared/helpers/auto-compaction-lifecycle.ts";
 
 export function formatSessionTruncationMessage(
   tokensRemoved: number,

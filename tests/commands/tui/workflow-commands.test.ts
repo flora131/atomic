@@ -12,6 +12,7 @@ import {
   getWorkflowCommands,
   loadWorkflowsFromDisk,
   parseRalphArgs,
+  parseWorkflowArgs,
   watchTasksJson,
 } from "@/commands/tui/workflow-commands.ts";
 
@@ -79,6 +80,36 @@ describe("parseRalphArgs", () => {
   test("trims whitespace from prompt", () => {
     const result = parseRalphArgs("  Build a feature  ");
     expect(result).toEqual({ prompt: "Build a feature" });
+  });
+});
+
+describe("parseWorkflowArgs", () => {
+  test("parses a prompt argument", () => {
+    const result = parseWorkflowArgs("Build a feature");
+    expect(result).toEqual({ prompt: "Build a feature" });
+  });
+
+  test("throws on empty prompt with default workflow name", () => {
+    expect(() => parseWorkflowArgs("")).toThrow(
+      'Usage: /workflow "<prompt-or-spec-path>"',
+    );
+  });
+
+  test("throws on empty prompt with custom workflow name", () => {
+    expect(() => parseWorkflowArgs("", "deploy")).toThrow(
+      'Usage: /deploy "<prompt-or-spec-path>"',
+    );
+  });
+
+  test("trims whitespace from prompt", () => {
+    const result = parseWorkflowArgs("  Build a feature  ");
+    expect(result).toEqual({ prompt: "Build a feature" });
+  });
+
+  test("parseRalphArgs is a deprecated alias for parseWorkflowArgs", () => {
+    const ralphResult = parseRalphArgs("hello world");
+    const workflowResult = parseWorkflowArgs("hello world");
+    expect(ralphResult).toEqual(workflowResult);
   });
 });
 
@@ -238,7 +269,7 @@ describe("workflow-commands /ralph", () => {
     expect(result.message).toContain("A prompt argument is required");
   });
 
-  test("forwards context.eventBus to executeWorkflow and publishes stream.session.start", async () => {
+  test("executes /ralph without publishing legacy workflow bus events", async () => {
     const bus = new EventBus();
     const seenEvents: string[] = [];
     const unsubscribe = bus.on("stream.session.start", () => {
@@ -260,8 +291,9 @@ describe("workflow-commands /ralph", () => {
       const ralphCommand = getWorkflowCommands().find((cmd) => cmd.name === "ralph");
       expect(ralphCommand).toBeDefined();
 
-      await ralphCommand!.execute("Build a feature", context);
-      expect(seenEvents.length).toBeGreaterThan(0);
+      const result = await ralphCommand!.execute("Build a feature", context);
+      expect(result.success).toBe(true);
+      expect(seenEvents).toHaveLength(0);
     } finally {
       unsubscribe();
       if (sessionDir) {
@@ -270,7 +302,7 @@ describe("workflow-commands /ralph", () => {
     }
   });
 
-  test("publishes Ralph sub-agent completion events for successful execution", async () => {
+  test("completes Ralph workflows without publishing legacy agent bus events", async () => {
     const bus = new EventBus();
     const agentStarts: Array<{ agentId: string; agentType: string }> = [];
     const agentCompletes: Array<{
@@ -368,33 +400,9 @@ describe("workflow-commands /ralph", () => {
       );
 
       expect(result.success).toBe(true);
-      expect(sessionStarts.length).toBeGreaterThan(0);
-      expect(
-        agentStarts.some(
-          (event) => event.agentType === "planner" && event.agentId.startsWith("planner-"),
-        ),
-      ).toBe(true);
-      expect(
-        agentCompletes.some(
-          (event) =>
-            event.agentId.startsWith("planner-")
-            && event.success
-            && event.result?.includes('"id":"#1"'),
-        ),
-      ).toBe(true);
-      expect(
-        agentCompletes.some(
-          (event) => event.agentId === "worker-#1" && event.success && event.result === "Implemented task #1",
-        ),
-      ).toBe(true);
-      expect(
-        agentCompletes.some(
-          (event) =>
-            event.agentId.startsWith("reviewer-")
-            && event.success
-            && event.result?.includes('"overall_correctness":"patch is correct"'),
-        ),
-      ).toBe(true);
+      expect(sessionStarts).toHaveLength(0);
+      expect(agentStarts).toHaveLength(0);
+      expect(agentCompletes).toHaveLength(0);
     } finally {
       unsubscribeSession();
       unsubscribeStart();

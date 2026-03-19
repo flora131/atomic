@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Part, ReasoningPart, TextPart, ToolPart, AgentPart } from "@/state/parts/types.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import { buildPartRenderKeys, getConsumedTaskToolCallIds, orderPartsForTaskOutputDisplay } from "@/components/message-parts/message-bubble-parts.tsx";
 
 function createReasoningPart(id: string, thinkingSourceKey: string): ReasoningPart {

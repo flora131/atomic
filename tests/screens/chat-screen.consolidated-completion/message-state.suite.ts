@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import { finalizeStreamingReasoningInMessage } from "@/state/parts/index.ts";
 import {
   appendBackgroundMessageInOrder,

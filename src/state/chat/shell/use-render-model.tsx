@@ -1,19 +1,25 @@
 import { useMemo, type ReactNode } from "react";
 import { MessageBubble } from "@/components/chat-message-bubble.tsx";
-import { shouldShowMessageLoadingIndicator } from "@/lib/ui/loading-state.ts";
-import { shouldHideStaleSubagentToolPlaceholder } from "@/state/chat/helpers.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
-import type { ChatMessage, StreamingMeta, WorkflowChatState } from "@/state/chat/types.ts";
+import { shouldShowMessageLoadingIndicator } from "@/state/chat/shared/helpers/loading-state.ts";
+import { shouldHideStaleSubagentToolPlaceholder } from "@/state/chat/shared/helpers/index.ts";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
+import type { ChatMessage, StreamingMeta, WorkflowChatState } from "@/state/chat/shared/types/index.ts";
 import type { SyntaxStyle } from "@opentui/core";
-import type { NormalizedTodoItem } from "@/lib/ui/task-status.ts";
+import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
+
+import type { QuestionAnswer, UserQuestion } from "@/components/user-question-dialog.tsx";
 
 interface UseChatRenderModelArgs {
+  activeBackgroundAgentCount: number;
+  activeHitlToolCallId: string | null;
   activeQuestion: unknown;
   handleAgentDoneRendered: (marker: {
     messageId: string;
     agentId: string;
     timestampMs: number;
   }) => void;
+  handleQuestionAnswer: (answer: QuestionAnswer) => void;
+  isVerbose: boolean;
   markdownSyntaxStyle: SyntaxStyle;
   messages: ChatMessage[];
   parallelAgents: ParallelAgent[];
@@ -35,9 +41,13 @@ interface UseChatRenderModelResult {
 }
 
 export function useChatRenderModel({
+  activeBackgroundAgentCount,
+  activeHitlToolCallId,
   activeQuestion,
   backgroundAgentMessageId,
   handleAgentDoneRendered,
+  handleQuestionAnswer,
+  isVerbose,
   lastStreamedMessageId,
   markdownSyntaxStyle,
   messages,
@@ -56,9 +66,11 @@ export function useChatRenderModel({
     if (streamingMessageId) activeMessageIds.add(streamingMessageId);
     if (lastStreamedMessageId) activeMessageIds.add(lastStreamedMessageId);
     if (backgroundAgentMessageId) activeMessageIds.add(backgroundAgentMessageId);
-    return messages.filter(
+    const filtered = messages.filter(
       (message) => !shouldHideStaleSubagentToolPlaceholder(message, activeMessageIds),
     );
+
+    return reorderStreamingMessageToEnd(filtered, streamingMessageId);
   }, [backgroundAgentMessageId, lastStreamedMessageId, messages, streamingMessageId]);
 
   const messageContent = useMemo(() => {
@@ -70,7 +82,7 @@ export function useChatRenderModel({
       <>
         {renderMessages.map((msg, index) => {
           const liveTaskItems = msg.streaming ? todoItems : undefined;
-          const showLive = shouldShowMessageLoadingIndicator(msg, liveTaskItems);
+          const showLive = shouldShowMessageLoadingIndicator(msg, liveTaskItems, activeBackgroundAgentCount);
           const scopedStreamingMeta = showLive
             ? (streamingMessageId
               ? (msg.id === streamingMessageId ? streamingMeta : null)
@@ -81,9 +93,13 @@ export function useChatRenderModel({
               key={msg.id}
               message={msg}
               isLast={index === renderMessages.length - 1}
+              isVerbose={isVerbose}
               syntaxStyle={markdownSyntaxStyle}
-              hideAskUserQuestion={activeQuestion !== null}
               hideLoading={activeQuestion !== null}
+              activeBackgroundAgentCount={activeBackgroundAgentCount}
+              activeHitlToolCallId={activeHitlToolCallId}
+              activeQuestion={activeQuestion as UserQuestion | null}
+              handleQuestionAnswer={handleQuestionAnswer}
               todoItems={msg.streaming ? todoItems : undefined}
               elapsedMs={showLive ? streamingElapsedMs : undefined}
               streamingMeta={scopedStreamingMeta}
@@ -99,8 +115,12 @@ export function useChatRenderModel({
       </>
     );
   }, [
+    activeBackgroundAgentCount,
+    activeHitlToolCallId,
     activeQuestion,
     handleAgentDoneRendered,
+    handleQuestionAnswer,
+    isVerbose,
     markdownSyntaxStyle,
     renderMessages,
     showTodoPanel,
@@ -117,4 +137,26 @@ export function useChatRenderModel({
     messageContent,
     renderMessages,
   };
+}
+
+/**
+ * Ensure the streaming message is always rendered last so that system
+ * messages (info, warning, retry) appended during streaming appear
+ * above the spinner and chatbox rather than below them.
+ */
+export function reorderStreamingMessageToEnd(
+  messages: ChatMessage[],
+  streamingMessageId: string | null,
+): ChatMessage[] {
+  if (!streamingMessageId) return messages;
+
+  const streamIdx = messages.findIndex((m) => m.id === streamingMessageId);
+  if (streamIdx < 0 || streamIdx >= messages.length - 1) return messages;
+
+  const streamingMsg = messages[streamIdx]!;
+  return [
+    ...messages.slice(0, streamIdx),
+    ...messages.slice(streamIdx + 1),
+    streamingMsg,
+  ];
 }

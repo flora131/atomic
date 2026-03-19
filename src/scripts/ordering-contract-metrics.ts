@@ -1,32 +1,28 @@
 #!/usr/bin/env bun
 
-import type { BusEvent, BusEventDataMap, BusEventType } from "@/services/events/bus-events.ts";
+import type { BusEvent, BusEventDataMap, BusEventType } from "@/services/events/bus-events/index.ts";
 import { BatchDispatcher } from "@/services/events/batch-dispatcher.ts";
 import { EventBus } from "@/services/events/event-bus.ts";
 import { wireConsumers } from "@/services/events/consumers/wire-consumers.ts";
+import { collectDoneRenderMarkers } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
+import { applyStreamPartEvent, type StreamPartEvent } from "@/state/parts/stream-pipeline.ts";
 import {
+  createAgentOrderingState,
   emitAgentDoneProjectionObservability,
   emitAgentDoneRenderedObservability,
   emitPostCompleteDeltaOrderingObservability,
-  shouldDeferPostCompleteDeltaUntilDoneProjection,
-} from "@/screens/chat-screen.tsx";
-import {
-  collectDoneRenderMarkers,
-  type ParallelAgent,
-} from "@/components/parallel-agents-tree.tsx";
-import { applyStreamPartEvent, type StreamPartEvent } from "@/state/parts/stream-pipeline.ts";
-import type { AgentOrderingEvent } from "@/lib/ui/agent-ordering-contract.ts";
-import {
-  createAgentOrderingState,
   hasDoneStateProjection,
   registerAgentCompletionSequence,
   registerDoneStateProjection,
-} from "@/lib/ui/agent-ordering-contract.ts";
+  shouldDeferPostCompleteDeltaUntilDoneProjection,
+  type AgentOrderingEvent,
+} from "@/state/chat/exports.ts";
 import {
   getRuntimeParityMetricsSnapshot,
   resetRuntimeParityMetrics,
 } from "@/services/workflows/runtime-parity-observability.ts";
-import type { ChatMessage } from "@/screens/chat-screen.tsx";
+import type { ChatMessage } from "@/types/chat.ts";
 
 const MAX_VISIBLE_AGENTS = 5;
 
@@ -38,7 +34,6 @@ function createAssistantMessage(sessionId: string): ChatMessage {
     timestamp: new Date().toISOString(),
     streaming: true,
     parts: [],
-    toolCalls: [],
   };
 }
 
@@ -110,7 +105,7 @@ async function replayScenario(runId: number, sessionId: string, agentIds: string
   const scenario = agentIds.length > 1 ? "multi" : "single";
   const bus = new EventBus();
   const dispatcher = new BatchDispatcher(bus);
-  const { pipeline, correlation, dispose } = wireConsumers(bus, dispatcher);
+  const { pipeline, dispose } = wireConsumers(bus, dispatcher);
   const streamEvents: StreamPartEvent[] = [];
   const orderingState = createAgentOrderingState();
   const deferredByAgent = new Map<string, Array<{ delta: string; runId?: number }>>();
@@ -234,7 +229,7 @@ async function replayScenario(runId: number, sessionId: string, agentIds: string
   };
 
   try {
-    correlation.startRun(runId, sessionId);
+    publishEvent(bus, sessionId, runId, "stream.session.start", {});
     message = applyStreamPartEvent(message, {
       type: "parallel-agents",
       runId,

@@ -23,6 +23,8 @@ export interface ModelSelectorDialogProps {
   models: Model[];
   /** Currently selected model ID */
   currentModel?: string;
+  /** Currently selected reasoning effort for the active model */
+  currentReasoningEffort?: string;
   /** Callback when a model is selected */
   onSelect: (model: Model, reasoningEffort?: string) => void;
   /** Callback when dialog is cancelled */
@@ -31,9 +33,32 @@ export interface ModelSelectorDialogProps {
   visible?: boolean;
 }
 
+export function getInitialReasoningIndex(
+  model: Model,
+  currentModel?: string,
+  currentReasoningEffort?: string,
+): number {
+  const efforts = model.supportedReasoningEfforts ?? [];
+  if (efforts.length === 0) {
+    return 0;
+  }
+
+  const isCurrentModel = model.id === currentModel || model.modelID === currentModel;
+  if (isCurrentModel && currentReasoningEffort) {
+    const currentEffortIndex = efforts.indexOf(currentReasoningEffort);
+    if (currentEffortIndex >= 0) {
+      return currentEffortIndex;
+    }
+  }
+
+  const defaultIndex = efforts.indexOf(model.defaultReasoningEffort ?? "");
+  return defaultIndex >= 0 ? defaultIndex : 0;
+}
+
 export function ModelSelectorDialog({
   models,
   currentModel,
+  currentReasoningEffort,
   onSelect,
   onCancel,
   visible = true,
@@ -128,19 +153,19 @@ export function ModelSelectorDialog({
     event.stopPropagation();
   }, [flatModels.length, reasoningModel]);
 
+  const resolveInitialReasoningIndex = useCallback((model: Model) => {
+    return getInitialReasoningIndex(model, currentModel, currentReasoningEffort);
+  }, [currentModel, currentReasoningEffort]);
+
   /** Confirm model selection, showing reasoning selector if applicable */
   const confirmModel = useCallback((model: Model) => {
     if (model.supportedReasoningEfforts?.length) {
       setReasoningModel(model);
-      // Pre-select the default reasoning effort
-      const defaultIdx = model.supportedReasoningEfforts.indexOf(
-        model.defaultReasoningEffort ?? ""
-      );
-      setReasoningIndex(defaultIdx >= 0 ? defaultIdx : 0);
+      setReasoningIndex(resolveInitialReasoningIndex(model));
     } else {
       onSelect(model);
     }
-  }, [onSelect]);
+  }, [onSelect, resolveInitialReasoningIndex]);
 
   // Handle keyboard navigation
   useKeyboard(
@@ -245,6 +270,7 @@ export function ModelSelectorDialog({
     <ModelListView
       colors={colors}
       currentModel={currentModel}
+      currentReasoningEffort={currentReasoningEffort}
       groupedModels={groupedModels}
       flatModelCount={flatModels.length}
       listHeight={listHeight}

@@ -1,4 +1,5 @@
 import type { EventBus } from "@/services/events/event-bus.ts";
+import type { BusEvent } from "@/services/events/bus-events/index.ts";
 import type { WorkflowRuntimeFeatureFlags } from "@/services/workflows/runtime-contracts.ts";
 import {
   DEFAULT_WORKFLOW_RUNTIME_FEATURE_FLAGS,
@@ -30,8 +31,31 @@ import { startClaudeStreaming } from "@/services/events/adapters/providers/claud
 import { ClaudeToolHookHandlers } from "@/services/events/adapters/providers/claude/tool-hook-handlers.ts";
 import { ClaudeToolState } from "@/services/events/adapters/providers/claude/tool-state.ts";
 
+/**
+ * Create a bus proxy that intercepts publish() to enrich events with
+ * adapter-side correlation metadata via the shared correlate() utility.
+ *
+ * All other EventBus methods (on, onAll, etc.) pass through unchanged.
+ * The proxy is safe to construct before support is initialized because
+ * publish() is never called during construction — only during streaming.
+ */
+function createCorrelatingBus(
+  bus: EventBus,
+  getSupport: () => ClaudeAdapterSupport,
+): EventBus {
+  return new Proxy(bus, {
+    get(target, prop, receiver) {
+      if (prop === "publish") {
+        return (event: BusEvent) => getSupport().correlatingPublish(event);
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+}
+
 export class ClaudeStreamAdapter implements SDKStreamAdapter {
   private bus: EventBus;
+  private correlatingBus: EventBus;
   private sessionId: string;
   private client?: CodingAgentClient;
   private abortController: AbortController | null = null;
@@ -56,8 +80,17 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     this.bus = bus;
     this.sessionId = sessionId;
     this.client = client;
+
+    // The correlating bus wraps publish() to enrich events with adapter-
+    // correlation metadata before they reach the consumer pipeline. All
+    // handler classes and tool-state receive this proxy so events arrive
+    // pre-correlated. The raw bus is kept for AdapterSupport's own
+    // busPublish to avoid double-correlation.
+    const correlatingBus = createCorrelatingBus(bus, () => this.support);
+    this.correlatingBus = correlatingBus;
+
     this.toolState = new ClaudeToolState(
-      bus,
+      correlatingBus,
       sessionId,
       () => this.subagentTracker,
       () => this.textAccumulator,
@@ -69,7 +102,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       getTextAccumulator: () => this.textAccumulator,
     });
     this.streamChunkProcessor = new ClaudeStreamChunkProcessor({
-      bus,
+      bus: correlatingBus,
       sessionId,
       getTextAccumulator: () => this.textAccumulator,
       setTextAccumulator: (value) => {
@@ -110,7 +143,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       getSubagentTracker: () => this.subagentTracker,
     });
     this.toolHookHandlers = new ClaudeToolHookHandlers({
-      bus,
+      bus: correlatingBus,
       sessionId,
       taskToolMetadata: this.toolState.taskToolMetadata,
       emittedToolStartCorrelationIds: this.toolState.emittedToolStartCorrelationIds,
@@ -157,7 +190,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       getSyntheticAgentIdForAttribution: () => this.support.getSyntheticAgentIdForAttribution(),
     });
     this.auxEventHandlers = new ClaudeAuxEventHandlers({
-      bus,
+      bus: correlatingBus,
       sessionId,
       resolveEventSessionId: (event) => this.support.resolveEventSessionId(event),
       resolveSubagentSessionParentAgentId: (eventSessionId) =>
@@ -177,7 +210,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       getSubagentTracker: () => this.subagentTracker,
     });
     this.subagentEventHandlers = new ClaudeSubagentEventHandlers({
-      bus,
+      bus: correlatingBus,
       sessionId,
       getSubagentTracker: () => this.subagentTracker,
       resolveEventSessionId: (event) => this.support.resolveEventSessionId(event),
@@ -218,7 +251,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
   ): Promise<void> {
     const createHandler = createClaudeProviderEventHandlerFactory({
       auxEventHandlers: this.auxEventHandlers,
-      busPublish: (event) => this.bus.publish(event),
+      busPublish: (event) => this.support.correlatingPublish(event),
       getAccumulatedOutputTokens: () => this.accumulatedOutputTokens,
       sessionId: this.sessionId,
       setAccumulatedOutputTokens: (value) => {
@@ -257,7 +290,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
         this.accumulatedOutputTokens = value;
       },
       createSubagentTracker: (runId) => {
-        this.subagentTracker = new SubagentToolTracker(this.bus, this.sessionId, runId);
+        this.subagentTracker = new SubagentToolTracker(this.correlatingBus, this.sessionId, runId);
       },
       setPreferClientToolHooks: (value) => {
         this.preferClientToolHooks = value;
@@ -276,7 +309,12 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       publishTextComplete: (runId, messageId) => this.support.publishTextComplete(runId, messageId),
       publishSessionError: (runId, error) => this.support.publishSessionError(runId, error),
       cleanupOrphanedTools: (runId) => this.support.cleanupOrphanedTools(runId),
+      flushOrphanedAgentCompletions: (runId) => this.support.flushOrphanedAgentCompletions(runId),
       publishSessionIdle: (runId, reason) => this.support.publishSessionIdle(runId, reason),
+      hasActiveBackgroundAgents: () => this.toolState.hasActiveBackgroundAgents(),
+      getActiveBackgroundAgentCount: () => this.toolState.getActiveBackgroundAgentCount(),
+      publishSessionPartialIdle: (runId, completionReason, activeBackgroundAgentCount) =>
+        this.support.publishSessionPartialIdle(runId, completionReason, activeBackgroundAgentCount),
       processStreamChunk: (chunk, runId, messageId) => {
         this.streamChunkProcessor.process(chunk, runId, messageId);
       },

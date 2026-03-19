@@ -1,6 +1,6 @@
 import { useBusSubscription } from "@/services/events/hooks.ts";
 import type { AskUserQuestionEventData } from "@/services/workflows/graph/index.ts";
-import type { ChatMessage, MessageSkillLoad, StreamingMeta } from "@/state/chat/types.ts";
+import type { ChatMessage, MessageSkillLoad, StreamingMeta } from "@/state/chat/shared/types/index.ts";
 import { STATUS, MISC } from "@/theme/icons.ts";
 import {
   createMessage,
@@ -8,23 +8,28 @@ import {
   getAutoCompactionIndicatorState,
   shouldBindStreamSessionRun,
   shouldProcessStreamLifecycleEvent,
-} from "@/state/chat/helpers.ts";
+} from "@/state/chat/shared/helpers/index.ts";
 import {
   normalizeSessionTrackingKey,
   shouldDisplaySkillLoadIndicator,
   shouldResetLoadedSkillsForSessionChange,
   tryTrackLoadedSkill,
-} from "@/lib/ui/skill-load-tracking.ts";
-import { isLikelyFilePath } from "@/lib/ui/session-info-filters.ts";
+} from "@/state/chat/shared/helpers/skill-load-tracking.ts";
+import { isLikelyFilePath } from "@/services/events/session-info-filters.ts";
 import {
-  interruptRunningToolCalls,
   interruptRunningToolParts,
   shouldContinueParentSessionLoop,
-} from "@/lib/ui/stream-continuation.ts";
+} from "@/state/chat/shared/helpers/stream-continuation.ts";
 import { hasActiveForegroundAgents } from "@/state/parts/index.ts";
+import {
+  getActiveBackgroundAgents,
+  isActiveBackgroundStatus,
+  isBackgroundAgent,
+} from "@/state/chat/shared/helpers/background-agent-footer.ts";
 import type { UseStreamSubscriptionsArgs } from "@/state/chat/stream/subscription-types.ts";
 
 export function useStreamSessionSubscriptions({
+  activeBackgroundAgentCountRef,
   activeSkillSessionIdRef,
   activeStreamRunIdRef,
   appendSkillLoadIndicator,
@@ -47,6 +52,7 @@ export function useStreamSessionSubscriptions({
   resolveAgentScopedMessageId,
   runningAskQuestionToolIdsRef,
   runningBlockingToolIdsRef,
+  setActiveBackgroundAgentCount,
   setIsStreaming,
   setMessagesWindowed,
   setParallelAgents,
@@ -59,6 +65,7 @@ export function useStreamSessionSubscriptions({
   toolNameByIdRef,
 }: Pick<
   UseStreamSubscriptionsArgs,
+  | "activeBackgroundAgentCountRef"
   | "activeSkillSessionIdRef"
   | "activeStreamRunIdRef"
   | "appendSkillLoadIndicator"
@@ -81,6 +88,7 @@ export function useStreamSessionSubscriptions({
   | "resolveAgentScopedMessageId"
   | "runningAskQuestionToolIdsRef"
   | "runningBlockingToolIdsRef"
+  | "setActiveBackgroundAgentCount"
   | "setIsStreaming"
   | "setMessagesWindowed"
   | "setParallelAgents"
@@ -163,6 +171,12 @@ export function useStreamSessionSubscriptions({
       return;
     }
 
+    // Always reset the background agent counter when the session goes idle,
+    // even if isStreamingRef is already false (e.g. deferred completion
+    // finalized the stream before this event arrived).
+    activeBackgroundAgentCountRef.current = 0;
+    setActiveBackgroundAgentCount(0);
+
     if (!isStreamingRef.current) {
       return;
     }
@@ -192,7 +206,6 @@ export function useStreamSessionSubscriptions({
               msg.id === interruptedMessageId
                 ? {
                   ...msg,
-                  toolCalls: interruptRunningToolCalls(msg.toolCalls),
                   parts: interruptRunningToolParts(msg.parts),
                 }
                 : msg,
@@ -237,6 +250,43 @@ export function useStreamSessionSubscriptions({
       return;
     }
 
+    // When the session goes idle, any remaining active agents are stale —
+    // the SDK has definitively declared that no more events will be produced.
+    // Transition them to "completed" so the continuation check below doesn't
+    // block on phantom foreground agents that never received stream.agent.complete
+    // (e.g. when a task tool call is aborted without a corresponding agent
+    // lifecycle event).
+    const currentAgents = parallelAgentsRef.current;
+    const hasStaleActiveAgents = currentAgents.some(
+      (agent) =>
+        agent.status === "running"
+        || agent.status === "pending"
+        || agent.status === "background",
+    );
+    if (hasStaleActiveAgents) {
+      const now = Date.now();
+      const cleanedAgents = currentAgents.map((agent) => {
+        if (
+          agent.status !== "running"
+          && agent.status !== "pending"
+          && agent.status !== "background"
+        ) {
+          return agent;
+        }
+        const startedAtMs = new Date(agent.startedAt).getTime();
+        return {
+          ...agent,
+          status: "completed" as const,
+          currentTool: undefined,
+          durationMs: Number.isFinite(startedAtMs)
+            ? Math.max(0, now - startedAtMs)
+            : agent.durationMs,
+        };
+      });
+      parallelAgentsRef.current = cleanedAgents;
+      setParallelAgents(cleanedAgents);
+    }
+
     const continuationSignal = shouldContinueParentSessionLoop({
       finishReason: lastTurnFinishReasonRef.current ?? undefined,
       hasActiveForegroundAgents: hasActiveForegroundAgents(parallelAgentsRef.current),
@@ -247,6 +297,54 @@ export function useStreamSessionSubscriptions({
     if (!continuationSignal.shouldContinue) {
       handleStreamComplete();
     }
+  });
+
+  useBusSubscription("stream.session.partial-idle", (event) => {
+    if (!shouldProcessStreamLifecycleEvent(activeStreamRunIdRef.current, event.runId)) {
+      return;
+    }
+
+    if (!isStreamingRef.current) {
+      return;
+    }
+
+    batchDispatcher.flush();
+
+    const count = typeof event.data.activeBackgroundAgentCount === "number"
+      ? event.data.activeBackgroundAgentCount
+      : 0;
+    activeBackgroundAgentCountRef.current = count;
+    setActiveBackgroundAgentCount(count);
+
+    // Sync parallelAgents when the provider reports fewer active background
+    // agents than the local state tracks.  This handles cases where
+    // stream.agent.complete events were missed (e.g. SDK omission) so the
+    // footer count decrements promptly instead of waiting for session idle.
+    const currentAgents = parallelAgentsRef.current;
+    const localActiveBackground = getActiveBackgroundAgents(currentAgents);
+    if (localActiveBackground.length > count) {
+      let excess = localActiveBackground.length - count;
+      const now = Date.now();
+      const updatedAgents = currentAgents.map((agent) => {
+        if (excess > 0 && isBackgroundAgent(agent) && isActiveBackgroundStatus(agent.status)) {
+          excess--;
+          const startedAtMs = new Date(agent.startedAt).getTime();
+          return {
+            ...agent,
+            status: "completed" as const,
+            currentTool: undefined,
+            durationMs: Number.isFinite(startedAtMs)
+              ? Math.max(0, now - startedAtMs)
+              : agent.durationMs,
+          };
+        }
+        return agent;
+      });
+      parallelAgentsRef.current = updatedAgents;
+      setParallelAgents(updatedAgents);
+    }
+
+    handleStreamComplete();
   });
 
   useBusSubscription("stream.session.error", (event) => {
@@ -418,6 +516,10 @@ export function useStreamSessionSubscriptions({
   });
 
   useBusSubscription("stream.permission.requested", (event) => {
+    // Flush the batch dispatcher so any pending stream.tool.start events
+    // are processed before permission resolution needs to match tool parts.
+    batchDispatcher.flush();
+
     const data = event.data;
     handlePermissionRequest(
       data.requestId,
@@ -431,7 +533,20 @@ export function useStreamSessionSubscriptions({
   });
 
   useBusSubscription("stream.human_input_required", (event) => {
+    // Flush the batch dispatcher so any pending stream.tool.start events
+    // are processed first — this creates the ToolPart and populates
+    // runningAskQuestionToolIdsRef before we try to resolve the toolCallId.
+    batchDispatcher.flush();
+
     const data = event.data;
+    // When the SDK doesn't provide a toolCallId (e.g. Copilot SDK's
+    // onUserInputRequest), resolve it from the running ask-question tool
+    // IDs that were registered synchronously during stream.tool.start.
+    let resolvedToolCallId = data.toolCallId as string | undefined;
+    if (!resolvedToolCallId && runningAskQuestionToolIdsRef.current.size > 0) {
+      const ids = [...runningAskQuestionToolIdsRef.current];
+      resolvedToolCallId = ids[ids.length - 1];
+    }
     const askEvent: AskUserQuestionEventData = {
       requestId: data.requestId,
       question: data.question,
@@ -439,7 +554,7 @@ export function useStreamSessionSubscriptions({
       options: data.options,
       nodeId: data.nodeId,
       respond: data.respond as ((answer: string | string[]) => void) | undefined,
-      toolCallId: data.toolCallId,
+      toolCallId: resolvedToolCallId,
     };
     handleAskUserQuestion(askEvent);
   });

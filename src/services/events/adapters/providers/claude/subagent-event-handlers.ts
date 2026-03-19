@@ -145,7 +145,9 @@ export class ClaudeSubagentEventHandlers {
       });
       const agentId = parentToolUseId ?? sdkCorrelationId ?? data.subagentId;
 
-      this.deps.getSubagentTracker()?.registerAgent(agentId);
+      this.deps.getSubagentTracker()?.registerAgent(agentId, {
+        isBackground: normalizedMetadata.isBackground,
+      });
       this.deps.activeSubagentIds.add(agentId);
       this.deps.nativeSubagentIdToAgentId.set(data.subagentId, agentId);
       if (subagentSessionId && subagentSessionId !== this.deps.sessionId) {

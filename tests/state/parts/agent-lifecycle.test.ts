@@ -7,7 +7,7 @@
 
 import { describe, test, expect } from "bun:test";
 import { shouldFinalizeOnToolComplete } from "@/state/parts/guards.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 
 /**
  * Helper function to create a test agent with default values.

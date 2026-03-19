@@ -1,5 +1,5 @@
 import type { EventBus } from "@/services/events/event-bus.ts";
-import type { BusEvent } from "@/services/events/bus-events.ts";
+import type { BusEvent } from "@/services/events/bus-events/index.ts";
 import { resolveStreamDebugLogConfig } from "./config.ts";
 import type { RawStreamLogEntry } from "./config.ts";
 import { initEventLog } from "./log-writer.ts";

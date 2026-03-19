@@ -5,8 +5,10 @@
  * into a single WorkflowDefinition object for the workflow registry.
  */
 
-import type { WorkflowDefinition, WorkflowStateParams } from "@/commands/tui/workflow-commands.ts";
+import type { WorkflowDefinition, WorkflowStateParams } from "@/services/workflows/workflow-types.ts";
 import { createRalphState } from "@/services/workflows/ralph/state.ts";
+import { createRalphWorkflow } from "@/services/workflows/ralph/graph.ts";
+import { asBaseGraph } from "@/services/workflows/graph/types.ts";
 import { VERSION } from "@/version.ts";
 
 /**
@@ -42,11 +44,10 @@ function createRalphWorkflowState(params: WorkflowStateParams) {
 
 /**
  * Complete workflow definition for Ralph.
- * Consolidates metadata, state factory, and node descriptions.
+ * Consolidates metadata, graph factory, state factory, and node descriptions.
  *
- * Note: Ralph uses createRalphWorkflow() for its compiled graph (builder pattern),
- * so no graphConfig is provided. The graphConfig field is for user-defined workflows
- * that provide declarative config.
+ * Ralph uses createRalphWorkflow() (builder pattern) via createGraph,
+ * which the executor calls to obtain a compiled graph.
  */
 export const ralphWorkflowDefinition: WorkflowDefinition = {
     name: "ralph",
@@ -59,6 +60,7 @@ export const ralphWorkflowDefinition: WorkflowDefinition = {
     source: "builtin",
 
     // Execution logic
+    createGraph: () => asBaseGraph(createRalphWorkflow()),
     createState: createRalphWorkflowState,
     nodeDescriptions: ralphNodeDescriptions,
 };

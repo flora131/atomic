@@ -8,18 +8,19 @@ import {
   appendToHistoryBuffer,
   readHistoryBuffer,
   clearHistoryBuffer,
-} from "@/lib/ui/conversation-history-buffer.ts";
-import { appendUniqueMessagesById } from "@/state/chat/helpers.ts";
+} from "@/state/chat/shared/helpers/conversation-history-buffer.ts";
+import { appendUniqueMessagesById } from "@/state/chat/shared/helpers/index.ts";
 import { createClipboardAdapter, type ClipboardAdapter } from "@/lib/ui/clipboard.ts";
 import { useVerboseMode } from "@/hooks/use-verbose-mode.ts";
-import type { DeferredCommandMessage } from "@/state/chat/command/executor-types.ts";
-import type { ChatMessage, WorkflowChatState } from "@/state/chat/types.ts";
-import type { WorkflowInputResolver } from "@/lib/ui/workflow-input-resolver.ts";
+import type { DeferredCommandMessage } from "@/state/chat/shared/types/command.ts";
+import type { ChatMessage, WorkflowChatState } from "@/state/chat/shared/types/index.ts";
+import type { WorkflowInputResolver } from "@/services/workflows/helpers/workflow-input-resolver.ts";
 import type { Model } from "@/services/models/model-transform.ts";
 import type { McpServerToggleMap } from "@/lib/ui/mcp-output.ts";
 
 export interface UseChatShellStateArgs {
   initialModelId?: string;
+  initialReasoningEffort?: string;
   model: string;
 }
 
@@ -30,6 +31,7 @@ export interface UseChatShellStateResult {
   continueQueuedConversationRef: React.MutableRefObject<() => void>;
   currentModelDisplayName?: string;
   currentModelId?: string;
+  currentReasoningEffort?: string;
   currentModelRef: React.MutableRefObject<string>;
   copyRendererSelection: () => boolean;
   dispatchDeferredCommandMessageRef: React.MutableRefObject<(message: DeferredCommandMessage) => void>;
@@ -40,6 +42,7 @@ export interface UseChatShellStateResult {
   historyBufferMessages: ChatMessage[];
   inputFocused: boolean;
   inputSyntaxStyle: SyntaxStyle;
+  isVerbose: boolean;
   markdownSyntaxStyle: SyntaxStyle;
   mcpServerToggles: McpServerToggleMap;
   scrollAcceleration: MacOSScrollAccel;
@@ -47,6 +50,7 @@ export interface UseChatShellStateResult {
   setAvailableModels: React.Dispatch<React.SetStateAction<Model[]>>;
   setCurrentModelDisplayName: React.Dispatch<React.SetStateAction<string | undefined>>;
   setCurrentModelId: React.Dispatch<React.SetStateAction<string | undefined>>;
+  setCurrentReasoningEffort: React.Dispatch<React.SetStateAction<string | undefined>>;
   setMcpServerToggles: React.Dispatch<React.SetStateAction<McpServerToggleMap>>;
   setShowModelSelector: React.Dispatch<React.SetStateAction<boolean>>;
   setShowTodoPanel: React.Dispatch<React.SetStateAction<boolean>>;
@@ -75,6 +79,7 @@ export interface UseChatShellStateResult {
 
 export function useChatShellState({
   initialModelId,
+  initialReasoningEffort,
   model,
 }: UseChatShellStateArgs): UseChatShellStateResult {
   const renderer = useRenderer();
@@ -90,6 +95,9 @@ export function useChatShellState({
   const [availableModels, setAvailableModels] = useState<Model[]>([]);
   const [currentModelId, setCurrentModelId] = useState<string | undefined>(undefined);
   const [currentModelDisplayName, setCurrentModelDisplayName] = useState<string | undefined>(undefined);
+  const [currentReasoningEffort, setCurrentReasoningEffort] = useState<string | undefined>(
+    initialReasoningEffort,
+  );
   const [mcpServerToggles, setMcpServerToggles] = useState<McpServerToggleMap>({});
   const [showTodoPanel, setShowTodoPanel] = useState(true);
   const [inputFocused] = useState(true);
@@ -109,7 +117,7 @@ export function useChatShellState({
 
   const { theme, toggleTheme, setTheme } = useTheme();
   const themeColors = theme.colors;
-  const { toggle: toggleVerbose } = useVerboseMode();
+  const { toggle: toggleVerbose, isVerbose } = useVerboseMode();
 
   const inputSyntaxStyleRef = useRef<SyntaxStyle | null>(null);
   const commandStyleIdRef = useRef<number>(0);
@@ -222,6 +230,7 @@ export function useChatShellState({
     continueQueuedConversationRef,
     currentModelDisplayName,
     currentModelId,
+    currentReasoningEffort,
     currentModelRef,
     copyRendererSelection,
     dispatchDeferredCommandMessageRef,
@@ -232,6 +241,7 @@ export function useChatShellState({
     historyBufferMessages,
     inputFocused,
     inputSyntaxStyle,
+    isVerbose,
     markdownSyntaxStyle,
     mcpServerToggles,
     scrollAcceleration,
@@ -239,6 +249,7 @@ export function useChatShellState({
     setAvailableModels,
     setCurrentModelDisplayName,
     setCurrentModelId,
+    setCurrentReasoningEffort,
     setMcpServerToggles,
     setShowModelSelector,
     setShowTodoPanel,

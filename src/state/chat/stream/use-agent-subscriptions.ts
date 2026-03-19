@@ -1,27 +1,29 @@
 import { useBusSubscription } from "@/services/events/hooks.ts";
 import { runtimeParityDebug } from "@/services/workflows/runtime-parity-observability.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import {
   isClaudeSyntheticForegroundAgentId,
   mergeAgentTaskLabel,
   resolveAgentCurrentToolForUpdate,
   resolveIncomingSubagentTaskLabel,
   resolveSubagentStartCorrelationId,
-} from "@/state/chat/helpers.ts";
+} from "@/state/chat/shared/helpers/index.ts";
 import {
   registerAgentLifecycleComplete,
   registerAgentLifecycleStart,
   registerAgentLifecycleUpdate,
-} from "@/lib/ui/agent-lifecycle-ledger.ts";
+} from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
 import {
   registerAgentCompletionSequence,
   resetAgentOrderingForAgent,
   type AgentOrderingEvent,
-} from "@/lib/ui/agent-ordering-contract.ts";
-import { isBackgroundAgent } from "@/lib/ui/background-agent-footer.ts";
+} from "@/state/chat/shared/helpers/agent-ordering-contract.ts";
+import { getActiveBackgroundAgents, isBackgroundAgent } from "@/state/chat/shared/helpers/background-agent-footer.ts";
+import { hasActiveBackgroundAgentsForSpinner } from "@/state/parts/guards.ts";
 import type { UseStreamSubscriptionsArgs } from "@/state/chat/stream/subscription-types.ts";
 
 export function useStreamAgentSubscriptions({
+  activeBackgroundAgentCountRef,
   agentLifecycleLedgerRef,
   agentMessageIdByIdRef,
   agentOrderingStateRef,
@@ -29,12 +31,15 @@ export function useStreamAgentSubscriptions({
   backgroundAgentMessageIdRef,
   backgroundProgressSnapshotRef,
   completionOrderingEventByAgentRef,
+  deferredCompleteTimeoutRef,
   deferredPostCompleteDeltasByAgentRef,
   doneRenderedSequenceByAgentRef,
   lastStreamedMessageIdRef,
   parallelAgentsRef,
+  pendingCompleteRef,
   resolveAgentScopedMessageId,
   sendBackgroundMessageToAgent,
+  setActiveBackgroundAgentCount,
   setAgentMessageBinding,
   setParallelAgents,
   streamingMessageIdRef,
@@ -42,6 +47,7 @@ export function useStreamAgentSubscriptions({
   toolMessageIdByIdRef,
 }: Pick<
   UseStreamSubscriptionsArgs,
+  | "activeBackgroundAgentCountRef"
   | "agentLifecycleLedgerRef"
   | "agentMessageIdByIdRef"
   | "agentOrderingStateRef"
@@ -49,12 +55,15 @@ export function useStreamAgentSubscriptions({
   | "backgroundAgentMessageIdRef"
   | "backgroundProgressSnapshotRef"
   | "completionOrderingEventByAgentRef"
+  | "deferredCompleteTimeoutRef"
   | "deferredPostCompleteDeltasByAgentRef"
   | "doneRenderedSequenceByAgentRef"
   | "lastStreamedMessageIdRef"
   | "parallelAgentsRef"
+  | "pendingCompleteRef"
   | "resolveAgentScopedMessageId"
   | "sendBackgroundMessageToAgent"
+  | "setActiveBackgroundAgentCount"
   | "setAgentMessageBinding"
   | "setParallelAgents"
   | "streamingMessageIdRef"
@@ -188,6 +197,17 @@ export function useStreamAgentSubscriptions({
       // Sync the ref so downstream handlers in the same event batch
       // see the latest agent list immediately.
       parallelAgentsRef.current = updated;
+
+      // Keep activeBackgroundAgentCount in sync when background agents start
+      // so the footer count reflects the live value immediately.
+      if (data.isBackground) {
+        const newActiveCount = getActiveBackgroundAgents(updated).length;
+        if (activeBackgroundAgentCountRef.current !== newActiveCount) {
+          activeBackgroundAgentCountRef.current = newActiveCount;
+          setActiveBackgroundAgentCount(newActiveCount);
+        }
+      }
+
       return updated;
     });
   });
@@ -336,6 +356,16 @@ export function useStreamAgentSubscriptions({
       // (e.g. stream.session.idle) see the updated agent state immediately,
       // rather than reading a stale ref that blocks stream finalization.
       parallelAgentsRef.current = updated;
+
+      // Keep activeBackgroundAgentCount in sync as agents complete so the
+      // spinner text and footer reflect the live count rather than staying
+      // pinned to the value set by the last stream.session.partial-idle event.
+      const newActiveCount = getActiveBackgroundAgents(updated).length;
+      if (activeBackgroundAgentCountRef.current !== newActiveCount) {
+        activeBackgroundAgentCountRef.current = newActiveCount;
+        setActiveBackgroundAgentCount(newActiveCount);
+      }
+
       return updated;
     });
     backgroundProgressSnapshotRef.current.delete(data.agentId);
@@ -352,14 +382,26 @@ export function useStreamAgentSubscriptions({
       } else {
         sendBackgroundMessageToAgent(`Background task "${agentName}" completed.`);
       }
-      return;
+    } else {
+      const errorText = data.error?.trim();
+      if (errorText) {
+        sendBackgroundMessageToAgent(`Background task "${agentName}" failed:\n\n${errorText}`);
+      } else {
+        sendBackgroundMessageToAgent(`Background task "${agentName}" failed.`);
+      }
     }
 
-    const errorText = data.error?.trim();
-    if (errorText) {
-      sendBackgroundMessageToAgent(`Background task "${agentName}" failed:\n\n${errorText}`);
-    } else {
-      sendBackgroundMessageToAgent(`Background task "${agentName}" failed.`);
+    // Trigger deferred completion when the last background agent finishes.
+    // parallelAgentsRef.current is already synced above so the completing
+    // agent is already marked "completed"/"error".
+    if (!hasActiveBackgroundAgentsForSpinner(parallelAgentsRef.current) && pendingCompleteRef.current) {
+      if (deferredCompleteTimeoutRef.current) {
+        clearTimeout(deferredCompleteTimeoutRef.current);
+        deferredCompleteTimeoutRef.current = null;
+      }
+      const pendingComplete = pendingCompleteRef.current;
+      pendingCompleteRef.current = null;
+      pendingComplete();
     }
   });
 }

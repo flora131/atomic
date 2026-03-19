@@ -9,7 +9,7 @@ import {
   registerAgentCompletionSequence,
   registerDoneStateProjection,
   registerFirstPostCompleteDeltaSequence,
-} from "@/lib/ui/agent-ordering-contract.ts";
+} from "@/state/chat/shared/helpers/agent-ordering-contract.ts";
 
 describe("agent ordering contract state", () => {
   test("creates empty tracking maps", () => {

@@ -265,6 +265,7 @@ export function processClaudeMessage(args: {
                 case "files_persisted":
                 case "local_command_output":
                 case "elicitation_complete":
+                case "api_retry":
                     break;
                 default: {
                     const unexpectedSystemMessage: never = sdkMessage;

@@ -8,7 +8,7 @@ import {
   appendCommandHistory,
   clearCommandHistory,
   getCommandHistoryPath,
-} from "@/lib/ui/command-history.ts";
+} from "@/state/chat/composer/command-history.ts";
 
 // Use a temp directory for isolation via the ATOMIC_SETTINGS_HOME env var
 const TEST_HOME = join(tmpdir(), `atomic-cmd-history-test-${process.pid}`);

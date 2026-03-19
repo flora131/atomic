@@ -2,7 +2,7 @@ import { describe, expect, mock, test, beforeEach } from "bun:test";
 import {
   shouldProcessStreamLifecycleEvent,
 } from "@/state/chat/exports.ts";
-import { isLikelyFilePath } from "@/lib/ui/session-info-filters.ts";
+import { isLikelyFilePath } from "@/services/events/session-info-filters.ts";
 import { createMessage } from "@/state/chat/helpers.ts";
 import { STATUS } from "@/theme/icons.ts";
 import type { ChatMessage } from "@/state/chat/types.ts";

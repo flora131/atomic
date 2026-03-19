@@ -320,4 +320,392 @@ describe("CopilotStreamAdapter lifecycle behavior", () => {
     expect(deltaEvents).toHaveLength(1);
     expect(events.every((event) => event.type.startsWith("stream."))).toBe(true);
   });
+
+  test("emits partial-idle and keeps isActive when background agents exist", async () => {
+    const events = collectEvents(bus);
+
+    async function* slowStream(): AsyncGenerator<AgentMessage> {
+      yield { type: "text", content: "start" };
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      yield { type: "text", content: "end" };
+    }
+
+    const session = createMockSession(slowStream());
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 300,
+      messageId: "msg-partial-idle",
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    const state = (adapter as any).state;
+    state.subagentTracker.registerAgent("bg-agent-1", { isBackground: true });
+
+    client.emit("session.idle" as EventType, {
+      type: "session.idle",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: { reason: "idle" },
+    } as AgentEvent<"session.idle">);
+
+    await streamPromise;
+
+    const partialIdleEvents = events.filter(
+      (event) => event.type === "stream.session.partial-idle",
+    );
+    const idleEvents = events.filter(
+      (event) => event.type === "stream.session.idle",
+    );
+
+    expect(partialIdleEvents).toHaveLength(1);
+    expect(partialIdleEvents[0].data.completionReason).toBe("idle");
+    expect(partialIdleEvents[0].data.activeBackgroundAgentCount).toBe(1);
+    expect(partialIdleEvents[0].runId).toBe(300);
+    expect(idleEvents).toHaveLength(0);
+    expect(state.isActive).toBe(true);
+    expect(state.isBackgroundOnly).toBe(true);
+  });
+
+  test("emits idle and resets isActive when no background agents exist", async () => {
+    const events = collectEvents(bus);
+
+    async function* slowStream(): AsyncGenerator<AgentMessage> {
+      yield { type: "text", content: "start" };
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      yield { type: "text", content: "end" };
+    }
+
+    const session = createMockSession(slowStream());
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 301,
+      messageId: "msg-full-idle",
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    client.emit("session.idle" as EventType, {
+      type: "session.idle",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: { reason: "idle" },
+    } as AgentEvent<"session.idle">);
+
+    await streamPromise;
+
+    const idleEvents = events.filter(
+      (event) => event.type === "stream.session.idle",
+    );
+    const partialIdleEvents = events.filter(
+      (event) => event.type === "stream.session.partial-idle",
+    );
+    const state = (adapter as any).state;
+
+    expect(idleEvents).toHaveLength(1);
+    expect(idleEvents[0].data.reason).toBe("idle");
+    expect(idleEvents[0].runId).toBe(301);
+    expect(partialIdleEvents).toHaveLength(0);
+    expect(state.isActive).toBe(false);
+    expect(state.isBackgroundOnly).toBe(false);
+  });
+
+  test("routes background events after partial-idle transition", async () => {
+    const events = collectEvents(bus);
+
+    async function* shortStream(): AsyncGenerator<AgentMessage> {
+      yield { type: "text", content: "done" };
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    const session = createMockSession(shortStream());
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 400,
+      messageId: "msg-bg-route",
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    const state = (adapter as any).state;
+    state.subagentTracker.registerAgent("bg-agent-route", { isBackground: true });
+
+    client.emit("session.idle" as EventType, {
+      type: "session.idle",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: { reason: "idle" },
+    } as AgentEvent<"session.idle">);
+
+    await streamPromise;
+
+    expect(state.isBackgroundOnly).toBe(true);
+    expect(state.isActive).toBe(true);
+
+    const eventsBeforeSubagent = events.length;
+
+    client.emit("subagent.update" as EventType, {
+      type: "subagent.update",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        subagentId: "bg-agent-route",
+        update: "working on background task",
+      },
+    } as AgentEvent<"subagent.update">);
+
+    const updateEvents = events
+      .slice(eventsBeforeSubagent)
+      .filter((event) => event.type === "stream.agent.update");
+    expect(updateEvents).toHaveLength(1);
+  });
+
+  test("filters foreground events after partial-idle transition", async () => {
+    const events = collectEvents(bus);
+
+    async function* shortStream(): AsyncGenerator<AgentMessage> {
+      yield { type: "text", content: "done" };
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    const session = createMockSession(shortStream());
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 401,
+      messageId: "msg-fg-filter",
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    const state = (adapter as any).state;
+    state.subagentTracker.registerAgent("bg-agent-filter", { isBackground: true });
+
+    client.emit("session.idle" as EventType, {
+      type: "session.idle",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: { reason: "idle" },
+    } as AgentEvent<"session.idle">);
+
+    await streamPromise;
+
+    expect(state.isBackgroundOnly).toBe(true);
+
+    const eventsAfterIdle = events.length;
+
+    client.emit("message.delta" as EventType, {
+      type: "message.delta",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: { delta: "stale text", contentType: "text" },
+    } as AgentEvent<"message.delta">);
+
+    client.emit("reasoning.delta" as EventType, {
+      type: "reasoning.delta",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: { delta: "stale reasoning" },
+    } as AgentEvent<"reasoning.delta">);
+
+    const foregroundEventsAfterIdle = events
+      .slice(eventsAfterIdle)
+      .filter(
+        (event) =>
+          event.type === "stream.text.delta" ||
+          event.type === "stream.thinking.delta",
+      );
+    expect(foregroundEventsAfterIdle).toHaveLength(0);
+  });
+
+  test("allows events when isBackgroundOnly is true and isActive is false", async () => {
+    const events = collectEvents(bus);
+
+    async function* shortStream(): AsyncGenerator<AgentMessage> {
+      yield { type: "text", content: "done" };
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    const session = createMockSession(shortStream());
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 402,
+      messageId: "msg-bg-fallback",
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    const state = (adapter as any).state;
+    state.subagentTracker.registerAgent("bg-agent-fallback", { isBackground: true });
+
+    client.emit("session.idle" as EventType, {
+      type: "session.idle",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: { reason: "idle" },
+    } as AgentEvent<"session.idle">);
+
+    await streamPromise;
+
+    // Force isActive=false to test the isBackgroundOnly fallback
+    state.isActive = false;
+    expect(state.isBackgroundOnly).toBe(true);
+    expect(state.isActive).toBe(false);
+
+    const eventsBeforeEmit = events.length;
+
+    client.emit("usage" as EventType, {
+      type: "usage",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: { inputTokens: 10, outputTokens: 20 },
+    } as AgentEvent<"usage">);
+
+    const usageEvents = events
+      .slice(eventsBeforeEmit)
+      .filter((event) => event.type === "stream.usage");
+    expect(usageEvents).toHaveLength(1);
+  });
+
+  test("emits idle and resets state when last background agent completes in isBackgroundOnly mode", async () => {
+    const events = collectEvents(bus);
+
+    async function* shortStream(): AsyncGenerator<AgentMessage> {
+      yield { type: "text", content: "done" };
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    const session = createMockSession(shortStream());
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 500,
+      messageId: "msg-bg-finalize",
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    const state = (adapter as any).state;
+    state.subagentTracker.registerAgent("bg-final-1", { isBackground: true });
+
+    client.emit("session.idle" as EventType, {
+      type: "session.idle",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: { reason: "idle" },
+    } as AgentEvent<"session.idle">);
+
+    await streamPromise;
+
+    expect(state.isBackgroundOnly).toBe(true);
+    expect(state.isActive).toBe(true);
+
+    const eventsBeforeComplete = events.length;
+
+    client.emit("subagent.complete" as EventType, {
+      type: "subagent.complete",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        subagentId: "bg-final-1",
+        success: true,
+        result: "background work done",
+      },
+    } as AgentEvent<"subagent.complete">);
+
+    const newEvents = events.slice(eventsBeforeComplete);
+    const agentComplete = newEvents.find((e) => e.type === "stream.agent.complete");
+    const idleEvent = newEvents.find((e) => e.type === "stream.session.idle");
+
+    expect(agentComplete).toBeDefined();
+    expect(agentComplete.data.agentId).toBe("bg-final-1");
+    expect(idleEvent).toBeDefined();
+    expect(idleEvent.data.reason).toBe("background-complete");
+    expect(idleEvent.runId).toBe(500);
+    expect(state.isBackgroundOnly).toBe(false);
+    expect(state.isActive).toBe(false);
+  });
+
+  test("does not emit idle when non-last background agent completes in isBackgroundOnly mode", async () => {
+    const events = collectEvents(bus);
+
+    async function* shortStream(): AsyncGenerator<AgentMessage> {
+      yield { type: "text", content: "done" };
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    const session = createMockSession(shortStream());
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 501,
+      messageId: "msg-bg-partial",
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    const state = (adapter as any).state;
+    state.subagentTracker.registerAgent("bg-partial-1", { isBackground: true });
+    state.subagentTracker.registerAgent("bg-partial-2", { isBackground: true });
+
+    client.emit("session.idle" as EventType, {
+      type: "session.idle",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: { reason: "idle" },
+    } as AgentEvent<"session.idle">);
+
+    await streamPromise;
+
+    expect(state.isBackgroundOnly).toBe(true);
+
+    const eventsBeforeComplete = events.length;
+
+    client.emit("subagent.complete" as EventType, {
+      type: "subagent.complete",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        subagentId: "bg-partial-1",
+        success: true,
+        result: "first bg done",
+      },
+    } as AgentEvent<"subagent.complete">);
+
+    const newEvents = events.slice(eventsBeforeComplete);
+    const idleEvents = newEvents.filter((e) => e.type === "stream.session.idle");
+
+    expect(idleEvents).toHaveLength(0);
+    expect(state.isBackgroundOnly).toBe(true);
+    expect(state.isActive).toBe(true);
+  });
+
+  test("does not emit idle on subagent complete when not in isBackgroundOnly mode", async () => {
+    const events = collectEvents(bus);
+    const session = createMockSession(mockAsyncStream([{ type: "text", content: "done" }]));
+
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 502,
+      messageId: "msg-normal-complete",
+    });
+
+    client.emit("subagent.start" as EventType, {
+      type: "subagent.start",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        subagentId: "normal-agent-1",
+        subagentType: "explore",
+        task: "search code",
+      },
+    } as AgentEvent<"subagent.start">);
+
+    client.emit("subagent.complete" as EventType, {
+      type: "subagent.complete",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        subagentId: "normal-agent-1",
+        success: true,
+        result: "found it",
+      },
+    } as AgentEvent<"subagent.complete">);
+
+    await streamPromise;
+
+    const bgIdleEvents = events.filter(
+      (e) => e.type === "stream.session.idle" && e.data.reason === "background-complete",
+    );
+    expect(bgIdleEvents).toHaveLength(0);
+  });
 });

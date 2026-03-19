@@ -11,7 +11,7 @@ import { shouldFinalizeOnToolComplete } from "@/state/parts/guards.ts";
 import { upsertPart } from "@/state/parts/store.ts";
 import { createPartId, _resetPartCounter } from "@/state/parts/id.ts";
 import type { Part, AgentPart } from "@/state/parts/types.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 
 /**
  * Helper function to create a test agent with default values.

@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { appendCommandHistory } from "@/lib/ui/command-history.ts";
+import { appendCommandHistory } from "@/state/chat/composer/command-history.ts";
 import { handleComposerSubmit } from "@/state/chat/composer/submit.ts";
 import type { UseComposerControllerArgs } from "@/state/chat/composer/types.ts";
 import { useComposerInputState } from "@/state/chat/composer/use-input-state.ts";

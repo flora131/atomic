@@ -1,8 +1,8 @@
 import { mkdirSync, writeFileSync, existsSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import type { ChatMessage } from "@/screens/chat-screen.tsx";
-import { clearHistoryBuffer } from "@/lib/ui/conversation-history-buffer.ts";
+import type { ChatMessage } from "@/types/chat.ts";
+import { clearHistoryBuffer } from "@/state/chat/shared/helpers/conversation-history-buffer.ts";
 
 export const BUFFER_DIR = join(tmpdir(), "atomic-cli");
 export const BUFFER_FILE = join(BUFFER_DIR, `history-${process.pid}.json`);

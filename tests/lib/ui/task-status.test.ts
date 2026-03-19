@@ -9,7 +9,7 @@ import {
   normalizeTodoItems,
   reconcileTodoWriteItems,
   type NormalizedTaskItem,
-} from "@/lib/ui/task-status.ts";
+} from "@/state/parts/helpers/task-status.ts";
 
 describe("normalizeTaskStatus", () => {
   test("keeps canonical statuses unchanged", () => {

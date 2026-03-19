@@ -91,6 +91,7 @@ export interface ChatAppProps {
   onModelChange?: (model: string) => void;
   onSessionMcpServersChange?: (servers: McpServerConfig[]) => void;
   initialModelId?: string;
+  initialReasoningEffort?: string;
   onCommandExecutionTelemetry?: (event: CommandExecutionTelemetry) => void;
   onMessageSubmitTelemetry?: (event: MessageSubmitTelemetry) => void;
 }

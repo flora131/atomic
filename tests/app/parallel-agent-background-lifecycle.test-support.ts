@@ -1,4 +1,4 @@
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 
 export type { ParallelAgent };
 

@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import {
   pruneAgentOrderingState,
-} from "@/lib/ui/agent-ordering-contract.ts";
+} from "@/state/chat/shared/helpers/agent-ordering-contract.ts";
 import type { UseChatAgentProjectionArgs } from "@/state/chat/agent/projection-types.ts";
 
 interface UseChatAgentOrderingMaintenanceArgs extends Pick<

@@ -12,6 +12,7 @@ export function createCopilotStreamAdapterState(): CopilotStreamAdapterState {
     runId: 0,
     messageId: "",
     isActive: false,
+    isBackgroundOnly: false,
     toolNameById: new Map<string, string>(),
     subagentTracker: null,
     emittedToolStartIds: new Set<string>(),

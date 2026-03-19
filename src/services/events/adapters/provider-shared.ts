@@ -1,4 +1,4 @@
-import type { BusEvent } from "@/services/events/bus-events.ts";
+import type { BusEvent } from "@/services/events/bus-events/index.ts";
 
 export const DEFAULT_SUBAGENT_TASK_LABEL = "sub-agent task";
 export const SYNTHETIC_FOREGROUND_AGENT_PREFIX = "agent-only-";

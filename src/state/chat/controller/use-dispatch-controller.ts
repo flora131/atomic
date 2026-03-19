@@ -5,19 +5,19 @@ import {
   globalRegistry,
   parseSlashCommand,
 } from "@/commands/tui/index.ts";
-import { useCommandExecutor } from "@/state/chat/command/use-executor.ts";
-import type { DeferredCommandMessage, UseCommandExecutorArgs } from "@/state/chat/command/executor-types.ts";
+import { useCommandExecutor } from "@/state/chat/command/index.ts";
+import type { DeferredCommandMessage, UseCommandExecutorArgs } from "@/state/chat/shared/types/command.ts";
 import type {
   CommandExecutionTrigger,
   MessageSubmitTelemetry,
-} from "@/state/chat/types.ts";
+} from "@/state/chat/shared/types/index.ts";
 import type { QueuedMessage } from "@/hooks/use-message-queue.ts";
 import {
   parseAtMentions,
   processFileMentions,
 } from "@/lib/ui/mention-parsing.ts";
-import { snapshotTaskItems } from "@/lib/ui/workflow-task-state.ts";
-import { createMessage } from "@/state/chat/helpers.ts";
+import { snapshotTaskItems } from "@/state/chat/shared/helpers/workflow-task-state.ts";
+import { createMessage } from "@/state/chat/shared/helpers/index.ts";
 import { finalizeStreamingReasoningInMessage } from "@/state/parts/index.ts";
 
 interface UseChatDispatchControllerArgs extends Omit<
@@ -64,7 +64,7 @@ export function useChatDispatchController({
   emitMessageSubmitTelemetry,
   ensureSession,
   eventBus,
-  getCorrelationService,
+  getOwnershipTracker,
   getModelDisplayInfo,
   getSession,
   hasRunningToolRef,
@@ -90,6 +90,7 @@ export function useChatDispatchController({
   setCompactionSummary,
   setCurrentModelDisplayName,
   setCurrentModelId,
+  setCurrentReasoningEffort,
   setIsAutoCompacting,
   setIsStreaming,
   setLastStreamedMessageId,
@@ -137,8 +138,13 @@ export function useChatDispatchController({
     deferredCommandQueueRef.current.unshift(message);
   }, [deferredCommandQueueRef]);
 
+  const isAgentCommand = useCallback((name: string): boolean => {
+    const cmd = globalRegistry.get(name);
+    return cmd?.category === "agent";
+  }, []);
+
   const dispatchQueuedMessage = useCallback((queuedMessage: QueuedMessage) => {
-    const atMentions = parseAtMentions(queuedMessage.content);
+    const atMentions = parseAtMentions(queuedMessage.content, isAgentCommand);
     if (atMentions.length > 0 && executeCommandRef.current) {
       if (!queuedMessage.skipUserMessage) {
         const visibleContent = queuedMessage.displayContent ?? queuedMessage.content;
@@ -159,7 +165,7 @@ export function useChatDispatchController({
         queuedMessage.skipUserMessage ? { skipUserMessage: true } : undefined,
       );
     }
-  }, [isStreamingRef, setIsStreaming, setMessagesWindowed]);
+  }, [isAgentCommand, isStreamingRef, setIsStreaming, setMessagesWindowed]);
 
   useEffect(() => {
     dispatchQueuedMessageRef.current = dispatchQueuedMessage;
@@ -265,7 +271,7 @@ export function useChatDispatchController({
     deferredCommandQueueRef,
     ensureSession,
     eventBus,
-    getCorrelationService,
+    getOwnershipTracker,
     getModelDisplayInfo,
     getSession,
     hasRunningToolRef,
@@ -291,6 +297,7 @@ export function useChatDispatchController({
     setCompactionSummary,
     setCurrentModelDisplayName,
     setCurrentModelId,
+    setCurrentReasoningEffort,
     setIsAutoCompacting,
     setIsStreaming,
     setMcpServerToggles,
@@ -366,8 +373,12 @@ export function useChatDispatchController({
       }
 
       setCurrentModelId(effectiveModel);
+      setCurrentReasoningEffort(reasoningEffort);
       onModelChange?.(effectiveModel);
-      const displaySuffix = agentType === "copilot" && reasoningEffort ? ` (${reasoningEffort})` : "";
+      const displaySuffix =
+        (agentType === "copilot" || agentType === "opencode" || agentType === "claude") && reasoningEffort
+          ? ` (${reasoningEffort})`
+          : "";
       setCurrentModelDisplayName(`${selectedModel.modelID}${displaySuffix}`);
       if (agentType) {
         saveModelPreference(agentType, effectiveModel);
@@ -388,6 +399,7 @@ export function useChatDispatchController({
     onModelChange,
     setCurrentModelDisplayName,
     setCurrentModelId,
+    setCurrentReasoningEffort,
     setShowModelSelector,
   ]);
 
@@ -423,7 +435,7 @@ export function useChatDispatchController({
         }
       }
 
-      const { message: processed, filesRead } = processFileMentions(initialPrompt);
+      const { message: processed, filesRead } = processFileMentions(initialPrompt, isAgentCommand);
       emitMessageSubmitTelemetry({
         messageLength: initialPrompt.length,
         queued: false,

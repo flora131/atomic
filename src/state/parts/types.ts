@@ -8,6 +8,7 @@
 
 import type { PartId } from "@/state/parts/id.ts";
 import type { HitlResponseRecord } from "@/lib/ui/hitl-response.ts";
+import type { AgentListView } from "@/lib/ui/agent-list-output.ts";
 import type { PermissionOption } from "@/services/agents/types.ts";
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type { TaskItem } from "@/components/task-list-indicator.tsx";
@@ -114,6 +115,11 @@ export interface McpSnapshotPart extends BasePart {
   snapshot: McpSnapshotView;
 }
 
+export interface AgentListPart extends BasePart {
+  type: "agent-list";
+  view: AgentListView;
+}
+
 export interface CompactionPart extends BasePart {
   type: "compaction";
   summary: string;
@@ -159,6 +165,7 @@ export type Part =
   | TaskListPart
   | SkillLoadPart
   | McpSnapshotPart
+  | AgentListPart
   | CompactionPart
   | TaskResultPart
   | WorkflowStepPart;

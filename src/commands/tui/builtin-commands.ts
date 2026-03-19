@@ -20,12 +20,14 @@ import {
     clearReasoningEffortPreference,
 } from "@/services/config/settings.ts";
 import { discoverMcpConfigs } from "@/services/config/mcp-config.ts";
+import { discoverAgentInfos } from "@/services/agent-discovery/index.ts";
 
 import {
     buildMcpSnapshotView,
     getActiveMcpServers,
     type McpServerToggleMap,
 } from "@/lib/ui/mcp-output.ts";
+import { buildAgentListView } from "@/lib/ui/agent-list-output.ts";
 
 // ============================================================================
 // COMMAND IMPLEMENTATIONS
@@ -358,6 +360,25 @@ export function formatGroupedModels(
 }
 
 /**
+ * /agents - List all discovered agents.
+ *
+ * Shows agents found across all provider directories (.claude/agents,
+ * .opencode/agents, .github/agents) with their source and description.
+ */
+export const agentsCommand: CommandDefinition = {
+    name: "agents",
+    description: "List all discovered agents",
+    category: "builtin",
+    execute: (_args: string, _context: CommandContext): CommandResult => {
+        const agents = discoverAgentInfos();
+        return {
+            success: true,
+            agentListView: buildAgentListView(agents),
+        };
+    },
+};
+
+/**
  * /mcp - Display and manage MCP servers.
  *
  * Subcommands:
@@ -465,6 +486,7 @@ export const builtinCommands: CommandDefinition[] = [
     exitCommand,
     modelCommand,
     mcpCommand,
+    agentsCommand,
 ];
 
 /**

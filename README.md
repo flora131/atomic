@@ -347,6 +347,7 @@ User-invocable chat commands for workflows, built-ins, and skills.
 | `/model`             | `[model\|list\|select]` | View/switch active model                                      |
 | `/mcp`               | `[enable\|disable]`     | View and toggle MCP servers                                   |
 | `/theme`             | `[dark\|light]`         | Toggle between dark and light theme                           |
+| `/agents`            |                         | List all discovered sub-agents                                |
 | `/exit`              |                         | Exit the chat application                                     |
 | `/init`              |                         | Generate `CLAUDE.md` and `AGENTS.md` by exploring codebase   |
 | `/research-codebase` | `"<question>"`          | Analyze codebase and document findings                        |
@@ -360,7 +361,7 @@ User-invocable chat commands for workflows, built-ins, and skills.
 
 ### Agents
 
-Sub-agents that execute specialized tasks. These are invoked automatically by commands or can be requested directly.
+Sub-agents that execute specialized tasks. These are invoked automatically by commands. Use `/agents` to see all discovered sub-agents.
 
 | Agent                        | Purpose                                               |
 | ---------------------------- | ----------------------------------------------------- |

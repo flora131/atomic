@@ -70,7 +70,7 @@ export function appendSkillLoadToLatestAssistantMessage(
     }
 
     const nextSkillLoads = [...existingLoads, skillLoad];
-    const nextParts = upsertSkillLoadPart(assistantMsg.parts ?? [], nextSkillLoads);
+    const nextParts = appendSkillLoadPart(assistantMsg.parts ?? [], skillLoad);
 
     return [
       ...messages.slice(0, assistantIdx),
@@ -85,35 +85,38 @@ export function appendSkillLoadToLatestAssistantMessage(
 
   const msg = createMessage("assistant", "");
   msg.skillLoads = [skillLoad];
-  msg.parts = upsertSkillLoadPart(msg.parts ?? [], [skillLoad]);
+  msg.parts = appendSkillLoadPart(msg.parts ?? [], skillLoad);
   return [...messages, msg];
 }
 
-function upsertSkillLoadPart(parts: Part[], skills: MessageSkillLoad[]): Part[] {
+function appendSkillLoadPart(parts: Part[], skillLoad: MessageSkillLoad): Part[] {
   const nextParts = [...parts];
-  const existingIdx = nextParts.findIndex((part) => part.type === "skill-load");
+  const normalizedKey = normalizeSkillTrackingKey(skillLoad.skillName);
+
+  // Find the skill tool call that matches this specific skill so the indicator
+  // renders inline at the right position. The tool call itself gets hidden by
+  // shouldHideSkillToolIndicator in getRenderableAssistantParts.
+  const matchingToolIdx = nextParts.findIndex((part) => {
+    if (part.type !== "tool") return false;
+    const toolPart = part as ToolPart;
+    if (toolPart.toolName.trim().toLowerCase() !== "skill") return false;
+    const rawName = typeof toolPart.input.skill === "string"
+      ? toolPart.input.skill
+      : (typeof toolPart.input.name === "string" ? toolPart.input.name : "");
+    return normalizeSkillTrackingKey(rawName) === normalizedKey;
+  });
+
   const skillPart: SkillLoadPart = {
-    id: existingIdx >= 0 ? nextParts[existingIdx]!.id : createPartId(),
+    id: createPartId(),
     type: "skill-load",
-    skills,
-    createdAt: existingIdx >= 0
-      ? nextParts[existingIdx]!.createdAt
-      : new Date().toISOString(),
+    skills: [skillLoad],
+    createdAt: new Date().toISOString(),
   };
-  if (existingIdx >= 0) {
-    nextParts[existingIdx] = skillPart;
+
+  if (matchingToolIdx >= 0) {
+    nextParts.splice(matchingToolIdx, 0, skillPart);
   } else {
-    // Insert at the position of the first "skill" tool call so the skill-load
-    // indicator renders in chronological order (the tool call itself gets hidden
-    // by shouldHideSkillToolIndicator in getRenderableAssistantParts).
-    const skillToolIdx = nextParts.findIndex(
-      (part) => part.type === "tool" && (part as ToolPart).toolName.trim().toLowerCase() === "skill",
-    );
-    if (skillToolIdx >= 0) {
-      nextParts.splice(skillToolIdx, 0, skillPart);
-    } else {
-      nextParts.push(skillPart);
-    }
+    nextParts.push(skillPart);
   }
   return nextParts;
 }

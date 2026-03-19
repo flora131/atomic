@@ -1,75 +1,69 @@
 {
-    "name": "@bastani/atomic",
-    "version": "0.4.27-0",
-    "description": "Configuration management CLI for coding agents",
-    "type": "module",
-    "license": "BUSL-1.1",
-    "repository": {
-        "type": "git",
-        "url": "git+https://github.com/flora131/atomic.git"
-    },
-    "keywords": [
-        "cli",
-        "config",
-        "coding-agents",
-        "claude",
-        "copilot",
-        "bun"
-    ],
-    "bin": {
-        "atomic": "src/cli.ts"
-    },
-    "files": [
-        "src",
-        "assets/settings.schema.json",
-        ".claude",
-        ".opencode",
-        ".mcp.json",
-        ".github/skills",
-        ".github/agents",
-        ".github/lsp.json",
-        ".vscode/mcp.json"
-    ],
-    "scripts": {
-        "dev": "bun run src/cli.ts",
-        "build": "bun run src/scripts/build-binary.ts --outfile atomic",
-        "prepare:opentui-bindings": "bun run src/scripts/prepare-opentui-bindings.ts",
-        "test": "bun test ./tests/**/*.test.ts ./tests/**/*.test.tsx ./tests/**/*.integration.test.ts ./tests/**/*.e2e.test.ts",
-        "test:ordering-contract": "bun test ./tests/lib/ui/agent-ordering-contract.test.ts ./tests/screens/chat-screen.mention-ordering.integration.test.ts ./tests/screens/chat-screen.mention-ordering.e2e.test.ts ./tests/screens/chat-screen.stream-lifecycle-run-guard.test.ts",
-        "test:contracts": "bun test ./tests/lib/ui/background-agent-provider-parity.test.ts ./tests/lib/ui/background-agent-runtime-parity.test.ts ./tests/lib/ui/background-agent-acceptance.test.ts ./tests/lib/ui/background-agent-termination-integration.test.ts ./tests/lib/ui/background-agent-keybinding-nonconflict.test.ts ./tests/lib/ui/background-agent-parent-callback.test.ts",
-        "metrics:ordering-contract": "bun run src/scripts/ordering-contract-metrics.ts",
-        "canary:ordering-contract": "ATOMIC_ORDERING_CONTRACT_CANARY=1 bun run test:ordering-contract && ATOMIC_ORDERING_CONTRACT_CANARY=1 bun run metrics:ordering-contract",
-        "typecheck": "tsc --noEmit",
-        "lint": "oxlint --config=oxlint.json src tests && bun run src/scripts/check-submodule-boundaries.ts && bun run src/scripts/check-dependency-direction.ts",
-        "lint:boundaries": "bun run src/scripts/check-submodule-boundaries.ts",
-        "lint:deps": "bun run src/scripts/check-dependency-direction.ts",
-        "lint:fix": "oxlint --config=oxlint.json --fix src tests",
-        "postinstall": "lefthook install && bun run src/scripts/postinstall.ts"
-    },
-    "devDependencies": {
-        "@types/bun": "^1.3.11",
-        "@types/ci-info": "^3.1.4",
-        "@types/react": "^19.2.14",
-        "lefthook": "^2.1.4",
-        "oxlint": "^1.56.0",
-        "typescript": "^5.9.3",
-        "typescript-language-server": "^5.1.3"
-    },
-    "dependencies": {
-        "@anthropic-ai/claude-agent-sdk": "^0.2.79",
-        "@azure/monitor-opentelemetry": "^1.16.0",
-        "@clack/prompts": "^1.1.0",
-        "@commander-js/extra-typings": "^14.0.0",
-        "@github/copilot-sdk": "0.1.32",
-        "@opencode-ai/sdk": "^1.2.27",
-        "@opentelemetry/api": "^1.9.0",
-        "@opentelemetry/api-logs": "^0.213.0",
-        "@opentui/core": "^0.1.88",
-        "@opentui/react": "^0.1.88",
-        "ci-info": "^4.4.0",
-        "commander": "^14.0.3",
-        "web-tree-sitter": "0.25.10",
-        "yaml": "^2.8.2",
-        "zod": "^4.3.6"
-    }
+  "name": "@bastani/atomic",
+  "version": "0.4.27-0",
+  "description": "Configuration management CLI for coding agents",
+  "type": "module",
+  "license": "BUSL-1.1",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/flora131/atomic.git"
+  },
+  "keywords": [
+    "cli",
+    "config",
+    "coding-agents",
+    "claude",
+    "copilot",
+    "bun"
+  ],
+  "bin": {
+    "atomic": "src/cli.ts"
+  },
+  "files": [
+    "src",
+    "assets/settings.schema.json",
+    ".claude",
+    ".opencode",
+    ".mcp.json",
+    ".github/skills",
+    ".github/agents",
+    ".github/lsp.json",
+    ".vscode/mcp.json"
+  ],
+  "scripts": {
+    "dev": "bun run src/cli.ts",
+    "build": "bun run src/scripts/build-binary.ts --outfile atomic",
+    "prepare:opentui-bindings": "bun run src/scripts/prepare-opentui-bindings.ts",
+    "test": "bun test ./tests/**/*.test.ts ./tests/**/*.test.tsx ./tests/**/*.integration.test.ts ./tests/**/*.e2e.test.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint --config=oxlint.json src tests",
+    "lint:fix": "oxlint --config=oxlint.json --fix src tests",
+    "postinstall": "lefthook install && bun run src/scripts/postinstall.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.11",
+    "@types/ci-info": "^3.1.4",
+    "@types/react": "^19.2.14",
+    "lefthook": "^2.1.4",
+    "oxlint": "^1.56.0",
+    "typescript": "^5.9.3",
+    "typescript-language-server": "^5.1.3"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.79",
+    "@azure/monitor-opentelemetry": "^1.16.0",
+    "@clack/prompts": "^1.1.0",
+    "@commander-js/extra-typings": "^14.0.0",
+    "@github/copilot-sdk": "0.1.32",
+    "@opencode-ai/sdk": "^1.2.27",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/api-logs": "^0.213.0",
+    "@opentui/core": "^0.1.88",
+    "@opentui/react": "^0.1.88",
+    "ci-info": "^4.4.0",
+    "commander": "^14.0.3",
+    "web-tree-sitter": "0.25.10",
+    "yaml": "^2.8.2",
+    "zod": "^4.3.6"
+  }
 }

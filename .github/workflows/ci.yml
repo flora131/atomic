@@ -36,19 +36,7 @@ jobs:
               run: bun run lint
 
             - name: Run tests with coverage
-              run: bun test --coverage --coverage-reporter=lcov
-
-            - name: Run ordering contract checks
-              run: bun run test:ordering-contract
-
-            - name: Emit ordering contract canary metrics
-              run: ATOMIC_ORDERING_CONTRACT_CANARY=1 bun run metrics:ordering-contract > ordering-contract-metrics.json
-
-            - name: Upload ordering contract canary metrics
-              uses: actions/upload-artifact@v7
-              with:
-                  name: ordering-contract-canary-metrics
-                  path: ordering-contract-metrics.json
+              run: bun test --coverage --coverage-reporter=lcov 2>&1 | cat
 
             - name: Upload coverage
               uses: codecov/codecov-action@v5

@@ -18,7 +18,6 @@ import type {
   UserQuestion,
 } from "@/components/user-question-dialog.tsx";
 import type { AskUserQuestionEventData } from "@/services/workflows/graph/index.ts";
-import { createMessage } from "@/state/chat/shared/helpers/index.ts";
 import { applyStreamPartEvent } from "@/state/parts/index.ts";
 import { normalizeHitlAnswer } from "@/lib/ui/hitl-response.ts";
 import { rejectPendingWorkflowInput, type WorkflowInputResolver } from "@/services/workflows/helpers/workflow-input-resolver.ts";
@@ -408,11 +407,9 @@ export function useWorkflowHitl({
       }
     }
 
-    let answerStoredOnToolCall = false;
     if (answeredEntry?.toolCallId) {
       const rawToolId = answeredEntry.toolCallId;
       const hitlToolId = hitlToolIdMapRef.current.get(rawToolId) ?? rawToolId;
-      answerStoredOnToolCall = true;
 
       setMessagesWindowed((previousMessages) =>
         previousMessages.map((message) => {
@@ -430,61 +427,6 @@ export function useWorkflowHitl({
           return message;
         }),
       );
-    }
-
-    if (!answerStoredOnToolCall) {
-      const answerText = answer.cancelled
-        ? normalizedHitl.displayText
-        : Array.isArray(answer.selected)
-          ? answer.selected.join(", ")
-          : answer.selected;
-      setMessagesWindowed((previousMessages) => {
-        const streamingIndex = previousMessages.findIndex((message) => message.streaming);
-        const answerMessage = createMessage("user", answerText);
-        answerMessage.hitlContext = {
-          question: answeredEntry?.question.question ?? "",
-          header: answeredEntry?.question.header ?? "Question",
-          answer: answerText,
-          cancelled: answer.cancelled,
-          responseMode: normalizedHitl.responseMode,
-        };
-        if (streamingIndex >= 0) {
-          return [
-            ...previousMessages.slice(0, streamingIndex),
-            answerMessage,
-            ...previousMessages.slice(streamingIndex),
-          ];
-        }
-        return [...previousMessages, answerMessage];
-      });
-    } else {
-      // Tool call already stores the answer on the part — also insert a visible
-      // HITL-context user message into the conversation stream so the Q&A is
-      // rendered as a dedicated widget the user can see.
-      const answerText = answer.cancelled
-        ? normalizedHitl.displayText
-        : Array.isArray(answer.selected)
-          ? answer.selected.join(", ")
-          : answer.selected;
-      setMessagesWindowed((previousMessages) => {
-        const streamingIndex = previousMessages.findIndex((message) => message.streaming);
-        const hitlMessage = createMessage("user", answerText);
-        hitlMessage.hitlContext = {
-          question: answeredEntry?.question.question ?? "",
-          header: answeredEntry?.question.header ?? "Question",
-          answer: answerText,
-          cancelled: answer.cancelled,
-          responseMode: normalizedHitl.responseMode,
-        };
-        if (streamingIndex >= 0) {
-          return [
-            ...previousMessages.slice(0, streamingIndex),
-            hitlMessage,
-            ...previousMessages.slice(streamingIndex),
-          ];
-        }
-        return [...previousMessages, hitlMessage];
-      });
     }
 
     const selectedArray = Array.isArray(answer.selected) ? answer.selected : [answer.selected];

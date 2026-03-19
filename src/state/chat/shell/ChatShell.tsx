@@ -14,7 +14,8 @@ import { ModelSelectorDialog } from "@/components/model-selector-dialog.tsx";
 import { QueueIndicator } from "@/components/queue-indicator.tsx";
 import { AtomicHeader } from "@/components/chat-header.tsx";
 import { TranscriptView } from "@/components/transcript-view.tsx";
-import type { UserQuestion } from "@/components/user-question-dialog.tsx";
+import type { QuestionAnswer, UserQuestion } from "@/components/user-question-dialog.tsx";
+import { UserQuestionDialog } from "@/components/user-question-dialog.tsx";
 import { SCROLLBAR, PROMPT } from "@/theme/icons.ts";
 import { SPACING } from "@/theme/spacing.ts";
 import type { ThemeColors } from "@/theme/index.tsx";
@@ -51,6 +52,7 @@ export interface ChatShellProps {
   handleModelSelect: (selectedModel: Model, reasoningEffort?: string) => void;
   handleModelSelectorCancel: () => void;
   handleMouseUp: () => void;
+  handleQuestionAnswer?: (answer: QuestionAnswer) => void;
   handleSubmit: () => void;
   handleTextareaContentChange: () => void;
   handleTextareaCursorChange: () => void;
@@ -110,6 +112,7 @@ export function ChatShell({
   handleModelSelect,
   handleModelSelectorCancel,
   handleMouseUp,
+  handleQuestionAnswer,
   handleSubmit,
   handleTextareaContentChange,
   handleTextareaCursorChange,
@@ -235,6 +238,14 @@ export function ChatShell({
                   }}
                 />
               </box>
+            )}
+
+            {activeQuestion && handleQuestionAnswer && (
+              <UserQuestionDialog
+                question={activeQuestion}
+                onAnswer={handleQuestionAnswer}
+                visible={true}
+              />
             )}
 
             {!activeQuestion && !showModelSelector && (

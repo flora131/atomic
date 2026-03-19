@@ -4,7 +4,8 @@ import { parseSlashCommand } from "@/commands/tui/index.ts";
 
 function scanGitFiles(): Array<{ relPath: string; isDir: boolean }> {
   const cwd = process.cwd();
-  const result = Bun.spawnSync(["git", "ls-files", "--cached", "--others", "--exclude-standard"], { cwd });
+  const env = { ...process.env, GIT_DIR: undefined, GIT_WORK_TREE: undefined };
+  const result = Bun.spawnSync(["git", "ls-files", "--cached", "--others", "--exclude-standard"], { cwd, env });
   if (!result.success) throw new Error("git ls-files failed");
 
   const filePaths = result.stdout.toString().split("\n").filter(Boolean);

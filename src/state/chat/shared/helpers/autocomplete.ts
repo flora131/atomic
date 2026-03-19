@@ -1,83 +1,85 @@
-import { readdirSync } from "node:fs";
-import { join } from "node:path";
+import posix from "node:path/posix";
 import type { CommandCategory, CommandDefinition } from "@/commands/tui/index.ts";
-import { globalRegistry, parseSlashCommand } from "@/commands/tui/index.ts";
+import { parseSlashCommand } from "@/commands/tui/index.ts";
 
-export function getMentionSuggestions(input: string): CommandDefinition[] {
-  const suggestions: CommandDefinition[] = [];
-  const searchKey = input.toLowerCase();
-  const allAgents = globalRegistry.all().filter((cmd) => cmd.category === "agent");
-  const agentMatches = searchKey
-    ? allAgents.filter((cmd) => cmd.name.toLowerCase().includes(searchKey))
-    : allAgents;
+function scanGitFiles(): Array<{ relPath: string; isDir: boolean }> {
+  const cwd = process.cwd();
+  const result = Bun.spawnSync(["git", "ls-files", "--cached", "--others", "--exclude-standard"], { cwd });
+  if (!result.success) throw new Error("git ls-files failed");
 
-  agentMatches.sort((a, b) => {
-    const aPrefix = a.name.toLowerCase().startsWith(searchKey);
-    const bPrefix = b.name.toLowerCase().startsWith(searchKey);
-    if (aPrefix && !bPrefix) return -1;
-    if (!aPrefix && bPrefix) return 1;
-    return a.name.localeCompare(b.name);
-  });
-  suggestions.push(...agentMatches);
+  const filePaths = result.stdout.toString().split("\n").filter(Boolean);
+  const dirSet = new Set<string>();
+  const allEntries: Array<{ relPath: string; isDir: boolean }> = [];
 
-  try {
-    const cwd = process.cwd();
-    const allEntries: Array<{ relPath: string; isDir: boolean }> = [];
-
-    const scanDirectory = (dirPath: string, relativeBase: string) => {
-      try {
-        const entries = readdirSync(dirPath, { withFileTypes: true });
-        for (const entry of entries) {
-          if (entry.name.startsWith(".")) continue;
-          if (entry.name === "node_modules") continue;
-          if (entry.name === "target") continue;
-          if (entry.name === "build") continue;
-          if (entry.name === "dist") continue;
-          if (entry.name === "out") continue;
-          if (entry.name === "coverage") continue;
-
-          const relPath = relativeBase ? `${relativeBase}/${entry.name}` : entry.name;
-          const isDir = entry.isDirectory();
-          allEntries.push({ relPath: isDir ? `${relPath}/` : relPath, isDir });
-
-          if (isDir) {
-            scanDirectory(join(dirPath, entry.name), relPath);
-          }
-        }
-      } catch {
-      }
-    };
-
-    scanDirectory(cwd, "");
-
-    const filtered = searchKey
-      ? allEntries.filter((entry) => entry.relPath.toLowerCase().includes(searchKey))
-      : allEntries;
-
-    filtered.sort((a, b) => {
-      if (a.isDir && !b.isDir) return -1;
-      if (!a.isDir && b.isDir) return 1;
-      return a.relPath.localeCompare(b.relPath);
-    });
-
-    const dirs = filtered.filter((entry) => entry.isDir);
-    const files = filtered.filter((entry) => !entry.isDir);
-    const maxDirs = Math.min(dirs.length, 7);
-    const maxFiles = Math.min(files.length, 15 - maxDirs);
-    const mixed = [...dirs.slice(0, maxDirs), ...files.slice(0, maxFiles)];
-
-    const fileMatches = mixed.map((entry) => ({
-      name: entry.relPath,
-      description: "",
-      category: (entry.isDir ? "folder" : "file") as CommandCategory,
-      execute: () => ({ success: true as const }),
-    }));
-
-    suggestions.push(...fileMatches);
-  } catch {
+  for (const filePath of filePaths) {
+    let dir = posix.dirname(filePath);
+    while (dir !== ".") {
+      const dirKey = `${dir}/`;
+      if (dirSet.has(dirKey)) break;
+      dirSet.add(dirKey);
+      allEntries.push({ relPath: dirKey, isDir: true });
+      dir = posix.dirname(dir);
+    }
+    allEntries.push({ relPath: filePath, isDir: false });
   }
 
-  return suggestions;
+  return allEntries;
+}
+
+function scanAllFiles(): Array<{ relPath: string; isDir: boolean }> {
+  const glob = new Bun.Glob("**/*");
+  const dirSet = new Set<string>();
+  const allEntries: Array<{ relPath: string; isDir: boolean }> = [];
+
+  for (const filePath of glob.scanSync({ cwd: process.cwd(), dot: true, onlyFiles: true })) {
+    if (filePath.startsWith(".git/") || filePath.includes("node_modules/")) continue;
+
+    let dir = posix.dirname(filePath);
+    while (dir !== ".") {
+      const dirKey = `${dir}/`;
+      if (dirSet.has(dirKey)) break;
+      dirSet.add(dirKey);
+      allEntries.push({ relPath: dirKey, isDir: true });
+      dir = posix.dirname(dir);
+    }
+    allEntries.push({ relPath: filePath, isDir: false });
+  }
+
+  return allEntries;
+}
+
+export function getMentionSuggestions(input: string): CommandDefinition[] {
+  const searchKey = input.toLowerCase();
+
+  let allEntries: Array<{ relPath: string; isDir: boolean }>;
+  try {
+    allEntries = scanGitFiles();
+  } catch {
+    allEntries = scanAllFiles();
+  }
+
+  const filtered = searchKey
+    ? allEntries.filter((entry) => entry.relPath.toLowerCase().includes(searchKey))
+    : allEntries;
+
+  filtered.sort((a, b) => {
+    if (a.isDir && !b.isDir) return -1;
+    if (!a.isDir && b.isDir) return 1;
+    return a.relPath.localeCompare(b.relPath);
+  });
+
+  const dirs = filtered.filter((entry) => entry.isDir);
+  const files = filtered.filter((entry) => !entry.isDir);
+  const maxDirs = Math.min(dirs.length, 7);
+  const maxFiles = Math.min(files.length, 15 - maxDirs);
+  const mixed = [...dirs.slice(0, maxDirs), ...files.slice(0, maxFiles)];
+
+  return mixed.map((entry) => ({
+    name: entry.relPath,
+    description: "",
+    category: (entry.isDir ? "folder" : "file") as CommandCategory,
+    execute: () => ({ success: true as const }),
+  }));
 }
 
 interface ResolveSlashAutocompleteExecutionArgs {

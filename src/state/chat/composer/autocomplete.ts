@@ -191,40 +191,22 @@ export function applyAutocompleteSelection({
 
     replaceTextareaValue(textarea, "");
 
-    if (action === "complete") {
-      const isDirectoryMention = command.name.endsWith("/");
-      const suffix = isDirectoryMention ? "" : " ";
-      const replacement = `@${command.name}${suffix}`;
-      textarea.insertText(before + replacement + after);
-      textarea.cursorOffset = mentionStart + replacement.length;
+    const isDirectory = command.name.endsWith("/");
+    const suffix = isDirectory ? "" : " ";
+    const replacement = `${command.name}${suffix}`;
+    textarea.insertText(before + replacement + after);
+    textarea.cursorOffset = mentionStart + replacement.length;
 
-      if (isDirectoryMention) {
-        updateWorkflowState({
-          showAutocomplete: true,
-          autocompleteInput: command.name,
-          selectedSuggestionIndex: 0,
-          autocompleteMode: "mention",
-          mentionStartOffset: mentionStart,
-          argumentHint: "",
-        });
-      } else {
-        updateWorkflowState({
-          showAutocomplete: false,
-          autocompleteInput: "",
-          selectedSuggestionIndex: 0,
-          autocompleteMode: "command",
-          argumentHint: "",
-        });
-      }
-      return;
-    }
-
-    if (command.category !== "agent") {
-      const isDirectory = command.name.endsWith("/");
-      const suffix = isDirectory ? "" : " ";
-      const replacement = `@${command.name}${suffix}`;
-      textarea.insertText(before + replacement + after);
-      textarea.cursorOffset = mentionStart + replacement.length;
+    if (isDirectory) {
+      updateWorkflowState({
+        showAutocomplete: true,
+        autocompleteInput: command.name,
+        selectedSuggestionIndex: 0,
+        autocompleteMode: "mention",
+        mentionStartOffset: mentionStart,
+        argumentHint: "",
+      });
+    } else {
       updateWorkflowState({
         showAutocomplete: false,
         autocompleteInput: "",
@@ -232,20 +214,7 @@ export function applyAutocompleteSelection({
         autocompleteMode: "command",
         argumentHint: "",
       });
-      return;
     }
-
-    const remaining = (before + after).trim();
-    if (remaining) textarea.insertText(remaining);
-    updateWorkflowState({
-      showAutocomplete: false,
-      autocompleteInput: "",
-      selectedSuggestionIndex: 0,
-      autocompleteMode: "command",
-      argumentHint: "",
-    });
-    addMessage("user", remaining ? `@${command.name} ${remaining}` : `@${command.name}`);
-    void executeCommand(command.name, remaining, "mention");
     return;
   }
 

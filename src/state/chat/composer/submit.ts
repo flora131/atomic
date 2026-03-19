@@ -1,7 +1,7 @@
 import type { MutableRefObject } from "react";
 import type { TextareaRenderable } from "@opentui/core";
 import { globalRegistry, parseSlashCommand } from "@/commands/tui/index.ts";
-import { parseAtMentions, processFileMentions } from "@/lib/ui/mention-parsing.ts";
+import { processFileMentions } from "@/lib/ui/mention-parsing.ts";
 import { shouldApplyBackslashLineContinuation } from "@/state/chat/shared/helpers/newline-strategies.ts";
 import { shouldDeferComposerSubmit } from "@/state/chat/shared/helpers/stream-continuation.ts";
 import { consumeWorkflowInputSubmission } from "@/services/workflows/helpers/workflow-input-resolver.ts";
@@ -17,12 +17,10 @@ interface HandleComposerSubmitArgs extends Pick<
   | "messageQueue"
   | "runningAskQuestionToolIdsRef"
   | "sendMessage"
-  | "setIsStreaming"
   | "setTodoItems"
   | "setWorkflowSessionDir"
   | "setWorkflowSessionId"
   | "todoItemsRef"
-  | "updateWorkflowState"
   | "waitForUserInputResolverRef"
   | "workflowSessionDirRef"
   | "workflowSessionIdRef"
@@ -56,13 +54,11 @@ export function handleComposerSubmit({
   messageQueue,
   runningAskQuestionToolIdsRef,
   sendMessage,
-  setIsStreaming,
   setTodoItems,
   setWorkflowSessionDir,
   setWorkflowSessionId,
   textareaRef,
   todoItemsRef,
-  updateWorkflowState,
   waitForUserInputResolverRef,
   workflowSessionDirRef,
   workflowSessionIdRef,
@@ -143,48 +139,7 @@ export function handleComposerSubmit({
     setTodoItems([]);
   }
 
-  if (trimmedValue.startsWith("@")) {
-    const isAgentCommand = (name: string): boolean => {
-      const cmd = globalRegistry.get(name);
-      return cmd?.category === "agent";
-    };
-    const atMentions = parseAtMentions(trimmedValue, isAgentCommand);
-    if (atMentions.length > 0) {
-      if (isStreamingRef.current) {
-        emitMessageSubmitTelemetry({
-          messageLength: trimmedValue.length,
-          queued: true,
-          fromInitialPrompt: false,
-          hasFileMentions: false,
-          hasAgentMentions: true,
-        });
-        messageQueue.enqueue(trimmedValue);
-        return;
-      }
-
-      emitMessageSubmitTelemetry({
-        messageLength: trimmedValue.length,
-        queued: false,
-        fromInitialPrompt: false,
-        hasFileMentions: false,
-        hasAgentMentions: true,
-      });
-      addMessage("user", trimmedValue);
-      isStreamingRef.current = true;
-      setIsStreaming(true);
-
-      for (const mention of atMentions) {
-        void executeCommand(mention.agentName, mention.args, "mention");
-      }
-      return;
-    }
-  }
-
-  const isAgentCmd = (name: string): boolean => {
-    const cmd = globalRegistry.get(name);
-    return cmd?.category === "agent";
-  };
-  const { message: processedValue, filesRead } = processFileMentions(trimmedValue, isAgentCmd);
+  const { message: processedValue, filesRead } = processFileMentions(trimmedValue);
   const hasFileMentions = filesRead.length > 0;
 
   if (isStreamingRef.current) {

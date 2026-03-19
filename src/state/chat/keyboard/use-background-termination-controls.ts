@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { STATUS } from "@/theme/icons.ts";
-import { getActiveBackgroundAgents } from "@/lib/ui/background-agent-footer.ts";
+import { getActiveBackgroundAgents } from "@/state/chat/shared/helpers/background-agent-footer.ts";
 import {
   evaluateBackgroundTerminationPress,
   executeBackgroundTermination,
   isBackgroundTerminationKey,
-} from "@/lib/ui/background-agent-termination.ts";
-import type { ChatMessage } from "@/state/chat/types.ts";
+} from "@/state/chat/shared/helpers/background-agent-termination.ts";
+import type { ChatMessage } from "@/state/chat/shared/types/index.ts";
 import type { UseChatKeyboardArgs } from "@/state/chat/keyboard/types.ts";
 
 export interface UseBackgroundTerminationControlsResult {
@@ -16,14 +16,15 @@ export interface UseBackgroundTerminationControlsResult {
 }
 
 export function useBackgroundTerminationControls({
+  activeBackgroundAgentCountRef,
   addMessage,
   backgroundAgentMessageIdRef,
   clearDeferredCompletion,
-  isStreamingRef,
   lastStreamedMessageIdRef,
   onTerminateBackgroundAgents,
   parallelAgents,
   parallelAgentsRef,
+  setActiveBackgroundAgentCount,
   setBackgroundAgentMessageId,
   setMessagesWindowed,
   setParallelAgents,
@@ -32,14 +33,15 @@ export function useBackgroundTerminationControls({
   workflowActiveRef,
 }: Pick<
   UseChatKeyboardArgs,
+  | "activeBackgroundAgentCountRef"
   | "addMessage"
   | "backgroundAgentMessageIdRef"
   | "clearDeferredCompletion"
-  | "isStreamingRef"
   | "lastStreamedMessageIdRef"
   | "onTerminateBackgroundAgents"
   | "parallelAgents"
   | "parallelAgentsRef"
+  | "setActiveBackgroundAgentCount"
   | "setBackgroundAgentMessageId"
   | "setMessagesWindowed"
   | "setParallelAgents"
@@ -86,7 +88,7 @@ export function useBackgroundTerminationControls({
   }, []);
 
   const handleBackgroundTerminationKey = useCallback((): boolean => {
-    if (isStreamingRef.current || backgroundTerminationInFlightRef.current) {
+    if (backgroundTerminationInFlightRef.current) {
       return true;
     }
 
@@ -155,6 +157,10 @@ export function useBackgroundTerminationControls({
           parallelAgentsRef.current = remainingLiveAgents;
           setParallelAgents(remainingLiveAgents);
           setBackgroundAgentMessageId(null);
+
+          // Reset the background agent counter so the spinner stops
+          activeBackgroundAgentCountRef.current = 0;
+          setActiveBackgroundAgentCount(0);
           if (!workflowActiveRef.current) {
             streamingStartRef.current = null;
           }
@@ -179,14 +185,15 @@ export function useBackgroundTerminationControls({
     }, 1000);
     return true;
   }, [
+    activeBackgroundAgentCountRef,
     addMessage,
     backgroundAgentMessageIdRef,
     clearBackgroundTerminationConfirmation,
     clearDeferredCompletion,
-    isStreamingRef,
     lastStreamedMessageIdRef,
     onTerminateBackgroundAgents,
     parallelAgentsRef,
+    setActiveBackgroundAgentCount,
     setBackgroundAgentMessageId,
     setMessagesWindowed,
     setParallelAgents,

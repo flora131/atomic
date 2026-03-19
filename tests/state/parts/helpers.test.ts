@@ -1,6 +1,6 @@
 import { test, expect, describe } from "bun:test";
-import { getMessageText } from "@/state/parts/helpers.ts";
-import type { ChatMessage } from "@/screens/chat-screen.tsx";
+import { getMessageText } from "@/state/parts/helpers/message-text.ts";
+import type { ChatMessage } from "@/types/chat.ts";
 
 describe("getMessageText", () => {
   test("returns empty string for undefined parts", () => {

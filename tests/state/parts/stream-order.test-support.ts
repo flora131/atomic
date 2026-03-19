@@ -9,8 +9,8 @@ import type {
   TextPart,
   ToolPart,
 } from "@/state/parts/types.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
-import type { ChatMessage } from "@/screens/chat-screen.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
+import type { ChatMessage } from "@/types/chat.ts";
 
 export {
   handleTextDelta,

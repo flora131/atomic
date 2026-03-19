@@ -13,7 +13,7 @@
  */
 
 import { describe, expect, test, mock, beforeEach } from "bun:test";
-import { shouldContinueParentSessionLoop } from "@/lib/ui/stream-continuation.ts";
+import { shouldContinueParentSessionLoop } from "@/state/chat/shared/helpers/stream-continuation.ts";
 
 // ---------------------------------------------------------------------------
 // Handler logic extracted from chat.tsx session.idle handler

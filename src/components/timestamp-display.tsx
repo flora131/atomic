@@ -118,7 +118,7 @@ export function TimestampDisplay({
 
   return (
     <box flexDirection="row" justifyContent="flex-end">
-      <text style={{ fg: theme.colors.muted }}>
+      <text fg={theme.colors.muted}>
         {displayText}
       </text>
     </box>

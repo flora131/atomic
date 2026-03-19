@@ -30,6 +30,7 @@ export async function createWrappedOpenCodeSession(
   if (initialPromptModel) {
     args.setActivePromptModelIfMissing(initialPromptModel);
   }
+  args.setActiveReasoningEffortIfMissing(args.config.reasoningEffort);
 
   const sessionState: OpenCodeSessionState = {
     inputTokens: 0,

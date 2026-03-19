@@ -252,7 +252,6 @@ describe("applyStreamPartEvent - agent projection", () => {
       agentId: "agent_1",
     });
 
-    expect(msg.toolCalls?.map((toolCall) => toolCall.id)).toEqual(["task_1"]);
     const topLevelToolIds = (msg.parts ?? [])
       .filter((part) => part.type === "tool")
       .map((part) => part.toolCallId);

@@ -7,11 +7,15 @@ export function makeClaudeModelInfo(overrides: Partial<{
   value: string;
   displayName: string;
   description: string;
+  supportsEffort: boolean;
+  supportedEffortLevels: Array<"low" | "medium" | "high" | "max">;
 }> = {}) {
   return {
     value: overrides.value ?? "claude-sonnet-4-5",
     displayName: overrides.displayName ?? "Claude Sonnet 4.5",
     description: overrides.description ?? "A balanced model for most tasks",
+    supportsEffort: overrides.supportsEffort,
+    supportedEffortLevels: overrides.supportedEffortLevels,
   };
 }
 

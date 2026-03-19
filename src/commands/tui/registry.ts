@@ -4,7 +4,6 @@ export type {
   CommandContextState,
   CommandDefinition,
   CommandResult,
-  FeatureProgressState,
   SpawnSubagentOptions,
   SpawnSubagentResult,
   StreamMessageOptions,

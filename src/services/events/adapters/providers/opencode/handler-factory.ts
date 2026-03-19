@@ -184,6 +184,15 @@ export function subscribeOpenCodeProviderEvents(args: {
       case "session.title_changed":
         handlers.sessionTitleChangedHandler(toOpenCodeAgentEvent(event));
         break;
+      // Intentionally unhandled SDK events:
+      //
+      // - session.start: The adapter publishes stream.session.start directly in
+      //   startStreaming() before event subscription begins, so this SDK event
+      //   is never observed here. See event-coverage-policy.ts (no_op).
+      //
+      // - session.retry: Emitted by the streaming runtime retry loop
+      //   (streaming-runtime.ts) directly to the bus, bypassing the provider
+      //   event handler path entirely.
       default:
         break;
     }

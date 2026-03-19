@@ -104,9 +104,6 @@ describe("reasoning streaming finalizers", () => {
     const interrupted = {
       ...finalizeStreamingReasoningInMessage(msg),
       streaming: false,
-      toolCalls: (msg.toolCalls ?? []).map((toolCall) =>
-        toolCall.status === "running" ? { ...toolCall, status: "interrupted" as const } : toolCall,
-      ),
     };
 
     expect(interrupted.streaming).toBe(false);
@@ -115,6 +112,10 @@ describe("reasoning streaming finalizers", () => {
     if (reasoning?.type === "reasoning") {
       expect(reasoning.isStreaming).toBe(false);
     }
-    expect(interrupted.toolCalls?.[0]?.status).toBe("interrupted");
+    const toolPart = interrupted.parts?.find((part) => part.type === "tool");
+    expect(toolPart?.type).toBe("tool");
+    if (toolPart?.type === "tool") {
+      expect(toolPart.state.status).toBe("running");
+    }
   });
 });

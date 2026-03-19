@@ -3,8 +3,9 @@ import { EventBus } from "@/services/events/event-bus.ts";
 import { BatchDispatcher } from "@/services/events/batch-dispatcher.ts";
 import { wireConsumers } from "@/services/events/consumers/wire-consumers.ts";
 import type { BusEvent, BusEventDataMap, BusEventType } from "@/services/events/bus-events.ts";
-import type { ChatMessage } from "@/screens/chat-screen.tsx";
-import { getAgentInlineDisplayParts, type ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ChatMessage } from "@/types/chat.ts";
+import { getAgentInlineDisplayParts } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import { _resetPartCounter } from "@/state/parts/id.ts";
 import { applyStreamPartEvent, type StreamPartEvent } from "@/state/parts/stream-pipeline.ts";
 
@@ -19,7 +20,6 @@ function createAssistantMessage(): ChatMessage {
     timestamp: new Date().toISOString(),
     streaming: true,
     parts: [],
-    toolCalls: [],
   };
 }
 
@@ -65,12 +65,12 @@ describe("concurrent agent inline part isolation (integration)", () => {
   test("keeps interleaved concurrent agent events isolated per inlineParts branch", async () => {
     const bus = new EventBus();
     const dispatcher = new BatchDispatcher(bus);
-    const { pipeline, correlation, dispose } = wireConsumers(bus, dispatcher);
+    const { pipeline, dispose } = wireConsumers(bus, dispatcher);
     const streamEvents: StreamPartEvent[] = [];
     pipeline.onStreamParts((events) => streamEvents.push(...events));
 
     try {
-      correlation.startRun(RUN_ID, SESSION_ID);
+      publishEvent(bus, "stream.session.start", {});
 
       let msg = createAssistantMessage();
       msg = applyStreamPartEvent(msg, {
@@ -231,12 +231,12 @@ describe("concurrent agent inline part isolation (integration)", () => {
   test("replays buffered agent events into the correct concurrent inline branches when agents appear", async () => {
     const bus = new EventBus();
     const dispatcher = new BatchDispatcher(bus);
-    const { pipeline, correlation, dispose } = wireConsumers(bus, dispatcher);
+    const { pipeline, dispose } = wireConsumers(bus, dispatcher);
     const streamEvents: StreamPartEvent[] = [];
     pipeline.onStreamParts((events) => streamEvents.push(...events));
 
     try {
-      correlation.startRun(RUN_ID, SESSION_ID);
+      publishEvent(bus, "stream.session.start", {});
 
       let msg = createAssistantMessage();
       msg = applyStreamPartEvent(msg, {

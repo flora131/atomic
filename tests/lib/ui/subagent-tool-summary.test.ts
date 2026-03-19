@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatSubagentToolSummary } from "@/lib/ui/subagent-tool-summary.ts";
+import { formatSubagentToolSummary } from "@/components/message-parts/subagent-tool-summary.ts";
 
 describe("formatSubagentToolSummary", () => {
   test("formats read tools with compact basename lists", () => {
@@ -22,5 +22,29 @@ describe("formatSubagentToolSummary", () => {
     expect(formatSubagentToolSummary("Bash", {
       command: "rg -n \"subagent\" src/ui",
     })).toBe("Bash rg -n \"subagent\" src/ui");
+  });
+
+  test("collapses single newlines in bash commands to spaces", () => {
+    expect(formatSubagentToolSummary("Bash", {
+      command: "echo hello\necho world",
+    })).toBe("Bash echo hello echo world");
+  });
+
+  test("truncates at double newlines in bash commands", () => {
+    expect(formatSubagentToolSummary("Bash", {
+      command: "echo hello\n\necho world",
+    })).toBe("Bash echo hello…");
+  });
+
+  test("collapses newlines in task descriptions", () => {
+    expect(formatSubagentToolSummary("task", {
+      description: "Find files\nand analyze them",
+    })).toBe("Task Find files and analyze them");
+  });
+
+  test("truncates at double newlines in task descriptions", () => {
+    expect(formatSubagentToolSummary("task", {
+      description: "Find files\n\nMore details here",
+    })).toBe("Task Find files…");
   });
 });

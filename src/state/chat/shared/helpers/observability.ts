@@ -8,8 +8,8 @@ import {
 import {
   formatAgentLifecycleViolation,
   type AgentLifecycleViolationCode,
-} from "@/lib/ui/agent-lifecycle-ledger.ts";
-import type { AgentOrderingEvent, DoneStateProjection } from "@/lib/ui/agent-ordering-contract.ts";
+} from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
+import type { AgentOrderingEvent, DoneStateProjection } from "@/state/chat/shared/helpers/agent-ordering-contract.ts";
 
 const AGENT_OUT_OF_ORDER_VIOLATION_CODES = new Set<AgentLifecycleViolationCode>([
   "OUT_OF_ORDER_EVENT",

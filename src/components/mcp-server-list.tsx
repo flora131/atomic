@@ -35,19 +35,19 @@ export function McpServerListIndicator({
 
   return (
     <box flexDirection="column">
-      <text style={{ fg: colors.foreground, attributes: 1 }}>{snapshot.heading}</text>
+      <text fg={colors.foreground} attributes={1}>{snapshot.heading}</text>
       <text>{""}</text>
 
       {!snapshot.hasConfiguredServers && (
         <box flexDirection="column">
-          <text style={{ fg: colors.muted }}>{`  • No MCP servers configured.`}</text>
-          <text style={{ fg: colors.muted }}>{`    ${snapshot.docsHint}`}</text>
+          <text fg={colors.muted}>{`  • No MCP servers configured.`}</text>
+          <text fg={colors.muted}>{`    ${snapshot.docsHint}`}</text>
         </box>
       )}
 
       {snapshot.hasConfiguredServers && snapshot.noToolsAvailable && (
         <box flexDirection="column">
-          <text style={{ fg: colors.muted }}>{`  • No MCP tools available.`}</text>
+          <text fg={colors.muted}>{`  • No MCP tools available.`}</text>
           <text>{""}</text>
         </box>
       )}
@@ -57,11 +57,11 @@ export function McpServerListIndicator({
           return (
             <box key={server.name} flexDirection="column" marginBottom={SPACING.ELEMENT}>
               <box flexDirection="row">
-                <text style={{ fg: colors.foreground }}>{`  • ${server.name} `}</text>
-                <text style={{ fg: colors.error }}>(disabled)</text>
+                <text fg={colors.foreground}>{`  • ${server.name} `}</text>
+                <text fg={colors.error}>(disabled)</text>
               </box>
               {server.disabledReason && (
-                <text style={{ fg: colors.muted }}>{`    • Reason: ${server.disabledReason}`}</text>
+                <text fg={colors.muted}>{`    • Reason: ${server.disabledReason}`}</text>
               )}
             </box>
           );
@@ -69,44 +69,44 @@ export function McpServerListIndicator({
 
         return (
           <box key={server.name} flexDirection="column" marginBottom={SPACING.ELEMENT}>
-            <text style={{ fg: colors.foreground }}>{`  • ${server.name}`}</text>
+            <text fg={colors.foreground}>{`  • ${server.name}`}</text>
             <box flexDirection="row">
-              <text style={{ fg: colors.foreground }}>{`    • Status: `}</text>
-              <text style={{ fg: colors.success }}>enabled</text>
+              <text fg={colors.foreground}>{`    • Status: `}</text>
+              <text fg={colors.success}>enabled</text>
             </box>
-            <text style={{ fg: colors.foreground }}>{`    • Auth: ${server.authStatus}`}</text>
+            <text fg={colors.foreground}>{`    • Auth: ${server.authStatus}`}</text>
 
             {server.transport.kind === "stdio" && (
               <box flexDirection="column">
-                <text style={{ fg: colors.foreground }}>{`    • Command: ${server.transport.commandLine ?? "(none)"}`}</text>
+                <text fg={colors.foreground}>{`    • Command: ${server.transport.commandLine ?? "(none)"}`}</text>
                 {server.transport.cwd && (
-                  <text style={{ fg: colors.foreground }}>{`    • Cwd: ${server.transport.cwd}`}</text>
+                  <text fg={colors.foreground}>{`    • Cwd: ${server.transport.cwd}`}</text>
                 )}
                 {server.transport.env && server.transport.env !== "-" && (
-                  <text style={{ fg: colors.foreground }}>{`    • Env: ${server.transport.env}`}</text>
+                  <text fg={colors.foreground}>{`    • Env: ${server.transport.env}`}</text>
                 )}
               </box>
             )}
 
             {(server.transport.kind === "http" || server.transport.kind === "sse") && (
               <box flexDirection="column">
-                <text style={{ fg: colors.foreground }}>{`    • URL: ${server.transport.url ?? "(none)"}`}</text>
+                <text fg={colors.foreground}>{`    • URL: ${server.transport.url ?? "(none)"}`}</text>
                 {server.transport.httpHeaders && server.transport.httpHeaders !== "-" && (
-                  <text style={{ fg: colors.foreground }}>{`    • HTTP headers: ${server.transport.httpHeaders}`}</text>
+                  <text fg={colors.foreground}>{`    • HTTP headers: ${server.transport.httpHeaders}`}</text>
                 )}
                 {server.transport.envHttpHeaders && server.transport.envHttpHeaders !== "-" && (
-                  <text style={{ fg: colors.foreground }}>{`    • Env HTTP headers: ${server.transport.envHttpHeaders}`}</text>
+                  <text fg={colors.foreground}>{`    • Env HTTP headers: ${server.transport.envHttpHeaders}`}</text>
                 )}
               </box>
             )}
 
-            <text style={{ fg: colors.foreground }}>
+            <text fg={colors.foreground}>
               {`    • Tools: ${server.tools.length === 1 && server.tools[0] === "*" ? "(all)" : server.tools.length > 0 ? server.tools.join(", ") : "(none)"}`}
             </text>
-            <text style={{ fg: colors.foreground }}>
+            <text fg={colors.foreground}>
               {`    • Resources: ${server.resources.length > 0 ? formatResources(server.resources) : "(none)"}`}
             </text>
-            <text style={{ fg: colors.foreground }}>
+            <text fg={colors.foreground}>
               {`    • Resource templates: ${server.resourceTemplates.length > 0 ? formatTemplates(server.resourceTemplates) : "(none)"}`}
             </text>
           </box>

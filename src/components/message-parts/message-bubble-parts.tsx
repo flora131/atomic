@@ -7,9 +7,12 @@
 
 import React from "react";
 import type { SyntaxStyle } from "@opentui/core";
-import type { ChatMessage } from "@/screens/chat-screen.tsx";
-import type { Part } from "@/state/parts/types.ts";
+import type { ChatMessage } from "@/types/chat.ts";
+import type { Part, ToolPart } from "@/state/parts/types.ts";
+import type { QuestionAnswer, UserQuestion } from "@/components/user-question-dialog.tsx";
+import { UserQuestionDialog } from "@/components/user-question-dialog.tsx";
 import { PART_REGISTRY } from "@/components/message-parts/registry.tsx";
+import { isCompletedHitlPart } from "@/components/message-parts/tool-part-display.tsx";
 import { SPACING } from "@/theme/spacing.ts";
 
 export function orderPartsForTaskOutputDisplay(parts: ReadonlyArray<Part>): Part[] {
@@ -30,6 +33,9 @@ export function getConsumedTaskToolCallIds(parts: ReadonlyArray<Part>): Set<stri
 export interface MessageBubblePartsProps {
   message: ChatMessage;
   syntaxStyle?: SyntaxStyle;
+  activeHitlToolCallId?: string | null;
+  activeQuestion?: UserQuestion | null;
+  handleQuestionAnswer?: (answer: QuestionAnswer) => void;
   onAgentDoneRendered?: (marker: { agentId: string; timestampMs: number }) => void;
 }
 
@@ -83,9 +89,18 @@ export function buildPartRenderKeys(parts: ReadonlyArray<Part>): string[] {
 export function MessageBubbleParts({
   message,
   syntaxStyle,
+  activeHitlToolCallId,
+  activeQuestion,
+  handleQuestionAnswer,
   onAgentDoneRendered,
 }: MessageBubblePartsProps): React.ReactNode {
-  const parts = orderPartsForTaskOutputDisplay(message.parts ?? []);
+  const allParts = orderPartsForTaskOutputDisplay(message.parts ?? []);
+  // Filter out completed HITL tool parts — their Q&A is already rendered by
+  // HitlResponseWidget in the preceding user message. Removing them here
+  // avoids phantom gap slots in the flex container.
+  const parts = allParts.filter(
+    (p) => !(p.type === "tool" && isCompletedHitlPart(p)),
+  );
   const renderKeys = buildPartRenderKeys(parts);
 
   if (parts.length === 0) {
@@ -97,6 +112,30 @@ export function MessageBubbleParts({
       {parts.map((part, index) => {
         const Renderer = PART_REGISTRY[part.type];
         if (!Renderer) return null;
+
+        const isActiveHitlTool = part.type === "tool"
+          && activeHitlToolCallId != null
+          && (part as ToolPart).toolCallId === activeHitlToolCallId
+          && (part as ToolPart).pendingQuestion != null;
+
+        if (isActiveHitlTool && activeQuestion && handleQuestionAnswer) {
+          return (
+            <React.Fragment key={renderKeys[index] ?? part.id}>
+              <Renderer
+                part={part}
+                isLast={index === parts.length - 1}
+                syntaxStyle={syntaxStyle}
+                onAgentDoneRendered={onAgentDoneRendered}
+              />
+              <UserQuestionDialog
+                question={activeQuestion}
+                onAnswer={handleQuestionAnswer}
+                visible={true}
+              />
+            </React.Fragment>
+          );
+        }
+
         return (
           <Renderer
             key={renderKeys[index] ?? part.id}

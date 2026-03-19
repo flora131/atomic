@@ -1,4 +1,4 @@
-import type { BusEvent } from "@/services/events/bus-events.ts";
+import type { BusEvent } from "@/services/events/bus-events/index.ts";
 import type { EventBus } from "@/services/events/event-bus.ts";
 import {
   asRecord,
@@ -6,6 +6,7 @@ import {
   isBuiltInTaskTool,
   normalizeToolName,
 } from "@/services/events/adapters/provider-shared.ts";
+import { resolveCorrelationIds } from "@/services/events/adapters/shared/adapter-correlation.ts";
 import { SubagentToolTracker } from "@/services/events/adapters/subagent-tool-tracker.ts";
 
 export type OpenCodeTaskToolMetadata = {
@@ -302,9 +303,10 @@ export class OpenCodeToolState {
     ...correlationIds: Array<string | undefined>
   ): void {
     const context = { parentAgentId, toolName };
-    const ids = [toolId, ...correlationIds]
-      .map((id) => this.resolveToolCorrelationId(id) ?? id)
-      .filter((id): id is string => Boolean(id));
+    const ids = resolveCorrelationIds(
+      [toolId, ...correlationIds],
+      (id) => this.resolveToolCorrelationId(id),
+    );
     for (const id of ids) {
       this.activeSubagentToolsById.set(id, context);
     }
@@ -314,9 +316,10 @@ export class OpenCodeToolState {
     toolId: string,
     ...correlationIds: Array<string | undefined>
   ): void {
-    const ids = [toolId, ...correlationIds]
-      .map((id) => this.resolveToolCorrelationId(id) ?? id)
-      .filter((id): id is string => Boolean(id));
+    const ids = resolveCorrelationIds(
+      [toolId, ...correlationIds],
+      (id) => this.resolveToolCorrelationId(id),
+    );
     for (const id of ids) {
       this.activeSubagentToolsById.delete(id);
     }
@@ -437,8 +440,15 @@ export class OpenCodeToolState {
   }
 
   cleanupOrphanedTools(runId: number): void {
+    // Sub-agent task tools are handled by flushOrphanedAgentCompletions.
+    // Aborting them here would produce null toolResult values in the UI.
+    const subagentToolIds = new Set(this.toolUseIdToSubagentId.keys());
+
     for (const [toolName, toolIds] of this.pendingToolIdsByName.entries()) {
       for (const toolId of toolIds) {
+        if (subagentToolIds.has(toolId)) {
+          continue;
+        }
         const activeContext = this.activeSubagentToolsById.get(toolId);
         if (activeContext && this.getSubagentTracker()?.hasAgent(activeContext.parentAgentId)) {
           const trackerKey = this.buildTrackedToolStartKey(activeContext.parentAgentId, toolId);
@@ -462,12 +472,70 @@ export class OpenCodeToolState {
         this.bus.publish(event);
       }
     }
-    this.pendingToolIdsByName.clear();
+
+    // Preserve pending entries for sub-agent task tools so
+    // flushOrphanedAgentCompletions can emit proper tool completions.
+    for (const [toolName, toolIds] of this.pendingToolIdsByName.entries()) {
+      const remaining = toolIds.filter(id => subagentToolIds.has(id));
+      if (remaining.length > 0) {
+        this.pendingToolIdsByName.set(toolName, remaining);
+      } else {
+        this.pendingToolIdsByName.delete(toolName);
+      }
+    }
+
     this.toolStartSignatureByToolId.clear();
     this.completedToolIds.clear();
     this.trackedToolStartKeys.clear();
     this.earlyToolEvents.clear();
     this.activeSubagentToolsById.clear();
+  }
+
+  flushOrphanedAgentCompletions(runId: number): void {
+    const subagentTracker = this.getSubagentTracker();
+
+    for (const [toolId, agentId] of this.toolUseIdToSubagentId) {
+      // Emit the tool completion that cleanupOrphanedTools skipped.
+      let toolName: string | undefined;
+      for (const [name, ids] of this.pendingToolIdsByName) {
+        if (ids.includes(toolId)) {
+          toolName = name;
+          break;
+        }
+      }
+      if (toolName) {
+        this.bus.publish({
+          type: "stream.tool.complete",
+          sessionId: this.sessionId,
+          runId,
+          timestamp: Date.now(),
+          data: {
+            toolId,
+            toolName,
+            toolResult: null,
+            success: true,
+            sdkCorrelationId: toolId,
+          },
+        });
+      }
+
+      if (subagentTracker?.hasAgent(agentId)) {
+        subagentTracker.removeAgent(agentId);
+      }
+      this.bus.publish({
+        type: "stream.agent.complete",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          agentId,
+          success: true,
+        },
+      });
+    }
+
+    this.pendingToolIdsByName.clear();
+    this.toolUseIdToSubagentId.clear();
   }
 
   isTaskTool(toolName: string): boolean {

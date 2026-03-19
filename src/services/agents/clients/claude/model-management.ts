@@ -7,15 +7,14 @@ import type {
 import { normalizeClaudeModelLabel } from "@/services/agents/clients/claude/message-normalization.ts";
 import { getBundledClaudeCodePath } from "@/services/agents/clients/claude/executable-path.ts";
 import type { ClaudeSessionState } from "@/services/agents/clients/claude/internal-types.ts";
+import type { ClaudeSdkModelInfo } from "@/services/models/model-operations/claude.ts";
 
 export async function listClaudeSupportedModels(args: {
     isRunning: boolean;
     sessions: Map<string, ClaudeSessionState>;
     modelListReadsBySession: Map<string, number>;
-    fetchFreshSupportedModels: () => Promise<
-        Array<{ value: string; displayName: string; description: string }>
-    >;
-}): Promise<Array<{ value: string; displayName: string; description: string }>> {
+    fetchFreshSupportedModels: () => Promise<ClaudeSdkModelInfo[]>;
+}): Promise<ClaudeSdkModelInfo[]> {
     if (!args.isRunning) {
         throw new Error("Client not started. Call start() first.");
     }
@@ -36,9 +35,7 @@ export async function listClaudeSupportedModels(args: {
     return await args.fetchFreshSupportedModels();
 }
 
-export async function fetchFreshClaudeSupportedModels(): Promise<
-    Array<{ value: string; displayName: string; description: string }>
-> {
+export async function fetchFreshClaudeSupportedModels(): Promise<ClaudeSdkModelInfo[]> {
     const tempQuery = query({
         prompt: "",
         options: {
@@ -55,6 +52,7 @@ export async function fetchFreshClaudeSupportedModels(): Promise<
 
 export function setClaudeActiveSessionModel(args: {
     model: string;
+    options?: { reasoningEffort?: string };
     sessions: Map<string, ClaudeSessionState>;
 }): void {
     const targetModel = stripProviderPrefix(args.model).trim();
@@ -77,6 +75,7 @@ export function setClaudeActiveSessionModel(args: {
     }
 
     activeSession.config.model = targetModel;
+    activeSession.config.reasoningEffort = args.options?.reasoningEffort;
 }
 
 export function getClaudeModelDisplayInfo(args: {
@@ -84,13 +83,35 @@ export function getClaudeModelDisplayInfo(args: {
     detectedModel: string | null;
     capturedModelContextWindows: Map<string, number>;
     probeContextWindow: number | null;
-}): { model: string; tier: string; contextWindow?: number } {
+    supportedModels?: ClaudeSdkModelInfo[];
+}): {
+    model: string;
+    tier: string;
+    supportsReasoning?: boolean;
+    supportedReasoningEfforts?: string[];
+    defaultReasoningEffort?: string;
+    contextWindow?: number;
+} {
     const raw =
         (args.modelHint ? stripProviderPrefix(args.modelHint) : null) ??
         args.detectedModel ??
         "opus";
     const modelKey = raw;
     const displayModel = normalizeClaudeModelLabel(modelKey);
+    const matchedModel = args.supportedModels?.find(
+        (model) =>
+            model.value === modelKey
+            || model.value === displayModel
+            || normalizeClaudeModelLabel(model.value) === displayModel,
+    );
+    const supportedReasoningEfforts = matchedModel?.supportsEffort === true
+        && Array.isArray(matchedModel.supportedEffortLevels)
+        && matchedModel.supportedEffortLevels.length > 0
+        ? [...matchedModel.supportedEffortLevels]
+        : undefined;
+    const defaultReasoningEffort = supportedReasoningEfforts?.includes("high")
+        ? "high"
+        : supportedReasoningEfforts?.[0];
     const contextWindow =
         args.capturedModelContextWindows.get(modelKey) ??
         args.capturedModelContextWindows.get(displayModel) ??
@@ -100,6 +121,9 @@ export function getClaudeModelDisplayInfo(args: {
     return {
         model: displayModel,
         tier: "Claude Code",
+        supportsReasoning: Boolean(supportedReasoningEfforts?.length),
+        supportedReasoningEfforts,
+        defaultReasoningEffort,
         contextWindow,
     };
 }

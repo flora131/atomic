@@ -12,24 +12,24 @@ import {
 import { sortTasksTopologically } from "@/components/task-order.ts";
 import { isHitlToolName } from "@/state/streaming/pipeline-tools/shared.ts";
 import type { ToolPart } from "@/state/parts/types.ts";
-import type { ChatMessage, WorkflowChatState } from "@/state/chat/types.ts";
+import type { ChatMessage, WorkflowChatState } from "@/state/chat/shared/types/index.ts";
 import type {
   QuestionAnswer,
   UserQuestion,
 } from "@/components/user-question-dialog.tsx";
 import type { AskUserQuestionEventData } from "@/services/workflows/graph/index.ts";
-import { createMessage } from "@/state/chat/helpers.ts";
+import { createMessage } from "@/state/chat/shared/helpers/index.ts";
 import { applyStreamPartEvent } from "@/state/parts/index.ts";
 import { normalizeHitlAnswer } from "@/lib/ui/hitl-response.ts";
-import { rejectPendingWorkflowInput, type WorkflowInputResolver } from "@/lib/ui/workflow-input-resolver.ts";
+import { rejectPendingWorkflowInput, type WorkflowInputResolver } from "@/services/workflows/helpers/workflow-input-resolver.ts";
 import {
   normalizeTodoItems,
   type NormalizedTodoItem,
-} from "@/lib/ui/task-status.ts";
+} from "@/state/parts/helpers/task-status.ts";
 import {
   applyTaskSnapshotToLatestAssistantMessage,
   preferTerminalTaskItems,
-} from "@/lib/ui/workflow-task-state.ts";
+} from "@/state/chat/shared/helpers/workflow-task-state.ts";
 
 interface UseWorkflowHitlArgs {
   getSession?: () => import("@/services/agents/types.ts").Session | null;
@@ -79,6 +79,7 @@ export function useWorkflowHitl({
   workflowState,
 }: UseWorkflowHitlArgs) {
   const [activeQuestion, setActiveQuestion] = useState<UserQuestion | null>(null);
+  const [activeHitlToolCallId, setActiveHitlToolCallId] = useState<string | null>(null);
   const pendingQuestionsRef = useRef<QueuedQuestionEntry[]>([]);
   const activeHitlToolCallIdRef = useRef<string | null>(null);
   const activeQuestionEntryRef = useRef<QueuedQuestionEntry | null>(null);
@@ -88,7 +89,9 @@ export function useWorkflowHitl({
 
   const setDisplayedQuestion = useCallback((entry: QueuedQuestionEntry | null) => {
     activeQuestionEntryRef.current = entry;
-    activeHitlToolCallIdRef.current = entry?.toolCallId ?? null;
+    const toolCallId = entry?.toolCallId ?? null;
+    activeHitlToolCallIdRef.current = toolCallId;
+    setActiveHitlToolCallId(toolCallId);
     setActiveQuestion(entry?.question ?? null);
   }, []);
 
@@ -203,7 +206,7 @@ export function useWorkflowHitl({
       multiSelect: false,
     };
 
-    const targetToolId = toolCallId ?? activeHitlToolCallIdRef.current;
+    const targetToolId = toolCallId ?? null;
     const entry: QueuedQuestionEntry = {
       question: userQuestion,
       requestId,
@@ -218,43 +221,55 @@ export function useWorkflowHitl({
       setDisplayedQuestion(entry);
     }
 
-    if (targetToolId) {
-      setMessagesWindowed((previousMessages) =>
-        previousMessages.map((message) => {
-          const hasToolCall = message.toolCalls?.some((toolCall) => toolCall.id === targetToolId) ?? false;
+    setMessagesWindowed((previousMessages) =>
+      previousMessages.map((message) => {
+        let resolvedToolId: string | null = targetToolId ?? null;
+
+        if (targetToolId) {
           const hasToolPart = message.parts?.some(
             (part) => part.type === "tool" && part.toolCallId === targetToolId,
           ) ?? false;
 
-          let resolvedToolId = targetToolId;
-          if (!hasToolCall && !hasToolPart) {
-            const runningHitlPart = message.parts?.find(
-              (p) =>
-                p.type === "tool" &&
-                isHitlToolName((p as ToolPart).toolName) &&
-                (p as ToolPart).state.status === "running" &&
-                !(p as ToolPart).pendingQuestion,
-            ) as ToolPart | undefined;
-            if (!runningHitlPart) return message;
-            resolvedToolId = runningHitlPart.toolCallId;
+          if (!hasToolPart) {
+            resolvedToolId = null;
+          }
+        }
+
+        if (!resolvedToolId) {
+          const runningHitlPart = message.parts?.find(
+            (p) =>
+              p.type === "tool" &&
+              isHitlToolName((p as ToolPart).toolName) &&
+              (p as ToolPart).state.status === "running" &&
+              !(p as ToolPart).pendingQuestion &&
+              !(p as ToolPart).hitlResponse,
+          ) as ToolPart | undefined;
+          if (!runningHitlPart) return message;
+          resolvedToolId = runningHitlPart.toolCallId;
+          if (targetToolId) {
             hitlToolIdMapRef.current.set(targetToolId, resolvedToolId);
           }
+          entry.toolCallId = resolvedToolId;
+          if (activeQuestionEntryRef.current === entry) {
+            activeHitlToolCallIdRef.current = resolvedToolId;
+            setActiveHitlToolCallId(resolvedToolId);
+          }
+        }
 
-          return applyStreamPartEvent(message, {
-            type: "tool-hitl-request",
-            toolId: resolvedToolId,
-            request: {
-              requestId,
-              header: header || toolName,
-              question,
-              options,
-              multiSelect: false,
-              respond,
-            },
-          });
-        }),
-      );
-    }
+        return applyStreamPartEvent(message, {
+          type: "tool-hitl-request",
+          toolId: resolvedToolId,
+          request: {
+            requestId,
+            header: header || toolName,
+            question,
+            options,
+            multiSelect: false,
+            respond,
+          },
+        });
+      }),
+    );
   }, [addPendingQuestion, setDisplayedQuestion, setMessagesWindowed, workflowState.workflowActive]);
 
   const handleAskUserQuestion = useCallback((eventData: AskUserQuestionEventData) => {
@@ -296,46 +311,64 @@ export function useWorkflowHitl({
       setDisplayedQuestion(entry);
     }
 
-    if (targetToolId) {
-      const respond = eventData.respond ?? (() => {});
-      setMessagesWindowed((previousMessages) =>
-        previousMessages.map((message) => {
-          const hasToolCall = message.toolCalls?.some((toolCall) => toolCall.id === targetToolId) ?? false;
+    const respond = eventData.respond ?? (() => {});
+    setMessagesWindowed((previousMessages) =>
+      previousMessages.map((message) => {
+        // Resolve the tool ID: use the provided toolCallId if it matches an
+        // existing part, otherwise fall back to scanning for the
+        // most recent running HITL tool part by name.
+        let resolvedToolId: string | null = targetToolId;
+
+        if (targetToolId) {
           const hasToolPart = message.parts?.some(
             (part) => part.type === "tool" && part.toolCallId === targetToolId,
           ) ?? false;
 
-          // Fallback: when toolCallId doesn't match (SDK ID != stream ID),
-          // find the most recent running HITL tool part by name
-          let resolvedToolId = targetToolId;
-          if (!hasToolCall && !hasToolPart) {
-            const runningHitlPart = message.parts?.find(
-              (p) =>
-                p.type === "tool" &&
-                isHitlToolName((p as ToolPart).toolName) &&
-                (p as ToolPart).state.status === "running" &&
-                !(p as ToolPart).pendingQuestion,
-            ) as ToolPart | undefined;
-            if (!runningHitlPart) return message;
-            resolvedToolId = runningHitlPart.toolCallId;
+          if (!hasToolPart) {
+            resolvedToolId = null;
+          }
+        }
+
+        // Fallback: when toolCallId is missing or doesn't match any part
+        // (e.g. Claude SDK / Copilot SDK don't always include toolCallId
+        // in human_input_required events), find the running HITL tool part.
+        if (!resolvedToolId) {
+          const runningHitlPart = message.parts?.find(
+            (p) =>
+              p.type === "tool" &&
+              isHitlToolName((p as ToolPart).toolName) &&
+              (p as ToolPart).state.status === "running" &&
+              !(p as ToolPart).pendingQuestion &&
+              !(p as ToolPart).hitlResponse,
+          ) as ToolPart | undefined;
+          if (!runningHitlPart) return message;
+          resolvedToolId = runningHitlPart.toolCallId;
+          if (targetToolId) {
             hitlToolIdMapRef.current.set(targetToolId, resolvedToolId);
           }
+          // Backfill the entry's toolCallId so handleQuestionAnswer can
+          // match the answer back to the correct tool part later.
+          entry.toolCallId = resolvedToolId;
+          if (activeQuestionEntryRef.current === entry) {
+            activeHitlToolCallIdRef.current = resolvedToolId;
+            setActiveHitlToolCallId(resolvedToolId);
+          }
+        }
 
-          return applyStreamPartEvent(message, {
-            type: "tool-hitl-request",
-            toolId: resolvedToolId,
-            request: {
-              requestId: eventData.requestId,
-              header: eventData.header || "Question",
-              question: eventData.question,
-              options: mappedOptions,
-              multiSelect: false,
-              respond,
-            },
-          });
-        }),
-      );
-    }
+        return applyStreamPartEvent(message, {
+          type: "tool-hitl-request",
+          toolId: resolvedToolId,
+          request: {
+            requestId: eventData.requestId,
+            header: eventData.header || "Question",
+            question: eventData.question,
+            options: mappedOptions,
+            multiSelect: false,
+            respond,
+          },
+        });
+      }),
+    );
   }, [addPendingQuestion, onWorkflowResumeWithAnswer, setDisplayedQuestion, setMessagesWindowed, workflowState.workflowActive]);
 
   const handleQuestionAnswer = useCallback((answer: QuestionAnswer) => {
@@ -383,12 +416,11 @@ export function useWorkflowHitl({
 
       setMessagesWindowed((previousMessages) =>
         previousMessages.map((message) => {
-          const hasMatchingToolCall = message.toolCalls?.some((toolCall) => toolCall.id === hitlToolId) ?? false;
           const hasMatchingToolPart = message.parts?.some(
             (part) => part.type === "tool" && part.toolCallId === hitlToolId,
           ) ?? false;
 
-          if (hasMatchingToolCall || hasMatchingToolPart) {
+          if (hasMatchingToolPart) {
             return applyStreamPartEvent(message, {
               type: "tool-hitl-response",
               toolId: hitlToolId,
@@ -457,9 +489,9 @@ export function useWorkflowHitl({
 
     const selectedArray = Array.isArray(answer.selected) ? answer.selected : [answer.selected];
     if (selectedArray.includes("Approve")) {
-      updateWorkflowState({ specApproved: true, pendingApproval: false });
+      updateWorkflowState({ ralphState: { ...workflowState.ralphState, specApproved: true, pendingApproval: false } });
     } else if (selectedArray.includes("Reject")) {
-      updateWorkflowState({ specApproved: false, pendingApproval: false });
+      updateWorkflowState({ ralphState: { ...workflowState.ralphState, specApproved: false, pendingApproval: false } });
     }
   }, [getSession, onWorkflowResumeWithAnswer, removePendingQuestion, setMessagesWindowed, updateWorkflowState, workflowState.workflowActive]);
 
@@ -469,6 +501,7 @@ export function useWorkflowHitl({
   }, [setDisplayedQuestion]);
 
   return {
+    activeHitlToolCallId,
     activeHitlToolCallIdRef,
     activeQuestion,
     handleAskUserQuestion,

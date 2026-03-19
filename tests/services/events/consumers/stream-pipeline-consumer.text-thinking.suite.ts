@@ -1,20 +1,17 @@
 import { beforeEach, describe, expect, it } from "bun:test";
-import { CorrelationService } from "@/services/events/consumers/correlation-service.ts";
 import { EchoSuppressor } from "@/services/events/consumers/echo-suppressor.ts";
 import { StreamPipelineConsumer } from "@/services/events/consumers/stream-pipeline-consumer.ts";
 import type { EnrichedBusEvent } from "@/services/events/bus-events.ts";
 import type { StreamPartEvent } from "@/state/parts/stream-pipeline.ts";
 
 describe("StreamPipelineConsumer", () => {
-  let correlation: CorrelationService;
   let echoSuppressor: EchoSuppressor;
   let consumer: StreamPipelineConsumer;
   let receivedEvents: StreamPartEvent[] = [];
 
   beforeEach(() => {
-    correlation = new CorrelationService();
     echoSuppressor = new EchoSuppressor();
-    consumer = new StreamPipelineConsumer(correlation, echoSuppressor);
+    consumer = new StreamPipelineConsumer(echoSuppressor);
     receivedEvents = [];
     consumer.onStreamParts((events) => {
       receivedEvents.push(...events);
@@ -124,6 +121,26 @@ describe("StreamPipelineConsumer", () => {
       thinkingSourceKey: "block1",
       targetMessageId: "msg1",
       thinkingText: "Thinking...",
+    });
+  });
+
+  it("emits thinking-complete event on stream.thinking.complete", () => {
+    consumer.processBatch([
+      {
+        type: "stream.thinking.complete",
+        sessionId: "test",
+        runId: 1,
+        timestamp: Date.now(),
+        data: { sourceKey: "0", durationMs: 500 },
+      },
+    ]);
+
+    expect(receivedEvents).toHaveLength(1);
+    expect(receivedEvents[0]).toMatchObject({
+      type: "thinking-complete",
+      runId: 1,
+      sourceKey: "0",
+      durationMs: 500,
     });
   });
 

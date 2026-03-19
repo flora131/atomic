@@ -37,7 +37,7 @@ export function subagentNode<TState extends BaseState>(
       if (!spawnSubagent) {
         throw new Error(
           "spawnSubagent not initialized. " +
-            "Execute this graph through WorkflowSDK.init().",
+            "Execute this graph through executeWorkflow().",
         );
       }
 
@@ -45,7 +45,7 @@ export function subagentNode<TState extends BaseState>(
       if (!registry) {
         throw new Error(
           "SubagentTypeRegistry not initialized. " +
-            "Execute this graph through WorkflowSDK.init().",
+            "Execute this graph through executeWorkflow().",
         );
       }
       const entry = registry.get(config.agentName);

@@ -6,7 +6,7 @@ import {
   truncateToolHeader,
   truncateToolLines,
   truncateToolText,
-} from "@/lib/ui/tool-preview-truncation.ts";
+} from "@/components/tool-preview-truncation.ts";
 
 describe("truncateToolText", () => {
   test("does not modify short text", () => {

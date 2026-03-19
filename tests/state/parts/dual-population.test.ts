@@ -10,7 +10,7 @@ import { describe, test, expect, beforeEach } from "bun:test";
 import { createPartId, _resetPartCounter } from "@/state/parts/id.ts";
 import { handleTextDelta } from "@/state/parts/handlers.ts";
 import { upsertPart, findLastPartIndex } from "@/state/parts/store.ts";
-import type { ChatMessage } from "@/screens/chat-screen.tsx";
+import type { ChatMessage } from "@/types/chat.ts";
 import type { Part, TextPart, ToolPart, AgentPart, ToolState } from "@/state/parts/types.ts";
 
 /**

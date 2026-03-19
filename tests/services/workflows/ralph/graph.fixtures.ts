@@ -28,8 +28,17 @@ export function createMockSpawnFunctions(responses: MockResponseMap) {
 
   async function spawnSubagentParallel(
     agents: SubagentSpawnOptions[],
+    _abortSignal?: AbortSignal,
+    onAgentComplete?: (result: SubagentStreamResult) => void,
   ): Promise<SubagentStreamResult[]> {
-    return Promise.all(agents.map((agent) => spawnSubagent(agent)));
+    return Promise.all(
+      agents.map(async (agent) => {
+        const result = await spawnSubagent(agent);
+        const correlatedResult = { ...result, agentId: agent.agentId };
+        onAgentComplete?.(correlatedResult);
+        return correlatedResult;
+      }),
+    );
   }
 
   return { spawnSubagent, spawnSubagentParallel };

@@ -1,7 +1,7 @@
 import {
   MAIN_CHAT_TOOL_PREVIEW_LIMITS,
   truncateToolText,
-} from "@/lib/ui/tool-preview-truncation.ts";
+} from "@/components/tool-preview-truncation.ts";
 import type { ToolRenderProps, ToolRenderResult, ToolRenderer } from "@/components/tool-registry/registry/types.ts";
 
 const TASK_OUTPUT_PREVIEW_LINES = 8;

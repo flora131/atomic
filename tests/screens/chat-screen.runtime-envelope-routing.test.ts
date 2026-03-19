@@ -12,18 +12,6 @@ describe("isRuntimeEnvelopePartEvent", () => {
         ],
       },
       {
-        type: "workflow-step-start",
-        workflowId: "wf-1",
-        nodeId: "planner",
-        nodeName: "Planner",
-      },
-      {
-        type: "workflow-step-complete",
-        workflowId: "wf-1",
-        nodeId: "planner",
-        status: "success",
-      },
-      {
         type: "task-result-upsert",
         envelope: {
           task_id: "#1",

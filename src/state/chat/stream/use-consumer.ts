@@ -2,18 +2,17 @@ import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import { useStreamConsumer } from "@/services/events/hooks.ts";
 import type { AgentType } from "@/services/models/index.ts";
 import type { StreamRunRuntime } from "@/state/runtime/stream-run-runtime.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
-import type { ChatMessage, StreamingMeta, ThinkingDropDiagnostics } from "@/state/chat/types.ts";
-import type { NormalizedTodoItem } from "@/lib/ui/task-status.ts";
-import type { AgentLifecycleLedger } from "@/lib/ui/agent-lifecycle-ledger.ts";
-import type { AgentOrderingEvent, AgentOrderingState } from "@/lib/ui/agent-ordering-contract.ts";
-import type { AutoCompactionIndicatorState } from "@/lib/ui/auto-compaction-lifecycle.ts";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
+import type { ChatMessage, StreamingMeta, ThinkingDropDiagnostics } from "@/state/chat/shared/types/index.ts";
+import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
+import type { AgentLifecycleLedger } from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
+import type { AgentOrderingEvent, AgentOrderingState } from "@/state/chat/shared/helpers/agent-ordering-contract.ts";
+import type { AutoCompactionIndicatorState } from "@/state/chat/shared/helpers/auto-compaction-lifecycle.ts";
 import {
   isRuntimeEnvelopePartEvent,
   resolveValidatedThinkingMetaEvent,
   shouldProcessStreamPartEvent,
-  toWorkflowStepCompletionMessage,
-} from "@/state/chat/helpers.ts";
+} from "@/state/chat/shared/helpers/index.ts";
 import { joinThinkingBlocks } from "@/lib/ui/format.ts";
 import { createStreamPartBatch, applyStreamPartBatchToMessages } from "@/state/chat/stream/part-batch.ts";
 import { useChatStreamAgentOrdering } from "@/state/chat/stream/use-agent-ordering.ts";
@@ -135,7 +134,7 @@ export function useChatStreamConsumer({
     deferredPostCompleteDeltasByAgentRef,
   });
 
-  const { resetConsumers, getCorrelationService } = useStreamConsumer((parts) => {
+  const { resetConsumers, getOwnershipTracker } = useStreamConsumer((parts) => {
     const { queueMessagePartUpdate, updatesByMessageId } = createStreamPartBatch();
 
     for (const part of parts) {
@@ -253,6 +252,26 @@ export function useChatStreamConsumer({
         }
         continue;
       }
+      if (part.type === "thinking-complete") {
+        const messageId = resolveAgentScopedMessageId(part.agentId);
+        if (!messageId) continue;
+        // Clear accumulated text so the next thinking block with the
+        // same sourceKey starts fresh instead of appending.
+        const previousMeta = streamingMetaRef.current;
+        if (previousMeta?.thinkingTextBySource?.[part.sourceKey] !== undefined) {
+          const thinkingTextBySource = { ...previousMeta.thinkingTextBySource };
+          delete thinkingTextBySource[part.sourceKey];
+          const nextMeta: StreamingMeta = {
+            ...previousMeta,
+            thinkingTextBySource,
+            thinkingText: joinThinkingBlocks(Object.values(thinkingTextBySource)),
+          };
+          streamingMetaRef.current = nextMeta;
+          setStreamingMeta(nextMeta);
+        }
+        queueMessagePartUpdate(messageId, part);
+        continue;
+      }
       if (part.type === "thinking-meta") {
         const messageId = resolveAgentScopedMessageId(part.agentId);
         if (!messageId) continue;
@@ -321,22 +340,7 @@ export function useChatStreamConsumer({
         continue;
       }
       if (isRuntimeEnvelopePartEvent(part)) {
-        if (part.type === "workflow-step-complete") {
-          sendBackgroundMessageToAgent(toWorkflowStepCompletionMessage(part));
-          continue;
-        }
-        if (part.type === "workflow-step-start") {
-          continue;
-        }
-        if (part.type === "task-result-upsert") {
-          const resultText = part.envelope.output_text;
-          if (typeof resultText === "string" && resultText.trim().length > 0) {
-            const statusLabel = part.envelope.status === "error" ? "failed" : "completed";
-            sendBackgroundMessageToAgent(
-              `Task "${part.envelope.title}" (${part.envelope.task_id}) ${statusLabel}:\n\n${resultText}`,
-            );
-          }
-        }
+        if (part.type === "task-result-upsert") continue;
         const messageId = resolveAgentScopedMessageId();
         if (!messageId) continue;
         queueMessagePartUpdate(messageId, part);
@@ -346,5 +350,5 @@ export function useChatStreamConsumer({
     applyStreamPartBatchToMessages(updatesByMessageId, setMessagesWindowed);
   });
 
-  return { getCorrelationService, resetConsumers };
+  return { getOwnershipTracker, resetConsumers };
 }

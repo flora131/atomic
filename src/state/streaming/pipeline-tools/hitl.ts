@@ -1,4 +1,4 @@
-import type { ChatMessage } from "@/screens/chat-screen.tsx";
+import type { ChatMessage } from "@/types/chat.ts";
 import { createPartId } from "@/state/parts/id.ts";
 import { upsertPart } from "@/state/parts/store.ts";
 import type { Part, ToolPart } from "@/state/parts/types.ts";
@@ -48,46 +48,38 @@ export function applyHitlResponse(
   message: ChatMessage,
   event: HitlResponseEvent,
 ): ChatMessage {
-  const nextToolCalls = (message.toolCalls ?? []).map((toolCall) => {
-    if (toolCall.id !== event.toolId) {
-      return toolCall;
-    }
-    return {
-      ...toolCall,
-      output: {
-        ...(toolCall.output && typeof toolCall.output === "object"
-          ? (toolCall.output as Record<string, unknown>)
-          : {}),
-        answer: event.response.answerText,
-        cancelled: event.response.cancelled,
-        responseMode: event.response.responseMode,
-        displayText: event.response.displayText,
-      },
-      hitlResponse: event.response,
-    };
-  });
-
-  let nextParts = message.parts;
-  if (message.parts && message.parts.length > 0) {
-    const updatedParts = [...message.parts];
-    const toolPartIdx = updatedParts.findIndex(
-      (part) =>
-        part.type === "tool" && (part as ToolPart).toolCallId === event.toolId,
-    );
-    if (toolPartIdx >= 0) {
-      const toolPart = updatedParts[toolPartIdx] as ToolPart;
-      updatedParts[toolPartIdx] = {
-        ...toolPart,
-        pendingQuestion: undefined,
-        hitlResponse: event.response,
-      };
-      nextParts = updatedParts;
-    }
+  const parts = message.parts ?? [];
+  if (parts.length === 0) {
+    return message;
   }
+
+  const updatedParts = [...parts];
+  const toolPartIdx = updatedParts.findIndex(
+    (part) =>
+      part.type === "tool" && (part as ToolPart).toolCallId === event.toolId,
+  );
+  if (toolPartIdx < 0) {
+    return message;
+  }
+
+  const toolPart = updatedParts[toolPartIdx] as ToolPart;
+  updatedParts[toolPartIdx] = {
+    ...toolPart,
+    output: {
+      ...(toolPart.output && typeof toolPart.output === "object"
+        ? (toolPart.output as Record<string, unknown>)
+        : {}),
+      answer: event.response.answerText,
+      cancelled: event.response.cancelled,
+      responseMode: event.response.responseMode,
+      displayText: event.response.displayText,
+    },
+    pendingQuestion: undefined,
+    hitlResponse: event.response,
+  };
 
   return {
     ...message,
-    toolCalls: nextToolCalls,
-    parts: nextParts,
+    parts: updatedParts,
   };
 }

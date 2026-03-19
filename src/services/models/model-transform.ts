@@ -50,10 +50,37 @@ export interface Model {
   headers?: Record<string, string>;
   /** Model description (from SDK) */
   description?: string;
-  /** Supported reasoning effort levels (Copilot SDK models only) */
+  /** Supported reasoning effort levels for models that explicitly advertise them */
   supportedReasoningEfforts?: string[];
-  /** Default reasoning effort level (Copilot SDK models only) */
+  /** Default reasoning effort level for models that explicitly advertise it */
   defaultReasoningEffort?: string;
+}
+
+const OPENCODE_BUILT_IN_REASONING_EFFORTS = [
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "max",
+  "xhigh",
+] as const;
+
+type OpenCodeReasoningEffort = (typeof OPENCODE_BUILT_IN_REASONING_EFFORTS)[number];
+
+export function getBuiltInOpenCodeReasoningEfforts(
+  variants: Record<string, { disabled?: boolean; [key: string]: unknown }> | undefined,
+): OpenCodeReasoningEffort[] | undefined {
+  if (!variants) {
+    return undefined;
+  }
+
+  const supported = OPENCODE_BUILT_IN_REASONING_EFFORTS.filter((effort) => {
+    const variant = variants[effort];
+    return variant && variant.disabled !== true;
+  });
+
+  return supported.length > 0 ? [...supported] : undefined;
 }
 
 /**
@@ -76,7 +103,18 @@ export function fromClaudeModelInfo(modelInfo: {
   value: string;
   displayName: string;
   description: string;
+  supportsEffort?: boolean;
+  supportedEffortLevels?: Array<"low" | "medium" | "high" | "max">;
 }, contextWindow: number): Model {
+  const supportedReasoningEfforts = modelInfo.supportsEffort === true
+    && Array.isArray(modelInfo.supportedEffortLevels)
+    && modelInfo.supportedEffortLevels.length > 0
+    ? [...modelInfo.supportedEffortLevels]
+    : undefined;
+  const defaultReasoningEffort = supportedReasoningEfforts?.includes("high")
+    ? "high"
+    : supportedReasoningEfforts?.[0];
+
   return {
     id: `anthropic/${modelInfo.value}`,
     providerID: 'anthropic',
@@ -84,12 +122,17 @@ export function fromClaudeModelInfo(modelInfo: {
     name: modelInfo.displayName,
     description: modelInfo.description,
     status: 'active',
-    capabilities: DEFAULT_CAPABILITIES,
+    capabilities: {
+      ...DEFAULT_CAPABILITIES,
+      reasoning: Boolean(supportedReasoningEfforts?.length),
+    },
     limits: {
       context: contextWindow,
       output: 16384,
     },
     options: {},
+    supportedReasoningEfforts,
+    defaultReasoningEffort,
   };
 }
 
@@ -160,11 +203,18 @@ export interface OpenCodeProvider {
 export interface OpenCodeModel {
   id?: string;
   name?: string;
+  family?: string;
   status?: 'alpha' | 'beta' | 'deprecated';
   reasoning?: boolean;
   attachment?: boolean;
   temperature?: boolean;
   tool_call?: boolean;
+  capabilities?: {
+    reasoning?: boolean;
+    attachment?: boolean;
+    temperature?: boolean;
+    toolcall?: boolean;
+  };
   limit?: {
     context?: number;
     input?: number;
@@ -175,6 +225,10 @@ export interface OpenCodeModel {
     output: number;
     cache_read?: number;
     cache_write?: number;
+    cache?: {
+      read?: number;
+      write?: number;
+    };
   };
   modalities?: {
     input: string[];
@@ -182,6 +236,15 @@ export interface OpenCodeModel {
   };
   options?: Record<string, unknown>;
   headers?: Record<string, string>;
+  api?: {
+    id?: string;
+    url?: string;
+    npm?: string;
+  };
+  variants?: Record<string, {
+    disabled?: boolean;
+    [key: string]: unknown;
+  }>;
 }
 
 /**
@@ -199,19 +262,28 @@ export function fromOpenCodeModel(
   providerApi?: string,
   providerName?: string
 ): Model {
+  const reasoningCapability = model.capabilities?.reasoning ?? model.reasoning ?? false;
+  const attachmentCapability = model.capabilities?.attachment ?? model.attachment ?? false;
+  const temperatureCapability = model.capabilities?.temperature ?? model.temperature ?? true;
+  const toolCallCapability = model.capabilities?.toolcall ?? model.tool_call ?? true;
+  const supportedReasoningEfforts = reasoningCapability
+    ? getBuiltInOpenCodeReasoningEfforts(model.variants)
+    : undefined;
+
   return {
     id: `${providerID}/${modelID}`,
     providerID,
     providerName,
     modelID,
     name: model.name ?? modelID,
-    api: providerApi,
+    family: model.family,
+    api: providerApi ?? model.api?.id,
     status: model.status ?? 'active',
     capabilities: {
-      reasoning: model.reasoning ?? false,
-      attachment: model.attachment ?? false,
-      temperature: model.temperature ?? true,
-      toolCall: model.tool_call ?? true,
+      reasoning: reasoningCapability,
+      attachment: attachmentCapability,
+      temperature: temperatureCapability,
+      toolCall: toolCallCapability,
     },
     limits: (() => {
       if (!model.limit?.context) {
@@ -226,12 +298,13 @@ export function fromOpenCodeModel(
     cost: model.cost ? {
       input: model.cost.input,
       output: model.cost.output,
-      cacheRead: model.cost.cache_read,
-      cacheWrite: model.cost.cache_write,
+      cacheRead: model.cost.cache_read ?? model.cost.cache?.read,
+      cacheWrite: model.cost.cache_write ?? model.cost.cache?.write,
     } : undefined,
     modalities: model.modalities,
     options: model.options ?? {},
     headers: model.headers,
+    supportedReasoningEfforts,
   };
 }
 

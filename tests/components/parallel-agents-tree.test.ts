@@ -11,9 +11,10 @@ import {
   getStatusIndicatorColor,
   shouldRenderAgentCurrentTool,
   shouldAnimateAgentStatus,
+  MAX_VISIBLE_INLINE_TOOLS,
 } from "@/components/parallel-agents-tree.tsx";
 import type { Part } from "@/state/parts/types.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import { PART_REGISTRY } from "@/components/message-parts/registry.tsx";
 
 describe("ParallelAgentsTree status indicator colors", () => {
@@ -293,5 +294,33 @@ describe("agent inline display helpers", () => {
     expect(buildAgentInlineBranchPrefix("│ ", false)).toBe("│ ├─ ");
     expect(buildAgentInlineBranchPrefix("│ ", true)).toBe("│ └─ ");
     expect(buildAgentInlineBranchPrefix("", true)).toBe("└─ ");
+  });
+});
+
+describe("MAX_VISIBLE_INLINE_TOOLS", () => {
+  test("limits inline tool display to 3 items", () => {
+    expect(MAX_VISIBLE_INLINE_TOOLS).toBe(3);
+  });
+
+  test("getAgentInlineDisplayParts returns all parts for slicing by component", () => {
+    const fiveParts: Part[] = Array.from({ length: 5 }, (_, i) => ({
+      id: `part-${i}`,
+      type: "tool" as const,
+      createdAt: `2026-01-01T00:00:0${i}.000Z`,
+      toolCallId: `tc-${i}`,
+      toolName: "bash",
+      input: {},
+      state: { status: "completed" as const, output: undefined, durationMs: 0 },
+    }));
+
+    const all = getAgentInlineDisplayParts(fiveParts);
+    expect(all).toHaveLength(5);
+
+    const hiddenCount = Math.max(0, all.length - MAX_VISIBLE_INLINE_TOOLS);
+    const visible = all.slice(-MAX_VISIBLE_INLINE_TOOLS);
+    expect(visible).toHaveLength(3);
+    expect(hiddenCount).toBe(2);
+    expect(visible[0]!.id).toBe("part-2");
+    expect(visible[2]!.id).toBe("part-4");
   });
 });

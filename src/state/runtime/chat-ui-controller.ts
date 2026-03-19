@@ -2,11 +2,11 @@ import type {
   CommandExecutionTelemetry,
   MessageSubmitTelemetry,
   OnTerminateBackgroundAgents,
-} from "@/screens/chat-screen.tsx";
+} from "@/types/chat.ts";
 import type { SessionConfig } from "@/services/agents/types.ts";
 import { cleanupMcpBridgeScripts } from "@/services/agents/tools/opencode-mcp-bridge.ts";
 import { SessionExpiredError } from "@/services/events/adapters/provider-shared.ts";
-import { registerAgentToolNames } from "@/components/tool-registry/index.ts";
+import { registerAgentToolNames } from "@/components/tool-registry/registry/index.ts";
 import { createChatUIRuntimeState } from "@/state/runtime/chat-ui-runtime-state.ts";
 import { createStreamAdapter } from "@/state/runtime/chat-ui-stream-adapter.ts";
 import type {
@@ -144,8 +144,16 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
             sessionConfig.model = currentModel;
           }
 
-          if (resolvedAgentType === "copilot") {
-            const pendingEffort = modelOps.getPendingReasoningEffort();
+          if (
+            resolvedAgentType === "copilot"
+            || resolvedAgentType === "opencode"
+            || resolvedAgentType === "claude"
+          ) {
+            const pendingEffort =
+              "getPendingReasoningEffort" in modelOps
+              && typeof modelOps.getPendingReasoningEffort === "function"
+                ? modelOps.getPendingReasoningEffort()
+                : undefined;
             const selectedModel = sessionConfig.model;
             const preferredEffort =
               pendingEffort !== undefined

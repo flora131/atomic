@@ -1,4 +1,6 @@
 import { stripProviderPrefix } from "@/services/agents/types.ts";
+import type { OpenCodeListableProvider } from "@/services/agents/clients/opencode/client-types.ts";
+import { getBuiltInOpenCodeReasoningEfforts } from "@/services/models/model-transform.ts";
 
 type ProviderConfigResult = {
   data?: {
@@ -129,13 +131,46 @@ export async function getOpenCodeModelDisplayInfo(args: {
   sdkClient: unknown;
   resolveModelContextWindow: (modelHint?: string) => Promise<number>;
   lookupRawModelIdFromProviders: () => Promise<string | undefined>;
-}): Promise<{ model: string; tier: string; contextWindow?: number }> {
+  listProviderModels: () => Promise<OpenCodeListableProvider[]>;
+}): Promise<{
+  model: string;
+  tier: string;
+  supportsReasoning?: boolean;
+  supportedReasoningEfforts?: string[];
+  contextWindow?: number;
+}> {
   let contextWindow = args.activeContextWindow ?? undefined;
+  let supportsReasoning: boolean | undefined;
+  let supportedReasoningEfforts: string[] | undefined;
   if (args.isRunning && args.sdkClient) {
     try {
       contextWindow = await args.resolveModelContextWindow(args.modelHint);
     } catch {
       // Keep cached value when provider metadata is temporarily unavailable.
+    }
+
+    if (args.modelHint) {
+      try {
+        const providers = await args.listProviderModels();
+        const parsed = resolveOpenCodeModelForPrompt(args.modelHint);
+        if (parsed) {
+          const matchedModel = providers
+            .find((provider) => provider.id === parsed.providerID)
+            ?.models?.[parsed.modelID];
+          if (matchedModel) {
+            const reasoningSupported =
+              matchedModel.capabilities?.reasoning
+              ?? matchedModel.reasoning
+              ?? false;
+            supportedReasoningEfforts = reasoningSupported
+              ? getBuiltInOpenCodeReasoningEfforts(matchedModel.variants)
+              : undefined;
+            supportsReasoning = Boolean(supportedReasoningEfforts?.length);
+          }
+        }
+      } catch {
+        // Display info should remain available even when provider metadata lookup fails.
+      }
     }
   }
 
@@ -143,6 +178,8 @@ export async function getOpenCodeModelDisplayInfo(args: {
     return {
       model: stripProviderPrefix(args.modelHint),
       tier: "OpenCode",
+      supportsReasoning,
+      supportedReasoningEfforts,
       contextWindow,
     };
   }
@@ -157,6 +194,8 @@ export async function getOpenCodeModelDisplayInfo(args: {
   return {
     model: "OpenCode",
     tier: "OpenCode",
+    supportsReasoning,
+    supportedReasoningEfforts,
     contextWindow,
   };
 }

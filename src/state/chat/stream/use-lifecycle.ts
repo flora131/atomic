@@ -7,6 +7,7 @@ import { useChatStreamErrors } from "@/state/chat/stream/use-errors.ts";
 import { useChatStreamStartup } from "@/state/chat/stream/use-startup.ts";
 
 export function useChatStreamLifecycle({
+  activeBackgroundAgentCountRef,
   activeStreamRunIdRef,
   agentType,
   awaitedStreamRunIdsRef,
@@ -34,6 +35,7 @@ export function useChatStreamLifecycle({
   runningAskQuestionToolIdsRef,
   runningBlockingToolIdsRef,
   sendBackgroundMessageToAgent,
+  setActiveBackgroundAgentCount,
   setBackgroundAgentMessageId,
   setIsStreaming,
   setLastStreamedMessageId,
@@ -65,6 +67,7 @@ export function useChatStreamLifecycle({
   });
 
   const { handleStreamComplete } = useChatStreamCompletion({
+    activeBackgroundAgentCountRef,
     activeStreamRunIdRef,
     agentType,
     awaitedStreamRunIdsRef,
@@ -83,6 +86,7 @@ export function useChatStreamLifecycle({
     runningAskQuestionToolIdsRef,
     runningBlockingToolIdsRef,
     sendBackgroundMessageToAgent,
+    setActiveBackgroundAgentCount,
     setBackgroundAgentMessageId,
     setLastStreamedMessageId,
     setMessagesWindowed,

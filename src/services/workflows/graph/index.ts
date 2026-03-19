@@ -83,13 +83,32 @@ export {
   createDecisionNode,
   createWaitNode,
 } from "@/services/workflows/graph/builder.ts";
+
+// --- Agent nodes ---
 export type {
   OutputMapper,
   AgentNodeConfig,
   ClientProvider,
+} from "@/services/workflows/graph/nodes/agent.ts";
+export {
+  AGENT_NODE_RETRY_CONFIG,
+  agentNode,
+} from "@/services/workflows/graph/nodes/agent.ts";
+
+// --- Tool nodes ---
+export type {
   ToolExecuteFn,
   ToolOutputMapper,
   ToolNodeConfig,
+  CustomToolNodeConfig,
+} from "@/services/workflows/graph/nodes/tool.ts";
+export {
+  toolNode,
+  customToolNode,
+} from "@/services/workflows/graph/nodes/tool.ts";
+
+// --- Control nodes ---
+export type {
   DecisionRoute,
   DecisionNodeConfig,
   InputMapper,
@@ -100,42 +119,61 @@ export type {
   AskUserNodeConfig,
   AskUserWaitState,
   AskUserQuestionEventData,
-  ParallelMergeStrategy,
-  ParallelMerger,
-  ParallelNodeConfig,
-  ParallelExecutionContext,
-  CompiledSubgraph,
-  SubgraphRef,
-  SubgraphNodeConfig,
-  WorkflowResolver,
-  ContextCompactionAction,
-  ContextMonitoringState,
-  ContextMonitorNodeConfig,
-  ContextCheckOptions,
-  CustomToolNodeConfig,
-  SubagentNodeConfig,
-  ParallelSubagentNodeConfig,
-} from "@/services/workflows/graph/nodes.ts";
+} from "@/services/workflows/graph/nodes/control.ts";
 export {
-  AGENT_NODE_RETRY_CONFIG,
-  agentNode,
-  toolNode,
   clearContextNode,
   decisionNode,
   waitNode,
   askUserNode,
+} from "@/services/workflows/graph/nodes/control.ts";
+
+// --- Parallel nodes ---
+export type {
+  ParallelMergeStrategy,
+  ParallelMerger,
+  ParallelNodeConfig,
+  ParallelExecutionContext,
+  ParallelSubagentNodeConfig,
+} from "@/services/workflows/graph/nodes/parallel.ts";
+export {
   parallelNode,
+  parallelSubagentNode,
+} from "@/services/workflows/graph/nodes/parallel.ts";
+
+// --- Subgraph nodes ---
+export type {
+  CompiledSubgraph,
+  SubgraphRef,
+  SubgraphNodeConfig,
+  WorkflowResolver,
+} from "@/services/workflows/graph/nodes/subgraph.ts";
+export {
   subgraphNode,
+} from "@/services/workflows/graph/nodes/subgraph.ts";
+
+// --- Context nodes ---
+export type {
+  ContextCompactionAction,
+  ContextMonitoringState,
+  ContextMonitorNodeConfig,
+  ContextCheckOptions,
+} from "@/services/workflows/graph/nodes/context.ts";
+export {
   contextMonitorNode,
   getDefaultCompactionAction,
   toContextWindowUsage,
   isContextThresholdExceeded,
   checkContextUsage,
   compactContext,
-  customToolNode,
+} from "@/services/workflows/graph/nodes/context.ts";
+
+// --- Subagent nodes ---
+export type {
+  SubagentNodeConfig,
+} from "@/services/workflows/graph/nodes/subagent.ts";
+export {
   subagentNode,
-  parallelSubagentNode,
-} from "@/services/workflows/graph/nodes.ts";
+} from "@/services/workflows/graph/nodes/subagent.ts";
 
 // === Workflow templates ===
 export type { MapReduceOptions, ReviewCycleOptions, TaskLoopOptions } from "@/services/workflows/graph/templates.ts";

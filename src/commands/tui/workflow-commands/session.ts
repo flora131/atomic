@@ -1,33 +1,23 @@
 import { join } from "path";
 import { readFile, rename, unlink } from "fs/promises";
-import {
-  getWorkflowSessionDir,
-  type WorkflowSession,
-} from "@/services/workflows/session.ts";
+import { getWorkflowSessionDir } from "@/services/workflows/session.ts";
+import type { WorkflowSession } from "@/services/agent-discovery/index.ts";
 import {
   normalizeTodoItem,
   normalizeTodoItems,
   type NormalizedTodoItem,
-} from "@/lib/ui/task-status.ts";
+} from "@/state/parts/helpers/task-status.ts";
 import type { WorkflowRuntimeTaskResultEnvelope } from "@/services/workflows/runtime-contracts.ts";
 
-const activeSessions = new Map<string, WorkflowSession>();
+// Re-export session management from canonical service module
+export {
+  getActiveSession,
+  registerActiveSession,
+  completeSession,
+} from "@/services/agent-discovery/index.ts";
 
-export function getActiveSession(): WorkflowSession | undefined {
-  const sessions = Array.from(activeSessions.values());
-  return sessions.sort(
-    (a, b) =>
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-  )[0];
-}
-
-export function registerActiveSession(session: WorkflowSession): void {
-  activeSessions.set(session.sessionId, session);
-}
-
-export function completeSession(sessionId: string): void {
-  activeSessions.delete(sessionId);
-}
+// Local import for use within this file
+import { getActiveSession } from "@/services/agent-discovery/index.ts";
 
 async function atomicWrite(
   targetPath: string,

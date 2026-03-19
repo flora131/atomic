@@ -1,6 +1,5 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type { PasteEvent, TextareaRenderable } from "@opentui/core";
-import type { CommandDefinition } from "@/commands/tui/index.ts";
 import type { ClipboardAdapter } from "@/lib/ui/clipboard.ts";
 import type {
   ChatMessage,
@@ -9,11 +8,13 @@ import type {
   StreamingMeta,
   TaskItem,
   WorkflowChatState,
-} from "@/state/chat/types.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+} from "@/state/chat/shared/types/index.ts";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type { UseMessageQueueReturn } from "@/hooks/use-message-queue.ts";
-import type { WorkflowInputResolver } from "@/lib/ui/workflow-input-resolver.ts";
-import type { NormalizedTodoItem } from "@/lib/ui/task-status.ts";
+import type { WorkflowInputResolver } from "@/services/workflows/helpers/workflow-input-resolver.ts";
+import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
+
+export type { ComposerAutocompleteSuggestion } from "@/state/chat/shared/types/composer.ts";
 
 export interface InputScrollbarState {
   visible: boolean;
@@ -72,8 +73,6 @@ export interface UseComposerControllerArgs {
   workflowState: WorkflowChatState;
   workflowTaskIdsRef: MutableRefObject<Set<string>>;
 }
-
-export type ComposerAutocompleteSuggestion = CommandDefinition;
 
 export interface ComposerAutocompleteSelectionArgs {
   action: "complete" | "execute";

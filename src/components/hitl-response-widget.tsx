@@ -15,7 +15,7 @@ import React from "react";
 import { useThemeColors } from "@/theme/index.tsx";
 import { STATUS, CONNECTOR, PROMPT } from "@/theme/icons.ts";
 import { SPACING } from "@/theme/spacing.ts";
-import type { HitlContext } from "@/state/chat/types.ts";
+import type { HitlContext } from "@/state/chat/shared/types/index.ts";
 
 export interface HitlResponseWidgetProps {
   context: HitlContext;
@@ -50,17 +50,16 @@ export function HitlResponseWidget({ context }: HitlResponseWidgetProps): React.
   return (
     <box
       flexDirection="column"
-      marginBottom={SPACING.ELEMENT}
     >
       {/* Header badge — rounded connector style matching UserQuestionDialog */}
       <box marginBottom={SPACING.NONE}>
         <text>
-          <span style={{ fg: colors.border }}>
+          <span fg={colors.border}>
             {CONNECTOR.roundedTopLeft}{CONNECTOR.horizontal}
           </span>
-          <span style={{ fg: statusColor }}> {statusIcon} </span>
-          <span style={{ fg: colors.foreground }}>{headerLabel} </span>
-          <span style={{ fg: colors.border }}>
+          <span fg={statusColor}> {statusIcon} </span>
+          <span fg={colors.foreground}>{headerLabel} </span>
+          <span fg={colors.border}>
             {CONNECTOR.horizontal}{CONNECTOR.roundedTopRight}
           </span>
         </text>
@@ -68,7 +67,7 @@ export function HitlResponseWidget({ context }: HitlResponseWidgetProps): React.
 
       {/* Question text — muted, wrapping */}
       {context.question.length > 0 && (
-        <text wrapMode="word" style={{ fg: colors.muted }}>
+        <text wrapMode="word" fg={colors.muted}>
           {"  "}{context.question}
         </text>
       )}
@@ -76,8 +75,8 @@ export function HitlResponseWidget({ context }: HitlResponseWidgetProps): React.
       {/* Answer line — prominent with accent prompt cursor */}
       <box marginTop={SPACING.NONE}>
         <text wrapMode="word">
-          <span style={{ fg: colors.accent }}> {PROMPT.cursor} </span>
-          <span style={{ bg: answerBg, fg: answerColor, attributes: isDeclined ? undefined : 1 }}>
+          <span fg={colors.accent}> {PROMPT.cursor} </span>
+          <span bg={answerBg} fg={answerColor} attributes={isDeclined ? undefined : 1}>
             {isDeclined ? answerDisplay : ` ${answerDisplay} `}
           </span>
         </text>

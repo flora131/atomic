@@ -147,6 +147,55 @@ describe("OpenCode additional instruction routing", () => {
       },
     ]);
   });
+
+  test("forwards selected reasoning effort as the OpenCode prompt variant", async () => {
+    const client = new OpenCodeClient();
+    const sessionId = "ses_prompt_variant";
+    let capturedParams: Record<string, unknown> | undefined;
+
+    (client as unknown as {
+      resolveModelContextWindow: (modelHint?: string) => Promise<number>;
+    }).resolveModelContextWindow = async () => 200_000;
+
+    (client as unknown as {
+      sdkClient: {
+        session: {
+          prompt: (params: Record<string, unknown>) => Promise<{
+            data?: {
+              info?: { tokens?: { input?: number; output?: number } };
+              parts?: Array<Record<string, unknown>>;
+            };
+          }>;
+        };
+      };
+    }).sdkClient = {
+      session: {
+        prompt: async (params) => {
+          capturedParams = params;
+          return {
+            data: {
+              info: {
+                tokens: { input: 1, output: 1 },
+              },
+              parts: [{ type: "text", text: "ok" }],
+            },
+          };
+        },
+      },
+    };
+
+    await client.setActivePromptModel("openai/gpt-5", { reasoningEffort: "high" });
+
+    const session = await (client as unknown as {
+      wrapSession: (sid: string, config: Record<string, unknown>) => Promise<{
+        send: (message: string) => Promise<unknown>;
+      }>;
+    }).wrapSession(sessionId, {});
+
+    await session.send("Use more reasoning");
+
+    expect(capturedParams?.variant).toBe("high");
+  });
 });
 
 describe("transitionOpenCodeCompactionControl", () => {
@@ -246,6 +295,55 @@ describe("transitionOpenCodeCompactionControl", () => {
 });
 
 describe("OpenCodeClient event mapping", () => {
+  test("reports built-in OpenCode reasoning efforts in model display info", async () => {
+    const client = new OpenCodeClient();
+    const internal = client as unknown as {
+      isRunning: boolean;
+      sdkClient: Record<string, unknown> | null;
+      resolveModelContextWindow: (modelHint?: string) => Promise<number>;
+      lookupRawModelIdFromProviders: () => Promise<string | undefined>;
+      listProviderModels: () => Promise<Array<{
+        id: string;
+        name: string;
+        models: Record<string, Record<string, unknown>>;
+      }>>;
+    };
+
+    internal.isRunning = true;
+    internal.sdkClient = {};
+    internal.resolveModelContextWindow = async () => 200_000;
+    internal.lookupRawModelIdFromProviders = async () => undefined;
+    internal.listProviderModels = async () => [
+      {
+        id: "openai",
+        name: "OpenAI",
+        models: {
+          "gpt-5": {
+            name: "GPT-5",
+            capabilities: {
+              reasoning: true,
+              attachment: true,
+              temperature: true,
+              toolcall: true,
+            },
+            limit: { context: 200_000, output: 16_384 },
+            options: {},
+            variants: {
+              low: { reasoningEffort: "low" },
+              high: { reasoningEffort: "high" },
+              custom: { reasoningEffort: "medium" },
+            },
+          },
+        },
+      },
+    ];
+
+    const info = await client.getModelDisplayInfo("openai/gpt-5");
+
+    expect(info.supportsReasoning).toBe(true);
+    expect(info.supportedReasoningEfforts).toEqual(["low", "high"]);
+  });
+
   test("defaults directory to process.cwd() for project-scoped agent resolution", () => {
     const client = new OpenCodeClient();
     const options = client as unknown as { clientOptions?: { directory?: string } };

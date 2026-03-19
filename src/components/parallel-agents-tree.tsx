@@ -10,39 +10,9 @@ import { ReasoningPartDisplay } from "@/components/message-parts/reasoning-part-
 import { TextPartDisplay } from "@/components/message-parts/text-part-display.tsx";
 import { ToolPartDisplay } from "@/components/message-parts/tool-part-display.tsx";
 
+import type { AgentStatus, ParallelAgent, ParallelAgentsTreeProps } from "@/types/parallel-agents.ts";
+
 export { truncateText };
-
-export type AgentStatus = "pending" | "running" | "completed" | "error" | "background" | "interrupted";
-
-export interface ParallelAgent {
-  id: string;
-  taskToolCallId?: string;
-  name: string;
-  task: string;
-  status: AgentStatus;
-  model?: string;
-  startedAt: string;
-  durationMs?: number;
-  background?: boolean;
-  error?: string;
-  result?: string;
-  toolUses?: number;
-  tokens?: number;
-  thinkingMs?: number;
-  currentTool?: string;
-  inlineParts?: import("@/state/parts/types.ts").Part[];
-}
-
-export interface ParallelAgentsTreeProps {
-  agents: ParallelAgent[];
-  syntaxStyle?: SyntaxStyle;
-  compact?: boolean;
-  maxVisible?: number;
-  noTopMargin?: boolean;
-  background?: boolean;
-  showExpandHint?: boolean;
-  onAgentDoneRendered?: (marker: { agentId: string; timestampMs: number }) => void;
-}
 
 export const STATUS_ICONS: Record<AgentStatus, string> = {
   pending: "●",
@@ -147,8 +117,13 @@ export function buildAgentHeaderLabel(count: number, dominantType: string): stri
     return `${count} agent${plural ? "s" : ""}`;
   }
 
-  if (lower.endsWith(" agent") || lower.endsWith(" agents")) {
+  if (lower.endsWith(" agents")) {
     return `${count} ${normalized}`;
+  }
+
+  if (lower.endsWith(" agent")) {
+    const base = normalized.slice(0, -" agent".length);
+    return `${count} ${base} agent${plural ? "s" : ""}`;
   }
 
   return `${count} ${normalized} agent${plural ? "s" : ""}`;
@@ -242,6 +217,8 @@ export function collectDoneRenderMarkers(
   return markers;
 }
 
+export const MAX_VISIBLE_INLINE_TOOLS = 3;
+
 function AgentSummaryBlock({
   agent,
   compact,
@@ -252,7 +229,11 @@ function AgentSummaryBlock({
   syntaxStyle?: SyntaxStyle;
 }): React.ReactNode {
   const colors = useThemeColors();
-  const visibleTools = getAgentInlineDisplayParts(agent.inlineParts ?? []);
+  const allTools = getAgentInlineDisplayParts(agent.inlineParts ?? []);
+  const hiddenToolCount = Math.max(0, allTools.length - MAX_VISIBLE_INLINE_TOOLS);
+  const visibleTools = hiddenToolCount > 0
+    ? allTools.slice(-MAX_VISIBLE_INLINE_TOOLS)
+    : allTools;
   const indicatorColor = getStatusIndicatorColor(agent.status, colors);
   const animateIndicator = shouldAnimateAgentStatus(agent.status);
   const label = truncateText(agent.name, compact ? 40 : 60);
@@ -263,14 +244,28 @@ function AgentSummaryBlock({
         {animateIndicator ? (
           <AnimatedBlinkIndicator color={indicatorColor} speed={500} />
         ) : (
-          <span style={{ fg: indicatorColor }}>{getStatusIcon(agent.status)}</span>
+          <span fg={indicatorColor}>{getStatusIcon(agent.status)}</span>
         )}
-        <span style={{ fg: colors.foreground, attributes: 1 }}> {label}</span>
+        <span fg={colors.foreground} attributes={1}> {label}</span>
       </text>
+      {hiddenToolCount > 0 && (
+        <box flexDirection="row">
+          <box flexShrink={0}>
+            <text fg={colors.muted}>
+              {buildAgentInlineBranchPrefix("", false)}
+            </text>
+          </box>
+          <box flexGrow={1} flexShrink={1}>
+            <text fg={colors.muted}>
+              +{hiddenToolCount} earlier tool call{hiddenToolCount === 1 ? "" : "s"}
+            </text>
+          </box>
+        </box>
+      )}
       {visibleTools.map((part, index) => (
         <box key={part.id} flexDirection="row">
           <box flexShrink={0}>
-            <text style={{ fg: colors.muted }}>
+            <text fg={colors.muted}>
               {buildAgentInlineBranchPrefix("", index === visibleTools.length - 1)}
             </text>
           </box>
@@ -335,7 +330,7 @@ export function ParallelAgentsTree({
         />
       ))}
       {hiddenCount > 0 && (
-        <text style={{ fg: colors.muted }}>
+        <text fg={colors.muted}>
           +{hiddenCount} more agent{hiddenCount === 1 ? "" : "s"}
         </text>
       )}

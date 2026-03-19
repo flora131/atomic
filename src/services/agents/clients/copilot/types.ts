@@ -31,6 +31,7 @@ export type CopilotSdkModelRecord = Record<string, unknown> & {
   id?: string;
   name?: string;
   defaultReasoningEffort?: unknown;
+  supportedReasoningEfforts?: unknown;
   capabilities?: Record<string, unknown>;
 };
 

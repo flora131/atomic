@@ -1,5 +1,6 @@
 import type { SyntaxStyle } from "@opentui/core";
 import type { ChatMessage, StreamingMeta, TaskItem } from "@/state/chat/shared/types/message.ts";
+import type { QuestionAnswer, UserQuestion } from "@/components/user-question-dialog.tsx";
 
 export interface AtomicHeaderProps {
   version?: string;
@@ -10,11 +11,15 @@ export interface AtomicHeaderProps {
 }
 
 export interface MessageBubbleProps {
+  activeBackgroundAgentCount?: number;
+  activeHitlToolCallId?: string | null;
+  activeQuestion?: UserQuestion | null;
   message: ChatMessage;
   isLast?: boolean;
+  isVerbose?: boolean;
   syntaxStyle?: SyntaxStyle;
-  hideAskUserQuestion?: boolean;
   hideLoading?: boolean;
+  handleQuestionAnswer?: (answer: QuestionAnswer) => void;
   todoItems?: TaskItem[];
   tasksExpanded?: boolean;
   workflowSessionDir?: string | null;

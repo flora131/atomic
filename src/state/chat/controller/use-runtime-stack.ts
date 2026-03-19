@@ -1,11 +1,11 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { BatchDispatcher } from "@/services/events/batch-dispatcher.ts";
-import type { ChatAppProps, ChatMessage, StreamingMeta, WorkflowChatState } from "@/state/chat/types.ts";
-import { useChatAgentProjection } from "@/state/chat/agent/use-projection.ts";
-import type { UseChatStreamRuntimeResult } from "@/state/chat/stream/runtime-types.ts";
+import type { ChatAppProps, ChatMessage, StreamingMeta, WorkflowChatState } from "@/state/chat/shared/types/index.ts";
+import { useChatAgentProjection } from "@/state/chat/agent/index.ts";
+import type { UseChatStreamRuntimeResult } from "@/state/chat/shared/types/stream-runtime.ts";
 import type { UseChatShellStateResult } from "@/state/chat/controller/use-shell-state.ts";
 import { useChatAppOrchestration } from "@/state/chat/controller/use-app-orchestration.ts";
-import { useStreamSubscriptions } from "@/state/chat/stream/use-subscriptions.ts";
+import { useStreamSubscriptions } from "@/state/chat/stream/index.ts";
 import { useWorkflowHitl } from "@/state/chat/controller/use-workflow-hitl.ts";
 
 type OrchestrationResult = ReturnType<typeof useChatAppOrchestration>;
@@ -54,6 +54,7 @@ export function useChatRuntimeStack({
       workflowSessionDir,
     },
     setters: {
+      setActiveBackgroundAgentCount,
       setParallelAgents,
       setTodoItems,
       setToolCompletionVersion,
@@ -61,6 +62,7 @@ export function useChatRuntimeStack({
       setWorkflowSessionId,
     },
     refs: {
+      activeBackgroundAgentCountRef,
       activeSkillSessionIdRef,
       activeStreamRunIdRef,
       agentLifecycleLedgerRef,
@@ -124,6 +126,7 @@ export function useChatRuntimeStack({
   } = shellState;
 
   const {
+    activeHitlToolCallId,
     activeHitlToolCallIdRef,
     activeQuestion,
     handleAskUserQuestion,
@@ -151,6 +154,7 @@ export function useChatRuntimeStack({
   });
 
   useStreamSubscriptions({
+    activeBackgroundAgentCountRef,
     activeSkillSessionIdRef,
     activeStreamRunIdRef,
     agentLifecycleLedgerRef,
@@ -164,6 +168,7 @@ export function useChatRuntimeStack({
     backgroundProgressSnapshotRef,
     batchDispatcher,
     completionOrderingEventByAgentRef,
+    deferredCompleteTimeoutRef,
     deferredPostCompleteDeltasByAgentRef,
     doneRenderedSequenceByAgentRef,
     handleAskUserQuestion,
@@ -178,11 +183,13 @@ export function useChatRuntimeStack({
     loadedSkillsRef,
     nextRunIdFloorRef,
     parallelAgentsRef,
+    pendingCompleteRef,
     resetLoadedSkillTracking,
     resolveAgentScopedMessageId,
     runningAskQuestionToolIdsRef,
     runningBlockingToolIdsRef,
     sendBackgroundMessageToAgent,
+    setActiveBackgroundAgentCount,
     setAgentMessageBinding,
     setIsStreaming,
     setMessagesWindowed,
@@ -198,6 +205,7 @@ export function useChatRuntimeStack({
   });
 
   const { handleAgentDoneRendered } = useChatAgentProjection({
+    activeBackgroundAgentCountRef,
     activeStreamRunIdRef,
     agentAnchorSyncVersion,
     agentLifecycleLedgerRef,
@@ -226,6 +234,7 @@ export function useChatRuntimeStack({
     pendingCompleteRef,
     resolveTrackedRun,
     sendBackgroundMessageToAgent,
+    setActiveBackgroundAgentCount,
     setBackgroundAgentMessageId,
     setMessagesWindowed,
     setParallelAgents,
@@ -239,6 +248,7 @@ export function useChatRuntimeStack({
   });
 
   return {
+    activeHitlToolCallId,
     activeHitlToolCallIdRef,
     activeQuestion,
     handleAgentDoneRendered,

@@ -18,11 +18,16 @@
  */
 
 import type { EventBus } from "@/services/events/event-bus.ts";
-import type { BusEvent } from "@/services/events/bus-events.ts";
+import type { BusEvent } from "@/services/events/bus-events/index.ts";
 
 interface AgentToolState {
   toolCount: number;
   currentTool?: string;
+  isBackground: boolean;
+}
+
+export interface RegisterAgentOptions {
+  isBackground?: boolean;
 }
 
 export class SubagentToolTracker {
@@ -40,9 +45,12 @@ export class SubagentToolTracker {
   /**
    * Register a new sub-agent for tracking.
    */
-  registerAgent(agentId: string): void {
+  registerAgent(agentId: string, options?: RegisterAgentOptions): void {
     if (!this.agents.has(agentId)) {
-      this.agents.set(agentId, { toolCount: 0 });
+      this.agents.set(agentId, {
+        toolCount: 0,
+        isBackground: options?.isBackground ?? false,
+      });
     }
   }
 
@@ -51,6 +59,31 @@ export class SubagentToolTracker {
    */
   hasAgent(agentId: string): boolean {
     return this.agents.has(agentId);
+  }
+
+  /**
+   * Returns true if any currently tracked agent is marked as a background agent.
+   */
+  hasActiveBackgroundAgents(): boolean {
+    for (const state of this.agents.values()) {
+      if (state.isBackground) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Returns the number of currently tracked agents marked as background agents.
+   */
+  getActiveBackgroundAgentCount(): number {
+    let count = 0;
+    for (const state of this.agents.values()) {
+      if (state.isBackground) {
+        count += 1;
+      }
+    }
+    return count;
   }
 
   /**
@@ -118,6 +151,7 @@ export class SubagentToolTracker {
     const mergedState: AgentToolState = {
       toolCount: Math.max(fromState.toolCount, toState?.toolCount ?? 0),
       currentTool: fromState.currentTool ?? toState?.currentTool,
+      isBackground: fromState.isBackground || (toState?.isBackground ?? false),
     };
 
     this.agents.set(toAgentId, mergedState);

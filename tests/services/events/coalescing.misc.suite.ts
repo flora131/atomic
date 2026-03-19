@@ -63,36 +63,6 @@ describe("coalescingKey()", () => {
       expect(coalescingKey(event)).toBe("agent.complete:agent-123");
     });
 
-    it("should return undefined for workflow.step.start", () => {
-      const event: BusEvent<"workflow.step.start"> = {
-        type: "workflow.step.start",
-        sessionId: "test-session",
-        runId: 1,
-        timestamp: Date.now(),
-        data: { workflowId: "workflow-123", nodeId: "node-1", nodeName: "Step 1" },
-      };
-
-      expect(coalescingKey(event)).toBeUndefined();
-    });
-
-    it("should return undefined for workflow.step.complete", () => {
-      const event: BusEvent<"workflow.step.complete"> = {
-        type: "workflow.step.complete",
-        sessionId: "test-session",
-        runId: 1,
-        timestamp: Date.now(),
-        data: {
-          workflowId: "workflow-123",
-          nodeId: "node-1",
-          nodeName: "Step 1",
-          status: "success",
-          result: "Step completed",
-        },
-      };
-
-      expect(coalescingKey(event)).toBeUndefined();
-    });
-
     it("should return undefined for stream.permission.requested", () => {
       const event: BusEvent<"stream.permission.requested"> = {
         type: "stream.permission.requested",

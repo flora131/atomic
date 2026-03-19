@@ -1,10 +1,16 @@
 import { describe, expect, mock, spyOn, test } from "bun:test";
 
 import type { AgentMessage, CodingAgentClient, Session } from "@/services/agents/types.ts";
-import type { CliRenderer, StyleDefinition } from "@opentui/core";
+import type { CliRenderer } from "@opentui/core";
 import type { Root } from "@opentui/react";
 import * as opentuiCore from "@opentui/core";
 import * as opentuiReact from "@opentui/react";
+
+// Import real exports that @/screens/chat-screen.tsx re-exports so the mock
+// only stubs ChatApp while preserving all other exports. This prevents
+// mock.module from poisoning downstream tests that import components like
+// LoadingIndicator or CompletionSummary from @/state/chat/exports.ts.
+import * as realChatExports from "@/state/chat/exports.ts";
 
 const MODIFY_OTHER_KEYS_ENABLE = "\x1b[>4;2m";
 const MODIFY_OTHER_KEYS_DISABLE = "\x1b[>4;0m";
@@ -98,80 +104,9 @@ describe("startChatUI protocol escape ordering", () => {
     } as Root;
 
     mock.module("@/screens/chat-screen.tsx", () => ({
+      ...realChatExports,
       ChatApp: () => null,
-      CompletionSummary: () => null,
-      LoadingIndicator: () => null,
-      StreamingBullet: () => null,
-      defaultWorkflowChatState: {},
-      traceThinkingSourceLifecycle: () => {
-        return;
-      },
-    }));
-
-    mock.module("@/theme/index.tsx", () => ({
-      ThemeProvider: ({ children }: { children?: unknown }) => children ?? null,
-      useTheme: () => null,
-      useThemeColors: () => null,
-      createMarkdownSyntaxStyle: () =>
-        opentuiCore.SyntaxStyle.fromStyles({
-          keyword: { fg: opentuiCore.RGBA.fromHex("#cba6f7"), bold: true },
-          string: { fg: opentuiCore.RGBA.fromHex("#a6e3a1") },
-          comment: { fg: opentuiCore.RGBA.fromHex("#9399b2"), italic: true },
-          default: { fg: opentuiCore.RGBA.fromHex("#cdd6f4") },
-        }),
-      createDimmedSyntaxStyle: (
-        baseStyle: InstanceType<typeof opentuiCore.SyntaxStyle>,
-        opacity: number = 0.6,
-      ) => {
-        const dimmedRecord: Record<string, StyleDefinition> = {};
-
-        for (const [name, def] of baseStyle.getAllStyles()) {
-          const dimmedDef: StyleDefinition = { ...def };
-          if (dimmedDef.fg) {
-            dimmedDef.fg = opentuiCore.RGBA.fromValues(
-              dimmedDef.fg.r,
-              dimmedDef.fg.g,
-              dimmedDef.fg.b,
-              dimmedDef.fg.a * opacity,
-            );
-          }
-          dimmedRecord[name] = dimmedDef;
-        }
-
-        return opentuiCore.SyntaxStyle.fromStyles(dimmedRecord);
-      },
-      getCatppuccinPalette: () => ({
-        blue: "#89b4fa",
-        green: "#a6e3a1",
-        lavender: "#b4befe",
-        mauve: "#cba6f7",
-        overlay0: "#6c7086",
-        pink: "#f5c2e7",
-        red: "#f38ba8",
-        surface0: "#313244",
-        surface1: "#45475a",
-        surface2: "#585b70",
-        teal: "#94e2d5",
-        text: "#cdd6f4",
-        yellow: "#f9e2af",
-        rosewater: "#f5e0dc",
-        flamingo: "#f2cdcd",
-        maroon: "#eba0ac",
-        peach: "#fab387",
-        sky: "#89dceb",
-        sapphire: "#74c7ec",
-        subtext1: "#bac2de",
-        subtext0: "#a6adc8",
-        overlay2: "#9399b2",
-        overlay1: "#7f849c",
-        base: "#1e1e2e",
-        mantle: "#181825",
-        crust: "#11111b",
-      }),
-      darkTheme: { isDark: true },
-      lightTheme: { isDark: false },
-      darkThemeAnsi: { isDark: true },
-      lightThemeAnsi: { isDark: false },
+      default: () => null,
     }));
 
     mock.module("@/components/error-exit-screen.tsx", () => ({

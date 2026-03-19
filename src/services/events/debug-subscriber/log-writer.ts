@@ -1,6 +1,6 @@
 import { join } from "path";
 import { mkdir } from "fs/promises";
-import type { BusEvent } from "@/services/events/bus-events.ts";
+import type { BusEvent } from "@/services/events/bus-events/index.ts";
 import {
   buildLogSessionName,
   buildSessionRunKey,

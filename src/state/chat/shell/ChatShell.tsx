@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import type {
   KeyBinding,
   MacOSScrollAccel,
@@ -14,18 +14,15 @@ import { ModelSelectorDialog } from "@/components/model-selector-dialog.tsx";
 import { QueueIndicator } from "@/components/queue-indicator.tsx";
 import { AtomicHeader } from "@/components/chat-header.tsx";
 import { TranscriptView } from "@/components/transcript-view.tsx";
-import {
-  UserQuestionDialog,
-  type QuestionAnswer,
-  type UserQuestion,
-} from "@/components/user-question-dialog.tsx";
+import type { UserQuestion } from "@/components/user-question-dialog.tsx";
 import { SCROLLBAR, PROMPT } from "@/theme/icons.ts";
 import { SPACING } from "@/theme/spacing.ts";
 import type { ThemeColors } from "@/theme/index.tsx";
-import type { ChatMessage, StreamingMeta, WorkflowChatState } from "@/state/chat/types.ts";
+import type { ChatMessage, StreamingMeta, WorkflowChatState } from "@/state/chat/shared/types/index.ts";
 import type { UseMessageQueueReturn } from "@/hooks/use-message-queue.ts";
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
-import type { ComposerAutocompleteSuggestion } from "@/state/chat/composer/types.ts";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
+import { getActiveBackgroundAgents } from "@/state/chat/shared/helpers/background-agent-footer.ts";
+import type { ComposerAutocompleteSuggestion } from "@/state/chat/shared/types/composer.ts";
 
 interface InputScrollbarState {
   visible: boolean;
@@ -41,6 +38,7 @@ export interface ChatShellProps {
   ctrlCPressed: boolean;
   ctrlFPressed: boolean;
   currentModelId?: string;
+  currentReasoningEffort?: string;
   displayModel: string;
   dynamicPlaceholder: string;
 
@@ -53,7 +51,6 @@ export interface ChatShellProps {
   handleModelSelect: (selectedModel: Model, reasoningEffort?: string) => void;
   handleModelSelectorCancel: () => void;
   handleMouseUp: () => void;
-  handleQuestionAnswer: (answer: QuestionAnswer) => void;
   handleSubmit: () => void;
   handleTextareaContentChange: () => void;
   handleTextareaCursorChange: () => void;
@@ -104,6 +101,7 @@ export function ChatShell({
   ctrlCPressed,
   ctrlFPressed,
   currentModelId,
+  currentReasoningEffort,
   displayModel,
   dynamicPlaceholder,
   handleAutocompleteIndexChange,
@@ -112,7 +110,6 @@ export function ChatShell({
   handleModelSelect,
   handleModelSelectorCancel,
   handleMouseUp,
-  handleQuestionAnswer,
   handleSubmit,
   handleTextareaContentChange,
   handleTextareaCursorChange,
@@ -145,6 +142,11 @@ export function ChatShell({
   workingDir,
   workflowState,
 }: ChatShellProps): React.ReactNode {
+  const backgroundAgentCount = useMemo(
+    () => getActiveBackgroundAgents(parallelAgents).length,
+    [parallelAgents],
+  );
+
   return (
     <box
       flexDirection="column"
@@ -200,26 +202,19 @@ export function ChatShell({
                   paddingLeft={SPACING.CONTAINER_PAD}
                   paddingRight={SPACING.CONTAINER_PAD}
                 >
-                  <text style={{ fg: themeColors.muted }} attributes={1}>Compaction Summary</text>
-                  <text style={{ fg: themeColors.foreground }} wrapMode="char" selectable>{compactionSummary}</text>
+                  <text fg={themeColors.muted} attributes={1}>Compaction Summary</text>
+                  <text fg={themeColors.foreground} wrapMode="char" selectable>{compactionSummary}</text>
                 </box>
               </box>
             )}
 
             {messageContent}
 
-            {activeQuestion && (
-              <UserQuestionDialog
-                question={activeQuestion}
-                onAnswer={handleQuestionAnswer}
-                visible={true}
-              />
-            )}
-
             {showModelSelector && (
               <ModelSelectorDialog
                 models={availableModels}
                 currentModel={currentModelId}
+                currentReasoningEffort={currentReasoningEffort}
                 onSelect={handleModelSelect}
                 onCancel={handleModelSelectorCancel}
                 visible={true}
@@ -255,7 +250,7 @@ export function ChatShell({
                   alignItems="flex-start"
                   flexShrink={0}
                 >
-                  <text flexShrink={0} style={{ fg: themeColors.accent }}>{PROMPT.cursor}{" "}</text>
+                  <text flexShrink={0} fg={themeColors.accent}>{PROMPT.cursor}{" "}</text>
                   <textarea
                     ref={textareaRef}
                     placeholder={messageCount === 0 ? dynamicPlaceholder : ""}
@@ -275,7 +270,7 @@ export function ChatShell({
                     maxHeight={8}
                   />
                   {argumentHint && (
-                    <text style={{ fg: themeColors.dim }}>{argumentHint}</text>
+                    <text fg={themeColors.dim}>{argumentHint}</text>
                   )}
                   {argumentHint && <box flexGrow={1} />}
                   {inputScrollbar.visible && (
@@ -286,7 +281,7 @@ export function ChatShell({
                         return (
                           <text
                             key={`input-scroll-${i}`}
-                            style={{ fg: inThumb ? themeColors.scrollbarFg : themeColors.scrollbarBg }}
+                            fg={inThumb ? themeColors.scrollbarFg : themeColors.scrollbarBg}
                           >
                             {inThumb ? SCROLLBAR.thumb : SCROLLBAR.track}
                           </text>
@@ -298,6 +293,7 @@ export function ChatShell({
                 <FooterStatus
                   isStreaming={isStreaming}
                   workflowActive={workflowState.workflowActive}
+                  backgroundAgentCount={backgroundAgentCount}
                 />
               </>
             )}
@@ -318,14 +314,14 @@ export function ChatShell({
 
             {ctrlCPressed && (
               <box paddingLeft={1} flexShrink={0}>
-                <text style={{ fg: themeColors.muted }}>
+                <text fg={themeColors.muted}>
                   Press Ctrl-C again to exit
                 </text>
               </box>
             )}
             {ctrlFPressed && (
               <box paddingLeft={1} flexShrink={0}>
-                <text style={{ fg: themeColors.muted }}>
+                <text fg={themeColors.muted}>
                   Press Ctrl-F again to terminate background agents
                 </text>
               </box>

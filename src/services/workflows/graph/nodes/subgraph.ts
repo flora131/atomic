@@ -53,7 +53,7 @@ export function subgraphNode<
         if (!resolver) {
           throw new Error(
             `Cannot resolve workflow "${subgraph}": No workflow resolver configured. ` +
-              "Execute this graph through WorkflowSDK.init().",
+              "Execute this graph through executeWorkflow().",
           );
         }
 

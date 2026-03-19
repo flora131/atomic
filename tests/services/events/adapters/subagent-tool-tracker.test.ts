@@ -159,4 +159,77 @@ describe("SubagentToolTracker", () => {
       expect(agent2Events[0]!.data.toolUses).toBe(1);
     });
   });
+
+  describe("hasActiveBackgroundAgents", () => {
+    it("should return false when no agents are registered", () => {
+      expect(tracker.hasActiveBackgroundAgents()).toBe(false);
+    });
+
+    it("should return false when all agents are foreground", () => {
+      tracker.registerAgent("agent-1");
+      tracker.registerAgent("agent-2", { isBackground: false });
+      expect(tracker.hasActiveBackgroundAgents()).toBe(false);
+    });
+
+    it("should return true when a background agent is registered", () => {
+      tracker.registerAgent("agent-1");
+      tracker.registerAgent("agent-bg", { isBackground: true });
+      expect(tracker.hasActiveBackgroundAgents()).toBe(true);
+    });
+
+    it("should return false after background agent is removed", () => {
+      tracker.registerAgent("agent-bg", { isBackground: true });
+      expect(tracker.hasActiveBackgroundAgents()).toBe(true);
+
+      tracker.removeAgent("agent-bg");
+      expect(tracker.hasActiveBackgroundAgents()).toBe(false);
+    });
+
+    it("should return false after reset clears all agents", () => {
+      tracker.registerAgent("agent-bg", { isBackground: true });
+      tracker.reset();
+      expect(tracker.hasActiveBackgroundAgents()).toBe(false);
+    });
+
+    it("should detect background agents among mixed foreground and background", () => {
+      tracker.registerAgent("fg-1");
+      tracker.registerAgent("fg-2", { isBackground: false });
+      tracker.registerAgent("bg-1", { isBackground: true });
+      expect(tracker.hasActiveBackgroundAgents()).toBe(true);
+
+      tracker.removeAgent("bg-1");
+      expect(tracker.hasActiveBackgroundAgents()).toBe(false);
+    });
+
+    it("should default to foreground when no options are provided", () => {
+      tracker.registerAgent("agent-1");
+      expect(tracker.hasActiveBackgroundAgents()).toBe(false);
+    });
+  });
+
+  describe("transferAgent with background flag", () => {
+    it("should preserve isBackground when transferring a background agent", () => {
+      tracker.registerAgent("bg-agent", { isBackground: true });
+      tracker.transferAgent("bg-agent", "real-agent");
+
+      expect(tracker.hasAgent("bg-agent")).toBe(false);
+      expect(tracker.hasAgent("real-agent")).toBe(true);
+      expect(tracker.hasActiveBackgroundAgents()).toBe(true);
+    });
+
+    it("should preserve foreground status when transferring a foreground agent", () => {
+      tracker.registerAgent("fg-agent", { isBackground: false });
+      tracker.transferAgent("fg-agent", "real-agent");
+
+      expect(tracker.hasActiveBackgroundAgents()).toBe(false);
+    });
+
+    it("should OR the background flags when merging during transfer", () => {
+      tracker.registerAgent("from-agent", { isBackground: true });
+      tracker.registerAgent("to-agent", { isBackground: false });
+      tracker.transferAgent("from-agent", "to-agent");
+
+      expect(tracker.hasActiveBackgroundAgents()).toBe(true);
+    });
+  });
 });

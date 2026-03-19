@@ -2,38 +2,34 @@ import React from "react";
 import { PROMPT, STATUS, CONNECTOR, MISC } from "@/theme/icons.ts";
 import { SPACING } from "@/theme/spacing.ts";
 import { useThemeColors } from "@/theme/index.tsx";
-import { getActiveBackgroundAgents } from "@/lib/ui/background-agent-footer.ts";
-import { normalizeSkillTrackingKey } from "@/lib/ui/skill-load-tracking.ts";
 import {
+  getActiveBackgroundAgents,
+  normalizeSkillTrackingKey,
   shouldShowCompletionSummary,
   shouldShowMessageLoadingIndicator,
-} from "@/lib/ui/loading-state.ts";
+} from "@/state/chat/shared/helpers/index.ts";
 import { TaskListPanel } from "@/components/task-list-panel.tsx";
 import { HitlResponseWidget } from "@/components/hitl-response-widget.tsx";
 import { MessageBubbleParts } from "@/components/message-parts/message-bubble-parts.tsx";
 import { CompletionSummary, LoadingIndicator } from "@/components/chat-loading-indicator.tsx";
+
 import type {
   ChatMessage,
   MessageBubbleProps,
-  MessageSkillLoad,
-} from "@/state/chat/types.ts";
+} from "@/state/chat/shared/types/index.ts";
 import type {
   CompactionPart,
-  McpSnapshotPart,
   Part,
-  SkillLoadPart,
   TextPart,
   ToolPart,
 } from "@/state/parts/index.ts";
 import {
   mergeParallelAgentsIntoParts,
-  syncToolCallsIntoParts,
 } from "@/state/parts/index.ts";
 
 function getRenderableAssistantParts(
   message: ChatMessage,
   _isLastMessage: boolean,
-  hideAskUserQuestion: boolean,
 ): Part[] {
   const skillIndicatorKeys = new Set(
     (message.skillLoads ?? [])
@@ -69,11 +65,6 @@ function getRenderableAssistantParts(
     return !shouldHideSkillToolIndicator(toolPart.toolName, toolPart.input);
   });
 
-  const visibleToolCalls = (message.toolCalls ?? []).filter(
-    (toolCall) => !shouldHideSkillToolIndicator(toolCall.toolName, toolCall.input),
-  );
-  parts = syncToolCallsIntoParts(parts, visibleToolCalls, message.timestamp, message.id);
-
   const effectiveParallelAgents = message.parallelAgents;
   if (effectiveParallelAgents && effectiveParallelAgents.length > 0) {
     parts = mergeParallelAgentsIntoParts(
@@ -81,47 +72,6 @@ function getRenderableAssistantParts(
       effectiveParallelAgents,
       message.timestamp,
     );
-  }
-
-  if (message.mcpSnapshot) {
-    const existingMcpIdx = parts.findIndex((part) => part.type === "mcp-snapshot");
-    const mcpPart: McpSnapshotPart = {
-      id: existingMcpIdx >= 0 ? parts[existingMcpIdx]!.id : `mcp-${message.id}`,
-      type: "mcp-snapshot",
-      snapshot: message.mcpSnapshot,
-      createdAt: existingMcpIdx >= 0
-        ? parts[existingMcpIdx]!.createdAt
-        : message.timestamp,
-    };
-    if (existingMcpIdx >= 0) {
-      parts[existingMcpIdx] = mcpPart;
-    } else {
-      parts.unshift(mcpPart);
-    }
-  }
-
-  if (message.skillLoads && message.skillLoads.length > 0) {
-    const existingSkillIdx = parts.findIndex((part) => part.type === "skill-load");
-    const skillPart: SkillLoadPart = {
-      id: existingSkillIdx >= 0
-        ? parts[existingSkillIdx]!.id
-        : `skill-load-${message.id}`,
-      type: "skill-load",
-      skills: message.skillLoads as MessageSkillLoad[],
-      createdAt: existingSkillIdx >= 0
-        ? parts[existingSkillIdx]!.createdAt
-        : message.timestamp,
-    };
-    if (existingSkillIdx >= 0) {
-      parts[existingSkillIdx] = skillPart;
-    } else {
-      const insertIndex = parts.findIndex((part) => part.type !== "mcp-snapshot");
-      if (insertIndex === -1) {
-        parts.push(skillPart);
-      } else {
-        parts.splice(insertIndex, 0, skillPart);
-      }
-    }
   }
 
   if (message.id.startsWith("compact_")) {
@@ -141,7 +91,7 @@ function getRenderableAssistantParts(
     if (existingCompactionIdx >= 0) {
       parts[existingCompactionIdx] = compactionPart;
     } else {
-      parts.unshift(compactionPart);
+      parts.push(compactionPart);
     }
     return parts;
   }
@@ -155,34 +105,22 @@ function getRenderableAssistantParts(
       isStreaming: Boolean(message.streaming),
       createdAt: message.timestamp,
     };
-    const insertIndex = parts.findIndex((part) => part.type !== "mcp-snapshot");
-    if (insertIndex === -1) {
-      parts.push(textPart);
-    } else {
-      parts.splice(insertIndex, 0, textPart);
-    }
-  }
-
-  if (hideAskUserQuestion) {
-    parts = parts.filter((part) => {
-      if (part.type !== "tool") return true;
-      const toolPart = part as ToolPart;
-      const isHitlTool = toolPart.toolName === "AskUserQuestion"
-        || toolPart.toolName === "question"
-        || toolPart.toolName === "ask_user";
-      return !(isHitlTool && toolPart.pendingQuestion);
-    });
+    parts.push(textPart);
   }
 
   return parts;
 }
 
 export function MessageBubble({
+  activeBackgroundAgentCount,
+  activeHitlToolCallId,
+  activeQuestion,
   message,
   isLast,
+  isVerbose = false,
   syntaxStyle,
-  hideAskUserQuestion = false,
   hideLoading = false,
+  handleQuestionAnswer,
   todoItems,
   tasksExpanded = false,
   workflowSessionDir,
@@ -218,8 +156,8 @@ export function MessageBubble({
           marginBottom={SPACING.NONE}
         >
           <text wrapMode="char" selectable>
-            <span style={{ fg: themeColors.dim }}>{PROMPT.cursor} </span>
-            <span style={{ fg: themeColors.muted }}>
+            <span fg={themeColors.dim}>{PROMPT.cursor} </span>
+            <span fg={themeColors.muted}>
               {collapsedLabel}
             </span>
           </text>
@@ -228,7 +166,7 @@ export function MessageBubble({
     }
 
     if (message.role === "assistant") {
-      const toolCount = message.toolCalls?.length ?? 0;
+      const toolCount = (message.parts ?? []).filter((p) => p.type === "tool").length;
       const toolLabel = toolCount > 0
         ? ` ${MISC.separator} ${toolCount} tool${toolCount !== 1 ? "s" : ""}`
         : "";
@@ -239,11 +177,11 @@ export function MessageBubble({
           marginBottom={isLast ? SPACING.NONE : SPACING.ELEMENT}
         >
           <text wrapMode="char">
-            <span style={{ fg: themeColors.dim }}>  {CONNECTOR.subStatus} </span>
-            <span style={{ fg: themeColors.muted }}>
+            <span fg={themeColors.dim}>  {CONNECTOR.subStatus} </span>
+            <span fg={themeColors.muted}>
               {truncate(message.content, 74)}
             </span>
-            <span style={{ fg: themeColors.dim }}>{toolLabel}</span>
+            <span fg={themeColors.dim}>{toolLabel}</span>
           </text>
         </box>
       );
@@ -256,7 +194,7 @@ export function MessageBubble({
         paddingRight={SPACING.CONTAINER_PAD}
         marginBottom={isLast ? SPACING.NONE : SPACING.ELEMENT}
       >
-        <text wrapMode="char" style={{ fg: isCollapsedError ? themeColors.error : themeColors.muted }}>
+        <text wrapMode="char" fg={isCollapsedError ? themeColors.error : themeColors.muted}>
           {truncate(message.content, 80)}
         </text>
       </box>
@@ -276,12 +214,10 @@ export function MessageBubble({
         ) : (
           <box flexGrow={1} flexShrink={1} minWidth={0}>
             <text wrapMode="char">
-              <span style={{ fg: themeColors.accent }}>{PROMPT.cursor} </span>
+              <span fg={themeColors.accent}>{PROMPT.cursor} </span>
               <span
-                style={{
-                  bg: themeColors.userBubbleBg,
-                  fg: themeColors.userBubbleFg,
-                }}
+                bg={themeColors.userBubbleBg}
+                fg={themeColors.userBubbleFg}
               >
                 {" "}{message.content}{" "}
               </span>
@@ -304,7 +240,6 @@ export function MessageBubble({
     const assistantParts = getRenderableAssistantParts(
       message,
       Boolean(isLast),
-      hideAskUserQuestion,
     );
     const renderableMessage = {
       ...message,
@@ -321,6 +256,7 @@ export function MessageBubble({
     const showLoadingIndicator = shouldShowMessageLoadingIndicator(
       message,
       liveTaskItems,
+      activeBackgroundAgentCount,
     );
 
     return (
@@ -333,6 +269,9 @@ export function MessageBubble({
         <MessageBubbleParts
           message={renderableMessage}
           syntaxStyle={syntaxStyle}
+          activeHitlToolCallId={activeHitlToolCallId}
+          activeQuestion={activeQuestion}
+          handleQuestionAnswer={handleQuestionAnswer}
           onAgentDoneRendered={(marker) => {
             onAgentDoneRendered?.({
               messageId: message.id,
@@ -352,7 +291,7 @@ export function MessageBubble({
 
         {message.wasInterrupted && !message.streaming && (
           <box marginTop={SPACING.ELEMENT}>
-            <text style={{ fg: themeColors.error }}>
+            <text fg={themeColors.warning}>
               {STATUS.active} Operation cancelled by user
             </text>
           </box>
@@ -366,18 +305,17 @@ export function MessageBubble({
               ? SPACING.ELEMENT
               : SPACING.NONE}
           >
-            <text>
-              <LoadingIndicator
-                verbOverride={message.spinnerVerb}
-                elapsedMs={elapsedMs}
-                outputTokens={streamingMeta?.outputTokens ?? message.outputTokens}
-                thinkingMs={streamingMeta?.thinkingMs ?? message.thinkingMs}
-              />
-            </text>
+            <LoadingIndicator
+              verbOverride={message.spinnerVerb}
+              elapsedMs={elapsedMs}
+              outputTokens={streamingMeta?.outputTokens ?? message.outputTokens}
+              thinkingMs={streamingMeta?.thinkingMs ?? message.thinkingMs}
+              isStreaming={Boolean(message.streaming)}
+            />
           </box>
         )}
 
-        {shouldShowCompletionSummary(message, hasActiveBackgroundAgents) && (
+        {shouldShowCompletionSummary(message, hasActiveBackgroundAgents, activeBackgroundAgentCount) && (
           <box marginTop={SPACING.ELEMENT}>
             <CompletionSummary
               durationMs={message.durationMs!}
@@ -386,6 +324,8 @@ export function MessageBubble({
             />
           </box>
         )}
+
+
       </box>
     );
   }
@@ -399,7 +339,7 @@ export function MessageBubble({
       paddingLeft={SPACING.CONTAINER_PAD}
       paddingRight={SPACING.CONTAINER_PAD}
     >
-      <text wrapMode="char" style={{ fg: isErrorMessage ? themeColors.error : themeColors.muted }}>
+      <text wrapMode="char" fg={isErrorMessage ? themeColors.error : themeColors.muted}>
         {message.content}
       </text>
     </box>

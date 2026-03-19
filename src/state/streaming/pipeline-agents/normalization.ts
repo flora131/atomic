@@ -1,4 +1,4 @@
-import type { ParallelAgent } from "@/components/parallel-agents-tree.tsx";
+import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import { normalizeMarkdownNewlines } from "@/lib/ui/format.ts";
 import type { AgentPart, Part } from "@/state/parts/types.ts";
 

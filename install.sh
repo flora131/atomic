@@ -41,17 +41,23 @@ install_bun_if_missing() {
     fi
 
     info "bun not detected. Installing bun..."
-    if curl -fsSL https://bun.sh/install | bash >/dev/null 2>&1; then
+    local install_log
+    install_log=$(mktemp)
+    if curl -fsSL https://bun.sh/install | bash >"$install_log" 2>&1; then
         export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
         export PATH="$BUN_INSTALL/bin:$PATH"
     fi
 
     if command -v bun >/dev/null 2>&1; then
+        rm -f "$install_log"
         info "bun installed successfully"
         return 0
     fi
 
-    warn "Failed to install bun automatically. Install bun manually from https://bun.sh"
+    warn "Failed to install bun automatically. Install log:"
+    cat "$install_log" >&2
+    rm -f "$install_log"
+    warn "Install bun manually from https://bun.sh"
     return 1
 }
 
@@ -61,16 +67,22 @@ install_uv_if_missing() {
     fi
 
     info "uv not detected. Installing uv..."
-    if curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null 2>&1; then
+    local install_log
+    install_log=$(mktemp)
+    if curl -LsSf https://astral.sh/uv/install.sh | sh >"$install_log" 2>&1; then
         export PATH="$HOME/.local/bin:$PATH"
     fi
 
     if command -v uv >/dev/null 2>&1; then
+        rm -f "$install_log"
         info "uv installed successfully"
         return 0
     fi
 
-    warn "Failed to install uv automatically. Install uv manually from https://docs.astral.sh/uv/"
+    warn "Failed to install uv automatically. Install log:"
+    cat "$install_log" >&2
+    rm -f "$install_log"
+    warn "Install uv manually from https://docs.astral.sh/uv/"
     return 1
 }
 
@@ -81,32 +93,38 @@ install_npm_if_missing() {
 
     info "npm not detected. Installing Node.js/npm..."
     local installed=0
+    local install_log
+    install_log=$(mktemp)
 
     if command -v brew >/dev/null 2>&1; then
-        if brew install node >/dev/null 2>&1; then installed=1; fi
+        if brew install node >>"$install_log" 2>&1; then installed=1; fi
     elif command -v apt-get >/dev/null 2>&1; then
-        if run_with_optional_sudo apt-get update >/dev/null 2>&1 &&
-            run_with_optional_sudo apt-get install -y nodejs npm >/dev/null 2>&1; then
+        if run_with_optional_sudo apt-get update >>"$install_log" 2>&1 &&
+            run_with_optional_sudo apt-get install -y nodejs npm >>"$install_log" 2>&1; then
             installed=1
         fi
     elif command -v dnf >/dev/null 2>&1; then
-        if run_with_optional_sudo dnf install -y nodejs npm >/dev/null 2>&1; then installed=1; fi
+        if run_with_optional_sudo dnf install -y nodejs npm >>"$install_log" 2>&1; then installed=1; fi
     elif command -v yum >/dev/null 2>&1; then
-        if run_with_optional_sudo yum install -y nodejs npm >/dev/null 2>&1; then installed=1; fi
+        if run_with_optional_sudo yum install -y nodejs npm >>"$install_log" 2>&1; then installed=1; fi
     elif command -v pacman >/dev/null 2>&1; then
-        if run_with_optional_sudo pacman -Sy --noconfirm nodejs npm >/dev/null 2>&1; then installed=1; fi
+        if run_with_optional_sudo pacman -Sy --noconfirm nodejs npm >>"$install_log" 2>&1; then installed=1; fi
     elif command -v zypper >/dev/null 2>&1; then
-        if run_with_optional_sudo zypper --non-interactive install nodejs npm >/dev/null 2>&1; then installed=1; fi
+        if run_with_optional_sudo zypper --non-interactive install nodejs npm >>"$install_log" 2>&1; then installed=1; fi
     elif command -v apk >/dev/null 2>&1; then
-        if run_with_optional_sudo apk add --no-cache nodejs npm >/dev/null 2>&1; then installed=1; fi
+        if run_with_optional_sudo apk add --no-cache nodejs npm >>"$install_log" 2>&1; then installed=1; fi
     fi
 
     if [[ $installed -eq 1 ]] && command -v npm >/dev/null 2>&1; then
+        rm -f "$install_log"
         info "npm installed successfully"
         return 0
     fi
 
-    warn "Failed to install npm automatically. Install Node.js/npm manually."
+    warn "Failed to install npm automatically. Install log:"
+    cat "$install_log" >&2
+    rm -f "$install_log"
+    warn "Install Node.js/npm manually."
     return 1
 }
 

@@ -318,7 +318,6 @@ export function useChatStreamRuntime({
     handleStreamComplete,
     handleStreamStartupError,
     startAssistantStream,
-    terminateAgentLifecycleContractViolation,
   } = useChatStreamLifecycle({
     activeBackgroundAgentCountRef,
     activeStreamRunIdRef,
@@ -505,7 +504,6 @@ export function useChatStreamRuntime({
       shouldHideActiveStreamContent,
       startAssistantStream,
       stopSharedStreamState,
-      terminateAgentLifecycleContractViolation,
       trackAwaitedRun,
     },
   };

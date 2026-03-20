@@ -3,7 +3,7 @@ import type { BatchDispatcher } from "@/services/events/batch-dispatcher.ts";
 import type { AskUserQuestionEventData } from "@/services/workflows/graph/index.ts";
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type { ChatMessage, MessageSkillLoad, StreamingMeta } from "@/state/chat/shared/types/index.ts";
-import type { AgentLifecycleLedger, AgentLifecycleViolationCode } from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
+import type { AgentLifecycleLedger } from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
 import type { AgentOrderingEvent, AgentOrderingState } from "@/state/chat/shared/helpers/agent-ordering-contract.ts";
 import type { SessionLoopFinishReason } from "@/state/chat/shared/helpers/stream-continuation.ts";
 import type { DeferredPostCompleteDelta } from "@/state/chat/shared/types/stream-runtime.ts";
@@ -63,11 +63,6 @@ export interface UseStreamSubscriptionsArgs {
   streamingStartRef: RefObject<number | null>;
   deferredCompleteTimeoutRef: RefObject<ReturnType<typeof setTimeout> | null>;
   pendingCompleteRef: RefObject<(() => void) | null>;
-  terminateAgentLifecycleContractViolation: (args: {
-    code: AgentLifecycleViolationCode;
-    eventType: "stream.agent.start" | "stream.agent.update" | "stream.agent.complete";
-    agentId: string;
-  }) => void;
   toolMessageIdByIdRef: RefObject<Map<string, string>>;
   toolNameByIdRef: RefObject<Map<string, string>>;
   activeBackgroundAgentCountRef: RefObject<number>;

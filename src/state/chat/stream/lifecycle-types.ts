@@ -1,6 +1,5 @@
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import type { AgentType } from "@/services/models/index.ts";
-import type { AgentLifecycleViolationCode } from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
 import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 import type { SessionLoopFinishReason } from "@/state/chat/shared/helpers/stream-continuation.ts";
 import type { ChatMessage, StreamingMeta } from "@/state/chat/shared/types/index.ts";
@@ -84,9 +83,4 @@ export interface UseChatStreamLifecycleResult {
     content: string,
     options?: StreamMessageOptions,
   ) => StreamRunHandle | null;
-  terminateAgentLifecycleContractViolation: (args: {
-    code: AgentLifecycleViolationCode;
-    eventType: "stream.agent.start" | "stream.agent.update" | "stream.agent.complete";
-    agentId: string;
-  }) => void;
 }

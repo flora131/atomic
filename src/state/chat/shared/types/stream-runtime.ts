@@ -2,7 +2,7 @@ import type { Dispatch, RefObject, SetStateAction } from "react";
 import type { OwnershipTracker } from "@/services/events/consumers/wire-consumers.ts";
 import type { Session } from "@/services/agents/types.ts";
 import type { AgentType } from "@/services/models/index.ts";
-import type { AgentLifecycleLedger, AgentLifecycleViolationCode } from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
+import type { AgentLifecycleLedger } from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
 import type { AgentOrderingEvent, AgentOrderingState } from "@/state/chat/shared/helpers/agent-ordering-contract.ts";
 import type { AutoCompactionIndicatorState } from "@/state/chat/shared/helpers/auto-compaction-lifecycle.ts";
 import type { SessionLoopFinishReason } from "@/state/chat/shared/helpers/stream-continuation.ts";
@@ -154,11 +154,6 @@ export interface UseChatStreamRuntimeResult {
       preserveStreamingStart?: boolean;
       preserveStreamingMeta?: boolean;
       hasActiveBackgroundAgents?: boolean;
-    }) => void;
-    terminateAgentLifecycleContractViolation: (args: {
-      code: AgentLifecycleViolationCode;
-      eventType: "stream.agent.start" | "stream.agent.update" | "stream.agent.complete";
-      agentId: string;
     }) => void;
     trackAwaitedRun: (handle: StreamRunHandle | null) => StreamRunHandle | null;
   };

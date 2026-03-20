@@ -9,7 +9,8 @@ interface TodoWriteItem {
 }
 
 function getTodos(props: ToolRenderProps): TodoWriteItem[] {
-  return (props.input.todos as TodoWriteItem[] | undefined) ?? [];
+  const todos = props.input.todos;
+  return Array.isArray(todos) ? todos : [];
 }
 
 function getTodoWriteTitle(props: ToolRenderProps): string {

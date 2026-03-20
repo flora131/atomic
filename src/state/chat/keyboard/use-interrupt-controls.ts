@@ -21,7 +21,6 @@ import { useInterruptConfirmation } from "@/state/chat/keyboard/use-interrupt-co
 
 export function useChatInterruptControls({
   activeBackgroundAgentCountRef,
-  activeQuestion,
   activeHitlToolCallIdRef,
   awaitedStreamRunIdsRef,
   clearDeferredCompletion,
@@ -29,8 +28,6 @@ export function useChatInterruptControls({
   finalizeTaskItemsOnInterrupt,
   finalizeThinkingSourceTracking,
   getActiveStreamRunId,
-  handleCopy,
-  hasRendererSelection,
   onExit,
   onInterrupt,
   onTerminateBackgroundAgents,
@@ -42,7 +39,6 @@ export function useChatInterruptControls({
   setMessagesWindowed,
   setParallelAgents,
   shouldHideActiveStreamContent,
-  showModelSelector,
   stopSharedStreamState,
   streamingMessageIdRef,
   streamingMetaRef,
@@ -58,7 +54,6 @@ export function useChatInterruptControls({
 }: Pick<
   UseChatKeyboardArgs,
   | "activeBackgroundAgentCountRef"
-  | "activeQuestion"
   | "activeHitlToolCallIdRef"
   | "awaitedStreamRunIdsRef"
   | "clearDeferredCompletion"
@@ -66,8 +61,6 @@ export function useChatInterruptControls({
   | "finalizeTaskItemsOnInterrupt"
   | "finalizeThinkingSourceTracking"
   | "getActiveStreamRunId"
-  | "handleCopy"
-  | "hasRendererSelection"
   | "isStreamingRef"
   | "lastStreamingContentRef"
   | "onExit"
@@ -82,7 +75,6 @@ export function useChatInterruptControls({
   | "setMessagesWindowed"
   | "setParallelAgents"
   | "shouldHideActiveStreamContent"
-  | "showModelSelector"
   | "stopSharedStreamState"
   | "streamingMessageIdRef"
   | "streamingMetaRef"
@@ -130,12 +122,6 @@ export function useChatInterruptControls({
   }, [updateWorkflowState, waitForUserInputResolverRef]);
 
   const handleCtrlCKey = useCallback((_event: KeyEvent): boolean => {
-    const textarea = textareaRef.current;
-    if (!activeQuestion && !showModelSelector && (textarea?.hasSelection() || hasRendererSelection())) {
-      void handleCopy();
-      return true;
-    }
-
     if (isStreamingRef.current) {
       onInterrupt?.();
       parallelInterruptHandlerRef.current?.();
@@ -242,11 +228,14 @@ export function useChatInterruptControls({
       }
     }
 
-    if (textarea?.plainText) {
-      textarea.gotoBufferHome();
-      textarea.gotoBufferEnd({ select: true });
-      textarea.deleteChar();
-      return true;
+    {
+      const textarea = textareaRef.current;
+      if (textarea?.plainText) {
+        textarea.gotoBufferHome();
+        textarea.gotoBufferEnd({ select: true });
+        textarea.deleteChar();
+        return true;
+      }
     }
 
     const nextCount = interruptCount + 1;
@@ -264,7 +253,6 @@ export function useChatInterruptControls({
     return true;
   }, [
     activeHitlToolCallIdRef,
-    activeQuestion,
     awaitedStreamRunIdsRef,
     cancelWorkflow,
     clearDeferredCompletion,
@@ -273,8 +261,6 @@ export function useChatInterruptControls({
     finalizeTaskItemsOnInterrupt,
     finalizeThinkingSourceTracking,
     getActiveStreamRunId,
-    handleCopy,
-    hasRendererSelection,
     interruptCount,
     isStreamingRef,
     lastStreamingContentRef,
@@ -287,7 +273,6 @@ export function useChatInterruptControls({
     setMessagesWindowed,
     setParallelAgents,
     shouldHideActiveStreamContent,
-    showModelSelector,
     stopSharedStreamState,
     streamingMessageIdRef,
     streamingMetaRef,

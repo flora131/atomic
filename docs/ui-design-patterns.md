@@ -109,14 +109,14 @@ Each sub-agent renders as its own independent block prefixed with `●`. Paralle
 
     ```
     [CHATBOX]
-    [N] local agents · ctrl+f to kill all background tasks
+    [N] local agents
     ```
 
     When the chatbox is streaming AND background agents are running, the footer combines both:
 
     ```
     [CHATBOX]
-    esc to interrupt · [N] local agents · ctrl+f to kill all background tasks
+    esc to interrupt · [N] local agents
     ```
 
 2. During execution: N/A, footer status text is updated with agent count.

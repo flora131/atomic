@@ -242,7 +242,7 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
     if (state.backgroundAgentsTerminated) {
       state.backgroundAgentsTerminated = false;
       effectiveContent =
-        "[System: All background agents were terminated by the user (Ctrl+F). "
+        "[System: All background agents were terminated by the user (Ctrl+C). "
         + "Do not reference or wait for any previously running background agents.]\n\n"
         + content;
     }

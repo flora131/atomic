@@ -101,7 +101,7 @@ export function useChatStreamDeferredCompletion({
     // but background agents are still active. Store a deferred completion
     // that will be invoked when the last background agent completes.
     // No safety timeout — background agents have their own lifecycle
-    // managed by Ctrl+F termination.
+    // managed by Ctrl+C / ESC termination.
     if (hasBackground) {
       const deferredMessageId = context.messageId;
       pendingCompleteRef.current = () => {

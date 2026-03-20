@@ -28,7 +28,6 @@ export function useChatKeyboard({
   handleCopy,
   handleInputChange,
   handleTextareaContentChange,
-  hasRendererSelection,
   historyIndexRef,
   historyNavigatingRef,
   isEditingQueue,
@@ -75,7 +74,6 @@ export function useChatKeyboard({
     handleEscapeKey,
   } = useChatInterruptControls({
     activeBackgroundAgentCountRef,
-    activeQuestion,
     activeHitlToolCallIdRef,
     awaitedStreamRunIdsRef,
     clearDeferredCompletion,
@@ -83,8 +81,6 @@ export function useChatKeyboard({
     finalizeTaskItemsOnInterrupt,
     finalizeThinkingSourceTracking,
     getActiveStreamRunId,
-    handleCopy,
-    hasRendererSelection,
     isStreamingRef,
     lastStreamingContentRef,
     onExit,
@@ -99,7 +95,6 @@ export function useChatKeyboard({
     setMessagesWindowed,
     setParallelAgents,
     shouldHideActiveStreamContent,
-    showModelSelector,
     stopSharedStreamState,
     streamingMessageIdRef,
     streamingMetaRef,
@@ -118,7 +113,17 @@ export function useChatKeyboard({
         event.raw,
       );
 
-      if ((event.ctrl || event.meta) && event.name === "c") {
+      if ((event.ctrl || event.meta) && event.shift && event.name === "c") {
+        void handleCopy();
+        return;
+      }
+
+      if (event.meta && !event.ctrl && event.name === "c") {
+        void handleCopy();
+        return;
+      }
+
+      if (event.ctrl && !event.shift && event.name === "c") {
         if (handleCtrlCKey(event)) {
           return;
         }
@@ -209,11 +214,6 @@ export function useChatKeyboard({
 
       if (event.name === "return" && !event.shift && !event.meta && isEditingQueue) {
         setIsEditingQueue(false);
-      }
-
-      if (event.ctrl && event.shift && event.name === "c") {
-        void handleCopy();
-        return;
       }
 
       setTimeout(() => {

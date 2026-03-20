@@ -270,8 +270,11 @@ Do NOT spawn a sub-agent for a task whose dependencies are not yet completed.
 
 5. **Report a summary** when finished, listing each task and its final status.
 
-IMPORTANT: Spawn ALL ready tasks in parallel — do not wait for one to finish
-before starting another unblocked task.
+## IMPORTANT
+
+Spawn ALL ready tasks in parallel — do not wait for one to finish
+before starting another unblocked task. Do NOT serialize task execution
+when multiple tasks are ready simultaneously.
 
 ## Concurrency Guidelines
 

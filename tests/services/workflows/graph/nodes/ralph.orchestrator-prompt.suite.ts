@@ -9,6 +9,19 @@ describe("buildOrchestratorPrompt", () => {
     // Core structure
     // ========================================================================
 
+    test("includes all spec-required section headings (§5.3)", () => {
+        const prompt = buildOrchestratorPrompt([]);
+
+        // Every section from the spec must be present as a markdown heading
+        expect(prompt).toContain("## Task List");
+        expect(prompt).toContain("## Dependency Rules");
+        expect(prompt).toContain("## Instructions");
+        expect(prompt).toContain("## IMPORTANT");
+        expect(prompt).toContain("## Concurrency Guidelines");
+        expect(prompt).toContain("## Error Handling for Dependencies");
+        expect(prompt).toContain("## Task Status Protocol");
+    });
+
     test("includes task list as JSON with all required fields", () => {
         const tasks: TaskItem[] = [
             {
@@ -189,6 +202,13 @@ describe("buildOrchestratorPrompt", () => {
 
         expect(prompt).toContain("Spawn ALL ready tasks in parallel");
         expect(prompt).toContain("do not wait for one to finish");
+    });
+
+    test("has IMPORTANT as its own section heading", () => {
+        const prompt = buildOrchestratorPrompt([]);
+
+        expect(prompt).toContain("## IMPORTANT");
+        expect(prompt).toContain("Do NOT serialize task execution");
     });
 
     test("instructs to use Task tool for sub-agent spawning", () => {

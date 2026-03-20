@@ -142,7 +142,7 @@ export function useChatInterruptControls({
     }
   }, [updateWorkflowState, waitForUserInputResolverRef]);
 
-  const handleCtrlCKey = useCallback((event: KeyEvent): boolean => {
+  const handleCtrlCKey = useCallback((_event: KeyEvent): boolean => {
     const textarea = textareaRef.current;
     if (!activeQuestion && !showModelSelector && (textarea?.hasSelection() || hasRendererSelection())) {
       void handleCopy();

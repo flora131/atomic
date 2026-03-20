@@ -158,7 +158,7 @@ export async function applyCommandResult(
 function upsertMcpSnapshotPart(
   parts: import("@/state/parts/types.ts").Part[],
   snapshot: import("@/lib/ui/mcp-output.ts").McpSnapshotView,
-  messageId: string,
+  _messageId: string,
 ): import("@/state/parts/types.ts").Part[] {
   const nextParts = [...parts];
   const existingIdx = nextParts.findIndex((part) => part.type === "mcp-snapshot");

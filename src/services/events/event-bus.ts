@@ -19,7 +19,7 @@ import type {
   WildcardHandler,
 } from "@/services/events/bus-events/index.ts";
 import { BusEventSchemas } from "@/services/events/bus-events/index.ts";
-import { pipelineLog, pipelineError } from "@/services/events/pipeline-logger.ts";
+import { pipelineError } from "@/services/events/pipeline-logger.ts";
 
 /**
  * Internal error reported by the event bus itself.

@@ -2,9 +2,8 @@ import type {
   Event as OpenCodeEvent,
   OpencodeClient as SdkClient,
 } from "@opencode-ai/sdk/v2/client";
-import type { AgentEvent, EventType } from "@/services/agents/types.ts";
+import type { EventType } from "@/services/agents/types.ts";
 import type {
-  OpenCodeProviderEventHandler,
   ProviderStreamEventDataMap,
   ProviderStreamEventType,
 } from "@/services/agents/provider-events.ts";

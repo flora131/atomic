@@ -87,7 +87,7 @@ export function useChatStreamConsumer({
   resolveAgentScopedMessageId,
   runningAskQuestionToolIdsRef,
   runningBlockingToolIdsRef,
-  sendBackgroundMessageToAgent,
+  sendBackgroundMessageToAgent: _sendBackgroundMessageToAgent,
   setMessagesWindowed,
   setParallelAgents,
   setStreamingMeta,

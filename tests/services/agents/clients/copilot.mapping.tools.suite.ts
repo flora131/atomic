@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { CopilotClient } from "@/services/agents/clients/copilot.ts";
 import {
   bindCopilotHandleSdkEvent,
-  createRunningCopilotClient,
   seedCopilotSession,
 } from "./copilot.mapping.test-support.ts";
 

@@ -128,9 +128,7 @@ export function useWorkflowHitl({
     }
   }, [workflowState.workflowActive]);
 
-  useEffect(() => {
-    workflowActiveRef.current = workflowState.workflowActive;
-  }, [workflowActiveRef, workflowState.workflowActive]);
+  workflowActiveRef.current = workflowState.workflowActive;
 
   useEffect(() => {
     if (!workflowState.workflowActive) {
@@ -435,7 +433,7 @@ export function useWorkflowHitl({
     } else if (selectedArray.includes("Reject")) {
       updateWorkflowState({ ralphState: { ...workflowState.ralphState, specApproved: false, pendingApproval: false } });
     }
-  }, [getSession, onWorkflowResumeWithAnswer, removePendingQuestion, setMessagesWindowed, updateWorkflowState, workflowState.workflowActive]);
+  }, [getSession, onWorkflowResumeWithAnswer, removePendingQuestion, setMessagesWindowed, updateWorkflowState, workflowState.ralphState, workflowState.workflowActive]);
 
   const resetHitlState = useCallback(() => {
     pendingQuestionsRef.current = [];

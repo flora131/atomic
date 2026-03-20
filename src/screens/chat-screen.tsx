@@ -7,7 +7,7 @@
  * Reference: Feature 15 - Implement terminal chat UI
  */
 
-import React, { useState, useCallback, useRef } from "react";
+import React, { useState, useRef } from "react";
 import {
   ChatShell,
   useChatStreamRuntime,
@@ -88,9 +88,7 @@ export function ChatApp({
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingMeta, setStreamingMeta] = useState<StreamingMeta | null>(null);
-  const setMessagesWindowed = useCallback((next: React.SetStateAction<ChatMessage[]>) => {
-    setMessages(next);
-  }, []);
+  const setMessagesWindowed = setMessages;
 
   const [workflowState, setWorkflowState] = useState<WorkflowChatState>(defaultWorkflowChatState);
   const shellState = useChatShellState({

@@ -265,24 +265,10 @@ export function ToolResult({
   initialExpanded = false,
   maxCollapsedLines = 5,
 }: ToolResultProps): React.ReactNode {
-  // Skill tool: render SkillLoadIndicator directly, bypassing standard tool result layout
   const normalizedToolName = toolName.toLowerCase();
-  if (normalizedToolName === "skill") {
-    const skillName = (input.skill as string) || (input.name as string) || "unknown";
-    const skillStatus: SkillLoadStatus =
-      status === "completed" ? "loaded" : status === "error" ? "error" : "loading";
-    const errorMessage = status === "error" && typeof output === "string" ? output : undefined;
-    return (
-      <box>
-        <SkillLoadIndicator
-          skillName={skillName}
-          status={skillStatus}
-          errorMessage={errorMessage}
-        />
-      </box>
-    );
-  }
+  const isSkillTool = normalizedToolName === "skill";
 
+  // All hooks must be called unconditionally (Rules of Hooks)
   const { theme } = useTheme();
   const colors = theme.colors;
   const [expanded] = useState(initialExpanded);
@@ -333,6 +319,23 @@ export function ToolResult({
   );
 
   const isExpanded = expanded;
+
+  // Skill tool: render SkillLoadIndicator directly (early return after all hooks)
+  if (isSkillTool) {
+    const skillName = (input.skill as string) || (input.name as string) || "unknown";
+    const skillStatus: SkillLoadStatus =
+      status === "completed" ? "loaded" : status === "error" ? "error" : "loading";
+    const errorMessage = status === "error" && typeof output === "string" ? output : undefined;
+    return (
+      <box>
+        <SkillLoadIndicator
+          skillName={skillName}
+          status={skillStatus}
+          errorMessage={errorMessage}
+        />
+      </box>
+    );
+  }
 
   // Determine icon color based on status
   const iconColor = hasError ? colors.error : colors.accent;

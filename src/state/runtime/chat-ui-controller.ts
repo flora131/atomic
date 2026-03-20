@@ -296,7 +296,8 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
           } finally {
             retryAdapter.dispose();
           }
-        } catch {
+        } catch (retryError) {
+          console.error("[chat-ui-controller] Session retry failed:", retryError);
           state.currentRunId = null;
         }
         return;

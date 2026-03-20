@@ -141,13 +141,8 @@ export function useChatDispatchController({
     }
   }, []);
 
-  useEffect(() => {
-    dispatchQueuedMessageRef.current = dispatchQueuedMessage;
-  }, [dispatchQueuedMessage, dispatchQueuedMessageRef]);
-
-  useEffect(() => {
-    dispatchDeferredCommandMessageRef.current = dispatchDeferredCommandMessage;
-  }, [dispatchDeferredCommandMessage, dispatchDeferredCommandMessageRef]);
+  dispatchQueuedMessageRef.current = dispatchQueuedMessage;
+  dispatchDeferredCommandMessageRef.current = dispatchDeferredCommandMessage;
 
   const addMessage = useCallback((role: "user" | "assistant" | "system", content: string) => {
     const streaming = role === "assistant" && isStreamingRef.current;
@@ -317,13 +312,8 @@ export function useChatDispatchController({
     startAssistantStream(content);
   }, [onSendMessage, setMessagesWindowed, startAssistantStream]);
 
-  useEffect(() => {
-    sendMessageRef.current = sendMessage;
-  }, [sendMessage]);
-
-  useEffect(() => {
-    executeCommandRef.current = executeCommand;
-  }, [executeCommand]);
+  sendMessageRef.current = sendMessage;
+  executeCommandRef.current = executeCommand;
 
   const handleModelSelect = useCallback(async (selectedModel: Model, reasoningEffort?: string) => {
     setShowModelSelector(false);

@@ -45,7 +45,7 @@ export function useChatRenderModel({
   lastStreamedMessageId,
   markdownSyntaxStyle,
   messages,
-  parallelAgents,
+  parallelAgents: _parallelAgents,
   showTodoPanel,
   streamingElapsedMs,
   streamingMessageId,

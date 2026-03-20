@@ -82,9 +82,13 @@ export function useComposerInputState({
 
   useEffect(() => {
     void (async () => {
-      const persisted = await loadCommandHistory();
-      if (persisted.length > 0) {
-        promptHistoryRef.current = persisted;
+      try {
+        const persisted = await loadCommandHistory();
+        if (persisted.length > 0) {
+          promptHistoryRef.current = persisted;
+        }
+      } catch {
+        // loadCommandHistory has internal error handling; this guards against unexpected rejections
       }
     })();
   }, []);
@@ -202,12 +206,13 @@ export function useComposerInputState({
 
   const autocompleteSuggestions = useMemo(() => {
     return getComposerAutocompleteSuggestions(workflowState);
-  }, [workflowState]);
+  }, [workflowState.showAutocomplete, workflowState.autocompleteMode, workflowState.autocompleteInput]);
 
   useEffect(() => {
-    setTimeout(() => {
+    const timerId = setTimeout(() => {
       syncInputScrollbar();
     }, 0);
+    return () => clearTimeout(timerId);
   }, [syncInputScrollbar, workflowState.argumentHint]);
 
   useEffect(() => {

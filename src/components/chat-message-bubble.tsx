@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useCallback } from "react";
 import { PROMPT, STATUS, CONNECTOR, MISC } from "@/theme/icons.ts";
 import { SPACING } from "@/theme/spacing.ts";
 import { useThemeColors } from "@/theme/index.tsx";
@@ -115,7 +115,7 @@ export function MessageBubble({
   activeBackgroundAgentCount,
   message,
   isLast,
-  isVerbose = false,
+  isVerbose: _isVerbose = false,
   syntaxStyle,
   hideLoading = false,
   todoItems,
@@ -133,6 +133,14 @@ export function MessageBubble({
     ? workflowSessionDir
     : null;
   const shouldShowPersistentTaskPanel = persistentTaskPanelSessionDir !== null;
+
+  const handleAgentDoneRendered = useCallback((marker: { agentId: string; timestampMs: number }) => {
+    onAgentDoneRendered?.({
+      messageId: message.id,
+      agentId: marker.agentId,
+      timestampMs: marker.timestampMs,
+    });
+  }, [message.id, onAgentDoneRendered]);
 
   if (collapsed && !message.streaming) {
     const truncate = (text: string, maxLen: number) => {
@@ -266,13 +274,7 @@ export function MessageBubble({
         <MessageBubbleParts
           message={renderableMessage}
           syntaxStyle={syntaxStyle}
-          onAgentDoneRendered={(marker) => {
-            onAgentDoneRendered?.({
-              messageId: message.id,
-              agentId: marker.agentId,
-              timestampMs: marker.timestampMs,
-            });
-          }}
+          onAgentDoneRendered={handleAgentDoneRendered}
         />
 
         {persistentTaskPanelSessionDir && (

@@ -3,7 +3,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { EventBus } from "@/services/events/event-bus.ts";
 import { ClaudeStreamAdapter } from "@/services/events/adapters/claude-adapter.ts";
-import type { AgentEvent, AgentMessage, EventType } from "@/services/agents/types.ts";
+import type { AgentEvent, EventType } from "@/services/agents/types.ts";
 import {
   collectEvents,
   createMockClient,

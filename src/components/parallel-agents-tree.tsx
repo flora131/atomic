@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import type { SyntaxStyle } from "@opentui/core";
 import { getCatppuccinPalette, useThemeColors } from "@/theme/index.tsx";
 import { formatDuration as formatDurationObj, truncateText } from "@/lib/ui/format.ts";
@@ -293,7 +293,7 @@ export function ParallelAgentsTree({
   onAgentDoneRendered,
 }: ParallelAgentsTreeProps): React.ReactNode {
   const allAgents = agents;
-  const visibleAgents = allAgents.slice(0, maxVisible);
+  const visibleAgents = useMemo(() => allAgents.slice(0, maxVisible), [allAgents, maxVisible]);
   const hiddenCount = allAgents.length - visibleAgents.length;
   const colors = useThemeColors();
   const doneRenderedAgentIdsRef = useRef<Set<string>>(new Set());

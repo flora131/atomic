@@ -8,7 +8,6 @@ import {
   collectEvents,
   createMockClient,
   createMockSession,
-  mockAsyncStream,
 } from "./adapter-test-support.ts";
 
 describe("CopilotStreamAdapter synthetic foreground ownership", () => {

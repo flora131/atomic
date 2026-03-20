@@ -1,6 +1,10 @@
 {
   "scm": "github",
   "version": 1,
+<<<<<<< Updated upstream
   "lastUpdated": "2026-03-19T20:19:55.738Z",
+=======
+  "lastUpdated": "2026-03-20T00:12:24.918Z",
+>>>>>>> Stashed changes
   "$schema": "https://raw.githubusercontent.com/flora131/atomic/main/assets/settings.schema.json"
 }

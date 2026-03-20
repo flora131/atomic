@@ -2,7 +2,6 @@ import { useCallback } from "react";
 import { globalRegistry } from "@/commands/tui/index.ts";
 import type { CommandResult } from "@/commands/tui/registry.ts";
 import type {
-  CommandExecutionTelemetry,
   CommandExecutionTrigger,
 } from "@/state/chat/shared/types/index.ts";
 import { createCommandContext, startCommandSpinner } from "@/state/chat/command/context-factory.ts";

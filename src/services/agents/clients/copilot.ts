@@ -6,7 +6,6 @@ import {
   CopilotClient as SdkCopilotClient,
   type CopilotClientOptions as SdkClientOptions,
   type CopilotSession as SdkCopilotSession,
-  type SessionConfig as SdkSessionConfig,
   type SessionEvent as SdkSessionEvent,
   type SessionEventType as SdkSessionEventType,
   type PermissionHandler as SdkPermissionHandler,

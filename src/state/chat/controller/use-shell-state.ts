@@ -111,9 +111,7 @@ export function useChatShellState({
   }, [currentModelDisplayName, model]);
 
   const currentModelRef = useRef(initialModelId ?? model);
-  useEffect(() => {
-    currentModelRef.current = currentModelId ?? initialModelId ?? model;
-  }, [currentModelId, initialModelId, model]);
+  currentModelRef.current = currentModelId ?? initialModelId ?? model;
 
   const { theme, toggleTheme, setTheme } = useTheme();
   const themeColors = theme.colors;

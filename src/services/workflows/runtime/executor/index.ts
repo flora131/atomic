@@ -87,7 +87,6 @@ export async function executeWorkflow(
     });
 
     pipelineLog("Workflow", "start", { workflow: definition.name, sessionId });
-    let lastStepStatus: string | null = null;
     incrementRuntimeParityCounter("workflow.runtime.parity.execution_total", {
         phase: "start",
         workflow: definition.name,
@@ -197,7 +196,7 @@ export async function executeWorkflow(
         // Phase 5: Stream graph execution with progress
         let sessionTracked = false;
         let lastNodeId: string | null = null;
-        let lastNodeCompletionStatus: "success" | "error" | "skipped" = "success";
+        let _lastNodeCompletionStatus: "success" | "error" | "skipped" = "success";
         let lastStepStatus: string | null = null;
         let lastStepError: string | undefined;
         const nodeDescriptions = definition.nodeDescriptions;
@@ -238,7 +237,7 @@ export async function executeWorkflow(
 
             // Show progress for node transitions
             if (step.nodeId !== lastNodeId) {
-                const description = nodeDescriptions?.[step.nodeId];
+                const _description = nodeDescriptions?.[step.nodeId];
                 
                 // Publish step complete event for previous node (if any)
                 // (Step events are informational only — no bus events needed)
@@ -246,7 +245,7 @@ export async function executeWorkflow(
                 lastNodeId = step.nodeId;
             }
 
-            lastNodeCompletionStatus = currentCompletionStatus;
+            _lastNodeCompletionStatus = currentCompletionStatus;
 
             // Sync task list to UI and session
             const state = step.state as BaseState & {

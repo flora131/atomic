@@ -7,7 +7,7 @@
 
 import type { ChatMessage } from "@/types/chat.ts";
 import { handleTextDelta } from "@/state/parts/handlers.ts";
-import type { AgentPart, TaskListPart, TextPart } from "@/state/parts/types.ts";
+import type { TaskListPart, TextPart } from "@/state/parts/types.ts";
 import {
   applyHitlResponse,
   applyToolPartialResultToParts,

@@ -68,7 +68,16 @@ export function ModelSelectorDialog({
   const { height: terminalHeight } = useTerminalDimensions();
   const scrollRef = useRef<ScrollBoxRenderable>(null);
 
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [selectedIndex, setSelectedIndex] = useState(() => {
+    if (currentModel && models.length > 0) {
+      const allModels = groupModelsByProvider(models).flatMap((g) => g.models);
+      const idx = allModels.findIndex(
+        (m) => m.id === currentModel || m.modelID === currentModel
+      );
+      if (idx !== -1) return idx;
+    }
+    return 0;
+  });
   /** When set, shows the reasoning level selector for this model */
   const [reasoningModel, setReasoningModel] = useState<Model | null>(null);
   const [reasoningIndex, setReasoningIndex] = useState(0);
@@ -115,18 +124,6 @@ export function ModelSelectorDialog({
   // Reserve space for header (4 rows), footer (2 rows), and outer chat app UI elements
   const maxListHeight = Math.max(5, terminalHeight - 12);
   const listHeight = Math.min(modelRowOffsets.totalRows, maxListHeight);
-
-  // Find index of current model on mount
-  useEffect(() => {
-    if (currentModel && flatModels.length > 0) {
-      const idx = flatModels.findIndex(
-        (m) => m.id === currentModel || m.modelID === currentModel
-      );
-      if (idx !== -1) {
-        setSelectedIndex(idx);
-      }
-    }
-  }, [currentModel, flatModels]);
 
   // Scroll to keep selected item visible
   useEffect(() => {

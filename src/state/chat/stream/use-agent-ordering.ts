@@ -178,7 +178,7 @@ export function useChatStreamAgentOrdering({
   const handleTextDeltaOrdering = useCallback((
     part: TextDeltaPart,
     messageId: string | null,
-    queueMessagePartUpdate: (messageId: string, update: StreamPartEvent) => void,
+    _queueMessagePartUpdate: (messageId: string, update: StreamPartEvent) => void,
   ): boolean => {
     const agentId = part.agentId;
     if (!agentId) {

@@ -48,6 +48,8 @@ export interface SpawnSubagentResult {
 export interface CommandContextState {
   isStreaming: boolean;
   messageCount: number;
+  model?: string;
+  pendingModel?: string;
   workflowActive?: boolean;
   workflowType?: string | null;
   initialPrompt?: string | null;

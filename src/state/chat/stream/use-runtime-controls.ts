@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import type { Dispatch, MutableRefObject, SetStateAction } from "react";
+import type { Dispatch, RefObject, SetStateAction } from "react";
 import type { ChatMessage, StreamingMeta } from "@/state/chat/shared/types/index.ts";
 import {
   createMessage,
@@ -18,20 +18,20 @@ import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 import { hasWorkflowTaskIdOverlap } from "@/state/chat/shared/helpers/workflow-task-state.ts";
 
 interface UseChatRuntimeControlsArgs {
-  activeForegroundRunHandleIdRef: MutableRefObject<string | null>;
+  activeForegroundRunHandleIdRef: RefObject<string | null>;
   appendCompactionSummaryAndSync: (summary: string) => void;
-  autoCompactionIndicatorRef: MutableRefObject<AutoCompactionIndicatorState>;
-  closedThinkingSourcesRef: MutableRefObject<Set<string>>;
-  deferredCompleteTimeoutRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
-  hasRunningToolRef: MutableRefObject<boolean>;
-  isAgentOnlyStreamRef: MutableRefObject<boolean>;
-  isStreamingRef: MutableRefObject<boolean>;
-  lastTurnFinishReasonRef: MutableRefObject<SessionLoopFinishReason | null>;
-  nextRunIdFloorRef: MutableRefObject<number | null>;
-  pendingCompleteRef: MutableRefObject<(() => void) | null>;
+  autoCompactionIndicatorRef: RefObject<AutoCompactionIndicatorState>;
+  closedThinkingSourcesRef: RefObject<Set<string>>;
+  deferredCompleteTimeoutRef: RefObject<ReturnType<typeof setTimeout> | null>;
+  hasRunningToolRef: RefObject<boolean>;
+  isAgentOnlyStreamRef: RefObject<boolean>;
+  isStreamingRef: RefObject<boolean>;
+  lastTurnFinishReasonRef: RefObject<SessionLoopFinishReason | null>;
+  nextRunIdFloorRef: RefObject<number | null>;
+  pendingCompleteRef: RefObject<(() => void) | null>;
   resetLoadedSkillTracking: (options?: { resetSessionBinding?: boolean }) => void;
-  runningAskQuestionToolIdsRef: MutableRefObject<Set<string>>;
-  runningBlockingToolIdsRef: MutableRefObject<Set<string>>;
+  runningAskQuestionToolIdsRef: RefObject<Set<string>>;
+  runningBlockingToolIdsRef: RefObject<Set<string>>;
   setCompactionSummary: Dispatch<SetStateAction<string | null>>;
   setIsAutoCompacting: Dispatch<SetStateAction<boolean>>;
   setIsStreaming: Dispatch<SetStateAction<boolean>>;
@@ -40,12 +40,12 @@ interface UseChatRuntimeControlsArgs {
   setStreamingMessageId: (messageId: string | null) => void;
   setStreamingMeta: Dispatch<SetStateAction<StreamingMeta | null>>;
   setTodoItems: Dispatch<SetStateAction<NormalizedTodoItem[]>>;
-  streamingMessageIdRef: MutableRefObject<string | null>;
-  streamingMetaRef: MutableRefObject<StreamingMeta | null>;
-  streamingStartRef: MutableRefObject<number | null>;
-  todoItemsRef: MutableRefObject<NormalizedTodoItem[]>;
-  workflowSessionIdRef: MutableRefObject<string | null>;
-  workflowTaskIdsRef: MutableRefObject<Set<string>>;
+  streamingMessageIdRef: RefObject<string | null>;
+  streamingMetaRef: RefObject<StreamingMeta | null>;
+  streamingStartRef: RefObject<number | null>;
+  todoItemsRef: RefObject<NormalizedTodoItem[]>;
+  workflowSessionIdRef: RefObject<string | null>;
+  workflowTaskIdsRef: RefObject<Set<string>>;
 }
 
 export function useChatRuntimeControls({

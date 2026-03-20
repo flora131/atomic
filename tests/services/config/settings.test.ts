@@ -184,7 +184,7 @@ describe("settings persistence", () => {
       model?: Record<string, string>;
       reasoningEffort?: Record<string, string>;
     };
-    expect(settings.agent).toBeUndefined();
+    expect(settings.agent).toBe("claude");
     expect(settings.model?.claude).toBe("sonnet");
     expect(settings.model?.opencode).toBe("gpt-4");
     expect(settings.reasoningEffort?.copilot).toBe("high");

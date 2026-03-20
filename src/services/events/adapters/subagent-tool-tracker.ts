@@ -19,6 +19,7 @@
 
 import type { EventBus } from "@/services/events/event-bus.ts";
 import type { BusEvent } from "@/services/events/bus-events/index.ts";
+import { toolDebug } from "@/services/events/adapters/providers/claude/tool-debug-log.ts";
 
 interface AgentToolState {
   toolCount: number;
@@ -96,6 +97,7 @@ export class SubagentToolTracker {
 
     state.toolCount += 1;
     state.currentTool = toolName;
+    toolDebug("tracker:onToolStart", { agentId, toolName, newCount: state.toolCount });
     this.publishUpdate(agentId, state);
   }
 
@@ -107,6 +109,7 @@ export class SubagentToolTracker {
     const state = this.agents.get(agentId);
     if (!state) return;
 
+    toolDebug("tracker:onToolComplete", { agentId, toolCount: state.toolCount });
     state.currentTool = undefined;
     this.publishUpdate(agentId, state);
   }
@@ -153,6 +156,14 @@ export class SubagentToolTracker {
       currentTool: fromState.currentTool ?? toState?.currentTool,
       isBackground: fromState.isBackground || (toState?.isBackground ?? false),
     };
+
+    toolDebug("tracker:transferAgent", {
+      fromAgentId,
+      toAgentId,
+      fromToolCount: fromState.toolCount,
+      toToolCount: toState?.toolCount ?? 0,
+      mergedToolCount: mergedState.toolCount,
+    });
 
     this.agents.set(toAgentId, mergedState);
     this.agents.delete(fromAgentId);

@@ -137,13 +137,33 @@ export function fromClaudeModelInfo(modelInfo: {
 }
 
 /**
+ * Shape of a model record returned by Copilot SDK's listModels().
+ * The SDK returns either an array or an object for `supports`, so both
+ * forms are accepted via a union type.
+ */
+export interface CopilotModelInfo {
+  id: string;
+  name: string;
+  capabilities?: {
+    limits?: {
+      maxContextWindowTokens?: number;
+      max_context_window_tokens?: number;
+      maxPromptTokens?: number;
+      output?: number;
+    };
+    supports?: string[] | Record<string, boolean | undefined>;
+  };
+  supportedReasoningEfforts?: string[];
+  defaultReasoningEffort?: string;
+}
+
+/**
  * Create a Model from Copilot SDK's ModelInfo
  * Passes through SDK model data directly - SDK returns correct model names
  * @param modelInfo - ModelInfo from Copilot SDK (listModels())
  * @returns Internal Model format
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function fromCopilotModelInfo(modelInfo: any): Model {
+export function fromCopilotModelInfo(modelInfo: CopilotModelInfo): Model {
   const limits = modelInfo.capabilities?.limits ?? {};
   const supports = modelInfo.capabilities?.supports ?? {};
 

@@ -11,6 +11,7 @@ import { isGenericSubagentTaskLabel } from "@/services/events/adapters/provider-
 import { normalizeAgentTaskMetadata } from "@/services/events/adapters/task-turn-normalization.ts";
 import { SubagentToolTracker } from "@/services/events/adapters/subagent-tool-tracker.ts";
 import type { ClaudeEarlyToolStartEvent, ClaudeTaskToolMetadata } from "@/services/events/adapters/providers/claude/tool-state.ts";
+import { toolDebug } from "@/services/events/adapters/providers/claude/tool-debug-log.ts";
 
 type ClaudeSubagentEventHandlerDependencies = {
   bus: EventBus;
@@ -145,18 +146,39 @@ export class ClaudeSubagentEventHandlers {
       });
       const agentId = parentToolUseId ?? sdkCorrelationId ?? data.subagentId;
 
+      toolDebug("subagentStart:register", {
+        agentId,
+        nativeSubagentId: data.subagentId,
+        parentToolUseId,
+        sdkCorrelationId,
+        subagentSessionId,
+        eventSessionId,
+        task: normalizedMetadata.task,
+        isBackground: normalizedMetadata.isBackground,
+      });
+
       this.deps.getSubagentTracker()?.registerAgent(agentId, {
         isBackground: normalizedMetadata.isBackground,
       });
       this.deps.activeSubagentIds.add(agentId);
       this.deps.nativeSubagentIdToAgentId.set(data.subagentId, agentId);
       if (subagentSessionId && subagentSessionId !== this.deps.sessionId) {
+        // Only map genuinely new sub-agent sessions. If the session ID is
+        // already owned (e.g. the main session's native SDK ID that was
+        // auto-registered by resolveEventSessionId), mapping it would
+        // incorrectly attribute main-session events to this sub-agent.
+        const subagentSessionAlreadyOwned = this.deps.getOwnedSessionIds().has(subagentSessionId);
         this.deps.getOwnedSessionIds().add(subagentSessionId);
-        this.deps.subagentSessionToAgentId.set(subagentSessionId, agentId);
+        if (!subagentSessionAlreadyOwned) {
+          this.deps.subagentSessionToAgentId.set(subagentSessionId, agentId);
+        }
       }
       if (eventSessionId !== this.deps.sessionId) {
+        const eventSessionAlreadyOwned = this.deps.getOwnedSessionIds().has(eventSessionId);
         this.deps.getOwnedSessionIds().add(eventSessionId);
-        this.deps.subagentSessionToAgentId.set(eventSessionId, agentId);
+        if (!eventSessionAlreadyOwned) {
+          this.deps.subagentSessionToAgentId.set(eventSessionId, agentId);
+        }
       }
       this.deps.activeSubagentBackgroundById.set(agentId, normalizedMetadata.isBackground);
       if (normalizedMetadata.isBackground && !this.deps.getCurrentBackgroundAttributionAgentId()) {
@@ -211,6 +233,12 @@ export class ClaudeSubagentEventHandlers {
         return;
       }
       const agentId = this.deps.resolveCanonicalAgentId(data.subagentId) ?? data.subagentId;
+      toolDebug("subagentComplete", {
+        nativeSubagentId: data.subagentId,
+        canonicalAgentId: agentId,
+        success: data.success,
+        remainingActiveAgents: [...this.deps.activeSubagentIds],
+      });
       this.deps.getSubagentTracker()?.removeAgent(agentId);
       this.deps.activeSubagentIds.delete(agentId);
       this.deps.activeSubagentBackgroundById.delete(agentId);
@@ -265,6 +293,12 @@ export class ClaudeSubagentEventHandlers {
         return;
       }
       const agentId = this.deps.resolveCanonicalAgentId(data.subagentId) ?? data.subagentId;
+      toolDebug("subagentUpdate:publish", {
+        nativeSubagentId: data.subagentId,
+        canonicalAgentId: agentId,
+        toolUses: data.toolUses,
+        currentTool: data.currentTool,
+      });
       this.deps.bus.publish({
         type: "stream.agent.update",
         sessionId: this.deps.sessionId,

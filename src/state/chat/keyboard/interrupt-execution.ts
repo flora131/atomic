@@ -1,4 +1,4 @@
-import type { MutableRefObject } from "react";
+import type { RefObject } from "react";
 import type { ChatMessage, StreamingMeta, TaskItem } from "@/state/chat/shared/types/index.ts";
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
 
@@ -6,7 +6,7 @@ interface InterruptSharedStateArgs {
   clearDeferredCompletion: () => void;
   continueQueuedConversation: () => void;
   finalizeTaskItemsOnInterrupt: () => TaskItem[] | undefined;
-  parallelAgentsRef: MutableRefObject<ParallelAgent[]>;
+  parallelAgentsRef: RefObject<ParallelAgent[]>;
   separateAndInterruptAgents: (agents: ParallelAgent[]) => {
     interruptedAgents: ParallelAgent[];
     remainingLiveAgents: ParallelAgent[];
@@ -14,8 +14,8 @@ interface InterruptSharedStateArgs {
   setMessagesWindowed: (updater: (messages: ChatMessage[]) => ChatMessage[]) => void;
   setParallelAgents: (agents: ParallelAgent[]) => void;
   stopSharedStreamState: () => void;
-  streamingMessageIdRef: MutableRefObject<string | null>;
-  wasInterruptedRef: MutableRefObject<boolean>;
+  streamingMessageIdRef: RefObject<string | null>;
+  wasInterruptedRef: RefObject<boolean>;
 }
 
 interface InterruptForegroundAgentsArgs extends InterruptSharedStateArgs {
@@ -28,10 +28,10 @@ interface InterruptForegroundAgentsArgs extends InterruptSharedStateArgs {
 
 interface InterruptStreamingArgs extends InterruptSharedStateArgs {
   afterStateReset: () => void;
-  awaitedStreamRunIdsRef: MutableRefObject<Set<string>>;
+  awaitedStreamRunIdsRef: RefObject<Set<string>>;
   finalizeThinkingSourceTracking: () => void;
   getActiveStreamRunId: () => string | null;
-  lastStreamingContentRef: MutableRefObject<string>;
+  lastStreamingContentRef: RefObject<string>;
   onResolveOverrides?: () => { wasCancelled?: boolean };
   resolveTrackedRun: (
     action: "interrupt",
@@ -116,8 +116,8 @@ export function interruptStreaming({
   updateInterruptedMessage,
   wasInterruptedRef,
 }: InterruptStreamingArgs & {
-  streamingMetaRef: MutableRefObject<StreamingMeta | null>;
-  streamingStartRef: MutableRefObject<number | null>;
+  streamingMetaRef: RefObject<StreamingMeta | null>;
+  streamingStartRef: RefObject<number | null>;
 }): { suppressQueueContinuation: boolean } {
   clearDeferredCompletion();
 

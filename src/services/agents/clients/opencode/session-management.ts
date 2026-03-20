@@ -6,7 +6,6 @@ import { initOpenCodeConfigOverrides } from "@/services/agents/init.ts";
 import type { OpencodeClient as OpenCodeSdkClient } from "@opencode-ai/sdk/v2/client";
 import type {
   EventType,
-  MessageRole,
   Session,
   SessionConfig,
   SessionMessageWithParts,

@@ -1,5 +1,5 @@
 import { useCallback, useEffect } from "react";
-import type { MutableRefObject } from "react";
+import type { RefObject } from "react";
 import type { Session } from "@/services/agents/types.ts";
 import {
   shouldScheduleBackgroundUpdateFollowUpFlush,
@@ -11,12 +11,12 @@ import {
 import type { ChatMessage, MessageSkillLoad } from "@/state/chat/shared/types/index.ts";
 
 interface UseChatBackgroundDispatchArgs {
-  backgroundAgentSendChainRef: MutableRefObject<Promise<void>>;
-  backgroundUpdateFlushInFlightRef: MutableRefObject<boolean>;
+  backgroundAgentSendChainRef: RefObject<Promise<void>>;
+  backgroundUpdateFlushInFlightRef: RefObject<boolean>;
   getSession?: () => Session | null;
-  isAgentOnlyStreamRef: MutableRefObject<boolean>;
-  isStreamingRef: MutableRefObject<boolean>;
-  pendingBackgroundUpdatesRef: MutableRefObject<string[]>;
+  isAgentOnlyStreamRef: RefObject<boolean>;
+  isStreamingRef: RefObject<boolean>;
+  pendingBackgroundUpdatesRef: RefObject<string[]>;
   setMessagesWindowed: (next: React.SetStateAction<ChatMessage[]>) => void;
 }
 

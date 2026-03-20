@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { ClaudeAgentClient } from "@/services/agents/clients/index.ts";
 import { extractMessageContent } from "@/services/agents/clients/claude.ts";
+import type { MessageCompleteEventData } from "@/services/agents/contracts/events.ts";
 
 describe("ClaudeAgentClient.getModelDisplayInfo", () => {
   test("falls back to opus when no model hint is provided", async () => {
@@ -241,10 +242,10 @@ describe("extractMessageContent thinking source identity", () => {
 describe("ClaudeAgentClient assistant message.complete preserves toolRequests", () => {
   test("processMessage passes child tool requests through normalized message.complete events", () => {
     const client = new ClaudeAgentClient();
-    const events: Array<Record<string, unknown>> = [];
+    const events: MessageCompleteEventData[] = [];
 
     client.on("message.complete", (event) => {
-      events.push(event.data as Record<string, unknown>);
+      events.push(event.data);
     });
 
     const processMessage = (client as unknown as {
@@ -295,6 +296,6 @@ describe("ClaudeAgentClient assistant message.complete preserves toolRequests", 
         arguments: { file_path: "test.ts" },
       },
     ]);
-    expect((events[0]!.message as Record<string, unknown>).type).toBe("tool_use");
+    expect(events[0]!.message.type).toBe("tool_use");
   });
 });

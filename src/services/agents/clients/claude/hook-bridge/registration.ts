@@ -26,6 +26,7 @@ import {
     resolveClaudeSubagentParentId,
     shouldPreferRecordedSubagentTask,
 } from "@/services/agents/clients/claude/hook-bridge/subagent-resolution.ts";
+import { toolDebug } from "@/services/events/adapters/providers/claude/tool-debug-log.ts";
 
 export function registerClaudeHookHandler<T extends EventType>(args: {
     eventType: T;
@@ -169,6 +170,14 @@ export function registerClaudeHookHandler<T extends EventType>(args: {
                     ) {
                         args.unmappedSubagentIds.push(startedAgentId);
                     }
+                    toolDebug("hook:subagentStart", {
+                        startedAgentId,
+                        resolvedToolUseId,
+                        resolvedParentToolUseId,
+                        sdkSessionId: typeof input.session_id === "string" ? input.session_id : "",
+                        unmappedSubagentIds: [...args.unmappedSubagentIds],
+                        isAlreadySessionMapped,
+                    });
                 }
 
                 const hookSessionId =
@@ -254,6 +263,13 @@ export function registerClaudeHookHandler<T extends EventType>(args: {
 
                     const stoppedAgentId = (eventData.subagentId ??
                         hookInput.agent_id) as string | undefined;
+                    toolDebug("hook:subagentStop", {
+                        stoppedAgentId,
+                        resolvedToolUseId,
+                        hookSessionId,
+                        remainingUnmapped: [...args.unmappedSubagentIds],
+                        sessionMappings: Object.fromEntries(args.subagentSdkSessionIdToAgentId),
+                    });
                     if (stoppedAgentId) {
                         const index = args.unmappedSubagentIds.indexOf(stoppedAgentId);
                         if (index >= 0) {
@@ -278,6 +294,67 @@ export function registerClaudeHookHandler<T extends EventType>(args: {
                 if (mappedParentAgentId) {
                     eventData.parentAgentId = mappedParentAgentId;
                 }
+
+                // Use hookInput.agent_id to directly resolve the parent agent
+                // for tool events, bypassing the FIFO queue which can misattribute
+                // when parallel sub-agents' hooks arrive out of registration order.
+                if (
+                    !eventData.parentAgentId &&
+                    hookInput.agent_id &&
+                    targetHookEvent !== "SubagentStart" &&
+                    targetHookEvent !== "SubagentStop"
+                ) {
+                    const hookAgentId = hookInput.agent_id as string;
+                    const existingSessionMapping = hookSessionId
+                        ? args.subagentSdkSessionIdToAgentId.get(hookSessionId)
+                        : undefined;
+                    if (existingSessionMapping === hookAgentId) {
+                        eventData.parentAgentId = hookAgentId;
+                        toolDebug("hook:agentId:sessionMatch", { hookAgentId, hookSessionId, targetHookEvent });
+                    } else {
+                        const unmappedIndex =
+                            args.unmappedSubagentIds.indexOf(hookAgentId);
+                        if (unmappedIndex >= 0) {
+                            // Only set the session mapping if no other agent
+                            // already owns this session. Multiple sub-agents
+                            // can share the same SDK session (especially in
+                            // Claude Agent SDK v1), and overwriting would
+                            // cause subsequent tools from earlier agents to
+                            // lose their attribution.
+                            if (hookSessionId && !args.subagentSdkSessionIdToAgentId.has(hookSessionId)) {
+                                args.subagentSdkSessionIdToAgentId.set(
+                                    hookSessionId,
+                                    hookAgentId,
+                                );
+                            }
+                            args.unmappedSubagentIds.splice(unmappedIndex, 1);
+                            eventData.parentAgentId = hookAgentId;
+                            toolDebug("hook:agentId:unmappedSplice", { hookAgentId, hookSessionId, unmappedIndex, remainingUnmapped: [...args.unmappedSubagentIds], targetHookEvent });
+                        } else if (
+                            Array.from(
+                                args.subagentSdkSessionIdToAgentId.values(),
+                            ).includes(hookAgentId)
+                        ) {
+                            eventData.parentAgentId = hookAgentId;
+                            toolDebug("hook:agentId:globalMatch", { hookAgentId, hookSessionId, targetHookEvent });
+                        } else if (
+                            Array.from(
+                                args.toolUseIdToAgentId.values(),
+                            ).includes(hookAgentId)
+                        ) {
+                            // The agent was registered via SubagentStart
+                            // (which sets toolUseIdToAgentId entries) but
+                            // its session mapping was lost because another
+                            // agent sharing the same SDK session took it.
+                            // Trust hookInput.agent_id directly.
+                            eventData.parentAgentId = hookAgentId;
+                            toolDebug("hook:agentId:toolUseIdMatch", { hookAgentId, hookSessionId, targetHookEvent });
+                        } else {
+                            toolDebug("hook:agentId:noMatch", { hookAgentId, hookSessionId, existingSessionMapping, unmappedIds: [...args.unmappedSubagentIds], targetHookEvent });
+                        }
+                    }
+                }
+
                 if (
                     !eventData.parentAgentId &&
                     targetHookEvent !== "SubagentStart" &&
@@ -294,8 +371,20 @@ export function registerClaudeHookHandler<T extends EventType>(args: {
                     });
                     if (parentAgentId) {
                         eventData.parentAgentId = parentAgentId;
+                        toolDebug("hook:fifoFallback", { parentAgentId, hookSessionId, targetHookEvent });
                     }
                 }
+
+                toolDebug("hook:resolved", {
+                    targetHookEvent,
+                    hookSessionId,
+                    hookAgentId: hookInput.agent_id,
+                    resolvedToolUseId,
+                    resolvedParentToolUseId,
+                    mappedParentAgentId,
+                    finalParentAgentId: eventData.parentAgentId,
+                    subagentId: eventData.subagentId,
+                });
 
                 const event: AgentEvent<T> = {
                     type: args.eventType,

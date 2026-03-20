@@ -1,4 +1,4 @@
-import type { MutableRefObject } from "react";
+import type { RefObject } from "react";
 import type { TextareaRenderable } from "@opentui/core";
 import { globalRegistry, parseSlashCommand } from "@/commands/tui/index.ts";
 import { processFileMentions } from "@/lib/ui/mention-parsing.ts";
@@ -29,8 +29,8 @@ interface HandleComposerSubmitArgs extends Pick<
 > {
   appendPromptHistory: (value: string) => void;
   clearComposerAutocomplete: () => void;
-  kittyKeyboardDetectedRef: MutableRefObject<boolean>;
-  textareaRef: MutableRefObject<TextareaRenderable | null>;
+  kittyKeyboardDetectedRef: RefObject<boolean>;
+  textareaRef: RefObject<TextareaRenderable | null>;
 }
 
 function replaceTextareaValue(textarea: TextareaRenderable, value: string) {

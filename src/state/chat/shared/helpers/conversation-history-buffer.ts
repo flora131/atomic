@@ -39,16 +39,11 @@ function ensureBufferDir(): void {
 }
 
 /**
- * Parse raw history buffer content (legacy JSON array or NDJSON).
+ * Parse raw history buffer content (NDJSON format).
  */
 function parseHistoryBuffer(raw: string): ChatMessage[] {
   if (!raw.trim()) {
     return [];
-  }
-
-  if (raw.trimStart().startsWith("[")) {
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed as ChatMessage[] : [];
   }
 
   return raw
@@ -141,9 +136,7 @@ export function appendCompactionSummary(summary: string): ChatMessage | null {
 }
 
 /**
- * Read the full conversation history from the buffer file.
- * Supports both legacy JSON array format and NDJSON format
- * for backward compatibility (migration detection).
+ * Reads the full conversation history from the NDJSON buffer file.
  */
 export async function readHistoryBuffer(): Promise<ChatMessage[]> {
   try {

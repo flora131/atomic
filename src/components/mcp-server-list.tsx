@@ -18,6 +18,16 @@ export interface McpServerListIndicatorProps {
 }
 
 // ============================================================================
+// HELPERS
+// ============================================================================
+
+const formatResources = (items: Array<{ label: string; uri: string }>): string =>
+  items.map((item) => `${item.label} (${item.uri})`).join(", ");
+
+const formatTemplates = (items: Array<{ label: string; uriTemplate: string }>): string =>
+  items.map((item) => `${item.label} (${item.uriTemplate})`).join(", ");
+
+// ============================================================================
 // COMPONENT
 // ============================================================================
 
@@ -26,12 +36,6 @@ export function McpServerListIndicator({
 }: McpServerListIndicatorProps): React.ReactNode {
   const { theme } = useTheme();
   const colors = theme.colors;
-
-  const formatResources = (items: Array<{ label: string; uri: string }>): string =>
-    items.map((item) => `${item.label} (${item.uri})`).join(", ");
-
-  const formatTemplates = (items: Array<{ label: string; uriTemplate: string }>): string =>
-    items.map((item) => `${item.label} (${item.uriTemplate})`).join(", ");
 
   return (
     <box flexDirection="column">

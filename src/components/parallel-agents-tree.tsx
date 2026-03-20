@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import type { SyntaxStyle } from "@opentui/core";
 import { getCatppuccinPalette, useThemeColors } from "@/theme/index.tsx";
 import { formatDuration as formatDurationObj, truncateText } from "@/lib/ui/format.ts";
@@ -191,30 +191,40 @@ export function shouldRenderAgentCurrentTool(
   return true;
 }
 
+/**
+ * Compute which agents have newly completed since the last call.
+ * Returns the markers (agent IDs) AND a new snapshot of the tracked set,
+ * so the caller can update its ref without the function mutating it directly.
+ * This makes the function pure and safe under React Strict Mode double-invocation.
+ */
 export function collectDoneRenderMarkers(
   agents: ReadonlyArray<Pick<ParallelAgent, "id" | "status">>,
-  doneRenderedAgentIds: Set<string>,
-): string[] {
+  prevDoneRenderedAgentIds: ReadonlySet<string>,
+): { markers: string[]; nextDoneRenderedAgentIds: Set<string> } {
   const visibleAgentIds = new Set(agents.map((agent) => agent.id));
-  for (const agentId of Array.from(doneRenderedAgentIds)) {
-    if (!visibleAgentIds.has(agentId)) {
-      doneRenderedAgentIds.delete(agentId);
+  const nextDoneRendered = new Set<string>();
+
+  // Carry over previously-rendered agents that are still visible and completed
+  for (const agentId of prevDoneRenderedAgentIds) {
+    if (visibleAgentIds.has(agentId)) {
+      // Only keep if still completed (will re-check below)
+      nextDoneRendered.add(agentId);
     }
   }
 
   const markers: string[] = [];
   for (const agent of agents) {
     if (agent.status === "completed") {
-      if (!doneRenderedAgentIds.has(agent.id)) {
-        doneRenderedAgentIds.add(agent.id);
+      if (!prevDoneRenderedAgentIds.has(agent.id)) {
         markers.push(agent.id);
       }
-      continue;
+      nextDoneRendered.add(agent.id);
+    } else {
+      nextDoneRendered.delete(agent.id);
     }
-    doneRenderedAgentIds.delete(agent.id);
   }
 
-  return markers;
+  return { markers, nextDoneRenderedAgentIds: nextDoneRendered };
 }
 
 export const MAX_VISIBLE_INLINE_TOOLS = 3;
@@ -293,17 +303,19 @@ export function ParallelAgentsTree({
   onAgentDoneRendered,
 }: ParallelAgentsTreeProps): React.ReactNode {
   const allAgents = agents;
-  const visibleAgents = allAgents.slice(0, maxVisible);
+  const visibleAgents = useMemo(() => allAgents.slice(0, maxVisible), [allAgents, maxVisible]);
   const hiddenCount = allAgents.length - visibleAgents.length;
   const colors = useThemeColors();
   const doneRenderedAgentIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!onAgentDoneRendered) return;
-    const markers = collectDoneRenderMarkers(
+    const { markers, nextDoneRenderedAgentIds } = collectDoneRenderMarkers(
       visibleAgents,
       doneRenderedAgentIdsRef.current,
     );
+    // Update the ref only after computing markers (pure computation above)
+    doneRenderedAgentIdsRef.current = nextDoneRenderedAgentIds;
     if (markers.length === 0) return;
     const timestampMs = Date.now();
     for (const agentId of markers) {

@@ -3,7 +3,7 @@ import {
   shouldProcessStreamLifecycleEvent,
 } from "@/state/chat/exports.ts";
 import { isLikelyFilePath } from "@/services/events/session-info-filters.ts";
-import { createMessage } from "@/state/chat/helpers.ts";
+import { createMessage } from "@/state/chat/shared/helpers/index.ts";
 import { STATUS } from "@/theme/icons.ts";
 import type { ChatMessage } from "@/state/chat/types.ts";
 

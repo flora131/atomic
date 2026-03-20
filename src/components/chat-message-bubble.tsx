@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useCallback, useMemo } from "react";
 import { PROMPT, STATUS, CONNECTOR, MISC } from "@/theme/icons.ts";
 import { SPACING } from "@/theme/spacing.ts";
 import { useThemeColors } from "@/theme/index.tsx";
@@ -27,9 +27,16 @@ import {
   mergeParallelAgentsIntoParts,
 } from "@/state/parts/index.ts";
 
+/** Extract first non-empty line and truncate to maxLen, appending "…" if needed. */
+function truncateFirstLine(text: string, maxLen: number): string {
+  const firstLine = text.split("\n").find((line) => line.trim())?.trim() ?? "";
+  return firstLine.length > maxLen
+    ? `${firstLine.slice(0, maxLen)}…`
+    : firstLine;
+}
+
 function getRenderableAssistantParts(
   message: ChatMessage,
-  _isLastMessage: boolean,
 ): Part[] {
   const skillIndicatorKeys = new Set(
     (message.skillLoads ?? [])
@@ -115,7 +122,6 @@ export function MessageBubble({
   activeBackgroundAgentCount,
   message,
   isLast,
-  isVerbose = false,
   syntaxStyle,
   hideLoading = false,
   todoItems,
@@ -134,18 +140,27 @@ export function MessageBubble({
     : null;
   const shouldShowPersistentTaskPanel = persistentTaskPanelSessionDir !== null;
 
-  if (collapsed && !message.streaming) {
-    const truncate = (text: string, maxLen: number) => {
-      const firstLine = text.split("\n").find((line) => line.trim())?.trim() ?? "";
-      return firstLine.length > maxLen
-        ? `${firstLine.slice(0, maxLen)}…`
-        : firstLine;
-    };
+  const handleAgentDoneRendered = useCallback((marker: { agentId: string; timestampMs: number }) => {
+    onAgentDoneRendered?.({
+      messageId: message.id,
+      agentId: marker.agentId,
+      timestampMs: marker.timestampMs,
+    });
+  }, [message.id, onAgentDoneRendered]);
 
+  // Memoize assistant part computation — only recomputes when the message
+  // reference or isLast changes, avoiding repeated array copies/filters
+  // during high-frequency streaming re-renders (elapsedMs, streamingMeta).
+  const assistantParts = useMemo(
+    () => message.role === "assistant" ? getRenderableAssistantParts(message) : null,
+    [message],
+  );
+
+  if (collapsed && !message.streaming) {
     if (message.role === "user") {
       const collapsedLabel = message.hitlContext
-        ? `${STATUS.success} ${truncate(message.hitlContext.question, 40)} → ${truncate(message.hitlContext.answer, 30)}`
-        : truncate(message.content, 78);
+        ? `${STATUS.success} ${truncateFirstLine(message.hitlContext.question, 40)} → ${truncateFirstLine(message.hitlContext.answer, 30)}`
+        : truncateFirstLine(message.content, 78);
       return (
         <box
           paddingLeft={SPACING.CONTAINER_PAD}
@@ -176,7 +191,7 @@ export function MessageBubble({
           <text wrapMode="char">
             <span fg={themeColors.dim}>  {CONNECTOR.subStatus} </span>
             <span fg={themeColors.muted}>
-              {truncate(message.content, 74)}
+              {truncateFirstLine(message.content, 74)}
             </span>
             <span fg={themeColors.dim}>{toolLabel}</span>
           </text>
@@ -192,7 +207,7 @@ export function MessageBubble({
         marginBottom={isLast ? SPACING.NONE : SPACING.ELEMENT}
       >
         <text wrapMode="char" fg={isCollapsedError ? themeColors.error : themeColors.muted}>
-          {truncate(message.content, 80)}
+          {truncateFirstLine(message.content, 80)}
         </text>
       </box>
     );
@@ -233,11 +248,7 @@ export function MessageBubble({
     );
   }
 
-  if (message.role === "assistant") {
-    const assistantParts = getRenderableAssistantParts(
-      message,
-      Boolean(isLast),
-    );
+  if (message.role === "assistant" && assistantParts) {
     const renderableMessage = {
       ...message,
       parts: shouldShowPersistentTaskPanel
@@ -266,13 +277,7 @@ export function MessageBubble({
         <MessageBubbleParts
           message={renderableMessage}
           syntaxStyle={syntaxStyle}
-          onAgentDoneRendered={(marker) => {
-            onAgentDoneRendered?.({
-              messageId: message.id,
-              agentId: marker.agentId,
-              timestampMs: marker.timestampMs,
-            });
-          }}
+          onAgentDoneRendered={handleAgentDoneRendered}
         />
 
         {persistentTaskPanelSessionDir && (

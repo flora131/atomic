@@ -81,8 +81,6 @@ export function FooterStatus({
           <text fg={colors.accent}>
             [{backgroundAgentCount}] local agent{backgroundAgentCount !== 1 ? "s" : ""}
           </text>
-          <text fg={colors.muted}>{MISC.separator}</text>
-          <text fg={colors.muted}>ctrl+f to kill all background tasks</text>
         </>
       )}
     </box>

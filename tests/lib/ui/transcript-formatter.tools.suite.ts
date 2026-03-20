@@ -354,6 +354,12 @@ describe("formatTranscript - HITL Tool Calls", () => {
           toolName: "question",
           input: { question: "Pick one" },
           output: { answer: "Option A", cancelled: false },
+          hitlResponse: {
+            cancelled: false,
+            responseMode: "option",
+            answerText: "Option A",
+            displayText: 'User answered: "Option A"',
+          },
           state: { status: "completed", output: { answer: "Option A", cancelled: false }, durationMs: 0 },
           createdAt: new Date().toISOString(),
         },

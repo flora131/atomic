@@ -22,7 +22,6 @@ import {
 import { createPartId, _resetPartCounter } from "@/state/parts/id.ts";
 import { upsertPart } from "@/state/parts/store.ts";
 import type { Part, TextPart, ReasoningPart, ToolPart } from "@/state/parts/types.ts";
-import type { PartId } from "@/state/parts/id.ts";
 import type { ThinkingMetaEvent } from "@/state/streaming/pipeline-types.ts";
 import type { ChatMessage } from "@/types/chat.ts";
 
@@ -102,16 +101,17 @@ function makeToolPart(
   };
 }
 
-/** Build a deterministic PartId from a numeric value (zero-padded hex). */
-function deterministicId(n: number): PartId {
-  const composite = BigInt(n);
-  return `part_${composite.toString(16).padStart(12, "0")}` as PartId;
-}
-
-/** Assert the parts array is sorted by ID (lexicographic ascending). */
+/**
+ * Assert the parts array is sorted by ID (lexicographic ascending).
+ *
+ * Following OpenCode's methodology, parts are always in strict ID order.
+ * Correct reasoning-before-text ordering is the adapter's responsibility.
+ */
 function expectSortedById(parts: ReadonlyArray<Part>): void {
   for (let i = 1; i < parts.length; i++) {
-    expect(parts[i]!.id > parts[i - 1]!.id).toBe(true);
+    const prev = parts[i - 1]!;
+    const curr = parts[i]!;
+    expect(curr.id > prev.id).toBe(true);
   }
 }
 
@@ -213,7 +213,8 @@ describe("upsertThinkingMeta — ordered insertion", () => {
 
     expect(result.parts).toHaveLength(4);
     expectSortedById(result.parts!);
-    expect(result.parts![3]!.type).toBe("reasoning");
+    // Pure ID ordering: reasoning gets the latest ID, inserted at end.
+    expect(result.parts!.map((p) => p.type)).toEqual(["text", "tool", "text", "reasoning"]);
   });
 
   test("multiple different sourceKeys produce sorted reasoning parts", () => {
@@ -541,6 +542,10 @@ describe("upsertThinkingMeta — complex scenarios", () => {
 
     expect(msg.parts).toHaveLength(6);
     expectSortedById(msg.parts!);
+    // Pure ID ordering: reasoning gets the latest ID, inserted at end.
+    expect(msg.parts!.map((p) => p.type)).toEqual([
+      "text", "tool", "text", "tool", "text", "reasoning",
+    ]);
   });
 
   test("rapid sequential updates for multiple sourceKeys maintain order and count", () => {

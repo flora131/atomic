@@ -1,14 +1,12 @@
 // @ts-nocheck
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { EventBus } from "@/services/events/event-bus.ts";
 import { OpenCodeStreamAdapter } from "@/services/events/adapters/opencode-adapter.ts";
 import type {
-  Session,
   AgentMessage,
   AgentEvent,
   EventType,
-  CodingAgentClient,
 } from "@/services/agents/types.ts";
 import {
   collectEvents,

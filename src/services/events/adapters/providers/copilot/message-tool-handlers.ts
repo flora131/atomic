@@ -2,6 +2,7 @@ import type { AgentEvent } from "@/services/agents/types.ts";
 import { isBuiltInTaskTool } from "@/services/events/adapters/provider-shared.ts";
 import {
   asString,
+  buildCopilotThinkingStreamKey,
   ensureCopilotThinkingStream,
   normalizeCopilotToolInput,
   normalizeToolName,
@@ -16,6 +17,53 @@ import type {
   CopilotProviderHandlerDeps,
   CopilotStreamAdapterState,
 } from "@/services/events/adapters/providers/copilot/types.ts";
+
+/**
+ * Flush all buffered text deltas for a given agent, emitting them as
+ * `stream.text.delta` events. Called when we've resolved whether thinking
+ * will happen for this agent (either thinking arrived first, or a second
+ * text delta confirmed its absence).
+ */
+function flushPendingTextDeltas(
+  state: CopilotStreamAdapterState,
+  deps: Pick<CopilotProviderHandlerDeps, "publishEvent">,
+  agentKey: string,
+): void {
+  const buffer = state.pendingTextDeltas.get(agentKey);
+  if (!buffer || buffer.length === 0) {
+    return;
+  }
+  for (const entry of buffer) {
+    if (entry.delta.length > 0) {
+      deps.publishEvent({
+        type: "stream.text.delta",
+        sessionId: state.sessionId,
+        runId: state.runId,
+        timestamp: Date.now(),
+        data: {
+          delta: entry.delta,
+          messageId: state.messageId,
+          ...(entry.agentId ? { agentId: entry.agentId } : {}),
+        },
+      });
+    }
+  }
+  state.pendingTextDeltas.delete(agentKey);
+}
+
+/**
+ * Flush all pending text delta buffers across all agents. Called at
+ * message completion and stream end to ensure no text deltas are left
+ * undelivered.
+ */
+export function flushAllPendingTextDeltas(
+  state: CopilotStreamAdapterState,
+  deps: Pick<CopilotProviderHandlerDeps, "publishEvent">,
+): void {
+  for (const agentKey of state.pendingTextDeltas.keys()) {
+    flushPendingTextDeltas(state, deps, agentKey);
+  }
+}
 
 export function handleCopilotMessageDelta(
   state: CopilotStreamAdapterState,
@@ -32,8 +80,13 @@ export function handleCopilotMessageDelta(
   const mappedAgentId = deps.resolveParentAgentId(parentToolCallId);
   const agentId =
     mappedAgentId ?? deps.getSyntheticForegroundAgentIdForAttribution();
+  const agentKey = agentId ?? "__foreground__";
 
   if (contentType === "thinking" && thinkingSourceKey) {
+    // Mark this agent's content type as resolved — thinking is present.
+    // The reasoning part will get an earlier ID than any subsequent text.
+    state.contentTypeResolvedAgents.add(agentKey);
+
     ensureCopilotThinkingStream(state.thinkingStreams, thinkingSourceKey, agentId);
     deps.publishEvent({
       type: "stream.thinking.delta",
@@ -47,12 +100,47 @@ export function handleCopilotMessageDelta(
         ...(agentId ? { agentId } : {}),
       },
     });
+
+    // Flush buffered text deltas now that reasoning has an earlier ID.
+    flushPendingTextDeltas(state, deps, agentKey);
     return;
   }
 
+  // Accumulate text for message completion regardless of buffering.
   if (!agentId) {
     state.accumulatedText += delta;
   }
+
+  // If content type is already resolved for this agent, emit immediately.
+  if (state.contentTypeResolvedAgents.has(agentKey)) {
+    if (delta.length > 0) {
+      deps.publishEvent({
+        type: "stream.text.delta",
+        sessionId: state.sessionId,
+        runId: state.runId,
+        timestamp: Date.now(),
+        data: {
+          delta,
+          messageId: state.messageId,
+          ...(agentId ? { agentId } : {}),
+        },
+      });
+    }
+    return;
+  }
+
+  // Content type not yet resolved — buffer text while we wait for
+  // the next event to determine if thinking will happen.
+  const buffer = state.pendingTextDeltas.get(agentKey);
+  if (!buffer || buffer.length === 0) {
+    // First text delta for this agent — buffer it.
+    state.pendingTextDeltas.set(agentKey, [{ delta, agentId }]);
+    return;
+  }
+
+  // Second text delta without thinking — resolve as no-thinking.
+  state.contentTypeResolvedAgents.add(agentKey);
+  flushPendingTextDeltas(state, deps, agentKey);
 
   if (delta.length > 0) {
     deps.publishEvent({
@@ -84,10 +172,12 @@ export function handleCopilotMessageComplete(
     ? parentAgentId
     : deps.getSyntheticForegroundAgentIdForAttribution();
 
+  let hadThinkingStreamForAgent = false;
   for (const [thinkingKey, stream] of state.thinkingStreams.entries()) {
     if ((stream.agentId ?? undefined) !== completionAgentId) {
       continue;
     }
+    hadThinkingStreamForAgent = true;
     deps.publishEvent({
       type: "stream.thinking.complete",
       sessionId: state.sessionId,
@@ -101,6 +191,50 @@ export function handleCopilotMessageComplete(
     });
     state.thinkingStreams.delete(thinkingKey);
   }
+
+  // When no thinking stream was active for this agent but the final message
+  // carries a `reasoningText` field (the Copilot SDK does not always stream
+  // reasoning deltas -- some models only include reasoning in the completed
+  // message), emit a synthetic thinking delta + complete pair so the UI
+  // renders the reasoning block in the correct position (before text).
+  const reasoningText = asString(eventData.reasoningText);
+  if (!hadThinkingStreamForAgent && reasoningText && reasoningText.trim().length > 0) {
+    const syntheticSourceKey = `msg-reasoning-${state.messageId}`;
+    // Guard against duplicate emission: only emit if there is no existing
+    // thinking stream with this synthetic key.
+    const existingKey = buildCopilotThinkingStreamKey(syntheticSourceKey, completionAgentId);
+    if (!state.thinkingStreams.has(existingKey)) {
+      deps.publishEvent({
+        type: "stream.thinking.delta",
+        sessionId: state.sessionId,
+        runId: state.runId,
+        timestamp: Date.now(),
+        data: {
+          delta: reasoningText,
+          sourceKey: syntheticSourceKey,
+          messageId: state.messageId,
+          ...(completionAgentId ? { agentId: completionAgentId } : {}),
+        },
+      });
+      deps.publishEvent({
+        type: "stream.thinking.complete",
+        sessionId: state.sessionId,
+        runId: state.runId,
+        timestamp: Date.now(),
+        data: {
+          sourceKey: syntheticSourceKey,
+          durationMs: 0,
+          ...(completionAgentId ? { agentId: completionAgentId } : {}),
+        },
+      });
+    }
+  }
+
+  // Flush any remaining buffered text deltas. At this point, thinking
+  // events (streamed or synthetic) have already been emitted — so any
+  // reasoning parts already have earlier IDs. Flushed text parts will
+  // get later IDs, preserving correct ordering.
+  flushAllPendingTextDeltas(state, deps);
 
   const toolRequests = eventData.toolRequests;
   const hasToolRequests = Array.isArray(toolRequests) && toolRequests.length > 0;

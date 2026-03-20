@@ -1,14 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import { CopilotClient } from "@/services/agents/clients/copilot.ts";
+import type { MessageCompleteEventData } from "@/services/agents/contracts/events.ts";
+import type { CopilotProviderEvent } from "@/services/agents/provider-events/native-events.ts";
 import { bindCopilotHandleSdkEvent } from "./copilot.mapping.test-support.ts";
 
 describe("CopilotClient provider events", () => {
   test("preserves nativeType and native payload on provider events", () => {
     const client = new CopilotClient({});
-    const providerEvents: Array<Record<string, unknown>> = [];
+    const providerEvents: CopilotProviderEvent[] = [];
 
     client.onProviderEvent((event) => {
-      providerEvents.push(event as unknown as Record<string, unknown>);
+      providerEvents.push(event);
     });
 
     bindCopilotHandleSdkEvent(client)("test-session", {
@@ -37,10 +39,10 @@ describe("CopilotClient provider events", () => {
 describe("CopilotClient assistant.message preserves toolRequests", () => {
   test("handleSdkEvent passes toolRequests to message.complete event", () => {
     const client = new CopilotClient({});
-    const events: Array<{ data: Record<string, unknown> }> = [];
+    const events: Array<{ data: MessageCompleteEventData }> = [];
 
     client.on("message.complete", (event) => {
-      events.push({ data: event.data as Record<string, unknown> });
+      events.push({ data: event.data });
     });
 
     bindCopilotHandleSdkEvent(client)("test-session", {
@@ -60,22 +62,22 @@ describe("CopilotClient assistant.message preserves toolRequests", () => {
 
     expect(events).toHaveLength(1);
     const data = events[0]!.data;
-    expect((data.message as Record<string, unknown>).content).toBe("Let me check that file.");
+    expect(data.message.content).toBe("Let me check that file.");
     expect(data.interactionId).toBe("int-001");
     expect(data.phase).toBe("final");
     expect(data.reasoningText).toBe("checked file state");
     expect(data.reasoningOpaque).toBe("opaque-reasoning");
     expect(data.toolRequests).toEqual([
-      { toolCallId: "tc-1", name: "view", arguments: { path: "/tmp/file.txt" }, type: undefined },
+      { toolCallId: "tc-1", name: "view", arguments: { path: "/tmp/file.txt" } },
     ]);
   });
 
   test("handleSdkEvent omits toolRequests when not present", () => {
     const client = new CopilotClient({});
-    const events: Array<{ data: Record<string, unknown> }> = [];
+    const events: Array<{ data: MessageCompleteEventData }> = [];
 
     client.on("message.complete", (event) => {
-      events.push({ data: event.data as Record<string, unknown> });
+      events.push({ data: event.data });
     });
 
     bindCopilotHandleSdkEvent(client)("test-session", {

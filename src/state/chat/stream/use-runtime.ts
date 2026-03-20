@@ -66,7 +66,10 @@ export function useChatStreamRuntime({
   const activeBackgroundAgentCountRef = useRef(0);
   const todoItemsRef = useRef<NormalizedTodoItem[]>([]);
   const lastStreamingContentRef = useRef("");
-  const streamRunRuntimeRef = useRef(new StreamRunRuntime());
+  const streamRunRuntimeRef = useRef<StreamRunRuntime>(null as unknown as StreamRunRuntime);
+  if (!streamRunRuntimeRef.current) {
+    streamRunRuntimeRef.current = new StreamRunRuntime();
+  }
   const activeForegroundRunHandleIdRef = useRef<string | null>(null);
   const awaitedStreamRunIdsRef = useRef<Set<string>>(new Set());
   const parallelInterruptHandlerRef = useRef<(() => void) | null>(null);
@@ -170,8 +173,15 @@ export function useChatStreamRuntime({
   });
 
   const separateAndInterruptAgents = useCallback((agents: ParallelAgent[]) => {
-    const backgroundAgents = agents.filter(isBackgroundAgent);
-    const foregroundAgents = agents.filter((agent) => !isBackgroundAgent(agent));
+    const backgroundAgents: ParallelAgent[] = [];
+    const foregroundAgents: ParallelAgent[] = [];
+    for (const agent of agents) {
+      if (isBackgroundAgent(agent)) {
+        backgroundAgents.push(agent);
+      } else {
+        foregroundAgents.push(agent);
+      }
+    }
 
     return {
       interruptedAgents: [
@@ -308,7 +318,6 @@ export function useChatStreamRuntime({
     handleStreamComplete,
     handleStreamStartupError,
     startAssistantStream,
-    terminateAgentLifecycleContractViolation,
   } = useChatStreamLifecycle({
     activeBackgroundAgentCountRef,
     activeStreamRunIdRef,
@@ -367,11 +376,14 @@ export function useChatStreamRuntime({
     continueAssistantStreamInPlace(messageId, content);
   };
 
+  const hasInProgressTask = useMemo(
+    () => todoItems.some((item) => item.status === "in_progress"),
+    [todoItems],
+  );
+
   const hasLiveLoadingIndicator = useMemo(
-    () => activeBackgroundAgentCount > 0 || messages.some((message) => {
-      return message.streaming || todoItems.some((item) => item.status === "in_progress");
-    }),
-    [activeBackgroundAgentCount, messages, todoItems],
+    () => activeBackgroundAgentCount > 0 || hasInProgressTask || messages.some((message) => message.streaming),
+    [activeBackgroundAgentCount, hasInProgressTask, messages],
   );
 
   useChatRuntimeEffects({
@@ -492,7 +504,6 @@ export function useChatStreamRuntime({
       shouldHideActiveStreamContent,
       startAssistantStream,
       stopSharedStreamState,
-      terminateAgentLifecycleContractViolation,
       trackAwaitedRun,
     },
   };

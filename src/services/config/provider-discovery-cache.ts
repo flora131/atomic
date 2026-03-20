@@ -171,6 +171,6 @@ export function setProviderDiscoverySessionCacheValue<T>(
     );
   }
 
-  providerDiscoverySessionState.cacheEntries.set(cacheKey, value as unknown);
+  providerDiscoverySessionState.cacheEntries.set(cacheKey, value);
   return value;
 }

@@ -284,7 +284,7 @@ export const modelCommand: CommandDefinition = {
                     message: `Model **${effectiveModel}** will be used for the next session. (${agentType} requires a new session for model changes)`,
                     stateUpdate: {
                         pendingModel: effectiveModel,
-                    } as unknown as CommandResult["stateUpdate"],
+                    },
                 };
             }
             return {
@@ -292,7 +292,7 @@ export const modelCommand: CommandDefinition = {
                 message: `Model switched to **${effectiveModel}**`,
                 stateUpdate: {
                     model: effectiveModel,
-                } as unknown as CommandResult["stateUpdate"],
+                },
             };
         } catch (error) {
             const errorMessage =

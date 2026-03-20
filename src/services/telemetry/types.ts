@@ -191,7 +191,7 @@ export interface TuiInterruptEvent extends TelemetryEventBase {
 }
 
 /**
- * Event logged when a user attempts background termination with Ctrl+F.
+ * Event logged when a user triggers background termination via Ctrl+C or ESC.
  */
 export interface TuiBackgroundTerminationEvent extends TelemetryEventBase {
   eventType: "tui_background_termination";

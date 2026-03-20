@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useCallback, useMemo } from "react";
 import type {
   KeyBinding,
   MacOSScrollAccel,
@@ -14,8 +14,8 @@ import { ModelSelectorDialog } from "@/components/model-selector-dialog.tsx";
 import { QueueIndicator } from "@/components/queue-indicator.tsx";
 import { AtomicHeader } from "@/components/chat-header.tsx";
 import { TranscriptView } from "@/components/transcript-view.tsx";
-import type { QuestionAnswer, UserQuestion } from "@/components/user-question-dialog.tsx";
 import { UserQuestionDialog } from "@/components/user-question-dialog.tsx";
+import type { QuestionAnswer, UserQuestion } from "@/state/chat/shared/types/hitl.ts";
 import { SCROLLBAR, PROMPT } from "@/theme/icons.ts";
 import { SPACING } from "@/theme/spacing.ts";
 import type { ThemeColors } from "@/theme/index.tsx";
@@ -37,7 +37,6 @@ export interface ChatShellProps {
   availableModels: Model[];
   compactionSummary: string | null;
   ctrlCPressed: boolean;
-  ctrlFPressed: boolean;
   currentModelId?: string;
   currentReasoningEffort?: string;
   displayModel: string;
@@ -101,7 +100,6 @@ export function ChatShell({
   availableModels,
   compactionSummary,
   ctrlCPressed,
-  ctrlFPressed,
   currentModelId,
   currentReasoningEffort,
   displayModel,
@@ -150,6 +148,20 @@ export function ChatShell({
     [parallelAgents],
   );
 
+  const transcriptMessages = useMemo(
+    () => [...historyBufferMessages, ...messages],
+    [historyBufferMessages, messages],
+  );
+
+  const { setEditIndex } = messageQueue;
+  const handleQueueEdit = useCallback(
+    (index: number) => {
+      setEditIndex(index);
+      setIsEditingQueue(true);
+    },
+    [setEditIndex, setIsEditingQueue],
+  );
+
   return (
     <box
       flexDirection="column"
@@ -166,7 +178,7 @@ export function ChatShell({
 
       {transcriptMode ? (
         <TranscriptView
-          messages={[...historyBufferMessages, ...messages]}
+          messages={transcriptMessages}
           liveThinkingText={streamingMeta?.thinkingText}
           modelId={currentModelId ?? initialModelId ?? model}
           isStreaming={isStreaming}
@@ -232,10 +244,7 @@ export function ChatShell({
                   compact={!isEditingQueue}
                   editable={!isStreaming}
                   editIndex={messageQueue.currentEditIndex}
-                  onEdit={(index) => {
-                    messageQueue.setEditIndex(index);
-                    setIsEditingQueue(true);
-                  }}
+                  onEdit={handleQueueEdit}
                 />
               </box>
             )}
@@ -327,13 +336,6 @@ export function ChatShell({
               <box paddingLeft={1} flexShrink={0}>
                 <text fg={themeColors.muted}>
                   Press Ctrl-C again to exit
-                </text>
-              </box>
-            )}
-            {ctrlFPressed && (
-              <box paddingLeft={1} flexShrink={0}>
-                <text fg={themeColors.muted}>
-                  Press Ctrl-F again to terminate background agents
                 </text>
               </box>
             )}

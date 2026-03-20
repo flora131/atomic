@@ -20,14 +20,39 @@ import { CompactionPartDisplay } from "@/components/message-parts/compaction-par
 import { TaskResultPartDisplay } from "@/components/message-parts/task-result-part-display.tsx";
 import { WorkflowStepPartDisplay } from "@/components/message-parts/workflow-step-part-display.tsx";
 
+/**
+ * Renderer function signature for a Part subtype.
+ *
+ * The registry dispatches based on `part.type`, so the caller guarantees
+ * the part is narrowed to the correct subtype before invoking the renderer.
+ * Each renderer function accepts its own narrowed Part subtype in practice,
+ * but the registry stores them under a common signature for dynamic lookup.
+ */
 export type PartRenderer = (props: {
-  part: any;
+  part: Part;
   isLast: boolean;
   syntaxStyle?: SyntaxStyle;
   onAgentDoneRendered?: (marker: { agentId: string; timestampMs: number }) => void;
 }) => React.ReactNode;
 
-export const PART_REGISTRY: Record<Part["type"], PartRenderer> = {
+/**
+ * Type-safe registry builder. Ensures the registry covers every Part type
+ * at compile time via the required keys. The single cast at the boundary is
+ * intentional: each renderer accepts a narrowed Part subtype, but the registry
+ * stores them under the wider PartRenderer signature for dynamic dispatch.
+ * This replaces 11 individual `as unknown as` casts with one controlled cast.
+ */
+function buildPartRegistry(
+  entries: Record<Part["type"], (...args: never[]) => React.ReactNode>,
+): Record<Part["type"], PartRenderer> {
+  return entries as Record<Part["type"], PartRenderer>;
+}
+
+// The individual renderers accept narrowed Part subtypes (e.g., TextPart,
+// ToolPart), but the registry performs dynamic dispatch based on part.type.
+// The caller is responsible for passing the correctly-typed part. The
+// buildPartRegistry helper ensures compile-time coverage of all Part types.
+export const PART_REGISTRY = buildPartRegistry({
   "text": TextPartDisplay,
   "reasoning": ReasoningPartDisplay,
   "tool": ToolPartDisplay,
@@ -39,4 +64,4 @@ export const PART_REGISTRY: Record<Part["type"], PartRenderer> = {
   "compaction": CompactionPartDisplay,
   "task-result": TaskResultPartDisplay,
   "workflow-step": WorkflowStepPartDisplay,
-};
+});

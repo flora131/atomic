@@ -8,7 +8,7 @@
  * Reference: Feature - Verbose mode toggle for tool output expansion
  */
 
-import { useState, useCallback } from "react";
+import { useCallback, useState } from "react";
 
 // ============================================================================
 // TYPES
@@ -22,12 +22,6 @@ export interface UseVerboseModeReturn {
   isVerbose: boolean;
   /** Toggle verbose mode on/off */
   toggle: () => void;
-  /** Set verbose mode to a specific value */
-  setVerboseMode: (value: boolean) => void;
-  /** Enable verbose mode */
-  enable: () => void;
-  /** Disable verbose mode */
-  disable: () => void;
 }
 
 // ============================================================================
@@ -44,64 +38,17 @@ export interface UseVerboseModeReturn {
  * - Footer status display
  *
  * @param initialValue - Initial verbose mode value (default: false)
- * @returns Verbose mode state and control functions
- *
- * @example
- * ```tsx
- * const { isVerbose, toggle, setVerboseMode } = useVerboseMode();
- *
- * // Toggle verbose mode (e.g., on Ctrl+O)
- * toggle();
- *
- * // Set explicitly
- * setVerboseMode(true);
- *
- * // Use in component props
- * <ToolResult {...props} verbose={isVerbose} />
- * ```
+ * @returns Verbose mode state and toggle function
  */
 export function useVerboseMode(initialValue = false): UseVerboseModeReturn {
   const [isVerbose, setIsVerbose] = useState(initialValue);
 
-  /**
-   * Toggle verbose mode on/off.
-   */
-  const toggle = useCallback(() => {
-    setIsVerbose((prev) => !prev);
-  }, []);
-
-  /**
-   * Set verbose mode to a specific value.
-   */
-  const setVerboseMode = useCallback((value: boolean) => {
-    setIsVerbose(value);
-  }, []);
-
-  /**
-   * Enable verbose mode.
-   */
-  const enable = useCallback(() => {
-    setIsVerbose(true);
-  }, []);
-
-  /**
-   * Disable verbose mode.
-   */
-  const disable = useCallback(() => {
-    setIsVerbose(false);
-  }, []);
+  const toggle = useCallback(() => setIsVerbose((prev) => !prev), []);
 
   return {
     isVerbose,
     toggle,
-    setVerboseMode,
-    enable,
-    disable,
   };
 }
-
-// ============================================================================
-// EXPORTS
-// ============================================================================
 
 export default useVerboseMode;

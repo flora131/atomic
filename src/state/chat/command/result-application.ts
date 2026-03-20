@@ -73,8 +73,8 @@ export async function applyCommandResult(
       args.setIsStreaming(result.stateUpdate.isStreaming);
     }
 
-    const modelUpdate = (result.stateUpdate as Record<string, unknown>).model;
-    if (typeof modelUpdate === "string") {
+    const modelUpdate = result.stateUpdate.model;
+    if (modelUpdate !== undefined) {
       args.setCurrentModelId(modelUpdate);
       args.setCurrentModelDisplayName(modelUpdate);
       args.setCurrentReasoningEffort(undefined);
@@ -158,7 +158,7 @@ export async function applyCommandResult(
 function upsertMcpSnapshotPart(
   parts: import("@/state/parts/types.ts").Part[],
   snapshot: import("@/lib/ui/mcp-output.ts").McpSnapshotView,
-  messageId: string,
+  _messageId: string,
 ): import("@/state/parts/types.ts").Part[] {
   const nextParts = [...parts];
   const existingIdx = nextParts.findIndex((part) => part.type === "mcp-snapshot");

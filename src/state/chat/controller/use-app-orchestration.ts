@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from "react";
-import type { MutableRefObject } from "react";
+import type { RefObject } from "react";
 import { saveTasksToActiveSession } from "@/commands/tui/workflow-commands/index.ts";
 import type { DeferredCommandMessage } from "@/state/chat/shared/types/command.ts";
 import { dispatchNextQueuedMessage, shouldDispatchQueuedMessage } from "@/state/chat/shared/helpers/stream-continuation.ts";
@@ -14,22 +14,22 @@ interface UseChatAppOrchestrationArgs {
     setState: React.Dispatch<React.SetStateAction<WorkflowChatState>>,
     updates: Partial<WorkflowChatState>,
   ) => void;
-  deferredCommandQueueRef: MutableRefObject<DeferredCommandMessage[]>;
-  dispatchDeferredCommandMessageRef: MutableRefObject<(message: DeferredCommandMessage) => void>;
-  dispatchQueuedMessageRef: MutableRefObject<(message: QueuedMessage) => void>;
+  deferredCommandQueueRef: RefObject<DeferredCommandMessage[]>;
+  dispatchDeferredCommandMessageRef: RefObject<(message: DeferredCommandMessage) => void>;
+  dispatchQueuedMessageRef: RefObject<(message: QueuedMessage) => void>;
   isStreaming: boolean;
-  isStreamingRef: MutableRefObject<boolean>;
+  isStreamingRef: RefObject<boolean>;
   isWorkflowTaskUpdate: (
     todos: NormalizedTodoItem[],
     previousTodos?: readonly NormalizedTodoItem[],
   ) => boolean;
   messageQueue: UseMessageQueueReturn;
   onMessageSubmitTelemetry?: (event: MessageSubmitTelemetry) => void;
-  runningAskQuestionToolIdsRef: MutableRefObject<Set<string>>;
+  runningAskQuestionToolIdsRef: RefObject<Set<string>>;
   setTodoItems: React.Dispatch<React.SetStateAction<NormalizedTodoItem[]>>;
   setWorkflowState: React.Dispatch<React.SetStateAction<WorkflowChatState>>;
-  todoItemsRef: MutableRefObject<NormalizedTodoItem[]>;
-  workflowSessionIdRef: MutableRefObject<string | null>;
+  todoItemsRef: RefObject<NormalizedTodoItem[]>;
+  workflowSessionIdRef: RefObject<string | null>;
 }
 
 export function useChatAppOrchestration({

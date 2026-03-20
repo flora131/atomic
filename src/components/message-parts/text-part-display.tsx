@@ -10,7 +10,7 @@
  *     continuation lines are indented to align with text after the bullet
  */
 
-import React, { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import type { SyntaxStyle } from "@opentui/core";
 import type { TextPart } from "@/state/parts/types.ts";
 import { createMarkdownSyntaxStyle, useTheme, useThemeColors } from "@/theme/index.tsx";
@@ -29,12 +29,18 @@ export interface TextPartDisplayProps {
 export function TextPartDisplay({ part, syntaxStyle }: TextPartDisplayProps) {
   const colors = useThemeColors();
   const { isDark } = useTheme();
-  const fallbackSyntaxStyle = useMemo(
-    () => createMarkdownSyntaxStyle(colors, isDark),
-    [colors, isDark],
-  );
 
-  const normalizedContent = normalizeMarkdownNewlines(part.content ?? "");
+  // Only allocate a native SyntaxStyle when the parent doesn't provide one.
+  // When syntaxStyle is provided, we take the <markdown> branch and the
+  // fallback is never used — skipping creation avoids a wasted native resource.
+  const ownedSyntaxStyle = useMemo(
+    () => syntaxStyle ? null : createMarkdownSyntaxStyle(colors, isDark),
+    [syntaxStyle, colors, isDark],
+  );
+  useEffect(() => () => { ownedSyntaxStyle?.destroy(); }, [ownedSyntaxStyle]);
+
+  const partContent = part.content ?? "";
+  const normalizedContent = useMemo(() => normalizeMarkdownNewlines(partContent), [partContent]);
 
   if (!normalizedContent) {
     return null;
@@ -64,7 +70,7 @@ export function TextPartDisplay({ part, syntaxStyle }: TextPartDisplayProps) {
             filetype="markdown"
             drawUnstyledText={false}
             streaming={part.isStreaming}
-            syntaxStyle={syntaxStyle ?? fallbackSyntaxStyle}
+            syntaxStyle={ownedSyntaxStyle!}
             fg={colors.foreground}
             conceal={true}
           />

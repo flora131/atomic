@@ -50,7 +50,11 @@ export function resolveClaudeSubagentParentId(args: {
 
     if (args.unmappedSubagentIds.length > 0) {
         const agentId = args.unmappedSubagentIds.shift()!;
-        args.subagentSdkSessionIdToAgentId.set(args.hookSdkSessionId, agentId);
+        // Only set the session mapping if no other agent already owns this
+        // session. Multiple sub-agents can share the same SDK session.
+        if (!args.subagentSdkSessionIdToAgentId.has(args.hookSdkSessionId)) {
+            args.subagentSdkSessionIdToAgentId.set(args.hookSdkSessionId, agentId);
+        }
         return agentId;
     }
 

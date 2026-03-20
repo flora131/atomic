@@ -210,19 +210,17 @@ export function Autocomplete({
     return matches;
   }, [input, visible, externalSuggestions]);
 
-  // Ensure selectedIndex is within bounds
+  // Ensure selectedIndex is within bounds.
+  // Notify parent synchronously during render when clamping changes the index,
+  // using the React-recommended "adjust state during render" pattern with a
+  // prev-value ref to avoid an extra useEffect render cycle.
   const validIndex = getClampedAutocompleteIndex(selectedIndex, suggestions.length);
-
-  // Notify parent after render if index was clamped
-  useEffect(() => {
-    if (!visible || suggestions.length === 0) {
-      return;
-    }
-
-    if (validIndex !== selectedIndex) {
-      onIndexChange(validIndex);
-    }
-  }, [visible, suggestions.length, validIndex, selectedIndex, onIndexChange]);
+  const prevNotifiedRef = useRef(selectedIndex);
+  if (visible && suggestions.length > 0 && validIndex !== selectedIndex && prevNotifiedRef.current !== validIndex) {
+    prevNotifiedRef.current = validIndex;
+    onIndexChange(validIndex);
+  }
+  prevNotifiedRef.current = validIndex;
 
   // Scroll to keep selected item visible
   useEffect(() => {
@@ -287,8 +285,6 @@ export function Autocomplete({
 // UTILITY FUNCTIONS
 // ============================================================================
 
-/** @deprecated Use navigateUp/navigateDown from utils/navigation.ts directly */
-export { navigateUp, navigateDown };
 
 // ============================================================================
 // KEYBOARD NAVIGATION HOOK

@@ -1,26 +1,9 @@
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import { getActiveBackgroundAgents } from "@/state/chat/shared/helpers/background-agent-footer.ts";
-import type { BackgroundTerminationDecision } from "@/state/chat/shared/helpers/background-agent-contracts.ts";
-
-export interface BackgroundTerminationKeyEvent {
-  name?: string | null;
-  ctrl?: boolean;
-  shift?: boolean;
-  meta?: boolean;
-}
-
-// Re-export the canonical BackgroundTerminationDecision type
-export type { BackgroundTerminationDecision };
 
 export interface InterruptBackgroundAgentsResult {
   agents: ParallelAgent[];
   interruptedIds: string[];
-}
-
-export interface BackgroundTerminationPressEvaluation {
-  pressCount: number;
-  nextPressCount: number;
-  decision: BackgroundTerminationDecision;
 }
 
 export interface ExecuteBackgroundTerminationOptions {
@@ -46,55 +29,6 @@ export type ExecuteBackgroundTerminationResult =
     interruptedIds: [];
     error: unknown;
   };
-
-export function isBackgroundTerminationKey(event: BackgroundTerminationKeyEvent): boolean {
-  return event.ctrl === true
-    && event.shift !== true
-    && event.meta !== true
-    && event.name === "f";
-}
-
-export function getBackgroundTerminationDecision(
-  currentPressCount: number,
-  activeBackgroundAgentCount: number,
-): BackgroundTerminationDecision {
-  if (activeBackgroundAgentCount <= 0) {
-    return { action: "none" };
-  }
-
-  if (currentPressCount >= 1) {
-    return {
-      action: "terminate",
-      message: "All background agents killed",
-    };
-  }
-
-  return {
-    action: "warn",
-    message: "Press Ctrl-F again to terminate background agents",
-  };
-}
-
-/**
- * Evaluate a Ctrl+F keypress using a synchronous mutable press counter.
- *
- * This intentionally mutates `pressCountRef.current` immediately so rapid
- * key events in the same input frame do not read stale React state.
- */
-export function evaluateBackgroundTerminationPress(
-  pressCountRef: { current: number },
-  activeBackgroundAgentCount: number,
-): BackgroundTerminationPressEvaluation {
-  const pressCount = pressCountRef.current;
-  const decision = getBackgroundTerminationDecision(pressCount, activeBackgroundAgentCount);
-  const nextPressCount = decision.action === "warn" ? pressCount + 1 : 0;
-  pressCountRef.current = nextPressCount;
-  return {
-    pressCount,
-    nextPressCount,
-    decision,
-  };
-}
 
 export function interruptActiveBackgroundAgents(
   agents: readonly ParallelAgent[],

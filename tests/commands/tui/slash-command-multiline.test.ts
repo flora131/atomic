@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { parseSlashCommand } from "@/commands/tui/index.ts";
 import { deriveComposerAutocompleteState } from "@/state/chat/composer/autocomplete.ts";
 import type { WorkflowChatState } from "@/state/chat/shared/types/index.ts";
-import { defaultRalphCommandState } from "@/services/workflows/ralph/types.ts";
 import { defaultWorkflowCommandState } from "@/services/workflows/workflow-types.ts";
 
 const baseWorkflowState: WorkflowChatState = {
@@ -16,7 +15,6 @@ const baseWorkflowState: WorkflowChatState = {
   workflowType: null,
   initialPrompt: null,
   workflowCommandState: { ...defaultWorkflowCommandState },
-  ralphState: { ...defaultRalphCommandState },
 };
 
 describe("parseSlashCommand – multiline handling", () => {

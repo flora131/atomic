@@ -72,6 +72,11 @@ type RemovedFeedback = CommandContextState["feedback"];
 // @ts-expect-error FeatureProgressState was moved from commands/core/types.ts to services/workflows/ralph/types.ts
 type RemovedFeatureProgressState = (typeof import("@/commands/core/types.ts"))["FeatureProgressState"];
 
+// --- ralphState removed from WorkflowChatState (Task 11) ---
+import type { WorkflowChatState } from "@/state/chat/shared/types/workflow.ts";
+// @ts-expect-error ralphState was removed from WorkflowChatState
+type RemovedRalphStateFromWorkflowChat = WorkflowChatState["ralphState"];
+
 // @ts-expect-error AgentNodeAgentType must remain a string
 const invalidAgentType: AgentNodeAgentType = 123;
 void invalidAgentType;

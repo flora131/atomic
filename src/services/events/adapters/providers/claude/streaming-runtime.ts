@@ -16,6 +16,7 @@ import type { WorkflowRuntimeFeatureFlags } from "@/services/workflows/runtime-c
 import type { ClaudeSyntheticForegroundAgent } from "@/services/events/adapters/providers/claude/tool-state.ts";
 import { resolveAgentOnlyTaskLabel } from "@/services/events/adapters/provider-shared.ts";
 import { classifyError, computeDelay, retrySleep, DEFAULT_MAX_RETRIES } from "@/services/events/adapters/retry.ts";
+import { createStaleStreamWatchdog, StaleStreamError, DEFAULT_FOREGROUND_STALE_TIMEOUT_MS } from "@/services/events/adapters/stale-stream-watchdog.ts";
 
 export async function startClaudeStreaming(args: {
   session: Session;
@@ -54,6 +55,7 @@ export async function startClaudeStreaming(args: {
   getActiveBackgroundAgentCount: () => number;
   publishSessionPartialIdle: (runId: number, completionReason: string, activeBackgroundAgentCount: number) => void;
   processStreamChunk: (chunk: AgentMessage, runId: number, messageId: string) => void;
+  resumeSession: () => Promise<Session | null>;
   createAgentEvent: <T extends EventType>(event: {
     type: T;
     sessionId: string;
@@ -68,6 +70,7 @@ export async function startClaudeStreaming(args: {
   ) => EventHandler<T>;
 }): Promise<void> {
   const { runId, messageId, agent, runtimeFeatureFlags, abortSignal } = args.options;
+  let activeSession = args.session;
 
   args.setUnsubscribers(args.cleanupSubscriptions(args.getUnsubscribers()));
 
@@ -165,22 +168,49 @@ export async function startClaudeStreaming(args: {
 
   let streamCompletionReason: "generator-complete" | "aborted" | "error" = "generator-complete";
 
+  // Stale stream watchdog: abort only a per-attempt controller (not the
+  // adapter controller) so the retry loop can silently resume the same
+  // session. Claude's `options.resume = sdkSessionId` automatically
+  // resumes the conversation on the next `stream()` call.
+  let staleAbort: AbortController | null = null;
+  const watchdog = createStaleStreamWatchdog({
+    onStale: () => {
+      staleAbort?.abort();
+    },
+  });
+
   try {
     let lastError: unknown = null;
     for (let attempt = 1; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
       try {
-        const stream = args.session.stream(args.message, agent ? { agent } : undefined);
+        staleAbort = new AbortController();
+        const adapterSignal = args.getAbortController()?.signal;
+        if (adapterSignal?.aborted) {
+          streamCompletionReason = "aborted";
+          break;
+        }
 
+        const stream = activeSession.stream(args.message, agent ? { agent } : undefined);
+
+        watchdog.start();
         for await (const chunk of stream) {
-          if (args.getAbortController()?.signal.aborted) {
+          watchdog.kick();
+          if (adapterSignal?.aborted) {
             streamCompletionReason = "aborted";
             break;
+          }
+          if (staleAbort.signal.aborted) {
+            throw new StaleStreamError(DEFAULT_FOREGROUND_STALE_TIMEOUT_MS);
           }
 
           args.processStreamChunk(chunk, runId, messageId);
         }
 
-        const wasAborted = args.getAbortController()?.signal.aborted ?? false;
+        if (staleAbort.signal.aborted) {
+          throw new StaleStreamError(DEFAULT_FOREGROUND_STALE_TIMEOUT_MS);
+        }
+
+        const wasAborted = adapterSignal?.aborted ?? false;
         if (!wasAborted && args.getTextAccumulator().length > 0) {
           args.publishTextComplete(runId, messageId);
         }
@@ -202,19 +232,27 @@ export async function startClaudeStreaming(args: {
           break;
         }
 
+        watchdog.reset();
+
+        const isStale = error instanceof StaleStreamError;
         const delay = computeDelay(attempt, classified);
-        args.busPublish({
-          type: "stream.session.retry",
-          sessionId: args.sessionId,
-          runId,
-          timestamp: Date.now(),
-          data: {
-            attempt,
-            delay,
-            message: `${classified.message} — retrying in ${Math.ceil(delay / 1000)}s`,
-            nextRetryAt: Date.now() + delay,
-          },
-        });
+
+        // Only publish retry indicator for non-stale errors (rate limits, etc.)
+        // Stale recovery is invisible to the user.
+        if (!isStale) {
+          args.busPublish({
+            type: "stream.session.retry",
+            sessionId: args.sessionId,
+            runId,
+            timestamp: Date.now(),
+            data: {
+              attempt,
+              delay,
+              message: classified.message,
+              nextRetryAt: Date.now() + delay,
+            },
+          });
+        }
 
         args.setTextAccumulator("");
         const signal = args.getAbortController()?.signal;
@@ -222,6 +260,15 @@ export async function startClaudeStreaming(args: {
           break;
         }
         await retrySleep(delay, signal);
+
+        // Use SDK resume to get a fresh session handle (Claude uses
+        // options.resume = sdkSessionId internally on the new handle)
+        if (isStale) {
+          const resumed = await args.resumeSession();
+          if (resumed) {
+            activeSession = resumed;
+          }
+        }
       }
     }
 
@@ -239,6 +286,7 @@ export async function startClaudeStreaming(args: {
     }
     args.publishSyntheticAgentComplete(runId, false, errorMessage);
   } finally {
+    watchdog.dispose();
     if (abortSignal) {
       abortSignal.removeEventListener("abort", forwardExternalAbort);
     }

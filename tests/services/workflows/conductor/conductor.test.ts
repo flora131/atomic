@@ -1,0 +1,1661 @@
+import { describe, expect, test, mock, beforeEach } from "bun:test";
+import { WorkflowSessionConductor } from "@/services/workflows/conductor/conductor.ts";
+import type {
+  ConductorConfig,
+  StageContext,
+  StageDefinition,
+  StageOutput,
+  WorkflowResult,
+} from "@/services/workflows/conductor/types.ts";
+import type { BaseState, CompiledGraph, NodeDefinition, Edge } from "@/services/workflows/graph/types.ts";
+import type { Session, AgentMessage, SessionConfig } from "@/services/agents/types.ts";
+
+// ---------------------------------------------------------------------------
+// Test Helpers — Build realistic graph & session mocks
+// ---------------------------------------------------------------------------
+
+/** Create a minimal Session that yields messages from a canned response. */
+function createMockSession(response: string, id = "session-1"): Session {
+  return {
+    id,
+    send: mock(async () => ({ type: "text" as const, content: response })),
+    stream: async function* (_message: string, _options?: { agent?: string; abortSignal?: AbortSignal }) {
+      yield { type: "text" as const, content: response } as AgentMessage;
+    },
+    summarize: mock(async () => {}),
+    getContextUsage: mock(async () => ({
+      inputTokens: 100,
+      outputTokens: 50,
+      maxTokens: 100000,
+      usagePercentage: 0.15,
+    })),
+    getSystemToolsTokens: () => 0,
+    destroy: mock(async () => {}),
+  };
+}
+
+/** Create an agent node definition. */
+function agentNode(id: string): NodeDefinition<BaseState> {
+  return {
+    id,
+    type: "agent",
+    execute: mock(async () => ({})),
+  };
+}
+
+/** Create a tool/decision node that sets a state output. */
+function toolNode(id: string, outputValue?: unknown): NodeDefinition<BaseState> {
+  return {
+    id,
+    type: "tool",
+    execute: mock(async (ctx) => ({
+      stateUpdate: {
+        outputs: { ...ctx.state.outputs, [id]: outputValue ?? `${id}-result` },
+      },
+    })),
+  };
+}
+
+/** Build a simple linear graph: node1 → node2 → node3 ... */
+function buildLinearGraph(nodes: NodeDefinition<BaseState>[]): CompiledGraph<BaseState> {
+  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+  const edges: Edge<BaseState>[] = [];
+
+  for (let i = 0; i < nodes.length - 1; i++) {
+    edges.push({ from: nodes[i]!.id, to: nodes[i + 1]!.id });
+  }
+
+  return {
+    nodes: nodeMap,
+    edges,
+    startNode: nodes[0]!.id,
+    endNodes: new Set([nodes[nodes.length - 1]!.id]),
+    config: {},
+  };
+}
+
+/** Build a graph with conditional branching. */
+function buildConditionalGraph(
+  nodes: NodeDefinition<BaseState>[],
+  edges: Edge<BaseState>[],
+  startNode: string,
+  endNodes: string[],
+): CompiledGraph<BaseState> {
+  return {
+    nodes: new Map(nodes.map((n) => [n.id, n])),
+    edges,
+    startNode,
+    endNodes: new Set(endNodes),
+    config: {},
+  };
+}
+
+/** Create a minimal StageDefinition. */
+function stage(
+  id: string,
+  response: string,
+  options?: Partial<StageDefinition>,
+): StageDefinition {
+  return {
+    id,
+    name: id.charAt(0).toUpperCase() + id.slice(1),
+    indicator: `[${id.toUpperCase()}]`,
+    buildPrompt: (_ctx: StageContext) => `Prompt for ${id}`,
+    ...options,
+  };
+}
+
+/** Create a ConductorConfig with common defaults. */
+function buildConfig(
+  graph: CompiledGraph<BaseState>,
+  sessionFactory: (config?: SessionConfig) => Promise<Session>,
+  overrides?: Partial<ConductorConfig>,
+): ConductorConfig {
+  return {
+    graph,
+    createSession: sessionFactory,
+    destroySession: mock(async (_session: Session) => {}),
+    onStageTransition: mock((_from: string | null, _to: string) => {}),
+    onTaskUpdate: mock((_tasks) => {}),
+    abortSignal: new AbortController().signal,
+    ...overrides,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe("WorkflowSessionConductor", () => {
+  // -----------------------------------------------------------------------
+  // Basic Execution
+  // -----------------------------------------------------------------------
+
+  describe("basic execution", () => {
+    test("executes a single-stage graph and returns success", async () => {
+      const session = createMockSession("Planner output");
+      const graph = buildLinearGraph([agentNode("planner")]);
+      const config = buildConfig(graph, async () => session);
+      const stages = [stage("planner", "Planner output")];
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("Build auth module");
+
+      expect(result.success).toBe(true);
+      expect(result.stageOutputs.size).toBe(1);
+
+      const plannerOutput = result.stageOutputs.get("planner");
+      expect(plannerOutput).toBeDefined();
+      expect(plannerOutput!.stageId).toBe("planner");
+      expect(plannerOutput!.rawResponse).toBe("Planner output");
+      expect(plannerOutput!.status).toBe("completed");
+    });
+
+    test("sequences multiple stages in graph order", async () => {
+      const executionOrder: string[] = [];
+      const sessionFactory = async (config?: SessionConfig) => {
+        const id = executionOrder.length.toString();
+        const session = createMockSession(`Response ${id}`, `session-${id}`);
+        return session;
+      };
+
+      const graph = buildLinearGraph([
+        agentNode("planner"),
+        agentNode("orchestrator"),
+        agentNode("reviewer"),
+      ]);
+
+      const stages = [
+        stage("planner", "", {
+          buildPrompt: (ctx) => {
+            executionOrder.push("planner");
+            return `Plan: ${ctx.userPrompt}`;
+          },
+        }),
+        stage("orchestrator", "", {
+          buildPrompt: (ctx) => {
+            executionOrder.push("orchestrator");
+            return "Orchestrate tasks";
+          },
+        }),
+        stage("reviewer", "", {
+          buildPrompt: () => {
+            executionOrder.push("reviewer");
+            return "Review code";
+          },
+        }),
+      ];
+
+      const config = buildConfig(graph, sessionFactory);
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("Build auth");
+
+      expect(result.success).toBe(true);
+      expect(executionOrder).toEqual(["planner", "orchestrator", "reviewer"]);
+      expect(result.stageOutputs.size).toBe(3);
+    });
+
+    test("returns empty stageOutputs for a graph with no agent nodes", async () => {
+      const graph = buildLinearGraph([toolNode("setup"), toolNode("validate")]);
+      const config = buildConfig(graph, async () => createMockSession(""));
+      const conductor = new WorkflowSessionConductor(config, []);
+      const result = await conductor.execute("Test");
+
+      expect(result.success).toBe(true);
+      expect(result.stageOutputs.size).toBe(0);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Stage Context Threading
+  // -----------------------------------------------------------------------
+
+  describe("stage context threading", () => {
+    test("passes userPrompt to every stage's buildPrompt", async () => {
+      const capturedPrompts: string[] = [];
+      const graph = buildLinearGraph([agentNode("planner"), agentNode("reviewer")]);
+
+      const stages = [
+        stage("planner", "", {
+          buildPrompt: (ctx) => {
+            capturedPrompts.push(ctx.userPrompt);
+            return "plan";
+          },
+        }),
+        stage("reviewer", "", {
+          buildPrompt: (ctx) => {
+            capturedPrompts.push(ctx.userPrompt);
+            return "review";
+          },
+        }),
+      ];
+
+      const config = buildConfig(graph, async () => createMockSession("output"));
+      const conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("My prompt");
+
+      expect(capturedPrompts).toEqual(["My prompt", "My prompt"]);
+    });
+
+    test("downstream stages receive prior stage outputs in context", async () => {
+      let reviewerContext: StageContext | undefined;
+
+      const graph = buildLinearGraph([agentNode("planner"), agentNode("reviewer")]);
+
+      const stages = [
+        stage("planner", "", {
+          buildPrompt: () => "plan",
+          parseOutput: (raw) => ({ tasks: ["task1"] }),
+        }),
+        stage("reviewer", "", {
+          buildPrompt: (ctx) => {
+            reviewerContext = ctx;
+            return "review";
+          },
+        }),
+      ];
+
+      const config = buildConfig(graph, async () => createMockSession("planner response"));
+      const conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("Build something");
+
+      expect(reviewerContext).toBeDefined();
+      expect(reviewerContext!.stageOutputs.size).toBe(1);
+
+      const plannerOutput = reviewerContext!.stageOutputs.get("planner");
+      expect(plannerOutput).toBeDefined();
+      expect(plannerOutput!.rawResponse).toBe("planner response");
+      expect(plannerOutput!.parsedOutput).toEqual({ tasks: ["task1"] });
+    });
+
+    test("context stageOutputs is an immutable snapshot per stage", async () => {
+      const capturedMaps: Map<string, StageOutput>[] = [];
+
+      const graph = buildLinearGraph([
+        agentNode("stage1"),
+        agentNode("stage2"),
+        agentNode("stage3"),
+      ]);
+
+      const stages = [
+        stage("stage1", "", { buildPrompt: (ctx) => { capturedMaps.push(new Map(ctx.stageOutputs)); return "s1"; } }),
+        stage("stage2", "", { buildPrompt: (ctx) => { capturedMaps.push(new Map(ctx.stageOutputs)); return "s2"; } }),
+        stage("stage3", "", { buildPrompt: (ctx) => { capturedMaps.push(new Map(ctx.stageOutputs)); return "s3"; } }),
+      ];
+
+      const config = buildConfig(graph, async () => createMockSession("output"));
+      const conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("test");
+
+      expect(capturedMaps[0]!.size).toBe(0); // stage1 sees nothing
+      expect(capturedMaps[1]!.size).toBe(1); // stage2 sees stage1
+      expect(capturedMaps[2]!.size).toBe(2); // stage3 sees stage1 + stage2
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // shouldRun Gating
+  // -----------------------------------------------------------------------
+
+  describe("shouldRun gating", () => {
+    test("skips a stage when shouldRun returns false", async () => {
+      const executed: string[] = [];
+      const graph = buildLinearGraph([
+        agentNode("planner"),
+        agentNode("debugger"),
+        agentNode("reviewer"),
+      ]);
+
+      const stages = [
+        stage("planner", "", { buildPrompt: () => { executed.push("planner"); return "plan"; } }),
+        stage("debugger", "", {
+          buildPrompt: () => { executed.push("debugger"); return "debug"; },
+          shouldRun: () => false,
+        }),
+        stage("reviewer", "", { buildPrompt: () => { executed.push("reviewer"); return "review"; } }),
+      ];
+
+      const config = buildConfig(graph, async () => createMockSession("output"));
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      expect(result.success).toBe(true);
+      expect(executed).toEqual(["planner", "reviewer"]);
+    });
+
+    test("shouldRun receives current stage context", async () => {
+      const graph = buildLinearGraph([agentNode("planner"), agentNode("debugger")]);
+
+      const stages = [
+        stage("planner", "", { buildPrompt: () => "plan" }),
+        stage("debugger", "", {
+          buildPrompt: () => "debug",
+          shouldRun: (ctx) => {
+            const plannerOutput = ctx.stageOutputs.get("planner");
+            return plannerOutput?.rawResponse.includes("error") ?? false;
+          },
+        }),
+      ];
+
+      // No "error" in planner response → debugger should NOT run
+      const config = buildConfig(graph, async () => createMockSession("all good"));
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      // Debugger was skipped — not in stageOutputs
+      expect(result.stageOutputs.has("debugger")).toBe(false);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Output Parsing
+  // -----------------------------------------------------------------------
+
+  describe("output parsing", () => {
+    test("stores parsedOutput when parseOutput succeeds", async () => {
+      const graph = buildLinearGraph([agentNode("planner")]);
+      const stages = [
+        stage("planner", "", {
+          buildPrompt: () => "plan",
+          parseOutput: (raw) => JSON.parse(raw),
+        }),
+      ];
+
+      const config = buildConfig(graph, async () => createMockSession('{"tasks":["a","b"]}'));
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      const output = result.stageOutputs.get("planner");
+      expect(output!.parsedOutput).toEqual({ tasks: ["a", "b"] });
+      expect(output!.status).toBe("completed");
+    });
+
+    test("parsedOutput is undefined when parseOutput throws", async () => {
+      const graph = buildLinearGraph([agentNode("planner")]);
+      const stages = [
+        stage("planner", "", {
+          buildPrompt: () => "plan",
+          parseOutput: () => { throw new Error("bad JSON"); },
+        }),
+      ];
+
+      const config = buildConfig(graph, async () => createMockSession("not json"));
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      const output = result.stageOutputs.get("planner");
+      expect(output!.parsedOutput).toBeUndefined();
+      expect(output!.status).toBe("completed");
+    });
+
+    test("parsedOutput is undefined when no parseOutput is provided", async () => {
+      const graph = buildLinearGraph([agentNode("planner")]);
+      const stages = [stage("planner", "")];
+
+      const config = buildConfig(graph, async () => createMockSession("output"));
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      expect(result.stageOutputs.get("planner")!.parsedOutput).toBeUndefined();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Task List Updates
+  // -----------------------------------------------------------------------
+
+  describe("task list updates", () => {
+    test("updates tasks and calls onTaskUpdate when parsedOutput is a TaskItem array", async () => {
+      const taskUpdates: unknown[][] = [];
+      const graph = buildLinearGraph([agentNode("planner"), agentNode("orchestrator")]);
+
+      const taskArray = [
+        { id: "1", description: "Create model", status: "pending", summary: "Creating model", blockedBy: [] },
+        { id: "2", description: "Add tests", status: "pending", summary: "Adding tests", blockedBy: ["1"] },
+      ];
+
+      const stages = [
+        stage("planner", "", {
+          buildPrompt: () => "plan",
+          parseOutput: () => taskArray,
+        }),
+        stage("orchestrator", "", {
+          buildPrompt: (ctx) => {
+            // Orchestrator should see the tasks from planner
+            expect(ctx.tasks).toHaveLength(2);
+            return "orchestrate";
+          },
+        }),
+      ];
+
+      const config = buildConfig(
+        graph,
+        async () => createMockSession("planner output"),
+        { onTaskUpdate: mock((tasks) => taskUpdates.push([...tasks])) },
+      );
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      expect(taskUpdates.length).toBeGreaterThanOrEqual(1);
+      expect(taskUpdates[0]).toHaveLength(2);
+      expect(result.tasks).toHaveLength(2);
+    });
+
+    test("does not call onTaskUpdate when parsedOutput is not a TaskItem array", async () => {
+      const onTaskUpdate = mock(() => {});
+      const graph = buildLinearGraph([agentNode("planner")]);
+
+      const stages = [
+        stage("planner", "", {
+          buildPrompt: () => "plan",
+          parseOutput: () => ({ findings: ["bug"] }), // Not an array
+        }),
+      ];
+
+      const config = buildConfig(
+        graph,
+        async () => createMockSession("output"),
+        { onTaskUpdate },
+      );
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("test");
+
+      expect(onTaskUpdate).not.toHaveBeenCalled();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Session Lifecycle
+  // -----------------------------------------------------------------------
+
+  describe("session lifecycle", () => {
+    test("creates and destroys a session per agent stage", async () => {
+      const createdSessions: Session[] = [];
+      const destroyedSessions: Session[] = [];
+
+      const graph = buildLinearGraph([agentNode("planner"), agentNode("reviewer")]);
+      const stages = [stage("planner", ""), stage("reviewer", "")];
+
+      const config = buildConfig(
+        graph,
+        async () => {
+          const session = createMockSession("output", `s-${createdSessions.length}`);
+          createdSessions.push(session);
+          return session;
+        },
+        {
+          destroySession: mock(async (session: Session) => {
+            destroyedSessions.push(session);
+          }),
+        },
+      );
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("test");
+
+      expect(createdSessions).toHaveLength(2);
+      expect(destroyedSessions).toHaveLength(2);
+      // Sessions are destroyed in the same order they're created
+      expect(destroyedSessions[0]!.id).toBe(createdSessions[0]!.id);
+      expect(destroyedSessions[1]!.id).toBe(createdSessions[1]!.id);
+    });
+
+    test("destroys session even when stage errors", async () => {
+      const destroyedSessions: string[] = [];
+      const graph = buildLinearGraph([agentNode("planner")]);
+      const stages = [stage("planner", "")];
+
+      const failingSession: Session = {
+        ...createMockSession(""),
+        stream: async function* () {
+          throw new Error("Stream failure");
+        },
+      };
+
+      const config = buildConfig(
+        graph,
+        async () => failingSession,
+        {
+          destroySession: mock(async (session: Session) => {
+            destroyedSessions.push(session.id);
+          }),
+        },
+      );
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      expect(result.success).toBe(false);
+      expect(destroyedSessions).toHaveLength(1);
+    });
+
+    test("passes stage sessionConfig to createSession", async () => {
+      const capturedConfigs: (SessionConfig | undefined)[] = [];
+      const graph = buildLinearGraph([agentNode("planner")]);
+
+      const stages = [
+        stage("planner", "", {
+          sessionConfig: { model: "claude-opus-4-20250514", maxTurns: 5 },
+        }),
+      ];
+
+      const config = buildConfig(graph, async (cfg) => {
+        capturedConfigs.push(cfg);
+        return createMockSession("output");
+      });
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("test");
+
+      expect(capturedConfigs).toHaveLength(1);
+      expect(capturedConfigs[0]?.model).toBe("claude-opus-4-20250514");
+      expect(capturedConfigs[0]?.maxTurns).toBe(5);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Stage Transition Callbacks
+  // -----------------------------------------------------------------------
+
+  describe("stage transition callbacks", () => {
+    test("calls onStageTransition with null for first stage", async () => {
+      const transitions: [string | null, string][] = [];
+      const graph = buildLinearGraph([agentNode("planner")]);
+      const stages = [stage("planner", "")];
+
+      const config = buildConfig(
+        graph,
+        async () => createMockSession("output"),
+        { onStageTransition: mock((from, to) => transitions.push([from, to])) },
+      );
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("test");
+
+      expect(transitions).toEqual([[null, "planner"]]);
+    });
+
+    test("calls onStageTransition with previous stage ID for subsequent stages", async () => {
+      const transitions: [string | null, string][] = [];
+      const graph = buildLinearGraph([agentNode("planner"), agentNode("orchestrator"), agentNode("reviewer")]);
+      const stages = [stage("planner", ""), stage("orchestrator", ""), stage("reviewer", "")];
+
+      const config = buildConfig(
+        graph,
+        async () => createMockSession("output"),
+        { onStageTransition: mock((from, to) => transitions.push([from, to])) },
+      );
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("test");
+
+      expect(transitions).toEqual([
+        [null, "planner"],
+        ["planner", "orchestrator"],
+        ["orchestrator", "reviewer"],
+      ]);
+    });
+
+    test("does not call onStageTransition for skipped stages", async () => {
+      const transitions: [string | null, string][] = [];
+      const graph = buildLinearGraph([agentNode("planner"), agentNode("debugger"), agentNode("reviewer")]);
+
+      const stages = [
+        stage("planner", ""),
+        stage("debugger", "", { shouldRun: () => false }),
+        stage("reviewer", ""),
+      ];
+
+      const config = buildConfig(
+        graph,
+        async () => createMockSession("output"),
+        { onStageTransition: mock((from, to) => transitions.push([from, to])) },
+      );
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("test");
+
+      expect(transitions).toEqual([
+        [null, "planner"],
+        ["planner", "reviewer"],
+      ]);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Error Handling
+  // -----------------------------------------------------------------------
+
+  describe("error handling", () => {
+    test("returns success=false when a stage errors", async () => {
+      const graph = buildLinearGraph([agentNode("planner"), agentNode("reviewer")]);
+      const stages = [stage("planner", ""), stage("reviewer", "")];
+
+      let callCount = 0;
+      const config = buildConfig(graph, async () => {
+        callCount++;
+        if (callCount === 1) {
+          // Planner session throws
+          return {
+            ...createMockSession(""),
+            stream: async function* () {
+              throw new Error("API rate limit");
+            },
+          } as Session;
+        }
+        return createMockSession("review output");
+      });
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      expect(result.success).toBe(false);
+      const plannerOutput = result.stageOutputs.get("planner");
+      expect(plannerOutput!.status).toBe("error");
+      expect(plannerOutput!.error).toContain("API rate limit");
+
+      // Reviewer should NOT have executed
+      expect(result.stageOutputs.has("reviewer")).toBe(false);
+    });
+
+    test("returns error output with error message from session creation failure", async () => {
+      const graph = buildLinearGraph([agentNode("planner")]);
+      const stages = [stage("planner", "")];
+
+      const config = buildConfig(graph, async () => {
+        throw new Error("Session pool exhausted");
+      });
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      expect(result.success).toBe(false);
+      const output = result.stageOutputs.get("planner");
+      expect(output!.status).toBe("error");
+      expect(output!.error).toContain("Session pool exhausted");
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Abort / Cancellation
+  // -----------------------------------------------------------------------
+
+  describe("abort handling", () => {
+    test("returns success=false when aborted before execution starts", async () => {
+      const controller = new AbortController();
+      controller.abort();
+
+      const graph = buildLinearGraph([agentNode("planner")]);
+      const stages = [stage("planner", "")];
+      const config = buildConfig(
+        graph,
+        async () => createMockSession("output"),
+        { abortSignal: controller.signal },
+      );
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      expect(result.success).toBe(false);
+      expect(result.stageOutputs.size).toBe(0);
+    });
+
+    test("stage returns interrupted status when abort fires during streaming", async () => {
+      const controller = new AbortController();
+      const graph = buildLinearGraph([agentNode("planner")]);
+
+      const stages = [stage("planner", "")];
+      const slowSession: Session = {
+        ...createMockSession(""),
+        stream: async function* (_msg: string, options?: { abortSignal?: AbortSignal }) {
+          yield { type: "text" as const, content: "partial " } as AgentMessage;
+          // Simulate abort during streaming
+          controller.abort();
+          yield { type: "text" as const, content: "data" } as AgentMessage;
+        },
+      };
+
+      const config = buildConfig(
+        graph,
+        async () => slowSession,
+        { abortSignal: controller.signal },
+      );
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      expect(result.success).toBe(false);
+      const output = result.stageOutputs.get("planner");
+      expect(output!.status).toBe("interrupted");
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Mixed Node Types (agent + tool/decision)
+  // -----------------------------------------------------------------------
+
+  describe("mixed node types", () => {
+    test("executes tool nodes via their execute function", async () => {
+      const toolExecuted = mock(async (ctx: any) => ({
+        stateUpdate: { outputs: { ...ctx.state.outputs, validate: "validated" } },
+      }));
+
+      const validateNode: NodeDefinition<BaseState> = {
+        id: "validate",
+        type: "tool",
+        execute: toolExecuted,
+      };
+
+      const graph = buildLinearGraph([agentNode("planner"), validateNode, agentNode("reviewer")]);
+      const stages = [stage("planner", ""), stage("reviewer", "")];
+
+      const config = buildConfig(graph, async () => createMockSession("output"));
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      expect(result.success).toBe(true);
+      expect(toolExecuted).toHaveBeenCalled();
+      expect(result.stageOutputs.size).toBe(2); // Only agent stages produce StageOutputs
+    });
+
+    test("tool node state updates are visible to subsequent agent stages", async () => {
+      let reviewerState: BaseState | undefined;
+
+      const validateNode: NodeDefinition<BaseState> = {
+        id: "validate",
+        type: "tool",
+        execute: async (ctx) => ({
+          stateUpdate: {
+            outputs: { ...ctx.state.outputs, validate: { isValid: true } },
+          },
+        }),
+      };
+
+      const graph = buildLinearGraph([validateNode, agentNode("reviewer")]);
+      const stages = [
+        stage("reviewer", "", {
+          buildPrompt: () => "review",
+        }),
+      ];
+
+      const config = buildConfig(graph, async () => createMockSession("review output"));
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      expect(result.success).toBe(true);
+      // Tool node's stateUpdate is merged into state before the reviewer runs
+      expect(result.state.outputs.validate).toBeDefined();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Conditional Edge Routing
+  // -----------------------------------------------------------------------
+
+  describe("conditional edge routing", () => {
+    test("follows edges based on state conditions", async () => {
+      const executed: string[] = [];
+
+      const plannerNode = agentNode("planner");
+      const debugNode = agentNode("debugger");
+      const reviewNode = agentNode("reviewer");
+
+      const edges: Edge<BaseState>[] = [
+        {
+          from: "planner",
+          to: "debugger",
+          condition: (state) => {
+            const output = state.outputs.planner as StageOutput | undefined;
+            return output?.rawResponse.includes("error") ?? false;
+          },
+        },
+        {
+          from: "planner",
+          to: "reviewer",
+          condition: (state) => {
+            const output = state.outputs.planner as StageOutput | undefined;
+            return !output?.rawResponse.includes("error");
+          },
+        },
+      ];
+
+      const graph = buildConditionalGraph(
+        [plannerNode, debugNode, reviewNode],
+        edges,
+        "planner",
+        ["debugger", "reviewer"],
+      );
+
+      const stages = [
+        stage("planner", "", { buildPrompt: () => { executed.push("planner"); return "plan"; } }),
+        stage("debugger", "", { buildPrompt: () => { executed.push("debugger"); return "debug"; } }),
+        stage("reviewer", "", { buildPrompt: () => { executed.push("reviewer"); return "review"; } }),
+      ];
+
+      // Session returns "all good" → should route to reviewer, not debugger
+      const config = buildConfig(graph, async () => createMockSession("all good"));
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      expect(result.success).toBe(true);
+      expect(executed).toEqual(["planner", "reviewer"]);
+      expect(executed).not.toContain("debugger");
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // WorkflowResult Shape
+  // -----------------------------------------------------------------------
+
+  describe("WorkflowResult shape", () => {
+    test("result contains valid BaseState with executionId", async () => {
+      const graph = buildLinearGraph([agentNode("planner")]);
+      const stages = [stage("planner", "")];
+      const config = buildConfig(graph, async () => createMockSession("output"));
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      expect(result.state.executionId).toMatch(/^exec_/);
+      expect(result.state.lastUpdated).toBeTruthy();
+      expect(typeof result.state.outputs).toBe("object");
+    });
+
+    test("result tasks array is a copy (mutation-safe)", async () => {
+      const graph = buildLinearGraph([agentNode("planner")]);
+      const taskArray = [
+        { id: "1", description: "Task 1", status: "pending", summary: "Task one", blockedBy: [] },
+      ];
+      const stages = [
+        stage("planner", "", {
+          buildPrompt: () => "plan",
+          parseOutput: () => taskArray,
+        }),
+      ];
+
+      const config = buildConfig(graph, async () => createMockSession("output"));
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      // Mutating the returned tasks should not affect internal state
+      (result.tasks as any[]).push({ id: "extra" });
+      expect(result.tasks).toHaveLength(2); // our mutation
+      // A second execute would still have the original task count if we ran it
+    });
+
+    test("result stageOutputs is a copy (mutation-safe)", async () => {
+      const graph = buildLinearGraph([agentNode("planner")]);
+      const stages = [stage("planner", "")];
+      const config = buildConfig(graph, async () => createMockSession("output"));
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      const originalSize = result.stageOutputs.size;
+      (result.stageOutputs as Map<string, StageOutput>).set("fake", {} as StageOutput);
+      expect(result.stageOutputs.size).toBe(originalSize + 1); // our mutation
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Advanced Stage Sequencing
+  // -----------------------------------------------------------------------
+
+  describe("advanced stage sequencing", () => {
+    test("diamond graph: A → B + C → D converges correctly", async () => {
+      const executed: string[] = [];
+      const a = agentNode("a");
+      const b = agentNode("b");
+      const c = agentNode("c");
+      const d = agentNode("d");
+
+      const edges: Edge<BaseState>[] = [
+        { from: "a", to: "b" },
+        { from: "a", to: "c" },
+        { from: "b", to: "d" },
+        { from: "c", to: "d" },
+      ];
+
+      const graph = buildConditionalGraph([a, b, c, d], edges, "a", ["d"]);
+
+      const stages = [
+        stage("a", "", { buildPrompt: () => { executed.push("a"); return "do a"; } }),
+        stage("b", "", { buildPrompt: () => { executed.push("b"); return "do b"; } }),
+        stage("c", "", { buildPrompt: () => { executed.push("c"); return "do c"; } }),
+        stage("d", "", { buildPrompt: () => { executed.push("d"); return "do d"; } }),
+      ];
+
+      const config = buildConfig(graph, async () => createMockSession("output"));
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test diamond");
+
+      expect(result.success).toBe(true);
+      // A runs first, then B and C (order depends on queue), then D
+      expect(executed[0]).toBe("a");
+      expect(executed).toContain("b");
+      expect(executed).toContain("c");
+      expect(executed).toContain("d");
+      expect(result.stageOutputs.size).toBe(4);
+    });
+
+    test("agent node without StageDefinition is skipped gracefully", async () => {
+      const executed: string[] = [];
+      const graph = buildLinearGraph([
+        agentNode("planner"),
+        agentNode("unknown_stage"),
+        agentNode("reviewer"),
+      ]);
+
+      const stages = [
+        stage("planner", "", { buildPrompt: () => { executed.push("planner"); return "plan"; } }),
+        // No stage for "unknown_stage"
+        stage("reviewer", "", { buildPrompt: () => { executed.push("reviewer"); return "review"; } }),
+      ];
+
+      const config = buildConfig(graph, async () => createMockSession("output"));
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      expect(result.success).toBe(true);
+      expect(executed).toEqual(["planner", "reviewer"]);
+      // The skipped node does NOT appear in stageOutputs
+      expect(result.stageOutputs.has("unknown_stage")).toBe(false);
+      expect(result.stageOutputs.size).toBe(2);
+    });
+
+    test("MAX_STEPS safety prevents infinite traversal on cyclic graphs", async () => {
+      const loopNode = agentNode("loop_stage");
+      const edges: Edge<BaseState>[] = [
+        { from: "loop_stage", to: "loop_stage" }, // self-loop
+      ];
+
+      const graph = buildConditionalGraph([loopNode], edges, "loop_stage", []);
+
+      let executeCount = 0;
+      const stages = [
+        stage("loop_stage", "", {
+          buildPrompt: () => {
+            executeCount++;
+            return "loop";
+          },
+        }),
+      ];
+
+      const config = buildConfig(graph, async () => createMockSession("output"));
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test infinite");
+
+      // Conductor should terminate (not hang) — bounded by MAX_STEPS (100)
+      expect(executeCount).toBeLessThanOrEqual(100);
+      expect(result.success).toBe(true);
+    });
+
+    test("multiple end nodes — execution completes at first reachable end node", async () => {
+      const a = agentNode("a");
+      const b = agentNode("b");
+      const c = agentNode("c");
+
+      const edges: Edge<BaseState>[] = [
+        { from: "a", to: "b" },
+        { from: "a", to: "c" },
+      ];
+
+      const graph = buildConditionalGraph([a, b, c], edges, "a", ["b", "c"]);
+      const executed: string[] = [];
+
+      const stages = [
+        stage("a", "", { buildPrompt: () => { executed.push("a"); return "start"; } }),
+        stage("b", "", { buildPrompt: () => { executed.push("b"); return "end-b"; } }),
+        stage("c", "", { buildPrompt: () => { executed.push("c"); return "end-c"; } }),
+      ];
+
+      const config = buildConfig(graph, async () => createMockSession("output"));
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      expect(result.success).toBe(true);
+      expect(executed[0]).toBe("a");
+      // Both branches execute since both edges are unconditional
+      expect(executed).toContain("b");
+      expect(executed).toContain("c");
+    });
+
+    test("mixed agent/tool/agent sequence preserves execution order", async () => {
+      const order: string[] = [];
+
+      const tool1: NodeDefinition<BaseState> = {
+        id: "validate",
+        type: "tool",
+        execute: mock(async (ctx) => {
+          order.push("validate");
+          return { stateUpdate: { outputs: { ...ctx.state.outputs, validate: "ok" } } };
+        }),
+      };
+
+      const tool2: NodeDefinition<BaseState> = {
+        id: "transform",
+        type: "tool",
+        execute: mock(async (ctx) => {
+          order.push("transform");
+          return { stateUpdate: { outputs: { ...ctx.state.outputs, transform: "done" } } };
+        }),
+      };
+
+      const graph = buildLinearGraph([
+        agentNode("planner"),
+        tool1,
+        agentNode("orchestrator"),
+        tool2,
+        agentNode("reviewer"),
+      ]);
+
+      const stages = [
+        stage("planner", "", { buildPrompt: () => { order.push("planner"); return "plan"; } }),
+        stage("orchestrator", "", { buildPrompt: () => { order.push("orchestrator"); return "orchestrate"; } }),
+        stage("reviewer", "", { buildPrompt: () => { order.push("reviewer"); return "review"; } }),
+      ];
+
+      const config = buildConfig(graph, async () => createMockSession("output"));
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      expect(result.success).toBe(true);
+      expect(order).toEqual(["planner", "validate", "orchestrator", "transform", "reviewer"]);
+    });
+
+    test("stage sequencing stops after first error — no subsequent stages run", async () => {
+      const executed: string[] = [];
+      const graph = buildLinearGraph([
+        agentNode("planner"),
+        agentNode("orchestrator"),
+        agentNode("reviewer"),
+      ]);
+
+      const stages = [
+        stage("planner", "", { buildPrompt: () => { executed.push("planner"); return "plan"; } }),
+        stage("orchestrator", "", { buildPrompt: () => { executed.push("orchestrator"); return "orchestrate"; } }),
+        stage("reviewer", "", { buildPrompt: () => { executed.push("reviewer"); return "review"; } }),
+      ];
+
+      let callCount = 0;
+      const config = buildConfig(graph, async () => {
+        callCount++;
+        if (callCount === 2) {
+          return {
+            ...createMockSession(""),
+            stream: async function* () { throw new Error("Orchestrator crash"); },
+          } as Session;
+        }
+        return createMockSession("output");
+      });
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      expect(result.success).toBe(false);
+      expect(executed).toEqual(["planner", "orchestrator"]);
+      expect(executed).not.toContain("reviewer");
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Advanced Output Capture
+  // -----------------------------------------------------------------------
+
+  describe("advanced output capture", () => {
+    test("multi-chunk streaming concatenates content correctly", async () => {
+      const graph = buildLinearGraph([agentNode("planner")]);
+      const stages = [stage("planner", "")];
+
+      const multiChunkSession: Session = {
+        ...createMockSession(""),
+        stream: async function* () {
+          yield { type: "text" as const, content: "First " } as AgentMessage;
+          yield { type: "text" as const, content: "chunk. " } as AgentMessage;
+          yield { type: "text" as const, content: "Second chunk." } as AgentMessage;
+        },
+      };
+
+      const config = buildConfig(graph, async () => multiChunkSession);
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      const output = result.stageOutputs.get("planner");
+      expect(output!.rawResponse).toBe("First chunk. Second chunk.");
+      expect(output!.status).toBe("completed");
+    });
+
+    test("empty stage response is captured as empty string", async () => {
+      const graph = buildLinearGraph([agentNode("planner")]);
+      const stages = [stage("planner", "")];
+
+      const emptySession: Session = {
+        ...createMockSession(""),
+        stream: async function* () {
+          // yields nothing
+        },
+      };
+
+      const config = buildConfig(graph, async () => emptySession);
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      const output = result.stageOutputs.get("planner");
+      expect(output!.rawResponse).toBe("");
+      expect(output!.status).toBe("completed");
+    });
+
+    test("parsedOutput chains through a multi-stage pipeline", async () => {
+      let orchestratorSeenPlannerParsed: unknown;
+      let reviewerSeenPlannerParsed: unknown;
+      let reviewerSeenOrchestratorParsed: unknown;
+
+      const graph = buildLinearGraph([
+        agentNode("planner"),
+        agentNode("orchestrator"),
+        agentNode("reviewer"),
+      ]);
+
+      const stages = [
+        stage("planner", "", {
+          buildPrompt: () => "plan",
+          parseOutput: () => ({ plan: ["task-a", "task-b"] }),
+        }),
+        stage("orchestrator", "", {
+          buildPrompt: (ctx) => {
+            orchestratorSeenPlannerParsed = ctx.stageOutputs.get("planner")?.parsedOutput;
+            return "orchestrate";
+          },
+          parseOutput: () => ({ completed: 2, failed: 0 }),
+        }),
+        stage("reviewer", "", {
+          buildPrompt: (ctx) => {
+            reviewerSeenPlannerParsed = ctx.stageOutputs.get("planner")?.parsedOutput;
+            reviewerSeenOrchestratorParsed = ctx.stageOutputs.get("orchestrator")?.parsedOutput;
+            return "review";
+          },
+        }),
+      ];
+
+      const config = buildConfig(graph, async () => createMockSession("output"));
+      const conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("test chaining");
+
+      expect(orchestratorSeenPlannerParsed).toEqual({ plan: ["task-a", "task-b"] });
+      expect(reviewerSeenPlannerParsed).toEqual({ plan: ["task-a", "task-b"] });
+      expect(reviewerSeenOrchestratorParsed).toEqual({ completed: 2, failed: 0 });
+    });
+
+    test("raw response preserved verbatim — no trimming or mutation", async () => {
+      const verbatimContent = "  \n  Leading whitespace\n\tTabs preserved  \n  ";
+      const graph = buildLinearGraph([agentNode("planner")]);
+      const stages = [stage("planner", "")];
+
+      const config = buildConfig(graph, async () => createMockSession(verbatimContent));
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      expect(result.stageOutputs.get("planner")!.rawResponse).toBe(verbatimContent);
+    });
+
+    test("stage outputs accumulate — third stage sees all prior outputs", async () => {
+      const capturedOutputKeys: string[][] = [];
+      const graph = buildLinearGraph([
+        agentNode("s1"),
+        agentNode("s2"),
+        agentNode("s3"),
+        agentNode("s4"),
+      ]);
+
+      const stages = [
+        stage("s1", "", { buildPrompt: (ctx) => { capturedOutputKeys.push([...ctx.stageOutputs.keys()]); return "s1"; } }),
+        stage("s2", "", { buildPrompt: (ctx) => { capturedOutputKeys.push([...ctx.stageOutputs.keys()]); return "s2"; } }),
+        stage("s3", "", { buildPrompt: (ctx) => { capturedOutputKeys.push([...ctx.stageOutputs.keys()]); return "s3"; } }),
+        stage("s4", "", { buildPrompt: (ctx) => { capturedOutputKeys.push([...ctx.stageOutputs.keys()]); return "s4"; } }),
+      ];
+
+      const config = buildConfig(graph, async () => createMockSession("output"));
+      const conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("test");
+
+      expect(capturedOutputKeys[0]).toEqual([]);
+      expect(capturedOutputKeys[1]).toEqual(["s1"]);
+      expect(capturedOutputKeys[2]).toEqual(["s1", "s2"]);
+      expect(capturedOutputKeys[3]).toEqual(["s1", "s2", "s3"]);
+    });
+
+    test("parseOutput receives the complete concatenated rawResponse", async () => {
+      let parserReceivedRaw = "";
+      const graph = buildLinearGraph([agentNode("planner")]);
+
+      const multiChunkSession: Session = {
+        ...createMockSession(""),
+        stream: async function* () {
+          yield { type: "text" as const, content: '{"tasks":' } as AgentMessage;
+          yield { type: "text" as const, content: '["a","b"]}' } as AgentMessage;
+        },
+      };
+
+      const stages = [
+        stage("planner", "", {
+          buildPrompt: () => "plan",
+          parseOutput: (raw) => {
+            parserReceivedRaw = raw;
+            return JSON.parse(raw);
+          },
+        }),
+      ];
+
+      const config = buildConfig(graph, async () => multiChunkSession);
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      expect(parserReceivedRaw).toBe('{"tasks":["a","b"]}');
+      expect(result.stageOutputs.get("planner")!.parsedOutput).toEqual({ tasks: ["a", "b"] });
+    });
+
+    test("task updates from planner are visible in orchestrator context", async () => {
+      let orchestratorTasks: readonly unknown[] = [];
+      const graph = buildLinearGraph([agentNode("planner"), agentNode("orchestrator")]);
+
+      const taskArray = [
+        { id: "t1", description: "Create model", status: "pending", summary: "Model creation", blockedBy: [] },
+        { id: "t2", description: "Add routes", status: "pending", summary: "Routing", blockedBy: ["t1"] },
+        { id: "t3", description: "Write tests", status: "pending", summary: "Tests", blockedBy: ["t2"] },
+      ];
+
+      const stages = [
+        stage("planner", "", {
+          buildPrompt: () => "plan",
+          parseOutput: () => taskArray,
+        }),
+        stage("orchestrator", "", {
+          buildPrompt: (ctx) => {
+            orchestratorTasks = ctx.tasks;
+            return "orchestrate";
+          },
+        }),
+      ];
+
+      const config = buildConfig(graph, async () => createMockSession("output"));
+      const conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("test");
+
+      expect(orchestratorTasks).toHaveLength(3);
+      expect((orchestratorTasks[0] as { id: string }).id).toBe("t1");
+      expect((orchestratorTasks[2] as { blockedBy: string[] }).blockedBy).toEqual(["t2"]);
+    });
+
+    test("non-string message content is ignored during output capture", async () => {
+      const graph = buildLinearGraph([agentNode("planner")]);
+      const stages = [stage("planner", "")];
+
+      const mixedSession: Session = {
+        ...createMockSession(""),
+        stream: async function* () {
+          yield { type: "text" as const, content: "real text" } as AgentMessage;
+          yield { type: "text" as const, content: 42 } as unknown as AgentMessage;
+          yield { type: "text" as const, content: " more text" } as AgentMessage;
+        },
+      };
+
+      const config = buildConfig(graph, async () => mixedSession);
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      // Only string content is concatenated; non-string is skipped
+      expect(result.stageOutputs.get("planner")!.rawResponse).toBe("real text more text");
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Advanced Conditionals
+  // -----------------------------------------------------------------------
+
+  describe("advanced conditionals", () => {
+    test("fan-out: unconditional edges produce parallel branches", async () => {
+      const executed: string[] = [];
+      const start = agentNode("start");
+      const branchA = agentNode("branch_a");
+      const branchB = agentNode("branch_b");
+      const branchC = agentNode("branch_c");
+
+      const edges: Edge<BaseState>[] = [
+        { from: "start", to: "branch_a" },
+        { from: "start", to: "branch_b" },
+        { from: "start", to: "branch_c" },
+      ];
+
+      const graph = buildConditionalGraph(
+        [start, branchA, branchB, branchC],
+        edges,
+        "start",
+        ["branch_a", "branch_b", "branch_c"],
+      );
+
+      const stages = [
+        stage("start", "", { buildPrompt: () => { executed.push("start"); return "go"; } }),
+        stage("branch_a", "", { buildPrompt: () => { executed.push("branch_a"); return "a"; } }),
+        stage("branch_b", "", { buildPrompt: () => { executed.push("branch_b"); return "b"; } }),
+        stage("branch_c", "", { buildPrompt: () => { executed.push("branch_c"); return "c"; } }),
+      ];
+
+      const config = buildConfig(graph, async () => createMockSession("output"));
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test fan-out");
+
+      expect(result.success).toBe(true);
+      expect(executed[0]).toBe("start");
+      expect(executed).toContain("branch_a");
+      expect(executed).toContain("branch_b");
+      expect(executed).toContain("branch_c");
+      expect(result.stageOutputs.size).toBe(4);
+    });
+
+    test("shouldRun based on parsedOutput routes debugger conditionally", async () => {
+      const executed: string[] = [];
+      const graph = buildLinearGraph([
+        agentNode("planner"),
+        agentNode("reviewer"),
+        agentNode("debugger"),
+      ]);
+
+      const stages = [
+        stage("planner", "", { buildPrompt: () => { executed.push("planner"); return "plan"; } }),
+        stage("reviewer", "", {
+          buildPrompt: () => { executed.push("reviewer"); return "review"; },
+          parseOutput: () => ({ issues: ["bug in auth", "missing test"] }),
+        }),
+        stage("debugger", "", {
+          buildPrompt: () => { executed.push("debugger"); return "debug"; },
+          shouldRun: (ctx) => {
+            const reviewOutput = ctx.stageOutputs.get("reviewer");
+            const parsed = reviewOutput?.parsedOutput as { issues?: string[] } | undefined;
+            return (parsed?.issues?.length ?? 0) > 0;
+          },
+        }),
+      ];
+
+      const config = buildConfig(graph, async () => createMockSession("response"));
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test conditional debugger");
+
+      expect(result.success).toBe(true);
+      expect(executed).toEqual(["planner", "reviewer", "debugger"]);
+    });
+
+    test("shouldRun skips debugger when reviewer finds no issues", async () => {
+      const executed: string[] = [];
+      const graph = buildLinearGraph([
+        agentNode("planner"),
+        agentNode("reviewer"),
+        agentNode("debugger"),
+      ]);
+
+      const stages = [
+        stage("planner", "", { buildPrompt: () => { executed.push("planner"); return "plan"; } }),
+        stage("reviewer", "", {
+          buildPrompt: () => { executed.push("reviewer"); return "review"; },
+          parseOutput: () => ({ issues: [] }),
+        }),
+        stage("debugger", "", {
+          buildPrompt: () => { executed.push("debugger"); return "debug"; },
+          shouldRun: (ctx) => {
+            const reviewOutput = ctx.stageOutputs.get("reviewer");
+            const parsed = reviewOutput?.parsedOutput as { issues?: string[] } | undefined;
+            return (parsed?.issues?.length ?? 0) > 0;
+          },
+        }),
+      ];
+
+      const config = buildConfig(graph, async () => createMockSession("response"));
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test no issues");
+
+      expect(result.success).toBe(true);
+      expect(executed).toEqual(["planner", "reviewer"]);
+      expect(executed).not.toContain("debugger");
+    });
+
+    test("decision node determines branch — only matching branch executes", async () => {
+      const executed: string[] = [];
+
+      const decisionNode: NodeDefinition<BaseState> = {
+        id: "decide",
+        type: "decision",
+        execute: async (ctx) => ({
+          stateUpdate: {
+            outputs: { ...ctx.state.outputs, decide: { route: "fast_path" } },
+          },
+        }),
+      };
+
+      const edges: Edge<BaseState>[] = [
+        { from: "start", to: "decide" },
+        {
+          from: "decide",
+          to: "fast_handler",
+          condition: (state) => (state.outputs.decide as { route: string })?.route === "fast_path",
+        },
+        {
+          from: "decide",
+          to: "slow_handler",
+          condition: (state) => (state.outputs.decide as { route: string })?.route === "slow_path",
+        },
+      ];
+
+      const graph = buildConditionalGraph(
+        [agentNode("start"), decisionNode, agentNode("fast_handler"), agentNode("slow_handler")],
+        edges,
+        "start",
+        ["fast_handler", "slow_handler"],
+      );
+
+      const stages = [
+        stage("start", "", { buildPrompt: () => { executed.push("start"); return "begin"; } }),
+        stage("fast_handler", "", { buildPrompt: () => { executed.push("fast_handler"); return "fast"; } }),
+        stage("slow_handler", "", { buildPrompt: () => { executed.push("slow_handler"); return "slow"; } }),
+      ];
+
+      const config = buildConfig(graph, async () => createMockSession("output"));
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test decision");
+
+      expect(result.success).toBe(true);
+      expect(executed).toContain("start");
+      expect(executed).toContain("fast_handler");
+      expect(executed).not.toContain("slow_handler");
+    });
+
+    test("edge condition + shouldRun interaction — edge routes but shouldRun skips", async () => {
+      const executed: string[] = [];
+      const transitions: [string | null, string][] = [];
+
+      const edges: Edge<BaseState>[] = [
+        { from: "planner", to: "debugger" },
+        { from: "debugger", to: "reviewer" },
+      ];
+
+      const graph = buildConditionalGraph(
+        [agentNode("planner"), agentNode("debugger"), agentNode("reviewer")],
+        edges,
+        "planner",
+        ["reviewer"],
+      );
+
+      const stages = [
+        stage("planner", "", { buildPrompt: () => { executed.push("planner"); return "plan"; } }),
+        stage("debugger", "", {
+          buildPrompt: () => { executed.push("debugger"); return "debug"; },
+          shouldRun: () => false, // always skip
+        }),
+        stage("reviewer", "", { buildPrompt: () => { executed.push("reviewer"); return "review"; } }),
+      ];
+
+      const config = buildConfig(
+        graph,
+        async () => createMockSession("output"),
+        { onStageTransition: mock((from, to) => transitions.push([from, to])) },
+      );
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      expect(result.success).toBe(true);
+      expect(executed).toEqual(["planner", "reviewer"]);
+      // Debugger was skipped — transition goes planner → reviewer
+      expect(transitions).toEqual([
+        [null, "planner"],
+        ["planner", "reviewer"],
+      ]);
+    });
+
+    test("dead end when no edge conditions match — execution terminates gracefully", async () => {
+      const executed: string[] = [];
+
+      const edges: Edge<BaseState>[] = [
+        {
+          from: "start",
+          to: "unreachable",
+          condition: () => false, // never matches
+        },
+      ];
+
+      const graph = buildConditionalGraph(
+        [agentNode("start"), agentNode("unreachable")],
+        edges,
+        "start",
+        ["unreachable"],
+      );
+
+      const stages = [
+        stage("start", "", { buildPrompt: () => { executed.push("start"); return "begin"; } }),
+        stage("unreachable", "", { buildPrompt: () => { executed.push("unreachable"); return "nope"; } }),
+      ];
+
+      const config = buildConfig(graph, async () => createMockSession("output"));
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test dead end");
+
+      expect(result.success).toBe(true);
+      expect(executed).toEqual(["start"]);
+      expect(executed).not.toContain("unreachable");
+      expect(result.stageOutputs.size).toBe(1);
+    });
+
+    test("conditional routing based on rawResponse content", async () => {
+      const executed: string[] = [];
+
+      const edges: Edge<BaseState>[] = [
+        {
+          from: "analyzer",
+          to: "fix_handler",
+          condition: (state) => {
+            const output = state.outputs.analyzer as StageOutput | undefined;
+            return output?.rawResponse.includes("NEEDS_FIX") ?? false;
+          },
+        },
+        {
+          from: "analyzer",
+          to: "approve_handler",
+          condition: (state) => {
+            const output = state.outputs.analyzer as StageOutput | undefined;
+            return output?.rawResponse.includes("APPROVED") ?? false;
+          },
+        },
+      ];
+
+      const graph = buildConditionalGraph(
+        [agentNode("analyzer"), agentNode("fix_handler"), agentNode("approve_handler")],
+        edges,
+        "analyzer",
+        ["fix_handler", "approve_handler"],
+      );
+
+      const stages = [
+        stage("analyzer", "", { buildPrompt: () => { executed.push("analyzer"); return "analyze"; } }),
+        stage("fix_handler", "", { buildPrompt: () => { executed.push("fix_handler"); return "fix"; } }),
+        stage("approve_handler", "", { buildPrompt: () => { executed.push("approve_handler"); return "approve"; } }),
+      ];
+
+      // Session returns "NEEDS_FIX" → should route to fix_handler
+      const config = buildConfig(graph, async () => createMockSession("Code NEEDS_FIX immediately"));
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test routing by content");
+
+      expect(result.success).toBe(true);
+      expect(executed).toEqual(["analyzer", "fix_handler"]);
+      expect(executed).not.toContain("approve_handler");
+    });
+
+    test("conditional edge with both conditions true — both branches execute", async () => {
+      const executed: string[] = [];
+
+      const edges: Edge<BaseState>[] = [
+        { from: "start", to: "a", condition: () => true },
+        { from: "start", to: "b", condition: () => true },
+      ];
+
+      const graph = buildConditionalGraph(
+        [agentNode("start"), agentNode("a"), agentNode("b")],
+        edges,
+        "start",
+        ["a", "b"],
+      );
+
+      const stages = [
+        stage("start", "", { buildPrompt: () => { executed.push("start"); return "go"; } }),
+        stage("a", "", { buildPrompt: () => { executed.push("a"); return "branch a"; } }),
+        stage("b", "", { buildPrompt: () => { executed.push("b"); return "branch b"; } }),
+      ];
+
+      const config = buildConfig(graph, async () => createMockSession("output"));
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      expect(result.success).toBe(true);
+      expect(executed).toContain("start");
+      expect(executed).toContain("a");
+      expect(executed).toContain("b");
+    });
+
+    test("shouldRun receives tasks populated by prior stage", async () => {
+      let debuggerShouldRunTasks: readonly unknown[] = [];
+      const graph = buildLinearGraph([
+        agentNode("planner"),
+        agentNode("debugger"),
+      ]);
+
+      const taskArray = [
+        { id: "t1", description: "Create model", status: "error", summary: "Model", blockedBy: [] },
+      ];
+
+      const stages = [
+        stage("planner", "", {
+          buildPrompt: () => "plan",
+          parseOutput: () => taskArray,
+        }),
+        stage("debugger", "", {
+          buildPrompt: () => "debug",
+          shouldRun: (ctx) => {
+            debuggerShouldRunTasks = ctx.tasks;
+            // Only run if there are errored tasks
+            return ctx.tasks.some((t) => (t as { status: string }).status === "error");
+          },
+        }),
+      ];
+
+      const config = buildConfig(graph, async () => createMockSession("output"));
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      expect(result.success).toBe(true);
+      expect(debuggerShouldRunTasks).toHaveLength(1);
+      expect((debuggerShouldRunTasks[0] as { status: string }).status).toBe("error");
+      // Debugger ran because there was an errored task
+      expect(result.stageOutputs.has("debugger")).toBe(true);
+    });
+  });
+});

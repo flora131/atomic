@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { CopilotClient } from "@/services/agents/clients/copilot.ts";
+import type { MessageDeltaEventData, ToolCompleteEventData, ToolStartEventData } from "@/services/agents/contracts/events.ts";
 import {
   bindCopilotHandleSdkEvent,
   seedCopilotSession,
@@ -8,10 +9,10 @@ import {
 describe("CopilotClient tool event mapping", () => {
   test("maps tool.execution_start using mcpToolName fallback", () => {
     const client = new CopilotClient({});
-    const events: Array<{ sessionId: string; data: Record<string, unknown> }> = [];
+    const events: Array<{ sessionId: string; data: ToolStartEventData }> = [];
 
     client.on("tool.start", (event) => {
-      events.push({ sessionId: event.sessionId, data: event.data as Record<string, unknown> });
+      events.push({ sessionId: event.sessionId, data: event.data });
     });
 
     seedCopilotSession(client);
@@ -39,10 +40,10 @@ describe("CopilotClient tool event mapping", () => {
 
   test("maps tool.execution_complete with result fallbacks and tracked tool name", () => {
     const client = new CopilotClient({});
-    const events: Array<{ sessionId: string; data: Record<string, unknown> }> = [];
+    const events: Array<{ sessionId: string; data: ToolCompleteEventData }> = [];
 
     client.on("tool.complete", (event) => {
-      events.push({ sessionId: event.sessionId, data: event.data as Record<string, unknown> });
+      events.push({ sessionId: event.sessionId, data: event.data });
     });
 
     seedCopilotSession(client, new Map([["tool-2", "view"]]));
@@ -76,9 +77,9 @@ describe("CopilotClient tool event mapping", () => {
 describe("CopilotClient message_delta preserves parentToolCallId and messageId", () => {
   test("handleSdkEvent passes parentToolCallId and messageId to unified event", () => {
     const client = new CopilotClient({});
-    const events: Array<{ data: Record<string, unknown> }> = [];
+    const events: Array<{ data: MessageDeltaEventData }> = [];
     client.on("message.delta", (event) => {
-      events.push({ data: event.data as Record<string, unknown> });
+      events.push({ data: event.data });
     });
 
     bindCopilotHandleSdkEvent(client)("test-session", {
@@ -98,9 +99,9 @@ describe("CopilotClient message_delta preserves parentToolCallId and messageId",
 
   test("handleSdkEvent omits parentToolCallId when not present", () => {
     const client = new CopilotClient({});
-    const events: Array<{ data: Record<string, unknown> }> = [];
+    const events: Array<{ data: MessageDeltaEventData }> = [];
     client.on("message.delta", (event) => {
-      events.push({ data: event.data as Record<string, unknown> });
+      events.push({ data: event.data });
     });
 
     bindCopilotHandleSdkEvent(client)("test-session", {

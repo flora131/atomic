@@ -27,9 +27,7 @@ export type EventType =
   | "human_input_required"
   | "usage";
 
-export interface BaseEventData {
-  [key: string]: unknown;
-}
+export interface BaseEventData {}
 
 export interface SessionStartEventData extends BaseEventData {
   config?: SessionConfig;
@@ -72,6 +70,7 @@ export interface MessageCompleteEventData extends BaseEventData {
     toolCallId: string;
     name: string;
     arguments: unknown;
+    type?: "function" | "custom";
   }>;
   parentToolCallId?: string;
 }
@@ -82,6 +81,7 @@ export interface ToolStartEventData extends BaseEventData {
   toolUseId?: string;
   toolUseID?: string;
   toolCallId?: string;
+  parentToolCallId?: string;
 }
 
 export interface ToolCompleteEventData extends BaseEventData {
@@ -92,12 +92,19 @@ export interface ToolCompleteEventData extends BaseEventData {
   toolUseId?: string;
   toolUseID?: string;
   toolCallId?: string;
+  parentToolCallId?: string;
+  toolInput?: unknown;
 }
 
 export interface SkillInvokedEventData extends BaseEventData {
   skillName: string;
   skillPath?: string;
   parentToolCallId?: string;
+  /** @deprecated Legacy alias for parentToolCallId sent by some providers */
+  parentToolUseId?: string;
+  /** @deprecated Legacy alias for parentToolCallId sent by some providers */
+  parent_tool_use_id?: string;
+  parentAgentId?: string;
 }
 
 export interface ReasoningDeltaEventData extends BaseEventData {
@@ -160,6 +167,11 @@ export interface SubagentStartEventData extends BaseEventData {
   toolUseId?: string;
   toolUseID?: string;
   toolCallId?: string;
+  subagentSessionId?: string;
+  isBackground?: boolean;
+  parentToolUseId?: string;
+  parent_tool_use_id?: string;
+  parentToolUseID?: string;
 }
 
 export interface SubagentUpdateEventData extends BaseEventData {
@@ -172,6 +184,7 @@ export interface SubagentCompleteEventData extends BaseEventData {
   subagentId: string;
   result?: unknown;
   success: boolean;
+  error?: string;
 }
 
 export interface PermissionOption {
@@ -207,6 +220,13 @@ export interface HumanInputRequiredEventData extends BaseEventData {
   toolCallId?: string;
 }
 
+export interface UsageEventData extends BaseEventData {
+  inputTokens?: number;
+  outputTokens?: number;
+  model?: string;
+  agentId?: string;
+}
+
 export interface EventDataMap {
   "session.start": SessionStartEventData;
   "session.idle": SessionIdleEventData;
@@ -232,6 +252,7 @@ export interface EventDataMap {
   "subagent.update": SubagentUpdateEventData;
   "permission.requested": PermissionRequestedEventData;
   "human_input_required": HumanInputRequiredEventData;
+  "usage": UsageEventData;
 }
 
 export interface AgentEvent<T extends EventType = EventType> {

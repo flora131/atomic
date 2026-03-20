@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import type { SubagentCompleteEventData, SubagentStartEventData } from "@/services/agents/contracts/events.ts";
 import { bindCopilotHandleSdkEvent, createRunningCopilotClient } from "./copilot.mapping.test-support.ts";
 
 describe("CopilotClient subagent event mapping", () => {
   test("maps subagent.started to subagent.start with enriched data", async () => {
     const client = createRunningCopilotClient();
-    const events: Array<{ type: string; sessionId: string; data: Record<string, unknown> }> = [];
+    const events: Array<{ type: string; sessionId: string; data: SubagentStartEventData }> = [];
     client.on("subagent.start", (event) => {
       events.push({ type: "subagent.start", sessionId: event.sessionId, data: event.data });
     });
@@ -35,7 +36,7 @@ describe("CopilotClient subagent event mapping", () => {
 
   test("maps subagent.started with empty task when agentDescription is missing", async () => {
     const client = createRunningCopilotClient();
-    const events: Array<Record<string, unknown>> = [];
+    const events: Array<SubagentStartEventData> = [];
     client.on("subagent.start", (event) => {
       events.push(event.data);
     });
@@ -62,7 +63,7 @@ describe("CopilotClient subagent event mapping", () => {
 
   test("maps subagent.started with agentDescription when available, empty when not", async () => {
     const client = createRunningCopilotClient();
-    const events: Array<Record<string, unknown>> = [];
+    const events: Array<SubagentStartEventData> = [];
     client.on("subagent.start", (event) => {
       events.push(event.data);
     });
@@ -89,7 +90,7 @@ describe("CopilotClient subagent event mapping", () => {
 
   test("maps subagent.completed to subagent.complete with success: true", async () => {
     const client = createRunningCopilotClient();
-    const events: Array<{ type: string; sessionId: string; data: Record<string, unknown> }> = [];
+    const events: Array<{ type: string; sessionId: string; data: SubagentCompleteEventData }> = [];
     client.on("subagent.complete", (event) => {
       events.push({ type: "subagent.complete", sessionId: event.sessionId, data: event.data });
     });
@@ -113,7 +114,7 @@ describe("CopilotClient subagent event mapping", () => {
 
   test("maps subagent.failed to subagent.complete with success: false and error", async () => {
     const client = createRunningCopilotClient();
-    const events: Array<{ type: string; sessionId: string; data: Record<string, unknown> }> = [];
+    const events: Array<{ type: string; sessionId: string; data: SubagentCompleteEventData }> = [];
     client.on("subagent.complete", (event) => {
       events.push({ type: "subagent.complete", sessionId: event.sessionId, data: event.data });
     });

@@ -163,7 +163,6 @@ export function useChatUiControllerStack({
       resetLoadedSkillTracking,
       resolveTrackedRun,
       separateAndInterruptAgents,
-      setBackgroundAgentMessageId,
       setLastStreamedMessageId,
       setStreamingMessageId,
       shouldHideActiveStreamContent,
@@ -335,7 +334,6 @@ export function useChatUiControllerStack({
 
   const {
     ctrlCPressed,
-    ctrlFPressed,
   } = useChatKeyboard({
     activeBackgroundAgentCountRef,
     activeQuestion,
@@ -343,7 +341,6 @@ export function useChatUiControllerStack({
     addMessage,
     autocompleteSuggestions,
     awaitedStreamRunIdsRef,
-    backgroundAgentMessageIdRef,
     clipboard,
     clearDeferredCompletion,
     continueQueuedConversation,
@@ -362,14 +359,12 @@ export function useChatUiControllerStack({
     isStreaming,
     isStreamingRef,
     kittyKeyboardDetectedRef,
-    lastStreamedMessageIdRef,
     lastStreamingContentRef,
     messageQueue,
     normalizePastedText,
     onExit,
     onInterrupt,
     onTerminateBackgroundAgents,
-    parallelAgents,
     parallelAgentsRef,
     parallelInterruptHandlerRef,
     promptHistoryRef,
@@ -379,7 +374,6 @@ export function useChatUiControllerStack({
     scrollboxRef,
     separateAndInterruptAgents,
     setActiveBackgroundAgentCount,
-    setBackgroundAgentMessageId,
     setIsEditingQueue,
     setMessagesWindowed,
     setParallelAgents,
@@ -397,7 +391,6 @@ export function useChatUiControllerStack({
     updateWorkflowState,
     wasInterruptedRef,
     waitForUserInputResolverRef,
-    workflowActiveRef,
     workflowState,
   });
 
@@ -430,7 +423,6 @@ export function useChatUiControllerStack({
     argumentHint: workflowState.argumentHint,
     compactionSummary,
     ctrlCPressed,
-    ctrlFPressed,
     currentModelId,
     currentReasoningEffort,
     displayModel,

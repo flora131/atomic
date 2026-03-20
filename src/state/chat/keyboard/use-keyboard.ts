@@ -17,7 +17,6 @@ export function useChatKeyboard({
   activeHitlToolCallIdRef,
   autocompleteSuggestions,
   awaitedStreamRunIdsRef,
-  backgroundAgentMessageIdRef,
   clipboard,
   clearDeferredCompletion,
   continueQueuedConversation,
@@ -36,14 +35,12 @@ export function useChatKeyboard({
   isStreaming,
   isStreamingRef,
   kittyKeyboardDetectedRef,
-  lastStreamedMessageIdRef,
   lastStreamingContentRef,
   messageQueue,
   normalizePastedText,
   onExit,
   onInterrupt,
   onTerminateBackgroundAgents,
-  parallelAgents,
   parallelAgentsRef,
   parallelInterruptHandlerRef,
   promptHistoryRef,
@@ -53,7 +50,6 @@ export function useChatKeyboard({
   scrollboxRef,
   separateAndInterruptAgents,
   setActiveBackgroundAgentCount,
-  setBackgroundAgentMessageId,
   setIsEditingQueue,
   setMessagesWindowed,
   setParallelAgents,
@@ -71,23 +67,17 @@ export function useChatKeyboard({
   updateWorkflowState,
   wasInterruptedRef,
   waitForUserInputResolverRef,
-  workflowActiveRef,
   workflowState,
 }: UseChatKeyboardArgs) {
   const {
     ctrlCPressed,
-    ctrlFPressed,
-    handleBackgroundTerminationKey,
     handleCtrlCKey,
     handleEscapeKey,
-    isBackgroundTerminationKey,
   } = useChatInterruptControls({
     activeBackgroundAgentCountRef,
     activeQuestion,
     activeHitlToolCallIdRef,
-    addMessage,
     awaitedStreamRunIdsRef,
-    backgroundAgentMessageIdRef,
     clearDeferredCompletion,
     continueQueuedConversation,
     finalizeTaskItemsOnInterrupt,
@@ -96,19 +86,16 @@ export function useChatKeyboard({
     handleCopy,
     hasRendererSelection,
     isStreamingRef,
-    lastStreamedMessageIdRef,
     lastStreamingContentRef,
     onExit,
     onInterrupt,
     onTerminateBackgroundAgents,
-    parallelAgents,
     parallelAgentsRef,
     parallelInterruptHandlerRef,
     resetHitlState,
     resolveTrackedRun,
     separateAndInterruptAgents,
     setActiveBackgroundAgentCount,
-    setBackgroundAgentMessageId,
     setMessagesWindowed,
     setParallelAgents,
     shouldHideActiveStreamContent,
@@ -121,7 +108,6 @@ export function useChatKeyboard({
     updateWorkflowState,
     wasInterruptedRef,
     waitForUserInputResolverRef,
-    workflowActiveRef,
     workflowState,
   });
 
@@ -153,12 +139,6 @@ export function useChatKeyboard({
 
       if (activeQuestion || showModelSelector) {
         return;
-      }
-
-      if (isBackgroundTerminationKey(event)) {
-        if (handleBackgroundTerminationKey()) {
-          return;
-        }
       }
 
       if (event.ctrl && event.name === "o") {
@@ -249,7 +229,6 @@ export function useChatKeyboard({
       continueQueuedConversation,
       emitMessageSubmitTelemetry,
       executeCommand,
-      handleBackgroundTerminationKey,
       handleCtrlCKey,
       handleEscapeKey,
       handleInputChange,
@@ -259,7 +238,6 @@ export function useChatKeyboard({
       historyNavigatingRef,
       isEditingQueue,
       isStreaming,
-      isBackgroundTerminationKey,
       kittyKeyboardDetectedRef,
       messageQueue,
       normalizePastedText,
@@ -280,6 +258,5 @@ export function useChatKeyboard({
 
   return {
     ctrlCPressed,
-    ctrlFPressed,
   };
 }

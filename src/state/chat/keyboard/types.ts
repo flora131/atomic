@@ -25,7 +25,6 @@ export interface UseChatKeyboardArgs {
   addMessage: (role: "user" | "assistant" | "system", content: string) => void;
   autocompleteSuggestions: ChatAutocompleteSuggestion[];
   awaitedStreamRunIdsRef: RefObject<Set<string>>;
-  backgroundAgentMessageIdRef: RefObject<string | null>;
   clipboard: ClipboardAdapter;
   clearDeferredCompletion: () => void;
   continueQueuedConversation: () => void;
@@ -50,14 +49,12 @@ export interface UseChatKeyboardArgs {
   isStreaming: boolean;
   isStreamingRef: RefObject<boolean>;
   kittyKeyboardDetectedRef: RefObject<boolean>;
-  lastStreamedMessageIdRef: RefObject<string | null>;
   lastStreamingContentRef: RefObject<string>;
   messageQueue: UseMessageQueueReturn;
   normalizePastedText: (text: string) => string;
   onExit?: () => void;
   onInterrupt?: () => void;
   onTerminateBackgroundAgents?: (agentIds?: string[]) => void | Promise<void>;
-  parallelAgents: ParallelAgent[];
   parallelAgentsRef: RefObject<ParallelAgent[]>;
   parallelInterruptHandlerRef: RefObject<(() => void) | null>;
   promptHistoryRef: RefObject<string[]>;
@@ -74,7 +71,6 @@ export interface UseChatKeyboardArgs {
     remainingLiveAgents: ParallelAgent[];
   };
   setActiveBackgroundAgentCount: Dispatch<SetStateAction<number>>;
-  setBackgroundAgentMessageId: (messageId: string | null) => void;
   setIsEditingQueue: Dispatch<SetStateAction<boolean>>;
   setMessagesWindowed: (next: SetStateAction<ChatMessage[]>) => void;
   setParallelAgents: Dispatch<SetStateAction<ParallelAgent[]>>;
@@ -92,6 +88,5 @@ export interface UseChatKeyboardArgs {
   updateWorkflowState: (updates: Partial<WorkflowChatState>) => void;
   wasInterruptedRef: RefObject<boolean>;
   waitForUserInputResolverRef: RefObject<{ reject: (error: Error) => void } | null>;
-  workflowActiveRef: RefObject<boolean>;
   workflowState: WorkflowChatState;
 }

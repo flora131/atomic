@@ -37,7 +37,6 @@ export interface ChatShellProps {
   availableModels: Model[];
   compactionSummary: string | null;
   ctrlCPressed: boolean;
-  ctrlFPressed: boolean;
   currentModelId?: string;
   currentReasoningEffort?: string;
   displayModel: string;
@@ -101,7 +100,6 @@ export function ChatShell({
   availableModels,
   compactionSummary,
   ctrlCPressed,
-  ctrlFPressed,
   currentModelId,
   currentReasoningEffort,
   displayModel,
@@ -338,13 +336,6 @@ export function ChatShell({
               <box paddingLeft={1} flexShrink={0}>
                 <text fg={themeColors.muted}>
                   Press Ctrl-C again to exit
-                </text>
-              </box>
-            )}
-            {ctrlFPressed && (
-              <box paddingLeft={1} flexShrink={0}>
-                <text fg={themeColors.muted}>
-                  Press Ctrl-F again to terminate background agents
                 </text>
               </box>
             )}

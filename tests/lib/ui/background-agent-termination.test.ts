@@ -1,11 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import {
-  evaluateBackgroundTerminationPress,
   executeBackgroundTermination,
-  getBackgroundTerminationDecision,
   interruptActiveBackgroundAgents,
-  isBackgroundTerminationKey,
 } from "@/state/chat/shared/helpers/background-agent-termination.ts";
 
 function createAgent(overrides: Partial<ParallelAgent>): ParallelAgent {
@@ -21,54 +18,6 @@ function createAgent(overrides: Partial<ParallelAgent>): ParallelAgent {
     result: overrides.result,
   };
 }
-
-describe("background-agent termination keybinding", () => {
-  test("detects Ctrl+F and ignores other modifiers", () => {
-    expect(isBackgroundTerminationKey({ ctrl: true, name: "f" })).toBe(true);
-    expect(isBackgroundTerminationKey({ ctrl: true, shift: true, name: "f" })).toBe(false);
-    expect(isBackgroundTerminationKey({ ctrl: true, meta: true, name: "f" })).toBe(false);
-    expect(isBackgroundTerminationKey({ ctrl: true, name: "c" })).toBe(false);
-  });
-
-  test("requires two presses only when active background agents exist", () => {
-    expect(getBackgroundTerminationDecision(0, 0)).toEqual({
-      action: "none",
-    });
-
-    expect(getBackgroundTerminationDecision(0, 2)).toEqual({
-      action: "warn",
-      message: "Press Ctrl-F again to terminate background agents",
-    });
-
-    expect(getBackgroundTerminationDecision(1, 2)).toEqual({
-      action: "terminate",
-      message: "All background agents killed",
-    });
-  });
-
-  test("resets stale press counters when no active background agents remain", () => {
-    expect(getBackgroundTerminationDecision(5, 0)).toEqual({
-      action: "none",
-    });
-  });
-
-  test("handles two rapid Ctrl+F presses without waiting for React state flush", () => {
-    const pressCountRef = { current: 0 };
-
-    const firstPress = evaluateBackgroundTerminationPress(pressCountRef, 2);
-    expect(firstPress.decision.action).toBe("warn");
-    expect(firstPress.pressCount).toBe(0);
-    expect(firstPress.nextPressCount).toBe(1);
-
-    // Simulate a second key event in the same input frame.
-    // The synchronous ref mutation should make this a terminate action.
-    const secondPress = evaluateBackgroundTerminationPress(pressCountRef, 2);
-    expect(secondPress.decision.action).toBe("terminate");
-    expect(secondPress.pressCount).toBe(1);
-    expect(secondPress.nextPressCount).toBe(0);
-    expect(pressCountRef.current).toBe(0);
-  });
-});
 
 describe("background-agent termination flow", () => {
   test("interrupts only active background agents and returns interrupted IDs", () => {

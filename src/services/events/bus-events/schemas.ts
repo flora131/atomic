@@ -162,4 +162,28 @@ export const BusEventSchemas = {
     model: z.string().optional(),
     agentId: z.string().optional(),
   }),
+  "workflow.step.start": z.object({
+    workflowId: z.string(),
+    nodeId: z.string(),
+    nodeName: z.string(),
+    indicator: z.string(),
+  }),
+  "workflow.step.complete": z.object({
+    workflowId: z.string(),
+    nodeId: z.string(),
+    nodeName: z.string(),
+    status: z.enum(["completed", "error", "skipped"]),
+    durationMs: z.number(),
+    error: z.string().optional(),
+  }),
+  "workflow.task.update": z.object({
+    tasks: z.array(z.object({
+      id: z.string().optional(),
+      description: z.string(),
+      status: z.string(),
+      summary: z.string(),
+      blockedBy: z.array(z.string()).optional(),
+    })),
+    sourceStageId: z.string().optional(),
+  }),
 } satisfies Record<string, z.ZodType>;

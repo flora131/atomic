@@ -17,13 +17,6 @@ export interface HitlAnswerInput {
   responseMode?: HitlResponseMode;
 }
 
-interface HitlOutputShape {
-  answer?: string | null;
-  cancelled?: boolean;
-  responseMode?: HitlResponseMode;
-  displayText?: string;
-}
-
 function toAnswerText(selected: string | string[]): string {
   return Array.isArray(selected) ? selected.join(", ") : String(selected ?? "");
 }
@@ -59,47 +52,9 @@ export function normalizeHitlAnswer(answer: HitlAnswerInput): HitlResponseRecord
   };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
 export function getHitlResponseRecord(toolCall: {
   hitlResponse?: HitlResponseRecord;
   output?: unknown;
 }): HitlResponseRecord | null {
-  if (toolCall.hitlResponse) {
-    return toolCall.hitlResponse;
-  }
-
-  if (!isRecord(toolCall.output)) {
-    return null;
-  }
-
-  const output = toolCall.output as HitlOutputShape;
-  const hasLegacyFields = (
-    Object.hasOwn(output, "answer")
-    || Object.hasOwn(output, "cancelled")
-    || Object.hasOwn(output, "responseMode")
-    || Object.hasOwn(output, "displayText")
-  );
-  if (!hasLegacyFields) {
-    return null;
-  }
-
-  const cancelled = output.cancelled ?? false;
-  const responseMode = cancelled
-    ? "declined"
-    : (output.responseMode ?? "option");
-  const answerText = cancelled ? "" : String(output.answer ?? "");
-
-  return {
-    cancelled,
-    responseMode,
-    answerText,
-    displayText: output.displayText ?? formatHitlDisplayText({
-      cancelled,
-      responseMode,
-      answerText,
-    }),
-  };
+  return toolCall.hitlResponse ?? null;
 }

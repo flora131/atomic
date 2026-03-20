@@ -302,7 +302,7 @@ describe("Autocomplete E2E", () => {
       externalSuggestions: testSuggestions,
     });
 
-    // The useEffect that clamps fires after render.
+    // The clamping now fires synchronously during render (no extra useEffect cycle).
     await renderOnce();
 
     // The component should have called onIndexChange with the clamped value.

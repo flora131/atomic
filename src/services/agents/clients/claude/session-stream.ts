@@ -98,16 +98,16 @@ export function streamClaudeSessionMessages(args: {
 
                     if (sdkMessage.type === "stream_event") {
                         const event = sdkMessage.event;
-                        const eventRecord = event as Record<string, unknown>;
                         const nativeEventSessionId =
                             typeof sdkMessage.session_id === "string"
                                 ? sdkMessage.session_id
                                 : undefined;
+                        const sdkMessageRecord = sdkMessage as Record<string, unknown>;
                         const parentToolUseId =
-                            typeof eventRecord.parent_tool_use_id === "string"
-                                ? eventRecord.parent_tool_use_id
-                                : typeof eventRecord.parentToolUseId === "string"
-                                  ? eventRecord.parentToolUseId
+                            typeof sdkMessageRecord.parent_tool_use_id === "string"
+                                ? sdkMessageRecord.parent_tool_use_id
+                                : typeof sdkMessageRecord.parentToolUseId === "string"
+                                  ? sdkMessageRecord.parentToolUseId
                                   : undefined;
                         const sessionScopedAgentId = nativeEventSessionId
                             ? getSubagentAgentId(nativeEventSessionId)

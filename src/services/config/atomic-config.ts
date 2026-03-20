@@ -73,11 +73,6 @@ function mergeConfigs(...configs: Array<AtomicConfig | null>): AtomicConfig | nu
   return Object.keys(merged).length > 0 ? merged : null;
 }
 
-function stripLegacyAgentSetting(record: JsonRecord): JsonRecord {
-  const { agent: _legacyAgent, ...rest } = record;
-  return rest;
-}
-
 /**
  * Read atomic config with local override semantics.
  */
@@ -110,7 +105,7 @@ export async function saveAtomicConfig(
   };
 
   const nextSettings: JsonRecord = {
-    ...stripLegacyAgentSetting(localSettings),
+    ...localSettings,
     ...newConfig,
     $schema: SETTINGS_SCHEMA_URL,
   };

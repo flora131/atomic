@@ -8,7 +8,7 @@
  * <code filetype="markdown"> when no syntaxStyle is provided.
  */
 
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo } from "react";
 import type { SyntaxStyle } from "@opentui/core";
 import type { ReasoningPart } from "@/state/parts/types.ts";
 import { createDimmedSyntaxStyle, createMarkdownSyntaxStyle, useTheme, useThemeColors } from "@/theme/index.tsx";
@@ -33,19 +33,25 @@ export function formatReasoningDurationSeconds(durationMs: number): string {
 export function ReasoningPartDisplay({ part, syntaxStyle }: ReasoningPartDisplayProps): React.ReactNode {
   const colors = useThemeColors();
   const { isDark } = useTheme();
-  const normalizedContent = normalizeMarkdownNewlines(part.content);
+  const normalizedContent = useMemo(() => normalizeMarkdownNewlines(part.content), [part.content]);
   const durationLabel = formatReasoningDurationSeconds(part.durationMs);
 
-  const fallbackSyntaxStyle = useMemo(
-    () => createMarkdownSyntaxStyle(colors, isDark),
-    [colors, isDark],
+  // Only allocate a fallback native SyntaxStyle when the parent doesn't
+  // provide one. When syntaxStyle is provided, the fallback is never used
+  // as the base for the dimmed style — skipping creation avoids a wasted
+  // native resource.
+  const ownedBaseStyle = useMemo(
+    () => syntaxStyle ? null : createMarkdownSyntaxStyle(colors, isDark),
+    [syntaxStyle, colors, isDark],
   );
+  useEffect(() => () => { ownedBaseStyle?.destroy(); }, [ownedBaseStyle]);
 
-  // Memoize the dimmed style variant to avoid recreating on every render
+  const baseStyle = syntaxStyle ?? ownedBaseStyle!;
   const dimmedStyle = useMemo(
-    () => createDimmedSyntaxStyle(syntaxStyle ?? fallbackSyntaxStyle, 0.6),
-    [syntaxStyle, fallbackSyntaxStyle],
+    () => createDimmedSyntaxStyle(baseStyle, 0.6),
+    [baseStyle],
   );
+  useEffect(() => () => { dimmedStyle.destroy(); }, [dimmedStyle]);
 
   return (
     <box flexDirection="column">

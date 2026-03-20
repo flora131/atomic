@@ -21,14 +21,21 @@ function findAgentIndexByIdOrCorrelation(
   }
 
   if (isClaudeSyntheticForegroundAgentId(agentId)) {
-    const promotedIdx = agents.findIndex(
-      (agent) =>
+    // Only promote to a real agent when exactly one qualifies.
+    // With multiple parallel agents, routing all synthetic events to the
+    // first one would misattribute tool calls across agents.
+    const qualifying = agents.reduce<number[]>((acc, agent, idx) => {
+      if (
         !isClaudeSyntheticForegroundAgentId(agent.id) &&
         !agent.background &&
-        (agent.status === "running" || agent.status === "pending"),
-    );
-    if (promotedIdx >= 0) {
-      return promotedIdx;
+        (agent.status === "running" || agent.status === "pending")
+      ) {
+        acc.push(idx);
+      }
+      return acc;
+    }, []);
+    if (qualifying.length === 1) {
+      return qualifying[0]!;
     }
   }
 

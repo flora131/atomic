@@ -7,7 +7,7 @@
 
 import type { ChatMessage } from "@/types/chat.ts";
 import { handleTextDelta } from "@/state/parts/handlers.ts";
-import type { AgentPart, TaskListPart, TextPart } from "@/state/parts/types.ts";
+import type { TaskListPart, TextPart } from "@/state/parts/types.ts";
 import {
   applyHitlResponse,
   applyToolPartialResultToParts,
@@ -63,6 +63,7 @@ export {
   toToolState,
 } from "@/state/streaming/pipeline-tools.ts";
 export { mergeParallelAgentsIntoParts } from "@/state/streaming/pipeline-agents.ts";
+export { clearAgentEventBuffer } from "@/state/streaming/pipeline-agents.ts";
 
 export function applyStreamPartEvent(
   message: ChatMessage,

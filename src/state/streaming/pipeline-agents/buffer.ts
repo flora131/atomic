@@ -8,6 +8,14 @@ import { routeToAgentInlineParts } from "@/state/streaming/pipeline-agents/inlin
 
 const agentEventBuffer = new Map<string, StreamPartEvent[]>();
 
+/**
+ * Clear all buffered agent events. Must be called at stream boundaries
+ * (start and end) to prevent cross-stream event leakage.
+ */
+export function clearAgentEventBuffer(): void {
+  agentEventBuffer.clear();
+}
+
 function cloneBufferedEventForAgent(
   event: StreamPartEvent,
   agentId: string,

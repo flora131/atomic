@@ -39,10 +39,10 @@ export {
 } from "@/services/telemetry/telemetry.ts";
 
 // CLI telemetry tracking
-export {
-  trackAtomicCommand,
-  getEventsFilePath,
-} from "@/services/telemetry/telemetry-cli.ts";
+export { trackAtomicCommand } from "@/services/telemetry/telemetry-cli.ts";
+
+// File I/O utilities
+export { getEventsFilePath } from "@/services/telemetry/telemetry-file-io.ts";
 
 // Native TUI telemetry tracking
 export {

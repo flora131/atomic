@@ -1,4 +1,4 @@
-import type { Dispatch, MutableRefObject, SetStateAction } from "react";
+import type { Dispatch, RefObject, SetStateAction } from "react";
 import type { Theme } from "@/theme/index.tsx";
 import type {
   ChatMessage,
@@ -35,22 +35,22 @@ export interface UseCommandExecutorArgs {
   appendCompactionSummaryAndSync: (summary: string) => void;
   appendHistoryBufferAndSync: (messages: ChatMessage[]) => void;
   appendSkillLoadIndicator: (skillLoad: MessageSkillLoad) => void;
-  autoCompactionIndicatorRef: MutableRefObject<{ status: "idle" | "running" | "completed" | "error"; errorMessage?: string }>;
-  backgroundProgressSnapshotRef: MutableRefObject<Map<string, { toolUses: number; currentTool?: string }>>;
+  autoCompactionIndicatorRef: RefObject<{ status: "idle" | "running" | "completed" | "error"; errorMessage?: string }>;
+  backgroundProgressSnapshotRef: RefObject<Map<string, { toolUses: number; currentTool?: string }>>;
   clearHistoryBufferAndSync: () => void;
   createSubagentSession?: CreateSessionFn;
-  currentModelRef: MutableRefObject<string | undefined>;
-  deferredCommandQueueRef: MutableRefObject<DeferredCommandMessage[]>;
+  currentModelRef: RefObject<string | undefined>;
+  deferredCommandQueueRef: RefObject<DeferredCommandMessage[]>;
   ensureSession?: () => Promise<void>;
   eventBus: EventBus;
   getOwnershipTracker: () => OwnershipTracker | null;
   getModelDisplayInfo?: (modelHint?: string) => Promise<ModelDisplayInfo>;
   getSession?: () => Session | null;
-  hasRunningToolRef: MutableRefObject<boolean>;
-  isAgentOnlyStreamRef: MutableRefObject<boolean>;
+  hasRunningToolRef: RefObject<boolean>;
+  isAgentOnlyStreamRef: RefObject<boolean>;
   isStreaming: boolean;
-  isStreamingRef: MutableRefObject<boolean>;
-  loadedSkillsRef: MutableRefObject<Set<string>>;
+  isStreamingRef: RefObject<boolean>;
+  loadedSkillsRef: RefObject<Set<string>>;
   mcpServerToggles: McpServerToggleMap;
   messages: ChatMessage[];
   modelOps?: ModelOperations;
@@ -60,11 +60,11 @@ export interface UseCommandExecutorArgs {
   onResetSession?: () => void | Promise<void>;
   onSendMessage?: (content: string) => void | Promise<void>;
   onSessionMcpServersChange?: (servers: McpServerConfig[]) => void;
-  pendingCompleteRef: MutableRefObject<(() => void) | null>;
-  parallelInterruptHandlerRef: MutableRefObject<(() => void) | null>;
+  pendingCompleteRef: RefObject<(() => void) | null>;
+  parallelInterruptHandlerRef: RefObject<(() => void) | null>;
   resetLoadedSkillTracking: (options?: { resetSessionBinding?: boolean }) => void;
-  runningAskQuestionToolIdsRef: MutableRefObject<Set<string>>;
-  sendMessageRef: MutableRefObject<((content: string, options?: { skipUserMessage?: boolean }) => void) | null>;
+  runningAskQuestionToolIdsRef: RefObject<Set<string>>;
+  sendMessageRef: RefObject<((content: string, options?: { skipUserMessage?: boolean }) => void) | null>;
   setAvailableModels: Dispatch<SetStateAction<Model[]>>;
   setCompactionSummary: Dispatch<SetStateAction<string | null>>;
   setCurrentModelDisplayName: Dispatch<SetStateAction<string | undefined>>;
@@ -91,17 +91,17 @@ export interface UseCommandExecutorArgs {
     options?: StreamMessageOptions,
   ) => StreamRunHandle | null;
   stopSharedStreamState: () => void;
-  streamingMessageIdRef: MutableRefObject<string | null>;
-  streamingMetaRef: MutableRefObject<StreamingMeta | null>;
-  streamingStartRef: MutableRefObject<number | null>;
-  todoItemsRef: MutableRefObject<NormalizedTodoItem[]>;
+  streamingMessageIdRef: RefObject<string | null>;
+  streamingMetaRef: RefObject<StreamingMeta | null>;
+  streamingStartRef: RefObject<number | null>;
+  todoItemsRef: RefObject<NormalizedTodoItem[]>;
   toggleTheme: () => void;
   trackAwaitedRun: (handle: StreamRunHandle | null) => StreamRunHandle | null;
   updateWorkflowState: (updates: Partial<WorkflowChatState>) => void;
-  waitForUserInputResolverRef: MutableRefObject<WorkflowInputResolver | null>;
-  workflowActiveRef: MutableRefObject<boolean>;
-  workflowSessionDirRef: MutableRefObject<string | null>;
-  workflowSessionIdRef: MutableRefObject<string | null>;
+  waitForUserInputResolverRef: RefObject<WorkflowInputResolver | null>;
+  workflowActiveRef: RefObject<boolean>;
+  workflowSessionDirRef: RefObject<string | null>;
+  workflowSessionIdRef: RefObject<string | null>;
   workflowState: WorkflowChatState;
-  workflowTaskIdsRef: MutableRefObject<Set<string>>;
+  workflowTaskIdsRef: RefObject<Set<string>>;
 }

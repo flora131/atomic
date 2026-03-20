@@ -1,14 +1,16 @@
 import { CHECKBOX, STATUS } from "@/theme/icons.ts";
 import type { ToolRenderProps, ToolRenderResult, ToolRenderer } from "@/components/tool-registry/registry/types.ts";
+import type { TaskStatus } from "@/state/parts/helpers/task-status.ts";
 
 interface TodoWriteItem {
   description?: string;
   content?: string;
-  status: string;
+  status: TaskStatus;
 }
 
 function getTodos(props: ToolRenderProps): TodoWriteItem[] {
-  return (props.input.todos as TodoWriteItem[] | undefined) ?? [];
+  const todos = props.input.todos;
+  return Array.isArray(todos) ? todos : [];
 }
 
 function getTodoWriteTitle(props: ToolRenderProps): string {

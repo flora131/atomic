@@ -3,9 +3,11 @@ import type { ToolStatus } from "@/state/streaming/pipeline-types.ts";
 
 const HITL_EXACT_NAMES = new Set(["askuserquestion", "question", "ask_user", "ask_question"]);
 const HITL_SUFFIXES = ["/ask_user", "__ask_user", "/ask_question", "__ask_question"];
+const MCP_TOOL_PREFIX = "mcp__";
 
 export function isHitlToolName(toolName: string): boolean {
   const normalized = toolName.trim().toLowerCase();
+  if (normalized.startsWith(MCP_TOOL_PREFIX)) return false;
   if (HITL_EXACT_NAMES.has(normalized)) return true;
   return HITL_SUFFIXES.some((suffix) => normalized.endsWith(suffix));
 }

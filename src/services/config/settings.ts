@@ -101,10 +101,7 @@ function writeGlobalSettingsSync(settings: AtomicSettings): void {
   const path = globalSettingsPath();
   const dir = dirname(path);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  const { agent: _legacyAgent, ...sanitizedSettings } = settings as AtomicSettings & {
-    agent?: AgentKey;
-  };
-  writeFileSync(path, JSON.stringify(sanitizedSettings, null, 2), "utf-8");
+  writeFileSync(path, JSON.stringify(settings, null, 2), "utf-8");
 }
 
 function normalizeTrustedPathEntry(entry: TrustedPathEntry): TrustedPathEntry {

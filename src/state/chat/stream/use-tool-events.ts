@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import type { Dispatch, MutableRefObject, SetStateAction } from "react";
+import type { Dispatch, RefObject, SetStateAction } from "react";
 import type { AgentType } from "@/services/models/index.ts";
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type { ChatMessage } from "@/state/chat/shared/types/index.ts";
@@ -20,27 +20,27 @@ import { applyStreamPartEvent } from "@/state/parts/index.ts";
 interface UseChatStreamToolEventsArgs {
   agentType?: AgentType;
   applyAutoCompactionIndicator: (next: AutoCompactionIndicatorState) => void;
-  backgroundAgentMessageIdRef: MutableRefObject<string | null>;
-  hasRunningToolRef: MutableRefObject<boolean>;
-  isAgentOnlyStreamRef: MutableRefObject<boolean>;
+  backgroundAgentMessageIdRef: RefObject<string | null>;
+  hasRunningToolRef: RefObject<boolean>;
+  isAgentOnlyStreamRef: RefObject<boolean>;
   isWorkflowTaskUpdate: (
     todos: NormalizedTodoItem[],
     previousTodos?: readonly NormalizedTodoItem[],
   ) => boolean;
-  lastStreamedMessageIdRef: MutableRefObject<string | null>;
-  pendingCompleteRef: MutableRefObject<(() => void) | null>;
+  lastStreamedMessageIdRef: RefObject<string | null>;
+  pendingCompleteRef: RefObject<(() => void) | null>;
   resolveAgentScopedMessageId: (agentId?: string) => string | null;
-  runningAskQuestionToolIdsRef: MutableRefObject<Set<string>>;
-  runningBlockingToolIdsRef: MutableRefObject<Set<string>>;
+  runningAskQuestionToolIdsRef: RefObject<Set<string>>;
+  runningBlockingToolIdsRef: RefObject<Set<string>>;
   setMessagesWindowed: (next: SetStateAction<ChatMessage[]>) => void;
   setParallelAgents: Dispatch<SetStateAction<ParallelAgent[]>>;
   setTodoItems: Dispatch<SetStateAction<NormalizedTodoItem[]>>;
   setToolCompletionVersion: Dispatch<SetStateAction<number>>;
-  streamingMessageIdRef: MutableRefObject<string | null>;
-  todoItemsRef: MutableRefObject<NormalizedTodoItem[]>;
-  toolMessageIdByIdRef: MutableRefObject<Map<string, string>>;
-  toolNameByIdRef: MutableRefObject<Map<string, string>>;
-  workflowSessionIdRef: MutableRefObject<string | null>;
+  streamingMessageIdRef: RefObject<string | null>;
+  todoItemsRef: RefObject<NormalizedTodoItem[]>;
+  toolMessageIdByIdRef: RefObject<Map<string, string>>;
+  toolNameByIdRef: RefObject<Map<string, string>>;
+  workflowSessionIdRef: RefObject<string | null>;
 }
 
 interface UseChatStreamToolEventsResult {

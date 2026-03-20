@@ -16,12 +16,7 @@ import type {
   AgentType,
 } from "@/services/telemetry/types.ts";
 import { VERSION } from "@/version.ts";
-import { appendEvent, getEventsFilePath } from "@/services/telemetry/telemetry-file-io.ts";
-
-// Re-export for backward compatibility
-export { getEventsFilePath } from "@/services/telemetry/telemetry-file-io.ts";
-
-// getEventsFilePath moved to telemetry-file-io.ts and re-exported above
+import { appendEvent } from "@/services/telemetry/telemetry-file-io.ts";
 
 /**
  * Base event fields that are common to all telemetry events.

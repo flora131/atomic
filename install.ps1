@@ -14,6 +14,13 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Require PowerShell 7+
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+    Write-Host "$([char]27)[0;31merror$([char]27)[0m: PowerShell 7 or later is required. You are running PowerShell $($PSVersionTable.PSVersion)."
+    Write-Host "$([char]27)[0;31merror$([char]27)[0m: Install PowerShell 7 from https://aka.ms/install-powershell"
+    exit 1
+}
+
 # Configuration
 $GithubRepo = "flora131/atomic"
 $BinaryName = "atomic"
@@ -42,6 +49,30 @@ function Install-BunIfMissing {
         Write-Info "bun installed successfully"
     } else {
         Write-Warn "Failed to install bun automatically. Install bun manually from https://bun.sh"
+    }
+}
+
+function Install-UvIfMissing {
+    if (Get-Command uv -ErrorAction SilentlyContinue) {
+        return
+    }
+
+    Write-Info "uv not detected. Installing uv..."
+    try {
+        powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+    } catch {
+        Write-Warn "Failed to install uv automatically: $_"
+    }
+
+    $uvBin = Join-Path $Home ".local\bin"
+    if (Test-Path (Join-Path $uvBin "uv.exe")) {
+        $env:Path = "${uvBin};${env:Path}"
+    }
+
+    if (Get-Command uv -ErrorAction SilentlyContinue) {
+        Write-Info "uv installed successfully"
+    } else {
+        Write-Warn "Failed to install uv automatically. Install uv manually from https://docs.astral.sh/uv/"
     }
 }
 
@@ -110,6 +141,29 @@ function Sync-GlobalAgentConfig {
 
     Install-BunIfMissing
     Install-NpmIfMissing
+    Install-UvIfMissing
+
+    # Install cocoindex-code via uv if available.
+    if (Get-Command uv -ErrorAction SilentlyContinue) {
+        Write-Info "Installing cocoindex-code via uv..."
+        uv tool install --upgrade cocoindex-code --prerelease explicit --with "cocoindex>=1.0.0a24" 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "Failed to install cocoindex-code with uv. Continuing without it."
+        }
+    } else {
+        Write-Warn "uv not available. Skipping cocoindex-code installation."
+    }
+
+    # Write cocoindex global settings
+    $CocoindexDir = Join-Path $Home ".cocoindex_code"
+    $null = New-Item -ItemType Directory -Force -Path $CocoindexDir
+    $CocoindexSettings = @"
+embedding:
+  model: lightonai/LateOn-Code-edge
+  provider: sentence-transformers
+"@
+    Set-Content -Path (Join-Path $CocoindexDir "global_settings.yml") -Value $CocoindexSettings -Encoding UTF8
+    Write-Info "Wrote cocoindex global settings to $CocoindexDir\global_settings.yml"
 
     # Install @playwright/cli globally if a package manager is available.
     # Do not install Chromium browsers here; defer to first use.
@@ -186,6 +240,12 @@ if ($Prerelease -and $Version -ne "latest") {
     Write-Info "Installing prerelease: $Version"
 } else {
     Write-Info "Installing version: $Version"
+}
+
+# Validate version format to prevent URL manipulation
+if ($Version -notmatch '^v?\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?$') {
+    Write-Err "Invalid version format: $Version (expected semver like v1.2.3 or v1.2.3-beta.1)"
+    exit 1
 }
 
 # Setup URLs

@@ -17,7 +17,7 @@ export function createChatUIModelOperations(
     && "listAvailableModels" in client
     ? () =>
         (client as import("@/services/agents/clients/index.ts").CopilotClient)
-          .listAvailableModels()
+          .listAvailableModels() as Promise<import("@/services/models/model-transform.ts").CopilotModelInfo[]>
     : undefined;
   const sdkListOpenCodeProviders = resolvedAgentType === "opencode"
     && "listProviderModels" in client

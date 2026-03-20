@@ -69,8 +69,15 @@ export function getMentionSuggestions(input: string): CommandDefinition[] {
     return a.relPath.localeCompare(b.relPath);
   });
 
-  const dirs = filtered.filter((entry) => entry.isDir);
-  const files = filtered.filter((entry) => !entry.isDir);
+  const dirs: typeof filtered = [];
+  const files: typeof filtered = [];
+  for (const entry of filtered) {
+    if (entry.isDir) {
+      dirs.push(entry);
+    } else {
+      files.push(entry);
+    }
+  }
   const maxDirs = Math.min(dirs.length, 7);
   const maxFiles = Math.min(files.length, 15 - maxDirs);
   const mixed = [...dirs.slice(0, maxDirs), ...files.slice(0, maxFiles)];

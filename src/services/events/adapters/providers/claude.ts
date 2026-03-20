@@ -318,6 +318,10 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       processStreamChunk: (chunk, runId, messageId) => {
         this.streamChunkProcessor.process(chunk, runId, messageId);
       },
+      resumeSession: () => {
+        if (!this.client) return Promise.resolve(null);
+        return this.client.resumeSession(this.sessionId);
+      },
       createAgentEvent: (event) => toClaudeAgentEvent(event),
       createHandler,
     });

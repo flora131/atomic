@@ -10,6 +10,7 @@ import type {
 } from "@/services/agents/types.ts";
 import { isSkillToolName } from "@/services/agents/clients/skill-invocation.ts";
 import { SubagentToolTracker } from "@/services/events/adapters/subagent-tool-tracker.ts";
+import { toolDebug } from "@/services/events/adapters/providers/claude/tool-debug-log.ts";
 import type {
   ClaudeActiveSubagentToolContext,
   ClaudeEarlyToolStartEvent,
@@ -123,6 +124,7 @@ export class ClaudeToolHookHandlers {
         }
 
         if (sdkCorrelationId && this.deps.emittedToolStartCorrelationIds.has(sdkCorrelationId)) {
+          toolDebug("msgComplete:dedup", { sdkCorrelationId, toolName, parentAgentId });
           continue;
         }
 
@@ -131,6 +133,12 @@ export class ClaudeToolHookHandlers {
         if (sdkCorrelationId) {
           this.deps.emittedToolStartCorrelationIds.add(sdkCorrelationId);
         }
+
+        toolDebug("msgComplete:emit", {
+          sdkCorrelationId, toolName, toolId, parentAgentId,
+          eventSessionId, parentToolUseId,
+          trackerHasAgent: parentAgentId ? this.deps.getSubagentTracker()?.hasAgent(parentAgentId) : false,
+        });
 
         if (parentAgentId && this.deps.getSubagentTracker()?.hasAgent(parentAgentId)) {
           this.deps.recordActiveSubagentToolContext(
@@ -238,12 +246,33 @@ export class ClaudeToolHookHandlers {
         ?? fallbackBackgroundParentAgentId
         ?? fallbackActiveToolParentAgentId;
       const finalAttributedParentAgentId = attributedWithContextParentAgentId ?? syntheticParentAgentId;
+
+      toolDebug("hookToolStart:attribution", {
+        sdkCorrelationId: normalizedSdkCorrelationId,
+        toolName,
+        eventSessionId,
+        rawParentAgentId: this.deps.asString(dataRecord.parentAgentId ?? dataRecord.parentId),
+        rawSubagentId: this.deps.asString(dataRecord.subagentId),
+        directParentAgentId,
+        taskDispatchParentAgentId: this.deps.resolveTaskDispatchParentAgentId(parentToolUseId),
+        sessionMappedParentAgentId,
+        taskOutputParentAgentId,
+        fallbackParentAgentId,
+        fallbackBackgroundParentAgentId,
+        fallbackActiveToolParentAgentId,
+        syntheticParentAgentId,
+        finalAttributedParentAgentId,
+        parentToolUseId,
+        isOwnedSession: this.deps.isOwnedSession(eventSessionId),
+      });
+
       if (
         !this.deps.isOwnedSession(eventSessionId)
         && !directParentAgentId
         && !parentToolUseId
         && !sessionMappedParentAgentId
       ) {
+        toolDebug("hookToolStart:dropped", { sdkCorrelationId: normalizedSdkCorrelationId, toolName, eventSessionId });
         return;
       }
 
@@ -256,6 +285,11 @@ export class ClaudeToolHookHandlers {
         this.deps.toolUseIdToSubagentId.set(sdkCorrelationId, taskOutputParentAgentId);
       }
 
+      const alreadyEmitted = Boolean(
+        normalizedSdkCorrelationId
+        && this.deps.emittedToolStartCorrelationIds.has(normalizedSdkCorrelationId),
+      );
+
       if (finalAttributedParentAgentId && this.deps.getSubagentTracker()?.hasAgent(finalAttributedParentAgentId)) {
         this.deps.recordActiveSubagentToolContext(
           toolId,
@@ -266,7 +300,9 @@ export class ClaudeToolHookHandlers {
           parentToolUseId,
           sdkCorrelationId,
         );
-        this.deps.getSubagentTracker()?.onToolStart(finalAttributedParentAgentId, toolName);
+        if (!alreadyEmitted) {
+          this.deps.getSubagentTracker()?.onToolStart(finalAttributedParentAgentId, toolName);
+        }
       } else if (finalAttributedParentAgentId) {
         this.deps.recordActiveSubagentToolContext(
           toolId,
@@ -295,6 +331,11 @@ export class ClaudeToolHookHandlers {
       }
 
       if (this.deps.isTaskTool(toolName)) {
+        return;
+      }
+      // Dedup: skip publish if message.complete already emitted this tool start
+      if (normalizedSdkCorrelationId && this.deps.emittedToolStartCorrelationIds.has(normalizedSdkCorrelationId)) {
+        toolDebug("hookToolStart:dedup", { sdkCorrelationId: normalizedSdkCorrelationId, toolName, finalAttributedParentAgentId });
         return;
       }
       if (normalizedSdkCorrelationId) {
@@ -395,6 +436,20 @@ export class ClaudeToolHookHandlers {
       ) {
         return;
       }
+
+      toolDebug("hookToolComplete:attribution", {
+        sdkCorrelationId: sdkCorrelationId ?? toolId,
+        toolName,
+        eventSessionId,
+        directParentAgentId,
+        sessionMappedParentAgentId,
+        taskOutputParentAgentId,
+        fallbackParentAgentId,
+        fallbackBackgroundParentAgentId,
+        fallbackActiveToolParentAgentId,
+        syntheticParentAgentId,
+        attributedParentAgentId,
+      });
 
       if (attributedParentAgentId && this.deps.getSubagentTracker()?.hasAgent(attributedParentAgentId)) {
         this.deps.getSubagentTracker()?.onToolComplete(attributedParentAgentId);

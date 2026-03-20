@@ -65,7 +65,7 @@ export function isAtMentionBoundary(char: string): boolean {
 }
 
 export function getComposerAutocompleteSuggestions(
-  workflowState: WorkflowChatState,
+  workflowState: Pick<WorkflowChatState, "showAutocomplete" | "autocompleteMode" | "autocompleteInput">,
 ): ComposerAutocompleteSuggestion[] {
   if (!workflowState.showAutocomplete) return [];
   return workflowState.autocompleteMode === "mention"

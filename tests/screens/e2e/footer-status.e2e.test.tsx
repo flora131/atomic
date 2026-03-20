@@ -80,7 +80,7 @@ describe("FooterStatus E2E", () => {
     const frame = testSetup.captureCharFrame();
 
     expect(frame).toContain("[3] local agents");
-    expect(frame).toContain("ctrl+f to kill all background tasks");
+    expect(frame).not.toContain("ctrl+f");
   });
 
   test("shows singular 'agent' when backgroundAgentCount is 1", async () => {
@@ -106,7 +106,7 @@ describe("FooterStatus E2E", () => {
 
     // Background hints
     expect(frame).toContain("[2] local agents");
-    expect(frame).toContain("ctrl+f to kill all background tasks");
+    expect(frame).not.toContain("ctrl+f");
   });
 
   test("shows workflow hints AND background hints when both active", async () => {
@@ -124,6 +124,6 @@ describe("FooterStatus E2E", () => {
 
     // Background hints
     expect(frame).toContain("[4] local agents");
-    expect(frame).toContain("ctrl+f to kill all background tasks");
+    expect(frame).not.toContain("ctrl+f");
   });
 });

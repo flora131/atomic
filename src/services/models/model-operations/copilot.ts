@@ -1,9 +1,10 @@
 import {
   fromCopilotModelInfo,
+  type CopilotModelInfo,
   type Model,
 } from "@/services/models/model-transform.ts";
 
-export type CopilotSdkListModelsFn = () => Promise<unknown[]>;
+export type CopilotSdkListModelsFn = () => Promise<CopilotModelInfo[]>;
 
 export async function listCopilotModels(
   sdkListCopilotModels: CopilotSdkListModelsFn | undefined,
@@ -13,8 +14,10 @@ export async function listCopilotModels(
     return modelInfos.map((modelInfo) => fromCopilotModelInfo(modelInfo));
   }
 
-  const { CopilotClient } = await import("@github/copilot-sdk");
-  const { getBundledCopilotCliPath, resolveCopilotSdkCliLaunch } = await import("@/services/agents/clients/index.ts");
+  const [{ CopilotClient }, { getBundledCopilotCliPath, resolveCopilotSdkCliLaunch }] = await Promise.all([
+    import("@github/copilot-sdk"),
+    import("@/services/agents/clients/index.ts"),
+  ]);
   const clientOpts = resolveCopilotSdkCliLaunch(await getBundledCopilotCliPath());
   const client = new CopilotClient(clientOpts);
 

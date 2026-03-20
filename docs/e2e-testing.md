@@ -642,14 +642,14 @@ Similar procedure for background agents, but verify the sub-agents render **with
 
     ```
     [CHATBOX]
-    [N] local agents · ctrl+f to kill all background tasks
+    [N] local agents
     ```
 
     When the chatbox is streaming AND background agents are running, the footer combines both:
 
     ```
     [CHATBOX]
-    esc to interrupt · [N] local agents · ctrl+f to kill all background tasks
+    esc to interrupt · [N] local agents
     ```
 
 2. During execution: N/A, under the chatbox ui contains status and should be updated
@@ -1154,7 +1154,6 @@ Every feature below MUST be verified during the test run. Check each one as you 
 - [ ] `ESC` + follow-up message — chatbox is immediately input-ready after interrupt
 - [ ] `ESC` — dismisses autocomplete or queue editing before interrupting stream
 - [ ] `Ctrl+O` — toggles verbose/compact transcript mode
-- [ ] `Ctrl+F` — double-press to terminate all background agents
 - [ ] `Enter` — submits message (auto-queued if a stream is active)
 - [ ] `Shift+Enter` — inserts newline (multi-line input)
 - [ ] `Up/Down` arrows — scrolls messages, navigates history, or edits queued messages
@@ -1257,7 +1256,7 @@ Every feature below MUST be verified during the test run. Check each one as you 
 - [ ] Model ID displayed
 - [ ] Streaming footer shows: `esc to interrupt`
 - [ ] Workflow footer shows: `workflow · esc to interrupt · ctrl+c twice to exit workflow`
-- [ ] Background agents: `[N] local agents · ctrl+f to kill all background tasks`
+- [ ] Background agents: `[N] local agents`
 - [ ] Verbose/compact mode shown
 - [ ] Queue count displayed (in queue indicator above chatbox, not in footer)
 - [ ] Agent type displayed

@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import type { MutableRefObject } from "react";
+import type { RefObject } from "react";
 import type { AgentType } from "@/services/models/index.ts";
 import type { StreamPartEvent } from "@/state/parts/index.ts";
 import type { AgentLifecycleLedger } from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
@@ -21,11 +21,11 @@ type TextDeltaPart = Extract<StreamPartEvent, { type: "text-delta" }>;
 
 interface UseChatStreamAgentOrderingArgs {
   agentType?: AgentType;
-  activeStreamRunIdRef: MutableRefObject<number | null>;
-  agentLifecycleLedgerRef: MutableRefObject<AgentLifecycleLedger>;
-  agentOrderingStateRef: MutableRefObject<AgentOrderingState>;
-  completionOrderingEventByAgentRef: MutableRefObject<Map<string, AgentOrderingEvent>>;
-  deferredPostCompleteDeltasByAgentRef: MutableRefObject<Map<string, Array<{
+  activeStreamRunIdRef: RefObject<number | null>;
+  agentLifecycleLedgerRef: RefObject<AgentLifecycleLedger>;
+  agentOrderingStateRef: RefObject<AgentOrderingState>;
+  completionOrderingEventByAgentRef: RefObject<Map<string, AgentOrderingEvent>>;
+  deferredPostCompleteDeltasByAgentRef: RefObject<Map<string, Array<{
     messageId: string;
     runId?: number;
     delta: string;
@@ -178,7 +178,7 @@ export function useChatStreamAgentOrdering({
   const handleTextDeltaOrdering = useCallback((
     part: TextDeltaPart,
     messageId: string | null,
-    queueMessagePartUpdate: (messageId: string, update: StreamPartEvent) => void,
+    _queueMessagePartUpdate: (messageId: string, update: StreamPartEvent) => void,
   ): boolean => {
     const agentId = part.agentId;
     if (!agentId) {

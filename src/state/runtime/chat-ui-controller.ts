@@ -9,6 +9,7 @@ import { SessionExpiredError } from "@/services/events/adapters/provider-shared.
 import { registerAgentToolNames } from "@/components/tool-registry/registry/index.ts";
 import { createChatUIRuntimeState } from "@/state/runtime/chat-ui-runtime-state.ts";
 import { createStreamAdapter } from "@/state/runtime/chat-ui-stream-adapter.ts";
+import { clearAgentEventBuffer } from "@/state/streaming/pipeline.ts";
 import type {
   ChatUIDebugSubscription,
   ChatUIState,
@@ -17,6 +18,13 @@ import type {
 
 export type { ChatUIDebugSubscription, ChatUIState } from "@/state/runtime/chat-ui-controller-types.ts";
 export { createChatUIRuntimeState } from "@/state/runtime/chat-ui-runtime-state.ts";
+
+/** Best-effort error logger for cleanup paths where throwing is undesirable. */
+function logCleanupError(context: string, error: unknown): void {
+  if (process.env.DEBUG) {
+    console.debug(`[chat-ui-controller] ${context}:`, error);
+  }
+}
 
 export function createChatUIController(args: CreateChatUIControllerArgs) {
   const {
@@ -39,14 +47,16 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
     if (pendingAbort) {
       try {
         await pendingAbort;
-      } catch {
+      } catch (error) {
+        logCleanupError("pendingAbortPromise in abortAndDestroy", error);
       }
     } else if (session.abort) {
       const abortPromise = session.abort();
       state.pendingAbortPromise = abortPromise;
       try {
         await abortPromise;
-      } catch {
+      } catch (error) {
+        logCleanupError("session.abort()", error);
       } finally {
         if (state.pendingAbortPromise === abortPromise) {
           state.pendingAbortPromise = null;
@@ -57,13 +67,15 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
     if (session.abortBackgroundAgents) {
       try {
         await session.abortBackgroundAgents();
-      } catch {
+      } catch (error) {
+        logCleanupError("session.abortBackgroundAgents()", error);
       }
     }
 
     try {
       await session.destroy();
-    } catch {
+    } catch (error) {
+      logCleanupError("session.destroy()", error);
     }
   }
 
@@ -89,7 +101,8 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
     if (state.root) {
       try {
         state.root.unmount();
-      } catch {
+      } catch (error) {
+        logCleanupError("root.unmount()", error);
       }
       state.root = null;
     }
@@ -99,11 +112,13 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
         if (process.stdout.isTTY) {
           try {
             process.stdout.write("\x1b[>4;0m");
-          } catch {
+          } catch (error) {
+            logCleanupError("stdout.write escape sequence", error);
           }
         }
         state.renderer.destroy();
-      } catch {
+      } catch (error) {
+        logCleanupError("renderer.destroy()", error);
       }
       state.renderer = null;
     }
@@ -209,7 +224,8 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
     if (pendingAbort) {
       try {
         await pendingAbort;
-      } catch {
+      } catch (error) {
+        logCleanupError("pendingAbortPromise in handleStreamMessage", error);
       }
     }
 
@@ -226,21 +242,24 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
     if (state.backgroundAgentsTerminated) {
       state.backgroundAgentsTerminated = false;
       effectiveContent =
-        "[System: All background agents were terminated by the user (Ctrl+F). "
+        "[System: All background agents were terminated by the user (Ctrl+C). "
         + "Do not reference or wait for any previously running background agents.]\n\n"
         + content;
     }
 
+    // Clear stale agent event buffer before starting a new stream
+    clearAgentEventBuffer();
+
     state.streamAbortController = new AbortController();
-    state.currentRunId = ++state.runCounter;
+    const thisRunId = ++state.runCounter;
+    state.currentRunId = thisRunId;
     state.isStreaming = true;
 
     const adapter = createStreamAdapter({ client, state, resolvedAgentType });
-    const runId = state.currentRunId;
     const messageId = crypto.randomUUID();
     debugSub.writeRawLine(`❯ ${content}`, {
       sessionId: state.session?.id,
-      runId,
+      runId: thisRunId,
       component: "prompt",
     });
 
@@ -250,8 +269,16 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
     }
 
     try {
-      await adapter.startStreaming(state.session!, effectiveContent, {
-        runId,
+      // Guard against session being nulled by a concurrent interrupt
+      const session = state.session;
+      if (!session) {
+        state.currentRunId = null;
+        state.isStreaming = false;
+        return;
+      }
+
+      await adapter.startStreaming(session, effectiveContent, {
+        runId: thisRunId,
         messageId,
         abortSignal: state.streamAbortController?.signal,
         agent: options?.agent,
@@ -280,10 +307,20 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
           await ensureSession();
           const retryAdapter = createStreamAdapter({ client, state, resolvedAgentType });
           state.streamAbortController = new AbortController();
-          state.currentRunId = ++state.runCounter;
+          const retryRunId = ++state.runCounter;
+          state.currentRunId = retryRunId;
+
+          // Guard session after ensureSession
+          const retrySession = state.session;
+          if (!retrySession) {
+            state.currentRunId = null;
+            state.isStreaming = false;
+            return;
+          }
+
           try {
-            await retryAdapter.startStreaming(state.session!, effectiveContent, {
-              runId: state.currentRunId,
+            await retryAdapter.startStreaming(retrySession, effectiveContent, {
+              runId: retryRunId,
               messageId,
               abortSignal: state.streamAbortController?.signal,
               agent: options?.agent,
@@ -295,8 +332,15 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
             state.messageCount++;
           } finally {
             retryAdapter.dispose();
+            // Only clean up state if this retry is still the active run
+            if (state.currentRunId === retryRunId) {
+              state.streamAbortController = null;
+              state.isStreaming = false;
+              state.currentRunId = null;
+            }
           }
-        } catch {
+        } catch (retryError) {
+          console.error("[chat-ui-controller] Session retry failed:", retryError);
           state.currentRunId = null;
         }
         return;
@@ -305,9 +349,13 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
       state.currentRunId = null;
     } finally {
       adapter.dispose();
-      state.streamAbortController = null;
-      state.isStreaming = false;
-      state.currentRunId = null;
+      // Only clean up state if this run is still the active run.
+      // Prevents a stale finally block from clobbering a newer stream's state.
+      if (state.currentRunId === thisRunId) {
+        state.streamAbortController = null;
+        state.isStreaming = false;
+        state.currentRunId = null;
+      }
     }
   }
 
@@ -319,30 +367,36 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
     if (state.isStreaming) {
       if (state.streamAbortController?.signal.aborted) return;
 
-      state.isStreaming = false;
-      state.currentRunId = null;
+      // Abort the controller synchronously so the stream sees the signal immediately
+      if (
+        state.streamAbortController
+        && !state.streamAbortController.signal.aborted
+      ) {
+        state.streamAbortController.abort();
+      }
+
+      // Do NOT set isStreaming=false here — let the stream's finally block
+      // handle cleanup to avoid the race where a new stream starts while
+      // the old one's finally block hasn't run yet.
 
       if (!state.pendingAbortPromise) {
         const abortPromise = (async () => {
-          if (
-            state.streamAbortController
-            && !state.streamAbortController.signal.aborted
-          ) {
-            state.streamAbortController.abort();
-          }
           if (state.session?.abort) {
             await state.session.abort();
           }
         })();
 
         state.pendingAbortPromise = abortPromise;
-        void abortPromise
+        // Attach .catch() directly to the abort promise to prevent unhandled rejection
+        abortPromise
           .finally(() => {
             if (state.pendingAbortPromise === abortPromise) {
               state.pendingAbortPromise = null;
             }
           })
-          .catch(() => {});
+          .catch((error) => {
+            logCleanupError("abort promise in handleInterrupt", error);
+          });
       }
 
       state.telemetryTracker?.trackInterrupt(sourceType);

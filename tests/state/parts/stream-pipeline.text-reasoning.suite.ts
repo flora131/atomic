@@ -133,7 +133,7 @@ describe("applyStreamPartEvent - text and reasoning", () => {
     }
   });
 
-  test("inserts late thinking metadata before text and updates same reasoning block", () => {
+  test("late thinking metadata is inserted after text in pure ID order", () => {
     let msg = createAssistantMessage();
     msg = applyStreamPartEvent(msg, { type: "text-delta", delta: "Answer " });
 
@@ -159,6 +159,8 @@ describe("applyStreamPartEvent - text and reasoning", () => {
 
     const next = applyStreamPartEvent(msg, { type: "text-delta", delta: "continues" });
 
+    // With pure ID ordering, text was created first and reasoning second.
+    // Correct reasoning-before-text ordering is the adapter's responsibility.
     expect(next.parts?.map((part) => part.type)).toEqual(["text", "reasoning"]);
     expect(next.content).toBe("Answer continues");
 
@@ -342,7 +344,7 @@ describe("applyStreamPartEvent - text and reasoning", () => {
     expect((next.parts ?? []).filter((part) => part.type === "reasoning")).toHaveLength(1);
   });
 
-  test("reasoning part uses sorted insertion via upsertPart for correct ID-based ordering", () => {
+  test("late reasoning part is inserted in ID order after text", () => {
     let msg = createAssistantMessage();
     msg = applyStreamPartEvent(msg, {
       type: "thinking-meta",
@@ -366,15 +368,20 @@ describe("applyStreamPartEvent - text and reasoning", () => {
       includeReasoningPart: true,
     });
 
+    // With pure ID ordering: first reasoning (ID_1), text (ID_2),
+    // second reasoning (ID_3). Adapter-level buffering handles
+    // correct ordering for SDK-specific streams.
     expect(msg.parts?.map((p) => p.type)).toEqual(["reasoning", "text", "reasoning"]);
 
+    // Verify each part has a unique ID and IDs are sorted
     const ids = msg.parts!.map((p) => p.id);
+    expect(new Set(ids).size).toBe(ids.length);
     for (let i = 1; i < ids.length; i++) {
       expect(ids[i]! > ids[i - 1]!).toBe(true);
     }
   });
 
-  test("reasoning parts maintain sorted order across multiple sources", () => {
+  test("reasoning parts from multiple sources are interleaved with text in ID order", () => {
     let msg = createAssistantMessage();
     msg = applyStreamPartEvent(msg, {
       type: "thinking-meta",
@@ -400,9 +407,10 @@ describe("applyStreamPartEvent - text and reasoning", () => {
 
     msg = applyStreamPartEvent(msg, { type: "text-delta", delta: " more" });
 
-    const partIds = msg.parts!.map((p) => p.id);
-    const sortedIds = [...partIds].sort();
-    expect(partIds).toEqual(sortedIds);
+    // Pure ID ordering: reasoning_a (ID_1), text (ID_2), reasoning_b (ID_3).
+    // Text deltas append to existing text part. Adapter ensures correct
+    // ordering by emitting events in the right sequence.
+    expect(msg.parts?.map((p) => p.type)).toEqual(["reasoning", "text", "reasoning"]);
   });
 
   test("text-complete is a no-op in the reducer (reconciliation handled upstream)", () => {

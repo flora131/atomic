@@ -5,7 +5,6 @@ import { EventBus } from "@/services/events/event-bus.ts";
 import { OpenCodeStreamAdapter } from "@/services/events/adapters/opencode-adapter.ts";
 import type {
   AgentEvent,
-  AgentMessage,
   CodingAgentClient,
   EventType,
 } from "@/services/agents/types.ts";

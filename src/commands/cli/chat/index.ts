@@ -12,17 +12,10 @@
  */
 
 import type { AgentType } from "@/services/telemetry/types.ts";
-import type { CodingAgentClient } from "@/services/agents/types.ts";
-import type { ChatUIConfig, Theme } from "@/app.tsx";
-import type {
-  ProviderDiscoveryPlan,
-  ProviderDiscoveryPlanOptions,
-} from "@/services/config/provider-discovery-plan.ts";
+import type { ChatUIConfig } from "@/app.tsx";
 import { getModelPreference, getReasoningEffortPreference } from "@/services/config/settings.ts";
 import { ADDITIONAL_ENHANCED_INSTRUCTIONS } from "@/services/agents/additional-enhanced-instructions.ts";
-import { AGENT_CONFIG, type SourceControlType } from "@/services/config/index.ts";
 // initCommand is lazy-loaded only when auto-init is needed
-import { join } from "path";
 import {
   ensureAtomicGlobalAgentConfigsForInstallType,
 } from "@/services/config/atomic-global-config.ts";
@@ -43,7 +36,6 @@ import {
   buildChatStartupDiscoveryPlan,
   buildProviderDiscoveryPlanDebugOutput,
   logActiveProviderDiscoveryPlan,
-  type ProviderDiscoveryPlanDebugOutput,
 } from "./discovery-debug.ts";
 import {
   hasProjectScmSkills,
@@ -272,13 +264,10 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
         additionalInstructions: resolvedAdditionalInstructions,
       },
       theme: await getTheme(theme),
-      title: `Chat - ${agentName}`,
-      placeholder: "Type a message...",
       version: VERSION,
       model: displayModelName,
       tier: modelDisplayInfo.tier,
       workingDir: projectRoot,
-      suggestion: 'Try "fix typecheck errors"',
       agentType,
       initialPrompt,
       workflowEnabled: workflow,

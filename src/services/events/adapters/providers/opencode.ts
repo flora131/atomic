@@ -330,6 +330,11 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
       pushUnsubscriber: (unsubscriber) => {
         this.unsubscribers.push(unsubscriber);
       },
+      resumeSession: () => {
+        const resumeClient = this.client ?? (session as Session & { __client?: CodingAgentClient }).__client;
+        if (!resumeClient) return Promise.resolve(null);
+        return resumeClient.resumeSession(this.sessionId);
+      },
       session,
       sessionId: this.sessionId,
     });

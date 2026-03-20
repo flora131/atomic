@@ -9,7 +9,7 @@ import { createMockContext } from "./executor.fixtures.ts";
 describe("executeWorkflow - task status events", () => {
   test("notifyTaskStatusChange is injected into graph runtime and calls context.onTaskStatusChange", async () => {
     const context = createMockContext();
-    const statusChangeCalls: Array<{ taskIds: string[]; newStatus: string; tasks: any[] }> = [];
+    const _statusChangeCalls: Array<{ taskIds: string[]; newStatus: string; tasks: any[] }> = [];
 
     interface TestState extends BaseState {
       value: string;

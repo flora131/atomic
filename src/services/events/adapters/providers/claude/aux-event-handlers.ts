@@ -135,7 +135,16 @@ export class ClaudeAuxEventHandlers {
   ): EventHandler<"message.delta"> {
     return (event) => {
       const eventSessionId = this.deps.resolveEventSessionId(event);
+      // Skip events from the main session. resolveEventSessionId returns
+      // the native SDK session ID which differs from the wrapper sessionId,
+      // so also check isOwnedSession without a sub-agent parent mapping.
       if (eventSessionId === this.deps.sessionId) {
+        return;
+      }
+      if (
+        this.deps.isOwnedSession(eventSessionId)
+        && !this.deps.resolveSubagentSessionParentAgentId(eventSessionId)
+      ) {
         return;
       }
       const dataRecord = event.data as Record<string, unknown>;

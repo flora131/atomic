@@ -2,7 +2,7 @@ import { describe, expect, mock, test, beforeEach } from "bun:test";
 import {
   shouldProcessStreamLifecycleEvent,
 } from "@/state/chat/exports.ts";
-import { createMessage } from "@/state/chat/helpers.ts";
+import { createMessage } from "@/state/chat/shared/helpers/index.ts";
 import { MISC } from "@/theme/icons.ts";
 import type { ChatMessage } from "@/state/chat/types.ts";
 

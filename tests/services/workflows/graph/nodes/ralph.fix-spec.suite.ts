@@ -3,7 +3,6 @@ import {
   buildFixSpecFromRawReview,
   buildFixSpecFromReview,
   type ReviewResult,
-  type TaskItem,
 } from "./ralph.test-support.ts";
 
 describe("buildFixSpecFromReview", () => {

@@ -3,19 +3,18 @@ import { MessageBubble } from "@/components/chat-message-bubble.tsx";
 import { shouldShowMessageLoadingIndicator } from "@/state/chat/shared/helpers/loading-state.ts";
 import { shouldHideStaleSubagentToolPlaceholder } from "@/state/chat/shared/helpers/index.ts";
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
-import type { ChatMessage, StreamingMeta, WorkflowChatState } from "@/state/chat/shared/types/index.ts";
+import type { ChatMessage, StreamingMeta, UserQuestion, WorkflowChatState } from "@/state/chat/shared/types/index.ts";
 import type { SyntaxStyle } from "@opentui/core";
 import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 
 interface UseChatRenderModelArgs {
   activeBackgroundAgentCount: number;
-  activeQuestion: unknown;
+  activeQuestion: UserQuestion | null;
   handleAgentDoneRendered: (marker: {
     messageId: string;
     agentId: string;
     timestampMs: number;
   }) => void;
-  isVerbose: boolean;
   markdownSyntaxStyle: SyntaxStyle;
   messages: ChatMessage[];
   parallelAgents: ParallelAgent[];
@@ -41,11 +40,10 @@ export function useChatRenderModel({
   activeQuestion,
   backgroundAgentMessageId,
   handleAgentDoneRendered,
-  isVerbose,
   lastStreamedMessageId,
   markdownSyntaxStyle,
   messages,
-  parallelAgents,
+  parallelAgents: _parallelAgents,
   showTodoPanel,
   streamingElapsedMs,
   streamingMessageId,
@@ -87,7 +85,6 @@ export function useChatRenderModel({
               key={msg.id}
               message={msg}
               isLast={index === renderMessages.length - 1}
-              isVerbose={isVerbose}
               syntaxStyle={markdownSyntaxStyle}
               hideLoading={activeQuestion !== null}
               activeBackgroundAgentCount={activeBackgroundAgentCount}
@@ -109,7 +106,6 @@ export function useChatRenderModel({
     activeBackgroundAgentCount,
     activeQuestion,
     handleAgentDoneRendered,
-    isVerbose,
     markdownSyntaxStyle,
     renderMessages,
     showTodoPanel,

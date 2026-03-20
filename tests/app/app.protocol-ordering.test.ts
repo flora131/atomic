@@ -24,7 +24,8 @@ interface ElementWithProps {
 
 function extractErrorBoundaryExit(rootElement: unknown): (() => void) | null {
   const themeProvider = rootElement as ElementWithProps;
-  const eventBusProvider = themeProvider.props?.children as ElementWithProps | undefined;
+  const animationTickProvider = themeProvider.props?.children as ElementWithProps | undefined;
+  const eventBusProvider = animationTickProvider?.props?.children as ElementWithProps | undefined;
   const boundary = eventBusProvider?.props?.children as ElementWithProps | undefined;
   return boundary?.props?.onExit ?? null;
 }

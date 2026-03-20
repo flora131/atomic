@@ -2,7 +2,6 @@ import type {
     HookCallback,
     HookCallbackMatcher,
     HookEvent,
-    McpSdkServerConfigWithInstance,
     Query,
 } from "@anthropic-ai/claude-agent-sdk";
 import type {

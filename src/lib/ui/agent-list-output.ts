@@ -28,8 +28,15 @@ function firstSentence(text: string): string {
 }
 
 export function buildAgentListView(agents: AgentInfo[]): AgentListView {
-  const projectAgents = agents.filter((a) => a.source === "project").map(toItemView);
-  const globalAgents = agents.filter((a) => a.source === "user").map(toItemView);
+  const projectAgents: AgentListItemView[] = [];
+  const globalAgents: AgentListItemView[] = [];
+  for (const agent of agents) {
+    if (agent.source === "project") {
+      projectAgents.push(toItemView(agent));
+    } else if (agent.source === "user") {
+      globalAgents.push(toItemView(agent));
+    }
+  }
 
   return {
     heading: "Agents",

@@ -15,6 +15,7 @@ import type {
 import { createMessageCompleteEventData } from "@/services/agents/clients/claude/message-normalization.ts";
 import type { EventType } from "@/services/agents/types.ts";
 import type { ClaudeSessionState } from "@/services/agents/clients/claude/internal-types.ts";
+import { toolDebug } from "@/services/events/adapters/providers/claude/tool-debug-log.ts";
 
 export function mapClaudeSdkEventToEventType(
     sdkMessageType: string,
@@ -91,6 +92,15 @@ export function processClaudeMessage(args: {
         const sessionScopedAgentId =
             args.subagentSdkSessionIdToAgentId.get(msg.session_id);
         const agentId = mappedAgentId ?? sessionScopedAgentId;
+        toolDebug("taskProgress", {
+            sdkSessionId: msg.session_id,
+            toolUseId,
+            mappedAgentId,
+            sessionScopedAgentId,
+            resolvedAgentId: agentId,
+            sdkToolUses: msg.usage.tool_uses,
+            lastToolName: msg.last_tool_name,
+        });
         if (agentId) {
             args.emitEvent("subagent.update", sessionId, {
                 subagentId: agentId,

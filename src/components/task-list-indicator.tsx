@@ -59,8 +59,6 @@ export const TASK_STATUS_ICONS: Record<TaskItem["status"], string> = {
 /** Max content chars before truncation */
 export const MAX_CONTENT_LENGTH = 60;
 
-/** @deprecated Use truncateText from utils/format.ts directly */
-export const truncate = truncateText;
 
 /** Map task status to semantic color key */
 export function getStatusColorKey(status: TaskItem["status"]): "muted" | "accent" | "success" | "error" {
@@ -141,7 +139,7 @@ export function TaskListIndicator({
         return isActive ? (
           // Active tasks use a row layout so the AnimatedBlinkIndicator
           // lives in its own <text> node — OpenTUI re-renders it reliably
-          // when setInterval triggers a state change.
+          // when the shared animation tick triggers a state change.
           <box key={item.id ?? i} flexDirection="row">
             <text wrapMode="none">
               <span fg={themeColors.dim}>{showConnector && i === 0 ? `${CONNECTOR.subStatus} ` : `${rail} `}</span>

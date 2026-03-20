@@ -26,7 +26,8 @@ interface Harness {
 
 function extractChatAppProps(rootElement: unknown): ChatAppProps | null {
   const themeProvider = rootElement as ElementWithProps;
-  const eventBusProvider = themeProvider.props?.children as ElementWithProps | undefined;
+  const animationTickProvider = themeProvider.props?.children as ElementWithProps | undefined;
+  const eventBusProvider = animationTickProvider?.props?.children as ElementWithProps | undefined;
   const boundary = eventBusProvider?.props?.children as ElementWithProps | undefined;
   const chatApp = boundary?.props?.children as { props?: ChatAppProps } | undefined;
   return chatApp?.props ?? null;

@@ -159,25 +159,25 @@ describe("appendSkillLoadToLatestAssistantMessage", () => {
     expect(skillLoadIdx).toBe(parts.length - 1);
   });
 
-  test("updates existing skill-load part in-place when adding a second skill", () => {
-    const skillTool = createToolPart("skill", { skill: "gh-commit" });
+  test("creates separate skill-load parts for each skill instead of merging", () => {
+    const skillTool1 = createToolPart("skill", { skill: "gh-commit" });
     const textPart = { id: createPartId(), type: "text" as const, content: "text", isStreaming: false, createdAt: new Date().toISOString() };
+    const skillTool2 = createToolPart("skill", { skill: "testing-anti-patterns" });
 
     const messages = [
       createMsg("a1", "assistant", {
-        parts: [skillTool, textPart],
-        skillLoads: [makeSkillLoad("gh-commit")],
+        parts: [skillTool1, textPart, skillTool2],
       }),
     ];
 
-    // First skill adds the skill-load part
+    // First skill creates a skill-load part before its tool call
     const step1 = appendSkillLoadToLatestAssistantMessage(messages, makeSkillLoad("gh-commit"));
-    // Second skill should update in-place
+    // Second skill should create a SEPARATE skill-load part at its own tool call position
     const step2 = appendSkillLoadToLatestAssistantMessage(step1, makeSkillLoad("testing-anti-patterns"));
     const parts = step2[0]!.parts!;
 
     const skillLoadParts = parts.filter((p) => p.type === "skill-load");
-    expect(skillLoadParts).toHaveLength(1);
+    expect(skillLoadParts).toHaveLength(2);
     expect(step2[0]!.skillLoads).toHaveLength(2);
   });
 });

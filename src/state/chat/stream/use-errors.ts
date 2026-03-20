@@ -1,5 +1,4 @@
 import { useCallback } from "react";
-import { formatAgentLifecycleViolation } from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
 import {
   finalizeStreamingReasoningInMessage,
   finalizeStreamingTextParts,
@@ -89,40 +88,7 @@ export function useChatStreamErrors({
     streamingMessageIdRef,
   ]);
 
-  const terminateStreamWithError = useCallback((errorMessage: string) => {
-    stopSharedStreamState();
-    finalizeThinkingSourceTracking();
-    setMessagesWindowed((prev) => [
-      ...prev,
-      createMessage("system", `[error] ${errorMessage}`),
-    ]);
-
-    const result = resolveTrackedRun("fail", {
-      content: lastStreamingContentRef.current,
-      wasInterrupted: true,
-    });
-    if (!result) {
-      continueQueuedConversationRef.current();
-    }
-  }, [
-    continueQueuedConversationRef,
-    finalizeThinkingSourceTracking,
-    lastStreamingContentRef,
-    resolveTrackedRun,
-    setMessagesWindowed,
-    stopSharedStreamState,
-  ]);
-
-  const terminateAgentLifecycleContractViolation = useCallback((args: {
-    code: import("@/state/chat/shared/helpers/agent-lifecycle-ledger.ts").AgentLifecycleViolationCode;
-    eventType: "stream.agent.start" | "stream.agent.update" | "stream.agent.complete";
-    agentId: string;
-  }) => {
-    terminateStreamWithError(formatAgentLifecycleViolation(args));
-  }, [terminateStreamWithError]);
-
   return {
     handleStreamStartupError,
-    terminateAgentLifecycleContractViolation,
   };
 }

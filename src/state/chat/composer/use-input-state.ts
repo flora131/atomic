@@ -5,7 +5,7 @@ import {
   useRef,
   useState,
   type Dispatch,
-  type MutableRefObject,
+  type RefObject,
   type SetStateAction,
 } from "react";
 import type { KeyBinding, PasteEvent, TextareaRenderable } from "@opentui/core";
@@ -31,18 +31,31 @@ export interface UseComposerInputStateResult {
   handleInputChange: (rawValue: string, cursorOffset: number) => void;
   handleTextareaContentChange: () => void;
   handleTextareaCursorChange: () => void;
-  historyIndexRef: MutableRefObject<number>;
-  historyNavigatingRef: MutableRefObject<boolean>;
+  historyIndexRef: RefObject<number>;
+  historyNavigatingRef: RefObject<boolean>;
   inputScrollbar: InputScrollbarState;
   isEditingQueue: boolean;
-  kittyKeyboardDetectedRef: MutableRefObject<boolean>;
+  kittyKeyboardDetectedRef: RefObject<boolean>;
   normalizePastedText: (text: string) => string;
-  promptHistoryRef: MutableRefObject<string[]>;
-  savedInputRef: MutableRefObject<string>;
+  promptHistoryRef: RefObject<string[]>;
+  savedInputRef: RefObject<string>;
   setIsEditingQueue: Dispatch<SetStateAction<boolean>>;
   syncInputScrollbar: () => void;
   textareaKeyBindings: KeyBinding[];
-  textareaRef: MutableRefObject<TextareaRenderable | null>;
+  textareaRef: RefObject<TextareaRenderable | null>;
+}
+
+const TEXTAREA_KEY_BINDINGS: KeyBinding[] = [
+  { name: "return", action: "submit" },
+  { name: "linefeed", action: "newline" },
+  { name: "return", shift: true, action: "newline" },
+  { name: "linefeed", shift: true, action: "newline" },
+  { name: "return", meta: true, action: "newline" },
+  { name: "linefeed", meta: true, action: "newline" },
+];
+
+function normalizePaste(text: string): string {
+  return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }
 
 export function useComposerInputState({
@@ -82,9 +95,13 @@ export function useComposerInputState({
 
   useEffect(() => {
     void (async () => {
-      const persisted = await loadCommandHistory();
-      if (persisted.length > 0) {
-        promptHistoryRef.current = persisted;
+      try {
+        const persisted = await loadCommandHistory();
+        if (persisted.length > 0) {
+          promptHistoryRef.current = persisted;
+        }
+      } catch {
+        // loadCommandHistory has internal error handling; this guards against unexpected rejections
       }
     })();
   }, []);
@@ -145,9 +162,7 @@ export function useComposerInputState({
     applyComposerHighlights(textarea, value, commandStyleIdRef.current);
   }, [commandStyleIdRef, handleInputChange, syncInputScrollbar]);
 
-  const handleTextareaCursorChange = useCallback(() => {
-    syncInputScrollbar();
-  }, [syncInputScrollbar]);
+  const handleTextareaCursorChange = syncInputScrollbar;
 
   const handleAutocompleteSelect = useCallback((command: CommandDefinition, action: "complete" | "execute") => {
     const textarea = textareaRef.current;
@@ -167,18 +182,9 @@ export function useComposerInputState({
     updateWorkflowState({ selectedSuggestionIndex: index });
   }, [updateWorkflowState]);
 
-  const textareaKeyBindings: KeyBinding[] = [
-    { name: "return", action: "submit" },
-    { name: "linefeed", action: "newline" },
-    { name: "return", shift: true, action: "newline" },
-    { name: "linefeed", shift: true, action: "newline" },
-    { name: "return", meta: true, action: "newline" },
-    { name: "linefeed", meta: true, action: "newline" },
-  ];
+  const textareaKeyBindings = TEXTAREA_KEY_BINDINGS;
 
-  const normalizePastedText = useCallback((text: string) => {
-    return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  }, []);
+  const normalizePastedText = normalizePaste;
 
   const handleBracketedPaste = useCallback((event: PasteEvent) => {
     const textarea = textareaRef.current;
@@ -200,14 +206,16 @@ export function useComposerInputState({
     handleTextareaContentChange();
   }, [clipboard, handleTextareaContentChange, normalizePastedText]);
 
+  const { showAutocomplete, autocompleteMode, autocompleteInput } = workflowState;
   const autocompleteSuggestions = useMemo(() => {
-    return getComposerAutocompleteSuggestions(workflowState);
-  }, [workflowState]);
+    return getComposerAutocompleteSuggestions({ showAutocomplete, autocompleteMode, autocompleteInput });
+  }, [showAutocomplete, autocompleteMode, autocompleteInput]);
 
   useEffect(() => {
-    setTimeout(() => {
+    const timerId = setTimeout(() => {
       syncInputScrollbar();
     }, 0);
+    return () => clearTimeout(timerId);
   }, [syncInputScrollbar, workflowState.argumentHint]);
 
   useEffect(() => {

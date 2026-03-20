@@ -51,6 +51,11 @@ export interface CopilotThinkingStreamState {
   agentId?: string;
 }
 
+export interface CopilotBufferedTextDelta {
+  delta: string;
+  agentId: string | undefined;
+}
+
 export interface CopilotStreamAdapterState {
   unsubscribers: Array<() => void>;
   eventBuffer: BusEvent[];
@@ -78,6 +83,23 @@ export interface CopilotStreamAdapterState {
   pendingIdleReason: string | null;
   runtimeFeatureFlags: WorkflowRuntimeFeatureFlags;
   turnMetadataState: ReturnType<typeof createTurnMetadataState>;
+  /**
+   * Per-agent text delta buffer for correct reasoning-before-text ordering.
+   * Keyed by agent key ("__foreground__" for root, or agentId).
+   *
+   * When the first text delta arrives before we know whether reasoning will
+   * happen, we buffer it. Once reasoning arrives (or a second text delta
+   * confirms no reasoning), we flush the buffer. This ensures reasoning
+   * parts get earlier IDs than text parts — matching OpenCode's pure
+   * ID-based ordering methodology.
+   */
+  pendingTextDeltas: Map<string, CopilotBufferedTextDelta[]>;
+  /**
+   * Agents for which content type has been resolved: either thinking was
+   * seen (so reasoning already has an earlier ID) or confirmed absent
+   * (two consecutive text deltas without thinking).
+   */
+  contentTypeResolvedAgents: Set<string>;
 }
 
 export interface CopilotStreamAdapterDeps {

@@ -10,6 +10,11 @@ import {
   ensurePlaywrightPackageManagers,
   installPlaywrightCli,
 } from "@/scripts/postinstall-playwright.ts";
+import {
+  ensureUv,
+  installCocoindexCode,
+  writeCocoindexGlobalSettings,
+} from "@/scripts/postinstall-uv.ts";
 
 function formatErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -38,6 +43,24 @@ async function main(): Promise<void> {
     ensurePlaywrightPackageManagers();
   } catch (error) {
     warnPostinstallStep("failed to install missing package managers (bun/npm)", error);
+  }
+
+  try {
+    ensureUv();
+  } catch (error) {
+    warnPostinstallStep("failed to install uv", error);
+  }
+
+  try {
+    installCocoindexCode();
+  } catch (error) {
+    warnPostinstallStep("failed to install cocoindex-code via uv", error);
+  }
+
+  try {
+    await writeCocoindexGlobalSettings();
+  } catch (error) {
+    warnPostinstallStep("failed to write cocoindex global settings", error);
   }
 
   try {

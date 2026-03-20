@@ -8,6 +8,7 @@ import {
   normalizeToolName,
 } from "@/services/events/adapters/provider-shared.ts";
 import { SubagentToolTracker } from "@/services/events/adapters/subagent-tool-tracker.ts";
+import { toolDebug } from "@/services/events/adapters/providers/claude/tool-debug-log.ts";
 import {
   cleanupClaudeOrphanedTools,
   flushClaudeOrphanedAgentCompletions,
@@ -111,22 +112,30 @@ export class ClaudeToolState {
       undefined,
       event.sdkCorrelationId,
     );
-    if (this.getSubagentTracker()?.hasAgent(parentAgentId)) {
-      this.getSubagentTracker()?.onToolStart(parentAgentId, event.toolName);
-    }
-    this.bus.publish({
-      type: "stream.tool.start",
-      sessionId: this.sessionId,
-      runId,
-      timestamp: Date.now(),
-      data: {
-        toolId: event.toolId,
-        toolName: event.toolName,
-        toolInput: event.toolInput,
-        sdkCorrelationId: event.sdkCorrelationId,
-        parentAgentId,
-      },
+    const alreadyEmitted = this.emittedToolStartCorrelationIds.has(event.sdkCorrelationId);
+    toolDebug("replayEarlyTool", {
+      parentAgentId, toolName: event.toolName, sdkCorrelationId: event.sdkCorrelationId,
+      alreadyEmitted, trackerHasAgent: this.getSubagentTracker()?.hasAgent(parentAgentId),
     });
+    if (!alreadyEmitted) {
+      if (this.getSubagentTracker()?.hasAgent(parentAgentId)) {
+        this.getSubagentTracker()?.onToolStart(parentAgentId, event.toolName);
+      }
+      this.emittedToolStartCorrelationIds.add(event.sdkCorrelationId);
+      this.bus.publish({
+        type: "stream.tool.start",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          toolId: event.toolId,
+          toolName: event.toolName,
+          toolInput: event.toolInput,
+          sdkCorrelationId: event.sdkCorrelationId,
+          parentAgentId,
+        },
+      });
+    }
   }
 
   publishSessionStart(runId: number): void {

@@ -240,7 +240,7 @@ export class EagerDispatchCoordinator {
       return spawnConfig;
     });
 
-    const pendingWaveState = this.startWave(batchId, waveNumber, nextTaskIndices, tasksSnapshot, spawnConfigs);
+    const _pendingWaveState = this.startWave(batchId, waveNumber, nextTaskIndices, tasksSnapshot, spawnConfigs);
     const handledAgentIds = new Set<string>();
     const processBatchResult = (result: SubagentStreamResult) => {
       if (handledAgentIds.has(result.agentId)) {

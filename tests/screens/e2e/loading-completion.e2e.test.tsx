@@ -16,7 +16,7 @@ import {
   LoadingIndicator,
   StreamingBullet,
 } from "@/components/chat-loading-indicator.tsx";
-import { SPINNER_FRAMES, SPINNER_COMPLETE } from "@/theme/icons.ts";
+import { SPINNER_FRAMES } from "@/theme/icons.ts";
 
 // ============================================================================
 // HELPERS

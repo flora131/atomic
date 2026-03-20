@@ -43,8 +43,10 @@ export async function mergeJsonFile(
     return;
   }
 
-  const srcContent = await readFile(srcPath, "utf-8");
-  const destContent = await readFile(destPath, "utf-8");
+  const [srcContent, destContent] = await Promise.all([
+    readFile(srcPath, "utf-8"),
+    readFile(destPath, "utf-8"),
+  ]);
 
   const srcConfig: McpConfig = JSON.parse(srcContent);
   const destConfig: McpConfig = JSON.parse(destContent);

@@ -5,7 +5,7 @@
  * with progress header, progress bar, and task rows.
  */
 
-import React from "react";
+import React, { useMemo } from "react";
 import type { TaskListPart } from "@/state/parts/types.ts";
 import { TaskListBox } from "@/components/task-list-panel.tsx";
 import { sortTasksTopologically } from "@/components/task-order.ts";
@@ -17,7 +17,7 @@ export interface TaskListPartDisplayProps {
 }
 
 export function TaskListPartDisplay({ part }: TaskListPartDisplayProps): React.ReactNode {
-  const sortedItems = sortTasksTopologically(part.items);
+  const sortedItems = useMemo(() => sortTasksTopologically(part.items), [part.items]);
 
   return (
     <box flexDirection="column" paddingLeft={SPACING.INDENT} paddingRight={SPACING.INDENT} marginTop={SPACING.SECTION}>

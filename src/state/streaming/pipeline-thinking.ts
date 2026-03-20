@@ -1,8 +1,8 @@
 import type { ChatMessage } from "@/types/chat.ts";
 import { type PartId, createPartId } from "@/state/parts/id.ts";
 import type { Part, ReasoningPart } from "@/state/parts/types.ts";
+import { isTextPart, isReasoningPart } from "@/state/parts/types.ts";
 import { findLastPartIndex, upsertPart } from "@/state/parts/store.ts";
-import type { TextPart } from "@/state/parts/types.ts";
 import type { ThinkingMetaEvent } from "@/state/streaming/pipeline-types.ts";
 
 const reasoningPartIdBySourceRegistry = new WeakMap<
@@ -14,13 +14,13 @@ function finalizeLastStreamingTextPart(parts: Part[]): Part[] {
   const updated = [...parts];
   const lastTextIdx = findLastPartIndex(
     updated,
-    (part) => part.type === "text" && (part as TextPart).isStreaming,
+    (part) => isTextPart(part) && part.isStreaming,
   );
   if (lastTextIdx >= 0) {
-    updated[lastTextIdx] = {
-      ...(updated[lastTextIdx] as TextPart),
-      isStreaming: false,
-    };
+    const target = updated[lastTextIdx];
+    if (target && isTextPart(target)) {
+      updated[lastTextIdx] = { ...target, isStreaming: false };
+    }
   }
   return updated;
 }
@@ -42,7 +42,7 @@ function finalizeLastStreamingTextPart(parts: Part[]): Part[] {
 function removeLastStreamingTextPart(parts: Part[]): Part[] {
   const lastTextIdx = findLastPartIndex(
     parts,
-    (part) => part.type === "text" && (part as TextPart).isStreaming,
+    (part) => isTextPart(part) && part.isStreaming,
   );
   if (lastTextIdx < 0) {
     return parts;
@@ -63,7 +63,7 @@ export { finalizeLastStreamingTextPart, removeLastStreamingTextPart };
 export function finalizeStreamingTextParts(parts: Part[]): Part[] {
   let changed = false;
   const updated = parts.map((part) => {
-    if (part.type !== "text" || !(part as TextPart).isStreaming) {
+    if (!isTextPart(part) || !part.isStreaming) {
       return part;
     }
     changed = true;
@@ -78,15 +78,14 @@ export function finalizeStreamingReasoningParts(
 ): Part[] {
   let changed = false;
   const updated = parts.map((part) => {
-    if (part.type !== "reasoning" || !part.isStreaming) {
+    if (!isReasoningPart(part) || !part.isStreaming) {
       return part;
     }
     changed = true;
-    const reasoningPart = part as ReasoningPart;
     return {
-      ...reasoningPart,
+      ...part,
       isStreaming: false,
-      durationMs: reasoningPart.durationMs || fallbackDurationMs || 0,
+      durationMs: part.durationMs || fallbackDurationMs || 0,
     };
   });
 
@@ -122,14 +121,13 @@ function cloneReasoningPartRegistry(message: ChatMessage): Map<string, PartId> {
 
   const rebuilt = new Map<string, PartId>();
   for (const part of message.parts ?? []) {
-    if (part.type !== "reasoning") {
+    if (!isReasoningPart(part)) {
       continue;
     }
-    const reasoningPart = part as ReasoningPart;
-    if (!reasoningPart.isStreaming) {
+    if (!part.isStreaming) {
       continue;
     }
-    const sourceKey = reasoningPart.thinkingSourceKey;
+    const sourceKey = part.thinkingSourceKey;
     if (sourceKey && sourceKey.trim().length > 0) {
       rebuilt.set(sourceKey, part.id);
     }
@@ -170,7 +168,7 @@ export function finalizeThinkingSource(
   }
   if (idx < 0) {
     idx = parts.findIndex(
-      (p) => p.type === "reasoning" && (p as ReasoningPart).thinkingSourceKey === sourceKey && p.isStreaming,
+      (p) => isReasoningPart(p) && p.thinkingSourceKey === sourceKey && p.isStreaming,
     );
   }
   if (idx < 0) {
@@ -178,11 +176,10 @@ export function finalizeThinkingSource(
   }
 
   const updated = [...parts];
-  updated[idx] = {
-    ...(updated[idx] as ReasoningPart),
-    isStreaming: false,
-    durationMs,
-  };
+  const target = updated[idx];
+  if (target && isReasoningPart(target)) {
+    updated[idx] = { ...target, isStreaming: false, durationMs };
+  }
   registry.delete(sourceKey);
 
   const nextMessage: ChatMessage = { ...message, parts: updated };
@@ -219,9 +216,9 @@ export function upsertThinkingMeta(
   if (existingIdx < 0) {
     existingIdx = parts.findIndex(
       (part) =>
-        part.type === "reasoning" &&
-        (part as ReasoningPart).thinkingSourceKey === event.thinkingSourceKey &&
-        (part as ReasoningPart).isStreaming,
+        isReasoningPart(part) &&
+        part.thinkingSourceKey === event.thinkingSourceKey &&
+        part.isStreaming,
     );
     if (existingIdx >= 0) {
       registry.set(event.thinkingSourceKey, parts[existingIdx]!.id);
@@ -229,14 +226,16 @@ export function upsertThinkingMeta(
   }
 
   if (existingIdx >= 0) {
-    const existing = parts[existingIdx] as ReasoningPart;
-    parts[existingIdx] = {
-      ...existing,
-      thinkingSourceKey: event.thinkingSourceKey,
-      content: event.thinkingText,
-      durationMs: event.thinkingMs,
-      isStreaming: true,
-    };
+    const existing = parts[existingIdx];
+    if (existing && isReasoningPart(existing)) {
+      parts[existingIdx] = {
+        ...existing,
+        thinkingSourceKey: event.thinkingSourceKey,
+        content: event.thinkingText,
+        durationMs: event.thinkingMs,
+        isStreaming: true,
+      };
+    }
   } else if (event.thinkingText.trim().length > 0) {
     const reasoningPart: ReasoningPart = {
       id: createPartId(),
@@ -271,21 +270,23 @@ export function upsertThinkingMetaPart(
 
   const existingIdx = parts.findIndex(
     (part) =>
-      part.type === "reasoning" &&
-      (part as ReasoningPart).thinkingSourceKey === event.thinkingSourceKey,
+      isReasoningPart(part) &&
+      part.thinkingSourceKey === event.thinkingSourceKey,
   );
 
   if (existingIdx >= 0) {
-    const existing = parts[existingIdx] as ReasoningPart;
-    const updated = [...parts];
-    updated[existingIdx] = {
-      ...existing,
-      thinkingSourceKey: event.thinkingSourceKey,
-      content: event.thinkingText,
-      durationMs: event.thinkingMs,
-      isStreaming: true,
-    };
-    return updated;
+    const existing = parts[existingIdx];
+    if (existing && isReasoningPart(existing)) {
+      const updated = [...parts];
+      updated[existingIdx] = {
+        ...existing,
+        thinkingSourceKey: event.thinkingSourceKey,
+        content: event.thinkingText,
+        durationMs: event.thinkingMs,
+        isStreaming: true,
+      };
+      return updated;
+    }
   }
 
   if (event.thinkingText.trim().length === 0) {

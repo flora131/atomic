@@ -5,27 +5,14 @@
  * Each part is dispatched to its corresponding renderer via PART_REGISTRY.
  */
 
-import React from "react";
+import React, { useMemo } from "react";
 import type { SyntaxStyle } from "@opentui/core";
 import type { ChatMessage } from "@/types/chat.ts";
 import type { Part } from "@/state/parts/types.ts";
 import { PART_REGISTRY } from "@/components/message-parts/registry.tsx";
 import { SPACING } from "@/theme/spacing.ts";
 
-export function orderPartsForTaskOutputDisplay(parts: ReadonlyArray<Part>): Part[] {
-  return [...parts];
-}
-
-/**
- * Legacy helper kept for API compatibility.
- *
- * Tool parts are no longer hidden behind a sub-agent tree, so no
- * toolCallIds are consumed.
- */
-export function getConsumedTaskToolCallIds(parts: ReadonlyArray<Part>): Set<string> {
-  void parts;
-  return new Set<string>();
-}
+const EMPTY_PARTS: readonly Part[] = [];
 
 export interface MessageBubblePartsProps {
   message: ChatMessage;
@@ -85,8 +72,8 @@ export function MessageBubbleParts({
   syntaxStyle,
   onAgentDoneRendered,
 }: MessageBubblePartsProps): React.ReactNode {
-  const parts = orderPartsForTaskOutputDisplay(message.parts ?? []);
-  const renderKeys = buildPartRenderKeys(parts);
+  const parts = message.parts ?? EMPTY_PARTS;
+  const renderKeys = useMemo(() => buildPartRenderKeys(parts), [parts]);
 
   if (parts.length === 0) {
     return null;

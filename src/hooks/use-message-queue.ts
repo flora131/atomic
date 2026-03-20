@@ -205,12 +205,7 @@ export function useMessageQueue(): UseMessageQueueReturn {
     setQueue([]);
   }, []);
 
-  /**
-   * Set the current edit index.
-   */
-  const setEditIndex = useCallback((index: number) => {
-    setCurrentEditIndex(index);
-  }, []);
+  const setEditIndex = setCurrentEditIndex;
 
   /**
    * Update the content of a message at a specific index.
@@ -266,9 +261,12 @@ export function useMessageQueue(): UseMessageQueueReturn {
         [updated[index], updated[index + 1]] = [updated[index + 1]!, updated[index]!];
         return updated;
       });
-      setCurrentEditIndex((prev) => (prev < queue.length - 1 ? prev + 1 : prev));
+      setCurrentEditIndex((prev) => {
+        const currentLength = queueRef.current.length;
+        return prev < currentLength - 1 ? prev + 1 : prev;
+      });
     },
-    [queue.length]
+    []
   );
 
   return {

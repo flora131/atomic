@@ -1658,4 +1658,204 @@ describe("WorkflowSessionConductor", () => {
       expect(result.stageOutputs.has("debugger")).toBe(true);
     });
   });
+
+  // -----------------------------------------------------------------------
+  // interrupt() and getCurrentStage()
+  // -----------------------------------------------------------------------
+
+  describe("interrupt and getCurrentStage", () => {
+    test("getCurrentStage returns null before execution starts", () => {
+      const graph = buildLinearGraph([agentNode("planner")]);
+      const config = buildConfig(graph, async () => createMockSession("output"));
+      const stages = [stage("planner", "output")];
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      expect(conductor.getCurrentStage()).toBeNull();
+    });
+
+    test("getCurrentStage returns null after execution completes", async () => {
+      const graph = buildLinearGraph([agentNode("planner")]);
+      const config = buildConfig(graph, async () => createMockSession("output"));
+      const stages = [stage("planner", "output")];
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("test");
+
+      expect(conductor.getCurrentStage()).toBeNull();
+    });
+
+    test("getCurrentStage returns the active stage during execution", async () => {
+      const capturedStages: (string | null)[] = [];
+      const graph = buildLinearGraph([agentNode("planner"), agentNode("reviewer")]);
+
+      let conductor: WorkflowSessionConductor;
+
+      const sessionFactory = async () => {
+        // Capture the current stage each time a session is created
+        capturedStages.push(conductor!.getCurrentStage());
+        return createMockSession("output");
+      };
+
+      const config = buildConfig(graph, sessionFactory);
+      const stages = [stage("planner", "output"), stage("reviewer", "output")];
+
+      conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("test");
+
+      // When createSession is called for each stage, that stage should be current
+      expect(capturedStages).toEqual(["planner", "reviewer"]);
+      // After execution, no stage is active
+      expect(conductor.getCurrentStage()).toBeNull();
+    });
+
+    test("interrupt calls abort on the current session", async () => {
+      const abortMock = mock(() => Promise.resolve());
+      let resolveStream: (() => void) | undefined;
+
+      // Create a session whose stream blocks until we resolve it
+      const blockingSession: Session = {
+        id: "blocking-session",
+        send: mock(async () => ({ type: "text" as const, content: "" })),
+        stream: async function* (_message: string, _options?: { agent?: string; abortSignal?: AbortSignal }) {
+          yield { type: "text" as const, content: "partial" } as AgentMessage;
+          // Block here until the stream is resolved externally
+          await new Promise<void>((resolve) => {
+            resolveStream = resolve;
+          });
+        },
+        abort: abortMock,
+        summarize: mock(async () => {}),
+        getContextUsage: mock(async () => ({
+          inputTokens: 100,
+          outputTokens: 50,
+          maxTokens: 100000,
+          usagePercentage: 0.15,
+        })),
+        getSystemToolsTokens: () => 0,
+        destroy: mock(async () => {}),
+      };
+
+      const graph = buildLinearGraph([agentNode("planner")]);
+      const config = buildConfig(graph, async () => blockingSession);
+      const stages = [stage("planner", "output")];
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+
+      // Start execution in the background
+      const executePromise = conductor.execute("test");
+
+      // Wait a tick for the session to be created and streaming to start
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      // Now interrupt
+      conductor.interrupt();
+
+      // abort should have been called on the blocking session
+      expect(abortMock).toHaveBeenCalledTimes(1);
+
+      // Resolve the stream so execution can complete
+      resolveStream?.();
+      await executePromise;
+    });
+
+    test("interrupt is safe to call when no session is active", () => {
+      const graph = buildLinearGraph([agentNode("planner")]);
+      const config = buildConfig(graph, async () => createMockSession("output"));
+      const stages = [stage("planner", "output")];
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      // Should not throw
+      expect(() => conductor.interrupt()).not.toThrow();
+    });
+
+    test("currentStage is cleared even when stage errors", async () => {
+      const graph = buildLinearGraph([agentNode("planner")]);
+      const errorSession: Session = {
+        ...createMockSession(""),
+        stream: async function* () {
+          throw new Error("Stage failure");
+        },
+      } as Session;
+
+      const config = buildConfig(graph, async () => errorSession);
+      const stages = [stage("planner", "")];
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("test");
+
+      // Even after an error, currentStage should be null
+      expect(conductor.getCurrentStage()).toBeNull();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // ConductorConfig optional properties
+  // -----------------------------------------------------------------------
+
+  describe("config optional properties", () => {
+    test("maxIterations limits graph traversal steps", async () => {
+      // Build a graph with multiple stages but limit to 1 iteration
+      const graph = buildLinearGraph([agentNode("planner"), agentNode("reviewer")]);
+      const config = buildConfig(graph, async () => createMockSession("output"), {
+        maxIterations: 1,
+      });
+      const stages = [stage("planner", "output"), stage("reviewer", "output")];
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      // Only the planner should have run (1 step limit)
+      expect(result.stageOutputs.has("planner")).toBe(true);
+      expect(result.stageOutputs.has("reviewer")).toBe(false);
+    });
+
+    test("maxStageOutputBytes truncates stage output", async () => {
+      const longResponse = "x".repeat(1000);
+      const graph = buildLinearGraph([agentNode("planner"), agentNode("reviewer")]);
+
+      const reviewerPromptCapture: string[] = [];
+      const config = buildConfig(graph, async () => createMockSession(longResponse), {
+        maxStageOutputBytes: 100,
+      });
+
+      const stages = [
+        stage("planner", longResponse),
+        stage("reviewer", "review output", {
+          buildPrompt: (ctx) => {
+            const plannerOutput = ctx.stageOutputs.get("planner");
+            reviewerPromptCapture.push(plannerOutput?.rawResponse ?? "");
+            return "review prompt";
+          },
+        }),
+      ];
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      // The planner output in stageOutputs should be truncated
+      const plannerOutput = result.stageOutputs.get("planner");
+      expect(plannerOutput).toBeDefined();
+      expect(plannerOutput!.originalByteLength).toBeDefined();
+      expect(plannerOutput!.rawResponse.length).toBeLessThan(longResponse.length);
+    });
+
+    test("dispatchEvent config properties are accepted", async () => {
+      const events: unknown[] = [];
+      const graph = buildLinearGraph([agentNode("planner")]);
+      const config = buildConfig(graph, async () => createMockSession("output"), {
+        dispatchEvent: (event) => events.push(event),
+        workflowId: "wf-123",
+        sessionId: "sess-456",
+        runId: 789,
+      });
+      const stages = [stage("planner", "output")];
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      expect(result.success).toBe(true);
+      // Events should have been dispatched
+      expect(events.length).toBeGreaterThan(0);
+    });
+  });
 });

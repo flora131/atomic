@@ -80,14 +80,22 @@ export function useChatAgentStreamFinalization({
     if (pendingCompleteRef.current) {
       if (deferredCompleteTimeoutRef.current) return;
       const pendingComplete = pendingCompleteRef.current;
-      deferredCompleteTimeoutRef.current = setTimeout(() => {
-        deferredCompleteTimeoutRef.current = null;
+      const timeoutId = setTimeout(() => {
+        if (deferredCompleteTimeoutRef.current === timeoutId) {
+          deferredCompleteTimeoutRef.current = null;
+        }
         if (pendingCompleteRef.current !== pendingComplete) return;
         if (!shouldFinalizeDeferredStream(parallelAgentsRef.current, hasRunningToolRef.current)) return;
         pendingCompleteRef.current = null;
         pendingComplete();
       }, 0);
-      return;
+      deferredCompleteTimeoutRef.current = timeoutId;
+      return () => {
+        clearTimeout(timeoutId);
+        if (deferredCompleteTimeoutRef.current === timeoutId) {
+          deferredCompleteTimeoutRef.current = null;
+        }
+      };
     }
 
     const messageId = streamingMessageIdRef.current;

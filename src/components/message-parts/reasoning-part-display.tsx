@@ -8,7 +8,7 @@
  * <code filetype="markdown"> when no syntaxStyle is provided.
  */
 
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useEffect, useMemo } from "react";
 import type { SyntaxStyle } from "@opentui/core";
 import type { ReasoningPart } from "@/state/parts/types.ts";
 import { createDimmedSyntaxStyle, createMarkdownSyntaxStyle, useTheme, useThemeColors } from "@/theme/index.tsx";
@@ -33,30 +33,25 @@ export function formatReasoningDurationSeconds(durationMs: number): string {
 export function ReasoningPartDisplay({ part, syntaxStyle }: ReasoningPartDisplayProps): React.ReactNode {
   const colors = useThemeColors();
   const { isDark } = useTheme();
-  const normalizedContent = normalizeMarkdownNewlines(part.content);
+  const normalizedContent = useMemo(() => normalizeMarkdownNewlines(part.content), [part.content]);
   const durationLabel = formatReasoningDurationSeconds(part.durationMs);
 
-  const fallbackSyntaxStyleRef = useRef<SyntaxStyle | null>(null);
-  const fallbackSyntaxStyle = useMemo(() => {
-    if (fallbackSyntaxStyleRef.current) {
-      fallbackSyntaxStyleRef.current.destroy();
-    }
-    const style = createMarkdownSyntaxStyle(colors, isDark);
-    fallbackSyntaxStyleRef.current = style;
-    return style;
-  }, [colors, isDark]);
-  useEffect(() => () => { fallbackSyntaxStyleRef.current?.destroy(); }, []);
+  // Only allocate a fallback native SyntaxStyle when the parent doesn't
+  // provide one. When syntaxStyle is provided, the fallback is never used
+  // as the base for the dimmed style — skipping creation avoids a wasted
+  // native resource.
+  const ownedBaseStyle = useMemo(
+    () => syntaxStyle ? null : createMarkdownSyntaxStyle(colors, isDark),
+    [syntaxStyle, colors, isDark],
+  );
+  useEffect(() => () => { ownedBaseStyle?.destroy(); }, [ownedBaseStyle]);
 
-  const dimmedStyleRef = useRef<SyntaxStyle | null>(null);
-  const dimmedStyle = useMemo(() => {
-    if (dimmedStyleRef.current) {
-      dimmedStyleRef.current.destroy();
-    }
-    const style = createDimmedSyntaxStyle(syntaxStyle ?? fallbackSyntaxStyle, 0.6);
-    dimmedStyleRef.current = style;
-    return style;
-  }, [syntaxStyle, fallbackSyntaxStyle]);
-  useEffect(() => () => { dimmedStyleRef.current?.destroy(); }, []);
+  const baseStyle = syntaxStyle ?? ownedBaseStyle!;
+  const dimmedStyle = useMemo(
+    () => createDimmedSyntaxStyle(baseStyle, 0.6),
+    [baseStyle],
+  );
+  useEffect(() => () => { dimmedStyle.destroy(); }, [dimmedStyle]);
 
   return (
     <box flexDirection="column">

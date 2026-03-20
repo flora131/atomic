@@ -119,12 +119,8 @@ export function useChatShellState({
   const themeColors = theme.colors;
   const { toggle: toggleVerbose, isVerbose } = useVerboseMode();
 
-  const inputSyntaxStyleRef = useRef<SyntaxStyle | null>(null);
   const commandStyleIdRef = useRef<number>(0);
   const inputSyntaxStyle = useMemo(() => {
-    if (inputSyntaxStyleRef.current) {
-      inputSyntaxStyleRef.current.destroy();
-    }
     const style = SyntaxStyle.create();
     const cmdId = style.registerStyle("command", {
       fg: RGBA.fromHex(themeColors.accent),
@@ -135,26 +131,24 @@ export function useChatShellState({
       bold: false,
       underline: false,
     });
-    inputSyntaxStyleRef.current = style;
     commandStyleIdRef.current = cmdId;
     return style;
   }, [themeColors.accent]);
-  useEffect(() => () => { inputSyntaxStyleRef.current?.destroy(); }, []);
+  useEffect(() => () => { inputSyntaxStyle.destroy(); }, [inputSyntaxStyle]);
 
-  const markdownSyntaxStyleRef = useRef<SyntaxStyle | null>(null);
-  const markdownSyntaxStyle = useMemo(() => {
-    if (markdownSyntaxStyleRef.current) {
-      markdownSyntaxStyleRef.current.destroy();
-    }
-    const style = createMarkdownSyntaxStyle(theme.colors, theme.isDark);
-    markdownSyntaxStyleRef.current = style;
-    return style;
-  }, [theme]);
-  useEffect(() => () => { markdownSyntaxStyleRef.current?.destroy(); }, []);
+  const markdownSyntaxStyle = useMemo(
+    () => createMarkdownSyntaxStyle(theme.colors, theme.isDark),
+    [theme],
+  );
+  useEffect(() => () => { markdownSyntaxStyle.destroy(); }, [markdownSyntaxStyle]);
 
   const waitForUserInputResolverRef = useRef<WorkflowInputResolver | null>(null);
   const workflowActiveRef = useRef(false);
-  const scrollAcceleration = useRef(new MacOSScrollAccel()).current;
+  const scrollAccelerationRef = useRef<MacOSScrollAccel | null>(null);
+  if (!scrollAccelerationRef.current) {
+    scrollAccelerationRef.current = new MacOSScrollAccel();
+  }
+  const scrollAcceleration = scrollAccelerationRef.current;
   const scrollboxRef = useRef<ScrollBoxRenderable>(null);
   const dispatchQueuedMessageRef = useRef<(queuedMessage: import("@/hooks/use-message-queue.ts").QueuedMessage) => void>(() => {});
   const dispatchDeferredCommandMessageRef = useRef<(message: DeferredCommandMessage) => void>(() => {});

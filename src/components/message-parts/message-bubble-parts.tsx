@@ -5,7 +5,7 @@
  * Each part is dispatched to its corresponding renderer via PART_REGISTRY.
  */
 
-import React from "react";
+import React, { useMemo } from "react";
 import type { SyntaxStyle } from "@opentui/core";
 import type { ChatMessage } from "@/types/chat.ts";
 import type { Part } from "@/state/parts/types.ts";
@@ -73,7 +73,7 @@ export function MessageBubbleParts({
   onAgentDoneRendered,
 }: MessageBubblePartsProps): React.ReactNode {
   const parts = message.parts ?? EMPTY_PARTS;
-  const renderKeys = buildPartRenderKeys(parts);
+  const renderKeys = useMemo(() => buildPartRenderKeys(parts), [parts]);
 
   if (parts.length === 0) {
     return null;

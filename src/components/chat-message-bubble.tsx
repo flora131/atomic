@@ -1,4 +1,4 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useMemo } from "react";
 import { PROMPT, STATUS, CONNECTOR, MISC } from "@/theme/icons.ts";
 import { SPACING } from "@/theme/spacing.ts";
 import { useThemeColors } from "@/theme/index.tsx";
@@ -37,7 +37,6 @@ function truncateFirstLine(text: string, maxLen: number): string {
 
 function getRenderableAssistantParts(
   message: ChatMessage,
-  _isLastMessage: boolean,
 ): Part[] {
   const skillIndicatorKeys = new Set(
     (message.skillLoads ?? [])
@@ -149,6 +148,14 @@ export function MessageBubble({
     });
   }, [message.id, onAgentDoneRendered]);
 
+  // Memoize assistant part computation — only recomputes when the message
+  // reference or isLast changes, avoiding repeated array copies/filters
+  // during high-frequency streaming re-renders (elapsedMs, streamingMeta).
+  const assistantParts = useMemo(
+    () => message.role === "assistant" ? getRenderableAssistantParts(message) : null,
+    [message],
+  );
+
   if (collapsed && !message.streaming) {
     if (message.role === "user") {
       const collapsedLabel = message.hitlContext
@@ -241,11 +248,7 @@ export function MessageBubble({
     );
   }
 
-  if (message.role === "assistant") {
-    const assistantParts = getRenderableAssistantParts(
-      message,
-      Boolean(isLast),
-    );
+  if (message.role === "assistant" && assistantParts) {
     const renderableMessage = {
       ...message,
       parts: shouldShowPersistentTaskPanel

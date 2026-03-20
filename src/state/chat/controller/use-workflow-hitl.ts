@@ -190,12 +190,9 @@ export function useWorkflowHitl({
     }
   }, [isStreaming, isStreamingRef, startAssistantStream, workflowState.initialPrompt, workflowState.workflowActive]);
 
-  useEffect(() => {
-    if (!workflowState.workflowActive) {
-      workflowStartedRef.current = null;
-    }
-  }, [workflowState.workflowActive]);
-
+  if (!workflowState.workflowActive) {
+    workflowStartedRef.current = null;
+  }
   workflowActiveRef.current = workflowState.workflowActive;
 
   useEffect(() => {
@@ -284,7 +281,7 @@ export function useWorkflowHitl({
     header?: string,
     toolCallId?: string,
   ) => {
-    if (workflowState.workflowActive) {
+    if (workflowStateRef.current.workflowActive) {
       const autoAnswer = options[0]?.value ?? "allow";
       respond(autoAnswer);
       return;
@@ -318,10 +315,10 @@ export function useWorkflowHitl({
       multiSelect: false,
       respond,
     });
-  }, [enqueueAndApplyHitlRequest, workflowState.workflowActive]);
+  }, [enqueueAndApplyHitlRequest, workflowStateRef]);
 
   const handleAskUserQuestion = useCallback((eventData: AskUserQuestionEventData) => {
-    if (workflowState.workflowActive) {
+    if (workflowStateRef.current.workflowActive) {
       const autoAnswer = eventData.options?.[0]?.label ?? "continue";
       if (eventData.respond) {
         eventData.respond(autoAnswer);
@@ -362,7 +359,7 @@ export function useWorkflowHitl({
       multiSelect: false,
       respond,
     });
-  }, [enqueueAndApplyHitlRequest, onWorkflowResumeWithAnswer, workflowState.workflowActive]);
+  }, [enqueueAndApplyHitlRequest, onWorkflowResumeWithAnswer, workflowStateRef]);
 
   const handleQuestionAnswer = useCallback((answer: QuestionAnswer) => {
     const normalizedHitl = normalizeHitlAnswer(answer);

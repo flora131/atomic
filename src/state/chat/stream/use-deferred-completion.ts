@@ -47,6 +47,11 @@ export function useChatStreamDeferredCompletion({
     // Uses 30-second safety timeout to force-interrupt stalled tools.
     if (hasForeground || hasRunningTool) {
       const deferredMessageId = context.messageId;
+      // Clear any existing deferred timeout to prevent orphaned timers
+      if (deferredCompleteTimeoutRef.current) {
+        clearTimeout(deferredCompleteTimeoutRef.current);
+        deferredCompleteTimeoutRef.current = null;
+      }
       let spawnTimeout: ReturnType<typeof setTimeout> | null = null;
       const deferredComplete = () => {
         if (spawnTimeout) {

@@ -66,7 +66,10 @@ export function useChatStreamRuntime({
   const activeBackgroundAgentCountRef = useRef(0);
   const todoItemsRef = useRef<NormalizedTodoItem[]>([]);
   const lastStreamingContentRef = useRef("");
-  const streamRunRuntimeRef = useRef(new StreamRunRuntime());
+  const streamRunRuntimeRef = useRef<StreamRunRuntime>(null as unknown as StreamRunRuntime);
+  if (!streamRunRuntimeRef.current) {
+    streamRunRuntimeRef.current = new StreamRunRuntime();
+  }
   const activeForegroundRunHandleIdRef = useRef<string | null>(null);
   const awaitedStreamRunIdsRef = useRef<Set<string>>(new Set());
   const parallelInterruptHandlerRef = useRef<(() => void) | null>(null);

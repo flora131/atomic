@@ -33,6 +33,8 @@ export type PartRenderer = (props: {
   isLast: boolean;
   syntaxStyle?: SyntaxStyle;
   onAgentDoneRendered?: (marker: { agentId: string; timestampMs: number }) => void;
+  /** When true, renderers should show a compact summary instead of full output. */
+  summaryOnly?: boolean;
 }) => React.ReactNode;
 
 /**

@@ -3,6 +3,7 @@ import { parseSlashCommand } from "@/commands/tui/index.ts";
 import { deriveComposerAutocompleteState } from "@/state/chat/composer/autocomplete.ts";
 import type { WorkflowChatState } from "@/state/chat/shared/types/index.ts";
 import { defaultRalphCommandState } from "@/services/workflows/ralph/types.ts";
+import { defaultWorkflowCommandState } from "@/services/workflows/workflow-types.ts";
 
 const baseWorkflowState: WorkflowChatState = {
   showAutocomplete: false,
@@ -14,6 +15,7 @@ const baseWorkflowState: WorkflowChatState = {
   workflowActive: false,
   workflowType: null,
   initialPrompt: null,
+  workflowCommandState: { ...defaultWorkflowCommandState },
   ralphState: { ...defaultRalphCommandState },
 };
 

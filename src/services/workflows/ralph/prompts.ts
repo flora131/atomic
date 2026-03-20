@@ -197,6 +197,107 @@ Begin implementation.`;
 }
 
 // ============================================================================
+// STEP 2b: ORCHESTRATOR
+// ============================================================================
+
+const DEFAULT_MAX_CONCURRENCY = 4;
+
+/**
+ * Build the orchestrator prompt that instructs the main agent to manage
+ * parallel task execution using its native sub-agent capabilities.
+ *
+ * Replaces the programmatic EagerDispatchCoordinator with a prompt-driven
+ * approach: the agent reads the task list, identifies ready tasks (pending +
+ * all blockedBy completed), spawns sub-agents in parallel (up to the
+ * concurrency limit), and loops until all tasks complete or are blocked.
+ *
+ * The prompt encodes:
+ *   - Task list as JSON with statuses and blockedBy arrays
+ *   - blockedBy enforcement rules
+ *   - Concurrency guidelines (configurable, default 4)
+ *   - Error handling and failure propagation
+ *   - Task status protocol (in_progress → completed/error)
+ */
+export function buildOrchestratorPrompt(
+    tasks: TaskItem[],
+    options?: { maxConcurrency?: number },
+): string {
+    const maxConcurrency = options?.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY;
+
+    const taskListJson = JSON.stringify(
+        tasks.map((t) => ({
+            id: t.id,
+            description: t.description,
+            status: t.status,
+            summary: t.summary,
+            blockedBy: t.blockedBy ?? [],
+        })),
+        null,
+        2,
+    );
+
+    return `You are an orchestrator managing a set of implementation tasks.
+
+## Task List
+
+\`\`\`json
+${taskListJson}
+\`\`\`
+
+## Dependency Rules
+
+A task is READY to execute only when:
+1. Its status is "pending"
+2. ALL tasks listed in its "blockedBy" array have status "completed"
+
+Do NOT spawn a sub-agent for a task whose dependencies are not yet completed.
+
+## Instructions
+
+1. **Identify ready tasks**: Find all tasks with status "pending" whose blockedBy
+   dependencies are all "completed". These are ready to execute.
+
+2. **Spawn parallel sub-agents**: For each ready task, spawn a sub-agent using
+   the Task tool. Give each sub-agent a focused prompt with:
+   - The task description
+   - Context about completed dependency tasks
+   - Instructions to implement the task fully and test it
+
+3. **Monitor completions**: As sub-agents complete, check if any blocked tasks
+   are now unblocked. Spawn new sub-agents for newly-unblocked tasks immediately.
+
+4. **Continue until all tasks are complete or have errors.**
+
+5. **Report a summary** when finished, listing each task and its final status.
+
+IMPORTANT: Spawn ALL ready tasks in parallel — do not wait for one to finish
+before starting another unblocked task.
+
+## Concurrency Guidelines
+
+- Spawn at most ${maxConcurrency} sub-agents in parallel at any time.
+- When a sub-agent completes, check for newly-unblocked tasks and spawn
+  replacements up to the concurrency limit.
+- This prevents API rate-limiting and keeps resource usage manageable.
+
+## Error Handling for Dependencies
+
+- If a task FAILS, mark all tasks that directly or transitively depend on it as
+  "blocked-by-failure" and report why.
+- If a failed task can be retried (transient error), retry it ONCE before
+  marking dependents as blocked.
+- If ALL remaining tasks are blocked-by-failure, report the dependency chain
+  and stop.
+
+## Task Status Protocol
+
+- BEFORE spawning a sub-agent for a task, report the task as "in_progress"
+  using the TodoWrite tool.
+- AFTER a sub-agent completes, report the task as "completed" or "error".
+- This ensures the UI shows real-time progress for all active tasks.`;
+}
+
+// ============================================================================
 // STEP 3: REVIEW & FIX
 // ============================================================================
 

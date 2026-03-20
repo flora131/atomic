@@ -10,6 +10,11 @@
  * previously inlined in the shared CommandContextState. Isolating it here
  * keeps the generic CommandContext free of workflow-specific fields
  * (Interface Segregation).
+ *
+ * RalphCommandState now derives from the generic WorkflowCommandState,
+ * mapping Ralph-specific concepts to the generic fields:
+ * - `featureProgress` → `progress` (via WorkflowProgressState)
+ * - `specApproved` → `approved`
  */
 
 import type { RalphWorkflowState } from "@/services/workflows/ralph/state.ts";
@@ -23,9 +28,20 @@ import type {
   WorkflowRuntimeTaskIdentityRuntime,
   WorkflowRuntimeTaskStatus,
 } from "@/services/workflows/runtime-contracts.ts";
+import type {
+  WorkflowCommandState,
+  WorkflowProgressState,
+} from "@/services/workflows/workflow-types.ts";
+import {
+  defaultWorkflowCommandState,
+} from "@/services/workflows/workflow-types.ts";
 
 /**
  * Progress indicator for Ralph's feature-by-feature implementation.
+ *
+ * @deprecated Use {@link WorkflowProgressState} from `workflow-types.ts` instead.
+ * This is now a type alias — the shapes are compatible (`currentFeature` maps
+ * to `currentItem`).
  */
 export interface FeatureProgressState {
   completed: number;
@@ -34,31 +50,44 @@ export interface FeatureProgressState {
 }
 
 /**
+ * Convert a FeatureProgressState to the generic WorkflowProgressState.
+ */
+export function toWorkflowProgress(fp: FeatureProgressState | null): WorkflowProgressState | null {
+  if (!fp) return null;
+  return { completed: fp.completed, total: fp.total, currentItem: fp.currentFeature };
+}
+
+/**
+ * Convert a generic WorkflowProgressState back to FeatureProgressState.
+ */
+export function fromWorkflowProgress(wp: WorkflowProgressState | null): FeatureProgressState | null {
+  if (!wp) return null;
+  return { completed: wp.completed, total: wp.total, currentFeature: wp.currentItem };
+}
+
+/**
  * Ralph-specific command/UI state that flows through WorkflowChatState.
  *
- * Previously these fields were inlined in the shared CommandContextState,
- * coupling every consumer of CommandContext to Ralph-specific concerns.
- * Now they live under `WorkflowChatState.ralphState` and are typed here.
+ * This interface extends the generic WorkflowCommandState with Ralph-specific
+ * convenience accessors. The `approved` generic field maps to `specApproved`,
+ * and `progress` maps to the feature progress concept.
+ *
+ * @deprecated Consumers should migrate to {@link WorkflowCommandState} from
+ * `workflow-types.ts`. During the transition, RalphCommandState provides
+ * backward-compatible field names alongside the generic ones.
  */
-export interface RalphCommandState {
-  currentNode: string | null;
-  iteration: number;
-  maxIterations: number | undefined;
+export interface RalphCommandState extends WorkflowCommandState {
+  /** @deprecated Use `progress` instead (with WorkflowProgressState shape). */
   featureProgress: FeatureProgressState | null;
-  pendingApproval: boolean;
+  /** @deprecated Use `approved` instead. */
   specApproved: boolean;
-  feedback: string | null;
 }
 
 /** Default values for RalphCommandState — used when initializing or resetting. */
 export const defaultRalphCommandState: RalphCommandState = {
-  currentNode: null,
-  iteration: 0,
-  maxIterations: undefined,
+  ...defaultWorkflowCommandState,
   featureProgress: null,
-  pendingApproval: false,
   specApproved: false,
-  feedback: null,
 };
 
 /**

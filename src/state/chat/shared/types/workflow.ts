@@ -1,3 +1,5 @@
+import type { WorkflowCommandState } from "@/services/workflows/workflow-types.ts";
+import { defaultWorkflowCommandState } from "@/services/workflows/workflow-types.ts";
 import type { RalphCommandState } from "@/services/workflows/ralph/types.ts";
 import { defaultRalphCommandState } from "@/services/workflows/ralph/types.ts";
 
@@ -16,7 +18,13 @@ export interface WorkflowChatState {
     sessionId?: string;
     workflowName?: string;
   };
-  /** Ralph-specific workflow state. Isolated from the generic workflow fields. */
+  /** Generic workflow command/UI state. Replaces the former Ralph-specific `ralphState`. */
+  workflowCommandState: WorkflowCommandState;
+  /**
+   * Ralph-specific workflow state. Isolated from the generic workflow fields.
+   * @deprecated Use `workflowCommandState` instead. This alias is retained for
+   * backward compatibility during the migration period.
+   */
   ralphState: RalphCommandState;
 }
 
@@ -30,5 +38,6 @@ export const defaultWorkflowChatState: WorkflowChatState = {
   workflowActive: false,
   workflowType: null,
   initialPrompt: null,
+  workflowCommandState: { ...defaultWorkflowCommandState },
   ralphState: { ...defaultRalphCommandState },
 };

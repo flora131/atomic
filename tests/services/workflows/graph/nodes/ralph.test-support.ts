@@ -1,6 +1,7 @@
 import {
   buildFixSpecFromRawReview,
   buildFixSpecFromReview,
+  buildOrchestratorPrompt,
   buildReviewPrompt,
   buildSpecToTasksPrompt,
   buildWorkerAssignment,
@@ -12,6 +13,7 @@ import {
 export {
   buildFixSpecFromRawReview,
   buildFixSpecFromReview,
+  buildOrchestratorPrompt,
   buildReviewPrompt,
   buildSpecToTasksPrompt,
   buildWorkerAssignment,

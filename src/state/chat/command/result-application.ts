@@ -18,6 +18,7 @@ export async function applyCommandResult(
       workflowActive: false,
       workflowType: null,
       initialPrompt: null,
+      workflowCommandState: { ...defaultWorkflowChatState.workflowCommandState },
       ralphState: { ...defaultWorkflowChatState.ralphState },
       workflowConfig: undefined,
     });

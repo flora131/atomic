@@ -233,22 +233,31 @@ export function applyAutocompleteSelection({
     })
     : null;
   replaceTextareaValue(textarea, "");
+
+  if (action === "complete") {
+    const commandTokenEnd = 1 + workflowState.autocompleteInput.length;
+    const after = rawInput.slice(commandTokenEnd);
+    const hasTrailingText = after.trim().length > 0;
+    const replacement = `/${command.name} `;
+    updateWorkflowState({
+      showAutocomplete: false,
+      autocompleteInput: "",
+      selectedSuggestionIndex: 0,
+      autocompleteMode: "command",
+      argumentHint: hasTrailingText ? "" : (command.argumentHint || ""),
+    });
+    textarea.insertText(replacement + after);
+    textarea.cursorOffset = replacement.length;
+    return;
+  }
+
   updateWorkflowState({
     showAutocomplete: false,
     autocompleteInput: "",
     selectedSuggestionIndex: 0,
     autocompleteMode: "command",
-    argumentHint: action === "complete" ? (command.argumentHint || "") : "",
+    argumentHint: "",
   });
-
-  if (action === "complete") {
-    const commandTokenEnd = 1 + workflowState.autocompleteInput.length;
-    const after = rawInput.slice(commandTokenEnd);
-    const replacement = `/${command.name} `;
-    textarea.insertText(replacement + after);
-    textarea.cursorOffset = replacement.length;
-    return;
-  }
 
   if (!resolvedExecution) {
     return;

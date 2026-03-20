@@ -84,30 +84,121 @@ export function parseTasks(content: string): TaskItem[] {
   return tasks;
 }
 
+/**
+ * Normalize a task ID for consistent comparison.
+ * Strips all leading '#' characters and lowercases.
+ */
+function normalizeId(id: string | undefined): string | null {
+  if (!id) return null;
+  const trimmed = id.trim().toLowerCase().replace(/^#+/, "").trim();
+  return trimmed || null;
+}
+
+/**
+ * Get normalized dependency IDs for a task.
+ */
+function normalizeDeps(blockedBy: string[] | undefined): string[] {
+  return (blockedBy ?? [])
+    .map((d) => normalizeId(d))
+    .filter((d): d is string => d !== null);
+}
+
+/**
+ * Compute the set of task IDs that are transitively blocked by errored tasks.
+ *
+ * Uses BFS from errored tasks through the forward dependency graph.
+ * A task is error-propagated if it directly has "error" status, or any of
+ * its transitive blockers has "error" status.
+ */
+function computeErrorPropagatedIds(
+  tasks: TaskItem[],
+  statusById: ReadonlyMap<string, string>,
+): ReadonlySet<string> {
+  // Build forward dependency map: blocker → its dependents
+  const dependentMap = new Map<string, string[]>();
+  for (const task of tasks) {
+    const taskId = normalizeId(task.id);
+    if (!taskId) continue;
+    for (const dep of normalizeDeps(task.blockedBy)) {
+      let list = dependentMap.get(dep);
+      if (!list) {
+        list = [];
+        dependentMap.set(dep, list);
+      }
+      list.push(taskId);
+    }
+  }
+
+  // Seed BFS with directly errored tasks
+  const propagated = new Set<string>();
+  const queue: string[] = [];
+  for (const [id, status] of statusById) {
+    if (status === "error") {
+      propagated.add(id);
+      queue.push(id);
+    }
+  }
+
+  // BFS: propagate error to all transitive dependents
+  let head = 0;
+  while (head < queue.length) {
+    const id = queue[head++]!;
+    for (const dependent of dependentMap.get(id) ?? []) {
+      if (!propagated.has(dependent)) {
+        propagated.add(dependent);
+        queue.push(dependent);
+      }
+    }
+  }
+
+  return propagated;
+}
+
+/**
+ * Filter tasks to get only those that are ready to execute.
+ *
+ * A task is "ready" if:
+ * 1. Its status is "pending"
+ * 2. It is NOT transitively blocked by any errored task
+ * 3. ALL of its blockedBy dependencies have status "completed"
+ *
+ * Error propagation: if task A has "error" status, all tasks that
+ * transitively depend on A (directly or through intermediate tasks)
+ * are excluded from the ready set — even if intermediate dependencies
+ * have inconsistent statuses (e.g., "completed" despite an errored blocker).
+ */
 export function getReadyTasks(tasks: TaskItem[]): TaskItem[] {
-  const completedIds = new Set(
-    tasks
-      .filter((t) => t.status === "completed")
-      .map((t) => t.id)
-      .filter((id): id is string => Boolean(id))
-      .map((id) => id.trim().toLowerCase().replace(/^#/, ""))
-  );
+  // Build normalized ID → status map
+  const statusById = new Map<string, string>();
+  for (const task of tasks) {
+    const id = normalizeId(task.id);
+    if (id) {
+      statusById.set(id, task.status);
+    }
+  }
+
+  // Compute transitive error propagation set
+  const errorPropagated = computeErrorPropagatedIds(tasks, statusById);
 
   return tasks.filter((task) => {
     if (task.status !== "pending") return false;
-    const deps = (task.blockedBy ?? [])
-      .map((d) => d.trim().toLowerCase().replace(/^#/, ""))
-      .filter((d) => d.length > 0);
-    return deps.every((d) => completedIds.has(d));
+
+    // Exclude tasks transitively blocked by errored dependencies
+    const taskId = normalizeId(task.id);
+    if (taskId && errorPropagated.has(taskId)) return false;
+
+    // All blockers must be completed
+    const deps = normalizeDeps(task.blockedBy);
+    return deps.every((d) => statusById.get(d) === "completed");
   });
 }
 
+/**
+ * Check whether any tasks are actionable (in-progress or ready to execute).
+ */
 export function hasActionableTasks(tasks: TaskItem[]): boolean {
-  return tasks.some((task) => {
-    if (task.status === "in_progress") return true;
-    if (task.status !== "pending") return false;
-    return getReadyTasks([...tasks]).some((t) => t.id === task.id);
-  });
+  if (tasks.some((t) => t.status === "in_progress")) return true;
+  return getReadyTasks(tasks).length > 0;
 }
 
 export function stripPriorityPrefix(title: string): string {

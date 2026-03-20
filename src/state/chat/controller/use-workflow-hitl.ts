@@ -422,10 +422,17 @@ export function useWorkflowHitl({
 
     const selectedArray = Array.isArray(answer.selected) ? answer.selected : [answer.selected];
     const currentRalphState = workflowStateRef.current.ralphState;
+    const currentCommandState = workflowStateRef.current.workflowCommandState;
     if (selectedArray.includes("Approve")) {
-      updateWorkflowState({ ralphState: { ...currentRalphState, specApproved: true, pendingApproval: false } });
+      updateWorkflowState({
+        workflowCommandState: { ...currentCommandState, approved: true, pendingApproval: false },
+        ralphState: { ...currentRalphState, specApproved: true, pendingApproval: false },
+      });
     } else if (selectedArray.includes("Reject")) {
-      updateWorkflowState({ ralphState: { ...currentRalphState, specApproved: false, pendingApproval: false } });
+      updateWorkflowState({
+        workflowCommandState: { ...currentCommandState, approved: false, pendingApproval: false },
+        ralphState: { ...currentRalphState, specApproved: false, pendingApproval: false },
+      });
     }
   }, [getSession, onWorkflowResumeWithAnswer, removePendingQuestion, setDisplayedQuestion, setMessagesWindowed, updateWorkflowState]);
 

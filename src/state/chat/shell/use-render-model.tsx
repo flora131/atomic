@@ -15,7 +15,6 @@ interface UseChatRenderModelArgs {
     agentId: string;
     timestampMs: number;
   }) => void;
-  isVerbose: boolean;
   markdownSyntaxStyle: SyntaxStyle;
   messages: ChatMessage[];
   parallelAgents: ParallelAgent[];
@@ -41,7 +40,6 @@ export function useChatRenderModel({
   activeQuestion,
   backgroundAgentMessageId,
   handleAgentDoneRendered,
-  isVerbose,
   lastStreamedMessageId,
   markdownSyntaxStyle,
   messages,
@@ -87,7 +85,6 @@ export function useChatRenderModel({
               key={msg.id}
               message={msg}
               isLast={index === renderMessages.length - 1}
-              isVerbose={isVerbose}
               syntaxStyle={markdownSyntaxStyle}
               hideLoading={activeQuestion !== null}
               activeBackgroundAgentCount={activeBackgroundAgentCount}
@@ -109,7 +106,6 @@ export function useChatRenderModel({
     activeBackgroundAgentCount,
     activeQuestion,
     handleAgentDoneRendered,
-    isVerbose,
     markdownSyntaxStyle,
     renderMessages,
     showTodoPanel,

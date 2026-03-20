@@ -123,7 +123,6 @@ export function MessageBubble({
   activeBackgroundAgentCount,
   message,
   isLast,
-  isVerbose: _isVerbose = false,
   syntaxStyle,
   hideLoading = false,
   todoItems,

@@ -59,14 +59,10 @@ export function ChatApp({
   onInterrupt,
   onTerminateBackgroundAgents,
   setStreamingState,
-  placeholder: _placeholder = "Type a message...",
-  title: _title,
-  syntaxStyle: _syntaxStyle,
   version = "0.1.0",
   model = "",
   tier = "",
   workingDir = "~/",
-  suggestion: _suggestion,
   getSession,
   ensureSession,
   onWorkflowResumeWithAnswer,
@@ -82,10 +78,6 @@ export function ChatApp({
   onCommandExecutionTelemetry,
   onMessageSubmitTelemetry,
 }: ChatAppProps): React.ReactNode {
-  // title and suggestion are deprecated, kept for backwards compatibility
-  void _title;
-  void _suggestion;
-
   // Core message state
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [isStreaming, setIsStreaming] = useState(false);

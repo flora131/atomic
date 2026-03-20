@@ -63,7 +63,6 @@ export {
   QueueIndicator,
   formatQueueCount,
   getQueueIcon,
-  truncateContent,
   type QueueIndicatorProps,
 } from "@/components/queue-indicator.tsx";
 

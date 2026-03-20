@@ -12,7 +12,6 @@ import {
   cleanupConversationHistoryBuffer,
   makeChatMessages,
   resetConversationHistoryBuffer,
-  writeBufferContents,
 } from "./support.ts";
 
 describe("conversation-history-buffer", () => {

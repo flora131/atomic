@@ -38,10 +38,6 @@ export interface ChatUIConfig {
   providerDiscoveryPlan?: ProviderDiscoveryPlan;
   /** Initial theme (defaults to dark) */
   theme?: Theme;
-  /** Title for the chat window */
-  title?: string;
-  /** Placeholder text for the input */
-  placeholder?: string;
   /** Application version for header */
   version?: string;
   /** Model name for header */
@@ -50,8 +46,6 @@ export interface ChatUIConfig {
   tier?: string;
   /** Working directory for header */
   workingDir?: string;
-  /** Suggestion text for header */
-  suggestion?: string;
   /** Agent type for model operations */
   agentType?: import("@/services/models/index.ts").AgentType;
   /** Initial prompt to auto-submit on session start */
@@ -108,13 +102,10 @@ export async function startChatUI(
     sessionConfig,
     providerDiscoveryPlan,
     theme = darkTheme,
-    title = "Atomic Chat",
-    placeholder = "Type a message...",
     version,
     model,
     tier,
     workingDir,
-    suggestion,
     agentType,
     initialPrompt,
     workflowEnabled = false,
@@ -210,13 +201,10 @@ export async function startChatUI(
                     onExit: () => { void controller.cleanup(); },
                     isDark: theme.isDark,
                     children: React.createElement(ChatApp, {
-                      title,
-                    placeholder,
                     version,
                     model,
                     tier,
                     workingDir,
-                    suggestion,
                       agentType: resolvedAgentType,
                       modelOps,
                       initialModelId: sessionConfig?.model,

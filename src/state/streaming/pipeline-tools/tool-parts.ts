@@ -119,16 +119,17 @@ export function applyToolPartialResultToParts(
   parts: Part[],
   event: ToolPartialResultEvent,
 ): Part[] {
-  const updatedParts = [...parts];
-  const toolPartIdx = updatedParts.findIndex(
+  const toolPartIdx = parts.findIndex(
     (part) => part.type === "tool" && (part as ToolPart).toolCallId === event.toolId,
   );
-  if (toolPartIdx >= 0) {
-    const existing = updatedParts[toolPartIdx] as ToolPart;
-    updatedParts[toolPartIdx] = {
-      ...existing,
-      partialOutput: (existing.partialOutput ?? "") + event.partialOutput,
-    };
+  if (toolPartIdx < 0) {
+    return parts;
   }
+  const existing = parts[toolPartIdx] as ToolPart;
+  const updatedParts = [...parts];
+  updatedParts[toolPartIdx] = {
+    ...existing,
+    partialOutput: (existing.partialOutput ?? "") + event.partialOutput,
+  };
   return updatedParts;
 }

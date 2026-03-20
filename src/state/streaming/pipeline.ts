@@ -63,6 +63,7 @@ export {
   toToolState,
 } from "@/state/streaming/pipeline-tools.ts";
 export { mergeParallelAgentsIntoParts } from "@/state/streaming/pipeline-agents.ts";
+export { clearAgentEventBuffer } from "@/state/streaming/pipeline-agents.ts";
 
 export function applyStreamPartEvent(
   message: ChatMessage,

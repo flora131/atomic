@@ -35,20 +35,33 @@ export type PartRenderer = (props: {
   onAgentDoneRendered?: (marker: { agentId: string; timestampMs: number }) => void;
 }) => React.ReactNode;
 
+/**
+ * Type-safe registry builder. Ensures the registry covers every Part type
+ * at compile time via the required keys. The single cast at the boundary is
+ * intentional: each renderer accepts a narrowed Part subtype, but the registry
+ * stores them under the wider PartRenderer signature for dynamic dispatch.
+ * This replaces 11 individual `as unknown as` casts with one controlled cast.
+ */
+function buildPartRegistry(
+  entries: Record<Part["type"], (...args: never[]) => React.ReactNode>,
+): Record<Part["type"], PartRenderer> {
+  return entries as Record<Part["type"], PartRenderer>;
+}
+
 // The individual renderers accept narrowed Part subtypes (e.g., TextPart,
 // ToolPart), but the registry performs dynamic dispatch based on part.type.
-// The caller is responsible for passing the correctly-typed part. We use
-// a type-safe cast here since the registry key guarantees the correct subtype.
-export const PART_REGISTRY: Record<Part["type"], PartRenderer> = {
-  "text": TextPartDisplay as unknown as PartRenderer,
-  "reasoning": ReasoningPartDisplay as unknown as PartRenderer,
-  "tool": ToolPartDisplay as unknown as PartRenderer,
-  "agent": AgentPartDisplay as unknown as PartRenderer,
-  "task-list": TaskListPartDisplay as unknown as PartRenderer,
-  "skill-load": SkillLoadPartDisplay as unknown as PartRenderer,
-  "mcp-snapshot": McpSnapshotPartDisplay as unknown as PartRenderer,
-  "agent-list": AgentListPartDisplay as unknown as PartRenderer,
-  "compaction": CompactionPartDisplay as unknown as PartRenderer,
-  "task-result": TaskResultPartDisplay as unknown as PartRenderer,
-  "workflow-step": WorkflowStepPartDisplay as unknown as PartRenderer,
-};
+// The caller is responsible for passing the correctly-typed part. The
+// buildPartRegistry helper ensures compile-time coverage of all Part types.
+export const PART_REGISTRY = buildPartRegistry({
+  "text": TextPartDisplay,
+  "reasoning": ReasoningPartDisplay,
+  "tool": ToolPartDisplay,
+  "agent": AgentPartDisplay,
+  "task-list": TaskListPartDisplay,
+  "skill-load": SkillLoadPartDisplay,
+  "mcp-snapshot": McpSnapshotPartDisplay,
+  "agent-list": AgentListPartDisplay,
+  "compaction": CompactionPartDisplay,
+  "task-result": TaskResultPartDisplay,
+  "workflow-step": WorkflowStepPartDisplay,
+});

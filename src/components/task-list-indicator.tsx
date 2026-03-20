@@ -139,7 +139,7 @@ export function TaskListIndicator({
         return isActive ? (
           // Active tasks use a row layout so the AnimatedBlinkIndicator
           // lives in its own <text> node — OpenTUI re-renders it reliably
-          // when setInterval triggers a state change.
+          // when the shared animation tick triggers a state change.
           <box key={item.id ?? i} flexDirection="row">
             <text wrapMode="none">
               <span fg={themeColors.dim}>{showConnector && i === 0 ? `${CONNECTOR.subStatus} ` : `${rail} `}</span>

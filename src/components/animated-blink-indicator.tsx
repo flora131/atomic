@@ -4,10 +4,14 @@
  * Shared animated blinking indicator that alternates between ● and ·.
  * Used by ParallelAgentsTree, ToolResult, and TaskListIndicator
  * for in-progress/running status display.
+ *
+ * Uses the shared animation tick provider to avoid creating independent
+ * setInterval timers per instance.
  */
 
-import React, { useState, useEffect } from "react";
+import React from "react";
 import { STATUS, MISC } from "@/theme/icons.ts";
+import { useBlinkAnimation } from "@/hooks/use-animation-tick.tsx";
 
 /**
  * Animated blinking indicator for active/running states.
@@ -20,14 +24,7 @@ export function AnimatedBlinkIndicator({
   color: string;
   speed?: number;
 }): React.ReactNode {
-  const [visible, setVisible] = useState(true);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setVisible((prev) => !prev);
-    }, speed);
-    return () => clearInterval(interval);
-  }, [speed]);
+  const visible = useBlinkAnimation(speed);
 
   return <span fg={color}>{visible ? STATUS.active : MISC.separator}</span>;
 }

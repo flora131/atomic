@@ -18,6 +18,7 @@ import { AppErrorBoundary } from "@/components/error-exit-screen.tsx";
 import { initTreeSitterAssets } from "@/services/terminal/tree-sitter-assets.ts";
 import { initializeCommandsAsync } from "@/commands/tui/index.ts";
 import { EventBusProvider } from "@/services/events/event-bus-provider.tsx";
+import { AnimationTickProvider } from "@/hooks/use-animation-tick.tsx";
 import type {
   CodingAgentClient,
   SessionConfig,
@@ -191,20 +192,23 @@ export async function startChatUI(
         {
           initialTheme: theme,
           children: React.createElement(
-            EventBusProvider,
-            {
-              bus: state.bus,
-              dispatcher: state.dispatcher,
-              children: React.createElement(
-                AppErrorBoundary,
-                {
+            AnimationTickProvider,
+            null,
+            React.createElement(
+              EventBusProvider,
+              {
+                bus: state.bus,
+                dispatcher: state.dispatcher,
+                children: React.createElement(
+                  AppErrorBoundary,
+                  {
                     onExit: () => { void controller.cleanup(); },
                     isDark: theme.isDark,
                     children: React.createElement(ChatApp, {
-                    version,
-                    model,
-                    tier,
-                    workingDir,
+                      version,
+                      model,
+                      tier,
+                      workingDir,
                       agentType: resolvedAgentType,
                       modelOps,
                       initialModelId: sessionConfig?.model,
@@ -226,12 +230,13 @@ export async function startChatUI(
                       onCommandExecutionTelemetry: controller.handleCommandTelemetry,
                       onMessageSubmitTelemetry: controller.handleMessageTelemetry,
                     }),
-                }
-              ),
-            }
+                  },
+                ),
+              },
+            ),
           ),
-        }
-      )
+        },
+      ),
     );
   } catch (error) {
     await controller.cleanup();

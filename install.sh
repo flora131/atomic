@@ -330,6 +330,11 @@ main() {
         fi
     fi
 
+    # Validate version format to prevent URL manipulation
+    if [[ ! "$version" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+        error "Invalid version format: $version (expected semver like v1.2.3 or v1.2.3-beta.1)"
+    fi
+
     # Setup directories
     mkdir -p "$BIN_DIR"
     mkdir -p "$DATA_DIR"
@@ -382,7 +387,7 @@ main() {
     success "Config files installed to ${DATA_DIR}"
     success "Global agent configs synced to ~/.claude, ~/.opencode, and ~/.copilot"
 
-    # Persist prerelease channel preference in settings
+    # Persist prerelease channel preference in settings (atomic write via temp + mv)
     local settings_file="${ATOMIC_HOME}/settings.json"
     mkdir -p "$ATOMIC_HOME"
     if [[ "$prerelease" == "true" ]]; then
@@ -390,16 +395,19 @@ main() {
     else
         local prerelease_value="false"
     fi
+    local settings_tmp
+    settings_tmp=$(mktemp "${ATOMIC_HOME}/settings.json.XXXXXX")
     if [[ -f "$settings_file" ]]; then
         if grep -q '"prerelease"' "$settings_file" 2>/dev/null; then
-            sed -i "s/\"prerelease\":[^,}]*/\"prerelease\": ${prerelease_value}/" "$settings_file"
+            sed "s/\"prerelease\":[^,}]*/\"prerelease\": ${prerelease_value}/" "$settings_file" > "$settings_tmp"
         else
             # Insert before closing brace
-            sed -i "s/}$/,\n  \"prerelease\": ${prerelease_value}\n}/" "$settings_file"
+            sed "s/}$/,\n  \"prerelease\": ${prerelease_value}\n}/" "$settings_file" > "$settings_tmp"
         fi
     else
-        printf '{\n  "prerelease": %s\n}\n' "$prerelease_value" > "$settings_file"
+        printf '{\n  "prerelease": %s\n}\n' "$prerelease_value" > "$settings_tmp"
     fi
+    mv "$settings_tmp" "$settings_file"
     if [[ "$prerelease" == "true" ]]; then
         info "Prerelease channel enabled in ${settings_file}"
     fi

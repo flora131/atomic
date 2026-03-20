@@ -242,6 +242,12 @@ if ($Prerelease -and $Version -ne "latest") {
     Write-Info "Installing version: $Version"
 }
 
+# Validate version format to prevent URL manipulation
+if ($Version -notmatch '^v?\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?$') {
+    Write-Err "Invalid version format: $Version (expected semver like v1.2.3 or v1.2.3-beta.1)"
+    exit 1
+}
+
 # Setup URLs
 $BaseUrl = "https://github.com/${GithubRepo}/releases/download/${Version}"
 $DownloadUrl = "${BaseUrl}/${BinaryName}-${Target}"

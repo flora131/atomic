@@ -6,7 +6,7 @@
  */
 
 import type { ChatMessage } from "@/types/chat.ts";
-import type { TextPart } from "@/state/parts/types.ts";
+import { isTextPart } from "@/state/parts/types.ts";
 import { createPartId } from "@/state/parts/id.ts";
 import { findLastPartIndex, upsertPart } from "@/state/parts/store.ts";
 
@@ -21,22 +21,21 @@ import { findLastPartIndex, upsertPart } from "@/state/parts/store.ts";
 export function handleTextDelta(msg: ChatMessage, delta: string): ChatMessage {
   let parts = [...(msg.parts ?? [])];
   const lastTextIdx = findLastPartIndex(parts, (p) => p.type === "text");
+  const lastTextPart = lastTextIdx >= 0 ? parts[lastTextIdx] : undefined;
 
-  if (lastTextIdx >= 0 && (parts[lastTextIdx] as TextPart).isStreaming) {
+  if (lastTextPart && isTextPart(lastTextPart) && lastTextPart.isStreaming) {
     // Append to existing streaming TextPart
-    const textPart = parts[lastTextIdx] as TextPart;
-    parts[lastTextIdx] = { ...textPart, content: textPart.content + delta };
+    parts[lastTextIdx] = { ...lastTextPart, content: lastTextPart.content + delta };
   } else if (
-    lastTextIdx >= 0 &&
+    lastTextPart && isTextPart(lastTextPart) &&
     lastTextIdx === parts.length - 1 &&
     !delta.startsWith("\n\n") &&
-    !(parts[lastTextIdx] as TextPart).content.endsWith("\n\n")
+    !lastTextPart.content.endsWith("\n\n")
   ) {
     // The previous TextPart was finalized at a tool boundary but the new
     // delta continues the same paragraph (no \n\n separator). Merge back
     // to avoid orphaned text fragments (e.g., trailing ":" on its own line).
-    const textPart = parts[lastTextIdx] as TextPart;
-    parts[lastTextIdx] = { ...textPart, content: textPart.content + delta };
+    parts[lastTextIdx] = { ...lastTextPart, content: lastTextPart.content + delta };
   } else {
     // Create new TextPart (new paragraph after tool completes)
     parts = upsertPart(parts, {

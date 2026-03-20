@@ -1,6 +1,7 @@
 import type { ChatMessage } from "@/types/chat.ts";
 import { createPartId } from "@/state/parts/id.ts";
 import { upsertPart } from "@/state/parts/store.ts";
+import { isToolPart } from "@/state/parts/types.ts";
 import type { Part, ToolPart } from "@/state/parts/types.ts";
 import type {
   HitlRequestEvent,
@@ -18,18 +19,20 @@ export function upsertHitlRequest(
   } satisfies Record<string, unknown>;
   const toolPartIdx = parts.findIndex(
     (part) =>
-      part.type === "tool" && (part as ToolPart).toolCallId === event.toolId,
+      isToolPart(part) && part.toolCallId === event.toolId,
   );
 
   if (toolPartIdx >= 0) {
-    const existing = parts[toolPartIdx] as ToolPart;
-    const updated = [...parts];
-    updated[toolPartIdx] = {
-      ...existing,
-      input: Object.keys(existing.input).length > 0 ? existing.input : requestInput,
-      pendingQuestion: event.request,
-    };
-    return updated;
+    const part = parts[toolPartIdx];
+    if (part && isToolPart(part)) {
+      const updated = [...parts];
+      updated[toolPartIdx] = {
+        ...part,
+        input: Object.keys(part.input).length > 0 ? part.input : requestInput,
+        pendingQuestion: event.request,
+      };
+      return updated;
+    }
   }
 
   return upsertPart(parts, {
@@ -56,13 +59,17 @@ export function applyHitlResponse(
   const updatedParts = [...parts];
   const toolPartIdx = updatedParts.findIndex(
     (part) =>
-      part.type === "tool" && (part as ToolPart).toolCallId === event.toolId,
+      isToolPart(part) && part.toolCallId === event.toolId,
   );
   if (toolPartIdx < 0) {
     return message;
   }
 
-  const toolPart = updatedParts[toolPartIdx] as ToolPart;
+  const foundPart = updatedParts[toolPartIdx];
+  if (!foundPart || !isToolPart(foundPart)) {
+    return message;
+  }
+  const toolPart = foundPart;
   updatedParts[toolPartIdx] = {
     ...toolPart,
     output: {

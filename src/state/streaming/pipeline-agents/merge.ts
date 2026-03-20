@@ -1,6 +1,7 @@
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import { createPartId } from "@/state/parts/id.ts";
-import type { AgentPart, Part, TextPart, ToolPart } from "@/state/parts/types.ts";
+import { isTextPart, isToolPart } from "@/state/parts/types.ts";
+import type { AgentPart, Part, ToolPart } from "@/state/parts/types.ts";
 import { isClaudeSyntheticForegroundAgentId } from "@/state/chat/exports.ts";
 import { isSubagentToolName } from "@/state/streaming/pipeline-tools/shared.ts";
 import { normalizeParallelAgents } from "@/state/streaming/pipeline-agents/normalization.ts";
@@ -10,10 +11,10 @@ function getAgentInsertIndex(parts: Part[]): number {
 
   for (let index = 0; index < parts.length; index++) {
     const part = parts[index];
-    if (!part || part.type !== "tool") {
+    if (!part || !isToolPart(part)) {
       continue;
     }
-    if (isSubagentToolName((part as ToolPart).toolName)) {
+    if (isSubagentToolName(part.toolName)) {
       lastTaskToolIdx = index;
     }
   }
@@ -134,14 +135,13 @@ export function mergeParallelAgentsIntoParts(
     }
     finalParts.push(part);
 
-    if (part.type === "tool" && isSubagentToolName(part.toolName)) {
-      const toolPart = part as ToolPart;
-      currentGroup.push(toolPart);
-      const agents = agentsByToolCall.get(toolPart.toolCallId);
+    if (isToolPart(part) && isSubagentToolName(part.toolName)) {
+      currentGroup.push(part);
+      const agents = agentsByToolCall.get(part.toolCallId);
       if (agents) {
         currentGroupAgents.push(...agents);
-        if (toolPart.toolCallId) {
-          handledToolCallIds.add(toolPart.toolCallId);
+        if (part.toolCallId) {
+          handledToolCallIds.add(part.toolCallId);
         }
       }
     }
@@ -154,12 +154,12 @@ export function mergeParallelAgentsIntoParts(
         const nextPart = nonAgentParts[index + 1];
         if (!nextPart) {
           endsGroup = true;
-        } else if (nextPart.type === "tool") {
-          if (!isSubagentToolName((nextPart as ToolPart).toolName)) {
+        } else if (isToolPart(nextPart)) {
+          if (!isSubagentToolName(nextPart.toolName)) {
             endsGroup = true;
           }
-        } else if (nextPart.type === "text") {
-          if ((nextPart as TextPart).content.trim().length > 0) {
+        } else if (isTextPart(nextPart)) {
+          if (nextPart.content.trim().length > 0) {
             endsGroup = true;
           }
         } else if (nextPart.type === "task-result") {

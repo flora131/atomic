@@ -55,6 +55,25 @@ install_bun_if_missing() {
     return 1
 }
 
+install_uv_if_missing() {
+    if command -v uv >/dev/null 2>&1; then
+        return 0
+    fi
+
+    info "uv not detected. Installing uv..."
+    if curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null 2>&1; then
+        export PATH="$HOME/.local/bin:$PATH"
+    fi
+
+    if command -v uv >/dev/null 2>&1; then
+        info "uv installed successfully"
+        return 0
+    fi
+
+    warn "Failed to install uv automatically. Install uv manually from https://docs.astral.sh/uv/"
+    return 1
+}
+
 install_npm_if_missing() {
     if command -v npm >/dev/null 2>&1; then
         return 0
@@ -230,6 +249,25 @@ sync_global_agent_configs() {
 
     install_bun_if_missing || true
     install_npm_if_missing || true
+    install_uv_if_missing || true
+
+    # Install cocoindex-code via uv if available.
+    if command -v uv >/dev/null 2>&1; then
+        info "Installing cocoindex-code via uv..."
+        uv tool install --upgrade cocoindex-code --prerelease explicit --with "cocoindex>=1.0.0a24" 2>/dev/null || true
+    else
+        warn "uv not available. Skipping cocoindex-code installation."
+    fi
+
+    # Write cocoindex global settings
+    local cocoindex_dir="$HOME/.cocoindex_code"
+    mkdir -p "$cocoindex_dir"
+    cat > "$cocoindex_dir/global_settings.yml" <<'COCOEOF'
+embedding:
+  model: lightonai/LateOn-Code-edge
+  provider: sentence-transformers
+COCOEOF
+    info "Wrote cocoindex global settings to $cocoindex_dir/global_settings.yml"
 
     # Install @playwright/cli globally if a package manager is available.
     # Do not install Chromium browsers here; defer to first use.

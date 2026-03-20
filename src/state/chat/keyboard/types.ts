@@ -8,6 +8,7 @@ import type {
   CommandExecutionTrigger,
   StreamingMeta,
   TaskItem,
+  UserQuestion,
   WorkflowChatState,
 } from "@/state/chat/shared/types/index.ts";
 
@@ -19,7 +20,7 @@ export interface ChatAutocompleteSuggestion {
 
 export interface UseChatKeyboardArgs {
   activeBackgroundAgentCountRef: MutableRefObject<number>;
-  activeQuestion: unknown;
+  activeQuestion: UserQuestion | null;
   activeHitlToolCallIdRef: MutableRefObject<string | null>;
   addMessage: (role: "user" | "assistant" | "system", content: string) => void;
   autocompleteSuggestions: ChatAutocompleteSuggestion[];

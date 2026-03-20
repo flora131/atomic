@@ -27,6 +27,14 @@ import {
   mergeParallelAgentsIntoParts,
 } from "@/state/parts/index.ts";
 
+/** Extract first non-empty line and truncate to maxLen, appending "…" if needed. */
+function truncateFirstLine(text: string, maxLen: number): string {
+  const firstLine = text.split("\n").find((line) => line.trim())?.trim() ?? "";
+  return firstLine.length > maxLen
+    ? `${firstLine.slice(0, maxLen)}…`
+    : firstLine;
+}
+
 function getRenderableAssistantParts(
   message: ChatMessage,
   _isLastMessage: boolean,
@@ -143,17 +151,10 @@ export function MessageBubble({
   }, [message.id, onAgentDoneRendered]);
 
   if (collapsed && !message.streaming) {
-    const truncate = (text: string, maxLen: number) => {
-      const firstLine = text.split("\n").find((line) => line.trim())?.trim() ?? "";
-      return firstLine.length > maxLen
-        ? `${firstLine.slice(0, maxLen)}…`
-        : firstLine;
-    };
-
     if (message.role === "user") {
       const collapsedLabel = message.hitlContext
-        ? `${STATUS.success} ${truncate(message.hitlContext.question, 40)} → ${truncate(message.hitlContext.answer, 30)}`
-        : truncate(message.content, 78);
+        ? `${STATUS.success} ${truncateFirstLine(message.hitlContext.question, 40)} → ${truncateFirstLine(message.hitlContext.answer, 30)}`
+        : truncateFirstLine(message.content, 78);
       return (
         <box
           paddingLeft={SPACING.CONTAINER_PAD}
@@ -184,7 +185,7 @@ export function MessageBubble({
           <text wrapMode="char">
             <span fg={themeColors.dim}>  {CONNECTOR.subStatus} </span>
             <span fg={themeColors.muted}>
-              {truncate(message.content, 74)}
+              {truncateFirstLine(message.content, 74)}
             </span>
             <span fg={themeColors.dim}>{toolLabel}</span>
           </text>
@@ -200,7 +201,7 @@ export function MessageBubble({
         marginBottom={isLast ? SPACING.NONE : SPACING.ELEMENT}
       >
         <text wrapMode="char" fg={isCollapsedError ? themeColors.error : themeColors.muted}>
-          {truncate(message.content, 80)}
+          {truncateFirstLine(message.content, 80)}
         </text>
       </box>
     );

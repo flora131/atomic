@@ -204,9 +204,10 @@ export function useComposerInputState({
     handleTextareaContentChange();
   }, [clipboard, handleTextareaContentChange, normalizePastedText]);
 
+  const { showAutocomplete, autocompleteMode, autocompleteInput } = workflowState;
   const autocompleteSuggestions = useMemo(() => {
-    return getComposerAutocompleteSuggestions(workflowState);
-  }, [workflowState.showAutocomplete, workflowState.autocompleteMode, workflowState.autocompleteInput]);
+    return getComposerAutocompleteSuggestions({ showAutocomplete, autocompleteMode, autocompleteInput });
+  }, [showAutocomplete, autocompleteMode, autocompleteInput]);
 
   useEffect(() => {
     const timerId = setTimeout(() => {

@@ -136,7 +136,7 @@ export function ModelSelectorDialog({
     } else if (selectedRow + 1 > scrollBox.scrollTop + listHeight) {
       scrollBox.scrollTo(selectedRow + 1 - listHeight);
     }
-  }, [selectedIndex, modelRowOffsets, listHeight]);
+  }, [selectedIndex, modelRowOffsets, listHeight, flatModels.length]);
 
   // Translate mouse wheel scroll into selection movement so the highlight follows
   const handleMouseScroll = useCallback((event: MouseEvent) => {

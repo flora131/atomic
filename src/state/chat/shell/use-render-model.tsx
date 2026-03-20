@@ -3,13 +3,13 @@ import { MessageBubble } from "@/components/chat-message-bubble.tsx";
 import { shouldShowMessageLoadingIndicator } from "@/state/chat/shared/helpers/loading-state.ts";
 import { shouldHideStaleSubagentToolPlaceholder } from "@/state/chat/shared/helpers/index.ts";
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
-import type { ChatMessage, StreamingMeta, WorkflowChatState } from "@/state/chat/shared/types/index.ts";
+import type { ChatMessage, StreamingMeta, UserQuestion, WorkflowChatState } from "@/state/chat/shared/types/index.ts";
 import type { SyntaxStyle } from "@opentui/core";
 import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 
 interface UseChatRenderModelArgs {
   activeBackgroundAgentCount: number;
-  activeQuestion: unknown;
+  activeQuestion: UserQuestion | null;
   handleAgentDoneRendered: (marker: {
     messageId: string;
     agentId: string;

@@ -50,12 +50,14 @@ export async function createCopilotSession(args: {
 
   const tentativeSessionId = args.config.sessionId ?? `copilot_${Date.now()}`;
   const projectRoot = args.clientCwd ?? process.cwd();
-  const artifacts = await args.loadCopilotSessionArtifacts(projectRoot);
-  const modelConfig = await resolveCreateSessionModelConfig({
-    config: args.config,
-    listModelsFresh: async () =>
-      await args.listSdkModelsFresh() as CopilotSdkModelRecord[],
-  });
+  const [artifacts, modelConfig] = await Promise.all([
+    args.loadCopilotSessionArtifacts(projectRoot),
+    resolveCreateSessionModelConfig({
+      config: args.config,
+      listModelsFresh: async () =>
+        await args.listSdkModelsFresh() as CopilotSdkModelRecord[],
+    }),
+  ]);
 
   if (modelConfig.contextWindow === null) {
     throw new Error("Failed to resolve context window size from Copilot SDK listModels()");

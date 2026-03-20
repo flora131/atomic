@@ -14,28 +14,9 @@ import { navigateUp, navigateDown } from "@/lib/ui/navigation.ts";
 import { PROMPT, STATUS, CONNECTOR } from "@/theme/icons.ts";
 import { SPACING } from "@/theme/spacing.ts";
 
-// ============================================================================
-// TYPES
-// ============================================================================
-
-export interface QuestionOption {
-  label: string;
-  value: string;
-  description?: string;
-}
-
-export interface UserQuestion {
-  header: string;
-  question: string;
-  options: QuestionOption[];
-  multiSelect?: boolean;
-}
-
-export interface QuestionAnswer {
-  selected: string | string[];
-  cancelled: boolean;
-  responseMode: "option" | "custom_input" | "chat_about_this" | "declined";
-}
+// Re-export shared HITL types for backwards compatibility
+export type { QuestionOption, UserQuestion, QuestionAnswer } from "@/state/chat/shared/types/hitl.ts";
+import type { UserQuestion, QuestionAnswer } from "@/state/chat/shared/types/hitl.ts";
 
 export interface UserQuestionDialogProps {
   question: UserQuestion;

@@ -58,21 +58,13 @@ export function useChatRuntimeEffects({
   workflowSessionId,
   workflowSessionIdRef,
 }: UseChatRuntimeEffectsArgs) {
-  useEffect(() => {
-    todoItemsRef.current = todoItems;
-  }, [todoItems, todoItemsRef]);
-
-  useEffect(() => {
-    parallelAgentsRef.current = parallelAgents;
-  }, [parallelAgents, parallelAgentsRef]);
-
-  useEffect(() => {
-    workflowSessionDirRef.current = workflowSessionDir;
-  }, [workflowSessionDir, workflowSessionDirRef]);
-
-  useEffect(() => {
-    workflowSessionIdRef.current = workflowSessionId;
-  }, [workflowSessionId, workflowSessionIdRef]);
+  // Sync refs during render (not in useEffect) so callbacks always see
+  // the latest values, even when called before post-render effects fire.
+  // This pattern is already used in use-message-queue.ts:137.
+  todoItemsRef.current = todoItems;
+  parallelAgentsRef.current = parallelAgents;
+  workflowSessionDirRef.current = workflowSessionDir;
+  workflowSessionIdRef.current = workflowSessionId;
 
   useEffect(() => {
     if (!hasLiveLoadingIndicator || !streamingStartRef.current) {

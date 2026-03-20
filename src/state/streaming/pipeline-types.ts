@@ -1,7 +1,7 @@
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type { HitlResponseRecord } from "@/lib/ui/hitl-response.ts";
 import type { PermissionOption } from "@/services/agents/types.ts";
-import type { WorkflowRuntimeTaskResultEnvelope } from "@/services/workflows/runtime-contracts.ts";
+import type { WorkflowRuntimeTaskResultEnvelope, WorkflowRuntimeTaskStatus } from "@/services/workflows/runtime-contracts.ts";
 import type { ToolExecutionStatus } from "@/state/parts/types.ts";
 
 type ToolStatus = ToolExecutionStatus;
@@ -113,7 +113,7 @@ export interface TaskListUpdateEvent {
   tasks: Array<{
     id: string;
     title: string;
-    status: string;
+    status: WorkflowRuntimeTaskStatus;
     blockedBy?: string[];
   }>;
 }

@@ -27,6 +27,8 @@ import { useEventBusContext } from "@/services/events/event-bus-provider.tsx";
 
 export * from "@/state/chat/exports.ts";
 
+const EMPTY_MESSAGES: ChatMessage[] = [];
+
 // ============================================================================
 // CHAT APP COMPONENT
 // ============================================================================
@@ -49,7 +51,7 @@ export * from "@/state/chat/exports.ts";
  * ```
  */
 export function ChatApp({
-  initialMessages = [],
+  initialMessages = EMPTY_MESSAGES,
   onSendMessage,
   onStreamMessage,
   onExit,

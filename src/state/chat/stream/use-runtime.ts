@@ -170,8 +170,15 @@ export function useChatStreamRuntime({
   });
 
   const separateAndInterruptAgents = useCallback((agents: ParallelAgent[]) => {
-    const backgroundAgents = agents.filter(isBackgroundAgent);
-    const foregroundAgents = agents.filter((agent) => !isBackgroundAgent(agent));
+    const backgroundAgents: ParallelAgent[] = [];
+    const foregroundAgents: ParallelAgent[] = [];
+    for (const agent of agents) {
+      if (isBackgroundAgent(agent)) {
+        backgroundAgents.push(agent);
+      } else {
+        foregroundAgents.push(agent);
+      }
+    }
 
     return {
       interruptedAgents: [
@@ -367,11 +374,14 @@ export function useChatStreamRuntime({
     continueAssistantStreamInPlace(messageId, content);
   };
 
+  const hasInProgressTask = useMemo(
+    () => todoItems.some((item) => item.status === "in_progress"),
+    [todoItems],
+  );
+
   const hasLiveLoadingIndicator = useMemo(
-    () => activeBackgroundAgentCount > 0 || messages.some((message) => {
-      return message.streaming || todoItems.some((item) => item.status === "in_progress");
-    }),
-    [activeBackgroundAgentCount, messages, todoItems],
+    () => activeBackgroundAgentCount > 0 || hasInProgressTask || messages.some((message) => message.streaming),
+    [activeBackgroundAgentCount, hasInProgressTask, messages],
   );
 
   useChatRuntimeEffects({

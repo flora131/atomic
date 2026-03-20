@@ -103,12 +103,7 @@ export function useChatShellState({
   const [inputFocused] = useState(true);
   const [tasksExpanded] = useState(false);
 
-  const displayModel = useMemo(() => {
-    if (currentModelDisplayName) {
-      return currentModelDisplayName;
-    }
-    return model;
-  }, [currentModelDisplayName, model]);
+  const displayModel = currentModelDisplayName || model;
 
   const currentModelRef = useRef(initialModelId ?? model);
   currentModelRef.current = currentModelId ?? initialModelId ?? model;
@@ -145,7 +140,7 @@ export function useChatShellState({
 
   const waitForUserInputResolverRef = useRef<WorkflowInputResolver | null>(null);
   const workflowActiveRef = useRef(false);
-  const scrollAcceleration = useMemo(() => new MacOSScrollAccel(), []);
+  const scrollAcceleration = useRef(new MacOSScrollAccel()).current;
   const scrollboxRef = useRef<ScrollBoxRenderable>(null);
   const dispatchQueuedMessageRef = useRef<(queuedMessage: import("@/hooks/use-message-queue.ts").QueuedMessage) => void>(() => {});
   const dispatchDeferredCommandMessageRef = useRef<(message: DeferredCommandMessage) => void>(() => {});

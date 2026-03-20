@@ -7,6 +7,7 @@ import type {
   MessageSubmitTelemetry,
   StreamingMeta,
   TaskItem,
+  UserQuestion,
   WorkflowChatState,
 } from "@/state/chat/shared/types/index.ts";
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
@@ -24,7 +25,7 @@ export interface InputScrollbarState {
 }
 
 export interface UseComposerControllerArgs {
-  activeQuestion: unknown;
+  activeQuestion: UserQuestion | null;
   addMessage: (role: "user" | "assistant" | "system", content: string) => void;
   agentType?: string;
   clipboard: ClipboardAdapter;

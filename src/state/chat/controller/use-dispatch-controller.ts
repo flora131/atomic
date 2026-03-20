@@ -377,8 +377,12 @@ export function useChatDispatchController({
       return;
     }
 
-    initialPromptSentRef.current = true;
     const timeoutId = setTimeout(() => {
+      // Set the ref inside the timeout so that if React cleans up before
+      // the timeout fires (e.g. Strict Mode double-mount), the ref stays
+      // false and the prompt will be sent on the next mount.
+      initialPromptSentRef.current = true;
+
       const parsed = parseSlashCommand(initialPrompt);
       if (parsed.isCommand) {
         addMessage("user", initialPrompt);

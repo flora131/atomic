@@ -10,7 +10,7 @@
  *     continuation lines are indented to align with text after the bullet
  */
 
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import type { SyntaxStyle } from "@opentui/core";
 import type { TextPart } from "@/state/parts/types.ts";
 import { createMarkdownSyntaxStyle, useTheme, useThemeColors } from "@/theme/index.tsx";
@@ -29,10 +29,16 @@ export interface TextPartDisplayProps {
 export function TextPartDisplay({ part, syntaxStyle }: TextPartDisplayProps) {
   const colors = useThemeColors();
   const { isDark } = useTheme();
-  const fallbackSyntaxStyle = useMemo(
-    () => createMarkdownSyntaxStyle(colors, isDark),
-    [colors, isDark],
-  );
+  const fallbackSyntaxStyleRef = useRef<SyntaxStyle | null>(null);
+  const fallbackSyntaxStyle = useMemo(() => {
+    if (fallbackSyntaxStyleRef.current) {
+      fallbackSyntaxStyleRef.current.destroy();
+    }
+    const style = createMarkdownSyntaxStyle(colors, isDark);
+    fallbackSyntaxStyleRef.current = style;
+    return style;
+  }, [colors, isDark]);
+  useEffect(() => () => { fallbackSyntaxStyleRef.current?.destroy(); }, []);
 
   const normalizedContent = normalizeMarkdownNewlines(part.content ?? "");
 

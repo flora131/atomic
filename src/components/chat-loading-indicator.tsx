@@ -98,7 +98,7 @@ export function CompletionSummary({
   const verb = thinkingMs != null && thinkingMs >= 1000
     ? "Reasoned"
     : "Composed";
-  const [spinChar] = useState(() => SPINNER_COMPLETE);
+  const spinChar = SPINNER_COMPLETE;
 
   const parts: string[] = [`${verb} for ${formatCompletionDuration(durationMs)}`];
   if (outputTokens != null && outputTokens > 0) {

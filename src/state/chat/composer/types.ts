@@ -1,4 +1,4 @@
-import type { Dispatch, MutableRefObject, SetStateAction } from "react";
+import type { Dispatch, RefObject, SetStateAction } from "react";
 import type { PasteEvent, TextareaRenderable } from "@opentui/core";
 import type { ClipboardAdapter } from "@/lib/ui/clipboard.ts";
 import type {
@@ -30,25 +30,25 @@ export interface UseComposerControllerArgs {
   agentType?: string;
   clipboard: ClipboardAdapter;
   clearDeferredCompletion: () => void;
-  commandStyleIdRef: MutableRefObject<number>;
-  currentModelRef: MutableRefObject<string>;
+  commandStyleIdRef: RefObject<number>;
+  currentModelRef: RefObject<string>;
   emitMessageSubmitTelemetry: (event: MessageSubmitTelemetry) => void;
   executeCommand: (commandName: string, args: string, trigger?: CommandExecutionTrigger) => Promise<boolean>;
   finalizeTaskItemsOnInterrupt: () => TaskItem[] | undefined;
   finalizeThinkingSourceTracking: () => void;
   getActiveStreamRunId: () => string | null;
-  isStreamingRef: MutableRefObject<boolean>;
-  lastStreamingContentRef: MutableRefObject<string>;
+  isStreamingRef: RefObject<boolean>;
+  lastStreamingContentRef: RefObject<string>;
   messageQueue: UseMessageQueueReturn;
   onInterrupt?: () => void;
-  parallelAgentsRef: MutableRefObject<ParallelAgent[]>;
-  parallelInterruptHandlerRef: MutableRefObject<(() => void) | null>;
+  parallelAgentsRef: RefObject<ParallelAgent[]>;
+  parallelInterruptHandlerRef: RefObject<(() => void) | null>;
   resolveTrackedRun: (
     action: "complete" | "interrupt" | "fail",
     overrides?: { content?: string; wasInterrupted?: boolean; error?: unknown; wasCancelled?: boolean },
     options?: { runId?: string | null; clearActive?: boolean },
   ) => unknown;
-  runningAskQuestionToolIdsRef: MutableRefObject<Set<string>>;
+  runningAskQuestionToolIdsRef: RefObject<Set<string>>;
   sendMessage: (content: string, options?: { skipUserMessage?: boolean }) => void;
   separateAndInterruptAgents: (agents: ParallelAgent[]) => {
     interruptedAgents: ParallelAgent[];
@@ -63,16 +63,16 @@ export interface UseComposerControllerArgs {
   shouldHideActiveStreamContent: () => boolean;
   showModelSelector: boolean;
   stopSharedStreamState: () => void;
-  streamingMessageIdRef: MutableRefObject<string | null>;
-  streamingMetaRef: MutableRefObject<StreamingMeta | null>;
-  streamingStartRef: MutableRefObject<number | null>;
-  todoItemsRef: MutableRefObject<NormalizedTodoItem[]>;
+  streamingMessageIdRef: RefObject<string | null>;
+  streamingMetaRef: RefObject<StreamingMeta | null>;
+  streamingStartRef: RefObject<number | null>;
+  todoItemsRef: RefObject<NormalizedTodoItem[]>;
   updateWorkflowState: (updates: Partial<WorkflowChatState>) => void;
-  waitForUserInputResolverRef: MutableRefObject<WorkflowInputResolver | null>;
-  workflowSessionDirRef: MutableRefObject<string | null>;
-  workflowSessionIdRef: MutableRefObject<string | null>;
+  waitForUserInputResolverRef: RefObject<WorkflowInputResolver | null>;
+  workflowSessionDirRef: RefObject<string | null>;
+  workflowSessionIdRef: RefObject<string | null>;
   workflowState: WorkflowChatState;
-  workflowTaskIdsRef: MutableRefObject<Set<string>>;
+  workflowTaskIdsRef: RefObject<Set<string>>;
 }
 
 export interface ComposerAutocompleteSelectionArgs {

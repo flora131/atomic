@@ -39,19 +39,13 @@ export function ThemeProvider({
     setThemeState((current) => (current.isDark ? light : dark));
   }, [dark, light]);
 
-  const setTheme = useCallback((newTheme: Theme) => {
-    setThemeState(newTheme);
-  }, []);
+  const contextValue = useMemo<ThemeContextValue>(
+    () => ({ theme, toggleTheme, setTheme: setThemeState, isDark: theme.isDark }),
+    [theme, toggleTheme],
+  );
 
   return (
-    <ThemeContext.Provider
-      value={{
-        theme,
-        toggleTheme,
-        setTheme,
-        isDark: theme.isDark,
-      }}
-    >
+    <ThemeContext.Provider value={contextValue}>
       {children}
     </ThemeContext.Provider>
   );

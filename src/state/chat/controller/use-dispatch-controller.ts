@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, type MutableRefObject } from "react";
+import { useCallback, useEffect, useRef, type RefObject } from "react";
 import { saveModelPreference, saveReasoningEffortPreference, clearReasoningEffortPreference } from "@/services/config/settings.ts";
 import type { Model } from "@/services/models/model-transform.ts";
 import { parseSlashCommand } from "@/commands/tui/index.ts";
@@ -18,10 +18,10 @@ interface UseChatDispatchControllerArgs extends Omit<
   UseCommandExecutorArgs,
   "addMessage" | "sendMessageRef" | "setStreamingWithFinalize" | "startAssistantStream"
 > {
-  activeStreamRunIdRef: MutableRefObject<number | null>;
+  activeStreamRunIdRef: RefObject<number | null>;
   continueQueuedConversation: () => void;
-  dispatchDeferredCommandMessageRef: MutableRefObject<(message: DeferredCommandMessage) => void>;
-  dispatchQueuedMessageRef: MutableRefObject<(queuedMessage: QueuedMessage) => void>;
+  dispatchDeferredCommandMessageRef: RefObject<(message: DeferredCommandMessage) => void>;
+  dispatchQueuedMessageRef: RefObject<(queuedMessage: QueuedMessage) => void>;
   emitMessageSubmitTelemetry: (event: MessageSubmitTelemetry) => void;
   initialPrompt?: string;
   setLastStreamedMessageId: (messageId: string | null) => void;

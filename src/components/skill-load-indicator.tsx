@@ -8,9 +8,10 @@
  *   └ Successfully loaded skill
  */
 
-import React, { useState, useEffect } from "react";
+import React from "react";
 import { useTheme } from "@/theme/index.tsx";
-import { STATUS, MISC } from "@/theme/icons.ts";
+import { STATUS } from "@/theme/icons.ts";
+import { AnimatedBlinkIndicator } from "@/components/animated-blink-indicator.tsx";
 
 // ============================================================================
 // TYPES
@@ -75,11 +76,13 @@ export function SkillLoadIndicator({
     <box flexDirection="column">
       <box flexDirection="row">
         <box flexShrink={0}>
-          {status === "loading" ? (
-            <AnimatedDot color={statusColor} />
-          ) : (
-            <text fg={statusColor}>{icon}</text>
-          )}
+          <text fg={statusColor}>
+            {status === "loading" ? (
+              <AnimatedBlinkIndicator color={statusColor} speed={500} />
+            ) : (
+              icon
+            )}
+          </text>
         </box>
         <box flexShrink={0}>
           <text> </text>
@@ -97,22 +100,5 @@ export function SkillLoadIndicator({
         <text fg={colors.muted}>{message}</text>
       </box>
     </box>
-  );
-}
-
-function AnimatedDot({ color }: { color: string }): React.ReactNode {
-  const [visible, setVisible] = useState(true);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setVisible((prev) => !prev);
-    }, 500);
-    return () => clearInterval(interval);
-  }, []);
-
-  return (
-    <text fg={color}>
-      {visible ? STATUS.active : MISC.separator}
-    </text>
   );
 }

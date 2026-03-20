@@ -1,4 +1,4 @@
-import type { Dispatch, MutableRefObject, SetStateAction } from "react";
+import type { Dispatch, RefObject, SetStateAction } from "react";
 import { useStreamConsumer } from "@/services/events/hooks.ts";
 import type { AgentType } from "@/services/models/index.ts";
 import type { StreamRunRuntime } from "@/state/runtime/stream-run-runtime.ts";
@@ -20,34 +20,34 @@ import { useChatStreamToolEvents } from "@/state/chat/stream/use-tool-events.ts"
 
 export interface UseChatStreamConsumerArgs {
   agentType?: AgentType;
-  activeForegroundRunHandleIdRef: MutableRefObject<string | null>;
-  activeStreamRunIdRef: MutableRefObject<number | null>;
-  agentLifecycleLedgerRef: MutableRefObject<AgentLifecycleLedger>;
-  agentOrderingStateRef: MutableRefObject<AgentOrderingState>;
+  activeForegroundRunHandleIdRef: RefObject<string | null>;
+  activeStreamRunIdRef: RefObject<number | null>;
+  agentLifecycleLedgerRef: RefObject<AgentLifecycleLedger>;
+  agentOrderingStateRef: RefObject<AgentOrderingState>;
   applyAutoCompactionIndicator: (next: AutoCompactionIndicatorState) => void;
-  backgroundAgentMessageIdRef: MutableRefObject<string | null>;
+  backgroundAgentMessageIdRef: RefObject<string | null>;
   clearDeferredCompletion: () => void;
-  closedThinkingSourcesRef: MutableRefObject<Set<string>>;
-  completionOrderingEventByAgentRef: MutableRefObject<Map<string, AgentOrderingEvent>>;
-  deferredPostCompleteDeltasByAgentRef: MutableRefObject<Map<string, Array<{
+  closedThinkingSourcesRef: RefObject<Set<string>>;
+  completionOrderingEventByAgentRef: RefObject<Map<string, AgentOrderingEvent>>;
+  deferredPostCompleteDeltasByAgentRef: RefObject<Map<string, Array<{
     messageId: string;
     runId?: number;
     delta: string;
     completionSequence: number;
   }>>>;
-  hasRunningToolRef: MutableRefObject<boolean>;
-  isAgentOnlyStreamRef: MutableRefObject<boolean>;
-  isStreamingRef: MutableRefObject<boolean>;
+  hasRunningToolRef: RefObject<boolean>;
+  isAgentOnlyStreamRef: RefObject<boolean>;
+  isStreamingRef: RefObject<boolean>;
   isWorkflowTaskUpdate: (
     todos: NormalizedTodoItem[],
     previousTodos?: readonly NormalizedTodoItem[],
   ) => boolean;
-  lastStreamedMessageIdRef: MutableRefObject<string | null>;
-  lastStreamingContentRef: MutableRefObject<string>;
-  pendingCompleteRef: MutableRefObject<(() => void) | null>;
+  lastStreamedMessageIdRef: RefObject<string | null>;
+  lastStreamingContentRef: RefObject<string>;
+  pendingCompleteRef: RefObject<(() => void) | null>;
   resolveAgentScopedMessageId: (agentId?: string) => string | null;
-  runningAskQuestionToolIdsRef: MutableRefObject<Set<string>>;
-  runningBlockingToolIdsRef: MutableRefObject<Set<string>>;
+  runningAskQuestionToolIdsRef: RefObject<Set<string>>;
+  runningBlockingToolIdsRef: RefObject<Set<string>>;
   sendBackgroundMessageToAgent: (content: string) => void;
   setMessagesWindowed: (next: SetStateAction<ChatMessage[]>) => void;
   setParallelAgents: Dispatch<SetStateAction<ParallelAgent[]>>;
@@ -55,14 +55,14 @@ export interface UseChatStreamConsumerArgs {
   setTodoItems: Dispatch<SetStateAction<NormalizedTodoItem[]>>;
   setToolCompletionVersion: Dispatch<SetStateAction<number>>;
   shouldHideActiveStreamContent: () => boolean;
-  streamRunRuntimeRef: MutableRefObject<StreamRunRuntime>;
-  streamingMessageIdRef: MutableRefObject<string | null>;
-  streamingMetaRef: MutableRefObject<StreamingMeta | null>;
-  thinkingDropDiagnosticsRef: MutableRefObject<ThinkingDropDiagnostics>;
-  todoItemsRef: MutableRefObject<NormalizedTodoItem[]>;
-  toolMessageIdByIdRef: MutableRefObject<Map<string, string>>;
-  toolNameByIdRef: MutableRefObject<Map<string, string>>;
-  workflowSessionIdRef: MutableRefObject<string | null>;
+  streamRunRuntimeRef: RefObject<StreamRunRuntime>;
+  streamingMessageIdRef: RefObject<string | null>;
+  streamingMetaRef: RefObject<StreamingMeta | null>;
+  thinkingDropDiagnosticsRef: RefObject<ThinkingDropDiagnostics>;
+  todoItemsRef: RefObject<NormalizedTodoItem[]>;
+  toolMessageIdByIdRef: RefObject<Map<string, string>>;
+  toolNameByIdRef: RefObject<Map<string, string>>;
+  workflowSessionIdRef: RefObject<string | null>;
 }
 
 export function useChatStreamConsumer({

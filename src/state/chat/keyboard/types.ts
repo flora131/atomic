@@ -1,4 +1,4 @@
-import type { Dispatch, MutableRefObject, SetStateAction } from "react";
+import type { Dispatch, RefObject, SetStateAction } from "react";
 import type { ScrollBoxRenderable, TextareaRenderable } from "@opentui/core";
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type { UseMessageQueueReturn } from "@/hooks/use-message-queue.ts";
@@ -19,13 +19,13 @@ export interface ChatAutocompleteSuggestion {
 }
 
 export interface UseChatKeyboardArgs {
-  activeBackgroundAgentCountRef: MutableRefObject<number>;
+  activeBackgroundAgentCountRef: RefObject<number>;
   activeQuestion: UserQuestion | null;
-  activeHitlToolCallIdRef: MutableRefObject<string | null>;
+  activeHitlToolCallIdRef: RefObject<string | null>;
   addMessage: (role: "user" | "assistant" | "system", content: string) => void;
   autocompleteSuggestions: ChatAutocompleteSuggestion[];
-  awaitedStreamRunIdsRef: MutableRefObject<Set<string>>;
-  backgroundAgentMessageIdRef: MutableRefObject<string | null>;
+  awaitedStreamRunIdsRef: RefObject<Set<string>>;
+  backgroundAgentMessageIdRef: RefObject<string | null>;
   clipboard: ClipboardAdapter;
   clearDeferredCompletion: () => void;
   continueQueuedConversation: () => void;
@@ -44,31 +44,31 @@ export interface UseChatKeyboardArgs {
   handleInputChange: (rawValue: string, cursorOffset: number) => void;
   handleTextareaContentChange: () => void;
   hasRendererSelection: () => boolean;
-  historyIndexRef: MutableRefObject<number>;
-  historyNavigatingRef: MutableRefObject<boolean>;
+  historyIndexRef: RefObject<number>;
+  historyNavigatingRef: RefObject<boolean>;
   isEditingQueue: boolean;
   isStreaming: boolean;
-  isStreamingRef: MutableRefObject<boolean>;
-  kittyKeyboardDetectedRef: MutableRefObject<boolean>;
-  lastStreamedMessageIdRef: MutableRefObject<string | null>;
-  lastStreamingContentRef: MutableRefObject<string>;
+  isStreamingRef: RefObject<boolean>;
+  kittyKeyboardDetectedRef: RefObject<boolean>;
+  lastStreamedMessageIdRef: RefObject<string | null>;
+  lastStreamingContentRef: RefObject<string>;
   messageQueue: UseMessageQueueReturn;
   normalizePastedText: (text: string) => string;
   onExit?: () => void;
   onInterrupt?: () => void;
   onTerminateBackgroundAgents?: (agentIds?: string[]) => void | Promise<void>;
   parallelAgents: ParallelAgent[];
-  parallelAgentsRef: MutableRefObject<ParallelAgent[]>;
-  parallelInterruptHandlerRef: MutableRefObject<(() => void) | null>;
-  promptHistoryRef: MutableRefObject<string[]>;
+  parallelAgentsRef: RefObject<ParallelAgent[]>;
+  parallelInterruptHandlerRef: RefObject<(() => void) | null>;
+  promptHistoryRef: RefObject<string[]>;
   resetHitlState: () => void;
   resolveTrackedRun: (
     action: "complete" | "interrupt" | "fail",
     overrides?: { content?: string; wasInterrupted?: boolean; error?: unknown; wasCancelled?: boolean },
     options?: { runId?: string | null; clearActive?: boolean },
   ) => unknown;
-  savedInputRef: MutableRefObject<string>;
-  scrollboxRef: MutableRefObject<ScrollBoxRenderable | null>;
+  savedInputRef: RefObject<string>;
+  scrollboxRef: RefObject<ScrollBoxRenderable | null>;
   separateAndInterruptAgents: (agents: ParallelAgent[]) => {
     interruptedAgents: ParallelAgent[];
     remainingLiveAgents: ParallelAgent[];
@@ -83,15 +83,15 @@ export interface UseChatKeyboardArgs {
   shouldHideActiveStreamContent: () => boolean;
   showModelSelector: boolean;
   stopSharedStreamState: () => void;
-  streamingMessageIdRef: MutableRefObject<string | null>;
-  streamingMetaRef: MutableRefObject<StreamingMeta | null>;
-  streamingStartRef: MutableRefObject<number | null>;
+  streamingMessageIdRef: RefObject<string | null>;
+  streamingMetaRef: RefObject<StreamingMeta | null>;
+  streamingStartRef: RefObject<number | null>;
   syncInputScrollbar: () => void;
-  textareaRef: MutableRefObject<TextareaRenderable | null>;
+  textareaRef: RefObject<TextareaRenderable | null>;
   toggleVerbose: () => void;
   updateWorkflowState: (updates: Partial<WorkflowChatState>) => void;
-  wasInterruptedRef: MutableRefObject<boolean>;
-  waitForUserInputResolverRef: MutableRefObject<{ reject: (error: Error) => void } | null>;
-  workflowActiveRef: MutableRefObject<boolean>;
+  wasInterruptedRef: RefObject<boolean>;
+  waitForUserInputResolverRef: RefObject<{ reject: (error: Error) => void } | null>;
+  workflowActiveRef: RefObject<boolean>;
   workflowState: WorkflowChatState;
 }

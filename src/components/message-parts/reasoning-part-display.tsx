@@ -8,7 +8,7 @@
  * <code filetype="markdown"> when no syntaxStyle is provided.
  */
 
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import type { SyntaxStyle } from "@opentui/core";
 import type { ReasoningPart } from "@/state/parts/types.ts";
 import { createDimmedSyntaxStyle, createMarkdownSyntaxStyle, useTheme, useThemeColors } from "@/theme/index.tsx";
@@ -36,16 +36,27 @@ export function ReasoningPartDisplay({ part, syntaxStyle }: ReasoningPartDisplay
   const normalizedContent = normalizeMarkdownNewlines(part.content);
   const durationLabel = formatReasoningDurationSeconds(part.durationMs);
 
-  const fallbackSyntaxStyle = useMemo(
-    () => createMarkdownSyntaxStyle(colors, isDark),
-    [colors, isDark],
-  );
+  const fallbackSyntaxStyleRef = useRef<SyntaxStyle | null>(null);
+  const fallbackSyntaxStyle = useMemo(() => {
+    if (fallbackSyntaxStyleRef.current) {
+      fallbackSyntaxStyleRef.current.destroy();
+    }
+    const style = createMarkdownSyntaxStyle(colors, isDark);
+    fallbackSyntaxStyleRef.current = style;
+    return style;
+  }, [colors, isDark]);
+  useEffect(() => () => { fallbackSyntaxStyleRef.current?.destroy(); }, []);
 
-  // Memoize the dimmed style variant to avoid recreating on every render
-  const dimmedStyle = useMemo(
-    () => createDimmedSyntaxStyle(syntaxStyle ?? fallbackSyntaxStyle, 0.6),
-    [syntaxStyle, fallbackSyntaxStyle],
-  );
+  const dimmedStyleRef = useRef<SyntaxStyle | null>(null);
+  const dimmedStyle = useMemo(() => {
+    if (dimmedStyleRef.current) {
+      dimmedStyleRef.current.destroy();
+    }
+    const style = createDimmedSyntaxStyle(syntaxStyle ?? fallbackSyntaxStyle, 0.6);
+    dimmedStyleRef.current = style;
+    return style;
+  }, [syntaxStyle, fallbackSyntaxStyle]);
+  useEffect(() => () => { dimmedStyleRef.current?.destroy(); }, []);
 
   return (
     <box flexDirection="column">

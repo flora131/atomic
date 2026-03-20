@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import type { MutableRefObject } from "react";
+import type { RefObject } from "react";
 import type { StreamMessageOptions } from "@/commands/tui/registry.ts";
 import {
   type StreamRunHandle,
@@ -8,9 +8,9 @@ import {
 } from "@/state/runtime/stream-run-runtime.ts";
 
 interface UseChatRunTrackingArgs {
-  activeForegroundRunHandleIdRef: MutableRefObject<string | null>;
-  awaitedStreamRunIdsRef: MutableRefObject<Set<string>>;
-  streamRunRuntimeRef: MutableRefObject<StreamRunRuntime>;
+  activeForegroundRunHandleIdRef: RefObject<string | null>;
+  awaitedStreamRunIdsRef: RefObject<Set<string>>;
+  streamRunRuntimeRef: RefObject<StreamRunRuntime>;
 }
 
 export function useChatRunTracking({

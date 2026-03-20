@@ -27,7 +27,10 @@ export type EventType =
   | "human_input_required"
   | "usage";
 
-export interface BaseEventData {}
+export interface BaseEventData {
+  /** SDK events may carry additional provider-specific fields at runtime. */
+  [key: string]: unknown;
+}
 
 export interface SessionStartEventData extends BaseEventData {
   config?: SessionConfig;

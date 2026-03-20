@@ -59,8 +59,6 @@ export const TASK_STATUS_ICONS: Record<TaskItem["status"], string> = {
 /** Max content chars before truncation */
 export const MAX_CONTENT_LENGTH = 60;
 
-/** @deprecated Use truncateText from utils/format.ts directly */
-export const truncate = truncateText;
 
 /** Map task status to semantic color key */
 export function getStatusColorKey(status: TaskItem["status"]): "muted" | "accent" | "success" | "error" {

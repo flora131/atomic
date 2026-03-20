@@ -205,12 +205,7 @@ export function useMessageQueue(): UseMessageQueueReturn {
     setQueue([]);
   }, []);
 
-  /**
-   * Set the current edit index.
-   */
-  const setEditIndex = useCallback((index: number) => {
-    setCurrentEditIndex(index);
-  }, []);
+  const setEditIndex = setCurrentEditIndex;
 
   /**
    * Update the content of a message at a specific index.

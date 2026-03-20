@@ -1,4 +1,4 @@
-import type { Dispatch, MutableRefObject, SetStateAction } from "react";
+import type { Dispatch, RefObject, SetStateAction } from "react";
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type { AgentOrderingEvent, AgentOrderingState } from "@/state/chat/shared/helpers/agent-ordering-contract.ts";
 import type { AgentLifecycleLedger } from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
@@ -7,33 +7,33 @@ import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 import type { DeferredPostCompleteDelta } from "@/state/chat/shared/types/stream-runtime.ts";
 
 export interface UseChatAgentProjectionArgs {
-  activeBackgroundAgentCountRef: MutableRefObject<number>;
-  activeStreamRunIdRef: MutableRefObject<number | null>;
+  activeBackgroundAgentCountRef: RefObject<number>;
+  activeStreamRunIdRef: RefObject<number | null>;
   agentAnchorSyncVersion: number;
-  agentLifecycleLedgerRef: MutableRefObject<AgentLifecycleLedger>;
-  agentMessageIdByIdRef: MutableRefObject<Map<string, string>>;
-  agentOrderingStateRef: MutableRefObject<AgentOrderingState>;
+  agentLifecycleLedgerRef: RefObject<AgentLifecycleLedger>;
+  agentMessageIdByIdRef: RefObject<Map<string, string>>;
+  agentOrderingStateRef: RefObject<AgentOrderingState>;
   agentType?: string;
-  awaitedStreamRunIdsRef: MutableRefObject<Set<string>>;
-  backgroundAgentMessageIdRef: MutableRefObject<string | null>;
-  completionOrderingEventByAgentRef: MutableRefObject<Map<string, AgentOrderingEvent>>;
-  continueAssistantStreamInPlaceRef: MutableRefObject<((messageId: string, content: string) => void) | null>;
+  awaitedStreamRunIdsRef: RefObject<Set<string>>;
+  backgroundAgentMessageIdRef: RefObject<string | null>;
+  completionOrderingEventByAgentRef: RefObject<Map<string, AgentOrderingEvent>>;
+  continueAssistantStreamInPlaceRef: RefObject<((messageId: string, content: string) => void) | null>;
   continueQueuedConversation: () => void;
-  deferredCompleteTimeoutRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
-  deferredPostCompleteDeltasByAgentRef: MutableRefObject<Map<string, DeferredPostCompleteDelta[]>>;
+  deferredCompleteTimeoutRef: RefObject<ReturnType<typeof setTimeout> | null>;
+  deferredPostCompleteDeltasByAgentRef: RefObject<Map<string, DeferredPostCompleteDelta[]>>;
   deleteAgentMessageBinding: (agentId: string) => void;
-  doneRenderedSequenceByAgentRef: MutableRefObject<Map<string, number>>;
+  doneRenderedSequenceByAgentRef: RefObject<Map<string, number>>;
   finalizeThinkingSourceTracking: (options?: { preserveStreamingMeta?: boolean }) => void;
   getActiveStreamRunId: () => string | null;
-  hasRunningToolRef: MutableRefObject<boolean>;
-  isAgentOnlyStreamRef: MutableRefObject<boolean>;
-  isStreamingRef: MutableRefObject<boolean>;
-  lastStreamedMessageIdRef: MutableRefObject<string | null>;
-  lastStreamingContentRef: MutableRefObject<string>;
+  hasRunningToolRef: RefObject<boolean>;
+  isAgentOnlyStreamRef: RefObject<boolean>;
+  isStreamingRef: RefObject<boolean>;
+  lastStreamedMessageIdRef: RefObject<string | null>;
+  lastStreamingContentRef: RefObject<string>;
   messages: ChatMessage[];
   parallelAgents: ParallelAgent[];
-  parallelAgentsRef: MutableRefObject<ParallelAgent[]>;
-  pendingCompleteRef: MutableRefObject<(() => void) | null>;
+  parallelAgentsRef: RefObject<ParallelAgent[]>;
+  pendingCompleteRef: RefObject<(() => void) | null>;
   resolveTrackedRun: (
     action: "complete" | "interrupt" | "fail",
     overrides?: { content?: string; wasInterrupted?: boolean; error?: unknown; wasCancelled?: boolean },
@@ -44,16 +44,16 @@ export interface UseChatAgentProjectionArgs {
   setBackgroundAgentMessageId: (messageId: string | null) => void;
   setMessagesWindowed: (next: React.SetStateAction<ChatMessage[]>) => void;
   setParallelAgents: React.Dispatch<React.SetStateAction<ParallelAgent[]>>;
-  startAssistantStreamRef: MutableRefObject<((content: string) => void) | null>;
+  startAssistantStreamRef: RefObject<((content: string) => void) | null>;
   stopSharedStreamState: (options?: {
     preserveStreamingStart?: boolean;
     preserveStreamingMeta?: boolean;
   }) => void;
-  streamingMessageIdRef: MutableRefObject<string | null>;
-  streamingStartRef: MutableRefObject<number | null>;
-  todoItemsRef: MutableRefObject<NormalizedTodoItem[]>;
+  streamingMessageIdRef: RefObject<string | null>;
+  streamingStartRef: RefObject<number | null>;
+  todoItemsRef: RefObject<NormalizedTodoItem[]>;
   toolCompletionVersion: number;
-  workflowActiveRef: MutableRefObject<boolean>;
+  workflowActiveRef: RefObject<boolean>;
 }
 
 export type SetMessagesWindowed = UseChatAgentProjectionArgs["setMessagesWindowed"];

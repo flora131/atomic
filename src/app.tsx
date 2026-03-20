@@ -342,22 +342,21 @@ export {
 // Components
 export {
   Autocomplete,
-  navigateUp,
-  navigateDown,
   useAutocompleteKeyboard,
   type AutocompleteProps,
   type KeyboardHandlerResult,
   type UseAutocompleteKeyboardOptions,
 } from "@/components/autocomplete.tsx";
 
+export { navigateUp, navigateDown } from "@/lib/ui/navigation.ts";
+
 export {
   UserQuestionDialog,
   toggleSelection,
   type UserQuestionDialogProps,
-  type UserQuestion,
-  type QuestionOption,
-  type QuestionAnswer,
 } from "@/components/user-question-dialog.tsx";
+
+export type { UserQuestion, QuestionOption, QuestionAnswer } from "@/state/chat/shared/types/hitl.ts";
 
 export {
   ToolResult,

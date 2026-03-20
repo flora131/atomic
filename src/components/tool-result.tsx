@@ -5,7 +5,7 @@
  * Inspired by OpenCode's BasicTool with collapsible behavior.
  */
 
-import React, { useState, useMemo } from "react";
+import React, { useMemo } from "react";
 import { useTheme } from "@/theme/index.tsx";
 import { AnimatedBlinkIndicator } from "@/components/animated-blink-indicator.tsx";
 import { STATUS, MISC } from "@/theme/icons.ts";
@@ -14,7 +14,6 @@ import {
   getToolRenderer,
   isSdkAskQuestionToolName,
   parseMcpToolName,
-  type ToolRenderProps,
   type ToolRenderResult,
 } from "@/components/tool-registry/registry/index.ts";
 import { SkillLoadIndicator, type SkillLoadStatus } from "@/components/skill-load-indicator.tsx";
@@ -271,54 +270,33 @@ export function ToolResult({
   // All hooks must be called unconditionally (Rules of Hooks)
   const { theme } = useTheme();
   const colors = theme.colors;
-  const [expanded] = useState(initialExpanded);
-
-  const renderer = useMemo(() => getToolRenderer(toolName), [toolName]);
-  const mcpParsed = useMemo(() => parseMcpToolName(toolName), [toolName]);
+  const renderer = getToolRenderer(toolName);
+  const mcpParsed = parseMcpToolName(toolName);
   const displayLabel = mcpParsed ? `${mcpParsed.server} / ${mcpParsed.tool}` : toolName;
-  const maxToolPreviewLines = useMemo(() => getMainChatToolMaxLines(toolName), [toolName]);
-  const renderProps: ToolRenderProps = useMemo(() => ({ input, output }), [input, output]);
-  const renderResult: ToolRenderResult = useMemo(() => renderer.render(renderProps), [renderer, renderProps]);
-  const title = useMemo(() => renderer.getTitle(renderProps), [renderer, renderProps]);
-  const summary = useMemo(
-    () => getToolSummary(toolName, input, output, renderResult.content.length),
-    [toolName, input, output, renderResult.content.length]
+  const maxToolPreviewLines = getMainChatToolMaxLines(toolName);
+  const renderResult: ToolRenderResult = useMemo(
+    () => renderer.render({ input, output }),
+    [renderer, input, output],
   );
+  const title = renderer.getTitle({ input, output });
+  const summary = getToolSummary(toolName, input, output, renderResult.content.length);
 
-  const linkifiedTitle = useMemo(
-    () => truncateToolHeader(title, MAIN_CHAT_TOOL_PREVIEW_LIMITS.maxTitleChars),
-    [title]
-  );
-  const truncatedDisplayLabel = useMemo(
-    () => truncateToolHeader(displayLabel, MAIN_CHAT_TOOL_PREVIEW_LIMITS.maxLabelChars),
-    [displayLabel]
-  );
-  const truncatedSummaryText = useMemo(
-    () => truncateToolText(summary.text, MAIN_CHAT_TOOL_PREVIEW_LIMITS.maxSummaryChars),
-    [summary.text]
-  );
-  const truncatedRenderContent = useMemo(
-    () => truncateToolLines(renderResult.content, {
-      maxLines: maxToolPreviewLines,
-      maxLineChars: MAIN_CHAT_TOOL_PREVIEW_LIMITS.maxLineChars,
-    }),
-    [renderResult.content, maxToolPreviewLines]
-  );
+  const linkifiedTitle = truncateToolHeader(title, MAIN_CHAT_TOOL_PREVIEW_LIMITS.maxTitleChars);
+  const truncatedDisplayLabel = truncateToolHeader(displayLabel, MAIN_CHAT_TOOL_PREVIEW_LIMITS.maxLabelChars);
+  const truncatedSummaryText = truncateToolText(summary.text, MAIN_CHAT_TOOL_PREVIEW_LIMITS.maxSummaryChars);
+  const truncatedRenderContent = truncateToolLines(renderResult.content, {
+    maxLines: maxToolPreviewLines,
+    maxLineChars: MAIN_CHAT_TOOL_PREVIEW_LIMITS.maxLineChars,
+  });
   const hasError = status === "error";
-  const truncatedErrorLines = useMemo(() => {
-    if (!(hasError && typeof output === "string")) return [];
-    return truncateToolLines(output.split("\n"), {
-      maxLines: maxToolPreviewLines,
-      maxLineChars: MAIN_CHAT_TOOL_PREVIEW_LIMITS.maxLineChars,
-    }).lines;
-  }, [hasError, output, maxToolPreviewLines]);
+  const truncatedErrorLines = hasError && typeof output === "string"
+    ? truncateToolLines(output.split("\n"), {
+        maxLines: maxToolPreviewLines,
+        maxLineChars: MAIN_CHAT_TOOL_PREVIEW_LIMITS.maxLineChars,
+      }).lines
+    : [];
 
-  const isCollapsed = useMemo(
-    () => shouldCollapse(truncatedRenderContent.lines.length, maxCollapsedLines, initialExpanded),
-    [truncatedRenderContent.lines.length, maxCollapsedLines, initialExpanded]
-  );
-
-  const isExpanded = expanded;
+  const isCollapsed = shouldCollapse(truncatedRenderContent.lines.length, maxCollapsedLines, initialExpanded);
 
   // Skill tool: render SkillLoadIndicator directly (early return after all hooks)
   if (isSkillTool) {
@@ -360,7 +338,7 @@ export function ToolResult({
           <span fg={colors.muted}>
             {" "}{linkifiedTitle}
           </span>
-          {status === "completed" && !isExpanded && (
+          {status === "completed" && !initialExpanded && (
             <span fg={colors.muted}>
               {" "}— {truncatedSummaryText} (ctrl+o to expand)
             </span>
@@ -373,7 +351,7 @@ export function ToolResult({
         <box marginTop={SPACING.NONE} marginLeft={SPACING.CONTAINER_PAD}>
           <CollapsibleContent
             content={truncatedRenderContent.lines}
-            expanded={isExpanded || !isCollapsed}
+            expanded={initialExpanded || !isCollapsed}
             maxCollapsedLines={maxCollapsedLines}
             hasError={hasError}
             theme={theme}

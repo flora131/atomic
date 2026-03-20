@@ -14,8 +14,6 @@ import { navigateUp, navigateDown } from "@/lib/ui/navigation.ts";
 import { PROMPT, STATUS, CONNECTOR } from "@/theme/icons.ts";
 import { SPACING } from "@/theme/spacing.ts";
 
-// Re-export shared HITL types for backwards compatibility
-export type { QuestionOption, UserQuestion, QuestionAnswer } from "@/state/chat/shared/types/hitl.ts";
 import type { UserQuestion, QuestionAnswer } from "@/state/chat/shared/types/hitl.ts";
 
 export interface UserQuestionDialogProps {
@@ -28,8 +26,6 @@ export interface UserQuestionDialogProps {
 // UTILITY FUNCTIONS
 // ============================================================================
 
-/** @deprecated Use navigateUp from utils/navigation.ts directly */
-export { navigateUp, navigateDown };
 
 export function toggleSelection(selected: string[], value: string): string[] {
   if (selected.includes(value)) {

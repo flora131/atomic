@@ -27,15 +27,15 @@ export interface UseChatShellStateArgs {
 export interface UseChatShellStateResult {
   availableModels: Model[];
   clipboard: ClipboardAdapter;
-  commandStyleIdRef: React.MutableRefObject<number>;
-  continueQueuedConversationRef: React.MutableRefObject<() => void>;
+  commandStyleIdRef: React.RefObject<number>;
+  continueQueuedConversationRef: React.RefObject<() => void>;
   currentModelDisplayName?: string;
   currentModelId?: string;
   currentReasoningEffort?: string;
-  currentModelRef: React.MutableRefObject<string>;
+  currentModelRef: React.RefObject<string>;
   copyRendererSelection: () => boolean;
-  dispatchDeferredCommandMessageRef: React.MutableRefObject<(message: DeferredCommandMessage) => void>;
-  dispatchQueuedMessageRef: React.MutableRefObject<(queuedMessage: import("@/hooks/use-message-queue.ts").QueuedMessage) => void>;
+  dispatchDeferredCommandMessageRef: React.RefObject<(message: DeferredCommandMessage) => void>;
+  dispatchQueuedMessageRef: React.RefObject<(queuedMessage: import("@/hooks/use-message-queue.ts").QueuedMessage) => void>;
   displayModel: string;
   handleMouseUp: () => void;
   hasRendererSelection: () => boolean;
@@ -46,7 +46,7 @@ export interface UseChatShellStateResult {
   markdownSyntaxStyle: SyntaxStyle;
   mcpServerToggles: McpServerToggleMap;
   scrollAcceleration: MacOSScrollAccel;
-  scrollboxRef: React.MutableRefObject<ScrollBoxRenderable | null>;
+  scrollboxRef: React.RefObject<ScrollBoxRenderable | null>;
   setAvailableModels: React.Dispatch<React.SetStateAction<Model[]>>;
   setCurrentModelDisplayName: React.Dispatch<React.SetStateAction<string | undefined>>;
   setCurrentModelId: React.Dispatch<React.SetStateAction<string | undefined>>;
@@ -64,8 +64,8 @@ export interface UseChatShellStateResult {
   toggleVerbose: () => void;
   toggleTheme: ReturnType<typeof useTheme>["toggleTheme"];
   transcriptMode: boolean;
-  waitForUserInputResolverRef: React.MutableRefObject<WorkflowInputResolver | null>;
-  workflowActiveRef: React.MutableRefObject<boolean>;
+  waitForUserInputResolverRef: React.RefObject<WorkflowInputResolver | null>;
+  workflowActiveRef: React.RefObject<boolean>;
   actions: {
     appendCompactionSummaryAndSync: (summary: string) => void;
     appendHistoryBufferAndSync: (nextMessages: ChatMessage[]) => void;
@@ -75,6 +75,13 @@ export interface UseChatShellStateResult {
       updates: Partial<WorkflowChatState>,
     ) => void;
   };
+}
+
+function updateWorkflowState(
+  setWorkflowState: React.Dispatch<React.SetStateAction<WorkflowChatState>>,
+  updates: Partial<WorkflowChatState>,
+) {
+  setWorkflowState((prev) => ({ ...prev, ...updates }));
 }
 
 export function useChatShellState({
@@ -100,8 +107,8 @@ export function useChatShellState({
   );
   const [mcpServerToggles, setMcpServerToggles] = useState<McpServerToggleMap>({});
   const [showTodoPanel, setShowTodoPanel] = useState(true);
-  const [inputFocused] = useState(true);
-  const [tasksExpanded] = useState(false);
+  const inputFocused = true;
+  const tasksExpanded = false;
 
   const displayModel = currentModelDisplayName || model;
 
@@ -132,11 +139,18 @@ export function useChatShellState({
     commandStyleIdRef.current = cmdId;
     return style;
   }, [themeColors.accent]);
+  useEffect(() => () => { inputSyntaxStyleRef.current?.destroy(); }, []);
 
-  const markdownSyntaxStyle = useMemo(
-    () => createMarkdownSyntaxStyle(theme.colors, theme.isDark),
-    [theme],
-  );
+  const markdownSyntaxStyleRef = useRef<SyntaxStyle | null>(null);
+  const markdownSyntaxStyle = useMemo(() => {
+    if (markdownSyntaxStyleRef.current) {
+      markdownSyntaxStyleRef.current.destroy();
+    }
+    const style = createMarkdownSyntaxStyle(theme.colors, theme.isDark);
+    markdownSyntaxStyleRef.current = style;
+    return style;
+  }, [theme]);
+  useEffect(() => () => { markdownSyntaxStyleRef.current?.destroy(); }, []);
 
   const waitForUserInputResolverRef = useRef<WorkflowInputResolver | null>(null);
   const workflowActiveRef = useRef(false);
@@ -208,13 +222,6 @@ export function useChatShellState({
   const hasRendererSelection = useCallback(() => {
     return Boolean(renderer.getSelection()?.getSelectedText());
   }, [renderer]);
-
-  const updateWorkflowState = useCallback((
-    setWorkflowState: React.Dispatch<React.SetStateAction<WorkflowChatState>>,
-    updates: Partial<WorkflowChatState>,
-  ) => {
-    setWorkflowState((prev) => ({ ...prev, ...updates }));
-  }, []);
 
   return {
     availableModels,

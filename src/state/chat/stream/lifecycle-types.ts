@@ -1,4 +1,4 @@
-import type { Dispatch, MutableRefObject, SetStateAction } from "react";
+import type { Dispatch, RefObject, SetStateAction } from "react";
 import type { AgentType } from "@/services/models/index.ts";
 import type { AgentLifecycleViolationCode } from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
 import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
@@ -9,31 +9,31 @@ import type { StreamRunHandle, StreamRunResult } from "@/state/runtime/stream-ru
 import type { StreamMessageOptions } from "@/commands/tui/registry.ts";
 
 export interface UseChatStreamLifecycleArgs {
-  activeStreamRunIdRef: MutableRefObject<number | null>;
+  activeStreamRunIdRef: RefObject<number | null>;
   agentType?: AgentType;
-  awaitedStreamRunIdsRef: MutableRefObject<Set<string>>;
+  awaitedStreamRunIdsRef: RefObject<Set<string>>;
   bindTrackedRunToMessage: (runId: string | null | undefined, messageId: string) => void;
   clearDeferredCompletion: () => void;
-  continueAssistantStreamInPlaceRef: MutableRefObject<((messageId: string, content: string) => void) | null>;
-  continueQueuedConversationRef: MutableRefObject<() => void>;
-  currentModelRef: MutableRefObject<string>;
-  deferredCompleteTimeoutRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
+  continueAssistantStreamInPlaceRef: RefObject<((messageId: string, content: string) => void) | null>;
+  continueQueuedConversationRef: RefObject<() => void>;
+  currentModelRef: RefObject<string>;
+  deferredCompleteTimeoutRef: RefObject<ReturnType<typeof setTimeout> | null>;
   finalizeThinkingSourceTracking: (options?: {
     preserveStreamingMeta?: boolean;
   }) => void;
   getActiveStreamRunId: () => string | null;
-  hasRunningToolRef: MutableRefObject<boolean>;
-  isAgentOnlyStreamRef: MutableRefObject<boolean>;
-  isStreamingRef: MutableRefObject<boolean>;
-  lastStreamingContentRef: MutableRefObject<string>;
-  lastTurnFinishReasonRef: MutableRefObject<SessionLoopFinishReason | null>;
-  nextRunIdFloorRef: MutableRefObject<number | null>;
+  hasRunningToolRef: RefObject<boolean>;
+  isAgentOnlyStreamRef: RefObject<boolean>;
+  isStreamingRef: RefObject<boolean>;
+  lastStreamingContentRef: RefObject<string>;
+  lastTurnFinishReasonRef: RefObject<SessionLoopFinishReason | null>;
+  nextRunIdFloorRef: RefObject<number | null>;
   onStreamMessage?: (
     content: string,
     options?: StreamMessageOptions,
   ) => void | Promise<void>;
-  parallelAgentsRef: MutableRefObject<ParallelAgent[]>;
-  pendingCompleteRef: MutableRefObject<(() => void) | null>;
+  parallelAgentsRef: RefObject<ParallelAgent[]>;
+  pendingCompleteRef: RefObject<(() => void) | null>;
   resetConsumers: () => void;
   resetTodoItemsForNewStream: () => void;
   resetThinkingSourceTracking: () => void;
@@ -42,8 +42,8 @@ export interface UseChatStreamLifecycleArgs {
     overrides?: Partial<StreamRunResult>,
     options?: { runId?: string | null; clearActive?: boolean },
   ) => StreamRunResult | null;
-  runningAskQuestionToolIdsRef: MutableRefObject<Set<string>>;
-  runningBlockingToolIdsRef: MutableRefObject<Set<string>>;
+  runningAskQuestionToolIdsRef: RefObject<Set<string>>;
+  runningBlockingToolIdsRef: RefObject<Set<string>>;
   sendBackgroundMessageToAgent: (content: string) => void;
   setBackgroundAgentMessageId: (messageId: string | null) => void;
   setIsStreaming: Dispatch<SetStateAction<boolean>>;
@@ -53,7 +53,7 @@ export interface UseChatStreamLifecycleArgs {
   setStreamingMessageId: (messageId: string | null) => void;
   setToolCompletionVersion: Dispatch<SetStateAction<number>>;
   shouldHideActiveStreamContent: () => boolean;
-  startAssistantStreamRef: MutableRefObject<((content: string) => void) | null>;
+  startAssistantStreamRef: RefObject<((content: string) => void) | null>;
   startTrackedAssistantRun: (
     options?: StreamMessageOptions,
   ) => StreamRunHandle;
@@ -62,14 +62,14 @@ export interface UseChatStreamLifecycleArgs {
     preserveStreamingMeta?: boolean;
     hasActiveBackgroundAgents?: boolean;
   }) => void;
-  streamingMessageIdRef: MutableRefObject<string | null>;
-  streamingMetaRef: MutableRefObject<StreamingMeta | null>;
-  streamingStartRef: MutableRefObject<number | null>;
-  todoItemsRef: MutableRefObject<NormalizedTodoItem[]>;
-  toolMessageIdByIdRef: MutableRefObject<Map<string, string>>;
-  toolNameByIdRef: MutableRefObject<Map<string, string>>;
-  wasInterruptedRef: MutableRefObject<boolean>;
-  activeBackgroundAgentCountRef: MutableRefObject<number>;
+  streamingMessageIdRef: RefObject<string | null>;
+  streamingMetaRef: RefObject<StreamingMeta | null>;
+  streamingStartRef: RefObject<number | null>;
+  todoItemsRef: RefObject<NormalizedTodoItem[]>;
+  toolMessageIdByIdRef: RefObject<Map<string, string>>;
+  toolNameByIdRef: RefObject<Map<string, string>>;
+  wasInterruptedRef: RefObject<boolean>;
+  activeBackgroundAgentCountRef: RefObject<number>;
   setActiveBackgroundAgentCount: Dispatch<SetStateAction<number>>;
 }
 

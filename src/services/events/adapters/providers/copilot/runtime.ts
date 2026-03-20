@@ -15,6 +15,7 @@ import {
   SessionExpiredError,
 } from "@/services/events/adapters/provider-shared.ts";
 import { publishCopilotBufferedEvent, cleanupCopilotOrphanedTools, flushCopilotOrphanedAgentCompletions } from "@/services/events/adapters/providers/copilot/buffer.ts";
+import { flushAllPendingTextDeltas } from "@/services/events/adapters/providers/copilot/message-tool-handlers.ts";
 import {
   cleanupCopilotSubscriptions,
   subscribeToCopilotEvents,
@@ -47,6 +48,8 @@ export async function startCopilotStreaming(
   state.pendingIdleReason = null;
   state.isBackgroundOnly = false;
   state.thinkingStreams.clear();
+  state.pendingTextDeltas.clear();
+  state.contentTypeResolvedAgents.clear();
   state.toolNameById.clear();
   state.emittedToolStartIds.clear();
   state.taskToolMetadata.clear();
@@ -141,6 +144,12 @@ export async function startCopilotStreaming(
       throw new SessionExpiredError(errorMessage);
     }
   } finally {
+    // Flush any remaining buffered text deltas that were not flushed by
+    // handleCopilotMessageComplete (e.g., when the stream ends without
+    // a message.complete event).
+    flushAllPendingTextDeltas(state, {
+      publishEvent: (event) => publishCopilotBufferedEvent(state, deps.bus, event),
+    });
     cleanupCopilotOrphanedTools(state, deps.bus);
     flushCopilotOrphanedAgentCompletions(state, deps.bus);
     const pendingIdleReason = state.pendingIdleReason;
@@ -190,6 +199,8 @@ export function disposeCopilotStreamAdapter(
   state.eventBuffer = [];
   state.eventBufferHead = 0;
   state.thinkingStreams.clear();
+  state.pendingTextDeltas.clear();
+  state.contentTypeResolvedAgents.clear();
   state.accumulatedText = "";
   state.accumulatedOutputTokens = 0;
   state.pendingIdleReason = null;

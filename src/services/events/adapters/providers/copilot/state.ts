@@ -30,5 +30,7 @@ export function createCopilotStreamAdapterState(): CopilotStreamAdapterState {
     pendingIdleReason: null,
     runtimeFeatureFlags: resetCopilotRuntimeFeatureFlags(),
     turnMetadataState: createTurnMetadataState(),
+    pendingTextDeltas: new Map(),
+    contentTypeResolvedAgents: new Set(),
   };
 }

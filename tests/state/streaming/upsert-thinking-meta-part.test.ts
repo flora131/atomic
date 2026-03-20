@@ -81,19 +81,18 @@ describe("upsertThinkingMetaPart", () => {
     expect((result[0] as ReasoningPart).isStreaming).toBe(true);
   });
 
-  test("new reasoning part is sorted by ID relative to existing text parts", () => {
+  test("new reasoning part is inserted in ID order after existing text", () => {
     const textPart = makeTextPart("existing text");
     const parts: Part[] = [textPart];
 
     const result = upsertThinkingMetaPart(parts, makeEvent());
 
     expect(result).toHaveLength(2);
-    const ids = result.map((p) => p.id);
-    const sorted = [...ids].sort();
-    expect(ids).toEqual(sorted);
+    // Pure ID ordering: text was created first, reasoning second.
+    expect(result.map((p) => p.type)).toEqual(["text", "reasoning"]);
   });
 
-  test("maintains sorted order when reasoning inserted among multiple parts", () => {
+  test("reasoning inserted in ID order after existing text parts", () => {
     const text1 = makeTextPart("first");
     const text2 = makeTextPart("second");
     const parts: Part[] = [text1, text2];
@@ -101,9 +100,8 @@ describe("upsertThinkingMetaPart", () => {
     const result = upsertThinkingMetaPart(parts, makeEvent());
 
     expect(result).toHaveLength(3);
-    const ids = result.map((p) => p.id);
-    const sorted = [...ids].sort();
-    expect(ids).toEqual(sorted);
+    // Pure ID ordering: both text parts were created first.
+    expect(result.map((p) => p.type)).toEqual(["text", "text", "reasoning"]);
   });
 
   test("does not duplicate parts for same sourceKey on repeated calls", () => {
@@ -131,21 +129,27 @@ describe("upsertThinkingMetaPart", () => {
     expect((sourceB as ReasoningPart).content).toBe("beta");
   });
 
-  test("result array preserves sorted ID order after interleaved text and reasoning", () => {
+  test("interleaved text and reasoning are ordered by ID", () => {
     const text1 = makeTextPart("first text");
     let parts: Part[] = [text1];
 
     parts = upsertThinkingMetaPart(parts, makeEvent({ thinkingSourceKey: "source:a", thinkingText: "thought A" }));
 
-    // Simulate a new text part arriving after reasoning
+    // Simulate a new text part arriving after reasoning — re-sort by ID
+    // (this mirrors what upsertPart does in the message-level function).
     const text2 = makeTextPart("second text");
     parts = [...parts, text2].sort((a, b) => a.id.localeCompare(b.id));
 
     parts = upsertThinkingMetaPart(parts, makeEvent({ thinkingSourceKey: "source:b", thinkingText: "thought B" }));
 
-    const ids = parts.map((p) => p.id);
-    const sorted = [...ids].sort();
-    expect(ids).toEqual(sorted);
+    const reasoningParts = parts.filter((p) => p.type === "reasoning");
+    const textParts = parts.filter((p) => p.type === "text");
+    expect(reasoningParts).toHaveLength(2);
+    expect(textParts).toHaveLength(2);
+
+    // Pure ID ordering: text1 (ID_1), reasoning_a (ID_2), text2 (ID_3),
+    // reasoning_b (ID_4). Parts are strictly sorted by creation time.
+    expect(parts.map((p) => p.type)).toEqual(["text", "reasoning", "text", "reasoning"]);
   });
 
   test("returns new array reference even when updating existing part", () => {

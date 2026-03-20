@@ -10,13 +10,19 @@ import {
 registerStreamPipelineHooks();
 
 /**
- * Asserts that all part IDs in the message are strictly monotonically increasing.
- * Since PartIds encode `timestamp * 0x1000 + counter`, lexicographic order = chronological order.
+ * Asserts that part IDs in the message are strictly monotonically increasing.
+ *
+ * Following OpenCode's methodology, parts are always ordered by their
+ * monotonic timestamp-based IDs with no special-case overrides. Correct
+ * reasoning-before-text ordering is ensured at the adapter level (e.g.,
+ * the Copilot adapter buffers text deltas until thinking status is resolved).
  */
 function expectSortedPartIds(message: ChatMessage): void {
   const parts = message.parts ?? [];
   for (let i = 1; i < parts.length; i++) {
-    expect(parts[i]!.id > parts[i - 1]!.id).toBe(true);
+    const prev = parts[i - 1]!;
+    const curr = parts[i]!;
+    expect(curr.id > prev.id).toBe(true);
   }
 }
 
@@ -141,7 +147,7 @@ describe("applyStreamPartEvent — ordering invariants", () => {
       expectSortedPartIds(msg);
     });
 
-    test("multiple distinct source keys maintain sorted order", () => {
+    test("multiple distinct source keys are inserted in ID order", () => {
       const msg = applySequence([
         {
           type: "thinking-meta",
@@ -164,6 +170,8 @@ describe("applyStreamPartEvent — ordering invariants", () => {
         },
       ]);
 
+      // Parts are ordered by creation time (ID). The adapter layer is
+      // responsible for emitting events in the correct order.
       expect(msg.parts!.map((p) => p.type)).toEqual([
         "reasoning",
         "text",
@@ -866,7 +874,7 @@ describe("applyStreamPartEvent — ordering invariants", () => {
       expectSortedPartIds(msg);
     });
 
-    test("reasoning from multiple sources interleaved with text preserves order", () => {
+    test("reasoning from multiple sources interleaved with text are ordered by ID", () => {
       const msg = applySequence([
         {
           type: "thinking-meta",
@@ -904,6 +912,10 @@ describe("applyStreamPartEvent — ordering invariants", () => {
 
       const reasoningParts = msg.parts!.filter((p) => p.type === "reasoning");
       expect(reasoningParts).toHaveLength(2);
+      // Parts are ordered by creation time (ID). Claude reasoning was
+      // created first, then text, then opencode reasoning. The final
+      // thinking-meta for claude updates in-place (same ID, same position).
+      expect(msg.parts!.map((p) => p.type)).toEqual(["reasoning", "text", "reasoning"]);
       expectSortedPartIds(msg);
     });
 

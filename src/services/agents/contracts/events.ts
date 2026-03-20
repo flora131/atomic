@@ -73,6 +73,11 @@ export interface MessageCompleteEventData extends BaseEventData {
     type?: "function" | "custom";
   }>;
   parentToolCallId?: string;
+  nativeMessageId?: string;
+  interactionId?: string;
+  phase?: string;
+  reasoningText?: string;
+  reasoningOpaque?: string;
 }
 
 export interface ToolStartEventData extends BaseEventData {
@@ -82,6 +87,7 @@ export interface ToolStartEventData extends BaseEventData {
   toolUseID?: string;
   toolCallId?: string;
   parentToolCallId?: string;
+  parentId?: string;
 }
 
 export interface ToolCompleteEventData extends BaseEventData {
@@ -94,6 +100,7 @@ export interface ToolCompleteEventData extends BaseEventData {
   toolCallId?: string;
   parentToolCallId?: string;
   toolInput?: unknown;
+  parentId?: string;
 }
 
 export interface SkillInvokedEventData extends BaseEventData {

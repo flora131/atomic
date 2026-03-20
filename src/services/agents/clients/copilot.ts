@@ -18,6 +18,7 @@ import {
   type SessionConfig,
   type EventType,
   type EventHandler,
+  type AgentEvent,
   type ToolDefinition,
 } from "@/services/agents/types.ts";
 import type {
@@ -157,7 +158,7 @@ export class CopilotClient implements CodingAgentClient {
       sdkSession,
       config,
       sessions: this.sessions,
-      emitEvent: (eventType, sessionId, data) => this.emitEvent(eventType, sessionId, data),
+      emitEvent: (eventType, sessionId, data) => this.emitEvent(eventType, sessionId, data as AgentEvent<typeof eventType>["data"]),
       emitProviderEvent: (eventType, sessionId, data, options) => this.emitProviderEvent(eventType, sessionId, data, options),
       handleSdkEvent: (resolvedSessionId, event) => this.handleSdkEvent(resolvedSessionId, event),
     });
@@ -206,12 +207,12 @@ export class CopilotClient implements CodingAgentClient {
       data,
       nativeEvent,
       unifiedData,
-      emitEvent: (resolvedEventType, resolvedSessionId, resolvedData) => this.emitEvent(resolvedEventType, resolvedSessionId, resolvedData),
+      emitEvent: (resolvedEventType, resolvedSessionId, resolvedData) => this.emitEvent(resolvedEventType, resolvedSessionId, resolvedData as AgentEvent<typeof resolvedEventType>["data"]),
       emitProviderEvent: (resolvedEventType, resolvedSessionId, resolvedData, emitOptions) => this.emitProviderEvent(resolvedEventType, resolvedSessionId, resolvedData, emitOptions),
     });
   }
 
-  private emitEvent<T extends EventType>(eventType: T, sessionId: string, data: Record<string, unknown>): void {
+  private emitEvent<T extends EventType>(eventType: T, sessionId: string, data: AgentEvent<T>["data"]): void {
     emitCopilotEvent({ eventHandlers: this.eventHandlers, eventType, sessionId, data });
   }
 
@@ -231,7 +232,7 @@ export class CopilotClient implements CodingAgentClient {
         sessions: this.sessions,
         clientCwd: this.clientOptions.cwd,
         getCopilotPermissionHandler: () => this.getCopilotPermissionHandler(),
-        emitEvent: (eventType, sessionId, data) => this.emitEvent(eventType, sessionId, data),
+        emitEvent: (eventType, sessionId, data) => this.emitEvent(eventType, sessionId, data as AgentEvent<typeof eventType>["data"]),
         emitProviderEvent: (eventType, sessionId, data, emitOptions) => this.emitProviderEvent(eventType, sessionId, data, emitOptions),
       }),
       wrapSession: (sdkSession, sessionConfig) => this.wrapSession(sdkSession, sessionConfig),
@@ -253,7 +254,7 @@ export class CopilotClient implements CodingAgentClient {
         sessions: this.sessions,
         clientCwd: this.clientOptions.cwd,
         getCopilotPermissionHandler: () => this.getCopilotPermissionHandler(),
-        emitEvent: (eventType, resolvedSessionId, data) => this.emitEvent(eventType, resolvedSessionId, data),
+        emitEvent: (eventType, resolvedSessionId, data) => this.emitEvent(eventType, resolvedSessionId, data as AgentEvent<typeof eventType>["data"]),
         emitProviderEvent: (eventType, resolvedSessionId, data, emitOptions) => this.emitProviderEvent(eventType, resolvedSessionId, data, emitOptions),
       }),
       wrapSession: (sdkSession, sessionConfig) => this.wrapSession(sdkSession, sessionConfig),
@@ -277,7 +278,7 @@ export class CopilotClient implements CodingAgentClient {
         sessions: this.sessions,
         clientCwd: this.clientOptions.cwd,
         getCopilotPermissionHandler: () => this.getCopilotPermissionHandler(),
-        emitEvent: (eventType, resolvedSessionId, data) => this.emitEvent(eventType, resolvedSessionId, data),
+        emitEvent: (eventType, resolvedSessionId, data) => this.emitEvent(eventType, resolvedSessionId, data as AgentEvent<typeof eventType>["data"]),
         emitProviderEvent: (eventType, resolvedSessionId, data, emitOptions) => this.emitProviderEvent(eventType, resolvedSessionId, data, emitOptions),
       }),
       subscribeSessionEvents: (sessionId, sdkSession) => subscribeCopilotClientSessionEvents({

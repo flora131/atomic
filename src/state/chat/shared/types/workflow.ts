@@ -16,6 +16,10 @@ export interface WorkflowChatState {
     sessionId?: string;
     workflowName?: string;
   };
+  /** Current conductor stage name (e.g. "research", "plan", "implement"). */
+  currentStage: string | null;
+  /** Human-readable stage progress indicator (e.g. "Stage 2/4: implement"). */
+  stageIndicator: string | null;
   /** Generic workflow command/UI state for all workflow types. */
   workflowCommandState: WorkflowCommandState;
 }
@@ -30,5 +34,7 @@ export const defaultWorkflowChatState: WorkflowChatState = {
   workflowActive: false,
   workflowType: null,
   initialPrompt: null,
+  currentStage: null,
+  stageIndicator: null,
   workflowCommandState: { ...defaultWorkflowCommandState },
 };

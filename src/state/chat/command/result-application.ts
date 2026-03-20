@@ -18,6 +18,8 @@ export async function applyCommandResult(
       workflowActive: false,
       workflowType: null,
       initialPrompt: null,
+      currentStage: null,
+      stageIndicator: null,
       workflowCommandState: { ...defaultWorkflowChatState.workflowCommandState },
       workflowConfig: undefined,
     });

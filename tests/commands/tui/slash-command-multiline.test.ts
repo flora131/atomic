@@ -14,6 +14,8 @@ const baseWorkflowState: WorkflowChatState = {
   workflowActive: false,
   workflowType: null,
   initialPrompt: null,
+  currentStage: null,
+  stageIndicator: null,
   workflowCommandState: { ...defaultWorkflowCommandState },
 };
 

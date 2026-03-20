@@ -95,6 +95,9 @@ export function createMessageCompleteEventData(
     ...(typeof message.parent_tool_use_id === "string"
       ? { parentToolCallId: message.parent_tool_use_id }
       : {}),
+    ...(typeof message.session_id === "string"
+      ? { nativeSessionId: message.session_id }
+      : {}),
   };
 }
 

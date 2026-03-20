@@ -14,11 +14,8 @@ import React from "react";
 import { act } from "react";
 import { testRender } from "@opentui/react/test-utils";
 import { ThemeProvider, darkTheme } from "@/theme/index.tsx";
-import {
-  UserQuestionDialog,
-  type QuestionAnswer,
-  type UserQuestion,
-} from "@/components/user-question-dialog.tsx";
+import { UserQuestionDialog } from "@/components/user-question-dialog.tsx";
+import type { QuestionAnswer, UserQuestion } from "@/state/chat/shared/types/hitl.ts";
 
 // ============================================================================
 // HELPERS

@@ -1,5 +1,6 @@
 import { createPartId } from "@/state/parts/id.ts";
 import { upsertPart } from "@/state/parts/store.ts";
+import { isToolPart } from "@/state/parts/types.ts";
 import type { Part, ToolPart, ToolState } from "@/state/parts/types.ts";
 import { finalizeLastStreamingTextPart } from "@/state/streaming/pipeline-thinking.ts";
 import type {
@@ -14,11 +15,15 @@ export function upsertToolPartStart(
 ): Part[] {
   const existingIdx = parts.findIndex(
     (part) =>
-      part.type === "tool" && (part as ToolPart).toolCallId === event.toolId,
+      isToolPart(part) && part.toolCallId === event.toolId,
   );
 
   if (existingIdx >= 0) {
-    const existing = parts[existingIdx] as ToolPart;
+    const part = parts[existingIdx];
+    if (!part || !isToolPart(part)) {
+      return parts;
+    }
+    const existing = part;
     const updated = [...parts];
     const startedAt =
       existing.state.status === "running"
@@ -57,11 +62,15 @@ export function upsertToolPartComplete(
 ): Part[] {
   const toolPartIdx = parts.findIndex(
     (part) =>
-      part.type === "tool" && (part as ToolPart).toolCallId === event.toolId,
+      isToolPart(part) && part.toolCallId === event.toolId,
   );
 
   if (toolPartIdx >= 0) {
-    const existing = parts[toolPartIdx] as ToolPart;
+    const part = parts[toolPartIdx];
+    if (!part || !isToolPart(part)) {
+      return parts;
+    }
+    const existing = part;
     let durationMs = 0;
     if (existing.state.status === "running") {
       const startedAtMs = new Date(existing.state.startedAt).getTime();
@@ -119,16 +128,21 @@ export function applyToolPartialResultToParts(
   parts: Part[],
   event: ToolPartialResultEvent,
 ): Part[] {
-  const updatedParts = [...parts];
-  const toolPartIdx = updatedParts.findIndex(
-    (part) => part.type === "tool" && (part as ToolPart).toolCallId === event.toolId,
+  const toolPartIdx = parts.findIndex(
+    (part) => isToolPart(part) && part.toolCallId === event.toolId,
   );
-  if (toolPartIdx >= 0) {
-    const existing = updatedParts[toolPartIdx] as ToolPart;
-    updatedParts[toolPartIdx] = {
-      ...existing,
-      partialOutput: (existing.partialOutput ?? "") + event.partialOutput,
-    };
+  if (toolPartIdx < 0) {
+    return parts;
   }
+  const part = parts[toolPartIdx];
+  if (!part || !isToolPart(part)) {
+    return parts;
+  }
+  const existing = part;
+  const updatedParts = [...parts];
+  updatedParts[toolPartIdx] = {
+    ...existing,
+    partialOutput: (existing.partialOutput ?? "") + event.partialOutput,
+  };
   return updatedParts;
 }

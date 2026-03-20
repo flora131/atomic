@@ -181,3 +181,5 @@ tmux-screenshots/
 .claude/settings.local.json
 
 .playwright-cli
+
+.cocoindex_code

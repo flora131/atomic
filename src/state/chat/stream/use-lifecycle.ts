@@ -55,7 +55,7 @@ export function useChatStreamLifecycle({
   toolNameByIdRef,
   wasInterruptedRef,
 }: UseChatStreamLifecycleArgs): UseChatStreamLifecycleResult {
-  const { handleStreamStartupError, terminateAgentLifecycleContractViolation } = useChatStreamErrors({
+  const { handleStreamStartupError } = useChatStreamErrors({
     continueQueuedConversationRef,
     currentModelRef,
     finalizeThinkingSourceTracking,
@@ -139,6 +139,5 @@ export function useChatStreamLifecycle({
     handleStreamComplete,
     handleStreamStartupError,
     startAssistantStream,
-    terminateAgentLifecycleContractViolation,
   };
 }

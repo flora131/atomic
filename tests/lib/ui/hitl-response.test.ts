@@ -42,19 +42,7 @@ describe("normalizeHitlAnswer", () => {
 });
 
 describe("getHitlResponseRecord", () => {
-  test("extracts legacy output shape", () => {
-    const result = getHitlResponseRecord({
-      output: {
-        answer: "",
-        cancelled: false,
-      },
-    });
-
-    expect(result).toBeTruthy();
-    expect(result?.displayText).toBe('User answered: ""');
-  });
-
-  test("prefers structured hitlResponse field", () => {
+  test("returns hitlResponse field when present", () => {
     const record: HitlResponseRecord = {
       cancelled: false,
       responseMode: "custom_input",
@@ -68,5 +56,12 @@ describe("getHitlResponseRecord", () => {
     });
 
     expect(result).toEqual(record);
+  });
+
+  test("returns null when no hitlResponse", () => {
+    const result = getHitlResponseRecord({
+      output: { answer: "some output" },
+    });
+    expect(result).toBeNull();
   });
 });

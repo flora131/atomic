@@ -14,7 +14,7 @@ import { existsSync, readFileSync, unlinkSync, renameSync, readdirSync } from "f
 import { join } from "path";
 import { logs, SeverityNumber } from "@opentelemetry/api-logs";
 import { useAzureMonitor, shutdownAzureMonitor } from "@azure/monitor-opentelemetry";
-import { getEventsFilePath } from "@/services/telemetry/telemetry-cli.ts";
+import { getEventsFilePath } from "@/services/telemetry/telemetry-file-io.ts";
 import { isTelemetryEnabledSync } from "@/services/telemetry/telemetry.ts";
 import { getBinaryDataDir } from "@/services/config/config-path.ts";
 import { handleTelemetryError } from "@/services/telemetry/telemetry-errors.ts";

@@ -103,7 +103,7 @@ describe("atomic-config", () => {
       expect(saved.scm).toBe("sapling");
     });
 
-    test("removes legacy agent when rewriting settings", async () => {
+    test("preserves all existing fields when rewriting settings", async () => {
       mkdirSync(join(projectDir, ".atomic"), { recursive: true });
       writeFileSync(
         localSettingsPath(),
@@ -114,7 +114,7 @@ describe("atomic-config", () => {
       await saveAtomicConfig(projectDir, { scm: "github" });
 
       const saved = JSON.parse(readFileSync(localSettingsPath(), "utf-8")) as Record<string, unknown>;
-      expect(saved.agent).toBeUndefined();
+      expect(saved.agent).toBe("claude");
       expect(saved.model).toEqual({ claude: "opus" });
       expect(saved.scm).toBe("github");
     });

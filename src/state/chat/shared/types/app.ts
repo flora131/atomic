@@ -1,4 +1,3 @@
-import type { SyntaxStyle } from "@opentui/core";
 import type { AskUserQuestionEventData } from "@/services/workflows/graph/index.ts";
 import type { CreateSessionFn } from "@/services/workflows/graph/types.ts";
 import type { AgentType, ModelOperations } from "@/services/models/index.ts";
@@ -70,14 +69,10 @@ export interface ChatAppProps {
   onInterrupt?: OnInterrupt;
   onTerminateBackgroundAgents?: OnTerminateBackgroundAgents;
   setStreamingState?: (isStreaming: boolean) => void;
-  placeholder?: string;
-  title?: string;
-  syntaxStyle?: SyntaxStyle;
   version?: string;
   model?: string;
   tier?: string;
   workingDir?: string;
-  suggestion?: string;
   getSession?: () => import("@/services/agents/types.ts").Session | null;
   ensureSession?: () => Promise<void>;
   onWorkflowResumeWithAnswer?: (requestId: string, answer: string | string[]) => void;

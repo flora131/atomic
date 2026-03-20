@@ -22,6 +22,12 @@ describe("formatTranscript HITL rendering", () => {
             answer: "",
             cancelled: false,
           },
+          hitlResponse: {
+            cancelled: false,
+            responseMode: "option",
+            answerText: "",
+            displayText: 'User answered: ""',
+          },
           state: { status: "completed", output: { answer: "", cancelled: false }, durationMs: 0 },
           createdAt: new Date().toISOString(),
         },

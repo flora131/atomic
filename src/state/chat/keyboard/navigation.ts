@@ -1,6 +1,6 @@
-import type { MutableRefObject } from "react";
+import type { RefObject } from "react";
 import type { KeyEvent, ScrollBoxRenderable, TextareaRenderable } from "@opentui/core";
-import { navigateDown, navigateUp } from "@/components/autocomplete.tsx";
+import { navigateDown, navigateUp } from "@/lib/ui/navigation.ts";
 import { globalRegistry } from "@/commands/tui/index.ts";
 import type { UseMessageQueueReturn } from "@/hooks/use-message-queue.ts";
 import type { CommandExecutionTrigger, WorkflowChatState } from "@/state/chat/shared/types/index.ts";
@@ -23,16 +23,16 @@ function replaceTextareaValue(textarea: TextareaRenderable, value: string) {
 interface HandleNavigationKeyArgs {
   autocompleteSuggestions: ChatAutocompleteSuggestion[];
   event: KeyEvent;
-  historyIndexRef: MutableRefObject<number>;
-  historyNavigatingRef: MutableRefObject<boolean>;
+  historyIndexRef: RefObject<number>;
+  historyNavigatingRef: RefObject<boolean>;
   isEditingQueue: boolean;
   isStreaming: boolean;
   messageQueue: UseMessageQueueReturn;
-  promptHistoryRef: MutableRefObject<string[]>;
-  savedInputRef: MutableRefObject<string>;
-  scrollboxRef: MutableRefObject<ScrollBoxRenderable | null>;
+  promptHistoryRef: RefObject<string[]>;
+  savedInputRef: RefObject<string>;
+  scrollboxRef: RefObject<ScrollBoxRenderable | null>;
   setIsEditingQueue: (value: boolean) => void;
-  textareaRef: MutableRefObject<TextareaRenderable | null>;
+  textareaRef: RefObject<TextareaRenderable | null>;
   updateWorkflowState: (updates: Partial<WorkflowChatState>) => void;
   workflowState: WorkflowChatState;
 }
@@ -225,7 +225,7 @@ export function handleNavigationKey({
 
 interface HandleComposeShortcutKeyArgs {
   event: KeyEvent;
-  textareaRef: MutableRefObject<TextareaRenderable | null>;
+  textareaRef: RefObject<TextareaRenderable | null>;
 }
 
 export function handleComposeShortcutKey({
@@ -250,7 +250,7 @@ interface HandleAutocompleteSelectionKeyArgs {
   event: KeyEvent;
   executeCommand: (commandName: string, args: string, trigger?: CommandExecutionTrigger) => Promise<boolean>;
   kittyKeyboardDetected: boolean;
-  textareaRef: MutableRefObject<TextareaRenderable | null>;
+  textareaRef: RefObject<TextareaRenderable | null>;
   updateWorkflowState: (updates: Partial<WorkflowChatState>) => void;
   workflowState: WorkflowChatState;
 }

@@ -13,8 +13,7 @@ import {
   note,
   log,
 } from "@clack/prompts";
-import { dirname, join, resolve } from "path";
-import { mkdir, readdir } from "fs/promises";
+import { join, resolve } from "path";
 
 import {
   AGENT_CONFIG,
@@ -29,7 +28,7 @@ import {
 import { displayBanner } from "@/theme/banner/index.ts";
 import { pathExists } from "@/services/system/copy.ts";
 import { detectInstallationType, getConfigRoot } from "@/services/config/config-path.ts";
-import { isWindows, isWslInstalled, WSL_INSTALL_URL, getOppositeScriptExtension } from "@/services/system/detect.ts";
+import { isWindows, isWslInstalled, WSL_INSTALL_URL } from "@/services/system/detect.ts";
 import { trackAtomicCommand, handleTelemetryConsent, type AgentType } from "@/services/telemetry/index.ts";
 import { saveAtomicConfig } from "@/services/config/atomic-config.ts";
 import { upsertTrustedWorkspacePath } from "@/services/config/settings.ts";

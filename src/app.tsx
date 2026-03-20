@@ -18,6 +18,7 @@ import { AppErrorBoundary } from "@/components/error-exit-screen.tsx";
 import { initTreeSitterAssets } from "@/services/terminal/tree-sitter-assets.ts";
 import { initializeCommandsAsync } from "@/commands/tui/index.ts";
 import { EventBusProvider } from "@/services/events/event-bus-provider.tsx";
+import { AnimationTickProvider } from "@/hooks/use-animation-tick.tsx";
 import type {
   CodingAgentClient,
   SessionConfig,
@@ -38,10 +39,6 @@ export interface ChatUIConfig {
   providerDiscoveryPlan?: ProviderDiscoveryPlan;
   /** Initial theme (defaults to dark) */
   theme?: Theme;
-  /** Title for the chat window */
-  title?: string;
-  /** Placeholder text for the input */
-  placeholder?: string;
   /** Application version for header */
   version?: string;
   /** Model name for header */
@@ -50,8 +47,6 @@ export interface ChatUIConfig {
   tier?: string;
   /** Working directory for header */
   workingDir?: string;
-  /** Suggestion text for header */
-  suggestion?: string;
   /** Agent type for model operations */
   agentType?: import("@/services/models/index.ts").AgentType;
   /** Initial prompt to auto-submit on session start */
@@ -108,13 +103,10 @@ export async function startChatUI(
     sessionConfig,
     providerDiscoveryPlan,
     theme = darkTheme,
-    title = "Atomic Chat",
-    placeholder = "Type a message...",
     version,
     model,
     tier,
     workingDir,
-    suggestion,
     agentType,
     initialPrompt,
     workflowEnabled = false,
@@ -200,23 +192,23 @@ export async function startChatUI(
         {
           initialTheme: theme,
           children: React.createElement(
-            EventBusProvider,
-            {
-              bus: state.bus,
-              dispatcher: state.dispatcher,
-              children: React.createElement(
-                AppErrorBoundary,
-                {
+            AnimationTickProvider,
+            null,
+            React.createElement(
+              EventBusProvider,
+              {
+                bus: state.bus,
+                dispatcher: state.dispatcher,
+                children: React.createElement(
+                  AppErrorBoundary,
+                  {
                     onExit: () => { void controller.cleanup(); },
                     isDark: theme.isDark,
                     children: React.createElement(ChatApp, {
-                      title,
-                    placeholder,
-                    version,
-                    model,
-                    tier,
-                    workingDir,
-                    suggestion,
+                      version,
+                      model,
+                      tier,
+                      workingDir,
                       agentType: resolvedAgentType,
                       modelOps,
                       initialModelId: sessionConfig?.model,
@@ -238,12 +230,13 @@ export async function startChatUI(
                       onCommandExecutionTelemetry: controller.handleCommandTelemetry,
                       onMessageSubmitTelemetry: controller.handleMessageTelemetry,
                     }),
-                }
-              ),
-            }
+                  },
+                ),
+              },
+            ),
           ),
-        }
-      )
+        },
+      ),
     );
   } catch (error) {
     await controller.cleanup();
@@ -354,22 +347,21 @@ export {
 // Components
 export {
   Autocomplete,
-  navigateUp,
-  navigateDown,
   useAutocompleteKeyboard,
   type AutocompleteProps,
   type KeyboardHandlerResult,
   type UseAutocompleteKeyboardOptions,
 } from "@/components/autocomplete.tsx";
 
+export { navigateUp, navigateDown } from "@/lib/ui/navigation.ts";
+
 export {
   UserQuestionDialog,
   toggleSelection,
   type UserQuestionDialogProps,
-  type UserQuestion,
-  type QuestionOption,
-  type QuestionAnswer,
 } from "@/components/user-question-dialog.tsx";
+
+export type { UserQuestion, QuestionOption, QuestionAnswer } from "@/state/chat/shared/types/hitl.ts";
 
 export {
   ToolResult,

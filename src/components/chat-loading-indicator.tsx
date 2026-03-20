@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { useThemeColors } from "@/theme/index.tsx";
 import { ARROW, MISC, SPINNER_COMPLETE, SPINNER_FRAMES } from "@/theme/icons.ts";
 import { formatDuration } from "@/lib/ui/format.ts";
 import { getLoadingIndicatorText } from "@/state/chat/shared/helpers/index.ts";
+import { useBlinkAnimation, useSpinnerAnimation } from "@/hooks/use-animation-tick.tsx";
 
 interface LoadingIndicatorProps {
   speed?: number;
@@ -42,20 +43,12 @@ export function LoadingIndicator({
   isStreaming,
 }: LoadingIndicatorProps): React.ReactNode {
   const themeColors = useThemeColors();
-  const [frameIndex, setFrameIndex] = useState(0);
+  const frameIndex = useSpinnerAnimation(SPINNER_FRAMES.length, speed);
   const verb = getLoadingIndicatorText({
     isStreaming: isStreaming ?? true,
     verbOverride,
     thinkingMs,
   });
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setFrameIndex((prev) => (prev + 1) % SPINNER_FRAMES.length);
-    }, speed);
-
-    return () => clearInterval(interval);
-  }, [speed]);
 
   const spinChar = SPINNER_FRAMES[frameIndex] as string;
   const parts: string[] = [];
@@ -98,7 +91,7 @@ export function CompletionSummary({
   const verb = thinkingMs != null && thinkingMs >= 1000
     ? "Reasoned"
     : "Composed";
-  const [spinChar] = useState(() => SPINNER_COMPLETE);
+  const spinChar = SPINNER_COMPLETE;
 
   const parts: string[] = [`${verb} for ${formatCompletionDuration(durationMs)}`];
   if (outputTokens != null && outputTokens > 0) {
@@ -124,14 +117,7 @@ export function StreamingBullet({
   speed?: number;
 }): React.ReactNode {
   const themeColors = useThemeColors();
-  const [visible, setVisible] = useState(true);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setVisible((prev) => !prev);
-    }, speed);
-    return () => clearInterval(interval);
-  }, [speed]);
+  const visible = useBlinkAnimation(speed);
 
   return (
     <text>

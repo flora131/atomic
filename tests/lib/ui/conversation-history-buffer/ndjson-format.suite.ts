@@ -12,7 +12,6 @@ import {
   cleanupConversationHistoryBuffer,
   makeChatMessages,
   resetConversationHistoryBuffer,
-  writeBufferContents,
 } from "./support.ts";
 
 describe("conversation-history-buffer", () => {
@@ -65,14 +64,6 @@ describe("conversation-history-buffer", () => {
       expect(rawAfterSecond.split("\n").filter(Boolean)).toHaveLength(4);
     });
 
-    test("readHistoryBuffer handles legacy JSON array format (migration)", async () => {
-      writeBufferContents(JSON.stringify(makeChatMessages(3)));
-
-      const result = await readHistoryBuffer();
-      expect(result).toHaveLength(3);
-      expect(result[0]?.id).toBe("m1");
-      expect(result[2]?.id).toBe("m3");
-    });
 
     test("file permissions are set to 0600", async () => {
       if (process.platform === "win32") return;

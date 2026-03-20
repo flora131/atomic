@@ -17,37 +17,28 @@ import {
   interruptStreaming,
 } from "@/state/chat/keyboard/interrupt-execution.ts";
 import type { UseChatKeyboardArgs } from "@/state/chat/keyboard/types.ts";
-import { useBackgroundTerminationControls } from "@/state/chat/keyboard/use-background-termination-controls.ts";
 import { useInterruptConfirmation } from "@/state/chat/keyboard/use-interrupt-confirmation.ts";
 
 export function useChatInterruptControls({
   activeBackgroundAgentCountRef,
-  activeQuestion,
   activeHitlToolCallIdRef,
-  addMessage,
   awaitedStreamRunIdsRef,
-  backgroundAgentMessageIdRef,
   clearDeferredCompletion,
   continueQueuedConversation,
   finalizeTaskItemsOnInterrupt,
   finalizeThinkingSourceTracking,
   getActiveStreamRunId,
-  handleCopy,
-  hasRendererSelection,
   onExit,
   onInterrupt,
   onTerminateBackgroundAgents,
-  parallelAgents,
   parallelAgentsRef,
   parallelInterruptHandlerRef,
   resetHitlState,
   resolveTrackedRun,
   setActiveBackgroundAgentCount,
-  setBackgroundAgentMessageId,
   setMessagesWindowed,
   setParallelAgents,
   shouldHideActiveStreamContent,
-  showModelSelector,
   stopSharedStreamState,
   streamingMessageIdRef,
   streamingMetaRef,
@@ -56,45 +47,34 @@ export function useChatInterruptControls({
   updateWorkflowState,
   wasInterruptedRef,
   waitForUserInputResolverRef,
-  workflowActiveRef,
   workflowState,
   lastStreamingContentRef,
-  lastStreamedMessageIdRef,
   separateAndInterruptAgents,
   isStreamingRef,
 }: Pick<
   UseChatKeyboardArgs,
   | "activeBackgroundAgentCountRef"
-  | "activeQuestion"
   | "activeHitlToolCallIdRef"
-  | "addMessage"
   | "awaitedStreamRunIdsRef"
-  | "backgroundAgentMessageIdRef"
   | "clearDeferredCompletion"
   | "continueQueuedConversation"
   | "finalizeTaskItemsOnInterrupt"
   | "finalizeThinkingSourceTracking"
   | "getActiveStreamRunId"
-  | "handleCopy"
-  | "hasRendererSelection"
   | "isStreamingRef"
-  | "lastStreamedMessageIdRef"
   | "lastStreamingContentRef"
   | "onExit"
   | "onInterrupt"
   | "onTerminateBackgroundAgents"
-  | "parallelAgents"
   | "parallelAgentsRef"
   | "parallelInterruptHandlerRef"
   | "resetHitlState"
   | "resolveTrackedRun"
   | "separateAndInterruptAgents"
   | "setActiveBackgroundAgentCount"
-  | "setBackgroundAgentMessageId"
   | "setMessagesWindowed"
   | "setParallelAgents"
   | "shouldHideActiveStreamContent"
-  | "showModelSelector"
   | "stopSharedStreamState"
   | "streamingMessageIdRef"
   | "streamingMetaRef"
@@ -103,7 +83,6 @@ export function useChatInterruptControls({
   | "updateWorkflowState"
   | "wasInterruptedRef"
   | "waitForUserInputResolverRef"
-  | "workflowActiveRef"
   | "workflowState"
 >) {
   const {
@@ -112,27 +91,27 @@ export function useChatInterruptControls({
     interruptCount,
     scheduleInterruptConfirmation,
   } = useInterruptConfirmation();
-  const {
-    ctrlFPressed,
-    handleBackgroundTerminationKey,
-    isBackgroundTerminationKey,
-  } = useBackgroundTerminationControls({
-    activeBackgroundAgentCountRef,
-    addMessage,
-    backgroundAgentMessageIdRef,
-    clearDeferredCompletion,
-    lastStreamedMessageIdRef,
-    onTerminateBackgroundAgents,
-    parallelAgents,
-    parallelAgentsRef,
-    setActiveBackgroundAgentCount,
-    setBackgroundAgentMessageId,
-    setMessagesWindowed,
-    setParallelAgents,
-    streamingMessageIdRef,
-    streamingStartRef,
-    workflowActiveRef,
-  });
+
+  const terminateActiveBackgroundAgents = useCallback(() => {
+    const activeBackgroundAgents = getActiveBackgroundAgents(parallelAgentsRef.current);
+    if (activeBackgroundAgents.length > 0) {
+      void executeBackgroundTermination({
+        getAgents: () => parallelAgentsRef.current,
+        onTerminateBackgroundAgents,
+      }).then((result) => {
+        if (result.status === "terminated" && result.interruptedIds.length > 0) {
+          const interruptedIdSet = new Set(result.interruptedIds);
+          const remainingLiveAgents = result.agents.filter(
+            (agent) => !interruptedIdSet.has(agent.id),
+          );
+          parallelAgentsRef.current = remainingLiveAgents;
+          setParallelAgents(remainingLiveAgents);
+        }
+        activeBackgroundAgentCountRef.current = 0;
+        setActiveBackgroundAgentCount(0);
+      });
+    }
+  }, [activeBackgroundAgentCountRef, onTerminateBackgroundAgents, parallelAgentsRef, setActiveBackgroundAgentCount, setParallelAgents]);
 
   const cancelWorkflow = useCallback(() => {
     updateWorkflowState({ workflowActive: false, workflowType: null, initialPrompt: null });
@@ -142,13 +121,7 @@ export function useChatInterruptControls({
     }
   }, [updateWorkflowState, waitForUserInputResolverRef]);
 
-  const handleCtrlCKey = useCallback((event: KeyEvent): boolean => {
-    const textarea = textareaRef.current;
-    if (!activeQuestion && !showModelSelector && (textarea?.hasSelection() || hasRendererSelection())) {
-      void handleCopy();
-      return true;
-    }
-
+  const handleCtrlCKey = useCallback((_event: KeyEvent): boolean => {
     if (isStreamingRef.current) {
       onInterrupt?.();
       parallelInterruptHandlerRef.current?.();
@@ -201,26 +174,7 @@ export function useChatInterruptControls({
         wasInterruptedRef,
       });
 
-      // Also terminate any active background agents on Ctrl+C
-      const activeBackgroundAgents = getActiveBackgroundAgents(parallelAgentsRef.current);
-      if (activeBackgroundAgents.length > 0) {
-        void executeBackgroundTermination({
-          getAgents: () => parallelAgentsRef.current,
-          onTerminateBackgroundAgents,
-        }).then((result) => {
-          if (result.status === "terminated" && result.interruptedIds.length > 0) {
-            const interruptedIdSet = new Set(result.interruptedIds);
-            const remainingLiveAgents = result.agents.filter(
-              (agent) => !interruptedIdSet.has(agent.id),
-            );
-            parallelAgentsRef.current = remainingLiveAgents;
-            setParallelAgents(remainingLiveAgents);
-          }
-          // Reset the background agent counter so the spinner stops
-          activeBackgroundAgentCountRef.current = 0;
-          setActiveBackgroundAgentCount(0);
-        });
-      }
+      terminateActiveBackgroundAgents();
 
       if (workflowState.workflowActive) {
         const nextCount = interruptCount + 1;
@@ -269,15 +223,19 @@ export function useChatInterruptControls({
           }),
           wasInterruptedRef,
         });
+        terminateActiveBackgroundAgents();
         return true;
       }
     }
 
-    if (textarea?.plainText) {
-      textarea.gotoBufferHome();
-      textarea.gotoBufferEnd({ select: true });
-      textarea.deleteChar();
-      return true;
+    {
+      const textarea = textareaRef.current;
+      if (textarea?.plainText) {
+        textarea.gotoBufferHome();
+        textarea.gotoBufferEnd({ select: true });
+        textarea.deleteChar();
+        return true;
+      }
     }
 
     const nextCount = interruptCount + 1;
@@ -294,9 +252,7 @@ export function useChatInterruptControls({
     scheduleInterruptConfirmation(nextCount);
     return true;
   }, [
-    activeBackgroundAgentCountRef,
     activeHitlToolCallIdRef,
-    activeQuestion,
     awaitedStreamRunIdsRef,
     cancelWorkflow,
     clearDeferredCompletion,
@@ -305,27 +261,23 @@ export function useChatInterruptControls({
     finalizeTaskItemsOnInterrupt,
     finalizeThinkingSourceTracking,
     getActiveStreamRunId,
-    handleCopy,
-    hasRendererSelection,
     interruptCount,
     isStreamingRef,
     lastStreamingContentRef,
     onExit,
     onInterrupt,
-    onTerminateBackgroundAgents,
     parallelAgentsRef,
     parallelInterruptHandlerRef,
     scheduleInterruptConfirmation,
     separateAndInterruptAgents,
-    setActiveBackgroundAgentCount,
     setMessagesWindowed,
     setParallelAgents,
     shouldHideActiveStreamContent,
-    showModelSelector,
     stopSharedStreamState,
     streamingMessageIdRef,
     streamingMetaRef,
     streamingStartRef,
+    terminateActiveBackgroundAgents,
     textareaRef,
     resolveTrackedRun,
     wasInterruptedRef,
@@ -384,6 +336,7 @@ export function useChatInterruptControls({
         }),
         wasInterruptedRef,
       });
+      terminateActiveBackgroundAgents();
       return true;
     }
 
@@ -416,6 +369,7 @@ export function useChatInterruptControls({
           }),
           wasInterruptedRef,
         });
+        terminateActiveBackgroundAgents();
         return true;
       }
     }
@@ -443,6 +397,7 @@ export function useChatInterruptControls({
     streamingMessageIdRef,
     streamingMetaRef,
     streamingStartRef,
+    terminateActiveBackgroundAgents,
     updateWorkflowState,
     wasInterruptedRef,
     workflowState.showAutocomplete,
@@ -451,10 +406,7 @@ export function useChatInterruptControls({
 
   return {
     ctrlCPressed,
-    ctrlFPressed,
-    handleBackgroundTerminationKey,
     handleCtrlCKey,
     handleEscapeKey,
-    isBackgroundTerminationKey,
   };
 }

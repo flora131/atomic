@@ -7,7 +7,7 @@
  * Reference: Feature 15 - Implement terminal chat UI
  */
 
-import React, { useState, useCallback, useRef } from "react";
+import React, { useState, useRef } from "react";
 import {
   ChatShell,
   useChatStreamRuntime,
@@ -26,6 +26,8 @@ import { useMessageQueue } from "@/hooks/use-message-queue.ts";
 import { useEventBusContext } from "@/services/events/event-bus-provider.tsx";
 
 export * from "@/state/chat/exports.ts";
+
+const EMPTY_MESSAGES: ChatMessage[] = [];
 
 // ============================================================================
 // CHAT APP COMPONENT
@@ -49,7 +51,7 @@ export * from "@/state/chat/exports.ts";
  * ```
  */
 export function ChatApp({
-  initialMessages = [],
+  initialMessages = EMPTY_MESSAGES,
   onSendMessage,
   onStreamMessage,
   onExit,
@@ -57,14 +59,10 @@ export function ChatApp({
   onInterrupt,
   onTerminateBackgroundAgents,
   setStreamingState,
-  placeholder: _placeholder = "Type a message...",
-  title: _title,
-  syntaxStyle: _syntaxStyle,
   version = "0.1.0",
   model = "",
   tier = "",
   workingDir = "~/",
-  suggestion: _suggestion,
   getSession,
   ensureSession,
   onWorkflowResumeWithAnswer,
@@ -80,17 +78,11 @@ export function ChatApp({
   onCommandExecutionTelemetry,
   onMessageSubmitTelemetry,
 }: ChatAppProps): React.ReactNode {
-  // title and suggestion are deprecated, kept for backwards compatibility
-  void _title;
-  void _suggestion;
-
   // Core message state
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingMeta, setStreamingMeta] = useState<StreamingMeta | null>(null);
-  const setMessagesWindowed = useCallback((next: React.SetStateAction<ChatMessage[]>) => {
-    setMessages(next);
-  }, []);
+  const setMessagesWindowed = setMessages;
 
   const [workflowState, setWorkflowState] = useState<WorkflowChatState>(defaultWorkflowChatState);
   const shellState = useChatShellState({

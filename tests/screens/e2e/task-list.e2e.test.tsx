@@ -15,7 +15,6 @@ import {
   type TaskListIndicatorProps,
   type TaskItem,
   TASK_STATUS_ICONS,
-  getStatusColorKey,
 } from "@/components/task-list-indicator.tsx";
 import {
   TaskListBox,

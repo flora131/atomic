@@ -49,6 +49,8 @@ export class StreamRunRuntime {
   private runs = new Map<string, InternalStreamRunRecord>();
   private runIdByMessageId = new Map<string, string>();
   private activeForegroundRunId: string | null = null;
+  /** Maximum number of completed runs to retain for lookup. */
+  private static readonly MAX_COMPLETED_RUNS = 100;
 
   startRun(options: StreamRunStartOptions = {}): StreamRunHandle {
     const visibility = options.visibility ?? "visible";
@@ -201,6 +203,37 @@ export class StreamRunRuntime {
       this.activeForegroundRunId = null;
     }
 
+    this.pruneCompletedRuns();
+
     return result;
+  }
+
+  /**
+   * Remove oldest completed runs when the total exceeds the retention limit.
+   * Prevents the runs Map from growing monotonically over long sessions.
+   */
+  private pruneCompletedRuns(): void {
+    if (this.runs.size <= StreamRunRuntime.MAX_COMPLETED_RUNS) return;
+
+    const completedEntries: [string, InternalStreamRunRecord][] = [];
+    for (const [id, record] of this.runs) {
+      if (record.status !== "running") {
+        completedEntries.push([id, record]);
+      }
+    }
+
+    // Sort by completedAt ascending (oldest first)
+    completedEntries.sort((a, b) => (a[1].completedAt ?? 0) - (b[1].completedAt ?? 0));
+
+    const toRemove = this.runs.size - StreamRunRuntime.MAX_COMPLETED_RUNS;
+    for (let i = 0; i < toRemove && i < completedEntries.length; i++) {
+      const entry = completedEntries[i];
+      if (!entry) continue;
+      const [id, record] = entry;
+      this.runs.delete(id);
+      if (record.messageId) {
+        this.runIdByMessageId.delete(record.messageId);
+      }
+    }
   }
 }

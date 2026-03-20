@@ -159,7 +159,7 @@ describe("getBackgroundSubStatusText", () => {
 
 describe("collectDoneRenderMarkers", () => {
   test("emits markers only once for completed agents until status changes", () => {
-    const emitted = new Set<string>();
+    let emitted = new Set<string>();
     const first = collectDoneRenderMarkers(
       [
         { id: "agent-1", status: "running" },
@@ -167,35 +167,38 @@ describe("collectDoneRenderMarkers", () => {
       ],
       emitted,
     );
-    expect(first).toEqual(["agent-2"]);
+    expect(first.markers).toEqual(["agent-2"]);
+    emitted = first.nextDoneRenderedAgentIds;
 
     const second = collectDoneRenderMarkers(
       [{ id: "agent-2", status: "completed" }],
       emitted,
     );
-    expect(second).toEqual([]);
+    expect(second.markers).toEqual([]);
+    emitted = second.nextDoneRenderedAgentIds;
 
     const third = collectDoneRenderMarkers(
       [{ id: "agent-2", status: "running" }],
       emitted,
     );
-    expect(third).toEqual([]);
+    expect(third.markers).toEqual([]);
+    emitted = third.nextDoneRenderedAgentIds;
 
     const fourth = collectDoneRenderMarkers(
       [{ id: "agent-2", status: "completed" }],
       emitted,
     );
-    expect(fourth).toEqual(["agent-2"]);
+    expect(fourth.markers).toEqual(["agent-2"]);
   });
 
   test("drops emitted ids when agents disappear from the tree", () => {
     const emitted = new Set<string>(["agent-1"]);
-    const markers = collectDoneRenderMarkers(
+    const result = collectDoneRenderMarkers(
       [{ id: "agent-2", status: "completed" }],
       emitted,
     );
-    expect(markers).toEqual(["agent-2"]);
-    expect(emitted.has("agent-1")).toBe(false);
+    expect(result.markers).toEqual(["agent-2"]);
+    expect(result.nextDoneRenderedAgentIds.has("agent-1")).toBe(false);
   });
 
   test("does not emit markers for completed agents hidden by visibility slicing", () => {
@@ -205,9 +208,9 @@ describe("collectDoneRenderMarkers", () => {
       { id: "agent-hidden", status: "completed" as const },
     ];
 
-    const markers = collectDoneRenderMarkers(agents.slice(0, 1), emitted);
-    expect(markers).toEqual([]);
-    expect(emitted.has("agent-hidden")).toBe(false);
+    const result = collectDoneRenderMarkers(agents.slice(0, 1), emitted);
+    expect(result.markers).toEqual([]);
+    expect(result.nextDoneRenderedAgentIds.has("agent-hidden")).toBe(false);
   });
 });
 

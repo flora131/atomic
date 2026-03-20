@@ -1,7 +1,6 @@
 import { join } from "path";
 import { readFile, rename, unlink } from "fs/promises";
 import { getWorkflowSessionDir } from "@/services/workflows/session.ts";
-import type { WorkflowSession } from "@/services/agent-discovery/index.ts";
 import {
   normalizeTodoItem,
   normalizeTodoItems,

@@ -43,7 +43,6 @@ export function useStreamAgentSubscriptions({
   setAgentMessageBinding,
   setParallelAgents,
   streamingMessageIdRef,
-  terminateAgentLifecycleContractViolation,
   toolMessageIdByIdRef,
 }: Pick<
   UseStreamSubscriptionsArgs,
@@ -67,33 +66,13 @@ export function useStreamAgentSubscriptions({
   | "setAgentMessageBinding"
   | "setParallelAgents"
   | "streamingMessageIdRef"
-  | "terminateAgentLifecycleContractViolation"
   | "toolMessageIdByIdRef"
 >): void {
   useBusSubscription("stream.agent.start", (event) => {
     const data = event.data;
     const correlationId = resolveSubagentStartCorrelationId(data);
-    const existingAgent = parallelAgentsRef.current.find((agent) => agent.id === data.agentId);
-    if (
-      agentLifecycleLedgerRef.current.has(data.agentId)
-      && existingAgent
-      && (existingAgent.status === "completed" || existingAgent.status === "error" || existingAgent.status === "interrupted")
-    ) {
-      terminateAgentLifecycleContractViolation({
-        code: "INVALID_TERMINAL_TRANSITION",
-        eventType: "stream.agent.start",
-        agentId: data.agentId,
-      });
-      return;
-    }
-
     const lifecycleTransition = registerAgentLifecycleStart(agentLifecycleLedgerRef.current, data.agentId);
     if (!lifecycleTransition.ok) {
-      terminateAgentLifecycleContractViolation({
-        code: lifecycleTransition.code,
-        eventType: "stream.agent.start",
-        agentId: data.agentId,
-      });
       return;
     }
 
@@ -219,11 +198,6 @@ export function useStreamAgentSubscriptions({
       data.agentId,
     );
     if (!lifecycleTransition.ok) {
-      terminateAgentLifecycleContractViolation({
-        code: lifecycleTransition.code,
-        eventType: "stream.agent.update",
-        agentId: data.agentId,
-      });
       return;
     }
 
@@ -287,11 +261,6 @@ export function useStreamAgentSubscriptions({
       data.agentId,
     );
     if (!lifecycleTransition.ok) {
-      terminateAgentLifecycleContractViolation({
-        code: lifecycleTransition.code,
-        eventType: "stream.agent.complete",
-        agentId: data.agentId,
-      });
       return;
     }
 

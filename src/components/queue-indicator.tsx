@@ -62,10 +62,6 @@ export function getQueueIcon(): string {
   return MISC.queue;
 }
 
-/** @deprecated Use truncateText from utils/format.ts directly */
-export const truncateContent = (content: string, maxLength: number = 20): string =>
-  truncateText(content, maxLength);
-
 // ============================================================================
 // QUEUE INDICATOR COMPONENT
 // ============================================================================
@@ -116,7 +112,7 @@ export function QueueIndicator({
     // Get first message preview
     const firstMessage = queue && queue.length > 0 ? queue[0] : undefined;
     const previewText = firstMessage?.displayContent ?? firstMessage?.content;
-    const preview = previewText ? truncateContent(previewText, queueMaxLength) : "";
+    const preview = previewText ? truncateText(previewText, queueMaxLength) : "";
 
     return (
       <box flexDirection="column" gap={SPACING.NONE}>
@@ -159,7 +155,7 @@ export function QueueIndicator({
         fg={isEditing ? theme.colors.accent : theme.colors.muted}
         attributes={isEditing ? 1 : 0}
       >
-        {prefix}{truncateContent(msg.displayContent ?? msg.content, queueMaxLength)}
+        {prefix}{truncateText(msg.displayContent ?? msg.content, queueMaxLength)}
       </text>
     );
   };

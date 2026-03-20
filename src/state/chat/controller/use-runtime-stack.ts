@@ -116,7 +116,6 @@ export function useChatRuntimeStack({
       setBackgroundAgentMessageId,
       stopSharedStreamState,
       startAssistantStream,
-      terminateAgentLifecycleContractViolation,
     },
   } = runtime;
 
@@ -199,7 +198,6 @@ export function useChatRuntimeStack({
     streamingMessageIdRef,
     streamingMetaRef,
     streamingStartRef,
-    terminateAgentLifecycleContractViolation,
     toolMessageIdByIdRef,
     toolNameByIdRef,
   });

@@ -41,12 +41,6 @@ describe("conversation-history-buffer", () => {
       expect(result).toHaveLength(1);
     });
 
-    test("reads legacy JSON array format via migration detection", async () => {
-      writeBufferContents(JSON.stringify(makeChatMessages(3)));
-      const result = await readHistoryBuffer();
-      expect(result).toHaveLength(3);
-      expect(result[0]?.id).toBe("m1");
-    });
   });
 
   describe("appendToHistoryBuffer", () => {

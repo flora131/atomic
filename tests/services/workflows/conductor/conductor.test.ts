@@ -1858,4 +1858,187 @@ describe("WorkflowSessionConductor", () => {
       expect(events.length).toBeGreaterThan(0);
     });
   });
+
+  // -----------------------------------------------------------------------
+  // Inter-stage Output Truncation (§5.13 spec compliance)
+  // -----------------------------------------------------------------------
+
+  describe("inter-stage output truncation", () => {
+    test("large output is preserved in full when no truncation limits are configured", async () => {
+      // Spec §5.13: "no truncation by default" — full response captured as-is
+      const largeResponse = "x".repeat(100_000); // 100KB, well above the spec's 50K default
+      const graph = buildLinearGraph([agentNode("planner"), agentNode("reviewer")]);
+
+      let reviewerSeenRawResponse = "";
+      const stages = [
+        stage("planner", largeResponse),
+        stage("reviewer", "review output", {
+          buildPrompt: (ctx) => {
+            reviewerSeenRawResponse = ctx.stageOutputs.get("planner")?.rawResponse ?? "";
+            return "review";
+          },
+        }),
+      ];
+
+      // No maxStageOutputBytes configured — truncation should NOT apply
+      const config = buildConfig(graph, async () => createMockSession(largeResponse));
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      // Full output preserved in stageOutputs
+      const plannerOutput = result.stageOutputs.get("planner")!;
+      expect(plannerOutput.rawResponse).toBe(largeResponse);
+      expect(plannerOutput.rawResponse.length).toBe(100_000);
+      expect(plannerOutput.originalByteLength).toBeUndefined();
+
+      // Downstream stage sees the full untruncated output
+      expect(reviewerSeenRawResponse).toBe(largeResponse);
+      expect(reviewerSeenRawResponse.length).toBe(100_000);
+    });
+
+    test("per-stage maxOutputBytes overrides global maxStageOutputBytes", async () => {
+      const longResponse = "y".repeat(500);
+      const graph = buildLinearGraph([agentNode("s1"), agentNode("s2"), agentNode("s3")]);
+
+      const config = buildConfig(graph, async () => createMockSession(longResponse), {
+        maxStageOutputBytes: 200, // global limit: 200 bytes
+      });
+
+      const stages = [
+        // s1: uses global limit (200 bytes) — will be truncated
+        stage("s1", longResponse),
+        // s2: per-stage override disables truncation
+        stage("s2", longResponse, { maxOutputBytes: Infinity }),
+        // s3: per-stage override with tighter limit (100 bytes)
+        stage("s3", longResponse, { maxOutputBytes: 100 }),
+      ];
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      // s1: truncated by global limit
+      const s1Output = result.stageOutputs.get("s1")!;
+      expect(s1Output.rawResponse.length).toBeLessThan(500);
+      expect(s1Output.originalByteLength).toBeDefined();
+
+      // s2: per-stage Infinity overrides global — full output preserved
+      const s2Output = result.stageOutputs.get("s2")!;
+      expect(s2Output.rawResponse).toBe(longResponse);
+      expect(s2Output.originalByteLength).toBeUndefined();
+
+      // s3: per-stage 100 bytes is tighter than global — truncated further
+      const s3Output = result.stageOutputs.get("s3")!;
+      expect(s3Output.rawResponse.length).toBeLessThan(s1Output.rawResponse.length);
+      expect(s3Output.originalByteLength).toBeDefined();
+    });
+
+    test("error and interrupted outputs are not truncated even with limits configured", async () => {
+      // Spec: truncation skipped for error/interrupted outputs
+      const graph = buildLinearGraph([agentNode("planner")]);
+      const config = buildConfig(graph, async () => {
+        const session = createMockSession("");
+        // Override stream to throw an error after producing some output
+        session.stream = async function* () {
+          yield { type: "text" as const, content: "partial output before error" } as AgentMessage;
+          throw new Error("session crashed");
+        };
+        return session;
+      }, {
+        maxStageOutputBytes: 10, // very small limit
+      });
+
+      const stages = [stage("planner", "")];
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      const output = result.stageOutputs.get("planner")!;
+      expect(output.status).toBe("error");
+      // Even though limit is 10 bytes, error output is not truncated
+      expect(output.originalByteLength).toBeUndefined();
+    });
+
+    test("parseOutput receives full untruncated response when truncation is active", async () => {
+      const longResponse = "z".repeat(1000);
+      const graph = buildLinearGraph([agentNode("planner")]);
+
+      let parseOutputReceivedLength = 0;
+      const config = buildConfig(graph, async () => createMockSession(longResponse), {
+        maxStageOutputBytes: 100, // will truncate stored output
+      });
+
+      const stages = [
+        stage("planner", longResponse, {
+          parseOutput: (response: string) => {
+            parseOutputReceivedLength = response.length;
+            return { length: response.length };
+          },
+        }),
+      ];
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      // parseOutput received the full 1000-char response
+      expect(parseOutputReceivedLength).toBe(1000);
+
+      // But stageOutputs rawResponse is truncated
+      const output = result.stageOutputs.get("planner")!;
+      expect(output.rawResponse.length).toBeLessThan(1000);
+      expect(output.originalByteLength).toBeDefined();
+
+      // parsedOutput is still preserved (truncation doesn't affect parsed data)
+      expect(output.parsedOutput).toEqual({ length: 1000 });
+    });
+
+    test("interrupted output preserves accumulated response without truncation", async () => {
+      const graph = buildLinearGraph([agentNode("planner")]);
+      const abortController = new AbortController();
+
+      const config = buildConfig(graph, async () => {
+        const session = createMockSession("");
+        session.stream = async function* (_msg: string, options?: { abortSignal?: AbortSignal }) {
+          yield { type: "text" as const, content: "chunk1 " } as AgentMessage;
+          yield { type: "text" as const, content: "chunk2 " } as AgentMessage;
+          // Abort fires during streaming
+          abortController.abort();
+          // After abort, check signal
+          if (options?.abortSignal?.aborted) {
+            return;
+          }
+          yield { type: "text" as const, content: "chunk3" } as AgentMessage;
+        };
+        return session;
+      }, {
+        abortSignal: abortController.signal,
+        maxStageOutputBytes: 5, // very small limit — should not apply to interrupted
+      });
+
+      const stages = [stage("planner", "")];
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      const output = result.stageOutputs.get("planner")!;
+      expect(output.status).toBe("interrupted");
+      // The accumulated response before abort is preserved, not truncated
+      expect(output.rawResponse).toBe("chunk1 chunk2 ");
+      expect(output.originalByteLength).toBeUndefined();
+    });
+
+    test("maxStageOutputBytes of 0 disables truncation (treated as no limit)", async () => {
+      const longResponse = "a".repeat(500);
+      const graph = buildLinearGraph([agentNode("planner")]);
+
+      const config = buildConfig(graph, async () => createMockSession(longResponse), {
+        maxStageOutputBytes: 0,
+      });
+      const stages = [stage("planner", longResponse)];
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      const output = result.stageOutputs.get("planner")!;
+      expect(output.rawResponse).toBe(longResponse);
+      expect(output.originalByteLength).toBeUndefined();
+    });
+  });
 });

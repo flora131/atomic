@@ -73,8 +73,8 @@ export async function applyCommandResult(
       args.setIsStreaming(result.stateUpdate.isStreaming);
     }
 
-    const modelUpdate = (result.stateUpdate as Record<string, unknown>).model;
-    if (typeof modelUpdate === "string") {
+    const modelUpdate = result.stateUpdate.model;
+    if (modelUpdate !== undefined) {
       args.setCurrentModelId(modelUpdate);
       args.setCurrentModelDisplayName(modelUpdate);
       args.setCurrentReasoningEffort(undefined);

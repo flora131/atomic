@@ -58,15 +58,24 @@ function carryOverInlineParts(
 
     if (!agent.inlineParts || agent.inlineParts.length === 0) {
       if (!isClaudeSyntheticForegroundAgentId(agent.id)) {
-        for (const [key, parts] of existingInlineParts) {
-          if (
-            isClaudeSyntheticForegroundAgentId(key) &&
-            parts.length > 0 &&
-            !claimedKeys.has(key)
-          ) {
-            changed = true;
-            claimedKeys.add(key);
-            return { ...agent, inlineParts: parts };
+        // Only apply synthetic fallback when exactly one non-synthetic agent
+        // qualifies. With multiple parallel agents, we cannot determine which
+        // agent the synthetic parts belong to — carrying them all to the first
+        // agent would misattribute tool calls.
+        const nonSyntheticCount = agents.filter(
+          (a) => !isClaudeSyntheticForegroundAgentId(a.id),
+        ).length;
+        if (nonSyntheticCount === 1) {
+          for (const [key, parts] of existingInlineParts) {
+            if (
+              isClaudeSyntheticForegroundAgentId(key) &&
+              parts.length > 0 &&
+              !claimedKeys.has(key)
+            ) {
+              changed = true;
+              claimedKeys.add(key);
+              return { ...agent, inlineParts: parts };
+            }
           }
         }
       }

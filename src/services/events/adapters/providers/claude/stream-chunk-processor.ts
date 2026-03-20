@@ -7,6 +7,7 @@ import type {
   ClaudeTaskToolMetadata,
 } from "@/services/events/adapters/providers/claude/tool-state.ts";
 import { SubagentToolTracker } from "@/services/events/adapters/subagent-tool-tracker.ts";
+import { toolDebug } from "@/services/events/adapters/providers/claude/tool-debug-log.ts";
 
 type ClaudeStreamChunkProcessorDependencies = {
   bus: EventBus;
@@ -194,10 +195,26 @@ export class ClaudeStreamChunkProcessor {
       this.deps.recordPendingTaskToolCorrelationId(sdkCorrelationId);
     }
 
-    const inferredParentAgentId = this.deps.resolveTaskOutputParentAgentId(toolName, toolInput)
-      ?? this.deps.resolveSoleActiveSubagentId()
-      ?? this.deps.resolveBackgroundAttributionFallbackAgentId()
-      ?? this.deps.resolveSoleActiveSubagentToolParentAgentId();
+    const taskOutputParentAgentId = this.deps.resolveTaskOutputParentAgentId(toolName, toolInput);
+    const soleActiveId = this.deps.resolveSoleActiveSubagentId();
+    const bgFallbackId = this.deps.resolveBackgroundAttributionFallbackAgentId();
+    const activeToolFallbackId = this.deps.resolveSoleActiveSubagentToolParentAgentId();
+    const inferredParentAgentId = taskOutputParentAgentId
+      ?? soleActiveId
+      ?? bgFallbackId
+      ?? activeToolFallbackId;
+
+    toolDebug("chunkToolStart:attribution", {
+      sdkCorrelationId,
+      toolName,
+      toolId,
+      taskOutputParentAgentId,
+      soleActiveId,
+      bgFallbackId,
+      activeToolFallbackId,
+      inferredParentAgentId,
+    });
+
     if (inferredParentAgentId) {
       this.deps.recordActiveSubagentToolContext(
         toolId,
@@ -259,6 +276,15 @@ export class ClaudeStreamChunkProcessor {
     const toolId = this.deps.resolveToolCompleteId(explicitToolId, runId, toolName);
     const activeContext = this.deps.resolveActiveSubagentToolContext(toolId, explicitToolId);
     this.deps.removeActiveSubagentToolContext(toolId, explicitToolId);
+
+    toolDebug("chunkToolComplete:attribution", {
+      toolId,
+      toolName,
+      explicitToolId,
+      activeContextParentAgentId: activeContext?.parentAgentId,
+      hasTrackerAgent: activeContext ? this.deps.getSubagentTracker()?.hasAgent(activeContext.parentAgentId) : false,
+    });
+
     if (activeContext && this.deps.getSubagentTracker()?.hasAgent(activeContext.parentAgentId)) {
       this.deps.getSubagentTracker()?.onToolComplete(activeContext.parentAgentId);
     }

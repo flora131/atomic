@@ -6,6 +6,8 @@ import { describe, test, expect } from "bun:test";
 import { ralphWorkflowDefinition, ralphNodeDescriptions } from "@/services/workflows/ralph/definition.ts";
 import { VERSION } from "@/version.ts";
 import type { RalphWorkflowState } from "@/services/workflows/ralph/state.ts";
+import { RALPH_STAGES } from "@/services/workflows/ralph/stages.ts";
+import { isStageDefinition } from "@/services/workflows/conductor/guards.ts";
 
 describe("Ralph Workflow Definition", () => {
     test("exports ralphNodeDescriptions with all expected nodes", () => {
@@ -82,6 +84,47 @@ describe("Ralph Workflow Definition", () => {
         for (const [nodeId, description] of Object.entries(ralphNodeDescriptions)) {
             expect(description).toMatch(/^[⌕☰◎⚙◉⚒]/); // Starts with emoji
             expect(description.length).toBeGreaterThan(10); // Has descriptive text
+        }
+    });
+
+    // -------------------------------------------------------------------------
+    // Conductor integration
+    // -------------------------------------------------------------------------
+
+    test("conductorStages is set to RALPH_STAGES", () => {
+        expect(ralphWorkflowDefinition.conductorStages).toBe(RALPH_STAGES);
+    });
+
+    test("conductorStages contains 4 valid stage definitions", () => {
+        const stages = ralphWorkflowDefinition.conductorStages!;
+        expect(stages).toHaveLength(4);
+        for (const stage of stages) {
+            expect(isStageDefinition(stage)).toBe(true);
+        }
+    });
+
+    test("conductorStages IDs match expected sequence", () => {
+        const ids = ralphWorkflowDefinition.conductorStages!.map((s) => s.id);
+        expect(ids).toEqual(["planner", "orchestrator", "reviewer", "debugger"]);
+    });
+
+    test("createConductorGraph is a function", () => {
+        expect(typeof ralphWorkflowDefinition.createConductorGraph).toBe("function");
+    });
+
+    test("createConductorGraph produces a valid compiled graph", () => {
+        const graph = ralphWorkflowDefinition.createConductorGraph!();
+        expect(graph.nodes.size).toBe(4);
+        expect(graph.startNode).toBe("planner");
+        expect(graph.endNodes.has("debugger")).toBe(true);
+        expect(graph.edges).toHaveLength(3);
+    });
+
+    test("conductor graph node IDs match conductor stage IDs", () => {
+        const graph = ralphWorkflowDefinition.createConductorGraph!();
+        const stageIds = ralphWorkflowDefinition.conductorStages!.map((s) => s.id);
+        for (const stageId of stageIds) {
+            expect(graph.nodes.has(stageId)).toBe(true);
         }
     });
 });

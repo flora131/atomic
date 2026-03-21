@@ -19,7 +19,7 @@
 
 import { describe, expect, test, mock, beforeEach } from "bun:test";
 import type { StageDefinition, StageContext } from "@/services/workflows/conductor/types.ts";
-import type { WorkflowDefinition } from "@/services/workflows/workflow-types.ts";
+import type { WorkflowDefinition } from "@/services/workflows/types/index.ts";
 import type { CommandContext } from "@/types/command.ts";
 import type { BusEvent } from "@/services/events/bus-events/types.ts";
 import type { BusEventDataMap } from "@/services/events/bus-events/types.ts";

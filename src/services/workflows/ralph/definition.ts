@@ -5,7 +5,7 @@
  * into a single WorkflowDefinition object for the workflow registry.
  */
 
-import type { WorkflowDefinition, WorkflowStateParams } from "@/services/workflows/workflow-types.ts";
+import type { WorkflowDefinition, WorkflowStateParams } from "@/services/workflows/types/index.ts";
 import { createRalphState } from "@/services/workflows/ralph/state.ts";
 import { createRalphConductorGraph } from "@/services/workflows/ralph/conductor-graph.ts";
 import { VERSION } from "@/version.ts";

@@ -15,7 +15,7 @@
  */
 
 import type { BaseState, CompiledGraph } from "@/services/workflows/graph/types.ts";
-import type { WorkflowDefinition } from "@/services/workflows/workflow-types.ts";
+import type { WorkflowDefinition } from "@/services/workflows/types/index.ts";
 import type { CommandContext, CommandResult } from "@/types/command.ts";
 import type { ConductorConfig } from "@/services/workflows/conductor/types.ts";
 import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";

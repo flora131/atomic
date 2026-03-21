@@ -1,5 +1,5 @@
-import type { WorkflowCommandState } from "@/services/workflows/workflow-types.ts";
-import { defaultWorkflowCommandState } from "@/services/workflows/workflow-types.ts";
+import type { WorkflowCommandState } from "@/services/workflows/types/index.ts";
+import { defaultWorkflowCommandState } from "@/services/workflows/types/index.ts";
 
 export interface WorkflowChatState {
   showAutocomplete: boolean;

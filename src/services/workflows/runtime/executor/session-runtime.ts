@@ -1,5 +1,5 @@
 import { pipelineError } from "@/services/events/pipeline-logger.ts";
-import type { WorkflowDefinition } from "@/services/workflows/workflow-types.ts";
+import type { WorkflowDefinition } from "@/services/workflows/types/index.ts";
 import { registerActiveSession } from "@/services/agent-discovery/index.ts";
 import type { CommandContext } from "@/types/command.ts";
 import { getWorkflowSessionDir, initWorkflowSession } from "@/services/workflows/session.ts";

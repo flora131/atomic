@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { parseSlashCommand } from "@/commands/tui/index.ts";
 import { deriveComposerAutocompleteState } from "@/state/chat/composer/autocomplete.ts";
 import type { WorkflowChatState } from "@/state/chat/shared/types/index.ts";
-import { defaultWorkflowCommandState } from "@/services/workflows/workflow-types.ts";
+import { defaultWorkflowCommandState } from "@/services/workflows/types/index.ts";
 
 const baseWorkflowState: WorkflowChatState = {
   showAutocomplete: false,

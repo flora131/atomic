@@ -1,7 +1,7 @@
 import type { BaseState, CompiledGraph, GraphConfig, NodeDefinition } from "@/services/workflows/graph/types.ts";
 import { SubagentTypeRegistry } from "@/services/workflows/graph/subagent-registry.ts";
 import { discoverAgentInfos } from "@/services/agent-discovery/index.ts";
-import type { WorkflowGraphConfig } from "@/services/workflows/workflow-types.ts";
+import type { WorkflowGraphConfig } from "@/services/workflows/types/index.ts";
 
 export function compileGraphConfig<TState extends BaseState>(
   graphConfig: WorkflowGraphConfig<TState>,

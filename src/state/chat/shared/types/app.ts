@@ -1,7 +1,7 @@
 import type { AskUserQuestionEventData } from "@/services/workflows/graph/index.ts";
 import type { CreateSessionFn } from "@/services/workflows/graph/types.ts";
 import type { AgentType, ModelOperations } from "@/services/models/index.ts";
-import type { McpServerConfig } from "@/services/agents/types.ts";
+import type { McpServerConfig, Session } from "@/services/agents/types.ts";
 import type { ChatMessage } from "@/state/chat/shared/types/message.ts";
 
 export type OnToolStart = (
@@ -82,6 +82,16 @@ export interface ChatAppProps {
     modelHint?: string,
   ) => Promise<import("@/services/agents/types.ts").ModelDisplayInfo>;
   createSubagentSession?: CreateSessionFn;
+  /**
+   * Stream a message through a specific session using the real SDK adapter
+   * pipeline, returning the captured response text. Used by the workflow
+   * conductor for full rendering parity per stage.
+   */
+  streamWithSession?: (
+    session: Session,
+    prompt: string,
+    options?: { abortSignal?: AbortSignal },
+  ) => Promise<string>;
   initialPrompt?: string;
   /** Maximum graph traversal steps for the conductor (overrides default 100) */
   maxIterations?: number;

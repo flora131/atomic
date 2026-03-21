@@ -78,6 +78,18 @@ export interface CommandContext {
   spawnSubagentParallel?: (agents: SubagentSpawnOptions[], abortSignal?: AbortSignal, onAgentComplete?: (result: SubagentStreamResult) => void) => Promise<SubagentStreamResult[]>;
   /** Create a fresh isolated agent session (used by the conductor for per-stage sessions). */
   createAgentSession?: (config?: SessionConfig) => Promise<Session>;
+  /**
+   * Stream a message through a specific session using the real SDK adapter
+   * pipeline, capturing the full response text. Used by the workflow conductor
+   * to give each stage full rendering parity with normal chat.
+   *
+   * Returns the captured response text after streaming completes.
+   */
+  streamWithSession?: (
+    session: Session,
+    prompt: string,
+    options?: { abortSignal?: AbortSignal },
+  ) => Promise<string>;
   streamAndWait: (prompt: string, options?: { hideContent?: boolean }) => Promise<StreamResult>;
   clearContext: () => Promise<void>;
   setTodoItems: (items: TodoItem[]) => void;

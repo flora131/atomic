@@ -364,6 +364,22 @@ export interface ConductorConfig {
   readonly destroySession: (session: Session) => Promise<void>;
 
   /**
+   * Stream a prompt through a session using the full SDK adapter pipeline,
+   * returning the captured response text. When provided, the conductor
+   * uses this instead of the bare `session.stream()` loop, giving each
+   * stage full rendering parity with normal chat (streaming text, thinking
+   * blocks, tool calls, etc. all flow through the EventBus → UI pipeline).
+   *
+   * When omitted, the conductor falls back to iterating `session.stream()`
+   * directly (useful for unit tests that don't have a bus/adapter).
+   */
+  readonly streamSession?: (
+    session: Session,
+    prompt: string,
+    options?: { abortSignal?: AbortSignal },
+  ) => Promise<string>;
+
+  /**
    * Called when the conductor transitions between stages.
    * `from` is `null` for the first stage.
    *

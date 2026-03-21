@@ -26,6 +26,7 @@ export function useChatUiControllerStack({
 }: UseChatUiControllerStackArgs) {
   const {
     createSubagentSession,
+    streamWithSession,
     ensureSession,
     getModelDisplayInfo,
     getSession,
@@ -190,6 +191,7 @@ export function useChatUiControllerStack({
     clearHistoryBufferAndSync,
     continueQueuedConversation,
     createSubagentSession,
+    streamWithSession,
     currentModelRef,
     deferredCommandQueueRef,
     dispatchDeferredCommandMessageRef,

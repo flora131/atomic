@@ -8,7 +8,8 @@ import { cleanupMcpBridgeScripts } from "@/services/agents/tools/opencode-mcp-br
 import { SessionExpiredError } from "@/services/events/adapters/provider-shared.ts";
 import { registerAgentToolNames } from "@/components/tool-registry/registry/index.ts";
 import { createChatUIRuntimeState } from "@/state/runtime/chat-ui-runtime-state.ts";
-import { createStreamAdapter } from "@/state/runtime/chat-ui-stream-adapter.ts";
+import { createStreamAdapter, createStreamAdapterForSession } from "@/state/runtime/chat-ui-stream-adapter.ts";
+import type { Session } from "@/services/agents/contracts/session.ts";
 import { clearAgentEventBuffer } from "@/state/streaming/pipeline.ts";
 import type {
   ChatUIDebugSubscription,
@@ -571,6 +572,49 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
     return session;
   };
 
+  /**
+   * Stream a message through a specific session using the real SDK adapter
+   * pipeline, capturing the full response text. Each stage session gets its
+   * own adapter + runId so the ownership tracker auto-registers via
+   * `stream.session.start` and all events flow through the standard
+   * BatchDispatcher → StreamPipelineConsumer → UI path.
+   */
+  const streamWithSession = async (
+    targetSession: Session,
+    prompt: string,
+    options?: { abortSignal?: AbortSignal },
+  ): Promise<string> => {
+    const adapter = createStreamAdapterForSession({
+      bus: state.bus,
+      sessionId: targetSession.id,
+      client,
+      agentType: resolvedAgentType,
+    });
+
+    const thisRunId = ++state.runCounter;
+    const messageId = crypto.randomUUID();
+    let capturedText = "";
+
+    const unsubscribe = state.bus.on("stream.text.delta", (event) => {
+      if (event.runId === thisRunId && typeof event.data?.delta === "string") {
+        capturedText += event.data.delta;
+      }
+    });
+
+    try {
+      await adapter.startStreaming(targetSession, prompt, {
+        runId: thisRunId,
+        messageId,
+        abortSignal: options?.abortSignal,
+      });
+    } finally {
+      unsubscribe();
+      adapter.dispose();
+    }
+
+    return capturedText;
+  };
+
   const handleModelChange = (newModel: string) => {
     if (sessionConfig) {
       sessionConfig.model = newModel;
@@ -607,6 +651,7 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
     getSession,
     resetSession,
     createSubagentSession,
+    streamWithSession,
     handleModelChange,
     handleSessionMcpServersChange,
     handleCommandTelemetry,

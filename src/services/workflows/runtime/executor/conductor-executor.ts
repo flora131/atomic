@@ -133,6 +133,8 @@ export async function executeConductorWorkflow(
         return createSession(sessionConfig);
       },
 
+      streamSession: context.streamWithSession,
+
       destroySession: async (session) => {
         await session.destroy();
       },

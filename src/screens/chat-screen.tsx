@@ -70,6 +70,7 @@ export function ChatApp({
   modelOps,
   getModelDisplayInfo,
   createSubagentSession,
+  streamWithSession,
   initialPrompt,
   maxIterations,
   onModelChange,
@@ -158,6 +159,7 @@ export function ChatApp({
     agentType,
     app: {
       createSubagentSession,
+      streamWithSession,
       ensureSession,
       getModelDisplayInfo,
       getSession,

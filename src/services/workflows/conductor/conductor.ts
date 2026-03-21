@@ -324,12 +324,21 @@ export class WorkflowSessionConductor {
         session = await this.config.createSession(stage.sessionConfig);
         this.currentSession = session;
 
-        let rawResponse = "";
-        for await (const message of session.stream(currentPrompt, {
-          abortSignal: context.abortSignal,
-        })) {
-          if (typeof message.content === "string") {
-            rawResponse += message.content;
+        // Stream through the full SDK adapter pipeline when available,
+        // falling back to the bare session.stream() loop (for tests).
+        let rawResponse: string;
+        if (this.config.streamSession) {
+          rawResponse = await this.config.streamSession(session, currentPrompt, {
+            abortSignal: context.abortSignal,
+          });
+        } else {
+          rawResponse = "";
+          for await (const message of session.stream(currentPrompt, {
+            abortSignal: context.abortSignal,
+          })) {
+            if (typeof message.content === "string") {
+              rawResponse += message.content;
+            }
           }
         }
 

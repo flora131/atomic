@@ -63,3 +63,5 @@ export {
 export { WorkflowSessionConductor } from "@/services/workflows/conductor/conductor.ts";
 
 export { createTaskUpdatePublisher } from "@/services/workflows/conductor/event-bridge.ts";
+
+export { getNextExecutableNodes } from "@/services/workflows/conductor/graph-traversal.ts";

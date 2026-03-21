@@ -28,7 +28,7 @@ import {
   mergeState,
   executionNow,
 } from "@/services/workflows/graph/runtime/execution-state.ts";
-import { getNextExecutableNodes } from "@/services/workflows/graph/runtime/execution-ops.ts";
+import { getNextExecutableNodes } from "@/services/workflows/conductor/graph-traversal.ts";
 import type {
   AccumulatedContextPressure,
   ConductorConfig,

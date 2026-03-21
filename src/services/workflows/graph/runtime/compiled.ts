@@ -1,5 +1,10 @@
 /**
- * CompiledGraph Execution Engine
+ * CompiledGraph Execution Engine (Legacy)
+ *
+ * @deprecated This execution engine is superseded by WorkflowSessionConductor,
+ * which interprets graph nodes sequentially via session-per-stage execution
+ * rather than BFS traversal. This module is retained for backward compatibility
+ * with the legacy `executeWorkflow()` + `streamGraph()` execution path.
  *
  * This module provides the execution engine for compiled graphs.
  * It handles:
@@ -159,6 +164,11 @@ function hasRoutedModes<TState extends BaseState = BaseState>(
  * - Retry logic
  * - Checkpointing
  * - Signal handling
+ *
+ * @deprecated Use WorkflowSessionConductor instead. The conductor interprets
+ * graph nodes sequentially via session-per-stage execution rather than BFS
+ * traversal. This class is retained for backward compatibility with the legacy
+ * `executeWorkflow()` + `streamGraph()` execution path.
  *
  * @template TState - The state type for the workflow
  */
@@ -327,6 +337,11 @@ export class GraphExecutor<TState extends BaseState = BaseState> {
 /**
  * Create a graph executor from a compiled graph.
  *
+ * @deprecated Use WorkflowSessionConductor instead. The conductor interprets
+ * graph nodes sequentially via session-per-stage execution rather than BFS
+ * traversal. This function is retained for backward compatibility with the
+ * legacy `executeWorkflow()` + `streamGraph()` execution path.
+ *
  * @template TState - The state type
  * @param graph - The compiled graph
  * @returns A GraphExecutor instance
@@ -352,6 +367,11 @@ export function createExecutor<TState extends BaseState = BaseState>(
 /**
  * Execute a compiled graph directly.
  *
+ * @deprecated Use WorkflowSessionConductor instead. The conductor interprets
+ * graph nodes sequentially via session-per-stage execution rather than BFS
+ * traversal. This function is retained for backward compatibility with the
+ * legacy `executeWorkflow()` + `streamGraph()` execution path.
+ *
  * @template TState - The state type
  * @param graph - The compiled graph
  * @param options - Execution options
@@ -367,6 +387,11 @@ export async function executeGraph<TState extends BaseState = BaseState>(
 
 /**
  * Stream execution of a compiled graph.
+ *
+ * @deprecated Use WorkflowSessionConductor instead. The conductor interprets
+ * graph nodes sequentially via session-per-stage execution rather than BFS
+ * traversal. This function is retained for backward compatibility with the
+ * legacy `executeWorkflow()` + `streamGraph()` execution path.
  *
  * @template TState - The state type
  * @param graph - The compiled graph

@@ -23,6 +23,15 @@ export interface SubagentNodeConfig<TState extends BaseState> {
   retry?: RetryConfig;
 }
 
+/**
+ * Create a sub-agent node that spawns a sub-agent via spawnSubagent().
+ *
+ * @deprecated Use WorkflowSessionConductor instead. In the conductor path,
+ * agent nodes have no-op `execute` functions — the conductor manages agent
+ * execution through session-per-stage semantics. This factory is retained
+ * for backward compatibility with the legacy `executeWorkflow()` +
+ * `streamGraph()` execution path.
+ */
 export function subagentNode<TState extends BaseState>(
   config: SubagentNodeConfig<TState>,
 ): NodeDefinition<TState> {

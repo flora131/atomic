@@ -52,6 +52,10 @@ import {
  * NOTE: The conductor path (§8.1 Phase 5) replaces this with an orchestrator
  * prompt that manages parallelism natively. This function exists only as the
  * fallback when the graph executor is used instead of the conductor.
+ *
+ * @deprecated Use WorkflowSessionConductor instead. The conductor handles
+ * worker dispatch through session-per-stage execution with an orchestrator
+ * prompt rather than explicit sub-agent spawning.
  */
 async function executeWorkerNode(
   ralphCtx: RalphWorkflowContext,
@@ -155,6 +159,10 @@ async function executeWorkerNode(
  * Spawns a single sub-agent to apply review fixes. Uses RalphWorkflowContext
  * for typed access to runtime dependencies instead of unsafe casts on
  * ExecutionContext.config.runtime.
+ *
+ * @deprecated Use WorkflowSessionConductor instead. The conductor handles
+ * fixer dispatch through session-per-stage execution rather than explicit
+ * sub-agent spawning.
  */
 async function executeFixerNode(
   ralphCtx: RalphWorkflowContext,

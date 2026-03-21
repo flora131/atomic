@@ -74,6 +74,14 @@ export interface RuntimeSubgraph {
 
 export type CreateSessionFn = (config?: SessionConfig) => Promise<Session>;
 
+/**
+ * Options for spawning a sub-agent in the legacy graph executor path.
+ *
+ * @deprecated Use WorkflowSessionConductor instead. The conductor manages
+ * agent execution through session-per-stage semantics rather than spawn functions.
+ * This type is retained for backward compatibility with the legacy `executeWorkflow()` +
+ * `streamGraph()` execution path.
+ */
 export interface SubagentSpawnOptions {
   agentId: string;
   agentName: string;
@@ -86,6 +94,12 @@ export interface SubagentSpawnOptions {
   abortSignal?: AbortSignal;
 }
 
+/**
+ * Detail about a tool invocation during a sub-agent spawn.
+ *
+ * @deprecated Use WorkflowSessionConductor instead. This type is part of the
+ * legacy spawn-based sub-agent execution path.
+ */
 export interface SubagentToolDetail {
   toolId: string;
   toolName: string;
@@ -93,6 +107,14 @@ export interface SubagentToolDetail {
   success: boolean;
 }
 
+/**
+ * Result returned from a spawned sub-agent in the legacy graph executor path.
+ *
+ * @deprecated Use WorkflowSessionConductor instead. The conductor captures
+ * agent output through session transcript rather than spawn result objects.
+ * This type is retained for backward compatibility with the legacy `executeWorkflow()` +
+ * `streamGraph()` execution path.
+ */
 export interface SubagentStreamResult {
   agentId: string;
   success: boolean;
@@ -105,10 +127,20 @@ export interface SubagentStreamResult {
   toolDetails?: SubagentToolDetail[];
 }
 
+/**
+ * Runtime dependencies injected into the graph executor at execution time.
+ *
+ * @deprecated Use WorkflowSessionConductor instead. The conductor does not use
+ * `spawnSubagent` or BFS graph traversal — it interprets nodes sequentially via
+ * session-per-stage execution. This interface is retained for backward compatibility
+ * with the legacy `executeWorkflow()` + `streamGraph()` execution path.
+ */
 export interface GraphRuntimeDependencies {
   clientProvider?: (agentType: string) => CodingAgentClient | null;
   workflowResolver?: (name: string) => RuntimeSubgraph | null;
+  /** @deprecated Use WorkflowSessionConductor instead of spawn-based sub-agent execution. */
   spawnSubagent?: (agent: SubagentSpawnOptions, abortSignal?: AbortSignal) => Promise<SubagentStreamResult>;
+  /** @deprecated Use WorkflowSessionConductor instead of spawn-based parallel sub-agent execution. */
   spawnSubagentParallel?: (agents: SubagentSpawnOptions[], abortSignal?: AbortSignal, onAgentComplete?: (result: SubagentStreamResult) => void) => Promise<SubagentStreamResult[]>;
   taskIdentity?: WorkflowRuntimeTaskIdentityRuntime;
   featureFlags?: WorkflowRuntimeFeatureFlags;

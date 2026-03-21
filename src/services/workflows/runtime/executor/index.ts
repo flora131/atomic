@@ -60,6 +60,12 @@ const DEFAULT_MAX_ITERATIONS = 100;
  * Handles: session init, state creation, graph compilation, bridge/registry
  * setup, streaming with progress updates, task list sync, and error handling.
  *
+ * @deprecated Use WorkflowSessionConductor (via conductor-executor.ts) instead.
+ * The conductor interprets graph nodes sequentially via session-per-stage
+ * execution rather than BFS traversal with spawn-based sub-agent dispatch.
+ * This function is retained for backward compatibility with workflow definitions
+ * that have not yet been migrated to the conductor path.
+ *
  * @param definition - The workflow definition with metadata + execution config
  * @param prompt - User's prompt text
  * @param context - TUI CommandContext for UI updates

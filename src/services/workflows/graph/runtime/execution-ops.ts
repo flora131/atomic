@@ -1,3 +1,12 @@
+/**
+ * Graph execution operations (Legacy).
+ *
+ * @deprecated These BFS traversal operations are superseded by
+ * WorkflowSessionConductor, which interprets graph nodes sequentially
+ * via session-per-stage execution. This module is retained for backward
+ * compatibility with the legacy `executeWorkflow()` + `streamGraph()` path.
+ */
+
 import type {
   BaseState,
   Checkpointer,
@@ -41,6 +50,12 @@ interface NodeExecutionResult<TState extends BaseState = BaseState> {
   emittedEvents: EmittedEvent[];
 }
 
+/**
+ * Execute a node with retry logic.
+ *
+ * @deprecated Use WorkflowSessionConductor instead. The conductor handles
+ * retry and error recovery at the session level rather than per-node.
+ */
 export async function executeNodeWithRetry<TState extends BaseState>(args: {
   graph: CompiledGraph<TState>;
   config: GraphConfig<TState>;
@@ -188,6 +203,12 @@ export async function executeNodeWithRetry<TState extends BaseState>(args: {
   throw lastError ?? new Error("Unexpected retry failure");
 }
 
+/**
+ * Determine the next nodes to execute using BFS edge traversal.
+ *
+ * @deprecated Use WorkflowSessionConductor instead. The conductor uses
+ * sequential stage interpretation rather than BFS edge traversal.
+ */
 export function getNextExecutableNodes<TState extends BaseState>(
   graph: CompiledGraph<TState>,
   currentNodeId: NodeId,
@@ -253,6 +274,12 @@ export function createExecutionSnapshot<TState extends BaseState>(
   };
 }
 
+/**
+ * Stream graph execution steps using BFS traversal.
+ *
+ * @deprecated Use WorkflowSessionConductor instead. The conductor interprets
+ * nodes sequentially via session-per-stage execution rather than BFS traversal.
+ */
 export async function* executeGraphStreamSteps<TState extends BaseState>(args: {
   graph: CompiledGraph<TState>;
   config: GraphConfig<TState>;

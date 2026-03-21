@@ -7,9 +7,7 @@
 
 import type { WorkflowDefinition, WorkflowStateParams } from "@/services/workflows/workflow-types.ts";
 import { createRalphState } from "@/services/workflows/ralph/state.ts";
-import { createRalphWorkflow } from "@/services/workflows/ralph/graph.ts";
 import { createRalphConductorGraph } from "@/services/workflows/ralph/conductor-graph.ts";
-import { asBaseGraph } from "@/services/workflows/graph/types.ts";
 import { VERSION } from "@/version.ts";
 import { RALPH_STAGES } from "@/services/workflows/ralph/stages.ts";
 
@@ -46,10 +44,11 @@ function createRalphWorkflowState(params: WorkflowStateParams) {
 
 /**
  * Complete workflow definition for Ralph.
- * Consolidates metadata, graph factory, state factory, and node descriptions.
+ * Consolidates metadata, conductor graph, state factory, and node descriptions.
  *
- * Ralph uses createRalphWorkflow() (builder pattern) via createGraph,
- * which the executor calls to obtain a compiled graph.
+ * Ralph uses the conductor-based executor with per-stage sessions defined
+ * by RALPH_STAGES. The legacy createRalphWorkflow() graph builder has been
+ * removed — see createConductorGraph below.
  */
 export const ralphWorkflowDefinition: WorkflowDefinition = {
     name: "ralph",
@@ -62,7 +61,6 @@ export const ralphWorkflowDefinition: WorkflowDefinition = {
     source: "builtin",
 
     // Execution logic
-    createGraph: () => asBaseGraph(createRalphWorkflow()),
     createState: createRalphWorkflowState,
     nodeDescriptions: ralphNodeDescriptions,
 

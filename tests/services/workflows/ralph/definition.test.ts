@@ -51,7 +51,7 @@ describe("Ralph Workflow Definition", () => {
     });
 
     test("ralphWorkflowDefinition does not include graphConfig", () => {
-        // Ralph uses createRalphWorkflow() builder pattern, not declarative graphConfig
+        // Ralph uses conductor stages with createConductorGraph, not declarative graphConfig
         expect(ralphWorkflowDefinition.graphConfig).toBeUndefined();
     });
 

@@ -16,9 +16,6 @@ export interface WorkflowCommandArgs {
   prompt: string;
 }
 
-/** @deprecated Use {@link WorkflowCommandArgs} instead. */
-export type RalphCommandArgs = WorkflowCommandArgs;
-
 // ============================================================================
 // GENERIC WORKFLOW COMMAND STATE
 // ============================================================================

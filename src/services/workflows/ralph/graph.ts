@@ -1,8 +1,10 @@
 /**
- * Compatibility barrel for the Ralph workflow graph builder.
+ * Barrel for Ralph workflow graph helpers.
  *
- * The implementation now lives under `workflows/ralph/graph/`, while the
- * historical `workflows/ralph/graph.ts` path remains stable.
+ * The legacy graph builder (createRalphWorkflow, executeWorkerNode,
+ * executeFixerNode) has been removed — the conductor path replaces it.
+ * This barrel now re-exports only the task-helpers that are still used
+ * by conductor stages and other active code.
  */
 
-export * from "@/services/workflows/ralph/graph/index.ts";
+export * from "@/services/workflows/ralph/graph/task-helpers.ts";

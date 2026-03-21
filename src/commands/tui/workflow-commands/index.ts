@@ -80,7 +80,7 @@ function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
     const hasExecutionLogic = definition.createState || definition.graphConfig || definition.createGraph;
     const hasConductorStages = definition.conductorStages && definition.conductorStages.length > 0;
 
-    if (hasConductorStages && (definition.createGraph || definition.graphConfig)) {
+    if (hasConductorStages && (definition.createConductorGraph || definition.createGraph || definition.graphConfig)) {
         // Conductor-based workflow — uses WorkflowSessionConductor for per-stage sessions
         return {
             name: metadata.name,

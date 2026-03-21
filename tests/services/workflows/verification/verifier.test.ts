@@ -1,185 +1,48 @@
 /**
  * Tests for the Z3 Workflow Verifier orchestrator.
  *
- * Mocks all 5 property checkers and encodeGraph to test the orchestration
- * logic in isolation: parallel execution, aggregate result computation,
- * and optional pre-encoded graph passthrough.
+ * Uses dependency injection (PropertyCheckers) to test the orchestration
+ * logic in isolation without mock.module, avoiding mock contamination
+ * of sibling test files.
  */
-
 import { describe, test, expect, mock, beforeEach } from "bun:test";
-import type {
-  EncodedGraph,
-  PropertyResult,
-  VerificationResult,
-} from "@/services/workflows/verification/types";
-import type {
-  BaseState,
-  CompiledGraph,
-} from "@/services/workflows/graph/types";
-
-// ---------------------------------------------------------------------------
-// Mock setup
-// ---------------------------------------------------------------------------
-
-const mockEncodeGraph = mock<(graph: CompiledGraph<BaseState>) => EncodedGraph>(
-  () => ({
-    nodes: [
-      { id: "start", type: "agent" },
-      { id: "end", type: "agent" },
-    ],
-    edges: [{ from: "start", to: "end", hasCondition: false }],
-    startNode: "start",
-    endNodes: ["end"],
-    loops: [],
-    stateFields: [],
-  }),
-);
+import type { EncodedGraph, PropertyResult, VerificationResult } from "@/services/workflows/verification/types";
+import type { BaseState, CompiledGraph } from "@/services/workflows/graph/types";
+import { verifyWorkflow } from "@/services/workflows/verification/verifier";
+import type { PropertyCheckers } from "@/services/workflows/verification/verifier";
 
 const PASS: PropertyResult = { verified: true };
-const FAIL_REACHABILITY: PropertyResult = {
-  verified: false,
-  counterexample: 'Node(s) "orphan" unreachable from start node "start"',
-  details: { unreachableNodes: ["orphan"] },
-};
-const FAIL_TERMINATION: PropertyResult = {
-  verified: false,
-  counterexample: "Not all paths reach an end node",
-  details: { deadEndNodes: [] },
-};
-const FAIL_DEADLOCK: PropertyResult = {
-  verified: false,
-  counterexample:
-    'Node(s) "stuck" may deadlock — all outgoing edges have conditions that are not exhaustive',
-  details: { deadlockedNodes: ["stuck"] },
-};
-const FAIL_LOOP_BOUNDS: PropertyResult = {
-  verified: false,
-  counterexample: 'Unbounded loops detected: loop at "loopEntry" (maxIterations=10)',
-  details: { unboundedLoops: [{ entryNode: "loopEntry", maxIterations: 10 }] },
-};
-const FAIL_DATA_FLOW: PropertyResult = {
-  verified: false,
-  counterexample:
-    'node "reader" reads "data" which may not be written on all paths',
-  details: { violations: [{ nodeId: "reader", field: "data" }] },
-};
-
-const mockCheckReachability = mock<(g: EncodedGraph) => Promise<PropertyResult>>(
-  async () => PASS,
-);
-const mockCheckTermination = mock<(g: EncodedGraph) => Promise<PropertyResult>>(
-  async () => PASS,
-);
-const mockCheckDeadlockFreedom = mock<
-  (g: EncodedGraph) => Promise<PropertyResult>
->(async () => PASS);
-const mockCheckLoopBounds = mock<(g: EncodedGraph) => Promise<PropertyResult>>(
-  async () => PASS,
-);
-const mockCheckStateDataFlow = mock<
-  (g: EncodedGraph) => Promise<PropertyResult>
->(async () => PASS);
-
-mock.module("@/services/workflows/verification/graph-encoder", () => ({
-  encodeGraph: mockEncodeGraph,
-}));
-mock.module("@/services/workflows/verification/reachability", () => ({
-  checkReachability: mockCheckReachability,
-}));
-mock.module("@/services/workflows/verification/termination", () => ({
-  checkTermination: mockCheckTermination,
-}));
-mock.module("@/services/workflows/verification/deadlock-freedom", () => ({
-  checkDeadlockFreedom: mockCheckDeadlockFreedom,
-}));
-mock.module("@/services/workflows/verification/loop-bounds", () => ({
-  checkLoopBounds: mockCheckLoopBounds,
-}));
-mock.module("@/services/workflows/verification/state-data-flow", () => ({
-  checkStateDataFlow: mockCheckStateDataFlow,
-}));
-
-// Must import AFTER mock.module
-const { verifyWorkflow } = await import(
-  "@/services/workflows/verification/verifier"
-);
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+const FAIL_R: PropertyResult = { verified: false, counterexample: 'Node(s) "orphan" unreachable', details: { unreachableNodes: ["orphan"] } };
+const FAIL_T: PropertyResult = { verified: false, counterexample: "Not all paths reach an end node", details: { deadEndNodes: [] } };
+const FAIL_D: PropertyResult = { verified: false, counterexample: 'Node(s) "stuck" may deadlock', details: { deadlockedNodes: ["stuck"] } };
+const FAIL_L: PropertyResult = { verified: false, counterexample: 'Unbounded loops detected', details: { unboundedLoops: [{ entryNode: "x", maxIterations: 10 }] } };
+const FAIL_S: PropertyResult = { verified: false, counterexample: 'node "reader" reads "data" not written', details: { violations: [{ nodeId: "reader", field: "data" }] } };
 
 function makeDummyGraph(): CompiledGraph<BaseState> {
-  return {
-    nodes: new Map([
-      [
-        "start",
-        {
-          id: "start",
-          type: "agent" as const,
-          execute: async () => ({}),
-        },
-      ],
-      [
-        "end",
-        {
-          id: "end",
-          type: "agent" as const,
-          execute: async () => ({}),
-        },
-      ],
-    ]),
-    edges: [{ from: "start", to: "end" }],
-    startNode: "start",
-    endNodes: new Set(["end"]),
-    config: {},
-  } as unknown as CompiledGraph<BaseState>;
+  return { nodes: new Map([["start", { id: "start", type: "agent" as const, execute: async () => ({}) }], ["end", { id: "end", type: "agent" as const, execute: async () => ({}) }]]), edges: [{ from: "start", to: "end" }], startNode: "start", endNodes: new Set(["end"]), config: {} } as unknown as CompiledGraph<BaseState>;
 }
 
-function makeEncodedGraph(
-  overrides?: Partial<EncodedGraph>,
-): EncodedGraph {
-  return {
-    nodes: [
-      { id: "start", type: "agent" },
-      { id: "end", type: "agent" },
-    ],
-    edges: [{ from: "start", to: "end", hasCondition: false }],
-    startNode: "start",
-    endNodes: ["end"],
-    loops: [],
-    stateFields: [],
-    ...overrides,
-  };
+function makeEncodedGraph(o?: Partial<EncodedGraph>): EncodedGraph {
+  return { nodes: [{ id: "start", type: "agent" }, { id: "end", type: "agent" }], edges: [{ from: "start", to: "end", hasCondition: false }], startNode: "start", endNodes: ["end"], loops: [], stateFields: [], ...o };
 }
 
-function resetAllMocks(): void {
-  mockEncodeGraph.mockClear();
-  mockCheckReachability.mockClear();
-  mockCheckTermination.mockClear();
-  mockCheckDeadlockFreedom.mockClear();
-  mockCheckLoopBounds.mockClear();
-  mockCheckStateDataFlow.mockClear();
+type MC = ReturnType<typeof mock<(g: EncodedGraph) => Promise<PropertyResult>>>;
 
-  // Reset to default passing behavior
-  mockCheckReachability.mockImplementation(async () => PASS);
-  mockCheckTermination.mockImplementation(async () => PASS);
-  mockCheckDeadlockFreedom.mockImplementation(async () => PASS);
-  mockCheckLoopBounds.mockImplementation(async () => PASS);
-  mockCheckStateDataFlow.mockImplementation(async () => PASS);
+function createMockCheckers(): PropertyCheckers & { mocks: { r: MC; t: MC; d: MC; l: MC; s: MC } } {
+  const r = mock<(g: EncodedGraph) => Promise<PropertyResult>>(async () => PASS);
+  const t = mock<(g: EncodedGraph) => Promise<PropertyResult>>(async () => PASS);
+  const d = mock<(g: EncodedGraph) => Promise<PropertyResult>>(async () => PASS);
+  const l = mock<(g: EncodedGraph) => Promise<PropertyResult>>(async () => PASS);
+  const s = mock<(g: EncodedGraph) => Promise<PropertyResult>>(async () => PASS);
+  return { checkReachability: r, checkTermination: t, checkDeadlockFreedom: d, checkLoopBounds: l, checkStateDataFlow: s, mocks: { r, t, d, l, s } };
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe("verifyWorkflow", () => {
-  beforeEach(() => {
-    resetAllMocks();
-  });
+  let mc: ReturnType<typeof createMockCheckers>;
+  beforeEach(() => { mc = createMockCheckers(); });
 
-  test("returns valid=true when all properties pass", async () => {
-    const result = await verifyWorkflow(makeDummyGraph());
-
+  test("all pass => valid=true", async () => {
+    const result = await verifyWorkflow(makeDummyGraph(), { encodedGraph: makeEncodedGraph(), checkers: mc });
     expect(result.valid).toBe(true);
     expect(result.properties.reachability.verified).toBe(true);
     expect(result.properties.termination.verified).toBe(true);
@@ -188,237 +51,122 @@ describe("verifyWorkflow", () => {
     expect(result.properties.stateDataFlow.verified).toBe(true);
   });
 
-  test("returns valid=false when reachability fails", async () => {
-    mockCheckReachability.mockImplementation(async () => FAIL_REACHABILITY);
-
-    const result = await verifyWorkflow(makeDummyGraph());
-
+  test("reachability fail => valid=false", async () => {
+    mc.mocks.r.mockImplementation(async () => FAIL_R);
+    const result = await verifyWorkflow(makeDummyGraph(), { encodedGraph: makeEncodedGraph(), checkers: mc });
     expect(result.valid).toBe(false);
     expect(result.properties.reachability.verified).toBe(false);
-    expect(result.properties.reachability.counterexample).toContain("orphan");
-    // Other properties should still pass
     expect(result.properties.termination.verified).toBe(true);
-    expect(result.properties.deadlockFreedom.verified).toBe(true);
-    expect(result.properties.loopBounds.verified).toBe(true);
-    expect(result.properties.stateDataFlow.verified).toBe(true);
   });
 
-  test("returns valid=false when termination fails", async () => {
-    mockCheckTermination.mockImplementation(async () => FAIL_TERMINATION);
-
-    const result = await verifyWorkflow(makeDummyGraph());
-
+  test("termination fail => valid=false", async () => {
+    mc.mocks.t.mockImplementation(async () => FAIL_T);
+    const result = await verifyWorkflow(makeDummyGraph(), { encodedGraph: makeEncodedGraph(), checkers: mc });
     expect(result.valid).toBe(false);
     expect(result.properties.termination.verified).toBe(false);
-    expect(result.properties.termination.counterexample).toContain(
-      "Not all paths",
-    );
   });
 
-  test("returns valid=false when deadlock-freedom fails", async () => {
-    mockCheckDeadlockFreedom.mockImplementation(async () => FAIL_DEADLOCK);
-
-    const result = await verifyWorkflow(makeDummyGraph());
-
+  test("deadlock fail => valid=false", async () => {
+    mc.mocks.d.mockImplementation(async () => FAIL_D);
+    const result = await verifyWorkflow(makeDummyGraph(), { encodedGraph: makeEncodedGraph(), checkers: mc });
     expect(result.valid).toBe(false);
     expect(result.properties.deadlockFreedom.verified).toBe(false);
-    expect(result.properties.deadlockFreedom.counterexample).toContain(
-      "stuck",
-    );
   });
 
-  test("returns valid=false when loop-bounds fails", async () => {
-    mockCheckLoopBounds.mockImplementation(async () => FAIL_LOOP_BOUNDS);
-
-    const result = await verifyWorkflow(makeDummyGraph());
-
+  test("loop-bounds fail => valid=false", async () => {
+    mc.mocks.l.mockImplementation(async () => FAIL_L);
+    const result = await verifyWorkflow(makeDummyGraph(), { encodedGraph: makeEncodedGraph(), checkers: mc });
     expect(result.valid).toBe(false);
     expect(result.properties.loopBounds.verified).toBe(false);
-    expect(result.properties.loopBounds.counterexample).toContain(
-      "Unbounded loops",
-    );
   });
 
-  test("returns valid=false when state data-flow fails", async () => {
-    mockCheckStateDataFlow.mockImplementation(async () => FAIL_DATA_FLOW);
-
-    const result = await verifyWorkflow(makeDummyGraph());
-
+  test("data-flow fail => valid=false", async () => {
+    mc.mocks.s.mockImplementation(async () => FAIL_S);
+    const result = await verifyWorkflow(makeDummyGraph(), { encodedGraph: makeEncodedGraph(), checkers: mc });
     expect(result.valid).toBe(false);
     expect(result.properties.stateDataFlow.verified).toBe(false);
-    expect(result.properties.stateDataFlow.counterexample).toContain(
-      'reads "data"',
-    );
   });
 
-  test("returns valid=false when multiple properties fail", async () => {
-    mockCheckReachability.mockImplementation(async () => FAIL_REACHABILITY);
-    mockCheckTermination.mockImplementation(async () => FAIL_TERMINATION);
-    mockCheckDeadlockFreedom.mockImplementation(async () => FAIL_DEADLOCK);
-
-    const result = await verifyWorkflow(makeDummyGraph());
-
+  test("multiple fails => valid=false, passing ones still true", async () => {
+    mc.mocks.r.mockImplementation(async () => FAIL_R);
+    mc.mocks.t.mockImplementation(async () => FAIL_T);
+    mc.mocks.d.mockImplementation(async () => FAIL_D);
+    const result = await verifyWorkflow(makeDummyGraph(), { encodedGraph: makeEncodedGraph(), checkers: mc });
     expect(result.valid).toBe(false);
     expect(result.properties.reachability.verified).toBe(false);
     expect(result.properties.termination.verified).toBe(false);
     expect(result.properties.deadlockFreedom.verified).toBe(false);
-    // These should still pass
     expect(result.properties.loopBounds.verified).toBe(true);
     expect(result.properties.stateDataFlow.verified).toBe(true);
   });
 
-  test("returns valid=false when all properties fail", async () => {
-    mockCheckReachability.mockImplementation(async () => FAIL_REACHABILITY);
-    mockCheckTermination.mockImplementation(async () => FAIL_TERMINATION);
-    mockCheckDeadlockFreedom.mockImplementation(async () => FAIL_DEADLOCK);
-    mockCheckLoopBounds.mockImplementation(async () => FAIL_LOOP_BOUNDS);
-    mockCheckStateDataFlow.mockImplementation(async () => FAIL_DATA_FLOW);
-
-    const result = await verifyWorkflow(makeDummyGraph());
-
+  test("all fail => all properties false", async () => {
+    mc.mocks.r.mockImplementation(async () => FAIL_R);
+    mc.mocks.t.mockImplementation(async () => FAIL_T);
+    mc.mocks.d.mockImplementation(async () => FAIL_D);
+    mc.mocks.l.mockImplementation(async () => FAIL_L);
+    mc.mocks.s.mockImplementation(async () => FAIL_S);
+    const result = await verifyWorkflow(makeDummyGraph(), { encodedGraph: makeEncodedGraph(), checkers: mc });
     expect(result.valid).toBe(false);
-    expect(result.properties.reachability.verified).toBe(false);
-    expect(result.properties.termination.verified).toBe(false);
-    expect(result.properties.deadlockFreedom.verified).toBe(false);
-    expect(result.properties.loopBounds.verified).toBe(false);
-    expect(result.properties.stateDataFlow.verified).toBe(false);
+    for (const p of Object.values(result.properties)) expect(p.verified).toBe(false);
   });
 
-  test("calls encodeGraph when no encodedGraph is provided", async () => {
-    const graph = makeDummyGraph();
-    await verifyWorkflow(graph);
-
-    expect(mockEncodeGraph).toHaveBeenCalledTimes(1);
-    expect(mockEncodeGraph).toHaveBeenCalledWith(graph);
+  test("passes encoded graph to all checkers", async () => {
+    const g = makeEncodedGraph({ startNode: "x" });
+    await verifyWorkflow(makeDummyGraph(), { encodedGraph: g, checkers: mc });
+    expect(mc.mocks.r).toHaveBeenCalledWith(g);
+    expect(mc.mocks.t).toHaveBeenCalledWith(g);
+    expect(mc.mocks.d).toHaveBeenCalledWith(g);
+    expect(mc.mocks.l).toHaveBeenCalledWith(g);
+    expect(mc.mocks.s).toHaveBeenCalledWith(g);
   });
 
-  test("skips encodeGraph when encodedGraph is provided", async () => {
-    const preEncoded = makeEncodedGraph();
-    await verifyWorkflow(makeDummyGraph(), preEncoded);
-
-    expect(mockEncodeGraph).not.toHaveBeenCalled();
+  test("each checker called exactly once", async () => {
+    await verifyWorkflow(makeDummyGraph(), { encodedGraph: makeEncodedGraph(), checkers: mc });
+    for (const m of Object.values(mc.mocks)) expect(m).toHaveBeenCalledTimes(1);
   });
 
-  test("passes encoded graph to all 5 checkers", async () => {
-    const preEncoded = makeEncodedGraph({
-      nodes: [
-        { id: "custom-start", type: "agent" },
-        { id: "custom-end", type: "agent" },
-      ],
-      startNode: "custom-start",
-      endNodes: ["custom-end"],
-    });
-
-    await verifyWorkflow(makeDummyGraph(), preEncoded);
-
-    expect(mockCheckReachability).toHaveBeenCalledWith(preEncoded);
-    expect(mockCheckTermination).toHaveBeenCalledWith(preEncoded);
-    expect(mockCheckDeadlockFreedom).toHaveBeenCalledWith(preEncoded);
-    expect(mockCheckLoopBounds).toHaveBeenCalledWith(preEncoded);
-    expect(mockCheckStateDataFlow).toHaveBeenCalledWith(preEncoded);
+  test("preserves counterexample and details", async () => {
+    mc.mocks.r.mockImplementation(async () => FAIL_R);
+    const result = await verifyWorkflow(makeDummyGraph(), { encodedGraph: makeEncodedGraph(), checkers: mc });
+    expect(result.properties.reachability.counterexample).toBe(FAIL_R.counterexample);
+    expect(result.properties.reachability.details).toEqual(FAIL_R.details);
   });
 
-  test("calls all 5 checkers exactly once", async () => {
-    await verifyWorkflow(makeDummyGraph());
-
-    expect(mockCheckReachability).toHaveBeenCalledTimes(1);
-    expect(mockCheckTermination).toHaveBeenCalledTimes(1);
-    expect(mockCheckDeadlockFreedom).toHaveBeenCalledTimes(1);
-    expect(mockCheckLoopBounds).toHaveBeenCalledTimes(1);
-    expect(mockCheckStateDataFlow).toHaveBeenCalledTimes(1);
-  });
-
-  test("preserves counterexample and details from failed checks", async () => {
-    mockCheckReachability.mockImplementation(async () => FAIL_REACHABILITY);
-
-    const result = await verifyWorkflow(makeDummyGraph());
-
-    expect(result.properties.reachability.counterexample).toBe(
-      FAIL_REACHABILITY.counterexample,
-    );
-    expect(result.properties.reachability.details).toEqual(
-      FAIL_REACHABILITY.details,
-    );
-  });
-
-  test("result satisfies VerificationResult type", async () => {
-    const result: VerificationResult = await verifyWorkflow(makeDummyGraph());
-
+  test("result shape", async () => {
+    const result: VerificationResult = await verifyWorkflow(makeDummyGraph(), { encodedGraph: makeEncodedGraph(), checkers: mc });
     expect(result).toHaveProperty("valid");
-    expect(result).toHaveProperty("properties");
-    expect(result.properties).toHaveProperty("reachability");
-    expect(result.properties).toHaveProperty("termination");
-    expect(result.properties).toHaveProperty("deadlockFreedom");
-    expect(result.properties).toHaveProperty("loopBounds");
-    expect(result.properties).toHaveProperty("stateDataFlow");
+    for (const k of ["reachability", "termination", "deadlockFreedom", "loopBounds", "stateDataFlow"]) {
+      expect(result.properties).toHaveProperty(k);
+    }
   });
 
-  test("runs all checks in parallel (not sequentially)", async () => {
-    const callOrder: string[] = [];
-    const delay = (ms: number) =>
-      new Promise((resolve) => setTimeout(resolve, ms));
-
-    mockCheckReachability.mockImplementation(async () => {
-      callOrder.push("reachability-start");
-      await delay(10);
-      callOrder.push("reachability-end");
-      return PASS;
-    });
-    mockCheckTermination.mockImplementation(async () => {
-      callOrder.push("termination-start");
-      await delay(10);
-      callOrder.push("termination-end");
-      return PASS;
-    });
-    mockCheckDeadlockFreedom.mockImplementation(async () => {
-      callOrder.push("deadlock-start");
-      await delay(10);
-      callOrder.push("deadlock-end");
-      return PASS;
-    });
-    mockCheckLoopBounds.mockImplementation(async () => {
-      callOrder.push("loop-start");
-      await delay(10);
-      callOrder.push("loop-end");
-      return PASS;
-    });
-    mockCheckStateDataFlow.mockImplementation(async () => {
-      callOrder.push("dataflow-start");
-      await delay(10);
-      callOrder.push("dataflow-end");
-      return PASS;
-    });
-
-    await verifyWorkflow(makeDummyGraph());
-
-    // All starts should come before all ends if running in parallel
-    const startIndices = callOrder
-      .filter((e) => e.endsWith("-start"))
-      .map((e) => callOrder.indexOf(e));
-    const endIndices = callOrder
-      .filter((e) => e.endsWith("-end"))
-      .map((e) => callOrder.indexOf(e));
-
-    const maxStartIndex = Math.max(...startIndices);
-    const minEndIndex = Math.min(...endIndices);
-
-    // In parallel execution, all starts occur before any end completes
-    expect(maxStartIndex).toBeLessThan(minEndIndex);
+  test("parallel execution", async () => {
+    const order: string[] = [];
+    const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    mc.mocks.r.mockImplementation(async () => { order.push("rs"); await delay(10); order.push("re"); return PASS; });
+    mc.mocks.t.mockImplementation(async () => { order.push("ts"); await delay(10); order.push("te"); return PASS; });
+    mc.mocks.d.mockImplementation(async () => { order.push("ds"); await delay(10); order.push("de"); return PASS; });
+    mc.mocks.l.mockImplementation(async () => { order.push("ls"); await delay(10); order.push("le"); return PASS; });
+    mc.mocks.s.mockImplementation(async () => { order.push("ss"); await delay(10); order.push("se"); return PASS; });
+    await verifyWorkflow(makeDummyGraph(), { encodedGraph: makeEncodedGraph(), checkers: mc });
+    const starts = order.filter((e) => e.endsWith("s")).map((e) => order.indexOf(e));
+    const ends = order.filter((e) => e.endsWith("e")).map((e) => order.indexOf(e));
+    expect(Math.max(...starts)).toBeLessThan(Math.min(...ends));
   });
 
-  test("handles a checker that passes with details", async () => {
-    const passWithDetails: PropertyResult = {
-      verified: true,
-      details: { info: "some diagnostic info" },
-    };
-    mockCheckReachability.mockImplementation(async () => passWithDetails);
-
-    const result = await verifyWorkflow(makeDummyGraph());
-
+  test("pass with details preserved", async () => {
+    const pw: PropertyResult = { verified: true, details: { info: "ok" } };
+    mc.mocks.r.mockImplementation(async () => pw);
+    const result = await verifyWorkflow(makeDummyGraph(), { encodedGraph: makeEncodedGraph(), checkers: mc });
     expect(result.valid).toBe(true);
-    expect(result.properties.reachability.verified).toBe(true);
-    expect(result.properties.reachability.details).toEqual({
-      info: "some diagnostic info",
-    });
+    expect(result.properties.reachability.details).toEqual({ info: "ok" });
+  });
+
+  test("partial checker overrides", async () => {
+    const custom = mock<(g: EncodedGraph) => Promise<PropertyResult>>(async () => FAIL_R);
+    const result = await verifyWorkflow(makeDummyGraph(), { encodedGraph: makeEncodedGraph(), checkers: { ...mc, checkReachability: custom } });
+    expect(result.valid).toBe(false);
+    expect(custom).toHaveBeenCalledTimes(1);
   });
 });

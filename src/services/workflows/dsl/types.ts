@@ -23,6 +23,7 @@
 import type { BaseState, ExecutionContext } from "@/services/workflows/graph/types.ts";
 import type { SessionConfig } from "@/services/agents/types.ts";
 import type { StageContext } from "@/services/workflows/conductor/types.ts";
+import type { WorkflowDefinition } from "@/services/workflows/types/definition.ts";
 
 // ---------------------------------------------------------------------------
 // Stage Configuration
@@ -234,24 +235,22 @@ export type Instruction =
 // ---------------------------------------------------------------------------
 
 /**
- * Reference to the internal workflow definition inside `CompiledWorkflow`.
+ * Branded type returned by `.compile()`.
  *
- * Uses an opaque record type to avoid circular imports — the actual
- * graph structure is resolved at compile time and is not exposed to
- * consumers of the DSL types.
- */
-export type WorkflowDefinitionRef = Record<string, unknown>;
-
-/**
- * Opaque branded type returned by `.compile()`.
+ * Extends `WorkflowDefinition` so the compiled result can be used
+ * directly wherever a `WorkflowDefinition` is expected — no cast needed.
+ * The `__compiledWorkflow` brand allows the loader to distinguish
+ * DSL-compiled workflows from legacy definitions.
  *
- * The brand (`__compiledWorkflow`) prevents accidental construction of
- * a `CompiledWorkflow` outside of the builder's `.compile()` method.
- * Consumers pass this value to the conductor for execution without
- * inspecting its internals.
+ * Usage:
+ * ```ts
+ * // Export directly — no unwrapping required
+ * export const myWorkflow = defineWorkflow("my-wf", "...").stage(...).compile();
+ * ```
  */
-export interface CompiledWorkflow {
-  readonly __compiledWorkflow: WorkflowDefinitionRef;
+export interface CompiledWorkflow extends WorkflowDefinition {
+  /** @internal Brand property for loader detection. Do not access directly. */
+  readonly __compiledWorkflow: true;
 }
 
 // ---------------------------------------------------------------------------

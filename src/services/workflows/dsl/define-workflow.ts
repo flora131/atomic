@@ -210,9 +210,13 @@ export class WorkflowBuilder implements WorkflowBuilderInterface {
    */
   compile(): CompiledWorkflow {
     const definition = compileWorkflow(this);
+    // Spread all WorkflowDefinition properties onto the return value so it
+    // can be used directly as a WorkflowDefinition (no ugly cast needed).
+    // The __compiledWorkflow brand lets the loader detect DSL-compiled workflows.
     return {
-      __compiledWorkflow: definition as unknown as Record<string, unknown>,
-    };
+      ...definition,
+      __compiledWorkflow: true,
+    } as CompiledWorkflow;
   }
 
   // -- Accessors for the compiler -------------------------------------------

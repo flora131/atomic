@@ -1,20 +1,26 @@
 /**
- * Tests for the verify-workflows CLI script.
+ * Tests for the verify-workflows script.
  *
  * Tests the discovery, verification, and reporting functions exported
  * from the script module.
  *
- * Uses mock.module to replace the Z3-dependent verifier with a mock
- * that returns deterministic results (Z3 WASM is incompatible with Bun).
+ * Uses the verifier DI parameter on verifySingleWorkflow instead of
+ * mock.module to avoid global module contamination.
  */
 
 import { describe, test, expect, mock, beforeEach } from "bun:test";
 import type { WorkflowDefinition } from "@/services/workflows/types/definition.ts";
 import type { BaseState, CompiledGraph } from "@/services/workflows/graph/types.ts";
 import type { VerificationResult, PropertyResult, EncodedGraph } from "@/services/workflows/verification/types.ts";
+import {
+  discoverBuiltinWorkflows,
+  discoverCustomWorkflows,
+  verifySingleWorkflow,
+} from "@/scripts/verify-workflows.ts";
+import type { DiscoveredWorkflow } from "@/scripts/verify-workflows.ts";
 
 // ---------------------------------------------------------------------------
-// Mock the Z3-dependent verifier before importing the script module
+// Helpers
 // ---------------------------------------------------------------------------
 
 const PASS: PropertyResult = { verified: true };
@@ -33,24 +39,6 @@ function makeAllPassResult(): VerificationResult {
 }
 
 const mockVerifyWorkflow = mock(async () => makeAllPassResult());
-
-mock.module("@/services/workflows/verification/verifier.ts", () => ({
-  verifyWorkflow: mockVerifyWorkflow,
-}));
-
-// Import after mocking
-const {
-  discoverBuiltinWorkflows,
-  discoverCustomWorkflows,
-  verifySingleWorkflow,
-} = await import("@/scripts/verify-workflows.ts");
-
-// Import the DiscoveredWorkflow type for use in tests
-import type { DiscoveredWorkflow } from "@/scripts/verify-workflows.ts";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 /** Create a minimal CompiledGraph for testing. */
 function makeMinimalGraph(): CompiledGraph<BaseState> {
@@ -157,7 +145,7 @@ describe("verifySingleWorkflow", () => {
       definition: makeWorkflowDefinition("no-graph"),
     };
 
-    const result = await verifySingleWorkflow(workflow);
+    const result = await verifySingleWorkflow(workflow, mockVerifyWorkflow);
     expect(result.passed).toBe(true);
     expect(result.report).toContain("Warning");
     expect(result.report).toContain("no-graph");
@@ -172,7 +160,7 @@ describe("verifySingleWorkflow", () => {
       definition: makeWorkflowDefinition("test-wf", { withGraph: true }),
     };
 
-    const result = await verifySingleWorkflow(workflow);
+    const result = await verifySingleWorkflow(workflow, mockVerifyWorkflow);
     expect(result.passed).toBe(true);
     expect(result.report).toContain("test-wf");
     expect(result.report).toContain("PASS");
@@ -187,7 +175,7 @@ describe("verifySingleWorkflow", () => {
       }),
     };
 
-    const result = await verifySingleWorkflow(workflow);
+    const result = await verifySingleWorkflow(workflow, mockVerifyWorkflow);
     expect(result.passed).toBe(true);
     expect(result.report).toContain("conductor-wf");
     expect(mockVerifyWorkflow).toHaveBeenCalledTimes(1);
@@ -210,7 +198,7 @@ describe("verifySingleWorkflow", () => {
       definition: makeWorkflowDefinition("failing-wf", { withGraph: true }),
     };
 
-    const result = await verifySingleWorkflow(workflow);
+    const result = await verifySingleWorkflow(workflow, mockVerifyWorkflow);
     expect(result.passed).toBe(false);
     expect(result.report).toContain("FAIL");
     expect(result.report).toContain("failing-wf");
@@ -222,7 +210,7 @@ describe("verifySingleWorkflow", () => {
       definition: makeWorkflowDefinition("check-output", { withGraph: true }),
     };
 
-    const result = await verifySingleWorkflow(workflow);
+    const result = await verifySingleWorkflow(workflow, mockVerifyWorkflow);
     expect(result.report).toContain("PASS  Reachability");
     expect(result.report).toContain("PASS  Termination");
     expect(result.report).toContain("PASS  Deadlock-Freedom");
@@ -239,7 +227,7 @@ describe("verifySingleWorkflow", () => {
     };
 
     const workflow: DiscoveredWorkflow = { id: "both-graphs", definition };
-    const result = await verifySingleWorkflow(workflow);
+    const result = await verifySingleWorkflow(workflow, mockVerifyWorkflow);
     expect(result.passed).toBe(true);
     expect(result.report).toContain("both-graphs");
   });
@@ -250,7 +238,7 @@ describe("verifySingleWorkflow", () => {
       definition: makeWorkflowDefinition("encoding-test", { withGraph: true }),
     };
 
-    await verifySingleWorkflow(workflow);
+    await verifySingleWorkflow(workflow, mockVerifyWorkflow);
 
     expect(mockVerifyWorkflow).toHaveBeenCalledTimes(1);
     const calls = mockVerifyWorkflow.mock.calls as unknown[][];
@@ -267,15 +255,5 @@ describe("verifySingleWorkflow", () => {
 });
 
 // ---------------------------------------------------------------------------
-// package.json registration
+// package.json: verify:workflows script was removed (now `atomic workflow verify`)
 // ---------------------------------------------------------------------------
-
-describe("package.json registration", () => {
-  test("verify:workflows script is registered", async () => {
-    const packageJsonPath = `${import.meta.dir}/../../package.json`;
-    const packageJson = await Bun.file(packageJsonPath).json();
-    expect(packageJson.scripts["verify:workflows"]).toBe(
-      "bun run src/scripts/verify-workflows.ts",
-    );
-  });
-});

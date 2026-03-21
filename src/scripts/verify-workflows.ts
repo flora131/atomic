@@ -1,19 +1,14 @@
-#!/usr/bin/env bun
 /**
- * Workflow Verification CLI
+ * Workflow Verification
  *
- * Discovers all workflows (built-in + custom .atomic/workflows/*.ts),
- * runs Z3 verification on each, and outputs full PASS/FAIL diagnostics.
- *
- * Usage: bun run verify:workflows
- * Exit code: 0 if all pass, 1 if any fail
+ * Discovery and Z3 verification logic for workflows.
+ * Used by `atomic workflow verify` CLI command.
  */
 
 import { verifyWorkflow } from "@/services/workflows/verification/verifier.ts";
 import { formatVerificationReport } from "@/services/workflows/verification/reporter.ts";
 import { encodeGraph } from "@/services/workflows/verification/graph-encoder.ts";
 import type { WorkflowDefinition } from "@/services/workflows/types/definition.ts";
-import type { CompiledWorkflow } from "@/services/workflows/dsl/types.ts";
 
 export interface DiscoveredWorkflow {
   id: string;
@@ -30,28 +25,11 @@ export async function discoverBuiltinWorkflows(): Promise<DiscoveredWorkflow[]> 
     const ralphMod = await import("@/services/workflows/ralph/definition.ts");
     const ralphExport = ralphMod.ralphWorkflowDefinition;
 
-    if (
-      ralphExport &&
-      typeof ralphExport === "object" &&
-      "__compiledWorkflow" in ralphExport
-    ) {
-      // DSL-compiled workflow: unwrap the branded type
-      const inner = (ralphExport as CompiledWorkflow)
-        .__compiledWorkflow as unknown as WorkflowDefinition;
-      workflows.push({
-        id: inner.name ?? "ralph",
-        definition: inner,
-      });
-    } else if (
-      ralphExport &&
-      typeof ralphExport === "object" &&
-      "name" in ralphExport
-    ) {
-      // Legacy WorkflowDefinition export
-      workflows.push({
-        id: (ralphExport as WorkflowDefinition).name,
-        definition: ralphExport as WorkflowDefinition,
-      });
+    if (ralphExport && typeof ralphExport === "object" && "name" in ralphExport) {
+      // CompiledWorkflow spreads WorkflowDefinition properties directly,
+      // so it can be used as-is whether branded or legacy.
+      const def = ralphExport as WorkflowDefinition;
+      workflows.push({ id: def.name, definition: def });
     }
   } catch (error) {
     console.error(
@@ -71,7 +49,12 @@ export async function discoverCustomWorkflows(): Promise<DiscoveredWorkflow[]> {
   const workflows: DiscoveredWorkflow[] = [];
 
   const glob = new Bun.Glob("*.ts");
-  const workflowDirs = [".atomic/workflows"];
+  const { homedir } = await import("os");
+  const { join } = await import("path");
+  const workflowDirs = [
+    ".atomic/workflows",
+    join(homedir(), ".atomic", "workflows"),
+  ];
 
   for (const dir of workflowDirs) {
     try {
@@ -84,17 +67,10 @@ export async function discoverCustomWorkflows(): Promise<DiscoveredWorkflow[]> {
           if (
             exported &&
             typeof exported === "object" &&
-            "__compiledWorkflow" in exported
-          ) {
-            const def = (exported as CompiledWorkflow)
-              .__compiledWorkflow as unknown as WorkflowDefinition;
-            workflows.push({ id: def.name ?? file, definition: def });
-          } else if (
-            exported &&
-            typeof exported === "object" &&
             "name" in exported &&
-            ("createConductorGraph" in exported || "createGraph" in exported)
+            typeof (exported as Record<string, unknown>).name === "string"
           ) {
+            // CompiledWorkflow spreads definition properties directly
             const def = exported as WorkflowDefinition;
             workflows.push({ id: def.name, definition: def });
           }
@@ -113,9 +89,13 @@ export async function discoverCustomWorkflows(): Promise<DiscoveredWorkflow[]> {
 /**
  * Verify a single discovered workflow and return a formatted report.
  * Returns { report, passed } or throws on error.
+ *
+ * @param workflow - The discovered workflow to verify
+ * @param verifier - Optional verifier function override (for testing)
  */
 export async function verifySingleWorkflow(
   workflow: DiscoveredWorkflow,
+  verifier: typeof verifyWorkflow = verifyWorkflow,
 ): Promise<{ report: string; passed: boolean }> {
   const { id, definition } = workflow;
   const graph =
@@ -129,7 +109,7 @@ export async function verifySingleWorkflow(
   }
 
   const encoded = encodeGraph(graph);
-  const result = await verifyWorkflow(graph, { encodedGraph: encoded });
+  const result = await verifier(graph, { encodedGraph: encoded });
   const report = formatVerificationReport(id, result);
 
   return { report, passed: result.valid };
@@ -179,14 +159,3 @@ export async function runVerification(): Promise<boolean> {
   return !hasFailures;
 }
 
-// CLI entry point: run verification and set exit code
-if (import.meta.main) {
-  runVerification()
-    .then((allPassed) => {
-      process.exit(allPassed ? 0 : 1);
-    })
-    .catch((error) => {
-      console.error("Fatal error:", error);
-      process.exit(1);
-    });
-}

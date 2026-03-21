@@ -4,45 +4,20 @@
  * Property 5: Every state field a node reads has been written by a
  * preceding node on all execution paths.
  *
- * Encoding: Boolean `produced[field][node]` variables propagate output
- * declarations along graph edges. For each node that reads a field,
- * verify the field has been produced by a predecessor on all paths.
+ * Algorithm: For each field, propagate a "produced" boolean forward
+ * through the graph using AND at merge points (all paths must produce).
+ * Then check that every node's reads are satisfied.
  */
 
-import type { Bool } from "z3-solver";
-import { init } from "z3-solver";
 import type {
   EncodedGraph,
   PropertyResult,
-} from "@/services/workflows/verification/types";
-
-/**
- * Type-safe accessor for the produced variable map.
- * All entries are pre-populated during initialization, so lookups
- * within the known field/node sets are guaranteed to exist.
- */
-function getProduced(
-  produced: Map<string, Map<string, Bool<"main">>>,
-  field: string,
-  nodeId: string,
-): Bool<"main"> {
-  const fieldMap = produced.get(field);
-  if (!fieldMap) {
-    throw new Error(`Internal error: no produced map for field "${field}"`);
-  }
-  const boolVar = fieldMap.get(nodeId);
-  if (!boolVar) {
-    throw new Error(
-      `Internal error: no produced variable for field "${field}" at node "${nodeId}"`,
-    );
-  }
-  return boolVar;
-}
+} from "@/services/workflows/verification/types.ts";
 
 export async function checkStateDataFlow(
   graph: EncodedGraph,
 ): Promise<PropertyResult> {
-  // Collect all reads/outputs declarations
+  // Collect reads/outputs declarations
   const nodeReads = new Map<string, string[]>();
   const nodeOutputs = new Map<string, string[]>();
 
@@ -55,7 +30,6 @@ export async function checkStateDataFlow(
     }
   }
 
-  // If no nodes declare reads, trivially passes
   if (nodeReads.size === 0) {
     return { verified: true };
   }
@@ -69,10 +43,6 @@ export async function checkStateDataFlow(
     for (const field of outputs) allFields.add(field);
   }
 
-  const { Context } = await init();
-  const ctx = Context("main");
-  const solver = new ctx.Solver();
-
   // Build predecessor map
   const predecessors = new Map<string, string[]>();
   for (const node of graph.nodes) {
@@ -82,85 +52,60 @@ export async function checkStateDataFlow(
     predecessors.get(edge.to)?.push(edge.from);
   }
 
-  // Create produced[field][node] boolean variables
-  // produced[field][node] is true if field has been produced
-  // by the node or any predecessor on ALL paths
-  const produced = new Map<string, Map<string, Bool<"main">>>();
-  for (const field of allFields) {
-    const fieldMap = new Map<string, Bool<"main">>();
-    for (const node of graph.nodes) {
-      fieldMap.set(
-        node.id,
-        ctx.Bool.const(`produced_${field}_${node.id}`),
-      );
-    }
-    produced.set(field, fieldMap);
+  // Topological order via BFS (Kahn's algorithm)
+  const inDegree = new Map<string, number>();
+  for (const node of graph.nodes) {
+    inDegree.set(node.id, 0);
   }
-
-  // Constraints for each field
-  for (const field of allFields) {
-    for (const node of graph.nodes) {
-      const nodeProducesField =
-        nodeOutputs.get(node.id)?.includes(field) ?? false;
-      const nodeVar = getProduced(produced, field, node.id);
-
-      if (node.id === graph.startNode) {
-        // Start node: produced iff the start node outputs this field
-        if (nodeProducesField) {
-          solver.add(nodeVar);
-        } else {
-          solver.add(ctx.Not(nodeVar));
-        }
-      } else {
-        const preds = predecessors.get(node.id);
-        if (!preds || preds.length === 0) {
-          // Unreachable node -- field not produced unless node itself produces it
-          if (nodeProducesField) {
-            solver.add(nodeVar);
-          } else {
-            solver.add(ctx.Not(nodeVar));
-          }
-        } else {
-          // produced[field][node] = nodeProducesField OR AND(produced[field][pred] for all preds)
-          // We use AND for predecessors because the field must be produced on ALL paths
-          if (nodeProducesField) {
-            // This node produces the field -- always true
-            solver.add(nodeVar);
-          } else {
-            // Field is produced at this node iff ALL predecessors have it produced
-            // (conservative: requires all paths to have written the field)
-            const predProduced = preds.map((p) =>
-              getProduced(produced, field, p),
-            );
-            if (predProduced.length === 1) {
-              solver.add(ctx.Eq(nodeVar, predProduced[0]!));
-            } else {
-              solver.add(
-                ctx.Eq(nodeVar, ctx.And(...predProduced)),
-              );
-            }
-          }
-        }
+  for (const edge of graph.edges) {
+    inDegree.set(edge.to, (inDegree.get(edge.to) ?? 0) + 1);
+  }
+  const topoOrder: string[] = [];
+  const topoQueue: string[] = [];
+  for (const [id, deg] of inDegree) {
+    if (deg === 0) topoQueue.push(id);
+  }
+  while (topoQueue.length > 0) {
+    const id = topoQueue.shift()!;
+    topoOrder.push(id);
+    for (const edge of graph.edges) {
+      if (edge.from === id) {
+        const newDeg = (inDegree.get(edge.to) ?? 1) - 1;
+        inDegree.set(edge.to, newDeg);
+        if (newDeg === 0) topoQueue.push(edge.to);
       }
     }
   }
 
-  // Assert that all reads are satisfied
+  // For each field, compute produced[node] in topological order
+  // produced[node] = true if:
+  //   - node itself outputs the field, OR
+  //   - ALL predecessors have produced[pred] = true
   const violations: Array<{ nodeId: string; field: string }> = [];
 
-  for (const [nodeId, reads] of nodeReads) {
-    for (const field of reads) {
-      const fieldMap = produced.get(field);
-      if (!fieldMap?.has(nodeId)) continue;
+  for (const field of allFields) {
+    const produced = new Map<string, boolean>();
 
-      const nodeVar = getProduced(produced, field, nodeId);
+    for (const nodeId of topoOrder) {
+      const nodeProduces = nodeOutputs.get(nodeId)?.includes(field) ?? false;
 
-      solver.push();
-      solver.add(ctx.Not(nodeVar));
-      const result = await solver.check();
-      solver.pop();
+      if (nodeProduces) {
+        produced.set(nodeId, true);
+      } else {
+        const preds = predecessors.get(nodeId) ?? [];
+        if (preds.length === 0) {
+          produced.set(nodeId, false);
+        } else {
+          // AND over predecessors: field must be produced on ALL paths
+          const allPredsProduced = preds.every((p) => produced.get(p) === true);
+          produced.set(nodeId, allPredsProduced);
+        }
+      }
+    }
 
-      if (result === "sat") {
+    // Check reads
+    for (const [nodeId, reads] of nodeReads) {
+      if (reads.includes(field) && produced.get(nodeId) !== true) {
         violations.push({ nodeId, field });
       }
     }

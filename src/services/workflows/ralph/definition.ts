@@ -15,7 +15,6 @@
  */
 
 import { defineWorkflow } from "@/services/workflows/dsl/define-workflow.ts";
-import type { WorkflowDefinition } from "@/services/workflows/types/definition.ts";
 import type { StageOutput } from "@/services/workflows/conductor/types.ts";
 import {
   buildSpecToTasksPrompt,
@@ -66,7 +65,7 @@ function hasActionableFindings(
 // Workflow Definition via DSL
 // ---------------------------------------------------------------------------
 
-const compiled = defineWorkflow(
+export const ralphWorkflowDefinition = defineWorkflow(
   "ralph",
   "Start autonomous implementation workflow",
 )
@@ -147,6 +146,3 @@ const compiled = defineWorkflow(
   })
   .endIf()
   .compile();
-
-export const ralphWorkflowDefinition: WorkflowDefinition =
-  compiled.__compiledWorkflow as unknown as WorkflowDefinition;

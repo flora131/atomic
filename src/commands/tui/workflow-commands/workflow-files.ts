@@ -17,21 +17,27 @@ import type {
 
 /**
  * Checks whether a value is a CompiledWorkflow by looking for the
- * `__compiledWorkflow` brand property.
+ * `__compiledWorkflow` brand property. The branded object also spreads
+ * all WorkflowDefinition properties, so it can be used directly as a
+ * WorkflowDefinition.
  */
-function isCompiledWorkflow(value: unknown): value is { __compiledWorkflow: WorkflowDefinition } {
+function isCompiledWorkflow(value: unknown): value is WorkflowDefinition & { __compiledWorkflow: true } {
   return (
     value !== null &&
     typeof value === "object" &&
     "__compiledWorkflow" in value &&
-    value.__compiledWorkflow !== null &&
-    typeof value.__compiledWorkflow === "object"
+    "name" in value &&
+    typeof (value as Record<string, unknown>).name === "string"
   );
 }
 
 /**
  * Extract a WorkflowDefinition from a dynamically imported module by
  * detecting the `__compiledWorkflow` brand on any named or default export.
+ *
+ * The CompiledWorkflow returned by `.compile()` spreads all
+ * WorkflowDefinition properties directly, so the branded value IS the
+ * definition — no unwrapping needed.
  *
  * Checks three locations in priority order:
  * 1. Module itself (if the module IS a CompiledWorkflow)
@@ -47,20 +53,20 @@ export function extractWorkflowDefinition(mod: unknown): WorkflowDefinition | nu
 
   // Check if the module itself is a CompiledWorkflow
   if (isCompiledWorkflow(mod)) {
-    return mod.__compiledWorkflow as WorkflowDefinition;
+    return mod;
   }
 
   // Check for default export with brand
   const moduleRecord = mod as Record<string, unknown>;
   if ("default" in moduleRecord && isCompiledWorkflow(moduleRecord.default)) {
-    return moduleRecord.default.__compiledWorkflow as WorkflowDefinition;
+    return moduleRecord.default;
   }
 
   // Check named exports for any CompiledWorkflow value
   for (const key of Object.keys(moduleRecord)) {
     if (key === "default") continue;
     if (isCompiledWorkflow(moduleRecord[key])) {
-      return (moduleRecord[key] as { __compiledWorkflow: WorkflowDefinition }).__compiledWorkflow;
+      return moduleRecord[key] as WorkflowDefinition;
     }
   }
 

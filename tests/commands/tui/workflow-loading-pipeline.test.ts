@@ -50,7 +50,7 @@ describe("extractWorkflowDefinition", () => {
     expect(extractWorkflowDefinition({})).toBeNull();
   });
 
-  test("returns null for object without __compiledWorkflow", () => {
+  test("returns null for object without __compiledWorkflow brand", () => {
     expect(
       extractWorkflowDefinition({
         name: "foo",
@@ -59,48 +59,55 @@ describe("extractWorkflowDefinition", () => {
     ).toBeNull();
   });
 
-  test("returns null when __compiledWorkflow is null", () => {
+  test("returns null when __compiledWorkflow is present but name is missing", () => {
     expect(
       extractWorkflowDefinition({
-        __compiledWorkflow: null,
+        __compiledWorkflow: true,
       }),
     ).toBeNull();
   });
 
-  test("returns null when __compiledWorkflow is a primitive", () => {
+  test("returns null when __compiledWorkflow is present but name is not a string", () => {
     expect(
       extractWorkflowDefinition({
-        __compiledWorkflow: "not-an-object",
+        __compiledWorkflow: true,
+        name: 42,
       }),
     ).toBeNull();
   });
 
-  test("extracts definition from module-level __compiledWorkflow", () => {
+  test("extracts definition from module-level branded CompiledWorkflow", () => {
     const mod = {
-      __compiledWorkflow: fakeDefinition,
+      ...fakeDefinition,
+      __compiledWorkflow: true as const,
     };
     const result = extractWorkflowDefinition(mod);
-    expect(result).toBe(fakeDefinition);
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe(fakeDefinition.name);
   });
 
-  test("extracts definition from default export with __compiledWorkflow", () => {
+  test("extracts definition from default export with brand", () => {
     const mod = {
       default: {
-        __compiledWorkflow: fakeDefinition,
+        ...fakeDefinition,
+        __compiledWorkflow: true as const,
       },
     };
     const result = extractWorkflowDefinition(mod);
-    expect(result).toBe(fakeDefinition);
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe(fakeDefinition.name);
   });
 
-  test("extracts definition from named export with __compiledWorkflow", () => {
+  test("extracts definition from named export with brand", () => {
     const mod = {
       myWorkflow: {
-        __compiledWorkflow: fakeDefinition,
+        ...fakeDefinition,
+        __compiledWorkflow: true as const,
       },
     };
     const result = extractWorkflowDefinition(mod);
-    expect(result).toBe(fakeDefinition);
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe(fakeDefinition.name);
   });
 
   test("prefers module-level brand over default export brand", () => {
@@ -113,13 +120,15 @@ describe("extractWorkflowDefinition", () => {
       description: "Default level definition",
     };
     const mod = {
-      __compiledWorkflow: topLevel,
+      ...topLevel,
+      __compiledWorkflow: true as const,
       default: {
-        __compiledWorkflow: defaultLevel,
+        ...defaultLevel,
+        __compiledWorkflow: true as const,
       },
     };
     const result = extractWorkflowDefinition(mod);
-    expect(result).toBe(topLevel);
+    expect(result!.name).toBe("top-level");
   });
 
   test("prefers default export brand over named export brand", () => {
@@ -133,14 +142,16 @@ describe("extractWorkflowDefinition", () => {
     };
     const mod = {
       default: {
-        __compiledWorkflow: defaultDef,
+        ...defaultDef,
+        __compiledWorkflow: true as const,
       },
       someExport: {
-        __compiledWorkflow: namedDef,
+        ...namedDef,
+        __compiledWorkflow: true as const,
       },
     };
     const result = extractWorkflowDefinition(mod);
-    expect(result).toBe(defaultDef);
+    expect(result!.name).toBe("default-def");
   });
 
   test("returns null when default export is not a CompiledWorkflow", () => {
@@ -160,19 +171,16 @@ describe("extractWorkflowDefinition", () => {
   });
 
   test("extracts from first found named export when multiple exist", () => {
-    const def1: WorkflowDefinition = {
-      name: "first",
-      description: "First",
-    };
     const mod = {
       alpha: {
-        __compiledWorkflow: def1,
+        name: "first",
+        description: "First",
+        __compiledWorkflow: true as const,
       },
       beta: {
-        __compiledWorkflow: {
-          name: "second",
-          description: "Second",
-        },
+        name: "second",
+        description: "Second",
+        __compiledWorkflow: true as const,
       },
     };
     const result = extractWorkflowDefinition(mod);
@@ -214,13 +222,12 @@ describe("loadWorkflowsFromDisk with CompiledWorkflow", () => {
     await writeFile(
       workflowFile,
       `export const myWorkflow = {
-        __compiledWorkflow: {
-          name: "my-dsl-workflow",
-          description: "A DSL-compiled workflow",
-          version: "1.0.0",
-          source: "builtin",
-          conductorStages: [],
-        },
+        name: "my-dsl-workflow",
+        description: "A DSL-compiled workflow",
+        version: "1.0.0",
+        source: "builtin",
+        conductorStages: [],
+        __compiledWorkflow: true,
       };`,
     );
 
@@ -237,11 +244,10 @@ describe("loadWorkflowsFromDisk with CompiledWorkflow", () => {
     await writeFile(
       workflowFile,
       `const compiled = {
-        __compiledWorkflow: {
-          name: "default-export-wf",
-          description: "Default-exported compiled workflow",
-          version: "2.0.0",
-        },
+        name: "default-export-wf",
+        description: "Default-exported compiled workflow",
+        version: "2.0.0",
+        __compiledWorkflow: true,
       };
       export default compiled;`,
     );
@@ -299,19 +305,17 @@ describe("loadWorkflowsFromDisk with CompiledWorkflow", () => {
     await writeFile(
       file1,
       `export const wf = {
-        __compiledWorkflow: {
-          name: "duplicate-name",
-          description: "First version",
-        },
+        name: "duplicate-name",
+        description: "First version",
+        __compiledWorkflow: true,
       };`,
     );
     await writeFile(
       file2,
       `export const wf = {
-        __compiledWorkflow: {
-          name: "duplicate-name",
-          description: "Second version",
-        },
+        name: "duplicate-name",
+        description: "Second version",
+        __compiledWorkflow: true,
       };`,
     );
 
@@ -326,11 +330,10 @@ describe("loadWorkflowsFromDisk with CompiledWorkflow", () => {
     await writeFile(
       file1,
       `export const wf = {
-        __compiledWorkflow: {
-          name: "primary",
-          description: "Primary workflow",
-          aliases: ["shortcut"],
-        },
+        name: "primary",
+        description: "Primary workflow",
+        aliases: ["shortcut"],
+        __compiledWorkflow: true,
       };`,
     );
     await writeFile(
@@ -352,11 +355,10 @@ describe("loadWorkflowsFromDisk with CompiledWorkflow", () => {
     await writeFile(
       workflowFile,
       `export const wf = {
-        __compiledWorkflow: {
-          name: "versioned-wf",
-          description: "Versioned workflow",
-          minSDKVersion: "invalid-version",
-        },
+        name: "versioned-wf",
+        description: "Versioned workflow",
+        minSDKVersion: "invalid-version",
+        __compiledWorkflow: true,
       };`,
     );
 
@@ -383,9 +385,10 @@ describe("loadWorkflowsFromDisk with CompiledWorkflow", () => {
 
 describe("extractWorkflowDefinition with real workflow structures", () => {
   test("extracts definition with conductorStages", () => {
-    const definition: WorkflowDefinition = {
+    const mod = {
       name: "conductor-workflow",
       description: "Has conductor stages",
+      __compiledWorkflow: true as const,
       conductorStages: [
         {
           id: "planner",
@@ -397,17 +400,17 @@ describe("extractWorkflowDefinition with real workflow structures", () => {
       ],
     };
 
-    const mod = { __compiledWorkflow: definition };
     const result = extractWorkflowDefinition(mod);
-    expect(result).toBe(definition);
+    expect(result).not.toBeNull();
     expect(result!.conductorStages).toHaveLength(1);
     expect(result!.conductorStages![0]!.id).toBe("planner");
   });
 
   test("extracts definition with createConductorGraph function", () => {
-    const definition: WorkflowDefinition = {
+    const mod = {
       name: "graph-workflow",
       description: "Has a conductor graph factory",
+      __compiledWorkflow: true as const,
       createConductorGraph: () => ({
         nodes: new Map(),
         edges: [],
@@ -417,26 +420,25 @@ describe("extractWorkflowDefinition with real workflow structures", () => {
       }),
     };
 
-    const mod = { __compiledWorkflow: definition };
     const result = extractWorkflowDefinition(mod);
-    expect(result).toBe(definition);
+    expect(result).not.toBeNull();
     expect(typeof result!.createConductorGraph).toBe("function");
   });
 
   test("extracts definition with createState factory", () => {
-    const definition: WorkflowDefinition = {
+    const mod = {
       name: "stateful-workflow",
       description: "Has state factory",
-      createState: (params) => ({
+      __compiledWorkflow: true as const,
+      createState: (params: { sessionId: string }) => ({
         executionId: params.sessionId,
         lastUpdated: new Date().toISOString(),
         outputs: {},
       }),
     };
 
-    const mod = { __compiledWorkflow: definition };
     const result = extractWorkflowDefinition(mod);
-    expect(result).toBe(definition);
+    expect(result).not.toBeNull();
     expect(typeof result!.createState).toBe("function");
   });
 });

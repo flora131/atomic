@@ -16,7 +16,6 @@ import type {
   StateFieldConfig,
   ToolConfig,
   WorkflowBuilderInterface,
-  WorkflowDefinitionRef,
 } from "@/services/workflows/dsl/types.ts";
 import type { StageContext } from "@/services/workflows/conductor/types.ts";
 import type { BaseState, ExecutionContext } from "@/services/workflows/graph/types.ts";
@@ -349,22 +348,14 @@ describe("Instruction", () => {
 
 describe("CompiledWorkflow", () => {
   test("has branded __compiledWorkflow field", () => {
-    const compiled: CompiledWorkflow = {
-      __compiledWorkflow: { nodes: [], edges: [] },
-    };
+    const compiled = {
+      name: "test",
+      description: "test workflow",
+      __compiledWorkflow: true as const,
+    } as CompiledWorkflow;
 
-    expect(compiled.__compiledWorkflow).toBeDefined();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// WorkflowDefinitionRef
-// ---------------------------------------------------------------------------
-
-describe("WorkflowDefinitionRef", () => {
-  test("is an opaque record type", () => {
-    const ref: WorkflowDefinitionRef = { internal: "data" };
-    expect(typeof ref).toBe("object");
+    expect(compiled.__compiledWorkflow).toBe(true);
+    expect(compiled.name).toBe("test");
   });
 });
 
@@ -387,7 +378,7 @@ describe("WorkflowBuilderInterface", () => {
       endIf() { return this; },
       loop(_config: LoopConfig) { return this; },
       endLoop() { return this; },
-      compile() { return { __compiledWorkflow: {} }; },
+      compile() { return { name: "mock", description: "mock", __compiledWorkflow: true } as CompiledWorkflow; },
     };
 
     // Verify chaining works

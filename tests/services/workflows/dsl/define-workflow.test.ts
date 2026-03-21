@@ -396,7 +396,7 @@ describe("WorkflowBuilder.compile()", () => {
       .stage("s1", makeStageConfig({ name: "First Stage" }));
 
     const compiled = builder.compile();
-    const definition = compiled.__compiledWorkflow as Record<string, unknown>;
+    const definition = compiled as unknown as Record<string, unknown>;
 
     expect(definition.name).toBe("my-wf");
     expect(definition.description).toBe("My workflow");
@@ -411,7 +411,7 @@ describe("WorkflowBuilder.compile()", () => {
       .stage("executor", makeStageConfig({ name: "Executor" }));
 
     const compiled = builder.compile();
-    const definition = compiled.__compiledWorkflow as Record<string, unknown>;
+    const definition = compiled as unknown as Record<string, unknown>;
     const stages = definition.conductorStages as Array<{ id: string; name: string }>;
 
     expect(stages).toHaveLength(2);
@@ -426,7 +426,7 @@ describe("WorkflowBuilder.compile()", () => {
       .stage("s1", makeStageConfig());
 
     const compiled = builder.compile();
-    const definition = compiled.__compiledWorkflow as Record<string, unknown>;
+    const definition = compiled as unknown as Record<string, unknown>;
 
     expect(typeof definition.createConductorGraph).toBe("function");
   });
@@ -436,7 +436,7 @@ describe("WorkflowBuilder.compile()", () => {
       .stage("s1", makeStageConfig());
 
     const compiled = builder.compile();
-    const definition = compiled.__compiledWorkflow as Record<string, unknown>;
+    const definition = compiled as unknown as Record<string, unknown>;
 
     expect(typeof definition.createState).toBe("function");
   });
@@ -473,7 +473,7 @@ describe("WorkflowBuilder.compile()", () => {
       .tool("parser", makeToolConfig({ name: "Parse Output" }));
 
     const compiled = builder.compile();
-    const definition = compiled.__compiledWorkflow as Record<string, unknown>;
+    const definition = compiled as unknown as Record<string, unknown>;
     const descriptions = definition.nodeDescriptions as Record<string, string>;
 
     expect(descriptions.planner).toBe("Plan Step");
@@ -489,7 +489,7 @@ describe("WorkflowBuilder.compile()", () => {
       .stage("s1", makeStageConfig());
 
     const compiled = builder.compile();
-    const definition = compiled.__compiledWorkflow as Record<string, unknown>;
+    const definition = compiled as unknown as Record<string, unknown>;
     const createState = definition.createState as (params: {
       prompt: string;
       sessionId: string;

@@ -3,94 +3,44 @@
  *
  * Property 1: Every node in the graph is reachable from the start node.
  *
- * Encoding: Boolean variable `reach[i]` per node.
- * - reach[start] = true
- * - For each non-start node j with predecessors:
- *     reach[j] <=> OR(reach[pred] for pred in predecessors(j))
- * - For each non-start node j with no predecessors:
- *     reach[j] = false (unreachable by definition)
- * - Assert NOT(reach[j]) for each node j and check unsat to verify reachability
+ * Algorithm: BFS from start node, then check if all nodes were visited.
  */
 
-import { init } from "z3-solver";
-import type { Bool } from "z3-solver";
 import type { EncodedGraph } from "@/services/workflows/verification/types.ts";
 import type { PropertyResult } from "@/services/workflows/verification/types.ts";
 
 export async function checkReachability(
   graph: EncodedGraph,
 ): Promise<PropertyResult> {
-  const { Context } = await init();
-  const ctx = Context("main");
+  const allNodeIds = new Set(graph.nodes.map((n) => n.id));
 
-  // Create boolean variables for reachability
-  const reach = new Map<string, Bool<"main">>();
-  for (const node of graph.nodes) {
-    reach.set(node.id, ctx.Bool.const(`reach_${node.id}`));
-  }
-
-  const solver = new ctx.Solver();
-
-  // Start node is always reachable
-  const startReach = reach.get(graph.startNode);
-  if (!startReach) {
+  if (!allNodeIds.has(graph.startNode)) {
     return {
       verified: false,
       counterexample: `Start node "${graph.startNode}" not found in graph nodes`,
       details: { unreachableNodes: [] },
     };
   }
-  solver.add(startReach);
 
-  // Build predecessor map
-  const predecessors = new Map<string, string[]>();
-  for (const node of graph.nodes) {
-    predecessors.set(node.id, []);
-  }
-  for (const edge of graph.edges) {
-    const preds = predecessors.get(edge.to);
-    if (preds) {
-      preds.push(edge.from);
+  // BFS from start node
+  const visited = new Set<string>();
+  const queue = [graph.startNode];
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (visited.has(current)) continue;
+    visited.add(current);
+
+    for (const edge of graph.edges) {
+      if (edge.from === current && !visited.has(edge.to)) {
+        queue.push(edge.to);
+      }
     }
   }
 
-  // For each non-start node: reachable iff at least one predecessor is reachable
-  for (const node of graph.nodes) {
-    if (node.id === graph.startNode) continue;
-
-    const nodeReach = reach.get(node.id)!;
-    const preds = predecessors.get(node.id) ?? [];
-
-    if (preds.length === 0) {
-      // No predecessors -- node cannot be reachable
-      solver.add(ctx.Not(nodeReach));
-    } else if (preds.length === 1) {
-      // Single predecessor -- reach[node] <=> reach[pred]
-      const singlePred = preds[0] as string;
-      solver.add(ctx.Eq(nodeReach, reach.get(singlePred)!));
-    } else {
-      // Multiple predecessors -- reach[node] <=> OR(reach[pred] for pred in predecessors)
-      const predReachVars = preds.map((p) => reach.get(p)!);
-      const predReachable = ctx.Or(...predReachVars);
-      solver.add(ctx.Eq(nodeReach, predReachable));
-    }
-  }
-
-  // Check that all nodes are reachable
-  const unreachableNodes: string[] = [];
-  for (const node of graph.nodes) {
-    const nodeReach = reach.get(node.id)!;
-    // Push a scope, assert NOT reachable, check if satisfiable
-    solver.push();
-    solver.add(ctx.Not(nodeReach));
-    const result = await solver.check();
-    solver.pop();
-
-    if (result === "sat") {
-      // Found a model where this node is unreachable
-      unreachableNodes.push(node.id);
-    }
-  }
+  const unreachableNodes = graph.nodes
+    .map((n) => n.id)
+    .filter((id) => !visited.has(id));
 
   if (unreachableNodes.length > 0) {
     return {

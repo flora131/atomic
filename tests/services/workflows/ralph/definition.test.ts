@@ -233,7 +233,7 @@ describe("Ralph Workflow Definition (DSL)", () => {
     expect(parsed.reviewResult).toBeDefined();
   });
 
-  test("planner parseOutput extracts tasks", () => {
+  test("planner parseOutput extracts tasks as array", () => {
     const planner = ralphWorkflowDefinition.conductorStages![0]!;
     const result = planner.parseOutput!(
       JSON.stringify([
@@ -246,8 +246,11 @@ describe("Ralph Workflow Definition (DSL)", () => {
         },
       ]),
     );
-    expect(result).toBeDefined();
-    const parsed = result as Record<string, unknown>;
-    expect(Array.isArray(parsed.tasks)).toBe(true);
+    // The compiler unwraps single-key { tasks: [...] } to a raw array
+    // for backward compatibility with the conductor's task detection.
+    expect(Array.isArray(result)).toBe(true);
+    const tasks = result as Array<{ description: string }>;
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]!.description).toBe("Task A");
   });
 });

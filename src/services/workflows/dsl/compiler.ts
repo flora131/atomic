@@ -211,7 +211,17 @@ function generateStageDefinitions(
       indicator: config.description,
       buildPrompt: config.prompt,
       parseOutput: (response: string) => {
-        return config.outputMapper(response);
+        const mapped = config.outputMapper(response);
+        // The conductor's updateTasksFromParsedOutput expects parsedOutput
+        // to be an array (for task list detection). When the outputMapper
+        // returns a single-key record whose value is an array, extract it
+        // so the conductor can detect tasks. This preserves backward
+        // compatibility with the original StageDefinition.parseOutput contract.
+        const values = Object.values(mapped);
+        if (values.length === 1 && Array.isArray(values[0])) {
+          return values[0];
+        }
+        return mapped;
       },
       shouldRun,
       sessionConfig: config.sessionConfig,

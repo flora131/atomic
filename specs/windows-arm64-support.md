@@ -90,7 +90,7 @@ OpenTUI's native renderer uses `bun:ffi` / `dlopen()` to load platform-specific 
 - [ ] The installed binary runs correctly on Windows ARM64 via Prism x64 emulation (AVX-free)
 - [ ] `install.ps1` displays an informational message when remapping ARM64 to x64
 - [ ] Checksum verification succeeds on ARM64 Windows installs
-- [ ] CI pins Bun v1.3.11 to guarantee the static AVX verifier is active
+- [ ] CI uses the latest Bun version to guarantee the static AVX verifier (introduced in v1.3.11) is active
 - [ ] The Windows binary is compiled with `bun-windows-x64-baseline` to be Prism-compatible
 - [ ] `install.sh` passes version/prerelease args when delegating to `install.ps1` on Windows
 
@@ -135,7 +135,7 @@ flowchart TB
 
     subgraph CI["CI/CD Pipeline"]
         Build["build (Ubuntu)<br>4 cross-compiled binaries"]:::unchanged
-        BuildWin["build-windows (x64)<br>--target=bun-windows-<br>x64-baseline<br>Bun v1.3.11"]:::changed
+        BuildWin["build-windows (x64)<br>--target=bun-windows-<br>x64-baseline<br>Bun latest"]:::changed
         Release["release<br>5 binaries + configs"]:::unchanged
         Build --> Release
         BuildWin --> Release
@@ -159,7 +159,7 @@ flowchart TB
 | Component | Change | Justification |
 |-----------|--------|---------------|
 | `install.ps1` | Remap ARM64 to x64 in architecture detection | Fixes #388: ARM64 users download the working x64-baseline binary |
-| `.github/workflows/publish.yml` | Use `--target=bun-windows-x64-baseline` + pin Bun v1.3.11 | Produces AVX-free binary safe for Prism emulation; ensures static AVX verifier is active |
+| `.github/workflows/publish.yml` | Use `--target=bun-windows-x64-baseline` + use latest Bun | Produces AVX-free binary safe for Prism emulation; latest Bun (>= v1.3.11) ensures static AVX verifier is active |
 | `install.sh` | Pass version/prerelease args to `install.ps1` on Windows delegation | Fixes pre-existing edge case where `install.sh` on MSYS/Cygwin loses version info |
 
 ### 4.4 Deferred Components (Follow-Up PR)
@@ -212,22 +212,20 @@ switch ($Arch) {
 - No changes needed to the download URL construction logic at line 253
 - No separate Windows version detection block — the message is self-documenting. Users on Windows 10 ARM64 will see the Windows 11 requirement and understand.
 
-### 5.2 `publish.yml` -- Baseline Compile Target + Bun Version Pin
+### 5.2 `publish.yml` -- Baseline Compile Target + Latest Bun
 
 **File:** `.github/workflows/publish.yml`
 
-**Change 1: Pin Bun version** in **all** CI jobs (`build` line 38-40 and `build-windows` line 110-112):
+**Change 1: Use latest Bun version** in **all** CI jobs (`build` line 38-40 and `build-windows` line 110-112):
 
 ```yaml
 - name: Setup Bun
   uses: oven-sh/setup-bun@v2
   with:
-      bun-version: "1.3.11"
+      bun-version: latest
 ```
 
-**Pre-requisite:** Before applying this version pin, validate that Bun v1.3.11 does not introduce breaking changes for any existing dependencies or code. Run the full test suite and typecheck against v1.3.11 to confirm compatibility.
-
-**Why an exact pin (not `>=`):** An exact pin guarantees reproducible builds and prevents a future Bun release from silently introducing breaking changes. The tradeoff is manual version bumps, but for a build tool (not a user-facing runtime), reproducibility is more important than auto-updating.
+**Why `latest` (not an exact pin):** The static AVX verifier was introduced in Bun v1.3.11 ([PR #27801](https://github.com/oven-sh/bun/pull/27801)) and is present in all subsequent versions. Using `latest` ensures we always have the verifier while also picking up bug fixes and performance improvements without manual version bumps. The tradeoff is that a future Bun release could theoretically introduce breaking changes, but Bun has a strong backwards-compatibility track record and the CI test suite provides a safety net.
 
 **Change 2: Use baseline compile target** (line 117-120):
 
@@ -249,7 +247,7 @@ Proposed change:
 
 **Rationale:**
 - `bun-windows-x64-baseline` produces an AVX-free binary that works under Prism emulation on ARM64 Windows
-- Bun v1.3.11 includes the static AVX verifier ([PR #27801](https://github.com/oven-sh/bun/pull/27801)) that **fails the build** if any AVX/AVX2 instructions leak into baseline builds
+- Bun >= v1.3.11 includes the static AVX verifier ([PR #27801](https://github.com/oven-sh/bun/pull/27801)) that **fails the build** if any AVX/AVX2 instructions leak into baseline builds; using `latest` ensures this verifier is always active
 - The output filename remains `atomic-windows-x64.exe` -- no release asset changes needed
 - The performance difference between standard and baseline x64 is negligible for a TUI application (AVX optimizations primarily benefit SIMD-heavy workloads like video encoding, not terminal rendering and network I/O)
 
@@ -397,12 +395,12 @@ const DEFAULT_PLATFORMS = [
 - **Windows 11 ARM64:** Fully supported via Prism x64 emulation (24H2+). Prism is built into the OS and requires no user configuration
 - **Windows 10 ARM64:** x64 emulation is available starting with Windows 10 Insider Build 21277 (November 2020). May have reduced performance compared to Prism. `install.ps1` notes that Windows 11 is required in its ARM64 info message, but does not block installation
 - **Native x64 Windows:** Fully supported. Baseline binary has no AVX optimizations, but performance impact is negligible for a TUI application
-- **CI/CD:** Requires Bun v1.3.11 (exact pin) in the `build-windows` job for the static AVX verifier guarantee
+- **CI/CD:** Requires Bun >= v1.3.11 (using `latest`) in all CI jobs; the static AVX verifier is present in v1.3.11 and all subsequent versions
 - **Future TinyCC support:** If TinyCC gains ARM64 Windows support ([Bun #28055](https://github.com/oven-sh/bun/issues/28055)), the remapping logic can be reverted and a native ARM64 binary added to the CI matrix. Changes are isolated and easily reversible.
 
 ### 8.4 Bun Version Dependency
 
-This approach has a **hard dependency on Bun v1.3.11** for the CI build environment. Without this version (or later), baseline builds may still contain AVX instructions (the leak through `highway.zig` that caused crashes in v1.2.19). The exact version pin in `publish.yml` prevents regression if a CI update reverts to an older Bun, and also prevents a newer Bun from introducing unexpected behavior.
+This approach requires **Bun >= v1.3.11** for the CI build environment. Without this version (or later), baseline builds may still contain AVX instructions (the leak through `highway.zig` that caused crashes in v1.2.19). Setting Bun to `latest` in `publish.yml` ensures we always have the static AVX verifier while also benefiting from ongoing Bun improvements.
 
 Key Bun PRs that enable this approach:
 - [PR #27121](https://github.com/oven-sh/bun/pull/27121) (merged Feb 21, 2026) -- CI verification for baseline CPU instructions on Windows
@@ -412,7 +410,7 @@ Key Bun PRs that enable this approach:
 
 ### 9.1 Deployment Strategy
 
-- [ ] **Phase 1 — MVP (this PR):** Implement `install.ps1`, `publish.yml`, and `install.sh` changes. Validate Bun v1.3.11 compatibility with all existing dependencies before pinning.
+- [ ] **Phase 1 — MVP (this PR):** Implement `install.ps1`, `publish.yml`, and `install.sh` changes.
 - [ ] **Phase 2 — Merge + Release:** Merge to `main`. The next release automatically includes the baseline binary. ARM64 Windows installs now download `atomic-windows-x64.exe` instead of 404.
 - [ ] **Phase 3 — Hardening (follow-up PR):** Add `inferTargetArch()` + ARM64 guard to `build-binary.ts`. Remove `win32-arm64` from `prepare-opentui-bindings.ts`.
 
@@ -458,7 +456,7 @@ No data migration is needed. No release asset names change.
 
 - [x] **Q4: Should `install.sh` Windows delegation be fixed in this PR or tracked separately?** **Resolved: Include in this PR.** The `install.sh` -> `install.ps1` delegation currently drops version/prerelease arguments. Since the code is being touched anyway, fix it in the same PR. Minimal additional risk.
 
-- [x] **Q5: Should Bun be pinned in all CI jobs or only the Windows job?** **Resolved: Exact pin v1.3.11 in all CI jobs.** Pin Bun to exact version `1.3.11` across both `build` and `build-windows` jobs for consistency and reproducibility. An exact pin (not `>=`) prevents future Bun releases from silently introducing breaking changes. **Important caveat:** Before making this change, validate that v1.3.11 does not break any existing dependencies. Run a compatibility check first.
+- [x] **Q5: Should Bun be pinned to a specific version or use `latest`?** **Resolved: Use `latest` in all CI jobs.** Set Bun to `latest` across both `build` and `build-windows` jobs for consistency. The static AVX verifier was introduced in v1.3.11 and is present in all subsequent versions, so `latest` always includes it. Using `latest` avoids manual version bumps and ensures we benefit from ongoing Bun bug fixes and improvements. The CI test suite provides a safety net against potential breaking changes.
 
 - [x] **Q6: Should CI produce two Windows binaries (standard + baseline) to preserve AVX optimizations for native x64 users?** **Resolved: Single baseline binary.** Ship one `atomic-windows-x64.exe` compiled with `bun-windows-x64-baseline`. The AVX performance loss is negligible for a TUI application (bottlenecked by network I/O and agent SDK calls, not SIMD computation). A single binary simplifies the release pipeline.
 
@@ -483,7 +481,7 @@ No data migration is needed. No release asset names change.
 | File | Change Type | Description |
 |------|-------------|-------------|
 | `install.ps1` | Edit | Remap ARM64 to x64 with informational message (includes Windows 11 note) |
-| `.github/workflows/publish.yml` | Edit | Pin Bun v1.3.11 (exact) + use `--target=bun-windows-x64-baseline` in build-windows job |
+| `.github/workflows/publish.yml` | Edit | Use latest Bun + use `--target=bun-windows-x64-baseline` in build-windows job |
 | `install.sh` | Edit | Pass version/prerelease args on Windows delegation |
 
 ### Deferred (Follow-Up PR)

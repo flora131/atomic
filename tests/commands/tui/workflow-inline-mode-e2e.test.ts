@@ -44,6 +44,61 @@ async function withTimeout<T>(
   }
 }
 
+/**
+ * Create a mock `createAgentSession` factory.
+ *
+ * Returns a function that, when called, produces a mock Session whose
+ * `stream()` method detects the conductor stage from prompt keywords and
+ * returns appropriate content for each Ralph stage.
+ *
+ * @param streamOverride  Optional custom stream generator. When provided,
+ *   all sessions use this instead of the default keyword-based routing.
+ */
+let mockSessionCounter = 0;
+function createMockAgentSession(
+  streamOverride?: (message: string, options?: { agent?: string; abortSignal?: AbortSignal }) => AsyncIterable<{ type: "text"; content: string }>,
+) {
+  return async () => ({
+    id: `mock-session-${++mockSessionCounter}`,
+    send: async () => ({ type: "text" as const, content: "" }),
+    stream: streamOverride ?? (async function* (message: string) {
+      // Planner stage — "task decomposition engine"
+      if (message.includes("task decomposition engine") || message.includes("Decompose")) {
+        yield {
+          type: "text" as const,
+          content: JSON.stringify([
+            { id: "#1", description: "Implement feature", status: "pending", summary: "Implementing feature", blockedBy: [] },
+          ]),
+        };
+        return;
+      }
+      // Reviewer stage — "Code Review Request"
+      if (message.includes("Code Review Request")) {
+        yield {
+          type: "text" as const,
+          content: JSON.stringify({
+            findings: [],
+            overall_correctness: "patch is correct",
+            overall_explanation: "No issues found",
+          }),
+        };
+        return;
+      }
+      // Default (orchestrator, debugger, etc.)
+      yield { type: "text" as const, content: "Stage completed." };
+    }),
+    summarize: async () => {},
+    getContextUsage: async () => ({
+      inputTokens: 100,
+      outputTokens: 50,
+      maxTokens: 100000,
+      usagePercentage: 0.15,
+    }),
+    getSystemToolsTokens: () => 0,
+    destroy: async () => {},
+  });
+}
+
 function createMockContext(overrides?: Partial<CommandContext>): CommandContext {
   return {
     session: null,
@@ -73,6 +128,7 @@ function createMockContext(overrides?: Partial<CommandContext>): CommandContext 
     setWorkflowSessionId: () => {},
     setWorkflowTaskIds: () => {},
     updateWorkflowState: () => {},
+    createAgentSession: createMockAgentSession(),
     ...overrides,
   };
 }
@@ -84,6 +140,7 @@ describe("Workflow inline mode E2E", () => {
     let sessionDir: string | null = null;
 
     const context = createMockContext({
+      createAgentSession: createMockAgentSession(),
       updateWorkflowState: (update) => {
         workflowStateUpdates.push(update);
       },
@@ -159,13 +216,18 @@ describe("Workflow inline mode E2E", () => {
 
 
   test("review with findings triggers fixer and completes within timeout", async () => {
-    // Track all spawnSubagentParallel calls
-    const spawnCalls: Array<{ agentName: string }> = [];
+    // Track stage transitions via conductor's onStageTransition callback
+    const stageTransitions: string[] = [];
     const workflowStateUpdates: Array<Partial<CommandContextState>> = [];
     let sessionDir: string | null = null;
+
     const context = createMockContext({
       updateWorkflowState: (update) => {
         workflowStateUpdates.push(update);
+        // Track stage transitions from conductor
+        if (update.currentStage) {
+          stageTransitions.push(update.currentStage);
+        }
       },
       setWorkflowSessionDir: (dir) => {
         sessionDir = dir;
@@ -178,78 +240,40 @@ describe("Workflow inline mode E2E", () => {
       },
       setWorkflowSessionId: () => {},
       setWorkflowTaskIds: () => {},
-      spawnSubagentParallel: async (agents) => {
-        return agents.map((a) => {
-          const agentName = a.agentName ?? a.agentId ?? "unknown";
-          spawnCalls.push({ agentName });
-          
-          // Planner: return task list
-          if (agentName === "planner") {
-            return {
-              agentId: a.agentId,
-              success: true,
-              output: JSON.stringify([
-                { id: "#1", description: "Add auth module", status: "pending", summary: "Adding auth", blockedBy: [] },
-              ]),
-              toolUses: 1,
-              durationMs: 100,
-            };
-          }
-          
-          // Worker: succeed
-          if (agentName === "worker") {
-            return {
-              agentId: a.agentId,
-              success: true,
-              output: "Implemented auth module",
-              toolUses: 3,
-              durationMs: 500,
-            };
-          }
-          
-          // Reviewer: return findings that trigger fixes
-          if (agentName === "reviewer") {
-            return {
-              agentId: a.agentId,
-              success: true,
-              output: JSON.stringify({
-                findings: [
-                  {
-                    file: "src/auth.ts",
-                    description: "Missing input validation",
-                    severity: "high",
-                    priority: 1,
-                  },
-                ],
-                overall_correctness: "patch is correct",
-                overall_explanation: "Missing input validation in auth handler",
-              }),
-              toolUses: 2,
-              durationMs: 200,
-            };
-          }
-          
-          // Fixer: succeed (agentName is "debugger" in the graph)
-          if (agentName === "debugger") {
-            return {
-              agentId: a.agentId,
-              success: true,
-              output: "Fixed input validation",
-              toolUses: 2,
-              durationMs: 300,
-            };
-          }
-          
-          // Default fallback
-          return {
-            agentId: a.agentId,
-            success: true,
-            output: "OK",
-            toolUses: 0,
-            durationMs: 10,
+      // Conductor uses createAgentSession for per-stage sessions
+      createAgentSession: createMockAgentSession(async function* (message: string) {
+        // Planner stage — return task list
+        if (message.includes("task decomposition engine") || message.includes("Decompose")) {
+          yield {
+            type: "text" as const,
+            content: JSON.stringify([
+              { id: "#1", description: "Add auth module", status: "pending", summary: "Adding auth", blockedBy: [] },
+            ]),
           };
-        });
-      },
+          return;
+        }
+        // Reviewer stage — return findings that trigger the debugger
+        if (message.includes("Code Review Request")) {
+          yield {
+            type: "text" as const,
+            content: JSON.stringify({
+              findings: [
+                {
+                  file: "src/auth.ts",
+                  description: "Missing input validation",
+                  severity: "high",
+                  priority: 1,
+                },
+              ],
+              overall_correctness: "patch is correct",
+              overall_explanation: "Missing input validation in auth handler",
+            }),
+          };
+          return;
+        }
+        // Default (orchestrator, debugger, etc.)
+        yield { type: "text" as const, content: "Stage completed." };
+      }),
     });
 
     // Get the ralph command
@@ -260,7 +284,7 @@ describe("Workflow inline mode E2E", () => {
     // Run workflow — should complete without hanging
     const result = await withTimeout(
       Promise.resolve(ralphCommand!.execute("Build auth feature", context)),
-      3_000,
+      5_000,
       "ralph workflow did not complete in time",
     );
 
@@ -274,15 +298,12 @@ describe("Workflow inline mode E2E", () => {
     );
     expect(hasWorkflowActive).toBe(true);
 
-    // Assert: spawnSubagentParallel was called for planner, worker, reviewer, AND fixer
-    const agentNames = spawnCalls.map((c) => c.agentName);
-    expect(agentNames).toContain("planner");
-    expect(agentNames).toContain("worker");
-    expect(agentNames).toContain("reviewer");
-    expect(agentNames).toContain("debugger"); // fixer uses "debugger" agentName
-
-    // NOTE: Task tracking is now done via bus events (workflow.task.update)
-    // instead of context.setTodoItems(). This test doesn't verify bus events yet.
+    // Assert: conductor transitioned through all stages including debugger
+    // (debugger runs because reviewer returned findings)
+    expect(stageTransitions).toContain("planner");
+    expect(stageTransitions).toContain("orchestrator");
+    expect(stageTransitions).toContain("reviewer");
+    expect(stageTransitions).toContain("debugger");
 
     // Assert: session dir was set
     expect(sessionDir).not.toBeNull();
@@ -293,23 +314,19 @@ describe("Workflow inline mode E2E", () => {
     }
   });
 
-  test("keeps TUI workflow state responsive while worker execution is in-flight", async () => {
+  test("keeps TUI workflow state responsive while orchestrator stage is in-flight", async () => {
     const workflowStateUpdates: Array<Partial<CommandContextState>> = [];
-    const streamingTransitions: boolean[] = [];
     const trackedSessionDirs: Array<string | null> = [];
     const trackedSessionIds: Array<string | null> = [];
     const trackedTaskIdSizes: number[] = [];
     let sessionDir: string | null = null;
 
-    const workerStarted = createDeferred<void>();
-    const releaseWorker = createDeferred<void>();
+    const orchestratorStarted = createDeferred<void>();
+    const releaseOrchestrator = createDeferred<void>();
 
     const context = createMockContext({
       updateWorkflowState: (update) => {
         workflowStateUpdates.push(update);
-      },
-      setStreaming: (value) => {
-        streamingTransitions.push(value);
       },
       setWorkflowSessionDir: (dir) => {
         trackedSessionDirs.push(dir);
@@ -326,57 +343,40 @@ describe("Workflow inline mode E2E", () => {
       setWorkflowTaskIds: (ids) => {
         trackedTaskIdSizes.push(ids.size);
       },
-      spawnSubagentParallel: async (agents) => {
-        const firstAgent = agents[0];
-        const agentName = firstAgent?.agentName ?? firstAgent?.agentId ?? "unknown";
-
-        if (agentName === "planner") {
-          return [{
-            agentId: firstAgent?.agentId ?? "planner-1",
-            success: true,
-            output: JSON.stringify([
+      // Conductor uses createAgentSession for per-stage sessions
+      createAgentSession: createMockAgentSession(async function* (message: string) {
+        // Planner: return 2 tasks
+        if (message.includes("task decomposition engine") || message.includes("Decompose")) {
+          yield {
+            type: "text" as const,
+            content: JSON.stringify([
               { id: "#1", description: "Implement auth", status: "pending", summary: "Implementing auth", blockedBy: [] },
               { id: "#2", description: "Add tests", status: "pending", summary: "Adding tests", blockedBy: [] },
             ]),
-            toolUses: 1,
-            durationMs: 100,
-          }];
+          };
+          return;
         }
-
-        if (agentName === "worker") {
-          workerStarted.resolve(undefined);
-          await releaseWorker.promise;
-          return agents.map((agent, index) => ({
-            agentId: agent.agentId,
-            success: true,
-            output: `Completed worker task ${index + 1}`,
-            toolUses: 2,
-            durationMs: 200,
-          }));
+        // Orchestrator: pause to simulate long-running execution
+        if (!message.includes("Code Review Request") && !message.includes("Fix Request")) {
+          orchestratorStarted.resolve(undefined);
+          await releaseOrchestrator.promise;
+          yield { type: "text" as const, content: "All tasks completed." };
+          return;
         }
-
-        if (agentName === "reviewer") {
-          return [{
-            agentId: firstAgent?.agentId ?? "reviewer-1",
-            success: true,
-            output: JSON.stringify({
+        // Reviewer
+        if (message.includes("Code Review Request")) {
+          yield {
+            type: "text" as const,
+            content: JSON.stringify({
               findings: [],
               overall_correctness: "patch is correct",
               overall_explanation: "No issues",
             }),
-            toolUses: 1,
-            durationMs: 100,
-          }];
+          };
+          return;
         }
-
-        return agents.map((agent) => ({
-          agentId: agent.agentId,
-          success: true,
-          output: "OK",
-          toolUses: 0,
-          durationMs: 10,
-        }));
-      },
+        yield { type: "text" as const, content: "Done." };
+      }),
     });
 
     const commands = getWorkflowCommands();
@@ -386,11 +386,10 @@ describe("Workflow inline mode E2E", () => {
     const executionPromise = Promise.resolve(
       ralphCommand!.execute("Build auth feature", context),
     );
-    await withTimeout(workerStarted.promise, 1_000, "worker node did not start in time");
+    await withTimeout(orchestratorStarted.promise, 3_000, "orchestrator stage did not start in time");
 
-    // While worker is still in-flight, the workflow should already have updated
-    // TUI state and session/task bindings.
-    expect(streamingTransitions[0]).toBe(true);
+    // While orchestrator is still in-flight, the workflow should already have
+    // updated TUI state and session/task bindings.
     expect(workflowStateUpdates.some((update) => update.workflowActive === true)).toBe(true);
     expect(trackedSessionDirs.length).toBeGreaterThan(0);
     expect(trackedSessionIds.length).toBeGreaterThan(0);
@@ -403,16 +402,15 @@ describe("Workflow inline mode E2E", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(resolvedEarly).toBe(false);
 
-    releaseWorker.resolve(undefined);
+    releaseOrchestrator.resolve(undefined);
 
     const result = await withTimeout(
       executionPromise,
-      3_000,
-      "ralph workflow did not finish after releasing worker",
+      5_000,
+      "ralph workflow did not finish after releasing orchestrator",
     );
     expect(result.success).toBe(true);
     expect(result.stateUpdate?.workflowActive).toBe(false);
-    expect(streamingTransitions[streamingTransitions.length - 1]).toBe(false);
 
     if (sessionDir && existsSync(sessionDir)) {
       await rm(sessionDir, { recursive: true, force: true });

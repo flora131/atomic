@@ -1,0 +1,31 @@
+/**
+ * Workflow DSL Module
+ *
+ * Public API for the chainable workflow definition DSL.
+ * Provides the builder pattern entry point, compiler, and state compiler
+ * for defining multi-stage workflows with conditional branching and
+ * bounded loops.
+ *
+ * @example
+ * ```ts
+ * import { defineWorkflow } from "@/services/workflows/dsl";
+ *
+ * const workflow = defineWorkflow("my-workflow", "Does something")
+ *   .version("1.0.0")
+ *   .stage("planner", { ... })
+ *   .compile();
+ * ```
+ */
+
+export { defineWorkflow, WorkflowBuilder } from "./define-workflow.ts";
+export { compileWorkflow } from "./compiler.ts";
+export { compileStateSchema, createStateFactory } from "./state-compiler.ts";
+export type {
+  Instruction,
+  StageConfig,
+  ToolConfig,
+  LoopConfig,
+  StateFieldConfig,
+  CompiledWorkflow,
+  WorkflowBuilderInterface,
+} from "./types.ts";

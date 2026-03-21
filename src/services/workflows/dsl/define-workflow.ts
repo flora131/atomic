@@ -36,6 +36,7 @@ import type {
   WorkflowBuilderInterface,
 } from "@/services/workflows/dsl/types.ts";
 import type { StageContext } from "@/services/workflows/conductor/types.ts";
+import { compileWorkflow } from "@/services/workflows/dsl/compiler.ts";
 
 // ---------------------------------------------------------------------------
 // Entry Point
@@ -194,15 +195,24 @@ export class WorkflowBuilder implements WorkflowBuilderInterface {
    * calling `.compile()`. The returned value is passed to the conductor
    * for execution.
    *
-   * @throws Error until the compiler and verifier are wired (task #4).
+   * Steps:
+   * 1. Runs the DSL compiler to validate instructions and produce a
+   *    `WorkflowDefinition` (synchronous — validation, graph generation,
+   *    state factory creation).
+   * 2. Returns a branded `CompiledWorkflow` wrapping the definition.
+   *
+   * Z3 verification is performed separately (asynchronously) by the
+   * workflow loader or CLI command, since Z3 WASM requires an async
+   * initialization step that cannot run in a synchronous method.
+   *
+   * @throws Error if the instruction sequence is structurally invalid
+   *   (e.g., unbalanced if/endIf, duplicate node IDs, empty branches).
    */
   compile(): CompiledWorkflow {
-    // The compiler + verifier will be wired in a later task.
-    // For now, provide a placeholder that throws.
-    throw new Error(
-      "WorkflowBuilder.compile() is not yet wired to the compiler. " +
-        "This will be implemented when the compiler and verifier are ready.",
-    );
+    const definition = compileWorkflow(this);
+    return {
+      __compiledWorkflow: definition as unknown as Record<string, unknown>,
+    };
   }
 
   // -- Accessors for the compiler -------------------------------------------

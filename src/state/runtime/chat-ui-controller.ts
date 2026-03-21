@@ -559,13 +559,12 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
   };
 
   const createSubagentSession = async (config?: SessionConfig) => {
-    const mergedConfig: SessionConfig = { ...config };
-    if (
-      mergedConfig.additionalInstructions === undefined
-      && sessionConfig?.additionalInstructions !== undefined
-    ) {
-      mergedConfig.additionalInstructions = sessionConfig.additionalInstructions;
-    }
+    // Inherit parent session config as defaults (model, reasoningEffort,
+    // maxThinkingTokens, additionalInstructions, permissionMode, agentMode).
+    // Stage-level config overrides take precedence via the spread order.
+    // `sessionId` is always excluded — each session must have its own.
+    const { sessionId: _parentSessionId, ...inheritableConfig } = sessionConfig ?? {};
+    const mergedConfig: SessionConfig = { ...inheritableConfig, ...config };
 
     const session = await client.createSession(mergedConfig);
     state.ownedSessionIds.add(session.id);

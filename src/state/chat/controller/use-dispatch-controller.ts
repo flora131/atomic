@@ -299,6 +299,14 @@ export function useChatDispatchController({
       setParallelAgents((current) => current.filter((a) => a.background));
     }
 
+    // When re-enabling streaming for a new workflow stage, clear the stale
+    // activeStreamRunId so the next stream.session.start can bind.  Without
+    // this, shouldBindStreamSessionRun rejects the new runId (gate 4:
+    // oldRunId !== newRunId) and all text-deltas are silently dropped.
+    if (streaming && activeStreamRunIdRef.current !== null) {
+      activeStreamRunIdRef.current = null;
+    }
+
     isStreamingRef.current = streaming;
     setIsStreaming(streaming);
     if (!streaming) {

@@ -410,9 +410,9 @@ describe("compactStageParts", () => {
     test("skips text compaction when compactText is false", () => {
       const step = workflowStepPart("planner");
       const parts: Part[] = [
+        step,
         textPart("a"), textPart("b"),
         toolPart("x"), toolPart("y"), toolPart("z"),
-        step,
       ];
 
       const config = createDefaultPartsCompactionConfig({ compactText: false });
@@ -428,9 +428,9 @@ describe("compactStageParts", () => {
     test("skips reasoning compaction when compactReasoning is false", () => {
       const step = workflowStepPart("planner");
       const parts: Part[] = [
+        step,
         reasoningPart("thinking"),
         toolPart("x"), toolPart("y"), toolPart("z"),
-        step,
       ];
 
       const config = createDefaultPartsCompactionConfig({ compactReasoning: false });
@@ -445,9 +445,9 @@ describe("compactStageParts", () => {
     test("skips tool compaction when compactTools is false", () => {
       const step = workflowStepPart("planner");
       const parts: Part[] = [
+        step,
         textPart("a"), textPart("b"), textPart("c"),
         toolPart("x"),
-        step,
       ];
 
       const config = createDefaultPartsCompactionConfig({ compactTools: false });
@@ -476,8 +476,8 @@ describe("compactStageParts", () => {
     test("compacts with low threshold", () => {
       const step = workflowStepPart("planner");
       const parts: Part[] = [
-        toolPart("read"),
         step,
+        toolPart("read"),
       ];
 
       const config = createDefaultPartsCompactionConfig({ minCompactableParts: 1 });
@@ -496,9 +496,9 @@ describe("compactStageParts", () => {
     test("does not compact streaming text parts", () => {
       const step = workflowStepPart("planner");
       const parts: Part[] = [
+        step,
         textPart("streaming", true), // isStreaming = true
         toolPart("a"), toolPart("b"), toolPart("c"),
-        step,
       ];
 
       const result = compactStageParts(parts, "planner", "wf-1", "Planner", defaultConfig);
@@ -513,12 +513,12 @@ describe("compactStageParts", () => {
     test("does not compact pending or running tool parts", () => {
       const step = workflowStepPart("planner");
       const parts: Part[] = [
+        step,
         toolPart("running-tool", "running"),
         toolPart("pending-tool", "pending"),
         toolPart("done1", "completed"),
         toolPart("done2", "completed"),
         toolPart("done3", "completed"),
-        step,
       ];
 
       const result = compactStageParts(parts, "planner", "wf-1", "Planner", defaultConfig);
@@ -534,10 +534,10 @@ describe("compactStageParts", () => {
     test("compacts errored tool parts", () => {
       const step = workflowStepPart("planner");
       const parts: Part[] = [
+        step,
         toolPart("err1", "error"),
         toolPart("err2", "error"),
         toolPart("ok", "completed"),
-        step,
       ];
 
       const result = compactStageParts(parts, "planner", "wf-1", "Planner", defaultConfig);
@@ -565,10 +565,10 @@ describe("compactStageParts", () => {
       const step = workflowStepPart("planner");
       const bigOutput = "x".repeat(10000);
       const parts: Part[] = [
+        step,
         toolPart("big", "completed", bigOutput),
         toolPart("small", "completed", "ok"),
         toolPart("medium", "completed", "y".repeat(500)),
-        step,
       ];
 
       const result = compactStageParts(parts, "planner", "wf-1", "Planner", defaultConfig);
@@ -600,13 +600,13 @@ describe("compactStageParts", () => {
       const orchReasoning = reasoningPart("Thinking about tasks");
 
       const parts: Part[] = [
-        plannerCompaction,
         plannerStep,
+        plannerCompaction,
+        orchStep,
         orchText,
         orchTool1,
         orchTool2,
         orchReasoning,
-        orchStep,
       ];
 
       const result = compactStageParts(

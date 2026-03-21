@@ -17,7 +17,7 @@ function extractTasksFromPrompt(prompt: string): Array<{
 }> {
     const match = prompt.match(/```json\n([\s\S]*?)\n```/);
     if (!match) throw new Error("No JSON code fence found in prompt");
-    return JSON.parse(match[1]);
+    return JSON.parse(match[1]!);
 }
 
 // ---------------------------------------------------------------------------
@@ -44,8 +44,8 @@ describe("buildOrchestratorPrompt – DAG shapes", () => {
             const parsed = extractTasksFromPrompt(buildOrchestratorPrompt(tasks));
 
             expect(parsed).toHaveLength(1);
-            expect(parsed[0].id).toBe("A");
-            expect(parsed[0].blockedBy).toEqual([]);
+            expect(parsed[0]!.id).toBe("A");
+            expect(parsed[0]!.blockedBy).toEqual([]);
         });
     });
 
@@ -65,10 +65,10 @@ describe("buildOrchestratorPrompt – DAG shapes", () => {
             const parsed = extractTasksFromPrompt(buildOrchestratorPrompt(tasks));
 
             expect(parsed).toHaveLength(4);
-            expect(parsed[0].blockedBy).toEqual([]);
-            expect(parsed[1].blockedBy).toEqual(["A"]);
-            expect(parsed[2].blockedBy).toEqual(["B"]);
-            expect(parsed[3].blockedBy).toEqual(["C"]);
+            expect(parsed[0]!.blockedBy).toEqual([]);
+            expect(parsed[1]!.blockedBy).toEqual(["A"]);
+            expect(parsed[2]!.blockedBy).toEqual(["B"]);
+            expect(parsed[3]!.blockedBy).toEqual(["C"]);
         });
 
         test("only root task has empty blockedBy", () => {
@@ -76,7 +76,7 @@ describe("buildOrchestratorPrompt – DAG shapes", () => {
             const roots = parsed.filter((t) => t.blockedBy.length === 0);
 
             expect(roots).toHaveLength(1);
-            expect(roots[0].id).toBe("A");
+            expect(roots[0]!.id).toBe("A");
         });
     });
 
@@ -123,10 +123,10 @@ describe("buildOrchestratorPrompt – DAG shapes", () => {
         test("all children depend on the single root", () => {
             const parsed = extractTasksFromPrompt(buildOrchestratorPrompt(tasks));
 
-            expect(parsed[0].blockedBy).toEqual([]);
-            expect(parsed[1].blockedBy).toEqual(["A"]);
-            expect(parsed[2].blockedBy).toEqual(["A"]);
-            expect(parsed[3].blockedBy).toEqual(["A"]);
+            expect(parsed[0]!.blockedBy).toEqual([]);
+            expect(parsed[1]!.blockedBy).toEqual(["A"]);
+            expect(parsed[2]!.blockedBy).toEqual(["A"]);
+            expect(parsed[3]!.blockedBy).toEqual(["A"]);
         });
 
         test("root is the only task with no dependencies", () => {
@@ -134,7 +134,7 @@ describe("buildOrchestratorPrompt – DAG shapes", () => {
             const roots = parsed.filter((t) => t.blockedBy.length === 0);
 
             expect(roots).toHaveLength(1);
-            expect(roots[0].id).toBe("A");
+            expect(roots[0]!.id).toBe("A");
         });
     });
 
@@ -183,10 +183,10 @@ describe("buildOrchestratorPrompt – DAG shapes", () => {
         test("mid-layer tasks depend on root; leaf depends on both mid tasks", () => {
             const parsed = extractTasksFromPrompt(buildOrchestratorPrompt(tasks));
 
-            expect(parsed[0].blockedBy).toEqual([]); // A
-            expect(parsed[1].blockedBy).toEqual(["A"]); // B
-            expect(parsed[2].blockedBy).toEqual(["A"]); // C
-            expect(parsed[3].blockedBy).toEqual(["B", "C"]); // D
+            expect(parsed[0]!.blockedBy).toEqual([]); // A
+            expect(parsed[1]!.blockedBy).toEqual(["A"]); // B
+            expect(parsed[2]!.blockedBy).toEqual(["A"]); // C
+            expect(parsed[3]!.blockedBy).toEqual(["B", "C"]); // D
         });
 
         test("exactly one root and one leaf node", () => {
@@ -198,7 +198,7 @@ describe("buildOrchestratorPrompt – DAG shapes", () => {
 
             expect(roots).toHaveLength(1);
             expect(leaves).toHaveLength(1);
-            expect(leaves[0].id).toBe("D");
+            expect(leaves[0]!.id).toBe("D");
         });
     });
 
@@ -247,16 +247,16 @@ describe("buildOrchestratorPrompt – DAG shapes", () => {
                 id,
                 `Stage ${i + 1}`,
                 i < 2 ? "completed" : "pending",
-                i > 0 ? [ids[i - 1]] : [],
+                i > 0 ? [ids[i - 1]!] : [],
             ),
         );
 
         test("each task depends exactly on the previous one", () => {
             const parsed = extractTasksFromPrompt(buildOrchestratorPrompt(tasks));
 
-            expect(parsed[0].blockedBy).toEqual([]);
+            expect(parsed[0]!.blockedBy).toEqual([]);
             for (let i = 1; i < parsed.length; i++) {
-                expect(parsed[i].blockedBy).toEqual([ids[i - 1]]);
+                expect(parsed[i]!.blockedBy).toEqual([ids[i - 1]!]);
             }
         });
 
@@ -356,7 +356,7 @@ describe("buildOrchestratorPrompt – DAG shapes", () => {
             const leaves = parsed.filter((t) => !referenced.has(t.id!));
 
             expect(leaves).toHaveLength(1);
-            expect(leaves[0].id).toBe("F");
+            expect(leaves[0]!.id).toBe("F");
         });
 
         test("all 6 tasks are serialized with correct descriptions", () => {
@@ -412,7 +412,7 @@ describe("buildOrchestratorPrompt – DAG shapes", () => {
 
             expect(roots).toHaveLength(3);
             expect(leaves).toHaveLength(1);
-            expect(leaves[0].id).toBe("F");
+            expect(leaves[0]!.id).toBe("F");
         });
     });
 
@@ -478,7 +478,7 @@ describe("buildOrchestratorPrompt – DAG shapes", () => {
                 "pending",
                 "pending",
             ]);
-            expect(parsed[4].blockedBy).toEqual(["4"]);
+            expect(parsed[4]!.blockedBy).toEqual(["4"]);
         });
     });
 
@@ -513,8 +513,8 @@ describe("buildOrchestratorPrompt – DAG shapes", () => {
 
             expect(prompt).toContain("Spawn at most 10 sub-agents in parallel");
             const parsed = extractTasksFromPrompt(prompt);
-            expect(parsed[1].blockedBy).toEqual(["A"]);
-            expect(parsed[2].blockedBy).toEqual(["B"]);
+            expect(parsed[1]!.blockedBy).toEqual(["A"]);
+            expect(parsed[2]!.blockedBy).toEqual(["B"]);
         });
     });
 

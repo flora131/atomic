@@ -5,15 +5,6 @@
  * now flows through WorkflowSessionConductor (via conductor-executor.ts).
  */
 
-/**
- * Result of a workflow execution.
- */
-export interface WorkflowExecutionResult {
-    success: boolean;
-    message?: string;
-    error?: Error;
-}
-
 export {
     compileGraphConfig,
     createSubagentRegistry,

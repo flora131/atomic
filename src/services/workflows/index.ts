@@ -2,7 +2,7 @@
  * Workflows Module
  *
  * Unified barrel for the workflow engine. Re-exports:
- * - graph/: Core graph execution engine (builder, executor, nodes, streaming)
+ * - graph/: Core graph execution engine (builder, nodes, annotations)
  * - session: Workflow session management
  * - ralph/: Ralph autonomous workflow definitions
  */

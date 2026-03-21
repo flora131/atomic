@@ -178,14 +178,6 @@ export {
   mergeState,
 } from "@/services/workflows/graph/compiled.ts";
 
-// === Stream projection types (legacy — executor removed) ===
-export type {
-  StreamMode,
-  CustomEvent,
-  DebugTrace,
-  StreamEvent,
-} from "@/services/workflows/graph/stream.ts";
-
 // === Validation and errors ===
 export type { StateValidatorConfig } from "@/services/workflows/graph/state-validator.ts";
 export { StateValidator } from "@/services/workflows/graph/state-validator.ts";

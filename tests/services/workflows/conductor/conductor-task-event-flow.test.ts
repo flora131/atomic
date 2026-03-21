@@ -358,8 +358,8 @@ describe("task update event flow (§5.6)", () => {
 
   describe("context.updateTaskList (direct UI path)", () => {
     test("calls context.updateTaskList with formatted tasks", async () => {
-      const updateTaskList = mock(() => {});
-      const context = createMockContext({ updateTaskList });
+      const updateTaskList = mock((_tasks: unknown) => {});
+      const context = createMockContext({ updateTaskList: updateTaskList as any });
       const definition = createDefinition();
 
       await executeConductorWorkflow(definition, "plan tasks", context);
@@ -374,8 +374,8 @@ describe("task update event flow (§5.6)", () => {
     });
 
     test("formatted tasks have normalized status values", async () => {
-      const updateTaskList = mock(() => {});
-      const context = createMockContext({ updateTaskList });
+      const updateTaskList = mock((_tasks: unknown) => {});
+      const context = createMockContext({ updateTaskList: updateTaskList as any });
       const definition = createDefinition();
 
       await executeConductorWorkflow(definition, "plan tasks", context);
@@ -404,12 +404,12 @@ describe("task update event flow (§5.6)", () => {
 
   describe("task persistence callback", () => {
     test("calls saveTasksToSession with normalized tasks and sessionId", async () => {
-      const saveTasksToSession = mock(async () => {});
+      const saveTasksToSession = mock(async (_tasks: unknown, _sid: unknown) => {});
       const context = createMockContext();
       const definition = createDefinition();
 
       await executeConductorWorkflow(definition, "plan tasks", context, {
-        saveTasksToSession,
+        saveTasksToSession: saveTasksToSession as any,
       });
 
       expect(saveTasksToSession).toHaveBeenCalledTimes(1);
@@ -441,8 +441,8 @@ describe("task update event flow (§5.6)", () => {
       const receivedEvents: BusEvent[] = [];
       bus.onAll((event) => receivedEvents.push(event));
 
-      const updateTaskList = mock(() => {});
-      const context = createMockContext({ eventBus: bus, updateTaskList });
+      const updateTaskList = mock((_tasks: unknown) => {});
+      const context = createMockContext({ eventBus: bus, updateTaskList: updateTaskList as any });
       const definition = createDefinition();
 
       await executeConductorWorkflow(definition, "plan tasks", context);
@@ -462,8 +462,8 @@ describe("task update event flow (§5.6)", () => {
       const receivedEvents: BusEvent[] = [];
       bus.onAll((event) => receivedEvents.push(event));
 
-      const updateTaskList = mock(() => {});
-      const context = createMockContext({ eventBus: bus, updateTaskList });
+      const updateTaskList = mock((_tasks: unknown) => {});
+      const context = createMockContext({ eventBus: bus, updateTaskList: updateTaskList as any });
       const definition = createDefinition();
 
       await executeConductorWorkflow(definition, "plan tasks", context);
@@ -476,7 +476,7 @@ describe("task update event flow (§5.6)", () => {
       const busDescriptions = busData.tasks.map((t) => t.description);
 
       // Extract direct UI task titles (mapped from description)
-      const uiTasks = updateTaskList.mock.calls[0]![0] as any[];
+      const uiTasks = (updateTaskList.mock.calls[0] as unknown as [unknown])[0] as any[];
       const uiTitles = uiTasks.map((t: any) => t.title);
 
       // Both paths should reflect the same underlying tasks
@@ -507,8 +507,8 @@ describe("task update event flow (§5.6)", () => {
     });
 
     test("sets workflow task IDs from parsed tasks", async () => {
-      const setWorkflowTaskIds = mock(() => {});
-      const context = createMockContext({ setWorkflowTaskIds });
+      const setWorkflowTaskIds = mock((_ids: unknown) => {});
+      const context = createMockContext({ setWorkflowTaskIds: setWorkflowTaskIds as any });
       const definition = createDefinition();
 
       await executeConductorWorkflow(definition, "plan tasks", context);

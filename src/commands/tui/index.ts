@@ -60,6 +60,7 @@ export {
     loadWorkflowsFromDisk,
     getAllWorkflows,
     discoverWorkflowFiles,
+    extractWorkflowDefinition,
     getWorkflowCommands,
     saveTasksToActiveSession,
     type WorkflowMetadata,

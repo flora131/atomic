@@ -27,6 +27,7 @@ import {
 import {
     CUSTOM_WORKFLOW_SEARCH_PATHS,
     discoverWorkflowFiles,
+    extractWorkflowDefinition,
     getAllWorkflows,
     getBuiltinWorkflowDefinitions,
     loadWorkflowsFromDisk,
@@ -42,6 +43,7 @@ export {
     completeSession,
     CUSTOM_WORKFLOW_SEARCH_PATHS,
     discoverWorkflowFiles,
+    extractWorkflowDefinition,
     getActiveSession,
     getAllWorkflows,
     loadWorkflowsFromDisk,

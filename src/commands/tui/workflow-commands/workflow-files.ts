@@ -11,6 +11,62 @@ import type {
   WorkflowStateParams,
 } from "./types.ts";
 
+// ============================================================================
+// CompiledWorkflow Brand Detection
+// ============================================================================
+
+/**
+ * Checks whether a value is a CompiledWorkflow by looking for the
+ * `__compiledWorkflow` brand property.
+ */
+function isCompiledWorkflow(value: unknown): value is { __compiledWorkflow: WorkflowDefinition } {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "__compiledWorkflow" in value &&
+    value.__compiledWorkflow !== null &&
+    typeof value.__compiledWorkflow === "object"
+  );
+}
+
+/**
+ * Extract a WorkflowDefinition from a dynamically imported module by
+ * detecting the `__compiledWorkflow` brand on any named or default export.
+ *
+ * Checks three locations in priority order:
+ * 1. Module itself (if the module IS a CompiledWorkflow)
+ * 2. `default` export that is a CompiledWorkflow
+ * 3. Named exports that are CompiledWorkflow values
+ *
+ * @returns The extracted WorkflowDefinition, or `null` if no branded export is found.
+ */
+export function extractWorkflowDefinition(mod: unknown): WorkflowDefinition | null {
+  if (!mod || typeof mod !== "object") {
+    return null;
+  }
+
+  // Check if the module itself is a CompiledWorkflow
+  if (isCompiledWorkflow(mod)) {
+    return mod.__compiledWorkflow as WorkflowDefinition;
+  }
+
+  // Check for default export with brand
+  const moduleRecord = mod as Record<string, unknown>;
+  if ("default" in moduleRecord && isCompiledWorkflow(moduleRecord.default)) {
+    return moduleRecord.default.__compiledWorkflow as WorkflowDefinition;
+  }
+
+  // Check named exports for any CompiledWorkflow value
+  for (const key of Object.keys(moduleRecord)) {
+    if (key === "default") continue;
+    if (isCompiledWorkflow(moduleRecord[key])) {
+      return (moduleRecord[key] as { __compiledWorkflow: WorkflowDefinition }).__compiledWorkflow;
+    }
+  }
+
+  return null;
+}
+
 export const CUSTOM_WORKFLOW_SEARCH_PATHS = [
   ".atomic/workflows",
   "~/.atomic/workflows",
@@ -106,12 +162,58 @@ export async function loadWorkflowsFromDisk(): Promise<WorkflowDefinition[]> {
   const discovered = discoverWorkflowFiles();
   const loaded: WorkflowDefinition[] = [];
   const loadedNames = new Set<string>();
+  const startupWarnings: string[] = [];
 
   for (const { path, source } of discovered) {
     try {
       const module = await import(path);
       const filename =
         path.split("/").pop()?.replace(".ts", "") ?? "unknown";
+
+      // -- New DSL path: detect __compiledWorkflow brand --
+      const compiledDefinition = extractWorkflowDefinition(module);
+      if (compiledDefinition) {
+        const name = compiledDefinition.name;
+
+        if (loadedNames.has(name.toLowerCase())) {
+          continue;
+        }
+
+        // Override source to match discovery location
+        const definition: WorkflowDefinition = {
+          ...compiledDefinition,
+          source,
+        };
+
+        if (typeof definition.minSDKVersion === "string") {
+          if (!parseSemver(definition.minSDKVersion)) {
+            console.warn(
+              `Workflow "${definition.name}" has invalid minSDKVersion "${definition.minSDKVersion}". Expected semver format like "1.2.3".`,
+            );
+          } else if (
+            isWorkflowMinSdkNewerThanCurrent(
+              definition.minSDKVersion,
+              VERSION,
+            )
+          ) {
+            console.warn(
+              `Workflow "${definition.name}" requires SDK ${definition.minSDKVersion}, but current SDK is ${VERSION}.`,
+            );
+          }
+        }
+
+        loaded.push(definition);
+        loadedNames.add(name.toLowerCase());
+
+        if (definition.aliases) {
+          for (const alias of definition.aliases) {
+            loadedNames.add(alias.toLowerCase());
+          }
+        }
+        continue;
+      }
+
+      // -- Legacy path: extract raw module properties --
       const name = module.name ?? filename;
 
       if (loadedNames.has(name.toLowerCase())) {
@@ -203,8 +305,15 @@ export async function loadWorkflowsFromDisk(): Promise<WorkflowDefinition[]> {
         }
       }
     } catch (error) {
+      const workflowId = path.split("/").pop()?.replace(".ts", "") ?? path;
+      startupWarnings.push(workflowId);
       console.warn(`Failed to load workflow from ${path}:`, error);
     }
+  }
+
+  // Emit startup warnings for workflows that failed to load
+  for (const id of startupWarnings) {
+    console.warn(`\x1b[33m● Warning: Failed to load workflow: ${id}\x1b[0m`);
   }
 
   loadedWorkflows = loaded;

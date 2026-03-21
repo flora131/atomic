@@ -150,6 +150,7 @@ export interface WorkflowStepPart extends BasePart {
   completedAt?: string;
   durationMs?: number;
   result?: unknown;
+  error?: string;
 }
 
 // ============================================================================

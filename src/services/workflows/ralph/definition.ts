@@ -8,8 +8,10 @@
 import type { WorkflowDefinition, WorkflowStateParams } from "@/services/workflows/workflow-types.ts";
 import { createRalphState } from "@/services/workflows/ralph/state.ts";
 import { createRalphWorkflow } from "@/services/workflows/ralph/graph.ts";
+import { createRalphConductorGraph } from "@/services/workflows/ralph/conductor-graph.ts";
 import { asBaseGraph } from "@/services/workflows/graph/types.ts";
 import { VERSION } from "@/version.ts";
+import { RALPH_STAGES } from "@/services/workflows/ralph/stages.ts";
 
 /**
  * Node descriptions for Ralph workflow progress UI.
@@ -63,4 +65,8 @@ export const ralphWorkflowDefinition: WorkflowDefinition = {
     createGraph: () => asBaseGraph(createRalphWorkflow()),
     createState: createRalphWorkflowState,
     nodeDescriptions: ralphNodeDescriptions,
+
+    // Conductor stages — enables the conductor-based executor
+    conductorStages: RALPH_STAGES,
+    createConductorGraph: createRalphConductorGraph,
 };

@@ -7,7 +7,7 @@
  * services must not import from commands.
  */
 
-import type { Session, ModelDisplayInfo, McpServerConfig } from "@/services/agents/types.ts";
+import type { Session, SessionConfig, ModelDisplayInfo, McpServerConfig } from "@/services/agents/types.ts";
 import type { AgentType, ModelOperations } from "@/services/models/index.ts";
 import type { TodoItem } from "@/services/agents/tools/todo-write.ts";
 import type { McpServerToggleMap, McpSnapshotView } from "@/lib/ui/mcp-output.ts";
@@ -53,6 +53,11 @@ export interface CommandContextState {
   workflowActive?: boolean;
   workflowType?: string | null;
   initialPrompt?: string | null;
+  maxIterations?: number;
+  /** Current conductor stage ID (e.g. "research", "plan", "implement"). */
+  currentStage?: string | null;
+  /** Human-readable stage progress indicator (e.g. "Stage 2/4: implement"). */
+  stageIndicator?: string | null;
   workflowConfig?: {
     userPrompt: string | null;
     sessionId?: string;
@@ -71,6 +76,8 @@ export interface CommandContext {
   startStreamRun?: (content: string, options?: StreamMessageOptions) => StreamRunHandle | null;
   spawnSubagent: (options: SpawnSubagentOptions) => Promise<SpawnSubagentResult>;
   spawnSubagentParallel?: (agents: SubagentSpawnOptions[], abortSignal?: AbortSignal, onAgentComplete?: (result: SubagentStreamResult) => void) => Promise<SubagentStreamResult[]>;
+  /** Create a fresh isolated agent session (used by the conductor for per-stage sessions). */
+  createAgentSession?: (config?: SessionConfig) => Promise<Session>;
   streamAndWait: (prompt: string, options?: { hideContent?: boolean }) => Promise<StreamResult>;
   clearContext: () => Promise<void>;
   setTodoItems: (items: TodoItem[]) => void;
@@ -86,6 +93,12 @@ export interface CommandContext {
     tasks: WorkflowRuntimeTask[],
   ) => void;
   waitForUserInput: () => Promise<string>;
+  /**
+   * Register (or clear) the conductor's interrupt callback.
+   * Called by the conductor executor to expose `conductor.interrupt()` to the
+   * keyboard layer so that Ctrl+C can abort the current stage session.
+   */
+  registerConductorInterrupt?: (interrupt: (() => void) | null) => void;
   updateWorkflowState: (update: Partial<CommandContextState>) => void;
   eventBus?: import("@/services/events/event-bus.ts").EventBus;
   agentType?: AgentType;

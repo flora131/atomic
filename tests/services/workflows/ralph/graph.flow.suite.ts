@@ -9,6 +9,7 @@ import { createRalphState } from "@/services/workflows/ralph/state.ts";
 import type { RalphWorkflowState } from "@/services/workflows/ralph/state.ts";
 import {
   createMockRegistry,
+  createMockSessionFactory,
   createMockSpawnFunctions,
   createWorkflowWithMockBridge,
 } from "./graph.fixtures.ts";
@@ -255,11 +256,13 @@ describe("createRalphWorkflow - 3-Phase Flow", () => {
     >();
 
     const workflow = createRalphWorkflow();
+    const createSession = createMockSessionFactory(mockResponses);
     const workflowWithMocks = {
       ...workflow,
       config: {
         ...workflow.config,
         runtime: {
+          createSession,
           spawnSubagent,
           spawnSubagentParallel: async (
             agents: SubagentSpawnOptions[],

@@ -53,6 +53,8 @@ export interface ChatUIConfig {
   initialPrompt?: string;
   /** Whether workflow mode was requested for this chat session */
   workflowEnabled?: boolean;
+  /** Maximum graph traversal steps for the conductor (overrides default 100) */
+  maxIterations?: number;
   /** Promise that resolves when client.start() completes (deferred start) */
   clientStartPromise?: Promise<void>;
 }
@@ -110,6 +112,7 @@ export async function startChatUI(
     agentType,
     initialPrompt,
     workflowEnabled = false,
+    maxIterations,
     clientStartPromise,
   } = config;
   const resolvedAgentType = agentType ?? client.agentType;
@@ -225,6 +228,7 @@ export async function startChatUI(
                       ensureSession: controller.ensureSession,
                       createSubagentSession: controller.createSubagentSession,
                       initialPrompt,
+                      maxIterations,
                       onModelChange: controller.handleModelChange,
                       onSessionMcpServersChange: controller.handleSessionMcpServersChange,
                       onCommandExecutionTelemetry: controller.handleCommandTelemetry,

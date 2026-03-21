@@ -56,3 +56,10 @@ export {
   finalizeStreamingReasoningInMessage,
   finalizeStreamingTextParts,
 } from "@/state/parts/stream-pipeline.ts";
+export {
+  type PartsCompactionConfig,
+  type CompactionResult,
+  compactStageParts,
+  createDefaultPartsCompactionConfig,
+  DEFAULT_MIN_COMPACTABLE_PARTS,
+} from "@/state/parts/compaction.ts";

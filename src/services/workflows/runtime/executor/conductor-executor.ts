@@ -28,6 +28,7 @@ import {
   runtimeParityDebug,
 } from "@/services/workflows/runtime-parity-observability.ts";
 import { createDefaultPartsCompactionConfig } from "@/state/parts/compaction.ts";
+import { createTaskUpdatePublisher } from "@/services/workflows/conductor/event-bridge.ts";
 import { initializeWorkflowExecutionSession } from "./session-runtime.ts";
 import { compileGraphConfig } from "./graph-helpers.ts";
 
@@ -120,6 +121,11 @@ export async function executeConductorWorkflow(
     const createSession = context.createAgentSession;
     const nodeDescriptions = definition.nodeDescriptions;
 
+    // Create bus publisher for workflow.task.update events (§5.6)
+    const publishTaskUpdate = context.eventBus
+      ? createTaskUpdatePublisher(context.eventBus, sessionId, workflowRunId)
+      : undefined;
+
     const conductorConfig: ConductorConfig = {
       graph: compiled,
 
@@ -135,8 +141,14 @@ export async function executeConductorWorkflow(
         const stage = stages.find((s) => s.id === to);
         const indicator = stage?.indicator ?? to;
         const description = nodeDescriptions?.[to];
+        const stageIndex = stages.findIndex((s) => s.id === to);
+        const stageIndicator = stageIndex >= 0
+          ? `Stage ${stageIndex + 1}/${stages.length}: ${indicator}`
+          : indicator;
 
         context.updateWorkflowState({
+          currentStage: to,
+          stageIndicator,
           workflowConfig: {
             userPrompt: prompt,
             sessionId,
@@ -157,7 +169,13 @@ export async function executeConductorWorkflow(
       },
 
       onTaskUpdate: (tasks: TaskItem[]) => {
-        // Update UI task list
+        // Publish workflow.task.update event to the bus (§5.6)
+        // This feeds into stream-workflow-task.ts handler → task-list-update StreamPartEvent
+        if (publishTaskUpdate && tasks.length > 0) {
+          publishTaskUpdate(tasks);
+        }
+
+        // Update UI task list (direct path for immediate rendering)
         if (context.updateTaskList && tasks.length > 0) {
           const formattedTasks = tasks.map((task) => ({
             id: task.id ?? "",
@@ -212,7 +230,16 @@ export async function executeConductorWorkflow(
 
     // Phase 4: Execute via conductor
     const conductor = new WorkflowSessionConductor(conductorConfig, stages);
-    const result = await conductor.execute(prompt);
+
+    // Register conductor.interrupt() so the keyboard layer can abort the current stage (§5.5)
+    context.registerConductorInterrupt?.(conductor.interrupt.bind(conductor));
+    let result;
+    try {
+      result = await conductor.execute(prompt);
+    } finally {
+      // Always deregister the conductor interrupt when execution completes or fails
+      context.registerConductorInterrupt?.(null);
+    }
 
     // Phase 5: Report result
     context.setStreaming(false);

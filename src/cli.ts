@@ -88,6 +88,17 @@ export function createProgram() {
         .option("-t, --theme <name>", "UI theme (dark, light)", "dark")
         .option("-m, --model <name>", "Model to use for the chat session")
         .option(
+            "--max-iterations <number>",
+            "Maximum conductor graph traversal steps (default: 100)",
+            (val: string) => {
+                const n = Number.parseInt(val, 10);
+                if (Number.isNaN(n) || n < 1) {
+                    throw new Error(`--max-iterations must be a positive integer, got "${val}"`);
+                }
+                return n;
+            },
+        )
+        .option(
             "--additional-instructions <text>",
             "Append additional instructions to the default chat system prompt",
         )
@@ -152,6 +163,7 @@ Slash Commands (in workflow mode):
                 workflow: localOpts.workflow,
                 theme: localOpts.theme as "dark" | "light",
                 model: localOpts.model,
+                maxIterations: localOpts.maxIterations,
                 initialPrompt: prompt,
                 additionalInstructions: localOpts.additionalInstructions,
             });

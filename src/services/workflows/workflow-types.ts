@@ -10,6 +10,7 @@
 
 import type { BaseState, CompiledGraph, Edge, NodeDefinition } from "@/services/workflows/graph/types.ts";
 import type { WorkflowRuntimeFeatureFlagOverrides } from "@/services/workflows/runtime-contracts.ts";
+import type { StageDefinition } from "@/services/workflows/conductor/types.ts";
 
 export interface WorkflowCommandArgs {
   prompt: string;
@@ -116,6 +117,20 @@ export interface WorkflowDefinition extends WorkflowMetadata {
   createGraph?: () => CompiledGraph<BaseState>;
   createState?: (params: WorkflowStateParams) => BaseState;
   nodeDescriptions?: Record<string, string>;
+  /**
+   * Conductor stage definitions. When present, the command factory uses
+   * the `WorkflowSessionConductor` to execute the workflow instead of
+   * the legacy `streamGraph()` executor. Each "agent" node in the
+   * compiled graph is matched to a `StageDefinition` by ID.
+   */
+  conductorStages?: readonly StageDefinition[];
+  /**
+   * Factory for a conductor-specific compiled graph. This graph typically
+   * contains only agent nodes (no tool nodes), since the conductor's
+   * stage definitions handle inter-stage communication. When omitted,
+   * the conductor falls back to `createGraph()` or `graphConfig`.
+   */
+  createConductorGraph?: () => CompiledGraph<BaseState>;
   runtime?: {
     featureFlags?: WorkflowRuntimeFeatureFlagOverrides;
   };

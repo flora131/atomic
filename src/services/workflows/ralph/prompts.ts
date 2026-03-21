@@ -206,7 +206,7 @@ const DEFAULT_MAX_CONCURRENCY = 4;
  * Build the orchestrator prompt that instructs the main agent to manage
  * parallel task execution using its native sub-agent capabilities.
  *
- * Replaces the programmatic EagerDispatchCoordinator with a prompt-driven
+ * Replaces the former programmatic dispatch coordinator with a prompt-driven
  * approach: the agent reads the task list, identifies ready tasks (pending +
  * all blockedBy completed), spawns sub-agents in parallel (up to the
  * concurrency limit), and loops until all tasks complete or are blocked.

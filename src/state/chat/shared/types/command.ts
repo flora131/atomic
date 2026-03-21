@@ -38,6 +38,8 @@ export interface UseCommandExecutorArgs {
   autoCompactionIndicatorRef: RefObject<{ status: "idle" | "running" | "completed" | "error"; errorMessage?: string }>;
   backgroundProgressSnapshotRef: RefObject<Map<string, { toolUses: number; currentTool?: string }>>;
   clearHistoryBufferAndSync: () => void;
+  /** Set by the conductor executor to expose conductor.interrupt() to the UI. */
+  conductorInterruptRef: RefObject<(() => void) | null>;
   createSubagentSession?: CreateSessionFn;
   currentModelRef: RefObject<string | undefined>;
   deferredCommandQueueRef: RefObject<DeferredCommandMessage[]>;

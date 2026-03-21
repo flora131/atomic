@@ -64,6 +64,8 @@ export interface ChatCommandOptions {
   model?: string;
   /** Enable graph workflow mode */
   workflow?: boolean;
+  /** Maximum conductor graph traversal steps (overrides default 100) */
+  maxIterations?: number;
   /** Initial prompt to send on session start */
   initialPrompt?: string;
   /** Extra instructions appended to the enhanced system prompt for the session */
@@ -108,6 +110,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     theme = "dark",
     model,
     workflow = false,
+    maxIterations,
     initialPrompt,
     additionalInstructions,
   } = options;
@@ -271,6 +274,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
       agentType,
       initialPrompt,
       workflowEnabled: workflow,
+      maxIterations,
       clientStartPromise,
       providerDiscoveryPlan,
     };

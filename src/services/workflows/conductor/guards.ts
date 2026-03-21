@@ -12,8 +12,16 @@ import type {
   StageOutput,
   StageOutputStatus,
   WorkflowResult,
+  ContextPressureLevel,
+  ContextPressureSnapshot,
+  ContextPressureConfig,
+  ContinuationRecord,
+  AccumulatedContextPressure,
 } from "@/services/workflows/conductor/types.ts";
-import { STAGE_OUTPUT_STATUSES } from "@/services/workflows/conductor/types.ts";
+import {
+  STAGE_OUTPUT_STATUSES,
+  CONTEXT_PRESSURE_LEVELS,
+} from "@/services/workflows/conductor/types.ts";
 
 /** Check whether a value is a valid `StageOutputStatus`. */
 export function isStageOutputStatus(value: unknown): value is StageOutputStatus {
@@ -81,7 +89,9 @@ export function isConductorConfig(value: unknown): value is ConductorConfig {
     typeof obj.destroySession === "function" &&
     typeof obj.onStageTransition === "function" &&
     typeof obj.onTaskUpdate === "function" &&
-    obj.abortSignal instanceof AbortSignal
+    obj.abortSignal instanceof AbortSignal &&
+    (obj.maxStageOutputBytes === undefined || typeof obj.maxStageOutputBytes === "number") &&
+    (obj.partsCompaction === undefined || (typeof obj.partsCompaction === "object" && obj.partsCompaction !== null))
   );
 }
 
@@ -97,5 +107,78 @@ export function isWorkflowResult(value: unknown): value is WorkflowResult {
     obj.stageOutputs instanceof Map &&
     Array.isArray(obj.tasks) &&
     typeof obj.state === "object" && obj.state !== null
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Context Pressure Guards
+// ---------------------------------------------------------------------------
+
+/** Check whether a value is a valid `ContextPressureLevel`. */
+export function isContextPressureLevel(value: unknown): value is ContextPressureLevel {
+  return typeof value === "string" && (CONTEXT_PRESSURE_LEVELS as readonly string[]).includes(value);
+}
+
+/** Check whether a value satisfies the `ContextPressureSnapshot` shape. */
+export function isContextPressureSnapshot(value: unknown): value is ContextPressureSnapshot {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const obj = value as Record<string, unknown>;
+  return (
+    typeof obj.inputTokens === "number" &&
+    typeof obj.outputTokens === "number" &&
+    typeof obj.maxTokens === "number" &&
+    typeof obj.usagePercentage === "number" &&
+    isContextPressureLevel(obj.level) &&
+    typeof obj.timestamp === "string"
+  );
+}
+
+/** Check whether a value satisfies the `ContextPressureConfig` shape. */
+export function isContextPressureConfig(value: unknown): value is ContextPressureConfig {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const obj = value as Record<string, unknown>;
+  return (
+    typeof obj.elevatedThreshold === "number" &&
+    typeof obj.criticalThreshold === "number" &&
+    typeof obj.maxContinuationsPerStage === "number" &&
+    typeof obj.enableContinuation === "boolean"
+  );
+}
+
+/** Check whether a value satisfies the `ContinuationRecord` shape. */
+export function isContinuationRecord(value: unknown): value is ContinuationRecord {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const obj = value as Record<string, unknown>;
+  return (
+    typeof obj.stageId === "string" &&
+    typeof obj.continuationIndex === "number" &&
+    isContextPressureSnapshot(obj.triggerSnapshot) &&
+    typeof obj.partialResponse === "string" &&
+    typeof obj.timestamp === "string"
+  );
+}
+
+/** Check whether a value satisfies the `AccumulatedContextPressure` shape. */
+export function isAccumulatedContextPressure(value: unknown): value is AccumulatedContextPressure {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const obj = value as Record<string, unknown>;
+  return (
+    typeof obj.totalInputTokens === "number" &&
+    typeof obj.totalOutputTokens === "number" &&
+    typeof obj.totalContinuations === "number" &&
+    obj.stageSnapshots instanceof Map &&
+    Array.isArray(obj.continuations)
   );
 }

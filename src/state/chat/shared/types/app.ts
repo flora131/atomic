@@ -83,6 +83,8 @@ export interface ChatAppProps {
   ) => Promise<import("@/services/agents/types.ts").ModelDisplayInfo>;
   createSubagentSession?: CreateSessionFn;
   initialPrompt?: string;
+  /** Maximum graph traversal steps for the conductor (overrides default 100) */
+  maxIterations?: number;
   onModelChange?: (model: string) => void;
   onSessionMcpServersChange?: (servers: McpServerConfig[]) => void;
   initialModelId?: string;

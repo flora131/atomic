@@ -23,6 +23,7 @@ import {
 } from "@/services/workflows/ralph/types.ts";
 import {
   buildSpecToTasksPrompt,
+  buildWorkerAssignment,
   buildReviewPrompt,
   buildFixSpecFromReview,
   buildFixSpecFromRawReview,
@@ -37,70 +38,112 @@ import {
   parseTasks,
   toRuntimeTask,
 } from "./task-helpers.ts";
-import { createWorkerDispatchAdapter } from "./worker-dispatch.ts";
 
 // ============================================================================
 // EXTRACTED NODE IMPLEMENTATIONS
 // ============================================================================
 
 /**
- * Worker node implementation.
+ * Worker node implementation (graph-executor fallback path).
  *
- * Dispatches ready tasks to sub-agents in parallel, maps results back to task
- * statuses, and advances the iteration counter. Uses RalphWorkflowContext
- * instead of reaching into ExecutionContext.config.runtime directly.
+ * Dispatches ready tasks to sub-agents in parallel via spawnSubagentParallel,
+ * maps results back to task statuses, and advances the iteration counter.
+ *
+ * NOTE: The conductor path (§8.1 Phase 5) replaces this with an orchestrator
+ * prompt that manages parallelism natively. This function exists only as the
+ * fallback when the graph executor is used instead of the conductor.
  */
 async function executeWorkerNode(
   ralphCtx: RalphWorkflowContext,
 ): Promise<NodeResult<RalphWorkflowState>> {
   const state = ralphCtx.state;
-  const remainingReadyDispatchWaves = Math.max(state.maxIterations - state.iteration, 0);
+  const { spawnSubagentParallel, taskIdentity, notifyTaskStatusChange } = ralphCtx.runtime;
 
   const ready = state.currentTasks;
   if (ready.length === 0) {
     return { stateUpdate: { iteration: state.iteration + 1 } as Partial<RalphWorkflowState> };
   }
-  if (remainingReadyDispatchWaves === 0) {
+  if (state.iteration >= state.maxIterations) {
     return { stateUpdate: { iteration: state.maxIterations } as Partial<RalphWorkflowState> };
   }
 
-  const { coordinator, reconcileDispatchedTask } = createWorkerDispatchAdapter({
-    tasks: state.tasks,
-    executionId: state.executionId,
-    iteration: state.iteration,
-    maxReadyDispatchWaves: remainingReadyDispatchWaves,
-    runtime: ralphCtx.runtime,
+  // Build a mapping from ready task → index in state.tasks
+  const readyTaskIndices = new Map<TaskItem, number>();
+  for (const task of ready) {
+    const idx = state.tasks.indexOf(task);
+    if (idx !== -1) readyTaskIndices.set(task, idx);
+  }
+
+  // Prepare sub-agent spawn options for each ready task
+  const spawnOptions = ready.map((task, i) => ({
+    agentId: `worker-${state.executionId}-${state.iteration}-${i}`,
+    agentName: "worker",
+    task: buildWorkerAssignment(task, state.tasks),
     abortSignal: ralphCtx.abortSignal,
-  });
-  const {
-    dispatchedTaskIndices,
-    readyDispatchWaveCount,
-    resultsByTaskIndex,
-    taskStatuses,
-  } = await coordinator.execute();
-  if (readyDispatchWaveCount === 0) {
-    throw new Error(
-      "Worker dispatch reconciliation invariant failed: ready tasks were present but no eager waves were dispatched",
+  }));
+
+  // Notify tasks moving to in_progress
+  const inProgressIds = ready
+    .map((t) => t.id)
+    .filter((id): id is string => Boolean(id));
+  if (notifyTaskStatusChange && inProgressIds.length > 0) {
+    notifyTaskStatusChange(
+      inProgressIds,
+      "in_progress",
+      ready.map((task, i) => {
+        const opts = spawnOptions[i];
+        const runtimeTask = toRuntimeTask(task, opts?.agentId ?? `worker-${state.executionId}-${state.iteration}-${i}`);
+        return {
+          id: task.id ?? "",
+          title: task.description,
+          status: normalizeWorkflowRuntimeTaskStatus("in_progress"),
+          blockedBy: task.blockedBy,
+          identity: runtimeTask.identity,
+        };
+      }),
     );
   }
 
-  const updatedTasks = state.tasks.map((task, taskIndex) => {
-    if (!dispatchedTaskIndices.has(taskIndex)) {
-      return task;
-    }
+  // Dispatch all ready tasks in parallel
+  const results = await spawnSubagentParallel(spawnOptions, ralphCtx.abortSignal);
 
-    return reconcileDispatchedTask(
-      task,
-      taskIndex,
-      taskStatuses.get(taskIndex) ?? task.status,
-      resultsByTaskIndex.get(taskIndex),
-      state.executionId,
-    );
-  });
+  // Map results back to tasks
+  const updatedTasks = [...state.tasks];
+  for (let i = 0; i < ready.length; i++) {
+    const task = ready[i];
+    const opts = spawnOptions[i];
+    const result = results[i];
+    if (!task || !opts || !result) continue;
+
+    const taskIndex = readyTaskIndices.get(task);
+    if (taskIndex === undefined) continue;
+
+    const terminalStatus = result.success ? "completed" : "error";
+    const agentId = opts.agentId;
+
+    const runtimeTask = toRuntimeTask(task, agentId);
+
+    // Bind provider identity if available
+    const boundTask = taskIdentity
+      ? taskIdentity.bindProviderId(runtimeTask, "subagent_id", agentId)
+      : runtimeTask;
+
+    const taskResult = buildTaskResultEnvelope({
+      task: boundTask,
+      result,
+      sessionId: state.executionId,
+    });
+
+    updatedTasks[taskIndex] = applyRuntimeTask(task, {
+      ...boundTask,
+      status: terminalStatus,
+      taskResult,
+    });
+  }
 
   return {
     stateUpdate: {
-      iteration: state.iteration + readyDispatchWaveCount,
+      iteration: state.iteration + 1,
       tasks: updatedTasks,
     } as Partial<RalphWorkflowState>,
   };

@@ -18,6 +18,7 @@ import type {
 import { globalRegistry } from "@/commands/tui/registry.ts";
 
 import { executeWorkflow } from "@/services/workflows/executor.ts";
+import { executeConductorWorkflow } from "@/services/workflows/runtime/executor/conductor-executor.ts";
 import {
     completeSession,
     getActiveSession,
@@ -77,6 +78,44 @@ export type {
 function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
     const definition = metadata as WorkflowDefinition;
     const hasExecutionLogic = definition.createState || definition.graphConfig || definition.createGraph;
+    const hasConductorStages = definition.conductorStages && definition.conductorStages.length > 0;
+
+    if (hasConductorStages && (definition.createGraph || definition.graphConfig)) {
+        // Conductor-based workflow — uses WorkflowSessionConductor for per-stage sessions
+        return {
+            name: metadata.name,
+            description: metadata.description,
+            category: "workflow",
+            aliases: metadata.aliases,
+            argumentHint: metadata.argumentHint,
+            execute: async (
+                args: string,
+                context: CommandContext,
+            ): Promise<CommandResult> => {
+                if (context.state.workflowActive) {
+                    return {
+                        success: false,
+                        message: `A workflow is already active (${context.state.workflowType}).`,
+                    };
+                }
+
+                let parsed: WorkflowCommandArgs;
+                try {
+                    parsed = parseWorkflowArgs(args, metadata.name);
+                } catch (e) {
+                    return {
+                        success: false,
+                        message: e instanceof Error ? e.message : String(e),
+                    };
+                }
+
+                return executeConductorWorkflow(definition, parsed.prompt, context, {
+                    saveTasksToSession: saveTasksToActiveSession,
+                    maxIterations: context.state.maxIterations,
+                });
+            },
+        };
+    }
 
     if (hasExecutionLogic) {
         // Graph-based workflow — use executeWorkflow() for full lifecycle

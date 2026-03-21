@@ -132,6 +132,33 @@ export interface ToolPartialResultEvent {
   agentId?: string;
 }
 
+export interface WorkflowStepStartEvent {
+  type: "workflow-step-start";
+  runId?: number;
+  workflowId: string;
+  nodeId: string;
+  nodeName: string;
+  indicator: string;
+}
+
+export interface WorkflowStepCompleteEvent {
+  type: "workflow-step-complete";
+  runId?: number;
+  workflowId: string;
+  nodeId: string;
+  nodeName: string;
+  status: "completed" | "error" | "skipped";
+  durationMs: number;
+  error?: string;
+  /** When present, triggers parts compaction for the completed stage. */
+  compaction?: {
+    minCompactableParts: number;
+    compactText: boolean;
+    compactReasoning: boolean;
+    compactTools: boolean;
+  };
+}
+
 export type StreamPartEvent =
   | TextDeltaEvent
   | TextCompleteEvent
@@ -145,4 +172,6 @@ export type StreamPartEvent =
   | ParallelAgentsEvent
   | AgentTerminalEvent
   | TaskListUpdateEvent
-  | TaskResultUpsertEvent;
+  | TaskResultUpsertEvent
+  | WorkflowStepStartEvent
+  | WorkflowStepCompleteEvent;

@@ -47,17 +47,8 @@ mock.module("@/services/events/pipeline-logger.ts", () => ({
   pipelineError: mock(() => {}),
 }));
 
-mock.module("@/services/workflows/runtime-parity-observability.ts", () => ({
-  incrementRuntimeParityCounter: mock(() => {}),
-  setRuntimeParityGauge: mock(() => {}),
-  observeRuntimeParityHistogram: mock(() => {}),
-  getRuntimeParityMetricsSnapshot: mock(() => ({})),
-  resetRuntimeParityMetrics: mock(() => {}),
-  runtimeParityDebug: mock(() => {}),
-}));
-
 // ---------------------------------------------------------------------------
-// Import under test AFTER mocks
+// Import under test
 // ---------------------------------------------------------------------------
 
 const { executeConductorWorkflow } = await import(

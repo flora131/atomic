@@ -52,17 +52,8 @@ mock.module("@/services/events/pipeline-logger.ts", () => ({
 }));
 
 // Suppress runtime parity side effects
-mock.module("@/services/workflows/runtime-parity-observability.ts", () => ({
-  incrementRuntimeParityCounter: mock(() => {}),
-  setRuntimeParityGauge: mock(() => {}),
-  observeRuntimeParityHistogram: mock(() => {}),
-  getRuntimeParityMetricsSnapshot: mock(() => ({})),
-  resetRuntimeParityMetrics: mock(() => {}),
-  runtimeParityDebug: mock(() => {}),
-}));
-
 // ---------------------------------------------------------------------------
-// Import the function under test AFTER mocks are set up
+// Import the function under test
 // ---------------------------------------------------------------------------
 
 const { executeConductorWorkflow } = await import(

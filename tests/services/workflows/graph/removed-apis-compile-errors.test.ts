@@ -59,8 +59,9 @@ type RemovedRalphState = CommandContextState["ralphState"];
 type RemovedCurrentNode = CommandContextState["currentNode"];
 // @ts-expect-error iteration was removed from CommandContextState
 type RemovedIteration = CommandContextState["iteration"];
-// @ts-expect-error maxIterations was removed from CommandContextState
-type RemovedMaxIterations = CommandContextState["maxIterations"];
+// maxIterations is intentionally kept on CommandContextState — it's the conductor's
+// iteration limit, wired through CLI → context → executeConductorWorkflow → ConductorConfig.
+type MaxIterationsIsPresent = CommandContextState["maxIterations"]; // number | undefined
 // @ts-expect-error featureProgress was removed from CommandContextState
 type RemovedFeatureProgress = CommandContextState["featureProgress"];
 // @ts-expect-error pendingApproval was removed from CommandContextState

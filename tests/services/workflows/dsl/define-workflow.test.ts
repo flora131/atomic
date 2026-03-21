@@ -375,17 +375,141 @@ describe("WorkflowBuilder bounded loops", () => {
 });
 
 // ---------------------------------------------------------------------------
-// compile() — placeholder behavior
+// compile() — wired to the DSL compiler
 // ---------------------------------------------------------------------------
 
 describe("WorkflowBuilder.compile()", () => {
-  test("throws an error indicating the compiler is not yet wired", () => {
+  test("returns a CompiledWorkflow with __compiledWorkflow property", () => {
     const builder = defineWorkflow("w", "d")
       .stage("s1", makeStageConfig());
 
+    const compiled = builder.compile();
+
+    expect(compiled).toBeDefined();
+    expect(compiled.__compiledWorkflow).toBeDefined();
+  });
+
+  test("compiled workflow wraps a WorkflowDefinition with correct metadata", () => {
+    const builder = defineWorkflow("my-wf", "My workflow")
+      .version("2.0.0")
+      .argumentHint("<path>")
+      .stage("s1", makeStageConfig({ name: "First Stage" }));
+
+    const compiled = builder.compile();
+    const definition = compiled.__compiledWorkflow as Record<string, unknown>;
+
+    expect(definition.name).toBe("my-wf");
+    expect(definition.description).toBe("My workflow");
+    expect(definition.version).toBe("2.0.0");
+    expect(definition.argumentHint).toBe("<path>");
+    expect(definition.source).toBe("builtin");
+  });
+
+  test("compiled workflow contains conductorStages from stage instructions", () => {
+    const builder = defineWorkflow("w", "d")
+      .stage("planner", makeStageConfig({ name: "Planner" }))
+      .stage("executor", makeStageConfig({ name: "Executor" }));
+
+    const compiled = builder.compile();
+    const definition = compiled.__compiledWorkflow as Record<string, unknown>;
+    const stages = definition.conductorStages as Array<{ id: string; name: string }>;
+
+    expect(stages).toHaveLength(2);
+    expect(stages[0]!.id).toBe("planner");
+    expect(stages[0]!.name).toBe("Planner");
+    expect(stages[1]!.id).toBe("executor");
+    expect(stages[1]!.name).toBe("Executor");
+  });
+
+  test("compiled workflow has a createConductorGraph function", () => {
+    const builder = defineWorkflow("w", "d")
+      .stage("s1", makeStageConfig());
+
+    const compiled = builder.compile();
+    const definition = compiled.__compiledWorkflow as Record<string, unknown>;
+
+    expect(typeof definition.createConductorGraph).toBe("function");
+  });
+
+  test("compiled workflow has a createState function", () => {
+    const builder = defineWorkflow("w", "d")
+      .stage("s1", makeStageConfig());
+
+    const compiled = builder.compile();
+    const definition = compiled.__compiledWorkflow as Record<string, unknown>;
+
+    expect(typeof definition.createState).toBe("function");
+  });
+
+  test("compile() throws on invalid instruction sequence", () => {
+    // No stages or tools — should throw
+    const builder = defineWorkflow("w", "d");
+
     expect(() => builder.compile()).toThrow(
-      "WorkflowBuilder.compile() is not yet wired to the compiler",
+      "Workflow must have at least one stage or tool node",
     );
+  });
+
+  test("compile() throws on duplicate node IDs", () => {
+    const builder = defineWorkflow("w", "d")
+      .stage("dup", makeStageConfig())
+      .stage("dup", makeStageConfig());
+
+    expect(() => builder.compile()).toThrow('Duplicate node ID: "dup"');
+  });
+
+  test("compile() throws on unbalanced if/endIf", () => {
+    const builder = defineWorkflow("w", "d")
+      .stage("s1", makeStageConfig())
+      .if(() => true)
+      .stage("s2", makeStageConfig());
+
+    expect(() => builder.compile()).toThrow('unclosed "if" block(s)');
+  });
+
+  test("compiled graph includes node descriptions", () => {
+    const builder = defineWorkflow("w", "d")
+      .stage("planner", makeStageConfig({ name: "Plan Step" }))
+      .tool("parser", makeToolConfig({ name: "Parse Output" }));
+
+    const compiled = builder.compile();
+    const definition = compiled.__compiledWorkflow as Record<string, unknown>;
+    const descriptions = definition.nodeDescriptions as Record<string, string>;
+
+    expect(descriptions.planner).toBe("Plan Step");
+    expect(descriptions.parser).toBe("Parse Output");
+  });
+
+  test("compile() with state schema creates a working state factory", () => {
+    const builder = defineWorkflow("w", "d")
+      .state({
+        count: { default: 0, reducer: "sum" },
+        items: { default: () => [], reducer: "concat" },
+      })
+      .stage("s1", makeStageConfig());
+
+    const compiled = builder.compile();
+    const definition = compiled.__compiledWorkflow as Record<string, unknown>;
+    const createState = definition.createState as (params: {
+      prompt: string;
+      sessionId: string;
+      sessionDir: string;
+      maxIterations: number;
+    }) => Record<string, unknown>;
+
+    const state = createState({
+      prompt: "test",
+      sessionId: "sid",
+      sessionDir: "/tmp",
+      maxIterations: 10,
+    });
+
+    // Custom state fields are initialized from schema defaults
+    expect(state.count).toBe(0);
+    expect(state.items).toEqual([]);
+    // BaseState fields are populated by the factory
+    expect(state.executionId).toBe("sid");
+    expect(state.outputs).toEqual({});
   });
 });
 

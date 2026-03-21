@@ -179,30 +179,20 @@ export {
 export type { MapReduceOptions, ReviewCycleOptions, TaskLoopOptions } from "@/services/workflows/graph/templates.ts";
 export { sequential, mapReduce, reviewCycle, taskLoop } from "@/services/workflows/graph/templates.ts";
 
-// === Execution and streaming ===
-export type {
-  ExecutionOptions,
-  EmittedEvent,
-  StepResult,
-  ExecutionResult,
-} from "@/services/workflows/graph/compiled.ts";
+// === Execution state utilities ===
 export {
   isLoopNode,
   initializeExecutionState,
   mergeState,
-  GraphExecutor,
-  createExecutor,
-  executeGraph,
-  streamGraph,
 } from "@/services/workflows/graph/compiled.ts";
+
+// === Stream projection types (legacy — executor removed) ===
 export type {
   StreamMode,
-  StreamOptions,
   CustomEvent,
   DebugTrace,
   StreamEvent,
 } from "@/services/workflows/graph/stream.ts";
-export { StreamRouter, routeStream } from "@/services/workflows/graph/stream.ts";
 
 // === Validation and errors ===
 export type { StateValidatorConfig } from "@/services/workflows/graph/state-validator.ts";

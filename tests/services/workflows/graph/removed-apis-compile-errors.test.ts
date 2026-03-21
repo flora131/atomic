@@ -40,6 +40,28 @@ type RemovedUpdateRalphState = (typeof import("@/services/workflows/graph/annota
 // @ts-expect-error isRalphWorkflowState was removed from graph/annotation.ts
 type RemovedIsRalphWorkflowState = (typeof import("@/services/workflows/graph/annotation.ts"))["isRalphWorkflowState"];
 
+// --- Legacy GraphExecutor and BFS execution engine removed (Task 22) ---
+// @ts-expect-error GraphExecutor was removed from graph public API
+type RemovedGraphExecutor = (typeof import("@/services/workflows/graph/index.ts"))["GraphExecutor"];
+// @ts-expect-error createExecutor was removed from graph public API
+type RemovedCreateExecutor = (typeof import("@/services/workflows/graph/index.ts"))["createExecutor"];
+// @ts-expect-error executeGraph was removed from graph public API
+type RemovedExecuteGraph = (typeof import("@/services/workflows/graph/index.ts"))["executeGraph"];
+// @ts-expect-error streamGraph was removed from graph public API
+type RemovedStreamGraph = (typeof import("@/services/workflows/graph/index.ts"))["streamGraph"];
+// @ts-expect-error ExecutionOptions was removed from graph public API
+type RemovedExecutionOptions = (typeof import("@/services/workflows/graph/index.ts"))["ExecutionOptions"];
+// @ts-expect-error StepResult was removed from graph public API
+type RemovedStepResult = (typeof import("@/services/workflows/graph/index.ts"))["StepResult"];
+// @ts-expect-error EmittedEvent was removed from graph public API
+type RemovedEmittedEvent = (typeof import("@/services/workflows/graph/index.ts"))["EmittedEvent"];
+// @ts-expect-error ExecutionResult was removed from graph public API
+type RemovedExecutionResult = (typeof import("@/services/workflows/graph/index.ts"))["ExecutionResult"];
+// @ts-expect-error StreamRouter was removed from graph public API
+type RemovedStreamRouter = (typeof import("@/services/workflows/graph/index.ts"))["StreamRouter"];
+// @ts-expect-error routeStream was removed from graph public API
+type RemovedRouteStream = (typeof import("@/services/workflows/graph/index.ts"))["routeStream"];
+
 // --- Ralph fields removed from CommandContext / CommandContextState (Phase 6, Task 36) ---
 // These Ralph-specific fields were extracted to RalphWorkflowContext and must not
 // reappear on the shared command interfaces.
@@ -70,7 +92,7 @@ type RemovedPendingApproval = CommandContextState["pendingApproval"];
 type RemovedSpecApproved = CommandContextState["specApproved"];
 // @ts-expect-error feedback was removed from CommandContextState
 type RemovedFeedback = CommandContextState["feedback"];
-// @ts-expect-error FeatureProgressState was moved from commands/core/types.ts to services/workflows/ralph/types.ts
+// @ts-expect-error FeatureProgressState was removed (formerly in commands/core/types.ts, then ralph/types.ts)
 type RemovedFeatureProgressState = (typeof import("@/commands/core/types.ts"))["FeatureProgressState"];
 
 // --- ralphState removed from WorkflowChatState (Task 11) ---

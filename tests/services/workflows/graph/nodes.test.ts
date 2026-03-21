@@ -9,7 +9,8 @@ interface TestState extends BaseState {
 
 function createContext(
   overrides: Partial<TestState> = {},
-  runtimeOverrides: Partial<NonNullable<ExecutionContext<TestState>["config"]["runtime"]>> = {},
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- legacy spawn props removed from GraphRuntimeDependencies
+  runtimeOverrides: Record<string, any> = {},
 ): ExecutionContext<TestState> {
   return {
     state: {

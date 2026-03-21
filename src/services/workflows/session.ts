@@ -8,7 +8,6 @@
 
 import { join } from "path";
 import { homedir } from "os";
-import type { SubagentStreamResult } from "@/services/workflows/graph/types.ts";
 
 // ============================================================================
 // Types
@@ -84,12 +83,3 @@ export async function saveWorkflowSession(session: WorkflowSession): Promise<voi
   );
 }
 
-export async function saveSubagentOutput(
-  sessionDir: string,
-  agentId: string,
-  result: SubagentStreamResult,
-): Promise<string> {
-  const outputPath = join(sessionDir, "agents", `${agentId}.json`);
-  await Bun.write(outputPath, JSON.stringify(result, null, 2));
-  return outputPath;
-}

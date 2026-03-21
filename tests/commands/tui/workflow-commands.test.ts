@@ -11,7 +11,6 @@ import {
   discoverWorkflowFiles,
   getWorkflowCommands,
   loadWorkflowsFromDisk,
-  parseRalphArgs,
   parseWorkflowArgs,
   watchTasksJson,
 } from "@/commands/tui/workflow-commands.ts";
@@ -146,21 +145,6 @@ async function withWorkflowSearchPaths(
   }
 }
 
-describe("parseRalphArgs", () => {
-  test("parses a prompt argument", () => {
-    const result = parseRalphArgs("Build a feature");
-    expect(result).toEqual({ prompt: "Build a feature" });
-  });
-
-  test("throws on empty prompt", () => {
-    expect(() => parseRalphArgs("")).toThrow("A prompt argument is required");
-  });
-
-  test("trims whitespace from prompt", () => {
-    const result = parseRalphArgs("  Build a feature  ");
-    expect(result).toEqual({ prompt: "Build a feature" });
-  });
-});
 
 describe("parseWorkflowArgs", () => {
   test("parses a prompt argument", () => {
@@ -185,11 +169,6 @@ describe("parseWorkflowArgs", () => {
     expect(result).toEqual({ prompt: "Build a feature" });
   });
 
-  test("parseRalphArgs is a deprecated alias for parseWorkflowArgs", () => {
-    const ralphResult = parseRalphArgs("hello world");
-    const workflowResult = parseWorkflowArgs("hello world");
-    expect(ralphResult).toEqual(workflowResult);
-  });
 });
 
 describe("workflow metadata discovery", () => {

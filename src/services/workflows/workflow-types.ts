@@ -23,8 +23,8 @@ export interface WorkflowCommandArgs {
 /**
  * Progress indicator for iterative workflows (e.g., feature-by-feature implementation).
  *
- * This is the generic version of what was previously `FeatureProgressState`
- * in Ralph's types. Any workflow that tracks progress through a list of items
+ * Generic progress tracking for iterative workflows (e.g., step-by-step
+ * implementation). Any workflow that tracks progress through a list of items
  * can use this interface.
  */
 export interface WorkflowProgressState {
@@ -36,7 +36,7 @@ export interface WorkflowProgressState {
 /**
  * Generic workflow command/UI state that flows through WorkflowChatState.
  *
- * Replaces the Ralph-specific `RalphCommandState`. This interface provides
+ * Provides
  * workflow-agnostic fields that any workflow conductor can populate:
  *
  * - `currentNode` / `iteration` / `maxIterations` — execution progress

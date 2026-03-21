@@ -7,7 +7,6 @@
  */
 
 export type {
-  RalphCommandArgs,
   WorkflowCommandArgs,
   WorkflowDefinition,
   WorkflowGraphConfig,
@@ -31,5 +30,3 @@ export function parseWorkflowArgs(args: string, workflowName = "workflow"): Work
   return { prompt: trimmed };
 }
 
-/** @deprecated Use {@link parseWorkflowArgs} instead. */
-export const parseRalphArgs = (args: string): WorkflowCommandArgs => parseWorkflowArgs(args, "ralph");

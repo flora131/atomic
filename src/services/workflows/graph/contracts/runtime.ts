@@ -77,8 +77,8 @@ export type CreateSessionFn = (config?: SessionConfig) => Promise<Session>;
 /**
  * Options for spawning a sub-agent.
  *
- * Used by both the conductor (via `CommandContext.spawnSubagentParallel`)
- * and the legacy graph executor path.
+ * Used by the conductor (via `CommandContext.spawnSubagentParallel`)
+ * and the `SubagentStreamAdapter` for sub-agent execution.
  */
 export interface SubagentSpawnOptions {
   agentId: string;
@@ -123,18 +123,12 @@ export interface SubagentStreamResult {
 /**
  * Runtime dependencies injected into the graph executor at execution time.
  *
- * Contains both conductor-era dependencies (e.g. `clientProvider`,
- * `subagentRegistry`, `taskIdentity`) and legacy spawn-based props
- * (`spawnSubagent`, `spawnSubagentParallel`) which will be removed
- * once the legacy graph executor is deleted.
+ * Contains conductor-era dependencies (e.g. `clientProvider`,
+ * `subagentRegistry`, `taskIdentity`) used by the workflow engine.
  */
 export interface GraphRuntimeDependencies {
   clientProvider?: (agentType: string) => CodingAgentClient | null;
   workflowResolver?: (name: string) => RuntimeSubgraph | null;
-  /** Legacy spawn-based sub-agent execution. Will be removed with the legacy executor. */
-  spawnSubagent?: (agent: SubagentSpawnOptions, abortSignal?: AbortSignal) => Promise<SubagentStreamResult>;
-  /** Legacy spawn-based parallel sub-agent execution. Will be removed with the legacy executor. */
-  spawnSubagentParallel?: (agents: SubagentSpawnOptions[], abortSignal?: AbortSignal, onAgentComplete?: (result: SubagentStreamResult) => void) => Promise<SubagentStreamResult[]>;
   taskIdentity?: WorkflowRuntimeTaskIdentityRuntime;
   featureFlags?: WorkflowRuntimeFeatureFlags;
   subagentRegistry?: {

@@ -14,7 +14,6 @@ export {
   getWorkflowSessionDir,
   initWorkflowSession,
   saveWorkflowSession,
-  saveSubagentOutput,
 } from "@/services/workflows/session.ts";
 
 export {

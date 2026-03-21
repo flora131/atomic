@@ -38,11 +38,12 @@ function buildExecutionContext(
   return {
     state: createRalphState("exec-1"),
     config: {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- legacy spawn props removed from GraphRuntimeDependencies
       runtime: {
         spawnSubagent: stubSpawnSubagent,
         spawnSubagentParallel: stubSpawnSubagentParallel,
         ...runtimeOverrides,
-      },
+      } as any,
     },
     errors: [],
   };
@@ -114,9 +115,10 @@ describe("toRalphWorkflowContext", () => {
     const ctx: ExecutionContext<RalphWorkflowState> = {
       state: createRalphState("exec-1"),
       config: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- legacy spawn props removed from GraphRuntimeDependencies
         runtime: {
           spawnSubagentParallel: stubSpawnSubagentParallel,
-        },
+        } as any,
       },
       errors: [],
     };
@@ -130,9 +132,10 @@ describe("toRalphWorkflowContext", () => {
     const ctx: ExecutionContext<RalphWorkflowState> = {
       state: createRalphState("exec-1"),
       config: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- legacy spawn props removed from GraphRuntimeDependencies
         runtime: {
           spawnSubagent: stubSpawnSubagent,
-        },
+        } as any,
       },
       errors: [],
     };

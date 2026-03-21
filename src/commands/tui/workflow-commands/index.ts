@@ -17,7 +17,6 @@ import type {
 } from "@/commands/tui/registry.ts";
 import { globalRegistry } from "@/commands/tui/registry.ts";
 
-import { executeWorkflow } from "@/services/workflows/executor.ts";
 import { executeConductorWorkflow } from "@/services/workflows/runtime/executor/conductor-executor.ts";
 import {
     completeSession,
@@ -34,8 +33,6 @@ import {
 } from "./workflow-files.ts";
 import {
     parseWorkflowArgs,
-    parseRalphArgs,
-    type RalphCommandArgs,
     type WorkflowCommandArgs,
     type WorkflowDefinition,
     type WorkflowMetadata,
@@ -48,14 +45,12 @@ export {
     getActiveSession,
     getAllWorkflows,
     loadWorkflowsFromDisk,
-    parseRalphArgs,
     parseWorkflowArgs,
     registerActiveSession,
     saveTasksToActiveSession,
     watchTasksJson,
 };
 export type {
-    RalphCommandArgs,
     WorkflowCommandArgs,
     WorkflowDefinition,
     WorkflowGraphConfig,
@@ -70,7 +65,7 @@ export type {
 
 /**
  * Create a command definition for a workflow.
- * Handles both graph-based workflows (via executeWorkflow) and chat-based workflows.
+ * Handles conductor-based workflows and chat-based workflows.
  *
  * @param metadata - Workflow metadata (may be a full WorkflowDefinition)
  * @returns Command definition for the workflow
@@ -118,38 +113,18 @@ function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
     }
 
     if (hasExecutionLogic) {
-        // Graph-based workflow — use executeWorkflow() for full lifecycle
+        // Legacy graph-based workflow path — executor has been removed.
+        // Workflows must define conductorStages to use the conductor path.
         return {
             name: metadata.name,
             description: metadata.description,
             category: "workflow",
             aliases: metadata.aliases,
             argumentHint: metadata.argumentHint,
-            execute: async (
-                args: string,
-                context: CommandContext,
-            ): Promise<CommandResult> => {
-                if (context.state.workflowActive) {
-                    return {
-                        success: false,
-                        message: `A workflow is already active (${context.state.workflowType}).`,
-                    };
-                }
-
-                let parsed: WorkflowCommandArgs;
-                try {
-                    parsed = parseWorkflowArgs(args, metadata.name);
-                } catch (e) {
-                    return {
-                        success: false,
-                        message: e instanceof Error ? e.message : String(e),
-                    };
-                }
-
-                return executeWorkflow(definition, parsed.prompt, context, {
-                    saveTasksToSession: saveTasksToActiveSession,
-                });
-            },
+            execute: (): CommandResult => ({
+                success: false,
+                message: `Workflow "${metadata.name}" uses the removed legacy graph executor. Add conductorStages to use the conductor path.`,
+            }),
         };
     }
 

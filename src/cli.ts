@@ -9,6 +9,8 @@
  *   atomic init                     Interactive setup with agent selection
  *   atomic init -a <agent>          Setup specific agent (skip selection)
  *   atomic config set <key> <value> Set configuration value
+ *   atomic workflow verify          Verify all workflows
+ *   atomic workflow verify <path>   Verify a specific workflow file
  *   atomic update                   Self-update to latest version
  *   atomic uninstall                Remove atomic installation
  *   atomic --version                Show version
@@ -211,6 +213,20 @@ Slash Commands (in workflow mode):
                 dryRun: localOpts.dryRun,
                 keepConfig: localOpts.keepConfig,
             });
+        });
+
+    // Add workflow command for verification and management
+    const workflowCmd = program
+        .command("workflow")
+        .description("Manage and verify workflows");
+
+    workflowCmd
+        .command("verify")
+        .description("Run Z3 structural verification on workflows")
+        .argument("[path]", "Path to a specific workflow .ts file to verify")
+        .action(async (path?: string) => {
+            const { workflowVerifyCommand } = await import("@/commands/cli/workflow.ts");
+            await workflowVerifyCommand(path);
         });
 
     // Add hidden command for internal telemetry upload (used by background process)

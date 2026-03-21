@@ -75,7 +75,7 @@ export {
 } from "@/services/workflows/graph/annotation.ts";
 
 // === Builder and node factories ===
-export type { LoopConfig, MergeStrategy, ParallelConfig, SubAgentConfig, ToolBuilderConfig, IfConfig } from "@/services/workflows/graph/builder.ts";
+export type { LoopConfig, MergeStrategy, ParallelConfig, ToolBuilderConfig, IfConfig } from "@/services/workflows/graph/builder.ts";
 export {
   GraphBuilder,
   graph,
@@ -166,14 +166,6 @@ export {
   checkContextUsage,
   compactContext,
 } from "@/services/workflows/graph/nodes/context.ts";
-
-// --- Subagent nodes ---
-export type {
-  SubagentNodeConfig,
-} from "@/services/workflows/graph/nodes/subagent.ts";
-export {
-  subagentNode,
-} from "@/services/workflows/graph/nodes/subagent.ts";
 
 // === Workflow templates ===
 export type { MapReduceOptions, ReviewCycleOptions, TaskLoopOptions } from "@/services/workflows/graph/templates.ts";

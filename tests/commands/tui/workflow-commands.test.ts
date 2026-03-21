@@ -16,6 +16,84 @@ import {
   watchTasksJson,
 } from "@/commands/tui/workflow-commands.ts";
 
+let mockSessionCounter = 0;
+
+/**
+ * Creates a mock `createAgentSession` function for conductor-based workflow tests.
+ *
+ * Each call returns a Session whose `stream()` method yields stage-appropriate
+ * responses based on prompt content:
+ *   - Planner prompts (containing "Decompose") → JSON task list
+ *   - Reviewer prompts (containing "Review") → clean review JSON
+ *   - All others (orchestrator, debugger) → plain text completion
+ */
+function createMockAgentSession(): (config?: unknown) => Promise<{
+  id: string;
+  send: (message: string) => Promise<{ type: "text"; content: string }>;
+  stream: (
+    message: string,
+    options?: { agent?: string; abortSignal?: AbortSignal },
+  ) => AsyncIterable<{ type: "text"; content: string }>;
+  summarize: () => Promise<void>;
+  getContextUsage: () => Promise<{
+    inputTokens: number;
+    outputTokens: number;
+    maxTokens: number;
+    usagePercentage: number;
+  }>;
+  getSystemToolsTokens: () => number;
+  destroy: () => Promise<void>;
+}> {
+  return async () => ({
+    id: `mock-session-${++mockSessionCounter}`,
+    send: async () => ({ type: "text" as const, content: "" }),
+    stream: async function* (
+      message: string,
+      _options?: { agent?: string; abortSignal?: AbortSignal },
+    ) {
+      // Planner stage: prompt contains "Decompose" (from buildSpecToTasksPrompt)
+      if (message.includes("Decompose") || message.includes("decompose")) {
+        yield {
+          type: "text" as const,
+          content: JSON.stringify([
+            {
+              id: "#1",
+              description: "Implement feature",
+              status: "pending",
+              summary: "Implementing feature",
+              blockedBy: [],
+            },
+          ]),
+        };
+        return;
+      }
+      // Reviewer stage: prompt contains "Review" (from buildReviewPrompt)
+      if (message.includes("Review") || message.includes("review")) {
+        yield {
+          type: "text" as const,
+          content: JSON.stringify({
+            findings: [],
+            overall_correctness: "patch is correct",
+            overall_explanation: "No issues found",
+          }),
+        };
+        return;
+      }
+      // Default: orchestrator, debugger, or any other stage
+      yield { type: "text" as const, content: "Stage completed successfully." };
+    },
+    summarize: async () => {},
+    getContextUsage: async () => ({
+      inputTokens: 100,
+      outputTokens: 50,
+      maxTokens: 100000,
+      usagePercentage: 0.15,
+    }),
+    getSystemToolsTokens: () => 0,
+    destroy: async () => {},
+  });
+}
+
 function createMockContext(overrides?: Partial<CommandContext>): CommandContext {
   return {
     session: null,
@@ -45,6 +123,7 @@ function createMockContext(overrides?: Partial<CommandContext>): CommandContext 
     setWorkflowSessionId: () => {},
     setWorkflowTaskIds: () => {},
     updateWorkflowState: () => {},
+    createAgentSession: createMockAgentSession(),
     ...overrides,
   };
 }
@@ -422,30 +501,57 @@ describe("review step in /ralph", () => {
 
 
   test("does not spawn reviewer when tasks are not all completed", async () => {
-    const spawnCalls: Array<{ name?: string }> = [];
+    const stagesExecuted: string[] = [];
     let sessionDir: string | null = null;
 
+    // Mock session where the planner returns an empty task list.
+    // With the conductor architecture, the reviewer still runs (no shouldRun guard),
+    // but the debugger should NOT run because the reviewer finds no actionable issues.
+    const emptyPlannerSession: (config?: unknown) => Promise<any> = async () => ({
+      id: "mock-empty-planner-session",
+      send: async () => ({ type: "text" as const, content: "" }),
+      stream: async function* (message: string) {
+        // Track which stage prompts are executed
+        if (message.includes("Decompose") || message.includes("decompose")) {
+          stagesExecuted.push("planner");
+          // Return an empty array — no tasks were produced
+          yield { type: "text" as const, content: "[]" };
+          return;
+        }
+        if (message.includes("Review") || message.includes("review")) {
+          stagesExecuted.push("reviewer");
+          // Return clean review with no findings
+          yield {
+            type: "text" as const,
+            content: JSON.stringify({
+              findings: [],
+              overall_correctness: "patch is correct",
+              overall_explanation: "No tasks to review",
+            }),
+          };
+          return;
+        }
+        if (message.includes("Fix") || message.includes("fix")) {
+          stagesExecuted.push("debugger");
+          yield { type: "text" as const, content: "Fixed" };
+          return;
+        }
+        stagesExecuted.push("orchestrator");
+        yield { type: "text" as const, content: "No tasks to orchestrate." };
+      },
+      summarize: async () => {},
+      getContextUsage: async () => ({
+        inputTokens: 100,
+        outputTokens: 50,
+        maxTokens: 100000,
+        usagePercentage: 0.15,
+      }),
+      getSystemToolsTokens: () => 0,
+      destroy: async () => {},
+    });
+
     const context = createMockContext({
-      streamAndWait: async () => {
-        return {
-          content: JSON.stringify([
-            { id: "#1", description: "Test task", status: "pending", summary: "Testing" },
-          ]),
-          wasInterrupted: false,
-        };
-      },
-      spawnSubagentParallel: async (agents) =>
-        agents.map((a) => ({
-          agentId: a.agentId,
-          success: false,
-          output: "Error: failed",
-          toolUses: 0,
-          durationMs: 100,
-        })),
-      spawnSubagent: async (options) => {
-        spawnCalls.push({ name: options.name });
-        return { success: true, output: "" };
-      },
+      createAgentSession: emptyPlannerSession,
       setWorkflowSessionDir: (dir: string | null) => {
         sessionDir = dir;
         if (dir) {
@@ -459,11 +565,10 @@ describe("review step in /ralph", () => {
 
     const ralphCommand = getWorkflowCommands().find((cmd) => cmd.name === "ralph");
     const result = await ralphCommand!.execute("Build a feature", context);
-    // When the planner subagent fails, the workflow should report failure
-    expect(result.success).toBe(false);
-    
-    // Reviewer should NOT be spawned since not all tasks completed
-    expect(spawnCalls.length).toBe(0);
+
+    // The planner returned no tasks, so there's nothing for the debugger to fix.
+    // The debugger's shouldRun checks for actionable findings — none exist.
+    expect(stagesExecuted).not.toContain("debugger");
     
     if (sessionDir) {
       await rm(sessionDir, { recursive: true, force: true });

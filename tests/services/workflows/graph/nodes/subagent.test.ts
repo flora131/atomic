@@ -4,12 +4,8 @@ import type {
   BaseState,
   ExecutionContext,
   SubagentStreamResult,
+  SubagentSpawnOptions,
 } from "@/services/workflows/graph/types.ts";
-import type {
-  AgentMessage,
-  Session,
-  SessionConfig,
-} from "@/services/agents/types.ts";
 
 // ---------------------------------------------------------------------------
 // Test State
@@ -24,98 +20,34 @@ interface TestState extends BaseState {
 // Test Helpers
 // ---------------------------------------------------------------------------
 
-function createMockSession(
-  response: string,
-  id = "session-test",
-): { session: Session; destroyCalls: number[] } {
-  const tracker = { destroyCalls: [] as number[] };
-  const session: Session = {
-    id,
-    send: async () => ({ type: "text" as const, content: response }),
-    stream: async function* (
-      _message: string,
-      _options?: { agent?: string; abortSignal?: AbortSignal },
-    ) {
-      yield { type: "text" as const, content: response } as AgentMessage;
-    },
-    summarize: async () => {},
-    getContextUsage: async () => ({
-      inputTokens: 100,
-      outputTokens: 50,
-      maxTokens: 100000,
-      usagePercentage: 0.15,
-    }),
-    getSystemToolsTokens: () => 0,
-    destroy: mock(async () => {
-      tracker.destroyCalls.push(Date.now());
-    }),
+function createSpawnResult(
+  overrides: Partial<SubagentStreamResult> = {},
+): SubagentStreamResult {
+  return {
+    agentId: "agent-exec-1",
+    success: true,
+    output: "Done",
+    toolUses: 0,
+    durationMs: 100,
+    ...overrides,
   };
-  return { session, destroyCalls: tracker.destroyCalls };
 }
 
-function createMultiChunkSession(
-  chunks: string[],
-  id = "session-multi",
-): { session: Session; destroyCalls: number[] } {
-  const tracker = { destroyCalls: [] as number[] };
-  const session: Session = {
-    id,
-    send: async () => ({ type: "text" as const, content: chunks.join("") }),
-    stream: async function* (
-      _message: string,
-      _options?: { agent?: string; abortSignal?: AbortSignal },
-    ) {
-      for (const chunk of chunks) {
-        yield { type: "text" as const, content: chunk } as AgentMessage;
-      }
-    },
-    summarize: async () => {},
-    getContextUsage: async () => ({
-      inputTokens: 100,
-      outputTokens: 50,
-      maxTokens: 100000,
-      usagePercentage: 0.15,
-    }),
-    getSystemToolsTokens: () => 0,
-    destroy: mock(async () => {
-      tracker.destroyCalls.push(Date.now());
-    }),
+function createMockRegistry(agentNames: string[] = ["planner", "worker", "reviewer", "analyzer", "agent", "test-agent"]) {
+  const entries = agentNames.map((name) => ({
+    name,
+    info: { name, description: `${name} agent`, source: "project" as const, filePath: `/mock/${name}.md` },
+    source: "project" as const,
+  }));
+  return {
+    get: (name: string) => entries.find((e) => e.name === name),
+    getAll: () => entries,
   };
-  return { session, destroyCalls: tracker.destroyCalls };
-}
-
-function createFailingSession(
-  errorMessage: string,
-): { session: Session; destroyCalls: number[] } {
-  const tracker = { destroyCalls: [] as number[] };
-  const session: Session = {
-    id: "session-fail",
-    send: async () => {
-      throw new Error(errorMessage);
-    },
-    stream: async function* () {
-      throw new Error(errorMessage);
-    },
-    summarize: async () => {},
-    getContextUsage: async () => ({
-      inputTokens: 0,
-      outputTokens: 0,
-      maxTokens: 100000,
-      usagePercentage: 0,
-    }),
-    getSystemToolsTokens: () => 0,
-    destroy: mock(async () => {
-      tracker.destroyCalls.push(Date.now());
-    }),
-  };
-  return { session, destroyCalls: tracker.destroyCalls };
 }
 
 function createContext(
   overrides: Partial<TestState> = {},
-  runtimeOverrides: Partial<
-    NonNullable<ExecutionContext<TestState>["config"]["runtime"]>
-  > = {},
+  runtimeOverrides: Record<string, unknown> = {},
   ctxOverrides: Partial<ExecutionContext<TestState>> = {},
 ): ExecutionContext<TestState> {
   return {
@@ -126,7 +58,10 @@ function createContext(
       ...overrides,
     },
     config: {
-      runtime: runtimeOverrides,
+      runtime: {
+        subagentRegistry: createMockRegistry(),
+        ...runtimeOverrides,
+      },
     },
     errors: [],
     ...ctxOverrides,
@@ -138,37 +73,51 @@ function createContext(
 // ---------------------------------------------------------------------------
 
 describe("subagentNode session-based execution", () => {
-  test("throws when createSession is not provided in runtime", async () => {
+  test("throws when spawnSubagent is not provided in runtime", async () => {
     const node = subagentNode<TestState>({
       id: "planner",
       agentName: "planner",
       task: "Plan the work",
     });
 
-    await expect(node.execute(createContext())).rejects.toThrow(
-      /createSession not initialized/,
+    await expect(node.execute(createContext({}, { subagentRegistry: undefined }))).rejects.toThrow(
+      /spawnSubagent not initialized/,
     );
   });
 
-  test("creates a session and streams the task prompt", async () => {
-    const { session } = createMockSession("Here is the plan");
-    const createSessionCalls: (SessionConfig | undefined)[] = [];
-    const streamedMessages: string[] = [];
+  test("throws when subagentRegistry is not provided in runtime", async () => {
+    const spawnSubagent = mock(async () => createSpawnResult());
 
-    const spySession: Session = {
-      ...session,
-      stream: async function* (
-        message: string,
-        _options?: { agent?: string; abortSignal?: AbortSignal },
-      ) {
-        streamedMessages.push(message);
-        yield { type: "text" as const, content: "Here is the plan" } as AgentMessage;
-      },
-    };
+    const node = subagentNode<TestState>({
+      id: "planner",
+      agentName: "planner",
+      task: "Plan the work",
+    });
 
-    const createSession = async (config?: SessionConfig) => {
-      createSessionCalls.push(config);
-      return spySession;
+    await expect(
+      node.execute(createContext({}, { spawnSubagent, subagentRegistry: undefined })),
+    ).rejects.toThrow(/SubagentTypeRegistry not initialized/);
+  });
+
+  test("throws when agent is not found in registry", async () => {
+    const spawnSubagent = mock(async () => createSpawnResult());
+
+    const node = subagentNode<TestState>({
+      id: "unknown-agent",
+      agentName: "nonexistent",
+      task: "Do something",
+    });
+
+    await expect(
+      node.execute(createContext({}, { spawnSubagent })),
+    ).rejects.toThrow(/Sub-agent "nonexistent" not found in registry/);
+  });
+
+  test("calls spawnSubagent with correct options", async () => {
+    const spawnCalls: SubagentSpawnOptions[] = [];
+    const spawnSubagent = async (opts: SubagentSpawnOptions) => {
+      spawnCalls.push(opts);
+      return createSpawnResult({ agentId: opts.agentId });
     };
 
     const node = subagentNode<TestState>({
@@ -177,19 +126,19 @@ describe("subagentNode session-based execution", () => {
       task: "Plan the work",
     });
 
-    await node.execute(createContext({}, { createSession }));
+    await node.execute(createContext({}, { spawnSubagent }));
 
-    expect(createSessionCalls).toHaveLength(1);
-    expect(streamedMessages).toEqual(["Plan the work"]);
+    expect(spawnCalls).toHaveLength(1);
+    expect(spawnCalls[0]!.agentName).toBe("planner");
+    expect(spawnCalls[0]!.task).toBe("Plan the work");
+    expect(spawnCalls[0]!.agentId).toBe("planner-exec-1");
   });
 
-  test("passes model and tools to session config", async () => {
-    const { session } = createMockSession("done");
-    const createSessionCalls: (SessionConfig | undefined)[] = [];
-
-    const createSession = async (config?: SessionConfig) => {
-      createSessionCalls.push(config);
-      return session;
+  test("passes model and tools to spawn options", async () => {
+    const spawnCalls: SubagentSpawnOptions[] = [];
+    const spawnSubagent = async (opts: SubagentSpawnOptions) => {
+      spawnCalls.push(opts);
+      return createSpawnResult({ agentId: opts.agentId });
     };
 
     const node = subagentNode<TestState>({
@@ -200,21 +149,17 @@ describe("subagentNode session-based execution", () => {
       tools: ["read_file", "write_file"],
     });
 
-    await node.execute(createContext({}, { createSession }));
+    await node.execute(createContext({}, { spawnSubagent }));
 
-    expect(createSessionCalls[0]).toEqual({
-      model: "sonnet",
-      tools: ["read_file", "write_file"],
-    });
+    expect(spawnCalls[0]!.model).toBe("sonnet");
+    expect(spawnCalls[0]!.tools).toEqual(["read_file", "write_file"]);
   });
 
   test("falls back to context model when config model is not set", async () => {
-    const { session } = createMockSession("done");
-    const createSessionCalls: (SessionConfig | undefined)[] = [];
-
-    const createSession = async (config?: SessionConfig) => {
-      createSessionCalls.push(config);
-      return session;
+    const spawnCalls: SubagentSpawnOptions[] = [];
+    const spawnSubagent = async (opts: SubagentSpawnOptions) => {
+      spawnCalls.push(opts);
+      return createSpawnResult({ agentId: opts.agentId });
     };
 
     const node = subagentNode<TestState>({
@@ -224,55 +169,17 @@ describe("subagentNode session-based execution", () => {
     });
 
     await node.execute(
-      createContext({}, { createSession }, { model: "haiku" }),
+      createContext({}, { spawnSubagent }, { model: "haiku" }),
     );
 
-    expect(createSessionCalls[0]?.model).toBe("haiku");
-  });
-
-  test("merges sessionConfig overrides into session creation", async () => {
-    const { session } = createMockSession("done");
-    const createSessionCalls: (SessionConfig | undefined)[] = [];
-
-    const createSession = async (config?: SessionConfig) => {
-      createSessionCalls.push(config);
-      return session;
-    };
-
-    const node = subagentNode<TestState>({
-      id: "reviewer",
-      agentName: "reviewer",
-      task: "Review the code",
-      model: "opus",
-      sessionConfig: {
-        additionalInstructions: "Be thorough",
-        maxTurns: 5,
-      },
-    });
-
-    await node.execute(createContext({}, { createSession }));
-
-    expect(createSessionCalls[0]).toEqual({
-      model: "opus",
-      tools: undefined,
-      additionalInstructions: "Be thorough",
-      maxTurns: 5,
-    });
+    expect(spawnCalls[0]!.model).toBe("haiku");
   });
 
   test("resolves dynamic task from state", async () => {
-    const { session } = createMockSession("planned");
-    const streamedMessages: string[] = [];
-
-    const spySession: Session = {
-      ...session,
-      stream: async function* (
-        message: string,
-        _options?: { agent?: string; abortSignal?: AbortSignal },
-      ) {
-        streamedMessages.push(message);
-        yield { type: "text" as const, content: "planned" } as AgentMessage;
-      },
+    const spawnCalls: SubagentSpawnOptions[] = [];
+    const spawnSubagent = async (opts: SubagentSpawnOptions) => {
+      spawnCalls.push(opts);
+      return createSpawnResult({ agentId: opts.agentId, output: "planned" });
     };
 
     const node = subagentNode<TestState>({
@@ -282,33 +189,15 @@ describe("subagentNode session-based execution", () => {
     });
 
     await node.execute(
-      createContext({ specDoc: "Build auth module" }, {
-        createSession: async () => spySession,
-      }),
+      createContext({ specDoc: "Build auth module" }, { spawnSubagent }),
     );
 
-    expect(streamedMessages).toEqual(["Plan: Build auth module"]);
-  });
-
-  test("accumulates multi-chunk streaming responses", async () => {
-    const { session } = createMultiChunkSession(["chunk1-", "chunk2-", "chunk3"]);
-
-    const node = subagentNode<TestState>({
-      id: "planner",
-      agentName: "planner",
-      task: "plan",
-      outputMapper: (result) => ({ specDoc: result.output }),
-    });
-
-    const result = await node.execute(
-      createContext({}, { createSession: async () => session }),
-    );
-
-    expect(result.stateUpdate?.specDoc).toBe("chunk1-chunk2-chunk3");
+    expect(spawnCalls[0]!.task).toBe("Plan: Build auth module");
   });
 
   test("applies custom outputMapper with result and state", async () => {
-    const { session } = createMockSession("raw output");
+    const spawnSubagent = async (opts: SubagentSpawnOptions) =>
+      createSpawnResult({ agentId: opts.agentId, output: "raw output" });
 
     const node = subagentNode<TestState>({
       id: "planner",
@@ -320,15 +209,22 @@ describe("subagentNode session-based execution", () => {
     });
 
     const result = await node.execute(
-      createContext({}, { createSession: async () => session }),
+      createContext({}, { spawnSubagent }),
     );
 
     expect(result.stateUpdate?.specDoc).toBe("raw output (exec: exec-1)");
   });
 
   test("provides well-formed SubagentStreamResult to outputMapper", async () => {
-    const { session } = createMockSession("response text");
     let capturedResult: SubagentStreamResult | undefined;
+
+    const spawnSubagent = async (opts: SubagentSpawnOptions) =>
+      createSpawnResult({
+        agentId: opts.agentId,
+        output: "response text",
+        toolUses: 3,
+        durationMs: 200,
+      });
 
     const node = subagentNode<TestState>({
       id: "test-node",
@@ -341,19 +237,20 @@ describe("subagentNode session-based execution", () => {
     });
 
     await node.execute(
-      createContext({}, { createSession: async () => session }),
+      createContext({}, { spawnSubagent }),
     );
 
     expect(capturedResult).toBeDefined();
     expect(capturedResult!.agentId).toBe("test-node-exec-1");
     expect(capturedResult!.success).toBe(true);
     expect(capturedResult!.output).toBe("response text");
-    expect(capturedResult!.toolUses).toBe(0);
-    expect(capturedResult!.durationMs).toBeGreaterThanOrEqual(0);
+    expect(capturedResult!.toolUses).toBe(3);
+    expect(capturedResult!.durationMs).toBe(200);
   });
 
   test("falls back to default outputs mapping when no outputMapper", async () => {
-    const { session } = createMockSession("default output");
+    const spawnSubagent = async (opts: SubagentSpawnOptions) =>
+      createSpawnResult({ agentId: opts.agentId, output: "default output" });
 
     const node = subagentNode<TestState>({
       id: "my-node",
@@ -362,138 +259,19 @@ describe("subagentNode session-based execution", () => {
     });
 
     const result = await node.execute(
-      createContext({}, { createSession: async () => session }),
+      createContext({}, { spawnSubagent }),
     );
 
     expect(result.stateUpdate?.outputs?.["my-node"]).toBe("default output");
   });
 
-  test("destroys session after successful execution", async () => {
-    const { session, destroyCalls } = createMockSession("done");
-
-    const node = subagentNode<TestState>({
-      id: "agent",
-      agentName: "agent",
-      task: "work",
-    });
-
-    await node.execute(
-      createContext({}, { createSession: async () => session }),
-    );
-
-    expect(destroyCalls).toHaveLength(1);
-  });
-
-  test("destroys session after execution error", async () => {
-    const { session, destroyCalls } = createFailingSession("Stream broke");
-
-    const node = subagentNode<TestState>({
-      id: "agent",
-      agentName: "agent",
-      task: "work",
-    });
-
-    await expect(
-      node.execute(
-        createContext({}, { createSession: async () => session }),
-      ),
-    ).rejects.toThrow(/session failed.*Stream broke/);
-
-    expect(destroyCalls).toHaveLength(1);
-  });
-
-  test("uses destroySession from runtime when available", async () => {
-    const { session } = createMockSession("done");
-    const destroySessionCalls: Session[] = [];
-
-    const destroySession = async (s: Session) => {
-      destroySessionCalls.push(s);
-    };
-
-    const node = subagentNode<TestState>({
-      id: "agent",
-      agentName: "agent",
-      task: "work",
-    });
-
-    await node.execute(
-      createContext({}, {
-        createSession: async () => session,
-        destroySession,
-      }),
-    );
-
-    expect(destroySessionCalls).toHaveLength(1);
-    expect(destroySessionCalls[0]!.id).toBe("session-test");
-  });
-
-  test("swallows session destroy errors", async () => {
-    const { session } = createMockSession("done");
-    const failingDestroy = async () => {
-      throw new Error("Destroy failed");
-    };
-
-    const node = subagentNode<TestState>({
-      id: "agent",
-      agentName: "agent",
-      task: "work",
-    });
-
-    // Should not throw despite destroy failure
-    const result = await node.execute(
-      createContext({}, {
-        createSession: async () => session,
-        destroySession: failingDestroy,
-      }),
-    );
-
-    expect(result.stateUpdate).toBeDefined();
-  });
-
-  test("re-throws abort-induced errors without wrapping", async () => {
-    const abortController = new AbortController();
-    const abortError = new Error("Aborted");
-
-    const session: Session = {
-      id: "session-abort",
-      send: async () => ({ type: "text" as const, content: "" }),
-      stream: async function* () {
-        abortController.abort();
-        throw abortError;
-      },
-      summarize: async () => {},
-      getContextUsage: async () => ({
-        inputTokens: 0,
-        outputTokens: 0,
-        maxTokens: 100000,
-        usagePercentage: 0,
-      }),
-      getSystemToolsTokens: () => 0,
-      destroy: async () => {},
-    };
-
-    const node = subagentNode<TestState>({
-      id: "agent",
-      agentName: "agent",
-      task: "work",
-    });
-
-    const error = await node
-      .execute(
-        createContext(
-          {},
-          { createSession: async () => session },
-          { abortSignal: abortController.signal },
-        ),
-      )
-      .catch((e: unknown) => e);
-
-    // The original abort error is re-thrown unwrapped
-    expect(error).toBe(abortError);
-  });
-
-  test("wraps non-abort errors with agent name context", async () => {
-    const { session } = createFailingSession("Connection lost");
+  test("throws when spawnSubagent returns failure", async () => {
+    const spawnSubagent = async (opts: SubagentSpawnOptions) =>
+      createSpawnResult({
+        agentId: opts.agentId,
+        success: false,
+        error: "Connection lost",
+      });
 
     const node = subagentNode<TestState>({
       id: "planner",
@@ -502,10 +280,27 @@ describe("subagentNode session-based execution", () => {
     });
 
     await expect(
-      node.execute(
-        createContext({}, { createSession: async () => session }),
-      ),
-    ).rejects.toThrow('Sub-agent "planner" session failed: Connection lost');
+      node.execute(createContext({}, { spawnSubagent })),
+    ).rejects.toThrow('Sub-agent "planner" failed: Connection lost');
+  });
+
+  test("throws with unknown error message when failure has no error field", async () => {
+    const spawnSubagent = async (opts: SubagentSpawnOptions) =>
+      createSpawnResult({
+        agentId: opts.agentId,
+        success: false,
+        error: undefined,
+      });
+
+    const node = subagentNode<TestState>({
+      id: "planner",
+      agentName: "planner",
+      task: "plan",
+    });
+
+    await expect(
+      node.execute(createContext({}, { spawnSubagent })),
+    ).rejects.toThrow('Sub-agent "planner" failed: Unknown error');
   });
 
   test("has type 'agent' and correct metadata", () => {

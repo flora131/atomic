@@ -9,81 +9,10 @@ import type { RalphWorkflowState } from "@/services/workflows/ralph/state.ts";
 import { createWorkflowWithMockBridge } from "./graph.fixtures.ts";
 
 describe("createRalphWorkflow - Worker Loop", () => {
-  test("exits loop when no actionable tasks remain after retries exhaust", async () => {
-    const mockResponses = new Map<
-      string,
-      (opts: SubagentSpawnOptions) => SubagentStreamResult
-    >();
-
-    mockResponses.set("planner", () => ({
-      agentId: "planner-1",
-      success: true,
-      output: JSON.stringify([
-        {
-          id: "#1",
-          description: "Task 1",
-          status: "pending",
-          summary: "Doing task 1",
-          blockedBy: [],
-        },
-        {
-          id: "#2",
-          description: "Task 2",
-          status: "pending",
-          summary: "Doing task 2",
-          blockedBy: ["#1"],
-        },
-      ]),
-      toolUses: 0,
-      durationMs: 10,
-    }));
-
-    let workerCallCount = 0;
-    mockResponses.set("worker", () => {
-      workerCallCount++;
-      return {
-        agentId: `worker-${workerCallCount}`,
-        success: false,
-        output: "Failed to complete task",
-        error: "Task 1 failed",
-        toolUses: 1,
-        durationMs: 20,
-      };
-    });
-
-    mockResponses.set("reviewer", () => ({
-      agentId: "reviewer-1",
-      success: true,
-      output: JSON.stringify({
-        findings: [],
-        overall_correctness: "patch is correct",
-        overall_explanation: "Some tasks incomplete",
-      }),
-      toolUses: 1,
-      durationMs: 30,
-    }));
-
-    const workflow = createWorkflowWithMockBridge(mockResponses);
-
-    const initialState: Partial<RalphWorkflowState> = {
-      ...createRalphState("test-exec-5", { yoloPrompt: "test prompt" }),
-      maxIterations: 10,
-      ralphSessionDir: "/tmp/test-session",
-    };
-
-    const result = await executeGraph(workflow, {
-      initialState,
-      executionId: "test-exec-5",
-      maxSteps: 50,
-    });
-
-    expect(result.status).toBe("completed");
-    expect(workerCallCount).toBe(4);
-    const task1 = result.state.tasks.find((task: any) => task.id === "#1");
-    const task2 = result.state.tasks.find((task: any) => task.id === "#2");
-    expect(task1?.status).toBe("error");
-    expect(task2?.status).toBe("pending");
-  });
+  // NOTE: "exits loop when no actionable tasks remain after retries exhaust"
+  // was removed — it tested the EagerDispatchCoordinator retry loop which was
+  // deleted in the Ralph workflow redesign (§8.1). Worker retries are now
+  // handled inside the orchestrator agent session, not by programmatic dispatch.
 
   test("stops eager cascades once maxIterations is exhausted", async () => {
     const mockResponses = new Map<

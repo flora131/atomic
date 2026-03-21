@@ -9,7 +9,6 @@ import { createRalphState } from "@/services/workflows/ralph/state.ts";
 import type { RalphWorkflowState } from "@/services/workflows/ralph/state.ts";
 import {
   createMockRegistry,
-  createMockSessionFactory,
   createMockSpawnFunctions,
   createWorkflowWithMockBridge,
 } from "./graph.fixtures.ts";
@@ -196,154 +195,10 @@ describe("createRalphWorkflow - 3-Phase Flow", () => {
     expect(executionOrder).toEqual(["#1", "#2"]);
   });
 
-  test("completes review flow after eagerly dispatching newly unblocked tasks", async () => {
-    const mockResponses = new Map<
-      string,
-      (opts: SubagentSpawnOptions) => SubagentStreamResult
-    >();
-
-    mockResponses.set("planner", () => ({
-      agentId: "planner-eager-flow",
-      success: true,
-      output: JSON.stringify([
-        {
-          id: "#1",
-          description: "Task 1",
-          status: "pending",
-          summary: "Doing task 1",
-          blockedBy: [],
-        },
-        {
-          id: "#2",
-          description: "Task 2",
-          status: "pending",
-          summary: "Doing task 2",
-          blockedBy: [],
-        },
-        {
-          id: "#3",
-          description: "Task 3",
-          status: "pending",
-          summary: "Doing task 3",
-          blockedBy: ["#1"],
-        },
-      ]),
-      toolUses: 0,
-      durationMs: 10,
-    }));
-
-    let reviewerCallCount = 0;
-    mockResponses.set("reviewer", () => {
-      reviewerCallCount++;
-      return {
-        agentId: "reviewer-eager-flow",
-        success: true,
-        output: JSON.stringify({
-          findings: [],
-          overall_correctness: "patch is correct",
-          overall_explanation: "Eager dispatch completed before review",
-        }),
-        toolUses: 1,
-        durationMs: 30,
-      };
-    });
-
-    const { spawnSubagent } = createMockSpawnFunctions(mockResponses);
-    const workerBatches: string[][] = [];
-    const pendingWorkerResults = new Map<
-      string,
-      ReturnType<typeof createDeferred<SubagentStreamResult>>
-    >();
-
-    const workflow = createRalphWorkflow();
-    const createSession = createMockSessionFactory(mockResponses);
-    const workflowWithMocks = {
-      ...workflow,
-      config: {
-        ...workflow.config,
-        runtime: {
-          createSession,
-          spawnSubagent,
-          spawnSubagentParallel: async (
-            agents: SubagentSpawnOptions[],
-            _abortSignal?: AbortSignal,
-            onAgentComplete?: (result: SubagentStreamResult) => void,
-          ) => {
-            workerBatches.push(agents.map((agent) => agent.agentId));
-            return Promise.all(
-              agents.map((agent) => {
-                const deferred = createDeferred<SubagentStreamResult>();
-                pendingWorkerResults.set(agent.agentId, deferred);
-                return deferred.promise.then((result) => {
-                  onAgentComplete?.(result);
-                  return result;
-                });
-              }),
-            );
-          },
-          subagentRegistry: createMockRegistry(),
-        },
-      },
-    };
-
-    const execution = executeGraph(workflowWithMocks, {
-      initialState: {
-        ...createRalphState("test-eager-flow", { yoloPrompt: "test prompt" }),
-        maxIterations: 10,
-        ralphSessionDir: "/tmp/test-session",
-      },
-      executionId: "test-eager-flow",
-    });
-
-    await waitFor(() => workerBatches.length === 1);
-    expect(workerBatches).toEqual([["worker-#1", "worker-#2"]]);
-
-    pendingWorkerResults.get("worker-#1")?.resolve({
-      agentId: "worker-#1",
-      success: true,
-      output: "Completed #1",
-      toolUses: 1,
-      durationMs: 10,
-    });
-
-    await waitFor(() => workerBatches.length === 2);
-    expect(workerBatches).toEqual([
-      ["worker-#1", "worker-#2"],
-      ["worker-#3"],
-    ]);
-
-    pendingWorkerResults.get("worker-#3")?.resolve({
-      agentId: "worker-#3",
-      success: true,
-      output: "Completed #3",
-      toolUses: 1,
-      durationMs: 10,
-    });
-
-    await flushMicrotasks();
-    expect(reviewerCallCount).toBe(0);
-
-    pendingWorkerResults.get("worker-#2")?.resolve({
-      agentId: "worker-#2",
-      success: true,
-      output: "Completed #2",
-      toolUses: 1,
-      durationMs: 10,
-    });
-
-    const result = await execution;
-
-    expect(result.status).toBe("completed");
-    expect(result.state.tasks.map((task: any) => task.status)).toEqual([
-      "completed",
-      "completed",
-      "completed",
-    ]);
-    expect(result.state.iteration).toBe(2);
-    expect(reviewerCallCount).toBe(1);
-    expect(result.state.reviewResult?.overall_correctness).toBe("patch is correct");
-    expect(result.state.fixesApplied).toBe(false);
-  });
+  // NOTE: "completes review flow after eagerly dispatching newly unblocked tasks"
+  // was removed — it tested the EagerDispatchCoordinator which was deleted in the
+  // Ralph workflow redesign (§8.1). Eager task cascading is now handled inside the
+  // orchestrator agent session, not by programmatic dispatch.
 
   test("triggers fixer when review has findings", async () => {
     const mockResponses = new Map<

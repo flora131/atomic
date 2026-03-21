@@ -344,53 +344,7 @@ describe("task update event flow (§5.6)", () => {
   });
 
   // -----------------------------------------------------------------------
-  // 2. context.updateTaskList (direct UI path)
-  // -----------------------------------------------------------------------
-
-  describe("context.updateTaskList (direct UI path)", () => {
-    test("calls context.updateTaskList with formatted tasks", async () => {
-      const updateTaskList = mock((_tasks: unknown) => {});
-      const context = createMockContext({ updateTaskList: updateTaskList as any });
-      const definition = createDefinition();
-
-      await executeConductorWorkflow(definition, "plan tasks", context);
-
-      expect(updateTaskList).toHaveBeenCalledTimes(1);
-      const callArg = updateTaskList.mock.calls[0]![0] as any[];
-      expect(callArg).toHaveLength(3);
-      expect(callArg[0]).toMatchObject({
-        id: "#1",
-        title: "Implement feature A",
-      });
-    });
-
-    test("formatted tasks have normalized status values", async () => {
-      const updateTaskList = mock((_tasks: unknown) => {});
-      const context = createMockContext({ updateTaskList: updateTaskList as any });
-      const definition = createDefinition();
-
-      await executeConductorWorkflow(definition, "plan tasks", context);
-
-      const tasks = updateTaskList.mock.calls[0]![0] as any[];
-      // Each status should be a normalized WorkflowRuntimeTaskStatus
-      for (const task of tasks) {
-        expect(typeof task.status).toBe("string");
-        expect(task.status.length).toBeGreaterThan(0);
-      }
-    });
-
-    test("does not call updateTaskList when context.updateTaskList is undefined", async () => {
-      const context = createMockContext({ updateTaskList: undefined });
-      const definition = createDefinition();
-
-      // Should not throw
-      const result = await executeConductorWorkflow(definition, "plan tasks", context);
-      expect(result.success).toBe(true);
-    });
-  });
-
-  // -----------------------------------------------------------------------
-  // 3. Task persistence callback (saveTasksToSession)
+  // 2. Task persistence callback (saveTasksToSession)
   // -----------------------------------------------------------------------
 
   describe("task persistence callback", () => {
@@ -423,60 +377,7 @@ describe("task update event flow (§5.6)", () => {
   });
 
   // -----------------------------------------------------------------------
-  // 4. Both bus event and direct UI path fire together
-  // -----------------------------------------------------------------------
-
-  describe("dual path: bus event + direct UI update", () => {
-    test("both workflow.task.update event and updateTaskList fire on same task update", async () => {
-      const bus = new EventBus({ validatePayloads: false });
-      const receivedEvents: BusEvent[] = [];
-      bus.onAll((event) => receivedEvents.push(event));
-
-      const updateTaskList = mock((_tasks: unknown) => {});
-      const context = createMockContext({ eventBus: bus, updateTaskList: updateTaskList as any });
-      const definition = createDefinition();
-
-      await executeConductorWorkflow(definition, "plan tasks", context);
-
-      // Bus event path
-      const taskEvents = receivedEvents.filter(
-        (e) => e.type === "workflow.task.update",
-      );
-      expect(taskEvents).toHaveLength(1);
-
-      // Direct UI path
-      expect(updateTaskList).toHaveBeenCalledTimes(1);
-    });
-
-    test("bus event and direct path carry consistent task data", async () => {
-      const bus = new EventBus({ validatePayloads: false });
-      const receivedEvents: BusEvent[] = [];
-      bus.onAll((event) => receivedEvents.push(event));
-
-      const updateTaskList = mock((_tasks: unknown) => {});
-      const context = createMockContext({ eventBus: bus, updateTaskList: updateTaskList as any });
-      const definition = createDefinition();
-
-      await executeConductorWorkflow(definition, "plan tasks", context);
-
-      // Extract bus event task descriptions
-      const taskEvent = receivedEvents.find(
-        (e) => e.type === "workflow.task.update",
-      )!;
-      const busData = taskEvent.data as BusEventDataMap["workflow.task.update"];
-      const busDescriptions = busData.tasks.map((t) => t.description);
-
-      // Extract direct UI task titles (mapped from description)
-      const uiTasks = (updateTaskList.mock.calls[0] as unknown as [unknown])[0] as any[];
-      const uiTitles = uiTasks.map((t: any) => t.title);
-
-      // Both paths should reflect the same underlying tasks
-      expect(busDescriptions).toEqual(uiTitles);
-    });
-  });
-
-  // -----------------------------------------------------------------------
-  // 5. Session tracking on task update
+  // 3. Session tracking on task update
   // -----------------------------------------------------------------------
 
   describe("session tracking on task update", () => {
@@ -514,7 +415,7 @@ describe("task update event flow (§5.6)", () => {
   });
 
   // -----------------------------------------------------------------------
-  // 6. Multi-stage task updates
+  // 4. Multi-stage task updates
   // -----------------------------------------------------------------------
 
   describe("multi-stage task updates", () => {

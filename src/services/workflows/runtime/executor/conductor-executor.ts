@@ -20,7 +20,7 @@ import type { CommandContext, CommandResult } from "@/types/command.ts";
 import type { ConductorConfig } from "@/services/workflows/conductor/types.ts";
 import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 import type { TaskItem } from "@/services/workflows/ralph/prompts.ts";
-import { normalizeWorkflowRuntimeTaskStatus } from "@/services/workflows/runtime-contracts.ts";
+
 import { WorkflowSessionConductor } from "@/services/workflows/conductor/conductor.ts";
 import { pipelineLog, pipelineError } from "@/services/events/pipeline-logger.ts";
 import {
@@ -87,11 +87,6 @@ export async function executeConductorWorkflow(
   });
 
   try {
-    context.addMessage(
-      "assistant",
-      `Starting **${definition.name}** workflow with prompt: "${prompt}"`,
-    );
-
     // Phase 1: Compile graph — prefer conductor-specific graph
     let compiled: CompiledGraph<BaseState>;
     if (definition.createConductorGraph) {
@@ -119,7 +114,6 @@ export async function executeConductorWorkflow(
 
     // Phase 3: Build ConductorConfig
     const createSession = context.createAgentSession;
-    const nodeDescriptions = definition.nodeDescriptions;
 
     // Create bus publisher for workflow.task.update events (§5.6)
     const publishTaskUpdate = context.eventBus
@@ -142,7 +136,6 @@ export async function executeConductorWorkflow(
       onStageTransition: (from, to) => {
         const stage = stages.find((s) => s.id === to);
         const indicator = stage?.indicator ?? to;
-        const description = nodeDescriptions?.[to];
         const stageIndex = stages.findIndex((s) => s.id === to);
         const stageIndicator = stageIndex >= 0
           ? `Stage ${stageIndex + 1}/${stages.length}: ${indicator}`
@@ -158,9 +151,12 @@ export async function executeConductorWorkflow(
           },
         });
 
-        if (description) {
-          context.addMessage("assistant", description);
-        }
+        // Re-enable streaming for this stage.  The previous stage's
+        // stream.session.idle handler calls handleStreamComplete() which sets
+        // isStreamingRef=false.  We must restore it before addMessage so the
+        // new message is created as a streaming target.
+        context.setStreaming(true);
+        context.addMessage("assistant", "");
 
         pipelineLog("Workflow", "stage_transition", {
           workflow: definition.name,
@@ -171,21 +167,11 @@ export async function executeConductorWorkflow(
       },
 
       onTaskUpdate: (tasks: TaskItem[]) => {
-        // Publish workflow.task.update event to the bus (§5.6)
-        // This feeds into stream-workflow-task.ts handler → task-list-update StreamPartEvent
+        // Publish workflow.task.update event to the bus — this is the sole update
+        // path so that task-list parts are ordered correctly relative to thinking
+        // and text deltas flowing through the same batched pipeline.
         if (publishTaskUpdate && tasks.length > 0) {
           publishTaskUpdate(tasks);
-        }
-
-        // Update UI task list (direct path for immediate rendering)
-        if (context.updateTaskList && tasks.length > 0) {
-          const formattedTasks = tasks.map((task) => ({
-            id: task.id ?? "",
-            title: task.description,
-            status: normalizeWorkflowRuntimeTaskStatus(task.status),
-            ...(task.blockedBy ? { blockedBy: task.blockedBy } : {}),
-          }));
-          context.updateTaskList(formattedTasks);
         }
 
         // Persist tasks to session
@@ -295,10 +281,6 @@ export async function executeConductorWorkflow(
       };
     }
 
-    context.addMessage(
-      "assistant",
-      `**${definition.name}** workflow completed successfully.`,
-    );
     pipelineLog("Workflow", "complete", { workflow: definition.name, sessionId });
     incrementRuntimeParityCounter("workflow.runtime.parity.execution_total", {
       phase: "success",

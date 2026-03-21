@@ -244,11 +244,8 @@ export function useChatDispatchController({
     const streaming = role === "assistant" && isStreamingRef.current;
     const message = createMessage(role, content, streaming);
 
-    if (streaming && workflowActiveRef.current) {
-      message.spinnerVerb = "Running workflow";
-      if (!streamingStartRef.current) {
-        streamingStartRef.current = Date.now();
-      }
+    if (streaming && !streamingStartRef.current) {
+      streamingStartRef.current = Date.now();
     }
 
     if (streaming) {
@@ -268,7 +265,6 @@ export function useChatDispatchController({
     setMessagesWindowed,
     setStreamingMessageId,
     streamingStartRef,
-    workflowActiveRef,
   ]);
 
   const setStreamingWithFinalize = useCallback((streaming: boolean) => {

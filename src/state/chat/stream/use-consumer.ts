@@ -10,6 +10,7 @@ import type { AgentOrderingEvent, AgentOrderingState } from "@/state/chat/shared
 import type { AutoCompactionIndicatorState } from "@/state/chat/shared/helpers/auto-compaction-lifecycle.ts";
 import {
   isRuntimeEnvelopePartEvent,
+  isWorkflowBypassEvent,
   resolveValidatedThinkingMetaEvent,
   shouldProcessStreamPartEvent,
 } from "@/state/chat/shared/helpers/index.ts";
@@ -146,7 +147,7 @@ export function useChatStreamConsumer({
         "agentId" in part
         && Boolean(part.agentId)
         && (part.type === "tool-start" || part.type === "tool-complete" || part.type === "tool-partial-result");
-      if (!isSubagentToolEvent && !shouldProcessStreamPartEvent({
+      if (!isSubagentToolEvent && !isWorkflowBypassEvent(part) && !shouldProcessStreamPartEvent({
         activeRunId: activeStreamRunIdRef.current,
         partRunId: typeof part.runId === "number" ? part.runId : undefined,
         isStreaming: isStreamingRef.current,

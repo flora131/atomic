@@ -7,8 +7,11 @@
  * The compiler performs five key steps:
  * 1. Validates the instruction sequence (balanced if/endIf, loop/endLoop,
  *    unique IDs, at least one node).
- * 2. Generates StageDefinition[] from stage instructions.
- * 3. Generates a CompiledGraph with nodes and edges.
+ * 2. Generates StageDefinition[] from stage instructions (with shouldRun
+ *    derived from enclosing .if() conditions).
+ * 3. Generates a CompiledGraph with nodes and edges. Conditional blocks
+ *    produce a linear graph (no decision/merge nodes) because the conductor
+ *    handles skipping via StageDefinition.shouldRun.
  * 4. Generates a createState() factory via state-compiler.
  * 5. Assembles the final WorkflowDefinition.
  *
@@ -23,7 +26,10 @@ import type {
 } from "@/services/workflows/dsl/types.ts";
 import type { WorkflowBuilder } from "@/services/workflows/dsl/define-workflow.ts";
 import type { WorkflowDefinition } from "@/services/workflows/types/definition.ts";
-import type { StageDefinition, StageContext } from "@/services/workflows/conductor/types.ts";
+import type {
+  StageDefinition,
+  StageContext,
+} from "@/services/workflows/conductor/types.ts";
 import type {
   BaseState,
   CompiledGraph,
@@ -38,13 +44,6 @@ import { createStateFactory } from "@/services/workflows/dsl/state-compiler.ts";
 // Agent No-op Execute
 // ============================================================================
 
-/**
- * No-op execute for agent nodes.
- *
- * Agent nodes are executed by the conductor via StageDefinition, not by the
- * graph executor directly. This placeholder satisfies the NodeDefinition
- * contract without performing any work.
- */
 function agentNoopExecute(): Promise<NodeResult<BaseState>> {
   return Promise.resolve({});
 }
@@ -53,37 +52,19 @@ function agentNoopExecute(): Promise<NodeResult<BaseState>> {
 // Instruction Validation
 // ============================================================================
 
-/**
- * Validate the instruction sequence for structural correctness.
- *
- * Checks:
- * - At least one stage or tool node exists
- * - All node IDs are unique
- * - if/endIf blocks are balanced
- * - loop/endLoop blocks are balanced
- * - No branch in a conditional block is empty
- * - elseIf/else appear only inside an if block
- *
- * @throws Error with a descriptive message for any structural violation
- */
 export function validateInstructions(instructions: Instruction[]): void {
   if (instructions.length === 0) {
     throw new Error("Workflow must have at least one stage or tool node");
   }
-
-  // Check that there is at least one stage or tool node
   const hasNode = instructions.some(
     (i) => i.type === "stage" || i.type === "tool",
   );
   if (!hasNode) {
     throw new Error("Workflow must have at least one stage or tool node");
   }
-
-  // Check balanced if/endIf and loop/endLoop, and unique node IDs
   let ifDepth = 0;
   let loopDepth = 0;
   const nodeIds = new Set<string>();
-
   for (const instruction of instructions) {
     switch (instruction.type) {
       case "stage":
@@ -119,36 +100,28 @@ export function validateInstructions(instructions: Instruction[]): void {
         break;
     }
   }
-
   if (ifDepth > 0) {
-    throw new Error(`${ifDepth} unclosed "if" block(s) — missing "endIf"`);
+    throw new Error(
+      `${ifDepth} unclosed "if" block(s) \u2014 missing "endIf"`,
+    );
   }
   if (loopDepth > 0) {
-    throw new Error(`${loopDepth} unclosed "loop" block(s) — missing "endLoop"`);
+    throw new Error(
+      `${loopDepth} unclosed "loop" block(s) \u2014 missing "endLoop"`,
+    );
   }
-
-  // Validate that each branch in a conditional block has at least one node
   validateBranchesNotEmpty(instructions);
 }
 
-/**
- * Validate that every branch (if, elseIf, else) in conditional blocks
- * contains at least one stage or tool node.
- *
- * Uses a depth-aware approach to handle nested if blocks correctly.
- */
 function validateBranchesNotEmpty(instructions: Instruction[]): void {
-  // Track if-depth and whether the current branch at depth has a node
   const branchHasNode: boolean[] = [];
   let currentDepth = 0;
-
   for (const instruction of instructions) {
     switch (instruction.type) {
       case "if":
         currentDepth++;
         branchHasNode[currentDepth] = false;
         break;
-
       case "elseIf":
       case "else":
         if (!branchHasNode[currentDepth]) {
@@ -156,7 +129,6 @@ function validateBranchesNotEmpty(instructions: Instruction[]): void {
         }
         branchHasNode[currentDepth] = false;
         break;
-
       case "endIf":
         if (!branchHasNode[currentDepth]) {
           throw new Error("Empty branch in conditional block");
@@ -164,7 +136,6 @@ function validateBranchesNotEmpty(instructions: Instruction[]): void {
         branchHasNode[currentDepth] = false;
         currentDepth--;
         break;
-
       case "stage":
       case "tool":
         if (currentDepth > 0) {
@@ -176,25 +147,64 @@ function validateBranchesNotEmpty(instructions: Instruction[]): void {
 }
 
 // ============================================================================
+// Conditional shouldRun Resolution
+// ============================================================================
+
+/**
+ * Compute the shouldRun condition for each stage inside a conditional block.
+ *
+ * Stages inside an if or elseIf block get the enclosing branch condition
+ * as their shouldRun predicate. Stages inside an else block get undefined
+ * (always runs when the else branch is taken). Stages outside any conditional
+ * block are not present in the returned map.
+ */
+function computeShouldRunMap(
+  instructions: Instruction[],
+): Map<string, ((ctx: StageContext) => boolean) | undefined> {
+  const result = new Map<string, ((ctx: StageContext) => boolean) | undefined>();
+  const conditionStack: Array<((ctx: StageContext) => boolean) | undefined> = [];
+  for (const instruction of instructions) {
+    switch (instruction.type) {
+      case "if":
+        conditionStack.push(instruction.condition);
+        break;
+      case "elseIf":
+        conditionStack[conditionStack.length - 1] = instruction.condition;
+        break;
+      case "else":
+        conditionStack[conditionStack.length - 1] = undefined;
+        break;
+      case "endIf":
+        conditionStack.pop();
+        break;
+      case "stage":
+        if (conditionStack.length > 0) {
+          result.set(instruction.id, conditionStack[conditionStack.length - 1]);
+        }
+        break;
+    }
+  }
+  return result;
+}
+
+// ============================================================================
 // Stage Definition Generation
 // ============================================================================
 
 /**
  * Generate StageDefinition[] from stage instructions.
  *
- * Each `stage` instruction is converted to a StageDefinition with:
- * - `buildPrompt` from `StageConfig.prompt`
- * - `parseOutput` wrapping `StageConfig.outputMapper`
- * - `indicator` from `StageConfig.description`
- * - `sessionConfig` and `maxOutputBytes` passed through
+ * Propagates shouldRun from enclosing .if() conditions to each stage.
  */
-function generateStageDefinitions(instructions: Instruction[]): StageDefinition[] {
+function generateStageDefinitions(
+  instructions: Instruction[],
+): StageDefinition[] {
   const stages: StageDefinition[] = [];
-
+  const shouldRunMap = computeShouldRunMap(instructions);
   for (const instruction of instructions) {
     if (instruction.type !== "stage") continue;
-
     const config = instruction.config;
+    const shouldRun = shouldRunMap.get(instruction.id);
     const stage: StageDefinition = {
       id: instruction.id,
       name: config.name,
@@ -203,45 +213,25 @@ function generateStageDefinitions(instructions: Instruction[]): StageDefinition[
       parseOutput: (response: string) => {
         return config.outputMapper(response);
       },
+      shouldRun,
       sessionConfig: config.sessionConfig,
       maxOutputBytes: config.maxOutputBytes,
     };
-
     stages.push(stage);
   }
-
   return stages;
 }
 
 // ============================================================================
-// Graph Generation — Internal Types
+// Graph Generation Types
 // ============================================================================
 
-/** Context tracked during if/elseIf/else/endIf processing. */
-interface IfContext {
-  /** The decision node that routes to branches. */
-  readonly decisionNodeId: string;
-  /** Last node of each completed branch (for connecting to merge). */
-  readonly branchEndpoints: string[];
-  /** The merge node that all branches converge to. */
-  readonly mergeNodeId: string;
-  /** Conditions for each branch (undefined for else). */
-  readonly conditions: Array<{ condition?: (ctx: StageContext) => boolean }>;
-  /** Current branch index (0-based). */
-  branchIndex: number;
-}
-
-/** Context tracked during loop/endLoop processing. */
 interface LoopContext {
-  /** The entry point node for the loop. */
   readonly loopStartNodeId: string;
-  /** The check node that decides continue vs. exit. */
   readonly loopCheckNodeId: string;
-  /** The loop configuration (until predicate, maxIterations). */
   readonly config: LoopConfig;
 }
 
-/** Result of graph generation — nodes, edges, and metadata. */
 interface GraphBuildResult {
   readonly nodes: Map<string, NodeDefinition<BaseState>>;
   readonly edges: Edge<BaseState>[];
@@ -256,27 +246,21 @@ interface GraphBuildResult {
 /**
  * Generate a CompiledGraph from the instruction list.
  *
- * Processes instructions linearly, creating graph nodes and edges:
- * - `stage` → agent node (no-op execute; conductor uses StageDefinition)
- * - `tool` → tool node with real execute function
- * - `if/elseIf/else/endIf` → decision + merge nodes with conditional edges
- * - `loop/endLoop` → loop-start + loop-check nodes with back-edges
+ * The graph is kept linear for stage/tool nodes. Conditional blocks
+ * (if/elseIf/else/endIf) do NOT produce decision/merge nodes in the graph
+ * because the conductor handles conditional execution via shouldRun on
+ * each StageDefinition. The graph simply chains all stage/tool nodes
+ * in declaration order.
+ *
+ * Loop blocks produce loop-start + loop-check nodes with back-edges.
  */
 function generateGraph(instructions: Instruction[]): GraphBuildResult {
   const nodes = new Map<string, NodeDefinition<BaseState>>();
   const edges: Edge<BaseState>[] = [];
-
-  // Track the "previous" node for linear sequencing
   let previousNodeId: string | null = null;
   let nodeCounter = 0;
-
-  // Stacks for structured control flow
-  const ifStack: IfContext[] = [];
   const loopStack: LoopContext[] = [];
 
-  /**
-   * Register a node in the graph and return its ID.
-   */
   function addNode(
     id: string,
     type: "agent" | "tool",
@@ -301,9 +285,6 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
     return id;
   }
 
-  /**
-   * Add a synthetic decision/merge node (no-op tool node).
-   */
   function addDecisionNode(id: string): string {
     const node: NodeDefinition<BaseState> = {
       id,
@@ -315,16 +296,12 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
     return id;
   }
 
-  /**
-   * Connect the previous node to the target node, if there is a previous node.
-   */
   function connectPrevious(targetNodeId: string): void {
     if (previousNodeId !== null) {
       edges.push({ from: previousNodeId, to: targetNodeId });
     }
   }
 
-  // Process each instruction
   for (const instruction of instructions) {
     switch (instruction.type) {
       case "stage": {
@@ -341,70 +318,13 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
         break;
       }
 
-      case "if": {
-        const decisionId = `__decision_${nodeCounter++}`;
-        const mergeId = `__merge_${nodeCounter++}`;
-        addDecisionNode(decisionId);
-        addDecisionNode(mergeId);
-        connectPrevious(decisionId);
-
-        ifStack.push({
-          decisionNodeId: decisionId,
-          branchEndpoints: [],
-          mergeNodeId: mergeId,
-          conditions: [{ condition: instruction.condition }],
-          branchIndex: 0,
-        });
-
-        // Reset previous — will be set by the first node in the branch
-        previousNodeId = null;
+      // Conditional blocks: skip control-flow instructions.
+      // The conductor uses shouldRun on StageDefinition to skip stages.
+      case "if":
+      case "elseIf":
+      case "else":
+      case "endIf":
         break;
-      }
-
-      case "elseIf": {
-        const ctx = ifStack[ifStack.length - 1]!;
-        // Record the end of the current branch
-        if (previousNodeId !== null) {
-          ctx.branchEndpoints.push(previousNodeId);
-        }
-        ctx.conditions.push({ condition: instruction.condition });
-        ctx.branchIndex++;
-        previousNodeId = null;
-        break;
-      }
-
-      case "else": {
-        const ctx = ifStack[ifStack.length - 1]!;
-        if (previousNodeId !== null) {
-          ctx.branchEndpoints.push(previousNodeId);
-        }
-        ctx.conditions.push({}); // No condition = else branch
-        ctx.branchIndex++;
-        previousNodeId = null;
-        break;
-      }
-
-      case "endIf": {
-        const ctx = ifStack.pop()!;
-        if (previousNodeId !== null) {
-          ctx.branchEndpoints.push(previousNodeId);
-        }
-
-        // Connect all branch endpoints to the merge node
-        for (const endpoint of ctx.branchEndpoints) {
-          edges.push({ from: endpoint, to: ctx.mergeNodeId });
-        }
-
-        // If no else branch exists, add a direct edge from decision to merge
-        // so that when no condition matches, execution skips the entire block
-        const hasElse = ctx.conditions.some((c) => !c.condition);
-        if (!hasElse) {
-          edges.push({ from: ctx.decisionNodeId, to: ctx.mergeNodeId });
-        }
-
-        previousNodeId = ctx.mergeNodeId;
-        break;
-      }
 
       case "loop": {
         const loopStartId = `__loop_start_${nodeCounter++}`;
@@ -412,42 +332,34 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
         addDecisionNode(loopStartId);
         addDecisionNode(loopCheckId);
         connectPrevious(loopStartId);
-
         loopStack.push({
           loopStartNodeId: loopStartId,
           loopCheckNodeId: loopCheckId,
           config: instruction.config,
         });
-
         previousNodeId = loopStartId;
         break;
       }
 
       case "endLoop": {
         const ctx = loopStack.pop()!;
-        // Connect last body node to loop check
         if (previousNodeId !== null) {
           edges.push({ from: previousNodeId, to: ctx.loopCheckNodeId });
         }
-        // Loop check → back to loop start (continue loop)
         edges.push({
           from: ctx.loopCheckNodeId,
           to: ctx.loopStartNodeId,
-          condition: () => true, // Placeholder — conductor uses until()
+          condition: () => true,
           label: "loop_continue",
         });
-
         previousNodeId = ctx.loopCheckNodeId;
         break;
       }
     }
   }
 
-  // Determine start and end nodes
   const allNodeIds = Array.from(nodes.keys());
   const startNode = allNodeIds[0] ?? "";
-
-  // End nodes: nodes with no outgoing edges
   const nodesWithOutgoing = new Set(edges.map((e) => e.from));
   const endNodes = new Set<string>();
   for (const nodeId of allNodeIds) {
@@ -455,12 +367,9 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
       endNodes.add(nodeId);
     }
   }
-
-  // Ensure at least one end node
   if (endNodes.size === 0 && allNodeIds.length > 0) {
     endNodes.add(allNodeIds[allNodeIds.length - 1]!);
   }
-
   return { nodes, edges, startNode, endNodes };
 }
 
@@ -468,29 +377,15 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
 // Compile
 // ============================================================================
 
-/**
- * Compile a WorkflowBuilder into a WorkflowDefinition.
- *
- * Validates the instruction sequence, generates stage definitions,
- * builds the compiled graph, and assembles the final definition.
- *
- * @param builder - The WorkflowBuilder instance to compile
- * @returns A WorkflowDefinition ready for conductor execution
- * @throws Error if the instruction sequence is structurally invalid
- */
 export function compileWorkflow(builder: WorkflowBuilder): WorkflowDefinition {
   const { instructions, name, description } = builder;
   const version = builder.getVersion();
   const argumentHint = builder.getArgumentHint();
   const stateSchema = builder.getStateSchema();
 
-  // Step 1: Validate
   validateInstructions(instructions);
-
-  // Step 2: Generate stage definitions
   const conductorStages = generateStageDefinitions(instructions);
 
-  // Step 3: Generate graph
   const graphResult = generateGraph(instructions);
   const compiledGraph: CompiledGraph<BaseState> = {
     nodes: graphResult.nodes,
@@ -500,10 +395,8 @@ export function compileWorkflow(builder: WorkflowBuilder): WorkflowDefinition {
     config: {},
   };
 
-  // Step 4: Generate state factory
   const createState = createStateFactory(stateSchema);
 
-  // Step 5: Generate node descriptions
   const nodeDescriptions: Record<string, string> = {};
   for (const [id, node] of graphResult.nodes) {
     if (node.name) {
@@ -511,7 +404,6 @@ export function compileWorkflow(builder: WorkflowBuilder): WorkflowDefinition {
     }
   }
 
-  // Step 6: Assemble WorkflowDefinition
   const definition: WorkflowDefinition = {
     name,
     description,

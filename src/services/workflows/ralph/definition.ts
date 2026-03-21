@@ -1,70 +1,152 @@
 /**
  * Ralph Workflow Definition
  *
- * Consolidates Ralph's metadata, graph config, state factory, and node descriptions
- * into a single WorkflowDefinition object for the workflow registry.
- */
-
-import type { WorkflowDefinition, WorkflowStateParams } from "@/services/workflows/types/index.ts";
-import { createRalphState } from "@/services/workflows/ralph/state.ts";
-import { createRalphConductorGraph } from "@/services/workflows/ralph/conductor-graph.ts";
-import { VERSION } from "@/version.ts";
-import { RALPH_STAGES } from "@/services/workflows/ralph/stages.ts";
-
-/**
- * Node descriptions for Ralph workflow progress UI.
- * Extracted from the hardcoded getNodePhaseDescription() function.
- * Maps node IDs to human-readable progress descriptions.
- */
-export const ralphNodeDescriptions: Record<string, string> = {
-    planner: "⌕ Planning: Analyzing requirements and decomposing into tasks...",
-    "parse-tasks": "☰ Parsing: Extracting task structure from plan...",
-    "select-ready-tasks": "◎ Selecting: Identifying ready tasks for execution...",
-    worker: "⚙ Working: Implementing assigned task...",
-    reviewer: "◉ Reviewing: Evaluating completed work...",
-    "prepare-fix-tasks": "☰ Planning Fixes: Converting review findings into fix tasks...",
-    fixer: "⚒ Fixing: Applying review feedback...",
-};
-
-/**
- * Factory function to create Ralph workflow state.
- * Wraps createRalphState() with the standard WorkflowStateParams interface.
+ * Autonomous implementation workflow using the chainable DSL.
+ * Replaces the previous multi-file definition with a single defineWorkflow() chain.
  *
- * @param params - Standard workflow state parameters
- * @returns Initialized RalphWorkflowState
+ * The DSL chain defines four stages:
+ *   1. PLANNER    - decomposes the user prompt into a structured task list
+ *   2. ORCHESTRATOR - dispatches tasks in parallel via native sub-agent tools
+ *   3. REVIEWER   - reviews completed implementation for correctness issues
+ *   4. DEBUGGER   - applies fixes for actionable review findings (conditional)
+ *
+ * The .compile() call validates the instruction sequence, generates
+ * StageDefinition[] and a CompiledGraph, and assembles a WorkflowDefinition.
  */
-function createRalphWorkflowState(params: WorkflowStateParams) {
-    return createRalphState(params.sessionId, {
-        yoloPrompt: params.prompt,
-        ralphSessionId: params.sessionId,
-        ralphSessionDir: params.sessionDir,
-        maxIterations: params.maxIterations,
-    });
+
+import { defineWorkflow } from "@/services/workflows/dsl/define-workflow.ts";
+import type { WorkflowDefinition } from "@/services/workflows/types/definition.ts";
+import type { StageOutput } from "@/services/workflows/conductor/types.ts";
+import {
+  buildSpecToTasksPrompt,
+  buildOrchestratorPrompt,
+  buildReviewPrompt,
+  buildFixSpecFromReview,
+  buildFixSpecFromRawReview,
+  parseReviewResult,
+  type ReviewResult,
+} from "@/services/workflows/ralph/prompts.ts";
+import { parseTasks } from "@/services/workflows/ralph/graph/task-helpers.ts";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function getReviewResult(
+  stageOutputs: ReadonlyMap<string, StageOutput>,
+): ReviewResult | null {
+  const reviewerOutput = stageOutputs.get("reviewer");
+  if (!reviewerOutput || reviewerOutput.status !== "completed") {
+    return null;
+  }
+  if (reviewerOutput.parsedOutput !== undefined) {
+    return reviewerOutput.parsedOutput as ReviewResult;
+  }
+  return parseReviewResult(reviewerOutput.rawResponse);
 }
 
-/**
- * Complete workflow definition for Ralph.
- * Consolidates metadata, conductor graph, state factory, and node descriptions.
- *
- * Ralph uses the conductor-based executor with per-stage sessions defined
- * by RALPH_STAGES. The legacy createRalphWorkflow() graph builder has been
- * removed — see createConductorGraph below.
- */
-export const ralphWorkflowDefinition: WorkflowDefinition = {
-    name: "ralph",
-    description: "Start autonomous implementation workflow",
-    aliases: ["loop"],
-    version: "1.0.0",
-    minSDKVersion: VERSION,
-    stateVersion: 1,
-    argumentHint: '"<prompt-or-spec-path>"',
-    source: "builtin",
+function hasActionableFindings(
+  stageOutputs: ReadonlyMap<string, StageOutput>,
+): boolean {
+  const reviewerOutput = stageOutputs.get("reviewer");
+  if (!reviewerOutput || reviewerOutput.status !== "completed") {
+    return false;
+  }
+  const review = getReviewResult(stageOutputs);
+  if (review !== null && review.findings.length > 0) {
+    return true;
+  }
+  if (review === null && reviewerOutput.rawResponse.trim().length > 0) {
+    return true;
+  }
+  return false;
+}
 
-    // Execution logic
-    createState: createRalphWorkflowState,
-    nodeDescriptions: ralphNodeDescriptions,
+// ---------------------------------------------------------------------------
+// Workflow Definition via DSL
+// ---------------------------------------------------------------------------
 
-    // Conductor stages — enables the conductor-based executor
-    conductorStages: RALPH_STAGES,
-    createConductorGraph: createRalphConductorGraph,
-};
+const compiled = defineWorkflow(
+  "ralph",
+  "Start autonomous implementation workflow",
+)
+  .version("1.0.0")
+  .argumentHint('"<prompt-or-spec-path>"')
+  .stage("planner", {
+    name: "Planner",
+    description: "\u2315 PLANNER",
+    outputs: ["tasks"],
+    prompt: (ctx) => buildSpecToTasksPrompt(ctx.userPrompt),
+    outputMapper: (response) => ({ tasks: parseTasks(response) }),
+  })
+  .stage("orchestrator", {
+    name: "Orchestrator",
+    description: "\u26A1 ORCHESTRATOR",
+    reads: ["tasks"],
+    prompt: (ctx) => {
+      if (ctx.tasks.length > 0) {
+        return buildOrchestratorPrompt([...ctx.tasks]);
+      }
+      const plannerOutput = ctx.stageOutputs.get("planner");
+      if (plannerOutput?.parsedOutput) {
+        return buildOrchestratorPrompt(
+          plannerOutput.parsedOutput as Array<{
+            id?: string;
+            description: string;
+            status: string;
+            summary: string;
+            blockedBy?: string[];
+          }>,
+        );
+      }
+      if (plannerOutput?.rawResponse) {
+        const tasks = parseTasks(plannerOutput.rawResponse);
+        if (tasks.length > 0) return buildOrchestratorPrompt(tasks);
+      }
+      return buildOrchestratorPrompt([]);
+    },
+    outputMapper: () => ({}),
+  })
+  .stage("reviewer", {
+    name: "Reviewer",
+    description: "\uD83D\uDD0D REVIEWER",
+    reads: ["tasks"],
+    outputs: ["reviewResult"],
+    prompt: (ctx) => {
+      const orchestratorOutput = ctx.stageOutputs.get("orchestrator");
+      const progressSummary = orchestratorOutput?.rawResponse ?? "";
+      return buildReviewPrompt([...ctx.tasks], ctx.userPrompt, progressSummary);
+    },
+    outputMapper: (response) => ({
+      reviewResult: parseReviewResult(response),
+    }),
+  })
+  .if((ctx) => hasActionableFindings(ctx.stageOutputs))
+  .stage("debugger", {
+    name: "Debugger",
+    description: "\uD83D\uDD27 DEBUGGER",
+    reads: ["reviewResult"],
+    prompt: (ctx) => {
+      const review = getReviewResult(ctx.stageOutputs);
+      const tasks = [...ctx.tasks];
+      if (review !== null) {
+        const fixSpec = buildFixSpecFromReview(review, tasks, ctx.userPrompt);
+        if (fixSpec.trim().length > 0) return fixSpec;
+      }
+      const reviewerOutput = ctx.stageOutputs.get("reviewer");
+      if (reviewerOutput?.rawResponse) {
+        const fixSpec = buildFixSpecFromRawReview(
+          reviewerOutput.rawResponse,
+          ctx.userPrompt,
+        );
+        if (fixSpec.trim().length > 0) return fixSpec;
+      }
+      return "# Fix Request\n\nReview the recent implementation for \"" + ctx.userPrompt + "\" and fix any issues found.";
+    },
+    outputMapper: () => ({}),
+  })
+  .endIf()
+  .compile();
+
+export const ralphWorkflowDefinition: WorkflowDefinition =
+  compiled.__compiledWorkflow as unknown as WorkflowDefinition;

@@ -2,10 +2,10 @@
  * Graph Encoder
  *
  * Translates a CompiledGraph (with Map-based nodes and function-based edges)
- * into an EncodedGraph (with arrays and boolean flags) suitable for Z3
- * constraint generation.
+ * into an EncodedGraph (with arrays and boolean flags) suitable for
+ * verification constraint generation.
  *
- * This is a pure data transformation -- no Z3 calls here.
+ * This is a pure data transformation — no solver calls here.
  */
 
 import type { BaseState, CompiledGraph } from "@/services/workflows/graph/types.ts";
@@ -19,7 +19,7 @@ import type {
  * Encode a CompiledGraph into a verification-ready EncodedGraph.
  *
  * Strips runtime functions (execute, condition predicates) and retains
- * only structural information needed for Z3 analysis.
+ * only structural information needed for verification analysis.
  */
 export function encodeGraph(graph: CompiledGraph<BaseState>): EncodedGraph {
   const nodes: VerificationNode[] = [];

@@ -1,7 +1,7 @@
 /**
  * Tests for the Verification Reporter.
  *
- * Pure string formatting — no Z3 or mock dependencies required.
+ * Pure string formatting — no solver or mock dependencies required.
  */
 
 import { describe, test, expect } from "bun:test";

@@ -17,7 +17,7 @@ import { describe, test, expect, mock } from "bun:test";
 import type { EncodedGraph } from "@/services/workflows/verification/types";
 
 // ---------------------------------------------------------------------------
-// Z3 mock: boolean constraint solver that computes reachability
+// Solver mock: boolean constraint solver that computes reachability
 // ---------------------------------------------------------------------------
 
 interface MockExpr {

@@ -222,7 +222,7 @@ Slash Commands (in workflow mode):
 
     workflowCmd
         .command("verify")
-        .description("Run Z3 structural verification on workflows")
+        .description("Run structural verification on workflows")
         .argument("[path]", "Path to a specific workflow .ts file to verify")
         .action(async (path?: string) => {
             const { workflowVerifyCommand } = await import("@/commands/cli/workflow.ts");

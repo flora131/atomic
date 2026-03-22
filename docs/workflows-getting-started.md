@@ -184,7 +184,7 @@ Each node declares which state fields it **reads** and which it **outputs**:
 - `reads` — State fields this node depends on
 - `outputs` — State fields this node produces
 
-These declarations are contracts used for Z3 verification:
+These declarations are contracts used for verification:
 
 ```ts
 .stage("planner", {
@@ -221,7 +221,7 @@ export default defineWorkflow("my-workflow", "My custom workflow")
 
 The `.compile()` result is a `WorkflowDefinition` that can be used directly — no unwrapping needed.
 
-## 9) Z3 verification
+## 9) Verification
 
 All workflows are verified at load time for structural correctness:
 

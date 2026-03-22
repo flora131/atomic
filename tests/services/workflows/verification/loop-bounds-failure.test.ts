@@ -1,7 +1,7 @@
 /**
  * Tests for loop-bounds verification failure path (Property 4).
  *
- * Uses a mock Z3 solver that always returns "sat" (simulating a scenario
+ * Uses a mock solver that always returns "sat" (simulating a scenario
  * where the ranking function proof fails), to exercise the failure
  * reporting logic in checkLoopBounds.
  */
@@ -10,7 +10,7 @@ import { describe, test, expect, mock } from "bun:test";
 import type { EncodedGraph } from "@/services/workflows/verification/types";
 
 // ---------------------------------------------------------------------------
-// Z3 mock: solver that always returns "sat" to simulate unbounded loops
+// Solver mock: solver that always returns "sat" to simulate unbounded loops
 // ---------------------------------------------------------------------------
 
 function createAlwaysSatContext() {

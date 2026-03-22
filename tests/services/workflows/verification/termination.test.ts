@@ -6,7 +6,7 @@
  * end nodes along successor edges.
  *
  * Note: checkTermination has a pre-check that catches "dead-end" nodes
- * (non-end nodes with no successors) BEFORE calling Z3. The Z3 solver
+ * (non-end nodes with no successors) BEFORE calling the solver. The solver
  * only handles the remaining case: cycles that may or may not have an
  * exit to an end node. The mock solver handles both cases correctly.
  */
@@ -15,7 +15,7 @@ import { describe, test, expect, mock } from "bun:test";
 import type { EncodedGraph } from "@/services/workflows/verification/types";
 
 // ---------------------------------------------------------------------------
-// Z3 mock: captures constraints and evaluates termination
+// Solver mock: captures constraints and evaluates termination
 // ---------------------------------------------------------------------------
 
 /**

@@ -5,14 +5,14 @@
  * function check: `ranking >= 0 AND iterCount < maxIter AND ranking <= 0`.
  *
  * The mock solver evaluates these constraints arithmetically to return
- * the correct sat/unsat result, matching real Z3 behavior.
+ * the correct sat/unsat result, matching real solver behavior.
  */
 
 import { describe, test, expect, mock } from "bun:test";
 import type { EncodedGraph } from "@/services/workflows/verification/types";
 
 // ---------------------------------------------------------------------------
-// Z3 mock: integer arithmetic solver for the ranking function check
+// Solver mock: integer arithmetic solver for the ranking function check
 // ---------------------------------------------------------------------------
 
 interface MockIntExpr {

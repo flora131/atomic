@@ -6,14 +6,14 @@
  * - "All conditions false" check: always SAT (conditions are independent booleans)
  *
  * This validates the graph-structural logic (edge grouping, exhaustiveness
- * detection) while the Z3 integration is covered by Node.js-based tests.
+ * detection) while the solver integration is covered by Node.js-based tests.
  */
 
 import { describe, test, expect, mock, beforeEach } from "bun:test";
 import type { EncodedGraph } from "@/services/workflows/verification/types";
 
 // ---------------------------------------------------------------------------
-// Z3 mock: minimal boolean solver that supports the API used by deadlock-freedom
+// Solver mock: minimal boolean solver that supports the API used by deadlock-freedom
 // ---------------------------------------------------------------------------
 
 function createMockBool(name: string) {

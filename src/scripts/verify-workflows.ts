@@ -1,7 +1,7 @@
 /**
  * Workflow Verification
  *
- * Discovery and Z3 verification logic for workflows.
+ * Discovery and verification logic for workflows.
  * Used by `atomic workflow verify` CLI command.
  */
 

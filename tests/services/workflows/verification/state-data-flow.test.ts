@@ -13,7 +13,7 @@ import { describe, test, expect, mock } from "bun:test";
 import type { EncodedGraph } from "@/services/workflows/verification/types";
 
 // ---------------------------------------------------------------------------
-// Z3 mock: boolean constraint solver for data-flow analysis
+// Solver mock: boolean constraint solver for data-flow analysis
 // ---------------------------------------------------------------------------
 
 type MockBool = { _type: "bool"; _name: string };
@@ -120,7 +120,7 @@ function createMockContext() {
   };
 }
 
-// Import the actual checker (pure algorithm, no Z3 dependency)
+// Import the actual checker (pure algorithm, no solver dependency)
 import { checkStateDataFlow } from "@/services/workflows/verification/state-data-flow";
 
 function makeEncodedGraph(

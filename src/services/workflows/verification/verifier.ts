@@ -1,5 +1,5 @@
 /**
- * Z3 Workflow Verifier
+ * Workflow Verifier
  *
  * Orchestrates all 5 structural property checks on a compiled workflow graph.
  * Verification is mandatory — all workflows must pass before registration.

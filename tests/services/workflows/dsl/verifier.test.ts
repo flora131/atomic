@@ -1,5 +1,5 @@
 /**
- * Tests for the Z3 Workflow Verifier orchestrator.
+ * Tests for the Workflow Verifier orchestrator.
  *
  * Uses dependency injection (PropertyCheckers) to test the orchestration
  * logic in isolation without mock.module, avoiding mock contamination

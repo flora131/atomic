@@ -1,7 +1,7 @@
 /**
- * Workflow Z3 Verification Types
+ * Workflow Verification Types
  *
- * Type definitions for the Z3-based formal verification engine.
+ * Type definitions for the formal verification engine.
  * The verifier checks structural properties of compiled workflow graphs:
  * reachability, termination, deadlock-freedom, loop bounds, and state data-flow.
  */
@@ -30,7 +30,7 @@ export interface VerificationResult {
   };
 }
 
-/** Error thrown when a workflow fails Z3 verification. */
+/** Error thrown when a workflow fails verification. */
 export class WorkflowVerificationError extends Error {
   readonly result: VerificationResult;
   readonly workflowId: string;
@@ -50,7 +50,7 @@ export class WorkflowVerificationError extends Error {
 
 /**
  * Node metadata extracted from a CompiledGraph for verification.
- * Used by the graph encoder to build Z3 constraints.
+ * Used by the graph encoder to build verification constraints.
  */
 export interface VerificationNode {
   id: string;
@@ -61,7 +61,7 @@ export interface VerificationNode {
 
 /**
  * Edge metadata extracted from a CompiledGraph for verification.
- * Used by the graph encoder to build Z3 constraints.
+ * Used by the graph encoder to build verification constraints.
  */
 export interface VerificationEdge {
   from: string;
@@ -86,7 +86,7 @@ export interface VerificationLoop {
 }
 
 /**
- * Encoded graph representation ready for Z3 constraint generation.
+ * Encoded graph representation ready for constraint generation.
  */
 export interface EncodedGraph {
   nodes: VerificationNode[];

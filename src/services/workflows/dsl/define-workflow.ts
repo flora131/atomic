@@ -3,7 +3,7 @@
  *
  * Entry point for the workflow DSL. The builder records an ordered list
  * of instructions as methods are called. `.compile()` triggers the
- * compiler + Z3 verifier to produce a validated WorkflowDefinition.
+ * compiler + verifier to produce a validated WorkflowDefinition.
  *
  * Usage:
  * ```ts
@@ -219,8 +219,8 @@ export class WorkflowBuilder implements WorkflowBuilderInterface {
    *    state factory creation).
    * 2. Returns a branded `CompiledWorkflow` wrapping the definition.
    *
-   * Z3 verification is performed separately (asynchronously) by the
-   * workflow loader or CLI command, since Z3 WASM requires an async
+   * Verification is performed separately (asynchronously) by the
+   * workflow loader or CLI command, since the verifier requires an async
    * initialization step that cannot run in a synchronous method.
    *
    * @throws Error if the instruction sequence is structurally invalid

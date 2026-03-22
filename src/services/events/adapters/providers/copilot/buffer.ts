@@ -127,13 +127,13 @@ export function cleanupCopilotOrphanedTools(
 }
 
 /**
- * Synthesize `stream.agent.complete` events for background agents whose
+ * Synthesize `stream.agent.complete` events for foreground agents whose
  * `subagent.complete` event was never received from the Copilot SDK.
  *
- * The SDK does not reliably emit `subagent.complete` after the main stream
- * iterator is exhausted. Without this flush, tracked background agents remain
- * permanently "running" in the UI — the footer count never decrements and the
- * spinner never stops.
+ * Background agents are preserved — their completion is signaled by a
+ * `system.notification` event with `kind.type === "agent_idle"` that
+ * arrives via the persistent `session.on()` subscription after the
+ * foreground stream ends.
  *
  * Call this in the `finally` block of `startCopilotStreaming`, after
  * `cleanupCopilotOrphanedTools`.
@@ -153,8 +153,8 @@ export function flushCopilotOrphanedAgentCompletions(
   }
 
   // Collect background agent entries to preserve — their real
-  // subagent.completed events will arrive via onProviderEvent after
-  // the foreground stream ends, decrementing the count naturally.
+  // completion events (system.notification with agent_idle) will arrive
+  // via onProviderEvent after the foreground stream ends.
   const preservedBackgroundEntries: [string, string][] = [];
 
   for (const [toolCallId, agentId] of state.toolCallIdToSubagentId) {

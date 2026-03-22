@@ -123,8 +123,10 @@ describe("Ralph Workflow Definition (DSL)", () => {
               overall_correctness: "patch is correct",
             }),
             parsedOutput: {
-              findings: [],
-              overall_correctness: "patch is correct",
+              reviewResult: {
+                findings: [],
+                overall_correctness: "patch is correct",
+              },
             },
           }),
         ],
@@ -146,8 +148,10 @@ describe("Ralph Workflow Definition (DSL)", () => {
               overall_correctness: "patch is incorrect",
             }),
             parsedOutput: {
-              findings: [{ title: "Bug found" }],
-              overall_correctness: "patch is incorrect",
+              reviewResult: {
+                findings: [{ title: "Bug found" }],
+                overall_correctness: "patch is incorrect",
+              },
             },
           }),
         ],

@@ -39,7 +39,10 @@ function getReviewResult(
     return null;
   }
   if (reviewerOutput.parsedOutput !== undefined) {
-    return reviewerOutput.parsedOutput as ReviewResult;
+    const mapped = reviewerOutput.parsedOutput as {
+      reviewResult: ReviewResult | null;
+    };
+    return mapped.reviewResult ?? null;
   }
   return parseReviewResult(reviewerOutput.rawResponse);
 }

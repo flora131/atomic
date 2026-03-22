@@ -108,7 +108,6 @@ function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
 
                 return executeConductorWorkflow(definition, parsed.prompt, context, {
                     saveTasksToSession: saveTasksToActiveSession,
-                    maxIterations: context.state.maxIterations,
                 });
             },
         };

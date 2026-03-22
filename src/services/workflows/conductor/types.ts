@@ -399,15 +399,8 @@ export interface ConductorConfig {
   readonly abortSignal: AbortSignal;
 
   // -------------------------------------------------------------------------
-  // Iteration & Output Limits
+  // Output Limits
   // -------------------------------------------------------------------------
-
-  /**
-   * Maximum number of graph traversal steps before the conductor stops.
-   * Acts as a safety limit to prevent infinite graph walks.
-   * @default 100
-   */
-  readonly maxIterations?: number;
 
   /**
    * Default maximum byte size for a stage's `rawResponse` when forwarded

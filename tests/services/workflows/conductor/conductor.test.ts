@@ -965,17 +965,18 @@ describe("WorkflowSessionConductor", () => {
       expect(result.stageOutputs.size).toBe(2);
     });
 
-    test("MAX_STEPS safety prevents infinite traversal on cyclic graphs", async () => {
-      const loopNode = agentNode("loop_stage");
+    test("visited-set dedup prevents re-execution of non-loop cyclic graphs", async () => {
+      // A self-referencing non-loop node should be deduped after first visit
+      const node = agentNode("cyclic_stage");
       const edges: Edge<BaseState>[] = [
-        { from: "loop_stage", to: "loop_stage" }, // self-loop
+        { from: "cyclic_stage", to: "cyclic_stage" }, // self-loop
       ];
 
-      const graph = buildConditionalGraph([loopNode], edges, "loop_stage", []);
+      const graph = buildConditionalGraph([node], edges, "cyclic_stage", []);
 
       let executeCount = 0;
       const stages = [
-        stage("loop_stage", "", {
+        stage("cyclic_stage", "", {
           buildPrompt: () => {
             executeCount++;
             return "loop";
@@ -985,10 +986,10 @@ describe("WorkflowSessionConductor", () => {
 
       const config = buildConfig(graph, async () => createMockSession("output"));
       const conductor = new WorkflowSessionConductor(config, stages);
-      const result = await conductor.execute("test infinite");
+      const result = await conductor.execute("test cyclic");
 
-      // Conductor should terminate (not hang) — bounded by MAX_STEPS (100)
-      expect(executeCount).toBeLessThanOrEqual(100);
+      // Non-loop node is deduped — should execute exactly once
+      expect(executeCount).toBe(1);
       expect(result.success).toBe(true);
     });
 
@@ -1793,22 +1794,6 @@ describe("WorkflowSessionConductor", () => {
   // -----------------------------------------------------------------------
 
   describe("config optional properties", () => {
-    test("maxIterations limits graph traversal steps", async () => {
-      // Build a graph with multiple stages but limit to 1 iteration
-      const graph = buildLinearGraph([agentNode("planner"), agentNode("reviewer")]);
-      const config = buildConfig(graph, async () => createMockSession("output"), {
-        maxIterations: 1,
-      });
-      const stages = [stage("planner", "output"), stage("reviewer", "output")];
-
-      const conductor = new WorkflowSessionConductor(config, stages);
-      const result = await conductor.execute("test");
-
-      // Only the planner should have run (1 step limit)
-      expect(result.stageOutputs.has("planner")).toBe(true);
-      expect(result.stageOutputs.has("reviewer")).toBe(false);
-    });
-
     test("maxStageOutputBytes truncates stage output", async () => {
       const longResponse = "x".repeat(1000);
       const graph = buildLinearGraph([agentNode("planner"), agentNode("reviewer")]);

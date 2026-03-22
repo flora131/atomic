@@ -52,7 +52,6 @@ export async function executeConductorWorkflow(
   options?: {
     saveTasksToSession?: (tasks: NormalizedTodoItem[], sessionId: string) => Promise<void>;
     abortSignal?: AbortSignal;
-    maxIterations?: number;
   },
 ): Promise<CommandResult> {
   const stages = definition.conductorStages;
@@ -198,8 +197,6 @@ export async function executeConductorWorkflow(
       },
 
       abortSignal: workflowAbortSignal,
-
-      maxIterations: options?.maxIterations,
 
       // --- Bus event dispatch (enables workflow.step.start / workflow.step.complete) ---
       dispatchEvent: context.eventBus

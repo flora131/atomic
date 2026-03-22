@@ -51,13 +51,6 @@ import {
 } from "@/services/workflows/conductor/context-pressure.ts";
 
 // ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/** Safety limit to prevent infinite graph traversal. */
-const MAX_STEPS = 100;
-
-// ---------------------------------------------------------------------------
 // WorkflowSessionConductor
 // ---------------------------------------------------------------------------
 
@@ -130,11 +123,9 @@ export class WorkflowSessionConductor {
     const nodeQueue: string[] = [graph.startNode];
     const visited = new Set<string>();
     let previousStageId: string | null = null;
-    let stepCount = 0;
     let encounteredError = false;
-    const maxSteps = this.config.maxIterations ?? MAX_STEPS;
 
-    while (nodeQueue.length > 0 && stepCount < maxSteps) {
+    while (nodeQueue.length > 0) {
       if (abortSignal.aborted) {
         break;
       }
@@ -146,13 +137,12 @@ export class WorkflowSessionConductor {
         continue;
       }
 
-      // Prevent infinite loops on non-loop nodes
-      const visitKey = `${nodeId}:${stepCount}`;
-      if (visited.has(visitKey) && !nodeId.includes("loop_")) {
+      // Prevent re-visiting non-loop nodes (loop nodes bypass dedup
+      // because their own maxCycles governs termination).
+      if (visited.has(nodeId) && !nodeId.includes("loop_")) {
         continue;
       }
-      visited.add(visitKey);
-      stepCount++;
+      visited.add(nodeId);
 
       let result: NodeResult<BaseState>;
 

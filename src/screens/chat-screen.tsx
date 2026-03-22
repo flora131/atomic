@@ -72,7 +72,6 @@ export function ChatApp({
   createSubagentSession,
   streamWithSession,
   initialPrompt,
-  maxIterations,
   onModelChange,
   onSessionMcpServersChange,
   initialModelId,
@@ -87,14 +86,7 @@ export function ChatApp({
   const setMessagesWindowed = setMessages;
 
   const [workflowState, setWorkflowState] = useState<WorkflowChatState>(() => {
-    if (maxIterations === undefined) return defaultWorkflowChatState;
-    return {
-      ...defaultWorkflowChatState,
-      workflowCommandState: {
-        ...defaultWorkflowChatState.workflowCommandState,
-        maxIterations,
-      },
-    };
+    return defaultWorkflowChatState;
   });
   const shellState = useChatShellState({
     initialModelId,

@@ -36,7 +36,6 @@ export function createCommandContextState(
     workflowActive: workflowState.workflowActive,
     workflowType: workflowState.workflowType,
     initialPrompt: workflowState.initialPrompt,
-    maxIterations: workflowState.workflowCommandState.maxIterations,
   };
 }
 

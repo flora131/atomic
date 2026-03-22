@@ -145,8 +145,10 @@ export interface LoopConfig {
   /**
    * Hard upper bound on the number of iterations. Prevents runaway
    * loops even when the `until` predicate never returns `true`.
+   *
+   * @default 100
    */
-  readonly maxCycles: number;
+  readonly maxCycles?: number;
 }
 
 // ---------------------------------------------------------------------------

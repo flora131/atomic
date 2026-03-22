@@ -140,7 +140,6 @@ export interface StateFactoryParams {
   readonly prompt: string;
   readonly sessionId: string;
   readonly sessionDir: string;
-  readonly maxIterations: number;
 }
 
 /**

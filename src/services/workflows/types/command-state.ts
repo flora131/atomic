@@ -29,7 +29,7 @@ export interface WorkflowProgressState {
  * Provides
  * workflow-agnostic fields that any workflow conductor can populate:
  *
- * - `currentNode` / `iteration` / `maxIterations` — execution progress
+ * - `currentNode` / `iteration` — execution progress
  * - `currentStage` / `stageIndicator` — stage-based conductor state
  * - `pendingApproval` / `approved` / `feedback` — HITL interaction
  * - `progress` — optional progress tracking for iterative workflows
@@ -38,7 +38,6 @@ export interface WorkflowProgressState {
 export interface WorkflowCommandState {
   currentNode: string | null;
   iteration: number;
-  maxIterations: number | undefined;
   currentStage: string | null;
   stageIndicator: string | null;
   progress: WorkflowProgressState | null;
@@ -52,7 +51,6 @@ export interface WorkflowCommandState {
 export const defaultWorkflowCommandState: WorkflowCommandState = {
   currentNode: null,
   iteration: 0,
-  maxIterations: undefined,
   currentStage: null,
   stageIndicator: null,
   progress: null,

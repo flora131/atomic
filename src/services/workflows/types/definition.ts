@@ -36,14 +36,12 @@ export interface WorkflowGraphConfig<TState extends BaseState = BaseState> {
   nodes: NodeDefinition<TState>[];
   edges: Edge<TState>[];
   startNode: string;
-  maxIterations?: number;
 }
 
 export interface WorkflowStateParams {
   prompt: string;
   sessionId: string;
   sessionDir: string;
-  maxIterations: number;
 }
 
 export interface WorkflowDefinition extends WorkflowMetadata {

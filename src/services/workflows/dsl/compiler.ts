@@ -400,6 +400,7 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
         // reads the cached result so both are mutually exclusive.
         let iterationCount = 0;
         let shouldContinue = false;
+        const maxCycles = loopCtx.config.maxCycles ?? 100;
 
         // Back-edge: continue looping (evaluated first by the conductor
         // because it appears earlier in the edges array).
@@ -410,7 +411,7 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
             iterationCount++;
             shouldContinue =
               !loopCtx.config.until(state) &&
-              iterationCount < loopCtx.config.maxCycles;
+              iterationCount < maxCycles;
             return shouldContinue;
           },
           label: "loop_continue",

@@ -20,9 +20,6 @@ export function compileGraphConfig<TState extends BaseState>(
   }
 
   const config: GraphConfig<TState> = {};
-  if (graphConfig.maxIterations !== undefined) {
-    config.metadata = { maxIterations: graphConfig.maxIterations };
-  }
 
   return {
     nodes: nodeMap,

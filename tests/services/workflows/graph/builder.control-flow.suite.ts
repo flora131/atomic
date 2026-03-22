@@ -56,7 +56,6 @@ describe("GraphBuilder - loop constructs", () => {
   test("creates loop with single node body", () => {
     const loopConfig: LoopConfig<TestState> = {
       until: (state) => state.count >= 10,
-      maxIterations: 5,
     };
 
     const builder = graph<TestState>()

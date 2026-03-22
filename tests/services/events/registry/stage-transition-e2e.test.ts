@@ -435,7 +435,7 @@ describe("stage transition events → UI pipeline (§5.9 e2e)", () => {
       expect(parts[2]!.status).toBe("completed");
     });
 
-    test("skipped step BusEvent creates a skipped WorkflowStepPart without prior start", () => {
+    test("skipped step BusEvent does not create a WorkflowStepPart", () => {
       const skipBus = makeBusEvent("workflow.step.complete", {
         workflowId: "ralph",
         nodeId: "debugger",
@@ -447,10 +447,7 @@ describe("stage transition events → UI pipeline (§5.9 e2e)", () => {
       const stream = mapper(enriched(skipBus), stubContext) as StreamPartEvent;
       const msg = applyStreamPartEvent(emptyMessage(), stream);
 
-      const part = msg.parts![0] as WorkflowStepPart;
-      expect(part.type).toBe("workflow-step");
-      expect(part.status).toBe("skipped");
-      expect(part.durationMs).toBe(0);
+      expect(msg.parts).toHaveLength(0);
     });
 
     test("task.update BusEvent flows through to a TaskListPart", () => {

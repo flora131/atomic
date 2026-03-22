@@ -150,19 +150,15 @@ describe("pipeline-workflow step reducers", () => {
       expect(part.error).toBe("Session failed");
     });
 
-    test("creates a new part when no matching start event exists (skipped step)", () => {
+    test("does not create a part for skipped steps", () => {
       const parts: Part[] = [];
       const result = upsertWorkflowStepComplete(
         parts,
         completeEvent({ status: "skipped", durationMs: 0 }),
       );
 
-      expect(result).toHaveLength(1);
-      const part = result[0] as WorkflowStepPart;
-      expect(part.type).toBe("workflow-step");
-      expect(part.status).toBe("skipped");
-      expect(part.durationMs).toBe(0);
-      expect(part.completedAt).toBeDefined();
+      expect(result).toHaveLength(0);
+      expect(result).toBe(parts);
     });
 
     test("handles complete event for correct step among multiple", () => {

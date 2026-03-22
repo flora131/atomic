@@ -120,6 +120,9 @@ export function upsertWorkflowStepComplete(
   parts: Part[],
   event: WorkflowStepCompleteEvent,
 ): Part[] {
+  // Skipped stages never executed — don't create or retain parts for them.
+  if (event.status === "skipped") return parts;
+
   const now = new Date().toISOString();
   const existingIdx = parts.findIndex(
     (part) =>

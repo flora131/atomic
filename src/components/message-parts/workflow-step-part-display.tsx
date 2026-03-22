@@ -26,11 +26,11 @@ function formatDuration(ms: number): string {
 
 /**
  * Renders a stage banner for workflow step transitions.
- * Persists across all statuses with color-coded visual feedback:
+ * Persists across executed statuses with color-coded visual feedback:
  *   - Blue accent while running
  *   - Green on successful completion
- *   - Yellow for skipped/interrupted
  *   - Red on error
+ * Skipped stages render nothing to avoid visual clutter.
  */
 export function WorkflowStepPartDisplay({ part }: WorkflowStepPartDisplayProps): React.ReactNode {
   const colors = useThemeColors();

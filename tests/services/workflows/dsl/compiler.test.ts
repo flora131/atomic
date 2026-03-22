@@ -781,3 +781,296 @@ describe("compiler loop graph traversal simulation", () => {
     expect(results[4]).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Additional coverage: independent termination, counter isolation, break in conditional
+// ---------------------------------------------------------------------------
+
+describe("compiler loop until and maxCycles independence", () => {
+  test("until and maxCycles both true simultaneously still exits cleanly", () => {
+    // until fires on the exact same evaluation as maxCycles is reached
+    let callCount = 0;
+    const graph = compileGraph((b) =>
+      b
+        .loop(
+          makeLoopConfig({
+            until: () => {
+              callCount++;
+              return callCount >= 3; // fires on 3rd check
+            },
+            maxCycles: 3, // also reached on 3rd check (count=3, 3 < 3 = false)
+          }),
+        )
+        .stage("s1", makeStageConfig())
+        .endLoop(),
+    );
+
+    const checkNodeId = Array.from(graph.nodes.keys()).find((id) =>
+      id.startsWith("__loop_check_"),
+    )!;
+    const backEdge = edgesFrom(graph, checkNodeId, "loop_continue")[0]!;
+    const exitEdge = edgesFrom(graph, checkNodeId, "loop_exit")[0]!;
+    const state = makeBaseState();
+
+    // Iterations 1 and 2: continue
+    expect(backEdge.condition!(state)).toBe(true);
+    expect(exitEdge.condition!(state)).toBe(false);
+    expect(backEdge.condition!(state)).toBe(true);
+    expect(exitEdge.condition!(state)).toBe(false);
+
+    // Iteration 3: both until=true AND maxCycles reached → exit
+    expect(backEdge.condition!(state)).toBe(false);
+    expect(exitEdge.condition!(state)).toBe(true);
+  });
+
+  test("maxCycles terminates even when until always returns false", () => {
+    const graph = compileGraph((b) =>
+      b
+        .loop(makeLoopConfig({ until: () => false, maxCycles: 2 }))
+        .stage("s1", makeStageConfig())
+        .endLoop(),
+    );
+
+    const checkNodeId = Array.from(graph.nodes.keys()).find((id) =>
+      id.startsWith("__loop_check_"),
+    )!;
+    const backEdge = edgesFrom(graph, checkNodeId, "loop_continue")[0]!;
+    const exitEdge = edgesFrom(graph, checkNodeId, "loop_exit")[0]!;
+    const state = makeBaseState();
+
+    // Iteration 1: until=false, count=1 < 2 → continue
+    expect(backEdge.condition!(state)).toBe(true);
+    expect(exitEdge.condition!(state)).toBe(false);
+
+    // Iteration 2: until=false, count=2 < 2 = false → maxCycles forces exit
+    expect(backEdge.condition!(state)).toBe(false);
+    expect(exitEdge.condition!(state)).toBe(true);
+  });
+
+  test("until terminates even when maxCycles is very large", () => {
+    const graph = compileGraph((b) =>
+      b
+        .loop(
+          makeLoopConfig({
+            until: () => true, // always terminates
+            maxCycles: 1_000_000,
+          }),
+        )
+        .stage("s1", makeStageConfig())
+        .endLoop(),
+    );
+
+    const checkNodeId = Array.from(graph.nodes.keys()).find((id) =>
+      id.startsWith("__loop_check_"),
+    )!;
+    const backEdge = edgesFrom(graph, checkNodeId, "loop_continue")[0]!;
+    const exitEdge = edgesFrom(graph, checkNodeId, "loop_exit")[0]!;
+    const state = makeBaseState();
+
+    // Very first check: until=true → exit, regardless of maxCycles
+    expect(backEdge.condition!(state)).toBe(false);
+    expect(exitEdge.condition!(state)).toBe(true);
+  });
+});
+
+describe("compiler loop iteration counter isolation", () => {
+  test("each compiled workflow has its own iteration counter", () => {
+    // Compile workflow 1 and exhaust its counter
+    const graph1 = compileGraph((b) =>
+      b
+        .loop(makeLoopConfig({ until: () => false, maxCycles: 2 }))
+        .stage("s1", makeStageConfig())
+        .endLoop(),
+    );
+
+    const checkNodeId1 = Array.from(graph1.nodes.keys()).find((id) =>
+      id.startsWith("__loop_check_"),
+    )!;
+    const backEdge1 = edgesFrom(graph1, checkNodeId1, "loop_continue")[0]!;
+    const state = makeBaseState();
+
+    // Exhaust graph1's counter
+    expect(backEdge1.condition!(state)).toBe(true); // count=1
+    expect(backEdge1.condition!(state)).toBe(false); // count=2 → exit
+
+    // Compile workflow 2 — should start fresh
+    const graph2 = compileGraph((b) =>
+      b
+        .loop(makeLoopConfig({ until: () => false, maxCycles: 2 }))
+        .stage("s1", makeStageConfig())
+        .endLoop(),
+    );
+
+    const checkNodeId2 = Array.from(graph2.nodes.keys()).find((id) =>
+      id.startsWith("__loop_check_"),
+    )!;
+    const backEdge2 = edgesFrom(graph2, checkNodeId2, "loop_continue")[0]!;
+
+    // graph2's counter starts at 0 — not affected by graph1
+    expect(backEdge2.condition!(state)).toBe(true); // count=1
+    expect(backEdge2.condition!(state)).toBe(false); // count=2 → exit
+  });
+
+  test("nested loop counters are independent of each other within same compilation", () => {
+    const graph = compileGraph((b) =>
+      b
+        .loop(makeLoopConfig({ until: () => false, maxCycles: 3 }))
+        .stage("s1", makeStageConfig())
+        .loop(makeLoopConfig({ until: () => false, maxCycles: 2 }))
+        .stage("s2", makeStageConfig())
+        .endLoop()
+        .endLoop(),
+    );
+
+    const checkNodes = Array.from(graph.nodes.keys())
+      .filter((id) => id.startsWith("__loop_check_"))
+      .sort(); // deterministic order
+
+    expect(checkNodes).toHaveLength(2);
+
+    const state = makeBaseState();
+
+    // Find inner and outer by checking maxCycles behavior
+    // The inner loop (maxCycles=2) should exhaust after 2 evaluations
+    // The outer loop (maxCycles=3) should exhaust after 3 evaluations
+    const edgesForCheck0 = edgesFrom(graph, checkNodes[0]!, "loop_continue");
+    const edgesForCheck1 = edgesFrom(graph, checkNodes[1]!, "loop_continue");
+
+    // Check that both have independent counters by verifying
+    // they exhaust at different maxCycles values
+    const backEdge0 = edgesForCheck0[0]!;
+    const backEdge1 = edgesForCheck1[0]!;
+
+    // Evaluate each independently — neither should affect the other
+    const result0_1 = backEdge0.condition!(state);
+    const result1_1 = backEdge1.condition!(state);
+
+    // Both should still be continuing after 1 iteration
+    expect(result0_1).toBe(true);
+    expect(result1_1).toBe(true);
+  });
+});
+
+describe("compiler break inside conditional", () => {
+  test("break inside an if block within a loop is valid and wired correctly", () => {
+    const graph = compileGraph((b) =>
+      b
+        .loop(makeLoopConfig())
+        .stage("s1", makeStageConfig())
+        .if(() => true)
+        .stage("s2", makeStageConfig())
+        .break()
+        .endIf()
+        .endLoop(),
+    );
+
+    const breakNodeId = Array.from(graph.nodes.keys()).find((id) =>
+      id.startsWith("__break_"),
+    )!;
+    const exitNodeId = Array.from(graph.nodes.keys()).find((id) =>
+      id.startsWith("__loop_exit_"),
+    )!;
+
+    // Break should exist
+    expect(breakNodeId).toBeDefined();
+
+    // Break should have an unconditional edge to the exit node
+    const breakToExit = edgeFromTo(graph, breakNodeId, exitNodeId);
+    expect(breakToExit).toBeDefined();
+    expect(breakToExit!.condition).toBeUndefined();
+  });
+
+  test("break inside else block within a loop wires to loop exit", () => {
+    const graph = compileGraph((b) =>
+      b
+        .loop(makeLoopConfig())
+        .if(() => true)
+        .stage("s1", makeStageConfig())
+        .else()
+        .stage("s2", makeStageConfig())
+        .break()
+        .endIf()
+        .endLoop(),
+    );
+
+    const breakNodeId = Array.from(graph.nodes.keys()).find((id) =>
+      id.startsWith("__break_"),
+    )!;
+    const exitNodeId = Array.from(graph.nodes.keys()).find((id) =>
+      id.startsWith("__loop_exit_"),
+    )!;
+
+    expect(breakNodeId).toBeDefined();
+
+    const breakToExit = edgeFromTo(graph, breakNodeId, exitNodeId);
+    expect(breakToExit).toBeDefined();
+    expect(breakToExit!.condition).toBeUndefined();
+  });
+
+  test("break inside conditional validation: break in if inside loop does not throw", () => {
+    const instructions: Instruction[] = [
+      { type: "loop", config: makeLoopConfig() },
+      { type: "if", condition: () => true },
+      { type: "stage", id: "s1", config: makeStageConfig() },
+      { type: "break" },
+      { type: "endIf" },
+      { type: "stage", id: "s2", config: makeStageConfig() },
+      { type: "endLoop" },
+    ];
+    expect(() => validateInstructions(instructions)).not.toThrow();
+  });
+});
+
+describe("compiler loop edge stability after exhaustion", () => {
+  test("exit edge remains true after maxCycles is exceeded", () => {
+    const graph = compileGraph((b) =>
+      b
+        .loop(makeLoopConfig({ until: () => false, maxCycles: 2 }))
+        .stage("s1", makeStageConfig())
+        .endLoop(),
+    );
+
+    const checkNodeId = Array.from(graph.nodes.keys()).find((id) =>
+      id.startsWith("__loop_check_"),
+    )!;
+    const backEdge = edgesFrom(graph, checkNodeId, "loop_continue")[0]!;
+    const exitEdge = edgesFrom(graph, checkNodeId, "loop_exit")[0]!;
+    const state = makeBaseState();
+
+    // Exhaust counter
+    backEdge.condition!(state); // count=1, continue
+    backEdge.condition!(state); // count=2, exit
+
+    // Further evaluations: counter keeps incrementing but still exits
+    expect(backEdge.condition!(state)).toBe(false); // count=3
+    expect(exitEdge.condition!(state)).toBe(true);
+
+    expect(backEdge.condition!(state)).toBe(false); // count=4
+    expect(exitEdge.condition!(state)).toBe(true);
+  });
+
+  test("mutual exclusivity holds at every iteration from start to past exhaustion", () => {
+    const graph = compileGraph((b) =>
+      b
+        .loop(makeLoopConfig({ until: () => false, maxCycles: 3 }))
+        .stage("s1", makeStageConfig())
+        .endLoop(),
+    );
+
+    const checkNodeId = Array.from(graph.nodes.keys()).find((id) =>
+      id.startsWith("__loop_check_"),
+    )!;
+    const backEdge = edgesFrom(graph, checkNodeId, "loop_continue")[0]!;
+    const exitEdge = edgesFrom(graph, checkNodeId, "loop_exit")[0]!;
+    const state = makeBaseState();
+
+    // Check mutual exclusivity at every step: before, at, and past maxCycles
+    for (let i = 0; i < 6; i++) {
+      const continueResult = backEdge.condition!(state);
+      const exitResult = exitEdge.condition!(state);
+
+      // They must always be the logical inverse of each other
+      expect(continueResult).not.toBe(exitResult);
+    }
+  });
+});

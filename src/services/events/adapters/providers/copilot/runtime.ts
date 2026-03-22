@@ -186,11 +186,14 @@ export async function startCopilotStreaming(
   flushAllPendingTextDeltas(state, {
     publishEvent: (event) => publishCopilotBufferedEvent(state, deps.bus, event),
   });
+
   cleanupCopilotOrphanedTools(state, deps.bus);
   flushCopilotOrphanedAgentCompletions(state, deps.bus);
   const pendingIdleReason = state.pendingIdleReason;
   state.pendingIdleReason = null;
 
+  // Background agents are preserved in the tracker by the flush, so this
+  // check reflects the true post-cleanup state — no snapshot needed.
   const hasBackgroundAgents = state.subagentTracker?.hasActiveBackgroundAgents() ?? false;
 
   if (!abortedBySignal && pendingIdleReason !== null) {

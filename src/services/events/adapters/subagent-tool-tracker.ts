@@ -63,6 +63,13 @@ export class SubagentToolTracker {
   }
 
   /**
+   * Returns true if the given agent is tracked and marked as a background agent.
+   */
+  isAgentBackground(agentId: string): boolean {
+    return this.agents.get(agentId)?.isBackground ?? false;
+  }
+
+  /**
    * Returns true if any currently tracked agent is marked as a background agent.
    */
   hasActiveBackgroundAgents(): boolean {

@@ -152,9 +152,19 @@ export function flushCopilotOrphanedAgentCompletions(
     return;
   }
 
+  // Collect background agent entries to preserve — their real
+  // subagent.completed events will arrive via onProviderEvent after
+  // the foreground stream ends, decrementing the count naturally.
+  const preservedBackgroundEntries: [string, string][] = [];
+
   for (const [toolCallId, agentId] of state.toolCallIdToSubagentId) {
     if (!state.subagentTracker.hasAgent(agentId)) {
       state.toolNameById.delete(toolCallId);
+      continue;
+    }
+
+    if (state.subagentTracker.isAgentBackground(agentId)) {
+      preservedBackgroundEntries.push([toolCallId, agentId]);
       continue;
     }
 
@@ -196,4 +206,10 @@ export function flushCopilotOrphanedAgentCompletions(
   }
 
   state.toolCallIdToSubagentId.clear();
+
+  // Restore background agent entries so handleCopilotSubagentComplete
+  // can resolve their task tool and clean up when the real event arrives.
+  for (const [toolCallId, agentId] of preservedBackgroundEntries) {
+    state.toolCallIdToSubagentId.set(toolCallId, agentId);
+  }
 }

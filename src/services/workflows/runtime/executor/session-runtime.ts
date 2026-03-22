@@ -17,7 +17,7 @@ export function initializeWorkflowExecutionSession(args: {
 }): WorkflowExecutionSessionRuntime {
   const { context, definition, prompt } = args;
   const sessionId = crypto.randomUUID();
-  const sessionDir = getWorkflowSessionDir(sessionId);
+  const sessionDir = getWorkflowSessionDir(definition.name, sessionId);
   const workflowRunId = crypto.getRandomValues(new Uint32Array(1))[0]!;
 
   void initWorkflowSession(definition.name, sessionId).then((session) => {

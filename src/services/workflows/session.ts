@@ -1,9 +1,12 @@
 /**
  * Workflow Session Management
  *
- * Manages persistent session directories at ~/.atomic/workflows/sessions/{sessionId}/
+ * Manages persistent session directories at ~/.atomic/sessions/workflows/{workflowName}/{sessionId}/
  * for all workflow executions (including Ralph). Sub-agent outputs are stored as
  * individual JSON files for observability and debugging.
+ *
+ * Session state is stored separately from workflow definitions (~/.atomic/workflows/)
+ * to avoid conflicts with workflow file discovery.
  */
 
 import { join } from "path";
@@ -31,8 +34,8 @@ export interface WorkflowSession {
 export const WORKFLOW_SESSIONS_DIR = join(
   homedir(),
   ".atomic",
-  "workflows",
   "sessions",
+  "workflows",
 );
 
 // ============================================================================
@@ -43,8 +46,8 @@ export function generateWorkflowSessionId(): string {
   return crypto.randomUUID();
 }
 
-export function getWorkflowSessionDir(sessionId: string): string {
-  return join(WORKFLOW_SESSIONS_DIR, sessionId);
+export function getWorkflowSessionDir(workflowName: string, sessionId: string): string {
+  return join(WORKFLOW_SESSIONS_DIR, workflowName, sessionId);
 }
 
 export async function initWorkflowSession(
@@ -52,7 +55,7 @@ export async function initWorkflowSession(
   sessionId?: string,
 ): Promise<WorkflowSession> {
   const id = sessionId ?? generateWorkflowSessionId();
-  const sessionDir = getWorkflowSessionDir(id);
+  const sessionDir = getWorkflowSessionDir(workflowName, id);
 
   // Create directory structure
   await Bun.write(join(sessionDir, ".gitkeep"), "");

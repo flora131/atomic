@@ -94,6 +94,11 @@ export function validateInstructions(instructions: Instruction[]): void {
         ifDepth--;
         break;
       case "loop":
+        if (!instruction.config.until && !instruction.config.createUntil) {
+          throw new Error(
+            'Loop must provide either "until" or "createUntil"',
+          );
+        }
         loopDepth++;
         break;
       case "endLoop":
@@ -402,6 +407,12 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
         let shouldContinue = false;
         const maxCycles = loopCtx.config.maxCycles ?? 100;
 
+        // Resolve the until predicate — prefer createUntil (fresh per
+        // graph generation) over a bare until reference.
+        const untilPredicate = loopCtx.config.createUntil
+          ? loopCtx.config.createUntil()
+          : loopCtx.config.until!;
+
         // Back-edge: continue looping (evaluated first by the conductor
         // because it appears earlier in the edges array).
         edges.push({
@@ -410,7 +421,7 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
           condition: (state: BaseState) => {
             iterationCount++;
             shouldContinue =
-              !loopCtx.config.until(state) &&
+              !untilPredicate(state) &&
               iterationCount < maxCycles;
             return shouldContinue;
           },
@@ -483,19 +494,16 @@ export function compileWorkflow(builder: WorkflowBuilder): WorkflowDefinition {
   validateInstructions(instructions);
   const conductorStages = generateStageDefinitions(instructions);
 
-  const graphResult = generateGraph(instructions);
-  const compiledGraph: CompiledGraph<BaseState> = {
-    nodes: graphResult.nodes,
-    edges: graphResult.edges,
-    startNode: graphResult.startNode,
-    endNodes: graphResult.endNodes,
-    config: {},
-  };
+  // Generate the graph once for static metadata (nodeDescriptions).
+  // createConductorGraph below regenerates it per execution so that
+  // mutable closure state (iteration counters, until predicates created
+  // via createUntil) starts fresh for each workflow run.
+  const initialGraphResult = generateGraph(instructions);
 
   const createState = createStateFactory(stateSchema);
 
   const nodeDescriptions: Record<string, string> = {};
-  for (const [id, node] of graphResult.nodes) {
+  for (const [id, node] of initialGraphResult.nodes) {
     if (node.name) {
       nodeDescriptions[id] = node.name;
     }
@@ -510,7 +518,16 @@ export function compileWorkflow(builder: WorkflowBuilder): WorkflowDefinition {
     createState,
     nodeDescriptions,
     conductorStages,
-    createConductorGraph: () => compiledGraph,
+    createConductorGraph: () => {
+      const graphResult = generateGraph(instructions);
+      return {
+        nodes: graphResult.nodes,
+        edges: graphResult.edges,
+        startNode: graphResult.startNode,
+        endNodes: graphResult.endNodes,
+        config: {},
+      };
+    },
   };
 
   return definition;

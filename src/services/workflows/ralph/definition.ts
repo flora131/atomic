@@ -156,7 +156,7 @@ export const ralphWorkflowDefinition = defineWorkflow(
     outputMapper: () => ({}),
   })
   .loop({
-    until: createReviewLoopTerminator(2),
+    createUntil: () => createReviewLoopTerminator(2),
     maxCycles: 10,
   })
   .stage("reviewer", {

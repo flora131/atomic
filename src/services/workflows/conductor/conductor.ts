@@ -137,10 +137,18 @@ export class WorkflowSessionConductor {
         continue;
       }
 
-      // Prevent re-visiting non-loop nodes (loop nodes bypass dedup
-      // because their own maxCycles governs termination).
-      if (visited.has(nodeId) && !nodeId.includes("loop_")) {
-        continue;
+      // Prevent re-visiting nodes that have already executed.
+      // Loop-start nodes are exempt: re-entering one signals a new loop
+      // iteration (via the back-edge).  When that happens we clear the
+      // visited set so every node in the body can re-execute.  Pre-loop
+      // nodes won't be re-queued because no edges lead back to them.
+      // The loop's own maxCycles / until predicate governs termination.
+      if (visited.has(nodeId)) {
+        if (nodeId.startsWith("__loop_start_")) {
+          visited.clear();
+        } else {
+          continue;
+        }
       }
       visited.add(nodeId);
 

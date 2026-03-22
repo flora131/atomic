@@ -139,8 +139,25 @@ export interface LoopConfig {
   /**
    * Predicate evaluated before each iteration. The loop terminates
    * when this returns `true`.
+   *
+   * For stateless predicates, provide this field directly.
+   * For stateful predicates (closures with mutable internal state),
+   * prefer {@link createUntil} to ensure fresh state per execution.
+   *
+   * At least one of `until` or `createUntil` must be provided.
+   * When both are present, `createUntil` takes precedence.
    */
-  readonly until: (state: BaseState) => boolean;
+  readonly until?: (state: BaseState) => boolean;
+
+  /**
+   * Factory that creates a fresh `until` predicate for each workflow
+   * execution.  Use this when the predicate maintains internal closure
+   * state (e.g., consecutive-clean-review counters) that must not
+   * persist across independent workflow runs.
+   *
+   * Takes precedence over `until` if both are provided.
+   */
+  readonly createUntil?: () => (state: BaseState) => boolean;
 
   /**
    * Hard upper bound on the number of iterations. Prevents runaway

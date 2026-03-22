@@ -9,6 +9,10 @@ import { verifyWorkflow } from "@/services/workflows/verification/verifier.ts";
 import { formatVerificationReport } from "@/services/workflows/verification/reporter.ts";
 import { encodeGraph } from "@/services/workflows/verification/graph-encoder.ts";
 import type { WorkflowDefinition } from "@/services/workflows/types/definition.ts";
+import {
+  buildAgentLookup,
+  validateStageAgents,
+} from "@/services/workflows/dsl/agent-resolution.ts";
 
 export interface DiscoveredWorkflow {
   id: string;
@@ -108,9 +112,22 @@ export async function verifySingleWorkflow(
     };
   }
 
+  // Warn about agent-type graph nodes that lack matching agent definition files
+  const agentLookup = buildAgentLookup();
+  const agentNodeIds: string[] = [];
+  for (const [nodeId, node] of graph.nodes) {
+    if (node.type === "agent") {
+      agentNodeIds.push(nodeId);
+    }
+  }
+  const agentWarnings = validateStageAgents(agentNodeIds, agentLookup);
+  const agentWarningText = agentWarnings.length > 0
+    ? `\n  Warnings:\n${agentWarnings.map((w) => `    ⚠ ${w}`).join("\n")}`
+    : "";
+
   const encoded = encodeGraph(graph);
   const result = await verifier(graph, { encodedGraph: encoded });
-  const report = formatVerificationReport(id, result);
+  const report = formatVerificationReport(id, result) + agentWarningText;
 
   return { report, passed: result.valid };
 }

@@ -39,6 +39,10 @@ import type {
   ExecutionContext,
 } from "@/services/workflows/graph/types.ts";
 import { createStateFactory } from "@/services/workflows/dsl/state-compiler.ts";
+import {
+  buildAgentLookup,
+  resolveStageSystemPrompt,
+} from "@/services/workflows/dsl/agent-resolution.ts";
 
 // ============================================================================
 // Agent No-op Execute
@@ -201,10 +205,26 @@ function generateStageDefinitions(
 ): StageDefinition[] {
   const stages: StageDefinition[] = [];
   const shouldRunMap = computeShouldRunMap(instructions);
+
+  // Build agent lookup once — used to auto-resolve system prompts
+  const agentLookup = buildAgentLookup();
+
   for (const instruction of instructions) {
     if (instruction.type !== "stage") continue;
     const config = instruction.config;
     const shouldRun = shouldRunMap.get(instruction.id);
+
+    // Auto-resolve agent definition body as the stage's system prompt.
+    // If no explicit systemPrompt is already configured and a matching
+    // agent definition file exists, inject its body as the system prompt.
+    let resolvedSessionConfig = config.sessionConfig;
+    if (!config.sessionConfig?.systemPrompt) {
+      const agentSystemPrompt = resolveStageSystemPrompt(instruction.id, agentLookup);
+      if (agentSystemPrompt) {
+        resolvedSessionConfig = { ...config.sessionConfig, systemPrompt: agentSystemPrompt };
+      }
+    }
+
     const stage: StageDefinition = {
       id: instruction.id,
       name: config.name,
@@ -212,11 +232,6 @@ function generateStageDefinitions(
       buildPrompt: config.prompt,
       parseOutput: (response: string) => {
         const mapped = config.outputMapper(response);
-        // The conductor's updateTasksFromParsedOutput expects parsedOutput
-        // to be an array (for task list detection). When the outputMapper
-        // returns a single-key record whose value is an array, extract it
-        // so the conductor can detect tasks. This preserves backward
-        // compatibility with the original StageDefinition.parseOutput contract.
         const values = Object.values(mapped);
         if (values.length === 1 && Array.isArray(values[0])) {
           return values[0];
@@ -224,7 +239,7 @@ function generateStageDefinitions(
         return mapped;
       },
       shouldRun,
-      sessionConfig: config.sessionConfig,
+      sessionConfig: resolvedSessionConfig,
       maxOutputBytes: config.maxOutputBytes,
     };
     stages.push(stage);

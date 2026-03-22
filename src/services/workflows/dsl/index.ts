@@ -20,6 +20,12 @@
 export { defineWorkflow, WorkflowBuilder } from "./define-workflow.ts";
 export { compileWorkflow } from "./compiler.ts";
 export { compileStateSchema, createStateFactory } from "./state-compiler.ts";
+export {
+  buildAgentLookup,
+  readAgentBody,
+  resolveStageSystemPrompt,
+  validateStageAgents,
+} from "./agent-resolution.ts";
 export type {
   Instruction,
   StageConfig,

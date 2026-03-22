@@ -170,12 +170,16 @@ describe("Ralph Workflow Definition (DSL)", () => {
     );
   });
 
-  test("conductor graph has 4 nodes in linear sequence", () => {
+  test("conductor graph has stage + loop-control nodes", () => {
     const graph = ralphWorkflowDefinition.createConductorGraph!();
-    expect(graph.nodes.size).toBe(4);
+    // 4 stage nodes + 3 loop-control nodes (__loop_start, __loop_check, __loop_exit)
+    expect(graph.nodes.size).toBe(7);
     expect(graph.startNode).toBe("planner");
-    expect(graph.endNodes.has("debugger")).toBe(true);
-    expect(graph.edges).toHaveLength(3);
+    // The loop exit node is the terminal node (not debugger)
+    expect(graph.endNodes.has("__loop_exit_2")).toBe(true);
+    // 7 edges: planner→orchestrator, orchestrator→loop_start, loop_start→reviewer,
+    //          reviewer→debugger, debugger→loop_check, loop_check→loop_start (back), loop_check→loop_exit (exit)
+    expect(graph.edges).toHaveLength(7);
   });
 
   test("conductor graph node IDs match conductor stage IDs", () => {
@@ -186,13 +190,17 @@ describe("Ralph Workflow Definition (DSL)", () => {
     }
   });
 
-  test("conductor graph edges form a linear chain", () => {
+  test("conductor graph edges form planner→orchestrator→loop(reviewer→debugger)", () => {
     const graph = ralphWorkflowDefinition.createConductorGraph!();
     const edgePairs = graph.edges.map((e) => [e.from, e.to]);
     expect(edgePairs).toEqual([
       ["planner", "orchestrator"],
-      ["orchestrator", "reviewer"],
+      ["orchestrator", "__loop_start_0"],
+      ["__loop_start_0", "reviewer"],
       ["reviewer", "debugger"],
+      ["debugger", "__loop_check_1"],
+      ["__loop_check_1", "__loop_start_0"],  // back-edge (continue loop)
+      ["__loop_check_1", "__loop_exit_2"],    // exit-edge (terminate loop)
     ]);
   });
 
@@ -299,5 +307,95 @@ describe("Ralph Workflow Definition (DSL)", () => {
     expect(() => stage.parseOutput!("test response")).toThrow(
       /outputMapper keys do not match declared outputs/,
     );
+  });
+
+  // -------------------------------------------------------------------------
+  // Review loop structure
+  // -------------------------------------------------------------------------
+
+  test("loop back-edge and exit-edge from __loop_check_1 have conditions", () => {
+    const graph = ralphWorkflowDefinition.createConductorGraph!();
+    const loopCheckEdges = graph.edges.filter((e) => e.from === "__loop_check_1");
+    expect(loopCheckEdges).toHaveLength(2);
+    // Both back-edge and exit-edge should be conditional
+    for (const edge of loopCheckEdges) {
+      expect(typeof edge.condition).toBe("function");
+    }
+  });
+
+  test("loop start and exit nodes are decision nodes (no stage definition)", () => {
+    const stages = ralphWorkflowDefinition.conductorStages!;
+    const stageIds = stages.map((s) => s.id);
+    // Loop-control nodes should NOT appear as conductor stages
+    expect(stageIds).not.toContain("__loop_start_0");
+    expect(stageIds).not.toContain("__loop_check_1");
+    expect(stageIds).not.toContain("__loop_exit_2");
+  });
+
+  // -------------------------------------------------------------------------
+  // Reviewer prompt wiring with prior debugger output
+  // -------------------------------------------------------------------------
+
+  test("reviewer buildPrompt excludes debugger context on first iteration", () => {
+    const reviewer = ralphWorkflowDefinition.conductorStages![2]!;
+    const ctx = makeStageContext({
+      userPrompt: "Build a REST API",
+      tasks: [
+        {
+          description: "Create endpoints",
+          status: "completed",
+          summary: "Creating endpoints",
+          blockedBy: [],
+        },
+      ],
+      stageOutputs: new Map([
+        [
+          "orchestrator",
+          makeStageOutput({
+            stageId: "orchestrator",
+            rawResponse: "Orchestrator completed all tasks",
+          }),
+        ],
+      ]),
+    });
+    const prompt = reviewer.buildPrompt(ctx);
+    expect(prompt).toContain("Build a REST API");
+    // Should NOT contain debugger-related content since there's no debugger output
+    expect(prompt).not.toContain("Previous Debugger Output");
+  });
+
+  test("reviewer buildPrompt includes prior debugger output in subsequent iterations", () => {
+    const reviewer = ralphWorkflowDefinition.conductorStages![2]!;
+    const ctx = makeStageContext({
+      userPrompt: "Build a REST API",
+      tasks: [
+        {
+          description: "Create endpoints",
+          status: "completed",
+          summary: "Creating endpoints",
+          blockedBy: [],
+        },
+      ],
+      stageOutputs: new Map([
+        [
+          "orchestrator",
+          makeStageOutput({
+            stageId: "orchestrator",
+            rawResponse: "Orchestrator completed all tasks",
+          }),
+        ],
+        [
+          "debugger",
+          makeStageOutput({
+            stageId: "debugger",
+            rawResponse: "Fixed the null pointer issue in user controller",
+          }),
+        ],
+      ]),
+    });
+    const prompt = reviewer.buildPrompt(ctx);
+    expect(prompt).toContain("Build a REST API");
+    // Should contain the prior debugger output
+    expect(prompt).toContain("Fixed the null pointer issue in user controller");
   });
 });

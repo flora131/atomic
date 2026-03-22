@@ -155,6 +155,10 @@ export const ralphWorkflowDefinition = defineWorkflow(
     },
     outputMapper: () => ({}),
   })
+  .loop({
+    until: createReviewLoopTerminator(2),
+    maxCycles: 10,
+  })
   .stage("reviewer", {
     name: "Reviewer",
     description: "\uD83D\uDD0D REVIEWER",
@@ -163,7 +167,17 @@ export const ralphWorkflowDefinition = defineWorkflow(
     prompt: (ctx) => {
       const orchestratorOutput = ctx.stageOutputs.get("orchestrator");
       const progressSummary = orchestratorOutput?.rawResponse ?? "";
-      return buildReviewPrompt([...ctx.tasks], ctx.userPrompt, progressSummary);
+
+      // Get prior debugger output from previous loop iteration (if any)
+      const debuggerStageOutput = ctx.stageOutputs.get("debugger");
+      const priorDebuggerOutput = debuggerStageOutput?.rawResponse;
+
+      return buildReviewPrompt(
+        [...ctx.tasks],
+        ctx.userPrompt,
+        progressSummary,
+        priorDebuggerOutput,
+      );
     },
     outputMapper: (response) => ({
       reviewResult: parseReviewResult(response),
@@ -194,4 +208,5 @@ export const ralphWorkflowDefinition = defineWorkflow(
     outputMapper: () => ({}),
   })
   .endIf()
+  .endLoop()
   .compile();

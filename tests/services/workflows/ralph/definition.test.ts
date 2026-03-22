@@ -257,4 +257,47 @@ describe("Ralph Workflow Definition (DSL)", () => {
     expect(tasks).toHaveLength(1);
     expect(tasks[0]!.description).toBe("Task A");
   });
+
+  // -------------------------------------------------------------------------
+  // Graph nodes carry reads/outputs for data-flow verification
+  // -------------------------------------------------------------------------
+
+  test("conductor graph nodes carry reads/outputs metadata", () => {
+    const graph = ralphWorkflowDefinition.createConductorGraph!();
+    const planner = graph.nodes.get("planner");
+    expect(planner?.outputs).toEqual(["tasks"]);
+
+    const orchestrator = graph.nodes.get("orchestrator");
+    expect(orchestrator?.reads).toEqual(["tasks"]);
+
+    const reviewer = graph.nodes.get("reviewer");
+    expect(reviewer?.reads).toEqual(["tasks"]);
+    expect(reviewer?.outputs).toEqual(["reviewResult"]);
+
+    const debugger_ = graph.nodes.get("debugger");
+    expect(debugger_?.reads).toEqual(["reviewResult"]);
+  });
+
+  // -------------------------------------------------------------------------
+  // Runtime outputMapper key validation
+  // -------------------------------------------------------------------------
+
+  test("parseOutput throws when outputMapper keys do not match declared outputs", () => {
+    // Compile a workflow with mismatched outputMapper keys vs declared outputs
+    const { defineWorkflow: dw } = require("@/services/workflows/dsl/define-workflow.ts");
+    const mismatchedWorkflow = dw("test-mismatch", "test")
+      .stage("bad-stage", {
+        name: "Bad Stage",
+        description: "test",
+        prompt: () => "test",
+        outputMapper: (_r: string) => ({ wrongKey: "value" }),
+        outputs: ["correctKey"],
+      })
+      .compile();
+
+    const stage = mismatchedWorkflow.conductorStages![0]!;
+    expect(() => stage.parseOutput!("test response")).toThrow(
+      /outputMapper keys do not match declared outputs/,
+    );
+  });
 });

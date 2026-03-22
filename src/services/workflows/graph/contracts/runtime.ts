@@ -58,6 +58,10 @@ export interface NodeDefinition<TState extends BaseState = BaseState> {
   name?: string;
   description?: string;
   model?: ModelSpec;
+  /** State field names this node reads from (propagated from DSL stage/tool config). */
+  reads?: string[];
+  /** State field names this node writes to (propagated from DSL stage/tool config). */
+  outputs?: string[];
 }
 
 export interface ProgressEvent<TState extends BaseState = BaseState> {

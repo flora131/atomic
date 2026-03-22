@@ -10,8 +10,8 @@ function makeGraph(opts: {
   nodes: Array<{
     id: string;
     type: string;
-    _reads?: string[];
-    _outputs?: string[];
+    reads?: string[];
+    outputs?: string[];
   }>;
   edges: Array<{
     from: string;
@@ -28,8 +28,8 @@ function makeGraph(opts: {
       id: n.id,
       type: n.type,
       execute: async () => ({}),
-      _reads: n._reads,
-      _outputs: n._outputs,
+      reads: n.reads,
+      outputs: n.outputs,
     });
   }
 
@@ -94,10 +94,10 @@ describe("encodeGraph", () => {
     );
   });
 
-  test("preserves _reads and _outputs metadata", () => {
+  test("preserves reads and outputs metadata", () => {
     const graph = makeGraph({
       nodes: [
-        { id: "a", type: "tool", _reads: ["input"], _outputs: ["result"] },
+        { id: "a", type: "tool", reads: ["input"], outputs: ["result"] },
         { id: "b", type: "agent" },
       ],
       edges: [{ from: "a", to: "b" }],

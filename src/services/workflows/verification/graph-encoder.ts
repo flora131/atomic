@@ -24,13 +24,11 @@ import type {
 export function encodeGraph(graph: CompiledGraph<BaseState>): EncodedGraph {
   const nodes: VerificationNode[] = [];
   for (const [id, node] of graph.nodes) {
-    const rawNode = node as unknown as Record<string, unknown>;
     nodes.push({
       id,
       type: node.type,
-      // reads and outputs will be populated from DSL metadata if available
-      reads: rawNode._reads as string[] | undefined,
-      outputs: rawNode._outputs as string[] | undefined,
+      reads: node.reads,
+      outputs: node.outputs,
     });
   }
 

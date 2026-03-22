@@ -232,6 +232,20 @@ function generateStageDefinitions(
       buildPrompt: config.prompt,
       parseOutput: (response: string) => {
         const mapped = config.outputMapper(response);
+        if (config.outputs && config.outputs.length > 0) {
+          const mappedKeys = Object.keys(mapped);
+          const missing = config.outputs.filter((k) => !mappedKeys.includes(k));
+          const extra = mappedKeys.filter((k) => !config.outputs!.includes(k));
+          if (missing.length > 0 || extra.length > 0) {
+            const parts: string[] = [];
+            if (missing.length > 0) parts.push(`missing keys: [${missing.join(", ")}]`);
+            if (extra.length > 0) parts.push(`unexpected keys: [${extra.join(", ")}]`);
+            throw new Error(
+              `Stage "${instruction.id}" outputMapper keys do not match declared outputs. ` +
+              `Declared: [${config.outputs.join(", ")}], returned: [${mappedKeys.join(", ")}]. ${parts.join("; ")}`,
+            );
+          }
+        }
         const values = Object.values(mapped);
         if (values.length === 1 && Array.isArray(values[0])) {
           return values[0];
@@ -305,6 +319,8 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
               const result = await toolConfig.execute(context);
               return { stateUpdate: result as Partial<BaseState> };
             },
+      reads: config.reads,
+      outputs: config.outputs,
     };
     nodes.set(id, node);
     return id;

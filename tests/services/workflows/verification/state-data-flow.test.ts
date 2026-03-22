@@ -120,3 +120,112 @@ function createMockContext() {
   };
 }
 
+// Import the actual checker (pure algorithm, no Z3 dependency)
+import { checkStateDataFlow } from "@/services/workflows/verification/state-data-flow";
+
+function makeEncodedGraph(
+  nodes: Array<{ id: string; type?: string; reads?: string[]; outputs?: string[] }>,
+  edges: Array<{ from: string; to: string }>,
+): EncodedGraph {
+  return {
+    nodes: nodes.map((n) => ({
+      id: n.id,
+      type: n.type ?? "agent",
+      reads: n.reads,
+      outputs: n.outputs,
+    })),
+    edges: edges.map((e) => ({ from: e.from, to: e.to, hasCondition: false })),
+    startNode: nodes[0]?.id ?? "",
+    endNodes: [nodes[nodes.length - 1]?.id ?? ""],
+    loops: [],
+    stateFields: [],
+  };
+}
+
+describe("checkStateDataFlow", () => {
+  test("passes when no nodes declare reads", async () => {
+    const graph = makeEncodedGraph(
+      [{ id: "a" }, { id: "b" }],
+      [{ from: "a", to: "b" }],
+    );
+    const result = await checkStateDataFlow(graph);
+    expect(result.verified).toBe(true);
+  });
+
+  test("passes when reads are satisfied by upstream outputs", async () => {
+    const graph = makeEncodedGraph(
+      [
+        { id: "planner", outputs: ["tasks"] },
+        { id: "orchestrator", reads: ["tasks"] },
+      ],
+      [{ from: "planner", to: "orchestrator" }],
+    );
+    const result = await checkStateDataFlow(graph);
+    expect(result.verified).toBe(true);
+  });
+
+  test("fails when reads have no upstream writer", async () => {
+    const graph = makeEncodedGraph(
+      [
+        { id: "planner" },
+        { id: "orchestrator", reads: ["tasks"] },
+      ],
+      [{ from: "planner", to: "orchestrator" }],
+    );
+    const result = await checkStateDataFlow(graph);
+    expect(result.verified).toBe(false);
+    expect(result.counterexample).toContain("tasks");
+    expect(result.counterexample).toContain("orchestrator");
+  });
+
+  test("passes for multi-stage pipeline with chained outputs", async () => {
+    const graph = makeEncodedGraph(
+      [
+        { id: "planner", outputs: ["tasks"] },
+        { id: "orchestrator", reads: ["tasks"] },
+        { id: "reviewer", reads: ["tasks"], outputs: ["reviewResult"] },
+        { id: "debugger", reads: ["reviewResult"] },
+      ],
+      [
+        { from: "planner", to: "orchestrator" },
+        { from: "orchestrator", to: "reviewer" },
+        { from: "reviewer", to: "debugger" },
+      ],
+    );
+    const result = await checkStateDataFlow(graph);
+    expect(result.verified).toBe(true);
+  });
+
+  test("fails when intermediate field is missing a writer", async () => {
+    const graph = makeEncodedGraph(
+      [
+        { id: "planner", outputs: ["tasks"] },
+        { id: "orchestrator", reads: ["tasks"] },
+        { id: "reviewer", reads: ["tasks"] },
+        { id: "debugger", reads: ["reviewResult"] },
+      ],
+      [
+        { from: "planner", to: "orchestrator" },
+        { from: "orchestrator", to: "reviewer" },
+        { from: "reviewer", to: "debugger" },
+      ],
+    );
+    const result = await checkStateDataFlow(graph);
+    expect(result.verified).toBe(false);
+    expect(result.counterexample).toContain("reviewResult");
+  });
+
+  test("reports all violations when multiple reads are unsatisfied", async () => {
+    const graph = makeEncodedGraph(
+      [
+        { id: "a" },
+        { id: "b", reads: ["x", "y"] },
+      ],
+      [{ from: "a", to: "b" }],
+    );
+    const result = await checkStateDataFlow(graph);
+    expect(result.verified).toBe(false);
+    expect(result.counterexample).toContain("x");
+    expect(result.counterexample).toContain("y");
+  });
+});

@@ -7,9 +7,9 @@ import type {
   WorkflowStepCompleteEvent,
 } from "@/state/streaming/pipeline-types.ts";
 import {
-  compactStageParts,
-  createDefaultPartsCompactionConfig,
-} from "@/state/parts/compaction.ts";
+  truncateStageParts,
+  createDefaultPartsTruncationConfig,
+} from "@/state/parts/truncation.ts";
 
 export function upsertTaskResultPart(
   parts: Part[],
@@ -112,8 +112,8 @@ export function upsertWorkflowStepStart(
  * Update an existing WorkflowStepPart with final status when a step completes.
  * If no matching part exists (e.g., for skipped steps), creates one.
  *
- * When the event carries a `compaction` config and the step completed
- * successfully, applies parts compaction to reclaim memory from verbose
+ * When the event carries a `truncation` config and the step completed
+ * successfully, applies parts truncation to reclaim memory from verbose
  * parts (tools, reasoning, text) belonging to the completed stage.
  */
 export function upsertWorkflowStepComplete(
@@ -159,17 +159,17 @@ export function upsertWorkflowStepComplete(
     } satisfies WorkflowStepPart);
   }
 
-  // Apply parts compaction when configured and the step completed successfully
-  if (event.compaction && event.status === "completed") {
-    const config = createDefaultPartsCompactionConfig(event.compaction);
-    const result = compactStageParts(
+  // Apply parts truncation when configured and the step completed successfully
+  if (event.truncation && event.status === "completed") {
+    const config = createDefaultPartsTruncationConfig(event.truncation);
+    const result = truncateStageParts(
       updatedParts,
       event.nodeId,
       event.workflowId,
       event.nodeName,
       config,
     );
-    if (result.compacted) {
+    if (result.truncated) {
       return result.parts;
     }
   }

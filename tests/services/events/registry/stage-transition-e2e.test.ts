@@ -126,7 +126,7 @@ function registerWorkflowHandlers(registry: EventHandlerRegistry): void {
         status: data.status,
         durationMs: data.durationMs,
         ...(data.error ? { error: data.error } : {}),
-        ...(data.compaction ? { compaction: data.compaction } : {}),
+        ...(data.truncation ? { truncation: data.truncation } : {}),
       };
     },
   });
@@ -218,12 +218,12 @@ describe("stage transition events → UI pipeline (§5.9 e2e)", () => {
       expect(stream.error).toBe("context window exceeded");
     });
 
-    test("workflow.step.complete with compaction → includes compaction config", () => {
-      const compaction = {
-        minCompactableParts: 4,
-        compactText: true,
-        compactReasoning: true,
-        compactTools: true,
+    test("workflow.step.complete with truncation → includes truncation config", () => {
+      const truncation = {
+        minTruncationParts: 4,
+        truncateText: true,
+        truncateReasoning: true,
+        truncateTools: true,
       };
       const bus = makeBusEvent("workflow.step.complete", {
         workflowId: "ralph",
@@ -231,12 +231,12 @@ describe("stage transition events → UI pipeline (§5.9 e2e)", () => {
         nodeName: "Planner",
         status: "completed",
         durationMs: 2000,
-        compaction,
+        truncation,
       });
       const mapper = registry.getStreamPartMapper("workflow.step.complete")!;
       const stream = mapper(enriched(bus), stubContext) as WorkflowStepCompleteEvent;
 
-      expect(stream.compaction).toEqual(compaction);
+      expect(stream.truncation).toEqual(truncation);
     });
 
     test("workflow.task.update → task-list-update", () => {

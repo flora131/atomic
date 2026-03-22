@@ -1,20 +1,20 @@
 /**
- * Tests for parts compaction on stage completion.
+ * Tests for parts truncation on stage completion.
  *
- * Validates that `compactStageParts()` correctly identifies and replaces
+ * Validates that `truncateStageParts()` correctly identifies and replaces
  * verbose parts (tool, reasoning, text) belonging to a completed workflow
- * stage with a single CompactionPart summary, while preserving important
+ * stage with a single TruncationPart summary, while preserving important
  * parts and respecting stage boundaries.
  */
 
 import { describe, expect, test, beforeEach } from "bun:test";
 import {
-  compactStageParts,
-  createDefaultPartsCompactionConfig,
-  DEFAULT_MIN_COMPACTABLE_PARTS,
-  type PartsCompactionConfig,
-  type CompactionResult,
-} from "@/state/parts/compaction.ts";
+  truncateStageParts,
+  createDefaultPartsTruncationConfig,
+  DEFAULT_MIN_TRUNCATION_PARTS,
+  type PartsTruncationConfig,
+  type TruncationResult,
+} from "@/state/parts/truncation.ts";
 import { _resetPartCounter, createPartId } from "@/state/parts/id.ts";
 import type {
   Part,
@@ -22,7 +22,7 @@ import type {
   ToolPart,
   ReasoningPart,
   WorkflowStepPart,
-  CompactionPart,
+  TruncationPart,
   TaskListPart,
   TaskResultPart,
 } from "@/state/parts/types.ts";
@@ -118,13 +118,16 @@ function taskResultPart(): TaskResultPart {
   };
 }
 
-const defaultConfig: PartsCompactionConfig = createDefaultPartsCompactionConfig();
+const defaultConfig: PartsTruncationConfig = createDefaultPartsTruncationConfig();
+
+/** Config with lower threshold for tests focused on behavior, not threshold. */
+const testConfig: PartsTruncationConfig = createDefaultPartsTruncationConfig({ minTruncationParts: 3 });
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("compactStageParts", () => {
+describe("truncateStageParts", () => {
   beforeEach(() => {
     _resetPartCounter();
   });
@@ -133,21 +136,21 @@ describe("compactStageParts", () => {
   // Default Config
   // -----------------------------------------------------------------------
 
-  describe("createDefaultPartsCompactionConfig", () => {
+  describe("createDefaultPartsTruncationConfig", () => {
     test("returns sensible defaults", () => {
-      const config = createDefaultPartsCompactionConfig();
-      expect(config.minCompactableParts).toBe(DEFAULT_MIN_COMPACTABLE_PARTS);
-      expect(config.compactText).toBe(true);
-      expect(config.compactReasoning).toBe(true);
-      expect(config.compactTools).toBe(true);
+      const config = createDefaultPartsTruncationConfig();
+      expect(config.minTruncationParts).toBe(DEFAULT_MIN_TRUNCATION_PARTS);
+      expect(config.truncateText).toBe(true);
+      expect(config.truncateReasoning).toBe(true);
+      expect(config.truncateTools).toBe(true);
     });
 
     test("allows partial overrides", () => {
-      const config = createDefaultPartsCompactionConfig({ compactText: false, minCompactableParts: 1 });
-      expect(config.compactText).toBe(false);
-      expect(config.minCompactableParts).toBe(1);
-      expect(config.compactReasoning).toBe(true);
-      expect(config.compactTools).toBe(true);
+      const config = createDefaultPartsTruncationConfig({ truncateText: false, minTruncationParts: 1 });
+      expect(config.truncateText).toBe(false);
+      expect(config.minTruncationParts).toBe(1);
+      expect(config.truncateReasoning).toBe(true);
+      expect(config.truncateTools).toBe(true);
     });
   });
 
@@ -158,9 +161,9 @@ describe("compactStageParts", () => {
   describe("no-op cases", () => {
     test("returns unchanged parts when completed step not found", () => {
       const parts: Part[] = [textPart("hello"), toolPart("read")];
-      const result = compactStageParts(parts, "planner", "wf-1", "Planner", defaultConfig);
+      const result = truncateStageParts(parts, "planner", "wf-1", "Planner", testConfig);
 
-      expect(result.compacted).toBe(false);
+      expect(result.truncated).toBe(false);
       expect(result.parts).toHaveLength(2);
       expect(result.removedCount).toBe(0);
     });
@@ -172,10 +175,10 @@ describe("compactStageParts", () => {
         textPart("hello"),
         toolPart("read"),
       ];
-      // Only 2 compactable parts (text + tool), threshold is 3
-      const result = compactStageParts(parts, "planner", "wf-1", "Planner", defaultConfig);
+      // Only 2 truncatable parts (text + tool), threshold is 3
+      const result = truncateStageParts(parts, "planner", "wf-1", "Planner", testConfig);
 
-      expect(result.compacted).toBe(false);
+      expect(result.truncated).toBe(false);
     });
 
     test("returns unchanged parts when step belongs to different workflow", () => {
@@ -184,18 +187,18 @@ describe("compactStageParts", () => {
         step,
         textPart("a"), textPart("b"), toolPart("c"),
       ];
-      const result = compactStageParts(parts, "planner", "wf-1", "Planner", defaultConfig);
+      const result = truncateStageParts(parts, "planner", "wf-1", "Planner", testConfig);
 
-      expect(result.compacted).toBe(false);
+      expect(result.truncated).toBe(false);
     });
   });
 
   // -----------------------------------------------------------------------
-  // Basic Compaction
+  // Basic Truncation
   // -----------------------------------------------------------------------
 
-  describe("basic compaction", () => {
-    test("compacts tool, text, and reasoning parts into a single CompactionPart", () => {
+  describe("basic truncation", () => {
+    test("compacts tool, text, and reasoning parts into a single TruncationPart", () => {
       const step = workflowStepPart("planner");
       const parts: Part[] = [
         step,
@@ -204,25 +207,25 @@ describe("compactStageParts", () => {
         toolPart("file_read"),
       ];
 
-      const result = compactStageParts(parts, "planner", "wf-1", "Planner", defaultConfig);
+      const result = truncateStageParts(parts, "planner", "wf-1", "Planner", testConfig);
 
-      expect(result.compacted).toBe(true);
+      expect(result.truncated).toBe(true);
       expect(result.removedCount).toBe(3);
       expect(result.reclaimedBytes).toBeGreaterThan(0);
 
-      // Should have 2 parts: WorkflowStepPart + CompactionPart
+      // Should have 2 parts: WorkflowStepPart + TruncationPart
       expect(result.parts).toHaveLength(2);
       expect(result.parts[0]!.type).toBe("workflow-step");
-      expect(result.parts[1]!.type).toBe("compaction");
+      expect(result.parts[1]!.type).toBe("truncation");
 
-      const compaction = result.parts[1] as CompactionPart;
-      expect(compaction.summary).toContain("Planner");
-      expect(compaction.summary).toContain("1 tool call");
-      expect(compaction.summary).toContain("1 text block");
-      expect(compaction.summary).toContain("1 reasoning block");
+      const truncation = result.parts[1] as TruncationPart;
+      expect(truncation.summary).toContain("Planner");
+      expect(truncation.summary).toContain("1 tool call");
+      expect(truncation.summary).toContain("1 text block");
+      expect(truncation.summary).toContain("1 reasoning block");
     });
 
-    test("compaction summary includes correct plural forms", () => {
+    test("truncation summary includes correct plural forms", () => {
       const step = workflowStepPart("orch");
       const parts: Part[] = [
         step,
@@ -233,12 +236,12 @@ describe("compactStageParts", () => {
         toolPart("z"),
       ];
 
-      const result = compactStageParts(parts, "orch", "wf-1", "Orchestrator", defaultConfig);
+      const result = truncateStageParts(parts, "orch", "wf-1", "Orchestrator", testConfig);
 
-      expect(result.compacted).toBe(true);
-      const compaction = result.parts.find(p => p.type === "compaction") as CompactionPart;
-      expect(compaction.summary).toContain("3 tool calls");
-      expect(compaction.summary).toContain("2 text blocks");
+      expect(result.truncated).toBe(true);
+      const truncation = result.parts.find(p => p.type === "truncation") as TruncationPart;
+      expect(truncation.summary).toContain("3 tool calls");
+      expect(truncation.summary).toContain("2 text blocks");
     });
   });
 
@@ -254,9 +257,9 @@ describe("compactStageParts", () => {
         textPart("a"), textPart("b"), toolPart("c"),
       ];
 
-      const result = compactStageParts(parts, "planner", "wf-1", "Planner", defaultConfig);
+      const result = truncateStageParts(parts, "planner", "wf-1", "Planner", testConfig);
 
-      expect(result.compacted).toBe(true);
+      expect(result.truncated).toBe(true);
       const stepParts = result.parts.filter(p => p.type === "workflow-step");
       expect(stepParts).toHaveLength(1);
     });
@@ -270,9 +273,9 @@ describe("compactStageParts", () => {
         tl,
       ];
 
-      const result = compactStageParts(parts, "planner", "wf-1", "Planner", defaultConfig);
+      const result = truncateStageParts(parts, "planner", "wf-1", "Planner", testConfig);
 
-      expect(result.compacted).toBe(true);
+      expect(result.truncated).toBe(true);
       const taskLists = result.parts.filter(p => p.type === "task-list");
       expect(taskLists).toHaveLength(1);
     });
@@ -286,34 +289,34 @@ describe("compactStageParts", () => {
         tr,
       ];
 
-      const result = compactStageParts(parts, "planner", "wf-1", "Planner", defaultConfig);
+      const result = truncateStageParts(parts, "planner", "wf-1", "Planner", testConfig);
 
-      expect(result.compacted).toBe(true);
+      expect(result.truncated).toBe(true);
       const taskResults = result.parts.filter(p => p.type === "task-result");
       expect(taskResults).toHaveLength(1);
     });
 
-    test("preserves existing compaction parts", () => {
-      const existingCompaction: CompactionPart = {
+    test("preserves existing truncation parts", () => {
+      const existingTruncation: TruncationPart = {
         id: createPartId(),
-        type: "compaction",
-        summary: "Previous stage compacted",
+        type: "truncation",
+        summary: "Previous stage truncated",
         createdAt: new Date().toISOString(),
       };
       const step = workflowStepPart("orch");
       const parts: Part[] = [
-        existingCompaction,
+        existingTruncation,
         step,
         textPart("a"), textPart("b"), toolPart("c"),
       ];
 
-      const result = compactStageParts(parts, "orch", "wf-1", "Orch", defaultConfig);
+      const result = truncateStageParts(parts, "orch", "wf-1", "Orch", testConfig);
 
-      expect(result.compacted).toBe(true);
-      const compactionParts = result.parts.filter(p => p.type === "compaction");
+      expect(result.truncated).toBe(true);
+      const truncationParts = result.parts.filter(p => p.type === "truncation");
       // Should have 2: the existing one + the new one
-      expect(compactionParts).toHaveLength(2);
-      expect((compactionParts[0] as CompactionPart).summary).toBe("Previous stage compacted");
+      expect(truncationParts).toHaveLength(2);
+      expect((truncationParts[0] as TruncationPart).summary).toBe("Previous stage truncated");
     });
   });
 
@@ -343,12 +346,12 @@ describe("compactStageParts", () => {
 
       // Complete orchestrator — only compact its parts (orchText, orchTool),
       // not planner's parts
-      const result = compactStageParts(
+      const result = truncateStageParts(
         parts, "orchestrator", "wf-1", "Orchestrator",
-        createDefaultPartsCompactionConfig({ minCompactableParts: 2 }),
+        createDefaultPartsTruncationConfig({ minTruncationParts: 2 }),
       );
 
-      expect(result.compacted).toBe(true);
+      expect(result.truncated).toBe(true);
       expect(result.removedCount).toBe(2); // orchText + orchTool
 
       // Planner parts should still be present
@@ -368,9 +371,9 @@ describe("compactStageParts", () => {
         textPart("a"), textPart("b"), toolPart("c"),
       ];
 
-      const result = compactStageParts(parts, "planner", "wf-1", "Planner", defaultConfig);
+      const result = truncateStageParts(parts, "planner", "wf-1", "Planner", testConfig);
 
-      expect(result.compacted).toBe(true);
+      expect(result.truncated).toBe(true);
       expect(result.removedCount).toBe(3);
     });
 
@@ -388,9 +391,9 @@ describe("compactStageParts", () => {
         afterStepTool,
       ];
 
-      const result = compactStageParts(parts, "planner", "wf-1", "Planner", defaultConfig);
+      const result = truncateStageParts(parts, "planner", "wf-1", "Planner", testConfig);
 
-      expect(result.compacted).toBe(true);
+      expect(result.truncated).toBe(true);
       expect(result.removedCount).toBe(3);
       // After-step parts should remain
       const textParts = result.parts.filter(p => p.type === "text");
@@ -407,70 +410,73 @@ describe("compactStageParts", () => {
   // -----------------------------------------------------------------------
 
   describe("config-driven behavior", () => {
-    test("skips text compaction when compactText is false", () => {
+    test("skips text truncation when truncateText is false", () => {
       const step = workflowStepPart("planner");
       const parts: Part[] = [
         step,
         textPart("a"), textPart("b"),
         toolPart("x"), toolPart("y"), toolPart("z"),
+        toolPart("w"), toolPart("v"),
       ];
 
-      const config = createDefaultPartsCompactionConfig({ compactText: false });
-      const result = compactStageParts(parts, "planner", "wf-1", "Planner", config);
+      const config = createDefaultPartsTruncationConfig({ truncateText: false });
+      const result = truncateStageParts(parts, "planner", "wf-1", "Planner", config);
 
-      expect(result.compacted).toBe(true);
-      // Text parts should remain, only tools compacted
+      expect(result.truncated).toBe(true);
+      // Text parts should remain, only tools truncated
       const textParts = result.parts.filter(p => p.type === "text");
       expect(textParts).toHaveLength(2);
-      expect(result.removedCount).toBe(3); // only tools
+      expect(result.removedCount).toBe(5); // only tools
     });
 
-    test("skips reasoning compaction when compactReasoning is false", () => {
+    test("skips reasoning truncation when truncateReasoning is false", () => {
       const step = workflowStepPart("planner");
       const parts: Part[] = [
         step,
         reasoningPart("thinking"),
         toolPart("x"), toolPart("y"), toolPart("z"),
+        toolPart("w"), toolPart("v"),
       ];
 
-      const config = createDefaultPartsCompactionConfig({ compactReasoning: false });
-      const result = compactStageParts(parts, "planner", "wf-1", "Planner", config);
+      const config = createDefaultPartsTruncationConfig({ truncateReasoning: false });
+      const result = truncateStageParts(parts, "planner", "wf-1", "Planner", config);
 
-      expect(result.compacted).toBe(true);
+      expect(result.truncated).toBe(true);
       const reasoningParts = result.parts.filter(p => p.type === "reasoning");
       expect(reasoningParts).toHaveLength(1);
-      expect(result.removedCount).toBe(3); // only tools
+      expect(result.removedCount).toBe(5); // only tools
     });
 
-    test("skips tool compaction when compactTools is false", () => {
+    test("skips tool truncation when truncateTools is false", () => {
       const step = workflowStepPart("planner");
       const parts: Part[] = [
         step,
         textPart("a"), textPart("b"), textPart("c"),
+        textPart("d"), textPart("e"),
         toolPart("x"),
       ];
 
-      const config = createDefaultPartsCompactionConfig({ compactTools: false });
-      const result = compactStageParts(parts, "planner", "wf-1", "Planner", config);
+      const config = createDefaultPartsTruncationConfig({ truncateTools: false });
+      const result = truncateStageParts(parts, "planner", "wf-1", "Planner", config);
 
-      expect(result.compacted).toBe(true);
+      expect(result.truncated).toBe(true);
       const toolParts = result.parts.filter(p => p.type === "tool");
       expect(toolParts).toHaveLength(1);
-      expect(result.removedCount).toBe(3); // only text
+      expect(result.removedCount).toBe(5); // only text
     });
 
-    test("respects minCompactableParts threshold", () => {
+    test("respects minTruncationParts threshold", () => {
       const step = workflowStepPart("planner");
       const parts: Part[] = [
         textPart("a"), toolPart("b"),
         step,
       ];
 
-      // 2 compactable parts, threshold is 5
-      const config = createDefaultPartsCompactionConfig({ minCompactableParts: 5 });
-      const result = compactStageParts(parts, "planner", "wf-1", "Planner", config);
+      // 2 truncatable parts, threshold is 5
+      const config = createDefaultPartsTruncationConfig({ minTruncationParts: 5 });
+      const result = truncateStageParts(parts, "planner", "wf-1", "Planner", config);
 
-      expect(result.compacted).toBe(false);
+      expect(result.truncated).toBe(false);
     });
 
     test("compacts with low threshold", () => {
@@ -480,10 +486,10 @@ describe("compactStageParts", () => {
         toolPart("read"),
       ];
 
-      const config = createDefaultPartsCompactionConfig({ minCompactableParts: 1 });
-      const result = compactStageParts(parts, "planner", "wf-1", "Planner", config);
+      const config = createDefaultPartsTruncationConfig({ minTruncationParts: 1 });
+      const result = truncateStageParts(parts, "planner", "wf-1", "Planner", config);
 
-      expect(result.compacted).toBe(true);
+      expect(result.truncated).toBe(true);
       expect(result.removedCount).toBe(1);
     });
   });
@@ -501,9 +507,9 @@ describe("compactStageParts", () => {
         toolPart("a"), toolPart("b"), toolPart("c"),
       ];
 
-      const result = compactStageParts(parts, "planner", "wf-1", "Planner", defaultConfig);
+      const result = truncateStageParts(parts, "planner", "wf-1", "Planner", testConfig);
 
-      expect(result.compacted).toBe(true);
+      expect(result.truncated).toBe(true);
       // Streaming text should be preserved
       const textParts = result.parts.filter(p => p.type === "text");
       expect(textParts).toHaveLength(1);
@@ -521,9 +527,9 @@ describe("compactStageParts", () => {
         toolPart("done3", "completed"),
       ];
 
-      const result = compactStageParts(parts, "planner", "wf-1", "Planner", defaultConfig);
+      const result = truncateStageParts(parts, "planner", "wf-1", "Planner", testConfig);
 
-      expect(result.compacted).toBe(true);
+      expect(result.truncated).toBe(true);
       // Running and pending tools preserved
       const toolParts = result.parts.filter(p => p.type === "tool");
       expect(toolParts).toHaveLength(2);
@@ -540,15 +546,15 @@ describe("compactStageParts", () => {
         toolPart("ok", "completed"),
       ];
 
-      const result = compactStageParts(parts, "planner", "wf-1", "Planner", defaultConfig);
+      const result = truncateStageParts(parts, "planner", "wf-1", "Planner", testConfig);
 
-      expect(result.compacted).toBe(true);
+      expect(result.truncated).toBe(true);
       expect(result.removedCount).toBe(3);
     });
 
     test("handles empty parts array", () => {
-      const result = compactStageParts([], "planner", "wf-1", "Planner", defaultConfig);
-      expect(result.compacted).toBe(false);
+      const result = truncateStageParts([], "planner", "wf-1", "Planner", testConfig);
+      expect(result.truncated).toBe(false);
       expect(result.parts).toHaveLength(0);
     });
 
@@ -556,9 +562,9 @@ describe("compactStageParts", () => {
       const step = workflowStepPart("planner");
       const parts: Part[] = [taskListPart(), step];
 
-      const result = compactStageParts(parts, "planner", "wf-1", "Planner", defaultConfig);
+      const result = truncateStageParts(parts, "planner", "wf-1", "Planner", testConfig);
 
-      expect(result.compacted).toBe(false);
+      expect(result.truncated).toBe(false);
     });
 
     test("reclaimed bytes estimation includes tool output", () => {
@@ -571,9 +577,9 @@ describe("compactStageParts", () => {
         toolPart("medium", "completed", "y".repeat(500)),
       ];
 
-      const result = compactStageParts(parts, "planner", "wf-1", "Planner", defaultConfig);
+      const result = truncateStageParts(parts, "planner", "wf-1", "Planner", testConfig);
 
-      expect(result.compacted).toBe(true);
+      expect(result.truncated).toBe(true);
       expect(result.reclaimedBytes).toBeGreaterThan(10000);
     });
   });
@@ -584,12 +590,12 @@ describe("compactStageParts", () => {
 
   describe("multi-stage workflow", () => {
     test("compacts stages independently without cross-contamination", () => {
-      // Simulate: planner completed and compacted, then orchestrator completes
+      // Simulate: planner completed and truncated, then orchestrator completes
       const plannerStep = workflowStepPart("planner");
-      const plannerCompaction: CompactionPart = {
+      const plannerTruncation: TruncationPart = {
         id: createPartId(),
-        type: "compaction",
-        summary: "Planner: 5 tool calls compacted",
+        type: "truncation",
+        summary: "Planner: 5 tool calls truncated",
         createdAt: new Date().toISOString(),
       };
 
@@ -597,31 +603,35 @@ describe("compactStageParts", () => {
       const orchText = textPart("Orchestrator result");
       const orchTool1 = toolPart("dispatch");
       const orchTool2 = toolPart("collect");
+      const orchTool3 = toolPart("aggregate");
       const orchReasoning = reasoningPart("Thinking about tasks");
+      const orchReasoning2 = reasoningPart("Further analysis");
 
       const parts: Part[] = [
         plannerStep,
-        plannerCompaction,
+        plannerTruncation,
         orchStep,
         orchText,
         orchTool1,
         orchTool2,
+        orchTool3,
         orchReasoning,
+        orchReasoning2,
       ];
 
-      const result = compactStageParts(
+      const result = truncateStageParts(
         parts, "orchestrator", "wf-1", "Orchestrator",
-        createDefaultPartsCompactionConfig(),
+        createDefaultPartsTruncationConfig(),
       );
 
-      expect(result.compacted).toBe(true);
-      expect(result.removedCount).toBe(4); // orchText + 2 tools + reasoning
+      expect(result.truncated).toBe(true);
+      expect(result.removedCount).toBe(6); // orchText + 3 tools + 2 reasoning
 
-      // Planner's compaction should be untouched
-      const compactionParts = result.parts.filter(p => p.type === "compaction");
-      expect(compactionParts).toHaveLength(2);
-      expect((compactionParts[0] as CompactionPart).summary).toBe("Planner: 5 tool calls compacted");
-      expect((compactionParts[1] as CompactionPart).summary).toContain("Orchestrator");
+      // Planner's truncation should be untouched
+      const truncationParts = result.parts.filter(p => p.type === "truncation");
+      expect(truncationParts).toHaveLength(2);
+      expect((truncationParts[0] as TruncationPart).summary).toBe("Planner: 5 tool calls truncated");
+      expect((truncationParts[1] as TruncationPart).summary).toContain("Orchestrator");
     });
   });
 });

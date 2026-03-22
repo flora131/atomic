@@ -150,12 +150,12 @@ export interface WorkflowStepCompleteEvent {
   status: "completed" | "error" | "skipped";
   durationMs: number;
   error?: string;
-  /** When present, triggers parts compaction for the completed stage. */
-  compaction?: {
-    minCompactableParts: number;
-    compactText: boolean;
-    compactReasoning: boolean;
-    compactTools: boolean;
+  /** When present, triggers parts truncation for the completed stage. */
+  truncation?: {
+    minTruncationParts: number;
+    truncateText: boolean;
+    truncateReasoning: boolean;
+    truncateTools: boolean;
   };
 }
 

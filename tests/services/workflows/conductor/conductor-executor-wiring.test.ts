@@ -8,7 +8,7 @@
  *    bus events are emitted during execution.
  * 2. When `context.eventBus` is NOT provided, execution still works (no crash).
  * 3. `workflowId`, `sessionId`, `runId` are passed correctly to the conductor.
- * 4. `partsCompaction` is included in the config.
+ * 4. `partsTruncation` is included in the config.
  *
  * Strategy: Mock `initializeWorkflowExecutionSession` to avoid filesystem
  * side effects and return controlled IDs. Use the real
@@ -25,7 +25,7 @@ import type { BusEvent } from "@/services/events/bus-events/types.ts";
 import type { BusEventDataMap } from "@/services/events/bus-events/types.ts";
 import type { Session, AgentMessage } from "@/services/agents/types.ts";
 import { EventBus } from "@/services/events/event-bus.ts";
-import { createDefaultPartsCompactionConfig } from "@/state/parts/compaction.ts";
+import { createDefaultPartsTruncationConfig } from "@/state/parts/truncation.ts";
 
 // ---------------------------------------------------------------------------
 // Module mocks — avoid side effects from session-runtime and logging.
@@ -331,11 +331,11 @@ describe("executeConductorWorkflow — ConductorConfig wiring", () => {
   });
 
   // -----------------------------------------------------------------------
-  // 4. partsCompaction is included in the config
+  // 4. partsTruncation is included in the config
   // -----------------------------------------------------------------------
 
-  describe("partsCompaction config", () => {
-    test("workflow.step.complete events include compaction config for completed stages", async () => {
+  describe("partsTruncation config", () => {
+    test("workflow.step.complete events include truncation config for completed stages", async () => {
       const bus = new EventBus({ validatePayloads: false });
       const receivedEvents: BusEvent[] = [];
       bus.onAll((event) => receivedEvents.push(event));
@@ -350,12 +350,12 @@ describe("executeConductorWorkflow — ConductorConfig wiring", () => {
 
       const data = completeEvent.data as BusEventDataMap["workflow.step.complete"];
       expect(data.status).toBe("completed");
-      // The conductor attaches partsCompaction as `compaction` on completed stages
-      expect((data as any).compaction).toBeDefined();
+      // The conductor attaches partsTruncation as `truncation` on completed stages
+      expect((data as any).truncation).toBeDefined();
     });
 
-    test("compaction config matches createDefaultPartsCompactionConfig()", async () => {
-      const expected = createDefaultPartsCompactionConfig();
+    test("truncation config matches createDefaultPartsTruncationConfig()", async () => {
+      const expected = createDefaultPartsTruncationConfig();
 
       const bus = new EventBus({ validatePayloads: false });
       const receivedEvents: BusEvent[] = [];
@@ -368,10 +368,10 @@ describe("executeConductorWorkflow — ConductorConfig wiring", () => {
 
       const completeEvent = receivedEvents.find((e) => e.type === "workflow.step.complete")!;
       const data = completeEvent.data as any;
-      expect(data.compaction).toEqual(expected);
+      expect(data.truncation).toEqual(expected);
     });
 
-    test("compaction config has the expected default shape", async () => {
+    test("truncation config has the expected default shape", async () => {
       const bus = new EventBus({ validatePayloads: false });
       const receivedEvents: BusEvent[] = [];
       bus.onAll((event) => receivedEvents.push(event));
@@ -382,11 +382,11 @@ describe("executeConductorWorkflow — ConductorConfig wiring", () => {
       await executeConductorWorkflow(definition, "prompt", context);
 
       const completeEvent = receivedEvents.find((e) => e.type === "workflow.step.complete")!;
-      const compaction = (completeEvent.data as any).compaction;
-      expect(compaction.minCompactableParts).toBeGreaterThan(0);
-      expect(typeof compaction.compactText).toBe("boolean");
-      expect(typeof compaction.compactReasoning).toBe("boolean");
-      expect(typeof compaction.compactTools).toBe("boolean");
+      const truncation = (completeEvent.data as any).truncation;
+      expect(truncation.minTruncationParts).toBeGreaterThan(0);
+      expect(typeof truncation.truncateText).toBe("boolean");
+      expect(typeof truncation.truncateReasoning).toBe("boolean");
+      expect(typeof truncation.truncateTools).toBe("boolean");
     });
   });
 

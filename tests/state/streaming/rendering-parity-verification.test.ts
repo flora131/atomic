@@ -81,7 +81,7 @@ describe("§5.16 Rendering parity verification", () => {
         "skill-load",
         "mcp-snapshot",
         "agent-list",
-        "compaction",
+        "truncation",
         "task-result",
         "workflow-step",
       ];
@@ -295,7 +295,7 @@ describe("§5.16 Rendering parity verification", () => {
         "skill-load",
         "mcp-snapshot",
         "agent-list",
-        "compaction",
+        "truncation",
         "task-result",
         "workflow-step",
       ];

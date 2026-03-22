@@ -633,7 +633,7 @@ export class WorkflowSessionConductor {
     error?: string,
   ): void {
     if (!this.canDispatch) return;
-    const { dispatchEvent, workflowId, sessionId, runId, partsCompaction } = this.config;
+    const { dispatchEvent, workflowId, sessionId, runId, partsTruncation } = this.config;
     dispatchEvent!({
       type: "workflow.step.complete",
       sessionId: sessionId!,
@@ -646,7 +646,7 @@ export class WorkflowSessionConductor {
         status,
         durationMs,
         ...(error ? { error } : {}),
-        ...(partsCompaction && status === "completed" ? { compaction: partsCompaction } : {}),
+        ...(partsTruncation && status === "completed" ? { truncation: partsTruncation } : {}),
       },
     });
   }

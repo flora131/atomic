@@ -91,7 +91,7 @@ export function isConductorConfig(value: unknown): value is ConductorConfig {
     typeof obj.onTaskUpdate === "function" &&
     obj.abortSignal instanceof AbortSignal &&
     (obj.maxStageOutputBytes === undefined || typeof obj.maxStageOutputBytes === "number") &&
-    (obj.partsCompaction === undefined || (typeof obj.partsCompaction === "object" && obj.partsCompaction !== null))
+    (obj.partsTruncation === undefined || (typeof obj.partsTruncation === "object" && obj.partsTruncation !== null))
   );
 }
 

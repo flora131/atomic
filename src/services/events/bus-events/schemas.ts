@@ -175,11 +175,11 @@ export const BusEventSchemas = {
     status: z.enum(["completed", "error", "skipped"]),
     durationMs: z.number(),
     error: z.string().optional(),
-    compaction: z.object({
-      minCompactableParts: z.number(),
-      compactText: z.boolean(),
-      compactReasoning: z.boolean(),
-      compactTools: z.boolean(),
+    truncation: z.object({
+      minTruncationParts: z.number(),
+      truncateText: z.boolean(),
+      truncateReasoning: z.boolean(),
+      truncateTools: z.boolean(),
     }).optional(),
   }),
   "workflow.task.update": z.object({

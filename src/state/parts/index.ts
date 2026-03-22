@@ -17,7 +17,7 @@ export {
   type SkillLoadPart,
   type McpSnapshotPart,
   type AgentListPart,
-  type CompactionPart,
+  type TruncationPart,
   type TaskResultPart,
   type WorkflowStepPart,
   type Part,
@@ -57,9 +57,9 @@ export {
   finalizeStreamingTextParts,
 } from "@/state/parts/stream-pipeline.ts";
 export {
-  type PartsCompactionConfig,
-  type CompactionResult,
-  compactStageParts,
-  createDefaultPartsCompactionConfig,
-  DEFAULT_MIN_COMPACTABLE_PARTS,
-} from "@/state/parts/compaction.ts";
+  type PartsTruncationConfig,
+  type TruncationResult,
+  truncateStageParts,
+  createDefaultPartsTruncationConfig,
+  DEFAULT_MIN_TRUNCATION_PARTS,
+} from "@/state/parts/truncation.ts";

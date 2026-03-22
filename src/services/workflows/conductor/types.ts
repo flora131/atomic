@@ -19,7 +19,7 @@ import type { BaseState, CompiledGraph } from "@/services/workflows/graph/types.
 import type { Session, SessionConfig } from "@/services/agents/types.ts";
 import type { TaskItem } from "@/services/workflows/ralph/prompts.ts";
 import type { BusEvent, BusEventType } from "@/services/events/bus-events/types.ts";
-import type { PartsCompactionConfig } from "@/state/parts/compaction.ts";
+import type { PartsTruncationConfig } from "@/state/parts/truncation.ts";
 
 // ---------------------------------------------------------------------------
 // Stage Output Status
@@ -475,21 +475,21 @@ export interface ConductorConfig {
   ) => void;
 
   // -------------------------------------------------------------------------
-  // Parts Compaction (optional — reclaims memory on stage completion)
+  // Parts Truncation (optional — reclaims memory on stage completion)
   // -------------------------------------------------------------------------
 
   /**
-   * Configuration for parts compaction on stage completion.
+   * Configuration for parts truncation on stage completion.
    *
-   * When provided, the conductor includes the compaction config in
+   * When provided, the conductor includes the truncation config in
    * `workflow.step.complete` bus events. The pipeline's
-   * `upsertWorkflowStepComplete` handler then compacts verbose parts
+   * `upsertWorkflowStepComplete` handler then truncates verbose parts
    * (tools, reasoning, text) belonging to the completed stage into a
-   * single `CompactionPart` summary, reducing memory pressure.
+   * single `TruncationPart` summary, reducing memory pressure.
    *
-   * When omitted, no parts compaction is performed (backward compatible).
+   * When omitted, no parts truncation is performed (backward compatible).
    */
-  readonly partsCompaction?: PartsCompactionConfig;
+  readonly partsTruncation?: PartsTruncationConfig;
 }
 
 // ---------------------------------------------------------------------------

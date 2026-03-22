@@ -45,7 +45,7 @@ registry.register("workflow.step.complete", {
       status: data.status,
       durationMs: data.durationMs,
       ...(data.error ? { error: data.error } : {}),
-      ...(data.compaction ? { compaction: data.compaction } : {}),
+      ...(data.truncation ? { truncation: data.truncation } : {}),
     };
   },
 });

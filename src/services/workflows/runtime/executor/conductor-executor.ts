@@ -27,7 +27,7 @@ import {
   incrementRuntimeParityCounter,
   runtimeParityDebug,
 } from "@/services/workflows/runtime-parity-observability.ts";
-import { createDefaultPartsCompactionConfig } from "@/state/parts/compaction.ts";
+import { createDefaultPartsTruncationConfig } from "@/state/parts/truncation.ts";
 import { createTaskUpdatePublisher } from "@/services/workflows/conductor/event-bridge.ts";
 import { initializeWorkflowExecutionSession } from "./session-runtime.ts";
 import { compileGraphConfig } from "./graph-helpers.ts";
@@ -209,8 +209,8 @@ export async function executeConductorWorkflow(
       sessionId,
       runId: workflowRunId,
 
-      // --- Parts compaction (reclaims memory on stage completion) ---
-      partsCompaction: createDefaultPartsCompactionConfig(),
+      // --- Parts truncation (reclaims memory on stage completion) ---
+      partsTruncation: createDefaultPartsTruncationConfig(),
 
       // TODO: Wire contextPressure config once session.getContextUsage() is available
       // on sessions created via context.createAgentSession

@@ -1,27 +1,27 @@
 /**
- * CompactionPartDisplay Component
+ * TruncationPartDisplay Component
  *
- * Renders a compaction summary banner.
+ * Renders a truncation summary banner.
  */
 
 import React from "react";
-import type { CompactionPart } from "@/state/parts/types.ts";
+import type { TruncationPart } from "@/state/parts/types.ts";
 import { useThemeColors } from "@/theme/index.tsx";
 import { MISC } from "@/theme/icons.ts";
 import { SPACING } from "@/theme/spacing.ts";
 
-export interface CompactionPartDisplayProps {
-  part: CompactionPart;
+export interface TruncationPartDisplayProps {
+  part: TruncationPart;
   isLast: boolean;
 }
 
-export function CompactionPartDisplay({ part }: CompactionPartDisplayProps): React.ReactNode {
+export function TruncationPartDisplay({ part }: TruncationPartDisplayProps): React.ReactNode {
   const colors = useThemeColors();
 
   return (
     <box flexDirection="column">
       <text fg={colors.muted}>
-        {`${MISC.separator} Conversation compacted ${MISC.separator}`}
+        {`${MISC.separator} Visible conversation truncated ${MISC.separator}`}
       </text>
       {part.summary && (
         <box marginLeft={SPACING.INDENT}>
@@ -32,4 +32,4 @@ export function CompactionPartDisplay({ part }: CompactionPartDisplayProps): Rea
   );
 }
 
-export default CompactionPartDisplay;
+export default TruncationPartDisplay;

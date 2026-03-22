@@ -78,9 +78,14 @@ export function useChatRenderModel({
           // agents (the streaming or last-streamed message). Passing it to all
           // messages causes completed workflow stages to re-show their spinner
           // when a subsequent stage launches background agents.
+          //
+          // lastStreamedMessageId should only grant ownership when there is no
+          // active streaming message — once a new workflow stage starts streaming
+          // on a fresh message, the previous stage's completed message must not
+          // inherit the new stage's background-agent count.
           const isAgentOwner = msg.id === streamingMessageId
-            || msg.id === lastStreamedMessageId
-            || msg.id === backgroundAgentMessageId;
+            || msg.id === backgroundAgentMessageId
+            || (msg.id === lastStreamedMessageId && !streamingMessageId);
           const scopedBgAgentCount = isAgentOwner ? activeBackgroundAgentCount : 0;
           const showLive = shouldShowMessageLoadingIndicator(msg, liveTaskItems, scopedBgAgentCount);
           const scopedStreamingMeta = showLive

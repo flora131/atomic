@@ -228,13 +228,15 @@ export function buildClaudeSdkOptions(args: {
             registeredHooks as Record<string, NonNullable<ClaudeHookConfig[keyof ClaudeHookConfig]>>,
         ),
         includePartialMessages: true,
-        systemPrompt: args.config.additionalInstructions
-            ? {
-                  type: "preset",
-                  preset: "claude_code",
-                  append: args.config.additionalInstructions,
-              }
-            : { type: "preset", preset: "claude_code" },
+        systemPrompt: args.config.systemPrompt
+            ? args.config.systemPrompt
+            : args.config.additionalInstructions
+              ? {
+                    type: "preset",
+                    preset: "claude_code",
+                    append: args.config.additionalInstructions,
+                }
+              : { type: "preset", preset: "claude_code" },
         pathToClaudeCodeExecutable: args.executablePath,
     };
 

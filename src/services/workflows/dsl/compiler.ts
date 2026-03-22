@@ -102,6 +102,11 @@ export function validateInstructions(instructions: Instruction[]): void {
         }
         loopDepth--;
         break;
+      case "break":
+        if (loopDepth === 0) {
+          throw new Error('"break" can only be used inside a loop');
+        }
+        break;
     }
   }
   if (ifDepth > 0) {
@@ -269,6 +274,7 @@ interface LoopContext {
   readonly loopStartNodeId: string;
   readonly loopCheckNodeId: string;
   readonly config: LoopConfig;
+  readonly breakNodeIds: string[];
 }
 
 interface GraphBuildResult {
@@ -377,23 +383,72 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
           loopStartNodeId: loopStartId,
           loopCheckNodeId: loopCheckId,
           config: instruction.config,
+          breakNodeIds: [],
         });
         previousNodeId = loopStartId;
         break;
       }
 
       case "endLoop": {
-        const ctx = loopStack.pop()!;
-        if (previousNodeId !== null) {
-          edges.push({ from: previousNodeId, to: ctx.loopCheckNodeId });
-        }
+        const loopCtx = loopStack.pop()!;
+
+        // Connect last body node to loop check
+        connectPrevious(loopCtx.loopCheckNodeId);
+
+        // Create closure variables for loop termination.
+        // The back-edge condition increments and evaluates; the exit-edge
+        // reads the cached result so both are mutually exclusive.
+        let iterationCount = 0;
+        let shouldContinue = false;
+
+        // Back-edge: continue looping (evaluated first by the conductor
+        // because it appears earlier in the edges array).
         edges.push({
-          from: ctx.loopCheckNodeId,
-          to: ctx.loopStartNodeId,
-          condition: () => true,
+          from: loopCtx.loopCheckNodeId,
+          to: loopCtx.loopStartNodeId,
+          condition: (state: BaseState) => {
+            iterationCount++;
+            shouldContinue =
+              !loopCtx.config.until(state) &&
+              iterationCount < loopCtx.config.maxCycles;
+            return shouldContinue;
+          },
           label: "loop_continue",
         });
-        previousNodeId = ctx.loopCheckNodeId;
+
+        // Create exit decision node
+        const exitNodeId = `__loop_exit_${nodeCounter++}`;
+        addDecisionNode(exitNodeId);
+
+        // Exit edge: leave loop (evaluated second, uses cached result)
+        edges.push({
+          from: loopCtx.loopCheckNodeId,
+          to: exitNodeId,
+          condition: () => !shouldContinue,
+          label: "loop_exit",
+        });
+
+        // Connect break nodes to exit (unconditional)
+        for (const breakId of loopCtx.breakNodeIds) {
+          edges.push({ from: breakId, to: exitNodeId });
+        }
+
+        previousNodeId = exitNodeId;
+        break;
+      }
+
+      case "break": {
+        const currentLoop = loopStack[loopStack.length - 1]!;
+        const breakNodeId = `__break_${nodeCounter++}`;
+        addDecisionNode(breakNodeId);
+        connectPrevious(breakNodeId);
+        currentLoop.breakNodeIds.push(breakNodeId);
+        // Code after break in the same block is unreachable at runtime
+        // because the break node routes unconditionally to the loop exit.
+        // Setting previousNodeId here allows subsequent instructions to
+        // still be wired into the graph (they just won't be reached when
+        // the break path is taken).
+        previousNodeId = breakNodeId;
         break;
       }
     }

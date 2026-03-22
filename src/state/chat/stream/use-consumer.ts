@@ -15,7 +15,7 @@ import {
   shouldProcessStreamPartEvent,
 } from "@/state/chat/shared/helpers/index.ts";
 import { joinThinkingBlocks } from "@/lib/ui/format.ts";
-import { createStreamPartBatch, applyStreamPartBatchToMessages } from "@/state/chat/stream/part-batch.ts";
+import { createStreamPartBatch, applyStreamPartBatchToMessages, applyWorkflowStepCompleteByNodeScan } from "@/state/chat/stream/part-batch.ts";
 import { useChatStreamAgentOrdering } from "@/state/chat/stream/use-agent-ordering.ts";
 import { useChatStreamToolEvents } from "@/state/chat/stream/use-tool-events.ts";
 
@@ -342,6 +342,14 @@ export function useChatStreamConsumer({
       }
       if (isRuntimeEnvelopePartEvent(part)) {
         if (part.type === "task-result-upsert") continue;
+        // workflow-step-complete events must be routed to the message containing
+        // the matching WorkflowStepPart, not the current streaming message.
+        // Due to batched dispatching, streamingMessageIdRef may already point
+        // to the NEXT stage's message by the time this event is processed.
+        if (part.type === "workflow-step-complete") {
+          applyWorkflowStepCompleteByNodeScan(part, setMessagesWindowed);
+          continue;
+        }
         const messageId = resolveAgentScopedMessageId();
         if (!messageId) continue;
         queueMessagePartUpdate(messageId, part);

@@ -1,19 +1,10 @@
 import React from "react";
 import type { WorkflowStepPart } from "@/state/parts/types.ts";
 import { useThemeColors } from "@/theme/index.tsx";
-import { STATUS } from "@/theme/icons.ts";
-
 export interface WorkflowStepPartDisplayProps {
   part: WorkflowStepPart;
   isLast: boolean;
 }
-
-const STATUS_ICONS: Record<WorkflowStepPart["status"], string> = {
-  running: STATUS.active,
-  completed: STATUS.success,
-  error: STATUS.error,
-  skipped: STATUS.pending,
-};
 
 function useStatusColor(status: WorkflowStepPart["status"]): string {
   const colors = useThemeColors();
@@ -44,7 +35,6 @@ function formatDuration(ms: number): string {
 export function WorkflowStepPartDisplay({ part }: WorkflowStepPartDisplayProps): React.ReactNode {
   const colors = useThemeColors();
   const statusColor = useStatusColor(part.status);
-  const icon = STATUS_ICONS[part.status];
 
   const durationLabel =
     part.status === "completed" && part.durationMs !== undefined
@@ -55,8 +45,6 @@ export function WorkflowStepPartDisplay({ part }: WorkflowStepPartDisplayProps):
     <box flexDirection="row" gap={1}>
       <text fg={statusColor}>│</text>
       <text>
-        <span fg={statusColor}>{icon}</span>
-        {" "}
         <span fg={statusColor}>
           <strong>{part.nodeName.toUpperCase()}</strong>
         </span>

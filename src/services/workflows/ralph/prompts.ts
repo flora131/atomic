@@ -335,6 +335,7 @@ export function buildReviewPrompt(
     tasks: TaskItem[],
     userPrompt: string,
     progressFilePath: string,
+    priorDebuggerOutput?: string,
 ): string {
     const completedTasks = tasks
         .filter((t) => isCompletedStatus(t.status))
@@ -415,7 +416,19 @@ Produce your review findings in the following JSON format:
 - Include exact file paths and line ranges when referencing code
 - Use confidence scores to indicate how certain you are about each finding
 - Set overall_correctness to "patch is incorrect" only if there are P0 or P1 issues that prevent the feature from working correctly
+${
+    priorDebuggerOutput
+        ? `
+## Prior Debugging Context
 
+The following fixes were applied by the debugger in the previous iteration. Pay special attention to whether these fixes actually resolved the issues they targeted, and whether they introduced any regressions:
+
+<prior_debugger_output>
+${priorDebuggerOutput}
+</prior_debugger_output>
+`
+        : ""
+}
 Begin your review now.`;
 }
 

@@ -129,7 +129,55 @@ defineWorkflow("stateful", "Workflow with custom state")
 
 Built-in reducers: `replace` (default), `concat`, `merge`, `mergeById`, `max`, `min`, `sum`, `or`, `and`. You can also pass a custom function: `reducer: (current, update) => ...`.
 
-## 6) Data flow declarations
+## 6) Session configuration
+
+By default, each stage inherits the parent session's configuration — model, reasoning effort, thinking token budget, permission mode, and additional instructions all carry forward automatically. Use `sessionConfig` on a stage to override any of these per stage:
+
+```ts
+.stage("planner", {
+  name: "Planner",
+  description: "PLANNER",
+  prompt: (ctx) => `Plan: ${ctx.userPrompt}`,
+  outputMapper: (response) => ({ tasks: parseTasks(response) }),
+  // Override the model for this stage only
+  sessionConfig: { model: "claude-sonnet-4-5-20250514" },
+})
+.stage("executor", {
+  name: "Executor",
+  description: "EXECUTOR",
+  prompt: (ctx) => `Execute: ${JSON.stringify(ctx.stageOutputs.get("planner")?.parsedOutput)}`,
+  outputMapper: () => ({}),
+  // Uses the parent session's model (inherited automatically)
+})
+.stage("reviewer", {
+  name: "Reviewer",
+  description: "REVIEWER",
+  prompt: (ctx) => `Review: ${ctx.userPrompt}`,
+  outputMapper: (response) => ({ reviewResult: JSON.parse(response) }),
+  // Use a reasoning model with custom effort for review
+  sessionConfig: {
+    model: "claude-opus-4-20250514",
+    reasoningEffort: "high",
+    maxThinkingTokens: 32000,
+  },
+})
+```
+
+Available `sessionConfig` fields:
+
+| Field                    | Description                                           |
+| ------------------------ | ----------------------------------------------------- |
+| `model`                  | Model ID to use for this stage                        |
+| `reasoningEffort`        | Reasoning level (`"low"`, `"medium"`, `"high"`)       |
+| `maxThinkingTokens`      | Extended thinking token budget                        |
+| `additionalInstructions` | Extra system instructions appended to the prompt      |
+| `permissionMode`         | Tool permission mode (`"auto"`, `"prompt"`, `"deny"`) |
+| `agentMode`              | OpenCode agent mode                                   |
+| `maxTurns`               | Maximum conversation turns for this stage             |
+
+When a field is omitted, the user's current session config is used. When a field is explicitly set, it overrides the parent for that stage only.
+
+## 7) Data flow declarations
 
 Each node declares which state fields it **reads** and which it **outputs**:
 
@@ -152,7 +200,7 @@ These declarations are contracts used for Z3 verification:
 })
 ```
 
-## 7) Discovery and registration
+## 8) Discovery and registration
 
 Custom workflow files are discovered from:
 
@@ -173,7 +221,7 @@ export default defineWorkflow("my-workflow", "My custom workflow")
 
 The `.compile()` result is a `WorkflowDefinition` that can be used directly — no unwrapping needed.
 
-## 8) Z3 verification
+## 9) Z3 verification
 
 All workflows are verified at load time for structural correctness:
 
@@ -233,7 +281,7 @@ Workflows that fail verification at startup are rejected with a warning:
 
 The verifier exits with code 1 on any failure, making it suitable for CI pipelines.
 
-## 9) Migration from legacy API
+## 10) Migration from legacy API
 
 | Legacy API                          | New DSL                              |
 | ----------------------------------- | ------------------------------------ |

@@ -16,6 +16,7 @@
 
 import { defineWorkflow } from "@/services/workflows/dsl/define-workflow.ts";
 import type { StageOutput } from "@/services/workflows/conductor/types.ts";
+import type { BaseState } from "@/services/workflows/graph/types.ts";
 import {
   buildSpecToTasksPrompt,
   buildOrchestratorPrompt,
@@ -62,6 +63,51 @@ function hasActionableFindings(
     return true;
   }
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// Review Loop Terminator
+// ---------------------------------------------------------------------------
+
+/**
+ * Factory that creates a stateful predicate for terminating the
+ * reviewer↔debugger loop. The returned closure tracks **consecutive
+ * clean reviews** — reviews where `hasActionableFindings` returns
+ * `false`.
+ *
+ * - When the review is clean: increment the counter. If the counter
+ *   reaches `threshold`, return `true` (terminate the loop).
+ * - When the review has actionable findings: reset the counter to 0
+ *   and return `false` (continue the loop).
+ *
+ * Designed to be passed as the `until` callback in a `LoopConfig`.
+ *
+ * @param threshold - Number of consecutive clean reviews required
+ *   before the loop terminates. Defaults to `2`.
+ * @returns A `(state: BaseState) => boolean` predicate compatible
+ *   with `LoopConfig.until`.
+ */
+export function createReviewLoopTerminator(
+  threshold: number = 2,
+): (state: BaseState) => boolean {
+  let consecutiveCleanCount = 0;
+
+  return (state: BaseState): boolean => {
+    // Reconstruct a ReadonlyMap<string, StageOutput> from BaseState.outputs
+    // so we can reuse the existing hasActionableFindings helper.
+    // The conductor stores StageOutput values in state.outputs keyed by stage ID.
+    const stageOutputs = new Map<string, StageOutput>(
+      Object.entries(state.outputs) as Array<[string, StageOutput]>,
+    );
+
+    if (hasActionableFindings(stageOutputs)) {
+      consecutiveCleanCount = 0;
+      return false;
+    }
+
+    consecutiveCleanCount++;
+    return consecutiveCleanCount >= threshold;
+  };
 }
 
 // ---------------------------------------------------------------------------

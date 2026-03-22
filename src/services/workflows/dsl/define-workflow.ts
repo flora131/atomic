@@ -78,6 +78,7 @@ export class WorkflowBuilder implements WorkflowBuilderInterface {
   private _version: string | undefined;
   private _argumentHint: string | undefined;
   private _stateSchema: Record<string, StateFieldConfig> | undefined;
+  private loopDepth: number = 0;
 
   constructor(name: string, description: string) {
     this.name = name;
@@ -173,16 +174,33 @@ export class WorkflowBuilder implements WorkflowBuilderInterface {
   /**
    * Begin a bounded loop.
    * Instructions between `.loop()` and `.endLoop()` repeat until the
-   * `until` predicate returns `true` or `maxIterations` is reached.
+   * `until` predicate returns `true` or `maxCycles` is reached.
    */
   loop(config: LoopConfig): this {
+    this.loopDepth++;
     this.instructions.push({ type: "loop", config });
     return this;
   }
 
   /** Close the current loop block. */
   endLoop(): this {
+    if (this.loopDepth === 0) {
+      throw new Error("endLoop() called without a matching loop()");
+    }
+    this.loopDepth--;
     this.instructions.push({ type: "endLoop" });
+    return this;
+  }
+
+  /**
+   * Break out of the current loop immediately.
+   * Must be used inside a `.loop()` / `.endLoop()` block.
+   */
+  break(): this {
+    if (this.loopDepth === 0) {
+      throw new Error("break() can only be used inside a loop() block");
+    }
+    this.instructions.push({ type: "break" });
     return this;
   }
 

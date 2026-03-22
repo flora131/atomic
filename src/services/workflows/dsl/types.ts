@@ -132,7 +132,7 @@ export interface ToolConfig {
  * Configuration for a bounded loop construct.
  *
  * Loops repeat all instructions between `.loop()` and `.endLoop()`
- * until the `until` predicate returns `true` or `maxIterations` is
+ * until the `until` predicate returns `true` or `maxCycles` is
  * reached, whichever comes first.
  */
 export interface LoopConfig {
@@ -140,13 +140,13 @@ export interface LoopConfig {
    * Predicate evaluated before each iteration. The loop terminates
    * when this returns `true`.
    */
-  readonly until: (context: StageContext) => boolean;
+  readonly until: (state: BaseState) => boolean;
 
   /**
    * Hard upper bound on the number of iterations. Prevents runaway
    * loops even when the `until` predicate never returns `true`.
    */
-  readonly maxIterations: number;
+  readonly maxCycles: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -228,7 +228,8 @@ export type Instruction =
   | { readonly type: "else" }
   | { readonly type: "endIf" }
   | { readonly type: "loop"; readonly config: LoopConfig }
-  | { readonly type: "endLoop" };
+  | { readonly type: "endLoop" }
+  | { readonly type: "break" };
 
 // ---------------------------------------------------------------------------
 // Compiled Workflow — opaque branded output
@@ -341,12 +342,18 @@ export interface WorkflowBuilderInterface {
   /**
    * Begin a bounded loop.
    * Instructions between `.loop()` and `.endLoop()` repeat until the
-   * `until` predicate returns `true` or `maxIterations` is reached.
+   * `until` predicate returns `true` or `maxCycles` is reached.
    */
   loop(config: LoopConfig): this;
 
   /** Close the current loop block. */
   endLoop(): this;
+
+  /**
+   * Break out of the current loop immediately.
+   * Must be used inside a `.loop()` / `.endLoop()` block.
+   */
+  break(): this;
 
   // -- Terminal -------------------------------------------------------------
 

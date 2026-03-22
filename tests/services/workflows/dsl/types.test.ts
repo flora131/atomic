@@ -150,18 +150,18 @@ describe("ToolConfig", () => {
 describe("LoopConfig", () => {
   test("accepts a valid loop config", () => {
     const config: LoopConfig = {
-      until: (_ctx: StageContext) => true,
-      maxIterations: 5,
+      until: (_state: BaseState) => true,
+      maxCycles: 5,
     };
 
     expect(typeof config.until).toBe("function");
-    expect(config.maxIterations).toBe(5);
+    expect(config.maxCycles).toBe(5);
   });
 
-  test("until predicate receives StageContext", () => {
+  test("until predicate receives BaseState", () => {
     const config: LoopConfig = {
-      until: (ctx) => ctx.stageOutputs.has("reviewer"),
-      maxIterations: 3,
+      until: (state) => "reviewer" in state.outputs,
+      maxCycles: 3,
     };
 
     expect(typeof config.until).toBe("function");
@@ -308,12 +308,12 @@ describe("Instruction", () => {
       type: "loop",
       config: {
         until: () => true,
-        maxIterations: 10,
+        maxCycles: 10,
       },
     };
 
     assertInstructionType(instruction, "loop");
-    expect(instruction.config.maxIterations).toBe(10);
+    expect(instruction.config.maxCycles).toBe(10);
   });
 
   test("endLoop instruction has no extra fields", () => {
@@ -331,13 +331,14 @@ describe("Instruction", () => {
       { type: "elseIf", condition: () => false },
       { type: "else" },
       { type: "endIf" },
-      { type: "loop", config: { until: () => true, maxIterations: 1 } },
+      { type: "loop", config: { until: () => true, maxCycles: 1 } },
       { type: "endLoop" },
+      { type: "break" },
     ];
 
     const types = instructions.map((i) => i.type);
     expect(types).toEqual([
-      "stage", "tool", "if", "elseIf", "else", "endIf", "loop", "endLoop",
+      "stage", "tool", "if", "elseIf", "else", "endIf", "loop", "endLoop", "break",
     ]);
   });
 });
@@ -378,6 +379,7 @@ describe("WorkflowBuilderInterface", () => {
       endIf() { return this; },
       loop(_config: LoopConfig) { return this; },
       endLoop() { return this; },
+      break() { return this; },
       compile() { return { name: "mock", description: "mock", __compiledWorkflow: true } as CompiledWorkflow; },
     };
 
@@ -411,7 +413,7 @@ describe("WorkflowBuilderInterface", () => {
           outputMapper: () => ({}),
         })
       .endIf()
-      .loop({ until: () => true, maxIterations: 3 })
+      .loop({ until: () => true, maxCycles: 3 })
         .stage("s4", {
           name: "Stage 4",
           description: "Loop stage",

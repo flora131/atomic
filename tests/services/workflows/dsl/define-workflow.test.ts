@@ -56,7 +56,7 @@ function makeToolConfig(overrides?: Partial<ToolConfig>): ToolConfig {
 function makeLoopConfig(overrides?: Partial<LoopConfig>): LoopConfig {
   return {
     until: () => true,
-    maxIterations: 5,
+    maxCycles: 5,
     ...overrides,
   };
 }
@@ -326,7 +326,7 @@ describe("WorkflowBuilder conditional branching", () => {
 
 describe("WorkflowBuilder bounded loops", () => {
   test("loop() records a loop instruction with config", () => {
-    const config = makeLoopConfig({ maxIterations: 10 });
+    const config = makeLoopConfig({ maxCycles: 10 });
     const builder = defineWorkflow("w", "d").loop(config);
 
     expect(builder.instructions.length).toBe(1);
@@ -364,13 +364,95 @@ describe("WorkflowBuilder bounded loops", () => {
 
   test("loop with body records correct instruction sequence", () => {
     const builder = defineWorkflow("w", "d")
-      .loop(makeLoopConfig({ maxIterations: 3 }))
+      .loop(makeLoopConfig({ maxCycles: 3 }))
       .stage("review", makeStageConfig())
       .tool("check", makeToolConfig())
       .endLoop();
 
     const types = builder.instructions.map((i) => i.type);
     expect(types).toEqual(["loop", "stage", "tool", "endLoop"]);
+  });
+
+  test("endLoop() throws when called outside a loop", () => {
+    const builder = defineWorkflow("w", "d");
+
+    expect(() => builder.endLoop()).toThrow(
+      "endLoop() called without a matching loop()",
+    );
+  });
+
+  test("endLoop() throws after all loops are closed", () => {
+    const builder = defineWorkflow("w", "d")
+      .loop(makeLoopConfig())
+      .endLoop();
+
+    expect(() => builder.endLoop()).toThrow(
+      "endLoop() called without a matching loop()",
+    );
+  });
+
+  test("break() records a break instruction inside a loop", () => {
+    const builder = defineWorkflow("w", "d")
+      .loop(makeLoopConfig())
+      .break()
+      .endLoop();
+
+    const types = builder.instructions.map((i) => i.type);
+    expect(types).toEqual(["loop", "break", "endLoop"]);
+  });
+
+  test("break() returns this for chaining", () => {
+    const builder = defineWorkflow("w", "d").loop(makeLoopConfig());
+    const result = builder.break();
+
+    expect(result).toBe(builder);
+  });
+
+  test("break() throws when called outside a loop", () => {
+    const builder = defineWorkflow("w", "d");
+
+    expect(() => builder.break()).toThrow(
+      "break() can only be used inside a loop() block",
+    );
+  });
+
+  test("break() works inside nested loops", () => {
+    const builder = defineWorkflow("w", "d")
+      .loop(makeLoopConfig())
+        .stage("outer", makeStageConfig())
+        .loop(makeLoopConfig())
+          .break()
+        .endLoop()
+        .break()
+      .endLoop();
+
+    const types = builder.instructions.map((i) => i.type);
+    expect(types).toEqual([
+      "loop", "stage", "loop", "break", "endLoop", "break", "endLoop",
+    ]);
+  });
+
+  test("break() throws after all loops are closed", () => {
+    const builder = defineWorkflow("w", "d")
+      .loop(makeLoopConfig())
+      .endLoop();
+
+    expect(() => builder.break()).toThrow(
+      "break() can only be used inside a loop() block",
+    );
+  });
+
+  test("loop with break and conditional records correct instruction sequence", () => {
+    const builder = defineWorkflow("w", "d")
+      .loop(makeLoopConfig())
+        .stage("review", makeStageConfig())
+        .if(() => true)
+          .break()
+        .endIf()
+      .endLoop();
+
+    const types = builder.instructions.map((i) => i.type);
+    expect(types).toEqual(["loop", "stage", "if", "break", "endIf", "endLoop"]);
   });
 });
 
@@ -532,8 +614,8 @@ describe("WorkflowBuilder fluent chaining", () => {
         .stage("executor", makeStageConfig({ name: "Executor" }))
         .tool("parser", makeToolConfig({ name: "Output Parser" }))
         .loop({
-          until: (ctx) => ctx.stageOutputs.has("reviewer"),
-          maxIterations: 3,
+          until: (state) => "reviewer" in state.outputs,
+          maxCycles: 3,
         })
           .stage("reviewer", makeStageConfig({ name: "Reviewer" }))
           .if((ctx) => !ctx.stageOutputs.has("reviewer"))
@@ -614,6 +696,7 @@ describe("WorkflowBuilder interface conformance", () => {
     expect(typeof builder.endIf).toBe("function");
     expect(typeof builder.loop).toBe("function");
     expect(typeof builder.endLoop).toBe("function");
+    expect(typeof builder.break).toBe("function");
     expect(typeof builder.compile).toBe("function");
   });
 
@@ -631,6 +714,7 @@ describe("WorkflowBuilder interface conformance", () => {
       .else()
       .endIf()
       .loop(makeLoopConfig())
+      .break()
       .endLoop();
 
     expect(chained).toBe(builder);

@@ -294,9 +294,15 @@ when multiple tasks are ready simultaneously.
 
 ## Task Status Protocol
 
-- BEFORE spawning a sub-agent for a task, report the task as "in_progress"
-  using the TodoWrite tool.
-- AFTER a sub-agent completes, report the task as "completed" or "error".
+- BEFORE spawning a sub-agent for a task, call the TodoWrite tool to set that
+  task's status to "in_progress".
+- AFTER a sub-agent completes successfully, call the TodoWrite tool to set
+  that task's status to "completed".
+- AFTER a sub-agent fails, call the TodoWrite tool to set that task's status
+  to "error".
+- Each TodoWrite call MUST include the FULL task list with current statuses —
+  not just the changed task. This is a snapshot-based API: every call replaces
+  the entire list.
 - This ensures the UI shows real-time progress for all active tasks.`;
 }
 

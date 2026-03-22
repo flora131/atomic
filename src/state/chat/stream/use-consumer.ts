@@ -63,6 +63,7 @@ export interface UseChatStreamConsumerArgs {
   todoItemsRef: RefObject<NormalizedTodoItem[]>;
   toolMessageIdByIdRef: RefObject<Map<string, string>>;
   toolNameByIdRef: RefObject<Map<string, string>>;
+  workflowSessionDirRef: RefObject<string | null>;
   workflowSessionIdRef: RefObject<string | null>;
 }
 
@@ -102,6 +103,7 @@ export function useChatStreamConsumer({
   todoItemsRef,
   toolMessageIdByIdRef,
   toolNameByIdRef,
+  workflowSessionDirRef,
   workflowSessionIdRef,
 }: UseChatStreamConsumerArgs) {
   const { handleToolComplete, handleToolStart } = useChatStreamToolEvents({
@@ -124,6 +126,7 @@ export function useChatStreamConsumer({
     todoItemsRef,
     toolMessageIdByIdRef,
     toolNameByIdRef,
+    workflowSessionDirRef,
     workflowSessionIdRef,
   });
   const { handleAgentTerminalPart, handleTextDeltaOrdering } = useChatStreamAgentOrdering({

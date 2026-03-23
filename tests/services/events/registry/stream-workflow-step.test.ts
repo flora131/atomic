@@ -7,8 +7,8 @@
  * 2. Map BusEvents to WorkflowStepStartEvent / WorkflowStepCompleteEvent StreamPartEvents
  */
 
-import { describe, expect, test, beforeEach } from "bun:test";
-import { EventHandlerRegistry, setEventHandlerRegistry } from "@/services/events/registry/registry.ts";
+import { describe, expect, test, beforeEach, afterEach } from "bun:test";
+import { EventHandlerRegistry, getEventHandlerRegistry, setEventHandlerRegistry } from "@/services/events/registry/registry.ts";
 import type { BusEvent, EnrichedBusEvent, BusEventDataMap } from "@/services/events/bus-events/types.ts";
 import type { StreamPartContext } from "@/services/events/registry/types.ts";
 import type { WorkflowStepStartEvent, WorkflowStepCompleteEvent } from "@/state/streaming/pipeline-types.ts";
@@ -49,8 +49,10 @@ const stubContext: StreamPartContext = {
 
 describe("stream-workflow-step handler descriptors", () => {
   let registry: EventHandlerRegistry;
+  let originalRegistry: EventHandlerRegistry;
 
   beforeEach(() => {
+    originalRegistry = getEventHandlerRegistry();
     registry = new EventHandlerRegistry();
     setEventHandlerRegistry(registry);
     // Manually register the same descriptors as stream-workflow-step.ts
@@ -89,6 +91,10 @@ describe("stream-workflow-step handler descriptors", () => {
         };
       },
     });
+  });
+
+  afterEach(() => {
+    setEventHandlerRegistry(originalRegistry);
   });
 
   describe("workflow.step.start", () => {

@@ -32,6 +32,7 @@ import {
 } from "@/services/system/download.ts";
 import { cleanupBunTempNativeAddons } from "@/services/system/cleanup.ts";
 import { trackAtomicCommand } from "@/services/telemetry/index.ts";
+import { installWorkflowSdk, getGlobalWorkflowsDir } from "@/services/config/workflow-package.ts";
 
 /**
  * Parse a version string into its components.
@@ -296,27 +297,21 @@ export async function updateCommand(): Promise<void> {
       await syncAtomicGlobalAgentConfigs(dataDir);
       s.stop("Config files updated");
 
-      // Update @bastani/atomic-workflows SDK globally (pin to exact version)
+      // Update @bastani/atomic-workflows SDK in global workflows directory
       s.start("Updating @bastani/atomic-workflows SDK...");
       const sdkTag = usePrerelease ? "next" : "latest";
-      const sdkVersion = `@bastani/atomic-workflows@${targetVersionNum}`;
-      const sdkResult = Bun.spawnSync(["bun", "install", "-g", sdkVersion], {
-        stdout: "ignore",
-        stderr: "pipe",
-      });
-      if (sdkResult.exitCode === 0) {
+      const globalWorkflowsDir = getGlobalWorkflowsDir();
+      const sdkInstalled = await installWorkflowSdk(globalWorkflowsDir, targetVersionNum);
+      if (sdkInstalled) {
         s.stop(`Workflow SDK updated to ${targetVersionNum}`);
       } else {
         // Fallback to tag-based install if exact version not yet published
-        const sdkFallback = Bun.spawnSync(["bun", "install", "-g", `@bastani/atomic-workflows@${sdkTag}`], {
-          stdout: "ignore",
-          stderr: "pipe",
-        });
-        if (sdkFallback.exitCode === 0) {
+        const sdkFallbackInstalled = await installWorkflowSdk(globalWorkflowsDir, sdkTag);
+        if (sdkFallbackInstalled) {
           s.stop("Workflow SDK updated");
         } else {
           s.stop("Workflow SDK update failed");
-          log.warn(`Could not update @bastani/atomic-workflows SDK. Run manually: bun install -g ${sdkVersion}`);
+          log.warn(`Could not update @bastani/atomic-workflows SDK. Run manually: cd ${globalWorkflowsDir} && bun add @bastani/atomic-workflows@${targetVersionNum}`);
         }
       }
 

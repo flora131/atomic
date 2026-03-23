@@ -33,6 +33,7 @@ import type {
   Instruction,
   StageOptions,
   ToolOptions,
+  AskUserQuestionOptions,
   LoopOptions,
   StateFieldOptions,
   CompiledWorkflow,
@@ -132,6 +133,25 @@ export class WorkflowBuilder implements WorkflowBuilderInterface {
     }
     this.nodeNames.add(options.name);
     this.instructions.push({ type: "tool", id: options.name, config: options });
+    return this;
+  }
+
+  /**
+   * Add a human-in-the-loop question node to the workflow.
+   * Pauses execution and presents an interactive question dialog.
+   * The user's answer is mapped into workflow state via `onAnswer`.
+   *
+   * @param options - Question configuration (name, question, options, onAnswer, etc.).
+   * @throws Error if `options.name` duplicates an existing node name.
+   */
+  askUserQuestion(options: AskUserQuestionOptions): this {
+    if (this.nodeNames.has(options.name)) {
+      throw new Error(
+        `Duplicate node name: "${options.name}". Each node must have a unique name within the workflow.`,
+      );
+    }
+    this.nodeNames.add(options.name);
+    this.instructions.push({ type: "askUserQuestion", id: options.name, config: options });
     return this;
   }
 

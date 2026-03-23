@@ -146,6 +146,78 @@ export interface ToolOptions {
 }
 
 // ---------------------------------------------------------------------------
+// Ask User Question Configuration
+// ---------------------------------------------------------------------------
+
+/**
+ * Question configuration for the UserQuestionDialog.
+ * Maps directly to the existing AskUserOptions from the graph layer.
+ */
+export interface AskUserQuestionConfig {
+  /** The question text displayed to the user (supports markdown). */
+  readonly question: string;
+
+  /** Optional header badge text (e.g., "Review Required"). */
+  readonly header?: string;
+
+  /** Predefined answer options. If omitted, only free-text input is available. */
+  readonly options?: ReadonlyArray<{
+    readonly label: string;
+    readonly description?: string;
+  }>;
+
+  /**
+   * Whether the user can select multiple options.
+   * When true, the dialog shows checkboxes and the answer is a string[].
+   * @default false
+   */
+  readonly multiSelect?: boolean;
+}
+
+/**
+ * Configuration for an ask-user-question node — pauses workflow execution
+ * and presents an interactive question dialog to the user.
+ *
+ * Reuses the existing HITL UI (UserQuestionDialog) and event pipeline.
+ */
+export interface AskUserQuestionOptions {
+  /** Unique name for this ask-user node within the workflow. */
+  readonly name: string;
+
+  /**
+   * The question configuration, or a function that builds it from
+   * current workflow state for dynamic questions.
+   */
+  readonly question:
+    | AskUserQuestionConfig
+    | ((state: BaseState) => AskUserQuestionConfig);
+
+  /** Brief description of the node's purpose (used in logging). */
+  readonly description?: string;
+
+  /**
+   * Maps the user's answer into structured state updates.
+   * Receives the raw answer string (or array for multi-select)
+   * and returns a record merged into workflow state.
+   *
+   * If omitted, the answer is stored in `state.outputs[nodeId]`.
+   */
+  readonly onAnswer?: (answer: string | string[]) => Record<string, unknown>;
+
+  /**
+   * State field names that this node reads from.
+   * Used for documentation and future dependency analysis.
+   */
+  readonly reads?: string[];
+
+  /**
+   * State field names that this node writes to.
+   * Used for documentation and future dependency analysis.
+   */
+  readonly outputs?: string[];
+}
+
+// ---------------------------------------------------------------------------
 // Loop Configuration
 // ---------------------------------------------------------------------------
 
@@ -272,6 +344,7 @@ export interface WorkflowOptions {
 export type Instruction =
   | { readonly type: "stage"; readonly id: string; readonly config: StageOptions }
   | { readonly type: "tool"; readonly id: string; readonly config: ToolOptions }
+  | { readonly type: "askUserQuestion"; readonly id: string; readonly config: AskUserQuestionOptions }
   | { readonly type: "if"; readonly condition: (ctx: StageContext) => boolean }
   | { readonly type: "elseIf"; readonly condition: (ctx: StageContext) => boolean }
   | { readonly type: "else" }
@@ -357,6 +430,16 @@ export interface WorkflowBuilderInterface {
    * @throws Error if `options.name` duplicates an existing node name.
    */
   tool(options: ToolOptions): this;
+
+  /**
+   * Add a human-in-the-loop question node to the workflow.
+   * Pauses execution and presents an interactive question dialog.
+   * The user's answer is mapped into workflow state via `onAnswer`.
+   *
+   * @param options - Question configuration (name, question, options, onAnswer, etc.).
+   * @throws Error if `options.name` duplicates an existing node name.
+   */
+  askUserQuestion(options: AskUserQuestionOptions): this;
 
   // -- Conditional branching ------------------------------------------------
 

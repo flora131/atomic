@@ -9,6 +9,7 @@
 
 import { describe, test, expect } from "bun:test";
 import type {
+  AskUserQuestionOptions,
   CompiledWorkflow,
   Instruction,
   LoopOptions,
@@ -374,6 +375,7 @@ describe("Instruction", () => {
     const instructions: Instruction[] = [
       { type: "stage", id: "s1", config: { name: "s1", agent: "s1", description: "d", prompt: () => "", outputMapper: () => ({}) } },
       { type: "tool", id: "t1", config: { name: "T1", execute: async () => ({}) } },
+      { type: "askUserQuestion", id: "q1", config: { name: "q1", question: { question: "Continue?" } } },
       { type: "if", condition: () => true },
       { type: "elseIf", condition: () => false },
       { type: "else" },
@@ -385,7 +387,7 @@ describe("Instruction", () => {
 
     const types = instructions.map((i) => i.type);
     expect(types).toEqual([
-      "stage", "tool", "if", "elseIf", "else", "endIf", "loop", "endLoop", "break",
+      "stage", "tool", "askUserQuestion", "if", "elseIf", "else", "endIf", "loop", "endLoop", "break",
     ]);
   });
 });
@@ -419,6 +421,7 @@ describe("WorkflowBuilderInterface", () => {
       argumentHint(_hint: string) { return this; },
       stage(_options: StageOptions) { return this; },
       tool(_options: ToolOptions) { return this; },
+      askUserQuestion(_options: AskUserQuestionOptions) { return this; },
       if(_condition: (ctx: StageContext) => boolean) { return this; },
       elseIf(_condition: (ctx: StageContext) => boolean) { return this; },
       else() { return this; },

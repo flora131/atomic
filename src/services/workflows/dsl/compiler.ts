@@ -22,6 +22,7 @@ import type {
   Instruction,
   StageOptions,
   ToolOptions,
+  AskUserQuestionOptions,
   LoopOptions,
 } from "@/services/workflows/dsl/types.ts";
 import type { WorkflowBuilder } from "@/services/workflows/dsl/define-workflow.ts";
@@ -60,7 +61,7 @@ export function validateInstructions(instructions: Instruction[]): void {
     throw new Error("Workflow must have at least one stage or tool node");
   }
   const hasNode = instructions.some(
-    (i) => i.type === "stage" || i.type === "tool",
+    (i) => i.type === "stage" || i.type === "tool" || i.type === "askUserQuestion",
   );
   if (!hasNode) {
     throw new Error("Workflow must have at least one stage or tool node");
@@ -72,6 +73,7 @@ export function validateInstructions(instructions: Instruction[]): void {
     switch (instruction.type) {
       case "stage":
       case "tool":
+      case "askUserQuestion":
         if (nodeIds.has(instruction.id)) {
           throw new Error(`Duplicate node ID: "${instruction.id}"`);
         }
@@ -146,6 +148,7 @@ function validateBranchesNotEmpty(instructions: Instruction[]): void {
         break;
       case "stage":
       case "tool":
+      case "askUserQuestion":
         if (currentDepth > 0) {
           branchHasNode[currentDepth] = true;
         }
@@ -186,6 +189,7 @@ function computeShouldRunMap(
         conditionStack.pop();
         break;
       case "stage":
+      case "askUserQuestion":
         if (conditionStack.length > 0) {
           result.set(instruction.id, conditionStack[conditionStack.length - 1]);
         }
@@ -315,10 +319,12 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
 
   function addNode(
     id: string,
-    type: "agent" | "tool",
-    options: StageOptions | ToolOptions,
+    type: "agent" | "tool" | "ask_user",
+    options: StageOptions | ToolOptions | AskUserQuestionOptions,
   ): string {
-    const stageAgent = "agent" in options ? (options as StageOptions).agent : undefined;
+    const stageAgent = "agent" in options && type === "agent"
+      ? (options as StageOptions).agent
+      : undefined;
     const nodeName = stageAgent ?? options.name;
     const node: NodeDefinition<BaseState> = {
       id,
@@ -329,11 +335,13 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
       execute:
         type === "agent"
           ? agentNoopExecute
-          : async (context: ExecutionContext<BaseState>) => {
-              const toolOptions = options as ToolOptions;
-              const result = await toolOptions.execute(context);
-              return { stateUpdate: result as Partial<BaseState> };
-            },
+          : type === "ask_user"
+            ? agentNoopExecute
+            : async (context: ExecutionContext<BaseState>) => {
+                const toolOptions = options as ToolOptions;
+                const result = await toolOptions.execute(context);
+                return { stateUpdate: result as Partial<BaseState> };
+              },
       reads: options.reads,
       outputs: options.outputs,
     };
@@ -380,6 +388,13 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
 
       case "tool": {
         const nodeId = addNode(instruction.id, "tool", instruction.config);
+        connectPrevious(nodeId);
+        previousNodeId = nodeId;
+        break;
+      }
+
+      case "askUserQuestion": {
+        const nodeId = addNode(instruction.id, "ask_user", instruction.config);
         connectPrevious(nodeId);
         previousNodeId = nodeId;
         break;

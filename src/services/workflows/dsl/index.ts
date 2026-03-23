@@ -30,6 +30,8 @@ export type {
   Instruction,
   StageOptions,
   ToolOptions,
+  AskUserQuestionConfig,
+  AskUserQuestionOptions,
   LoopOptions,
   StateFieldOptions,
   CompiledWorkflow,

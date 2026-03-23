@@ -778,6 +778,7 @@ describe("WorkflowBuilder interface conformance", () => {
     expect(typeof builder.argumentHint).toBe("function");
     expect(typeof builder.stage).toBe("function");
     expect(typeof builder.tool).toBe("function");
+    expect(typeof builder.askUserQuestion).toBe("function");
     expect(typeof builder.if).toBe("function");
     expect(typeof builder.elseIf).toBe("function");
     expect(typeof builder.else).toBe("function");

@@ -175,6 +175,22 @@ export async function uninstallCommand(options: UninstallOptions = {}): Promise<
       }
     }
 
+    // Remove globally installed @bastani/atomic-workflows SDK
+    log.step("Removing @bastani/atomic-workflows SDK...");
+    try {
+      const proc = Bun.spawnSync(["bun", "remove", "-g", "@bastani/atomic-workflows"], {
+        stdout: "ignore",
+        stderr: "ignore",
+      });
+      if (proc.exitCode === 0) {
+        log.success("Removed @bastani/atomic-workflows SDK");
+      } else {
+        log.warn("@bastani/atomic-workflows SDK was not globally installed (skipped)");
+      }
+    } catch {
+      log.warn("Could not remove @bastani/atomic-workflows SDK (bun not found)");
+    }
+
     // Remove data directory (unless --keep-config)
     if (dataDirExists && !options.keepConfig) {
       log.step("Removing data directory...");

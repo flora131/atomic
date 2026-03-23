@@ -8,7 +8,8 @@ import { cleanupMcpBridgeScripts } from "@/services/agents/tools/opencode-mcp-br
 import { SessionExpiredError } from "@/services/events/adapters/provider-shared.ts";
 import { registerAgentToolNames } from "@/components/tool-registry/registry/index.ts";
 import { createChatUIRuntimeState } from "@/state/runtime/chat-ui-runtime-state.ts";
-import { createStreamAdapter } from "@/state/runtime/chat-ui-stream-adapter.ts";
+import { createStreamAdapter, createStreamAdapterForSession } from "@/state/runtime/chat-ui-stream-adapter.ts";
+import type { Session } from "@/services/agents/contracts/session.ts";
 import { clearAgentEventBuffer } from "@/state/streaming/pipeline.ts";
 import type {
   ChatUIDebugSubscription,
@@ -82,6 +83,7 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
   async function cleanup(): Promise<void> {
     state.currentRunId = null;
     state.isStreaming = false;
+    state.pendingBackgroundTerminationPromise = null;
 
     await debugSub.unsubscribe();
     state.dispatcher.dispose();
@@ -229,6 +231,18 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
       }
     }
 
+    // Wait for any in-flight background-agent termination to complete before
+    // starting a new stream. Without this, a racing session.abort() from the
+    // termination handler can silently kill the new stream.
+    const pendingBgTermination = state.pendingBackgroundTerminationPromise;
+    if (pendingBgTermination) {
+      try {
+        await pendingBgTermination;
+      } catch (error) {
+        logCleanupError("pendingBackgroundTerminationPromise in handleStreamMessage", error);
+      }
+    }
+
     state.currentRunId = null;
 
     try {
@@ -291,7 +305,9 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
       state.messageCount++;
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
-        state.currentRunId = null;
+        // Don't null currentRunId here — let the finally block handle cleanup
+        // via its guard (state.currentRunId === thisRunId). Nulling it here
+        // caused the guard to fail, leaving state.isStreaming stuck at true.
         return;
       }
 
@@ -341,12 +357,14 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
           }
         } catch (retryError) {
           console.error("[chat-ui-controller] Session retry failed:", retryError);
-          state.currentRunId = null;
+          // Don't null currentRunId — let the outer finally block handle
+          // cleanup so state.isStreaming is properly reset.
         }
         return;
       }
 
-      state.currentRunId = null;
+      // Don't null currentRunId — let the finally block handle cleanup
+      // via its guard so state.isStreaming is properly reset.
     } finally {
       adapter.dispose();
       // Only clean up state if this run is still the active run.
@@ -471,34 +489,59 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
 
   const handleTerminateBackgroundAgentsFromUI: OnTerminateBackgroundAgents =
     async () => {
-      if (state.session?.abortBackgroundAgents) {
-        try {
-          await state.session.abortBackgroundAgents();
-          state.backgroundAgentsTerminated = true;
-          state.telemetryTracker?.trackBackgroundTermination("execute", 1, 1);
-        } catch (error) {
-          console.error("Failed to abort background agents:", error);
-          throw error;
+      const terminationWork = (async () => {
+        if (state.session?.abortBackgroundAgents) {
+          try {
+            await state.session.abortBackgroundAgents();
+            state.backgroundAgentsTerminated = true;
+            state.telemetryTracker?.trackBackgroundTermination("execute", 1, 1);
+          } catch (error) {
+            console.error("Failed to abort background agents:", error);
+            throw error;
+          }
+          return;
         }
-        return;
-      }
 
-      if (state.session?.abort) {
-        try {
-          await state.session.abort();
-          state.backgroundAgentsTerminated = true;
-          state.telemetryTracker?.trackBackgroundTermination("fallback", 1, 1);
-        } catch (error) {
-          console.error(
-            "Failed to abort session during background-agent termination:",
-            error,
-          );
-          throw error;
+        if (state.session?.abort) {
+          // If there's already a pending abort from handleInterrupt, piggyback on
+          // it instead of issuing a second session.abort() that could race with and
+          // kill a newly-started stream.
+          if (state.pendingAbortPromise) {
+            try {
+              await state.pendingAbortPromise;
+            } catch (error) {
+              logCleanupError("pendingAbortPromise in background termination", error);
+            }
+            state.backgroundAgentsTerminated = true;
+            state.telemetryTracker?.trackBackgroundTermination("fallback", 1, 1);
+            return;
+          }
+
+          try {
+            await state.session.abort();
+            state.backgroundAgentsTerminated = true;
+            state.telemetryTracker?.trackBackgroundTermination("fallback", 1, 1);
+          } catch (error) {
+            console.error(
+              "Failed to abort session during background-agent termination:",
+              error,
+            );
+            throw error;
+          }
+          return;
         }
-        return;
-      }
 
-      state.telemetryTracker?.trackBackgroundTermination("noop", 0);
+        state.telemetryTracker?.trackBackgroundTermination("noop", 0);
+      })();
+
+      state.pendingBackgroundTerminationPromise = terminationWork;
+      try {
+        await terminationWork;
+      } finally {
+        if (state.pendingBackgroundTerminationPromise === terminationWork) {
+          state.pendingBackgroundTerminationPromise = null;
+        }
+      }
     };
 
   const getSession = () => state.session;
@@ -506,6 +549,7 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
   const resetSession = async () => {
     state.currentRunId = null;
     state.isStreaming = false;
+    state.pendingBackgroundTerminationPromise = null;
     if (state.session) {
       await abortAndDestroySession(state.session);
       state.session = null;
@@ -515,17 +559,59 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
   };
 
   const createSubagentSession = async (config?: SessionConfig) => {
-    const mergedConfig: SessionConfig = { ...config };
-    if (
-      mergedConfig.additionalInstructions === undefined
-      && sessionConfig?.additionalInstructions !== undefined
-    ) {
-      mergedConfig.additionalInstructions = sessionConfig.additionalInstructions;
-    }
+    // Inherit parent session config as defaults (model, reasoningEffort,
+    // maxThinkingTokens, additionalInstructions, permissionMode, agentMode).
+    // Stage-level config overrides take precedence via the spread order.
+    // `sessionId` is always excluded — each session must have its own.
+    const { sessionId: _parentSessionId, ...inheritableConfig } = sessionConfig ?? {};
+    const mergedConfig: SessionConfig = { ...inheritableConfig, ...config };
 
     const session = await client.createSession(mergedConfig);
     state.ownedSessionIds.add(session.id);
     return session;
+  };
+
+  /**
+   * Stream a message through a specific session using the real SDK adapter
+   * pipeline, capturing the full response text. Each stage session gets its
+   * own adapter + runId so the ownership tracker auto-registers via
+   * `stream.session.start` and all events flow through the standard
+   * BatchDispatcher → StreamPipelineConsumer → UI path.
+   */
+  const streamWithSession = async (
+    targetSession: Session,
+    prompt: string,
+    options?: { abortSignal?: AbortSignal },
+  ): Promise<string> => {
+    const adapter = createStreamAdapterForSession({
+      bus: state.bus,
+      sessionId: targetSession.id,
+      client,
+      agentType: resolvedAgentType,
+    });
+
+    const thisRunId = ++state.runCounter;
+    const messageId = crypto.randomUUID();
+    let capturedText = "";
+
+    const unsubscribe = state.bus.on("stream.text.delta", (event) => {
+      if (event.runId === thisRunId && typeof event.data?.delta === "string") {
+        capturedText += event.data.delta;
+      }
+    });
+
+    try {
+      await adapter.startStreaming(targetSession, prompt, {
+        runId: thisRunId,
+        messageId,
+        abortSignal: options?.abortSignal,
+      });
+    } finally {
+      unsubscribe();
+      adapter.dispose();
+    }
+
+    return capturedText;
   };
 
   const handleModelChange = (newModel: string) => {
@@ -564,6 +650,7 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
     getSession,
     resetSession,
     createSubagentSession,
+    streamWithSession,
     handleModelChange,
     handleSessionMcpServersChange,
     handleCommandTelemetry,

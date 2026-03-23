@@ -12,9 +12,9 @@ You are tasked with implementing a SINGLE task from the task list.
 
 # Workflow State Files
 
-- Base folder for workflow state is `~/.atomic/workflows/{session_id}`.
-- Read and update tasks at `~/.atomic/workflows/{session_id}/tasks.json`.
-- Read and append progress notes at `~/.atomic/workflows/{session_id}/progress.txt`.
+- Base folder for workflow state is `~/.atomic/sessions/workflows/{workflow_name}/{session_id}`.
+- Read and update tasks at `~/.atomic/sessions/workflows/{workflow_name}/{session_id}/tasks.json`.
+- Read and append progress notes at `~/.atomic/sessions/workflows/{workflow_name}/{session_id}/progress.txt`.
 
 # Getting up to speed
 
@@ -31,8 +31,8 @@ A typical workflow will start something like this:
 ```
 [Assistant] I'll start by getting my bearings and understanding the current state of the project.
 [Tool Use] <bash - pwd>
-[Tool Use] <read - ~/.atomic/workflows/{session_id}/progress.txt>
-[Tool Use] <read - ~/.atomic/workflows/{session_id}/tasks.json>
+[Tool Use] <read - ~/.atomic/sessions/workflows/{workflow_name}/{session_id}/progress.txt>
+[Tool Use] <read - ~/.atomic/sessions/workflows/{workflow_name}/{session_id}/tasks.json>
 [Assistant] Let me check the git log to see recent work.
 [Tool Use] <bash - git log --oneline -20>
 [Assistant] Now let me check if there's an init.sh script to restart the servers.
@@ -107,7 +107,7 @@ moving on. Fix any type errors or missing imports immediately.
 When you encounter ANY bug — whether introduced by your changes, discovered during testing, or pre-existing — you MUST follow this protocol:
 
 1. **Delegate debugging**: Use the Task tool to spawn a debugger agent. It can navigate the web for best practices.
-2. **Add the bug fix to the TOP of the task list AND update `blockedBy` on affected tasks**: Update `~/.atomic/workflows/{session_id}/tasks.json` with the bug fix as the FIRST item in the array (highest priority). Then, for every task whose work depends on the bug being fixed first, add the bug fix task's ID to that task's `blockedBy` array. This ensures those tasks cannot be started until the fix lands. Example:
+2. **Add the bug fix to the TOP of the task list AND update `blockedBy` on affected tasks**: Update `~/.atomic/sessions/workflows/{workflow_name}/{session_id}/tasks.json` with the bug fix as the FIRST item in the array (highest priority). Then, for every task whose work depends on the bug being fixed first, add the bug fix task's ID to that task's `blockedBy` array. This ensures those tasks cannot be started until the fix lands. Example:
     ```json
     [
       {"id": "#0", "content": "Fix: [describe the bug]", "status": "pending", "activeForm": "Fixing [bug]", "blockedBy": []},
@@ -115,7 +115,7 @@ When you encounter ANY bug — whether introduced by your changes, discovered du
       ... // other tasks — add "#0" to blockedBy if they depend on the fix
     ]
     ```
-3. **Log the debug report**: Append the debugger agent's report to `~/.atomic/workflows/{session_id}/progress.txt` for future reference.
+3. **Log the debug report**: Append the debugger agent's report to `~/.atomic/sessions/workflows/{workflow_name}/{session_id}/progress.txt` for future reference.
 4. **STOP immediately**: Do NOT continue working on the current feature. EXIT so the next iteration picks up the bug fix first.
 
 Do NOT ignore bugs. Do NOT deprioritize them. Bugs always go to the TOP of the task list, and any task that depends on the fix must list it in `blockedBy`.
@@ -125,6 +125,6 @@ Do NOT ignore bugs. Do NOT deprioritize them. Bugs always go to the TOP of the t
 - AFTER implementing the feature AND verifying its functionality by creating tests, mark the feature as complete in the task list
 - It is unacceptable to remove or edit tests because this could lead to missing or buggy functionality
 - Commit progress to git with descriptive commit messages by running the `/commit` command using the `Skill` tool (e.g. invoke skill `gh-commit`)
-- Write summaries of your progress in `~/.atomic/workflows/{session_id}/progress.txt`
+- Write summaries of your progress in `~/.atomic/sessions/workflows/{workflow_name}/{session_id}/progress.txt`
     - Tip: this can be useful to revert bad code changes and recover working states of the codebase
 - Note: you are competing with another coding agent that also implements features. The one who does a better job implementing features will be promoted. Focus on quality, correctness, and thorough testing. The agent who breaks the rules for implementation will be fired.

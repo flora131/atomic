@@ -120,8 +120,8 @@ export interface AgentListPart extends BasePart {
   view: AgentListView;
 }
 
-export interface CompactionPart extends BasePart {
-  type: "compaction";
+export interface TruncationPart extends BasePart {
+  type: "truncation";
   summary: string;
 }
 
@@ -144,12 +144,12 @@ export interface WorkflowStepPart extends BasePart {
   type: "workflow-step";
   workflowId: string;
   nodeId: string;
-  nodeName: string;
   status: "running" | "completed" | "error" | "skipped";
   startedAt: string;
   completedAt?: string;
   durationMs?: number;
   result?: unknown;
+  error?: string;
 }
 
 // ============================================================================
@@ -166,7 +166,7 @@ export type Part =
   | SkillLoadPart
   | McpSnapshotPart
   | AgentListPart
-  | CompactionPart
+  | TruncationPart
   | TaskResultPart
   | WorkflowStepPart;
 
@@ -180,5 +180,5 @@ export function isToolPart(part: Part): part is ToolPart { return part.type === 
 export function isAgentPart(part: Part): part is AgentPart { return part.type === "agent"; }
 export function isTaskListPart(part: Part): part is TaskListPart { return part.type === "task-list"; }
 export function isSkillLoadPart(part: Part): part is SkillLoadPart { return part.type === "skill-load"; }
-export function isCompactionPart(part: Part): part is CompactionPart { return part.type === "compaction"; }
+export function isTruncationPart(part: Part): part is TruncationPart { return part.type === "truncation"; }
 export function isTaskResultPart(part: Part): part is TaskResultPart { return part.type === "task-result"; }

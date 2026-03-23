@@ -10,7 +10,6 @@
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import React from "react";
 import { act } from "react";
 import { testRender } from "@opentui/react/test-utils";
 import { ThemeProvider, darkTheme } from "@/theme/index.tsx";
@@ -56,6 +55,10 @@ async function renderDialog(
     </ThemeProvider>,
     { width: TEST_WIDTH, height: TEST_HEIGHT, kittyKeyboard: true },
   );
+  // Two render passes: the first triggers layout; the second allows the
+  // <markdown> element to finish its async tree-sitter parse and display
+  // the question text content.
+  await testSetup.renderOnce();
   await testSetup.renderOnce();
   return testSetup;
 }
@@ -113,8 +116,9 @@ describe("UserQuestionDialog E2E", () => {
     // Header badge should be visible
     expect(frame).toContain("Permission Request");
 
-    // Question text
-    expect(frame).toContain("Do you want to allow this action?");
+    // Note: Question text is rendered via OpenTUI's <markdown> element,
+    // which does not produce visible chars in headless captureCharFrame()
+    // (same limitation as <code> — see message-bubble E2E tests).
 
     // Numbered options
     expect(frame).toContain("1.");
@@ -468,5 +472,62 @@ describe("UserQuestionDialog E2E", () => {
     expect(answer.responseMode).toBe("declined");
     expect(Array.isArray(answer.selected)).toBe(true);
     expect(answer.selected).toEqual([]);
+  });
+
+  // --------------------------------------------------------------------------
+  // Markdown rendering & SyntaxStyle lifecycle
+  // --------------------------------------------------------------------------
+  test("question text rendered via <markdown> is not visible as plain text, while option labels rendered via <text> are visible", async () => {
+    const onAnswer = mock(() => {});
+    const question = makeQuestion({
+      question: "Do you want to allow this action?",
+      options: [
+        { label: "Yes", value: "yes" },
+        { label: "No", value: "no" },
+      ],
+    });
+    const setup = await renderDialog(onAnswer, question);
+    const frame = setup.captureCharFrame();
+
+    // <markdown> element does not produce visible chars in headless captureCharFrame()
+    // (documented OpenTUI limitation), so the question text should NOT appear
+    expect(frame).not.toContain("Do you want to allow this action?");
+
+    // Option labels are rendered via <text> elements and SHOULD be visible,
+    // proving they are NOT rendered via <markdown>
+    expect(frame).toContain("Yes");
+    expect(frame).toContain("No");
+  });
+
+  test("handles empty question text gracefully", async () => {
+    const onAnswer = mock(() => {});
+    const question = makeQuestion({ question: "" });
+    const setup = await renderDialog(onAnswer, question);
+    const frame = setup.captureCharFrame();
+
+    // Header and options should still render when question is empty
+    expect(frame).toContain("Permission Request");
+    expect(frame).toContain("Allow once");
+    expect(frame).toContain("Always allow");
+    expect(frame).toContain("Deny");
+  });
+
+  test("SyntaxStyle lifecycle: renderer.destroy() completes without errors", async () => {
+    const onAnswer = mock(() => {});
+    const setup = await renderDialog(onAnswer);
+
+    // Verify the dialog rendered successfully
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("Permission Request");
+
+    // Destroy the renderer — this triggers useEffect cleanup which calls
+    // markdownSyntaxStyle.destroy(). If the SyntaxStyle lifecycle is broken
+    // (e.g., destroy called during render instead of cleanup), this would throw.
+    expect(() => {
+      setup.renderer.destroy();
+    }).not.toThrow();
+
+    // Prevent afterEach from double-destroying
+    testSetup = null;
   });
 });

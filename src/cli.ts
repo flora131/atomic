@@ -9,6 +9,8 @@
  *   atomic init                     Interactive setup with agent selection
  *   atomic init -a <agent>          Setup specific agent (skip selection)
  *   atomic config set <key> <value> Set configuration value
+ *   atomic workflow verify          Verify all workflows
+ *   atomic workflow verify <path>   Verify a specific workflow file
  *   atomic update                   Self-update to latest version
  *   atomic uninstall                Remove atomic installation
  *   atomic --version                Show version
@@ -88,6 +90,17 @@ export function createProgram() {
         .option("-t, --theme <name>", "UI theme (dark, light)", "dark")
         .option("-m, --model <name>", "Model to use for the chat session")
         .option(
+            "--max-iterations <number>",
+            "Maximum conductor graph traversal steps (default: 100)",
+            (val: string) => {
+                const n = Number.parseInt(val, 10);
+                if (Number.isNaN(n) || n < 1) {
+                    throw new Error(`--max-iterations must be a positive integer, got "${val}"`);
+                }
+                return n;
+            },
+        )
+        .option(
             "--additional-instructions <text>",
             "Append additional instructions to the default chat system prompt",
         )
@@ -152,6 +165,7 @@ Slash Commands (in workflow mode):
                 workflow: localOpts.workflow,
                 theme: localOpts.theme as "dark" | "light",
                 model: localOpts.model,
+                maxIterations: localOpts.maxIterations,
                 initialPrompt: prompt,
                 additionalInstructions: localOpts.additionalInstructions,
             });
@@ -199,6 +213,20 @@ Slash Commands (in workflow mode):
                 dryRun: localOpts.dryRun,
                 keepConfig: localOpts.keepConfig,
             });
+        });
+
+    // Add workflow command for verification and management
+    const workflowCmd = program
+        .command("workflow")
+        .description("Manage and verify workflows");
+
+    workflowCmd
+        .command("verify")
+        .description("Run structural verification on workflows")
+        .argument("[path]", "Path to a specific workflow .ts file to verify")
+        .action(async (path?: string) => {
+            const { workflowVerifyCommand } = await import("@/commands/cli/workflow.ts");
+            await workflowVerifyCommand(path);
         });
 
     // Add hidden command for internal telemetry upload (used by background process)

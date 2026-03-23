@@ -2,7 +2,7 @@
  * Workflows Module
  *
  * Unified barrel for the workflow engine. Re-exports:
- * - graph/: Core graph execution engine (builder, executor, nodes, streaming)
+ * - graph/: Core graph execution engine (builder, nodes, annotations)
  * - session: Workflow session management
  * - ralph/: Ralph autonomous workflow definitions
  */
@@ -14,7 +14,6 @@ export {
   getWorkflowSessionDir,
   initWorkflowSession,
   saveWorkflowSession,
-  saveSubagentOutput,
 } from "@/services/workflows/session.ts";
 
 export {
@@ -26,6 +25,5 @@ export {
 export * from "@/services/workflows/graph/index.ts";
 
 // Ralph workflow
-export * from "@/services/workflows/ralph/state.ts";
-export * from "@/services/workflows/ralph/prompts.ts";
-export * from "@/services/workflows/ralph/graph.ts";
+export * from "@/services/workflows/builtin/ralph/helpers/prompts.ts";
+export * from "@/services/workflows/builtin/ralph/helpers/tasks.ts";

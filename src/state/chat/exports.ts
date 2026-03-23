@@ -85,7 +85,7 @@ export type {
 } from "@/state/chat/stream/lifecycle-types.ts";
 export type { UseStreamSubscriptionsArgs } from "@/state/chat/stream/subscription-types.ts";
 export type { StreamPartBatch } from "@/state/chat/stream/part-batch.ts";
-export { createStreamPartBatch, applyStreamPartBatchToMessages } from "@/state/chat/stream/part-batch.ts";
+export { createStreamPartBatch, applyStreamPartBatchToMessages, applyWorkflowStepCompleteByNodeScan } from "@/state/chat/stream/part-batch.ts";
 export { useChatStreamAgentOrdering } from "@/state/chat/stream/use-agent-ordering.ts";
 export { useStreamAgentSubscriptions } from "@/state/chat/stream/use-agent-subscriptions.ts";
 export { useChatBackgroundDispatch } from "@/state/chat/stream/use-background-dispatch.ts";

@@ -23,7 +23,6 @@ export interface ReviewCycleOptions<TState extends BaseState> {
   reviewer: NodeDefinition<TState>;
   fixer: NodeDefinition<TState>;
   until: (state: TState) => boolean;
-  maxIterations?: number;
   config?: Partial<GraphConfig<TState>>;
 }
 
@@ -35,7 +34,6 @@ export interface TaskLoopOptions<TState extends BaseState> {
   worker: NodeDefinition<TState>;
   reviewer?: NodeDefinition<TState>;
   until?: (state: TState) => boolean;
-  maxIterations?: number;
   config?: Partial<GraphConfig<TState>>;
 }
 
@@ -183,7 +181,6 @@ export function reviewCycle<TState extends BaseState>(
   const builder = graph<TState>()
     .loop([options.executor, options.reviewer, options.fixer], {
       until: options.until,
-      maxIterations: options.maxIterations,
     })
     .end();
 
@@ -203,7 +200,6 @@ export function taskLoop<TState extends BaseState>(
     .start(options.decomposer)
     .loop(loopNodes, {
       until,
-      maxIterations: options.maxIterations,
     })
     .end();
 

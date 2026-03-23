@@ -349,6 +349,10 @@ export function createCommandContext(args: UseCommandExecutorArgs): CommandConte
     spawnSubagentParallel: async (agents, externalAbortSignal, onAgentComplete) => {
       return spawnParallelSubagents(args, agents, externalAbortSignal, onAgentComplete);
     },
+    createAgentSession: args.createSubagentSession
+      ? async (config) => args.createSubagentSession!(config)
+      : undefined,
+    streamWithSession: args.streamWithSession,
     streamAndWait: (prompt: string, options?: { hideContent?: boolean }) => {
       const handle = args.trackAwaitedRun(
         dispatchSilentAssistantRun(prompt, {
@@ -368,6 +372,9 @@ export function createCommandContext(args: UseCommandExecutorArgs): CommandConte
       return new Promise<string>((resolve, reject) => {
         args.waitForUserInputResolverRef.current = { resolve, reject };
       });
+    },
+    registerConductorInterrupt: (interrupt: (() => void) | null) => {
+      args.conductorInterruptRef.current = interrupt;
     },
     clearContext: async () => {
       if (args.onResetSession) {

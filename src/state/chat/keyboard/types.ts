@@ -27,6 +27,8 @@ export interface UseChatKeyboardArgs {
   awaitedStreamRunIdsRef: RefObject<Set<string>>;
   clipboard: ClipboardAdapter;
   clearDeferredCompletion: () => void;
+  /** Set by the conductor executor. Called on single Ctrl+C/ESC during workflow streaming to abort the current stage. */
+  conductorInterruptRef: RefObject<(() => void) | null>;
   continueQueuedConversation: () => void;
   emitMessageSubmitTelemetry: (event: {
     messageLength: number;

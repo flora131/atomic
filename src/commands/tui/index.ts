@@ -60,6 +60,7 @@ export {
     loadWorkflowsFromDisk,
     getAllWorkflows,
     discoverWorkflowFiles,
+    extractWorkflowDefinition,
     getWorkflowCommands,
     saveTasksToActiveSession,
     type WorkflowMetadata,
@@ -189,11 +190,11 @@ export function parseSlashCommand(input: string): ParsedSlashCommand {
     // Remove the leading slash
     const withoutSlash = trimmed.slice(1);
 
-    // Split into command name and args
-    const spaceIndex = withoutSlash.indexOf(" ");
+    // Find the first whitespace boundary (space or newline) after the command name
+    const wsIndex = withoutSlash.search(/[\s]/);
 
-    if (spaceIndex === -1) {
-        // No space - entire string is the command name
+    if (wsIndex === -1) {
+        // No whitespace - entire string is the command name
         return {
             isCommand: true,
             name: withoutSlash.toLowerCase(),
@@ -202,9 +203,9 @@ export function parseSlashCommand(input: string): ParsedSlashCommand {
         };
     }
 
-    // Split at first space
-    const name = withoutSlash.slice(0, spaceIndex).toLowerCase();
-    const args = withoutSlash.slice(spaceIndex + 1).trim();
+    // Split at first whitespace
+    const name = withoutSlash.slice(0, wsIndex).toLowerCase();
+    const args = withoutSlash.slice(wsIndex + 1).trim();
 
     return {
         isCommand: true,

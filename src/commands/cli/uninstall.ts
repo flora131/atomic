@@ -28,6 +28,7 @@ import {
 import { isWindows } from "@/services/system/detect.ts";
 import { cleanupBunTempNativeAddons } from "@/services/system/cleanup.ts";
 import { trackAtomicCommand } from "@/services/telemetry/index.ts";
+import { removeWorkflowSdk, getGlobalWorkflowsDir } from "@/services/config/workflow-package.ts";
 
 /** Options for the uninstall command */
 export interface UninstallOptions {
@@ -175,17 +176,15 @@ export async function uninstallCommand(options: UninstallOptions = {}): Promise<
       }
     }
 
-    // Remove globally installed @bastani/atomic-workflows SDK
+    // Remove @bastani/atomic-workflows SDK from global workflows directory
     log.step("Removing @bastani/atomic-workflows SDK...");
     try {
-      const proc = Bun.spawnSync(["bun", "remove", "-g", "@bastani/atomic-workflows"], {
-        stdout: "ignore",
-        stderr: "ignore",
-      });
-      if (proc.exitCode === 0) {
+      const globalWorkflowsDir = getGlobalWorkflowsDir();
+      const removed = await removeWorkflowSdk(globalWorkflowsDir);
+      if (removed) {
         log.success("Removed @bastani/atomic-workflows SDK");
       } else {
-        log.warn("@bastani/atomic-workflows SDK was not globally installed (skipped)");
+        log.warn("@bastani/atomic-workflows SDK was not installed (skipped)");
       }
     } catch {
       log.warn("Could not remove @bastani/atomic-workflows SDK (bun not found)");

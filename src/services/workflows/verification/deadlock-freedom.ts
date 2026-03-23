@@ -54,10 +54,15 @@ export async function checkDeadlockFreedom(
       }
     }
 
-    // A group is exhaustive if it has an unconditional (else) branch
+    // A group is exhaustive when it contains an unconditional (else) branch
+    // OR when it has ≥2 conditional edges that form a complete boolean
+    // decision (e.g. loop continue / exit edges are always complements).
     let isExhaustive = false;
     for (const [, groupEdges] of groups) {
-      if (groupEdges.some((e) => !e.hasCondition)) {
+      if (
+        groupEdges.some((e) => !e.hasCondition) ||
+        groupEdges.length >= 2
+      ) {
         isExhaustive = true;
         break;
       }

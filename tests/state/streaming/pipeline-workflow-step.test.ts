@@ -23,7 +23,6 @@ function startEvent(overrides?: Partial<WorkflowStepStartEvent>): WorkflowStepSt
     type: "workflow-step-start",
     workflowId: "wf-1",
     nodeId: "planner",
-    nodeName: "Planner",
     indicator: "[PLANNER]",
     ...overrides,
   };
@@ -34,7 +33,6 @@ function completeEvent(overrides?: Partial<WorkflowStepCompleteEvent>): Workflow
     type: "workflow-step-complete",
     workflowId: "wf-1",
     nodeId: "planner",
-    nodeName: "Planner",
     status: "completed",
     durationMs: 1234,
     ...overrides,
@@ -60,7 +58,6 @@ describe("pipeline-workflow step reducers", () => {
       expect(part.type).toBe("workflow-step");
       expect(part.workflowId).toBe("wf-1");
       expect(part.nodeId).toBe("planner");
-      expect(part.nodeName).toBe("Planner");
       expect(part.status).toBe("running");
       expect(part.startedAt).toBeDefined();
       expect(part.completedAt).toBeUndefined();
@@ -99,7 +96,7 @@ describe("pipeline-workflow step reducers", () => {
     test("creates separate parts for different nodeIds", () => {
       const parts: Part[] = [];
       const afterFirst = upsertWorkflowStepStart(parts, startEvent({ nodeId: "planner" }));
-      const afterSecond = upsertWorkflowStepStart(afterFirst, startEvent({ nodeId: "orchestrator", nodeName: "Orchestrator" }));
+      const afterSecond = upsertWorkflowStepStart(afterFirst, startEvent({ nodeId: "orchestrator" }));
 
       expect(afterSecond).toHaveLength(2);
       expect((afterSecond[0] as WorkflowStepPart).nodeId).toBe("planner");
@@ -163,7 +160,7 @@ describe("pipeline-workflow step reducers", () => {
 
     test("handles complete event for correct step among multiple", () => {
       let parts = upsertWorkflowStepStart([], startEvent({ nodeId: "planner" }));
-      parts = upsertWorkflowStepStart(parts, startEvent({ nodeId: "orchestrator", nodeName: "Orchestrator" }));
+      parts = upsertWorkflowStepStart(parts, startEvent({ nodeId: "orchestrator" }));
 
       const result = upsertWorkflowStepComplete(
         parts,
@@ -195,14 +192,13 @@ describe("pipeline-workflow step reducers", () => {
       expect((parts[0] as WorkflowStepPart).status).toBe("completed");
 
       // Step 3: orchestrator starts
-      parts = upsertWorkflowStepStart(parts, startEvent({ nodeId: "orchestrator", nodeName: "Orchestrator" }));
+      parts = upsertWorkflowStepStart(parts, startEvent({ nodeId: "orchestrator" }));
       expect(parts).toHaveLength(2);
       expect((parts[1] as WorkflowStepPart).status).toBe("running");
 
       // Step 4: orchestrator completes with error
       parts = upsertWorkflowStepComplete(parts, completeEvent({
         nodeId: "orchestrator",
-        nodeName: "Orchestrator",
         status: "error",
         error: "timeout",
         durationMs: 5000,

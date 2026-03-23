@@ -518,6 +518,11 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
         let shouldContinue = false;
         const maxCycles = loopCtx.config.maxCycles ?? 100;
 
+        // Both the continue and exit edges form a single boolean decision
+        // at this loop-check node. They share a conditionGroup so the
+        // deadlock-freedom verifier can recognise them as exhaustive.
+        const loopDecisionGroup = `loop_decision_${loopCtx.loopCheckNodeId}`;
+
         // Back-edge: continue looping while under maxCycles.
         edges.push({
           from: loopCtx.loopCheckNodeId,
@@ -528,6 +533,7 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
             return shouldContinue;
           },
           label: "loop_continue",
+          conditionGroup: loopDecisionGroup,
         });
 
         // Create exit decision node
@@ -540,6 +546,7 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
           to: exitNodeId,
           condition: () => !shouldContinue,
           label: "loop_exit",
+          conditionGroup: loopDecisionGroup,
         });
 
         // Connect break nodes to exit.

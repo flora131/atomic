@@ -168,6 +168,8 @@ export interface Edge<TState extends BaseState = BaseState> {
   to: NodeId;
   condition?: EdgeCondition<TState>;
   label?: string;
+  /** Group ID for verification: edges sharing a conditionGroup form a single decision. */
+  conditionGroup?: string;
 }
 
 export interface CompiledGraph<TState extends BaseState = BaseState> {

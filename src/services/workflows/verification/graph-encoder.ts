@@ -36,7 +36,7 @@ export function encodeGraph(graph: CompiledGraph<BaseState>): EncodedGraph {
     from: edge.from,
     to: edge.to,
     hasCondition: edge.condition !== undefined,
-    conditionGroup: edge.label,
+    conditionGroup: edge.conditionGroup ?? edge.label,
   }));
 
   return {

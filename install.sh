@@ -287,10 +287,26 @@ embedding:
 COCOEOF
     info "Wrote cocoindex global settings to $cocoindex_dir/global_settings.yml"
 
-    # Install @bastani/atomic-workflows SDK globally so user workflows can import it.
-    info "Installing @bastani/atomic-workflows SDK globally..."
+    # Install @bastani/atomic-workflows SDK as a local package in ~/.atomic/workflows
+    info "Installing @bastani/atomic-workflows SDK in $ATOMIC_HOME/workflows..."
     if command -v bun >/dev/null 2>&1; then
-        bun install -g @bastani/atomic-workflows@latest 2>/dev/null || true
+        local workflows_dir="$ATOMIC_HOME/workflows"
+        mkdir -p "$workflows_dir"
+        # Create package.json if not present
+        if [[ ! -f "$workflows_dir/package.json" ]]; then
+            cat > "$workflows_dir/package.json" <<'PKGEOF'
+{
+  "name": "atomic-workflows",
+  "private": true,
+  "type": "module"
+}
+PKGEOF
+        fi
+        # Create .gitignore if not present
+        if [[ ! -f "$workflows_dir/.gitignore" ]]; then
+            printf 'node_modules/\n' > "$workflows_dir/.gitignore"
+        fi
+        (cd "$workflows_dir" && bun add @bastani/atomic-workflows@latest 2>/dev/null) || true
     else
         error "bun is required to install @bastani/atomic-workflows SDK. Install bun from https://bun.sh"
     fi

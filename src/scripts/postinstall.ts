@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 
+import { resolve } from "path";
 import {
   hasAtomicGlobalAgentConfigs,
   syncAtomicGlobalAgentConfigs,
@@ -15,6 +16,10 @@ import {
   installCocoindexCode,
   writeCocoindexGlobalSettings,
 } from "@/scripts/postinstall-uv.ts";
+import {
+  installWorkflowSdkFromLocal,
+  getGlobalWorkflowsDir,
+} from "@/services/config/workflow-package.ts";
 
 function formatErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -73,6 +78,18 @@ async function main(): Promise<void> {
     await deployPlaywrightSkill(configRoot);
   } catch (error) {
     warnPostinstallStep("failed to deploy Playwright SKILL.md", error);
+  }
+
+  // Install workflow SDK from local packages/workflow-sdk into ~/.atomic/workflows/
+  try {
+    const localSdkPath = resolve(import.meta.dir, "..", "..", "packages", "workflow-sdk");
+    const globalWorkflowsDir = getGlobalWorkflowsDir();
+    const installed = await installWorkflowSdkFromLocal(globalWorkflowsDir, localSdkPath);
+    if (!installed) {
+      console.warn("[atomic] Warning: failed to install workflow SDK from local package");
+    }
+  } catch (error) {
+    warnPostinstallStep("failed to install workflow SDK", error);
   }
 
   try {

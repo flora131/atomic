@@ -15,7 +15,7 @@ import { defineWorkflow } from "@/services/workflows/dsl/define-workflow.ts";
 import { validateInstructions } from "@/services/workflows/dsl/compiler.ts";
 import type { StageOptions, ToolOptions, LoopOptions, AskUserQuestionOptions, Instruction } from "@/services/workflows/dsl/types.ts";
 import type { StageContext } from "@/services/workflows/conductor/types.ts";
-import type { BaseState, Edge, CompiledGraph } from "@/services/workflows/graph/types.ts";
+import type { BaseState, Edge, CompiledGraph, ExecutionContext } from "@/services/workflows/graph/types.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1431,5 +1431,241 @@ describe("compiler askUserQuestion node descriptions", () => {
     const descriptions = compiled.nodeDescriptions as Record<string, string>;
 
     expect(descriptions.confirm).toBe("confirm");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// askUserQuestion askUserNode() factory integration
+// ---------------------------------------------------------------------------
+
+describe("compiler askUserQuestion uses askUserNode factory", () => {
+  test("askUserQuestion node execute emits human_input_required with dslAskUser flag", async () => {
+    const graph = compileGraph((b) =>
+      b.askUserQuestion(makeAskUserOptions({ name: "q1" })),
+    );
+
+    const node = graph.nodes.get("q1")!;
+    expect(node).toBeDefined();
+
+    const emittedEvents: Array<{ type: string; data?: Record<string, unknown> }> = [];
+    const ctx: ExecutionContext<BaseState> = {
+      state: makeBaseState(),
+      config: {},
+      errors: [],
+      emit: (type: string, data?: Record<string, unknown>) => {
+        emittedEvents.push({ type, data });
+      },
+    };
+
+    const result = await node.execute(ctx);
+
+    // Should have emitted human_input_required event
+    expect(emittedEvents).toHaveLength(1);
+    expect(emittedEvents[0]!.type).toBe("human_input_required");
+    expect(emittedEvents[0]!.data).toBeDefined();
+    expect(emittedEvents[0]!.data!.dslAskUser).toBe(true);
+    expect(emittedEvents[0]!.data!.question).toBe("Continue?");
+    expect(emittedEvents[0]!.data!.nodeId).toBe("q1");
+
+    // Should also return signals with human_input_required
+    expect(result.signals).toBeDefined();
+    expect(result.signals).toHaveLength(1);
+    expect(result.signals![0]!.type).toBe("human_input_required");
+
+    // Should set wait state
+    expect(result.stateUpdate).toBeDefined();
+    const stateUpdate = result.stateUpdate as Record<string, unknown>;
+    expect(stateUpdate.__waitingForInput).toBe(true);
+    expect(stateUpdate.__waitNodeId).toBe("q1");
+    expect(stateUpdate.__askUserRequestId).toBeDefined();
+  });
+
+  test("askUserQuestion node execute works without emit callback", async () => {
+    const graph = compileGraph((b) =>
+      b.askUserQuestion(makeAskUserOptions({ name: "q1" })),
+    );
+
+    const node = graph.nodes.get("q1")!;
+    const ctx: ExecutionContext<BaseState> = {
+      state: makeBaseState(),
+      config: {},
+      errors: [],
+      // No emit callback
+    };
+
+    // Should not throw when emit is not provided
+    const result = await node.execute(ctx);
+    expect(result.stateUpdate).toBeDefined();
+    expect(result.signals).toBeDefined();
+    expect(result.signals).toHaveLength(1);
+    expect(result.signals![0]!.type).toBe("human_input_required");
+  });
+
+  test("askUserQuestion passes multiSelect through to event data", async () => {
+    const graph = compileGraph((b) =>
+      b.askUserQuestion(makeAskUserOptions({
+        name: "q1",
+        question: {
+          question: "Pick options",
+          options: [{ label: "A" }, { label: "B" }],
+          multiSelect: true,
+        },
+      })),
+    );
+
+    const node = graph.nodes.get("q1")!;
+    const emittedEvents: Array<{ type: string; data?: Record<string, unknown> }> = [];
+    const ctx: ExecutionContext<BaseState> = {
+      state: makeBaseState(),
+      config: {},
+      errors: [],
+      emit: (type: string, data?: Record<string, unknown>) => {
+        emittedEvents.push({ type, data });
+      },
+    };
+
+    await node.execute(ctx);
+
+    expect(emittedEvents).toHaveLength(1);
+    expect(emittedEvents[0]!.data!.multiSelect).toBe(true);
+    expect(emittedEvents[0]!.data!.dslAskUser).toBe(true);
+  });
+
+  test("askUserQuestion passes options array through to event data", async () => {
+    const graph = compileGraph((b) =>
+      b.askUserQuestion(makeAskUserOptions({
+        name: "q1",
+        question: {
+          question: "Choose one",
+          options: [
+            { label: "Yes", description: "Approve" },
+            { label: "No", description: "Reject" },
+          ],
+        },
+      })),
+    );
+
+    const node = graph.nodes.get("q1")!;
+    const emittedEvents: Array<{ type: string; data?: Record<string, unknown> }> = [];
+    const ctx: ExecutionContext<BaseState> = {
+      state: makeBaseState(),
+      config: {},
+      errors: [],
+      emit: (type: string, data?: Record<string, unknown>) => {
+        emittedEvents.push({ type, data });
+      },
+    };
+
+    await node.execute(ctx);
+
+    expect(emittedEvents[0]!.data!.question).toBe("Choose one");
+    const options = emittedEvents[0]!.data!.options as Array<{ label: string; description?: string }>;
+    expect(options).toHaveLength(2);
+    expect(options[0]!.label).toBe("Yes");
+    expect(options[1]!.label).toBe("No");
+  });
+
+  test("askUserQuestion passes header through to event data", async () => {
+    const graph = compileGraph((b) =>
+      b.askUserQuestion(makeAskUserOptions({
+        name: "q1",
+        question: {
+          question: "Continue?",
+          header: "Review Required",
+        },
+      })),
+    );
+
+    const node = graph.nodes.get("q1")!;
+    const emittedEvents: Array<{ type: string; data?: Record<string, unknown> }> = [];
+    const ctx: ExecutionContext<BaseState> = {
+      state: makeBaseState(),
+      config: {},
+      errors: [],
+      emit: (type: string, data?: Record<string, unknown>) => {
+        emittedEvents.push({ type, data });
+      },
+    };
+
+    await node.execute(ctx);
+
+    expect(emittedEvents[0]!.data!.header).toBe("Review Required");
+  });
+
+  test("askUserQuestion with dynamic question resolves from state", async () => {
+    const graph = compileGraph((b) =>
+      b.askUserQuestion({
+        name: "q1",
+        question: (state: BaseState) => ({
+          question: `Review output for ${state.executionId}?`,
+          header: "Dynamic Header",
+          multiSelect: false,
+        }),
+      }),
+    );
+
+    const node = graph.nodes.get("q1")!;
+    const emittedEvents: Array<{ type: string; data?: Record<string, unknown> }> = [];
+    const ctx: ExecutionContext<BaseState> = {
+      state: makeBaseState({ executionId: "exec-123" }),
+      config: {},
+      errors: [],
+      emit: (type: string, data?: Record<string, unknown>) => {
+        emittedEvents.push({ type, data });
+      },
+    };
+
+    await node.execute(ctx);
+
+    expect(emittedEvents).toHaveLength(1);
+    expect(emittedEvents[0]!.data!.question).toBe("Review output for exec-123?");
+    expect(emittedEvents[0]!.data!.header).toBe("Dynamic Header");
+    expect(emittedEvents[0]!.data!.dslAskUser).toBe(true);
+  });
+
+  test("askUserQuestion with dynamic options and multiSelect", async () => {
+    const graph = compileGraph((b) =>
+      b.askUserQuestion({
+        name: "q1",
+        question: (state: BaseState) => ({
+          question: "Select items",
+          options: Object.keys(state.outputs).map((k) => ({ label: k })),
+          multiSelect: true,
+        }),
+      }),
+    );
+
+    const node = graph.nodes.get("q1")!;
+    const emittedEvents: Array<{ type: string; data?: Record<string, unknown> }> = [];
+    const ctx: ExecutionContext<BaseState> = {
+      state: makeBaseState({ outputs: { file1: "ok", file2: "error" } }),
+      config: {},
+      errors: [],
+      emit: (type: string, data?: Record<string, unknown>) => {
+        emittedEvents.push({ type, data });
+      },
+    };
+
+    await node.execute(ctx);
+
+    expect(emittedEvents[0]!.data!.multiSelect).toBe(true);
+    const options = emittedEvents[0]!.data!.options as Array<{ label: string }>;
+    expect(options).toHaveLength(2);
+    expect(options.map((o) => o.label).sort()).toEqual(["file1", "file2"]);
+  });
+
+  test("each compiled graph creates fresh askUserNode instances", async () => {
+    // Ensure that recompiling produces independent nodes
+    const builder = defineWorkflow({ name: "w", description: "d" })
+      .askUserQuestion(makeAskUserOptions({ name: "q1" }));
+    const compiled = builder.compile();
+
+    const graph1 = compiled.createConductorGraph!() as CompiledGraph<BaseState>;
+    const graph2 = compiled.createConductorGraph!() as CompiledGraph<BaseState>;
+
+    // Different node instances
+    const node1 = graph1.nodes.get("q1")!;
+    const node2 = graph2.nodes.get("q1")!;
+    expect(node1).not.toBe(node2);
   });
 });

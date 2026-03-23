@@ -22,7 +22,6 @@ import type {
   Instruction,
   StageOptions,
   ToolOptions,
-  AskUserQuestionOptions,
   LoopOptions,
 } from "@/services/workflows/dsl/types.ts";
 import type { WorkflowBuilder } from "@/services/workflows/dsl/define-workflow.ts";
@@ -39,6 +38,7 @@ import type {
   ExecutionContext,
 } from "@/services/workflows/graph/types.ts";
 import { createStateFactory } from "@/services/workflows/dsl/state-compiler.ts";
+import { askUserNode } from "@/services/workflows/graph/nodes/control.ts";
 import {
   buildAgentLookup,
   resolveStageSystemPrompt,
@@ -319,8 +319,8 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
 
   function addNode(
     id: string,
-    type: "agent" | "tool" | "ask_user",
-    options: StageOptions | ToolOptions | AskUserQuestionOptions,
+    type: "agent" | "tool",
+    options: StageOptions | ToolOptions,
   ): string {
     const stageAgent = "agent" in options && type === "agent"
       ? (options as StageOptions).agent
@@ -335,13 +335,11 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
       execute:
         type === "agent"
           ? agentNoopExecute
-          : type === "ask_user"
-            ? agentNoopExecute
-            : async (context: ExecutionContext<BaseState>) => {
-                const toolOptions = options as ToolOptions;
-                const result = await toolOptions.execute(context);
-                return { stateUpdate: result as Partial<BaseState> };
-              },
+          : async (context: ExecutionContext<BaseState>) => {
+              const toolOptions = options as ToolOptions;
+              const result = await toolOptions.execute(context);
+              return { stateUpdate: result as Partial<BaseState> };
+            },
       reads: options.reads,
       outputs: options.outputs,
     };
@@ -394,9 +392,49 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
       }
 
       case "askUserQuestion": {
-        const nodeId = addNode(instruction.id, "ask_user", instruction.config);
-        connectPrevious(nodeId);
-        previousNodeId = nodeId;
+        const config = instruction.config;
+        const questionOptions = config.question;
+
+        // Create an ask_user node using the existing factory
+        const askNode = askUserNode({
+          id: instruction.id,
+          options: typeof questionOptions === "function"
+            ? (state: BaseState) => {
+                const resolved = questionOptions(state);
+                return {
+                  question: resolved.question,
+                  header: resolved.header,
+                  options: resolved.options ? [...resolved.options] : undefined,
+                  multiSelect: resolved.multiSelect,
+                };
+              }
+            : {
+                question: questionOptions.question,
+                header: questionOptions.header,
+                options: questionOptions.options ? [...questionOptions.options] : undefined,
+                multiSelect: questionOptions.multiSelect,
+              },
+          name: config.name,
+          description: config.description,
+        });
+
+        // Wrap execute to set dslAskUser flag on emitted events
+        const originalExecute = askNode.execute;
+        askNode.execute = async (ctx: ExecutionContext<BaseState>) => {
+          const wrappedCtx = {
+            ...ctx,
+            emit: ctx.emit
+              ? (type: string, data?: Record<string, unknown>) => {
+                  ctx.emit!(type, { ...data, dslAskUser: true });
+                }
+              : undefined,
+          };
+          return originalExecute(wrappedCtx);
+        };
+
+        nodes.set(instruction.id, askNode);
+        connectPrevious(instruction.id);
+        previousNodeId = instruction.id;
         break;
       }
 

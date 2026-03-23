@@ -17,7 +17,7 @@ import type {
 } from "@/commands/tui/registry.ts";
 import { globalRegistry } from "@/commands/tui/registry.ts";
 
-import { executeWorkflow } from "@/services/workflows/executor.ts";
+import { executeConductorWorkflow } from "@/services/workflows/runtime/executor/conductor-executor.ts";
 import {
     completeSession,
     getActiveSession,
@@ -27,14 +27,13 @@ import {
 import {
     CUSTOM_WORKFLOW_SEARCH_PATHS,
     discoverWorkflowFiles,
+    extractWorkflowDefinition,
     getAllWorkflows,
     getBuiltinWorkflowDefinitions,
     loadWorkflowsFromDisk,
 } from "./workflow-files.ts";
 import {
     parseWorkflowArgs,
-    parseRalphArgs,
-    type RalphCommandArgs,
     type WorkflowCommandArgs,
     type WorkflowDefinition,
     type WorkflowMetadata,
@@ -44,17 +43,16 @@ export {
     completeSession,
     CUSTOM_WORKFLOW_SEARCH_PATHS,
     discoverWorkflowFiles,
+    extractWorkflowDefinition,
     getActiveSession,
     getAllWorkflows,
     loadWorkflowsFromDisk,
-    parseRalphArgs,
     parseWorkflowArgs,
     registerActiveSession,
     saveTasksToActiveSession,
     watchTasksJson,
 };
 export type {
-    RalphCommandArgs,
     WorkflowCommandArgs,
     WorkflowDefinition,
     WorkflowGraphConfig,
@@ -69,7 +67,7 @@ export type {
 
 /**
  * Create a command definition for a workflow.
- * Handles both graph-based workflows (via executeWorkflow) and chat-based workflows.
+ * Handles conductor-based workflows and chat-based workflows.
  *
  * @param metadata - Workflow metadata (may be a full WorkflowDefinition)
  * @returns Command definition for the workflow
@@ -77,9 +75,10 @@ export type {
 function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
     const definition = metadata as WorkflowDefinition;
     const hasExecutionLogic = definition.createState || definition.graphConfig || definition.createGraph;
+    const hasConductorStages = definition.conductorStages && definition.conductorStages.length > 0;
 
-    if (hasExecutionLogic) {
-        // Graph-based workflow — use executeWorkflow() for full lifecycle
+    if (hasConductorStages && (definition.createConductorGraph || definition.createGraph || definition.graphConfig)) {
+        // Conductor-based workflow — uses WorkflowSessionConductor for per-stage sessions
         return {
             name: metadata.name,
             description: metadata.description,
@@ -107,10 +106,26 @@ function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
                     };
                 }
 
-                return executeWorkflow(definition, parsed.prompt, context, {
+                return executeConductorWorkflow(definition, parsed.prompt, context, {
                     saveTasksToSession: saveTasksToActiveSession,
                 });
             },
+        };
+    }
+
+    if (hasExecutionLogic) {
+        // Legacy graph-based workflow path — executor has been removed.
+        // Workflows must define conductorStages to use the conductor path.
+        return {
+            name: metadata.name,
+            description: metadata.description,
+            category: "workflow",
+            aliases: metadata.aliases,
+            argumentHint: metadata.argumentHint,
+            execute: (): CommandResult => ({
+                success: false,
+                message: `Workflow "${metadata.name}" uses the removed legacy graph executor. Add conductorStages to use the conductor path.`,
+            }),
         };
     }
 

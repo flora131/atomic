@@ -112,6 +112,7 @@ export function createWrappedCopilotSession(args: {
     recentEventOrder: [],
     toolCallIdToName: new Map(),
     toolCallIdToSubagentName: new Map(),
+    backgroundAgentIdToToolCallId: new Map(),
     contextWindow: null,
     systemToolsBaseline: null,
     pendingAbortPromise: null,

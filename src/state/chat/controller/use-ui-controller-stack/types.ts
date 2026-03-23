@@ -16,6 +16,7 @@ export interface UseChatUiControllerStackArgs {
   app: Omit<Pick<
     ChatAppProps,
     | "createSubagentSession"
+    | "streamWithSession"
     | "ensureSession"
     | "getModelDisplayInfo"
     | "getSession"

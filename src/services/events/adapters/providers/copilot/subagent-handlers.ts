@@ -215,6 +215,14 @@ export function handleCopilotSubagentComplete(
     });
     state.isBackgroundOnly = false;
     state.isActive = false;
+
+    // Unblock startCopilotStreaming so the controller's finally block
+    // only disposes the adapter after all background work is done.
+    if (state.backgroundCompletionResolve) {
+      const resolve = state.backgroundCompletionResolve;
+      state.backgroundCompletionResolve = null;
+      resolve();
+    }
   }
 }
 

@@ -289,11 +289,67 @@ export function sortTasksTopologically<T extends TaskItem>(tasks: readonly T[]):
 }
 
 /**
+ * Compute the set of normalized task IDs that are transitively blocked by
+ * errored tasks. Uses BFS from errored tasks through the forward dependency graph.
+ */
+function computeErrorPropagatedTaskIds(
+  tasks: TaskItem[],
+  statusByNormalizedId: ReadonlyMap<string, TaskItem["status"]>,
+): ReadonlySet<string> {
+  // Build forward dependency map: blocker → its dependents
+  const dependentMap = new Map<string, string[]>();
+  for (const task of tasks) {
+    const taskId = normalizeTaskId(task.id);
+    if (!taskId) continue;
+    const blockedBy = Array.isArray(task.blockedBy) ? task.blockedBy : [];
+    for (const blockerId of blockedBy) {
+      const normalizedBlocker = normalizeTaskId(blockerId);
+      if (!normalizedBlocker) continue;
+      let list = dependentMap.get(normalizedBlocker);
+      if (!list) {
+        list = [];
+        dependentMap.set(normalizedBlocker, list);
+      }
+      list.push(taskId);
+    }
+  }
+
+  // Seed BFS with directly errored tasks
+  const propagated = new Set<string>();
+  const queue: string[] = [];
+  for (const [id, status] of statusByNormalizedId) {
+    if (status === "error") {
+      propagated.add(id);
+      queue.push(id);
+    }
+  }
+
+  // BFS: propagate error to all transitive dependents
+  let head = 0;
+  while (head < queue.length) {
+    const id = queue[head++]!;
+    for (const dependent of dependentMap.get(id) ?? []) {
+      if (!propagated.has(dependent)) {
+        propagated.add(dependent);
+        queue.push(dependent);
+      }
+    }
+  }
+
+  return propagated;
+}
+
+/**
  * Filter tasks to get only those that are ready to execute.
  *
  * A task is "ready" if:
- * - Its status is "pending"
- * - All of its blockedBy dependencies have status "completed"
+ * 1. Its status is "pending"
+ * 2. It is NOT transitively blocked by any errored task
+ * 3. ALL of its blockedBy dependencies have status "completed"
+ *
+ * Error propagation: if task A has "error" status, all tasks that
+ * transitively depend on A are excluded from the ready set — even if
+ * intermediate dependencies have inconsistent statuses.
  *
  * Returns tasks in their original order. Use sortTasksTopologically first
  * if you need them in dependency order.
@@ -309,12 +365,21 @@ export function getReadyTasks(tasks: TaskItem[]): TaskItem[] {
     }
   }
 
+  // Compute transitive error propagation set
+  const errorPropagated = computeErrorPropagatedTaskIds(tasks, statusByNormalizedId);
+
   // Filter tasks to find ready ones
   const readyTasks: TaskItem[] = [];
 
   for (const task of tasks) {
     // Must be pending
     if (task.status !== "pending") {
+      continue;
+    }
+
+    // Exclude tasks transitively blocked by errored dependencies
+    const taskId = normalizeTaskId(task.id);
+    if (taskId && errorPropagated.has(taskId)) {
       continue;
     }
 

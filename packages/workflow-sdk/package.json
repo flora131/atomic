@@ -24,8 +24,8 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "lint": "oxlint --config=oxlint.json src",
-    "lint:fix": "oxlint --config=oxlint.json --fix src",
+    "lint": "oxlint --config=../../oxlint.json src",
+    "lint:fix": "oxlint --config=../../oxlint.json --fix src",
     "test": "bun test ./tests/**/*.test.ts"
   },
   "devDependencies": {

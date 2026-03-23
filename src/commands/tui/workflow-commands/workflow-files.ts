@@ -3,6 +3,8 @@ import { join } from "path";
 import type { BaseState, CompiledGraph } from "@/services/workflows/graph/types.ts";
 import { VERSION } from "@/version.ts";
 import { ralphWorkflowDefinition } from "@/services/workflows/builtin/ralph/ralph-workflow.ts";
+import { compileWorkflow } from "@/services/workflows/dsl/compiler.ts";
+import type { WorkflowBuilder } from "@/services/workflows/dsl/define-workflow.ts";
 import type {
   WorkflowDefinition,
   WorkflowGraphConfig,
@@ -32,12 +34,65 @@ function isCompiledWorkflow(value: unknown): value is WorkflowDefinition & { __c
 }
 
 /**
+ * Checks whether a branded value is an SDK blueprint (lightweight export
+ * from `@bastani/atomic` SDK) rather than a fully compiled workflow.
+ *
+ * SDK blueprints carry a `__blueprint` object with the recorded builder
+ * instructions and metadata. They need to be compiled by the binary's
+ * internal compiler before use.
+ */
+function isWorkflowBlueprint(
+  value: unknown,
+): value is { __compiledWorkflow: true; __blueprint: BlueprintData; name: string; description: string } {
+  if (!isCompiledWorkflow(value)) return false;
+  const record = value as unknown as Record<string, unknown>;
+  return (
+    "__blueprint" in record &&
+    typeof record.__blueprint === "object" &&
+    record.__blueprint !== null
+  );
+}
+
+interface BlueprintData {
+  name: string;
+  description: string;
+  instructions: unknown[];
+  version?: string;
+  argumentHint?: string;
+  stateSchema?: Record<string, unknown>;
+}
+
+/**
+ * Compile an SDK blueprint into a full WorkflowDefinition.
+ *
+ * Reconstructs a builder-like object from the blueprint data and passes
+ * it to the internal `compileWorkflow()` function. This works because
+ * `compileWorkflow` uses structural typing — it only accesses `name`,
+ * `description`, `instructions`, `getVersion()`, `getArgumentHint()`,
+ * and `getStateSchema()`.
+ */
+function compileBlueprintToDefinition(blueprint: BlueprintData): WorkflowDefinition {
+  const builderLike = {
+    name: blueprint.name,
+    description: blueprint.description,
+    instructions: blueprint.instructions,
+    getVersion: () => blueprint.version,
+    getArgumentHint: () => blueprint.argumentHint,
+    getStateSchema: () => blueprint.stateSchema,
+  };
+  return compileWorkflow(builderLike as unknown as WorkflowBuilder);
+}
+
+/**
  * Extract a WorkflowDefinition from a dynamically imported module by
  * detecting the `__compiledWorkflow` brand on any named or default export.
  *
- * The CompiledWorkflow returned by `.compile()` spreads all
- * WorkflowDefinition properties directly, so the branded value IS the
- * definition — no unwrapping needed.
+ * Supports two kinds of branded exports:
+ * - **SDK blueprints** (`@bastani/atomic` SDK): carry a `__blueprint`
+ *   property with recorded instructions. Compiled at load time by the
+ *   binary's internal compiler.
+ * - **Internal compiled workflows**: spread all WorkflowDefinition
+ *   properties directly (used by builtin workflows like Ralph).
  *
  * Checks three locations in priority order:
  * 1. Module itself (if the module IS a CompiledWorkflow)
@@ -51,6 +106,19 @@ export function extractWorkflowDefinition(mod: unknown): WorkflowDefinition | nu
     return null;
   }
 
+  const branded = findBrandedExport(mod);
+  if (!branded) return null;
+
+  // SDK blueprint: compile at load time
+  if (isWorkflowBlueprint(branded)) {
+    return compileBlueprintToDefinition(branded.__blueprint);
+  }
+
+  // Internal compiled workflow: already a full WorkflowDefinition
+  return branded;
+}
+
+function findBrandedExport(mod: object): (WorkflowDefinition & { __compiledWorkflow: true }) | null {
   // Check if the module itself is a CompiledWorkflow
   if (isCompiledWorkflow(mod)) {
     return mod;
@@ -66,7 +134,7 @@ export function extractWorkflowDefinition(mod: unknown): WorkflowDefinition | nu
   for (const key of Object.keys(moduleRecord)) {
     if (key === "default") continue;
     if (isCompiledWorkflow(moduleRecord[key])) {
-      return moduleRecord[key] as WorkflowDefinition;
+      return moduleRecord[key] as WorkflowDefinition & { __compiledWorkflow: true };
     }
   }
 

@@ -220,6 +220,18 @@ jobs:
         run: bun ci
         working-directory: packages/workflow-sdk
 
+      - name: Run tests
+        run: bun test 2>&1 | cat
+        working-directory: packages/workflow-sdk
+
+      - name: Run typecheck
+        run: bun run typecheck
+        working-directory: packages/workflow-sdk
+
+      - name: Run lint
+        run: bun run lint
+        working-directory: packages/workflow-sdk
+
       - name: Setup Node.js for npm publish
         uses: actions/setup-node@v6
         with:

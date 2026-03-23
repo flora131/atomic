@@ -340,10 +340,7 @@ describe("Ralph workflow review/debug loop (integration)", () => {
         prompt: () => "orchestrate",
         outputMapper: () => ({}),
       })
-      .loop({
-        createUntil: () => createReviewLoopTerminator(2),
-        maxCycles: 3,
-      })
+      .loop({ maxCycles: 3 })
       .stage({
         agent: "reviewer",
         description: "REVIEWER",
@@ -354,6 +351,7 @@ describe("Ralph workflow review/debug loop (integration)", () => {
           reviewResult: parseReviewResult(response),
         }),
       })
+      .break(() => createReviewLoopTerminator(2))
       .if((ctx) => hasActionableFindings(ctx.stageOutputs))
       .stage({
         agent: "debugger",

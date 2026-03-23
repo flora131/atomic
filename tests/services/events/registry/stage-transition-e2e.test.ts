@@ -19,9 +19,10 @@
  *     → Part { type: "task-list" }
  */
 
-import { describe, expect, test, beforeEach } from "bun:test";
+import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import {
   EventHandlerRegistry,
+  getEventHandlerRegistry,
   setEventHandlerRegistry,
 } from "@/services/events/registry/registry.ts";
 import type {
@@ -154,12 +155,18 @@ function registerWorkflowHandlers(registry: EventHandlerRegistry): void {
 
 describe("stage transition events → UI pipeline (§5.9 e2e)", () => {
   let registry: EventHandlerRegistry;
+  let originalRegistry: EventHandlerRegistry;
 
   beforeEach(() => {
+    originalRegistry = getEventHandlerRegistry();
     _resetPartCounter();
     registry = new EventHandlerRegistry();
     setEventHandlerRegistry(registry);
     registerWorkflowHandlers(registry);
+  });
+
+  afterEach(() => {
+    setEventHandlerRegistry(originalRegistry);
   });
 
   // ── Link 1: BusEvent → StreamPartEvent via registry mapper ──────────────

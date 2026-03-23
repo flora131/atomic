@@ -35,7 +35,7 @@ import type { StageContext } from "@/services/workflows/conductor/types.ts";
 /** Minimal valid StageConfig for test use. */
 function makeStageConfig(overrides?: Partial<StageConfig>): StageConfig {
   return {
-    name: "test-stage",
+    agent: "test-stage",
     description: "A test stage",
     prompt: (ctx: StageContext) => `Prompt: ${ctx.userPrompt}`,
     outputMapper: (response: string) => ({ result: response }),
@@ -151,8 +151,8 @@ describe("WorkflowBuilder metadata", () => {
 
 describe("WorkflowBuilder.stage()", () => {
   test("records a stage instruction", () => {
-    const config = makeStageConfig({ name: "Planner" });
-    const builder = defineWorkflow("w", "d").stage("planner", config);
+    const config = makeStageConfig({ agent: "planner" });
+    const builder = defineWorkflow("w", "d").stage(config);
 
     expect(builder.instructions.length).toBe(1);
     expect(builder.instructions[0]!.type).toBe("stage");
@@ -167,16 +167,16 @@ describe("WorkflowBuilder.stage()", () => {
 
   test("returns this for chaining", () => {
     const builder = defineWorkflow("w", "d");
-    const result = builder.stage("s1", makeStageConfig());
+    const result = builder.stage(makeStageConfig());
 
     expect(result).toBe(builder);
   });
 
   test("multiple stages are recorded in order", () => {
     const builder = defineWorkflow("w", "d")
-      .stage("s1", makeStageConfig({ name: "Stage 1" }))
-      .stage("s2", makeStageConfig({ name: "Stage 2" }))
-      .stage("s3", makeStageConfig({ name: "Stage 3" }));
+      .stage(makeStageConfig({ agent: "stage-1" }))
+      .stage(makeStageConfig({ agent: "stage-2" }))
+      .stage(makeStageConfig({ agent: "stage-3" }));
 
     expect(builder.instructions.length).toBe(3);
 
@@ -184,7 +184,7 @@ describe("WorkflowBuilder.stage()", () => {
       if (i.type === "stage") return i.id;
       return null;
     });
-    expect(ids).toEqual(["s1", "s2", "s3"]);
+    expect(ids).toEqual(["stage-1", "stage-2", "stage-3"]);
   });
 });
 
@@ -300,11 +300,11 @@ describe("WorkflowBuilder conditional branching", () => {
   test("full if/elseIf/else/endIf sequence records correct instruction types", () => {
     const builder = defineWorkflow("w", "d")
       .if(() => true)
-      .stage("s1", makeStageConfig())
+      .stage(makeStageConfig({ agent: "s1" }))
       .elseIf(() => false)
-      .stage("s2", makeStageConfig())
+      .stage(makeStageConfig({ agent: "s2" }))
       .else()
-      .stage("s3", makeStageConfig())
+      .stage(makeStageConfig({ agent: "s3" }))
       .endIf();
 
     const types = builder.instructions.map((i) => i.type);
@@ -365,7 +365,7 @@ describe("WorkflowBuilder bounded loops", () => {
   test("loop with body records correct instruction sequence", () => {
     const builder = defineWorkflow("w", "d")
       .loop(makeLoopConfig({ maxCycles: 3 }))
-      .stage("review", makeStageConfig())
+      .stage(makeStageConfig({ agent: "review" }))
       .tool("check", makeToolConfig())
       .endLoop();
 
@@ -419,7 +419,7 @@ describe("WorkflowBuilder bounded loops", () => {
   test("break() works inside nested loops", () => {
     const builder = defineWorkflow("w", "d")
       .loop(makeLoopConfig())
-        .stage("outer", makeStageConfig())
+        .stage(makeStageConfig({ agent: "outer" }))
         .loop(makeLoopConfig())
           .break()
         .endLoop()
@@ -445,7 +445,7 @@ describe("WorkflowBuilder bounded loops", () => {
   test("loop with break and conditional records correct instruction sequence", () => {
     const builder = defineWorkflow("w", "d")
       .loop(makeLoopConfig())
-        .stage("review", makeStageConfig())
+        .stage(makeStageConfig({ agent: "review" }))
         .if(() => true)
           .break()
         .endIf()
@@ -463,7 +463,7 @@ describe("WorkflowBuilder bounded loops", () => {
 describe("WorkflowBuilder.compile()", () => {
   test("returns a CompiledWorkflow with __compiledWorkflow property", () => {
     const builder = defineWorkflow("w", "d")
-      .stage("s1", makeStageConfig());
+      .stage(makeStageConfig());
 
     const compiled = builder.compile();
 
@@ -475,7 +475,7 @@ describe("WorkflowBuilder.compile()", () => {
     const builder = defineWorkflow("my-wf", "My workflow")
       .version("2.0.0")
       .argumentHint("<path>")
-      .stage("s1", makeStageConfig({ name: "First Stage" }));
+      .stage(makeStageConfig({ agent: "first-stage" }));
 
     const compiled = builder.compile();
     const definition = compiled as unknown as Record<string, unknown>;
@@ -489,8 +489,8 @@ describe("WorkflowBuilder.compile()", () => {
 
   test("compiled workflow contains conductorStages from stage instructions", () => {
     const builder = defineWorkflow("w", "d")
-      .stage("planner", makeStageConfig({ name: "Planner" }))
-      .stage("executor", makeStageConfig({ name: "Executor" }));
+      .stage(makeStageConfig({ agent: "planner" }))
+      .stage(makeStageConfig({ agent: "executor" }));
 
     const compiled = builder.compile();
     const definition = compiled as unknown as Record<string, unknown>;
@@ -498,14 +498,14 @@ describe("WorkflowBuilder.compile()", () => {
 
     expect(stages).toHaveLength(2);
     expect(stages[0]!.id).toBe("planner");
-    expect(stages[0]!.name).toBe("Planner");
+    expect(stages[0]!.name).toBe("planner");
     expect(stages[1]!.id).toBe("executor");
-    expect(stages[1]!.name).toBe("Executor");
+    expect(stages[1]!.name).toBe("executor");
   });
 
   test("compiled workflow has a createConductorGraph function", () => {
     const builder = defineWorkflow("w", "d")
-      .stage("s1", makeStageConfig());
+      .stage(makeStageConfig());
 
     const compiled = builder.compile();
     const definition = compiled as unknown as Record<string, unknown>;
@@ -515,7 +515,7 @@ describe("WorkflowBuilder.compile()", () => {
 
   test("compiled workflow has a createState function", () => {
     const builder = defineWorkflow("w", "d")
-      .stage("s1", makeStageConfig());
+      .stage(makeStageConfig());
 
     const compiled = builder.compile();
     const definition = compiled as unknown as Record<string, unknown>;
@@ -532,33 +532,41 @@ describe("WorkflowBuilder.compile()", () => {
     );
   });
 
-  test("compile() throws on duplicate node IDs", () => {
+  test("duplicate agent names get unique auto-generated IDs", () => {
     const builder = defineWorkflow("w", "d")
-      .stage("dup", makeStageConfig())
-      .stage("dup", makeStageConfig());
+      .stage(makeStageConfig({ agent: "dup" }))
+      .stage(makeStageConfig({ agent: "dup" }));
 
-    expect(() => builder.compile()).toThrow('Duplicate node ID: "dup"');
+    // Should NOT throw — the builder auto-generates unique IDs ("dup", "dup_2")
+    const compiled = builder.compile();
+    expect(compiled).toBeDefined();
+
+    const ids = builder.instructions.map((i) => {
+      if (i.type === "stage") return i.id;
+      return null;
+    });
+    expect(ids).toEqual(["dup", "dup_2"]);
   });
 
   test("compile() throws on unbalanced if/endIf", () => {
     const builder = defineWorkflow("w", "d")
-      .stage("s1", makeStageConfig())
+      .stage(makeStageConfig({ agent: "s1" }))
       .if(() => true)
-      .stage("s2", makeStageConfig());
+      .stage(makeStageConfig({ agent: "s2" }));
 
     expect(() => builder.compile()).toThrow('unclosed "if" block(s)');
   });
 
   test("compiled graph includes node descriptions", () => {
     const builder = defineWorkflow("w", "d")
-      .stage("planner", makeStageConfig({ name: "Plan Step" }))
+      .stage(makeStageConfig({ agent: "planner" }))
       .tool("parser", makeToolConfig({ name: "Parse Output" }));
 
     const compiled = builder.compile();
     const definition = compiled as unknown as Record<string, unknown>;
     const descriptions = definition.nodeDescriptions as Record<string, string>;
 
-    expect(descriptions.planner).toBe("Plan Step");
+    expect(descriptions.planner).toBe("planner");
     expect(descriptions.parser).toBe("Parse Output");
   });
 
@@ -568,7 +576,7 @@ describe("WorkflowBuilder.compile()", () => {
         count: { default: 0, reducer: "sum" },
         items: { default: () => [], reducer: "concat" },
       })
-      .stage("s1", makeStageConfig());
+      .stage(makeStageConfig());
 
     const compiled = builder.compile();
     const definition = compiled as unknown as Record<string, unknown>;
@@ -609,21 +617,21 @@ describe("WorkflowBuilder fluent chaining", () => {
         results: { default: () => [], reducer: "concat" },
         iteration: { default: 0, reducer: "sum" },
       })
-      .stage("planner", makeStageConfig({ name: "Planner" }))
+      .stage(makeStageConfig({ agent: "planner" }))
       .if((ctx) => ctx.stageOutputs.has("planner"))
-        .stage("executor", makeStageConfig({ name: "Executor" }))
+        .stage(makeStageConfig({ agent: "executor" }))
         .tool("parser", makeToolConfig({ name: "Output Parser" }))
         .loop({
           until: (state) => "reviewer" in state.outputs,
           maxCycles: 3,
         })
-          .stage("reviewer", makeStageConfig({ name: "Reviewer" }))
+          .stage(makeStageConfig({ agent: "reviewer" }))
           .if((ctx) => !ctx.stageOutputs.has("reviewer"))
-            .stage("debugger", makeStageConfig({ name: "Debugger" }))
+            .stage(makeStageConfig({ agent: "debugger" }))
           .endIf()
         .endLoop()
       .else()
-        .stage("fallback", makeStageConfig({ name: "Fallback" }))
+        .stage(makeStageConfig({ agent: "fallback" }))
       .endIf();
 
     // Verify metadata
@@ -665,9 +673,9 @@ describe("WorkflowBuilder fluent chaining", () => {
 
   test("stages and tools can be mixed freely", () => {
     const builder = defineWorkflow("w", "d")
-      .stage("s1", makeStageConfig())
+      .stage(makeStageConfig({ agent: "s1" }))
       .tool("t1", makeToolConfig())
-      .stage("s2", makeStageConfig())
+      .stage(makeStageConfig({ agent: "s2" }))
       .tool("t2", makeToolConfig());
 
     const types = builder.instructions.map((i) => i.type);
@@ -708,7 +716,7 @@ describe("WorkflowBuilder interface conformance", () => {
       .version("1.0.0")
       .argumentHint("hint")
       .state({ x: { default: 0 } })
-      .stage("s1", makeStageConfig())
+      .stage(makeStageConfig())
       .tool("t1", makeToolConfig())
       .if(() => true)
       .else()
@@ -728,7 +736,7 @@ describe("WorkflowBuilder interface conformance", () => {
 describe("WorkflowBuilder instruction reference integrity", () => {
   test("stage config references are preserved (not cloned)", () => {
     const config = makeStageConfig();
-    const builder = defineWorkflow("w", "d").stage("s1", config);
+    const builder = defineWorkflow("w", "d").stage(config);
 
     const instruction = builder.instructions[0] as Extract<
       Instruction,

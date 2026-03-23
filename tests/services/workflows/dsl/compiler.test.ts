@@ -23,7 +23,7 @@ import type { BaseState, Edge, CompiledGraph } from "@/services/workflows/graph/
 
 function makeStageConfig(overrides?: Partial<StageConfig>): StageConfig {
   return {
-    name: "test-stage",
+    agent: "test-stage",
     description: "A test stage",
     prompt: (ctx: StageContext) => `Prompt: ${ctx.userPrompt}`,
     outputMapper: (response: string) => ({ result: response }),
@@ -85,7 +85,7 @@ describe("validateInstructions break validation", () => {
   test("break inside a loop is valid", () => {
     const instructions: Instruction[] = [
       { type: "loop", config: makeLoopConfig() },
-      { type: "stage", id: "s1", config: makeStageConfig() },
+      { type: "stage", id: "s1", config: makeStageConfig({ agent: "s1" }) },
       { type: "break" },
       { type: "endLoop" },
     ];
@@ -95,7 +95,7 @@ describe("validateInstructions break validation", () => {
 
   test("break outside a loop throws", () => {
     const instructions: Instruction[] = [
-      { type: "stage", id: "s1", config: makeStageConfig() },
+      { type: "stage", id: "s1", config: makeStageConfig({ agent: "s1" }) },
       { type: "break" },
     ];
     expect(() => validateInstructions(instructions)).toThrow(
@@ -107,10 +107,10 @@ describe("validateInstructions break validation", () => {
     const instructions: Instruction[] = [
       { type: "loop", config: makeLoopConfig() },
       { type: "loop", config: makeLoopConfig() },
-      { type: "stage", id: "s1", config: makeStageConfig() },
+      { type: "stage", id: "s1", config: makeStageConfig({ agent: "s1" }) },
       { type: "break" },
       { type: "endLoop" },
-      { type: "stage", id: "s2", config: makeStageConfig() },
+      { type: "stage", id: "s2", config: makeStageConfig({ agent: "s2" }) },
       { type: "endLoop" },
     ];
     expect(() => validateInstructions(instructions)).not.toThrow();
@@ -119,9 +119,9 @@ describe("validateInstructions break validation", () => {
   test("break after all loops closed throws", () => {
     const instructions: Instruction[] = [
       { type: "loop", config: makeLoopConfig() },
-      { type: "stage", id: "s1", config: makeStageConfig() },
+      { type: "stage", id: "s1", config: makeStageConfig({ agent: "s1" }) },
       { type: "endLoop" },
-      { type: "stage", id: "s2", config: makeStageConfig() },
+      { type: "stage", id: "s2", config: makeStageConfig({ agent: "s2" }) },
       { type: "break" },
     ];
     expect(() => validateInstructions(instructions)).toThrow(
@@ -137,7 +137,7 @@ describe("validateInstructions break validation", () => {
 describe("compiler loop graph structure", () => {
   test("loop generates start, check, and exit decision nodes", () => {
     const graph = compileGraph((b) =>
-      b.loop(makeLoopConfig()).stage("s1", makeStageConfig()).endLoop(),
+      b.loop(makeLoopConfig()).stage(makeStageConfig({ agent: "s1" })).endLoop(),
     );
 
     const nodeIds = Array.from(graph.nodes.keys());
@@ -152,7 +152,7 @@ describe("compiler loop graph structure", () => {
 
   test("loop check node has both continue and exit edges", () => {
     const graph = compileGraph((b) =>
-      b.loop(makeLoopConfig()).stage("s1", makeStageConfig()).endLoop(),
+      b.loop(makeLoopConfig()).stage(makeStageConfig({ agent: "s1" })).endLoop(),
     );
 
     const checkNodeId = Array.from(graph.nodes.keys()).find((id) =>
@@ -168,7 +168,7 @@ describe("compiler loop graph structure", () => {
 
   test("back-edge targets loop start node", () => {
     const graph = compileGraph((b) =>
-      b.loop(makeLoopConfig()).stage("s1", makeStageConfig()).endLoop(),
+      b.loop(makeLoopConfig()).stage(makeStageConfig({ agent: "s1" })).endLoop(),
     );
 
     const startNodeId = Array.from(graph.nodes.keys()).find((id) =>
@@ -184,7 +184,7 @@ describe("compiler loop graph structure", () => {
 
   test("exit edge targets loop exit node", () => {
     const graph = compileGraph((b) =>
-      b.loop(makeLoopConfig()).stage("s1", makeStageConfig()).endLoop(),
+      b.loop(makeLoopConfig()).stage(makeStageConfig({ agent: "s1" })).endLoop(),
     );
 
     const checkNodeId = Array.from(graph.nodes.keys()).find((id) =>
@@ -202,9 +202,9 @@ describe("compiler loop graph structure", () => {
     const graph = compileGraph((b) =>
       b
         .loop(makeLoopConfig())
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .endLoop()
-        .stage("s2", makeStageConfig()),
+        .stage(makeStageConfig({ agent: "s2" })),
     );
 
     const exitNodeId = Array.from(graph.nodes.keys()).find((id) =>
@@ -217,7 +217,7 @@ describe("compiler loop graph structure", () => {
 
   test("loop exit node is an end node when no instructions follow", () => {
     const graph = compileGraph((b) =>
-      b.loop(makeLoopConfig()).stage("s1", makeStageConfig()).endLoop(),
+      b.loop(makeLoopConfig()).stage(makeStageConfig({ agent: "s1" })).endLoop(),
     );
 
     const exitNodeId = Array.from(graph.nodes.keys()).find((id) =>
@@ -237,7 +237,7 @@ describe("compiler loop until predicate", () => {
     const graph = compileGraph((b) =>
       b
         .loop(makeLoopConfig({ until: () => false, maxCycles: 10 }))
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .endLoop(),
     );
 
@@ -254,7 +254,7 @@ describe("compiler loop until predicate", () => {
     const graph = compileGraph((b) =>
       b
         .loop(makeLoopConfig({ until: () => true, maxCycles: 10 }))
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .endLoop(),
     );
 
@@ -280,7 +280,7 @@ describe("compiler loop until predicate", () => {
             maxCycles: 10,
           }),
         )
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .endLoop(),
     );
 
@@ -306,7 +306,7 @@ describe("compiler loop until predicate", () => {
             maxCycles: 10,
           }),
         )
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .endLoop(),
     );
 
@@ -334,7 +334,7 @@ describe("compiler loop maxCycles enforcement", () => {
     const graph = compileGraph((b) =>
       b
         .loop(makeLoopConfig({ until: () => false, maxCycles: 3 }))
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .endLoop(),
     );
 
@@ -356,7 +356,7 @@ describe("compiler loop maxCycles enforcement", () => {
     const graph = compileGraph((b) =>
       b
         .loop(makeLoopConfig({ until: () => false, maxCycles: 1 }))
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .endLoop(),
     );
 
@@ -383,7 +383,7 @@ describe("compiler loop maxCycles enforcement", () => {
             maxCycles: 10,
           }),
         )
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .endLoop(),
     );
 
@@ -403,7 +403,7 @@ describe("compiler loop maxCycles enforcement", () => {
     const graph = compileGraph((b) =>
       b
         .loop(makeLoopConfig({ until: () => false, maxCycles: 5 }))
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .endLoop(),
     );
 
@@ -431,7 +431,7 @@ describe("compiler loop edge mutual exclusivity", () => {
     const graph = compileGraph((b) =>
       b
         .loop(makeLoopConfig({ until: () => false, maxCycles: 10 }))
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .endLoop(),
     );
 
@@ -454,7 +454,7 @@ describe("compiler loop edge mutual exclusivity", () => {
     const graph = compileGraph((b) =>
       b
         .loop(makeLoopConfig({ until: () => true, maxCycles: 10 }))
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .endLoop(),
     );
 
@@ -477,7 +477,7 @@ describe("compiler loop edge mutual exclusivity", () => {
     const graph = compileGraph((b) =>
       b
         .loop(makeLoopConfig({ until: () => false, maxCycles: 1 }))
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .endLoop(),
     );
 
@@ -500,7 +500,7 @@ describe("compiler loop edge mutual exclusivity", () => {
     const graph = compileGraph((b) =>
       b
         .loop(makeLoopConfig())
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .endLoop(),
     );
 
@@ -526,7 +526,7 @@ describe("compiler break instruction", () => {
     const graph = compileGraph((b) =>
       b
         .loop(makeLoopConfig())
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .break()
         .endLoop(),
     );
@@ -541,7 +541,7 @@ describe("compiler break instruction", () => {
     const graph = compileGraph((b) =>
       b
         .loop(makeLoopConfig())
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .break()
         .endLoop(),
     );
@@ -558,7 +558,7 @@ describe("compiler break instruction", () => {
     const graph = compileGraph((b) =>
       b
         .loop(makeLoopConfig())
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .break()
         .endLoop(),
     );
@@ -580,9 +580,9 @@ describe("compiler break instruction", () => {
     const graph = compileGraph((b) =>
       b
         .loop(makeLoopConfig())
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .break()
-        .stage("s2", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s2" }))
         .break()
         .endLoop(),
     );
@@ -605,9 +605,9 @@ describe("compiler break instruction", () => {
     const graph = compileGraph((b) =>
       b
         .loop(makeLoopConfig())
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .loop(makeLoopConfig())
-        .stage("s2", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s2" }))
         .break()
         .endLoop()
         .endLoop(),
@@ -644,9 +644,9 @@ describe("compiler nested loops", () => {
     const graph = compileGraph((b) =>
       b
         .loop(makeLoopConfig({ until: () => false, maxCycles: 3 }))
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .loop(makeLoopConfig({ until: () => false, maxCycles: 2 }))
-        .stage("s2", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s2" }))
         .endLoop()
         .endLoop(),
     );
@@ -669,11 +669,11 @@ describe("compiler nested loops", () => {
     const graph = compileGraph((b) =>
       b
         .loop(makeLoopConfig())
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .loop(makeLoopConfig())
-        .stage("s2", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s2" }))
         .endLoop()
-        .stage("s3", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s3" }))
         .endLoop(),
     );
 
@@ -731,7 +731,7 @@ describe("compiler loop graph traversal simulation", () => {
             maxCycles: 10,
           }),
         )
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .endLoop(),
     );
 
@@ -757,7 +757,7 @@ describe("compiler loop graph traversal simulation", () => {
     const graph = compileGraph((b) =>
       b
         .loop(makeLoopConfig({ until: () => false, maxCycles: 3 }))
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .endLoop(),
     );
 
@@ -801,7 +801,7 @@ describe("compiler loop until and maxCycles independence", () => {
             maxCycles: 3, // also reached on 3rd check (count=3, 3 < 3 = false)
           }),
         )
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .endLoop(),
     );
 
@@ -827,7 +827,7 @@ describe("compiler loop until and maxCycles independence", () => {
     const graph = compileGraph((b) =>
       b
         .loop(makeLoopConfig({ until: () => false, maxCycles: 2 }))
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .endLoop(),
     );
 
@@ -856,7 +856,7 @@ describe("compiler loop until and maxCycles independence", () => {
             maxCycles: 1_000_000,
           }),
         )
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .endLoop(),
     );
 
@@ -879,7 +879,7 @@ describe("compiler loop iteration counter isolation", () => {
     const graph1 = compileGraph((b) =>
       b
         .loop(makeLoopConfig({ until: () => false, maxCycles: 2 }))
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .endLoop(),
     );
 
@@ -897,7 +897,7 @@ describe("compiler loop iteration counter isolation", () => {
     const graph2 = compileGraph((b) =>
       b
         .loop(makeLoopConfig({ until: () => false, maxCycles: 2 }))
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .endLoop(),
     );
 
@@ -915,9 +915,9 @@ describe("compiler loop iteration counter isolation", () => {
     const graph = compileGraph((b) =>
       b
         .loop(makeLoopConfig({ until: () => false, maxCycles: 3 }))
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .loop(makeLoopConfig({ until: () => false, maxCycles: 2 }))
-        .stage("s2", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s2" }))
         .endLoop()
         .endLoop(),
     );
@@ -956,9 +956,9 @@ describe("compiler break inside conditional", () => {
     const graph = compileGraph((b) =>
       b
         .loop(makeLoopConfig())
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .if(() => true)
-        .stage("s2", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s2" }))
         .break()
         .endIf()
         .endLoop(),
@@ -985,9 +985,9 @@ describe("compiler break inside conditional", () => {
       b
         .loop(makeLoopConfig())
         .if(() => true)
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .else()
-        .stage("s2", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s2" }))
         .break()
         .endIf()
         .endLoop(),
@@ -1011,10 +1011,10 @@ describe("compiler break inside conditional", () => {
     const instructions: Instruction[] = [
       { type: "loop", config: makeLoopConfig() },
       { type: "if", condition: () => true },
-      { type: "stage", id: "s1", config: makeStageConfig() },
+      { type: "stage", id: "s1", config: makeStageConfig({ agent: "s1" }) },
       { type: "break" },
       { type: "endIf" },
-      { type: "stage", id: "s2", config: makeStageConfig() },
+      { type: "stage", id: "s2", config: makeStageConfig({ agent: "s2" }) },
       { type: "endLoop" },
     ];
     expect(() => validateInstructions(instructions)).not.toThrow();
@@ -1026,7 +1026,7 @@ describe("compiler loop edge stability after exhaustion", () => {
     const graph = compileGraph((b) =>
       b
         .loop(makeLoopConfig({ until: () => false, maxCycles: 2 }))
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .endLoop(),
     );
 
@@ -1053,7 +1053,7 @@ describe("compiler loop edge stability after exhaustion", () => {
     const graph = compileGraph((b) =>
       b
         .loop(makeLoopConfig({ until: () => false, maxCycles: 3 }))
-        .stage("s1", makeStageConfig())
+        .stage(makeStageConfig({ agent: "s1" }))
         .endLoop(),
     );
 

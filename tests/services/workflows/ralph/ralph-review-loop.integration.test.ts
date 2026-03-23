@@ -326,15 +326,15 @@ describe("Ralph workflow review/debug loop (integration)", () => {
   test("maxCycles cap prevents infinite loop", async () => {
     // Build a minimal workflow identical to Ralph but with maxCycles: 3
     const testWorkflow = defineWorkflow("test-ralph-maxcycles", "test")
-      .stage("planner", {
-        name: "Planner",
+      .stage({
+        agent: "planner",
         description: "PLANNER",
         outputs: ["tasks"],
         prompt: (ctx) => ctx.userPrompt,
         outputMapper: (response) => ({ tasks: parseTasks(response) }),
       })
-      .stage("orchestrator", {
-        name: "Orchestrator",
+      .stage({
+        agent: "orchestrator",
         description: "ORCHESTRATOR",
         reads: ["tasks"],
         prompt: () => "orchestrate",
@@ -344,8 +344,8 @@ describe("Ralph workflow review/debug loop (integration)", () => {
         createUntil: () => createReviewLoopTerminator(2),
         maxCycles: 3,
       })
-      .stage("reviewer", {
-        name: "Reviewer",
+      .stage({
+        agent: "reviewer",
         description: "REVIEWER",
         reads: ["tasks"],
         outputs: ["reviewResult"],
@@ -355,8 +355,8 @@ describe("Ralph workflow review/debug loop (integration)", () => {
         }),
       })
       .if((ctx) => hasActionableFindings(ctx.stageOutputs))
-      .stage("debugger", {
-        name: "Debugger",
+      .stage({
+        agent: "debugger",
         description: "DEBUGGER",
         reads: ["reviewResult"],
         prompt: () => "debug",

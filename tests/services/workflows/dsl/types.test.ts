@@ -40,13 +40,13 @@ function assertInstructionType<T extends Instruction["type"]>(
 describe("StageConfig", () => {
   test("accepts a minimal valid stage config", () => {
     const config: StageConfig = {
-      name: "planner",
+      agent: "planner",
       description: "Plans the work",
       prompt: (ctx: StageContext) => `Plan: ${ctx.userPrompt}`,
       outputMapper: (response: string) => ({ plan: response }),
     };
 
-    expect(config.name).toBe("planner");
+    expect(config.agent).toBe("planner");
     expect(config.description).toBe("Plans the work");
     expect(typeof config.prompt).toBe("function");
     expect(typeof config.outputMapper).toBe("function");
@@ -54,7 +54,7 @@ describe("StageConfig", () => {
 
   test("accepts optional fields", () => {
     const config: StageConfig = {
-      name: "executor",
+      agent: "executor",
       description: "Executes tasks",
       prompt: () => "Execute",
       outputMapper: () => ({}),
@@ -72,7 +72,7 @@ describe("StageConfig", () => {
 
   test("prompt receives StageContext and returns string", () => {
     const config: StageConfig = {
-      name: "test",
+      agent: "test",
       description: "test",
       prompt: (ctx) => {
         // Verify StageContext shape is accessible
@@ -242,7 +242,7 @@ describe("Instruction", () => {
       type: "stage",
       id: "planner",
       config: {
-        name: "Planner",
+        agent: "planner",
         description: "Plans work",
         prompt: () => "plan",
         outputMapper: () => ({}),
@@ -251,7 +251,7 @@ describe("Instruction", () => {
 
     assertInstructionType(instruction, "stage");
     expect(instruction.id).toBe("planner");
-    expect(instruction.config.name).toBe("Planner");
+    expect(instruction.config.agent).toBe("planner");
   });
 
   test("tool instruction carries id and ToolConfig", () => {
@@ -325,7 +325,7 @@ describe("Instruction", () => {
 
   test("exhaustive switch covers all instruction types", () => {
     const instructions: Instruction[] = [
-      { type: "stage", id: "s1", config: { name: "S1", description: "d", prompt: () => "", outputMapper: () => ({}) } },
+      { type: "stage", id: "s1", config: { agent: "s1", description: "d", prompt: () => "", outputMapper: () => ({}) } },
       { type: "tool", id: "t1", config: { name: "T1", execute: async () => ({}) } },
       { type: "if", condition: () => true },
       { type: "elseIf", condition: () => false },
@@ -371,7 +371,7 @@ describe("WorkflowBuilderInterface", () => {
       version(_v: string) { return this; },
       argumentHint(_hint: string) { return this; },
       state(_schema: Record<string, StateFieldConfig>) { return this; },
-      stage(_id: string, _config: StageConfig) { return this; },
+      stage(_config: StageConfig) { return this; },
       tool(_id: string, _config: ToolConfig) { return this; },
       if(_condition: (ctx: StageContext) => boolean) { return this; },
       elseIf(_condition: (ctx: StageContext) => boolean) { return this; },
@@ -388,8 +388,8 @@ describe("WorkflowBuilderInterface", () => {
       .version("1.0.0")
       .argumentHint("Describe the task")
       .state({ count: { default: 0 } })
-      .stage("s1", {
-        name: "Stage 1",
+      .stage({
+        agent: "s1",
         description: "First stage",
         prompt: () => "hello",
         outputMapper: () => ({}),
@@ -399,23 +399,23 @@ describe("WorkflowBuilderInterface", () => {
         execute: async () => ({}),
       })
       .if(() => true)
-        .stage("s2", {
-          name: "Stage 2",
+        .stage({
+          agent: "s2",
           description: "Conditional stage",
           prompt: () => "conditional",
           outputMapper: () => ({}),
         })
       .else()
-        .stage("s3", {
-          name: "Stage 3",
+        .stage({
+          agent: "s3",
           description: "Fallback stage",
           prompt: () => "fallback",
           outputMapper: () => ({}),
         })
       .endIf()
       .loop({ until: () => true, maxCycles: 3 })
-        .stage("s4", {
-          name: "Stage 4",
+        .stage({
+          agent: "s4",
           description: "Loop stage",
           prompt: () => "loop",
           outputMapper: () => ({}),

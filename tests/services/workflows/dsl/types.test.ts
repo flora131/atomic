@@ -9,6 +9,7 @@
 
 import { describe, test, expect } from "bun:test";
 import type {
+  AskUserQuestionConfig,
   AskUserQuestionOptions,
   CompiledWorkflow,
   Instruction,
@@ -172,6 +173,142 @@ describe("ToolOptions", () => {
 });
 
 // ---------------------------------------------------------------------------
+// AskUserQuestionConfig
+// ---------------------------------------------------------------------------
+
+describe("AskUserQuestionConfig", () => {
+  test("accepts minimal config with just question text", () => {
+    const config: AskUserQuestionConfig = {
+      question: "Do you want to continue?",
+    };
+
+    expect(config.question).toBe("Do you want to continue?");
+    expect(config.header).toBeUndefined();
+    expect(config.options).toBeUndefined();
+    expect(config.multiSelect).toBeUndefined();
+  });
+
+  test("accepts optional fields (header, options, multiSelect)", () => {
+    const config: AskUserQuestionConfig = {
+      question: "Which strategy should we use?",
+      header: "Strategy Selection",
+      options: [
+        { label: "Conservative", description: "Slow but safe" },
+        { label: "Aggressive", description: "Fast but risky" },
+        { label: "Balanced" },
+      ],
+      multiSelect: true,
+    };
+
+    expect(config.question).toBe("Which strategy should we use?");
+    expect(config.header).toBe("Strategy Selection");
+    expect(config.options).toHaveLength(3);
+    expect(config.options![0]!.label).toBe("Conservative");
+    expect(config.options![0]!.description).toBe("Slow but safe");
+    expect(config.options![2]!.description).toBeUndefined();
+    expect(config.multiSelect).toBe(true);
+  });
+
+  test("options with only labels (no descriptions)", () => {
+    const config: AskUserQuestionConfig = {
+      question: "Pick one",
+      options: [
+        { label: "Yes" },
+        { label: "No" },
+      ],
+    };
+
+    expect(config.options).toHaveLength(2);
+    expect(config.options![0]!.label).toBe("Yes");
+    expect(config.options![1]!.label).toBe("No");
+  });
+
+  test("multiSelect defaults to undefined when not set", () => {
+    const config: AskUserQuestionConfig = {
+      question: "Continue?",
+      options: [{ label: "Yes" }, { label: "No" }],
+    };
+
+    expect(config.multiSelect).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AskUserQuestionOptions
+// ---------------------------------------------------------------------------
+
+describe("AskUserQuestionOptions", () => {
+  test("accepts minimal config (name + static question)", () => {
+    const config: AskUserQuestionOptions = {
+      name: "confirm",
+      question: { question: "Continue with implementation?" },
+    };
+
+    expect(config.name).toBe("confirm");
+    expect(typeof config.question).toBe("object");
+  });
+
+  test("accepts optional fields (header, options, multiSelect, onAnswer, description, reads, outputs)", () => {
+    const config: AskUserQuestionOptions = {
+      name: "review-choice",
+      question: {
+        question: "How should we proceed?",
+        header: "Review Required",
+        options: [
+          { label: "Approve", description: "Accept the changes" },
+          { label: "Reject" },
+        ],
+        multiSelect: true,
+      },
+      description: "Ask user for review decision",
+      onAnswer: (answer) => ({ decision: answer }),
+      reads: ["plan"],
+      outputs: ["decision"],
+    };
+
+    expect(config.name).toBe("review-choice");
+    expect(config.description).toBe("Ask user for review decision");
+    expect(typeof config.onAnswer).toBe("function");
+    expect(config.reads).toEqual(["plan"]);
+    expect(config.outputs).toEqual(["decision"]);
+  });
+
+  test("accepts dynamic question function (state) => AskUserQuestionConfig", () => {
+    const config: AskUserQuestionOptions = {
+      name: "dynamic-q",
+      question: (state: BaseState) => ({
+        question: `Found ${Object.keys(state.outputs).length} outputs. Continue?`,
+        options: [{ label: "Yes" }, { label: "No" }],
+      }),
+    };
+
+    expect(typeof config.question).toBe("function");
+  });
+
+  test("onAnswer receives string and returns record", () => {
+    const onAnswer = (answer: string | string[]) => ({ userChoice: answer });
+    const config: AskUserQuestionOptions = {
+      name: "test",
+      question: { question: "Pick one" },
+      onAnswer,
+    };
+
+    expect(config.onAnswer!("Approve")).toEqual({ userChoice: "Approve" });
+  });
+
+  test("onAnswer receives string[] for multi-select and returns record", () => {
+    const onAnswer = (answer: string | string[]) => ({ selections: answer });
+    const config: AskUserQuestionOptions = {
+      name: "test",
+      question: { question: "Pick many", multiSelect: true },
+      onAnswer,
+    };
+
+    expect(config.onAnswer!(["A", "B"])).toEqual({ selections: ["A", "B"] });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // LoopOptions
 // ---------------------------------------------------------------------------
 
@@ -306,6 +443,21 @@ describe("Instruction", () => {
     assertInstructionType(instruction, "tool");
     expect(instruction.id).toBe("parser");
     expect(instruction.config.name).toBe("Parser");
+  });
+
+  test("askUserQuestion instruction carries id and AskUserQuestionOptions", () => {
+    const instruction: Instruction = {
+      type: "askUserQuestion",
+      id: "confirm",
+      config: {
+        name: "confirm",
+        question: { question: "Continue?" },
+      },
+    };
+
+    assertInstructionType(instruction, "askUserQuestion");
+    expect(instruction.id).toBe("confirm");
+    expect(instruction.config.name).toBe("confirm");
   });
 
   test("if instruction carries a condition function", () => {

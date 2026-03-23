@@ -13,7 +13,7 @@
 import { describe, expect, test } from "bun:test";
 import { defineWorkflow } from "@/services/workflows/dsl/define-workflow.ts";
 import { validateInstructions } from "@/services/workflows/dsl/compiler.ts";
-import type { StageOptions, ToolOptions, LoopOptions, Instruction } from "@/services/workflows/dsl/types.ts";
+import type { StageOptions, ToolOptions, LoopOptions, AskUserQuestionOptions, Instruction } from "@/services/workflows/dsl/types.ts";
 import type { StageContext } from "@/services/workflows/conductor/types.ts";
 import type { BaseState, Edge, CompiledGraph } from "@/services/workflows/graph/types.ts";
 
@@ -43,6 +43,14 @@ function makeToolOptions(overrides?: Partial<ToolOptions>): ToolOptions {
 function makeLoopOptions(overrides?: Partial<LoopOptions>): LoopOptions {
   return {
     maxCycles: 5,
+    ...overrides,
+  };
+}
+
+function makeAskUserOptions(overrides?: Partial<AskUserQuestionOptions>): AskUserQuestionOptions {
+  return {
+    name: overrides?.name ?? "test-question",
+    question: { question: "Continue?" },
     ...overrides,
   };
 }
@@ -1193,5 +1201,235 @@ describe("compiler null agent handling", () => {
     const node = graph.nodes.get("s1");
     expect(node).toBeDefined();
     expect(node!.name).toBe("custom-agent");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateInstructions — askUserQuestion validation
+// ---------------------------------------------------------------------------
+
+describe("validateInstructions askUserQuestion", () => {
+  test("askUserQuestion is accepted as a valid node", () => {
+    const instructions: Instruction[] = [
+      { type: "askUserQuestion", id: "q1", config: makeAskUserOptions({ name: "q1" }) },
+    ];
+    expect(() => validateInstructions(instructions)).not.toThrow();
+  });
+
+  test("askUserQuestion satisfies 'at least one node' requirement", () => {
+    const instructions: Instruction[] = [
+      { type: "askUserQuestion", id: "q1", config: makeAskUserOptions({ name: "q1" }) },
+    ];
+    expect(() => validateInstructions(instructions)).not.toThrow();
+  });
+
+  test("duplicate askUserQuestion IDs throw", () => {
+    const instructions: Instruction[] = [
+      { type: "askUserQuestion", id: "q1", config: makeAskUserOptions({ name: "q1" }) },
+      { type: "askUserQuestion", id: "q1", config: makeAskUserOptions({ name: "q1" }) },
+    ];
+    expect(() => validateInstructions(instructions)).toThrow('Duplicate node ID: "q1"');
+  });
+
+  test("askUserQuestion ID duplicating a stage ID throws", () => {
+    const instructions: Instruction[] = [
+      { type: "stage", id: "shared", config: makeStageOptions({ name: "shared" }) },
+      { type: "askUserQuestion", id: "shared", config: makeAskUserOptions({ name: "shared" }) },
+    ];
+    expect(() => validateInstructions(instructions)).toThrow('Duplicate node ID: "shared"');
+  });
+
+  test("askUserQuestion inside a conditional branch makes it non-empty", () => {
+    const instructions: Instruction[] = [
+      { type: "stage", id: "s1", config: makeStageOptions({ name: "s1" }) },
+      { type: "if", condition: () => true },
+      { type: "askUserQuestion", id: "q1", config: makeAskUserOptions({ name: "q1" }) },
+      { type: "endIf" },
+    ];
+    expect(() => validateInstructions(instructions)).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Graph Generation — askUserQuestion nodes
+// ---------------------------------------------------------------------------
+
+describe("compiler askUserQuestion graph generation", () => {
+  test("askUserQuestion produces an ask_user type node in the graph", () => {
+    const graph = compileGraph((b) =>
+      b.askUserQuestion(makeAskUserOptions({ name: "q1" })),
+    );
+
+    const node = graph.nodes.get("q1");
+    expect(node).toBeDefined();
+    expect(node!.type).toBe("ask_user");
+  });
+
+  test("askUserQuestion node is connected to previous and next nodes", () => {
+    const graph = compileGraph((b) =>
+      b
+        .stage(makeStageOptions({ name: "s1" }))
+        .askUserQuestion(makeAskUserOptions({ name: "q1" }))
+        .stage(makeStageOptions({ name: "s2" })),
+    );
+
+    // s1 → q1
+    const edgeS1ToQ1 = edgeFromTo(graph, "s1", "q1");
+    expect(edgeS1ToQ1).toBeDefined();
+
+    // q1 → s2
+    const edgeQ1ToS2 = edgeFromTo(graph, "q1", "s2");
+    expect(edgeQ1ToS2).toBeDefined();
+  });
+
+  test("askUserQuestion does NOT produce a StageDefinition", () => {
+    const builder = defineWorkflow({ name: "test-wf", description: "test" })
+      .stage(makeStageOptions({ name: "s1" }))
+      .askUserQuestion(makeAskUserOptions({ name: "q1" }))
+      .stage(makeStageOptions({ name: "s2" }));
+
+    const compiled = builder.compile();
+    const stages = compiled.conductorStages as unknown as Array<{ id: string }>;
+
+    // Only stage instructions produce StageDefinitions
+    expect(stages).toHaveLength(2);
+    expect(stages[0]!.id).toBe("s1");
+    expect(stages[1]!.id).toBe("s2");
+  });
+
+  test("askUserQuestion as the only node compiles successfully", () => {
+    const graph = compileGraph((b) =>
+      b.askUserQuestion(makeAskUserOptions({ name: "q1" })),
+    );
+
+    expect(graph.nodes.size).toBeGreaterThan(0);
+    expect(graph.nodes.get("q1")).toBeDefined();
+    expect(graph.startNode).toBe("q1");
+    expect(graph.endNodes.has("q1")).toBe(true);
+  });
+
+  test("askUserQuestion node name uses options.name", () => {
+    const graph = compileGraph((b) =>
+      b.askUserQuestion(makeAskUserOptions({ name: "my-question" })),
+    );
+
+    const node = graph.nodes.get("my-question");
+    expect(node).toBeDefined();
+    expect(node!.name).toBe("my-question");
+  });
+
+  test("askUserQuestion with description sets node description", () => {
+    const graph = compileGraph((b) =>
+      b.askUserQuestion(makeAskUserOptions({
+        name: "q1",
+        description: "Ask for review approval"
+      })),
+    );
+
+    const node = graph.nodes.get("q1");
+    expect(node).toBeDefined();
+    expect(node!.description).toBe("Ask for review approval");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// askUserQuestion inside conditional blocks
+// ---------------------------------------------------------------------------
+
+describe("compiler askUserQuestion in conditionals", () => {
+  test("askUserQuestion inside an if block is valid and wired correctly", () => {
+    const graph = compileGraph((b) =>
+      b
+        .stage(makeStageOptions({ name: "s1" }))
+        .if(() => true)
+          .askUserQuestion(makeAskUserOptions({ name: "q1" }))
+        .endIf()
+        .stage(makeStageOptions({ name: "s2" })),
+    );
+
+    expect(graph.nodes.get("q1")).toBeDefined();
+    expect(graph.nodes.get("q1")!.type).toBe("ask_user");
+
+    // Edges: s1 → q1 → s2
+    expect(edgeFromTo(graph, "s1", "q1")).toBeDefined();
+    expect(edgeFromTo(graph, "q1", "s2")).toBeDefined();
+  });
+
+  test("askUserQuestion inside else block is valid", () => {
+    const graph = compileGraph((b) =>
+      b
+        .if(() => true)
+          .stage(makeStageOptions({ name: "s1" }))
+        .else()
+          .askUserQuestion(makeAskUserOptions({ name: "q1" }))
+        .endIf(),
+    );
+
+    expect(graph.nodes.get("q1")).toBeDefined();
+    expect(graph.nodes.get("q1")!.type).toBe("ask_user");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// askUserQuestion inside loop blocks
+// ---------------------------------------------------------------------------
+
+describe("compiler askUserQuestion in loops", () => {
+  test("askUserQuestion inside a loop is valid and wired correctly", () => {
+    const graph = compileGraph((b) =>
+      b
+        .loop(makeLoopOptions())
+          .stage(makeStageOptions({ name: "s1" }))
+          .askUserQuestion(makeAskUserOptions({ name: "q1" }))
+        .endLoop(),
+    );
+
+    expect(graph.nodes.get("q1")).toBeDefined();
+    expect(graph.nodes.get("q1")!.type).toBe("ask_user");
+
+    // s1 → q1
+    expect(edgeFromTo(graph, "s1", "q1")).toBeDefined();
+
+    // q1 → loop check
+    const checkNodeId = Array.from(graph.nodes.keys()).find((id) =>
+      id.startsWith("__loop_check_"),
+    )!;
+    expect(edgeFromTo(graph, "q1", checkNodeId)).toBeDefined();
+  });
+
+  test("askUserQuestion with break in loop compiles correctly", () => {
+    const graph = compileGraph((b) =>
+      b
+        .loop(makeLoopOptions())
+          .askUserQuestion(makeAskUserOptions({ name: "q1" }))
+          .break(() => () => true)
+        .endLoop(),
+    );
+
+    expect(graph.nodes.get("q1")).toBeDefined();
+
+    const breakNodeId = Array.from(graph.nodes.keys()).find((id) =>
+      id.startsWith("__break_"),
+    )!;
+    expect(breakNodeId).toBeDefined();
+
+    // q1 → break node
+    expect(edgeFromTo(graph, "q1", breakNodeId)).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// askUserQuestion graph node descriptions
+// ---------------------------------------------------------------------------
+
+describe("compiler askUserQuestion node descriptions", () => {
+  test("compiled workflow includes askUserQuestion node in nodeDescriptions", () => {
+    const builder = defineWorkflow({ name: "w", description: "d" })
+      .askUserQuestion(makeAskUserOptions({ name: "confirm" }));
+
+    const compiled = builder.compile();
+    const descriptions = compiled.nodeDescriptions as Record<string, string>;
+
+    expect(descriptions.confirm).toBe("confirm");
   });
 });

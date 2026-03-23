@@ -318,7 +318,7 @@ export function useWorkflowHitl({
   }, [enqueueAndApplyHitlRequest, workflowStateRef]);
 
   const handleAskUserQuestion = useCallback((eventData: AskUserQuestionEventData) => {
-    if (workflowStateRef.current.workflowActive) {
+    if (workflowStateRef.current.workflowActive && !eventData.dslAskUser) {
       const autoAnswer = eventData.options?.[0]?.label ?? "continue";
       if (eventData.respond) {
         eventData.respond(autoAnswer);
@@ -338,7 +338,7 @@ export function useWorkflowHitl({
       header: eventData.header || "Question",
       question: eventData.question,
       options: mappedOptions,
-      multiSelect: false,
+      multiSelect: eventData.multiSelect ?? false,
     };
 
     const targetToolId = eventData.toolCallId ?? null;
@@ -356,7 +356,7 @@ export function useWorkflowHitl({
       header: eventData.header || "Question",
       question: eventData.question,
       options: mappedOptions,
-      multiSelect: false,
+      multiSelect: eventData.multiSelect ?? false,
       respond,
     });
   }, [enqueueAndApplyHitlRequest, onWorkflowResumeWithAnswer, workflowStateRef]);

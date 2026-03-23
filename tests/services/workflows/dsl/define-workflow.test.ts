@@ -19,6 +19,7 @@ import {
   WorkflowBuilder,
 } from "@/services/workflows/dsl/define-workflow.ts";
 import type {
+  AskUserQuestionOptions,
   Instruction,
   StageOptions,
   ToolOptions,
@@ -57,6 +58,15 @@ function makeToolOptions(overrides?: Partial<ToolOptions>): ToolOptions {
 function makeLoopOptions(overrides?: Partial<LoopOptions>): LoopOptions {
   return {
     maxCycles: 5,
+    ...overrides,
+  };
+}
+
+/** Minimal valid AskUserQuestionOptions for test use. */
+function makeAskUserOptions(overrides?: Partial<AskUserQuestionOptions>): AskUserQuestionOptions {
+  return {
+    name: overrides?.name ?? "test-question",
+    question: { question: "Continue?" },
     ...overrides,
   };
 }
@@ -254,6 +264,79 @@ describe("WorkflowBuilder.tool()", () => {
         .stage(makeStageOptions({ name: "shared" }))
         .tool(makeToolOptions({ name: "shared" })),
     ).toThrow('Duplicate node name: "shared"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Linear flow — askUserQuestion()
+// ---------------------------------------------------------------------------
+
+describe("WorkflowBuilder.askUserQuestion()", () => {
+  test("records an askUserQuestion instruction", () => {
+    const config = makeAskUserOptions({ name: "confirm" });
+    const builder = defineWorkflow({ name: "w", description: "d" }).askUserQuestion(config);
+
+    expect(builder.instructions.length).toBe(1);
+    expect(builder.instructions[0]!.type).toBe("askUserQuestion");
+
+    const instruction = builder.instructions[0] as Extract<
+      Instruction,
+      { type: "askUserQuestion" }
+    >;
+    expect(instruction.id).toBe("confirm");
+    expect(instruction.config).toBe(config);
+  });
+
+  test("returns this for chaining", () => {
+    const builder = defineWorkflow({ name: "w", description: "d" });
+    const result = builder.askUserQuestion(makeAskUserOptions());
+
+    expect(result).toBe(builder);
+  });
+
+  test("throws on duplicate name", () => {
+    expect(() =>
+      defineWorkflow({ name: "w", description: "d" })
+        .askUserQuestion(makeAskUserOptions({ name: "dup" }))
+        .askUserQuestion(makeAskUserOptions({ name: "dup" })),
+    ).toThrow('Duplicate node name: "dup"');
+  });
+
+  test("throws when name duplicates a stage name", () => {
+    expect(() =>
+      defineWorkflow({ name: "w", description: "d" })
+        .stage(makeStageOptions({ name: "shared" }))
+        .askUserQuestion(makeAskUserOptions({ name: "shared" })),
+    ).toThrow('Duplicate node name: "shared"');
+  });
+
+  test("throws when name duplicates a tool name", () => {
+    expect(() =>
+      defineWorkflow({ name: "w", description: "d" })
+        .tool(makeToolOptions({ name: "shared" }))
+        .askUserQuestion(makeAskUserOptions({ name: "shared" })),
+    ).toThrow('Duplicate node name: "shared"');
+  });
+
+  test("config reference is preserved (not cloned)", () => {
+    const config = makeAskUserOptions();
+    const builder = defineWorkflow({ name: "w", description: "d" }).askUserQuestion(config);
+
+    const instruction = builder.instructions[0] as Extract<
+      Instruction,
+      { type: "askUserQuestion" }
+    >;
+    expect(instruction.config).toBe(config);
+  });
+
+  test("stage → askUserQuestion → tool produces correct instruction tape", () => {
+    const builder = defineWorkflow({ name: "w", description: "d" })
+      .stage(makeStageOptions({ name: "s1" }))
+      .askUserQuestion(makeAskUserOptions({ name: "q1" }))
+      .tool(makeToolOptions({ name: "t1" }));
+
+    const types = builder.instructions.map((i) => i.type);
+    expect(types).toEqual(["stage", "askUserQuestion", "tool"]);
   });
 });
 
@@ -752,6 +835,23 @@ describe("WorkflowBuilder fluent chaining", () => {
     expect(builder.instructions.length).toBe(0);
   });
 
+  test("askUserQuestion can be mixed with stages, tools, and conditionals", () => {
+    const builder = defineWorkflow({ name: "w", description: "d" })
+      .stage(makeStageOptions({ name: "s1" }))
+      .askUserQuestion(makeAskUserOptions({ name: "q1" }))
+      .if(() => true)
+        .stage(makeStageOptions({ name: "s2" }))
+      .else()
+        .askUserQuestion(makeAskUserOptions({ name: "q2" }))
+      .endIf()
+      .tool(makeToolOptions({ name: "t1" }));
+
+    const types = builder.instructions.map((i) => i.type);
+    expect(types).toEqual([
+      "stage", "askUserQuestion", "if", "stage", "else", "askUserQuestion", "endIf", "tool",
+    ]);
+  });
+
   test("stages and tools can be mixed freely", () => {
     const builder = defineWorkflow({ name: "w", description: "d" })
       .stage(makeStageOptions({ name: "s1" }))
@@ -798,6 +898,7 @@ describe("WorkflowBuilder interface conformance", () => {
       .argumentHint("hint")
       .stage(makeStageOptions())
       .tool(makeToolOptions({ name: "t1" }))
+      .askUserQuestion(makeAskUserOptions({ name: "q1" }))
       .if(() => true)
       .else()
       .endIf()

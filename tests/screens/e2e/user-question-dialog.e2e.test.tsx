@@ -10,7 +10,6 @@
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import React from "react";
 import { act } from "react";
 import { testRender } from "@opentui/react/test-utils";
 import { ThemeProvider, darkTheme } from "@/theme/index.tsx";

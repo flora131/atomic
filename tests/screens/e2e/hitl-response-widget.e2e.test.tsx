@@ -7,7 +7,6 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import React from "react";
 import { testRender } from "@opentui/react/test-utils";
 import { ThemeProvider, darkTheme } from "@/theme/index.tsx";
 import { HitlResponseWidget } from "@/components/hitl-response-widget.tsx";

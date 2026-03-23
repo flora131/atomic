@@ -196,7 +196,8 @@ describe("CopilotStreamAdapter task metadata extraction", () => {
       },
     } as AgentEvent<"subagent.start">);
 
-    await streamPromise;
+    // Wait for stream iteration to complete
+    await new Promise((resolve) => setTimeout(resolve, 20));
 
     const agentStartEvents = events.filter(
       (event) =>
@@ -206,5 +207,10 @@ describe("CopilotStreamAdapter task metadata extraction", () => {
     expect(agentStartEvents).toHaveLength(1);
     expect(agentStartEvents[0].data.isBackground).toBe(true);
     expect(agentStartEvents[0].data.task).toBe("Background research task");
+
+    // Unblock the background-completion promise so streamPromise resolves
+    const state = (adapter as any).state;
+    state.backgroundCompletionResolve?.();
+    await streamPromise;
   });
 });

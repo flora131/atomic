@@ -9,7 +9,8 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import type { KeyEvent, TextareaRenderable, ScrollBoxRenderable, MouseEvent } from "@opentui/core";
-import { useTheme } from "@/theme/index.tsx";
+import { createMarkdownSyntaxStyle, useTheme } from "@/theme/index.tsx";
+import { normalizeMarkdownNewlines } from "@/lib/ui/format.ts";
 import { navigateUp, navigateDown } from "@/lib/ui/navigation.ts";
 import { PROMPT, STATUS, CONNECTOR } from "@/theme/icons.ts";
 import { SPACING } from "@/theme/spacing.ts";
@@ -55,9 +56,20 @@ export function UserQuestionDialog({
   onAnswer,
   visible = true,
 }: UserQuestionDialogProps): React.ReactNode {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const colors = theme.colors;
   const { height: terminalHeight } = useTerminalDimensions();
+
+  const markdownSyntaxStyle = useMemo(
+    () => createMarkdownSyntaxStyle(colors, isDark),
+    [colors, isDark],
+  );
+  useEffect(() => () => { markdownSyntaxStyle.destroy(); }, [markdownSyntaxStyle]);
+
+  const normalizedQuestion = useMemo(
+    () => normalizeMarkdownNewlines(question.question),
+    [question.question],
+  );
   const scrollRef = useRef<ScrollBoxRenderable>(null);
 
   const [highlightedIndex, setHighlightedIndex] = useState(0);
@@ -305,10 +317,12 @@ export function UserQuestionDialog({
         </text>
       </box>
 
-      {/* Question text - bold */}
-      <text fg={colors.foreground} attributes={1} wrapMode="word">
-        {question.question}
-      </text>
+      {/* Question text - markdown rendered */}
+      <markdown
+        content={normalizedQuestion}
+        syntaxStyle={markdownSyntaxStyle}
+        conceal={true}
+      />
 
       {/* Custom input / Chat about this mode */}
       {(isEditingCustom || isChatAboutThis) ? (

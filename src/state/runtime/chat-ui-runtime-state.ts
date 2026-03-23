@@ -67,6 +67,7 @@ export async function createChatUIRuntimeState(
     interruptTimeout: null,
     streamAbortController: null,
     pendingAbortPromise: null,
+    pendingBackgroundTerminationPromise: null,
     isStreaming: false,
     ownedSessionIds: new Set(),
     sessionCreationPromise: null,

@@ -1,40 +1,61 @@
 import React from "react";
 import type { WorkflowStepPart } from "@/state/parts/types.ts";
 import { useThemeColors } from "@/theme/index.tsx";
-import { MISC, STATUS } from "@/theme/icons.ts";
-
 export interface WorkflowStepPartDisplayProps {
   part: WorkflowStepPart;
   isLast: boolean;
 }
 
-function formatStepDuration(durationMs?: number): string {
-  if (!durationMs || durationMs <= 0) return "";
-  return ` (${Math.max(1, Math.round(durationMs / 1000))}s)`;
-}
-
-function getStepStatusLabel(part: WorkflowStepPart): { icon: string; label: string; colorKey: "muted" | "success" | "error" | "warning" } {
-  switch (part.status) {
-    case "running":
-      return { icon: STATUS.active, label: "running", colorKey: "muted" };
-    case "completed":
-      return { icon: STATUS.success, label: "completed", colorKey: "success" };
-    case "error":
-      return { icon: STATUS.error, label: "error", colorKey: "error" };
-    case "skipped":
-      return { icon: STATUS.pending, label: "skipped", colorKey: "warning" };
+function useStatusColor(status: WorkflowStepPart["status"]): string {
+  const colors = useThemeColors();
+  switch (status) {
+    case "running": return colors.accent;
+    case "completed": return colors.success;
+    case "error": return colors.error;
+    case "skipped": return colors.warning;
   }
 }
 
+function formatDuration(ms: number): string {
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return `${minutes}m ${remainingSeconds}s`;
+}
+
+/**
+ * Renders a stage banner for workflow step transitions.
+ * Persists across executed statuses with color-coded visual feedback:
+ *   - Blue accent while running
+ *   - Green on successful completion
+ *   - Red on error
+ * Skipped stages render nothing to avoid visual clutter.
+ */
 export function WorkflowStepPartDisplay({ part }: WorkflowStepPartDisplayProps): React.ReactNode {
   const colors = useThemeColors();
-  const status = getStepStatusLabel(part);
-  const color = colors[status.colorKey];
+  const statusColor = useStatusColor(part.status);
+
+  const durationLabel =
+    part.status === "completed" && part.durationMs !== undefined
+      ? ` (${formatDuration(part.durationMs)})`
+      : "";
 
   return (
-    <box flexDirection="column">
-      <text fg={color}>
-        {`${MISC.separator} ${status.icon} Step: ${part.nodeName} ${status.label}${formatStepDuration(part.durationMs)} ${MISC.separator}`}
+    <box flexDirection="row" gap={1}>
+      <text fg={statusColor}>│</text>
+      <text>
+        <span fg={statusColor}>
+          <strong>{part.nodeId.toUpperCase()}</strong>
+        </span>
+        {durationLabel && (
+          <span fg={colors.muted}>{durationLabel}</span>
+        )}
+        {part.status === "error" && part.error && (
+          <span fg={colors.error}>
+            {" "}— {part.error}
+          </span>
+        )}
       </text>
     </box>
   );

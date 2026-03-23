@@ -1,14 +1,16 @@
 /**
  * Workflow Session Management
  *
- * Manages persistent session directories at ~/.atomic/workflows/sessions/{sessionId}/
+ * Manages persistent session directories at ~/.atomic/sessions/workflows/{workflowName}/{sessionId}/
  * for all workflow executions (including Ralph). Sub-agent outputs are stored as
  * individual JSON files for observability and debugging.
+ *
+ * Session state is stored separately from workflow definitions (~/.atomic/workflows/)
+ * to avoid conflicts with workflow file discovery.
  */
 
 import { join } from "path";
 import { homedir } from "os";
-import type { SubagentStreamResult } from "@/services/workflows/graph/types.ts";
 
 // ============================================================================
 // Types
@@ -32,8 +34,8 @@ export interface WorkflowSession {
 export const WORKFLOW_SESSIONS_DIR = join(
   homedir(),
   ".atomic",
-  "workflows",
   "sessions",
+  "workflows",
 );
 
 // ============================================================================
@@ -44,8 +46,8 @@ export function generateWorkflowSessionId(): string {
   return crypto.randomUUID();
 }
 
-export function getWorkflowSessionDir(sessionId: string): string {
-  return join(WORKFLOW_SESSIONS_DIR, sessionId);
+export function getWorkflowSessionDir(workflowName: string, sessionId: string): string {
+  return join(WORKFLOW_SESSIONS_DIR, workflowName, sessionId);
 }
 
 export async function initWorkflowSession(
@@ -53,7 +55,7 @@ export async function initWorkflowSession(
   sessionId?: string,
 ): Promise<WorkflowSession> {
   const id = sessionId ?? generateWorkflowSessionId();
-  const sessionDir = getWorkflowSessionDir(id);
+  const sessionDir = getWorkflowSessionDir(workflowName, id);
 
   // Create directory structure
   await Bun.write(join(sessionDir, ".gitkeep"), "");
@@ -84,12 +86,3 @@ export async function saveWorkflowSession(session: WorkflowSession): Promise<voi
   );
 }
 
-export async function saveSubagentOutput(
-  sessionDir: string,
-  agentId: string,
-  result: SubagentStreamResult,
-): Promise<string> {
-  const outputPath = join(sessionDir, "agents", `${agentId}.json`);
-  await Bun.write(outputPath, JSON.stringify(result, null, 2));
-  return outputPath;
-}

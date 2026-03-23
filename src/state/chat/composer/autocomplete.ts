@@ -78,27 +78,32 @@ export function deriveComposerAutocompleteState(
   cursorOffset: number,
   workflowState: WorkflowChatState,
 ): Partial<WorkflowChatState> | null {
-  const value = rawValue.trimStart();
-  if (value.startsWith("/")) {
-    const afterSlash = value.slice(1);
-    const spaceIndex = afterSlash.indexOf(" ");
+  const textBeforeCursor = rawValue.slice(0, cursorOffset);
 
-    if (spaceIndex === -1) {
+  // Slash command detection: same pattern as @mention but strictly at index 0
+  if (rawValue.startsWith("/")) {
+    const commandToken = rawValue.slice(1, cursorOffset);
+
+    // No whitespace between / and cursor → still typing command name
+    if (!/[\s]/.test(commandToken)) {
       return {
         showAutocomplete: true,
-        autocompleteInput: afterSlash,
+        autocompleteInput: commandToken,
         selectedSuggestionIndex: 0,
         argumentHint: "",
+        autocompleteMode: "command",
       };
     }
 
-    const commandName = afterSlash.slice(0, spaceIndex);
-    const afterCommandSpace = afterSlash.slice(spaceIndex + 1);
+    // Whitespace found → command name is complete
+    const wsIndex = commandToken.search(/[\s]/);
+    const commandName = commandToken.slice(0, wsIndex);
+    const afterCommandWs = commandToken.slice(wsIndex + 1);
     const command = globalRegistry.get(commandName);
-    const textBeforeCursor = rawValue.slice(0, cursorOffset);
-    const atIndex = textBeforeCursor.lastIndexOf("@");
 
-    if (atIndex !== -1 && atIndex > spaceIndex + 1) {
+    // Check for @mention in the args area
+    const atIndex = textBeforeCursor.lastIndexOf("@");
+    if (atIndex !== -1 && atIndex > 1 + wsIndex) {
       const charBefore = atIndex > 0 ? (rawValue[atIndex - 1] ?? " ") : " ";
       if (isAtMentionBoundary(charBefore) || atIndex === 0) {
         const mentionToken = rawValue.slice(atIndex + 1, cursorOffset);
@@ -118,11 +123,12 @@ export function deriveComposerAutocompleteState(
     return {
       showAutocomplete: false,
       autocompleteInput: "",
-      argumentHint: afterCommandSpace.length === 0 ? (command?.argumentHint || "") : "",
+      argumentHint: afterCommandWs.length === 0 ? (command?.argumentHint || "") : "",
+      autocompleteMode: "command",
     };
   }
 
-  const textBeforeCursor = rawValue.slice(0, cursorOffset);
+  // @mention detection (standalone, outside slash commands)
   const atIndex = textBeforeCursor.lastIndexOf("@");
   if (atIndex !== -1) {
     const charBefore = atIndex > 0 ? (rawValue[atIndex - 1] ?? " ") : " ";
@@ -227,18 +233,31 @@ export function applyAutocompleteSelection({
     })
     : null;
   replaceTextareaValue(textarea, "");
+
+  if (action === "complete") {
+    const commandTokenEnd = 1 + workflowState.autocompleteInput.length;
+    const after = rawInput.slice(commandTokenEnd);
+    const hasTrailingText = after.trim().length > 0;
+    const replacement = `/${command.name} `;
+    updateWorkflowState({
+      showAutocomplete: false,
+      autocompleteInput: "",
+      selectedSuggestionIndex: 0,
+      autocompleteMode: "command",
+      argumentHint: hasTrailingText ? "" : (command.argumentHint || ""),
+    });
+    textarea.insertText(replacement + after);
+    textarea.cursorOffset = replacement.length;
+    return;
+  }
+
   updateWorkflowState({
     showAutocomplete: false,
     autocompleteInput: "",
     selectedSuggestionIndex: 0,
     autocompleteMode: "command",
-    argumentHint: action === "complete" ? (command.argumentHint || "") : "",
+    argumentHint: "",
   });
-
-  if (action === "complete") {
-    textarea.insertText(`/${command.name} `);
-    return;
-  }
 
   if (!resolvedExecution) {
     return;

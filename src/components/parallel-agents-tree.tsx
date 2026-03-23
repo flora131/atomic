@@ -6,9 +6,7 @@ import { TREE } from "@/theme/icons.ts";
 import { SPACING } from "@/theme/spacing.ts";
 import type { Part } from "@/state/parts/types.ts";
 import { AnimatedBlinkIndicator } from "@/components/animated-blink-indicator.tsx";
-import { ReasoningPartDisplay } from "@/components/message-parts/reasoning-part-display.tsx";
-import { TextPartDisplay } from "@/components/message-parts/text-part-display.tsx";
-import { ToolPartDisplay } from "@/components/message-parts/tool-part-display.tsx";
+import { PART_REGISTRY } from "@/components/message-parts/registry.tsx";
 
 import type { AgentStatus, ParallelAgent, ParallelAgentsTreeProps } from "@/types/parallel-agents.ts";
 
@@ -41,12 +39,15 @@ export function getAgentColors(isDark: boolean): Record<string, string> {
 
 export const AGENT_COLORS: Record<string, string> = getAgentColors(true);
 
+/** Part types eligible for agent inline summary display. */
+const AGENT_INLINE_PART_TYPES: ReadonlySet<Part["type"]> = new Set([
+  "tool",
+  "text",
+  "reasoning",
+]);
+
 export function getAgentInlineDisplayParts(parts: ReadonlyArray<Part>): Part[] {
-  return parts.filter((part) =>
-    part.type === "tool"
-    || part.type === "text"
-    || part.type === "reasoning"
-  );
+  return parts.filter((part) => AGENT_INLINE_PART_TYPES.has(part.type));
 }
 
 export function buildAgentInlinePrefix(continuationPrefix: string): string {
@@ -272,24 +273,28 @@ function AgentSummaryBlock({
           </box>
         </box>
       )}
-      {visibleTools.map((part, index) => (
-        <box key={part.id} flexDirection="row">
-          <box flexShrink={0}>
-            <text fg={colors.muted}>
-              {buildAgentInlineBranchPrefix("", index === visibleTools.length - 1)}
-            </text>
+      {visibleTools.map((part, index) => {
+        const Renderer = PART_REGISTRY[part.type];
+        if (!Renderer) return null;
+
+        return (
+          <box key={part.id} flexDirection="row">
+            <box flexShrink={0}>
+              <text fg={colors.muted}>
+                {buildAgentInlineBranchPrefix("", index === visibleTools.length - 1)}
+              </text>
+            </box>
+            <box flexGrow={1} flexShrink={1}>
+              <Renderer
+                part={part}
+                isLast={index === visibleTools.length - 1}
+                syntaxStyle={syntaxStyle}
+                summaryOnly
+              />
+            </box>
           </box>
-          <box flexGrow={1} flexShrink={1}>
-            {part.type === "tool" ? (
-              <ToolPartDisplay part={part} summaryOnly />
-            ) : part.type === "text" ? (
-              <TextPartDisplay part={part} syntaxStyle={syntaxStyle} />
-            ) : part.type === "reasoning" ? (
-              <ReasoningPartDisplay part={part} isLast={index === visibleTools.length - 1} syntaxStyle={syntaxStyle} />
-            ) : null}
-          </box>
-        </box>
-      ))}
+        );
+      })}
     </box>
   );
 }

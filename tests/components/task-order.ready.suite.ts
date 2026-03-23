@@ -109,4 +109,51 @@ describe("getReadyTasks", () => {
     expect(tasks).toEqual(before);
     expect(ready).not.toBe(tasks);
   });
+
+  // --- Error propagation ---
+
+  test("excludes pending task directly blocked by errored task", () => {
+    const ready = getReadyTasks([
+      task("#1", "first", [], "error"),
+      task("#2", "second", ["#1"], "pending"),
+    ]);
+    expect(ready).toEqual([]);
+  });
+
+  test("excludes task transitively blocked by error through pending intermediate", () => {
+    const ready = getReadyTasks([
+      task("#1", "first", [], "error"),
+      task("#2", "second", ["#1"], "pending"),
+      task("#3", "third", ["#2"], "pending"),
+    ]);
+    expect(ready).toEqual([]);
+  });
+
+  test("excludes task transitively blocked by error even when intermediate is completed", () => {
+    const ready = getReadyTasks([
+      task("#1", "first", [], "error"),
+      task("#2", "second", ["#1"], "completed"),
+      task("#3", "third", ["#2"], "pending"),
+    ]);
+    expect(ready).toEqual([]);
+  });
+
+  test("does not propagate error to unrelated tasks", () => {
+    const ready = getReadyTasks([
+      task("#1", "errored", [], "error"),
+      task("#2", "blocked", ["#1"], "pending"),
+      task("#3", "independent", [], "pending"),
+    ]);
+    expect(ready.map((item) => item.id)).toEqual(["#3"]);
+  });
+
+  test("handles diamond with error at root", () => {
+    const ready = getReadyTasks([
+      task("#1", "root", [], "error"),
+      task("#2", "left", ["#1"], "pending"),
+      task("#3", "right", ["#1"], "pending"),
+      task("#4", "join", ["#2", "#3"], "pending"),
+    ]);
+    expect(ready).toEqual([]);
+  });
 });

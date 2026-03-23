@@ -26,6 +26,7 @@ export function useChatUiControllerStack({
 }: UseChatUiControllerStackArgs) {
   const {
     createSubagentSession,
+    streamWithSession,
     ensureSession,
     getModelDisplayInfo,
     getSession,
@@ -91,6 +92,7 @@ export function useChatUiControllerStack({
     toggleVerbose,
     toggleTheme,
     transcriptMode,
+    conductorInterruptRef,
     waitForUserInputResolverRef,
     workflowActiveRef,
     actions: {
@@ -189,6 +191,7 @@ export function useChatUiControllerStack({
     clearHistoryBufferAndSync,
     continueQueuedConversation,
     createSubagentSession,
+    streamWithSession,
     currentModelRef,
     deferredCommandQueueRef,
     dispatchDeferredCommandMessageRef,
@@ -247,6 +250,7 @@ export function useChatUiControllerStack({
     toggleTheme,
     trackAwaitedRun,
     updateWorkflowState,
+    conductorInterruptRef,
     waitForUserInputResolverRef,
     workflowActiveRef,
     workflowSessionDirRef,
@@ -390,6 +394,7 @@ export function useChatUiControllerStack({
     toggleVerbose,
     updateWorkflowState,
     wasInterruptedRef,
+    conductorInterruptRef,
     waitForUserInputResolverRef,
     workflowState,
   });

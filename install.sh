@@ -287,6 +287,14 @@ embedding:
 COCOEOF
     info "Wrote cocoindex global settings to $cocoindex_dir/global_settings.yml"
 
+    # Install @bastani/atomic workflow SDK globally so user workflows can import it.
+    info "Installing @bastani/atomic workflow SDK globally..."
+    if command -v bun >/dev/null 2>&1; then
+        bun install -g @bastani/atomic@latest 2>/dev/null || true
+    else
+        error "bun is required to install @bastani/atomic workflow SDK. Install bun from https://bun.sh"
+    fi
+
     # Install @playwright/cli globally if a package manager is available.
     # Do not install Chromium browsers here; defer to first use.
     info "Installing @playwright/cli globally (if available)..."

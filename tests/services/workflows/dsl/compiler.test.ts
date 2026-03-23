@@ -1669,3 +1669,252 @@ describe("compiler askUserQuestion uses askUserNode factory", () => {
     expect(node1).not.toBe(node2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// askUserQuestion onAnswer callback wiring
+// ---------------------------------------------------------------------------
+
+describe("compiler askUserQuestion onAnswer callback", () => {
+  test("onAnswer is invoked with the user's answer and result is merged into stateUpdate", async () => {
+    const graph = compileGraph((b) =>
+      b.askUserQuestion({
+        name: "q1",
+        question: {
+          question: "Approve changes?",
+          options: [{ label: "Yes" }, { label: "No" }],
+        },
+        onAnswer: (answer) => ({
+          approved: answer === "Yes",
+        }),
+      }),
+    );
+
+    const node = graph.nodes.get("q1")!;
+    // Simulate execution with emit that calls respond immediately
+    const ctx: ExecutionContext<BaseState> = {
+      state: makeBaseState(),
+      config: {},
+      errors: [],
+      emit: (_type: string, data?: Record<string, unknown>) => {
+        const respond = data?.respond as (answer: string | string[]) => void;
+        // Simulate user selecting "Yes"
+        respond("Yes");
+      },
+    };
+
+    const result = await node.execute(ctx);
+
+    expect(result.stateUpdate).toBeDefined();
+    const stateUpdate = result.stateUpdate as Record<string, unknown>;
+    expect(stateUpdate.approved).toBe(true);
+    expect(stateUpdate.__waitingForInput).toBe(false);
+  });
+
+  test("onAnswer receives multi-select array when multiSelect is true", async () => {
+    const receivedAnswers: Array<string | string[]> = [];
+    const graph = compileGraph((b) =>
+      b.askUserQuestion({
+        name: "q1",
+        question: {
+          question: "Select items",
+          options: [{ label: "A" }, { label: "B" }, { label: "C" }],
+          multiSelect: true,
+        },
+        onAnswer: (answer) => {
+          receivedAnswers.push(answer);
+          return { selections: answer };
+        },
+      }),
+    );
+
+    const node = graph.nodes.get("q1")!;
+    const ctx: ExecutionContext<BaseState> = {
+      state: makeBaseState(),
+      config: {},
+      errors: [],
+      emit: (_type: string, data?: Record<string, unknown>) => {
+        const respond = data?.respond as (answer: string | string[]) => void;
+        respond(["A", "C"]);
+      },
+    };
+
+    const result = await node.execute(ctx);
+
+    expect(receivedAnswers).toHaveLength(1);
+    expect(receivedAnswers[0]).toEqual(["A", "C"]);
+    const stateUpdate = result.stateUpdate as Record<string, unknown>;
+    expect(stateUpdate.selections).toEqual(["A", "C"]);
+  });
+
+  test("onAnswer result is merged with original askUserNode stateUpdate", async () => {
+    const graph = compileGraph((b) =>
+      b.askUserQuestion({
+        name: "q1",
+        question: { question: "Continue?" },
+        onAnswer: (answer) => ({ userChoice: answer }),
+      }),
+    );
+
+    const node = graph.nodes.get("q1")!;
+    const ctx: ExecutionContext<BaseState> = {
+      state: makeBaseState(),
+      config: {},
+      errors: [],
+      emit: (_type: string, data?: Record<string, unknown>) => {
+        const respond = data?.respond as (answer: string | string[]) => void;
+        respond("yes");
+      },
+    };
+
+    const result = await node.execute(ctx);
+    const stateUpdate = result.stateUpdate as Record<string, unknown>;
+
+    // onAnswer result
+    expect(stateUpdate.userChoice).toBe("yes");
+    // __waitingForInput is cleared after answer
+    expect(stateUpdate.__waitingForInput).toBe(false);
+  });
+
+  test("onAnswer emitted event still has dslAskUser flag", async () => {
+    const emittedEvents: Array<{ type: string; data?: Record<string, unknown> }> = [];
+    const graph = compileGraph((b) =>
+      b.askUserQuestion({
+        name: "q1",
+        question: { question: "Continue?" },
+        onAnswer: (answer) => ({ choice: answer }),
+      }),
+    );
+
+    const node = graph.nodes.get("q1")!;
+    const ctx: ExecutionContext<BaseState> = {
+      state: makeBaseState(),
+      config: {},
+      errors: [],
+      emit: (type: string, data?: Record<string, unknown>) => {
+        emittedEvents.push({ type, data });
+        const respond = data?.respond as (answer: string | string[]) => void;
+        respond("ok");
+      },
+    };
+
+    await node.execute(ctx);
+
+    expect(emittedEvents).toHaveLength(1);
+    expect(emittedEvents[0]!.data!.dslAskUser).toBe(true);
+  });
+
+  test("without onAnswer, execute does not block (returns immediately)", async () => {
+    const graph = compileGraph((b) =>
+      b.askUserQuestion(makeAskUserOptions({ name: "q1" })),
+    );
+
+    const node = graph.nodes.get("q1")!;
+    const emittedEvents: Array<{ type: string; data?: Record<string, unknown> }> = [];
+    const ctx: ExecutionContext<BaseState> = {
+      state: makeBaseState(),
+      config: {},
+      errors: [],
+      emit: (type: string, data?: Record<string, unknown>) => {
+        emittedEvents.push({ type, data });
+        // Do NOT call respond — if onAnswer were wired, this would hang
+      },
+    };
+
+    // Should resolve immediately without waiting for respond
+    const result = await node.execute(ctx);
+
+    expect(result.stateUpdate).toBeDefined();
+    const stateUpdate = result.stateUpdate as Record<string, unknown>;
+    expect(stateUpdate.__waitingForInput).toBe(true);
+  });
+
+  test("onAnswer is not invoked when emit is unavailable", async () => {
+    let onAnswerCalled = false;
+    const graph = compileGraph((b) =>
+      b.askUserQuestion({
+        name: "q1",
+        question: { question: "Continue?" },
+        onAnswer: () => {
+          onAnswerCalled = true;
+          return {};
+        },
+      }),
+    );
+
+    const node = graph.nodes.get("q1")!;
+    const ctx: ExecutionContext<BaseState> = {
+      state: makeBaseState(),
+      config: {},
+      errors: [],
+      // No emit callback — conductor path
+    };
+
+    const result = await node.execute(ctx);
+
+    // Falls back to non-blocking path; onAnswer is not invoked
+    expect(onAnswerCalled).toBe(false);
+    expect(result.stateUpdate).toBeDefined();
+    const stateUpdate = result.stateUpdate as Record<string, unknown>;
+    expect(stateUpdate.__waitingForInput).toBe(true);
+  });
+
+  test("onAnswer with dynamic question resolves correctly", async () => {
+    const graph = compileGraph((b) =>
+      b.askUserQuestion({
+        name: "q1",
+        question: (state: BaseState) => ({
+          question: `Review ${state.executionId}?`,
+          options: [{ label: "Approve" }, { label: "Reject" }],
+        }),
+        onAnswer: (answer) => ({
+          reviewResult: answer === "Approve" ? "approved" : "rejected",
+        }),
+      }),
+    );
+
+    const node = graph.nodes.get("q1")!;
+    const ctx: ExecutionContext<BaseState> = {
+      state: makeBaseState({ executionId: "exec-42" }),
+      config: {},
+      errors: [],
+      emit: (_type: string, data?: Record<string, unknown>) => {
+        // Verify dynamic question was resolved
+        expect(data?.question).toBe("Review exec-42?");
+        const respond = data?.respond as (answer: string | string[]) => void;
+        respond("Approve");
+      },
+    };
+
+    const result = await node.execute(ctx);
+    const stateUpdate = result.stateUpdate as Record<string, unknown>;
+    expect(stateUpdate.reviewResult).toBe("approved");
+  });
+
+  test("onAnswer signals are preserved from original result", async () => {
+    const graph = compileGraph((b) =>
+      b.askUserQuestion({
+        name: "q1",
+        question: { question: "Continue?" },
+        onAnswer: () => ({ answered: true }),
+      }),
+    );
+
+    const node = graph.nodes.get("q1")!;
+    const ctx: ExecutionContext<BaseState> = {
+      state: makeBaseState(),
+      config: {},
+      errors: [],
+      emit: (_type: string, data?: Record<string, unknown>) => {
+        const respond = data?.respond as (answer: string | string[]) => void;
+        respond("yes");
+      },
+    };
+
+    const result = await node.execute(ctx);
+
+    // Signals from the original askUserNode result are preserved
+    expect(result.signals).toBeDefined();
+    expect(result.signals).toHaveLength(1);
+    expect(result.signals![0]!.type).toBe("human_input_required");
+  });
+});

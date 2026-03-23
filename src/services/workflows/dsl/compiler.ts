@@ -394,6 +394,7 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
       case "askUserQuestion": {
         const config = instruction.config;
         const questionOptions = config.question;
+        const onAnswer = config.onAnswer;
 
         // Create an ask_user node using the existing factory
         const askNode = askUserNode({
@@ -418,10 +419,54 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
           description: config.description,
         });
 
-        // Wrap execute to set dslAskUser flag on emitted events
+        // Wrap execute to set dslAskUser flag on emitted events and
+        // wire the onAnswer callback when provided.
         const originalExecute = askNode.execute;
         askNode.execute = async (ctx: ExecutionContext<BaseState>) => {
-          const wrappedCtx = {
+          // When onAnswer is provided AND emit is available, block the
+          // node's execution until the user answers via the respond
+          // callback. This lets the conductor receive the mapped state
+          // updates as part of the normal NodeResult.stateUpdate flow.
+          if (onAnswer && ctx.emit) {
+            let resolveAnswer!: (answer: string | string[]) => void;
+            const answerPromise = new Promise<string | string[]>((resolve) => {
+              resolveAnswer = resolve;
+            });
+
+            const onAnswerCtx: ExecutionContext<BaseState> = {
+              ...ctx,
+              emit: (type: string, data?: Record<string, unknown>) => {
+                ctx.emit!(type, {
+                  ...data,
+                  dslAskUser: true,
+                  respond: (answer: string | string[]) => {
+                    resolveAnswer(answer);
+                  },
+                });
+              },
+            };
+
+            // Execute the original node (emits the event with our
+            // custom respond callback that resolves the promise).
+            const result = await originalExecute(onAnswerCtx);
+
+            // Wait for the user's answer via the respond callback.
+            const answer = await answerPromise;
+
+            // Apply onAnswer mapping and merge with original state update.
+            const mappedUpdates = onAnswer(answer);
+            return {
+              ...result,
+              stateUpdate: {
+                ...result.stateUpdate,
+                ...mappedUpdates,
+                __waitingForInput: false,
+              } as Partial<BaseState>,
+            };
+          }
+
+          // No onAnswer or no emit: just add dslAskUser flag.
+          const wrappedCtx: ExecutionContext<BaseState> = {
             ...ctx,
             emit: ctx.emit
               ? (type: string, data?: Record<string, unknown>) => {

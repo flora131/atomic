@@ -200,7 +200,19 @@ export interface AskUserQuestionOptions {
    * Receives the raw answer string (or array for multi-select)
    * and returns a record merged into workflow state.
    *
+   * When provided, the compiled node blocks execution until the user
+   * answers via the `respond` callback on the emitted event. The
+   * returned record is merged into the node's `stateUpdate` so the
+   * conductor applies it alongside other state changes.
+   *
    * If omitted, the answer is stored in `state.outputs[nodeId]`.
+   *
+   * @remarks
+   * `onAnswer` requires the execution context to provide an `emit`
+   * function (i.e., the node must be executed through a path that
+   * supports event emission). When `emit` is unavailable, the
+   * callback is not invoked and the node falls back to the default
+   * `dslAskUser` flag behavior.
    */
   readonly onAnswer?: (answer: string | string[]) => Record<string, unknown>;
 

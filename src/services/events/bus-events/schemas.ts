@@ -147,6 +147,8 @@ export const BusEventSchemas = {
       label: z.string(),
       description: z.string().optional(),
     })).optional(),
+    multiSelect: z.boolean().optional(),
+    dslAskUser: z.boolean().optional(),
     nodeId: z.string(),
     respond: z.custom<(...args: unknown[]) => unknown>().optional(),
     toolCallId: z.string().optional(),

@@ -145,6 +145,7 @@ export function useChatDispatchController({
   clearHistoryBufferAndSync,
   continueQueuedConversation,
   createSubagentSession,
+  streamWithSession,
   currentModelRef,
   deferredCommandQueueRef,
   dispatchDeferredCommandMessageRef,
@@ -204,6 +205,7 @@ export function useChatDispatchController({
   toggleTheme,
   trackAwaitedRun,
   updateWorkflowState,
+  conductorInterruptRef,
   waitForUserInputResolverRef,
   workflowActiveRef,
   workflowSessionDirRef,
@@ -242,11 +244,8 @@ export function useChatDispatchController({
     const streaming = role === "assistant" && isStreamingRef.current;
     const message = createMessage(role, content, streaming);
 
-    if (streaming && workflowActiveRef.current) {
-      message.spinnerVerb = "Running workflow";
-      if (!streamingStartRef.current) {
-        streamingStartRef.current = Date.now();
-      }
+    if (streaming && !streamingStartRef.current) {
+      streamingStartRef.current = Date.now();
     }
 
     if (streaming) {
@@ -266,7 +265,6 @@ export function useChatDispatchController({
     setMessagesWindowed,
     setStreamingMessageId,
     streamingStartRef,
-    workflowActiveRef,
   ]);
 
   const setStreamingWithFinalize = useCallback((streaming: boolean) => {
@@ -301,6 +299,14 @@ export function useChatDispatchController({
       setParallelAgents((current) => current.filter((a) => a.background));
     }
 
+    // When re-enabling streaming for a new workflow stage, clear the stale
+    // activeStreamRunId so the next stream.session.start can bind.  Without
+    // this, shouldBindStreamSessionRun rejects the new runId (gate 4:
+    // oldRunId !== newRunId) and all text-deltas are silently dropped.
+    if (streaming && activeStreamRunIdRef.current !== null) {
+      activeStreamRunIdRef.current = null;
+    }
+
     isStreamingRef.current = streaming;
     setIsStreaming(streaming);
     if (!streaming) {
@@ -331,6 +337,7 @@ export function useChatDispatchController({
     backgroundProgressSnapshotRef,
     clearHistoryBufferAndSync,
     createSubagentSession,
+    streamWithSession,
     currentModelRef,
     deferredCommandQueueRef,
     ensureSession,
@@ -387,6 +394,7 @@ export function useChatDispatchController({
     toggleTheme,
     trackAwaitedRun,
     updateWorkflowState,
+    conductorInterruptRef,
     waitForUserInputResolverRef,
     workflowActiveRef,
     workflowSessionDirRef,

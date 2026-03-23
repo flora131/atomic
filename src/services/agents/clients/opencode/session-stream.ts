@@ -126,10 +126,15 @@ export function createOpenCodeSessionStream(args: {
               agent: args.agentMode,
               model: args.runtimeArgs.getActivePromptModel() ?? args.initialPromptModel,
               variant: args.runtimeArgs.getActiveReasoningEffort(),
+              ...(args.runtimeArgs.config.systemPrompt
+                ? { system: args.runtimeArgs.config.systemPrompt }
+                : {}),
               parts: buildOpenCodePromptParts(
                 promptMessage,
                 args.options?.agent,
-                args.runtimeArgs.config.additionalInstructions,
+                args.runtimeArgs.config.systemPrompt
+                  ? undefined
+                  : args.runtimeArgs.config.additionalInstructions,
               ),
             },
             streamAbortSignal ? { signal: streamAbortSignal } : undefined,

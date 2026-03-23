@@ -18,7 +18,7 @@ import type {
   MessageBubbleProps,
 } from "@/state/chat/shared/types/index.ts";
 import type {
-  CompactionPart,
+  TruncationPart,
   Part,
   TextPart,
   ToolPart,
@@ -82,23 +82,23 @@ function getRenderableAssistantParts(
   }
 
   if (message.id.startsWith("compact_")) {
-    const existingCompactionIdx = parts.findIndex(
-      (part) => part.type === "compaction",
+    const existingTruncationIdx = parts.findIndex(
+      (part) => part.type === "truncation",
     );
-    const compactionPart: CompactionPart = {
-      id: existingCompactionIdx >= 0
-        ? parts[existingCompactionIdx]!.id
-        : `compaction-${message.id}`,
-      type: "compaction",
+    const truncationPart: TruncationPart = {
+      id: existingTruncationIdx >= 0
+        ? parts[existingTruncationIdx]!.id
+        : `truncation-${message.id}`,
+      type: "truncation",
       summary: message.content,
-      createdAt: existingCompactionIdx >= 0
-        ? parts[existingCompactionIdx]!.createdAt
+      createdAt: existingTruncationIdx >= 0
+        ? parts[existingTruncationIdx]!.createdAt
         : message.timestamp,
     };
-    if (existingCompactionIdx >= 0) {
-      parts[existingCompactionIdx] = compactionPart;
+    if (existingTruncationIdx >= 0) {
+      parts[existingTruncationIdx] = truncationPart;
     } else {
-      parts.push(compactionPart);
+      parts.push(truncationPart);
     }
     return parts;
   }

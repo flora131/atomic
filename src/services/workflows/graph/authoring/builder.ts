@@ -20,7 +20,6 @@ import {
   closeConditionalBranch,
 } from "@/services/workflows/graph/authoring/conditional-dsl.ts";
 import {
-  buildSubagentBuilderNode,
   buildToolBuilderNode,
   buildWaitBuilderNode,
 } from "@/services/workflows/graph/authoring/node-adapters.ts";
@@ -39,7 +38,6 @@ import type {
   IterationDslState,
   LoopConfig,
   ParallelConfig,
-  SubAgentConfig,
   ToolBuilderConfig,
 } from "@/services/workflows/graph/authoring/types.ts";
 
@@ -48,7 +46,6 @@ export type {
   LoopConfig,
   MergeStrategy,
   ParallelConfig,
-  SubAgentConfig,
   ToolBuilderConfig,
 } from "@/services/workflows/graph/authoring/types.ts";
 export {
@@ -263,10 +260,6 @@ export class GraphBuilder<TState extends BaseState = BaseState> {
         : promptOrNode;
 
     return this.then(waitNode);
-  }
-
-  subagent(config: SubAgentConfig<TState>): this {
-    return this.then(buildSubagentBuilderNode(config));
   }
 
   tool<TArgs = unknown, TResult = unknown>(

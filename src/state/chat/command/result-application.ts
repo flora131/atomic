@@ -18,7 +18,9 @@ export async function applyCommandResult(
       workflowActive: false,
       workflowType: null,
       initialPrompt: null,
-      ralphState: { ...defaultWorkflowChatState.ralphState },
+      currentStage: null,
+      stageIndicator: null,
+      workflowCommandState: { ...defaultWorkflowChatState.workflowCommandState },
       workflowConfig: undefined,
     });
     args.setCompactionSummary(null);

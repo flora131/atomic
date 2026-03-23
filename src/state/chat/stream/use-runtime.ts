@@ -311,6 +311,7 @@ export function useChatStreamRuntime({
     todoItemsRef,
     toolMessageIdByIdRef,
     toolNameByIdRef,
+    workflowSessionDirRef,
     workflowSessionIdRef,
   });
   const {

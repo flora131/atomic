@@ -162,7 +162,14 @@ export function useComposerInputState({
     applyComposerHighlights(textarea, value, commandStyleIdRef.current);
   }, [commandStyleIdRef, handleInputChange, syncInputScrollbar]);
 
-  const handleTextareaCursorChange = syncInputScrollbar;
+  const handleTextareaCursorChange = useCallback(() => {
+    syncInputScrollbar();
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const value = textarea.plainText ?? "";
+    const cursorOffset = textarea.cursorOffset ?? value.length;
+    handleInputChange(value, cursorOffset);
+  }, [handleInputChange, syncInputScrollbar]);
 
   const handleAutocompleteSelect = useCallback((command: CommandDefinition, action: "complete" | "execute") => {
     const textarea = textareaRef.current;

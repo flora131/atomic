@@ -66,6 +66,7 @@ function createState(): ChatUIState {
     interruptTimeout: null,
     streamAbortController: null,
     pendingAbortPromise: null,
+    pendingBackgroundTerminationPromise: null,
     isStreaming: false,
     ownedSessionIds: new Set(),
     sessionCreationPromise: null,
@@ -557,5 +558,182 @@ describe("createChatUIController", () => {
     expect(pattern.test("network timeout")).toBe(false);
     expect(pattern.test("rate limit exceeded")).toBe(false);
     expect(pattern.test("internal server error")).toBe(false);
+  });
+
+  test("background termination tracks promise on state and clears it on completion", async () => {
+    let resolveTermination!: () => void;
+    const terminationPromise = new Promise<void>((resolve) => {
+      resolveTermination = resolve;
+    });
+
+    const session = createMockSession("session-1", {
+      abortBackgroundAgents: () => terminationPromise,
+    });
+    const state = createState();
+    state.session = session;
+
+    const controller = createChatUIController({
+      client: createMockClient([]),
+      resolvedAgentType: "opencode",
+      sessionConfig: {},
+      state,
+      debugSub: {
+        unsubscribe: async () => {},
+        logPath: null,
+        rawLogPath: null,
+        logDirPath: null,
+        writeRawLine: () => {},
+      },
+      onExitResolved: () => {},
+    });
+
+    const bgPromise = controller.handleTerminateBackgroundAgentsFromUI();
+
+    // While termination is in-flight, the promise should be tracked on state
+    expect(state.pendingBackgroundTerminationPromise).not.toBeNull();
+
+    resolveTermination();
+    await bgPromise;
+
+    // After completion, the promise should be cleared
+    expect(state.pendingBackgroundTerminationPromise).toBeNull();
+    expect(state.backgroundAgentsTerminated).toBe(true);
+  });
+
+  test("background termination fallback piggybacks on existing pendingAbortPromise", async () => {
+    const events: string[] = [];
+    let resolvePendingAbort!: () => void;
+    const pendingAbort = new Promise<void>((resolve) => {
+      resolvePendingAbort = resolve;
+    });
+
+    // Session WITHOUT abortBackgroundAgents — forces the fallback path
+    const session = createMockSession("session-1", {
+      abortBackgroundAgents: undefined,
+      abort: async () => {
+        events.push("session.abort");
+      },
+    });
+    const state = createState();
+    state.session = session;
+    state.pendingAbortPromise = pendingAbort;
+
+    const controller = createChatUIController({
+      client: createMockClient([]),
+      resolvedAgentType: "opencode",
+      sessionConfig: {},
+      state,
+      debugSub: {
+        unsubscribe: async () => {},
+        logPath: null,
+        rawLogPath: null,
+        logDirPath: null,
+        writeRawLine: () => {},
+      },
+      onExitResolved: () => {},
+    });
+
+    const bgPromise = controller.handleTerminateBackgroundAgentsFromUI();
+    resolvePendingAbort();
+    await bgPromise;
+
+    // session.abort() should NOT have been called — we piggybacked on the
+    // existing pendingAbortPromise instead of issuing a second abort
+    expect(events).not.toContain("session.abort");
+    expect(state.backgroundAgentsTerminated).toBe(true);
+  });
+
+  test("handleStreamMessage awaits pending background termination before streaming", async () => {
+    let isStreamingDuringTermination: boolean | undefined;
+    let resolveTermination!: () => void;
+    const pendingTermination = new Promise<void>((resolve) => {
+      resolveTermination = resolve;
+    }).then(() => {
+      // Capture whether streaming started BEFORE the termination resolved.
+      // If the stream properly waits, isStreaming should still be false here.
+      isStreamingDuringTermination = state.isStreaming;
+    });
+
+    const session = createMockSession("session-1");
+    const state = createState();
+    state.session = session;
+    state.pendingBackgroundTerminationPromise = pendingTermination;
+
+    const controller = createChatUIController({
+      client: createMockClient([session]),
+      resolvedAgentType: "opencode",
+      sessionConfig: {},
+      state,
+      debugSub: {
+        unsubscribe: async () => {},
+        logPath: null,
+        rawLogPath: null,
+        logDirPath: null,
+        writeRawLine: () => {},
+      },
+      onExitResolved: () => {},
+    });
+
+    // Start handleStreamMessage — it should block on the pending termination
+    const streamPromise = controller.handleStreamMessage("hello");
+
+    // Give it a tick to start awaiting
+    await new Promise((r) => setTimeout(r, 10));
+
+    // The stream should NOT have advanced to the isStreaming=true phase yet
+    expect(state.isStreaming).toBe(false);
+
+    // Now resolve the termination
+    resolveTermination();
+
+    // Wait for the stream to finish (it may error from adapter, that's OK)
+    await streamPromise.catch(() => {});
+
+    // The termination observer should have seen isStreaming as false
+    expect(isStreamingDuringTermination).toBe(false);
+  });
+
+  test("handleInterrupt followed by handleStreamMessage properly resets isStreaming on AbortError", async () => {
+    const session = createMockSession("session-1");
+    const state = createState();
+    state.session = session;
+    state.isStreaming = true;
+    state.streamAbortController = new AbortController();
+    state.currentRunId = 1;
+    state.runCounter = 1;
+
+    const controller = createChatUIController({
+      client: createMockClient([session]),
+      resolvedAgentType: "opencode",
+      sessionConfig: {},
+      state,
+      debugSub: {
+        unsubscribe: async () => {},
+        logPath: null,
+        rawLogPath: null,
+        logDirPath: null,
+        writeRawLine: () => {},
+      },
+      onExitResolved: () => {},
+    });
+
+    // Trigger an interrupt — this aborts the controller and creates pendingAbortPromise
+    controller.handleInterrupt("ui");
+
+    expect(state.streamAbortController?.signal.aborted).toBe(true);
+
+    // Wait for the pending abort to settle
+    if (state.pendingAbortPromise) {
+      await state.pendingAbortPromise.catch(() => {});
+    }
+
+    // After the interrupt's abort resolves and the stream's finally block runs,
+    // isStreaming should be properly reset
+    await controller.handleStreamMessage("follow-up").catch(() => {});
+
+    // Regardless of whether the stream succeeded or failed, the finally
+    // block should have reset isStreaming to false
+    expect(state.isStreaming).toBe(false);
+    expect(state.currentRunId).toBeNull();
   });
 });

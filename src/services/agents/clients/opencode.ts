@@ -21,6 +21,7 @@ import {
   type SubagentToolPolicy,
 } from "@/services/agents/subagent-tool-policy.ts";
 import { createOpencodeClient as createSdkClient, type Event as OpenCodeEvent, type EventMessagePartRemoved, type EventPermissionAsked, type EventQuestionAsked, type OpencodeClient as SdkClient } from "@opencode-ai/sdk/v2/client";
+import { createOpenCodeKeepalive, type OpenCodeKeepaliveHandle } from "@/services/agents/clients/opencode/keepalive.ts";
 
 const DEFAULT_OPENCODE_BASE_URL = "http://localhost:4096";
 const DEFAULT_MAX_RETRIES = 3;
@@ -71,6 +72,7 @@ export class OpenCodeClient implements CodingAgentClient {
   private skillInvocationsBySession = new Map<string, Set<string>>();
   private subagentToolPoliciesBySession = new Map<string, Record<string, SubagentToolPolicy>>();
   private sessionStateSupport: OpenCodeSessionStateSupport;
+  private keepalive: OpenCodeKeepaliveHandle | null = null;
 
   constructor(options: OpenCodeClientOptions = {}) {
     this.clientOptions = { baseUrl: DEFAULT_OPENCODE_BASE_URL, maxRetries: DEFAULT_MAX_RETRIES, retryDelay: DEFAULT_RETRY_DELAY, ...options, directory: options.directory ?? process.cwd() };
@@ -466,7 +468,7 @@ export class OpenCodeClient implements CodingAgentClient {
   }
 
   async start(): Promise<void> {
-    return startOpenCodeClientLifecycle({
+    await startOpenCodeClientLifecycle({
       isRunning: this.isRunning,
       autoStart: this.clientOptions.autoStart !== false,
       reuseExistingServer: this.clientOptions.reuseExistingServer === true,
@@ -478,9 +480,19 @@ export class OpenCodeClient implements CodingAgentClient {
       },
       subscribeToSdkEvents: () => this.subscribeToSdkEvents(),
     });
+
+    this.keepalive = createOpenCodeKeepalive({
+      getSdkClient: () => this.sdkClient,
+      isRunning: () => this.isRunning,
+      debugLog,
+    });
+    this.keepalive.start();
   }
 
   async stop(): Promise<void> {
+    this.keepalive?.stop();
+    this.keepalive = null;
+
     return stopOpenCodeClientLifecycle({
       isRunning: this.isRunning,
       disconnect: () => this.disconnect(),

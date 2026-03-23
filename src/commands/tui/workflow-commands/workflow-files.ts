@@ -2,7 +2,9 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "path";
 import type { BaseState, CompiledGraph } from "@/services/workflows/graph/types.ts";
 import { VERSION } from "@/version.ts";
-import { ralphWorkflowDefinition } from "@/services/workflows/ralph/definition.ts";
+import { ralphWorkflowDefinition } from "@/services/workflows/builtin/ralph/ralph-workflow.ts";
+import { compileWorkflow } from "@/services/workflows/dsl/compiler.ts";
+import type { WorkflowBuilder } from "@/services/workflows/dsl/define-workflow.ts";
 import type {
   WorkflowDefinition,
   WorkflowGraphConfig,
@@ -10,6 +12,134 @@ import type {
   WorkflowStateMigrator,
   WorkflowStateParams,
 } from "./types.ts";
+
+// ============================================================================
+// CompiledWorkflow Brand Detection
+// ============================================================================
+
+/**
+ * Checks whether a value is a CompiledWorkflow by looking for the
+ * `__compiledWorkflow` brand property. The branded object also spreads
+ * all WorkflowDefinition properties, so it can be used directly as a
+ * WorkflowDefinition.
+ */
+function isCompiledWorkflow(value: unknown): value is WorkflowDefinition & { __compiledWorkflow: true } {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "__compiledWorkflow" in value &&
+    "name" in value &&
+    typeof (value as Record<string, unknown>).name === "string"
+  );
+}
+
+/**
+ * Checks whether a branded value is an SDK blueprint (lightweight export
+ * from `@bastani/atomic-workflows` SDK) rather than a fully compiled workflow.
+ *
+ * SDK blueprints carry a `__blueprint` object with the recorded builder
+ * instructions and metadata. They need to be compiled by the binary's
+ * internal compiler before use.
+ */
+function isWorkflowBlueprint(
+  value: unknown,
+): value is { __compiledWorkflow: true; __blueprint: BlueprintData; name: string; description: string } {
+  if (!isCompiledWorkflow(value)) return false;
+  const record = value as unknown as Record<string, unknown>;
+  return (
+    "__blueprint" in record &&
+    typeof record.__blueprint === "object" &&
+    record.__blueprint !== null
+  );
+}
+
+interface BlueprintData {
+  name: string;
+  description: string;
+  instructions: unknown[];
+  version?: string;
+  argumentHint?: string;
+  stateSchema?: Record<string, unknown>;
+}
+
+/**
+ * Compile an SDK blueprint into a full WorkflowDefinition.
+ *
+ * Reconstructs a builder-like object from the blueprint data and passes
+ * it to the internal `compileWorkflow()` function. This works because
+ * `compileWorkflow` uses structural typing — it only accesses `name`,
+ * `description`, `instructions`, `getVersion()`, `getArgumentHint()`,
+ * and `getStateSchema()`.
+ */
+function compileBlueprintToDefinition(blueprint: BlueprintData): WorkflowDefinition {
+  const builderLike = {
+    name: blueprint.name,
+    description: blueprint.description,
+    instructions: blueprint.instructions,
+    getVersion: () => blueprint.version,
+    getArgumentHint: () => blueprint.argumentHint,
+    getStateSchema: () => blueprint.stateSchema,
+  };
+  return compileWorkflow(builderLike as unknown as WorkflowBuilder);
+}
+
+/**
+ * Extract a WorkflowDefinition from a dynamically imported module by
+ * detecting the `__compiledWorkflow` brand on any named or default export.
+ *
+ * Supports two kinds of branded exports:
+ * - **SDK blueprints** (`@bastani/atomic-workflows` SDK): carry a `__blueprint`
+ *   property with recorded instructions. Compiled at load time by the
+ *   binary's internal compiler.
+ * - **Internal compiled workflows**: spread all WorkflowDefinition
+ *   properties directly (used by builtin workflows like Ralph).
+ *
+ * Checks three locations in priority order:
+ * 1. Module itself (if the module IS a CompiledWorkflow)
+ * 2. `default` export that is a CompiledWorkflow
+ * 3. Named exports that are CompiledWorkflow values
+ *
+ * @returns The extracted WorkflowDefinition, or `null` if no branded export is found.
+ */
+export function extractWorkflowDefinition(mod: unknown): WorkflowDefinition | null {
+  if (!mod || typeof mod !== "object") {
+    return null;
+  }
+
+  const branded = findBrandedExport(mod);
+  if (!branded) return null;
+
+  // SDK blueprint: compile at load time
+  if (isWorkflowBlueprint(branded)) {
+    return compileBlueprintToDefinition(branded.__blueprint);
+  }
+
+  // Internal compiled workflow: already a full WorkflowDefinition
+  return branded;
+}
+
+function findBrandedExport(mod: object): (WorkflowDefinition & { __compiledWorkflow: true }) | null {
+  // Check if the module itself is a CompiledWorkflow
+  if (isCompiledWorkflow(mod)) {
+    return mod;
+  }
+
+  // Check for default export with brand
+  const moduleRecord = mod as Record<string, unknown>;
+  if ("default" in moduleRecord && isCompiledWorkflow(moduleRecord.default)) {
+    return moduleRecord.default;
+  }
+
+  // Check named exports for any CompiledWorkflow value
+  for (const key of Object.keys(moduleRecord)) {
+    if (key === "default") continue;
+    if (isCompiledWorkflow(moduleRecord[key])) {
+      return moduleRecord[key] as WorkflowDefinition & { __compiledWorkflow: true };
+    }
+  }
+
+  return null;
+}
 
 export const CUSTOM_WORKFLOW_SEARCH_PATHS = [
   ".atomic/workflows",
@@ -106,12 +236,58 @@ export async function loadWorkflowsFromDisk(): Promise<WorkflowDefinition[]> {
   const discovered = discoverWorkflowFiles();
   const loaded: WorkflowDefinition[] = [];
   const loadedNames = new Set<string>();
+  const startupWarnings: string[] = [];
 
   for (const { path, source } of discovered) {
     try {
       const module = await import(path);
       const filename =
         path.split("/").pop()?.replace(".ts", "") ?? "unknown";
+
+      // -- New DSL path: detect __compiledWorkflow brand --
+      const compiledDefinition = extractWorkflowDefinition(module);
+      if (compiledDefinition) {
+        const name = compiledDefinition.name;
+
+        if (loadedNames.has(name.toLowerCase())) {
+          continue;
+        }
+
+        // Override source to match discovery location
+        const definition: WorkflowDefinition = {
+          ...compiledDefinition,
+          source,
+        };
+
+        if (typeof definition.minSDKVersion === "string") {
+          if (!parseSemver(definition.minSDKVersion)) {
+            console.warn(
+              `Workflow "${definition.name}" has invalid minSDKVersion "${definition.minSDKVersion}". Expected semver format like "1.2.3".`,
+            );
+          } else if (
+            isWorkflowMinSdkNewerThanCurrent(
+              definition.minSDKVersion,
+              VERSION,
+            )
+          ) {
+            console.warn(
+              `Workflow "${definition.name}" requires SDK ${definition.minSDKVersion}, but current SDK is ${VERSION}.`,
+            );
+          }
+        }
+
+        loaded.push(definition);
+        loadedNames.add(name.toLowerCase());
+
+        if (definition.aliases) {
+          for (const alias of definition.aliases) {
+            loadedNames.add(alias.toLowerCase());
+          }
+        }
+        continue;
+      }
+
+      // -- Legacy path: extract raw module properties --
       const name = module.name ?? filename;
 
       if (loadedNames.has(name.toLowerCase())) {
@@ -203,8 +379,15 @@ export async function loadWorkflowsFromDisk(): Promise<WorkflowDefinition[]> {
         }
       }
     } catch (error) {
+      const workflowId = path.split("/").pop()?.replace(".ts", "") ?? path;
+      startupWarnings.push(workflowId);
       console.warn(`Failed to load workflow from ${path}:`, error);
     }
+  }
+
+  // Emit startup warnings for workflows that failed to load
+  for (const id of startupWarnings) {
+    console.warn(`\x1b[33m● Warning: Failed to load workflow: ${id}\x1b[0m`);
   }
 
   loadedWorkflows = loaded;

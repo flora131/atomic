@@ -9,7 +9,6 @@ import type { SubagentStreamResult } from "@/services/workflows/graph/types.ts";
 
 export interface LoopConfig<TState extends BaseState = BaseState> {
   until: EdgeCondition<TState>;
-  maxIterations?: number;
 }
 
 export type MergeStrategy = "all" | "race" | "any";

@@ -10,14 +10,15 @@
         "allowJs": true,
 
         // Bundler mode
-        "baseUrl": ".",
         "paths": {
-            "@/*": ["src/*"]
+            "@/*": ["./src/*"]
         },
         "moduleResolution": "bundler",
         "allowImportingTsExtensions": true,
         "verbatimModuleSyntax": true,
         "noEmit": true,
+
+        "types": ["bun"],
 
         // Best practices
         "strict": true,

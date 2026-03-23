@@ -138,10 +138,9 @@ detect_platform() {
         linux) os="linux" ;;
         darwin) os="darwin" ;;
         mingw*|msys*|cygwin*)
-            # Delegate to PowerShell on Windows
-            info "Windows detected, delegating to PowerShell installer..."
-            powershell -c "irm https://raw.githubusercontent.com/${GITHUB_REPO}/main/install.ps1 | iex"
-            exit $?
+            # Windows delegation is handled in main() before this subshell call.
+            # If reached here, it's an unexpected code path.
+            error "Windows detected — use install.ps1 directly or run install.sh from main()"
             ;;
         *) error "Unsupported OS: $os" ;;
     esac
@@ -325,7 +324,7 @@ get_latest_version() {
 main() {
     local version="" prerelease="false"
 
-    # Parse arguments
+    # Parse arguments early so they're available for Windows delegation
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --prerelease) prerelease="true"; shift ;;
@@ -333,11 +332,35 @@ main() {
         esac
     done
 
+    # Export for detect_platform's Windows delegation branch
+    export ATOMIC_INSTALL_VERSION="$version"
+    export ATOMIC_INSTALL_PRERELEASE="$prerelease"
+
     local platform download_url checksums_url config_url tmp_dir
 
     # Check dependencies
     command -v curl >/dev/null || error "curl is required to install ${BINARY_NAME}"
     command -v tar >/dev/null || error "tar is required to install ${BINARY_NAME}"
+
+    # Handle Windows delegation before command substitution — exit inside $() only
+    # exits the subshell, not the parent script, so we must check here.
+    case "$(uname -s | tr '[:upper:]' '[:lower:]')" in
+        mingw*|msys*|cygwin*)
+            info "Windows detected, delegating to PowerShell installer..."
+            local ps_args=""
+            if [[ -n "${ATOMIC_INSTALL_VERSION:-}" ]]; then
+                if [[ ! "${ATOMIC_INSTALL_VERSION}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+                    error "Invalid version format: ${ATOMIC_INSTALL_VERSION} (expected semver like v1.2.3 or v1.2.3-beta.1)"
+                fi
+                ps_args="${ps_args} -Version '${ATOMIC_INSTALL_VERSION}'"
+            fi
+            if [[ "${ATOMIC_INSTALL_PRERELEASE:-}" == "true" ]]; then
+                ps_args="${ps_args} -Prerelease"
+            fi
+            powershell -c "iex \"& { \$(irm https://raw.githubusercontent.com/${GITHUB_REPO}/main/install.ps1) }${ps_args}\""
+            exit $?
+            ;;
+    esac
 
     # Detect platform
     platform=$(detect_platform)

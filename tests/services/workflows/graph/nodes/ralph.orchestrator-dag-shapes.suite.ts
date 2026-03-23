@@ -192,7 +192,6 @@ describe("buildOrchestratorPrompt – DAG shapes", () => {
         test("exactly one root and one leaf node", () => {
             const parsed = extractTasksFromPrompt(buildOrchestratorPrompt(tasks));
             const roots = parsed.filter((t) => t.blockedBy.length === 0);
-            const ids = new Set(parsed.map((t) => t.id));
             const referenced = new Set(parsed.flatMap((t) => t.blockedBy));
             const leaves = parsed.filter((t) => !referenced.has(t.id!));
 
@@ -351,7 +350,6 @@ describe("buildOrchestratorPrompt – DAG shapes", () => {
 
         test("has single leaf node (Deploy)", () => {
             const parsed = extractTasksFromPrompt(buildOrchestratorPrompt(tasks));
-            const allIds = new Set(parsed.map((t) => t.id));
             const referenced = new Set(parsed.flatMap((t) => t.blockedBy));
             const leaves = parsed.filter((t) => !referenced.has(t.id!));
 

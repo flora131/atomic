@@ -165,13 +165,36 @@ embedding:
     Set-Content -Path (Join-Path $CocoindexDir "global_settings.yml") -Value $CocoindexSettings -Encoding UTF8
     Write-Info "Wrote cocoindex global settings to $CocoindexDir\global_settings.yml"
 
-    # Install @bastani/atomic-workflows SDK globally so user workflows can import it.
-    Write-Info "Installing @bastani/atomic-workflows SDK globally..."
+    # Install @bastani/atomic-workflows SDK as a local package in ~/.atomic/workflows
+    $WorkflowsDir = Join-Path $AtomicHome "workflows"
+    Write-Info "Installing @bastani/atomic-workflows SDK in $WorkflowsDir..."
     if (Get-Command bun -ErrorAction SilentlyContinue) {
-        bun install -g @bastani/atomic-workflows@latest 2>$null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Err "Failed to install @bastani/atomic-workflows SDK with bun."
-            exit 1
+        $null = New-Item -ItemType Directory -Force -Path $WorkflowsDir
+        # Create package.json if not present
+        $WorkflowsPkgJson = Join-Path $WorkflowsDir "package.json"
+        if (-not (Test-Path $WorkflowsPkgJson)) {
+            @'
+{
+  "name": "atomic-workflows",
+  "private": true,
+  "type": "module"
+}
+'@ | Set-Content -Path $WorkflowsPkgJson -Encoding UTF8
+        }
+        # Create .gitignore if not present
+        $WorkflowsGitignore = Join-Path $WorkflowsDir ".gitignore"
+        if (-not (Test-Path $WorkflowsGitignore)) {
+            "node_modules/" | Set-Content -Path $WorkflowsGitignore -Encoding UTF8
+        }
+        Push-Location $WorkflowsDir
+        try {
+            bun add @bastani/atomic-workflows@latest 2>$null
+            if ($LASTEXITCODE -ne 0) {
+                Write-Err "Failed to install @bastani/atomic-workflows SDK with bun."
+                exit 1
+            }
+        } finally {
+            Pop-Location
         }
     } else {
         Write-Err "bun is required to install @bastani/atomic-workflows SDK. Install bun from https://bun.sh"

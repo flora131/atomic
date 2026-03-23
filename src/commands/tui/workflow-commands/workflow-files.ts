@@ -212,7 +212,7 @@ export function discoverWorkflowFiles(): {
 
     if (existsSync(searchPath)) {
       try {
-        const files = readdirSync(searchPath) as string[];
+        const files = (readdirSync(searchPath) as string[]).sort();
         for (const file of files) {
           if (file.endsWith(".ts")) {
             discovered.push({

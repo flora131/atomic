@@ -291,17 +291,28 @@ export async function updateCommand(): Promise<void> {
       await syncAtomicGlobalAgentConfigs(dataDir);
       s.stop("Config files updated");
 
-      // Update @bastani/atomic workflow SDK globally
+      // Update @bastani/atomic workflow SDK globally (pin to exact version)
       s.start("Updating @bastani/atomic workflow SDK...");
-      const sdkResult = Bun.spawnSync(["bun", "install", "-g", "@bastani/atomic@latest"], {
+      const sdkTag = usePrerelease ? "next" : "latest";
+      const sdkVersion = `@bastani/atomic@${targetVersionNum}`;
+      const sdkResult = Bun.spawnSync(["bun", "install", "-g", sdkVersion], {
         stdout: "ignore",
         stderr: "pipe",
       });
       if (sdkResult.exitCode === 0) {
-        s.stop("Workflow SDK updated");
+        s.stop(`Workflow SDK updated to ${targetVersionNum}`);
       } else {
-        s.stop("Workflow SDK update failed");
-        log.warn("Could not update @bastani/atomic workflow SDK. Run manually: bun install -g @bastani/atomic@latest");
+        // Fallback to tag-based install if exact version not yet published
+        const sdkFallback = Bun.spawnSync(["bun", "install", "-g", `@bastani/atomic@${sdkTag}`], {
+          stdout: "ignore",
+          stderr: "pipe",
+        });
+        if (sdkFallback.exitCode === 0) {
+          s.stop("Workflow SDK updated");
+        } else {
+          s.stop("Workflow SDK update failed");
+          log.warn(`Could not update @bastani/atomic workflow SDK. Run manually: bun install -g ${sdkVersion}`);
+        }
       }
 
       // Verify installation

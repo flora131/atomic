@@ -35,7 +35,7 @@ function isCompiledWorkflow(value: unknown): value is WorkflowDefinition & { __c
 
 /**
  * Checks whether a branded value is an SDK blueprint (lightweight export
- * from `@bastani/atomic` SDK) rather than a fully compiled workflow.
+ * from `@bastani/atomic-workflows` SDK) rather than a fully compiled workflow.
  *
  * SDK blueprints carry a `__blueprint` object with the recorded builder
  * instructions and metadata. They need to be compiled by the binary's
@@ -88,7 +88,7 @@ function compileBlueprintToDefinition(blueprint: BlueprintData): WorkflowDefinit
  * detecting the `__compiledWorkflow` brand on any named or default export.
  *
  * Supports two kinds of branded exports:
- * - **SDK blueprints** (`@bastani/atomic` SDK): carry a `__blueprint`
+ * - **SDK blueprints** (`@bastani/atomic-workflows` SDK): carry a `__blueprint`
  *   property with recorded instructions. Compiled at load time by the
  *   binary's internal compiler.
  * - **Internal compiled workflows**: spread all WorkflowDefinition

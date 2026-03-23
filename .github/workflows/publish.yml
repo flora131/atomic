@@ -252,3 +252,5 @@ jobs:
       - name: Publish to npm with provenance
         run: npm publish --provenance --access public --tag ${{ steps.npm-tag.outputs.tag }}
         working-directory: packages/workflow-sdk
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

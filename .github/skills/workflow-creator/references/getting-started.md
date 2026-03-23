@@ -52,6 +52,7 @@ Note that the `execute` stage omits `agent` — it runs with the SDK's default s
 |---|---|
 | `nodes/stage.md` | `.stage()` API, `name` vs `agent`, null agent behavior, `StageOptions` reference |
 | `nodes/tool.md` | `.tool()` API, common use cases, `ToolOptions` reference |
+| `nodes/ask-user-question.md` | `.askUserQuestion()` API, static/dynamic questions, multi-select, `onAnswer` mapping |
 | `control-flow.md` | `.if()` / `.elseIf()` / `.else()` / `.endIf()` conditionals, `.loop()` / `.break()` / `.endLoop()` bounded loops |
 | `state-and-reducers.md` | `globalState`, `loopState`, `StateFieldOptions`, built-in reducers, data flow declarations |
 | `session-config.md` | Per-stage `sessionConfig` overrides, system prompt resolution order |

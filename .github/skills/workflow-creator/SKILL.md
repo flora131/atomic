@@ -14,6 +14,7 @@ Read the reference files in `references/` for the full DSL API. Start with `gett
 - `getting-started.md` — Quick-start example and reference file index
 - `nodes/stage.md` — `.stage()` API, `name` vs `agent`, null agent behavior, `StageOptions` reference
 - `nodes/tool.md` — `.tool()` API, common use cases, `ToolOptions` reference
+- `nodes/ask-user-question.md` — `.askUserQuestion()` API, static/dynamic questions, multi-select, `onAnswer` mapping
 - `control-flow.md` — Conditionals (`.if()` / `.endIf()`) and bounded loops (`.loop()` / `.break()`)
 - `state-and-reducers.md` — `globalState`, `loopState`, reducers, data flow declarations
 - `session-config.md` — Per-stage session overrides, system prompt resolution order
@@ -21,7 +22,7 @@ Read the reference files in `references/` for the full DSL API. Start with `gett
 
 ## How Workflows Work
 
-A workflow is a TypeScript file that chains `.stage()`, `.tool()`, `.if()`, `.loop()`, and other methods to define a directed graph of agent stages. The chain reads top-to-bottom as the execution order. At the end, `.compile()` validates the structure and produces a `WorkflowDefinition`.
+A workflow is a TypeScript file that chains `.stage()`, `.tool()`, `.askUserQuestion()`, `.if()`, `.loop()`, and other methods to define a directed graph of agent stages. The chain reads top-to-bottom as the execution order. At the end, `.compile()` validates the structure and produces a `WorkflowDefinition`.
 
 Each `.stage()` launches a fresh agent session with its own context window. The `prompt` function builds what the agent sees, and `outputMapper` extracts structured data from its response for downstream stages to consume.
 
@@ -37,6 +38,7 @@ Ask the user what they want to automate. Key questions:
 - Do any steps need to repeat? (Use `.loop()` / `.break()` / `.endLoop()`)
 - Are there conditional paths? (Use `.if()` / `.elseIf()` / `.else()` / `.endIf()`)
 - What data flows between steps? (Declare `reads` and `outputs`)
+- Does the workflow need user input at any point? (Use `.askUserQuestion()`)
 - Do any steps need a specific model or config? (Use `sessionConfig`)
 
 ### 2. Design the Stage Graph
@@ -151,6 +153,30 @@ Use `.tool()` for validation, data transforms, or I/O that doesn't need an LLM:
     isValid: ctx.state.tasks.every((t) => t.id && t.description),
   }),
 })
+```
+
+### Human-in-the-Loop Questions
+
+Use `.askUserQuestion()` to pause the workflow and collect user input:
+
+```ts
+.askUserQuestion({
+  name: "approve-plan",
+  question: {
+    question: "Approve this implementation plan?",
+    options: [
+      { label: "Approve" },
+      { label: "Reject" },
+    ],
+  },
+  onAnswer: (answer) => ({ planApproved: answer === "Approve" }),
+  outputs: ["planApproved"],
+})
+.if((ctx) => ctx.state.planApproved === true)
+  .stage({ name: "implement", agent: "implementer", ... })
+.else()
+  .stage({ name: "re-plan", agent: "planner", ... })
+.endIf()
 ```
 
 ### Custom State with Reducers

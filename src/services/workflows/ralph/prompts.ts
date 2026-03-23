@@ -244,6 +244,17 @@ export function buildOrchestratorPrompt(
 ${taskListJson}
 \`\`\`
 
+## Dependency Graph Integrity Check
+
+BEFORE executing any tasks, validate the dependency graph:
+
+1. For each task, check that every ID in its "blockedBy" array corresponds to an actual task ID in the task list.
+2. If a blockedBy reference points to a task ID that does NOT exist in the list, that reference is a **dangling dependency** caused by data corruption during planning.
+3. **Remove dangling dependencies**: Drop any blockedBy entry that references a non-existent task ID. The task is still valid — only the corrupted reference should be removed.
+4. After cleanup, re-evaluate which tasks are ready.
+
+This step is critical. Dangling dependencies will permanently block tasks if not removed.
+
 ## Dependency Rules
 
 A task is READY to execute only when:
@@ -254,21 +265,23 @@ Do NOT spawn a sub-agent for a task whose dependencies are not yet completed.
 
 ## Instructions
 
-1. **Identify ready tasks**: Find all tasks with status "pending" whose blockedBy
+1. **Validate the dependency graph** using the integrity check above. Remove any dangling dependencies.
+
+2. **Identify ready tasks**: Find all tasks with status "pending" whose blockedBy
    dependencies are all "completed". These are ready to execute.
 
-2. **Spawn parallel sub-agents**: For each ready task, spawn a sub-agent using
+3. **Spawn parallel sub-agents**: For each ready task, spawn a sub-agent using
    the Task tool. Give each sub-agent a focused prompt with:
    - The task description
    - Context about completed dependency tasks
    - Instructions to implement the task fully and test it
 
-3. **Monitor completions**: As sub-agents complete, check if any blocked tasks
+4. **Monitor completions**: As sub-agents complete, check if any blocked tasks
    are now unblocked. Spawn new sub-agents for newly-unblocked tasks immediately.
 
-4. **Continue until all tasks are complete or have errors.**
+5. **Continue until ALL tasks are complete.** Do NOT stop early.
 
-5. **Report a summary** when finished, listing each task and its final status.
+6. **Report a summary** when finished, listing each task and its final status.
 
 ## IMPORTANT
 
@@ -283,27 +296,53 @@ when multiple tasks are ready simultaneously.
   replacements up to the concurrency limit.
 - This prevents API rate-limiting and keeps resource usage manageable.
 
-## Error Handling for Dependencies
+## Error Handling
 
-- If a task FAILS, mark all tasks that directly or transitively depend on it as
-  "blocked-by-failure" and report why.
-- If a failed task can be retried (transient error), retry it ONCE before
-  marking dependents as blocked.
-- If ALL remaining tasks are blocked-by-failure, report the dependency chain
-  and stop.
+When a sub-agent task FAILS:
+
+1. **Diagnose**: Read the error output to understand the root cause.
+2. **Retry with fix**: Spawn a NEW sub-agent for the same task with the error context included in its prompt. Instruct it to fix the issue and complete the task.
+3. **Retry limit**: Retry each failed task up to 2 times. If it still fails after retries, mark it as "error".
+4. **Continue regardless**: After marking a task as "error", do NOT stop. Continue executing all other tasks that are not blocked by the errored task.
+5. **Unblocked tasks proceed**: Tasks whose dependencies are all "completed" are still ready — execute them even if sibling tasks have errors.
+
+NEVER mark tasks as "blocked-by-failure" and stop. The goal is to complete as much work as possible. Only the specific tasks whose direct dependencies are in "error" status should be skipped — all other tasks must still be attempted.
 
 ## Task Status Protocol
 
-- BEFORE spawning a sub-agent for a task, call the TodoWrite tool to set that
-  task's status to "in_progress".
-- AFTER a sub-agent completes successfully, call the TodoWrite tool to set
-  that task's status to "completed".
-- AFTER a sub-agent fails, call the TodoWrite tool to set that task's status
-  to "error".
-- Each TodoWrite call MUST include the FULL task list with current statuses —
-  not just the changed task. This is a snapshot-based API: every call replaces
-  the entire list.
-- This ensures the UI shows real-time progress for all active tasks.`;
+The task list drives a real-time UI widget. Users watch it to track progress.
+Stale statuses make it look like the system is stuck. You MUST update the
+task list **immediately** at every transition — not in batches, not later.
+
+### Required update sequence for EACH task
+
+1. **IMMEDIATELY BEFORE spawning** a sub-agent for a task, call TodoWrite to
+   set that task's status to "in_progress".
+2. **IMMEDIATELY AFTER a sub-agent returns** (success or failure), call
+   TodoWrite to set that task's status to "completed" or "error".
+
+### Timing rules
+
+- Call TodoWrite **within the same tool-call turn** as the event that
+  triggered the status change. Do NOT wait to combine it with other updates.
+- When multiple sub-agents complete in parallel, issue a SEPARATE TodoWrite
+  for each completion as you process it — do not batch them into one call.
+- When spawning the next wave of tasks, issue TWO TodoWrite calls:
+  first one marking the previous task(s) as "completed", then a second one
+  marking the new task(s) as "in_progress" BEFORE spawning their sub-agents.
+
+### Anti-pattern: wave batching (DO NOT DO THIS)
+
+Do NOT combine "mark previous tasks completed" and "mark next tasks
+in_progress" into a single TodoWrite call. This causes the UI to skip
+the intermediate state and makes it look like tasks jump from "in_progress"
+to "completed" without the user seeing real-time progress.
+
+### Snapshot API
+
+Each TodoWrite call MUST include the FULL task list with ALL current
+statuses — not just the changed task. This is a snapshot-based API: every
+call replaces the entire list.`;
 }
 
 // ============================================================================
@@ -342,19 +381,48 @@ export function buildReviewPrompt(
         .map((t) => `- ${t.id ?? "?"}: ${t.description}`)
         .join("\n");
 
+    const fullTaskPlan = tasks
+        .map((t) => `- ${t.id ?? "?"}: [${t.status.toUpperCase()}] ${t.description}`)
+        .join("\n");
+
+    const totalCount = tasks.length;
+    const completedCount = tasks.filter((t) => isCompletedStatus(t.status)).length;
+    const errorCount = tasks.filter((t) => t.status.trim().toLowerCase() === "error").length;
+    const pendingCount = tasks.filter((t) => t.status.trim().toLowerCase() === "pending").length;
+    const blockedCount = tasks.filter((t) => t.status.trim().toLowerCase().includes("blocked")).length;
+
     return `# Code Review Request
 
-## Implementation Summary
+## Original Specification
 
-The implementation phase has completed for the following user request:
+The implementation was requested to fulfill the following specification:
 
 <user_request>
 ${userPrompt}
 </user_request>
 
+## Task Plan
+
+The planner decomposed the specification into the following tasks. Use this as a checklist to verify that every specification requirement has been addressed:
+
+<task_plan>
+${fullTaskPlan}
+</task_plan>
+
+## Task Completion Summary
+
+- **Total tasks:** ${totalCount}
+- **Completed:** ${completedCount}
+- **Errored:** ${errorCount}
+- **Pending:** ${pendingCount}
+- **Blocked:** ${blockedCount}
+- **Completion rate:** ${totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0}%
+
+${completedCount < totalCount ? `**WARNING: Only ${completedCount} of ${totalCount} tasks completed. The implementation is incomplete. Any non-completed tasks MUST be reported as P0 findings.**` : ""}
+
 ## Completed Tasks
 
-The following tasks were completed during implementation:
+The following tasks were marked as completed during implementation:
 
 ${completedTasks}
 
@@ -366,17 +434,24 @@ Your task is to conduct a thorough code review of the changes made during this i
 
 Examine the implementation for:
 
-1. **Correctness of Logic**: Does the code correctly implement the specified requirements? Are there any logical errors or incorrect assumptions?
+1. **Task Completion & Specification Gap Analysis**: This is the MOST IMPORTANT review step. You MUST:
+   a. Check the Task Completion Summary above. If the completion rate is below 100%, the implementation is incomplete and MUST be flagged.
+   b. For each task in ERROR, PENDING, or BLOCKED status, create a separate P0 finding describing what specification requirement is missing from the implementation.
+   c. Cross-reference the task plan against the original specification. Identify any specification requirements NOT covered by any task (missing tasks).
+   d. Identify completed tasks that only partially fulfill their corresponding specification requirement.
+   Do NOT approve an incomplete implementation. If tasks are incomplete, overall_correctness MUST be "patch is incorrect".
 
-2. **Error Handling**: Are errors properly caught and handled? Are edge cases considered? Are error messages clear and actionable?
+2. **Correctness of Logic**: Does the code correctly implement the specified requirements? Are there any logical errors or incorrect assumptions?
 
-3. **Edge Cases**: Does the code handle boundary conditions, empty inputs, null/undefined values, and other edge cases appropriately?
+3. **Error Handling**: Are errors properly caught and handled? Are edge cases considered? Are error messages clear and actionable?
 
-4. **Security Concerns**: Are there any security vulnerabilities such as injection attacks, exposure of sensitive data, or improper authentication/authorization?
+4. **Edge Cases**: Does the code handle boundary conditions, empty inputs, null/undefined values, and other edge cases appropriately?
 
-5. **Performance Implications**: Are there any obvious performance issues like unnecessary loops, inefficient algorithms, or resource leaks?
+5. **Security Concerns**: Are there any security vulnerabilities such as injection attacks, exposure of sensitive data, or improper authentication/authorization?
 
-6. **Test Coverage**: Are the changes adequately tested? Are there missing test cases for critical paths or edge cases?
+6. **Performance Implications**: Are there any obvious performance issues like unnecessary loops, inefficient algorithms, or resource leaks?
+
+7. **Test Coverage**: Are the changes adequately tested? Are there missing test cases for critical paths or edge cases?
 
 ### Output Format
 
@@ -404,18 +479,19 @@ Produce your review findings in the following JSON format:
 
 ### Priority Definitions
 
-- **P0 (Critical)**: Bugs, security issues, or correctness problems that must be fixed immediately
+- **P0 (Critical)**: Bugs, security issues, correctness problems, or specification gaps that must be fixed immediately
 - **P1 (Important)**: Significant issues affecting functionality, performance, or maintainability
 - **P2 (Moderate)**: Issues that should be addressed but don't block functionality
 - **P3 (Minor)**: Style suggestions, minor improvements, or low-impact optimizations
 
 ### Guidelines
 
+- Begin by performing the specification gap analysis — this is the highest-priority review step
 - Focus on substantive issues that affect correctness, security, or functionality
 - Provide specific, actionable feedback with clear explanations
 - Include exact file paths and line ranges when referencing code
 - Use confidence scores to indicate how certain you are about each finding
-- Set overall_correctness to "patch is incorrect" only if there are P0 or P1 issues that prevent the feature from working correctly
+- Set overall_correctness to "patch is incorrect" if there are P0 or P1 issues that prevent the feature from working correctly, including specification gaps
 ${
     priorDebuggerOutput
         ? `

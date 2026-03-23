@@ -13,12 +13,13 @@ describe("buildOrchestratorPrompt", () => {
         const prompt = buildOrchestratorPrompt([]);
 
         // Every section from the spec must be present as a markdown heading
+        expect(prompt).toContain("## Dependency Graph Integrity Check");
         expect(prompt).toContain("## Task List");
         expect(prompt).toContain("## Dependency Rules");
         expect(prompt).toContain("## Instructions");
         expect(prompt).toContain("## IMPORTANT");
         expect(prompt).toContain("## Concurrency Guidelines");
-        expect(prompt).toContain("## Error Handling for Dependencies");
+        expect(prompt).toContain("## Error Handling");
         expect(prompt).toContain("## Task Status Protocol");
     });
 
@@ -140,26 +141,36 @@ describe("buildOrchestratorPrompt", () => {
     // Error handling
     // ========================================================================
 
-    test("includes error handling instructions for dependency failures", () => {
+    test("includes error handling with retry-and-fix instructions", () => {
         const prompt = buildOrchestratorPrompt([]);
 
-        expect(prompt).toContain("Error Handling for Dependencies");
-        expect(prompt).toContain("If a task FAILS, mark all tasks that directly or transitively depend on it");
-        expect(prompt).toContain("blocked-by-failure");
+        expect(prompt).toContain("## Error Handling");
+        expect(prompt).toContain("Diagnose");
+        expect(prompt).toContain("Retry with fix");
+        expect(prompt).toContain("Retry limit");
+        expect(prompt).toContain("Continue regardless");
     });
 
-    test("includes retry instruction for transient errors", () => {
+    test("instructs retry up to 2 times before marking as error", () => {
         const prompt = buildOrchestratorPrompt([]);
 
-        expect(prompt).toContain("retry it ONCE");
+        expect(prompt).toContain("Retry each failed task up to 2 times");
+        expect(prompt).toContain('"error"');
     });
 
-    test("includes stop condition for all-blocked scenario", () => {
+    test("explicitly forbids blocked-by-failure stop pattern", () => {
         const prompt = buildOrchestratorPrompt([]);
 
-        expect(prompt).toContain("ALL remaining tasks are blocked-by-failure");
-        expect(prompt).toContain("report the dependency chain");
-        expect(prompt).toContain("stop");
+        expect(prompt).toContain("NEVER mark tasks as \"blocked-by-failure\" and stop");
+        expect(prompt).toContain("complete as much work as possible");
+    });
+
+    test("includes dependency graph integrity check section", () => {
+        const prompt = buildOrchestratorPrompt([]);
+
+        expect(prompt).toContain("## Dependency Graph Integrity Check");
+        expect(prompt).toContain("dangling dependency");
+        expect(prompt).toContain("Remove dangling dependencies");
     });
 
     // ========================================================================
@@ -172,25 +183,40 @@ describe("buildOrchestratorPrompt", () => {
         expect(prompt).toContain("Task Status Protocol");
     });
 
-    test("instructs in_progress before spawning", () => {
+    test("instructs immediate in_progress before spawning", () => {
         const prompt = buildOrchestratorPrompt([]);
 
-        expect(prompt).toContain("BEFORE spawning a sub-agent for a task");
+        expect(prompt).toContain("IMMEDIATELY BEFORE spawning");
         expect(prompt).toContain('"in_progress"');
     });
 
-    test("instructs completed or error after spawning", () => {
+    test("instructs immediate completed or error after sub-agent returns", () => {
         const prompt = buildOrchestratorPrompt([]);
 
-        expect(prompt).toContain("AFTER a sub-agent completes");
+        expect(prompt).toContain("IMMEDIATELY AFTER a sub-agent returns");
         expect(prompt).toContain('"completed"');
         expect(prompt).toContain('"error"');
     });
 
-    test("references TodoWrite tool for status updates", () => {
+    test("forbids wave batching of status updates", () => {
+        const prompt = buildOrchestratorPrompt([]);
+
+        expect(prompt).toContain("Anti-pattern: wave batching");
+        expect(prompt).toContain("Do NOT combine");
+    });
+
+    test("requires separate TodoWrite per completion", () => {
+        const prompt = buildOrchestratorPrompt([]);
+
+        expect(prompt).toContain("SEPARATE TodoWrite");
+        expect(prompt).toContain("do not batch them into one call");
+    });
+
+    test("references TodoWrite tool and snapshot API", () => {
         const prompt = buildOrchestratorPrompt([]);
 
         expect(prompt).toContain("TodoWrite");
+        expect(prompt).toContain("snapshot-based API");
     });
 
     // ========================================================================

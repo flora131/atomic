@@ -542,10 +542,11 @@ describe("buildOrchestratorPrompt – DAG shapes", () => {
 
         const requiredSections = [
             "## Task List",
+            "## Dependency Graph Integrity Check",
             "## Dependency Rules",
             "## Instructions",
             "## Concurrency Guidelines",
-            "## Error Handling for Dependencies",
+            "## Error Handling",
             "## Task Status Protocol",
         ];
 

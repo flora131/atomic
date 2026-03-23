@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "@bastani/atomic",
+      "name": "@bastani/atomic-workflows",
       "dependencies": {
         "zod": "^4.3.6",
       },

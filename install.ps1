@@ -165,16 +165,16 @@ embedding:
     Set-Content -Path (Join-Path $CocoindexDir "global_settings.yml") -Value $CocoindexSettings -Encoding UTF8
     Write-Info "Wrote cocoindex global settings to $CocoindexDir\global_settings.yml"
 
-    # Install @bastani/atomic workflow SDK globally so user workflows can import it.
-    Write-Info "Installing @bastani/atomic workflow SDK globally..."
+    # Install @bastani/atomic-workflows SDK globally so user workflows can import it.
+    Write-Info "Installing @bastani/atomic-workflows SDK globally..."
     if (Get-Command bun -ErrorAction SilentlyContinue) {
-        bun install -g @bastani/atomic@latest 2>$null
+        bun install -g @bastani/atomic-workflows@latest 2>$null
         if ($LASTEXITCODE -ne 0) {
-            Write-Err "Failed to install @bastani/atomic workflow SDK with bun."
+            Write-Err "Failed to install @bastani/atomic-workflows SDK with bun."
             exit 1
         }
     } else {
-        Write-Err "bun is required to install @bastani/atomic workflow SDK. Install bun from https://bun.sh"
+        Write-Err "bun is required to install @bastani/atomic-workflows SDK. Install bun from https://bun.sh"
         exit 1
     }
 

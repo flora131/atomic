@@ -57,7 +57,6 @@ export function addLoopSegment<TState extends BaseState>(
 
   const loopStartId = ops.generateNodeId("loop_start");
   const loopCheckId = ops.generateNodeId("loop_check");
-  const maxIterations = config.maxIterations ?? 100;
 
   const loopStartNode = createNode<TState>(loopStartId, "decision", async (ctx) => {
     const iterationKey = `${loopStartId}_iteration`;
@@ -113,20 +112,14 @@ export function addLoopSegment<TState extends BaseState>(
     loopCheckId,
     firstBodyNode.id,
     (graphState) => {
-      const iterationKey = `${loopStartId}_iteration`;
-      const currentIteration =
-        (graphState.outputs[iterationKey] as number) ?? 0;
-      return !config.until(graphState) && currentIteration < maxIterations;
+      return !config.until(graphState);
     },
     "loop-continue",
   );
 
   state.currentNodeId = loopCheckId;
   state.pendingEdgeCondition = (graphState) => {
-    const iterationKey = `${loopStartId}_iteration`;
-    const currentIteration =
-      (graphState.outputs[iterationKey] as number) ?? 0;
-    return config.until(graphState) || currentIteration >= maxIterations;
+    return config.until(graphState);
   };
   state.pendingEdgeLabel = "loop-exit";
 }

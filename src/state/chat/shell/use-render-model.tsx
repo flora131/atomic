@@ -74,7 +74,20 @@ export function useChatRenderModel({
       <>
         {renderMessages.map((msg, index) => {
           const liveTaskItems = msg.streaming ? todoItems : undefined;
-          const showLive = shouldShowMessageLoadingIndicator(msg, liveTaskItems, activeBackgroundAgentCount);
+          // Only pass activeBackgroundAgentCount to the message that owns those
+          // agents (the streaming or last-streamed message). Passing it to all
+          // messages causes completed workflow stages to re-show their spinner
+          // when a subsequent stage launches background agents.
+          //
+          // lastStreamedMessageId should only grant ownership when there is no
+          // active streaming message — once a new workflow stage starts streaming
+          // on a fresh message, the previous stage's completed message must not
+          // inherit the new stage's background-agent count.
+          const isAgentOwner = msg.id === streamingMessageId
+            || msg.id === backgroundAgentMessageId
+            || (msg.id === lastStreamedMessageId && !streamingMessageId);
+          const scopedBgAgentCount = isAgentOwner ? activeBackgroundAgentCount : 0;
+          const showLive = shouldShowMessageLoadingIndicator(msg, liveTaskItems, scopedBgAgentCount);
           const scopedStreamingMeta = showLive
             ? (streamingMessageId
               ? (msg.id === streamingMessageId ? streamingMeta : null)
@@ -87,7 +100,7 @@ export function useChatRenderModel({
               isLast={index === renderMessages.length - 1}
               syntaxStyle={markdownSyntaxStyle}
               hideLoading={activeQuestion !== null}
-              activeBackgroundAgentCount={activeBackgroundAgentCount}
+              activeBackgroundAgentCount={scopedBgAgentCount}
               todoItems={msg.streaming ? todoItems : undefined}
               elapsedMs={showLive ? streamingElapsedMs : undefined}
               streamingMeta={scopedStreamingMeta}

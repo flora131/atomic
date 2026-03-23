@@ -3,15 +3,28 @@ import type { StreamPartEvent } from "@/state/parts/index.ts";
 const RUNTIME_ENVELOPE_PART_TYPES = new Set<StreamPartEvent["type"]>([
   "task-list-update",
   "task-result-upsert",
+  "workflow-step-start",
+  "workflow-step-complete",
 ]);
 
 export function isRuntimeEnvelopePartEvent(
   part: StreamPartEvent,
 ): part is Extract<
   StreamPartEvent,
-  { type: "task-list-update" | "task-result-upsert" }
+  { type: "task-list-update" | "task-result-upsert" | "workflow-step-start" | "workflow-step-complete" }
 > {
   return RUNTIME_ENVELOPE_PART_TYPES.has(part.type);
+}
+
+/**
+ * Workflow-originated events (step transitions, task updates) use the conductor's
+ * runId which differs from per-stage adapter runIds. These must bypass the
+ * staleness check that compares partRunId against activeStreamRunId.
+ */
+export function isWorkflowBypassEvent(part: StreamPartEvent): boolean {
+  return part.type === "workflow-step-start"
+    || part.type === "workflow-step-complete"
+    || part.type === "task-list-update";
 }
 
 export function shouldProcessStreamLifecycleEvent(

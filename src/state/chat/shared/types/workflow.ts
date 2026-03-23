@@ -1,5 +1,5 @@
-import type { RalphCommandState } from "@/services/workflows/ralph/types.ts";
-import { defaultRalphCommandState } from "@/services/workflows/ralph/types.ts";
+import type { WorkflowCommandState } from "@/services/workflows/types/index.ts";
+import { defaultWorkflowCommandState } from "@/services/workflows/types/index.ts";
 
 export interface WorkflowChatState {
   showAutocomplete: boolean;
@@ -16,8 +16,12 @@ export interface WorkflowChatState {
     sessionId?: string;
     workflowName?: string;
   };
-  /** Ralph-specific workflow state. Isolated from the generic workflow fields. */
-  ralphState: RalphCommandState;
+  /** Current conductor stage name (e.g. "research", "plan", "implement"). */
+  currentStage: string | null;
+  /** Human-readable stage progress indicator (e.g. "Stage 2/4: implement"). */
+  stageIndicator: string | null;
+  /** Generic workflow command/UI state for all workflow types. */
+  workflowCommandState: WorkflowCommandState;
 }
 
 export const defaultWorkflowChatState: WorkflowChatState = {
@@ -30,5 +34,7 @@ export const defaultWorkflowChatState: WorkflowChatState = {
   workflowActive: false,
   workflowType: null,
   initialPrompt: null,
-  ralphState: { ...defaultRalphCommandState },
+  currentStage: null,
+  stageIndicator: null,
+  workflowCommandState: { ...defaultWorkflowCommandState },
 };

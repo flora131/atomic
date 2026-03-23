@@ -64,6 +64,8 @@ export interface UseChatShellStateResult {
   toggleVerbose: () => void;
   toggleTheme: ReturnType<typeof useTheme>["toggleTheme"];
   transcriptMode: boolean;
+  /** Set by the conductor executor to expose `conductor.interrupt()` to the keyboard layer. */
+  conductorInterruptRef: React.RefObject<(() => void) | null>;
   waitForUserInputResolverRef: React.RefObject<WorkflowInputResolver | null>;
   workflowActiveRef: React.RefObject<boolean>;
   actions: {
@@ -143,6 +145,7 @@ export function useChatShellState({
   useEffect(() => () => { markdownSyntaxStyle.destroy(); }, [markdownSyntaxStyle]);
 
   const waitForUserInputResolverRef = useRef<WorkflowInputResolver | null>(null);
+  const conductorInterruptRef = useRef<(() => void) | null>(null);
   const workflowActiveRef = useRef(false);
   const scrollAccelerationRef = useRef<MacOSScrollAccel | null>(null);
   if (!scrollAccelerationRef.current) {
@@ -257,6 +260,7 @@ export function useChatShellState({
     toggleVerbose,
     toggleTheme,
     transcriptMode,
+    conductorInterruptRef,
     waitForUserInputResolverRef,
     workflowActiveRef,
     actions: {

@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readdir, rm } from "fs/promises";
+import { copyFile, lstat, mkdir, readdir, rm, rmdir } from "fs/promises";
 import { join, resolve } from "path";
 import { homedir } from "os";
 
@@ -177,7 +177,7 @@ async function collectManagedTreeEntries(
       continue;
     }
 
-    if (entry.isFile()) {
+    if (entry.isFile() || entry.isSymbolicLink()) {
       files.push(relativePath);
     }
   }
@@ -186,13 +186,18 @@ async function collectManagedTreeEntries(
 }
 
 async function removeEmptyDirectoryIfPresent(pathToDirectory: string): Promise<void> {
-  if (!(await pathExists(pathToDirectory))) {
+  try {
+    const stats = await lstat(pathToDirectory);
+    if (!stats.isDirectory()) {
+      return;
+    }
+  } catch {
     return;
   }
 
   const entries = await readdir(pathToDirectory);
   if (entries.length === 0) {
-    await rm(pathToDirectory, { recursive: false, force: true });
+    await rmdir(pathToDirectory);
   }
 }
 
@@ -265,7 +270,8 @@ export async function removeAtomicManagedGlobalAgentConfigs(
       await rm(destinationFilePath, { force: true });
     }
 
-    await removeEmptyDirectoryIfPresent(destinationFolder);
+    // Do NOT remove the top-level provider directory (e.g. ~/.claude, ~/.opencode,
+    // ~/.copilot) — Atomic does not own it and it may contain user-managed configs.
   }
 }
 

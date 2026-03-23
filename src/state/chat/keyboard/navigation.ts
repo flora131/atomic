@@ -286,7 +286,12 @@ export function handleAutocompleteSelectionKey({
         replaceTextareaValue(textarea, nextText);
         textarea.cursorOffset = nextCursor;
       } else {
-        replaceTextareaValue(textarea, `/${selectedCommand.name}${suffix}`);
+        const fullText = textarea.plainText ?? "";
+        const commandTokenEnd = 1 + workflowState.autocompleteInput.length;
+        const after = fullText.slice(commandTokenEnd);
+        const replacement = `/${selectedCommand.name}${suffix}`;
+        replaceTextareaValue(textarea, `${replacement}${after}`);
+        textarea.cursorOffset = replacement.length;
       }
 
       if (isDirectoryMention) {

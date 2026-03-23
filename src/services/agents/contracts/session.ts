@@ -7,6 +7,14 @@ export type PermissionMode = "auto" | "prompt" | "deny" | "bypass";
 export interface SessionConfig {
   model?: string;
   sessionId?: string;
+  /**
+   * Completely replaces the default system prompt for this session.
+   * When set, the SDK's built-in system prompt (e.g., Claude Code preset,
+   * Copilot guardrails) is discarded and this string is used instead.
+   * Takes precedence over `additionalInstructions`.
+   */
+  systemPrompt?: string;
+  /** Appended to the default system prompt. Ignored when `systemPrompt` is set. */
   additionalInstructions?: string;
   tools?: string[];
   mcpServers?: McpServerConfig[];

@@ -120,7 +120,13 @@ export class ClaudeToolHookHandlers {
             );
             this.deps.recordPendingTaskToolCorrelationId(sdkCorrelationId);
           }
-          continue;
+          // Nested task tools (inside sub-agent sessions): preserve existing
+          // behavior of not publishing a bus event.
+          // Root task tools: fall through to publish stream.tool.start so a
+          // ToolPart is created as an anchor for inline agent tree placement.
+          if (parentAgentId) {
+            continue;
+          }
         }
 
         if (sdkCorrelationId && this.deps.emittedToolStartCorrelationIds.has(sdkCorrelationId)) {
@@ -330,7 +336,14 @@ export class ClaudeToolHookHandlers {
         });
       }
 
-      if (this.deps.isTaskTool(toolName)) {
+      // Root task tools (no real parent) must publish stream.tool.start so a
+      // ToolPart anchor is created for inline agent tree placement. Nested task
+      // tools (inside sub-agent sessions) preserve existing suppression.
+      const isRootTaskTool = this.deps.isTaskTool(toolName)
+        && !directParentAgentId
+        && !parentToolUseId
+        && !sessionMappedParentAgentId;
+      if (this.deps.isTaskTool(toolName) && !isRootTaskTool) {
         return;
       }
       // Dedup: skip publish if message.complete already emitted this tool start
@@ -352,7 +365,7 @@ export class ClaudeToolHookHandlers {
           toolName,
           toolInput,
           sdkCorrelationId: normalizedSdkCorrelationId ?? toolId,
-          ...(finalAttributedParentAgentId ? { parentAgentId: finalAttributedParentAgentId } : {}),
+          ...(!isRootTaskTool && finalAttributedParentAgentId ? { parentAgentId: finalAttributedParentAgentId } : {}),
         },
       };
       this.deps.bus.publish(busEvent);
@@ -454,7 +467,13 @@ export class ClaudeToolHookHandlers {
       if (attributedParentAgentId && this.deps.getSubagentTracker()?.hasAgent(attributedParentAgentId)) {
         this.deps.getSubagentTracker()?.onToolComplete(attributedParentAgentId);
       }
-      if (this.deps.isTaskTool(toolName)) {
+      // Root task tools must publish stream.tool.complete to finalize the
+      // ToolPart anchor. Nested task tools preserve existing suppression.
+      const isRootTaskTool = this.deps.isTaskTool(toolName)
+        && !directParentAgentId
+        && !parentToolUseId
+        && !sessionMappedParentAgentId;
+      if (this.deps.isTaskTool(toolName) && !isRootTaskTool) {
         return;
       }
 
@@ -471,7 +490,7 @@ export class ClaudeToolHookHandlers {
           success: data.success,
           error: data.error,
           sdkCorrelationId: sdkCorrelationId ?? toolId,
-          ...(attributedParentAgentId ? { parentAgentId: attributedParentAgentId } : {}),
+          ...(!isRootTaskTool && attributedParentAgentId ? { parentAgentId: attributedParentAgentId } : {}),
         },
       };
       this.deps.bus.publish(busEvent);

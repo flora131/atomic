@@ -210,9 +210,62 @@ export function dispatchCopilotSdkEvent(args: {
         resumeEventCount: event.data.eventCount,
       }, event);
       return;
-    case "session.idle":
+    case "session.idle": {
+      // The SDK's backgroundTasks.agents is the authoritative list of agents
+      // that are STILL running. Any tracked agent (from subagent.started)
+      // that is NOT in this list has already completed — emit subagent.complete
+      // for it so the count decrements before the idle event propagates.
+      if (args.state && args.state.toolCallIdToSubagentName.size > 0) {
+        const eventData = event.data as Record<string, unknown>;
+        const bgTasks = eventData.backgroundTasks as
+          | { agents?: Array<{ agentId?: string; agentType?: string }> }
+          | undefined;
+        const runningAgentTypes = new Set<string>();
+
+        if (bgTasks?.agents) {
+          // Build a set of still-running agent types and the agentId→toolCallId
+          // mapping for agents that are still running (needed if system.notification
+          // fires later with the agentId).
+          const unmatchedToolCallIds = new Map(args.state.toolCallIdToSubagentName);
+          for (const agent of bgTasks.agents) {
+            const bgAgentId = asNonEmptyString(agent.agentId);
+            const agentType = asNonEmptyString(agent.agentType);
+            if (agentType) {
+              runningAgentTypes.add(agentType);
+            }
+            if (bgAgentId && agentType) {
+              for (const [toolCallId, agentName] of unmatchedToolCallIds) {
+                if (agentName === agentType) {
+                  args.state.backgroundAgentIdToToolCallId.set(bgAgentId, toolCallId);
+                  unmatchedToolCallIds.delete(toolCallId);
+                  break;
+                }
+              }
+            }
+          }
+        }
+
+        // Emit subagent.complete for tracked agents no longer in backgroundTasks.
+        // Snapshot entries since we mutate the map during iteration.
+        const trackedEntries = [...args.state.toolCallIdToSubagentName.entries()];
+        for (const [toolCallId, agentName] of trackedEntries) {
+          if (runningAgentTypes.has(agentName)) {
+            // Still running — consume one slot so a second agent of the same
+            // type doesn't also match.
+            runningAgentTypes.delete(agentName);
+            continue;
+          }
+          // Agent no longer in backgroundTasks — it has completed.
+          args.state.toolCallIdToSubagentName.delete(toolCallId);
+          args.emitMappedSdkEvent("subagent.complete", sessionId, {
+            subagentId: toolCallId,
+            success: true,
+          }, event);
+        }
+      }
       args.emitMappedSdkEvent("session.idle", sessionId, { reason: "idle" }, event);
       return;
+    }
     case "session.error": {
       const sessionErrorEvent = event as SdkSessionEventPayload<"session.error">;
       const eventDataRecord = asRecord(sessionErrorEvent.data);
@@ -442,6 +495,60 @@ export function dispatchCopilotSdkEvent(args: {
         error: asNonEmptyString(event.data.error),
       }, event);
       return;
+    case "system.notification": {
+      const notificationEvent = event as SdkSessionEventPayload<"system.notification">;
+      const kind = notificationEvent.data.kind;
+      // The SDK emits "agent_idle" when a background agent finishes its work
+      // (but stays alive for follow-up messages). Treat it the same as
+      // "agent_completed" — both signal that the agent's task is done.
+      if (kind.type === "agent_completed" || kind.type === "agent_idle") {
+        const agentId = asNonEmptyString(kind.agentId);
+        if (agentId) {
+          // Resolve agentId → toolCallId so the completion event matches
+          // the agent originally registered via subagent.started.
+          let resolvedId = args.state?.backgroundAgentIdToToolCallId.get(agentId);
+
+          // Fallback: if no session.idle mapping exists (e.g. agent completed
+          // before session.idle fired), match by agentType against tracked agents.
+          if (!resolvedId && args.state) {
+            const agentType = asNonEmptyString(
+              (kind as Record<string, unknown>).agentType,
+            );
+            if (agentType) {
+              for (const [toolCallId, name] of args.state.toolCallIdToSubagentName) {
+                if (name === agentType) {
+                  resolvedId = toolCallId;
+                  break;
+                }
+              }
+            }
+          }
+
+          // Clean up mappings.
+          if (args.state) {
+            args.state.backgroundAgentIdToToolCallId.delete(agentId);
+            args.state.toolCallIdToSubagentName.delete(resolvedId ?? agentId);
+          }
+
+          const subagentId = resolvedId ?? agentId;
+          const success = kind.type === "agent_idle"
+            || (kind as Record<string, unknown>).status !== "failed";
+          args.emitMappedSdkEvent(
+            "subagent.complete",
+            sessionId,
+            {
+              subagentId,
+              success,
+              ...(!success && typeof kind.description === "string"
+                ? { error: kind.description }
+                : {}),
+            },
+            notificationEvent,
+          );
+        }
+      }
+      return;
+    }
     case "session.usage_info":
     case "session.shutdown":
     case "session.context_changed":
@@ -461,6 +568,7 @@ export function dispatchCopilotSdkEvent(args: {
     case "subagent.selected":
     case "subagent.deselected":
     case "pending_messages.modified":
+    case "session.background_tasks_changed":
     case "system.message":
     case "permission.requested":
     case "permission.completed":
@@ -469,6 +577,21 @@ export function dispatchCopilotSdkEvent(args: {
     case "elicitation.requested":
     case "elicitation.completed":
     case "abort":
+    case "mcp.oauth_required":
+    case "mcp.oauth_completed":
+    case "external_tool.requested":
+    case "external_tool.completed":
+    case "command.queued":
+    case "command.execute":
+    case "command.completed":
+    case "commands.changed":
+    case "exit_plan_mode.requested":
+    case "exit_plan_mode.completed":
+    case "session.tools_updated":
+    case "session.skills_loaded":
+    case "session.mcp_servers_loaded":
+    case "session.mcp_server_status_changed":
+    case "session.extensions_loaded":
       return;
     default:
       return;

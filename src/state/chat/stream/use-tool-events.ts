@@ -15,7 +15,8 @@ import {
   finalizeSyntheticTaskAgentForToolComplete,
   upsertSyntheticTaskAgentForToolStart,
 } from "@/state/chat/shared/helpers/index.ts";
-import { applyStreamPartEvent } from "@/state/parts/index.ts";
+import { applyStreamPartEvent, isSubagentToolName } from "@/state/parts/index.ts";
+import { persistWorkflowTasksToDisk } from "@/services/workflows/helpers/persist-workflow-tasks.ts";
 
 interface UseChatStreamToolEventsArgs {
   agentType?: AgentType;
@@ -40,6 +41,7 @@ interface UseChatStreamToolEventsArgs {
   todoItemsRef: RefObject<NormalizedTodoItem[]>;
   toolMessageIdByIdRef: RefObject<Map<string, string>>;
   toolNameByIdRef: RefObject<Map<string, string>>;
+  workflowSessionDirRef: RefObject<string | null>;
   workflowSessionIdRef: RefObject<string | null>;
 }
 
@@ -83,6 +85,7 @@ export function useChatStreamToolEvents({
   todoItemsRef,
   toolMessageIdByIdRef,
   toolNameByIdRef,
+  workflowSessionDirRef,
   workflowSessionIdRef,
 }: UseChatStreamToolEventsArgs): UseChatStreamToolEventsResult {
   const handleToolStart = useCallback((
@@ -118,7 +121,12 @@ export function useChatStreamToolEvents({
       runningAskQuestionToolIdsRef.current.add(toolId);
     }
 
-    const shouldApplyMessageToolParts = !isAgentOnlyStreamRef.current || Boolean(agentId);
+    // Root sub-agent dispatch tools (task/agent/launch_agent) must always
+    // create a ToolPart in the message so mergeParallelAgentsIntoParts can
+    // anchor the sub-agent tree inline. Without this, agent-only streams
+    // suppress the ToolPart and the tree stays pinned at the fallback position.
+    const isRootSubagentDispatch = !agentId && isSubagentToolName(toolName);
+    const shouldApplyMessageToolParts = !isAgentOnlyStreamRef.current || Boolean(agentId) || isRootSubagentDispatch;
     if (shouldApplyMessageToolParts) {
       const messageId = resolveAgentScopedMessageId(agentId);
       if (messageId) {
@@ -175,6 +183,12 @@ export function useChatStreamToolEvents({
       if (shouldApplyTodoState) {
         todoItemsRef.current = todos;
         setTodoItems(todos);
+
+        // Persist to tasks.json so the TaskListPanel file watcher picks up changes
+        const sessionDir = workflowSessionDirRef.current;
+        if (sessionDir && workflowSessionIdRef.current) {
+          persistWorkflowTasksToDisk(sessionDir, todos);
+        }
       }
     }
   }, [
@@ -192,6 +206,7 @@ export function useChatStreamToolEvents({
     todoItemsRef,
     toolMessageIdByIdRef,
     toolNameByIdRef,
+    workflowSessionDirRef,
     workflowSessionIdRef,
   ]);
 
@@ -227,7 +242,8 @@ export function useChatStreamToolEvents({
       setToolCompletionVersion((version) => version + 1);
     }
 
-    const shouldApplyMessageToolParts = !isAgentOnlyStreamRef.current || Boolean(agentId);
+    const isRootSubagentComplete = !agentId && isSubagentToolName(completedToolName);
+    const shouldApplyMessageToolParts = !isAgentOnlyStreamRef.current || Boolean(agentId) || isRootSubagentComplete;
     if (shouldApplyMessageToolParts) {
       const messageId =
         streamingMessageIdRef.current
@@ -290,6 +306,12 @@ export function useChatStreamToolEvents({
       if (shouldApplyTodoState) {
         todoItemsRef.current = todos;
         setTodoItems(todos);
+
+        // Persist to tasks.json so the TaskListPanel file watcher picks up changes
+        const sessionDir = workflowSessionDirRef.current;
+        if (sessionDir && workflowSessionIdRef.current) {
+          persistWorkflowTasksToDisk(sessionDir, todos);
+        }
       }
     }
   }, [
@@ -311,6 +333,7 @@ export function useChatStreamToolEvents({
     todoItemsRef,
     toolMessageIdByIdRef,
     toolNameByIdRef,
+    workflowSessionDirRef,
     workflowSessionIdRef,
   ]);
 

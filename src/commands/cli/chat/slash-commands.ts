@@ -4,13 +4,13 @@ export function isSlashCommand(message: string): boolean {
 
 export function parseSlashCommand(message: string): { command: string; args: string } {
   const trimmed = message.slice(1).trim();
-  const spaceIndex = trimmed.indexOf(" ");
-  if (spaceIndex === -1) {
+  const wsIndex = trimmed.search(/[\s]/);
+  if (wsIndex === -1) {
     return { command: trimmed.toLowerCase(), args: "" };
   }
   return {
-    command: trimmed.slice(0, spaceIndex).toLowerCase(),
-    args: trimmed.slice(spaceIndex + 1).trim(),
+    command: trimmed.slice(0, wsIndex).toLowerCase(),
+    args: trimmed.slice(wsIndex + 1).trim(),
   };
 }
 

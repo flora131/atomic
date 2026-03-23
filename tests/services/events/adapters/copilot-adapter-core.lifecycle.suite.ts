@@ -348,7 +348,8 @@ describe("CopilotStreamAdapter lifecycle behavior", () => {
       data: { reason: "idle" },
     } as AgentEvent<"session.idle">);
 
-    await streamPromise;
+    // Wait for stream iteration to complete (generator takes ~10ms)
+    await new Promise((resolve) => setTimeout(resolve, 20));
 
     const partialIdleEvents = events.filter(
       (event) => event.type === "stream.session.partial-idle",
@@ -364,6 +365,10 @@ describe("CopilotStreamAdapter lifecycle behavior", () => {
     expect(idleEvents).toHaveLength(0);
     expect(state.isActive).toBe(true);
     expect(state.isBackgroundOnly).toBe(true);
+
+    // Unblock the background-completion promise so streamPromise resolves
+    state.backgroundCompletionResolve?.();
+    await streamPromise;
   });
 
   test("emits idle and resets isActive when no background agents exist", async () => {
@@ -434,7 +439,8 @@ describe("CopilotStreamAdapter lifecycle behavior", () => {
       data: { reason: "idle" },
     } as AgentEvent<"session.idle">);
 
-    await streamPromise;
+    // Wait for stream iteration to complete (generator takes ~10ms)
+    await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(state.isBackgroundOnly).toBe(true);
     expect(state.isActive).toBe(true);
@@ -455,6 +461,10 @@ describe("CopilotStreamAdapter lifecycle behavior", () => {
       .slice(eventsBeforeSubagent)
       .filter((event) => event.type === "stream.agent.update");
     expect(updateEvents).toHaveLength(1);
+
+    // Unblock the background-completion promise so streamPromise resolves
+    state.backgroundCompletionResolve?.();
+    await streamPromise;
   });
 
   test("filters foreground events after partial-idle transition", async () => {
@@ -483,7 +493,8 @@ describe("CopilotStreamAdapter lifecycle behavior", () => {
       data: { reason: "idle" },
     } as AgentEvent<"session.idle">);
 
-    await streamPromise;
+    // Wait for stream iteration to complete (generator takes ~10ms)
+    await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(state.isBackgroundOnly).toBe(true);
 
@@ -511,6 +522,10 @@ describe("CopilotStreamAdapter lifecycle behavior", () => {
           event.type === "stream.thinking.delta",
       );
     expect(foregroundEventsAfterIdle).toHaveLength(0);
+
+    // Unblock the background-completion promise so streamPromise resolves
+    state.backgroundCompletionResolve?.();
+    await streamPromise;
   });
 
   test("allows events when isBackgroundOnly is true and isActive is false", async () => {
@@ -539,7 +554,8 @@ describe("CopilotStreamAdapter lifecycle behavior", () => {
       data: { reason: "idle" },
     } as AgentEvent<"session.idle">);
 
-    await streamPromise;
+    // Wait for stream iteration to complete (generator takes ~10ms)
+    await new Promise((resolve) => setTimeout(resolve, 20));
 
     // Force isActive=false to test the isBackgroundOnly fallback
     state.isActive = false;
@@ -559,6 +575,10 @@ describe("CopilotStreamAdapter lifecycle behavior", () => {
       .slice(eventsBeforeEmit)
       .filter((event) => event.type === "stream.usage");
     expect(usageEvents).toHaveLength(1);
+
+    // Unblock the background-completion promise so streamPromise resolves
+    state.backgroundCompletionResolve?.();
+    await streamPromise;
   });
 
   test("emits idle and resets state when last background agent completes in isBackgroundOnly mode", async () => {
@@ -587,13 +607,15 @@ describe("CopilotStreamAdapter lifecycle behavior", () => {
       data: { reason: "idle" },
     } as AgentEvent<"session.idle">);
 
-    await streamPromise;
+    // Wait for stream iteration to complete (generator takes ~10ms)
+    await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(state.isBackgroundOnly).toBe(true);
     expect(state.isActive).toBe(true);
 
     const eventsBeforeComplete = events.length;
 
+    // Completing the last bg agent resolves backgroundCompletionResolve
     client.emit("subagent.complete" as EventType, {
       type: "subagent.complete",
       sessionId: session.id,
@@ -604,6 +626,8 @@ describe("CopilotStreamAdapter lifecycle behavior", () => {
         result: "background work done",
       },
     } as AgentEvent<"subagent.complete">);
+
+    await streamPromise;
 
     const newEvents = events.slice(eventsBeforeComplete);
     const agentComplete = newEvents.find((e) => e.type === "stream.agent.complete");
@@ -645,7 +669,8 @@ describe("CopilotStreamAdapter lifecycle behavior", () => {
       data: { reason: "idle" },
     } as AgentEvent<"session.idle">);
 
-    await streamPromise;
+    // Wait for stream iteration to complete (generator takes ~10ms)
+    await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(state.isBackgroundOnly).toBe(true);
 
@@ -668,6 +693,19 @@ describe("CopilotStreamAdapter lifecycle behavior", () => {
     expect(idleEvents).toHaveLength(0);
     expect(state.isBackgroundOnly).toBe(true);
     expect(state.isActive).toBe(true);
+
+    // Complete the remaining bg agent to unblock streamPromise
+    client.emit("subagent.complete" as EventType, {
+      type: "subagent.complete",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        subagentId: "bg-partial-2",
+        success: true,
+        result: "second bg done",
+      },
+    } as AgentEvent<"subagent.complete">);
+    await streamPromise;
   });
 
   test("does not emit idle on subagent complete when not in isBackgroundOnly mode", async () => {

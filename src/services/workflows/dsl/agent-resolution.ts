@@ -1,0 +1,83 @@
+/**
+ * Agent Resolution for Workflow Stages
+ *
+ * Resolves agent definition files for workflow stages at compile time.
+ * Each stage ID is matched against discovered agent names; the agent
+ * file's body (markdown content after frontmatter) becomes the stage
+ * session's system prompt.
+ */
+
+import { readFileSync } from "fs";
+import { parseMarkdownFrontmatter } from "@/lib/markdown.ts";
+import {
+  discoverAgentInfos,
+  type AgentInfo,
+} from "@/services/agent-discovery/index.ts";
+
+/**
+ * Read the body (system prompt) from an agent definition file.
+ * Returns the markdown content after the frontmatter block.
+ */
+export function readAgentBody(filePath: string): string | null {
+  try {
+    const content = readFileSync(filePath, "utf-8");
+    const parsed = parseMarkdownFrontmatter(content);
+    const body = parsed ? parsed.body.trim() : content.trim();
+    return body.length > 0 ? body : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build a lookup map of discovered agent names to their AgentInfo.
+ * Used at compile time to validate and resolve stage agents.
+ */
+export function buildAgentLookup(): Map<string, AgentInfo> {
+  const agents = discoverAgentInfos();
+  const lookup = new Map<string, AgentInfo>();
+  for (const agent of agents) {
+    lookup.set(agent.name.toLowerCase(), agent);
+  }
+  return lookup;
+}
+
+/**
+ * Validate that all stage IDs in the instruction list correspond to
+ * discovered agent definitions. Returns an array of error messages
+ * for unmatched stages (empty if all stages match).
+ */
+export function validateStageAgents(
+  stageIds: readonly string[],
+  agentLookup: Map<string, AgentInfo>,
+): string[] {
+  const errors: string[] = [];
+  const availableNames = Array.from(agentLookup.keys()).sort();
+
+  for (const stageId of stageIds) {
+    if (!agentLookup.has(stageId.toLowerCase())) {
+      const suggestion = availableNames.length > 0
+        ? ` Available agents: ${availableNames.join(", ")}`
+        : " No agent definitions found in any discovery path.";
+      errors.push(
+        `Stage "${stageId}" has no matching agent definition file.${suggestion}`,
+      );
+    }
+  }
+
+  return errors;
+}
+
+/**
+ * Resolve the system prompt for a stage by reading its matched agent
+ * definition file. Returns the body text, or null if the agent has
+ * no body content.
+ */
+export function resolveStageSystemPrompt(
+  stageId: string,
+  agentLookup: Map<string, AgentInfo>,
+): string | null {
+  const agent = agentLookup.get(stageId.toLowerCase());
+  if (!agent) return null;
+  return readAgentBody(agent.filePath);
+}

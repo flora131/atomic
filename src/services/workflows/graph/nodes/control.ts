@@ -151,6 +151,7 @@ export interface AskUserOptions {
   question: string;
   header?: string;
   options?: AskUserOption[];
+  multiSelect?: boolean;
 }
 
 export interface AskUserNodeConfig<TState extends BaseState = BaseState> {
@@ -171,6 +172,8 @@ export interface AskUserQuestionEventData {
   question: string;
   header?: string;
   options?: AskUserOption[];
+  multiSelect?: boolean;
+  dslAskUser?: boolean;
   nodeId: string;
   respond?: (answer: string | string[]) => void;
   toolCallId?: string;
@@ -196,6 +199,7 @@ export function askUserNode<
         question: resolvedOptions.question,
         header: resolvedOptions.header,
         options: resolvedOptions.options,
+        multiSelect: resolvedOptions.multiSelect,
         nodeId: id,
       };
 

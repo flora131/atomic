@@ -1,5 +1,5 @@
 import { pipelineError } from "@/services/events/pipeline-logger.ts";
-import type { WorkflowDefinition } from "@/services/workflows/workflow-types.ts";
+import type { WorkflowDefinition } from "@/services/workflows/types/index.ts";
 import { registerActiveSession } from "@/services/agent-discovery/index.ts";
 import type { CommandContext } from "@/types/command.ts";
 import { getWorkflowSessionDir, initWorkflowSession } from "@/services/workflows/session.ts";
@@ -17,7 +17,7 @@ export function initializeWorkflowExecutionSession(args: {
 }): WorkflowExecutionSessionRuntime {
   const { context, definition, prompt } = args;
   const sessionId = crypto.randomUUID();
-  const sessionDir = getWorkflowSessionDir(sessionId);
+  const sessionDir = getWorkflowSessionDir(definition.name, sessionId);
   const workflowRunId = crypto.getRandomValues(new Uint32Array(1))[0]!;
 
   void initWorkflowSession(definition.name, sessionId).then((session) => {

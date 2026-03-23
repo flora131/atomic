@@ -22,7 +22,7 @@ describe("buildReviewPrompt", () => {
     expect(prompt).toContain("</user_request>");
   });
 
-  test("lists all completed tasks", () => {
+  test("lists all completed tasks in Completed Tasks section", () => {
     const tasks: TaskItem[] = [
       { id: "#1", description: "Setup DB", status: "completed", summary: "Setting up" },
       { id: "#2", description: "Add API", status: "completed", summary: "Adding API" },
@@ -31,11 +31,11 @@ describe("buildReviewPrompt", () => {
 
     const prompt = buildReviewPrompt(tasks, "Build backend", "/tmp/progress.txt");
 
-    expect(prompt).toContain("#1");
-    expect(prompt).toContain("Setup DB");
-    expect(prompt).toContain("#2");
-    expect(prompt).toContain("Add API");
-    expect(prompt).not.toContain("Not done yet");
+    // Completed Tasks section only contains completed tasks
+    const completedSection = prompt.split("## Completed Tasks")[1]?.split("## Review Instructions")[0] ?? "";
+    expect(completedSection).toContain("Setup DB");
+    expect(completedSection).toContain("Add API");
+    expect(completedSection).not.toContain("Not done yet");
   });
 
   test("includes progress file path", () => {
@@ -46,6 +46,78 @@ describe("buildReviewPrompt", () => {
     expect(buildReviewPrompt(tasks, "Test", "/session/progress.txt")).toContain(
       "/session/progress.txt",
     );
+  });
+
+  test("includes full task plan with statuses", () => {
+    const tasks: TaskItem[] = [
+      { id: "#1", description: "Setup DB", status: "completed", summary: "Setting up" },
+      { id: "#2", description: "Add API", status: "completed", summary: "Adding API" },
+      { id: "#3", description: "Write tests", status: "pending", summary: "Writing tests" },
+      { id: "#4", description: "Deploy", status: "error", summary: "Deploying" },
+    ];
+
+    const prompt = buildReviewPrompt(tasks, "Build backend", "/tmp/progress.txt");
+
+    expect(prompt).toContain("<task_plan>");
+    expect(prompt).toContain("</task_plan>");
+    expect(prompt).toContain("[COMPLETED] Setup DB");
+    expect(prompt).toContain("[COMPLETED] Add API");
+    expect(prompt).toContain("[PENDING] Write tests");
+    expect(prompt).toContain("[ERROR] Deploy");
+  });
+
+  test("includes task completion summary with counts", () => {
+    const tasks: TaskItem[] = [
+      { id: "#1", description: "Setup DB", status: "completed", summary: "Setting up" },
+      { id: "#2", description: "Add API", status: "completed", summary: "Adding API" },
+      { id: "#3", description: "Write tests", status: "pending", summary: "Writing tests" },
+      { id: "#4", description: "Deploy", status: "error", summary: "Deploying" },
+    ];
+
+    const prompt = buildReviewPrompt(tasks, "Build backend", "/tmp/progress.txt");
+
+    expect(prompt).toContain("## Task Completion Summary");
+    expect(prompt).toContain("**Total tasks:** 4");
+    expect(prompt).toContain("**Completed:** 2");
+    expect(prompt).toContain("**Errored:** 1");
+    expect(prompt).toContain("**Pending:** 1");
+    expect(prompt).toContain("**Completion rate:** 50%");
+  });
+
+  test("includes warning when tasks are incomplete", () => {
+    const tasks: TaskItem[] = [
+      { id: "#1", description: "Done task", status: "completed", summary: "Done" },
+      { id: "#2", description: "Failed task", status: "error", summary: "Failed" },
+    ];
+
+    const prompt = buildReviewPrompt(tasks, "Test", "/tmp/progress.txt");
+
+    expect(prompt).toContain("WARNING: Only 1 of 2 tasks completed");
+    expect(prompt).toContain("MUST be reported as P0 findings");
+  });
+
+  test("omits warning when all tasks are completed", () => {
+    const tasks: TaskItem[] = [
+      { id: "#1", description: "Task", status: "completed", summary: "Working" },
+    ];
+
+    const prompt = buildReviewPrompt(tasks, "Test", "/tmp/progress.txt");
+
+    expect(prompt).toContain("**Completion rate:** 100%");
+    expect(prompt).not.toContain("WARNING");
+  });
+
+  test("includes task completion and gap analysis focus area", () => {
+    const tasks: TaskItem[] = [
+      { id: "#1", description: "Task", status: "completed", summary: "Working" },
+    ];
+
+    const prompt = buildReviewPrompt(tasks, "Test", "/tmp/progress.txt");
+
+    expect(prompt).toContain("Task Completion & Specification Gap Analysis");
+    expect(prompt).toContain("MOST IMPORTANT review step");
+    expect(prompt).toContain("completion rate is below 100%");
+    expect(prompt).toContain("Do NOT approve an incomplete implementation");
   });
 
   test("includes review focus areas", () => {
@@ -100,6 +172,73 @@ describe("buildReviewPrompt", () => {
 
     expect(prompt).toContain("?");
     expect(prompt).toContain("Unnamed task");
+  });
+
+  test("includes prior debugger output section when provided", () => {
+    const tasks: TaskItem[] = [
+      { id: "#1", description: "Task", status: "completed", summary: "Working" },
+    ];
+
+    const debuggerOutput = "Fixed null pointer in auth module by adding guard clause";
+    const prompt = buildReviewPrompt(tasks, "Test", "/tmp/progress.txt", debuggerOutput);
+
+    expect(prompt).toContain("## Prior Debugging Context");
+    expect(prompt).toContain("<prior_debugger_output>");
+    expect(prompt).toContain(debuggerOutput);
+    expect(prompt).toContain("</prior_debugger_output>");
+    expect(prompt).toContain("whether these fixes actually resolved the issues");
+    expect(prompt).toContain("whether they introduced any regressions");
+  });
+
+  test("omits prior debugger output section when undefined", () => {
+    const tasks: TaskItem[] = [
+      { id: "#1", description: "Task", status: "completed", summary: "Working" },
+    ];
+
+    const prompt = buildReviewPrompt(tasks, "Test", "/tmp/progress.txt", undefined);
+
+    expect(prompt).not.toContain("Prior Debugging Context");
+    expect(prompt).not.toContain("<prior_debugger_output>");
+    expect(prompt).toContain("Begin your review now.");
+  });
+
+  test("omits prior debugger output section when empty string", () => {
+    const tasks: TaskItem[] = [
+      { id: "#1", description: "Task", status: "completed", summary: "Working" },
+    ];
+
+    const prompt = buildReviewPrompt(tasks, "Test", "/tmp/progress.txt", "");
+
+    expect(prompt).not.toContain("Prior Debugging Context");
+    expect(prompt).not.toContain("<prior_debugger_output>");
+    expect(prompt).toContain("Begin your review now.");
+  });
+
+  test("omits prior debugger output section when not provided (3 args)", () => {
+    const tasks: TaskItem[] = [
+      { id: "#1", description: "Task", status: "completed", summary: "Working" },
+    ];
+
+    const prompt = buildReviewPrompt(tasks, "Test", "/tmp/progress.txt");
+
+    expect(prompt).not.toContain("Prior Debugging Context");
+    expect(prompt).not.toContain("<prior_debugger_output>");
+    expect(prompt).toContain("Begin your review now.");
+  });
+
+  test("prompt with prior debugger output still contains all standard sections", () => {
+    const tasks: TaskItem[] = [
+      { id: "#1", description: "Task", status: "completed", summary: "Working" },
+    ];
+
+    const prompt = buildReviewPrompt(tasks, "Test", "/tmp/progress.txt", "Some debug fixes");
+
+    expect(prompt).toContain("# Code Review Request");
+    expect(prompt).toContain("## Original Specification");
+    expect(prompt).toContain("## Review Instructions");
+    expect(prompt).toContain("Correctness of Logic");
+    expect(prompt).toContain("Begin your review now.");
+    expect(prompt).toContain("## Prior Debugging Context");
   });
 });
 

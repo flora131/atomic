@@ -24,6 +24,7 @@ export function useChatInterruptControls({
   activeHitlToolCallIdRef,
   awaitedStreamRunIdsRef,
   clearDeferredCompletion,
+  conductorInterruptRef,
   continueQueuedConversation,
   finalizeTaskItemsOnInterrupt,
   finalizeThinkingSourceTracking,
@@ -57,6 +58,7 @@ export function useChatInterruptControls({
   | "activeHitlToolCallIdRef"
   | "awaitedStreamRunIdsRef"
   | "clearDeferredCompletion"
+  | "conductorInterruptRef"
   | "continueQueuedConversation"
   | "finalizeTaskItemsOnInterrupt"
   | "finalizeThinkingSourceTracking"
@@ -182,6 +184,8 @@ export function useChatInterruptControls({
           cancelWorkflow();
           clearInterruptConfirmation();
         } else {
+          // Stage-aware interrupt: abort current conductor stage session (§5.5)
+          conductorInterruptRef.current?.();
           scheduleInterruptConfirmation(nextCount);
         }
       } else {
@@ -257,6 +261,7 @@ export function useChatInterruptControls({
     cancelWorkflow,
     clearDeferredCompletion,
     clearInterruptConfirmation,
+    conductorInterruptRef,
     continueQueuedConversation,
     finalizeTaskItemsOnInterrupt,
     finalizeThinkingSourceTracking,
@@ -337,6 +342,10 @@ export function useChatInterruptControls({
         wasInterruptedRef,
       });
       terminateActiveBackgroundAgents();
+      // Stage-aware interrupt: abort current conductor stage session on ESC (§5.5)
+      if (workflowState.workflowActive) {
+        conductorInterruptRef.current?.();
+      }
       return true;
     }
 
@@ -378,6 +387,7 @@ export function useChatInterruptControls({
   }, [
     awaitedStreamRunIdsRef,
     clearDeferredCompletion,
+    conductorInterruptRef,
     continueQueuedConversation,
     finalizeTaskItemsOnInterrupt,
     finalizeThinkingSourceTracking,

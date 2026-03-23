@@ -100,6 +100,15 @@ export interface CopilotStreamAdapterState {
    * (two consecutive text deltas without thinking).
    */
   contentTypeResolvedAgents: Set<string>;
+  /**
+   * Resolve callback for the background-agent completion promise.
+   * Set by `startCopilotStreaming` when background agents remain after the
+   * foreground stream ends; called by `handleCopilotSubagentComplete` when
+   * the last background agent finishes. This keeps `startCopilotStreaming`
+   * alive until all background work is done, preventing the controller's
+   * `adapter.dispose()` from tearing down subscriptions prematurely.
+   */
+  backgroundCompletionResolve: (() => void) | null;
 }
 
 export interface CopilotStreamAdapterDeps {

@@ -68,6 +68,10 @@ import {
   subscribeCopilotClientSessionEvents,
   wrapCopilotClientSession,
 } from "@/services/agents/clients/copilot/session-wiring.ts";
+import {
+  createCopilotKeepalive,
+  type CopilotKeepaliveHandle,
+} from "@/services/agents/clients/copilot/keepalive.ts";
 import type {
   CopilotSessionArtifacts,
   CopilotSessionState,
@@ -115,6 +119,7 @@ export class CopilotClient implements CodingAgentClient {
   private probeSystemToolsBaseline: number | null = null;
   private probePromise: Promise<void> | null = null;
   private knownAgentNames: string[] = [];
+  private keepalive: CopilotKeepaliveHandle | null = null;
 
   private createSdkClientInstance(options: SdkClientOptions): SdkCopilotClient {
     return new SdkCopilotClient(options);
@@ -319,9 +324,18 @@ export class CopilotClient implements CodingAgentClient {
       setProbeSystemToolsBaseline: (baseline) => { this.probeSystemToolsBaseline = baseline; },
       setProbePromise: (promise) => { this.probePromise = promise; },
     });
+
+    this.keepalive = createCopilotKeepalive({
+      getSdkClient: () => this.sdkClient,
+      isRunning: () => this.isRunning,
+    });
+    this.keepalive.start();
   }
 
   async stop(): Promise<void> {
+    this.keepalive?.stop();
+    this.keepalive = null;
+
     await stopCopilotRuntime({
       isRunning: this.isRunning,
       probePromise: this.probePromise,

@@ -16,7 +16,7 @@ import {
 
 describe("isNodeType", () => {
   test("returns true for valid node types", () => {
-    const validTypes: NodeType[] = ["agent", "tool", "decision", "wait", "subgraph", "parallel"];
+    const validTypes: NodeType[] = ["agent", "tool", "decision", "wait", "ask_user", "subgraph", "parallel"];
     
     for (const type of validTypes) {
       expect(isNodeType(type)).toBe(true);
@@ -37,9 +37,8 @@ describe("isNodeType", () => {
     expect(isNodeType([])).toBe(false);
   });
 
-  test("returns false for ask_user which is defined but not in the guard list", () => {
-    // Note: ask_user is in the NodeType type but not in the type guard implementation
-    expect(isNodeType("ask_user")).toBe(false);
+  test("returns true for ask_user node type", () => {
+    expect(isNodeType("ask_user")).toBe(true);
   });
 });
 

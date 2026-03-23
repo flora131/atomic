@@ -120,6 +120,14 @@ export function wireConsumers(bus: EventBus, dispatcher: BatchDispatcher): Wired
         owned.push(event);
         continue;
       }
+      // Workflow orchestration events (step transitions, task updates) use the
+      // conductor's sessionId/runId which is never registered with the ownership
+      // tracker.  These are global lifecycle events that must always reach the
+      // consumer pipeline regardless of per-stage session ownership.
+      if (event.type.startsWith("workflow.")) {
+        owned.push(event);
+        continue;
+      }
       if (ownership.isOwnedEvent(event)) {
         owned.push(event);
       }

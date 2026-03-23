@@ -59,6 +59,13 @@ export async function startCopilotStreaming(
   state.toolCallIdToSubagentId.clear();
   state.innerToolCallIds.clear();
   state.suppressedNestedAgentIds.clear();
+  // Resolve any dangling background-completion promise from a prior stream
+  // so the old await unblocks cleanly before we start a new stream.
+  if (state.backgroundCompletionResolve) {
+    const resolve = state.backgroundCompletionResolve;
+    state.backgroundCompletionResolve = null;
+    resolve();
+  }
   state.syntheticForegroundAgent = options.agent
     ? {
         id: buildSyntheticForegroundAgentId(options.messageId),
@@ -186,11 +193,14 @@ export async function startCopilotStreaming(
   flushAllPendingTextDeltas(state, {
     publishEvent: (event) => publishCopilotBufferedEvent(state, deps.bus, event),
   });
+
   cleanupCopilotOrphanedTools(state, deps.bus);
   flushCopilotOrphanedAgentCompletions(state, deps.bus);
   const pendingIdleReason = state.pendingIdleReason;
   state.pendingIdleReason = null;
 
+  // Background agents are preserved in the tracker by the flush, so this
+  // check reflects the true post-cleanup state — no snapshot needed.
   const hasBackgroundAgents = state.subagentTracker?.hasActiveBackgroundAgents() ?? false;
 
   if (!abortedBySignal && pendingIdleReason !== null) {
@@ -222,6 +232,27 @@ export async function startCopilotStreaming(
     state.isActive = false;
   }
   options.abortSignal?.removeEventListener("abort", abortListener);
+
+  // Keep startCopilotStreaming alive until all background agents complete.
+  // Without this, the controller's finally block calls adapter.dispose()
+  // immediately after this function returns, tearing down subscriptions
+  // before subagent.completed events arrive — so the footer count never
+  // decrements.
+  if (hasBackgroundAgents && !abortedBySignal) {
+    await new Promise<void>((resolve) => {
+      state.backgroundCompletionResolve = resolve;
+
+      // If the caller aborts while we're waiting, resolve immediately
+      // so the adapter can be disposed cleanly.
+      const onAbort = () => {
+        if (state.backgroundCompletionResolve === resolve) {
+          state.backgroundCompletionResolve = null;
+          resolve();
+        }
+      };
+      options.abortSignal?.addEventListener("abort", onAbort, { once: true });
+    });
+  }
 }
 
 export function disposeCopilotStreamAdapter(
@@ -253,5 +284,12 @@ export function disposeCopilotStreamAdapter(
   resetTurnMetadataState(state.turnMetadataState);
   state.subagentTracker?.reset();
   state.subagentTracker = null;
+  // Resolve any background-completion promise so startCopilotStreaming
+  // unblocks if dispose is called while waiting for background agents.
+  if (state.backgroundCompletionResolve) {
+    const resolve = state.backgroundCompletionResolve;
+    state.backgroundCompletionResolve = null;
+    resolve();
+  }
   void deps;
 }

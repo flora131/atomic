@@ -218,7 +218,6 @@ describe("agent inline display helpers", () => {
   const expectedInlinePartTypes: Array<Part["type"]> = [
     "agent",
     "agent-list",
-    "compaction",
     "mcp-snapshot",
     "reasoning",
     "skill-load",
@@ -226,6 +225,7 @@ describe("agent inline display helpers", () => {
     "task-result",
     "text",
     "tool",
+    "truncation",
     "workflow-step",
   ];
 

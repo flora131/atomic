@@ -552,6 +552,8 @@ export function useStreamSessionSubscriptions({
       question: data.question,
       header: data.header,
       options: data.options,
+      multiSelect: data.multiSelect,
+      dslAskUser: data.dslAskUser,
       nodeId: data.nodeId,
       respond: data.respond as ((answer: string | string[]) => void) | undefined,
       toolCallId: resolvedToolCallId,

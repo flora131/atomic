@@ -37,6 +37,8 @@ import {
 import {
   normalizeTaskItemStatus,
   upsertTaskResultPart,
+  upsertWorkflowStepStart,
+  upsertWorkflowStepComplete,
 } from "@/state/streaming/pipeline-workflow.ts";
 import type {
   StreamPartEvent,
@@ -52,6 +54,8 @@ export type {
   ThinkingCompleteEvent,
   ThinkingMetaEvent,
   ThinkingProvider,
+  WorkflowStepStartEvent,
+  WorkflowStepCompleteEvent,
 } from "@/state/streaming/pipeline-types.ts";
 export {
   finalizeStreamingReasoningInMessage,
@@ -356,6 +360,18 @@ export function applyStreamPartEvent(
       return carryReasoningPartRegistry(message, {
         ...message,
         parts: upsertTaskResultPart(message.parts ?? [], event),
+      });
+
+    case "workflow-step-start":
+      return carryReasoningPartRegistry(message, {
+        ...message,
+        parts: upsertWorkflowStepStart(message.parts ?? [], event),
+      });
+
+    case "workflow-step-complete":
+      return carryReasoningPartRegistry(message, {
+        ...message,
+        parts: upsertWorkflowStepComplete(message.parts ?? [], event),
       });
   }
 }

@@ -11,8 +11,10 @@
  * creating a clear visual record of the interaction.
  */
 
-import React from "react";
-import { useThemeColors } from "@/theme/index.tsx";
+import React, { useMemo, useEffect } from "react";
+import { useTheme } from "@/theme/index.tsx";
+import { createMarkdownSyntaxStyle } from "@/theme/syntax.ts";
+import { normalizeMarkdownNewlines } from "@/lib/ui/format.ts";
 import { STATUS, CONNECTOR, PROMPT } from "@/theme/icons.ts";
 import { SPACING } from "@/theme/spacing.ts";
 import type { HitlContext } from "@/state/chat/shared/types/index.ts";
@@ -22,7 +24,19 @@ export interface HitlResponseWidgetProps {
 }
 
 export function HitlResponseWidget({ context }: HitlResponseWidgetProps): React.ReactNode {
-  const colors = useThemeColors();
+  const { theme, isDark } = useTheme();
+  const colors = theme.colors;
+
+  const markdownSyntaxStyle = useMemo(
+    () => createMarkdownSyntaxStyle(colors, isDark),
+    [colors, isDark],
+  );
+  useEffect(() => () => { markdownSyntaxStyle.destroy(); }, [markdownSyntaxStyle]);
+
+  const normalizedQuestion = useMemo(
+    () => normalizeMarkdownNewlines(context.question),
+    [context.question],
+  );
   const isDeclined = context.cancelled || context.responseMode === "declined";
   const isChatAbout = context.responseMode === "chat_about_this";
 
@@ -67,9 +81,13 @@ export function HitlResponseWidget({ context }: HitlResponseWidgetProps): React.
 
       {/* Question text — muted, wrapping */}
       {context.question.length > 0 && (
-        <text wrapMode="word" fg={colors.muted}>
-          {"  "}{context.question}
-        </text>
+        <box marginLeft={2}>
+          <markdown
+            content={normalizedQuestion}
+            syntaxStyle={markdownSyntaxStyle}
+            conceal={true}
+          />
+        </box>
       )}
 
       {/* Answer line — prominent with accent prompt cursor */}

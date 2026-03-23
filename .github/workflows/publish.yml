@@ -118,7 +118,7 @@ jobs:
       - name: Build Windows binary natively
         run: |
           mkdir dist
-          bun run src/scripts/build-binary.ts --minify --target=bun-windows-x64-baseline --outfile dist/atomic-windows-x64.exe
+          bun run src/scripts/build-binary.ts --minify --outfile dist/atomic-windows-x64.exe
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v7

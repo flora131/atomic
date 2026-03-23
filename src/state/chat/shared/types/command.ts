@@ -38,7 +38,18 @@ export interface UseCommandExecutorArgs {
   autoCompactionIndicatorRef: RefObject<{ status: "idle" | "running" | "completed" | "error"; errorMessage?: string }>;
   backgroundProgressSnapshotRef: RefObject<Map<string, { toolUses: number; currentTool?: string }>>;
   clearHistoryBufferAndSync: () => void;
+  /** Set by the conductor executor to expose conductor.interrupt() to the UI. */
+  conductorInterruptRef: RefObject<(() => void) | null>;
   createSubagentSession?: CreateSessionFn;
+  /**
+   * Stream through a specific session using the real SDK adapter pipeline,
+   * returning captured response text. Provided by chat-ui-controller.
+   */
+  streamWithSession?: (
+    session: Session,
+    prompt: string,
+    options?: { abortSignal?: AbortSignal },
+  ) => Promise<string>;
   currentModelRef: RefObject<string | undefined>;
   deferredCommandQueueRef: RefObject<DeferredCommandMessage[]>;
   ensureSession?: () => Promise<void>;

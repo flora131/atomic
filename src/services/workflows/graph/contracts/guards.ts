@@ -12,7 +12,7 @@ import type {
 export function isNodeType(value: unknown): value is NodeType {
   return (
     typeof value === "string" &&
-    ["agent", "tool", "decision", "wait", "subgraph", "parallel"].includes(value)
+    ["agent", "tool", "decision", "wait", "ask_user", "subgraph", "parallel"].includes(value)
   );
 }
 

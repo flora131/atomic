@@ -70,6 +70,7 @@ export function ChatApp({
   modelOps,
   getModelDisplayInfo,
   createSubagentSession,
+  streamWithSession,
   initialPrompt,
   onModelChange,
   onSessionMcpServersChange,
@@ -84,7 +85,9 @@ export function ChatApp({
   const [streamingMeta, setStreamingMeta] = useState<StreamingMeta | null>(null);
   const setMessagesWindowed = setMessages;
 
-  const [workflowState, setWorkflowState] = useState<WorkflowChatState>(defaultWorkflowChatState);
+  const [workflowState, setWorkflowState] = useState<WorkflowChatState>(() => {
+    return defaultWorkflowChatState;
+  });
   const shellState = useChatShellState({
     initialModelId,
     initialReasoningEffort,
@@ -148,6 +151,7 @@ export function ChatApp({
     agentType,
     app: {
       createSubagentSession,
+      streamWithSession,
       ensureSession,
       getModelDisplayInfo,
       getSession,

@@ -121,7 +121,10 @@ export function parallelSubagentNode<TState extends BaseState>(
     description: config.description,
     retry: config.retry,
     async execute(ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> {
-      const spawnSubagentParallel = ctx.config.runtime?.spawnSubagentParallel;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- legacy spawn path removed from GraphRuntimeDependencies
+      const spawnSubagentParallel = (ctx.config.runtime as any)?.spawnSubagentParallel as
+        | ((agents: SubagentSpawnOptions[], abortSignal?: AbortSignal, onAgentComplete?: (result: SubagentStreamResult) => void) => Promise<SubagentStreamResult[]>)
+        | undefined;
       if (!spawnSubagentParallel) {
         throw new Error(
           "spawnSubagentParallel not initialized. Execute this graph through executeWorkflow().",

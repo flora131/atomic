@@ -28,10 +28,15 @@ export async function sendOpenCodeSessionPrompt(args: {
     agent: args.agentMode,
     model: args.runtimeArgs.getActivePromptModel() ?? args.initialPromptModel,
     variant: args.runtimeArgs.getActiveReasoningEffort(),
+    ...(args.runtimeArgs.config.systemPrompt
+      ? { system: args.runtimeArgs.config.systemPrompt }
+      : {}),
     parts: buildOpenCodePromptParts(
       args.message,
       undefined,
-      args.runtimeArgs.config.additionalInstructions,
+      args.runtimeArgs.config.systemPrompt
+        ? undefined
+        : args.runtimeArgs.config.additionalInstructions,
     ),
   });
 
@@ -99,10 +104,15 @@ export async function sendOpenCodeSessionPromptAsync(args: {
       agent: args.agentMode,
       model: args.runtimeArgs.getActivePromptModel() ?? args.initialPromptModel,
       variant: args.runtimeArgs.getActiveReasoningEffort(),
+      ...(args.runtimeArgs.config.systemPrompt
+        ? { system: args.runtimeArgs.config.systemPrompt }
+        : {}),
       parts: buildOpenCodePromptParts(
         args.message,
         args.options?.agent,
-        args.runtimeArgs.config.additionalInstructions,
+        args.runtimeArgs.config.systemPrompt
+          ? undefined
+          : args.runtimeArgs.config.additionalInstructions,
       ),
     },
     args.options?.abortSignal ? { signal: args.options.abortSignal } : undefined,

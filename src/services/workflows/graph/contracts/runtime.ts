@@ -58,6 +58,10 @@ export interface NodeDefinition<TState extends BaseState = BaseState> {
   name?: string;
   description?: string;
   model?: ModelSpec;
+  /** State field names this node reads from (propagated from DSL stage/tool config). */
+  reads?: string[];
+  /** State field names this node writes to (propagated from DSL stage/tool config). */
+  outputs?: string[];
 }
 
 export interface ProgressEvent<TState extends BaseState = BaseState> {
@@ -74,6 +78,12 @@ export interface RuntimeSubgraph {
 
 export type CreateSessionFn = (config?: SessionConfig) => Promise<Session>;
 
+/**
+ * Options for spawning a sub-agent.
+ *
+ * Used by the conductor (via `CommandContext.spawnSubagentParallel`)
+ * and the `SubagentStreamAdapter` for sub-agent execution.
+ */
 export interface SubagentSpawnOptions {
   agentId: string;
   agentName: string;
@@ -86,6 +96,9 @@ export interface SubagentSpawnOptions {
   abortSignal?: AbortSignal;
 }
 
+/**
+ * Detail about a tool invocation during a sub-agent spawn.
+ */
 export interface SubagentToolDetail {
   toolId: string;
   toolName: string;
@@ -93,6 +106,12 @@ export interface SubagentToolDetail {
   success: boolean;
 }
 
+/**
+ * Result returned from a spawned sub-agent.
+ *
+ * Used by `SubagentStreamAdapter`, `CommandContext`, and other active code
+ * paths. Captures the output, timing, and tool-use metrics of a sub-agent run.
+ */
 export interface SubagentStreamResult {
   agentId: string;
   success: boolean;
@@ -105,11 +124,15 @@ export interface SubagentStreamResult {
   toolDetails?: SubagentToolDetail[];
 }
 
+/**
+ * Runtime dependencies injected into the graph executor at execution time.
+ *
+ * Contains conductor-era dependencies (e.g. `clientProvider`,
+ * `subagentRegistry`, `taskIdentity`) used by the workflow engine.
+ */
 export interface GraphRuntimeDependencies {
   clientProvider?: (agentType: string) => CodingAgentClient | null;
   workflowResolver?: (name: string) => RuntimeSubgraph | null;
-  spawnSubagent?: (agent: SubagentSpawnOptions, abortSignal?: AbortSignal) => Promise<SubagentStreamResult>;
-  spawnSubagentParallel?: (agents: SubagentSpawnOptions[], abortSignal?: AbortSignal, onAgentComplete?: (result: SubagentStreamResult) => void) => Promise<SubagentStreamResult[]>;
   taskIdentity?: WorkflowRuntimeTaskIdentityRuntime;
   featureFlags?: WorkflowRuntimeFeatureFlags;
   subagentRegistry?: {

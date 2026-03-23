@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { existsSync } from "fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -8,6 +8,7 @@ import {
   ensureAtomicGlobalAgentConfigs,
   ensureAtomicGlobalAgentConfigsForInstallType,
   hasAtomicGlobalAgentConfigs,
+  removeAtomicManagedGlobalAgentConfigs,
   syncAtomicGlobalAgentConfigs,
 } from "@/services/config/atomic-global-config.ts";
 
@@ -229,3 +230,119 @@ for (const installType of INSTALL_TYPES) {
     }
   });
 }
+
+test("removeAtomicManagedGlobalAgentConfigs removes managed files and empty directories", async () => {
+  const root = await mkdtemp(join(tmpdir(), "atomic-global-remove-"));
+
+  try {
+    const configRoot = join(root, "config");
+    const atomicHome = join(root, ".atomic");
+
+    await createTemplateAgentConfigs(configRoot);
+    await syncAtomicGlobalAgentConfigs(configRoot, atomicHome);
+
+    // Verify files were installed
+    expect(existsSync(join(root, ".claude", "agents", "debugger.md"))).toBe(true);
+    expect(existsSync(join(root, ".claude", "skills", "init", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(root, ".copilot", "lsp-config.json"))).toBe(true);
+
+    await removeAtomicManagedGlobalAgentConfigs(configRoot, atomicHome);
+
+    // Managed files should be removed
+    expect(existsSync(join(root, ".claude", "agents", "debugger.md"))).toBe(false);
+    expect(existsSync(join(root, ".claude", "skills", "init", "SKILL.md"))).toBe(false);
+    expect(existsSync(join(root, ".opencode", "agents", "debugger.md"))).toBe(false);
+    expect(existsSync(join(root, ".copilot", "agents", "debugger.md"))).toBe(false);
+    expect(existsSync(join(root, ".copilot", "lsp-config.json"))).toBe(false);
+
+    // Empty managed subdirectories should be removed
+    expect(existsSync(join(root, ".claude", "agents"))).toBe(false);
+    expect(existsSync(join(root, ".claude", "skills"))).toBe(false);
+
+    // Provider root directories should NOT be removed (Atomic doesn't own them)
+    expect(existsSync(join(root, ".claude"))).toBe(true);
+    expect(existsSync(join(root, ".opencode"))).toBe(true);
+    expect(existsSync(join(root, ".copilot"))).toBe(true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("removeAtomicManagedGlobalAgentConfigs preserves user-owned files in managed directories", async () => {
+  const root = await mkdtemp(join(tmpdir(), "atomic-global-remove-preserve-"));
+
+  try {
+    const configRoot = join(root, "config");
+    const atomicHome = join(root, ".atomic");
+
+    await createTemplateAgentConfigs(configRoot);
+    await syncAtomicGlobalAgentConfigs(configRoot, atomicHome);
+
+    // Add user-owned files in managed directories
+    await writeFile(join(root, ".claude", "agents", "my-agent.md"), "# user agent\n", "utf-8");
+    await writeFile(join(root, ".claude", "settings.json"), '{"user":"config"}\n', "utf-8");
+
+    await removeAtomicManagedGlobalAgentConfigs(configRoot, atomicHome);
+
+    // Managed files removed
+    expect(existsSync(join(root, ".claude", "agents", "debugger.md"))).toBe(false);
+
+    // User files preserved
+    expect(existsSync(join(root, ".claude", "agents", "my-agent.md"))).toBe(true);
+    expect(existsSync(join(root, ".claude", "settings.json"))).toBe(true);
+
+    // Directory kept because it still contains user files
+    expect(existsSync(join(root, ".claude", "agents"))).toBe(true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("removeAtomicManagedGlobalAgentConfigs handles symlinks in managed directories", async () => {
+  const root = await mkdtemp(join(tmpdir(), "atomic-global-remove-symlinks-"));
+
+  try {
+    const configRoot = join(root, "config");
+    const atomicHome = join(root, ".atomic");
+
+    await createTemplateAgentConfigs(configRoot);
+
+    // Add a symlink inside the config root (target within the same tree so
+    // copyDir's path-root guard allows it)
+    const symlinkTarget = join(configRoot, ".claude", "agents", "debugger.md");
+    await symlink(symlinkTarget, join(configRoot, ".claude", "agents", "linked-agent.md"));
+
+    await syncAtomicGlobalAgentConfigs(configRoot, atomicHome);
+
+    // Verify the synced content exists (symlink gets dereferenced during copy)
+    expect(existsSync(join(root, ".claude", "agents", "linked-agent.md"))).toBe(true);
+    expect(existsSync(join(root, ".claude", "agents", "debugger.md"))).toBe(true);
+
+    // Removal should not throw EFAULT and should clean up all managed entries
+    // including symlink-sourced files
+    await removeAtomicManagedGlobalAgentConfigs(configRoot, atomicHome);
+
+    expect(existsSync(join(root, ".claude", "agents", "linked-agent.md"))).toBe(false);
+    expect(existsSync(join(root, ".claude", "agents", "debugger.md"))).toBe(false);
+    expect(existsSync(join(root, ".claude", "agents"))).toBe(false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("removeAtomicManagedGlobalAgentConfigs does not throw when destination directories do not exist", async () => {
+  const root = await mkdtemp(join(tmpdir(), "atomic-global-remove-missing-"));
+
+  try {
+    const configRoot = join(root, "config");
+    const atomicHome = join(root, ".atomic");
+
+    await createTemplateAgentConfigs(configRoot);
+
+    // Do NOT sync -- destination directories don't exist
+    // This should not throw
+    await removeAtomicManagedGlobalAgentConfigs(configRoot, atomicHome);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

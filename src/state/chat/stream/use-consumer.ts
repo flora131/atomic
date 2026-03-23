@@ -10,11 +10,12 @@ import type { AgentOrderingEvent, AgentOrderingState } from "@/state/chat/shared
 import type { AutoCompactionIndicatorState } from "@/state/chat/shared/helpers/auto-compaction-lifecycle.ts";
 import {
   isRuntimeEnvelopePartEvent,
+  isWorkflowBypassEvent,
   resolveValidatedThinkingMetaEvent,
   shouldProcessStreamPartEvent,
 } from "@/state/chat/shared/helpers/index.ts";
 import { joinThinkingBlocks } from "@/lib/ui/format.ts";
-import { createStreamPartBatch, applyStreamPartBatchToMessages } from "@/state/chat/stream/part-batch.ts";
+import { createStreamPartBatch, applyStreamPartBatchToMessages, applyWorkflowStepCompleteByNodeScan } from "@/state/chat/stream/part-batch.ts";
 import { useChatStreamAgentOrdering } from "@/state/chat/stream/use-agent-ordering.ts";
 import { useChatStreamToolEvents } from "@/state/chat/stream/use-tool-events.ts";
 
@@ -62,6 +63,7 @@ export interface UseChatStreamConsumerArgs {
   todoItemsRef: RefObject<NormalizedTodoItem[]>;
   toolMessageIdByIdRef: RefObject<Map<string, string>>;
   toolNameByIdRef: RefObject<Map<string, string>>;
+  workflowSessionDirRef: RefObject<string | null>;
   workflowSessionIdRef: RefObject<string | null>;
 }
 
@@ -101,6 +103,7 @@ export function useChatStreamConsumer({
   todoItemsRef,
   toolMessageIdByIdRef,
   toolNameByIdRef,
+  workflowSessionDirRef,
   workflowSessionIdRef,
 }: UseChatStreamConsumerArgs) {
   const { handleToolComplete, handleToolStart } = useChatStreamToolEvents({
@@ -123,6 +126,7 @@ export function useChatStreamConsumer({
     todoItemsRef,
     toolMessageIdByIdRef,
     toolNameByIdRef,
+    workflowSessionDirRef,
     workflowSessionIdRef,
   });
   const { handleAgentTerminalPart, handleTextDeltaOrdering } = useChatStreamAgentOrdering({
@@ -146,7 +150,7 @@ export function useChatStreamConsumer({
         "agentId" in part
         && Boolean(part.agentId)
         && (part.type === "tool-start" || part.type === "tool-complete" || part.type === "tool-partial-result");
-      if (!isSubagentToolEvent && !shouldProcessStreamPartEvent({
+      if (!isSubagentToolEvent && !isWorkflowBypassEvent(part) && !shouldProcessStreamPartEvent({
         activeRunId: activeStreamRunIdRef.current,
         partRunId: typeof part.runId === "number" ? part.runId : undefined,
         isStreaming: isStreamingRef.current,
@@ -341,6 +345,14 @@ export function useChatStreamConsumer({
       }
       if (isRuntimeEnvelopePartEvent(part)) {
         if (part.type === "task-result-upsert") continue;
+        // workflow-step-complete events must be routed to the message containing
+        // the matching WorkflowStepPart, not the current streaming message.
+        // Due to batched dispatching, streamingMessageIdRef may already point
+        // to the NEXT stage's message by the time this event is processed.
+        if (part.type === "workflow-step-complete") {
+          applyWorkflowStepCompleteByNodeScan(part, setMessagesWindowed);
+          continue;
+        }
         const messageId = resolveAgentScopedMessageId();
         if (!messageId) continue;
         queueMessagePartUpdate(messageId, part);

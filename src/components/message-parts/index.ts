@@ -10,7 +10,7 @@ export { TextPartDisplay, type TextPartDisplayProps } from "@/components/message
 export { ToolPartDisplay, type ToolPartDisplayProps } from "@/components/message-parts/tool-part-display.tsx";
 export { SkillLoadPartDisplay, type SkillLoadPartDisplayProps } from "@/components/message-parts/skill-load-part-display.tsx";
 export { McpSnapshotPartDisplay, type McpSnapshotPartDisplayProps } from "@/components/message-parts/mcp-snapshot-part-display.tsx";
-export { CompactionPartDisplay, type CompactionPartDisplayProps } from "@/components/message-parts/compaction-part-display.tsx";
+export { TruncationPartDisplay, type TruncationPartDisplayProps } from "@/components/message-parts/truncation-part-display.tsx";
 export { TaskResultPartDisplay, type TaskResultPartDisplayProps } from "@/components/message-parts/task-result-part-display.tsx";
 export { WorkflowStepPartDisplay, type WorkflowStepPartDisplayProps } from "@/components/message-parts/workflow-step-part-display.tsx";
 export { AgentPartDisplay, type AgentPartDisplayProps } from "@/components/message-parts/agent-part-display.tsx";

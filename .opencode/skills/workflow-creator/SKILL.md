@@ -59,7 +59,7 @@ Follow this template structure:
 
 ```ts
 // .atomic/workflows/<workflow-name>.ts
-import { defineWorkflow } from "@atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic";
 
 export default defineWorkflow({
     name: "<workflow-name>",

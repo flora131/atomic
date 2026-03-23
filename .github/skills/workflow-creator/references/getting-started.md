@@ -8,7 +8,7 @@ Use the chainable builder to declare your workflow's metadata, stages, and execu
 
 ```ts
 // .atomic/workflows/my-workflow.ts
-import { defineWorkflow } from "@atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic";
 
 export default defineWorkflow({
     name: "my-workflow",

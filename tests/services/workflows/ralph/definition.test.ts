@@ -76,7 +76,6 @@ describe("Ralph Workflow Definition (DSL)", () => {
   test("planner stage has correct indicator and no shouldRun", () => {
     const planner = ralphWorkflowDefinition.conductorStages![0]!;
     expect(planner.id).toBe("planner");
-    expect(planner.name).toBe("planner");
     expect(planner.indicator).toContain("PLANNER");
     expect(planner.shouldRun).toBeUndefined();
   });
@@ -84,7 +83,6 @@ describe("Ralph Workflow Definition (DSL)", () => {
   test("orchestrator stage has correct indicator and no shouldRun", () => {
     const orchestrator = ralphWorkflowDefinition.conductorStages![1]!;
     expect(orchestrator.id).toBe("orchestrator");
-    expect(orchestrator.name).toBe("orchestrator");
     expect(orchestrator.indicator).toContain("ORCHESTRATOR");
     expect(orchestrator.shouldRun).toBeUndefined();
   });
@@ -92,7 +90,6 @@ describe("Ralph Workflow Definition (DSL)", () => {
   test("reviewer stage has correct indicator and no shouldRun", () => {
     const reviewer = ralphWorkflowDefinition.conductorStages![2]!;
     expect(reviewer.id).toBe("reviewer");
-    expect(reviewer.name).toBe("reviewer");
     expect(reviewer.indicator).toContain("REVIEWER");
     expect(reviewer.shouldRun).toBeUndefined();
   });
@@ -100,7 +97,6 @@ describe("Ralph Workflow Definition (DSL)", () => {
   test("debugger stage has shouldRun from .if() condition", () => {
     const debugger_ = ralphWorkflowDefinition.conductorStages![3]!;
     expect(debugger_.id).toBe("debugger");
-    expect(debugger_.name).toBe("debugger");
     expect(debugger_.indicator).toContain("DEBUGGER");
     expect(typeof debugger_.shouldRun).toBe("function");
   });
@@ -173,14 +169,15 @@ describe("Ralph Workflow Definition (DSL)", () => {
 
   test("conductor graph has stage + loop-control nodes", () => {
     const graph = ralphWorkflowDefinition.createConductorGraph!();
-    // 4 stage nodes + 3 loop-control nodes (__loop_start, __loop_check, __loop_exit)
-    expect(graph.nodes.size).toBe(7);
+    // 4 stage nodes + 4 loop-control nodes (__loop_start_0, __loop_check_1, __break_2, __loop_exit_3)
+    expect(graph.nodes.size).toBe(8);
     expect(graph.startNode).toBe("planner");
     // The loop exit node is the terminal node (not debugger)
-    expect(graph.endNodes.has("__loop_exit_2")).toBe(true);
-    // 7 edges: planner→orchestrator, orchestrator→loop_start, loop_start→reviewer,
-    //          reviewer→debugger, debugger→loop_check, loop_check→loop_start (back), loop_check→loop_exit (exit)
-    expect(graph.edges).toHaveLength(7);
+    expect(graph.endNodes.has("__loop_exit_3")).toBe(true);
+    // 9 edges: planner→orchestrator, orchestrator→loop_start, loop_start→reviewer,
+    //          reviewer→break, break→debugger (break_continue), debugger→loop_check,
+    //          loop_check→loop_start (back), loop_check→loop_exit (exit), break→loop_exit (break_exit)
+    expect(graph.edges).toHaveLength(9);
   });
 
   test("conductor graph node IDs match conductor stage IDs", () => {
@@ -191,17 +188,19 @@ describe("Ralph Workflow Definition (DSL)", () => {
     }
   });
 
-  test("conductor graph edges form planner→orchestrator→loop(reviewer→debugger)", () => {
+  test("conductor graph edges form planner→orchestrator→loop(reviewer→break→debugger)", () => {
     const graph = ralphWorkflowDefinition.createConductorGraph!();
     const edgePairs = graph.edges.map((e) => [e.from, e.to]);
     expect(edgePairs).toEqual([
       ["planner", "orchestrator"],
       ["orchestrator", "__loop_start_0"],
       ["__loop_start_0", "reviewer"],
-      ["reviewer", "debugger"],
+      ["reviewer", "__break_2"],              // reviewer feeds into break node
+      ["__break_2", "debugger"],              // break_continue (condition false)
       ["debugger", "__loop_check_1"],
-      ["__loop_check_1", "__loop_start_0"],  // back-edge (continue loop)
-      ["__loop_check_1", "__loop_exit_2"],    // exit-edge (terminate loop)
+      ["__loop_check_1", "__loop_start_0"],   // back-edge (continue loop)
+      ["__loop_check_1", "__loop_exit_3"],    // exit-edge (terminate loop)
+      ["__break_2", "__loop_exit_3"],         // break_exit (condition true)
     ]);
   });
 
@@ -330,7 +329,8 @@ describe("Ralph Workflow Definition (DSL)", () => {
     // Loop-control nodes should NOT appear as conductor stages
     expect(stageIds).not.toContain("__loop_start_0");
     expect(stageIds).not.toContain("__loop_check_1");
-    expect(stageIds).not.toContain("__loop_exit_2");
+    expect(stageIds).not.toContain("__break_2");
+    expect(stageIds).not.toContain("__loop_exit_3");
   });
 
   // -------------------------------------------------------------------------

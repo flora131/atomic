@@ -38,7 +38,6 @@ function addRunningStep(parts: Part[], nodeId: string, workflowId = "ralph"): Pa
     type: "workflow-step-start",
     workflowId,
     nodeId,
-    nodeName: nodeId.charAt(0).toUpperCase() + nodeId.slice(1),
     indicator: `⌕ ${nodeId.toUpperCase()}`,
   });
 }
@@ -48,7 +47,6 @@ function completeEvent(nodeId: string, workflowId = "ralph"): WorkflowStepComple
     type: "workflow-step-complete",
     workflowId,
     nodeId,
-    nodeName: nodeId.charAt(0).toUpperCase() + nodeId.slice(1),
     status: "completed",
     durationMs: 5000,
   };

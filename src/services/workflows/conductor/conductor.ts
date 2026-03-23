@@ -14,7 +14,7 @@
  * @see specs/ralph-workflow-redesign.md §5.1
  */
 
-import type { TaskItem } from "@/services/workflows/ralph/prompts.ts";
+import type { TaskItem } from "@/services/workflows/builtin/ralph/helpers/prompts.ts";
 import type { Session } from "@/services/agents/types.ts";
 import type {
   BaseState,
@@ -617,7 +617,6 @@ export class WorkflowSessionConductor {
       data: {
         workflowId: workflowId!,
         nodeId: stage.id,
-        nodeName: stage.name,
         indicator: stage.indicator,
       },
     });
@@ -640,7 +639,6 @@ export class WorkflowSessionConductor {
       data: {
         workflowId: workflowId!,
         nodeId: stage.id,
-        nodeName: stage.name,
         status,
         durationMs,
         ...(error ? { error } : {}),

@@ -86,7 +86,6 @@ function createMockSession(response: string, id = "session-1"): Session {
 function createStage(id: string, overrides?: Partial<StageDefinition>): StageDefinition {
   return {
     id,
-    name: id.charAt(0).toUpperCase() + id.slice(1),
     indicator: `[${id.toUpperCase()}]`,
     buildPrompt: (_ctx: StageContext) => `Prompt for ${id}`,
     ...overrides,
@@ -196,7 +195,6 @@ describe("executeConductorWorkflow — ConductorConfig wiring", () => {
       const data = startEvent.data as BusEventDataMap["workflow.step.start"];
       expect(data.workflowId).toBe("my-wf");
       expect(data.nodeId).toBe("planner");
-      expect(data.nodeName).toBe("Planner");
       expect(data.indicator).toBe("[PLANNER]");
     });
 

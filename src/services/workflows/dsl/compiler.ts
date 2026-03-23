@@ -20,9 +20,9 @@
 
 import type {
   Instruction,
-  StageConfig,
-  ToolConfig,
-  LoopConfig,
+  StageOptions,
+  ToolOptions,
+  LoopOptions,
 } from "@/services/workflows/dsl/types.ts";
 import type { WorkflowBuilder } from "@/services/workflows/dsl/define-workflow.ts";
 import type { WorkflowDefinition } from "@/services/workflows/types/definition.ts";
@@ -32,7 +32,6 @@ import type {
 } from "@/services/workflows/conductor/types.ts";
 import type {
   BaseState,
-  CompiledGraph,
   Edge,
   NodeDefinition,
   NodeResult,
@@ -94,11 +93,6 @@ export function validateInstructions(instructions: Instruction[]): void {
         ifDepth--;
         break;
       case "loop":
-        if (!instruction.config.until && !instruction.config.createUntil) {
-          throw new Error(
-            'Loop must provide either "until" or "createUntil"',
-          );
-        }
         loopDepth++;
         break;
       case "endLoop":
@@ -229,7 +223,7 @@ function generateStageDefinitions(
     // agent definition file exists, inject its body as the system prompt.
     let resolvedSessionConfig = config.sessionConfig;
     if (!config.sessionConfig?.systemPrompt) {
-      const agentSystemPrompt = resolveStageSystemPrompt(instruction.id, agentLookup);
+      const agentSystemPrompt = resolveStageSystemPrompt(config.agent, agentLookup);
       if (agentSystemPrompt) {
         resolvedSessionConfig = { ...config.sessionConfig, systemPrompt: agentSystemPrompt };
       }
@@ -237,7 +231,6 @@ function generateStageDefinitions(
 
     const stage: StageDefinition = {
       id: instruction.id,
-      name: config.name,
       indicator: config.description,
       buildPrompt: config.prompt,
       parseOutput: (response: string) => {
@@ -275,11 +268,15 @@ function generateStageDefinitions(
 // Graph Generation Types
 // ============================================================================
 
+interface BreakEntry {
+  readonly nodeId: string;
+}
+
 interface LoopContext {
   readonly loopStartNodeId: string;
   readonly loopCheckNodeId: string;
-  readonly config: LoopConfig;
-  readonly breakNodeIds: string[];
+  readonly config: LoopOptions;
+  readonly breaks: BreakEntry[];
 }
 
 interface GraphBuildResult {
@@ -310,28 +307,32 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
   let previousNodeId: string | null = null;
   let nodeCounter = 0;
   const loopStack: LoopContext[] = [];
+  // Maps conditional break node IDs to their resolved predicates.
+  // Used by connectPrevious to make the flow-through edge conditional.
+  const breakPredicates = new Map<string, (state: BaseState) => boolean>();
 
   function addNode(
     id: string,
     type: "agent" | "tool",
-    config: StageConfig | ToolConfig,
+    options: StageOptions | ToolOptions,
   ): string {
+    const nodeName = "agent" in options ? options.agent : options.name;
     const node: NodeDefinition<BaseState> = {
       id,
       type,
-      name: config.name,
+      name: nodeName,
       description:
-        "description" in config ? (config.description as string) : config.name,
+        "description" in options ? (options.description as string) : nodeName,
       execute:
         type === "agent"
           ? agentNoopExecute
           : async (context: ExecutionContext<BaseState>) => {
-              const toolConfig = config as ToolConfig;
-              const result = await toolConfig.execute(context);
+              const toolOptions = options as ToolOptions;
+              const result = await toolOptions.execute(context);
               return { stateUpdate: result as Partial<BaseState> };
             },
-      reads: config.reads,
-      outputs: config.outputs,
+      reads: options.reads,
+      outputs: options.outputs,
     };
     nodes.set(id, node);
     return id;
@@ -350,7 +351,18 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
 
   function connectPrevious(targetNodeId: string): void {
     if (previousNodeId !== null) {
-      edges.push({ from: previousNodeId, to: targetNodeId });
+      const breakPred = breakPredicates.get(previousNodeId);
+      if (breakPred) {
+        // Conditional break: only continue to next node when predicate is false
+        edges.push({
+          from: previousNodeId,
+          to: targetNodeId,
+          condition: (state: BaseState) => !breakPred(state),
+          label: "break_continue",
+        });
+      } else {
+        edges.push({ from: previousNodeId, to: targetNodeId });
+      }
     }
   }
 
@@ -388,7 +400,7 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
           loopStartNodeId: loopStartId,
           loopCheckNodeId: loopCheckId,
           config: instruction.config,
-          breakNodeIds: [],
+          breaks: [],
         });
         previousNodeId = loopStartId;
         break;
@@ -401,28 +413,17 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
         connectPrevious(loopCtx.loopCheckNodeId);
 
         // Create closure variables for loop termination.
-        // The back-edge condition increments and evaluates; the exit-edge
-        // reads the cached result so both are mutually exclusive.
         let iterationCount = 0;
         let shouldContinue = false;
         const maxCycles = loopCtx.config.maxCycles ?? 100;
 
-        // Resolve the until predicate — prefer createUntil (fresh per
-        // graph generation) over a bare until reference.
-        const untilPredicate = loopCtx.config.createUntil
-          ? loopCtx.config.createUntil()
-          : loopCtx.config.until!;
-
-        // Back-edge: continue looping (evaluated first by the conductor
-        // because it appears earlier in the edges array).
+        // Back-edge: continue looping while under maxCycles.
         edges.push({
           from: loopCtx.loopCheckNodeId,
           to: loopCtx.loopStartNodeId,
-          condition: (state: BaseState) => {
+          condition: () => {
             iterationCount++;
-            shouldContinue =
-              !untilPredicate(state) &&
-              iterationCount < maxCycles;
+            shouldContinue = iterationCount < maxCycles;
             return shouldContinue;
           },
           label: "loop_continue",
@@ -432,7 +433,7 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
         const exitNodeId = `__loop_exit_${nodeCounter++}`;
         addDecisionNode(exitNodeId);
 
-        // Exit edge: leave loop (evaluated second, uses cached result)
+        // Exit edge: leave loop when maxCycles reached
         edges.push({
           from: loopCtx.loopCheckNodeId,
           to: exitNodeId,
@@ -440,9 +441,23 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
           label: "loop_exit",
         });
 
-        // Connect break nodes to exit (unconditional)
-        for (const breakId of loopCtx.breakNodeIds) {
-          edges.push({ from: breakId, to: exitNodeId });
+        // Connect break nodes to exit.
+        // Conditional breaks: exit edge fires when predicate is true;
+        // the flow-through (continue) edge was already wired by
+        // connectPrevious using the breakPredicates map.
+        // Unconditional breaks: always route to exit.
+        for (const entry of loopCtx.breaks) {
+          const predicate = breakPredicates.get(entry.nodeId);
+          if (predicate) {
+            edges.push({
+              from: entry.nodeId,
+              to: exitNodeId,
+              condition: (state: BaseState) => predicate(state),
+              label: "break_exit",
+            });
+          } else {
+            edges.push({ from: entry.nodeId, to: exitNodeId });
+          }
         }
 
         previousNodeId = exitNodeId;
@@ -454,12 +469,14 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
         const breakNodeId = `__break_${nodeCounter++}`;
         addDecisionNode(breakNodeId);
         connectPrevious(breakNodeId);
-        currentLoop.breakNodeIds.push(breakNodeId);
-        // Code after break in the same block is unreachable at runtime
-        // because the break node routes unconditionally to the loop exit.
-        // Setting previousNodeId here allows subsequent instructions to
-        // still be wired into the graph (they just won't be reached when
-        // the break path is taken).
+        // Resolve the condition factory NOW so the same predicate instance
+        // is shared between the exit edge (endLoop) and the flow-through
+        // edge (connectPrevious for the next instruction).
+        const resolvedCondition = instruction.condition?.();
+        if (resolvedCondition) {
+          breakPredicates.set(breakNodeId, resolvedCondition);
+        }
+        currentLoop.breaks.push({ nodeId: breakNodeId });
         previousNodeId = breakNodeId;
         break;
       }
@@ -496,8 +513,8 @@ export function compileWorkflow(builder: WorkflowBuilder): WorkflowDefinition {
 
   // Generate the graph once for static metadata (nodeDescriptions).
   // createConductorGraph below regenerates it per execution so that
-  // mutable closure state (iteration counters, until predicates created
-  // via createUntil) starts fresh for each workflow run.
+  // mutable closure state (iteration counters, break predicates)
+  // starts fresh for each workflow run.
   const initialGraphResult = generateGraph(instructions);
 
   const createState = createStateFactory(stateSchema);

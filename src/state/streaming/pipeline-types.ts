@@ -137,7 +137,6 @@ export interface WorkflowStepStartEvent {
   runId?: number;
   workflowId: string;
   nodeId: string;
-  nodeName: string;
   indicator: string;
 }
 
@@ -146,7 +145,6 @@ export interface WorkflowStepCompleteEvent {
   runId?: number;
   workflowId: string;
   nodeId: string;
-  nodeName: string;
   status: "completed" | "error" | "skipped";
   durationMs: number;
   error?: string;

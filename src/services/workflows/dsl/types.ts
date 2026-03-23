@@ -36,9 +36,24 @@ import type { WorkflowDefinition } from "@/services/workflows/types/definition.t
  * Stages are the primary unit of work in a DSL workflow. Each stage runs in
  * a fresh agent session with an isolated context window.
  */
-export interface StageConfig {
-  /** Human-readable name displayed in the UI during execution. */
+export interface StageOptions {
+  /**
+   * Unique name for this stage within the workflow.
+   *
+   * Used as the key in `ctx.stageOutputs` so downstream stages can
+   * reference this stage's output unambiguously. Must be unique across
+   * all stages in the workflow — the builder throws at definition time
+   * if a duplicate is detected.
+   *
+   * @example "plan", "implement", "review", "fix"
+   */
   readonly name: string;
+
+  /**
+   * Agent definition name to use for this stage.
+   * Selects the agent definition that is loaded at runtime.
+   */
+  readonly agent: string;
 
   /** Brief description of the stage's purpose (used in logging and debugging). */
   readonly description: string;
@@ -96,7 +111,7 @@ export interface StageConfig {
  * Tools are useful for data transformation, API calls, file I/O,
  * or any deterministic operation between agent stages.
  */
-export interface ToolConfig {
+export interface ToolOptions {
   /** Human-readable name for the tool (used in logging and debugging). */
   readonly name: string;
 
@@ -132,40 +147,25 @@ export interface ToolConfig {
  * Configuration for a bounded loop construct.
  *
  * Loops repeat all instructions between `.loop()` and `.endLoop()`
- * until the `until` predicate returns `true` or `maxCycles` is
- * reached, whichever comes first.
+ * up to `maxCycles` iterations. Use `.break(condition)` inside the
+ * loop body for conditional early termination.
  */
-export interface LoopConfig {
-  /**
-   * Predicate evaluated before each iteration. The loop terminates
-   * when this returns `true`.
-   *
-   * For stateless predicates, provide this field directly.
-   * For stateful predicates (closures with mutable internal state),
-   * prefer {@link createUntil} to ensure fresh state per execution.
-   *
-   * At least one of `until` or `createUntil` must be provided.
-   * When both are present, `createUntil` takes precedence.
-   */
-  readonly until?: (state: BaseState) => boolean;
-
-  /**
-   * Factory that creates a fresh `until` predicate for each workflow
-   * execution.  Use this when the predicate maintains internal closure
-   * state (e.g., consecutive-clean-review counters) that must not
-   * persist across independent workflow runs.
-   *
-   * Takes precedence over `until` if both are provided.
-   */
-  readonly createUntil?: () => (state: BaseState) => boolean;
-
+export interface LoopOptions {
   /**
    * Hard upper bound on the number of iterations. Prevents runaway
-   * loops even when the `until` predicate never returns `true`.
+   * loops.
    *
    * @default 100
    */
   readonly maxCycles?: number;
+
+  /**
+   * State fields scoped to this loop.
+   * Fields are merged into the workflow state alongside globalState.
+   * Use this to declare state that is conceptually owned by the loop
+   * (e.g., iteration counters, accumulated review results).
+   */
+  readonly loopState?: Record<string, StateFieldOptions>;
 }
 
 // ---------------------------------------------------------------------------
@@ -180,7 +180,7 @@ export interface LoopConfig {
  *
  * @typeParam T - The type of the state field value.
  */
-export interface StateFieldConfig<T = unknown> {
+export interface StateFieldOptions<T = unknown> {
   /**
    * Default value for this field when the workflow starts.
    * Can be a static value or a factory function for mutable defaults
@@ -227,6 +227,30 @@ export interface StateFieldConfig<T = unknown> {
 }
 
 // ---------------------------------------------------------------------------
+// Workflow Options — passed to defineWorkflow()
+// ---------------------------------------------------------------------------
+
+/**
+ * Configuration for the workflow as a whole.
+ * Passed as the single argument to `defineWorkflow()`.
+ */
+export interface WorkflowOptions {
+  /** Unique workflow identifier. */
+  readonly name: string;
+
+  /** Human-readable description of what the workflow does. */
+  readonly description: string;
+
+  /**
+   * Global state schema for the entire workflow.
+   * Each key maps to a `StateFieldOptions` that declares its default
+   * value and optional reducer. These fields are available to all
+   * stages, tools, and loops in the workflow.
+   */
+  readonly globalState?: Record<string, StateFieldOptions>;
+}
+
+// ---------------------------------------------------------------------------
 // Instruction — discriminated union recorded by the builder
 // ---------------------------------------------------------------------------
 
@@ -240,15 +264,15 @@ export interface StateFieldConfig<T = unknown> {
  * This is a discriminated union on the `type` field.
  */
 export type Instruction =
-  | { readonly type: "stage"; readonly id: string; readonly config: StageConfig }
-  | { readonly type: "tool"; readonly id: string; readonly config: ToolConfig }
+  | { readonly type: "stage"; readonly id: string; readonly config: StageOptions }
+  | { readonly type: "tool"; readonly id: string; readonly config: ToolOptions }
   | { readonly type: "if"; readonly condition: (ctx: StageContext) => boolean }
   | { readonly type: "elseIf"; readonly condition: (ctx: StageContext) => boolean }
   | { readonly type: "else" }
   | { readonly type: "endIf" }
-  | { readonly type: "loop"; readonly config: LoopConfig }
+  | { readonly type: "loop"; readonly config: LoopOptions }
   | { readonly type: "endLoop" }
-  | { readonly type: "break" };
+  | { readonly type: "break"; readonly condition?: () => (state: BaseState) => boolean };
 
 // ---------------------------------------------------------------------------
 // Compiled Workflow — opaque branded output
@@ -265,7 +289,7 @@ export type Instruction =
  * Usage:
  * ```ts
  * // Export directly — no unwrapping required
- * export const myWorkflow = defineWorkflow("my-wf", "...").stage(...).compile();
+ * export const myWorkflow = defineWorkflow({ name: "my-wf", description: "..." }).stage(...).compile();
  * ```
  */
 export interface CompiledWorkflow extends WorkflowDefinition {
@@ -286,14 +310,17 @@ export interface CompiledWorkflow extends WorkflowDefinition {
  *
  * @example
  * ```ts
- * const workflow = defineWorkflow("my-workflow")
+ * const workflow = defineWorkflow({
+ *     name: "my-workflow",
+ *     description: "Does things",
+ *     globalState: { count: { default: 0, reducer: "sum" } },
+ *   })
  *   .version("1.0.0")
- *   .state({ count: { default: 0, reducer: "sum" } })
- *   .stage("planner", { ... })
+ *   .stage({ name: "planner", agent: "planner", ... })
  *   .if(ctx => ctx.stageOutputs.has("planner"))
- *     .stage("executor", { ... })
+ *     .stage({ name: "executor", agent: "executor", ... })
  *   .else()
- *     .stage("fallback", { ... })
+ *     .stage({ name: "fallback", agent: "fallback", ... })
  *   .endIf()
  *   .compile();
  * ```
@@ -307,28 +334,22 @@ export interface WorkflowBuilderInterface {
   /** Set a hint displayed to users about expected arguments. */
   argumentHint(hint: string): this;
 
-  /**
-   * Define the workflow state schema.
-   * Each key maps to a `StateFieldConfig` that declares its default
-   * value and optional reducer.
-   */
-  state(schema: Record<string, StateFieldConfig>): this;
-
   // -- Linear flow ----------------------------------------------------------
 
   /**
    * Add an agent stage to the workflow.
-   * @param id - Unique identifier for this stage (must be unique within the workflow).
-   * @param config - Stage configuration (prompt, output mapper, etc.).
+   * The stage's `name` becomes its unique key in `ctx.stageOutputs`.
+   * @param options - Stage configuration (name, agent, prompt, output mapper, etc.).
+   * @throws Error if `options.name` duplicates an existing stage name.
    */
-  stage(id: string, config: StageConfig): this;
+  stage(options: StageOptions): this;
 
   /**
    * Add a deterministic tool node to the workflow.
    * @param id - Unique identifier for this tool (must be unique within the workflow).
-   * @param config - Tool configuration (execute function, etc.).
+   * @param options - Tool configuration (execute function, etc.).
    */
-  tool(id: string, config: ToolConfig): this;
+  tool(id: string, options: ToolOptions): this;
 
   // -- Conditional branching ------------------------------------------------
 
@@ -360,19 +381,23 @@ export interface WorkflowBuilderInterface {
 
   /**
    * Begin a bounded loop.
-   * Instructions between `.loop()` and `.endLoop()` repeat until the
-   * `until` predicate returns `true` or `maxCycles` is reached.
+   * Instructions between `.loop()` and `.endLoop()` repeat up to
+   * `maxCycles` iterations. Use `.break()` for early termination.
    */
-  loop(config: LoopConfig): this;
+  loop(options?: LoopOptions): this;
 
   /** Close the current loop block. */
   endLoop(): this;
 
   /**
-   * Break out of the current loop immediately.
+   * Conditionally break out of the current loop.
    * Must be used inside a `.loop()` / `.endLoop()` block.
+   *
+   * @param condition - Factory that creates a fresh predicate per
+   *   execution. The loop exits when the predicate returns `true`.
+   *   Omit for an unconditional break.
    */
-  break(): this;
+  break(condition?: () => (state: BaseState) => boolean): this;
 
   // -- Terminal -------------------------------------------------------------
 

@@ -17,7 +17,7 @@
 
 import type { BaseState, CompiledGraph } from "@/services/workflows/graph/types.ts";
 import type { Session, SessionConfig } from "@/services/agents/types.ts";
-import type { TaskItem } from "@/services/workflows/ralph/prompts.ts";
+import type { TaskItem } from "@/services/workflows/builtin/ralph/helpers/prompts.ts";
 import type { BusEvent, BusEventType } from "@/services/events/bus-events/types.ts";
 import type { PartsTruncationConfig } from "@/state/parts/truncation.ts";
 
@@ -277,9 +277,6 @@ export interface StageContext {
 export interface StageDefinition {
   /** Unique identifier for this stage (matches the graph node ID). */
   readonly id: string;
-
-  /** Human-readable name (e.g., "Planner", "Orchestrator"). */
-  readonly name: string;
 
   /**
    * UI indicator displayed in the chat during this stage.

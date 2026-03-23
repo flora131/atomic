@@ -98,7 +98,6 @@ function stage(
 ): StageDefinition {
   return {
     id,
-    name: id.charAt(0).toUpperCase() + id.slice(1),
     indicator: `[${id.toUpperCase()}]`,
     buildPrompt: (_ctx: StageContext) => `Prompt for ${id}`,
     ...options,

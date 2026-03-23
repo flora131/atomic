@@ -17,7 +17,7 @@
 
 import type { EventBus } from "@/services/events/event-bus.ts";
 import type { BusEvent } from "@/services/events/bus-events/types.ts";
-import type { TaskItem } from "@/services/workflows/ralph/prompts.ts";
+import type { TaskItem } from "@/services/workflows/builtin/ralph/helpers/prompts.ts";
 
 /**
  * Create an `onTaskUpdate` callback that publishes `workflow.task.update`

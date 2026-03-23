@@ -101,7 +101,6 @@ function createTaskProducingStage(
 ): StageDefinition {
   return {
     id,
-    name: id.charAt(0).toUpperCase() + id.slice(1),
     indicator: `[${id.toUpperCase()}]`,
     buildPrompt: (_ctx: StageContext) => `Prompt for ${id}`,
     parseOutput: (_response: string) => tasks,
@@ -112,7 +111,6 @@ function createTaskProducingStage(
 function createStage(id: string, overrides?: Partial<StageDefinition>): StageDefinition {
   return {
     id,
-    name: id.charAt(0).toUpperCase() + id.slice(1),
     indicator: `[${id.toUpperCase()}]`,
     buildPrompt: (_ctx: StageContext) => `Prompt for ${id}`,
     ...overrides,

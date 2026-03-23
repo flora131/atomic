@@ -26,7 +26,7 @@ export async function discoverBuiltinWorkflows(): Promise<DiscoveredWorkflow[]> 
   const workflows: DiscoveredWorkflow[] = [];
 
   try {
-    const ralphMod = await import("@/services/workflows/ralph/definition.ts");
+    const ralphMod = await import("@/services/workflows/builtin/ralph/ralph-workflow.ts");
     const ralphExport = ralphMod.ralphWorkflowDefinition;
 
     if (ralphExport && typeof ralphExport === "object" && "name" in ralphExport) {

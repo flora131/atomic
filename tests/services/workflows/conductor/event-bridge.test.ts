@@ -4,7 +4,7 @@ import { BusEventSchemas } from "@/services/events/bus-events/schemas.ts";
 import type { BusEvent, BusEventDataMap } from "@/services/events/bus-events/types.ts";
 import { createTaskUpdatePublisher } from "@/services/workflows/conductor/event-bridge.ts";
 import { getEventHandlerRegistry, EventHandlerRegistry, setEventHandlerRegistry } from "@/services/events/registry/registry.ts";
-import type { TaskItem } from "@/services/workflows/ralph/prompts.ts";
+import type { TaskItem } from "@/services/workflows/builtin/ralph/helpers/prompts.ts";
 
 // Import handler registration side effect
 import "@/services/events/registry/handlers/stream-workflow-task.ts";

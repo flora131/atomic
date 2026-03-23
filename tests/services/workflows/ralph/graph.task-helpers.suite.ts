@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { getReadyTasks, hasActionableTasks } from "@/services/workflows/ralph/graph/task-helpers.ts";
-import type { TaskItem } from "@/services/workflows/ralph/prompts.ts";
+import { getReadyTasks, hasActionableTasks } from "@/services/workflows/builtin/ralph/helpers/tasks.ts";
+import type { TaskItem } from "@/services/workflows/builtin/ralph/helpers/prompts.ts";
 
 function task(
   id: string | undefined,

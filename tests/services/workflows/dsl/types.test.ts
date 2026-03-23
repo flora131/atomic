@@ -11,10 +11,10 @@ import { describe, test, expect } from "bun:test";
 import type {
   CompiledWorkflow,
   Instruction,
-  LoopConfig,
-  StageConfig,
-  StateFieldConfig,
-  ToolConfig,
+  LoopOptions,
+  StageOptions,
+  StateFieldOptions,
+  ToolOptions,
   WorkflowBuilderInterface,
 } from "@/services/workflows/dsl/types.ts";
 import type { StageContext } from "@/services/workflows/conductor/types.ts";
@@ -34,18 +34,20 @@ function assertInstructionType<T extends Instruction["type"]>(
 }
 
 // ---------------------------------------------------------------------------
-// StageConfig
+// StageOptions
 // ---------------------------------------------------------------------------
 
-describe("StageConfig", () => {
+describe("StageOptions", () => {
   test("accepts a minimal valid stage config", () => {
-    const config: StageConfig = {
+    const config: StageOptions = {
+      name: "planner",
       agent: "planner",
       description: "Plans the work",
       prompt: (ctx: StageContext) => `Plan: ${ctx.userPrompt}`,
       outputMapper: (response: string) => ({ plan: response }),
     };
 
+    expect(config.name).toBe("planner");
     expect(config.agent).toBe("planner");
     expect(config.description).toBe("Plans the work");
     expect(typeof config.prompt).toBe("function");
@@ -53,7 +55,8 @@ describe("StageConfig", () => {
   });
 
   test("accepts optional fields", () => {
-    const config: StageConfig = {
+    const config: StageOptions = {
+      name: "executor",
       agent: "executor",
       description: "Executes tasks",
       prompt: () => "Execute",
@@ -71,7 +74,8 @@ describe("StageConfig", () => {
   });
 
   test("prompt receives StageContext and returns string", () => {
-    const config: StageConfig = {
+    const config: StageOptions = {
+      name: "test",
       agent: "test",
       description: "test",
       prompt: (ctx) => {
@@ -89,12 +93,12 @@ describe("StageConfig", () => {
 });
 
 // ---------------------------------------------------------------------------
-// ToolConfig
+// ToolOptions
 // ---------------------------------------------------------------------------
 
-describe("ToolConfig", () => {
+describe("ToolOptions", () => {
   test("accepts a minimal valid tool config", () => {
-    const config: ToolConfig = {
+    const config: ToolOptions = {
       name: "parser",
       execute: async (_ctx: ExecutionContext<BaseState>) => ({ parsed: true }),
     };
@@ -104,7 +108,7 @@ describe("ToolConfig", () => {
   });
 
   test("accepts optional fields", () => {
-    const config: ToolConfig = {
+    const config: ToolOptions = {
       name: "formatter",
       execute: async () => ({}),
       description: "Formats output",
@@ -118,7 +122,7 @@ describe("ToolConfig", () => {
   });
 
   test("execute receives ExecutionContext and returns record", async () => {
-    const config: ToolConfig = {
+    const config: ToolOptions = {
       name: "transformer",
       execute: async (ctx) => {
         // Verify ExecutionContext<BaseState> shape is accessible
@@ -144,12 +148,12 @@ describe("ToolConfig", () => {
 });
 
 // ---------------------------------------------------------------------------
-// LoopConfig
+// LoopOptions
 // ---------------------------------------------------------------------------
 
-describe("LoopConfig", () => {
+describe("LoopOptions", () => {
   test("accepts a config with maxCycles", () => {
-    const config: LoopConfig = {
+    const config: LoopOptions = {
       maxCycles: 5,
     };
 
@@ -157,19 +161,33 @@ describe("LoopConfig", () => {
   });
 
   test("accepts an empty config (all fields optional)", () => {
-    const config: LoopConfig = {};
+    const config: LoopOptions = {};
 
     expect(config.maxCycles).toBeUndefined();
+    expect(config.loopState).toBeUndefined();
+  });
+
+  test("accepts loopState field configuration", () => {
+    const config: LoopOptions = {
+      maxCycles: 10,
+      loopState: {
+        iteration: { default: 0, reducer: "sum" },
+        findings: { default: () => [], reducer: "concat" },
+      },
+    };
+
+    expect(config.loopState).toBeDefined();
+    expect(config.loopState!.iteration).toEqual({ default: 0, reducer: "sum" });
   });
 });
 
 // ---------------------------------------------------------------------------
-// StateFieldConfig
+// StateFieldOptions
 // ---------------------------------------------------------------------------
 
-describe("StateFieldConfig", () => {
+describe("StateFieldOptions", () => {
   test("accepts a static default value", () => {
-    const config: StateFieldConfig<number> = {
+    const config: StateFieldOptions<number> = {
       default: 0,
     };
 
@@ -177,7 +195,7 @@ describe("StateFieldConfig", () => {
   });
 
   test("accepts a factory function default", () => {
-    const config: StateFieldConfig<string[]> = {
+    const config: StateFieldOptions<string[]> = {
       default: () => [],
     };
 
@@ -185,7 +203,7 @@ describe("StateFieldConfig", () => {
   });
 
   test("accepts built-in reducer strings", () => {
-    const reducers: Array<StateFieldConfig["reducer"]> = [
+    const reducers: Array<StateFieldOptions["reducer"]> = [
       "replace",
       "concat",
       "merge",
@@ -198,13 +216,13 @@ describe("StateFieldConfig", () => {
     ];
 
     for (const reducer of reducers) {
-      const config: StateFieldConfig = { default: null, reducer };
+      const config: StateFieldOptions = { default: null, reducer };
       expect(config.reducer).toBe(reducer);
     }
   });
 
   test("accepts a custom reducer function", () => {
-    const config: StateFieldConfig<number> = {
+    const config: StateFieldOptions<number> = {
       default: 0,
       reducer: (current, update) => current + update,
     };
@@ -216,7 +234,7 @@ describe("StateFieldConfig", () => {
   });
 
   test("accepts key field for mergeById reducer", () => {
-    const config: StateFieldConfig<Array<{ id: string; status: string }>> = {
+    const config: StateFieldOptions<Array<{ id: string; status: string }>> = {
       default: () => [],
       reducer: "mergeById",
       key: "id",
@@ -232,11 +250,12 @@ describe("StateFieldConfig", () => {
 // ---------------------------------------------------------------------------
 
 describe("Instruction", () => {
-  test("stage instruction carries id and StageConfig", () => {
+  test("stage instruction carries id and StageOptions", () => {
     const instruction: Instruction = {
       type: "stage",
       id: "planner",
       config: {
+        name: "planner",
         agent: "planner",
         description: "Plans work",
         prompt: () => "plan",
@@ -246,10 +265,11 @@ describe("Instruction", () => {
 
     assertInstructionType(instruction, "stage");
     expect(instruction.id).toBe("planner");
+    expect(instruction.config.name).toBe("planner");
     expect(instruction.config.agent).toBe("planner");
   });
 
-  test("tool instruction carries id and ToolConfig", () => {
+  test("tool instruction carries id and ToolOptions", () => {
     const instruction: Instruction = {
       type: "tool",
       id: "parser",
@@ -298,7 +318,7 @@ describe("Instruction", () => {
     expect(instruction.type).toBe("endIf");
   });
 
-  test("loop instruction carries LoopConfig", () => {
+  test("loop instruction carries LoopOptions", () => {
     const instruction: Instruction = {
       type: "loop",
       config: {
@@ -329,7 +349,7 @@ describe("Instruction", () => {
 
   test("exhaustive switch covers all instruction types", () => {
     const instructions: Instruction[] = [
-      { type: "stage", id: "s1", config: { agent: "s1", description: "d", prompt: () => "", outputMapper: () => ({}) } },
+      { type: "stage", id: "s1", config: { name: "s1", agent: "s1", description: "d", prompt: () => "", outputMapper: () => ({}) } },
       { type: "tool", id: "t1", config: { name: "T1", execute: async () => ({}) } },
       { type: "if", condition: () => true },
       { type: "elseIf", condition: () => false },
@@ -374,14 +394,13 @@ describe("WorkflowBuilderInterface", () => {
     const mockBuilder: WorkflowBuilderInterface = {
       version(_v: string) { return this; },
       argumentHint(_hint: string) { return this; },
-      state(_schema: Record<string, StateFieldConfig>) { return this; },
-      stage(_config: StageConfig) { return this; },
-      tool(_id: string, _config: ToolConfig) { return this; },
+      stage(_options: StageOptions) { return this; },
+      tool(_id: string, _options: ToolOptions) { return this; },
       if(_condition: (ctx: StageContext) => boolean) { return this; },
       elseIf(_condition: (ctx: StageContext) => boolean) { return this; },
       else() { return this; },
       endIf() { return this; },
-      loop(_config?: LoopConfig) { return this; },
+      loop(_options?: LoopOptions) { return this; },
       endLoop() { return this; },
       break(_condition?: () => (state: BaseState) => boolean) { return this; },
       compile() { return { name: "mock", description: "mock", __compiledWorkflow: true } as CompiledWorkflow; },
@@ -391,8 +410,8 @@ describe("WorkflowBuilderInterface", () => {
     const result = mockBuilder
       .version("1.0.0")
       .argumentHint("Describe the task")
-      .state({ count: { default: 0 } })
       .stage({
+        name: "s1",
         agent: "s1",
         description: "First stage",
         prompt: () => "hello",
@@ -404,6 +423,7 @@ describe("WorkflowBuilderInterface", () => {
       })
       .if(() => true)
         .stage({
+          name: "s2",
           agent: "s2",
           description: "Conditional stage",
           prompt: () => "conditional",
@@ -411,6 +431,7 @@ describe("WorkflowBuilderInterface", () => {
         })
       .else()
         .stage({
+          name: "s3",
           agent: "s3",
           description: "Fallback stage",
           prompt: () => "fallback",
@@ -419,6 +440,7 @@ describe("WorkflowBuilderInterface", () => {
       .endIf()
       .loop({ maxCycles: 3 })
         .stage({
+          name: "s4",
           agent: "s4",
           description: "Loop stage",
           prompt: () => "loop",

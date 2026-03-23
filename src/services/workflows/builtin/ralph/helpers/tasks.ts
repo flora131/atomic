@@ -3,7 +3,7 @@ import {
   normalizeWorkflowRuntimeTaskStatus,
   type WorkflowRuntimeTask,
 } from "@/services/workflows/runtime-contracts.ts";
-import type { TaskItem } from "@/services/workflows/ralph/prompts.ts";
+import type { TaskItem } from "@/services/workflows/builtin/ralph/helpers/prompts.ts";
 
 /**
  * Normalize a raw task object from LLM output, supporting both the current

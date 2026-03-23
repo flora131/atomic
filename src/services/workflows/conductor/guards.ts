@@ -67,7 +67,6 @@ export function isStageDefinition(value: unknown): value is StageDefinition {
   const obj = value as Record<string, unknown>;
   return (
     typeof obj.id === "string" &&
-    typeof obj.name === "string" &&
     typeof obj.indicator === "string" &&
     typeof obj.buildPrompt === "function" &&
     (obj.parseOutput === undefined || typeof obj.parseOutput === "function") &&

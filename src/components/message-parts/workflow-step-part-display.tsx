@@ -46,7 +46,7 @@ export function WorkflowStepPartDisplay({ part }: WorkflowStepPartDisplayProps):
       <text fg={statusColor}>│</text>
       <text>
         <span fg={statusColor}>
-          <strong>{part.nodeName.toUpperCase()}</strong>
+          <strong>{part.nodeId.toUpperCase()}</strong>
         </span>
         {durationLabel && (
           <span fg={colors.muted}>{durationLabel}</span>

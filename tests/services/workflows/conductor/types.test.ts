@@ -212,7 +212,6 @@ describe("isStageDefinition", () => {
   function makeValidDefinition(): StageDefinition {
     return {
       id: "planner",
-      name: "Planner",
       indicator: "[PLANNER]",
       buildPrompt: (_ctx: StageContext) => "Plan the following...",
     };
@@ -234,11 +233,6 @@ describe("isStageDefinition", () => {
 
   test("returns false when id is missing", () => {
     const { id: _, ...rest } = makeValidDefinition();
-    expect(isStageDefinition(rest)).toBe(false);
-  });
-
-  test("returns false when name is missing", () => {
-    const { name: _, ...rest } = makeValidDefinition();
     expect(isStageDefinition(rest)).toBe(false);
   });
 
@@ -456,7 +450,6 @@ describe("type assignability", () => {
   test("StageDefinition.buildPrompt receives StageContext and returns string", () => {
     const def: StageDefinition = {
       id: "test",
-      name: "Test",
       indicator: "[TEST]",
       buildPrompt: (ctx) => `Prompt: ${ctx.userPrompt}`,
     };
@@ -472,7 +465,6 @@ describe("type assignability", () => {
   test("StageDefinition.shouldRun controls stage execution", () => {
     const def: StageDefinition = {
       id: "debugger",
-      name: "Debugger",
       indicator: "🔧 DEBUGGER",
       buildPrompt: () => "fix it",
       shouldRun: (ctx) => {

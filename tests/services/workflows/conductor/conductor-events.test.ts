@@ -72,7 +72,6 @@ function stage(
 ): StageDefinition {
   return {
     id,
-    name: id.charAt(0).toUpperCase() + id.slice(1),
     indicator: `[${id.toUpperCase()}]`,
     buildPrompt: (_ctx: StageContext) => `Prompt for ${id}`,
     ...options,
@@ -132,7 +131,6 @@ describe("WorkflowSessionConductor event dispatch", () => {
       const startData = startEvents[0]!.data as BusEventDataMap["workflow.step.start"];
       expect(startData.workflowId).toBe("wf-1");
       expect(startData.nodeId).toBe("planner");
-      expect(startData.nodeName).toBe("Planner");
       expect(startData.indicator).toBe("[PLANNER]");
 
       expect(startEvents[0]!.sessionId).toBe("sess-1");
@@ -197,7 +195,6 @@ describe("WorkflowSessionConductor event dispatch", () => {
       const data = completeEvents[0]!.data as BusEventDataMap["workflow.step.complete"];
       expect(data.workflowId).toBe("wf-1");
       expect(data.nodeId).toBe("planner");
-      expect(data.nodeName).toBe("Planner");
       expect(data.status).toBe("completed");
       expect(data.durationMs).toBeGreaterThanOrEqual(0);
       expect(data.error).toBeUndefined();

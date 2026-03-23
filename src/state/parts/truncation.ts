@@ -214,7 +214,7 @@ function findNextStepIndex(
  * Build a human-readable summary of the truncated parts.
  */
 function buildTruncationSummary(
-  nodeName: string,
+  nodeId: string,
   truncatedParts: ReadonlyArray<Part>,
 ): string {
   const counts = new Map<string, number>();
@@ -232,10 +232,10 @@ function buildTruncationSummary(
   if (reasoningCount > 0) segments.push(`${reasoningCount} reasoning block${reasoningCount > 1 ? "s" : ""}`);
 
   if (segments.length === 0) {
-    return `${nodeName} stage truncated`;
+    return `${nodeId} stage truncated`;
   }
 
-  return `${nodeName}: ${segments.join(", ")} truncated`;
+  return `${nodeId}: ${segments.join(", ")} truncated`;
 }
 
 /**
@@ -278,7 +278,6 @@ function estimatePartBytes(part: Part): number {
  * @param parts       - The current message parts array.
  * @param completedNodeId - The nodeId of the completed workflow step.
  * @param workflowId  - The workflowId for correlation.
- * @param nodeName    - Human-readable name of the completed step (for summary).
  * @param config      - Truncation configuration.
  * @returns A `TruncationResult` with the new parts array and statistics.
  */
@@ -286,7 +285,6 @@ export function truncateStageParts(
   parts: ReadonlyArray<Part>,
   completedNodeId: string,
   workflowId: string,
-  nodeName: string,
   config: PartsTruncationConfig,
 ): TruncationResult {
   const noopResult: TruncationResult = {
@@ -331,7 +329,7 @@ export function truncateStageParts(
   const truncationPart: TruncationPart = {
     id: createPartId(),
     type: "truncation",
-    summary: buildTruncationSummary(nodeName, truncatedParts),
+    summary: buildTruncationSummary(completedNodeId, truncatedParts),
     createdAt: new Date().toISOString(),
   };
 

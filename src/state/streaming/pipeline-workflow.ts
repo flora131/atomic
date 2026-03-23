@@ -93,7 +93,6 @@ export function upsertWorkflowStepStart(
     type: "workflow-step",
     workflowId: event.workflowId,
     nodeId: event.nodeId,
-    nodeName: event.nodeName,
     status: "running",
     startedAt: now,
     createdAt: existingIdx >= 0 ? parts[existingIdx]!.createdAt : now,
@@ -149,7 +148,6 @@ export function upsertWorkflowStepComplete(
       type: "workflow-step",
       workflowId: event.workflowId,
       nodeId: event.nodeId,
-      nodeName: event.nodeName,
       status: event.status,
       startedAt: now,
       completedAt: now,
@@ -166,7 +164,6 @@ export function upsertWorkflowStepComplete(
       updatedParts,
       event.nodeId,
       event.workflowId,
-      event.nodeName,
       config,
     );
     if (result.truncated) {

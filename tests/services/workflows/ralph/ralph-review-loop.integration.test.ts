@@ -29,10 +29,10 @@ import type {
 import {
   ralphWorkflowDefinition,
   createReviewLoopTerminator,
-} from "@/services/workflows/ralph/definition.ts";
+} from "@/services/workflows/builtin/ralph/ralph-workflow.ts";
 import { defineWorkflow } from "@/services/workflows/dsl/define-workflow.ts";
-import { parseReviewResult } from "@/services/workflows/ralph/prompts.ts";
-import { parseTasks } from "@/services/workflows/ralph/graph/task-helpers.ts";
+import { parseReviewResult } from "@/services/workflows/builtin/ralph/helpers/prompts.ts";
+import { parseTasks } from "@/services/workflows/builtin/ralph/helpers/tasks.ts";
 
 // ---------------------------------------------------------------------------
 // Canned Responses
@@ -325,8 +325,9 @@ describe("Ralph workflow review/debug loop (integration)", () => {
 
   test("maxCycles cap prevents infinite loop", async () => {
     // Build a minimal workflow identical to Ralph but with maxCycles: 3
-    const testWorkflow = defineWorkflow("test-ralph-maxcycles", "test")
+    const testWorkflow = defineWorkflow({ name: "test-ralph-maxcycles", description: "test" })
       .stage({
+        name: "planner",
         agent: "planner",
         description: "PLANNER",
         outputs: ["tasks"],
@@ -334,6 +335,7 @@ describe("Ralph workflow review/debug loop (integration)", () => {
         outputMapper: (response) => ({ tasks: parseTasks(response) }),
       })
       .stage({
+        name: "orchestrator",
         agent: "orchestrator",
         description: "ORCHESTRATOR",
         reads: ["tasks"],
@@ -342,6 +344,7 @@ describe("Ralph workflow review/debug loop (integration)", () => {
       })
       .loop({ maxCycles: 3 })
       .stage({
+        name: "reviewer",
         agent: "reviewer",
         description: "REVIEWER",
         reads: ["tasks"],
@@ -354,6 +357,7 @@ describe("Ralph workflow review/debug loop (integration)", () => {
       .break(() => createReviewLoopTerminator(2))
       .if((ctx) => hasActionableFindings(ctx.stageOutputs))
       .stage({
+        name: "debugger",
         agent: "debugger",
         description: "DEBUGGER",
         reads: ["reviewResult"],

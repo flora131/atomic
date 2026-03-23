@@ -7,18 +7,21 @@
  *
  * Usage:
  * ```ts
- * const workflow = defineWorkflow("my-workflow", "A workflow that does X")
+ * const workflow = defineWorkflow({
+ *     name: "my-workflow",
+ *     description: "A workflow that does X",
+ *     globalState: {
+ *       count: { default: 0, reducer: "sum" },
+ *       items: { default: () => [], reducer: "concat" },
+ *     },
+ *   })
  *   .version("1.0.0")
  *   .argumentHint("<file-path>")
- *   .state({
- *     count: { default: 0, reducer: "sum" },
- *     items: { default: () => [], reducer: "concat" },
- *   })
- *   .stage("planner", { ... })
+ *   .stage({ name: "planner", agent: "planner", ... })
  *   .if(ctx => ctx.stageOutputs.has("planner"))
- *     .stage("executor", { ... })
+ *     .stage({ name: "executor", agent: "executor", ... })
  *   .else()
- *     .stage("fallback", { ... })
+ *     .stage({ name: "fallback", agent: "fallback", ... })
  *   .endIf()
  *   .compile();
  * ```
@@ -28,12 +31,13 @@
 
 import type {
   Instruction,
-  StageConfig,
-  ToolConfig,
-  LoopConfig,
-  StateFieldConfig,
+  StageOptions,
+  ToolOptions,
+  LoopOptions,
+  StateFieldOptions,
   CompiledWorkflow,
   WorkflowBuilderInterface,
+  WorkflowOptions,
 } from "@/services/workflows/dsl/types.ts";
 import type { StageContext } from "@/services/workflows/conductor/types.ts";
 import { compileWorkflow } from "@/services/workflows/dsl/compiler.ts";
@@ -45,15 +49,11 @@ import { compileWorkflow } from "@/services/workflows/dsl/compiler.ts";
 /**
  * Entry point for defining a workflow using the chainable DSL.
  *
- * @param name - Unique workflow identifier
- * @param description - Human-readable description
+ * @param options - Workflow configuration (name, description, globalState, etc.)
  * @returns A WorkflowBuilder instance for chaining
  */
-export function defineWorkflow(
-  name: string,
-  description: string,
-): WorkflowBuilder {
-  return new WorkflowBuilder(name, description);
+export function defineWorkflow(options: WorkflowOptions): WorkflowBuilder {
+  return new WorkflowBuilder(options);
 }
 
 // ---------------------------------------------------------------------------
@@ -77,12 +77,14 @@ export class WorkflowBuilder implements WorkflowBuilderInterface {
 
   private _version: string | undefined;
   private _argumentHint: string | undefined;
-  private _stateSchema: Record<string, StateFieldConfig> | undefined;
+  private readonly _globalState: Record<string, StateFieldOptions> | undefined;
   private loopDepth: number = 0;
+  private stageNames: Set<string> = new Set();
 
-  constructor(name: string, description: string) {
-    this.name = name;
-    this.description = description;
+  constructor(options: WorkflowOptions) {
+    this.name = options.name;
+    this.description = options.description;
+    this._globalState = options.globalState;
   }
 
   // -- Metadata -------------------------------------------------------------
@@ -99,35 +101,31 @@ export class WorkflowBuilder implements WorkflowBuilderInterface {
     return this;
   }
 
-  /**
-   * Define the workflow state schema.
-   * Each key maps to a `StateFieldConfig` that declares its default
-   * value and optional reducer.
-   */
-  state(schema: Record<string, StateFieldConfig>): this {
-    this._stateSchema = schema;
-    return this;
-  }
-
   // -- Linear flow ----------------------------------------------------------
 
   /**
    * Add an agent stage to the workflow.
-   * @param id - Unique identifier for this stage (must be unique within the workflow).
-   * @param config - Stage configuration (prompt, output mapper, etc.).
+   * @param options - Stage configuration (name, agent, prompt, output mapper, etc.).
+   * @throws Error if `options.name` duplicates an existing stage name.
    */
-  stage(id: string, config: StageConfig): this {
-    this.instructions.push({ type: "stage", id, config });
+  stage(options: StageOptions): this {
+    if (this.stageNames.has(options.name)) {
+      throw new Error(
+        `Duplicate stage name: "${options.name}". Each stage must have a unique name within the workflow.`,
+      );
+    }
+    this.stageNames.add(options.name);
+    this.instructions.push({ type: "stage", id: options.name, config: options });
     return this;
   }
 
   /**
    * Add a deterministic tool node to the workflow.
    * @param id - Unique identifier for this tool (must be unique within the workflow).
-   * @param config - Tool configuration (execute function, etc.).
+   * @param options - Tool configuration (execute function, etc.).
    */
-  tool(id: string, config: ToolConfig): this {
-    this.instructions.push({ type: "tool", id, config });
+  tool(id: string, options: ToolOptions): this {
+    this.instructions.push({ type: "tool", id, config: options });
     return this;
   }
 
@@ -173,12 +171,12 @@ export class WorkflowBuilder implements WorkflowBuilderInterface {
 
   /**
    * Begin a bounded loop.
-   * Instructions between `.loop()` and `.endLoop()` repeat until the
-   * `until` predicate returns `true` or `maxCycles` is reached.
+   * Instructions between `.loop()` and `.endLoop()` repeat up to
+   * `maxCycles` iterations. Use `.break()` for early termination.
    */
-  loop(config: LoopConfig): this {
+  loop(options?: LoopOptions): this {
     this.loopDepth++;
-    this.instructions.push({ type: "loop", config });
+    this.instructions.push({ type: "loop", config: options ?? {} });
     return this;
   }
 
@@ -193,14 +191,18 @@ export class WorkflowBuilder implements WorkflowBuilderInterface {
   }
 
   /**
-   * Break out of the current loop immediately.
+   * Conditionally break out of the current loop.
    * Must be used inside a `.loop()` / `.endLoop()` block.
+   *
+   * @param condition - Factory that creates a fresh predicate per
+   *   execution. The loop exits when the predicate returns `true`.
+   *   Omit for an unconditional break.
    */
-  break(): this {
+  break(condition?: Parameters<WorkflowBuilderInterface["break"]>[0]): this {
     if (this.loopDepth === 0) {
       throw new Error("break() can only be used inside a loop() block");
     }
-    this.instructions.push({ type: "break" });
+    this.instructions.push({ type: "break", condition });
     return this;
   }
 
@@ -249,8 +251,23 @@ export class WorkflowBuilder implements WorkflowBuilderInterface {
     return this._argumentHint;
   }
 
-  /** Returns the state schema, or `undefined` if not set. */
-  getStateSchema(): Record<string, StateFieldConfig> | undefined {
-    return this._stateSchema;
+  /**
+   * Returns the merged state schema (globalState + all loopState fields),
+   * or `undefined` if neither is defined.
+   */
+  getStateSchema(): Record<string, StateFieldOptions> | undefined {
+    const loopStates = this.instructions
+      .filter((i): i is Extract<Instruction, { type: "loop" }> => i.type === "loop")
+      .map((i) => i.config.loopState)
+      .filter((s): s is Record<string, StateFieldOptions> => s !== undefined);
+
+    if (!this._globalState && loopStates.length === 0) {
+      return undefined;
+    }
+
+    return {
+      ...this._globalState,
+      ...Object.assign({}, ...loopStates),
+    };
   }
 }

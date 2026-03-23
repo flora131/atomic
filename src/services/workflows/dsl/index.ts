@@ -10,9 +10,9 @@
  * ```ts
  * import { defineWorkflow } from "@/services/workflows/dsl";
  *
- * const workflow = defineWorkflow("my-workflow", "Does something")
+ * const workflow = defineWorkflow({ name: "my-workflow", description: "Does something" })
  *   .version("1.0.0")
- *   .stage("planner", { ... })
+ *   .stage({ name: "planner", agent: "planner", ... })
  *   .compile();
  * ```
  */
@@ -28,10 +28,11 @@ export {
 } from "./agent-resolution.ts";
 export type {
   Instruction,
-  StageConfig,
-  ToolConfig,
-  LoopConfig,
-  StateFieldConfig,
+  StageOptions,
+  ToolOptions,
+  LoopOptions,
+  StateFieldOptions,
   CompiledWorkflow,
   WorkflowBuilderInterface,
+  WorkflowOptions,
 } from "./types.ts";

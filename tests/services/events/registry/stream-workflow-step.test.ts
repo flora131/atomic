@@ -67,7 +67,6 @@ describe("stream-workflow-step handler descriptors", () => {
           runId: event.runId,
           workflowId: data.workflowId,
           nodeId: data.nodeId,
-          nodeName: data.nodeName,
           indicator: data.indicator,
         };
       },
@@ -84,7 +83,6 @@ describe("stream-workflow-step handler descriptors", () => {
           runId: event.runId,
           workflowId: data.workflowId,
           nodeId: data.nodeId,
-          nodeName: data.nodeName,
           status: data.status,
           durationMs: data.durationMs,
           ...(data.error ? { error: data.error } : {}),
@@ -101,7 +99,6 @@ describe("stream-workflow-step handler descriptors", () => {
       const event = makeBusEvent("workflow.step.start", {
         workflowId: "wf-1",
         nodeId: "planner",
-        nodeName: "Planner",
         indicator: "[PLANNER]",
       });
 
@@ -114,13 +111,11 @@ describe("stream-workflow-step handler descriptors", () => {
       const event1 = makeBusEvent("workflow.step.start", {
         workflowId: "wf-1",
         nodeId: "planner",
-        nodeName: "Planner",
         indicator: "[PLANNER]",
       });
       const event2 = makeBusEvent("workflow.step.start", {
         workflowId: "wf-1",
         nodeId: "orchestrator",
-        nodeName: "Orchestrator",
         indicator: "[ORCHESTRATOR]",
       });
 
@@ -134,7 +129,6 @@ describe("stream-workflow-step handler descriptors", () => {
       const event = makeBusEvent("workflow.step.start", {
         workflowId: "wf-1",
         nodeId: "planner",
-        nodeName: "Planner",
         indicator: "[PLANNER]",
       });
 
@@ -143,7 +137,6 @@ describe("stream-workflow-step handler descriptors", () => {
       expect(result.type).toBe("workflow-step-start");
       expect(result.workflowId).toBe("wf-1");
       expect(result.nodeId).toBe("planner");
-      expect(result.nodeName).toBe("Planner");
       expect(result.indicator).toBe("[PLANNER]");
       expect(result.runId).toBe(1);
     });
@@ -157,7 +150,6 @@ describe("stream-workflow-step handler descriptors", () => {
       const event = makeBusEvent("workflow.step.complete", {
         workflowId: "wf-1",
         nodeId: "planner",
-        nodeName: "Planner",
         status: "completed",
         durationMs: 1234,
       });
@@ -172,7 +164,6 @@ describe("stream-workflow-step handler descriptors", () => {
       const event = makeBusEvent("workflow.step.complete", {
         workflowId: "wf-1",
         nodeId: "planner",
-        nodeName: "Planner",
         status: "completed",
         durationMs: 1234,
       });
@@ -192,7 +183,6 @@ describe("stream-workflow-step handler descriptors", () => {
       const event = makeBusEvent("workflow.step.complete", {
         workflowId: "wf-1",
         nodeId: "planner",
-        nodeName: "Planner",
         status: "error",
         durationMs: 500,
         error: "Session failed",
@@ -209,7 +199,6 @@ describe("stream-workflow-step handler descriptors", () => {
       const event = makeBusEvent("workflow.step.complete", {
         workflowId: "wf-1",
         nodeId: "debugger",
-        nodeName: "Debugger",
         status: "skipped",
         durationMs: 0,
       });

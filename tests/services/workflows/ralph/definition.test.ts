@@ -6,7 +6,7 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { ralphWorkflowDefinition } from "@/services/workflows/ralph/definition.ts";
+import { ralphWorkflowDefinition } from "@/services/workflows/builtin/ralph/ralph-workflow.ts";
 import { isStageDefinition } from "@/services/workflows/conductor/guards.ts";
 import type { StageContext, StageOutput } from "@/services/workflows/conductor/types.ts";
 import { VERSION } from "@/version.ts";
@@ -295,6 +295,7 @@ describe("Ralph Workflow Definition (DSL)", () => {
     const { defineWorkflow: dw } = require("@/services/workflows/dsl/define-workflow.ts");
     const mismatchedWorkflow = dw("test-mismatch", "test")
       .stage({
+        name: "bad-stage",
         agent: "bad-stage",
         description: "test",
         prompt: () => "test",

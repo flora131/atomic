@@ -7,7 +7,7 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { createReviewLoopTerminator } from "@/services/workflows/ralph/definition.ts";
+import { createReviewLoopTerminator } from "@/services/workflows/builtin/ralph/ralph-workflow.ts";
 import type { BaseState } from "@/services/workflows/graph/types.ts";
 import type { StageOutput } from "@/services/workflows/conductor/types.ts";
 

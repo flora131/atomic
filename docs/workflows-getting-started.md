@@ -10,24 +10,30 @@ Use the chainable builder to declare your workflow's metadata, stages, and execu
 // .atomic/workflows/my-workflow.ts
 import { defineWorkflow } from "@atomic/workflows";
 
-export default defineWorkflow("my-workflow", "A three-stage pipeline")
+export default defineWorkflow({
+    name: "my-workflow",
+    description: "A three-stage pipeline",
+  })
   .version("1.0.0")
-  .stage("planner", {
-    name: "Planner",
+  .stage({
+    name: "plan",
+    agent: "planner",
     description: "PLANNER",
     outputs: ["tasks"],
     prompt: (ctx) => `Decompose this into tasks:\n${ctx.userPrompt}`,
     outputMapper: (response) => ({ tasks: JSON.parse(response) }),
   })
-  .stage("executor", {
-    name: "Executor",
+  .stage({
+    name: "execute",
+    agent: "executor",
     description: "EXECUTOR",
     reads: ["tasks"],
-    prompt: (ctx) => `Execute these tasks:\n${JSON.stringify(ctx.stageOutputs.get("planner")?.parsedOutput)}`,
+    prompt: (ctx) => `Execute these tasks:\n${JSON.stringify(ctx.stageOutputs.get("plan")?.parsedOutput)}`,
     outputMapper: () => ({}),
   })
-  .stage("reviewer", {
-    name: "Reviewer",
+  .stage({
+    name: "review",
+    agent: "reviewer",
     description: "REVIEWER",
     reads: ["tasks"],
     outputs: ["reviewResult"],
@@ -37,7 +43,7 @@ export default defineWorkflow("my-workflow", "A three-stage pipeline")
   .compile();
 ```
 
-Reading top-to-bottom: `planner → executor → reviewer`. No separate flow config needed.
+Reading top-to-bottom: `plan → execute → review`. No separate flow config needed.
 
 ## 2) Stage vs Tool nodes
 
@@ -45,17 +51,35 @@ Reading top-to-bottom: `planner → executor → reviewer`. No separate flow con
 
 Each `.stage()` creates an isolated agent session with a fresh context window. The `prompt` function builds the prompt, and `outputMapper` extracts structured data from the response.
 
+Every stage requires two identity fields:
+
+- **`name`** — a unique key for this stage within the workflow. Used as the key in `ctx.stageOutputs` so downstream stages can reference this stage's output unambiguously. The builder throws at definition time if a duplicate name is detected.
+- **`agent`** — the agent definition to invoke for this stage (selects the sub-agent instruction set loaded at runtime). Multiple stages can share the same `agent` — the `name` is what keeps them distinct.
+
 ```ts
-.stage("planner", {
-  name: "Planner",
+.stage({
+  name: "plan",                  // Unique stage key (used in ctx.stageOutputs)
+  agent: "planner",              // Agent definition to invoke
   description: "PLANNER",
-  reads: ["previousData"],     // State fields this stage depends on
-  outputs: ["tasks"],          // State fields this stage produces
+  reads: ["previousData"],       // State fields this stage depends on
+  outputs: ["tasks"],            // State fields this stage produces
   prompt: (ctx) => `Plan: ${ctx.userPrompt}`,
   outputMapper: (response) => ({ tasks: parseTasks(response) }),
   sessionConfig: { model: "claude-sonnet-4-5-20250514" },  // Optional overrides
 })
 ```
+
+#### `name` vs `agent`
+
+`name` identifies the stage, `agent` selects which sub-agent to run. This means the same agent definition can power multiple stages with different purposes, and each is referenced by its own `name`:
+
+```ts
+.stage({ name: "draft",   agent: "writer", prompt: (ctx) => `Write a draft for: ${ctx.userPrompt}`, ... })
+.stage({ name: "revise",  agent: "writer", prompt: (ctx) => `Revise this draft:\n${ctx.stageOutputs.get("draft")?.rawResponse}`, ... })
+.stage({ name: "polish",  agent: "writer", prompt: (ctx) => `Polish this text:\n${ctx.stageOutputs.get("revise")?.rawResponse}`, ... })
+```
+
+Downstream stages access prior outputs via `ctx.stageOutputs.get("<name>")` — each key is always the explicit `name` you chose, so there is never any ambiguity.
 
 ### `.tool()` — Deterministic functions (no LLM)
 
@@ -78,54 +102,86 @@ Each `.stage()` creates an isolated agent session with a fresh context window. T
 Use `.if()` / `.elseIf()` / `.else()` / `.endIf()` for conditional execution:
 
 ```ts
-defineWorkflow("conditional-pipeline", "Branch based on analysis")
-  .stage("analyzer", { ... })
-  .if((ctx) => ctx.stageOutputs.get("analyzer")?.parsedOutput?.needsFix)
-    .stage("fixer", { ... })
-  .elseIf((ctx) => ctx.stageOutputs.get("analyzer")?.parsedOutput?.needsReview)
-    .stage("reviewer", { ... })
+defineWorkflow({ name: "conditional-pipeline", description: "Branch based on analysis" })
+  .stage({ name: "analyze", agent: "analyzer", ... })
+  .if((ctx) => ctx.stageOutputs.get("analyze")?.parsedOutput?.needsFix)
+    .stage({ name: "fix", agent: "fixer", ... })
+  .elseIf((ctx) => ctx.stageOutputs.get("analyze")?.parsedOutput?.needsReview)
+    .stage({ name: "review", agent: "reviewer", ... })
   .else()
-    .stage("reporter", { ... })
+    .stage({ name: "report", agent: "reporter", ... })
   .endIf()
-  .stage("finalizer", { ... })
+  .stage({ name: "finalize", agent: "finalizer", ... })
   .compile();
 ```
 
-Reading top-to-bottom: `analyzer → (if needsFix: fixer | elif needsReview: reviewer | else: reporter) → finalizer`.
+Reading top-to-bottom: `analyze → (if needsFix: fix | elif needsReview: review | else: report) → finalize`.
 
 ## 4) Bounded loops
 
-Use `.loop()` / `.endLoop()` for iterative workflows with a maximum iteration bound:
+Use `.loop()` / `.endLoop()` for iterative workflows with a maximum iteration bound. Use `.break()` inside the loop body for conditional early termination:
 
 ```ts
-defineWorkflow("iterative-review", "Review loop")
-  .stage("executor", { ... })
-  .loop({ until: (ctx) => ctx.stageOutputs.get("reviewer")?.parsedOutput?.allPassing, maxIterations: 5 })
-    .stage("reviewer", { ... })
-    .stage("fixer", { ... })
+defineWorkflow({ name: "iterative-review", description: "Review loop" })
+  .stage({ name: "execute", agent: "executor", ... })
+  .loop({ maxCycles: 5 })
+    .stage({ name: "review", agent: "reviewer", ... })
+    .break(() => {
+      // Factory: returns a fresh predicate per execution
+      return (state) => state.reviewResult?.allPassing === true;
+    })
+    .stage({ name: "fix", agent: "fixer", ... })
   .endLoop()
-  .stage("deployer", { ... })
+  .stage({ name: "deploy", agent: "deployer", ... })
   .compile();
 ```
 
-Reading top-to-bottom: `executor → [reviewer → fixer] (repeat up to 5x until allPassing) → deployer`.
+Reading top-to-bottom: `execute → [review → break? → fix] (repeat up to 5x) → deploy`.
+
+The `.break()` method accepts an optional factory function that creates a fresh predicate per execution. The loop exits when the predicate returns `true`. Omit the argument for an unconditional break (useful inside `.if()` blocks).
 
 ## 5) Custom state with reducers
 
-Use `.state()` to declare custom state fields with optional reducers for merging updates:
+Declare custom state fields with optional reducers using `globalState` in `defineWorkflow()` for workflow-wide state, or `loopState` in `.loop()` for loop-scoped state:
+
+### `globalState` — Workflow-wide state
 
 ```ts
-defineWorkflow("stateful", "Workflow with custom state")
-  .state({
-    tasks: { default: [], reducer: "mergeById", key: "id" },
-    reviewResult: { default: null },
-    fixesApplied: { default: false },
-    debugReports: { default: [], reducer: "concat" },
-    score: { default: 0, reducer: "max" },
+defineWorkflow({
+    name: "stateful",
+    description: "Workflow with custom state",
+    globalState: {
+      tasks: { default: [], reducer: "mergeById", key: "id" },
+      reviewResult: { default: null },
+      fixesApplied: { default: false },
+      debugReports: { default: [], reducer: "concat" },
+      score: { default: 0, reducer: "max" },
+    },
   })
-  .stage("planner", { ... })
+  .stage({ name: "plan", agent: "planner", ... })
   .compile();
 ```
+
+### `loopState` — Loop-scoped state
+
+```ts
+defineWorkflow({ name: "iterative", description: "Loop with scoped state" })
+  .stage({ name: "execute", agent: "executor", ... })
+  .loop({
+    maxCycles: 5,
+    loopState: {
+      iterationCount: { default: 0, reducer: "sum" },
+      findings: { default: [], reducer: "concat" },
+    },
+  })
+    .stage({ name: "review", agent: "reviewer", ... })
+    .break(() => (state) => state.iterationCount >= 3)
+    .stage({ name: "fix", agent: "fixer", ... })
+  .endLoop()
+  .compile();
+```
+
+Both `globalState` and `loopState` fields are merged into a single state schema at compile time. If both define the same field, `loopState` takes precedence.
 
 Built-in reducers: `replace` (default), `concat`, `merge`, `mergeById`, `max`, `min`, `sum`, `or`, `and`. You can also pass a custom function: `reducer: (current, update) => ...`.
 
@@ -134,23 +190,26 @@ Built-in reducers: `replace` (default), `concat`, `merge`, `mergeById`, `max`, `
 By default, each stage inherits the parent session's configuration — model, reasoning effort, thinking token budget, permission mode, and additional instructions all carry forward automatically. Use `sessionConfig` on a stage to override any of these per stage:
 
 ```ts
-.stage("planner", {
-  name: "Planner",
+.stage({
+  name: "plan",
+  agent: "planner",
   description: "PLANNER",
   prompt: (ctx) => `Plan: ${ctx.userPrompt}`,
   outputMapper: (response) => ({ tasks: parseTasks(response) }),
   // Override the model for this stage only
   sessionConfig: { model: "claude-sonnet-4-5-20250514" },
 })
-.stage("executor", {
-  name: "Executor",
+.stage({
+  name: "execute",
+  agent: "executor",
   description: "EXECUTOR",
-  prompt: (ctx) => `Execute: ${JSON.stringify(ctx.stageOutputs.get("planner")?.parsedOutput)}`,
+  prompt: (ctx) => `Execute: ${JSON.stringify(ctx.stageOutputs.get("plan")?.parsedOutput)}`,
   outputMapper: () => ({}),
   // Uses the parent session's model (inherited automatically)
 })
-.stage("reviewer", {
-  name: "Reviewer",
+.stage({
+  name: "review",
+  agent: "reviewer",
   description: "REVIEWER",
   prompt: (ctx) => `Review: ${ctx.userPrompt}`,
   outputMapper: (response) => ({ reviewResult: JSON.parse(response) }),
@@ -187,15 +246,21 @@ Each node declares which state fields it **reads** and which it **outputs**:
 These declarations are contracts used for verification:
 
 ```ts
-.stage("planner", {
+.stage({
+  name: "plan",
+  agent: "planner",
+  description: "PLANNER",
   outputs: ["tasks"],                    // Produces tasks
   prompt: (ctx) => `Plan: ${ctx.userPrompt}`,
   outputMapper: (response) => ({ tasks: parseTasks(response) }),
 })
-.stage("executor", {
-  reads: ["tasks"],                      // Reads tasks from planner
+.stage({
+  name: "execute",
+  agent: "executor",
+  description: "EXECUTOR",
+  reads: ["tasks"],                      // Reads tasks from plan stage
   outputs: ["progress"],                 // Produces progress
-  prompt: (ctx) => `Execute: ${JSON.stringify(ctx.stageOutputs.get("planner")?.parsedOutput)}`,
+  prompt: (ctx) => `Execute: ${JSON.stringify(ctx.stageOutputs.get("plan")?.parsedOutput)}`,
   outputMapper: (response) => ({ progress: parseProgress(response) }),
 })
 ```
@@ -213,9 +278,9 @@ Export your compiled workflow as the default export:
 // .atomic/workflows/my-workflow.ts
 import { defineWorkflow } from "@atomic/workflows";
 
-export default defineWorkflow("my-workflow", "My custom workflow")
-  .stage("step1", { ... })
-  .stage("step2", { ... })
+export default defineWorkflow({ name: "my-workflow", description: "My custom workflow" })
+  .stage({ name: "step1", agent: "step1", description: "Step 1", ... })
+  .stage({ name: "step2", agent: "step2", description: "Step 2", ... })
   .compile();
 ```
 
@@ -289,6 +354,6 @@ The verifier exits with code 1 on any failure, making it suitable for CI pipelin
 | `createGraph()` / `graphConfig`     | Auto-generated by `.compile()`       |
 | `conductorStages` array             | Auto-generated from `.stage()` calls |
 | `StageDefinition.shouldRun`         | `.if()` / `.endIf()` in the chain    |
-| `createState()` factory             | `.state()` schema with reducers      |
+| `createState()` factory             | `globalState` / `loopState` options   |
 | `WorkflowSDK.init()`                | Removed — use `defineWorkflow()`     |
 | Manual `NodeDefinition` + `Edge`    | Auto-generated by compiler           |

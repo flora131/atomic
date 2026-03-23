@@ -25,5 +25,5 @@ export {
 export * from "@/services/workflows/graph/index.ts";
 
 // Ralph workflow
-export * from "@/services/workflows/ralph/prompts.ts";
-export * from "@/services/workflows/ralph/graph/task-helpers.ts";
+export * from "@/services/workflows/builtin/ralph/helpers/prompts.ts";
+export * from "@/services/workflows/builtin/ralph/helpers/tasks.ts";

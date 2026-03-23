@@ -2,7 +2,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "path";
 import type { BaseState, CompiledGraph } from "@/services/workflows/graph/types.ts";
 import { VERSION } from "@/version.ts";
-import { ralphWorkflowDefinition } from "@/services/workflows/ralph/definition.ts";
+import { ralphWorkflowDefinition } from "@/services/workflows/builtin/ralph/ralph-workflow.ts";
 import type {
   WorkflowDefinition,
   WorkflowGraphConfig,

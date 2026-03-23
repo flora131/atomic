@@ -23,7 +23,6 @@ registry.register("workflow.step.start", {
       runId: event.runId,
       workflowId: data.workflowId,
       nodeId: data.nodeId,
-      nodeName: data.nodeName,
       indicator: data.indicator,
     };
   },
@@ -41,7 +40,6 @@ registry.register("workflow.step.complete", {
       runId: event.runId,
       workflowId: data.workflowId,
       nodeId: data.nodeId,
-      nodeName: data.nodeName,
       status: data.status,
       durationMs: data.durationMs,
       ...(data.error ? { error: data.error } : {}),

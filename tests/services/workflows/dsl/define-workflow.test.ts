@@ -20,10 +20,10 @@ import {
 } from "@/services/workflows/dsl/define-workflow.ts";
 import type {
   Instruction,
-  StageConfig,
-  ToolConfig,
-  LoopConfig,
-  StateFieldConfig,
+  StageOptions,
+  ToolOptions,
+  LoopOptions,
+  StateFieldOptions,
   WorkflowBuilderInterface,
 } from "@/services/workflows/dsl/types.ts";
 import type { StageContext } from "@/services/workflows/conductor/types.ts";
@@ -32,9 +32,10 @@ import type { StageContext } from "@/services/workflows/conductor/types.ts";
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Minimal valid StageConfig for test use. */
-function makeStageConfig(overrides?: Partial<StageConfig>): StageConfig {
+/** Minimal valid StageOptions for test use. */
+function makeStageOptions(overrides?: Partial<StageOptions>): StageOptions {
   return {
+    name: overrides?.name ?? "test-stage",
     agent: "test-stage",
     description: "A test stage",
     prompt: (ctx: StageContext) => `Prompt: ${ctx.userPrompt}`,
@@ -43,8 +44,8 @@ function makeStageConfig(overrides?: Partial<StageConfig>): StageConfig {
   };
 }
 
-/** Minimal valid ToolConfig for test use. */
-function makeToolConfig(overrides?: Partial<ToolConfig>): ToolConfig {
+/** Minimal valid ToolOptions for test use. */
+function makeToolOptions(overrides?: Partial<ToolOptions>): ToolOptions {
   return {
     name: "test-tool",
     execute: async () => ({ computed: true }),
@@ -52,10 +53,9 @@ function makeToolConfig(overrides?: Partial<ToolConfig>): ToolConfig {
   };
 }
 
-/** Minimal valid LoopConfig for test use. */
-function makeLoopConfig(overrides?: Partial<LoopConfig>): LoopConfig {
+/** Minimal valid LoopOptions for test use. */
+function makeLoopOptions(overrides?: Partial<LoopOptions>): LoopOptions {
   return {
-    until: () => true,
     maxCycles: 5,
     ...overrides,
   };
@@ -67,20 +67,20 @@ function makeLoopConfig(overrides?: Partial<LoopConfig>): LoopConfig {
 
 describe("defineWorkflow()", () => {
   test("returns a WorkflowBuilder instance", () => {
-    const builder = defineWorkflow("my-workflow", "Does something");
+    const builder = defineWorkflow({ name: "my-workflow", description: "Does something" });
 
     expect(builder).toBeInstanceOf(WorkflowBuilder);
   });
 
   test("sets name and description on the builder", () => {
-    const builder = defineWorkflow("task-runner", "Runs tasks in sequence");
+    const builder = defineWorkflow({ name: "task-runner", description: "Runs tasks in sequence" });
 
     expect(builder.name).toBe("task-runner");
     expect(builder.description).toBe("Runs tasks in sequence");
   });
 
   test("starts with an empty instructions array", () => {
-    const builder = defineWorkflow("empty", "No instructions yet");
+    const builder = defineWorkflow({ name: "empty", description: "No instructions yet" });
 
     expect(builder.instructions).toEqual([]);
     expect(builder.instructions.length).toBe(0);
@@ -93,7 +93,7 @@ describe("defineWorkflow()", () => {
 
 describe("WorkflowBuilder metadata", () => {
   test("version() stores the version and returns this", () => {
-    const builder = defineWorkflow("w", "d");
+    const builder = defineWorkflow({ name: "w", description: "d" });
     const result = builder.version("2.1.0");
 
     expect(result).toBe(builder);
@@ -101,7 +101,7 @@ describe("WorkflowBuilder metadata", () => {
   });
 
   test("version() can be overwritten by a subsequent call", () => {
-    const builder = defineWorkflow("w", "d")
+    const builder = defineWorkflow({ name: "w", description: "d" })
       .version("1.0.0")
       .version("2.0.0");
 
@@ -109,39 +109,64 @@ describe("WorkflowBuilder metadata", () => {
   });
 
   test("argumentHint() stores the hint and returns this", () => {
-    const builder = defineWorkflow("w", "d");
+    const builder = defineWorkflow({ name: "w", description: "d" });
     const result = builder.argumentHint("<file-path>");
 
     expect(result).toBe(builder);
     expect(builder.getArgumentHint()).toBe("<file-path>");
   });
 
-  test("state() stores the schema and returns this", () => {
-    const schema: Record<string, StateFieldConfig> = {
+  test("globalState option stores the schema on the builder", () => {
+    const schema: Record<string, StateFieldOptions> = {
       count: { default: 0, reducer: "sum" },
       items: { default: () => [], reducer: "concat" },
     };
 
-    const builder = defineWorkflow("w", "d");
-    const result = builder.state(schema);
+    const builder = defineWorkflow({ name: "w", description: "d", globalState: schema });
 
-    expect(result).toBe(builder);
-    expect(builder.getStateSchema()).toBe(schema);
+    expect(builder.getStateSchema()).toEqual(schema);
   });
 
   test("getVersion() returns undefined when not set", () => {
-    const builder = defineWorkflow("w", "d");
+    const builder = defineWorkflow({ name: "w", description: "d" });
     expect(builder.getVersion()).toBeUndefined();
   });
 
   test("getArgumentHint() returns undefined when not set", () => {
-    const builder = defineWorkflow("w", "d");
+    const builder = defineWorkflow({ name: "w", description: "d" });
     expect(builder.getArgumentHint()).toBeUndefined();
   });
 
-  test("getStateSchema() returns undefined when not set", () => {
-    const builder = defineWorkflow("w", "d");
+  test("getStateSchema() returns undefined when no globalState or loopState", () => {
+    const builder = defineWorkflow({ name: "w", description: "d" });
     expect(builder.getStateSchema()).toBeUndefined();
+  });
+
+  test("getStateSchema() merges globalState and loopState", () => {
+    const builder = defineWorkflow({
+      name: "w",
+      description: "d",
+      globalState: { count: { default: 0, reducer: "sum" } },
+    })
+      .loop({ maxCycles: 3, loopState: { iteration: { default: 0 } } })
+        .stage(makeStageOptions({ name: "review" }))
+      .endLoop();
+
+    const schema = builder.getStateSchema();
+    expect(schema).toBeDefined();
+    expect(schema!.count).toEqual({ default: 0, reducer: "sum" });
+    expect(schema!.iteration).toEqual({ default: 0 });
+  });
+
+  test("getStateSchema() returns loopState-only schema when no globalState", () => {
+    const builder = defineWorkflow({ name: "w", description: "d" })
+      .loop({ maxCycles: 5, loopState: { attempts: { default: 0 } } })
+        .stage(makeStageOptions({ name: "retry" }))
+      .endLoop();
+
+    const schema = builder.getStateSchema();
+    expect(schema).toBeDefined();
+    expect(schema!.attempts).toEqual({ default: 0 });
   });
 });
 
@@ -151,8 +176,8 @@ describe("WorkflowBuilder metadata", () => {
 
 describe("WorkflowBuilder.stage()", () => {
   test("records a stage instruction", () => {
-    const config = makeStageConfig({ agent: "planner" });
-    const builder = defineWorkflow("w", "d").stage(config);
+    const config = makeStageOptions({ name: "planner" });
+    const builder = defineWorkflow({ name: "w", description: "d" }).stage(config);
 
     expect(builder.instructions.length).toBe(1);
     expect(builder.instructions[0]!.type).toBe("stage");
@@ -166,17 +191,17 @@ describe("WorkflowBuilder.stage()", () => {
   });
 
   test("returns this for chaining", () => {
-    const builder = defineWorkflow("w", "d");
-    const result = builder.stage(makeStageConfig());
+    const builder = defineWorkflow({ name: "w", description: "d" });
+    const result = builder.stage(makeStageOptions());
 
     expect(result).toBe(builder);
   });
 
   test("multiple stages are recorded in order", () => {
-    const builder = defineWorkflow("w", "d")
-      .stage(makeStageConfig({ agent: "stage-1" }))
-      .stage(makeStageConfig({ agent: "stage-2" }))
-      .stage(makeStageConfig({ agent: "stage-3" }));
+    const builder = defineWorkflow({ name: "w", description: "d" })
+      .stage(makeStageOptions({ name: "stage-1" }))
+      .stage(makeStageOptions({ name: "stage-2" }))
+      .stage(makeStageOptions({ name: "stage-3" }));
 
     expect(builder.instructions.length).toBe(3);
 
@@ -194,8 +219,8 @@ describe("WorkflowBuilder.stage()", () => {
 
 describe("WorkflowBuilder.tool()", () => {
   test("records a tool instruction", () => {
-    const config = makeToolConfig({ name: "Parser" });
-    const builder = defineWorkflow("w", "d").tool("parser", config);
+    const config = makeToolOptions({ name: "Parser" });
+    const builder = defineWorkflow({ name: "w", description: "d" }).tool("parser", config);
 
     expect(builder.instructions.length).toBe(1);
     expect(builder.instructions[0]!.type).toBe("tool");
@@ -209,8 +234,8 @@ describe("WorkflowBuilder.tool()", () => {
   });
 
   test("returns this for chaining", () => {
-    const builder = defineWorkflow("w", "d");
-    const result = builder.tool("t1", makeToolConfig());
+    const builder = defineWorkflow({ name: "w", description: "d" });
+    const result = builder.tool("t1", makeToolOptions());
 
     expect(result).toBe(builder);
   });
@@ -223,7 +248,7 @@ describe("WorkflowBuilder.tool()", () => {
 describe("WorkflowBuilder conditional branching", () => {
   test("if() records an if instruction with condition", () => {
     const condition = (ctx: StageContext) => ctx.stageOutputs.has("planner");
-    const builder = defineWorkflow("w", "d").if(condition);
+    const builder = defineWorkflow({ name: "w", description: "d" }).if(condition);
 
     expect(builder.instructions.length).toBe(1);
     expect(builder.instructions[0]!.type).toBe("if");
@@ -236,7 +261,7 @@ describe("WorkflowBuilder conditional branching", () => {
   });
 
   test("if() returns this for chaining", () => {
-    const builder = defineWorkflow("w", "d");
+    const builder = defineWorkflow({ name: "w", description: "d" });
     const result = builder.if(() => true);
 
     expect(result).toBe(builder);
@@ -244,7 +269,7 @@ describe("WorkflowBuilder conditional branching", () => {
 
   test("elseIf() records an elseIf instruction with condition", () => {
     const condition = () => false;
-    const builder = defineWorkflow("w", "d")
+    const builder = defineWorkflow({ name: "w", description: "d" })
       .if(() => true)
       .elseIf(condition);
 
@@ -259,14 +284,14 @@ describe("WorkflowBuilder conditional branching", () => {
   });
 
   test("elseIf() returns this for chaining", () => {
-    const builder = defineWorkflow("w", "d").if(() => true);
+    const builder = defineWorkflow({ name: "w", description: "d" }).if(() => true);
     const result = builder.elseIf(() => false);
 
     expect(result).toBe(builder);
   });
 
   test("else() records an else instruction", () => {
-    const builder = defineWorkflow("w", "d")
+    const builder = defineWorkflow({ name: "w", description: "d" })
       .if(() => true)
       .else();
 
@@ -275,14 +300,14 @@ describe("WorkflowBuilder conditional branching", () => {
   });
 
   test("else() returns this for chaining", () => {
-    const builder = defineWorkflow("w", "d").if(() => true);
+    const builder = defineWorkflow({ name: "w", description: "d" }).if(() => true);
     const result = builder.else();
 
     expect(result).toBe(builder);
   });
 
   test("endIf() records an endIf instruction", () => {
-    const builder = defineWorkflow("w", "d")
+    const builder = defineWorkflow({ name: "w", description: "d" })
       .if(() => true)
       .endIf();
 
@@ -291,20 +316,20 @@ describe("WorkflowBuilder conditional branching", () => {
   });
 
   test("endIf() returns this for chaining", () => {
-    const builder = defineWorkflow("w", "d").if(() => true);
+    const builder = defineWorkflow({ name: "w", description: "d" }).if(() => true);
     const result = builder.endIf();
 
     expect(result).toBe(builder);
   });
 
   test("full if/elseIf/else/endIf sequence records correct instruction types", () => {
-    const builder = defineWorkflow("w", "d")
+    const builder = defineWorkflow({ name: "w", description: "d" })
       .if(() => true)
-      .stage(makeStageConfig({ agent: "s1" }))
+      .stage(makeStageOptions({ name: "s1" }))
       .elseIf(() => false)
-      .stage(makeStageConfig({ agent: "s2" }))
+      .stage(makeStageOptions({ name: "s2" }))
       .else()
-      .stage(makeStageConfig({ agent: "s3" }))
+      .stage(makeStageOptions({ name: "s3" }))
       .endIf();
 
     const types = builder.instructions.map((i) => i.type);
@@ -326,8 +351,8 @@ describe("WorkflowBuilder conditional branching", () => {
 
 describe("WorkflowBuilder bounded loops", () => {
   test("loop() records a loop instruction with config", () => {
-    const config = makeLoopConfig({ maxCycles: 10 });
-    const builder = defineWorkflow("w", "d").loop(config);
+    const config = makeLoopOptions({ maxCycles: 10 });
+    const builder = defineWorkflow({ name: "w", description: "d" }).loop(config);
 
     expect(builder.instructions.length).toBe(1);
     expect(builder.instructions[0]!.type).toBe("loop");
@@ -340,15 +365,15 @@ describe("WorkflowBuilder bounded loops", () => {
   });
 
   test("loop() returns this for chaining", () => {
-    const builder = defineWorkflow("w", "d");
-    const result = builder.loop(makeLoopConfig());
+    const builder = defineWorkflow({ name: "w", description: "d" });
+    const result = builder.loop(makeLoopOptions());
 
     expect(result).toBe(builder);
   });
 
   test("endLoop() records an endLoop instruction", () => {
-    const builder = defineWorkflow("w", "d")
-      .loop(makeLoopConfig())
+    const builder = defineWorkflow({ name: "w", description: "d" })
+      .loop(makeLoopOptions())
       .endLoop();
 
     expect(builder.instructions.length).toBe(2);
@@ -356,17 +381,17 @@ describe("WorkflowBuilder bounded loops", () => {
   });
 
   test("endLoop() returns this for chaining", () => {
-    const builder = defineWorkflow("w", "d").loop(makeLoopConfig());
+    const builder = defineWorkflow({ name: "w", description: "d" }).loop(makeLoopOptions());
     const result = builder.endLoop();
 
     expect(result).toBe(builder);
   });
 
   test("loop with body records correct instruction sequence", () => {
-    const builder = defineWorkflow("w", "d")
-      .loop(makeLoopConfig({ maxCycles: 3 }))
-      .stage(makeStageConfig({ agent: "review" }))
-      .tool("check", makeToolConfig())
+    const builder = defineWorkflow({ name: "w", description: "d" })
+      .loop(makeLoopOptions({ maxCycles: 3 }))
+      .stage(makeStageOptions({ name: "review" }))
+      .tool("check", makeToolOptions())
       .endLoop();
 
     const types = builder.instructions.map((i) => i.type);
@@ -374,7 +399,7 @@ describe("WorkflowBuilder bounded loops", () => {
   });
 
   test("endLoop() throws when called outside a loop", () => {
-    const builder = defineWorkflow("w", "d");
+    const builder = defineWorkflow({ name: "w", description: "d" });
 
     expect(() => builder.endLoop()).toThrow(
       "endLoop() called without a matching loop()",
@@ -382,8 +407,8 @@ describe("WorkflowBuilder bounded loops", () => {
   });
 
   test("endLoop() throws after all loops are closed", () => {
-    const builder = defineWorkflow("w", "d")
-      .loop(makeLoopConfig())
+    const builder = defineWorkflow({ name: "w", description: "d" })
+      .loop(makeLoopOptions())
       .endLoop();
 
     expect(() => builder.endLoop()).toThrow(
@@ -391,9 +416,25 @@ describe("WorkflowBuilder bounded loops", () => {
     );
   });
 
+  test("loop() can be called with no arguments (config defaults to {})", () => {
+    const builder = defineWorkflow({ name: "w", description: "d" })
+      .loop()
+      .stage(makeStageOptions({ name: "review" }))
+      .endLoop();
+
+    const types = builder.instructions.map((i) => i.type);
+    expect(types).toEqual(["loop", "stage", "endLoop"]);
+
+    const loopInstruction = builder.instructions[0] as Extract<
+      Instruction,
+      { type: "loop" }
+    >;
+    expect(loopInstruction.config).toEqual({});
+  });
+
   test("break() records a break instruction inside a loop", () => {
-    const builder = defineWorkflow("w", "d")
-      .loop(makeLoopConfig())
+    const builder = defineWorkflow({ name: "w", description: "d" })
+      .loop(makeLoopOptions())
       .break()
       .endLoop();
 
@@ -401,15 +442,43 @@ describe("WorkflowBuilder bounded loops", () => {
     expect(types).toEqual(["loop", "break", "endLoop"]);
   });
 
+  test("break() without a condition stores no condition on the instruction", () => {
+    const builder = defineWorkflow({ name: "w", description: "d" })
+      .loop(makeLoopOptions())
+      .break()
+      .endLoop();
+
+    const breakInstruction = builder.instructions[1] as Extract<
+      Instruction,
+      { type: "break" }
+    >;
+    expect(breakInstruction.condition).toBeUndefined();
+  });
+
+  test("break() with a condition factory stores the condition on the instruction", () => {
+    const conditionFactory = () => (state: { outputs: Record<string, unknown> }) =>
+      "reviewer" in state.outputs;
+    const builder = defineWorkflow({ name: "w", description: "d" })
+      .loop(makeLoopOptions())
+      .break(conditionFactory)
+      .endLoop();
+
+    const breakInstruction = builder.instructions[1] as Extract<
+      Instruction,
+      { type: "break" }
+    >;
+    expect(breakInstruction.condition).toBe(conditionFactory);
+  });
+
   test("break() returns this for chaining", () => {
-    const builder = defineWorkflow("w", "d").loop(makeLoopConfig());
+    const builder = defineWorkflow({ name: "w", description: "d" }).loop(makeLoopOptions());
     const result = builder.break();
 
     expect(result).toBe(builder);
   });
 
   test("break() throws when called outside a loop", () => {
-    const builder = defineWorkflow("w", "d");
+    const builder = defineWorkflow({ name: "w", description: "d" });
 
     expect(() => builder.break()).toThrow(
       "break() can only be used inside a loop() block",
@@ -417,10 +486,10 @@ describe("WorkflowBuilder bounded loops", () => {
   });
 
   test("break() works inside nested loops", () => {
-    const builder = defineWorkflow("w", "d")
-      .loop(makeLoopConfig())
-        .stage(makeStageConfig({ agent: "outer" }))
-        .loop(makeLoopConfig())
+    const builder = defineWorkflow({ name: "w", description: "d" })
+      .loop(makeLoopOptions())
+        .stage(makeStageOptions({ name: "outer" }))
+        .loop(makeLoopOptions())
           .break()
         .endLoop()
         .break()
@@ -433,8 +502,8 @@ describe("WorkflowBuilder bounded loops", () => {
   });
 
   test("break() throws after all loops are closed", () => {
-    const builder = defineWorkflow("w", "d")
-      .loop(makeLoopConfig())
+    const builder = defineWorkflow({ name: "w", description: "d" })
+      .loop(makeLoopOptions())
       .endLoop();
 
     expect(() => builder.break()).toThrow(
@@ -443,9 +512,9 @@ describe("WorkflowBuilder bounded loops", () => {
   });
 
   test("loop with break and conditional records correct instruction sequence", () => {
-    const builder = defineWorkflow("w", "d")
-      .loop(makeLoopConfig())
-        .stage(makeStageConfig({ agent: "review" }))
+    const builder = defineWorkflow({ name: "w", description: "d" })
+      .loop(makeLoopOptions())
+        .stage(makeStageOptions({ name: "review" }))
         .if(() => true)
           .break()
         .endIf()
@@ -462,8 +531,8 @@ describe("WorkflowBuilder bounded loops", () => {
 
 describe("WorkflowBuilder.compile()", () => {
   test("returns a CompiledWorkflow with __compiledWorkflow property", () => {
-    const builder = defineWorkflow("w", "d")
-      .stage(makeStageConfig());
+    const builder = defineWorkflow({ name: "w", description: "d" })
+      .stage(makeStageOptions());
 
     const compiled = builder.compile();
 
@@ -472,10 +541,10 @@ describe("WorkflowBuilder.compile()", () => {
   });
 
   test("compiled workflow wraps a WorkflowDefinition with correct metadata", () => {
-    const builder = defineWorkflow("my-wf", "My workflow")
+    const builder = defineWorkflow({ name: "my-wf", description: "My workflow" })
       .version("2.0.0")
       .argumentHint("<path>")
-      .stage(makeStageConfig({ agent: "first-stage" }));
+      .stage(makeStageOptions({ name: "first-stage" }));
 
     const compiled = builder.compile();
     const definition = compiled as unknown as Record<string, unknown>;
@@ -488,24 +557,22 @@ describe("WorkflowBuilder.compile()", () => {
   });
 
   test("compiled workflow contains conductorStages from stage instructions", () => {
-    const builder = defineWorkflow("w", "d")
-      .stage(makeStageConfig({ agent: "planner" }))
-      .stage(makeStageConfig({ agent: "executor" }));
+    const builder = defineWorkflow({ name: "w", description: "d" })
+      .stage(makeStageOptions({ name: "planner" }))
+      .stage(makeStageOptions({ name: "executor" }));
 
     const compiled = builder.compile();
     const definition = compiled as unknown as Record<string, unknown>;
-    const stages = definition.conductorStages as Array<{ id: string; name: string }>;
+    const stages = definition.conductorStages as Array<{ id: string }>;
 
     expect(stages).toHaveLength(2);
     expect(stages[0]!.id).toBe("planner");
-    expect(stages[0]!.name).toBe("planner");
     expect(stages[1]!.id).toBe("executor");
-    expect(stages[1]!.name).toBe("executor");
   });
 
   test("compiled workflow has a createConductorGraph function", () => {
-    const builder = defineWorkflow("w", "d")
-      .stage(makeStageConfig());
+    const builder = defineWorkflow({ name: "w", description: "d" })
+      .stage(makeStageOptions());
 
     const compiled = builder.compile();
     const definition = compiled as unknown as Record<string, unknown>;
@@ -514,8 +581,8 @@ describe("WorkflowBuilder.compile()", () => {
   });
 
   test("compiled workflow has a createState function", () => {
-    const builder = defineWorkflow("w", "d")
-      .stage(makeStageConfig());
+    const builder = defineWorkflow({ name: "w", description: "d" })
+      .stage(makeStageOptions());
 
     const compiled = builder.compile();
     const definition = compiled as unknown as Record<string, unknown>;
@@ -525,58 +592,53 @@ describe("WorkflowBuilder.compile()", () => {
 
   test("compile() throws on invalid instruction sequence", () => {
     // No stages or tools — should throw
-    const builder = defineWorkflow("w", "d");
+    const builder = defineWorkflow({ name: "w", description: "d" });
 
     expect(() => builder.compile()).toThrow(
       "Workflow must have at least one stage or tool node",
     );
   });
 
-  test("duplicate agent names get unique auto-generated IDs", () => {
-    const builder = defineWorkflow("w", "d")
-      .stage(makeStageConfig({ agent: "dup" }))
-      .stage(makeStageConfig({ agent: "dup" }));
-
-    // Should NOT throw — the builder auto-generates unique IDs ("dup", "dup_2")
-    const compiled = builder.compile();
-    expect(compiled).toBeDefined();
-
-    const ids = builder.instructions.map((i) => {
-      if (i.type === "stage") return i.id;
-      return null;
-    });
-    expect(ids).toEqual(["dup", "dup_2"]);
+  test("duplicate stage names throw at definition time", () => {
+    expect(() =>
+      defineWorkflow({ name: "w", description: "d" })
+        .stage(makeStageOptions({ name: "dup" }))
+        .stage(makeStageOptions({ name: "dup" })),
+    ).toThrow('Duplicate stage name: "dup"');
   });
 
   test("compile() throws on unbalanced if/endIf", () => {
-    const builder = defineWorkflow("w", "d")
-      .stage(makeStageConfig({ agent: "s1" }))
+    const builder = defineWorkflow({ name: "w", description: "d" })
+      .stage(makeStageOptions({ name: "s1" }))
       .if(() => true)
-      .stage(makeStageConfig({ agent: "s2" }));
+      .stage(makeStageOptions({ name: "s2" }));
 
     expect(() => builder.compile()).toThrow('unclosed "if" block(s)');
   });
 
   test("compiled graph includes node descriptions", () => {
-    const builder = defineWorkflow("w", "d")
-      .stage(makeStageConfig({ agent: "planner" }))
-      .tool("parser", makeToolConfig({ name: "Parse Output" }));
+    const builder = defineWorkflow({ name: "w", description: "d" })
+      .stage(makeStageOptions({ name: "planner", agent: "planner-agent" }))
+      .tool("parser", makeToolOptions({ name: "Parse Output" }));
 
     const compiled = builder.compile();
     const definition = compiled as unknown as Record<string, unknown>;
     const descriptions = definition.nodeDescriptions as Record<string, string>;
 
-    expect(descriptions.planner).toBe("planner");
+    expect(descriptions.planner).toBe("planner-agent");
     expect(descriptions.parser).toBe("Parse Output");
   });
 
-  test("compile() with state schema creates a working state factory", () => {
-    const builder = defineWorkflow("w", "d")
-      .state({
+  test("compile() with globalState creates a working state factory", () => {
+    const builder = defineWorkflow({
+      name: "w",
+      description: "d",
+      globalState: {
         count: { default: 0, reducer: "sum" },
         items: { default: () => [], reducer: "concat" },
-      })
-      .stage(makeStageConfig());
+      },
+    })
+      .stage(makeStageOptions());
 
     const compiled = builder.compile();
     const definition = compiled as unknown as Record<string, unknown>;
@@ -609,29 +671,29 @@ describe("WorkflowBuilder.compile()", () => {
 
 describe("WorkflowBuilder fluent chaining", () => {
   test("complex workflow produces correct instruction tape", () => {
-    const builder = defineWorkflow("complex-workflow", "A multi-stage workflow")
-      .version("1.0.0")
-      .argumentHint("<task-description>")
-      .state({
+    const builder = defineWorkflow({
+      name: "complex-workflow",
+      description: "A multi-stage workflow",
+      globalState: {
         plan: { default: "" },
         results: { default: () => [], reducer: "concat" },
         iteration: { default: 0, reducer: "sum" },
-      })
-      .stage(makeStageConfig({ agent: "planner" }))
+      },
+    })
+      .version("1.0.0")
+      .argumentHint("<task-description>")
+      .stage(makeStageOptions({ name: "planner" }))
       .if((ctx) => ctx.stageOutputs.has("planner"))
-        .stage(makeStageConfig({ agent: "executor" }))
-        .tool("parser", makeToolConfig({ name: "Output Parser" }))
-        .loop({
-          until: (state) => "reviewer" in state.outputs,
-          maxCycles: 3,
-        })
-          .stage(makeStageConfig({ agent: "reviewer" }))
+        .stage(makeStageOptions({ name: "executor" }))
+        .tool("parser", makeToolOptions({ name: "Output Parser" }))
+        .loop({ maxCycles: 3 })
+          .stage(makeStageOptions({ name: "reviewer" }))
           .if((ctx) => !ctx.stageOutputs.has("reviewer"))
-            .stage(makeStageConfig({ agent: "debugger" }))
+            .stage(makeStageOptions({ name: "debugger" }))
           .endIf()
         .endLoop()
       .else()
-        .stage(makeStageConfig({ agent: "fallback" }))
+        .stage(makeStageOptions({ name: "fallback" }))
       .endIf();
 
     // Verify metadata
@@ -663,20 +725,23 @@ describe("WorkflowBuilder fluent chaining", () => {
   });
 
   test("metadata does not add instructions", () => {
-    const builder = defineWorkflow("w", "d")
+    const builder = defineWorkflow({
+      name: "w",
+      description: "d",
+      globalState: { x: { default: 0 } },
+    })
       .version("1.0.0")
-      .argumentHint("hint")
-      .state({ x: { default: 0 } });
+      .argumentHint("hint");
 
     expect(builder.instructions.length).toBe(0);
   });
 
   test("stages and tools can be mixed freely", () => {
-    const builder = defineWorkflow("w", "d")
-      .stage(makeStageConfig({ agent: "s1" }))
-      .tool("t1", makeToolConfig())
-      .stage(makeStageConfig({ agent: "s2" }))
-      .tool("t2", makeToolConfig());
+    const builder = defineWorkflow({ name: "w", description: "d" })
+      .stage(makeStageOptions({ name: "s1" }))
+      .tool("t1", makeToolOptions())
+      .stage(makeStageOptions({ name: "s2" }))
+      .tool("t2", makeToolOptions());
 
     const types = builder.instructions.map((i) => i.type);
     expect(types).toEqual(["stage", "tool", "stage", "tool"]);
@@ -690,12 +755,11 @@ describe("WorkflowBuilder fluent chaining", () => {
 describe("WorkflowBuilder interface conformance", () => {
   test("WorkflowBuilder satisfies WorkflowBuilderInterface", () => {
     // This is a compile-time check — if this compiles, the interface is satisfied
-    const builder: WorkflowBuilderInterface = defineWorkflow("w", "d");
+    const builder: WorkflowBuilderInterface = defineWorkflow({ name: "w", description: "d" });
 
     // Verify all methods exist and return this
     expect(typeof builder.version).toBe("function");
     expect(typeof builder.argumentHint).toBe("function");
-    expect(typeof builder.state).toBe("function");
     expect(typeof builder.stage).toBe("function");
     expect(typeof builder.tool).toBe("function");
     expect(typeof builder.if).toBe("function");
@@ -709,19 +773,18 @@ describe("WorkflowBuilder interface conformance", () => {
   });
 
   test("chaining through the interface type works correctly", () => {
-    const builder: WorkflowBuilderInterface = defineWorkflow("w", "d");
+    const builder: WorkflowBuilderInterface = defineWorkflow({ name: "w", description: "d" });
 
     // Every chained call should return the same builder via `this`
     const chained = builder
       .version("1.0.0")
       .argumentHint("hint")
-      .state({ x: { default: 0 } })
-      .stage(makeStageConfig())
-      .tool("t1", makeToolConfig())
+      .stage(makeStageOptions())
+      .tool("t1", makeToolOptions())
       .if(() => true)
       .else()
       .endIf()
-      .loop(makeLoopConfig())
+      .loop(makeLoopOptions())
       .break()
       .endLoop();
 
@@ -735,8 +798,8 @@ describe("WorkflowBuilder interface conformance", () => {
 
 describe("WorkflowBuilder instruction reference integrity", () => {
   test("stage config references are preserved (not cloned)", () => {
-    const config = makeStageConfig();
-    const builder = defineWorkflow("w", "d").stage(config);
+    const config = makeStageOptions();
+    const builder = defineWorkflow({ name: "w", description: "d" }).stage(config);
 
     const instruction = builder.instructions[0] as Extract<
       Instruction,
@@ -746,8 +809,8 @@ describe("WorkflowBuilder instruction reference integrity", () => {
   });
 
   test("tool config references are preserved (not cloned)", () => {
-    const config = makeToolConfig();
-    const builder = defineWorkflow("w", "d").tool("t1", config);
+    const config = makeToolOptions();
+    const builder = defineWorkflow({ name: "w", description: "d" }).tool("t1", config);
 
     const instruction = builder.instructions[0] as Extract<
       Instruction,
@@ -757,8 +820,8 @@ describe("WorkflowBuilder instruction reference integrity", () => {
   });
 
   test("loop config references are preserved (not cloned)", () => {
-    const config = makeLoopConfig();
-    const builder = defineWorkflow("w", "d").loop(config);
+    const config = makeLoopOptions();
+    const builder = defineWorkflow({ name: "w", description: "d" }).loop(config);
 
     const instruction = builder.instructions[0] as Extract<
       Instruction,
@@ -769,7 +832,7 @@ describe("WorkflowBuilder instruction reference integrity", () => {
 
   test("condition function references are preserved", () => {
     const condition = () => true;
-    const builder = defineWorkflow("w", "d").if(condition);
+    const builder = defineWorkflow({ name: "w", description: "d" }).if(condition);
 
     const instruction = builder.instructions[0] as Extract<
       Instruction,
@@ -785,7 +848,7 @@ describe("WorkflowBuilder instruction reference integrity", () => {
 
 describe("WorkflowBuilder constructor", () => {
   test("can be constructed directly", () => {
-    const builder = new WorkflowBuilder("direct", "Constructed directly");
+    const builder = new WorkflowBuilder({ name: "direct", description: "Constructed directly" });
 
     expect(builder.name).toBe("direct");
     expect(builder.description).toBe("Constructed directly");
@@ -793,7 +856,7 @@ describe("WorkflowBuilder constructor", () => {
   });
 
   test("readonly properties are set correctly", () => {
-    const builder = new WorkflowBuilder("test", "Test workflow");
+    const builder = new WorkflowBuilder({ name: "test", description: "Test workflow" });
 
     expect(builder.name).toBe("test");
     expect(builder.description).toBe("Test workflow");

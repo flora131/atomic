@@ -104,7 +104,6 @@ describe("§5.16 Rendering parity verification", () => {
         type: "workflow-step-start",
         workflowId: "ralph",
         nodeId: "planner",
-        nodeName: "Planner",
         indicator: "[PLANNER]",
       };
 
@@ -124,7 +123,6 @@ describe("§5.16 Rendering parity verification", () => {
         type: "workflow-step-start",
         workflowId: "ralph",
         nodeId: "orchestrator",
-        nodeName: "Orchestrator",
         indicator: "[ORCHESTRATOR]",
       });
 
@@ -132,7 +130,6 @@ describe("§5.16 Rendering parity verification", () => {
         type: "workflow-step-complete",
         workflowId: "ralph",
         nodeId: "orchestrator",
-        nodeName: "Orchestrator",
         status: "completed",
         durationMs: 5000,
       });
@@ -326,7 +323,6 @@ describe("§5.16 Rendering parity verification", () => {
         type: "workflow-step-start",
         workflowId: "ralph",
         nodeId: "planner",
-        nodeName: "Planner",
         indicator: "[PLANNER]",
       });
 
@@ -341,7 +337,6 @@ describe("§5.16 Rendering parity verification", () => {
         type: "workflow-step-complete",
         workflowId: "ralph",
         nodeId: "planner",
-        nodeName: "Planner",
         status: "completed",
         durationMs: 2000,
       });
@@ -359,7 +354,6 @@ describe("§5.16 Rendering parity verification", () => {
         type: "workflow-step-start",
         workflowId: "ralph",
         nodeId: "orchestrator",
-        nodeName: "Orchestrator",
         indicator: "[ORCHESTRATOR]",
       });
 
@@ -368,7 +362,6 @@ describe("§5.16 Rendering parity verification", () => {
         type: "workflow-step-complete",
         workflowId: "ralph",
         nodeId: "orchestrator",
-        nodeName: "Orchestrator",
         status: "completed",
         durationMs: 10000,
       });
@@ -378,14 +371,12 @@ describe("§5.16 Rendering parity verification", () => {
         type: "workflow-step-start",
         workflowId: "ralph",
         nodeId: "reviewer",
-        nodeName: "Reviewer",
         indicator: "[REVIEWER]",
       });
       msg = applyStreamPartEvent(msg, {
         type: "workflow-step-complete",
         workflowId: "ralph",
         nodeId: "reviewer",
-        nodeName: "Reviewer",
         status: "completed",
         durationMs: 3000,
       });

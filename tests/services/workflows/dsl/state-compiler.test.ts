@@ -20,7 +20,7 @@ import {
   compileStateSchema,
   createStateFactory,
 } from "@/services/workflows/dsl/state-compiler.ts";
-import type { StateFieldConfig } from "@/services/workflows/dsl/types.ts";
+import type { StateFieldOptions } from "@/services/workflows/dsl/types.ts";
 import { Reducers, applyStateUpdate } from "@/services/workflows/graph/annotation.ts";
 
 // ---------------------------------------------------------------------------
@@ -29,13 +29,13 @@ import { Reducers, applyStateUpdate } from "@/services/workflows/graph/annotatio
 
 describe("resolveReducer", () => {
   test("returns undefined when no reducer is specified", () => {
-    const config: StateFieldConfig<string> = { default: "hello" };
+    const config: StateFieldOptions<string> = { default: "hello" };
     const result = resolveReducer(config);
     expect(result).toBeUndefined();
   });
 
   test("maps 'replace' to Reducers.replace", () => {
-    const config: StateFieldConfig<string> = {
+    const config: StateFieldOptions<string> = {
       default: "",
       reducer: "replace",
     };
@@ -45,7 +45,7 @@ describe("resolveReducer", () => {
   });
 
   test("maps 'concat' to Reducers.concat", () => {
-    const config: StateFieldConfig<string[]> = {
+    const config: StateFieldOptions<string[]> = {
       default: [],
       reducer: "concat",
     };
@@ -55,7 +55,7 @@ describe("resolveReducer", () => {
   });
 
   test("maps 'merge' to Reducers.merge", () => {
-    const config: StateFieldConfig<Record<string, unknown>> = {
+    const config: StateFieldOptions<Record<string, unknown>> = {
       default: {},
       reducer: "merge",
     };
@@ -65,7 +65,7 @@ describe("resolveReducer", () => {
   });
 
   test("maps 'max' to Reducers.max", () => {
-    const config: StateFieldConfig<number> = {
+    const config: StateFieldOptions<number> = {
       default: 0,
       reducer: "max",
     };
@@ -76,7 +76,7 @@ describe("resolveReducer", () => {
   });
 
   test("maps 'min' to Reducers.min", () => {
-    const config: StateFieldConfig<number> = {
+    const config: StateFieldOptions<number> = {
       default: 100,
       reducer: "min",
     };
@@ -87,7 +87,7 @@ describe("resolveReducer", () => {
   });
 
   test("maps 'sum' to Reducers.sum", () => {
-    const config: StateFieldConfig<number> = {
+    const config: StateFieldOptions<number> = {
       default: 0,
       reducer: "sum",
     };
@@ -97,7 +97,7 @@ describe("resolveReducer", () => {
   });
 
   test("maps 'or' to Reducers.or", () => {
-    const config: StateFieldConfig<boolean> = {
+    const config: StateFieldOptions<boolean> = {
       default: false,
       reducer: "or",
     };
@@ -109,7 +109,7 @@ describe("resolveReducer", () => {
   });
 
   test("maps 'and' to Reducers.and", () => {
-    const config: StateFieldConfig<boolean> = {
+    const config: StateFieldOptions<boolean> = {
       default: true,
       reducer: "and",
     };
@@ -121,7 +121,7 @@ describe("resolveReducer", () => {
   });
 
   test("maps 'mergeById' with a key to a merge-by-id reducer", () => {
-    const config: StateFieldConfig<Array<{ id: string; name: string }>> = {
+    const config: StateFieldOptions<Array<{ id: string; name: string }>> = {
       default: [],
       reducer: "mergeById",
       key: "id",
@@ -142,19 +142,19 @@ describe("resolveReducer", () => {
   });
 
   test("throws when 'mergeById' is used without a key", () => {
-    const config: StateFieldConfig<Array<{ id: string }>> = {
+    const config: StateFieldOptions<Array<{ id: string }>> = {
       default: [],
       reducer: "mergeById",
     };
     expect(() => resolveReducer(config)).toThrow(
-      'StateFieldConfig with reducer "mergeById" requires a "key" field',
+      'StateFieldOptions with reducer "mergeById" requires a "key" field',
     );
   });
 
   test("passes custom function reducer through directly", () => {
     const customReducer = (current: number, update: number): number =>
       current * update;
-    const config: StateFieldConfig<number> = {
+    const config: StateFieldOptions<number> = {
       default: 1,
       reducer: customReducer,
     };
@@ -166,7 +166,7 @@ describe("resolveReducer", () => {
   test("passes custom function reducer identity check", () => {
     const customReducer = (current: string, update: string): string =>
       `${current}+${update}`;
-    const config: StateFieldConfig<string> = {
+    const config: StateFieldOptions<string> = {
       default: "",
       reducer: customReducer,
     };
@@ -187,7 +187,7 @@ describe("compileStateSchema", () => {
   });
 
   test("compiles a single field with default and no reducer", () => {
-    const schema: Record<string, StateFieldConfig> = {
+    const schema: Record<string, StateFieldOptions> = {
       name: { default: "untitled" },
     };
     const result = compileStateSchema(schema);
@@ -198,7 +198,7 @@ describe("compileStateSchema", () => {
   });
 
   test("compiles a single field with a string reducer", () => {
-    const schema: Record<string, StateFieldConfig> = {
+    const schema: Record<string, StateFieldOptions> = {
       count: { default: 0, reducer: "sum" },
     };
     const result = compileStateSchema(schema);
@@ -212,7 +212,7 @@ describe("compileStateSchema", () => {
 
   test("compiles a factory default", () => {
     const factory = () => ({ key: "value" });
-    const schema: Record<string, StateFieldConfig> = {
+    const schema: Record<string, StateFieldOptions> = {
       config: { default: factory },
     };
     const result = compileStateSchema(schema);
@@ -225,7 +225,7 @@ describe("compileStateSchema", () => {
   });
 
   test("compiles a multi-field schema with mixed reducers", () => {
-    const schema: Record<string, StateFieldConfig> = {
+    const schema: Record<string, StateFieldOptions> = {
       title: { default: "" },
       items: { default: () => [], reducer: "concat" },
       errorCount: { default: 0, reducer: "sum" },
@@ -243,7 +243,7 @@ describe("compileStateSchema", () => {
   });
 
   test("compiled schema works with applyStateUpdate", () => {
-    const schema: Record<string, StateFieldConfig> = {
+    const schema: Record<string, StateFieldOptions> = {
       count: { default: 0, reducer: "sum" },
       items: { default: () => [] as string[], reducer: "concat" },
     };
@@ -316,7 +316,7 @@ describe("createStateFactory", () => {
   });
 
   test("returns BaseState merged with custom defaults when schema is provided", () => {
-    const schema: Record<string, StateFieldConfig> = {
+    const schema: Record<string, StateFieldOptions> = {
       title: { default: "My Workflow" },
       count: { default: 0, reducer: "sum" },
       items: { default: () => [] as string[], reducer: "concat" },
@@ -338,7 +338,7 @@ describe("createStateFactory", () => {
 
   test("factory default functions are invoked for each state creation", () => {
     let callCount = 0;
-    const schema: Record<string, StateFieldConfig> = {
+    const schema: Record<string, StateFieldOptions> = {
       data: {
         default: () => {
           callCount++;
@@ -384,7 +384,7 @@ describe("createStateFactory", () => {
 
 describe("Integration: schema compile + state update roundtrip", () => {
   test("mergeById reducer works end-to-end through compiled schema", () => {
-    const schema: Record<string, StateFieldConfig> = {
+    const schema: Record<string, StateFieldOptions> = {
       features: {
         default: () => [] as Array<{ id: string; status: string }>,
         reducer: "mergeById",
@@ -421,7 +421,7 @@ describe("Integration: schema compile + state update roundtrip", () => {
       if (!cur) return upd;
       return `${cur}\n${upd}`;
     };
-    const schema: Record<string, StateFieldConfig> = {
+    const schema: Record<string, StateFieldOptions> = {
       log: { default: "", reducer: customReducer },
     };
     const annotations = compileStateSchema(schema);
@@ -435,7 +435,7 @@ describe("Integration: schema compile + state update roundtrip", () => {
   });
 
   test("boolean reducers work end-to-end through compiled schema", () => {
-    const schema: Record<string, StateFieldConfig> = {
+    const schema: Record<string, StateFieldOptions> = {
       anyError: { default: false, reducer: "or" },
       allReady: { default: true, reducer: "and" },
     };
@@ -459,7 +459,7 @@ describe("Integration: schema compile + state update roundtrip", () => {
   });
 
   test("numeric reducers work end-to-end through compiled schema", () => {
-    const schema: Record<string, StateFieldConfig> = {
+    const schema: Record<string, StateFieldOptions> = {
       total: { default: 0, reducer: "sum" },
       highest: { default: 0, reducer: "max" },
       lowest: { default: 100, reducer: "min" },
@@ -488,7 +488,7 @@ describe("Integration: schema compile + state update roundtrip", () => {
   });
 
   test("replace reducer replaces values end-to-end", () => {
-    const schema: Record<string, StateFieldConfig> = {
+    const schema: Record<string, StateFieldOptions> = {
       status: { default: "idle", reducer: "replace" },
     };
     const annotations = compileStateSchema(schema);
@@ -501,7 +501,7 @@ describe("Integration: schema compile + state update roundtrip", () => {
   });
 
   test("merge reducer merges objects end-to-end", () => {
-    const schema: Record<string, StateFieldConfig> = {
+    const schema: Record<string, StateFieldOptions> = {
       config: { default: () => ({ debug: false }), reducer: "merge" },
     };
     const annotations = compileStateSchema(schema);
@@ -514,7 +514,7 @@ describe("Integration: schema compile + state update roundtrip", () => {
   });
 
   test("concat reducer concatenates arrays end-to-end", () => {
-    const schema: Record<string, StateFieldConfig> = {
+    const schema: Record<string, StateFieldOptions> = {
       logs: { default: () => [] as string[], reducer: "concat" },
     };
     const annotations = compileStateSchema(schema);

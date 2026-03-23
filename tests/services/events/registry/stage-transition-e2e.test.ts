@@ -103,7 +103,6 @@ function registerWorkflowHandlers(registry: EventHandlerRegistry): void {
         runId: event.runId,
         workflowId: data.workflowId,
         nodeId: data.nodeId,
-        nodeName: data.nodeName,
         indicator: data.indicator,
       };
     },
@@ -122,7 +121,6 @@ function registerWorkflowHandlers(registry: EventHandlerRegistry): void {
         runId: event.runId,
         workflowId: data.workflowId,
         nodeId: data.nodeId,
-        nodeName: data.nodeName,
         status: data.status,
         durationMs: data.durationMs,
         ...(data.error ? { error: data.error } : {}),
@@ -171,7 +169,6 @@ describe("stage transition events → UI pipeline (§5.9 e2e)", () => {
       const bus = makeBusEvent("workflow.step.start", {
         workflowId: "ralph",
         nodeId: "planner",
-        nodeName: "Planner",
         indicator: "📋",
       });
       const mapper = registry.getStreamPartMapper("workflow.step.start")!;
@@ -180,7 +177,6 @@ describe("stage transition events → UI pipeline (§5.9 e2e)", () => {
       expect(stream.type).toBe("workflow-step-start");
       expect(stream.workflowId).toBe("ralph");
       expect(stream.nodeId).toBe("planner");
-      expect(stream.nodeName).toBe("Planner");
       expect(stream.indicator).toBe("📋");
       expect(stream.runId).toBe(42);
     });
@@ -189,7 +185,6 @@ describe("stage transition events → UI pipeline (§5.9 e2e)", () => {
       const bus = makeBusEvent("workflow.step.complete", {
         workflowId: "ralph",
         nodeId: "planner",
-        nodeName: "Planner",
         status: "completed",
         durationMs: 3000,
       });
@@ -206,7 +201,6 @@ describe("stage transition events → UI pipeline (§5.9 e2e)", () => {
       const bus = makeBusEvent("workflow.step.complete", {
         workflowId: "ralph",
         nodeId: "orchestrator",
-        nodeName: "Orchestrator",
         status: "error",
         durationMs: 500,
         error: "context window exceeded",
@@ -228,7 +222,6 @@ describe("stage transition events → UI pipeline (§5.9 e2e)", () => {
       const bus = makeBusEvent("workflow.step.complete", {
         workflowId: "ralph",
         nodeId: "planner",
-        nodeName: "Planner",
         status: "completed",
         durationMs: 2000,
         truncation,
@@ -267,7 +260,6 @@ describe("stage transition events → UI pipeline (§5.9 e2e)", () => {
         runId: 42,
         workflowId: "ralph",
         nodeId: "planner",
-        nodeName: "Planner",
         indicator: "📋",
       };
       const msg = applyStreamPartEvent(emptyMessage(), event);
@@ -277,7 +269,6 @@ describe("stage transition events → UI pipeline (§5.9 e2e)", () => {
       expect(part.type).toBe("workflow-step");
       expect(part.workflowId).toBe("ralph");
       expect(part.nodeId).toBe("planner");
-      expect(part.nodeName).toBe("Planner");
       expect(part.status).toBe("running");
       expect(part.startedAt).toBeDefined();
       expect(part.completedAt).toBeUndefined();
@@ -289,7 +280,6 @@ describe("stage transition events → UI pipeline (§5.9 e2e)", () => {
         runId: 42,
         workflowId: "ralph",
         nodeId: "planner",
-        nodeName: "Planner",
         indicator: "📋",
       };
       const completeEvt: WorkflowStepCompleteEvent = {
@@ -297,7 +287,6 @@ describe("stage transition events → UI pipeline (§5.9 e2e)", () => {
         runId: 42,
         workflowId: "ralph",
         nodeId: "planner",
-        nodeName: "Planner",
         status: "completed",
         durationMs: 2500,
       };
@@ -340,7 +329,6 @@ describe("stage transition events → UI pipeline (§5.9 e2e)", () => {
       const bus = makeBusEvent("workflow.step.start", {
         workflowId: "ralph",
         nodeId: "planner",
-        nodeName: "Planner",
         indicator: "📋",
       });
 
@@ -362,7 +350,6 @@ describe("stage transition events → UI pipeline (§5.9 e2e)", () => {
       const startBus = makeBusEvent("workflow.step.start", {
         workflowId: "ralph",
         nodeId: "orchestrator",
-        nodeName: "Orchestrator",
         indicator: "🎯",
       });
       const startMapper = registry.getStreamPartMapper("workflow.step.start")!;
@@ -373,7 +360,6 @@ describe("stage transition events → UI pipeline (§5.9 e2e)", () => {
       const completeBus = makeBusEvent("workflow.step.complete", {
         workflowId: "ralph",
         nodeId: "orchestrator",
-        nodeName: "Orchestrator",
         status: "completed",
         durationMs: 5000,
       });
@@ -391,9 +377,9 @@ describe("stage transition events → UI pipeline (§5.9 e2e)", () => {
       let msg = emptyMessage();
 
       const stages = [
-        { id: "planner", name: "Planner", indicator: "📋" },
-        { id: "orchestrator", name: "Orchestrator", indicator: "🎯" },
-        { id: "reviewer", name: "Reviewer", indicator: "🔍" },
+        { id: "planner", indicator: "📋" },
+        { id: "orchestrator", indicator: "🎯" },
+        { id: "reviewer", indicator: "🔍" },
       ];
 
       for (const stage of stages) {
@@ -401,7 +387,6 @@ describe("stage transition events → UI pipeline (§5.9 e2e)", () => {
         const startBus = makeBusEvent("workflow.step.start", {
           workflowId: "ralph",
           nodeId: stage.id,
-          nodeName: stage.name,
           indicator: stage.indicator,
         });
         const startStream = registry.getStreamPartMapper("workflow.step.start")!(
@@ -414,7 +399,6 @@ describe("stage transition events → UI pipeline (§5.9 e2e)", () => {
         const completeBus = makeBusEvent("workflow.step.complete", {
           workflowId: "ralph",
           nodeId: stage.id,
-          nodeName: stage.name,
           status: "completed",
           durationMs: 1000,
         });
@@ -439,7 +423,6 @@ describe("stage transition events → UI pipeline (§5.9 e2e)", () => {
       const skipBus = makeBusEvent("workflow.step.complete", {
         workflowId: "ralph",
         nodeId: "debugger",
-        nodeName: "Debugger",
         status: "skipped",
         durationMs: 0,
       });

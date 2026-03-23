@@ -17,7 +17,7 @@
  * - Custom function → passed through directly
  */
 
-import type { StateFieldConfig } from "@/services/workflows/dsl/types.ts";
+import type { StateFieldOptions } from "@/services/workflows/dsl/types.ts";
 import type { AnnotationRoot, Reducer } from "@/services/workflows/graph/annotation.ts";
 import { Reducers, initializeState } from "@/services/workflows/graph/annotation.ts";
 import type { BaseState } from "@/services/workflows/graph/types.ts";
@@ -53,7 +53,7 @@ const REDUCER_MAP: Record<string, Reducer<any>> = {
 // ============================================================================
 
 /**
- * Resolve a StateFieldConfig's reducer to a concrete Reducer function.
+ * Resolve a StateFieldOptions's reducer to a concrete Reducer function.
  *
  * - `undefined` → returns `undefined` (annotation defaults to replace)
  * - A function  → returned as-is (custom reducer)
@@ -65,7 +65,7 @@ const REDUCER_MAP: Record<string, Reducer<any>> = {
  * @throws If `"mergeById"` is specified without a `key` field
  * @throws If an unrecognized string reducer name is provided
  */
-export function resolveReducer<T>(config: StateFieldConfig<T>): Reducer<T> | undefined {
+export function resolveReducer<T>(config: StateFieldOptions<T>): Reducer<T> | undefined {
   if (config.reducer === undefined) {
     return undefined; // Default — annotation layer will use Reducers.replace
   }
@@ -79,7 +79,7 @@ export function resolveReducer<T>(config: StateFieldConfig<T>): Reducer<T> | und
   if (config.reducer === "mergeById") {
     if (!config.key) {
       throw new Error(
-        'StateFieldConfig with reducer "mergeById" requires a "key" field',
+        'StateFieldOptions with reducer "mergeById" requires a "key" field',
       );
     }
     // Reducers.mergeById expects `keyof T` where T extends object.
@@ -106,7 +106,7 @@ export function resolveReducer<T>(config: StateFieldConfig<T>): Reducer<T> | und
 /**
  * Compile a `.state()` schema into an AnnotationRoot.
  *
- * Takes the user-facing `StateFieldConfig` records (with string reducer names)
+ * Takes the user-facing `StateFieldOptions` records (with string reducer names)
  * and produces an `AnnotationRoot` (with concrete Reducer functions) that
  * the graph engine understands.
  *
@@ -114,7 +114,7 @@ export function resolveReducer<T>(config: StateFieldConfig<T>): Reducer<T> | und
  * @returns An AnnotationRoot for use with `initializeState` / `applyStateUpdate`
  */
 export function compileStateSchema(
-  schema: Record<string, StateFieldConfig>,
+  schema: Record<string, StateFieldOptions>,
 ): AnnotationRoot {
   const annotations: AnnotationRoot = {};
 
@@ -155,7 +155,7 @@ export interface StateFactoryParams {
  * @returns A factory function compatible with `WorkflowDefinition.createState`
  */
 export function createStateFactory(
-  schema: Record<string, StateFieldConfig> | undefined,
+  schema: Record<string, StateFieldOptions> | undefined,
 ): (params: StateFactoryParams) => BaseState {
   return (params: StateFactoryParams): BaseState => {
     const baseState: BaseState = {

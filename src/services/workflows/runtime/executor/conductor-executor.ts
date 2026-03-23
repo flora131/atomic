@@ -19,7 +19,7 @@ import type { WorkflowDefinition } from "@/services/workflows/types/index.ts";
 import type { CommandContext, CommandResult } from "@/types/command.ts";
 import type { ConductorConfig } from "@/services/workflows/conductor/types.ts";
 import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
-import type { TaskItem } from "@/services/workflows/ralph/prompts.ts";
+import type { TaskItem } from "@/services/workflows/builtin/ralph/helpers/prompts.ts";
 
 import { WorkflowSessionConductor } from "@/services/workflows/conductor/conductor.ts";
 import { pipelineLog, pipelineError } from "@/services/events/pipeline-logger.ts";

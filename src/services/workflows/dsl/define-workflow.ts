@@ -79,7 +79,7 @@ export class WorkflowBuilder implements WorkflowBuilderInterface {
   private _argumentHint: string | undefined;
   private readonly _globalState: Record<string, StateFieldOptions> | undefined;
   private loopDepth: number = 0;
-  private stageNames: Set<string> = new Set();
+  private nodeNames: Set<string> = new Set();
 
   constructor(options: WorkflowOptions) {
     this.name = options.name;
@@ -106,26 +106,32 @@ export class WorkflowBuilder implements WorkflowBuilderInterface {
   /**
    * Add an agent stage to the workflow.
    * @param options - Stage configuration (name, agent, prompt, output mapper, etc.).
-   * @throws Error if `options.name` duplicates an existing stage name.
+   * @throws Error if `options.name` duplicates an existing node name.
    */
   stage(options: StageOptions): this {
-    if (this.stageNames.has(options.name)) {
+    if (this.nodeNames.has(options.name)) {
       throw new Error(
-        `Duplicate stage name: "${options.name}". Each stage must have a unique name within the workflow.`,
+        `Duplicate node name: "${options.name}". Each node must have a unique name within the workflow.`,
       );
     }
-    this.stageNames.add(options.name);
+    this.nodeNames.add(options.name);
     this.instructions.push({ type: "stage", id: options.name, config: options });
     return this;
   }
 
   /**
    * Add a deterministic tool node to the workflow.
-   * @param id - Unique identifier for this tool (must be unique within the workflow).
-   * @param options - Tool configuration (execute function, etc.).
+   * @param options - Tool configuration (name, execute function, etc.).
+   * @throws Error if `options.name` duplicates an existing node name.
    */
-  tool(id: string, options: ToolOptions): this {
-    this.instructions.push({ type: "tool", id, config: options });
+  tool(options: ToolOptions): this {
+    if (this.nodeNames.has(options.name)) {
+      throw new Error(
+        `Duplicate node name: "${options.name}". Each node must have a unique name within the workflow.`,
+      );
+    }
+    this.nodeNames.add(options.name);
+    this.instructions.push({ type: "tool", id: options.name, config: options });
     return this;
   }
 

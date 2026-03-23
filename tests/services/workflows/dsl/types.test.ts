@@ -73,6 +73,29 @@ describe("StageOptions", () => {
     expect(config.outputs).toEqual(["result"]);
   });
 
+  test("accepts null agent to use default SDK instructions", () => {
+    const config: StageOptions = {
+      name: "default-agent",
+      agent: null,
+      description: "Uses default SDK instructions",
+      prompt: () => "Do something",
+      outputMapper: (response: string) => ({ result: response }),
+    };
+
+    expect(config.agent).toBeNull();
+  });
+
+  test("accepts omitted agent (defaults to undefined)", () => {
+    const config: StageOptions = {
+      name: "no-agent",
+      description: "Uses default SDK instructions",
+      prompt: () => "Do something",
+      outputMapper: (response: string) => ({ result: response }),
+    };
+
+    expect(config.agent).toBeUndefined();
+  });
+
   test("prompt receives StageContext and returns string", () => {
     const config: StageOptions = {
       name: "test",
@@ -395,7 +418,7 @@ describe("WorkflowBuilderInterface", () => {
       version(_v: string) { return this; },
       argumentHint(_hint: string) { return this; },
       stage(_options: StageOptions) { return this; },
-      tool(_id: string, _options: ToolOptions) { return this; },
+      tool(_options: ToolOptions) { return this; },
       if(_condition: (ctx: StageContext) => boolean) { return this; },
       elseIf(_condition: (ctx: StageContext) => boolean) { return this; },
       else() { return this; },
@@ -417,8 +440,8 @@ describe("WorkflowBuilderInterface", () => {
         prompt: () => "hello",
         outputMapper: () => ({}),
       })
-      .tool("t1", {
-        name: "Tool 1",
+      .tool({
+        name: "t1",
         execute: async () => ({}),
       })
       .if(() => true)

@@ -52,8 +52,14 @@ export interface StageOptions {
   /**
    * Agent definition name to use for this stage.
    * Selects the agent definition that is loaded at runtime.
+   *
+   * When `null` or omitted, the stage runs with the SDK's default session
+   * instructions (e.g., Claude Code preset, Copilot guardrails) instead of
+   * overwriting them with an agent definition's system prompt.
+   *
+   * @default null
    */
-  readonly agent: string;
+  readonly agent?: string | null;
 
   /** Brief description of the stage's purpose (used in logging and debugging). */
   readonly description: string;
@@ -346,10 +352,11 @@ export interface WorkflowBuilderInterface {
 
   /**
    * Add a deterministic tool node to the workflow.
-   * @param id - Unique identifier for this tool (must be unique within the workflow).
-   * @param options - Tool configuration (execute function, etc.).
+   * The tool's `name` becomes its unique key in the workflow graph.
+   * @param options - Tool configuration (name, execute function, etc.).
+   * @throws Error if `options.name` duplicates an existing node name.
    */
-  tool(id: string, options: ToolOptions): this;
+  tool(options: ToolOptions): this;
 
   // -- Conditional branching ------------------------------------------------
 

@@ -745,7 +745,7 @@ describe("compiler loop with tool nodes", () => {
     const graph = compileGraph((b) =>
       b
         .loop(makeLoopOptions())
-        .tool("t1", makeToolOptions())
+        .tool(makeToolOptions({ name: "t1" }))
         .endLoop(),
     );
 
@@ -1136,5 +1136,62 @@ describe("compiler loop edge stability after exhaustion", () => {
       // They must always be the logical inverse of each other
       expect(continueResult).not.toBe(exitResult);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Null agent — default SDK instructions
+// ---------------------------------------------------------------------------
+
+describe("compiler null agent handling", () => {
+  test("stage with null agent compiles without error", () => {
+    expect(() =>
+      compileGraph((b) =>
+        b.stage(makeStageOptions({ name: "s1", agent: null })),
+      ),
+    ).not.toThrow();
+  });
+
+  test("stage with omitted agent compiles without error", () => {
+    expect(() =>
+      compileGraph((b) =>
+        b.stage({
+          name: "s1",
+          description: "Uses default SDK instructions",
+          prompt: () => "Do something",
+          outputMapper: () => ({}),
+        }),
+      ),
+    ).not.toThrow();
+  });
+
+  test("null agent stage does not set systemPrompt on sessionConfig", () => {
+    const builder = defineWorkflow({ name: "test-wf", description: "test" })
+      .stage(makeStageOptions({ name: "s1", agent: null }));
+    const compiled = builder.compile();
+    const stages = compiled.conductorStages as unknown as Array<{ id: string; sessionConfig?: { systemPrompt?: string } }>;
+
+    expect(stages).toHaveLength(1);
+    expect(stages[0]!.sessionConfig?.systemPrompt).toBeUndefined();
+  });
+
+  test("null agent stage uses stage name as graph node name", () => {
+    const graph = compileGraph((b) =>
+      b.stage(makeStageOptions({ name: "my-stage", agent: null })),
+    );
+
+    const node = graph.nodes.get("my-stage");
+    expect(node).toBeDefined();
+    expect(node!.name).toBe("my-stage");
+  });
+
+  test("stage with explicit agent still resolves normally", () => {
+    const graph = compileGraph((b) =>
+      b.stage(makeStageOptions({ name: "s1", agent: "custom-agent" })),
+    );
+
+    const node = graph.nodes.get("s1");
+    expect(node).toBeDefined();
+    expect(node!.name).toBe("custom-agent");
   });
 });

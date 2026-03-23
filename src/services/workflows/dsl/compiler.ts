@@ -221,8 +221,10 @@ function generateStageDefinitions(
     // Auto-resolve agent definition body as the stage's system prompt.
     // If no explicit systemPrompt is already configured and a matching
     // agent definition file exists, inject its body as the system prompt.
+    // When agent is null/undefined, skip resolution — the SDK's default
+    // session instructions are preserved.
     let resolvedSessionConfig = config.sessionConfig;
-    if (!config.sessionConfig?.systemPrompt) {
+    if (config.agent && !config.sessionConfig?.systemPrompt) {
       const agentSystemPrompt = resolveStageSystemPrompt(config.agent, agentLookup);
       if (agentSystemPrompt) {
         resolvedSessionConfig = { ...config.sessionConfig, systemPrompt: agentSystemPrompt };
@@ -316,7 +318,8 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
     type: "agent" | "tool",
     options: StageOptions | ToolOptions,
   ): string {
-    const nodeName = "agent" in options ? options.agent : options.name;
+    const stageAgent = "agent" in options ? (options as StageOptions).agent : undefined;
+    const nodeName = stageAgent ?? options.name;
     const node: NodeDefinition<BaseState> = {
       id,
       type,

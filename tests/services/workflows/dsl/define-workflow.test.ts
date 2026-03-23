@@ -218,9 +218,9 @@ describe("WorkflowBuilder.stage()", () => {
 // ---------------------------------------------------------------------------
 
 describe("WorkflowBuilder.tool()", () => {
-  test("records a tool instruction", () => {
-    const config = makeToolOptions({ name: "Parser" });
-    const builder = defineWorkflow({ name: "w", description: "d" }).tool("parser", config);
+  test("records a tool instruction with name as id", () => {
+    const config = makeToolOptions({ name: "parser" });
+    const builder = defineWorkflow({ name: "w", description: "d" }).tool(config);
 
     expect(builder.instructions.length).toBe(1);
     expect(builder.instructions[0]!.type).toBe("tool");
@@ -235,9 +235,25 @@ describe("WorkflowBuilder.tool()", () => {
 
   test("returns this for chaining", () => {
     const builder = defineWorkflow({ name: "w", description: "d" });
-    const result = builder.tool("t1", makeToolOptions());
+    const result = builder.tool(makeToolOptions());
 
     expect(result).toBe(builder);
+  });
+
+  test("throws on duplicate tool name", () => {
+    expect(() =>
+      defineWorkflow({ name: "w", description: "d" })
+        .tool(makeToolOptions({ name: "dup" }))
+        .tool(makeToolOptions({ name: "dup" })),
+    ).toThrow('Duplicate node name: "dup"');
+  });
+
+  test("throws when tool name duplicates a stage name", () => {
+    expect(() =>
+      defineWorkflow({ name: "w", description: "d" })
+        .stage(makeStageOptions({ name: "shared" }))
+        .tool(makeToolOptions({ name: "shared" })),
+    ).toThrow('Duplicate node name: "shared"');
   });
 });
 
@@ -391,7 +407,7 @@ describe("WorkflowBuilder bounded loops", () => {
     const builder = defineWorkflow({ name: "w", description: "d" })
       .loop(makeLoopOptions({ maxCycles: 3 }))
       .stage(makeStageOptions({ name: "review" }))
-      .tool("check", makeToolOptions())
+      .tool(makeToolOptions({ name: "check" }))
       .endLoop();
 
     const types = builder.instructions.map((i) => i.type);
@@ -604,7 +620,7 @@ describe("WorkflowBuilder.compile()", () => {
       defineWorkflow({ name: "w", description: "d" })
         .stage(makeStageOptions({ name: "dup" }))
         .stage(makeStageOptions({ name: "dup" })),
-    ).toThrow('Duplicate stage name: "dup"');
+    ).toThrow('Duplicate node name: "dup"');
   });
 
   test("compile() throws on unbalanced if/endIf", () => {
@@ -619,14 +635,14 @@ describe("WorkflowBuilder.compile()", () => {
   test("compiled graph includes node descriptions", () => {
     const builder = defineWorkflow({ name: "w", description: "d" })
       .stage(makeStageOptions({ name: "planner", agent: "planner-agent" }))
-      .tool("parser", makeToolOptions({ name: "Parse Output" }));
+      .tool(makeToolOptions({ name: "parser" }));
 
     const compiled = builder.compile();
     const definition = compiled as unknown as Record<string, unknown>;
     const descriptions = definition.nodeDescriptions as Record<string, string>;
 
     expect(descriptions.planner).toBe("planner-agent");
-    expect(descriptions.parser).toBe("Parse Output");
+    expect(descriptions.parser).toBe("parser");
   });
 
   test("compile() with globalState creates a working state factory", () => {
@@ -685,7 +701,7 @@ describe("WorkflowBuilder fluent chaining", () => {
       .stage(makeStageOptions({ name: "planner" }))
       .if((ctx) => ctx.stageOutputs.has("planner"))
         .stage(makeStageOptions({ name: "executor" }))
-        .tool("parser", makeToolOptions({ name: "Output Parser" }))
+        .tool(makeToolOptions({ name: "parser" }))
         .loop({ maxCycles: 3 })
           .stage(makeStageOptions({ name: "reviewer" }))
           .if((ctx) => !ctx.stageOutputs.has("reviewer"))
@@ -739,9 +755,9 @@ describe("WorkflowBuilder fluent chaining", () => {
   test("stages and tools can be mixed freely", () => {
     const builder = defineWorkflow({ name: "w", description: "d" })
       .stage(makeStageOptions({ name: "s1" }))
-      .tool("t1", makeToolOptions())
+      .tool(makeToolOptions({ name: "t1" }))
       .stage(makeStageOptions({ name: "s2" }))
-      .tool("t2", makeToolOptions());
+      .tool(makeToolOptions({ name: "t2" }));
 
     const types = builder.instructions.map((i) => i.type);
     expect(types).toEqual(["stage", "tool", "stage", "tool"]);
@@ -780,7 +796,7 @@ describe("WorkflowBuilder interface conformance", () => {
       .version("1.0.0")
       .argumentHint("hint")
       .stage(makeStageOptions())
-      .tool("t1", makeToolOptions())
+      .tool(makeToolOptions({ name: "t1" }))
       .if(() => true)
       .else()
       .endIf()
@@ -810,7 +826,7 @@ describe("WorkflowBuilder instruction reference integrity", () => {
 
   test("tool config references are preserved (not cloned)", () => {
     const config = makeToolOptions();
-    const builder = defineWorkflow({ name: "w", description: "d" }).tool("t1", config);
+    const builder = defineWorkflow({ name: "w", description: "d" }).tool(config);
 
     const instruction = builder.instructions[0] as Extract<
       Instruction,

@@ -63,7 +63,12 @@ export function isNewerVersion(v1: string, v2: string): boolean {
   if (major1 !== major2) return major1 > major2;
   if (minor1 !== minor2) return minor1 > minor2;
   if (patch1 !== patch2) return patch1 > patch2;
-  // Both stable (-1): equal; one stable, one pre: stable wins; both pre: higher wins
+  // Both stable (-1): equal
+  if (pre1 === -1 && pre2 === -1) return false;
+  // One stable, one prerelease: stable wins
+  if (pre1 === -1) return true;
+  if (pre2 === -1) return false;
+  // Both prerelease: higher number wins
   return pre1 > pre2;
 }
 
@@ -291,10 +296,10 @@ export async function updateCommand(): Promise<void> {
       await syncAtomicGlobalAgentConfigs(dataDir);
       s.stop("Config files updated");
 
-      // Update @bastani/atomic workflow SDK globally (pin to exact version)
-      s.start("Updating @bastani/atomic workflow SDK...");
+      // Update @bastani/atomic-workflows SDK globally (pin to exact version)
+      s.start("Updating @bastani/atomic-workflows SDK...");
       const sdkTag = usePrerelease ? "next" : "latest";
-      const sdkVersion = `@bastani/atomic@${targetVersionNum}`;
+      const sdkVersion = `@bastani/atomic-workflows@${targetVersionNum}`;
       const sdkResult = Bun.spawnSync(["bun", "install", "-g", sdkVersion], {
         stdout: "ignore",
         stderr: "pipe",
@@ -303,7 +308,7 @@ export async function updateCommand(): Promise<void> {
         s.stop(`Workflow SDK updated to ${targetVersionNum}`);
       } else {
         // Fallback to tag-based install if exact version not yet published
-        const sdkFallback = Bun.spawnSync(["bun", "install", "-g", `@bastani/atomic@${sdkTag}`], {
+        const sdkFallback = Bun.spawnSync(["bun", "install", "-g", `@bastani/atomic-workflows@${sdkTag}`], {
           stdout: "ignore",
           stderr: "pipe",
         });
@@ -311,7 +316,7 @@ export async function updateCommand(): Promise<void> {
           s.stop("Workflow SDK updated");
         } else {
           s.stop("Workflow SDK update failed");
-          log.warn(`Could not update @bastani/atomic workflow SDK. Run manually: bun install -g ${sdkVersion}`);
+          log.warn(`Could not update @bastani/atomic-workflows SDK. Run manually: bun install -g ${sdkVersion}`);
         }
       }
 

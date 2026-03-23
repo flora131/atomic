@@ -11,7 +11,7 @@ Export your compiled workflow as the default export:
 
 ```ts
 // .atomic/workflows/my-workflow.ts
-import { defineWorkflow } from "@bastani/atomic";
+import { defineWorkflow } from "@bastani/atomic-workflows";
 
 export default defineWorkflow({ name: "my-workflow", description: "My custom workflow" })
   .stage({ name: "step1", description: "Step 1", ... })

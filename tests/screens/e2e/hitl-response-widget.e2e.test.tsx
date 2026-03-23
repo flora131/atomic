@@ -132,4 +132,41 @@ describe("HitlResponseWidget", () => {
     expect(frame).toContain("╭");
     expect(frame).toContain("╮");
   });
+
+  // --------------------------------------------------------------------------
+  // Markdown rendering & SyntaxStyle lifecycle
+  // --------------------------------------------------------------------------
+  test("question text rendered via <markdown> is not visible as plain text in headless mode", async () => {
+    const setup = await renderWidget(makeContext({
+      question: "Do you want to allow this action?",
+    }));
+    const frame = setup.captureCharFrame();
+
+    // <markdown> element does not produce visible chars in headless captureCharFrame()
+    // (documented OpenTUI limitation). The question text should NOT appear as
+    // plain text, confirming it is rendered via the <markdown> element.
+    expect(frame).not.toContain("Do you want to allow this action?");
+
+    // The header and answer (rendered via <text>) SHOULD be visible
+    expect(frame).toContain("Permission Request");
+    expect(frame).toContain("Allow once");
+  });
+
+  test("SyntaxStyle lifecycle: renderer.destroy() completes without errors", async () => {
+    const setup = await renderWidget();
+
+    // Verify the widget rendered successfully
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("Permission Request");
+
+    // Destroy the renderer — this triggers useEffect cleanup which calls
+    // markdownSyntaxStyle.destroy(). If the SyntaxStyle lifecycle is broken
+    // (e.g., destroy called during render instead of cleanup), this would throw.
+    expect(() => {
+      setup.renderer.destroy();
+    }).not.toThrow();
+
+    // Prevent afterEach from double-destroying
+    testSetup = null;
+  });
 });

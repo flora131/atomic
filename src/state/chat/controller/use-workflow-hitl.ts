@@ -318,7 +318,7 @@ export function useWorkflowHitl({
   }, [enqueueAndApplyHitlRequest, workflowStateRef]);
 
   const handleAskUserQuestion = useCallback((eventData: AskUserQuestionEventData) => {
-    if (workflowStateRef.current.workflowActive) {
+    if (workflowStateRef.current.workflowActive && !eventData.dslAskUser) {
       const autoAnswer = eventData.options?.[0]?.label ?? "continue";
       if (eventData.respond) {
         eventData.respond(autoAnswer);
@@ -338,7 +338,7 @@ export function useWorkflowHitl({
       header: eventData.header || "Question",
       question: eventData.question,
       options: mappedOptions,
-      multiSelect: false,
+      multiSelect: eventData.multiSelect ?? false,
     };
 
     const targetToolId = eventData.toolCallId ?? null;
@@ -356,7 +356,7 @@ export function useWorkflowHitl({
       header: eventData.header || "Question",
       question: eventData.question,
       options: mappedOptions,
-      multiSelect: false,
+      multiSelect: eventData.multiSelect ?? false,
       respond,
     });
   }, [enqueueAndApplyHitlRequest, onWorkflowResumeWithAnswer, workflowStateRef]);
@@ -421,11 +421,15 @@ export function useWorkflowHitl({
     }
 
     const selectedArray = Array.isArray(answer.selected) ? answer.selected : [answer.selected];
-    const currentRalphState = workflowStateRef.current.ralphState;
+    const currentCommandState = workflowStateRef.current.workflowCommandState;
     if (selectedArray.includes("Approve")) {
-      updateWorkflowState({ ralphState: { ...currentRalphState, specApproved: true, pendingApproval: false } });
+      updateWorkflowState({
+        workflowCommandState: { ...currentCommandState, approved: true, pendingApproval: false },
+      });
     } else if (selectedArray.includes("Reject")) {
-      updateWorkflowState({ ralphState: { ...currentRalphState, specApproved: false, pendingApproval: false } });
+      updateWorkflowState({
+        workflowCommandState: { ...currentCommandState, approved: false, pendingApproval: false },
+      });
     }
   }, [getSession, onWorkflowResumeWithAnswer, removePendingQuestion, setDisplayedQuestion, setMessagesWindowed, updateWorkflowState]);
 

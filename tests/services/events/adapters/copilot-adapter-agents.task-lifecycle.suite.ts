@@ -127,7 +127,8 @@ describe("CopilotStreamAdapter task lifecycle", () => {
       },
     } as AgentEvent<"subagent.start">);
 
-    await streamPromise;
+    // Wait for stream iteration to complete
+    await new Promise((resolve) => setTimeout(resolve, 20));
 
     const agentStartEvents = events.filter(
       (event) =>
@@ -137,6 +138,11 @@ describe("CopilotStreamAdapter task lifecycle", () => {
     expect(agentStartEvents).toHaveLength(1);
     expect(agentStartEvents[0].data.isBackground).toBe(true);
     expect(agentStartEvents[0].data.task).toBe("Search for auth patterns");
+
+    // Unblock the background-completion promise so streamPromise resolves
+    const state = (adapter as any).state;
+    state.backgroundCompletionResolve?.();
+    await streamPromise;
   });
 
   test("completes task tool rows when Copilot sub-agents finish", async () => {

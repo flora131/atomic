@@ -23,6 +23,7 @@ export interface ChatUIState {
   interruptTimeout: ReturnType<typeof setTimeout> | null;
   streamAbortController: AbortController | null;
   pendingAbortPromise: Promise<void> | null;
+  pendingBackgroundTerminationPromise: Promise<void> | null;
   isStreaming: boolean;
   ownedSessionIds: Set<string>;
   sessionCreationPromise: Promise<void> | null;

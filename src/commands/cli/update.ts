@@ -291,6 +291,19 @@ export async function updateCommand(): Promise<void> {
       await syncAtomicGlobalAgentConfigs(dataDir);
       s.stop("Config files updated");
 
+      // Update @bastani/atomic workflow SDK globally
+      s.start("Updating @bastani/atomic workflow SDK...");
+      const sdkResult = Bun.spawnSync(["bun", "install", "-g", "@bastani/atomic@latest"], {
+        stdout: "ignore",
+        stderr: "pipe",
+      });
+      if (sdkResult.exitCode === 0) {
+        s.stop("Workflow SDK updated");
+      } else {
+        s.stop("Workflow SDK update failed");
+        log.warn("Could not update @bastani/atomic workflow SDK. Run manually: bun install -g @bastani/atomic@latest");
+      }
+
       // Verify installation
       s.start("Verifying installation...");
       const verifyResult = Bun.spawnSync({

@@ -125,6 +125,14 @@ export function buildCopilotSystemMessage(
   config: SessionConfig,
   instructions?: string,
 ): SdkSessionConfig["systemMessage"] {
+  // Full replacement: systemPrompt takes precedence over everything else
+  if (config.systemPrompt) {
+    return {
+      mode: "replace",
+      content: config.systemPrompt,
+    };
+  }
+
   const segments = [instructions?.trim(), config.additionalInstructions?.trim()].filter(
     (segment): segment is string => typeof segment === "string" && segment.length > 0,
   );

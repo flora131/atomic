@@ -32,5 +32,6 @@ export function createCopilotStreamAdapterState(): CopilotStreamAdapterState {
     turnMetadataState: createTurnMetadataState(),
     pendingTextDeltas: new Map(),
     contentTypeResolvedAgents: new Set(),
+    backgroundCompletionResolve: null,
   };
 }

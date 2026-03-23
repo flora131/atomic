@@ -1,6 +1,5 @@
 import { join } from "path";
 import { readFile, rename, unlink } from "fs/promises";
-import { getWorkflowSessionDir } from "@/services/workflows/session.ts";
 import {
   normalizeTodoItem,
   normalizeTodoItems,
@@ -16,7 +15,7 @@ export {
 } from "@/services/agent-discovery/index.ts";
 
 // Local import for use within this file
-import { getActiveSession } from "@/services/agent-discovery/index.ts";
+import { getActiveSession, getActiveSessions } from "@/services/agent-discovery/index.ts";
 
 async function atomicWrite(
   targetPath: string,
@@ -51,8 +50,10 @@ export async function saveTasksToActiveSession(
 ): Promise<void> {
   let sessionDir: string | undefined;
   if (sessionId) {
-    sessionDir = getWorkflowSessionDir(sessionId);
-  } else {
+    const registeredSession = getActiveSessions().get(sessionId);
+    sessionDir = registeredSession?.sessionDir;
+  }
+  if (!sessionDir) {
     const session = getActiveSession();
     sessionDir = session?.sessionDir;
   }

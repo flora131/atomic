@@ -75,7 +75,7 @@ export {
 } from "@/services/workflows/graph/annotation.ts";
 
 // === Builder and node factories ===
-export type { LoopConfig, MergeStrategy, ParallelConfig, SubAgentConfig, ToolBuilderConfig, IfConfig } from "@/services/workflows/graph/builder.ts";
+export type { LoopConfig, MergeStrategy, ParallelConfig, ToolBuilderConfig, IfConfig } from "@/services/workflows/graph/builder.ts";
 export {
   GraphBuilder,
   graph,
@@ -167,42 +167,16 @@ export {
   compactContext,
 } from "@/services/workflows/graph/nodes/context.ts";
 
-// --- Subagent nodes ---
-export type {
-  SubagentNodeConfig,
-} from "@/services/workflows/graph/nodes/subagent.ts";
-export {
-  subagentNode,
-} from "@/services/workflows/graph/nodes/subagent.ts";
-
 // === Workflow templates ===
 export type { MapReduceOptions, ReviewCycleOptions, TaskLoopOptions } from "@/services/workflows/graph/templates.ts";
 export { sequential, mapReduce, reviewCycle, taskLoop } from "@/services/workflows/graph/templates.ts";
 
-// === Execution and streaming ===
-export type {
-  ExecutionOptions,
-  EmittedEvent,
-  StepResult,
-  ExecutionResult,
-} from "@/services/workflows/graph/compiled.ts";
+// === Execution state utilities ===
 export {
   isLoopNode,
   initializeExecutionState,
   mergeState,
-  GraphExecutor,
-  createExecutor,
-  executeGraph,
-  streamGraph,
 } from "@/services/workflows/graph/compiled.ts";
-export type {
-  StreamMode,
-  StreamOptions,
-  CustomEvent,
-  DebugTrace,
-  StreamEvent,
-} from "@/services/workflows/graph/stream.ts";
-export { StreamRouter, routeStream } from "@/services/workflows/graph/stream.ts";
 
 // === Validation and errors ===
 export type { StateValidatorConfig } from "@/services/workflows/graph/state-validator.ts";

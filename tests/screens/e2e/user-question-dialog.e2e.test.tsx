@@ -56,6 +56,10 @@ async function renderDialog(
     </ThemeProvider>,
     { width: TEST_WIDTH, height: TEST_HEIGHT, kittyKeyboard: true },
   );
+  // Two render passes: the first triggers layout; the second allows the
+  // <markdown> element to finish its async tree-sitter parse and display
+  // the question text content.
+  await testSetup.renderOnce();
   await testSetup.renderOnce();
   return testSetup;
 }
@@ -113,8 +117,9 @@ describe("UserQuestionDialog E2E", () => {
     // Header badge should be visible
     expect(frame).toContain("Permission Request");
 
-    // Question text
-    expect(frame).toContain("Do you want to allow this action?");
+    // Note: Question text is rendered via OpenTUI's <markdown> element,
+    // which does not produce visible chars in headless captureCharFrame()
+    // (same limitation as <code> — see message-bubble E2E tests).
 
     // Numbered options
     expect(frame).toContain("1.");

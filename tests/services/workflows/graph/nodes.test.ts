@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { agentNode, contextMonitorNode, parallelNode, parallelSubagentNode } from "@/services/workflows/graph/nodes.ts";
+import { askUserNode } from "@/services/workflows/graph/nodes/control.ts";
+import type { AskUserQuestionEventData, AskUserWaitState } from "@/services/workflows/graph/nodes/control.ts";
 import type { BaseState, ContextWindowUsage, ExecutionContext, SubagentStreamResult } from "@/services/workflows/graph/types.ts";
 import type { CodingAgentClient, ContextUsage, Session, SessionConfig } from "@/services/agents/types.ts";
 
@@ -239,6 +241,135 @@ describe("parallelSubagentNode mapper standardization", () => {
         agents: [{ agentName: "worker", task: "do work" }],
       })
     ).toThrow(/requires outputMapper/);
+  });
+});
+
+type AskUserTestState = BaseState & AskUserWaitState;
+
+function createAskUserContext(
+  overrides: Partial<AskUserTestState> = {},
+): ExecutionContext<AskUserTestState> {
+  return {
+    state: {
+      executionId: "exec-ask",
+      lastUpdated: new Date(0).toISOString(),
+      outputs: {},
+      ...overrides,
+    },
+    config: {},
+    errors: [],
+  };
+}
+
+describe("askUserNode multiSelect and dslAskUser fields", () => {
+  test("passes multiSelect through to event data when true", async () => {
+    const node = askUserNode<AskUserTestState>({
+      id: "ask-multi",
+      options: {
+        question: "Pick frameworks",
+        header: "Multi-select",
+        options: [
+          { label: "React" },
+          { label: "Vue" },
+        ],
+        multiSelect: true,
+      },
+    });
+
+    const result = await node.execute(createAskUserContext());
+    const signal = result.signals?.[0];
+    expect(signal).toBeDefined();
+    const data = signal!.data as unknown as AskUserQuestionEventData;
+    expect(data.multiSelect).toBe(true);
+    expect(data.question).toBe("Pick frameworks");
+    expect(data.header).toBe("Multi-select");
+    expect(data.options).toHaveLength(2);
+  });
+
+  test("multiSelect defaults to undefined when not provided", async () => {
+    const node = askUserNode<AskUserTestState>({
+      id: "ask-single",
+      options: {
+        question: "Pick one",
+        options: [{ label: "A" }],
+      },
+    });
+
+    const result = await node.execute(createAskUserContext());
+    const data = result.signals?.[0]?.data as unknown as AskUserQuestionEventData;
+    expect(data.multiSelect).toBeUndefined();
+  });
+
+  test("multiSelect is resolved from dynamic options function", async () => {
+    const node = askUserNode<AskUserTestState>({
+      id: "ask-dynamic",
+      options: (_state) => ({
+        question: "Dynamic question",
+        multiSelect: true,
+        options: [{ label: "X" }],
+      }),
+    });
+
+    const result = await node.execute(createAskUserContext());
+    const data = result.signals?.[0]?.data as unknown as AskUserQuestionEventData;
+    expect(data.multiSelect).toBe(true);
+  });
+
+  test("emits event data with multiSelect via ctx.emit", async () => {
+    let emittedData: Record<string, unknown> | undefined;
+    const node = askUserNode<AskUserTestState>({
+      id: "ask-emit",
+      options: {
+        question: "Choose",
+        multiSelect: true,
+      },
+    });
+
+    const ctx = createAskUserContext();
+    ctx.emit = (_type: string, data?: Record<string, unknown>) => {
+      emittedData = data;
+    };
+
+    await node.execute(ctx);
+    expect(emittedData).toBeDefined();
+    expect((emittedData as unknown as AskUserQuestionEventData).multiSelect).toBe(true);
+  });
+
+  test("AskUserQuestionEventData accepts dslAskUser field", () => {
+    const data: AskUserQuestionEventData = {
+      requestId: "req-1",
+      question: "Test",
+      nodeId: "node-1",
+      dslAskUser: true,
+    };
+    expect(data.dslAskUser).toBe(true);
+  });
+
+  test("AskUserQuestionEventData accepts both multiSelect and dslAskUser", () => {
+    const data: AskUserQuestionEventData = {
+      requestId: "req-2",
+      question: "Test",
+      nodeId: "node-2",
+      multiSelect: true,
+      dslAskUser: true,
+    };
+    expect(data.multiSelect).toBe(true);
+    expect(data.dslAskUser).toBe(true);
+  });
+
+  test("sets wait state in stateUpdate", async () => {
+    const node = askUserNode<AskUserTestState>({
+      id: "ask-wait",
+      options: {
+        question: "Waiting",
+        multiSelect: false,
+      },
+    });
+
+    const result = await node.execute(createAskUserContext());
+    expect(result.stateUpdate?.__waitingForInput).toBe(true);
+    expect(result.stateUpdate?.__waitNodeId).toBe("ask-wait");
+    expect(result.stateUpdate?.__askUserRequestId).toBeDefined();
   });
 });
 

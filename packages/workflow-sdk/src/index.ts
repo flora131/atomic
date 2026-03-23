@@ -1,5 +1,5 @@
 /**
- * @bastani/atomic — Workflow SDK
+ * @bastani/atomic-workflows — Workflow SDK
  *
  * Lightweight SDK for defining multi-agent workflows that run in the
  * Atomic CLI. Install this package in your project and create workflow
@@ -7,7 +7,7 @@
  *
  * @example
  * ```ts
- * import { defineWorkflow } from "@bastani/atomic";
+ * import { defineWorkflow } from "@bastani/atomic-workflows";
  *
  * export default defineWorkflow({
  *     name: "my-workflow",

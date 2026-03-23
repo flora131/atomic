@@ -18,7 +18,7 @@
 import type { BaseState, CompiledGraph } from "@/services/workflows/graph/types.ts";
 import type { Session, SessionConfig } from "@/services/agents/types.ts";
 import type { TaskItem } from "@/services/workflows/builtin/ralph/helpers/prompts.ts";
-import type { BusEvent, BusEventType } from "@/services/events/bus-events/types.ts";
+import type { BusEvent } from "@/services/events/bus-events/types.ts";
 import type { PartsTruncationConfig } from "@/state/parts/truncation.ts";
 
 // ---------------------------------------------------------------------------

@@ -7,7 +7,7 @@
  *
  * Usage:
  * ```ts
- * import { defineWorkflow } from "@bastani/atomic";
+ * import { defineWorkflow } from "@bastani/atomic-workflows";
  *
  * export default defineWorkflow({
  *     name: "my-workflow",

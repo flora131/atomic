@@ -16,6 +16,8 @@ import {
 import { darkTheme, lightTheme } from "@/theme/themes.ts";
 import type { ThemeColors } from "@/theme/types.ts";
 
+// --- getThemeByName ---
+
 describe("getThemeByName", () => {
   test("returns darkTheme for 'dark'", () => {
     expect(getThemeByName("dark")).toBe(darkTheme);
@@ -53,8 +55,12 @@ describe("getThemeByName", () => {
   });
 
   test("returns the exact same object reference (not a copy)", () => {
-    expect(getThemeByName("dark")).toBe(getThemeByName("dark"));
-    expect(getThemeByName("light")).toBe(getThemeByName("light"));
+    const d = getThemeByName("dark");
+    const d2 = getThemeByName("dark");
+    expect(d).toBe(d2);
+    const l = getThemeByName("light");
+    const l2 = getThemeByName("light");
+    expect(l).toBe(l2);
   });
 
   test("returned theme satisfies Theme interface shape", () => {
@@ -66,15 +72,20 @@ describe("getThemeByName", () => {
   });
 });
 
+// --- getMessageColor ---
+
 describe("getMessageColor", () => {
   describe("with darkTheme colors", () => {
     const colors = darkTheme.colors;
+
     test("returns userMessage for 'user' role", () => {
       expect(getMessageColor("user", colors)).toBe(colors.userMessage);
     });
+
     test("returns assistantMessage for 'assistant' role", () => {
       expect(getMessageColor("assistant", colors)).toBe(colors.assistantMessage);
     });
+
     test("returns systemMessage for 'system' role", () => {
       expect(getMessageColor("system", colors)).toBe(colors.systemMessage);
     });
@@ -82,12 +93,15 @@ describe("getMessageColor", () => {
 
   describe("with lightTheme colors", () => {
     const colors = lightTheme.colors;
+
     test("returns userMessage for 'user' role", () => {
       expect(getMessageColor("user", colors)).toBe(colors.userMessage);
     });
+
     test("returns assistantMessage for 'assistant' role", () => {
       expect(getMessageColor("assistant", colors)).toBe(colors.assistantMessage);
     });
+
     test("returns systemMessage for 'system' role", () => {
       expect(getMessageColor("system", colors)).toBe(colors.systemMessage);
     });
@@ -95,25 +109,30 @@ describe("getMessageColor", () => {
 
   test("returns different colors for different roles", () => {
     const colors = darkTheme.colors;
-    const u = getMessageColor("user", colors);
-    const a = getMessageColor("assistant", colors);
-    const s = getMessageColor("system", colors);
-    expect(u).not.toBe(a);
-    expect(u).not.toBe(s);
-    expect(a).not.toBe(s);
+    const userColor = getMessageColor("user", colors);
+    const assistantColor = getMessageColor("assistant", colors);
+    const systemColor = getMessageColor("system", colors);
+    expect(userColor).not.toBe(assistantColor);
+    expect(userColor).not.toBe(systemColor);
+    expect(assistantColor).not.toBe(systemColor);
   });
 
-  test("dark and light themes return different colors for same role", () => {
-    expect(getMessageColor("user", darkTheme.colors)).not.toBe(getMessageColor("user", lightTheme.colors));
+  test("dark and light themes return different colors for the same role", () => {
+    const darkUserColor = getMessageColor("user", darkTheme.colors);
+    const lightUserColor = getMessageColor("user", lightTheme.colors);
+    expect(darkUserColor).not.toBe(lightUserColor);
   });
 
   test("returned values are valid hex color strings", () => {
     const roles: Array<"user" | "assistant" | "system"> = ["user", "assistant", "system"];
     for (const role of roles) {
-      expect(getMessageColor(role, darkTheme.colors)).toMatch(/^#[0-9a-f]{6}$/i);
+      const color = getMessageColor(role, darkTheme.colors);
+      expect(color).toMatch(/^#[0-9a-f]{6}$/i);
     }
   });
 });
+
+// --- createCustomTheme ---
 
 describe("createCustomTheme", () => {
   test("overrides specific color fields", () => {
@@ -128,32 +147,41 @@ describe("createCustomTheme", () => {
     expect(custom.colors.error).toBe(darkTheme.colors.error);
     expect(custom.colors.success).toBe(darkTheme.colors.success);
     expect(custom.colors.warning).toBe(darkTheme.colors.warning);
+    expect(custom.colors.muted).toBe(darkTheme.colors.muted);
     expect(custom.colors.border).toBe(darkTheme.colors.border);
+    expect(custom.colors.accent).toBe(darkTheme.colors.accent);
     expect(custom.colors.userMessage).toBe(darkTheme.colors.userMessage);
     expect(custom.colors.assistantMessage).toBe(darkTheme.colors.assistantMessage);
     expect(custom.colors.systemMessage).toBe(darkTheme.colors.systemMessage);
   });
 
   test("overrides theme name when provided", () => {
-    expect(createCustomTheme(darkTheme, { name: "my-theme" }).name).toBe("my-theme");
+    const custom = createCustomTheme(darkTheme, { name: "my-theme" });
+    expect(custom.name).toBe("my-theme");
   });
 
   test("auto-generates name suffix '-custom' when name not provided", () => {
-    expect(createCustomTheme(darkTheme, { foreground: "#fff" }).name).toBe("dark-custom");
-    expect(createCustomTheme(lightTheme, { foreground: "#000" }).name).toBe("light-custom");
+    const customDark = createCustomTheme(darkTheme, { foreground: "#fff" });
+    expect(customDark.name).toBe("dark-custom");
+    const customLight = createCustomTheme(lightTheme, { foreground: "#000" });
+    expect(customLight.name).toBe("light-custom");
   });
 
   test("preserves isDark from the base theme", () => {
-    expect(createCustomTheme(darkTheme, {}).isDark).toBe(true);
-    expect(createCustomTheme(lightTheme, {}).isDark).toBe(false);
+    const customDark = createCustomTheme(darkTheme, {});
+    expect(customDark.isDark).toBe(true);
+    const customLight = createCustomTheme(lightTheme, {});
+    expect(customLight.isDark).toBe(false);
   });
 
   test("does not mutate the base theme", () => {
-    const origBg = darkTheme.colors.background;
-    const origName = darkTheme.name;
-    createCustomTheme(darkTheme, { background: "#000000", name: "mutated" });
-    expect(darkTheme.colors.background).toBe(origBg);
-    expect(darkTheme.name).toBe(origName);
+    const originalBg = darkTheme.colors.background;
+    const originalFg = darkTheme.colors.foreground;
+    const originalName = darkTheme.name;
+    createCustomTheme(darkTheme, { background: "#000000", foreground: "#ffffff", name: "mutated" });
+    expect(darkTheme.colors.background).toBe(originalBg);
+    expect(darkTheme.colors.foreground).toBe(originalFg);
+    expect(darkTheme.name).toBe(originalName);
   });
 
   test("returns a new Theme object (not the base reference)", () => {
@@ -165,6 +193,7 @@ describe("createCustomTheme", () => {
   test("works with empty overrides", () => {
     const custom = createCustomTheme(darkTheme, {});
     expect(custom.name).toBe("dark-custom");
+    expect(custom.isDark).toBe(darkTheme.isDark);
     for (const key of Object.keys(darkTheme.colors) as (keyof ThemeColors)[]) {
       expect(custom.colors[key]).toBe(darkTheme.colors[key]);
     }
@@ -172,12 +201,13 @@ describe("createCustomTheme", () => {
 
   test("works when overriding all color fields", () => {
     const allOverrides: Partial<ThemeColors> = {
-      background: "#000000", foreground: "#ffffff", accent: "#ff0000", border: "#333333",
-      userMessage: "#0000ff", assistantMessage: "#00ff00", systemMessage: "#ff00ff",
-      error: "#ff0000", success: "#00ff00", warning: "#ffff00", muted: "#888888",
-      inputFocus: "#444444", inputStreaming: "#555555", userBubbleBg: "#222222",
-      userBubbleFg: "#eeeeee", dim: "#666666", scrollbarFg: "#777777",
-      scrollbarBg: "#111111", codeBorder: "#333333", codeTitle: "#00ffff",
+      background: "#000000", foreground: "#ffffff", accent: "#ff0000",
+      border: "#333333", userMessage: "#0000ff", assistantMessage: "#00ff00",
+      systemMessage: "#ff00ff", error: "#ff0000", success: "#00ff00",
+      warning: "#ffff00", muted: "#888888", inputFocus: "#444444",
+      inputStreaming: "#555555", userBubbleBg: "#222222", userBubbleFg: "#eeeeee",
+      dim: "#666666", scrollbarFg: "#777777", scrollbarBg: "#111111",
+      codeBorder: "#333333", codeTitle: "#00ffff",
     };
     const custom = createCustomTheme(darkTheme, allOverrides);
     for (const [key, value] of Object.entries(allOverrides)) {
@@ -190,6 +220,7 @@ describe("createCustomTheme", () => {
     expect(custom.name).toBe("custom-light");
     expect(custom.isDark).toBe(false);
     expect(custom.colors.background).toBe("#f0f0f0");
+    expect(custom.colors.foreground).toBe(lightTheme.colors.foreground);
   });
 
   test("can chain theme derivation", () => {

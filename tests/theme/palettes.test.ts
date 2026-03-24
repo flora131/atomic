@@ -1,25 +1,17 @@
 /**
  * Tests for src/theme/palettes.ts
- *
- * Validates Catppuccin palette definitions:
- * - catppuccinMocha (dark palette)
- * - catppuccinLatte (light palette)
- * - getCatppuccinPalette (palette selector)
  */
 
 import { describe, expect, test } from "bun:test";
-import {
-  catppuccinMocha,
-  catppuccinLatte,
-  getCatppuccinPalette,
-} from "@/theme/palettes.ts";
+import { catppuccinMocha, catppuccinLatte, getCatppuccinPalette } from "@/theme/palettes.ts";
 import type { CatppuccinPalette } from "@/theme/palettes.ts";
 
 const PALETTE_KEYS: readonly (keyof CatppuccinPalette)[] = [
-  "rosewater", "flamingo", "pink", "mauve", "red", "maroon", "peach",
-  "yellow", "green", "teal", "sky", "sapphire", "blue", "lavender",
-  "text", "subtext1", "subtext0", "overlay2", "overlay1", "overlay0",
-  "surface2", "surface1", "surface0", "base", "mantle", "crust",
+  "rosewater", "flamingo", "pink", "mauve", "red", "maroon",
+  "peach", "yellow", "green", "teal", "sky", "sapphire",
+  "blue", "lavender", "text", "subtext1", "subtext0",
+  "overlay2", "overlay1", "overlay0", "surface2", "surface1",
+  "surface0", "base", "mantle", "crust",
 ] as const;
 
 const HEX_COLOR = /^#[0-9a-f]{6}$/;
@@ -31,9 +23,7 @@ describe("catppuccinMocha", () => {
   });
 
   test("contains all 26 required palette keys", () => {
-    for (const key of PALETTE_KEYS) {
-      expect(catppuccinMocha).toHaveProperty(key);
-    }
+    for (const key of PALETTE_KEYS) { expect(catppuccinMocha).toHaveProperty(key); }
   });
 
   test("has exactly 26 keys (no extra fields)", () => {
@@ -41,16 +31,14 @@ describe("catppuccinMocha", () => {
   });
 
   test("every value is a valid 6-digit hex color", () => {
-    for (const key of PALETTE_KEYS) {
-      expect(catppuccinMocha[key]).toMatch(HEX_COLOR);
-    }
+    for (const key of PALETTE_KEYS) { expect(catppuccinMocha[key]).toMatch(HEX_COLOR); }
   });
 
-  test("matches official Catppuccin Mocha base color", () => {
+  test("matches the official Catppuccin Mocha base color", () => {
     expect(catppuccinMocha.base).toBe("#1e1e2e");
   });
 
-  test("matches official Catppuccin Mocha text color", () => {
+  test("matches the official Catppuccin Mocha text color", () => {
     expect(catppuccinMocha.text).toBe("#cdd6f4");
   });
 
@@ -66,7 +54,7 @@ describe("catppuccinMocha", () => {
   });
 
   test("surface/background colors form a dark-to-light gradient", () => {
-    const ordered: string[] = [
+    const ordered = [
       catppuccinMocha.crust, catppuccinMocha.mantle, catppuccinMocha.base,
       catppuccinMocha.surface0, catppuccinMocha.surface1, catppuccinMocha.surface2,
     ];
@@ -78,9 +66,7 @@ describe("catppuccinMocha", () => {
 
 describe("catppuccinLatte", () => {
   test("contains all 26 required palette keys", () => {
-    for (const key of PALETTE_KEYS) {
-      expect(catppuccinLatte).toHaveProperty(key);
-    }
+    for (const key of PALETTE_KEYS) { expect(catppuccinLatte).toHaveProperty(key); }
   });
 
   test("has exactly 26 keys (no extra fields)", () => {
@@ -88,16 +74,14 @@ describe("catppuccinLatte", () => {
   });
 
   test("every value is a valid 6-digit hex color", () => {
-    for (const key of PALETTE_KEYS) {
-      expect(catppuccinLatte[key]).toMatch(HEX_COLOR);
-    }
+    for (const key of PALETTE_KEYS) { expect(catppuccinLatte[key]).toMatch(HEX_COLOR); }
   });
 
-  test("matches official Catppuccin Latte base color", () => {
+  test("matches the official Catppuccin Latte base color", () => {
     expect(catppuccinLatte.base).toBe("#eff1f5");
   });
 
-  test("matches official Catppuccin Latte text color", () => {
+  test("matches the official Catppuccin Latte text color", () => {
     expect(catppuccinLatte.text).toBe("#4c4f69");
   });
 
@@ -113,7 +97,7 @@ describe("catppuccinLatte", () => {
   });
 
   test("surface/background colors form a light-to-dark gradient", () => {
-    const ordered: string[] = [
+    const ordered = [
       catppuccinLatte.base, catppuccinLatte.mantle, catppuccinLatte.crust,
       catppuccinLatte.surface0, catppuccinLatte.surface1, catppuccinLatte.surface2,
     ];
@@ -129,9 +113,7 @@ describe("palette contrast (Mocha vs Latte)", () => {
   });
 
   test("corresponding color values differ between palettes", () => {
-    for (const key of PALETTE_KEYS) {
-      expect(catppuccinMocha[key]).not.toBe(catppuccinLatte[key]);
-    }
+    for (const key of PALETTE_KEYS) { expect(catppuccinMocha[key]).not.toBe(catppuccinLatte[key]); }
   });
 
   test("Mocha base is darker than Latte base", () => {

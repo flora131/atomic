@@ -40,11 +40,6 @@ import {
   setToolRegistry,
   ToolRegistry,
 } from "@/services/agents/tools/registry.ts";
-import {
-  getEventHandlerRegistry,
-  setEventHandlerRegistry,
-  EventHandlerRegistry,
-} from "@/services/events/registry/registry.ts";
 import { globalRegistry as commandRegistry } from "@/commands/core/registry.ts";
 
 describe("global-state-registry", () => {
@@ -89,6 +84,15 @@ describe("global-state-registry", () => {
       const files = MUTABLE_STATE_INVENTORY.map((e) => e.file);
       expect(files).toContain("@/state/parts/id.ts");
       expect(files).toContain("@/theme/colors.ts");
+    });
+
+    test("EventHandlerRegistry is classified as read-only-at-init", () => {
+      const entry = MUTABLE_STATE_INVENTORY.find(
+        (e) => e.file === "@/services/events/registry/registry.ts",
+      );
+      expect(entry).toBeDefined();
+      expect(entry!.resetStrategy).toBe("read-only-at-init");
+      expect(entry!.coveredByResetAll).toBe(false);
     });
   });
 
@@ -207,19 +211,6 @@ describe("global-state-registry", () => {
       expect(freshRegistry.getAll().length).toBe(0);
     });
 
-    test("replaces event handler registry with fresh instance", () => {
-      // Access the current registry to verify it exists
-      const registry = getEventHandlerRegistry();
-      expect(registry).toBeInstanceOf(EventHandlerRegistry);
-
-      // Reset
-      resetAllGlobalState();
-
-      // After reset, a fresh instance is returned
-      const freshRegistry = getEventHandlerRegistry();
-      expect(freshRegistry).toBeInstanceOf(EventHandlerRegistry);
-    });
-
     test("clears command registry", () => {
       // Register a command
       commandRegistry.register({
@@ -248,8 +239,8 @@ describe("global-state-registry", () => {
       const coveredEntries = MUTABLE_STATE_INVENTORY.filter(
         (e) => e.coveredByResetAll,
       );
-      // We reset 11 pieces of state in resetAllGlobalState()
-      expect(coveredEntries.length).toBe(11);
+      // We reset 10 pieces of state in resetAllGlobalState()
+      expect(coveredEntries.length).toBe(10);
     });
   });
 

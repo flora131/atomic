@@ -44,10 +44,6 @@ import { clearHistoryBuffer } from "@/state/chat/shared/helpers/conversation-his
 import { clearAgentEventBuffer } from "@/state/streaming/pipeline-agents/buffer.ts";
 import { clearAgentLookupCache } from "@/services/workflows/dsl/agent-resolution.ts";
 import { setToolRegistry, ToolRegistry } from "@/services/agents/tools/registry.ts";
-import {
-  setEventHandlerRegistry,
-  EventHandlerRegistry,
-} from "@/services/events/registry/registry.ts";
 import { globalRegistry as commandRegistry } from "@/commands/core/registry.ts";
 
 // ============================================================================
@@ -156,14 +152,6 @@ export const MUTABLE_STATE_INVENTORY: readonly MutableStateEntry[] = [
     coveredByResetAll: true,
   },
   {
-    file: "@/services/events/registry/registry.ts",
-    variables: ["globalRegistry"],
-    description:
-      "Singleton EventHandlerRegistry holding per-BusEventType handler metadata.",
-    resetStrategy: "exported-reset-fn",
-    coveredByResetAll: true,
-  },
-  {
     file: "@/commands/core/registry.ts",
     variables: ["globalRegistry"],
     description:
@@ -174,6 +162,14 @@ export const MUTABLE_STATE_INVENTORY: readonly MutableStateEntry[] = [
 
   // ── Read-only at init (no reset needed) ──────────────────────────────
 
+  {
+    file: "@/services/events/registry/registry.ts",
+    variables: ["globalRegistry"],
+    description:
+      "Singleton EventHandlerRegistry. Handlers registered at module load time cannot be replayed.",
+    resetStrategy: "read-only-at-init",
+    coveredByResetAll: false,
+  },
   {
     file: "@/theme/colors.ts",
     variables: ["COLORS"],
@@ -318,6 +314,9 @@ export const MUTABLE_STATE_INVENTORY: readonly MutableStateEntry[] = [
  * State that requires `mock.module()` (infrastructure singletons, server
  * lifecycle, file-system side effects) is NOT reset here — those modules
  * should be mocked at the test-file level using Bun's `mock.module()`.
+ *
+ * NOTE: EventHandlerRegistry is intentionally excluded — its handlers are
+ * registered once at module load time and cannot be re-registered.
  */
 export function resetAllGlobalState(): void {
   // ── Part ID counter ────────────────────────────────────────────────
@@ -347,8 +346,8 @@ export function resetAllGlobalState(): void {
   // ── Tool registry (replace with fresh instance) ────────────────────
   setToolRegistry(new ToolRegistry());
 
-  // ── Event handler registry (replace with fresh instance) ───────────
-  setEventHandlerRegistry(new EventHandlerRegistry());
+  // NOTE: EventHandlerRegistry is NOT reset — handlers are registered at
+  // module load time and cannot be replayed after singleton replacement.
 
   // ── Command registry (clear entries) ───────────────────────────────
   commandRegistry.clear();

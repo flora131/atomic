@@ -480,6 +480,24 @@ export interface ConductorConfig {
    * When omitted, no parts truncation is performed (backward compatible).
    */
   readonly partsTruncation?: PartsTruncationConfig;
+
+  // -------------------------------------------------------------------------
+  // Interrupt & Queue Integration (optional — enables pause/resume on interrupt)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Called by the conductor to check if a queued message is available.
+   * Returns the message content if available, null otherwise.
+   * The implementation should dequeue the message (consume it).
+   */
+  readonly checkQueuedMessage?: () => string | null;
+
+  /**
+   * Called by the conductor when a stage is interrupted and no queued message
+   * is available. Returns a promise that resolves with the user's follow-up
+   * message, or null to skip the stage and advance.
+   */
+  readonly waitForResumeInput?: () => Promise<string | null>;
 }
 
 // ---------------------------------------------------------------------------

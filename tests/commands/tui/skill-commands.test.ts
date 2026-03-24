@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { CommandContext } from "@/commands/tui/registry.ts";
@@ -96,11 +96,9 @@ describe("skill-commands builtins", () => {
         const originalHome = process.env.HOME;
         const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
 
-        // realpathSync resolves symlinks (e.g. /var -> /private/var on macOS)
-        // so temp paths match what process.cwd() returns in production code
-        const tempRoot = realpathSync(mkdtempSync(
+        const tempRoot = mkdtempSync(
             join(tmpdir(), "skill-missing-arguments-"),
-        ));
+        );
         const homeDir = join(tempRoot, "home");
         const projectRoot = join(homeDir, "project");
         const xdgConfigHome = join(homeDir, ".config");
@@ -350,9 +348,7 @@ describe("skill-commands builtins", () => {
         const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
         const originalDebug = process.env.DEBUG;
 
-        // realpathSync resolves symlinks (e.g. /var -> /private/var on macOS)
-        // so temp paths match what process.cwd() returns in production code
-        const tempRoot = realpathSync(mkdtempSync(join(tmpdir(), "skill-skip-reasons-")));
+        const tempRoot = mkdtempSync(join(tmpdir(), "skill-skip-reasons-"));
         const homeDir = join(tempRoot, "home");
         const projectRoot = join(homeDir, "project");
         const xdgConfigHome = join(homeDir, ".config");

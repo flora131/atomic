@@ -37,6 +37,7 @@ The user's research question/request is: **$ARGUMENTS**
     - We now have specialized agents that know how to do specific research tasks:
 
     **For codebase research:**
+    - All codebase agents use `ccc search` (semantic code search) as their primary discovery tool for faster, more relevant results
     - Use the **codebase-locator** agent to find WHERE files and components live
     - Use the **codebase-analyzer** agent to understand HOW specific code works (without critiquing it)
     - Use the **codebase-pattern-finder** agent to find examples of existing patterns (without evaluating them)

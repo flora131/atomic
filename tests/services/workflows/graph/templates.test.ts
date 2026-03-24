@@ -5,7 +5,7 @@ import {
   reviewCycle,
   taskLoop,
 } from "@/services/workflows/graph/templates.ts";
-import type { BaseState, NodeDefinition, NodeResult } from "@/services/workflows/graph/types.ts";
+import type { BaseState, NodeDefinition } from "@/services/workflows/graph/types.ts";
 
 interface TestState extends BaseState {
   counter?: number;

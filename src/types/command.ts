@@ -111,6 +111,13 @@ export interface CommandContext {
    * keyboard layer so that Ctrl+C can abort the current stage session.
    */
   registerConductorInterrupt?: (interrupt: (() => void) | null) => void;
+  /**
+   * Register (or clear) the conductor's resume callback.
+   * Called by the conductor executor to expose `conductor.resume()` to the
+   * keyboard/queue layer so that user input during a paused workflow stage
+   * can resume the conductor.
+   */
+  registerConductorResume?: (resume: ((message: string | null) => void) | null) => void;
   updateWorkflowState: (update: Partial<CommandContextState>) => void;
   eventBus?: import("@/services/events/event-bus.ts").EventBus;
   agentType?: AgentType;

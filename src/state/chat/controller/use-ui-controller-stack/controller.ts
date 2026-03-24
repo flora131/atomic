@@ -93,6 +93,7 @@ export function useChatUiControllerStack({
     toggleTheme,
     transcriptMode,
     conductorInterruptRef,
+    conductorResumeRef,
     waitForUserInputResolverRef,
     workflowActiveRef,
     actions: {
@@ -251,6 +252,11 @@ export function useChatUiControllerStack({
     trackAwaitedRun,
     updateWorkflowState,
     conductorInterruptRef,
+    conductorResumeRef,
+    dequeueMessage: () => {
+      const queued = messageQueue.dequeue();
+      return queued?.content ?? null;
+    },
     waitForUserInputResolverRef,
     workflowActiveRef,
     workflowSessionDirRef,

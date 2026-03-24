@@ -118,6 +118,12 @@ export interface CommandContext {
    * can resume the conductor.
    */
   registerConductorResume?: (resume: ((message: string | null) => void) | null) => void;
+  /**
+   * Dequeue the next message from the message queue.
+   * Returns the message content string if available, null otherwise.
+   * Used by the conductor executor to check for queued messages during workflow stages.
+   */
+  dequeueMessage?: () => string | null;
   updateWorkflowState: (update: Partial<CommandContextState>) => void;
   eventBus?: import("@/services/events/event-bus.ts").EventBus;
   agentType?: AgentType;

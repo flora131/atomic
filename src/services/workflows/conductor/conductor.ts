@@ -72,6 +72,10 @@ export class WorkflowSessionConductor {
   private accumulatedPressure: AccumulatedContextPressure;
   private currentStage: string | null = null;
   private currentSession: Session | null = null;
+  private interrupted = false;
+  private resumeResolver: ((message: string | null) => void) | null = null;
+  private pendingResumeMessage: string | null = null;
+  private preserveSessionForResume = false;
 
   constructor(config: ConductorConfig, stages: readonly StageDefinition[]) {
     this.config = config;
@@ -95,7 +99,35 @@ export class WorkflowSessionConductor {
    * observe the abort and return an `"interrupted"` StageOutput.
    */
   interrupt(): void {
+    this.interrupted = true;
     this.currentSession?.abort?.();
+  }
+
+  /**
+   * Resume the conductor after an interrupt with a follow-up message.
+   * Called by the conductor executor when user input arrives.
+   * Passing `null` means "no follow-up; advance to next node."
+   */
+  resume(message: string | null): void {
+    if (this.resumeResolver) {
+      this.resumeResolver(message);
+      this.resumeResolver = null;
+    }
+  }
+
+  /**
+   * Wait for a resume message — checks queued messages first, then
+   * delegates to the config callback for user input.
+   */
+  private async waitForResumeInput(): Promise<string | null> {
+    const queuedMessage = this.config.checkQueuedMessage?.();
+    if (queuedMessage) return queuedMessage;
+
+    if (this.config.waitForResumeInput) {
+      return this.config.waitForResumeInput();
+    }
+
+    return null;
   }
 
   /**
@@ -175,6 +207,21 @@ export class WorkflowSessionConductor {
             lastUpdated: executionNow(),
           });
           break;
+        }
+
+        // Handle interrupted status: pause and wait for resume input
+        if (stageResult.output.status === "interrupted") {
+          const resumeInput = await this.waitForResumeInput();
+
+          if (resumeInput !== null) {
+            // Re-execute the same stage with the follow-up message
+            nodeQueue.unshift(nodeId);
+            visited.delete(nodeId);
+            this.pendingResumeMessage = resumeInput;
+            this.preserveSessionForResume = true;
+            continue;
+          }
+          // If null (no follow-up), fall through to advance to next node
         }
       } else {
         result = await this.executeDeterministicNode(node, state);
@@ -267,7 +314,11 @@ export class WorkflowSessionConductor {
     this.emitStepComplete(
       stage,
       durationMs,
-      output.status === "completed" ? "completed" : "error",
+      output.status === "completed"
+        ? "completed"
+        : output.status === "interrupted"
+          ? "interrupted"
+          : "error",
       output.error,
     );
 
@@ -319,6 +370,14 @@ export class WorkflowSessionConductor {
       let contextUsage: ContextPressureSnapshot | null = null;
 
       try {
+        // When resuming an interrupted stage, reuse the pending message
+        // instead of the original prompt
+        if (this.preserveSessionForResume && this.pendingResumeMessage !== null) {
+          currentPrompt = this.pendingResumeMessage;
+          this.pendingResumeMessage = null;
+          this.preserveSessionForResume = false;
+        }
+
         session = await this.config.createSession(stage.sessionConfig);
         this.currentSession = session;
 
@@ -338,6 +397,18 @@ export class WorkflowSessionConductor {
               rawResponse += message.content;
             }
           }
+        }
+
+        // Check for per-stage interrupt (set by conductor.interrupt())
+        if (this.interrupted) {
+          this.interrupted = false;
+          return {
+            stageId: stage.id,
+            rawResponse: accumulatedResponse + rawResponse,
+            status: "interrupted",
+            contextUsage: contextUsage ?? undefined,
+            continuations: continuations.length > 0 ? continuations : undefined,
+          };
         }
 
         // Check for abort after streaming
@@ -403,6 +474,43 @@ export class WorkflowSessionConductor {
           }
         }
 
+        // Drain queued messages to the active session before completing
+        while (session) {
+          const queuedMessage = this.config.checkQueuedMessage?.();
+          if (!queuedMessage) break;
+
+          // Deliver the queued message to the still-active session
+          let queuedResponse: string;
+          if (this.config.streamSession) {
+            queuedResponse = await this.config.streamSession(session, queuedMessage, {
+              abortSignal: context.abortSignal,
+            });
+          } else {
+            queuedResponse = "";
+            for await (const message of session.stream(queuedMessage, {
+              abortSignal: context.abortSignal,
+            })) {
+              if (typeof message.content === "string") {
+                queuedResponse += message.content;
+              }
+            }
+          }
+
+          accumulatedResponse += queuedResponse;
+
+          // Check for interrupt during the follow-up stream
+          if (this.interrupted) {
+            this.interrupted = false;
+            return {
+              stageId: stage.id,
+              rawResponse: accumulatedResponse,
+              status: "interrupted",
+              contextUsage: contextUsage ?? undefined,
+              continuations: continuations.length > 0 ? continuations : undefined,
+            };
+          }
+        }
+
         // Parse output if a parser is provided (uses full accumulated response)
         let parsedOutput: unknown;
         if (stage.parseOutput) {
@@ -423,7 +531,8 @@ export class WorkflowSessionConductor {
         };
       } catch (error) {
         // Abort-induced errors are "interrupted", not "error"
-        if (context.abortSignal.aborted) {
+        if (this.interrupted || context.abortSignal.aborted) {
+          this.interrupted = false;
           return {
             stageId: stage.id,
             rawResponse: accumulatedResponse,
@@ -626,7 +735,7 @@ export class WorkflowSessionConductor {
   private emitStepComplete(
     stage: StageDefinition,
     durationMs: number,
-    status: "completed" | "error" | "skipped",
+    status: "completed" | "error" | "skipped" | "interrupted",
     error?: string,
   ): void {
     if (!this.canDispatch) return;

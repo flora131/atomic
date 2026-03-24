@@ -209,6 +209,17 @@ export async function executeConductorWorkflow(
       // --- Parts truncation (reclaims memory on stage completion) ---
       partsTruncation: createDefaultPartsTruncationConfig(),
 
+      // --- Interrupt & Queue Integration (enables pause/resume on interrupt) ---
+      checkQueuedMessage: context.dequeueMessage ?? undefined,
+      waitForResumeInput: async () => {
+        try {
+          return await context.waitForUserInput();
+        } catch {
+          // Rejection means workflow cancelled (double Ctrl+C)
+          throw new Error("Workflow cancelled");
+        }
+      },
+
       // TODO: Wire contextPressure config once session.getContextUsage() is available
       // on sessions created via context.createAgentSession
     };
@@ -218,12 +229,15 @@ export async function executeConductorWorkflow(
 
     // Register conductor.interrupt() so the keyboard layer can abort the current stage (§5.5)
     context.registerConductorInterrupt?.(conductor.interrupt.bind(conductor));
+    // Register conductor.resume() so the keyboard/queue layer can resume paused stages
+    context.registerConductorResume?.(conductor.resume.bind(conductor));
     let result;
     try {
       result = await conductor.execute(prompt);
     } finally {
-      // Always deregister the conductor interrupt when execution completes or fails
+      // Always deregister the conductor interrupt and resume when execution completes or fails
       context.registerConductorInterrupt?.(null);
+      context.registerConductorResume?.(null);
     }
 
     // Phase 5: Report result

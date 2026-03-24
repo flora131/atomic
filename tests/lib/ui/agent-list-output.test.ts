@@ -22,8 +22,8 @@ describe("buildAgentListView", () => {
     const view = buildAgentListView([agent]);
 
     expect(view.projectAgents).toHaveLength(1);
-    expect(view.projectAgents[0].name).toBe("proj-agent");
-    expect(view.projectAgents[0].source).toBe("project");
+    expect(view.projectAgents[0]!.name).toBe("proj-agent");
+    expect(view.projectAgents[0]!.source).toBe("project");
     expect(view.globalAgents).toHaveLength(0);
   });
 
@@ -32,8 +32,8 @@ describe("buildAgentListView", () => {
     const view = buildAgentListView([agent]);
 
     expect(view.globalAgents).toHaveLength(1);
-    expect(view.globalAgents[0].name).toBe("user-agent");
-    expect(view.globalAgents[0].source).toBe("user");
+    expect(view.globalAgents[0]!.name).toBe("user-agent");
+    expect(view.globalAgents[0]!.source).toBe("user");
     expect(view.projectAgents).toHaveLength(0);
   });
 
@@ -75,14 +75,14 @@ describe("firstSentence (via buildAgentListView)", () => {
     const agent = makeAgent({ name: "a", description: "First sentence. Second sentence.", source: "project" });
     const view = buildAgentListView([agent]);
 
-    expect(view.projectAgents[0].description).toBe("First sentence.");
+    expect(view.projectAgents[0]!.description).toBe("First sentence.");
   });
 
   test("returns full text when no period followed by space exists", () => {
     const agent = makeAgent({ name: "a", description: "No period here", source: "project" });
     const view = buildAgentListView([agent]);
 
-    expect(view.projectAgents[0].description).toBe("No period here");
+    expect(view.projectAgents[0]!.description).toBe("No period here");
   });
 
   test("returns full text when period is at the very end (no trailing space)", () => {
@@ -90,7 +90,7 @@ describe("firstSentence (via buildAgentListView)", () => {
     const view = buildAgentListView([agent]);
 
     // The regex requires `. ` (period + space) — a trailing period with no space won't match
-    expect(view.projectAgents[0].description).toBe("Only one sentence.");
+    expect(view.projectAgents[0]!.description).toBe("Only one sentence.");
   });
 
   test("handles multiline descriptions by collapsing newlines to spaces", () => {
@@ -99,13 +99,13 @@ describe("firstSentence (via buildAgentListView)", () => {
 
     // After newline replacement: "Line one. Line two. Line three."
     // First sentence match: "Line one."
-    expect(view.projectAgents[0].description).toBe("Line one.");
+    expect(view.projectAgents[0]!.description).toBe("Line one.");
   });
 
   test("trims leading/trailing whitespace before extracting", () => {
     const agent = makeAgent({ name: "a", description: "  Spaced out. More text.  ", source: "project" });
     const view = buildAgentListView([agent]);
 
-    expect(view.projectAgents[0].description).toBe("Spaced out.");
+    expect(view.projectAgents[0]!.description).toBe("Spaced out.");
   });
 });

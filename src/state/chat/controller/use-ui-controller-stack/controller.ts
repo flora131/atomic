@@ -213,6 +213,7 @@ export function useChatUiControllerStack({
     messages,
     modelOps,
     onCommandExecutionTelemetry,
+    onExit,
     onModelChange,
     onResetSession,
     onSendMessage,

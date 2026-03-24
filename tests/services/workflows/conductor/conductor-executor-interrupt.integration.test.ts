@@ -140,9 +140,10 @@ function createMockContext(
       output: "",
     })) as CommandContext["spawnSubagent"],
     streamAndWait: mock(async () => ({
+      success: true,
       content: "",
       wasInterrupted: false,
-    })) as CommandContext["streamAndWait"],
+    })) as unknown as CommandContext["streamAndWait"],
     clearContext: mock(async () => {}) as CommandContext["clearContext"],
     setTodoItems: mock(() => {}),
     setWorkflowSessionDir: mock(() => {}),
@@ -298,7 +299,7 @@ describe("executeConductorWorkflow — interrupt/queue integration", () => {
             resolveStream = resolve;
           });
         },
-        abort: mock(async () => {}),
+        abort: mock(async () => {}) as () => Promise<void>,
       };
 
       // waitForUserInput will reject (simulating double Ctrl+C)

@@ -21,7 +21,6 @@ import type {
   ConductorConfig,
   StageContext,
   StageDefinition,
-  StageOutput,
 } from "@/services/workflows/conductor/types.ts";
 import type {
   BaseState,
@@ -180,8 +179,7 @@ describe("WorkflowSessionConductor — interrupt-pause-resume (§5.1)", () => {
         if (streamCallCount === 1) {
           // First session: conductor.interrupt() is called during streaming
           const session = createMockSession("partial");
-          const originalStream = session.stream;
-          session.stream = async function* (msg, opts) {
+          session.stream = async function* () {
             yield { type: "text" as const, content: "partial" } as AgentMessage;
             // Simulate interrupt during first stage
             conductor!.interrupt();
@@ -193,7 +191,8 @@ describe("WorkflowSessionConductor — interrupt-pause-resume (§5.1)", () => {
       };
 
       const config = buildConfig(graph, sessionFactory, {
-        // No waitForResumeInput means null is returned, so conductor advances
+        // waitForResumeInput returns null so conductor advances past interrupted stage
+        waitForResumeInput: async () => null,
       });
       const stages = [stage("planner"), stage("reviewer")];
 
@@ -292,9 +291,13 @@ describe("WorkflowSessionConductor — interrupt-pause-resume (§5.1)", () => {
 
     test("checks checkQueuedMessage before calling waitForResumeInput on interrupt", async () => {
       const callOrder: string[] = [];
+      let queueCheckCount = 0;
       const checkQueuedMessageMock = mock(() => {
+        queueCheckCount++;
         callOrder.push("checkQueuedMessage");
-        return "queued msg";
+        // Return a message on the first call (in waitForResumeInput),
+        // null on subsequent calls (in the queue drain loop)
+        return queueCheckCount === 1 ? "queued msg" : null;
       });
       const waitForResumeInputMock = mock(async () => {
         callOrder.push("waitForResumeInput");

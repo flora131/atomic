@@ -4,7 +4,19 @@
  * Parses markdown files with YAML frontmatter delimited by `---` markers.
  * Shared utility used by both agent and skill discovery.
  */
-import { parse as parseYaml } from "yaml";
+/**
+ * Lazy-loaded YAML parser. The `yaml` package uses CJS with ~20 chained
+ * require() calls, so we defer loading until actually needed to avoid
+ * penalizing CLI startup (e.g. `--help`) with ~14ms of module loading.
+ */
+let _parseYaml: typeof import("yaml")["parse"] | undefined;
+function getParseYaml() {
+  if (!_parseYaml) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    _parseYaml = (require("yaml") as typeof import("yaml")).parse;
+  }
+  return _parseYaml;
+}
 
 /**
  * Parse YAML frontmatter from a markdown file.
@@ -29,7 +41,7 @@ export function parseMarkdownFrontmatter(
   const body = match[2] ?? "";
 
   try {
-    const parsedFrontmatter = parseYaml(yamlContent, {
+    const parsedFrontmatter = getParseYaml()(yamlContent, {
       strict: false,
       uniqueKeys: false,
     });

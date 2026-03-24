@@ -255,6 +255,9 @@ describe("executeConductorWorkflow — stage-aware interrupt wiring (§5.5)", ()
       const context = createMockContext({
         registerConductorInterrupt: registerMock,
         createAgentSession: mock(async () => blockingSession) as any,
+        // After interrupt, the conductor waits for resume input via waitForUserInput.
+        // Reject to simulate workflow cancellation so the test doesn't hang.
+        waitForUserInput: mock(async () => { throw new Error("Workflow cancelled"); }),
       });
       const definition = createDefinition();
 

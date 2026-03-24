@@ -27,9 +27,11 @@ import type {
   SessionConfig,
 } from "@/services/agents/types.ts";
 import {
-  ralphWorkflowDefinition,
+  getRalphWorkflowDefinition,
   createReviewLoopTerminator,
 } from "@/services/workflows/builtin/ralph/ralph-workflow.ts";
+
+const ralphWorkflowDefinition = getRalphWorkflowDefinition();
 import { defineWorkflow } from "@/services/workflows/dsl/define-workflow.ts";
 import { parseReviewResult } from "@/services/workflows/builtin/ralph/helpers/prompts.ts";
 import { parseTasks } from "@/services/workflows/builtin/ralph/helpers/tasks.ts";

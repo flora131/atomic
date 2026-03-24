@@ -3,7 +3,7 @@ import { join, dirname } from "path";
 import { homedir } from "os";
 import type { BaseState, CompiledGraph } from "@/services/workflows/graph/types.ts";
 import { VERSION } from "@/version.ts";
-import { ralphWorkflowDefinition } from "@/services/workflows/builtin/ralph/ralph-workflow.ts";
+import { getRalphWorkflowDefinition } from "@/services/workflows/builtin/ralph/ralph-workflow.ts";
 import { compileWorkflow } from "@/services/workflows/dsl/compiler.ts";
 import type { WorkflowBuilder } from "@/services/workflows/dsl/define-workflow.ts";
 import type {
@@ -470,9 +470,14 @@ export async function loadWorkflowsFromDisk(): Promise<WorkflowDefinition[]> {
   return loaded;
 }
 
-const BUILTIN_WORKFLOW_DEFINITIONS: WorkflowDefinition[] = [
-  ralphWorkflowDefinition,
-];
+/**
+ * Builtin workflow definitions, lazily compiled.
+ * `getRalphWorkflowDefinition()` defers `.compile()` (which triggers agent
+ * discovery + YAML parsing, ~60ms) until the workflow is actually accessed.
+ */
+function getBuiltinWorkflowDefinitionsLazy(): WorkflowDefinition[] {
+  return [getRalphWorkflowDefinition()];
+}
 
 export function getAllWorkflows(): WorkflowMetadata[] {
   const allWorkflows: WorkflowMetadata[] = [];
@@ -491,7 +496,7 @@ export function getAllWorkflows(): WorkflowMetadata[] {
     }
   }
 
-  for (const workflow of BUILTIN_WORKFLOW_DEFINITIONS) {
+  for (const workflow of getBuiltinWorkflowDefinitionsLazy()) {
     const lowerName = workflow.name.toLowerCase();
     if (!seenNames.has(lowerName)) {
       allWorkflows.push(workflow);
@@ -503,5 +508,5 @@ export function getAllWorkflows(): WorkflowMetadata[] {
 }
 
 export function getBuiltinWorkflowDefinitions(): WorkflowDefinition[] {
-  return BUILTIN_WORKFLOW_DEFINITIONS;
+  return getBuiltinWorkflowDefinitionsLazy();
 }

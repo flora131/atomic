@@ -2,8 +2,10 @@
 # Limit test discovery to tests/ so vendored docs are not scanned
 root = "tests"
 
-# Coverage
-coverage = true
+# Use smaller JS heap + aggressive GC to prevent OOM on constrained machines
+smol = true
+
+# Coverage (opt-in via `bun run test:coverage`, not on every run)
 coverageThreshold = 0
 coverageReporter = ["text", "lcov"]
 coverageDir = "coverage"

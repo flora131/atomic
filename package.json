@@ -35,7 +35,8 @@
     "build": "bun run src/scripts/build-binary.ts --outfile atomic",
     "prepare:opentui-bindings": "bun run src/scripts/prepare-opentui-bindings.ts",
     "test": "bun test ./tests/**/*.test.ts ./tests/**/*.test.tsx ./tests/**/*.integration.test.ts ./tests/**/*.e2e.test.ts",
-    "typecheck": "tsc --noEmit",
+    "test:coverage": "bun test --coverage ./tests/**/*.test.ts ./tests/**/*.test.tsx ./tests/**/*.integration.test.ts ./tests/**/*.e2e.test.ts",
+    "typecheck": "bunx tsc --noEmit",
     "lint": "oxlint --config=oxlint.json src tests",
     "lint:fix": "oxlint --config=oxlint.json --fix src tests",
     "postinstall": "lefthook install && bun run src/scripts/postinstall.ts"

@@ -293,6 +293,8 @@ export async function verifyChecksum(
   return actualHash === expectedHash;
 }
 
+declare const __ATOMIC_BASELINE__: boolean | undefined;
+
 /**
  * Get platform-specific binary filename for download.
  *
@@ -336,7 +338,11 @@ export function getBinaryFilename(): string {
   }
 
   const ext = platform === "win32" ? ".exe" : "";
-  return `atomic-${os}-${archStr}${ext}`;
+  const baselineSuffix =
+    typeof __ATOMIC_BASELINE__ !== "undefined" && __ATOMIC_BASELINE__
+      ? "-baseline"
+      : "";
+  return `atomic-${os}-${archStr}${baselineSuffix}${ext}`;
 }
 
 /**

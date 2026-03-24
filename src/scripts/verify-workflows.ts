@@ -55,6 +55,9 @@ export async function discoverCustomWorkflows(): Promise<DiscoveredWorkflow[]> {
   const glob = new Bun.Glob("*.ts");
   const { homedir } = await import("os");
   const { join } = await import("path");
+  const { importWorkflowModule, cleanupTempWorkflowFiles } = await import(
+    "@/commands/tui/workflow-commands/workflow-files.ts"
+  );
   const workflowDirs = [
     ".atomic/workflows",
     join(homedir(), ".atomic", "workflows"),
@@ -64,7 +67,7 @@ export async function discoverCustomWorkflows(): Promise<DiscoveredWorkflow[]> {
     try {
       for await (const file of glob.scan({ cwd: dir, absolute: true })) {
         try {
-          const mod = await import(file);
+          const mod = await importWorkflowModule(file);
           const exported =
             mod.default ?? (Object.values(mod)[0] as Record<string, unknown>);
 
@@ -87,6 +90,7 @@ export async function discoverCustomWorkflows(): Promise<DiscoveredWorkflow[]> {
     }
   }
 
+  cleanupTempWorkflowFiles();
   return workflows;
 }
 

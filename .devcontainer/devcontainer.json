@@ -1,30 +1,19 @@
 {
   "name": "Atomic CLI",
   "build": {
-    "dockerfile": "Dockerfile",
-    "args": {
-      "BUN_VERSION": "1.3.10"
-    }
+    "dockerfile": "Dockerfile"
   },
   "features": {
     "ghcr.io/devcontainers/features/github-cli:1": {}
   },
-  "mounts": [
-    "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind,consistency=cached",
-    "source=${localEnv:HOME}/.copilot,target=/home/vscode/.copilot,type=bind,consistency=cached",
-    "source=${localEnv:HOME}/.config/opencode,target=/home/vscode/.config/opencode,type=bind,consistency=cached",
-    "source=${localEnv:HOME}/.local/share/opencode,target=/home/vscode/.local/share/opencode,type=bind,consistency=cached"
-  ],
+  "remoteEnv": {
+    "GH_TOKEN": "${localEnv:GH_TOKEN}",
+    "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}"
+  },
   "postCreateCommand": "bun install",
   "customizations": {
     "vscode": {
-      "extensions": [
-        "oven.bun-vscode",
-        "oxc.oxc-vscode"
-      ],
-      "settings": {
-        "js/ts.tsdk.path": "node_modules/typescript/lib"
-      }
+      "extensions": ["oven.bun-vscode", "oxc.oxc-vscode"]
     }
   },
   "remoteUser": "vscode"

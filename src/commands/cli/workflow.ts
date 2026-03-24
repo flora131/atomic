@@ -6,6 +6,10 @@
 
 import { resolve } from "path";
 import { COLORS } from "@/theme/colors.ts";
+import {
+  importWorkflowModule,
+  cleanupTempWorkflowFiles,
+} from "@/commands/tui/workflow-commands/workflow-files.ts";
 
 /**
  * Entry point for `atomic workflow verify [path]`.
@@ -38,8 +42,9 @@ async function verifySingleFile(filePath: string): Promise<void> {
 
   let mod: Record<string, unknown>;
   try {
-    mod = await import(resolved);
+    mod = await importWorkflowModule(resolved);
   } catch (error) {
+    cleanupTempWorkflowFiles();
     console.error(
       `${COLORS.red}Error: Failed to import ${resolved}: ${error instanceof Error ? error.message : String(error)}${COLORS.reset}`,
     );
@@ -79,6 +84,7 @@ async function verifySingleFile(filePath: string): Promise<void> {
       id: definition.name ?? filePath,
       definition,
     });
+    cleanupTempWorkflowFiles();
     console.log(report);
 
     if (!passed) {
@@ -88,6 +94,7 @@ async function verifySingleFile(filePath: string): Promise<void> {
       console.log(`\n${COLORS.green}Verification passed.${COLORS.reset}`);
     }
   } catch (error) {
+    cleanupTempWorkflowFiles();
     console.error(
       `${COLORS.red}Verification error: ${error instanceof Error ? error.message : String(error)}${COLORS.reset}`,
     );

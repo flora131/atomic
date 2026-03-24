@@ -1,5 +1,6 @@
-import { existsSync, readdirSync } from "node:fs";
-import { join } from "path";
+import { existsSync, readdirSync, unlinkSync, mkdirSync, rmdirSync } from "node:fs";
+import { join, dirname } from "path";
+import { homedir } from "os";
 import type { BaseState, CompiledGraph } from "@/services/workflows/graph/types.ts";
 import { VERSION } from "@/version.ts";
 import { ralphWorkflowDefinition } from "@/services/workflows/builtin/ralph/ralph-workflow.ts";
@@ -146,6 +147,77 @@ export const CUSTOM_WORKFLOW_SEARCH_PATHS = [
   "~/.atomic/workflows",
 ];
 
+// ============================================================================
+// Workflow File Import via Subprocess Bundler
+// ============================================================================
+
+const HOME = homedir();
+const WORKFLOW_TMP_DIR = join(HOME, ".atomic", ".tmp", "workflows");
+
+/** Bundled workflow files pending cleanup */
+const tempBundledFiles: string[] = [];
+
+/**
+ * Import a workflow .ts file by first bundling it with `bun build`.
+ *
+ * Compiled Bun binaries cannot resolve node_modules for dynamically imported
+ * files. Bundling the workflow file resolves all dependencies (SDK, user deps)
+ * at bundle time, producing a self-contained JS file that the binary can
+ * import with zero external resolution.
+ */
+export async function importWorkflowModule(
+  workflowFilePath: string,
+): Promise<Record<string, unknown>> {
+  mkdirSync(WORKFLOW_TMP_DIR, { recursive: true });
+  const basename = workflowFilePath.split("/").pop() ?? "workflow.ts";
+  const bundledFile = join(
+    WORKFLOW_TMP_DIR,
+    `${Date.now()}-${basename.replace(/\.ts$/, ".js")}`,
+  );
+
+  const result = Bun.spawnSync(
+    ["bun", "build", workflowFilePath, "--outfile", bundledFile, "--target", "bun"],
+    { cwd: dirname(workflowFilePath), stderr: "pipe" },
+  );
+
+  if (result.exitCode !== 0) {
+    const stderr = result.stderr.toString().trim();
+    throw new Error(
+      `Failed to bundle workflow ${basename}: ${stderr || "unknown error"}`,
+    );
+  }
+
+  tempBundledFiles.push(bundledFile);
+
+  try {
+    return await import(bundledFile);
+  } catch (error) {
+    throw new Error(
+      `Failed to import bundled workflow ${basename}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+/**
+ * Clean up temporary bundled workflow files.
+ */
+export function cleanupTempWorkflowFiles(): void {
+  for (const tmpFile of tempBundledFiles) {
+    try {
+      unlinkSync(tmpFile);
+    } catch {
+      /* ignore */
+    }
+  }
+  tempBundledFiles.length = 0;
+
+  try {
+    rmdirSync(WORKFLOW_TMP_DIR);
+  } catch {
+    /* ignore if not empty or missing */
+  }
+}
+
 function expandPath(path: string): string {
   if (path.startsWith("~/")) {
     return join(process.env.HOME || "", path.slice(2));
@@ -240,7 +312,7 @@ export async function loadWorkflowsFromDisk(): Promise<WorkflowDefinition[]> {
 
   for (const { path, source } of discovered) {
     try {
-      const module = await import(path);
+      const module = await importWorkflowModule(path);
       const filename =
         path.split("/").pop()?.replace(".ts", "") ?? "unknown";
 
@@ -288,24 +360,25 @@ export async function loadWorkflowsFromDisk(): Promise<WorkflowDefinition[]> {
       }
 
       // -- Legacy path: extract raw module properties --
-      const name = module.name ?? filename;
+      const mod = module as Record<string, any>;
+      const name = mod.name ?? filename;
 
       if (loadedNames.has(name.toLowerCase())) {
         continue;
       }
 
       const migrateState =
-        typeof module.migrateState === "function"
-          ? (module.migrateState as WorkflowStateMigrator)
+        typeof mod.migrateState === "function"
+          ? (mod.migrateState as WorkflowStateMigrator)
           : undefined;
 
-      const graphConfig = module.graphConfig as WorkflowGraphConfig | undefined;
-      const createGraph = typeof module.createGraph === "function"
-        ? (module.createGraph as () => CompiledGraph<BaseState>)
+      const graphConfig = mod.graphConfig as WorkflowGraphConfig | undefined;
+      const createGraph = typeof mod.createGraph === "function"
+        ? (mod.createGraph as () => CompiledGraph<BaseState>)
         : undefined;
-      const createState = module.createState as ((params: WorkflowStateParams) => BaseState) | undefined;
-      const nodeDescriptions = module.nodeDescriptions as Record<string, string> | undefined;
-      const runtime = module.runtime as WorkflowDefinition["runtime"] | undefined;
+      const createState = mod.createState as ((params: WorkflowStateParams) => BaseState) | undefined;
+      const nodeDescriptions = mod.nodeDescriptions as Record<string, string> | undefined;
+      const runtime = mod.runtime as WorkflowDefinition["runtime"] | undefined;
 
       if (graphConfig) {
         const nodeIds = new Set(graphConfig.nodes.map((n) => n.id));
@@ -338,12 +411,12 @@ export async function loadWorkflowsFromDisk(): Promise<WorkflowDefinition[]> {
 
       const definition: WorkflowDefinition = {
         name,
-        description: module.description ?? `Custom workflow: ${name}`,
-        aliases: module.aliases,
-        defaultConfig: module.defaultConfig,
-        version: module.version,
-        minSDKVersion: module.minSDKVersion,
-        stateVersion: module.stateVersion,
+        description: mod.description ?? `Custom workflow: ${name}`,
+        aliases: mod.aliases,
+        defaultConfig: mod.defaultConfig,
+        version: mod.version,
+        minSDKVersion: mod.minSDKVersion,
+        stateVersion: mod.stateVersion,
         migrateState,
         source,
         graphConfig,
@@ -389,6 +462,9 @@ export async function loadWorkflowsFromDisk(): Promise<WorkflowDefinition[]> {
   for (const id of startupWarnings) {
     console.warn(`\x1b[33m● Warning: Failed to load workflow: ${id}\x1b[0m`);
   }
+
+  // Clean up temporary bundled files
+  cleanupTempWorkflowFiles();
 
   loadedWorkflows = loaded;
   return loaded;

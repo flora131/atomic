@@ -1,3 +1,6 @@
+// Import additional test suites
+import "./batch-dispatcher.metrics.suite.ts";
+
 /**
  * Unit tests for BatchDispatcher
  *

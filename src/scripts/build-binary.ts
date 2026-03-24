@@ -76,6 +76,7 @@ const projectRoot = process.cwd();
 const parserWorker = realpathSync(resolve(projectRoot, "node_modules/@opentui/core/parser.worker.js"));
 const workerRelativePath = relative(projectRoot, parserWorker).replaceAll("\\", "/");
 const compileTargetOs = inferTargetOs(options.target);
+const isBaseline = options.target?.includes("baseline") ?? false;
 
 const result = await Bun.build({
   entrypoints: ["src/cli.ts", parserWorker],
@@ -88,6 +89,7 @@ const result = await Bun.build({
   },
   define: {
     OTUI_TREE_SITTER_WORKER_PATH: JSON.stringify(`${getBunfsRoot(compileTargetOs)}${workerRelativePath}`),
+    ...(isBaseline ? { __ATOMIC_BASELINE__: JSON.stringify(true) } : {}),
   },
 });
 

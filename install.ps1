@@ -235,7 +235,10 @@ function Write-Err { Write-Host "${C_RED}error${C_RESET}: $args" }
 $Arch = $env:PROCESSOR_ARCHITECTURE
 switch ($Arch) {
     "AMD64" { $Target = "windows-x64.exe" }
-    "ARM64" { $Target = "windows-arm64.exe" }
+    "ARM64" {
+        Write-Info "Windows ARM64 detected -- installing x64-baseline binary (runs via x64 emulation; requires Windows 11)"
+        $Target = "windows-x64-baseline.exe"
+    }
     default {
         Write-Err "Unsupported architecture: $Arch"
         Write-Err "Atomic CLI requires 64-bit Windows (x64 or ARM64)"

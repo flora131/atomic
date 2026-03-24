@@ -112,14 +112,29 @@ describe("resolveSlashAutocompleteExecution", () => {
   });
 });
 
+// Guard: detect if we're inside a git work-tree so I/O-dependent tests
+// can be skipped in shallow clones, bare repos, or non-git environments.
+const insideGitWorkTree: boolean = (() => {
+  try {
+    const res = Bun.spawnSync(["git", "rev-parse", "--is-inside-work-tree"]);
+    return res.success && res.stdout.toString().trim() === "true";
+  } catch {
+    return false;
+  }
+})();
+
 describe("getMentionSuggestions", () => {
-  // This function does real I/O (git ls-files) so we test it lightly
-  test("returns an array", () => {
+  // This function does real I/O (git ls-files / glob scan) so tests are
+  // guarded: they skip when git is unavailable or the repo state is atypical.
+
+  test("returns an array even when git is unavailable", () => {
+    // getMentionSuggestions has its own try/catch fallback from git to glob,
+    // so it should always return an array regardless of environment.
     const result = getMentionSuggestions("");
     expect(Array.isArray(result)).toBe(true);
   });
 
-  test("results have correct shape", () => {
+  test.skipIf(!insideGitWorkTree)("results have correct shape", () => {
     const results = getMentionSuggestions("");
     expect(results.length).toBeGreaterThan(0);
     for (const item of results) {
@@ -131,7 +146,7 @@ describe("getMentionSuggestions", () => {
     }
   });
 
-  test("filters by input string", () => {
+  test.skipIf(!insideGitWorkTree)("filters by input string", () => {
     const all = getMentionSuggestions("");
     const filtered = getMentionSuggestions("package.json");
     // Filtered should be a subset
@@ -142,13 +157,13 @@ describe("getMentionSuggestions", () => {
     }
   });
 
-  test("sorts directories before files", () => {
+  test.skipIf(!insideGitWorkTree)("sorts directories before files", () => {
     const results = getMentionSuggestions("src");
     const firstDirEnd = results.findIndex((r) => r.category === "file");
     if (firstDirEnd > 0) {
       // All items before firstDirEnd should be folders
       for (let i = 0; i < firstDirEnd; i++) {
-        expect(results[i].category).toBe("folder");
+        expect(results[i]!.category).toBe("folder");
       }
     }
   });

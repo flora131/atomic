@@ -6,7 +6,7 @@ root = "tests"
 smol = true
 
 # Coverage (opt-in via `bun run test:coverage`, not on every run)
-coverageThreshold = 0
+coverageThreshold = { lines = 0.85, functions = 0.85, statements = 0.85 }
 coverageReporter = ["text", "lcov"]
 coverageDir = "coverage"
 coverageSkipTestFiles = true

@@ -325,10 +325,10 @@ describe("upsertSyntheticTaskAgentForToolStart", () => {
       provider: "opencode",
     });
     expect(result).toHaveLength(1);
-    expect(result[0].id).toBe("tool-1");
-    expect(result[0].name).toBe("explorer");
-    expect(result[0].task).toBe("Do something");
-    expect(result[0].status).toBe("running");
+    expect(result[0]!.id).toBe("tool-1");
+    expect(result[0]!.name).toBe("explorer");
+    expect(result[0]!.task).toBe("Do something");
+    expect(result[0]!.status).toBe("running");
   });
 
   test("creates new synthetic agent for claude provider", () => {
@@ -337,7 +337,7 @@ describe("upsertSyntheticTaskAgentForToolStart", () => {
       provider: "claude",
     });
     expect(result).toHaveLength(1);
-    expect(result[0].status).toBe("running");
+    expect(result[0]!.status).toBe("running");
   });
 
   test("returns unchanged for copilot provider", () => {
@@ -389,8 +389,8 @@ describe("upsertSyntheticTaskAgentForToolStart", () => {
       input: { description: "Do something", mode: "background" },
     });
     expect(result).toHaveLength(1);
-    expect(result[0].status).toBe("background");
-    expect(result[0].background).toBe(true);
+    expect(result[0]!.status).toBe("background");
+    expect(result[0]!.background).toBe(true);
   });
 
   test("sets background status when run_in_background is true", () => {
@@ -399,8 +399,8 @@ describe("upsertSyntheticTaskAgentForToolStart", () => {
       provider: "opencode",
       input: { description: "Do something", run_in_background: true },
     });
-    expect(result[0].status).toBe("background");
-    expect(result[0].background).toBe(true);
+    expect(result[0]!.status).toBe("background");
+    expect(result[0]!.background).toBe(true);
   });
 
   test("updates existing synthetic agent with same placeholder ID", () => {
@@ -418,9 +418,9 @@ describe("upsertSyntheticTaskAgentForToolStart", () => {
       agents: [existing],
     });
     expect(result).toHaveLength(1);
-    expect(result[0].task).toBe("Do something");
-    expect(result[0].name).toBe("explorer");
-    expect(result[0].status).toBe("running");
+    expect(result[0]!.task).toBe("Do something");
+    expect(result[0]!.name).toBe("explorer");
+    expect(result[0]!.status).toBe("running");
   });
 
   test("does not replace real agent with same toolCallId", () => {
@@ -459,7 +459,7 @@ describe("upsertSyntheticTaskAgentForToolStart", () => {
         provider: "opencode",
         input: { description: "Test", [key]: "custom-agent" },
       });
-      expect(result[0].name).toBe("custom-agent");
+      expect(result[0]!.name).toBe("custom-agent");
     }
   });
 
@@ -470,7 +470,7 @@ describe("upsertSyntheticTaskAgentForToolStart", () => {
         provider: "opencode",
         input: { [key]: "Custom label" },
       });
-      expect(result[0].task).toBe("Custom label");
+      expect(result[0]!.task).toBe("Custom label");
     }
   });
 
@@ -520,7 +520,7 @@ describe("finalizeSyntheticTaskAgentForToolComplete", () => {
       ...baseArgs,
       provider: "opencode",
     });
-    expect(result[0].status).toBe("completed");
+    expect(result[0]!.status).toBe("completed");
   });
 
   test("marks synthetic agent as error on failure", () => {
@@ -530,8 +530,8 @@ describe("finalizeSyntheticTaskAgentForToolComplete", () => {
       success: false,
       error: "something failed",
     });
-    expect(result[0].status).toBe("error");
-    expect(result[0].error).toBe("something failed");
+    expect(result[0]!.status).toBe("error");
+    expect(result[0]!.error).toBe("something failed");
   });
 
   test("marks synthetic agent as interrupted for abort-like errors", () => {
@@ -541,7 +541,7 @@ describe("finalizeSyntheticTaskAgentForToolComplete", () => {
       success: false,
       error: "Operation was aborted",
     });
-    expect(result[0].status).toBe("interrupted");
+    expect(result[0]!.status).toBe("interrupted");
   });
 
   test("marks interrupted for cancel errors", () => {
@@ -551,7 +551,7 @@ describe("finalizeSyntheticTaskAgentForToolComplete", () => {
       success: false,
       error: "User cancelled the operation",
     });
-    expect(result[0].status).toBe("interrupted");
+    expect(result[0]!.status).toBe("interrupted");
   });
 
   test("marks interrupted for interrupt errors", () => {
@@ -561,7 +561,7 @@ describe("finalizeSyntheticTaskAgentForToolComplete", () => {
       success: false,
       error: "Process was interrupted",
     });
-    expect(result[0].status).toBe("interrupted");
+    expect(result[0]!.status).toBe("interrupted");
   });
 
   test("computes durationMs from startedAt and completedAtMs", () => {
@@ -569,7 +569,7 @@ describe("finalizeSyntheticTaskAgentForToolComplete", () => {
       ...baseArgs,
       provider: "opencode",
     });
-    expect(result[0].durationMs).toBe(60_000);
+    expect(result[0]!.durationMs).toBe(60_000);
   });
 
   test("sets result from string output on success", () => {
@@ -578,7 +578,7 @@ describe("finalizeSyntheticTaskAgentForToolComplete", () => {
       provider: "opencode",
       output: "result text",
     });
-    expect(result[0].result).toBe("result text");
+    expect(result[0]!.result).toBe("result text");
   });
 
   test("does not set result from non-string output", () => {
@@ -587,7 +587,7 @@ describe("finalizeSyntheticTaskAgentForToolComplete", () => {
       provider: "opencode",
       output: { key: "value" },
     });
-    expect(result[0].result).toBeUndefined();
+    expect(result[0]!.result).toBeUndefined();
   });
 
   test("returns unchanged for copilot provider", () => {
@@ -660,8 +660,8 @@ describe("finalizeCorrelatedSubagentDispatchForToolComplete", () => {
       ...baseArgs,
       provider: "opencode",
     });
-    expect(result[0].status).toBe("completed");
-    expect(result[0].currentTool).toBeUndefined();
+    expect(result[0]!.status).toBe("completed");
+    expect(result[0]!.currentTool).toBeUndefined();
   });
 
   test("marks correlated running agent as error on failure", () => {
@@ -671,8 +671,8 @@ describe("finalizeCorrelatedSubagentDispatchForToolComplete", () => {
       success: false,
       error: "failed",
     });
-    expect(result[0].status).toBe("error");
-    expect(result[0].error).toBe("failed");
+    expect(result[0]!.status).toBe("error");
+    expect(result[0]!.error).toBe("failed");
   });
 
   test("marks as interrupted for abort-like errors", () => {
@@ -682,7 +682,7 @@ describe("finalizeCorrelatedSubagentDispatchForToolComplete", () => {
       success: false,
       error: "aborted by user",
     });
-    expect(result[0].status).toBe("interrupted");
+    expect(result[0]!.status).toBe("interrupted");
   });
 
   test("skips copilot provider", () => {
@@ -729,7 +729,7 @@ describe("finalizeCorrelatedSubagentDispatchForToolComplete", () => {
       error: "should not override",
     });
     expect(result).toBe(agents);
-    expect(result[0].status).toBe("completed");
+    expect(result[0]!.status).toBe("completed");
   });
 
   test("does not re-finalize already errored agents", () => {
@@ -766,7 +766,7 @@ describe("finalizeCorrelatedSubagentDispatchForToolComplete", () => {
       ...baseArgs,
       provider: "opencode",
     });
-    expect(result[0].durationMs).toBe(60_000);
+    expect(result[0]!.durationMs).toBe(60_000);
   });
 
   test("returns same array reference when no agents match toolId", () => {

@@ -1,5 +1,6 @@
 // Import additional test suites
 import "./batch-dispatcher.metrics.suite.ts";
+import "./batch-dispatcher.overflow.suite.ts";
 
 /**
  * Unit tests for BatchDispatcher

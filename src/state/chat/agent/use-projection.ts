@@ -47,7 +47,7 @@ export function useChatAgentProjection({
 }: UseChatAgentProjectionArgs) {
   const { handleAgentDoneRendered } = useChatAgentMessageProjection({
     activeStreamRunIdRef,
-    agentAnchorSyncVersion,
+    agentMessageBindings,
     agentLifecycleLedgerRef,
     agentMessageIdByIdRef,
     agentOrderingStateRef,
@@ -59,6 +59,9 @@ export function useChatAgentProjection({
     parallelAgents,
     setBackgroundAgentMessageId,
     setMessagesWindowed,
+    streamingMessageId,
+    lastStreamedMessageId,
+    backgroundAgentMessageId,
     streamingMessageIdRef,
     streamingStartRef,
     workflowActiveRef,

@@ -42,7 +42,7 @@ export function useSessionLifecycleEvents({
   setIsStreaming,
   setMessagesWindowed,
   setParallelAgents,
-  setToolCompletionVersion,
+  setHasRunningTool,
   streamingMessageIdRef,
   streamingStartRef,
   toolMessageIdByIdRef,
@@ -70,7 +70,7 @@ export function useSessionLifecycleEvents({
   | "setIsStreaming"
   | "setMessagesWindowed"
   | "setParallelAgents"
-  | "setToolCompletionVersion"
+  | "setHasRunningTool"
   | "streamingMessageIdRef"
   | "streamingStartRef"
   | "toolMessageIdByIdRef"
@@ -188,7 +188,7 @@ export function useSessionLifecycleEvents({
             ),
           );
         }
-        setToolCompletionVersion((version) => version + 1);
+        setHasRunningTool(false);
       }
 
       const currentAgents = parallelAgentsRef.current;

@@ -44,7 +44,7 @@ export function useStreamSessionSubscriptions(
     | "setMessagesWindowed"
     | "setParallelAgents"
     | "setStreamingMeta"
-    | "setToolCompletionVersion"
+    | "setHasRunningTool"
     | "streamingMessageIdRef"
     | "streamingMetaRef"
     | "streamingStartRef"

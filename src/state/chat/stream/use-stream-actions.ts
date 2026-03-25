@@ -19,8 +19,11 @@ export interface UseStreamActionsArgs {
   activeSkillSessionIdRef: RefObject<string | null>;
   agentMessageIdByIdRef: RefObject<Map<string, string>>;
   parallelAgentsRef: RefObject<ParallelAgent[]>;
-  /** Setter consumed by anchor-sync actions */
-  setAgentAnchorSyncVersion: Dispatch<SetStateAction<number>>;
+  /** State setters for anchor-sync values */
+  setStreamingMessageIdState: Dispatch<SetStateAction<string | null>>;
+  setLastStreamedMessageIdState: Dispatch<SetStateAction<string | null>>;
+  setBackgroundAgentMessageIdState: Dispatch<SetStateAction<string | null>>;
+  setAgentMessageBindings: Dispatch<SetStateAction<ReadonlyMap<string, string>>>;
 }
 
 export function useStreamActions({
@@ -31,27 +34,30 @@ export function useStreamActions({
   activeSkillSessionIdRef,
   agentMessageIdByIdRef,
   parallelAgentsRef,
-  setAgentAnchorSyncVersion,
+  setStreamingMessageIdState,
+  setLastStreamedMessageIdState,
+  setBackgroundAgentMessageIdState,
+  setAgentMessageBindings,
 }: UseStreamActionsArgs) {
-  // -- Anchor-sync wrappers (set ref + bump version counter) --
+  // -- Anchor-sync wrappers (set ref + sync state) --
 
   const setStreamingMessageId = useCallback((messageId: string | null): void => {
     if (streamingMessageIdRef.current === messageId) return;
     streamingMessageIdRef.current = messageId;
-    setAgentAnchorSyncVersion((version) => version + 1);
-  }, [streamingMessageIdRef, setAgentAnchorSyncVersion]);
+    setStreamingMessageIdState(messageId);
+  }, [streamingMessageIdRef, setStreamingMessageIdState]);
 
   const setLastStreamedMessageId = useCallback((messageId: string | null): void => {
     if (lastStreamedMessageIdRef.current === messageId) return;
     lastStreamedMessageIdRef.current = messageId;
-    setAgentAnchorSyncVersion((version) => version + 1);
-  }, [lastStreamedMessageIdRef, setAgentAnchorSyncVersion]);
+    setLastStreamedMessageIdState(messageId);
+  }, [lastStreamedMessageIdRef, setLastStreamedMessageIdState]);
 
   const setBackgroundAgentMessageId = useCallback((messageId: string | null): void => {
     if (backgroundAgentMessageIdRef.current === messageId) return;
     backgroundAgentMessageIdRef.current = messageId;
-    setAgentAnchorSyncVersion((version) => version + 1);
-  }, [backgroundAgentMessageIdRef, setAgentAnchorSyncVersion]);
+    setBackgroundAgentMessageIdState(messageId);
+  }, [backgroundAgentMessageIdRef, setBackgroundAgentMessageIdState]);
 
   // -- Skill tracking --
 
@@ -69,14 +75,14 @@ export function useStreamActions({
   const setAgentMessageBinding = useCallback((agentId: string, messageId: string): void => {
     if (agentMessageIdByIdRef.current.get(agentId) === messageId) return;
     agentMessageIdByIdRef.current.set(agentId, messageId);
-    setAgentAnchorSyncVersion((version) => version + 1);
-  }, [agentMessageIdByIdRef, setAgentAnchorSyncVersion]);
+    setAgentMessageBindings(new Map(agentMessageIdByIdRef.current));
+  }, [agentMessageIdByIdRef, setAgentMessageBindings]);
 
   const deleteAgentMessageBinding = useCallback((agentId: string): void => {
     if (!agentMessageIdByIdRef.current.has(agentId)) return;
     agentMessageIdByIdRef.current.delete(agentId);
-    setAgentAnchorSyncVersion((version) => version + 1);
-  }, [agentMessageIdByIdRef, setAgentAnchorSyncVersion]);
+    setAgentMessageBindings(new Map(agentMessageIdByIdRef.current));
+  }, [agentMessageIdByIdRef, setAgentMessageBindings]);
 
   // -- Agent partitioning --
 

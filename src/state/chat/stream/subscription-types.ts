@@ -57,7 +57,7 @@ export interface UseStreamSubscriptionsArgs {
   setMessagesWindowed: (next: SetStateAction<ChatMessage[]>) => void;
   setParallelAgents: Dispatch<SetStateAction<ParallelAgent[]>>;
   setStreamingMeta: Dispatch<SetStateAction<StreamingMeta | null>>;
-  setToolCompletionVersion: Dispatch<SetStateAction<number>>;
+  setHasRunningTool: Dispatch<SetStateAction<boolean>>;
   streamingMessageIdRef: RefObject<string | null>;
   streamingMetaRef: RefObject<StreamingMeta | null>;
   streamingStartRef: RefObject<number | null>;

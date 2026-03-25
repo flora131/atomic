@@ -1,0 +1,143 @@
+/**
+ * Chat Input Handler — Clipboard Operations & Shortcut Keys
+ *
+ * Extracted from `use-keyboard.ts` to isolate clipboard and global
+ * shortcut handling from the main keyboard dispatch loop. These
+ * handlers run in **all UI modes** (chat, dialog, model-selector).
+ *
+ * @module
+ */
+
+import type { Dispatch, RefObject, SetStateAction } from "react";
+import type { KeyEvent, TextareaRenderable } from "@opentui/core";
+import type { ClipboardAdapter } from "@/lib/ui/clipboard.ts";
+
+// ── Clipboard handling ────────────────────────────────────────────────
+
+export interface ClipboardHandlerArgs {
+  clipboard: ClipboardAdapter;
+  handleCopy: () => void | Promise<void>;
+  handleTextareaContentChange: () => void;
+  normalizePastedText: (text: string) => string;
+  textareaRef: RefObject<TextareaRenderable | null>;
+}
+
+/**
+ * Handle copy & paste keyboard shortcuts.
+ *
+ * Matches:
+ * - **Copy:** Ctrl+Shift+C, Meta+Shift+C, Meta+C
+ * - **Paste:** Ctrl+V, Meta+V
+ *
+ * @returns `true` if the event was consumed, `false` otherwise.
+ */
+export function handleClipboardKey(
+  event: KeyEvent,
+  {
+    clipboard,
+    handleCopy,
+    handleTextareaContentChange,
+    normalizePastedText,
+    textareaRef,
+  }: ClipboardHandlerArgs,
+): boolean {
+  // Copy: Ctrl+Shift+C / Meta+Shift+C
+  if ((event.ctrl || event.meta) && event.shift && event.name === "c") {
+    void handleCopy();
+    return true;
+  }
+
+  // Copy: Meta+C (macOS)
+  if (event.meta && !event.ctrl && event.name === "c") {
+    void handleCopy();
+    return true;
+  }
+
+  // Paste: Ctrl+V / Meta+V
+  if ((event.ctrl || event.meta) && event.name === "v") {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      const clipboardText = clipboard.readText();
+      if (clipboardText) {
+        event.preventDefault();
+        textarea.insertText(normalizePastedText(clipboardText));
+        handleTextareaContentChange();
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+// ── Shortcut keys (chat mode only) ───────────────────────────────────
+
+export interface ShortcutHandlerArgs {
+  setTranscriptMode: Dispatch<SetStateAction<boolean>>;
+  toggleVerbose: () => void;
+  setShowTodoPanel: Dispatch<SetStateAction<boolean>>;
+}
+
+/**
+ * Handle mode-toggle shortcut keys.
+ *
+ * Matches:
+ * - **Ctrl+O:** Toggle transcript mode
+ * - **Ctrl+E:** Toggle verbose output
+ * - **Ctrl+T:** Toggle todo panel
+ *
+ * These shortcuts only apply in chat mode (not during dialogs).
+ *
+ * @returns `true` if the event was consumed, `false` otherwise.
+ */
+export function handleShortcutKey(
+  event: KeyEvent,
+  {
+    setTranscriptMode,
+    toggleVerbose,
+    setShowTodoPanel,
+  }: ShortcutHandlerArgs,
+): boolean {
+  if (event.ctrl && event.name === "o") {
+    setTranscriptMode((previous) => !previous);
+    return true;
+  }
+
+  if (event.ctrl && event.name === "e") {
+    toggleVerbose();
+    return true;
+  }
+
+  if (event.ctrl && !event.shift && event.name === "t") {
+    setShowTodoPanel((previous) => !previous);
+    return true;
+  }
+
+  return false;
+}
+
+// ── Post-dispatch reconciliation ─────────────────────────────────────
+
+/**
+ * Schedule a zero-delay reconciliation of the input state after the
+ * framework has processed the key event into the textarea.
+ *
+ * Previously this was an implicit `setTimeout(() => { ... }, 0)` at the
+ * bottom of the keyboard callback (use-keyboard.ts:221-226). By naming
+ * it explicitly, the timing dependency is documented and reviewable.
+ *
+ * The reconciliation reads the current textarea value and cursor
+ * position, then drives autocomplete derivation and scrollbar sync.
+ */
+export function postDispatchReconciliation(
+  textareaRef: RefObject<TextareaRenderable | null>,
+  handleInputChange: (rawValue: string, cursorOffset: number) => void,
+  syncInputScrollbar: () => void,
+): void {
+  setTimeout(() => {
+    const textarea = textareaRef.current;
+    const value = textarea?.plainText ?? "";
+    handleInputChange(value, textarea?.cursorOffset ?? value.length);
+    syncInputScrollbar();
+  }, 0);
+}

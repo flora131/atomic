@@ -30,7 +30,7 @@ export function useChatStreamRuntime({
     todoItems, workflowSessionDir, workflowSessionId,
     toolCompletionVersion, activeBackgroundAgentCount,
     agentAnchorSyncVersion, streamingElapsedMs,
-    hasInProgressTask, hasLiveLoadingIndicator,
+    hasLiveLoadingIndicator,
     setParallelAgents, setCompactionSummary, setShowCompactionHistory,
     setIsAutoCompacting, setTodoItems, setWorkflowSessionDir,
     setWorkflowSessionId, setToolCompletionVersion,

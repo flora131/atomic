@@ -4,7 +4,6 @@ import type {
     ClaudeNativeEvent,
     ClaudeProviderEvent,
     ClaudeProviderEventHandler,
-    ProviderStreamEventDataMap,
     ProviderStreamEventType,
 } from "@/services/agents/provider-events.ts";
 import {

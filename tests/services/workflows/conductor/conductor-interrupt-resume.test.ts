@@ -727,6 +727,71 @@ describe("WorkflowSessionConductor — interrupt-pause-resume (§5.1)", () => {
   // -----------------------------------------------------------------------
 
   describe("queue drain during normal completion", () => {
+    test("interrupt with queued follow-up keeps the same stage session active", async () => {
+      let conductor: WorkflowSessionConductor;
+      let sessionCallCount = 0;
+      let queueCallCount = 0;
+      const streamedMessages: string[] = [];
+      let hasInterrupted = false;
+      const onStageTransitionMock = mock(
+        (_from: string | null, _to: string, _options?: { isResume?: boolean }) => {},
+      );
+      const waitForResumeInputMock = mock(async () => null);
+
+      const sessionFactory = async () => {
+        sessionCallCount++;
+        const session = createMockSession("", `session-${sessionCallCount}`);
+        session.stream = async function* (msg: string) {
+          streamedMessages.push(msg);
+          if (!hasInterrupted) {
+            hasInterrupted = true;
+            yield {
+              type: "text" as const,
+              content: "initial output",
+            } as AgentMessage;
+            conductor!.interrupt();
+          } else {
+            yield {
+              type: "text" as const,
+              content: `response-to-${msg}`,
+            } as AgentMessage;
+          }
+        };
+        return session;
+      };
+
+      const checkQueuedMessageMock = mock(() => {
+        queueCallCount++;
+        return queueCallCount === 1 ? "queued-message-1" : null;
+      });
+
+      const graph = buildLinearGraph([agentNode("planner")]);
+      const config = buildConfig(graph, sessionFactory, {
+        checkQueuedMessage: checkQueuedMessageMock,
+        onStageTransition: onStageTransitionMock as ConductorConfig["onStageTransition"],
+        waitForResumeInput: waitForResumeInputMock,
+      });
+      const stages = [stage("planner")];
+
+      conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      const output = result.stageOutputs.get("planner");
+      expect(output).toBeDefined();
+      expect(output!.status).toBe("completed");
+      expect(output!.rawResponse).toContain("response-to-queued-message-1");
+
+      expect(sessionCallCount).toBe(1);
+      expect(streamedMessages).toEqual(["Prompt for planner", "queued-message-1"]);
+      expect(waitForResumeInputMock).not.toHaveBeenCalled();
+      expect(onStageTransitionMock).toHaveBeenCalledTimes(2);
+      expect(onStageTransitionMock.mock.calls[1]).toEqual([
+        "planner",
+        "planner",
+        { isResume: true },
+      ]);
+    });
+
     test("drains queued messages to the active session before completing", async () => {
       let queueCallCount = 0;
       const streamedMessages: string[] = [];

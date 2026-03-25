@@ -29,6 +29,7 @@ interface UseChatAppOrchestrationArgs {
   setTodoItems: React.Dispatch<React.SetStateAction<NormalizedTodoItem[]>>;
   setWorkflowState: React.Dispatch<React.SetStateAction<WorkflowChatState>>;
   todoItemsRef: RefObject<NormalizedTodoItem[]>;
+  workflowActiveRef: RefObject<boolean>;
   workflowSessionIdRef: RefObject<string | null>;
 }
 
@@ -46,9 +47,19 @@ export function useChatAppOrchestration({
   setTodoItems,
   setWorkflowState,
   todoItemsRef,
+  workflowActiveRef,
   workflowSessionIdRef,
 }: UseChatAppOrchestrationArgs) {
   const continueQueuedConversation = useCallback(() => {
+    // During an active conductor workflow, the conductor owns message
+    // consumption via checkQueuedMessage / waitForResumeInput. Dequeuing
+    // messages here would steal them from the conductor and send them as
+    // new sessions outside the workflow — causing Bug B (queued message
+    // re-shows banner) and Bug C (new session instead of resume).
+    if (workflowActiveRef.current) {
+      return;
+    }
+
     if (
       shouldDispatchQueuedMessage({
         isStreaming: isStreamingRef.current,
@@ -81,6 +92,7 @@ export function useChatAppOrchestration({
     isStreamingRef,
     messageQueue,
     runningAskQuestionToolIdsRef,
+    workflowActiveRef,
   ]);
 
   const finalizeTaskItemsOnInterrupt = useCallback((): TaskItem[] | undefined => {

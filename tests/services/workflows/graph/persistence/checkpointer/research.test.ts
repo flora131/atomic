@@ -270,19 +270,15 @@ describe("ResearchDirSaver", () => {
   // -----------------------------------------------------------------------
   describe("delete nonexistent", () => {
     test("delete without label on missing directory does not throw", async () => {
-      await expect(saver.delete("nonexistent")).resolves.toBeUndefined();
+      await saver.delete("nonexistent");
     });
 
     test("delete with label on missing file does not throw", async () => {
-      await expect(
-        saver.delete("exec-1", "missing-label"),
-      ).resolves.toBeUndefined();
+      await saver.delete("exec-1", "missing-label");
     });
 
     test("delete with label on missing directory does not throw", async () => {
-      await expect(
-        saver.delete("completely-missing", "some-label"),
-      ).resolves.toBeUndefined();
+      await saver.delete("completely-missing", "some-label");
     });
   });
 

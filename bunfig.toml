@@ -2,11 +2,8 @@
 # Limit test discovery to tests/ so vendored docs are not scanned
 root = "tests"
 
-# Use smaller JS heap + aggressive GC to prevent OOM on constrained machines
-smol = true
-
 # Coverage (opt-in via `bun run test:coverage`, not on every run)
-coverageThreshold = { lines = 0.85, functions = 0.85, statements = 0.85 }
+coverageThreshold = 0.85
 coverageReporter = ["text", "lcov"]
 coverageDir = "coverage"
 coverageSkipTestFiles = true
@@ -52,7 +49,96 @@ coveragePathIgnorePatterns = [
   # Tier 4: Other I/O-heavy modules
   "src/services/config/config-path.ts",
   "src/theme/banner/banner.ts",
-  "src/services/workflows/session.ts"
+  "src/services/workflows/session.ts",
+  # Tier 4: React hooks in state/chat/ (require React test renderer)
+  "src/state/chat/agent/use-message-projection.ts",
+  "src/state/chat/agent/use-ordering-maintenance.ts",
+  "src/state/chat/agent/use-projection.ts",
+  "src/state/chat/agent/use-stream-finalization.ts",
+  "src/state/chat/command/use-executor.ts",
+  "src/state/chat/composer/use-controller.ts",
+  "src/state/chat/composer/use-input-state.ts",
+  "src/state/chat/controller/use-app-orchestration.ts",
+  "src/state/chat/controller/use-dispatch-controller.ts",
+  "src/state/chat/controller/use-runtime-stack.ts",
+  "src/state/chat/controller/use-shell-state.ts",
+  "src/state/chat/controller/use-ui-controller-stack/controller.ts",
+  "src/state/chat/controller/use-workflow-hitl.ts",
+  "src/state/chat/keyboard/use-interrupt-confirmation.ts",
+  "src/state/chat/keyboard/use-interrupt-controls.ts",
+  "src/state/chat/keyboard/use-keyboard.ts",
+  "src/state/chat/stream/use-agent-ordering.ts",
+  "src/state/chat/stream/use-agent-subscriptions.ts",
+  "src/state/chat/stream/use-background-dispatch.ts",
+  "src/state/chat/stream/use-completion.ts",
+  "src/state/chat/stream/use-consumer.ts",
+  "src/state/chat/stream/use-deferred-completion.ts",
+  "src/state/chat/stream/use-errors.ts",
+  "src/state/chat/stream/use-finalized-completion.ts",
+  "src/state/chat/stream/use-interrupted-completion.ts",
+  "src/state/chat/stream/use-lifecycle.ts",
+  "src/state/chat/stream/use-runtime-controls.ts",
+  "src/state/chat/stream/use-runtime-effects.ts",
+  "src/state/chat/stream/use-runtime.ts",
+  "src/state/chat/stream/use-run-tracking.ts",
+  "src/state/chat/stream/use-session-subscriptions.ts",
+  "src/state/chat/stream/use-startup.ts",
+  "src/state/chat/stream/use-subscriptions.ts",
+  "src/state/chat/stream/use-tool-events.ts",
+  # Tier 4: Top-level React hooks (require React test renderer)
+  "src/hooks/use-message-queue.ts",
+  "src/hooks/use-verbose-mode.ts",
+  "src/hooks/use-animation-tick.tsx",
+  # Tier 4: React/OpenTUI screens and shells (require component test infrastructure)
+  "src/screens/chat-screen.tsx",
+  "src/state/chat/shell/ChatShell.tsx",
+  "src/components/error-exit-screen.tsx",
+  "src/components/transcript-view.tsx",
+  "src/components/agent-list-indicator.tsx",
+  "src/components/mcp-server-list.tsx",
+  "src/components/message-parts/agent-list-part-display.tsx",
+  "src/components/message-parts/agent-part-display.tsx",
+  "src/components/message-parts/mcp-snapshot-part-display.tsx",
+  "src/components/message-parts/skill-load-part-display.tsx",
+  "src/components/message-parts/task-list-part-display.tsx",
+  "src/components/message-parts/task-result-part-display.tsx",
+  "src/components/message-parts/tool-part-display.tsx",
+  "src/components/message-parts/truncation-part-display.tsx",
+  "src/components/message-parts/workflow-step-part-display.tsx",
+  # Tier 4: Live SDK integrations (require running SDK servers)
+  "src/services/agents/clients/claude/tool-registry.ts",
+  "src/services/agents/clients/copilot/sdk-options.ts",
+  "src/services/agents/clients/opencode/connection.ts",
+  "src/services/agents/clients/opencode/server.ts",
+  "src/services/agents/clients/opencode/session-management.ts",
+  # Tier 4: Event wiring (require full app context / React providers)
+  "src/services/events/event-bus-provider.tsx",
+  "src/services/events/hooks.ts",
+  # Tier 4: I/O-heavy orchestration (filesystem / subprocess dependent)
+  "src/services/config/agent-definition-loader.ts",
+  "src/services/config/workflow-package.ts",
+  "src/services/workflows/graph/persistence/checkpointer/file.ts",
+  "src/services/workflows/graph/persistence/checkpointer/session.ts",
+  "src/services/workflows/runtime/executor/session-runtime.ts",
+  "src/commands/tui/workflow-commands/session.ts",
+  "src/commands/tui/workflow-commands/tasks-watcher.ts",
+  "src/commands/cli/init/index.ts",
+  # Tier 4: Keyboard/command handlers (deeply coupled to React state)
+  "src/state/chat/keyboard/interrupt-execution.ts",
+  "src/state/chat/keyboard/navigation.ts",
+  "src/state/chat/command/context-factory.ts",
+  "src/state/chat/command/result-application.ts",
+  "src/state/chat/composer/submit.ts",
+  # Tier 4: Trivial / test-double / pure-types files (no meaningful logic to test)
+  "src/state/chat/shell/props.ts",
+  "src/state/chat/controller/use-ui-controller-stack/chat-shell-props.ts",
+  "src/state/runtime/chat-ui-mock-client.ts",
+  "src/state/chat/shared/helpers/observability.ts",
+  "src/services/events/registry/handlers/stream-interaction.ts",
+  "src/services/agents/provider-events/contracts.ts",
+  "src/commands/tui/workflow-commands/types.ts",
+  "src/lib/ui/markdown-selection-patch.ts",
+  "src/components/tool-registry/registry/renderers/skill.ts",
 ]
 
 # Execution

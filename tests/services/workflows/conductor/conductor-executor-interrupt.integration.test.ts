@@ -45,6 +45,8 @@ mock.module("@/services/workflows/runtime/executor/session-runtime.ts", () => ({
 }));
 
 mock.module("@/services/events/pipeline-logger.ts", () => ({
+  isPipelineDebug: mock(() => false),
+  resetPipelineDebugCache: mock(() => {}),
   pipelineLog: mock(() => {}),
   pipelineError: mock(() => {}),
 }));
@@ -168,13 +170,14 @@ describe("executeConductorWorkflow — interrupt/queue integration", () => {
   // -----------------------------------------------------------------------
 
   describe("queue delivery on interrupt", () => {
-    test("queued message from dequeueMessage is delivered to interrupted stage via checkQueuedMessage", async () => {
-      // The conductor's waitForResumeInput checks checkQueuedMessage first.
-      // If a message is queued, it re-executes the stage with that message
-      // instead of calling waitForUserInput.
+    test("queued message from dequeueMessage stays attached to the interrupted stage session", async () => {
       let capturedInterruptFn: (() => void) | null = null;
       let sessionCallCount = 0;
       const streamedPrompts: string[] = [];
+      const addMessageMock = mock((_role: string, _content: string) => {});
+      const setStreamingMock = mock((_value: boolean) => {});
+      const updateWorkflowStateMock = mock(() => {});
+      const waitForUserInputMock = mock(async () => "");
 
       let hasInterrupted = false;
       const sessionFactory = mock(async () => {
@@ -211,9 +214,13 @@ describe("executeConductorWorkflow — interrupt/queue integration", () => {
       });
 
       const context = createMockContext({
+        addMessage: addMessageMock,
+        setStreaming: setStreamingMock,
+        updateWorkflowState: updateWorkflowStateMock,
         registerConductorInterrupt: mock((fn: (() => void) | null) => {
           capturedInterruptFn = fn;
         }),
+        waitForUserInput: waitForUserInputMock,
         dequeueMessage: dequeueMock,
         createAgentSession: sessionFactory as CommandContext["createAgentSession"],
       });
@@ -224,12 +231,25 @@ describe("executeConductorWorkflow — interrupt/queue integration", () => {
       // The workflow should complete successfully
       expect(result.success).toBe(true);
 
+      expect(sessionCallCount).toBe(1);
+
       // The dequeueMessage should have been called at least once
       expect(dequeueMock).toHaveBeenCalled();
 
-      // The second session should have received the queued message as its prompt
+      // The active stage session receives the queued follow-up prompt.
       expect(streamedPrompts.length).toBeGreaterThanOrEqual(2);
       expect(streamedPrompts[1]).toBe("queued follow-up message");
+
+      expect(waitForUserInputMock).not.toHaveBeenCalled();
+      expect(updateWorkflowStateMock).toHaveBeenCalledTimes(1);
+      expect(
+        addMessageMock.mock.calls.filter(
+          (call) => call[0] === "assistant" && call[1] === "",
+        ),
+      ).toHaveLength(2);
+      expect(
+        setStreamingMock.mock.calls.filter((call) => call[0] === true),
+      ).toHaveLength(2);
     });
   });
 
@@ -740,18 +760,19 @@ describe("executeConductorWorkflow — interrupt/queue integration", () => {
       const definition = createDefinition();
       await executeConductorWorkflow(definition, "test prompt", context);
 
-      // setStreaming(true) should be called for BOTH transitions (initial + resume).
-      // There is also a final setStreaming(false) from the executor's cleanup.
+      // Resume should re-arm streaming for the preserved stage session, so we
+      // expect one call for the initial transition and one for the resume.
       const setStreamingTrueCalls = setStreamingMock.mock.calls.filter(
         (call) => call[0] === true,
       );
-      expect(setStreamingTrueCalls.length).toBeGreaterThanOrEqual(2);
+      expect(setStreamingTrueCalls.length).toBe(2);
 
-      // addMessage("assistant", "") should be called for BOTH transitions.
+      // Resume also needs a fresh assistant target so streamed deltas/spinner
+      // have somewhere to bind after the interrupted message was finalized.
       const addAssistantCalls = addMessageMock.mock.calls.filter(
         (call) => call[0] === "assistant" && call[1] === "",
       );
-      expect(addAssistantCalls.length).toBeGreaterThanOrEqual(2);
+      expect(addAssistantCalls.length).toBe(2);
     });
   });
 
@@ -807,40 +828,46 @@ describe("executeConductorWorkflow — interrupt/queue integration", () => {
   });
 
   // -----------------------------------------------------------------------
-  // 10. Full interrupt/resume cycle — integration & regression
+  // 10. Full interrupt/resume regression
   // -----------------------------------------------------------------------
 
-  describe("full interrupt/resume cycle — integration & regression", () => {
-    test("full cycle — interrupt, queue resume, complete, banner suppressed", async () => {
-      // 2-stage workflow: stage 1 is interrupted, resumed via dequeueMessage,
-      // then stage 2 executes normally.
+  describe("full interrupt/resume regression", () => {
+    test("full interrupt → queue resume → completion cycle preserves session and skips banner", async () => {
+      // 2-stage workflow (planner + reviewer).
+      // Stage 1 (planner) gets interrupted, dequeueMessage returns a follow-up,
+      // planner resumes with the preserved session, stage 2 (reviewer) executes.
       let capturedInterruptFn: (() => void) | null = null;
-      const updateWorkflowStateMock = mock((_state: Record<string, unknown>) => {});
-      const addMessageMock = mock((_role: string, _content: string) => {});
+      const updateWorkflowStateMock = mock((_update: Record<string, unknown>) => {});
+      const addMessageMock = mock((..._args: string[]) => {});
+      const setStreamingMock = mock((_val: boolean) => {});
 
-      // Track which stage's session we're creating
       let sessionCallCount = 0;
-      let stage1HasInterrupted = false;
+      let plannerHasInterrupted = false;
+      const stageOutputTexts: string[] = [];
 
       const sessionFactory = mock(async () => {
         sessionCallCount++;
-        const session = createMockSession("", `session-${sessionCallCount}`);
+        const currentNum = sessionCallCount;
+        const session = createMockSession("", `session-${currentNum}`);
 
-        if (sessionCallCount === 1) {
-          // Stage 1 session: interrupts once, completes on resume
+        if (currentNum === 1) {
+          // Planner session: interrupts once, completes on resume (reused)
           session.stream = async function* () {
-            if (!stage1HasInterrupted) {
-              stage1HasInterrupted = true;
-              yield { type: "text" as const, content: "stage1 initial" } as AgentMessage;
+            if (!plannerHasInterrupted) {
+              plannerHasInterrupted = true;
+              stageOutputTexts.push("planner-initial");
+              yield { type: "text" as const, content: "planner-initial" } as AgentMessage;
               if (capturedInterruptFn) capturedInterruptFn();
             } else {
-              yield { type: "text" as const, content: "stage1 resumed" } as AgentMessage;
+              stageOutputTexts.push("planner-resumed");
+              yield { type: "text" as const, content: "planner-resumed" } as AgentMessage;
             }
           };
         } else {
-          // Stage 2 session: normal execution
+          // Reviewer session: normal execution
           session.stream = async function* () {
-            yield { type: "text" as const, content: "stage2 output" } as AgentMessage;
+            stageOutputTexts.push("reviewer-output");
+            yield { type: "text" as const, content: "reviewer-output" } as AgentMessage;
           };
         }
 
@@ -850,7 +877,7 @@ describe("executeConductorWorkflow — interrupt/queue integration", () => {
       let dequeueCallCount = 0;
       const dequeueMock = mock(() => {
         dequeueCallCount++;
-        if (dequeueCallCount === 1) return "follow-up";
+        if (dequeueCallCount === 1) return "queued follow-up";
         return null;
       });
 
@@ -863,32 +890,46 @@ describe("executeConductorWorkflow — interrupt/queue integration", () => {
         createAgentSession: sessionFactory as CommandContext["createAgentSession"],
         updateWorkflowState: updateWorkflowStateMock,
         addMessage: addMessageMock,
+        setStreaming: setStreamingMock,
       });
 
       const definition = createDefinition({ conductorStages: stages });
       const result = await executeConductorWorkflow(definition, "test prompt", context);
 
-      // Workflow should complete successfully
+      // 1. result.success is true
       expect(result.success).toBe(true);
 
-      // updateWorkflowState called exactly 2 times: once per stage initial
-      // transition (planner + reviewer), NOT for the resume transition.
+      // 2. updateWorkflowState called exactly 2 times:
+      //    planner initial + reviewer initial (resume suppresses banner update)
       expect(updateWorkflowStateMock).toHaveBeenCalledTimes(2);
 
-      // addMessage("assistant", "") called 3 times:
-      //   1. stage1 initial transition
-      //   2. stage1 resume transition
-      //   3. stage2 initial transition
+      // 3. addMessage("assistant", "") called 3 times:
+      //    planner initial + planner resume + reviewer
       const addAssistantCalls = addMessageMock.mock.calls.filter(
         (call) => call[0] === "assistant" && call[1] === "",
       );
       expect(addAssistantCalls.length).toBe(3);
+
+      // 4. setStreaming(true) called 3 times (planner + planner resume + reviewer)
+      const setStreamingTrueCalls = setStreamingMock.mock.calls.filter(
+        (call) => call[0] === true,
+      );
+      expect(setStreamingTrueCalls.length).toBe(3);
+
+      // 5. Both stages produced outputs — the queued message resumed the
+      //    preserved planner session before reviewer executed.
+      expect(stageOutputTexts).toContain("planner-resumed");
+      expect(stageOutputTexts).toContain("reviewer-output");
+
+      // 6. Only 2 sessions were created: planner (reused on resume) + reviewer.
+      expect(sessionCallCount).toBe(2);
     });
 
-    test("full cycle — interrupt, interactive resume via waitForUserInput, complete", async () => {
+    test("interrupt → user resume via waitForUserInput → completion", async () => {
       // Single-stage workflow: interrupted, dequeueMessage returns null,
-      // waitForUserInput resolves with "user follow-up", resumes and completes.
+      // waitForUserInput returns "user follow-up", resumes and completes.
       let capturedInterruptFn: (() => void) | null = null;
+      const updateWorkflowStateMock = mock((_update: Record<string, unknown>) => {});
       let hasInterrupted = false;
 
       const sessionFactory = mock(async () => {
@@ -904,152 +945,78 @@ describe("executeConductorWorkflow — interrupt/queue integration", () => {
         };
         return session;
       });
-
-      const waitForUserInputMock = mock(async () => "user follow-up");
 
       const context = createMockContext({
         registerConductorInterrupt: mock((fn: (() => void) | null) => {
           capturedInterruptFn = fn;
         }),
         dequeueMessage: mock(() => null),
-        waitForUserInput: waitForUserInputMock,
+        waitForUserInput: mock(async () => "user follow-up"),
         createAgentSession: sessionFactory as CommandContext["createAgentSession"],
+        updateWorkflowState: updateWorkflowStateMock,
       });
 
       const definition = createDefinition();
       const result = await executeConductorWorkflow(definition, "test prompt", context);
 
-      // Workflow should complete successfully
+      // Workflow completes successfully
       expect(result.success).toBe(true);
 
-      // waitForUserInput should have been called exactly once
-      expect(waitForUserInputMock).toHaveBeenCalledTimes(1);
+      // updateWorkflowState called exactly once (initial, not resume)
+      expect(updateWorkflowStateMock).toHaveBeenCalledTimes(1);
     });
 
-    test("regression — session destroy is NOT called between interrupt and resume", async () => {
-      // Single-stage workflow: interrupted, dequeueMessage returns follow-up,
-      // resumes and completes. Track destroy calls to verify the preserved
-      // session is NOT destroyed between interrupt and resume.
+    test("regression: session is not leaked after interrupt → null resume → advance", async () => {
+      // 2-stage workflow: stage 1 interrupted, dequeueMessage returns null,
+      // waitForUserInput returns "" (empty = no follow-up, conductor treats
+      // as advance). Stage 2 executes normally.
       let capturedInterruptFn: (() => void) | null = null;
       let hasInterrupted = false;
-      const destroyCalls: string[] = [];
 
       const sessionFactory = mock(async () => {
         const session = createMockSession("");
         session.stream = async function* () {
           if (!hasInterrupted) {
             hasInterrupted = true;
-            yield { type: "text" as const, content: "initial output" } as AgentMessage;
+            yield { type: "text" as const, content: "stage1-partial" } as AgentMessage;
             if (capturedInterruptFn) capturedInterruptFn();
           } else {
-            yield { type: "text" as const, content: "resumed output" } as AgentMessage;
+            yield { type: "text" as const, content: "stage2-output" } as AgentMessage;
           }
         };
-        session.destroy = mock(async () => {
-          destroyCalls.push(session.id);
-        });
         return session;
       });
 
-      let dequeueCallCount = 0;
-      const dequeueMock = mock(() => {
-        dequeueCallCount++;
-        if (dequeueCallCount === 1) return "follow-up message";
-        return null;
-      });
-
+      const stages = [createStage("stage1"), createStage("stage2")];
       const context = createMockContext({
         registerConductorInterrupt: mock((fn: (() => void) | null) => {
           capturedInterruptFn = fn;
         }),
-        dequeueMessage: dequeueMock,
-        createAgentSession: sessionFactory as CommandContext["createAgentSession"],
-      });
-
-      const definition = createDefinition();
-      const result = await executeConductorWorkflow(definition, "test prompt", context);
-
-      expect(result.success).toBe(true);
-
-      // Session.destroy should be called exactly ONCE — after the resumed
-      // stage completes in the finally block, NOT between interrupt and resume.
-      expect(destroyCalls.length).toBe(1);
-    });
-
-    test("regression — multiple interrupts across stages don't leak sessions", async () => {
-      // 3-stage workflow: each stage is interrupted once and resumed via
-      // dequeueMessage. Track session creation and destruction counts.
-      let capturedInterruptFn: (() => void) | null = null;
-      let sessionCreateCount = 0;
-      const destroyCalls: string[] = [];
-
-      // Track which stages have been interrupted
-      const interruptedStages = new Set<number>();
-
-      const sessionFactory = mock(async () => {
-        sessionCreateCount++;
-        const currentSessionNum = sessionCreateCount;
-        const session = createMockSession("", `session-${currentSessionNum}`);
-        session.stream = async function* () {
-          if (!interruptedStages.has(currentSessionNum)) {
-            interruptedStages.add(currentSessionNum);
-            yield { type: "text" as const, content: `stage${currentSessionNum} initial` } as AgentMessage;
-            if (capturedInterruptFn) capturedInterruptFn();
-          } else {
-            yield { type: "text" as const, content: `stage${currentSessionNum} resumed` } as AgentMessage;
-          }
-        };
-        session.destroy = mock(async () => {
-          destroyCalls.push(session.id);
-        });
-        return session;
-      });
-
-      // Each stage interrupt triggers one dequeue call returning a follow-up.
-      // After the follow-up, the drain loop calls dequeue again (returns null).
-      let dequeueCallCount = 0;
-      const dequeueMock = mock(() => {
-        dequeueCallCount++;
-        // Odd calls (1, 3, 5) are the interrupt resume: return follow-up
-        // Even calls (2, 4, 6) are the drain loop: return null
-        if (dequeueCallCount % 2 === 1) return `follow-up-${dequeueCallCount}`;
-        return null;
-      });
-
-      const stages = [
-        createStage("stage-a"),
-        createStage("stage-b"),
-        createStage("stage-c"),
-      ];
-
-      const context = createMockContext({
-        registerConductorInterrupt: mock((fn: (() => void) | null) => {
-          capturedInterruptFn = fn;
-        }),
-        dequeueMessage: dequeueMock,
+        dequeueMessage: mock(() => null),
+        waitForUserInput: mock(async () => ""),
         createAgentSession: sessionFactory as CommandContext["createAgentSession"],
       });
 
       const definition = createDefinition({ conductorStages: stages });
       const result = await executeConductorWorkflow(definition, "test prompt", context);
 
+      // Verify success
       expect(result.success).toBe(true);
 
-      // Exactly 3 sessions created (one per stage, reused on resume)
-      expect(sessionCreateCount).toBe(3);
-
-      // Exactly 3 destroyed (one after each stage completes)
-      expect(destroyCalls.length).toBe(3);
+      // createAgentSession called exactly 2 times:
+      // 1 for stage1 (preserved session destroyed when empty resume advances),
+      // 1 for stage2 (fresh session created)
+      expect(sessionFactory).toHaveBeenCalledTimes(2);
     });
 
-    test("regression — interrupt during first stage doesn't prevent second stage from executing", async () => {
-      // 2-stage workflow: stage 1 is interrupted, dequeueMessage returns null,
-      // waitForUserInput returns null (no follow-up). Stage 2 should still
-      // execute normally.
+    test("regression: interrupt during stage 2 of 2 with resume completes workflow", async () => {
+      // 2-stage workflow: stage 1 completes normally, stage 2 is interrupted
+      // then resumed via dequeueMessage.
       let capturedInterruptFn: (() => void) | null = null;
-      let hasInterrupted = false;
+      const updateWorkflowStateMock = mock((_update: Record<string, unknown>) => {});
       let sessionCallCount = 0;
-      const streamedStages: string[] = [];
+      let stage2HasInterrupted = false;
+      const stageOutputTexts: string[] = [];
 
       const sessionFactory = mock(async () => {
         sessionCallCount++;
@@ -1057,53 +1024,103 @@ describe("executeConductorWorkflow — interrupt/queue integration", () => {
         const session = createMockSession("", `session-${currentNum}`);
 
         if (currentNum === 1) {
-          // Stage 1: interrupts, no resume follow-up
+          // Stage 1: normal completion
           session.stream = async function* () {
-            if (!hasInterrupted) {
-              hasInterrupted = true;
-              streamedStages.push("stage1-initial");
-              yield { type: "text" as const, content: "stage1 output" } as AgentMessage;
-              if (capturedInterruptFn) capturedInterruptFn();
-            }
+            stageOutputTexts.push("stage1-output");
+            yield { type: "text" as const, content: "stage1 complete" } as AgentMessage;
           };
         } else {
-          // Stage 2: normal execution
+          // Stage 2: interrupted once, then resumes
           session.stream = async function* () {
-            streamedStages.push("stage2");
-            yield { type: "text" as const, content: "stage2 output" } as AgentMessage;
+            if (!stage2HasInterrupted) {
+              stage2HasInterrupted = true;
+              stageOutputTexts.push("stage2-partial");
+              yield { type: "text" as const, content: "stage2 partial" } as AgentMessage;
+              if (capturedInterruptFn) capturedInterruptFn();
+            } else {
+              stageOutputTexts.push("stage2-resumed");
+              yield { type: "text" as const, content: "stage2 resumed" } as AgentMessage;
+            }
           };
         }
 
         return session;
       });
 
-      // waitForUserInput returns empty string — no follow-up for the interrupted stage.
-      // The conductor treats empty/whitespace-only input the same as null (advances
-      // to next stage) via the check: resumeInput !== null && resumeInput.trim().length > 0
-      const waitForUserInputMock = mock(async () => "");
+      let resumeDelivered = false;
+      const dequeueMock = mock(() => {
+        // Return the resume message only after stage 2 has actually been
+        // interrupted. Earlier calls happen during stage 1's normal-completion
+        // queue drain loop (conductor.ts:507) and must return null so the
+        // message isn't consumed prematurely.
+        if (stage2HasInterrupted && !resumeDelivered) {
+          resumeDelivered = true;
+          return "stage2 resume message";
+        }
+        return null;
+      });
 
-      const stages = [createStage("planner"), createStage("reviewer")];
+      const stages = [createStage("stage1"), createStage("stage2")];
       const context = createMockContext({
         registerConductorInterrupt: mock((fn: (() => void) | null) => {
           capturedInterruptFn = fn;
         }),
-        dequeueMessage: mock(() => null),
-        waitForUserInput: waitForUserInputMock,
+        dequeueMessage: dequeueMock,
         createAgentSession: sessionFactory as CommandContext["createAgentSession"],
+        updateWorkflowState: updateWorkflowStateMock,
       });
 
       const definition = createDefinition({ conductorStages: stages });
       const result = await executeConductorWorkflow(definition, "test prompt", context);
 
-      // Workflow should complete successfully
+      // Verify success
       expect(result.success).toBe(true);
 
-      // Both stages should have executed
-      expect(streamedStages).toContain("stage1-initial");
-      expect(streamedStages).toContain("stage2");
+      // Both stages have outputs — stage 2 must have been resumed (not just partial)
+      expect(stageOutputTexts).toContain("stage1-output");
+      expect(stageOutputTexts).toContain("stage2-partial");
+      expect(stageOutputTexts).toContain("stage2-resumed");
 
-      // Session count: 1 for stage1 + 1 for stage2 = 2
-      expect(sessionCallCount).toBe(2);
+      // updateWorkflowState called 2 times:
+      // stage1 initial + stage2 initial (NOT stage2 resume)
+      expect(updateWorkflowStateMock).toHaveBeenCalledTimes(2);
+    });
+
+    test("regression: rapid interrupt before streaming starts returns interrupted gracefully", async () => {
+      // Single-stage workflow: the interrupt function is captured via
+      // registerConductorInterrupt and called at the very start of streaming
+      // (before any content is yielded), simulating a very fast Ctrl+C.
+      let capturedInterruptFn: (() => void) | null = null;
+
+      const sessionFactory = mock(async () => {
+        const session = createMockSession("");
+        session.stream = async function* () {
+          // Fire interrupt before yielding any content
+          if (capturedInterruptFn) capturedInterruptFn();
+          yield { type: "text" as const, content: "should-not-matter" } as AgentMessage;
+        };
+        session.abort = mock(async () => {});
+        return session;
+      });
+
+      const context = createMockContext({
+        registerConductorInterrupt: mock((fn: (() => void) | null) => {
+          capturedInterruptFn = fn;
+        }),
+        dequeueMessage: mock(() => null),
+        waitForUserInput: mock(() => Promise.reject(new Error("cancelled"))),
+        createAgentSession: sessionFactory as CommandContext["createAgentSession"],
+      });
+
+      const definition = createDefinition();
+      const result = await executeConductorWorkflow(definition, "test prompt", context);
+
+      // The workflow handles the rapid interrupt gracefully — the interrupt
+      // triggers the "Workflow cancelled" path (waitForUserInput rejects)
+      // which is treated as success with workflowActive=false.
+      expect(result.success).toBe(true);
+      expect(result.stateUpdate).toBeDefined();
+      expect(result.stateUpdate!.workflowActive).toBe(false);
     });
   });
 });

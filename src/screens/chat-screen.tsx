@@ -127,6 +127,7 @@ export function ChatApp({
     setTodoItems: runtime.setters.setTodoItems,
     setWorkflowState,
     todoItemsRef: runtime.refs.todoItemsRef,
+    workflowActiveRef: shellState.workflowActiveRef,
     workflowSessionIdRef: runtime.refs.workflowSessionIdRef,
   });
   shellState.continueQueuedConversationRef.current = orchestration.continueQueuedConversation;

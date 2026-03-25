@@ -129,7 +129,9 @@ export function handleComposerSubmit({
     }
   }
 
-  if (agentType === "copilot" && workflowSessionDirRef.current) {
+  // Don't clear workflow session state during an active workflow —
+  // the message will be enqueued for the conductor.
+  if (agentType === "copilot" && workflowSessionDirRef.current && !workflowState.workflowActive) {
     setWorkflowSessionDir(null);
     setWorkflowSessionId(null);
     workflowSessionDirRef.current = null;
@@ -143,6 +145,23 @@ export function handleComposerSubmit({
   const hasFileMentions = filesRead.length > 0;
 
   if (isStreamingRef.current) {
+    emitMessageSubmitTelemetry({
+      messageLength: trimmedValue.length,
+      queued: true,
+      fromInitialPrompt: false,
+      hasFileMentions,
+      hasAgentMentions: false,
+    });
+    messageQueue.enqueue(processedValue);
+    return;
+  }
+
+  // During a workflow interrupt gap (active workflow, not streaming, no
+  // resolver yet), enqueue the message for the conductor's
+  // checkQueuedMessage to pick up. This closes the race condition between
+  // interruptStreaming() resetting isStreamingRef and the conductor's
+  // waitForResumeInput() setting the resolver.
+  if (workflowState.workflowActive) {
     emitMessageSubmitTelemetry({
       messageLength: trimmedValue.length,
       queued: true,

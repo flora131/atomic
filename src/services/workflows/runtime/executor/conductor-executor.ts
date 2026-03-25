@@ -159,6 +159,14 @@ export async function executeConductorWorkflow(
         // isStreamingRef=false.  We must restore it before addMessage so the
         // new message is created as a streaming target.
         context.setStreaming(true);
+
+        // Always add a new assistant message — even on resume.  The previous
+        // streaming message was already finalized (streaming=false,
+        // wasInterrupted=true) by interruptStreaming().  Without a new message,
+        // streamingMessageIdRef stays null, causing text deltas to have no
+        // target and handleStreamComplete() to return early (breaking the
+        // entire stream lifecycle).  The stage banner is already suppressed
+        // above via the updateWorkflowState guard.
         context.addMessage("assistant", "");
 
         pipelineLog("Workflow", "stage_transition", {

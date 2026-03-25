@@ -1264,6 +1264,20 @@ Every feature below MUST be verified during the test run. Check each one as you 
 
 ---
 
+## Using React DevTools
+
+OpenTUI React supports React DevTools for debugging your terminal applications. To enable DevTools integration:
+
+Run your app with the `DEV` environment variable:
+
+```bash
+DEV=true bun run $ATOMIC_PROJECT_DIR/src/cli.ts chat -a <AGENT>
+```
+
+After the app starts, you should see the component tree in React DevTools. You can inspect and modify props in real-time, and changes will be reflected immediately in your terminal UI.
+
+---
+
 ## Final Steps
 
 1. **Run the full test suite:**

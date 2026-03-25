@@ -30,16 +30,33 @@ export function readAgentBody(filePath: string): string | null {
 }
 
 /**
+ * Cached agent lookup — agent files are static within a single process
+ * run, so we avoid re-scanning and re-parsing them on every call.
+ */
+let cachedAgentLookup: Map<string, AgentInfo> | null = null;
+
+/**
  * Build a lookup map of discovered agent names to their AgentInfo.
  * Used at compile time to validate and resolve stage agents.
+ * Results are cached for the lifetime of the process.
  */
 export function buildAgentLookup(): Map<string, AgentInfo> {
+  if (cachedAgentLookup) return cachedAgentLookup;
   const agents = discoverAgentInfos();
   const lookup = new Map<string, AgentInfo>();
   for (const agent of agents) {
     lookup.set(agent.name.toLowerCase(), agent);
   }
+  cachedAgentLookup = lookup;
   return lookup;
+}
+
+/**
+ * Clear the cached agent lookup. Useful in tests or when agent
+ * definition files may have changed on disk.
+ */
+export function clearAgentLookupCache(): void {
+  cachedAgentLookup = null;
 }
 
 /**

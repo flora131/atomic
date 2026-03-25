@@ -172,7 +172,7 @@ export const BusEventSchemas = {
   "workflow.step.complete": z.object({
     workflowId: z.string(),
     nodeId: z.string(),
-    status: z.enum(["completed", "error", "skipped"]),
+    status: z.enum(["completed", "error", "skipped", "interrupted"]),
     durationMs: z.number(),
     error: z.string().optional(),
     truncation: z.object({

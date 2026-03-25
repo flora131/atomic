@@ -1,36 +1,10 @@
-import {
-  useCallback,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import { isBackgroundAgent } from "@/state/chat/shared/helpers/background-agent-footer.ts";
-import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
-import type { AutoCompactionIndicatorState } from "@/state/chat/shared/helpers/auto-compaction-lifecycle.ts";
-import { type SessionLoopFinishReason } from "@/state/chat/shared/helpers/stream-continuation.ts";
-import { createAgentLifecycleLedger } from "@/state/chat/shared/helpers/agent-lifecycle-ledger.ts";
-import type {
-  AgentOrderingEvent,
-} from "@/state/chat/shared/helpers/agent-ordering-contract.ts";
-import {
-  createAgentOrderingState,
-} from "@/state/chat/shared/helpers/agent-ordering-contract.ts";
-import { createLoadedSkillTrackingSet } from "@/state/chat/shared/helpers/skill-load-tracking.ts";
-import {
-  StreamRunRuntime,
-} from "@/state/runtime/stream-run-runtime.ts";
-import type {
-  StreamingMeta,
-  ThinkingDropDiagnostics,
-} from "@/state/chat/shared/types/index.ts";
-import {
-  createThinkingDropDiagnostics,
-} from "@/state/chat/shared/helpers/index.ts";
-import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type {
   UseChatStreamRuntimeArgs,
   UseChatStreamRuntimeResult,
 } from "@/state/chat/stream/runtime-types.ts";
+import { useStreamState } from "@/state/chat/stream/use-stream-state.ts";
+import { useStreamRefs } from "@/state/chat/stream/use-stream-refs.ts";
+import { useStreamActions } from "@/state/chat/stream/use-stream-actions.ts";
 import { useChatBackgroundDispatch } from "@/state/chat/stream/use-background-dispatch.ts";
 import { useChatRunTracking } from "@/state/chat/stream/use-run-tracking.ts";
 import { useChatRuntimeControls } from "@/state/chat/stream/use-runtime-controls.ts";
@@ -50,115 +24,55 @@ export function useChatStreamRuntime({
   setMessagesWindowed,
   setStreamingMeta,
 }: UseChatStreamRuntimeArgs): UseChatStreamRuntimeResult {
-  const [parallelAgents, setParallelAgents] = useState<ParallelAgent[]>([]);
-  const [compactionSummary, setCompactionSummary] = useState<string | null>(null);
-  const [showCompactionHistory, setShowCompactionHistory] = useState(false);
-  const [_isAutoCompacting, setIsAutoCompacting] = useState(false);
-  const autoCompactionIndicatorRef = useRef<AutoCompactionIndicatorState>({ status: "idle" });
-  const [todoItems, setTodoItems] = useState<NormalizedTodoItem[]>([]);
-  const [workflowSessionDir, setWorkflowSessionDir] = useState<string | null>(null);
-  const [workflowSessionId, setWorkflowSessionId] = useState<string | null>(null);
-  const [toolCompletionVersion, setToolCompletionVersion] = useState(0);
-  const [activeBackgroundAgentCount, setActiveBackgroundAgentCount] = useState(0);
-  const [agentAnchorSyncVersion, setAgentAnchorSyncVersion] = useState(0);
-  const [streamingElapsedMs, setStreamingElapsedMs] = useState(0);
+  // ── State (useState + useMemo) ─────────────────────────────────────────
+  const {
+    parallelAgents, compactionSummary, showCompactionHistory,
+    todoItems, workflowSessionDir, workflowSessionId,
+    hasRunningTool, activeBackgroundAgentCount,
+    streamingMessageId, lastStreamedMessageId,
+    backgroundAgentMessageId, agentMessageBindings,
+    streamingElapsedMs,
+    hasLiveLoadingIndicator,
+    setParallelAgents, setCompactionSummary, setShowCompactionHistory,
+    setIsAutoCompacting, setTodoItems, setWorkflowSessionDir,
+    setWorkflowSessionId, setHasRunningTool,
+    setActiveBackgroundAgentCount,
+    setStreamingMessageIdState, setLastStreamedMessageIdState,
+    setBackgroundAgentMessageIdState, setAgentMessageBindings,
+    setStreamingElapsedMs,
+  } = useStreamState(messages);
 
-  const activeBackgroundAgentCountRef = useRef(0);
-  const todoItemsRef = useRef<NormalizedTodoItem[]>([]);
-  const lastStreamingContentRef = useRef("");
-  const streamRunRuntimeRef = useRef<StreamRunRuntime>(null as unknown as StreamRunRuntime);
-  if (!streamRunRuntimeRef.current) {
-    streamRunRuntimeRef.current = new StreamRunRuntime();
-  }
-  const activeForegroundRunHandleIdRef = useRef<string | null>(null);
-  const awaitedStreamRunIdsRef = useRef<Set<string>>(new Set());
-  const parallelInterruptHandlerRef = useRef<(() => void) | null>(null);
-  const workflowSessionDirRef = useRef<string | null>(null);
-  const workflowSessionIdRef = useRef<string | null>(null);
-  const workflowTaskIdsRef = useRef<Set<string>>(new Set());
-  const toolNameByIdRef = useRef<Map<string, string>>(new Map());
-  const toolMessageIdByIdRef = useRef<Map<string, string>>(new Map());
-  const agentMessageIdByIdRef = useRef<Map<string, string>>(new Map());
-  const agentLifecycleLedgerRef = useRef(createAgentLifecycleLedger());
-  const agentOrderingStateRef = useRef(createAgentOrderingState());
-  const completionOrderingEventByAgentRef = useRef<Map<string, AgentOrderingEvent>>(new Map());
-  const doneRenderedSequenceByAgentRef = useRef<Map<string, number>>(new Map());
-  const deferredPostCompleteDeltasByAgentRef = useRef<Map<string, Array<{
-    messageId: string;
-    runId?: number;
-    delta: string;
-    completionSequence: number;
-  }>>>(new Map());
-  const streamingMessageIdRef = useRef<string | null>(null);
-  const activeStreamRunIdRef = useRef<number | null>(null);
-  const nextRunIdFloorRef = useRef<number | null>(null);
-  const lastTurnFinishReasonRef = useRef<SessionLoopFinishReason | null>(null);
-  const lastStreamedMessageIdRef = useRef<string | null>(null);
-  const backgroundAgentMessageIdRef = useRef<string | null>(null);
-  const streamingStartRef = useRef<number | null>(null);
-  const isStreamingRef = useRef(false);
-  const streamingMetaRef = useRef<StreamingMeta | null>(null);
-  const closedThinkingSourcesRef = useRef<Set<string>>(new Set());
-  const thinkingDropDiagnosticsRef = useRef<ThinkingDropDiagnostics>(createThinkingDropDiagnostics());
-  const wasInterruptedRef = useRef(false);
-  const parallelAgentsRef = useRef<ParallelAgent[]>([]);
-  const pendingCompleteRef = useRef<(() => void) | null>(null);
-  const deferredCompleteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isAgentOnlyStreamRef = useRef(false);
-  const hasRunningToolRef = useRef(false);
-  const runningBlockingToolIdsRef = useRef<Set<string>>(new Set());
-  const runningAskQuestionToolIdsRef = useRef<Set<string>>(new Set());
-  const loadedSkillsRef = useRef<Set<string>>(createLoadedSkillTrackingSet(messages));
-  const activeSkillSessionIdRef = useRef<string | null>(null);
-  const continueAssistantStreamInPlaceRef = useRef<((messageId: string, content: string) => void) | null>(null);
-  const startAssistantStreamRef = useRef<((content: string) => void) | null>(null);
-  const backgroundAgentSendChainRef = useRef<Promise<void>>(Promise.resolve());
-  const pendingBackgroundUpdatesRef = useRef<string[]>([]);
-  const backgroundUpdateFlushInFlightRef = useRef(false);
-  const backgroundProgressSnapshotRef = useRef<Map<string, {
-    toolUses: number;
-    currentTool?: string;
-  }>>(new Map());
+  // ── Refs (useRef) ──────────────────────────────────────────────────────
+  const refs = useStreamRefs(messages);
+  const {
+    streamRunRuntimeRef,
+    backgroundAgentSendChainRef,
+    pendingBackgroundUpdatesRef,
+    backgroundUpdateFlushInFlightRef,
+    ...publicRefs
+  } = refs;
 
-  const setStreamingMessageId = useCallback((messageId: string | null): void => {
-    if (streamingMessageIdRef.current === messageId) return;
-    streamingMessageIdRef.current = messageId;
-    setAgentAnchorSyncVersion((version) => version + 1);
-  }, []);
+  // ── Local actions (useCallback) ────────────────────────────────────────
+  const {
+    setStreamingMessageId, setLastStreamedMessageId,
+    setBackgroundAgentMessageId, resetLoadedSkillTracking,
+    setAgentMessageBinding, deleteAgentMessageBinding,
+    separateAndInterruptAgents, resolveAgentScopedMessageId,
+  } = useStreamActions({
+    streamingMessageIdRef: refs.streamingMessageIdRef,
+    lastStreamedMessageIdRef: refs.lastStreamedMessageIdRef,
+    backgroundAgentMessageIdRef: refs.backgroundAgentMessageIdRef,
+    loadedSkillsRef: refs.loadedSkillsRef,
+    activeSkillSessionIdRef: refs.activeSkillSessionIdRef,
+    agentMessageIdByIdRef: refs.agentMessageIdByIdRef,
+    parallelAgentsRef: refs.parallelAgentsRef,
+    setStreamingMessageIdState,
+    setLastStreamedMessageIdState,
+    setBackgroundAgentMessageIdState,
+    setAgentMessageBindings,
+  });
 
-  const setLastStreamedMessageId = useCallback((messageId: string | null): void => {
-    if (lastStreamedMessageIdRef.current === messageId) return;
-    lastStreamedMessageIdRef.current = messageId;
-    setAgentAnchorSyncVersion((version) => version + 1);
-  }, []);
-
-  const setBackgroundAgentMessageId = useCallback((messageId: string | null): void => {
-    if (backgroundAgentMessageIdRef.current === messageId) return;
-    backgroundAgentMessageIdRef.current = messageId;
-    setAgentAnchorSyncVersion((version) => version + 1);
-  }, []);
-
-  const resetLoadedSkillTracking = useCallback((options?: {
-    resetSessionBinding?: boolean;
-  }) => {
-    loadedSkillsRef.current.clear();
-    if (options?.resetSessionBinding) {
-      activeSkillSessionIdRef.current = null;
-    }
-  }, []);
-
-  const setAgentMessageBinding = useCallback((agentId: string, messageId: string): void => {
-    if (agentMessageIdByIdRef.current.get(agentId) === messageId) return;
-    agentMessageIdByIdRef.current.set(agentId, messageId);
-    setAgentAnchorSyncVersion((version) => version + 1);
-  }, []);
-
-  const deleteAgentMessageBinding = useCallback((agentId: string): void => {
-    if (!agentMessageIdByIdRef.current.has(agentId)) return;
-    agentMessageIdByIdRef.current.delete(agentId);
-    setAgentAnchorSyncVersion((version) => version + 1);
-  }, []);
-
+  // ── Existing sub-hooks (unchanged) ─────────────────────────────────────
   const {
     bindTrackedRunToMessage,
     getActiveStreamRunId,
@@ -167,70 +81,17 @@ export function useChatStreamRuntime({
     startTrackedAssistantRun,
     trackAwaitedRun,
   } = useChatRunTracking({
-    activeForegroundRunHandleIdRef,
-    awaitedStreamRunIdsRef,
+    activeForegroundRunHandleIdRef: refs.activeForegroundRunHandleIdRef,
+    awaitedStreamRunIdsRef: refs.awaitedStreamRunIdsRef,
     streamRunRuntimeRef,
   });
-
-  const separateAndInterruptAgents = useCallback((agents: ParallelAgent[]) => {
-    const backgroundAgents: ParallelAgent[] = [];
-    const foregroundAgents: ParallelAgent[] = [];
-    for (const agent of agents) {
-      if (isBackgroundAgent(agent)) {
-        backgroundAgents.push(agent);
-      } else {
-        foregroundAgents.push(agent);
-      }
-    }
-
-    return {
-      interruptedAgents: [
-        ...foregroundAgents.map((agent) =>
-          agent.status === "running" || agent.status === "pending"
-            ? {
-              ...agent,
-              status: "interrupted" as const,
-              currentTool: undefined,
-              durationMs: Date.now() - new Date(agent.startedAt).getTime(),
-            }
-            : agent,
-        ),
-        ...backgroundAgents,
-      ],
-      remainingLiveAgents: backgroundAgents,
-    };
-  }, []);
-
-  const resolveAgentScopedMessageId = useCallback((agentId?: string): string | null => {
-    if (!agentId) {
-      return streamingMessageIdRef.current ?? lastStreamedMessageIdRef.current;
-    }
-
-    const mappedMessageId = agentMessageIdByIdRef.current.get(agentId);
-    if (mappedMessageId) {
-      return mappedMessageId;
-    }
-
-    const scopedAgent = parallelAgentsRef.current.find((agent) => agent.id === agentId);
-    const shouldPreferBackgroundMessage = scopedAgent ? isBackgroundAgent(scopedAgent) : false;
-
-    if (shouldPreferBackgroundMessage) {
-      return (
-        backgroundAgentMessageIdRef.current
-        ?? streamingMessageIdRef.current
-        ?? lastStreamedMessageIdRef.current
-      );
-    }
-
-    return streamingMessageIdRef.current ?? lastStreamedMessageIdRef.current;
-  }, []);
 
   const { appendSkillLoadIndicator, sendBackgroundMessageToAgent } = useChatBackgroundDispatch({
     backgroundAgentSendChainRef,
     backgroundUpdateFlushInFlightRef,
     getSession,
-    isAgentOnlyStreamRef,
-    isStreamingRef,
+    isAgentOnlyStreamRef: refs.isAgentOnlyStreamRef,
+    isStreamingRef: refs.isStreamingRef,
     pendingBackgroundUpdatesRef,
     setMessagesWindowed,
   });
@@ -246,20 +107,21 @@ export function useChatStreamRuntime({
     resetTodoItemsForNewStream,
     stopSharedStreamState,
   } = useChatRuntimeControls({
-    activeForegroundRunHandleIdRef,
+    activeForegroundRunHandleIdRef: refs.activeForegroundRunHandleIdRef,
     appendCompactionSummaryAndSync,
-    autoCompactionIndicatorRef,
-    closedThinkingSourcesRef,
-    deferredCompleteTimeoutRef,
-    hasRunningToolRef,
-    isAgentOnlyStreamRef,
-    isStreamingRef,
-    lastTurnFinishReasonRef,
-    nextRunIdFloorRef,
-    pendingCompleteRef,
+    autoCompactionIndicatorRef: refs.autoCompactionIndicatorRef,
+    closedThinkingSourcesRef: refs.closedThinkingSourcesRef,
+    deferredCompleteTimeoutRef: refs.deferredCompleteTimeoutRef,
+    hasRunningToolRef: refs.hasRunningToolRef,
+    isAgentOnlyStreamRef: refs.isAgentOnlyStreamRef,
+    setHasRunningTool,
+    isStreamingRef: refs.isStreamingRef,
+    lastTurnFinishReasonRef: refs.lastTurnFinishReasonRef,
+    nextRunIdFloorRef: refs.nextRunIdFloorRef,
+    pendingCompleteRef: refs.pendingCompleteRef,
     resetLoadedSkillTracking,
-    runningAskQuestionToolIdsRef,
-    runningBlockingToolIdsRef,
+    runningAskQuestionToolIdsRef: refs.runningAskQuestionToolIdsRef,
+    runningBlockingToolIdsRef: refs.runningBlockingToolIdsRef,
     setCompactionSummary,
     setIsAutoCompacting,
     setIsStreaming,
@@ -268,85 +130,87 @@ export function useChatStreamRuntime({
     setStreamingMessageId,
     setStreamingMeta,
     setTodoItems,
-    streamingMessageIdRef,
-    streamingMetaRef,
-    streamingStartRef,
-    todoItemsRef,
-    workflowSessionIdRef,
-    workflowTaskIdsRef,
+    streamingMessageIdRef: refs.streamingMessageIdRef,
+    streamingMetaRef: refs.streamingMetaRef,
+    streamingStartRef: refs.streamingStartRef,
+    todoItemsRef: refs.todoItemsRef,
+    workflowSessionIdRef: refs.workflowSessionIdRef,
+    workflowTaskIdsRef: refs.workflowTaskIdsRef,
   });
+
   const { resetConsumers, getOwnershipTracker } = useChatStreamConsumer({
     agentType,
-    activeForegroundRunHandleIdRef,
-    activeStreamRunIdRef,
-    agentLifecycleLedgerRef,
-    agentOrderingStateRef,
+    activeForegroundRunHandleIdRef: refs.activeForegroundRunHandleIdRef,
+    activeStreamRunIdRef: refs.activeStreamRunIdRef,
+    agentLifecycleLedgerRef: refs.agentLifecycleLedgerRef,
+    agentOrderingStateRef: refs.agentOrderingStateRef,
     applyAutoCompactionIndicator,
-    backgroundAgentMessageIdRef,
+    backgroundAgentMessageIdRef: refs.backgroundAgentMessageIdRef,
     clearDeferredCompletion,
-    closedThinkingSourcesRef,
-    completionOrderingEventByAgentRef,
-    deferredPostCompleteDeltasByAgentRef,
-    hasRunningToolRef,
-    isAgentOnlyStreamRef,
-    isStreamingRef,
+    closedThinkingSourcesRef: refs.closedThinkingSourcesRef,
+    completionOrderingEventByAgentRef: refs.completionOrderingEventByAgentRef,
+    deferredPostCompleteDeltasByAgentRef: refs.deferredPostCompleteDeltasByAgentRef,
+    hasRunningToolRef: refs.hasRunningToolRef,
+    isAgentOnlyStreamRef: refs.isAgentOnlyStreamRef,
+    isStreamingRef: refs.isStreamingRef,
     isWorkflowTaskUpdate,
-    lastStreamedMessageIdRef,
-    lastStreamingContentRef,
-    pendingCompleteRef,
+    lastStreamedMessageIdRef: refs.lastStreamedMessageIdRef,
+    lastStreamingContentRef: refs.lastStreamingContentRef,
+    pendingCompleteRef: refs.pendingCompleteRef,
     resolveAgentScopedMessageId,
-    runningAskQuestionToolIdsRef,
-    runningBlockingToolIdsRef,
+    runningAskQuestionToolIdsRef: refs.runningAskQuestionToolIdsRef,
+    runningBlockingToolIdsRef: refs.runningBlockingToolIdsRef,
     sendBackgroundMessageToAgent,
     setMessagesWindowed,
     setParallelAgents,
     setStreamingMeta,
     setTodoItems,
-    setToolCompletionVersion,
+    setHasRunningTool,
     shouldHideActiveStreamContent,
     streamRunRuntimeRef,
-    streamingMessageIdRef,
-    streamingMetaRef,
-    thinkingDropDiagnosticsRef,
-    todoItemsRef,
-    toolMessageIdByIdRef,
-    toolNameByIdRef,
-    workflowSessionDirRef,
-    workflowSessionIdRef,
+    streamingMessageIdRef: refs.streamingMessageIdRef,
+    streamingMetaRef: refs.streamingMetaRef,
+    thinkingDropDiagnosticsRef: refs.thinkingDropDiagnosticsRef,
+    todoItemsRef: refs.todoItemsRef,
+    toolMessageIdByIdRef: refs.toolMessageIdByIdRef,
+    toolNameByIdRef: refs.toolNameByIdRef,
+    workflowSessionDirRef: refs.workflowSessionDirRef,
+    workflowSessionIdRef: refs.workflowSessionIdRef,
   });
+
   const {
     continueAssistantStreamInPlace,
     handleStreamComplete,
     handleStreamStartupError,
     startAssistantStream,
   } = useChatStreamLifecycle({
-    activeBackgroundAgentCountRef,
-    activeStreamRunIdRef,
+    activeBackgroundAgentCountRef: refs.activeBackgroundAgentCountRef,
+    activeStreamRunIdRef: refs.activeStreamRunIdRef,
     agentType,
-    awaitedStreamRunIdsRef,
+    awaitedStreamRunIdsRef: refs.awaitedStreamRunIdsRef,
     bindTrackedRunToMessage,
     clearDeferredCompletion,
-    continueAssistantStreamInPlaceRef,
+    continueAssistantStreamInPlaceRef: refs.continueAssistantStreamInPlaceRef,
     continueQueuedConversationRef,
     currentModelRef,
-    deferredCompleteTimeoutRef,
+    deferredCompleteTimeoutRef: refs.deferredCompleteTimeoutRef,
     finalizeThinkingSourceTracking,
     getActiveStreamRunId,
-    hasRunningToolRef,
-    isAgentOnlyStreamRef,
-    isStreamingRef,
-    lastStreamingContentRef,
-    lastTurnFinishReasonRef,
-    nextRunIdFloorRef,
+    hasRunningToolRef: refs.hasRunningToolRef,
+    isAgentOnlyStreamRef: refs.isAgentOnlyStreamRef,
+    isStreamingRef: refs.isStreamingRef,
+    lastStreamingContentRef: refs.lastStreamingContentRef,
+    lastTurnFinishReasonRef: refs.lastTurnFinishReasonRef,
+    nextRunIdFloorRef: refs.nextRunIdFloorRef,
     onStreamMessage,
-    parallelAgentsRef,
-    pendingCompleteRef,
+    parallelAgentsRef: refs.parallelAgentsRef,
+    pendingCompleteRef: refs.pendingCompleteRef,
     resetConsumers,
     resetTodoItemsForNewStream,
     resetThinkingSourceTracking,
     resolveTrackedRun,
-    runningAskQuestionToolIdsRef,
-    runningBlockingToolIdsRef,
+    runningAskQuestionToolIdsRef: refs.runningAskQuestionToolIdsRef,
+    runningBlockingToolIdsRef: refs.runningBlockingToolIdsRef,
     sendBackgroundMessageToAgent,
     setActiveBackgroundAgentCount,
     setBackgroundAgentMessageId,
@@ -355,72 +219,67 @@ export function useChatStreamRuntime({
     setMessagesWindowed,
     setParallelAgents,
     setStreamingMessageId,
-    setToolCompletionVersion,
+    setHasRunningTool,
     shouldHideActiveStreamContent,
-    startAssistantStreamRef,
+    startAssistantStreamRef: refs.startAssistantStreamRef,
     startTrackedAssistantRun,
     stopSharedStreamState,
-    streamingMessageIdRef,
-    streamingMetaRef,
-    streamingStartRef,
-    todoItemsRef,
-    toolMessageIdByIdRef,
-    toolNameByIdRef,
-    wasInterruptedRef,
+    streamingMessageIdRef: refs.streamingMessageIdRef,
+    streamingMetaRef: refs.streamingMetaRef,
+    streamingStartRef: refs.streamingStartRef,
+    todoItemsRef: refs.todoItemsRef,
+    toolMessageIdByIdRef: refs.toolMessageIdByIdRef,
+    toolNameByIdRef: refs.toolNameByIdRef,
+    wasInterruptedRef: refs.wasInterruptedRef,
   });
 
-  startAssistantStreamRef.current = (content: string) => {
+  // ── Ref-mirroring (lifecycle callbacks → refs for consumer access) ─────
+  refs.startAssistantStreamRef.current = (content: string) => {
     startAssistantStream(content);
   };
-
-  continueAssistantStreamInPlaceRef.current = (messageId: string, content: string) => {
+  refs.continueAssistantStreamInPlaceRef.current = (messageId: string, content: string) => {
     continueAssistantStreamInPlace(messageId, content);
   };
 
-  const hasInProgressTask = useMemo(
-    () => todoItems.some((item) => item.status === "in_progress"),
-    [todoItems],
-  );
-
-  const hasLiveLoadingIndicator = useMemo(
-    () => activeBackgroundAgentCount > 0 || hasInProgressTask || messages.some((message) => message.streaming),
-    [activeBackgroundAgentCount, hasInProgressTask, messages],
-  );
-
+  // ── Effects ────────────────────────────────────────────────────────────
   useChatRuntimeEffects({
-    activeForegroundRunHandleIdRef,
-    agentLifecycleLedgerRef,
-    backgroundProgressSnapshotRef,
-    completionOrderingEventByAgentRef,
-    deferredCompleteTimeoutRef,
-    deferredPostCompleteDeltasByAgentRef,
-    doneRenderedSequenceByAgentRef,
+    activeForegroundRunHandleIdRef: refs.activeForegroundRunHandleIdRef,
+    agentLifecycleLedgerRef: refs.agentLifecycleLedgerRef,
+    backgroundProgressSnapshotRef: refs.backgroundProgressSnapshotRef,
+    completionOrderingEventByAgentRef: refs.completionOrderingEventByAgentRef,
+    deferredCompleteTimeoutRef: refs.deferredCompleteTimeoutRef,
+    deferredPostCompleteDeltasByAgentRef: refs.deferredPostCompleteDeltasByAgentRef,
+    doneRenderedSequenceByAgentRef: refs.doneRenderedSequenceByAgentRef,
     hasLiveLoadingIndicator,
     parallelAgents,
-    parallelAgentsRef,
-    parallelInterruptHandlerRef,
+    parallelAgentsRef: refs.parallelAgentsRef,
+    parallelInterruptHandlerRef: refs.parallelInterruptHandlerRef,
     pendingBackgroundUpdatesRef,
     setStreamingElapsedMs,
     streamRunRuntimeRef,
-    streamingStartRef,
+    streamingStartRef: refs.streamingStartRef,
     todoItems,
-    todoItemsRef,
+    todoItemsRef: refs.todoItemsRef,
     workflowSessionDir,
-    workflowSessionDirRef,
+    workflowSessionDirRef: refs.workflowSessionDirRef,
     workflowSessionId,
-    workflowSessionIdRef,
+    workflowSessionIdRef: refs.workflowSessionIdRef,
   });
 
+  // ── Return (identical shape to UseChatStreamRuntimeResult) ─────────────
   return {
     state: {
       activeBackgroundAgentCount,
-      agentAnchorSyncVersion,
+      agentMessageBindings,
+      backgroundAgentMessageId,
       compactionSummary,
+      lastStreamedMessageId,
       parallelAgents,
       showCompactionHistory,
       streamingElapsedMs,
+      streamingMessageId,
       todoItems,
-      toolCompletionVersion,
+      hasRunningTool,
       workflowSessionDir,
       workflowSessionId,
     },
@@ -431,54 +290,11 @@ export function useChatStreamRuntime({
       setParallelAgents,
       setShowCompactionHistory,
       setTodoItems,
-      setToolCompletionVersion,
+      setHasRunningTool,
       setWorkflowSessionDir,
       setWorkflowSessionId,
     },
-    refs: {
-      activeBackgroundAgentCountRef,
-      activeForegroundRunHandleIdRef,
-      activeSkillSessionIdRef,
-      activeStreamRunIdRef,
-      agentLifecycleLedgerRef,
-      agentMessageIdByIdRef,
-      agentOrderingStateRef,
-      autoCompactionIndicatorRef,
-      awaitedStreamRunIdsRef,
-      backgroundAgentMessageIdRef,
-      backgroundProgressSnapshotRef,
-      closedThinkingSourcesRef,
-      completionOrderingEventByAgentRef,
-      continueAssistantStreamInPlaceRef,
-      deferredCompleteTimeoutRef,
-      deferredPostCompleteDeltasByAgentRef,
-      doneRenderedSequenceByAgentRef,
-      hasRunningToolRef,
-      isAgentOnlyStreamRef,
-      isStreamingRef,
-      lastStreamedMessageIdRef,
-      lastStreamingContentRef,
-      lastTurnFinishReasonRef,
-      loadedSkillsRef,
-      nextRunIdFloorRef,
-      parallelAgentsRef,
-      parallelInterruptHandlerRef,
-      pendingCompleteRef,
-      runningAskQuestionToolIdsRef,
-      runningBlockingToolIdsRef,
-      startAssistantStreamRef,
-      streamingMessageIdRef,
-      streamingMetaRef,
-      streamingStartRef,
-      thinkingDropDiagnosticsRef,
-      todoItemsRef,
-      toolMessageIdByIdRef,
-      toolNameByIdRef,
-      wasInterruptedRef,
-      workflowSessionDirRef,
-      workflowSessionIdRef,
-      workflowTaskIdsRef,
-    },
+    refs: publicRefs,
     actions: {
       appendSkillLoadIndicator,
       applyAutoCompactionIndicator,

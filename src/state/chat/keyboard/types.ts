@@ -92,3 +92,11 @@ export interface UseChatKeyboardArgs {
   waitForUserInputResolverRef: RefObject<{ reject: (error: Error) => void } | null>;
   workflowState: WorkflowChatState;
 }
+
+/** The UI mode that determines keyboard event ownership. */
+export type UIMode = "chat" | "dialog" | "model-selector";
+
+/** Return value of the useKeyboardOwnership hook. */
+export interface KeyboardOwnershipResult {
+  ctrlCPressed: boolean;
+}

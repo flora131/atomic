@@ -1,172 +1,166 @@
 /**
- * Tests for reachability verification (Property 1).
+ * Tests for reachability verification.
  *
- * with a boolean constraint evaluator that correctly computes reachability
- * using the same constraint structure as checkReachability.
- *
- * The mock solver implements:
- * - Boolean variable tracking (true/false assignments)
- * - Constraint propagation for Eq, Not, Or
- * - Push/pop scoping for incremental checks
- *
- * This validates the graph-structural logic (predecessor computation,
- * constraint encoding, result interpretation).
+ * Property: Every node in the graph is reachable from the start node.
  */
 
-import { describe, test, expect, mock } from "bun:test";
-import type { EncodedGraph } from "@/services/workflows/verification/types";
+import { test, expect, describe } from "bun:test";
+import { checkReachability } from "@/services/workflows/verification/reachability.ts";
+import {
+  buildGraph,
+  buildLinearGraph,
+  buildDiamondGraph,
+} from "./test-support.ts";
 
-// ---------------------------------------------------------------------------
-// Solver mock: boolean constraint solver that computes reachability
-// ---------------------------------------------------------------------------
+describe("checkReachability", () => {
+  describe("passing cases", () => {
+    test("single-node graph (start is also end)", async () => {
+      const graph = buildGraph({
+        nodes: ["A"],
+        edges: [],
+        start: "A",
+        ends: ["A"],
+      });
+      const result = await checkReachability(graph);
+      expect(result.verified).toBe(true);
+    });
 
-interface MockExpr {
-  _type: string;
-  _name?: string;
-  _args?: MockExpr[];
-  _arg?: MockExpr;
-  _a?: MockExpr;
-  _b?: MockExpr;
-}
+    test("linear graph — all nodes reachable", async () => {
+      const graph = buildLinearGraph(["A", "B", "C", "D"]);
+      const result = await checkReachability(graph);
+      expect(result.verified).toBe(true);
+    });
 
-function createMockBool(name: string): MockExpr {
-  return { _type: "bool", _name: name };
-}
+    test("diamond graph — all nodes reachable", async () => {
+      const graph = buildDiamondGraph();
+      const result = await checkReachability(graph);
+      expect(result.verified).toBe(true);
+    });
 
-function evaluate(
-  expr: MockExpr,
-  assignment: Map<string, boolean>,
-): boolean | null {
-  if (expr._type === "bool") {
-    return assignment.get(expr._name!) ?? null;
-  }
-  if (expr._type === "not") {
-    const val = evaluate(expr._arg!, assignment);
-    return val === null ? null : !val;
-  }
-  if (expr._type === "or") {
-    const vals = (expr._args ?? []).map((a) => evaluate(a, assignment));
-    if (vals.some((v) => v === true)) return true;
-    if (vals.every((v) => v === false)) return false;
-    return null;
-  }
-  if (expr._type === "eq") {
-    const a = evaluate(expr._a!, assignment);
-    const b = evaluate(expr._b!, assignment);
-    if (a === null || b === null) return null;
-    return a === b;
-  }
-  return null;
-}
+    test("graph with cycle — all nodes reachable", async () => {
+      const graph = buildGraph({
+        nodes: ["A", "B", "C"],
+        edges: [
+          ["A", "B"],
+          ["B", "C"],
+          ["C", "A"],
+        ],
+        start: "A",
+        ends: ["C"],
+      });
+      const result = await checkReachability(graph);
+      expect(result.verified).toBe(true);
+    });
 
-/**
- * Simple constraint solver using BFS-based reachability.
- * For the reachability check, we know the constraint structure:
- * 1. reach[start] = true
- * 2. reach[node] = false (for no-predecessor nodes)
- * 3. reach[node] <=> reach[pred] (single predecessor)
- * 4. reach[node] <=> OR(reach[preds]) (multiple predecessors)
- *
- * We propagate constraints to determine unique assignments, then check
- * whether additional NOT(reach[x]) constraints are satisfiable.
- */
-function createMockContext() {
-  return {
-    Bool: {
-      const: (name: string) => createMockBool(name),
-    },
-    Not: (a: MockExpr): MockExpr => ({ _type: "not", _arg: a }),
-    Or: (...args: MockExpr[]): MockExpr => ({ _type: "or", _args: args }),
-    Eq: (a: MockExpr, b: MockExpr): MockExpr => ({
-      _type: "eq",
-      _a: a,
-      _b: b,
-    }),
-    Solver: class MockSolver {
-      constraints: MockExpr[] = [];
-      stack: MockExpr[][] = [];
+    test("graph with multiple paths to same node", async () => {
+      const graph = buildGraph({
+        nodes: ["start", "left", "right", "merge", "end"],
+        edges: [
+          ["start", "left"],
+          ["start", "right"],
+          ["left", "merge"],
+          ["right", "merge"],
+          ["merge", "end"],
+        ],
+        start: "start",
+        ends: ["end"],
+      });
+      const result = await checkReachability(graph);
+      expect(result.verified).toBe(true);
+    });
+  });
 
-      add(constraint: MockExpr) {
-        this.constraints.push(constraint);
-      }
+  describe("failing cases", () => {
+    test("disconnected node is unreachable", async () => {
+      const graph = buildGraph({
+        nodes: ["A", "B", "orphan"],
+        edges: [["A", "B"]],
+        start: "A",
+        ends: ["B"],
+      });
+      const result = await checkReachability(graph);
+      expect(result.verified).toBe(false);
+      expect(result.counterexample).toContain("orphan");
+      expect(result.details?.unreachableNodes).toContain("orphan");
+    });
 
-      push() {
-        this.stack.push([...this.constraints]);
-      }
+    test("multiple disconnected nodes reported", async () => {
+      const graph = buildGraph({
+        nodes: ["A", "B", "C", "X", "Y"],
+        edges: [
+          ["A", "B"],
+          ["B", "C"],
+        ],
+        start: "A",
+        ends: ["C"],
+      });
+      const result = await checkReachability(graph);
+      expect(result.verified).toBe(false);
+      const unreachable = result.details?.unreachableNodes as string[];
+      expect(unreachable).toContain("X");
+      expect(unreachable).toContain("Y");
+    });
 
-      pop() {
-        this.constraints = this.stack.pop() ?? [];
-      }
+    test("node reachable only in reverse direction is unreachable", async () => {
+      const graph = buildGraph({
+        nodes: ["A", "B", "C"],
+        edges: [
+          ["A", "B"],
+          ["C", "B"],
+        ],
+        start: "A",
+        ends: ["B"],
+      });
+      const result = await checkReachability(graph);
+      expect(result.verified).toBe(false);
+      expect(result.details?.unreachableNodes).toContain("C");
+    });
 
-      async check(): Promise<"sat" | "unsat" | "unknown"> {
-        // Propagate constraints to find forced assignments
-        const assignment = new Map<string, boolean>();
-        let changed = true;
+    test("start node not in graph nodes fails", async () => {
+      const graph = buildGraph({
+        nodes: ["A", "B"],
+        edges: [["A", "B"]],
+        start: "missing",
+        ends: ["B"],
+      });
+      const result = await checkReachability(graph);
+      expect(result.verified).toBe(false);
+      expect(result.counterexample).toContain("missing");
+      expect(result.counterexample).toContain("not found");
+    });
+  });
 
-        // Iterate until convergence
-        while (changed) {
-          changed = false;
-          for (const constraint of this.constraints) {
-            // A bare boolean is asserted as true
-            if (constraint._type === "bool") {
-              if (!assignment.has(constraint._name!)) {
-                assignment.set(constraint._name!, true);
-                changed = true;
-              }
-            }
-            // Not(bool) asserts the bool is false
-            if (
-              constraint._type === "not" &&
-              constraint._arg?._type === "bool"
-            ) {
-              if (!assignment.has(constraint._arg._name!)) {
-                assignment.set(constraint._arg._name!, false);
-                changed = true;
-              } else if (assignment.get(constraint._arg._name!) === true) {
-                return "unsat"; // Contradiction
-              }
-            }
-            // Eq(a, b) propagates known values
-            if (constraint._type === "eq") {
-              const aVal = evaluate(constraint._a!, assignment);
-              const bVal = evaluate(constraint._b!, assignment);
+  describe("edge cases", () => {
+    test("graph with self-loop", async () => {
+      const graph = buildGraph({
+        nodes: ["A", "B"],
+        edges: [
+          ["A", "A"],
+          ["A", "B"],
+        ],
+        start: "A",
+        ends: ["B"],
+      });
+      const result = await checkReachability(graph);
+      expect(result.verified).toBe(true);
+    });
 
-              if (aVal !== null && bVal !== null && aVal !== bVal) {
-                return "unsat";
-              }
-              if (
-                aVal !== null &&
-                bVal === null &&
-                constraint._b?._type === "bool"
-              ) {
-                if (!assignment.has(constraint._b._name!)) {
-                  assignment.set(constraint._b._name!, aVal);
-                  changed = true;
-                }
-              }
-              if (
-                bVal !== null &&
-                aVal === null &&
-                constraint._a?._type === "bool"
-              ) {
-                if (!assignment.has(constraint._a._name!)) {
-                  assignment.set(constraint._a._name!, bVal);
-                  changed = true;
-                }
-              }
-            }
-          }
-        }
-
-        // Check all constraints are satisfied
-        for (const constraint of this.constraints) {
-          const val = evaluate(constraint, assignment);
-          if (val === false) return "unsat";
-        }
-
-        return "sat";
-      }
-    },
-  };
-}
+    test("two separate components — second is unreachable", async () => {
+      const graph = buildGraph({
+        nodes: ["A", "B", "C", "D"],
+        edges: [
+          ["A", "B"],
+          ["C", "D"],
+        ],
+        start: "A",
+        ends: ["B", "D"],
+      });
+      const result = await checkReachability(graph);
+      expect(result.verified).toBe(false);
+      const unreachable = result.details?.unreachableNodes as string[];
+      expect(unreachable).toContain("C");
+      expect(unreachable).toContain("D");
+    });
+  });
+});
 

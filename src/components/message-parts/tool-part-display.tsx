@@ -30,7 +30,7 @@ export interface ToolPartDisplayProps {
  * This allows us to bridge between the parts model and the existing ToolResult component.
  */
 function toolStateToStatus(state: ToolState): ToolExecutionStatus {
-  return state.status as ToolExecutionStatus;
+  return state.status;
 }
 
 /**
@@ -72,7 +72,10 @@ function extractQuestionText(input: Record<string, unknown>): string {
 
   // questions[] array format (AskUserQuestion from Claude SDK)
   if (Array.isArray(input.questions) && input.questions.length > 0) {
-    const first = input.questions[0] as Record<string, unknown> | undefined;
+    const raw = input.questions[0];
+    const first = raw != null && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : undefined;
     if (first && typeof first.question === "string") {
       return first.question;
     }
@@ -95,10 +98,10 @@ function synthesizeHitlResponse(part: ToolPart): HitlResponseRecord | null {
   if (fromOutput) return fromOutput;
 
   // metadata.answers format from OpenCode SDK question tool: [[answer1], [answer2]]
-  const metadata = part.metadata as { answers?: unknown[][] } | undefined;
-  if (metadata?.answers?.length) {
-    const answerText = metadata.answers
-      .flat()
+  const rawAnswers = part.metadata?.answers;
+  if (Array.isArray(rawAnswers) && rawAnswers.length > 0) {
+    const answerText = rawAnswers
+      .flatMap((a) => Array.isArray(a) ? a : [a])
       .filter((a): a is string => typeof a === "string")
       .join(", ");
     if (answerText) {

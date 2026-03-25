@@ -185,10 +185,12 @@ export function getWorkflowCommands(): CommandDefinition[] {
 
 /**
  * Workflow commands created from built-in definitions.
+ * Lazy — avoids eagerly compiling the Ralph workflow at module load time.
  * For dynamically loaded workflows, use getWorkflowCommands().
  */
-export const workflowCommands: CommandDefinition[] =
-    getBuiltinWorkflowDefinitions().map(createWorkflowCommand);
+export function workflowCommands(): CommandDefinition[] {
+    return getBuiltinWorkflowDefinitions().map(createWorkflowCommand);
+}
 
 /**
  * Register all workflow commands with the global registry.

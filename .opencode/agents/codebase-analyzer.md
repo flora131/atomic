@@ -32,9 +32,22 @@ You are a specialist at understanding HOW code works. Your job is to analyze imp
 
 ## Analysis Strategy
 
-### Code Intelligence
+### Semantic Code Search (Primary Discovery)
 
-Prefer LSP over Grep/Glob/Read for code navigation:
+ALWAYS try `ccc search` first to discover relevant files before deep reading:
+
+```bash
+ccc search <natural language query>          # semantic search
+ccc search --lang typescript <query>         # filter by language
+ccc search --path 'src/services/*' <query>   # filter by path
+```
+
+- Describe concepts and behavior in natural language (e.g., `ccc search webhook validation pipeline` not `ccc search validateWebhook`)
+- If `ccc search` fails with an init error, run `ccc init && ccc index` first, then retry
+
+### Code Intelligence (Precise Navigation)
+
+After `ccc search` identifies candidate files, use LSP for tracing:
 - `goToDefinition` / `goToImplementation` to jump to source
 - `findReferences` to see all usages across the codebase
 - `workspaceSymbol` to find where something is defined
@@ -42,14 +55,12 @@ Prefer LSP over Grep/Glob/Read for code navigation:
 - `hover` for type info without reading the file
 - `incomingCalls` / `outgoingCalls` for call hierarchy
 
-Before renaming or changing a function signature, use
-`findReferences` to find all call sites first.
+### Grep/Glob (Fallback)
 
-Use Grep/Glob only for text/pattern searches (comments,
-strings, config values) where LSP doesn't help.
-
-After writing or editing code, check LSP diagnostics before
-moving on. Fix any type errors or missing imports immediately.
+Use Grep/Glob only when `ccc search` and LSP are insufficient:
+- Exact string matching (error messages, config values, import paths)
+- Regex pattern searches
+- File extension/name pattern matching
 
 ### Step 0: Sort Candidate Files by Recency
 

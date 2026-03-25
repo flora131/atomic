@@ -32,3 +32,14 @@ export {
   // Types
   type UseVerboseModeReturn,
 } from "@/hooks/use-verbose-mode.ts";
+
+// ============================================================================
+// USE STABLE CALLBACK / VALUE
+// ============================================================================
+
+export {
+  // Hooks
+  useStableCallback,
+  useStableValue,
+  default as useStableCallbackDefault,
+} from "@/hooks/use-stable-callback.ts";

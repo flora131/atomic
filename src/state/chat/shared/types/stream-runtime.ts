@@ -41,13 +41,16 @@ export interface UseChatStreamRuntimeArgs {
 
 export interface UseChatStreamRuntimeResult {
   state: {
-    agentAnchorSyncVersion: number;
+    agentMessageBindings: ReadonlyMap<string, string>;
+    backgroundAgentMessageId: string | null;
     compactionSummary: string | null;
+    lastStreamedMessageId: string | null;
     parallelAgents: ParallelAgent[];
     showCompactionHistory: boolean;
     streamingElapsedMs: number;
+    streamingMessageId: string | null;
     todoItems: NormalizedTodoItem[];
-    toolCompletionVersion: number;
+    hasRunningTool: boolean;
     activeBackgroundAgentCount: number;
     workflowSessionDir: string | null;
     workflowSessionId: string | null;
@@ -58,7 +61,7 @@ export interface UseChatStreamRuntimeResult {
     setParallelAgents: Dispatch<SetStateAction<ParallelAgent[]>>;
     setShowCompactionHistory: Dispatch<SetStateAction<boolean>>;
     setTodoItems: Dispatch<SetStateAction<NormalizedTodoItem[]>>;
-    setToolCompletionVersion: Dispatch<SetStateAction<number>>;
+    setHasRunningTool: Dispatch<SetStateAction<boolean>>;
     setActiveBackgroundAgentCount: Dispatch<SetStateAction<number>>;
     setWorkflowSessionDir: Dispatch<SetStateAction<string | null>>;
     setWorkflowSessionId: Dispatch<SetStateAction<string | null>>;

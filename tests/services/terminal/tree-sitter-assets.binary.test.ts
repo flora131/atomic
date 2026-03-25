@@ -2,9 +2,10 @@ import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 
 // Binary compilation + execution can be slow, especially on CI or Windows.
 setDefaultTimeout(30_000);
-import { mkdtemp, rm, writeFile } from "fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "fs/promises";
 import { join, relative, resolve } from "path";
 import { realpathSync } from "node:fs";
+import { tmpdir } from "os";
 import { ensureWebTreeSitterWasmShim } from "@/services/terminal/web-tree-sitter-shim.ts";
 
 async function runCommand(command: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
@@ -29,21 +30,26 @@ async function runCommand(command: string[]): Promise<{ stdout: string; stderr: 
 }
 
 describe("tree-sitter assets in compiled binaries", () => {
-  let tempDir = "";
+  let srcTempDir = "";
+  let binTempDir = "";
 
   afterAll(async () => {
-    if (tempDir) {
-      await rm(tempDir, { recursive: true, force: true });
-    }
+    await Promise.all([
+      srcTempDir ? rm(srcTempDir, { recursive: true, force: true }) : Promise.resolve(),
+      binTempDir ? rm(binTempDir, { recursive: true, force: true }) : Promise.resolve(),
+    ]);
   });
 
   test("markdown highlighting initializes in compiled binary", async () => {
     ensureWebTreeSitterWasmShim();
 
-    tempDir = await mkdtemp(join(process.cwd(), ".tmp-tree-sitter-"));
+    // Source script must live under cwd so @opentui/core resolves from node_modules.
+    srcTempDir = await mkdtemp(join(process.cwd(), ".tmp-tree-sitter-"));
+    // Compiled binary goes to /tmp so the filesystem supports execute permissions.
+    binTempDir = await mkdtemp(join(tmpdir(), "tree-sitter-binary-test-"));
 
-    const scriptPath = join(tempDir, "tree-sitter-binary-check.ts");
-    const binaryPath = join(tempDir, "tree-sitter-binary-check");
+    const scriptPath = join(srcTempDir, "tree-sitter-binary-check.ts");
+    const binaryPath = join(binTempDir, "tree-sitter-binary-check");
     const treeSitterAssetsPath = join(
       process.cwd(),
       "src",
@@ -87,6 +93,8 @@ describe("tree-sitter assets in compiled binaries", () => {
     });
 
     expect(build.success).toBe(true);
+
+    await chmod(binaryPath, 0o755);
 
     const run = await runCommand([binaryPath]);
     expect(run.exitCode).toBe(0);

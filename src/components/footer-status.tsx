@@ -8,7 +8,7 @@
  * Reference: Task #4 - Create FooterStatus component
  */
 
-import React from "react";
+import React, { memo } from "react";
 import { useTheme } from "@/theme/index.tsx";
 import { SPACING } from "@/theme/spacing.ts";
 import { MISC } from "@/theme/icons.ts";
@@ -30,7 +30,7 @@ export interface FooterStatusComponentProps {
 // FOOTER STATUS COMPONENT
 // ============================================================================
 
-export function FooterStatus({
+export const FooterStatus = memo(function FooterStatus({
   isStreaming = false,
   workflowActive = false,
   backgroundAgentCount = 0,
@@ -85,7 +85,7 @@ export function FooterStatus({
       )}
     </box>
   );
-}
+});
 
 // ============================================================================
 // EXPORTS

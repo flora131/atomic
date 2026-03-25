@@ -31,9 +31,22 @@ Available tools:
   - ALWAYS ASSUME you have the playwright-cli tool installed (if the `playwright-cli` command fails, fallback to `bunx playwright-cli`).
 - ALWAYS invoke your testing-anti-patterns skill BEFORE creating or modifying any tests.
 
+### Semantic Code Search (Primary Discovery)
+
+ALWAYS try `ccc search` first to find relevant code before falling back to other tools:
+
+```bash
+ccc search <natural language query>          # semantic search
+ccc search --lang typescript <query>         # filter by language
+ccc search --path 'src/services/*' <query>   # filter by path
+```
+
+- Describe the bug or behavior in natural language (e.g., `ccc search stream timeout error handling`)
+- If `ccc search` fails with an init error, run `ccc init && ccc index` first, then retry
+
 ### Code Intelligence
 
-Prefer LSP over Grep/Glob/Read for code navigation:
+After `ccc search` identifies candidate files, use LSP for precise navigation:
 - `goToDefinition` / `goToImplementation` to jump to source
 - `findReferences` to see all usages across the codebase
 - `workspaceSymbol` to find where something is defined
@@ -41,11 +54,7 @@ Prefer LSP over Grep/Glob/Read for code navigation:
 - `hover` for type info without reading the file
 - `incomingCalls` / `outgoingCalls` for call hierarchy
 
-Before renaming or changing a function signature, use
-`findReferences` to find all call sites first.
-
-Use Grep/Glob only for text/pattern searches (comments,
-strings, config values) where LSP doesn't help.
+Use Grep/Glob only for exact string matching (error messages, config values) where `ccc search` and LSP don't help.
 
 After writing or editing code, check LSP diagnostics before
 moving on. Fix any type errors or missing imports immediately.

@@ -2,6 +2,10 @@ import { getFilename, getInputFilePath } from "@/components/tool-registry/regist
 import { getLanguageFromExtension } from "@/components/tool-registry/registry/helpers/language.ts";
 import type { ToolRenderProps, ToolRenderResult, ToolRenderer } from "@/components/tool-registry/registry/types.ts";
 
+function isRecord(val: unknown): val is Record<string, unknown> {
+  return val !== null && typeof val === "object" && !Array.isArray(val);
+}
+
 function extractReadContent(output: unknown): string | undefined {
   if (typeof output === "string") {
     if (output === "") {
@@ -34,35 +38,33 @@ function extractReadContent(output: unknown): string | undefined {
     }
   }
 
-  if (!output || typeof output !== "object") {
+  if (!isRecord(output)) {
     return undefined;
   }
 
-  const record = output as Record<string, unknown>;
-  if (record.file && typeof record.file === "object") {
-    const file = record.file as Record<string, unknown>;
-    return typeof file.content === "string" ? file.content : undefined;
+  if (isRecord(output.file)) {
+    return typeof output.file.content === "string" ? output.file.content : undefined;
   }
-  if (typeof record.output === "string") {
-    return record.output;
+  if (typeof output.output === "string") {
+    return output.output;
   }
-  if (typeof record.content === "string") {
-    return record.content;
+  if (typeof output.content === "string") {
+    return output.content;
   }
-  if (typeof record.text === "string") {
-    return record.text;
+  if (typeof output.text === "string") {
+    return output.text;
   }
-  if (typeof record.value === "string") {
-    return record.value;
+  if (typeof output.value === "string") {
+    return output.value;
   }
-  if (typeof record.data === "string") {
-    return record.data;
+  if (typeof output.data === "string") {
+    return output.data;
   }
-  if (typeof record.result === "string") {
-    return record.result;
+  if (typeof output.result === "string") {
+    return output.result;
   }
-  if (typeof record.rawOutput === "string") {
-    return record.rawOutput;
+  if (typeof output.rawOutput === "string") {
+    return output.rawOutput;
   }
   return undefined;
 }

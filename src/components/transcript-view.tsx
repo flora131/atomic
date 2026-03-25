@@ -11,6 +11,11 @@ import { formatTranscript, type TranscriptLine, type TranscriptLineType } from "
 import type { ChatMessage, StreamingMeta } from "@/types/chat.ts";
 import { SPACING } from "@/theme/spacing.ts";
 
+// Module-level constants for scrollbar options to avoid creating new object
+// references on every render (prevents unnecessary re-renders of scrollbox).
+const HIDDEN_VERTICAL_SCROLLBAR = { visible: false } as const;
+const HIDDEN_HORIZONTAL_SCROLLBAR = { visible: false } as const;
+
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -96,8 +101,8 @@ export function TranscriptView({
       viewportCulling={true}
       paddingLeft={SPACING.CONTAINER_PAD}
       paddingRight={SPACING.CONTAINER_PAD}
-      verticalScrollbarOptions={{ visible: false }}
-      horizontalScrollbarOptions={{ visible: false }}
+      verticalScrollbarOptions={HIDDEN_VERTICAL_SCROLLBAR}
+      horizontalScrollbarOptions={HIDDEN_HORIZONTAL_SCROLLBAR}
     >
       {/* Index keys are safe here — transcript is append-only and lines are never reordered or removed */}
       {transcriptLines.map((tl: TranscriptLine, idx: number) => {

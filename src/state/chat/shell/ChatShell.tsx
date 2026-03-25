@@ -25,6 +25,11 @@ import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import { getActiveBackgroundAgents } from "@/state/chat/shared/helpers/background-agent-footer.ts";
 import type { ComposerAutocompleteSuggestion } from "@/state/chat/shared/types/composer.ts";
 
+// Module-level constants for scrollbar options to avoid creating new object
+// references on every render (prevents unnecessary re-renders of scrollbox).
+const HIDDEN_VERTICAL_SCROLLBAR = { visible: false } as const;
+const HIDDEN_HORIZONTAL_SCROLLBAR = { visible: false } as const;
+
 interface InputScrollbarState {
   visible: boolean;
   viewportHeight: number;
@@ -197,8 +202,8 @@ export function ChatShell({
             viewportCulling={false}
             paddingLeft={SPACING.CONTAINER_PAD}
             paddingRight={SPACING.CONTAINER_PAD}
-            verticalScrollbarOptions={{ visible: false }}
-            horizontalScrollbarOptions={{ visible: false }}
+            verticalScrollbarOptions={HIDDEN_VERTICAL_SCROLLBAR}
+            horizontalScrollbarOptions={HIDDEN_HORIZONTAL_SCROLLBAR}
             scrollAcceleration={scrollAcceleration}
           >
             {showCompactionHistory && compactionSummary && parallelAgents.length === 0 && (

@@ -36,7 +36,7 @@ interface UseChatStreamToolEventsArgs {
   setMessagesWindowed: (next: SetStateAction<ChatMessage[]>) => void;
   setParallelAgents: Dispatch<SetStateAction<ParallelAgent[]>>;
   setTodoItems: Dispatch<SetStateAction<NormalizedTodoItem[]>>;
-  setToolCompletionVersion: Dispatch<SetStateAction<number>>;
+  setHasRunningTool: Dispatch<SetStateAction<boolean>>;
   streamingMessageIdRef: RefObject<string | null>;
   todoItemsRef: RefObject<NormalizedTodoItem[]>;
   toolMessageIdByIdRef: RefObject<Map<string, string>>;
@@ -80,7 +80,7 @@ export function useChatStreamToolEvents({
   setMessagesWindowed,
   setParallelAgents,
   setTodoItems,
-  setToolCompletionVersion,
+  setHasRunningTool,
   streamingMessageIdRef,
   todoItemsRef,
   toolMessageIdByIdRef,
@@ -116,6 +116,7 @@ export function useChatStreamToolEvents({
     if (shouldTrackToolAsBlocking(toolName)) {
       runningBlockingToolIdsRef.current.add(toolId);
       hasRunningToolRef.current = runningBlockingToolIdsRef.current.size > 0;
+      setHasRunningTool(runningBlockingToolIdsRef.current.size > 0);
     }
     if (isAskQuestionToolName(toolName)) {
       runningAskQuestionToolIdsRef.current.add(toolId);
@@ -200,6 +201,7 @@ export function useChatStreamToolEvents({
     resolveAgentScopedMessageId,
     runningAskQuestionToolIdsRef,
     runningBlockingToolIdsRef,
+    setHasRunningTool,
     setMessagesWindowed,
     setParallelAgents,
     setTodoItems,
@@ -239,7 +241,7 @@ export function useChatStreamToolEvents({
     runningBlockingToolIdsRef.current.delete(toolId);
     hasRunningToolRef.current = runningBlockingToolIdsRef.current.size > 0;
     if (hadBlockingTool && !hasRunningToolRef.current && pendingCompleteRef.current) {
-      setToolCompletionVersion((version) => version + 1);
+      setHasRunningTool(false);
     }
 
     const isRootSubagentComplete = !agentId && isSubagentToolName(completedToolName);
@@ -328,7 +330,7 @@ export function useChatStreamToolEvents({
     setMessagesWindowed,
     setParallelAgents,
     setTodoItems,
-    setToolCompletionVersion,
+    setHasRunningTool,
     streamingMessageIdRef,
     todoItemsRef,
     toolMessageIdByIdRef,

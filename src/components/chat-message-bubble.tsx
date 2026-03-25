@@ -21,9 +21,9 @@ import type {
   TruncationPart,
   Part,
   TextPart,
-  ToolPart,
 } from "@/state/parts/index.ts";
 import {
+  isToolPart,
   mergeParallelAgentsIntoParts,
 } from "@/state/parts/index.ts";
 
@@ -65,11 +65,10 @@ function getRenderableAssistantParts(
   };
 
   let parts = [...(message.parts ?? [])].filter((part) => {
-    if (part.type !== "tool") {
+    if (!isToolPart(part)) {
       return true;
     }
-    const toolPart = part as ToolPart;
-    return !shouldHideSkillToolIndicator(toolPart.toolName, toolPart.input);
+    return !shouldHideSkillToolIndicator(part.toolName, part.input);
   });
 
   const effectiveParallelAgents = message.parallelAgents;

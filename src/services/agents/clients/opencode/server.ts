@@ -75,7 +75,7 @@ export async function spawnAtomicManagedOpenCodeServer(args: {
 
   const url = new URL(args.clientOptions.baseUrl ?? args.defaultBaseUrl);
   const port = args.clientOptions.port ?? parseInt(url.port || "4096", 10);
-  const hostname = args.clientOptions.hostname ?? url.hostname ?? "localhost";
+  const hostname = args.clientOptions.hostname ?? url.hostname ?? "127.0.0.1";
 
   try {
     const serverOptions: SdkServerOptions = {

@@ -376,6 +376,10 @@ export function createCommandContext(args: UseCommandExecutorArgs): CommandConte
     registerConductorInterrupt: (interrupt: (() => void) | null) => {
       args.conductorInterruptRef.current = interrupt;
     },
+    registerConductorResume: (resume: ((message: string | null) => void) | null) => {
+      args.conductorResumeRef.current = resume;
+    },
+    dequeueMessage: args.dequeueMessage,
     clearContext: async () => {
       if (args.onResetSession) {
         await args.onResetSession();

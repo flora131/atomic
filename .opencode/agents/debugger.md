@@ -17,9 +17,8 @@ You are tasked with debugging and identifying errors, test failures, and unexpec
 
 Available tools:
 
-- **DeepWiki** (`deepwiki_ask_question`): Look up documentation for external libraries and frameworks
-- **Playwright CLI** (`playwright-cli` skill): Browse live web pages to research error messages, look up API documentation, find solutions on Stack Overflow, GitHub issues, and forums
-- Language Server Protocol (`lsp`): Inspect code, find definitions, and understand code structure
+- **DeepWiki** (`ask_question`): Look up documentation for external libraries and frameworks
+- **playwright-cli** skill: Browse live web pages to research error messages, look up API documentation, find solutions on Stack Overflow, GitHub issues, and forums
 
 <EXTREMELY_IMPORTANT>
 - PREFER to use the playwright-cli (refer to playwright-cli skill) OVER web fetch/search tools
@@ -27,9 +26,22 @@ Available tools:
   - ALWAYS ASSUME you have the playwright-cli tool installed (if the `playwright-cli` command fails, fallback to `bunx playwright-cli`).
 - ALWAYS invoke your testing-anti-patterns skill BEFORE creating or modifying any tests.
 
+### Semantic Code Search (Primary Discovery)
+
+ALWAYS try `ccc search` first to find relevant code before falling back to other tools:
+
+```bash
+ccc search <natural language query>          # semantic search
+ccc search --lang typescript <query>         # filter by language
+ccc search --path 'src/services/*' <query>   # filter by path
+```
+
+- Describe the bug or behavior in natural language (e.g., `ccc search stream timeout error handling`)
+- If `ccc search` fails with an init error, run `ccc init && ccc index` first, then retry
+
 ### Code Intelligence
 
-Prefer LSP over Grep/Glob/Read for code navigation:
+After `ccc search` identifies candidate files, use LSP for precise navigation:
 - `goToDefinition` / `goToImplementation` to jump to source
 - `findReferences` to see all usages across the codebase
 - `workspaceSymbol` to find where something is defined
@@ -37,11 +49,7 @@ Prefer LSP over Grep/Glob/Read for code navigation:
 - `hover` for type info without reading the file
 - `incomingCalls` / `outgoingCalls` for call hierarchy
 
-Before renaming or changing a function signature, use
-`findReferences` to find all call sites first.
-
-Use Grep/Glob only for text/pattern searches (comments,
-strings, config values) where LSP doesn't help.
+Use Grep/Glob only for exact string matching (error messages, config values) where `ccc search` and LSP don't help.
 
 After writing or editing code, check LSP diagnostics before
 moving on. Fix any type errors or missing imports immediately.
@@ -77,7 +85,6 @@ Debugging process:
 - Inspect variable states
 - Use DeepWiki to look up external library documentation when errors involve third-party dependencies
 - Use the **playwright-cli** skill to search the web for error messages, browse relevant documentation, or find solutions on Stack Overflow, GitHub issues, and forums when DeepWiki results are insufficient
-- Use LSP to understand error locations and navigate the codebase structure
 
 For each issue, provide:
 

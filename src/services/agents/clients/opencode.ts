@@ -23,7 +23,7 @@ import {
 import { createOpencodeClient as createSdkClient, type Event as OpenCodeEvent, type EventMessagePartRemoved, type EventPermissionAsked, type EventQuestionAsked, type OpencodeClient as SdkClient } from "@opencode-ai/sdk/v2/client";
 import { createOpenCodeKeepalive, type OpenCodeKeepaliveHandle } from "@/services/agents/clients/opencode/keepalive.ts";
 
-const DEFAULT_OPENCODE_BASE_URL = "http://localhost:4096";
+const DEFAULT_OPENCODE_BASE_URL = "http://127.0.0.1:4096";
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_RETRY_DELAY = 1000;
 const COMPACTION_COMPLETE_DEDUPE_WINDOW_MS = 1000;

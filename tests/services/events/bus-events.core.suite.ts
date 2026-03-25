@@ -126,6 +126,45 @@ describe("BusEvent Type Definitions", () => {
     expect(enrichedEvent.suppressFromMainChat).toBe(true);
   });
 
+  it("should accept 'interrupted' as a valid workflow.step.complete status", () => {
+    const result = BusEventSchemas["workflow.step.complete"].safeParse({
+      workflowId: "wf-1",
+      nodeId: "stage-1",
+      status: "interrupted",
+      durationMs: 1234,
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.status).toBe("interrupted");
+    }
+  });
+
+  it("should reject an invalid workflow.step.complete status", () => {
+    const result = BusEventSchemas["workflow.step.complete"].safeParse({
+      workflowId: "wf-1",
+      nodeId: "stage-1",
+      status: "invalid-status",
+      durationMs: 1234,
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("should accept all valid workflow.step.complete statuses", () => {
+    const validStatuses = ["completed", "error", "skipped", "interrupted"] as const;
+
+    for (const status of validStatuses) {
+      const result = BusEventSchemas["workflow.step.complete"].safeParse({
+        workflowId: "wf-1",
+        nodeId: "stage-1",
+        status,
+        durationMs: 100,
+      });
+      expect(result.success).toBe(true);
+    }
+  });
+
   it("should ensure all event types are covered in BusEventDataMap", () => {
     const eventTypes = Object.keys(BusEventSchemas) as BusEventType[];
 

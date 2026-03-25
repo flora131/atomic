@@ -8,45 +8,12 @@ import {
   getTemplateAgentFolder,
 } from "@/services/config/atomic-global-config.ts";
 import { copyFile, pathExists } from "@/services/system/copy.ts";
+import { runCommand, prependPath, getBunBinDir } from "@/lib/spawn.ts";
 
 const PLAYWRIGHT_SKILL_RELATIVE_PATH = join("skills", "playwright-cli", "SKILL.md");
 const PLAYWRIGHT_CLI_PACKAGE = "@playwright/cli@latest";
 
-function decodeSpawnOutput(output: Uint8Array): string {
-  return new TextDecoder().decode(output).trim();
-}
-
-function runInstallCommand(cmd: string[]): { success: boolean; details: string } {
-  try {
-    const result = Bun.spawnSync({
-      cmd,
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const stderr = decodeSpawnOutput(result.stderr);
-    const stdout = decodeSpawnOutput(result.stdout);
-    return {
-      success: result.success,
-      details: stderr.length > 0 ? stderr : stdout,
-    };
-  } catch (error) {
-    return {
-      success: false,
-      details: error instanceof Error ? error.message : String(error),
-    };
-  }
-}
-
-function prependPath(directory: string): void {
-  const pathDelimiter = process.platform === "win32" ? ";" : ":";
-  const currentPath = process.env.PATH ?? "";
-  const entries = currentPath.split(pathDelimiter);
-  if (!entries.includes(directory)) {
-    process.env.PATH = directory + pathDelimiter + currentPath;
-  }
-}
-
-function installBunIfMissing(): void {
+async function installBunIfMissing(): Promise<void> {
   if (Bun.which("bun")) {
     return;
   }
@@ -56,7 +23,7 @@ function installBunIfMissing(): void {
     if (!powerShellPath) {
       return;
     }
-    runInstallCommand([
+    await runCommand([
       powerShellPath,
       "-NoProfile",
       "-ExecutionPolicy",
@@ -69,23 +36,23 @@ function installBunIfMissing(): void {
     if (!shell) {
       return;
     }
-    runInstallCommand([shell, "-lc", "curl -fsSL https://bun.sh/install | bash"]);
+    await runCommand([shell, "-lc", "curl -fsSL https://bun.sh/install | bash"]);
   }
 
-  const homeDir = process.env.HOME ?? process.env.USERPROFILE;
-  if (homeDir) {
-    prependPath(join(homeDir, ".bun", "bin"));
+  const bunBinDir = getBunBinDir();
+  if (bunBinDir) {
+    prependPath(bunBinDir);
   }
 }
 
-function installNpmIfMissing(): void {
+async function installNpmIfMissing(): Promise<void> {
   if (Bun.which("npm")) {
     return;
   }
 
   if (process.platform === "win32") {
     if (Bun.which("winget")) {
-      runInstallCommand([
+      await runCommand([
         "winget",
         "install",
         "--id",
@@ -96,9 +63,9 @@ function installNpmIfMissing(): void {
         "--accept-package-agreements",
       ]);
     } else if (Bun.which("choco")) {
-      runInstallCommand(["choco", "install", "nodejs-lts", "-y", "--no-progress"]);
+      await runCommand(["choco", "install", "nodejs-lts", "-y", "--no-progress"]);
     } else if (Bun.which("scoop")) {
-      runInstallCommand(["scoop", "install", "nodejs-lts"]);
+      await runCommand(["scoop", "install", "nodejs-lts"]);
     }
 
     const programFiles = process.env.ProgramFiles;
@@ -126,13 +93,13 @@ function installNpmIfMissing(): void {
     if (Bun.which("npm")) {
       return;
     }
-    runInstallCommand([shell, "-lc", script]);
+    await runCommand([shell, "-lc", script]);
   }
 }
 
-export function ensurePlaywrightPackageManagers(): void {
-  installBunIfMissing();
-  installNpmIfMissing();
+export async function ensurePlaywrightPackageManagers(): Promise<void> {
+  await installBunIfMissing();
+  await installNpmIfMissing();
 }
 
 export async function installPlaywrightCli(): Promise<void> {
@@ -140,7 +107,7 @@ export async function installPlaywrightCli(): Promise<void> {
 
   const bunPath = Bun.which("bun");
   if (bunPath) {
-    const bunInstall = runInstallCommand([bunPath, "install", "-g", PLAYWRIGHT_CLI_PACKAGE]);
+    const bunInstall = await runCommand([bunPath, "install", "-g", PLAYWRIGHT_CLI_PACKAGE]);
     if (bunInstall.success) {
       return;
     }
@@ -149,7 +116,7 @@ export async function installPlaywrightCli(): Promise<void> {
 
   const npmPath = Bun.which("npm");
   if (npmPath) {
-    const npmInstall = runInstallCommand([npmPath, "install", "-g", PLAYWRIGHT_CLI_PACKAGE]);
+    const npmInstall = await runCommand([npmPath, "install", "-g", PLAYWRIGHT_CLI_PACKAGE]);
     if (npmInstall.success) {
       return;
     }
@@ -168,27 +135,32 @@ export async function deployPlaywrightSkill(
   atomicHomeDir: string = getAtomicHomeDir()
 ): Promise<void> {
   const agentKeys = Object.keys(AGENT_CONFIG) as AgentKey[];
-  const missingSkillTemplates: string[] = [];
 
-  for (const agentKey of agentKeys) {
-    const sourceSkillPath = join(
-      configRoot,
-      getTemplateAgentFolder(agentKey),
-      PLAYWRIGHT_SKILL_RELATIVE_PATH
-    );
+  const results = await Promise.all(
+    agentKeys.map(async (agentKey) => {
+      const sourceSkillPath = join(
+        configRoot,
+        getTemplateAgentFolder(agentKey),
+        PLAYWRIGHT_SKILL_RELATIVE_PATH
+      );
 
-    if (!(await pathExists(sourceSkillPath))) {
-      missingSkillTemplates.push(sourceSkillPath);
-      continue;
-    }
+      if (!(await pathExists(sourceSkillPath))) {
+        return { missing: sourceSkillPath };
+      }
 
-    const destinationAgentFolder = getAtomicManagedAgentDir(agentKey, atomicHomeDir);
-    const destinationSkillDir = join(destinationAgentFolder, "skills", "playwright-cli");
-    await mkdir(destinationSkillDir, { recursive: true });
+      const destinationAgentFolder = getAtomicManagedAgentDir(agentKey, atomicHomeDir);
+      const destinationSkillDir = join(destinationAgentFolder, "skills", "playwright-cli");
+      await mkdir(destinationSkillDir, { recursive: true });
 
-    const destinationSkillPath = join(destinationSkillDir, "SKILL.md");
-    await copyFile(sourceSkillPath, destinationSkillPath);
-  }
+      const destinationSkillPath = join(destinationSkillDir, "SKILL.md");
+      await copyFile(sourceSkillPath, destinationSkillPath);
+      return { missing: null };
+    })
+  );
+
+  const missingSkillTemplates = results
+    .filter((r): r is { missing: string } => r.missing !== null)
+    .map((r) => r.missing);
 
   if (missingSkillTemplates.length > 0) {
     throw new Error(

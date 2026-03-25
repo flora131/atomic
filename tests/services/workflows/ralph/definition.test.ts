@@ -6,7 +6,9 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { ralphWorkflowDefinition } from "@/services/workflows/builtin/ralph/ralph-workflow.ts";
+import { getRalphWorkflowDefinition } from "@/services/workflows/builtin/ralph/ralph-workflow.ts";
+
+const ralphWorkflowDefinition = getRalphWorkflowDefinition();
 import { isStageDefinition } from "@/services/workflows/conductor/guards.ts";
 import type { StageContext, StageOutput } from "@/services/workflows/conductor/types.ts";
 import { VERSION } from "@/version.ts";

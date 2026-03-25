@@ -37,7 +37,11 @@ import { VERSION } from "@/version";
 // Workflow Definition via DSL
 // ---------------------------------------------------------------------------
 
-export const ralphWorkflowDefinition = defineWorkflow({
+// Build the workflow chain once (cheap — just records instructions).
+// `.compile()` is deferred to first access via the getter below because it
+// triggers agent discovery + YAML parsing (~60ms) which is wasted at import
+// time when the workflow isn't actually used.
+const _ralphWorkflowBuilder = defineWorkflow({
   name: "ralph",
   description: "Start autonomous implementation workflow",
 })
@@ -133,5 +137,19 @@ export const ralphWorkflowDefinition = defineWorkflow({
     outputMapper: () => ({}),
   })
   .endIf()
-  .endLoop()
-  .compile();
+  .endLoop();
+
+let _compiledRalphDefinition: ReturnType<typeof _ralphWorkflowBuilder.compile> | null = null;
+
+/**
+ * Lazily compiled Ralph workflow definition.
+ * The first access triggers `.compile()` which runs agent discovery + YAML
+ * parsing (~60ms). Subsequent accesses return the cached result.
+ */
+export function getRalphWorkflowDefinition() {
+  if (!_compiledRalphDefinition) {
+    _compiledRalphDefinition = _ralphWorkflowBuilder.compile();
+  }
+  return _compiledRalphDefinition;
+}
+

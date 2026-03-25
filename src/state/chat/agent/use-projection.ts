@@ -6,7 +6,7 @@ import { useChatAgentStreamFinalization } from "@/state/chat/agent/use-stream-fi
 export function useChatAgentProjection({
   activeBackgroundAgentCountRef,
   activeStreamRunIdRef,
-  agentAnchorSyncVersion,
+  agentMessageBindings,
   agentLifecycleLedgerRef,
   agentMessageIdByIdRef,
   agentOrderingStateRef,
@@ -39,12 +39,15 @@ export function useChatAgentProjection({
   streamingMessageIdRef,
   streamingStartRef,
   todoItemsRef,
-  toolCompletionVersion,
+  hasRunningTool,
+  streamingMessageId,
+  lastStreamedMessageId,
+  backgroundAgentMessageId,
   workflowActiveRef,
 }: UseChatAgentProjectionArgs) {
   const { handleAgentDoneRendered } = useChatAgentMessageProjection({
     activeStreamRunIdRef,
-    agentAnchorSyncVersion,
+    agentMessageBindings,
     agentLifecycleLedgerRef,
     agentMessageIdByIdRef,
     agentOrderingStateRef,
@@ -56,6 +59,9 @@ export function useChatAgentProjection({
     parallelAgents,
     setBackgroundAgentMessageId,
     setMessagesWindowed,
+    streamingMessageId,
+    lastStreamedMessageId,
+    backgroundAgentMessageId,
     streamingMessageIdRef,
     streamingStartRef,
     workflowActiveRef,
@@ -95,7 +101,7 @@ export function useChatAgentProjection({
     streamingMessageIdRef,
     streamingStartRef,
     todoItemsRef,
-    toolCompletionVersion,
+    hasRunningTool,
   });
 
   return { handleAgentDoneRendered };

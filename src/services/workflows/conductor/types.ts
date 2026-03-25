@@ -382,7 +382,7 @@ export interface ConductorConfig {
    *
    * Used by the UI layer to update stage indicators.
    */
-  readonly onStageTransition: (from: string | null, to: string) => void;
+  readonly onStageTransition: (from: string | null, to: string, options?: { isResume?: boolean }) => void;
 
   /**
    * Called when the task list changes (e.g., after the planner parses
@@ -480,6 +480,36 @@ export interface ConductorConfig {
    * When omitted, no parts truncation is performed (backward compatible).
    */
   readonly partsTruncation?: PartsTruncationConfig;
+
+  // -------------------------------------------------------------------------
+  // Interrupt & Queue Integration (optional — enables pause/resume on interrupt)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Called by the conductor to check if a queued message is available.
+   * Returns the message content if available, null otherwise.
+   * The implementation should dequeue the message (consume it).
+   */
+  readonly checkQueuedMessage?: () => string | null;
+
+  /**
+   * Called by the conductor when a stage is interrupted and no queued message
+   * is available. Returns a promise that resolves with the user's follow-up
+   * message, or null to skip the stage and advance.
+   */
+  readonly waitForResumeInput?: () => Promise<string | null>;
+
+  /**
+   * Called by the conductor before streaming a queued message within a stage's
+   * drain loop. The `stream.session.idle` from the previous stream already
+   * stopped the TUI's streaming state; this callback re-enables streaming and
+   * creates a new assistant message target so the queued message's text deltas
+   * have a destination.
+   *
+   * When omitted, the conductor does not call back before queued streams
+   * (tests that don't use the full TUI pipeline can omit this safely).
+   */
+  readonly onBeforeQueuedStream?: () => void;
 }
 
 // ---------------------------------------------------------------------------

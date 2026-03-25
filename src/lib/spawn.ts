@@ -1,0 +1,68 @@
+/**
+ * Shared spawn utilities for postinstall and lifecycle scripts.
+ *
+ * Provides a thin async wrapper around Bun.spawn and a PATH-prepend helper,
+ * eliminating duplication across postinstall-playwright, postinstall-uv, etc.
+ */
+
+import { join } from "path";
+
+export interface SpawnResult {
+  success: boolean;
+  details: string;
+}
+
+/**
+ * Run a command asynchronously and collect its output.
+ * Returns a result object instead of throwing on failure.
+ */
+export async function runCommand(cmd: string[]): Promise<SpawnResult> {
+  try {
+    const proc = Bun.spawn({
+      cmd,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stderr, stdout, exitCode] = await Promise.all([
+      new Response(proc.stderr).text(),
+      new Response(proc.stdout).text(),
+      proc.exited,
+    ]);
+    return {
+      success: exitCode === 0,
+      details: stderr.trim().length > 0 ? stderr.trim() : stdout.trim(),
+    };
+  } catch (error) {
+    return {
+      success: false,
+      details: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/**
+ * Prepend a directory to the PATH environment variable (if not already present).
+ */
+export function prependPath(directory: string): void {
+  const pathDelimiter = process.platform === "win32" ? ";" : ":";
+  const currentPath = process.env.PATH ?? "";
+  const entries = currentPath.split(pathDelimiter);
+  if (!entries.includes(directory)) {
+    process.env.PATH = directory + pathDelimiter + currentPath;
+  }
+}
+
+/**
+ * Get the user's home directory from environment variables.
+ */
+export function getHomeDir(): string | undefined {
+  return process.env.HOME ?? process.env.USERPROFILE;
+}
+
+/**
+ * Get the path to the user's bun binary directory.
+ */
+export function getBunBinDir(): string | undefined {
+  const home = getHomeDir();
+  return home ? join(home, ".bun", "bin") : undefined;
+}

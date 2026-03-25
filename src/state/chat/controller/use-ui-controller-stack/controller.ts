@@ -1,5 +1,5 @@
 import { useChatDispatchController } from "@/state/chat/controller/use-dispatch-controller.ts";
-import { useChatKeyboard } from "@/state/chat/keyboard/index.ts";
+import { useKeyboardOwnership } from "@/state/chat/keyboard/use-keyboard-ownership.ts";
 import { useChatRenderModel } from "@/state/chat/shell/index.ts";
 import { useComposerController } from "@/state/chat/composer/index.ts";
 import type { UseChatUiControllerStackArgs } from "./types.ts";
@@ -34,7 +34,7 @@ export function useChatUiControllerStack(args: UseChatUiControllerStackArgs) {
   });
 
   // Stage 4 – keyboard (depends on dispatch, composer, and dialog)
-  const keyboard = useChatKeyboard({
+  const keyboard = useKeyboardOwnership({
     ...o,
     ...composer,
     addMessage: dispatch.addMessage,

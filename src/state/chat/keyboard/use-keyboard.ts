@@ -10,6 +10,10 @@ import {
 import type { UseChatKeyboardArgs } from "@/state/chat/keyboard/types.ts";
 import { useChatInterruptControls } from "@/state/chat/keyboard/use-interrupt-controls.ts";
 
+/**
+ * @deprecated Use {@link useKeyboardOwnership} from `use-keyboard-ownership.ts` instead.
+ * This hook is retained for backward compatibility but is no longer wired into the controller.
+ */
 export function useChatKeyboard({
   activeBackgroundAgentCountRef,
   activeQuestion,

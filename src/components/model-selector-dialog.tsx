@@ -17,6 +17,7 @@ import type { Model } from "@/services/models/model-transform.ts";
 import { navigateUp, navigateDown } from "@/lib/ui/navigation.ts";
 import { groupModelsByProvider } from "@/components/model-selector/helpers.ts";
 import { ModelListView, ReasoningEffortSelector } from "@/components/model-selector/views.tsx";
+import { handleModelSelectorKey } from "@/state/chat/keyboard/handlers/dialog-handler.ts";
 
 export interface ModelSelectorDialogProps {
   /** List of available models */
@@ -167,84 +168,22 @@ export function ModelSelectorDialog({
   // Handle keyboard navigation
   useKeyboard(
     useCallback(
-      (event: KeyEvent): boolean => {
-        if (!visible) return false;
-
-        event.stopPropagation();
-
-        const key = event.name ?? "";
-
-        // --- Reasoning level selection phase ---
-        if (reasoningModel && reasoningOptions.length > 0) {
-          const total = reasoningOptions.length;
-
-          if (key === "up" || key === "k") {
-            setReasoningIndex((prev) => (prev <= 0 ? total - 1 : prev - 1));
-            return true;
-          }
-          if (key === "down" || key === "j") {
-            setReasoningIndex((prev) => (prev >= total - 1 ? 0 : prev + 1));
-            return true;
-          }
-          if (/^[1-9]$/.test(key)) {
-            const num = parseInt(key, 10) - 1;
-            if (num < total) {
-              setReasoningIndex(num);
-              onSelect(reasoningModel, reasoningOptions[num]!.level);
-            }
-            return true;
-          }
-          if (key === "return" || key === "linefeed") {
-            onSelect(reasoningModel, reasoningOptions[reasoningIndex]!.level);
-            return true;
-          }
-          if (key === "escape") {
-            setReasoningModel(null);
-            return true;
-          }
-          return false;
-        }
-
-        // --- Model selection phase ---
-        const totalItems = flatModels.length;
-
-        // Navigation
-        if (key === "up" || key === "k") {
-          setSelectedIndex((prev) => navigateUp(prev, totalItems));
-          return true;
-        }
-        if (key === "down" || key === "j") {
-          setSelectedIndex((prev) => navigateDown(prev, totalItems));
-          return true;
-        }
-
-        // Number keys for quick selection (1-9)
-        if (/^[1-9]$/.test(key)) {
-          const num = parseInt(key, 10) - 1;
-          if (num < totalItems) {
-            setSelectedIndex(num);
-            if (flatModels[num]) {
-              confirmModel(flatModels[num]);
-            }
-          }
-          return true;
-        }
-
-        // Selection
-        if (key === "return" || key === "linefeed") {
-          if (flatModels[selectedIndex]) {
-            confirmModel(flatModels[selectedIndex]);
-          }
-          return true;
-        }
-
-        // Cancel
-        if (key === "escape") {
-          onCancel();
-          return true;
-        }
-
-        return false;
+      (event: KeyEvent) => {
+        handleModelSelectorKey(event, {
+          visible,
+          selectedIndex,
+          reasoningModel,
+          reasoningIndex,
+          reasoningOptions,
+          flatModels,
+        }, {
+          setSelectedIndex: (fn) => setSelectedIndex(fn),
+          setReasoningModel,
+          setReasoningIndex: (fn) => setReasoningIndex(fn),
+          onSelect,
+          onCancel,
+          confirmModel,
+        });
       },
       [visible, flatModels, selectedIndex, onSelect, onCancel, confirmModel, reasoningModel, reasoningOptions, reasoningIndex]
     )

@@ -9,7 +9,7 @@
  * - Capability badges for model features
  */
 
-import React, { useState, useCallback, useMemo, useRef } from "react";
+import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import type { KeyEvent, ScrollBoxRenderable, MouseEvent } from "@opentui/core";
 import { useTheme } from "@/theme/index.tsx";
@@ -127,24 +127,26 @@ export function ModelSelectorDialog({
   const maxListHeight = Math.max(5, terminalHeight - 12);
   const listHeight = Math.min(modelRowOffsets.totalRows, maxListHeight);
 
-  // Render-time scroll correction: adjust scroll position when
-  // selectedIndex changes, using a prevRef guard.
-  if (
-    scrollRef.current &&
-    flatModels.length > 0 &&
-    prevSelectedRef.current !== selectedIndex
-  ) {
-    prevSelectedRef.current = selectedIndex;
-    const scrollBox = scrollRef.current;
-    const selectedRow = modelRowOffsets.offsets[selectedIndex] ?? 0;
+  // Scroll correction: adjust scroll position when selectedIndex changes.
+  // Uses useEffect so scrollRef.current is available after DOM commit.
+  useEffect(() => {
+    if (
+      scrollRef.current &&
+      flatModels.length > 0 &&
+      prevSelectedRef.current !== selectedIndex
+    ) {
+      prevSelectedRef.current = selectedIndex;
+      const scrollBox = scrollRef.current;
+      const selectedRow = modelRowOffsets.offsets[selectedIndex] ?? 0;
 
-    if (selectedRow < scrollBox.scrollTop) {
-      scrollBox.scrollTo(selectedRow);
-    } else if (selectedRow + 1 > scrollBox.scrollTop + listHeight) {
-      scrollBox.scrollTo(selectedRow + 1 - listHeight);
+      if (selectedRow < scrollBox.scrollTop) {
+        scrollBox.scrollTo(selectedRow);
+      } else if (selectedRow + 1 > scrollBox.scrollTop + listHeight) {
+        scrollBox.scrollTo(selectedRow + 1 - listHeight);
+      }
     }
-  }
-  prevSelectedRef.current = selectedIndex;
+    prevSelectedRef.current = selectedIndex;
+  }, [selectedIndex, flatModels.length, modelRowOffsets.offsets, listHeight]);
 
   // Translate mouse wheel scroll into selection movement so the highlight follows
   const handleMouseScroll = useCallback((event: MouseEvent) => {

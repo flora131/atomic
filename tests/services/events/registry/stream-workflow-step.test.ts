@@ -213,5 +213,22 @@ describe("stream-workflow-step handler descriptors", () => {
       expect(result.status).toBe("skipped");
       expect(result.durationMs).toBe(0);
     });
+
+    test("maps to WorkflowStepCompleteEvent with interrupted status", () => {
+      const mapper = registry.getStreamPartMapper("workflow.step.complete")!;
+
+      const event = makeBusEvent("workflow.step.complete", {
+        workflowId: "wf-1",
+        nodeId: "orchestrator",
+        status: "interrupted",
+        durationMs: 750,
+      });
+
+      const result = mapper(enriched(event), stubContext) as WorkflowStepCompleteEvent;
+      expect(result.type).toBe("workflow-step-complete");
+      expect(result.status).toBe("interrupted");
+      expect(result.durationMs).toBe(750);
+      expect(result.error).toBeUndefined();
+    });
   });
 });

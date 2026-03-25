@@ -40,7 +40,11 @@ export interface UseCommandExecutorArgs {
   clearHistoryBufferAndSync: () => void;
   /** Set by the conductor executor to expose conductor.interrupt() to the UI. */
   conductorInterruptRef: RefObject<(() => void) | null>;
+  /** Set by the conductor executor to expose conductor.resume() to the UI. */
+  conductorResumeRef: RefObject<((message: string | null) => void) | null>;
   createSubagentSession?: CreateSessionFn;
+  /** Dequeue the next message from the message queue for conductor workflow stages. */
+  dequeueMessage?: () => string | null;
   /**
    * Stream through a specific session using the real SDK adapter pipeline,
    * returning captured response text. Provided by chat-ui-controller.

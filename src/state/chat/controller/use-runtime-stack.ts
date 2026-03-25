@@ -48,16 +48,19 @@ export function useChatRuntimeStack({
 
   const {
     state: {
-      agentAnchorSyncVersion,
+      agentMessageBindings,
+      backgroundAgentMessageId,
+      lastStreamedMessageId,
       parallelAgents,
-      toolCompletionVersion,
+      hasRunningTool,
+      streamingMessageId,
       workflowSessionDir,
     },
     setters: {
       setActiveBackgroundAgentCount,
       setParallelAgents,
       setTodoItems,
-      setToolCompletionVersion,
+      setHasRunningTool,
       setWorkflowSessionDir,
       setWorkflowSessionId,
     },
@@ -194,7 +197,7 @@ export function useChatRuntimeStack({
     setMessagesWindowed,
     setParallelAgents,
     setStreamingMeta,
-    setToolCompletionVersion,
+    setHasRunningTool,
     streamingMessageIdRef,
     streamingMetaRef,
     streamingStartRef,
@@ -205,7 +208,7 @@ export function useChatRuntimeStack({
   const { handleAgentDoneRendered } = useChatAgentProjection({
     activeBackgroundAgentCountRef,
     activeStreamRunIdRef,
-    agentAnchorSyncVersion,
+    agentMessageBindings,
     agentLifecycleLedgerRef,
     agentMessageIdByIdRef,
     agentOrderingStateRef,
@@ -241,7 +244,10 @@ export function useChatRuntimeStack({
     streamingMessageIdRef,
     streamingStartRef,
     todoItemsRef,
-    toolCompletionVersion,
+    hasRunningTool,
+    streamingMessageId,
+    lastStreamedMessageId,
+    backgroundAgentMessageId,
     workflowActiveRef,
   });
 

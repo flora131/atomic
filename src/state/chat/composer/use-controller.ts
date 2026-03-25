@@ -42,6 +42,7 @@ export function useComposerController({
   todoItemsRef,
   updateWorkflowState,
   waitForUserInputResolverRef,
+  workflowActiveRef,
   workflowSessionDirRef,
   workflowSessionIdRef,
   workflowState,
@@ -112,9 +113,9 @@ export function useComposerController({
       textareaRef,
       todoItemsRef,
       waitForUserInputResolverRef,
+      workflowActiveRef,
       workflowSessionDirRef,
       workflowSessionIdRef,
-      workflowState,
       workflowTaskIdsRef,
     });
   }, [
@@ -151,6 +152,7 @@ export function useComposerController({
     todoItemsRef,
     updateWorkflowState,
     waitForUserInputResolverRef,
+    workflowActiveRef,
     workflowSessionDirRef,
     workflowSessionIdRef,
     workflowState,

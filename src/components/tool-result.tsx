@@ -5,7 +5,7 @@
  * Inspired by OpenCode's BasicTool with collapsible behavior.
  */
 
-import React, { useMemo } from "react";
+import React, { memo, useMemo } from "react";
 import { useTheme } from "@/theme/index.tsx";
 import { AnimatedBlinkIndicator } from "@/components/animated-blink-indicator.tsx";
 import { STATUS, MISC } from "@/theme/icons.ts";
@@ -73,13 +73,15 @@ export function getToolStatusColorKey(status: ToolExecutionStatus): ToolStatusCo
   }
 }
 
-function StatusIndicator({
-  status,
-  theme,
-}: {
+interface StatusIndicatorProps {
   status: ToolExecutionStatus;
   theme: ReturnType<typeof useTheme>["theme"];
-}): React.ReactNode {
+}
+
+const StatusIndicator = memo(function StatusIndicator({
+  status,
+  theme,
+}: StatusIndicatorProps): React.ReactNode {
   const colors = theme.colors;
   const color = colors[getToolStatusColorKey(status)];
 
@@ -95,7 +97,7 @@ function StatusIndicator({
       {icon}
     </text>
   );
-}
+});
 
 // ============================================================================
 // COLLAPSIBLE CONTENT COMPONENT
@@ -110,7 +112,7 @@ interface CollapsibleContentProps {
   language?: string;
 }
 
-function CollapsibleContent({
+const CollapsibleContent = memo(function CollapsibleContent({
   content,
   expanded,
   maxCollapsedLines,
@@ -139,6 +141,7 @@ function CollapsibleContent({
         paddingLeft={SPACING.CONTAINER_PAD}
         paddingRight={SPACING.CONTAINER_PAD}
       >
+        {/* Index keys are safe here — list is static display lines derived from tool output, never reordered */}
         {displayLines.map((line, index) => {
           // Apply diff coloring
           let lineColor = contentColor;
@@ -170,7 +173,7 @@ function CollapsibleContent({
       )}
     </box>
   );
-}
+});
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -363,6 +366,7 @@ export function ToolResult({
       {/* Error message - separate display */}
       {hasError && typeof output === "string" && !renderResult.content.includes(output) && (
         <box marginTop={SPACING.NONE} marginLeft={SPACING.CONTAINER_PAD}>
+          {/* Index keys are safe here — list is static error output lines, never reordered */}
           {truncatedErrorLines.map((line, index) => (
             <text key={index} fg={colors.error}>
               {line || " "}

@@ -195,6 +195,50 @@ describe("truncateStageOutput", () => {
   // TruncationResult contract
   // ---------------------------------------------------------------------------
 
+  describe("surrogate pair handling", () => {
+    test("does not split surrogate pairs when truncating", () => {
+      // Create a string with surrogate pairs (emoji) followed by filler
+      // Each emoji like "𝄞" (U+1D11E Musical Symbol G Clef) is a surrogate pair in UTF-16
+      const surrogateChar = "\uD834\uDD1E"; // 𝄞 — 4 bytes in UTF-8
+      const response = surrogateChar.repeat(10) + "x".repeat(1000);
+      const result = truncateStageOutput(response, 100);
+
+      expect(result.truncated).toBe(true);
+      // Re-encode to verify no broken surrogates
+      const reEncoded = new TextDecoder().decode(new TextEncoder().encode(result.text));
+      expect(reEncoded).toBe(result.text);
+    });
+
+    test("handles string composed entirely of 4-byte emoji", () => {
+      const response = "🎉🎊🎈🎁🎂🎃🎄🎅🎆🎇"; // 10 emoji, 40 bytes
+      const result = truncateStageOutput(response, 100);
+
+      expect(result.truncated).toBe(false);
+      expect(result.text).toBe(response);
+    });
+
+    test("handles 2-byte characters (accented) at truncation boundary", () => {
+      // "é" is U+00E9, 2 bytes in UTF-8
+      const response = "é".repeat(100); // 200 bytes
+      const result = truncateStageOutput(response, 100);
+
+      expect(result.truncated).toBe(true);
+      // Verify the result is valid UTF-8
+      const reEncoded = new TextDecoder().decode(new TextEncoder().encode(result.text));
+      expect(reEncoded).toBe(result.text);
+    });
+
+    test("handles 3-byte CJK characters at truncation boundary", () => {
+      // "中" is U+4E2D, 3 bytes in UTF-8
+      const response = "中".repeat(100); // 300 bytes
+      const result = truncateStageOutput(response, 100);
+
+      expect(result.truncated).toBe(true);
+      const reEncoded = new TextDecoder().decode(new TextEncoder().encode(result.text));
+      expect(reEncoded).toBe(result.text);
+    });
+  });
+
   describe("TruncationResult contract", () => {
     test("non-truncated result has text, truncated=false, no originalByteLength", () => {
       const result = truncateStageOutput("short", 1000);

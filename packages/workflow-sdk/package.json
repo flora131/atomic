@@ -23,7 +23,7 @@
     "src"
   ],
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "bunx tsc --noEmit",
     "lint": "oxlint --config=../../oxlint.json src",
     "lint:fix": "oxlint --config=../../oxlint.json --fix src",
     "test": "bun test ./tests/**/*.test.ts"

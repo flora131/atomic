@@ -3,14 +3,25 @@
  *
  * Validates that stage IDs are matched against discovered agent
  * definitions, and that agent file bodies are resolved as system prompts.
+ *
+ * Covers:
+ * - readAgentBody: reads markdown body from agent files, handles missing/empty files
+ * - buildAgentLookup: discovers agents from project, caches results
+ * - clearAgentLookupCache: invalidates cached lookup
+ * - validateStageAgents: matches stage IDs, case-insensitive, error messages
+ * - resolveStageSystemPrompt: resolves body as system prompt, case-insensitive
  */
 
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, beforeEach } from "bun:test";
+import { writeFileSync, mkdirSync, rmSync } from "fs";
+import { join } from "path";
+import { tmpdir } from "os";
 import {
   readAgentBody,
   validateStageAgents,
   resolveStageSystemPrompt,
   buildAgentLookup,
+  clearAgentLookupCache,
 } from "@/services/workflows/dsl/agent-resolution.ts";
 import type { AgentInfo } from "@/services/agent-discovery/index.ts";
 
@@ -31,8 +42,17 @@ function makeLookup(agents: Array<{ name: string; filePath: string }>): Map<stri
   return lookup;
 }
 
+/** Create a temporary file with the given content and return its path. */
+function createTempFile(name: string, content: string): string {
+  const dir = join(tmpdir(), `agent-resolution-test-${Date.now()}`);
+  mkdirSync(dir, { recursive: true });
+  const filePath = join(dir, name);
+  writeFileSync(filePath, content, "utf-8");
+  return filePath;
+}
+
 // ---------------------------------------------------------------------------
-// Tests
+// validateStageAgents
 // ---------------------------------------------------------------------------
 
 describe("validateStageAgents", () => {
@@ -63,12 +83,51 @@ describe("validateStageAgents", () => {
     expect(errors).toHaveLength(0);
   });
 
+  test("matches with mixed case stage ID against lowercase lookup", () => {
+    const lookup = makeLookup([
+      { name: "planner", filePath: "/fake/planner.md" },
+    ]);
+    const errors = validateStageAgents(["PLANNER"], lookup);
+    expect(errors).toHaveLength(0);
+  });
+
   test("returns errors for all unmatched stages", () => {
     const lookup = makeLookup([]);
     const errors = validateStageAgents(["s1", "s2", "s3"], lookup);
     expect(errors).toHaveLength(3);
   });
+
+  test("error message includes available agent names when agents exist", () => {
+    const lookup = makeLookup([
+      { name: "planner", filePath: "/fake/planner.md" },
+      { name: "reviewer", filePath: "/fake/reviewer.md" },
+    ]);
+    const errors = validateStageAgents(["unknown-agent"], lookup);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("Available agents:");
+    expect(errors[0]).toContain("planner");
+    expect(errors[0]).toContain("reviewer");
+  });
+
+  test("error message notes when no agent definitions exist", () => {
+    const lookup = makeLookup([]);
+    const errors = validateStageAgents(["missing"], lookup);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("No agent definitions found");
+  });
+
+  test("returns empty array for empty stage list", () => {
+    const lookup = makeLookup([
+      { name: "planner", filePath: "/fake/planner.md" },
+    ]);
+    const errors = validateStageAgents([], lookup);
+    expect(errors).toHaveLength(0);
+  });
 });
+
+// ---------------------------------------------------------------------------
+// readAgentBody
+// ---------------------------------------------------------------------------
 
 describe("readAgentBody", () => {
   test("reads body from a real agent definition file", () => {
@@ -83,7 +142,58 @@ describe("readAgentBody", () => {
     const body = readAgentBody("/nonexistent/agent.md");
     expect(body).toBeNull();
   });
+
+  test("reads body from a file with frontmatter", () => {
+    const filePath = createTempFile(
+      "agent-with-fm.md",
+      "---\nname: test-agent\ndescription: A test agent\n---\nYou are a test agent.\n\nDo testing.",
+    );
+    const body = readAgentBody(filePath);
+    expect(body).toBe("You are a test agent.\n\nDo testing.");
+    rmSync(filePath);
+  });
+
+  test("reads full content when file has no frontmatter", () => {
+    const filePath = createTempFile(
+      "agent-no-fm.md",
+      "You are an agent without frontmatter.\n\nJust instructions.",
+    );
+    const body = readAgentBody(filePath);
+    expect(body).toBe("You are an agent without frontmatter.\n\nJust instructions.");
+    rmSync(filePath);
+  });
+
+  test("returns null when file has frontmatter but empty body", () => {
+    const filePath = createTempFile(
+      "agent-empty-body.md",
+      "---\nname: empty-body\n---\n",
+    );
+    const body = readAgentBody(filePath);
+    expect(body).toBeNull();
+    rmSync(filePath);
+  });
+
+  test("returns null when file is completely empty", () => {
+    const filePath = createTempFile("agent-empty.md", "");
+    const body = readAgentBody(filePath);
+    expect(body).toBeNull();
+    rmSync(filePath);
+  });
+
+  test("returns null for whitespace-only body after frontmatter", () => {
+    const filePath = createTempFile(
+      "agent-whitespace.md",
+      "---\nname: whitespace\n---\n   \n  \n",
+    );
+    const body = readAgentBody(filePath);
+    expect(body).toBeNull();
+    rmSync(filePath);
+  });
 });
+
+// ---------------------------------------------------------------------------
+// resolveStageSystemPrompt
+// ---------------------------------------------------------------------------
 
 describe("resolveStageSystemPrompt", () => {
   test("resolves system prompt from matching agent file", () => {
@@ -100,14 +210,100 @@ describe("resolveStageSystemPrompt", () => {
     const prompt = resolveStageSystemPrompt("nonexistent", lookup);
     expect(prompt).toBeNull();
   });
+
+  test("matches case-insensitively", () => {
+    const lookup = makeLookup([
+      { name: "planner", filePath: `${process.cwd()}/.claude/agents/planner.md` },
+    ]);
+    const prompt = resolveStageSystemPrompt("PLANNER", lookup);
+    expect(prompt).not.toBeNull();
+  });
+
+  test("returns null when matched agent file has empty body", () => {
+    const filePath = createTempFile(
+      "empty-agent.md",
+      "---\nname: empty-agent\n---\n",
+    );
+    const lookup = makeLookup([
+      { name: "empty-agent", filePath },
+    ]);
+    const prompt = resolveStageSystemPrompt("empty-agent", lookup);
+    expect(prompt).toBeNull();
+    rmSync(filePath);
+  });
+
+  test("returns body content for agent file without frontmatter", () => {
+    const filePath = createTempFile(
+      "plain-agent.md",
+      "You are a plain agent.",
+    );
+    const lookup = makeLookup([
+      { name: "plain-agent", filePath },
+    ]);
+    const prompt = resolveStageSystemPrompt("plain-agent", lookup);
+    expect(prompt).toBe("You are a plain agent.");
+    rmSync(filePath);
+  });
 });
 
+// ---------------------------------------------------------------------------
+// buildAgentLookup and clearAgentLookupCache
+// ---------------------------------------------------------------------------
+
 describe("buildAgentLookup", () => {
+  beforeEach(() => {
+    clearAgentLookupCache();
+  });
+
   test("discovers agents from project directories", () => {
     const lookup = buildAgentLookup();
     // The project has agent files in .claude/agents/, .opencode/agents/, .github/agents/
     expect(lookup.size).toBeGreaterThan(0);
     expect(lookup.has("planner")).toBe(true);
     expect(lookup.has("worker")).toBe(true);
+  });
+
+  test("returns the same cached instance on subsequent calls", () => {
+    const lookup1 = buildAgentLookup();
+    const lookup2 = buildAgentLookup();
+    expect(lookup1).toBe(lookup2);
+  });
+
+  test("stores agent names in lowercase", () => {
+    const lookup = buildAgentLookup();
+    for (const key of lookup.keys()) {
+      expect(key).toBe(key.toLowerCase());
+    }
+  });
+
+  test("each entry has a valid AgentInfo structure", () => {
+    const lookup = buildAgentLookup();
+    for (const [_key, info] of lookup) {
+      expect(typeof info.name).toBe("string");
+      expect(typeof info.description).toBe("string");
+      expect(typeof info.filePath).toBe("string");
+      expect(typeof info.source).toBe("string");
+    }
+  });
+});
+
+describe("clearAgentLookupCache", () => {
+  test("clears the cache so next buildAgentLookup creates a fresh map", () => {
+    const lookup1 = buildAgentLookup();
+    clearAgentLookupCache();
+    const lookup2 = buildAgentLookup();
+    // After clearing, a new Map instance should be returned
+    expect(lookup1).not.toBe(lookup2);
+    // But they should have the same content
+    expect(lookup2.size).toBe(lookup1.size);
+  });
+
+  test("can be called multiple times without error", () => {
+    clearAgentLookupCache();
+    clearAgentLookupCache();
+    clearAgentLookupCache();
+    // Should not throw
+    const lookup = buildAgentLookup();
+    expect(lookup.size).toBeGreaterThan(0);
   });
 });

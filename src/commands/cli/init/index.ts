@@ -351,33 +351,37 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     exitOrThrow(1, error instanceof Error ? error.message : "Unknown error occurred");
   }
 
-  const playwrightInstallSpinner = spinner();
-  playwrightInstallSpinner.start("Installing Playwright browser runtime...");
-  try {
-    runPlaywrightCliInstall();
-    playwrightInstallSpinner.stop("Playwright browser runtime installed");
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    playwrightInstallSpinner.stop("Playwright browser runtime installation failed");
+  // Install Playwright browser runtime and workflow SDK in parallel (independent)
+  const postInitSpinner = spinner();
+  postInitSpinner.start("Installing Playwright browser runtime and workflow SDK...");
+
+  const [playwrightResult, sdkResult] = await Promise.allSettled([
+    // Playwright install (sync call wrapped in async)
+    (async () => { runPlaywrightCliInstall(); })(),
+    // Workflow SDK install
+    (async () => {
+      const localWorkflowsDir = getLocalWorkflowsDir(targetDir);
+      const installed = await installWorkflowSdk(localWorkflowsDir, VERSION);
+      if (!installed) {
+        throw new Error("SDK install returned false");
+      }
+    })(),
+  ]);
+
+  postInitSpinner.stop("Post-init setup complete");
+
+  if (playwrightResult.status === "rejected") {
+    const message = playwrightResult.reason instanceof Error ? playwrightResult.reason.message : String(playwrightResult.reason);
     log.warn(`Could not run 'playwright-cli install': ${message}`);
+  } else {
+    log.success("Playwright browser runtime installed");
   }
 
-  // Install/update @bastani/atomic-workflows SDK as a local package in .atomic/workflows/
-  const workflowSdkSpinner = spinner();
-  workflowSdkSpinner.start("Setting up workflow SDK in .atomic/workflows/...");
-  try {
-    const localWorkflowsDir = getLocalWorkflowsDir(targetDir);
-    const sdkInstalled = await installWorkflowSdk(localWorkflowsDir, VERSION);
-    if (sdkInstalled) {
-      workflowSdkSpinner.stop("Workflow SDK installed in .atomic/workflows/");
-    } else {
-      workflowSdkSpinner.stop("Workflow SDK installation failed");
-      log.warn("Could not install @bastani/atomic-workflows SDK. Run manually: cd .atomic/workflows && bun add @bastani/atomic-workflows");
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    workflowSdkSpinner.stop("Workflow SDK installation failed");
+  if (sdkResult.status === "rejected") {
+    const message = sdkResult.reason instanceof Error ? sdkResult.reason.message : String(sdkResult.reason);
     log.warn(`Could not set up workflow SDK: ${message}`);
+  } else {
+    log.success("Workflow SDK installed in .atomic/workflows/");
   }
 
   // Check for WSL on Windows

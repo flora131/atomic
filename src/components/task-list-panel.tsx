@@ -11,7 +11,7 @@
  * Reference: specs/ralph-task-list-ui.md
  */
 
-import React, { useState, useEffect } from "react";
+import React, { memo, useState, useEffect } from "react";
 import { useTerminalDimensions } from "@opentui/react";
 
 import { watchTasksJson } from "@/commands/tui/workflow-commands/index.ts";
@@ -71,7 +71,7 @@ function buildProgressSegments(
 // TASK LIST BOX (Shared presentational component)
 // ============================================================================
 
-export function TaskListBox({
+export const TaskListBox = memo(function TaskListBox({
   items,
   expanded = false,
   headerTitle = "Task Progress",
@@ -150,7 +150,7 @@ export function TaskListBox({
       )}
     </box>
   );
-}
+});
 
 // ============================================================================
 // TASK LIST PANEL (File-driven wrapper for workflows)

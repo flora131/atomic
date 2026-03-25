@@ -19,17 +19,20 @@ import type { UseChatAgentProjectionArgs } from "@/state/chat/agent/projection-t
 interface UseChatAgentMessageProjectionArgs extends Pick<
   UseChatAgentProjectionArgs,
   | "activeStreamRunIdRef"
-  | "agentAnchorSyncVersion"
+  | "agentMessageBindings"
   | "agentLifecycleLedgerRef"
   | "agentMessageIdByIdRef"
   | "agentOrderingStateRef"
   | "agentType"
+  | "backgroundAgentMessageId"
   | "backgroundAgentMessageIdRef"
   | "completionOrderingEventByAgentRef"
   | "doneRenderedSequenceByAgentRef"
+  | "lastStreamedMessageId"
   | "lastStreamedMessageIdRef"
   | "setBackgroundAgentMessageId"
   | "setMessagesWindowed"
+  | "streamingMessageId"
   | "streamingMessageIdRef"
   | "streamingStartRef"
   | "workflowActiveRef"
@@ -39,18 +42,21 @@ interface UseChatAgentMessageProjectionArgs extends Pick<
 
 export function useChatAgentMessageProjection({
   activeStreamRunIdRef,
-  agentAnchorSyncVersion,
+  agentMessageBindings,
   agentLifecycleLedgerRef,
   agentMessageIdByIdRef,
   agentOrderingStateRef,
   agentType,
+  backgroundAgentMessageId,
   backgroundAgentMessageIdRef,
   completionOrderingEventByAgentRef,
   doneRenderedSequenceByAgentRef,
+  lastStreamedMessageId,
   lastStreamedMessageIdRef,
   parallelAgents,
   setBackgroundAgentMessageId,
   setMessagesWindowed,
+  streamingMessageId,
   streamingMessageIdRef,
   streamingStartRef,
   workflowActiveRef,
@@ -215,7 +221,10 @@ export function useChatAgentMessageProjection({
       applyBackgroundAgentUpdateRef.current(backgroundAgentMessageIdRef.current, filteredAgents);
     }
   }, [
-    agentAnchorSyncVersion,
+    streamingMessageId,
+    lastStreamedMessageId,
+    backgroundAgentMessageId,
+    agentMessageBindings,
     agentMessageIdByIdRef,
     backgroundAgentMessageIdRef,
     lastStreamedMessageIdRef,

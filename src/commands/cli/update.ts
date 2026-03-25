@@ -242,32 +242,33 @@ export async function updateCommand(): Promise<void> {
       const binaryFilename = getBinaryFilename();
       const configFilename = getConfigArchiveFilename();
 
-      // Download binary
-      s.start(`Downloading ${binaryFilename}...`);
+      // Download binary, config archive, and checksums in parallel
+      s.start(`Downloading ${binaryFilename}, ${configFilename}, checksums...`);
       const binaryPath = join(tempDir, binaryFilename);
-      await downloadFile(getDownloadUrl(targetVersion, binaryFilename), binaryPath, (percent) =>
-        s.message(`Downloading ${binaryFilename}... ${percent}%`)
-      );
-      s.stop(`Downloaded ${binaryFilename}`);
-
-      // Download config archive
-      s.start(`Downloading ${configFilename}...`);
       const configPath = join(tempDir, configFilename);
-      await downloadFile(getDownloadUrl(targetVersion, configFilename), configPath);
-      s.stop(`Downloaded ${configFilename}`);
-
-      // Download and verify checksums
-      s.start("Verifying checksums...");
       const checksumsPath = join(tempDir, "checksums.txt");
-      await downloadFile(getChecksumsUrl(targetVersion), checksumsPath);
+
+      await Promise.all([
+        downloadFile(getDownloadUrl(targetVersion, binaryFilename), binaryPath, (percent) =>
+          s.message(`Downloading ${binaryFilename}... ${percent}%`)
+        ),
+        downloadFile(getDownloadUrl(targetVersion, configFilename), configPath),
+        downloadFile(getChecksumsUrl(targetVersion), checksumsPath),
+      ]);
+      s.stop("Downloads complete");
+
+      // Verify both checksums in parallel
+      s.start("Verifying checksums...");
       const checksumsTxt = await Bun.file(checksumsPath).text();
 
-      const binaryValid = await verifyChecksum(binaryPath, checksumsTxt, binaryFilename);
+      const [binaryValid, configValid] = await Promise.all([
+        verifyChecksum(binaryPath, checksumsTxt, binaryFilename),
+        verifyChecksum(configPath, checksumsTxt, configFilename),
+      ]);
+
       if (!binaryValid) {
         throw new ChecksumMismatchError(binaryFilename);
       }
-
-      const configValid = await verifyChecksum(configPath, checksumsTxt, configFilename);
       if (!configValid) {
         throw new ChecksumMismatchError(configFilename);
       }
@@ -284,35 +285,34 @@ export async function updateCommand(): Promise<void> {
       }
       s.stop("Binary installed");
 
-      // Clean up stale native addon DLLs from temp directory
-      await cleanupBunTempNativeAddons();
-
-      // Update config files (clean install - remove stale artifacts)
-      s.start("Updating config files...");
+      // Run cleanup, config update, and SDK update in parallel (all independent)
+      s.start("Updating config files and SDK...");
       const dataDir = getBinaryDataDir();
-      await rm(dataDir, { recursive: true, force: true });
-      await extractConfig(configPath, dataDir);
-
-      // Sync globally discoverable agent configs into provider home roots
-      await syncAtomicGlobalAgentConfigs(dataDir);
-      s.stop("Config files updated");
-
-      // Update @bastani/atomic-workflows SDK in global workflows directory
-      s.start("Updating @bastani/atomic-workflows SDK...");
       const sdkTag = usePrerelease ? "next" : "latest";
       const globalWorkflowsDir = getGlobalWorkflowsDir();
-      const sdkInstalled = await installWorkflowSdk(globalWorkflowsDir, targetVersionNum);
-      if (sdkInstalled) {
-        s.stop(`Workflow SDK updated to ${targetVersionNum}`);
-      } else {
-        // Fallback to tag-based install if exact version not yet published
-        const sdkFallbackInstalled = await installWorkflowSdk(globalWorkflowsDir, sdkTag);
-        if (sdkFallbackInstalled) {
-          s.stop("Workflow SDK updated");
-        } else {
-          s.stop("Workflow SDK update failed");
-          log.warn(`Could not update @bastani/atomic-workflows SDK. Run manually: cd ${globalWorkflowsDir} && bun add @bastani/atomic-workflows@${targetVersionNum}`);
-        }
+
+      const [, , sdkResult] = await Promise.all([
+        // Clean up stale native addon DLLs from temp directory
+        cleanupBunTempNativeAddons(),
+        // Update config files (clean install - remove stale artifacts)
+        (async () => {
+          await rm(dataDir, { recursive: true, force: true });
+          await extractConfig(configPath, dataDir);
+          await syncAtomicGlobalAgentConfigs(dataDir);
+        })(),
+        // Update @bastani/atomic-workflows SDK in global workflows directory
+        (async () => {
+          const installed = await installWorkflowSdk(globalWorkflowsDir, targetVersionNum);
+          if (installed) return { ok: true, version: targetVersionNum };
+          // Fallback to tag-based install if exact version not yet published
+          const fallback = await installWorkflowSdk(globalWorkflowsDir, sdkTag);
+          return fallback ? { ok: true, version: sdkTag } : { ok: false, version: targetVersionNum };
+        })(),
+      ]);
+      s.stop("Config files and SDK updated");
+
+      if (!sdkResult.ok) {
+        log.warn(`Could not update @bastani/atomic-workflows SDK. Run manually: cd ${globalWorkflowsDir} && bun add @bastani/atomic-workflows@${sdkResult.version}`);
       }
 
       // Verify installation

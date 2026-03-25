@@ -119,15 +119,16 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     throw new Error("agentType is required. Start chat with `atomic chat -a <agent>`.");
   }
 
-  // Read settings asynchronously in parallel
-  const [resolvedModel, effectiveReasoningEffort] = await Promise.all([
-    getModelPreference(agentType),
-    getReasoningEffortPreference(agentType),
-  ]);
-  const effectiveModel = model ?? resolvedModel;
+  // Kick off the heavy app.tsx import early — it takes ~90ms (OpenTUI dlopen,
+  // React, yoga-layout WASM) and doesn't depend on any config/SDK work below.
+  // We await the result only when startChatUI() is needed.
+  const appModulePromise = import("@/app.tsx");
 
   const agentName = getAgentDisplayName(agentType);
   const projectRoot = process.cwd();
+  const configRoot = getConfigRoot();
+  const installType = detectInstallationType();
+
   const providerDiscoveryPlan = buildChatStartupDiscoveryPlan(agentType, {
     projectRoot,
     homeDir: process.env.HOME,
@@ -137,8 +138,6 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     projectRoot,
     startupPlan: providerDiscoveryPlan,
   });
-  const configRoot = getConfigRoot();
-  const installType = detectInstallationType();
   const highestPrecedenceRoot =
     providerDiscoveryPlan.rootsInPrecedenceOrder[
       providerDiscoveryPlan.rootsInPrecedenceOrder.length - 1
@@ -160,14 +159,16 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     },
   });
   logActiveProviderDiscoveryPlan(providerDiscoveryPlan, { projectRoot });
-  const selectedScm = await getSelectedScm(projectRoot);
-  const resolvedAdditionalInstructions = resolveChatAdditionalInstructions({ additionalInstructions });
 
-  const ensureGlobalConfigsPromise = ensureAtomicGlobalAgentConfigsForInstallType(
-    installType,
-    configRoot,
-  );
-  await ensureGlobalConfigsPromise;
+  // Run all async config reads and global config sync in parallel
+  const [resolvedModel, effectiveReasoningEffort, selectedScm] = await Promise.all([
+    getModelPreference(agentType),
+    getReasoningEffortPreference(agentType),
+    getSelectedScm(projectRoot),
+    ensureAtomicGlobalAgentConfigsForInstallType(installType, configRoot),
+  ]);
+  const effectiveModel = model ?? resolvedModel;
+  const resolvedAdditionalInstructions = resolveChatAdditionalInstructions({ additionalInstructions });
 
   // Auto-init when project SCM skills are missing or out of sync
   if (await shouldAutoInitChat(agentType, projectRoot, { selectedScm, configRoot })) {
@@ -195,13 +196,13 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   console.log(`Starting ${agentName} chat interface...`);
   console.log("");
 
-  // Lazy-load SDK tools and create client
-  const [{ createTodoWriteTool }, { registerCustomTools, cleanupTempToolFiles }] = await Promise.all([
+  // Lazy-load SDK tools and create client in parallel — the tools import
+  // and SDK client creation are independent of each other.
+  const [{ createTodoWriteTool }, { registerCustomTools, cleanupTempToolFiles }, client] = await Promise.all([
     import("@/services/agents/tools/todo-write.ts"),
     import("@/services/agents/tools/index.ts"),
+    createClientForAgentType(agentType),
   ]);
-
-  const client = await createClientForAgentType(agentType);
 
   // Register TodoWrite tool for agents that don't have it built-in
   if (agentType === "copilot") {
@@ -212,11 +213,12 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   await registerCustomTools(client);
 
   try {
-    // Start client and discover MCP configs in parallel
+    // Start client and discover MCP configs in parallel.
+    // app.tsx import was kicked off at the top of chatCommand() — await it here.
     const [{ discoverMcpConfigs }, { trackAtomicCommand }, { startChatUI }] = await Promise.all([
       import("@/services/config/mcp-config.ts"),
       import("@/services/telemetry/index.ts"),
-      import("@/app.tsx"),
+      appModulePromise,
     ]);
 
     // Start client and run MCP discovery concurrently

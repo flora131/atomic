@@ -1,0 +1,17 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "atomic-workflows",
+      "dependencies": {
+        "@bastani/atomic-workflows": "0.4.29",
+      },
+    },
+  },
+  "packages": {
+    "@bastani/atomic-workflows": ["@bastani/atomic-workflows@0.4.29", "", { "dependencies": { "zod": "^4.3.6" } }, "sha512-+8nHgdJDo3micBXxzkP5+X348QkGPpQZK3SFm2ZooLKV53C9orJuHItjIYW8O/2mZOaNevAhCNIIUJKwilpZEg=="],
+
+    "zod": ["zod@4.3.6", "", {}, "sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg=="],
+  }
+}

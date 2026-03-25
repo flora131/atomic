@@ -21,6 +21,7 @@ export {
   type TaskResultPart,
   type WorkflowStepPart,
   type Part,
+  isToolPart,
 } from "@/state/parts/types.ts";
 export { binarySearchById, upsertPart, findLastPartIndex } from "@/state/parts/store.ts";
 export {

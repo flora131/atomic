@@ -35,7 +35,7 @@
     "build": "bun run src/scripts/build-binary.ts --outfile atomic",
     "prepare:opentui-bindings": "bun run src/scripts/prepare-opentui-bindings.ts",
     "test": "bun test",
-    "test:coverage": "bun test --coverage --coverage-reporter=lcov",
+    "test:coverage": "bun test --coverage",
     "typecheck": "bunx tsc --noEmit",
     "lint": "oxlint --config=oxlint.json src tests",
     "lint:fix": "oxlint --config=oxlint.json --fix src tests",

@@ -11,6 +11,8 @@ import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import type { ChatMessage } from "@/state/chat/shared/types/index.ts";
 
+const EMPTY_MAP = new Map<string, string>();
+
 export function useStreamState(messages: ChatMessage[]) {
   const [parallelAgents, setParallelAgents] = useState<ParallelAgent[]>([]);
   const [compactionSummary, setCompactionSummary] = useState<string | null>(null);
@@ -19,9 +21,12 @@ export function useStreamState(messages: ChatMessage[]) {
   const [todoItems, setTodoItems] = useState<NormalizedTodoItem[]>([]);
   const [workflowSessionDir, setWorkflowSessionDir] = useState<string | null>(null);
   const [workflowSessionId, setWorkflowSessionId] = useState<string | null>(null);
-  const [toolCompletionVersion, setToolCompletionVersion] = useState(0);
+  const [hasRunningTool, setHasRunningTool] = useState(false);
   const [activeBackgroundAgentCount, setActiveBackgroundAgentCount] = useState(0);
-  const [agentAnchorSyncVersion, setAgentAnchorSyncVersion] = useState(0);
+  const [streamingMessageId, setStreamingMessageIdState] = useState<string | null>(null);
+  const [lastStreamedMessageId, setLastStreamedMessageIdState] = useState<string | null>(null);
+  const [backgroundAgentMessageId, setBackgroundAgentMessageIdState] = useState<string | null>(null);
+  const [agentMessageBindings, setAgentMessageBindings] = useState<ReadonlyMap<string, string>>(EMPTY_MAP);
   const [streamingElapsedMs, setStreamingElapsedMs] = useState(0);
 
   const hasInProgressTask = useMemo(
@@ -42,9 +47,12 @@ export function useStreamState(messages: ChatMessage[]) {
     todoItems,
     workflowSessionDir,
     workflowSessionId,
-    toolCompletionVersion,
+    hasRunningTool,
     activeBackgroundAgentCount,
-    agentAnchorSyncVersion,
+    streamingMessageId,
+    lastStreamedMessageId,
+    backgroundAgentMessageId,
+    agentMessageBindings,
     streamingElapsedMs,
     // Derived memos
     hasInProgressTask,
@@ -57,9 +65,12 @@ export function useStreamState(messages: ChatMessage[]) {
     setTodoItems,
     setWorkflowSessionDir,
     setWorkflowSessionId,
-    setToolCompletionVersion,
+    setHasRunningTool,
     setActiveBackgroundAgentCount,
-    setAgentAnchorSyncVersion,
+    setStreamingMessageIdState,
+    setLastStreamedMessageIdState,
+    setBackgroundAgentMessageIdState,
+    setAgentMessageBindings,
     setStreamingElapsedMs,
   };
 }

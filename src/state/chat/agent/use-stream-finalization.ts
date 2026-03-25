@@ -38,7 +38,7 @@ type UseChatAgentStreamFinalizationArgs = Pick<
   | "streamingMessageIdRef"
   | "streamingStartRef"
   | "todoItemsRef"
-  | "toolCompletionVersion"
+  | "hasRunningTool"
 >;
 
 export function useChatAgentStreamFinalization({
@@ -65,7 +65,7 @@ export function useChatAgentStreamFinalization({
   streamingMessageIdRef,
   streamingStartRef,
   todoItemsRef,
-  toolCompletionVersion,
+  hasRunningTool,
 }: UseChatAgentStreamFinalizationArgs) {
   useEffect(() => {
     const canFinalizeDeferred = shouldFinalizeDeferredStream(parallelAgents, hasRunningToolRef.current);
@@ -206,6 +206,6 @@ export function useChatAgentStreamFinalization({
     streamingMessageIdRef,
     streamingStartRef,
     todoItemsRef,
-    toolCompletionVersion,
+    hasRunningTool,
   ]);
 }

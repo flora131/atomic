@@ -1,218 +1,234 @@
-import { describe, test, expect } from "bun:test";
-import { encodeGraph } from "@/services/workflows/verification/graph-encoder";
-import type { CompiledGraph, BaseState } from "@/services/workflows/graph/types";
-import type { EncodedGraph } from "@/services/workflows/verification/types";
-
 /**
- * Helper to build a minimal CompiledGraph for testing.
+ * Tests for graph encoder.
+ *
+ * Verifies that CompiledGraph is correctly translated into an
+ * EncodedGraph suitable for verification.
  */
-function makeGraph(opts: {
-  nodes: Array<{
-    id: string;
-    type: string;
-    reads?: string[];
-    outputs?: string[];
-  }>;
-  edges: Array<{
-    from: string;
-    to: string;
-    condition?: () => boolean;
-    label?: string;
-  }>;
-  startNode: string;
-  endNodes: string[];
-}): CompiledGraph<BaseState> {
-  const nodeMap = new Map<string, Record<string, unknown>>();
-  for (const n of opts.nodes) {
-    nodeMap.set(n.id, {
-      id: n.id,
-      type: n.type,
-      execute: async () => ({}),
-      reads: n.reads,
-      outputs: n.outputs,
-    });
-  }
 
+import { test, expect, describe } from "bun:test";
+import { encodeGraph } from "@/services/workflows/verification/graph-encoder.ts";
+import type { CompiledGraph, BaseState, NodeDefinition, Edge } from "@/services/workflows/graph/types.ts";
+
+/** Create a minimal NodeDefinition for testing. */
+function makeNode(
+  id: string,
+  overrides: Partial<NodeDefinition<BaseState>> = {},
+): NodeDefinition<BaseState> {
   return {
-    nodes: nodeMap,
-    edges: opts.edges.map((e) => ({
-      from: e.from,
-      to: e.to,
-      condition: e.condition,
-      label: e.label,
-    })),
+    id,
+    type: "agent",
+    execute: async () => ({}),
+    ...overrides,
+  };
+}
+
+/** Create a minimal CompiledGraph for testing. */
+function makeGraph(opts: {
+  nodes: Map<string, NodeDefinition<BaseState>>;
+  edges: Edge<BaseState>[];
+  startNode: string;
+  endNodes: Set<string>;
+}): CompiledGraph<BaseState> {
+  return {
+    nodes: opts.nodes,
+    edges: opts.edges,
     startNode: opts.startNode,
-    endNodes: new Set(opts.endNodes),
+    endNodes: opts.endNodes,
     config: {},
-  } as unknown as CompiledGraph<BaseState>;
+  };
 }
 
 describe("encodeGraph", () => {
-  test("encodes a simple linear graph", () => {
+  test("encodes single-node graph", () => {
+    const nodes = new Map<string, NodeDefinition<BaseState>>();
+    nodes.set("A", makeNode("A"));
+
     const graph = makeGraph({
-      nodes: [
-        { id: "start", type: "agent" },
-        { id: "middle", type: "tool" },
-        { id: "end", type: "agent" },
-      ],
-      edges: [
-        { from: "start", to: "middle" },
-        { from: "middle", to: "end" },
-      ],
-      startNode: "start",
-      endNodes: ["end"],
+      nodes,
+      edges: [],
+      startNode: "A",
+      endNodes: new Set(["A"]),
     });
 
     const encoded = encodeGraph(graph);
-
-    expect(encoded.nodes).toHaveLength(3);
-    expect(encoded.edges).toHaveLength(2);
-    expect(encoded.startNode).toBe("start");
-    expect(encoded.endNodes).toEqual(["end"]);
+    expect(encoded.nodes).toHaveLength(1);
+    expect(encoded.nodes[0]!.id).toBe("A");
+    expect(encoded.nodes[0]!.type).toBe("agent");
+    expect(encoded.edges).toHaveLength(0);
+    expect(encoded.startNode).toBe("A");
+    expect(encoded.endNodes).toEqual(["A"]);
     expect(encoded.loops).toEqual([]);
     expect(encoded.stateFields).toEqual([]);
   });
 
-  test("preserves node IDs and types", () => {
+  test("encodes node types correctly", () => {
+    const nodes = new Map<string, NodeDefinition<BaseState>>();
+    nodes.set("a", makeNode("a", { type: "agent" }));
+    nodes.set("t", makeNode("t", { type: "tool" }));
+    nodes.set("d", makeNode("d", { type: "decision" }));
+
     const graph = makeGraph({
-      nodes: [
-        { id: "a", type: "agent" },
-        { id: "b", type: "tool" },
+      nodes,
+      edges: [
+        { from: "a", to: "t" },
+        { from: "t", to: "d" },
       ],
-      edges: [{ from: "a", to: "b" }],
       startNode: "a",
-      endNodes: ["b"],
+      endNodes: new Set(["d"]),
     });
 
     const encoded = encodeGraph(graph);
-
-    expect(encoded.nodes[0]).toEqual(
-      expect.objectContaining({ id: "a", type: "agent" }),
-    );
-    expect(encoded.nodes[1]).toEqual(
-      expect.objectContaining({ id: "b", type: "tool" }),
-    );
+    const typeMap = new Map(encoded.nodes.map((n) => [n.id, n.type]));
+    expect(typeMap.get("a")).toBe("agent");
+    expect(typeMap.get("t")).toBe("tool");
+    expect(typeMap.get("d")).toBe("decision");
   });
 
   test("preserves reads and outputs metadata", () => {
+    const nodes = new Map<string, NodeDefinition<BaseState>>();
+    nodes.set("A", makeNode("A", { reads: ["x", "y"], outputs: ["z"] }));
+    nodes.set("B", makeNode("B"));
+
     const graph = makeGraph({
-      nodes: [
-        { id: "a", type: "tool", reads: ["input"], outputs: ["result"] },
-        { id: "b", type: "agent" },
-      ],
-      edges: [{ from: "a", to: "b" }],
-      startNode: "a",
-      endNodes: ["b"],
+      nodes,
+      edges: [{ from: "A", to: "B" }],
+      startNode: "A",
+      endNodes: new Set(["B"]),
     });
 
     const encoded = encodeGraph(graph);
-
-    expect(encoded.nodes[0]?.reads).toEqual(["input"]);
-    expect(encoded.nodes[0]?.outputs).toEqual(["result"]);
-    expect(encoded.nodes[1]?.reads).toBeUndefined();
-    expect(encoded.nodes[1]?.outputs).toBeUndefined();
+    const nodeA = encoded.nodes.find((n) => n.id === "A");
+    const nodeB = encoded.nodes.find((n) => n.id === "B");
+    expect(nodeA?.reads).toEqual(["x", "y"]);
+    expect(nodeA?.outputs).toEqual(["z"]);
+    expect(nodeB?.reads).toBeUndefined();
+    expect(nodeB?.outputs).toBeUndefined();
   });
 
-  test("marks edges with conditions correctly", () => {
+  test("encodes unconditional edges correctly", () => {
+    const nodes = new Map<string, NodeDefinition<BaseState>>();
+    nodes.set("A", makeNode("A"));
+    nodes.set("B", makeNode("B"));
+
     const graph = makeGraph({
-      nodes: [
-        { id: "a", type: "decision" },
-        { id: "b", type: "agent" },
-        { id: "c", type: "agent" },
-      ],
-      edges: [
-        { from: "a", to: "b", condition: () => true, label: "if-branch" },
-        { from: "a", to: "c", label: "else-branch" },
-      ],
-      startNode: "a",
-      endNodes: ["b", "c"],
+      nodes,
+      edges: [{ from: "A", to: "B" }],
+      startNode: "A",
+      endNodes: new Set(["B"]),
     });
 
     const encoded = encodeGraph(graph);
-
-    expect(encoded.edges[0]?.hasCondition).toBe(true);
-    expect(encoded.edges[0]?.conditionGroup).toBe("if-branch");
-    expect(encoded.edges[1]?.hasCondition).toBe(false);
-    expect(encoded.edges[1]?.conditionGroup).toBe("else-branch");
+    expect(encoded.edges).toHaveLength(1);
+    expect(encoded.edges[0]!.from).toBe("A");
+    expect(encoded.edges[0]!.to).toBe("B");
+    expect(encoded.edges[0]!.hasCondition).toBe(false);
   });
 
-  test("converts Set endNodes to Array", () => {
-    const graph = makeGraph({
-      nodes: [
-        { id: "start", type: "agent" },
-        { id: "end1", type: "agent" },
-        { id: "end2", type: "agent" },
-      ],
-      edges: [
-        { from: "start", to: "end1" },
-        { from: "start", to: "end2" },
-      ],
-      startNode: "start",
-      endNodes: ["end1", "end2"],
-    });
+  test("encodes conditional edges correctly", () => {
+    const nodes = new Map<string, NodeDefinition<BaseState>>();
+    nodes.set("A", makeNode("A"));
+    nodes.set("B", makeNode("B"));
 
-    const encoded = encodeGraph(graph);
-
-    expect(Array.isArray(encoded.endNodes)).toBe(true);
-    expect(encoded.endNodes).toContain("end1");
-    expect(encoded.endNodes).toContain("end2");
-  });
-
-  test("handles empty graph with only start=end node", () => {
-    const graph = makeGraph({
-      nodes: [{ id: "only", type: "agent" }],
-      edges: [],
-      startNode: "only",
-      endNodes: ["only"],
-    });
-
-    const encoded = encodeGraph(graph);
-
-    expect(encoded.nodes).toHaveLength(1);
-    expect(encoded.edges).toHaveLength(0);
-    expect(encoded.startNode).toBe("only");
-    expect(encoded.endNodes).toEqual(["only"]);
-  });
-
-  test("strips runtime functions from edges", () => {
     const conditionFn = () => true;
     const graph = makeGraph({
-      nodes: [
-        { id: "a", type: "agent" },
-        { id: "b", type: "agent" },
-      ],
-      edges: [{ from: "a", to: "b", condition: conditionFn }],
-      startNode: "a",
-      endNodes: ["b"],
+      nodes,
+      edges: [{ from: "A", to: "B", condition: conditionFn }],
+      startNode: "A",
+      endNodes: new Set(["B"]),
     });
 
     const encoded = encodeGraph(graph);
-
-    // The encoded edge should not have the condition function
-    const edge = encoded.edges[0] as unknown as Record<string, unknown>;
-    expect(edge.condition).toBeUndefined();
-    expect(encoded.edges[0]?.hasCondition).toBe(true);
+    expect(encoded.edges[0]!.hasCondition).toBe(true);
   });
 
-  test("returns valid EncodedGraph type", () => {
+  test("encodes conditionGroup from edge metadata", () => {
+    const nodes = new Map<string, NodeDefinition<BaseState>>();
+    nodes.set("A", makeNode("A"));
+    nodes.set("B", makeNode("B"));
+    nodes.set("C", makeNode("C"));
+
     const graph = makeGraph({
-      nodes: [
-        { id: "s", type: "agent" },
-        { id: "e", type: "agent" },
+      nodes,
+      edges: [
+        { from: "A", to: "B", condition: () => true, conditionGroup: "g1" },
+        { from: "A", to: "C", condition: () => true, conditionGroup: "g1" },
       ],
-      edges: [{ from: "s", to: "e" }],
-      startNode: "s",
-      endNodes: ["e"],
+      startNode: "A",
+      endNodes: new Set(["B", "C"]),
     });
 
-    const encoded: EncodedGraph = encodeGraph(graph);
+    const encoded = encodeGraph(graph);
+    expect(encoded.edges[0]!.conditionGroup).toBe("g1");
+    expect(encoded.edges[1]!.conditionGroup).toBe("g1");
+  });
 
-    // Verify the shape satisfies EncodedGraph
-    expect(encoded).toHaveProperty("nodes");
-    expect(encoded).toHaveProperty("edges");
-    expect(encoded).toHaveProperty("startNode");
-    expect(encoded).toHaveProperty("endNodes");
-    expect(encoded).toHaveProperty("loops");
-    expect(encoded).toHaveProperty("stateFields");
+  test("uses edge label as conditionGroup fallback", () => {
+    const nodes = new Map<string, NodeDefinition<BaseState>>();
+    nodes.set("A", makeNode("A"));
+    nodes.set("B", makeNode("B"));
+
+    const graph = makeGraph({
+      nodes,
+      edges: [{ from: "A", to: "B", label: "fallback-label" }],
+      startNode: "A",
+      endNodes: new Set(["B"]),
+    });
+
+    const encoded = encodeGraph(graph);
+    expect(encoded.edges[0]!.conditionGroup).toBe("fallback-label");
+  });
+
+  test("converts endNodes Set to array", () => {
+    const nodes = new Map<string, NodeDefinition<BaseState>>();
+    nodes.set("A", makeNode("A"));
+    nodes.set("B", makeNode("B"));
+    nodes.set("C", makeNode("C"));
+
+    const graph = makeGraph({
+      nodes,
+      edges: [
+        { from: "A", to: "B" },
+        { from: "A", to: "C" },
+      ],
+      startNode: "A",
+      endNodes: new Set(["B", "C"]),
+    });
+
+    const encoded = encodeGraph(graph);
+    expect(Array.isArray(encoded.endNodes)).toBe(true);
+    expect(encoded.endNodes).toContain("B");
+    expect(encoded.endNodes).toContain("C");
+  });
+
+  test("strips runtime execute functions", () => {
+    const executeFn = async () => ({ stateUpdate: { something: true } as never });
+    const nodes = new Map<string, NodeDefinition<BaseState>>();
+    nodes.set("A", makeNode("A", { execute: executeFn }));
+
+    const graph = makeGraph({
+      nodes,
+      edges: [],
+      startNode: "A",
+      endNodes: new Set(["A"]),
+    });
+
+    const encoded = encodeGraph(graph);
+    const encodedNode = encoded.nodes[0]!;
+    expect("execute" in encodedNode).toBe(false);
+  });
+
+  test("empty graph produces empty encoded graph", () => {
+    const graph = makeGraph({
+      nodes: new Map(),
+      edges: [],
+      startNode: "",
+      endNodes: new Set(),
+    });
+
+    const encoded = encodeGraph(graph);
+    expect(encoded.nodes).toHaveLength(0);
+    expect(encoded.edges).toHaveLength(0);
+    expect(encoded.startNode).toBe("");
+    expect(encoded.endNodes).toEqual([]);
   });
 });

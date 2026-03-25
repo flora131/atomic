@@ -1,13 +1,15 @@
-import {
-  createClaudeAgentClient,
-  createCopilotClient,
-  createOpenCodeClient,
-  type CopilotClientOptions,
-  type OpenCodeClientOptions,
-} from "@/services/agents/clients/index.ts";
 import type { CodingAgentClient, Session, SessionConfig } from "@/services/agents/types.ts";
 import type { AgentProvider } from "@/services/workflows/graph/provider-registry.ts";
 import { ProviderRegistry } from "@/services/workflows/graph/provider-registry.ts";
+
+/**
+ * SDK client types — imported as types only (erased at runtime).
+ * Actual client modules are lazy-loaded inside each factory function
+ * so that unused SDKs never incur their import cost (~55ms total
+ * for all three: Claude 29ms, Copilot 18ms, OpenCode 8ms).
+ */
+import type { CopilotClientOptions } from "@/services/agents/clients/copilot.ts";
+import type { OpenCodeClientOptions } from "@/services/agents/clients/opencode.ts";
 
 const DEFAULT_CLAUDE_MODELS = ["opus", "sonnet", "haiku"] as const;
 
@@ -94,12 +96,14 @@ export interface DefaultProviderRegistryOptions {
 /**
  * Create an AgentProvider backed by the Claude client.
  */
-export function createClaudeAgentProvider(
+export async function createClaudeAgentProvider(
   options: ClaudeAgentProviderOptions = {},
-): AgentProvider {
+): Promise<AgentProvider> {
+  const client = options.client
+    ?? (await import("@/services/agents/clients/claude.ts")).createClaudeAgentClient();
   return new ClientBackedAgentProvider({
     name: "claude",
-    client: options.client ?? createClaudeAgentClient(),
+    client,
     supportedModels: options.supportedModels ?? DEFAULT_CLAUDE_MODELS,
   });
 }
@@ -107,12 +111,14 @@ export function createClaudeAgentProvider(
 /**
  * Create an AgentProvider backed by the OpenCode client.
  */
-export function createOpenCodeAgentProvider(
+export async function createOpenCodeAgentProvider(
   options: OpenCodeAgentProviderOptions = {},
-): AgentProvider {
+): Promise<AgentProvider> {
+  const client = options.client
+    ?? (await import("@/services/agents/clients/opencode.ts")).createOpenCodeClient(options.clientOptions);
   return new ClientBackedAgentProvider({
     name: "opencode",
-    client: options.client ?? createOpenCodeClient(options.clientOptions),
+    client,
     supportedModels: options.supportedModels ?? [],
   });
 }
@@ -120,12 +126,14 @@ export function createOpenCodeAgentProvider(
 /**
  * Create an AgentProvider backed by the Copilot client.
  */
-export function createCopilotAgentProvider(
+export async function createCopilotAgentProvider(
   options: CopilotAgentProviderOptions = {},
-): AgentProvider {
+): Promise<AgentProvider> {
+  const client = options.client
+    ?? (await import("@/services/agents/clients/copilot.ts")).createCopilotClient(options.clientOptions);
   return new ClientBackedAgentProvider({
     name: "copilot",
-    client: options.client ?? createCopilotClient(options.clientOptions),
+    client,
     supportedModels: options.supportedModels ?? [],
   });
 }
@@ -133,12 +141,13 @@ export function createCopilotAgentProvider(
 /**
  * Create a ProviderRegistry with Claude, OpenCode, and Copilot providers.
  */
-export function createDefaultProviderRegistry(
+export async function createDefaultProviderRegistry(
   options: DefaultProviderRegistryOptions = {},
-): ProviderRegistry {
-  return new ProviderRegistry({
-    claude: createClaudeAgentProvider(options.claude),
-    opencode: createOpenCodeAgentProvider(options.opencode),
-    copilot: createCopilotAgentProvider(options.copilot),
-  });
+): Promise<ProviderRegistry> {
+  const [claude, opencode, copilot] = await Promise.all([
+    createClaudeAgentProvider(options.claude),
+    createOpenCodeAgentProvider(options.opencode),
+    createCopilotAgentProvider(options.copilot),
+  ]);
+  return new ProviderRegistry({ claude, opencode, copilot });
 }

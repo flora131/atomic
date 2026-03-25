@@ -47,7 +47,7 @@ export async function listOpenCodeModels(
 async function fetchOpenCodeProviders(): Promise<OpenCodeSdkProvider[]> {
   const { createOpencodeClient } = await import("@opencode-ai/sdk");
   const client = createOpencodeClient({
-    baseUrl: "http://localhost:4096",
+    baseUrl: "http://127.0.0.1:4096",
     directory: process.cwd(),
   });
 

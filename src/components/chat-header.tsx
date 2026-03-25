@@ -83,6 +83,7 @@ function GradientText({
 
   return (
     <text>
+      {/* Index keys are safe here — chars array is derived from static text, never reordered */}
       {chars.map((char, index) => {
         const color = interpolateGradient(
           gradient,
@@ -122,6 +123,7 @@ export function AtomicHeader({
     >
       {showBlockLogo && (
         <box flexDirection="column" marginRight={SPACING.GUTTER}>
+          {/* Index keys are safe here — ATOMIC_BLOCK_LOGO is a static constant array, never reordered */}
           {ATOMIC_BLOCK_LOGO.map((line, index) => (
             <GradientText key={index} text={line} gradient={gradient} />
           ))}

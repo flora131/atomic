@@ -32,9 +32,22 @@ You are a specialist at finding WHERE code lives in a codebase. Your job is to l
 
 ## Search Strategy
 
-### Code Intelligence
+### Semantic Code Search (Primary)
 
-Prefer LSP over Grep/Glob/Read for code navigation:
+ALWAYS try `ccc search` first for code discovery before falling back to other tools:
+
+```bash
+ccc search <natural language query>          # semantic search
+ccc search --lang typescript <query>         # filter by language
+ccc search --path 'src/services/*' <query>   # filter by path
+```
+
+- Describe concepts and behavior in natural language (e.g., `ccc search event bus dispatching` not `ccc search EventBus`)
+- If `ccc search` fails with an init error, run `ccc init && ccc index` first, then retry
+
+### Code Intelligence (Refinement)
+
+After `ccc search` identifies candidate files, use LSP for precise navigation:
 - `goToDefinition` / `goToImplementation` to jump to source
 - `findReferences` to see all usages across the codebase
 - `workspaceSymbol` to find where something is defined
@@ -42,26 +55,12 @@ Prefer LSP over Grep/Glob/Read for code navigation:
 - `hover` for type info without reading the file
 - `incomingCalls` / `outgoingCalls` for call hierarchy
 
-Before renaming or changing a function signature, use
-`findReferences` to find all call sites first.
+### Grep/Glob (Fallback)
 
-Use Grep/Glob only for text/pattern searches (comments,
-strings, config values) where LSP doesn't help.
-
-After writing or editing code, check LSP diagnostics before
-moving on. Fix any type errors or missing imports immediately.
-
-### Initial Broad Search
-
-First, think deeply about the most effective search patterns for the requested feature or topic, considering:
-
-- Common naming conventions in this codebase
-- Language-specific directory structures
-- Related terms and synonyms that might be used
-
-1. Start with using your grep tool for finding keywords.
-2. Optionally, use glob for file patterns
-3. LS and Glob your way to victory as well!
+Use Grep/Glob only when `ccc search` and LSP are insufficient:
+- Exact string matching (error messages, config values, import paths)
+- Regex pattern searches
+- File extension/name pattern matching
 
 ### Refine by Language/Framework
 

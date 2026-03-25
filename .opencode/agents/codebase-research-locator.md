@@ -31,7 +31,21 @@ You are a specialist at finding documents in the research/ directory. Your job i
 
 ## Search Strategy
 
-First, think deeply about the search approach - consider which directories to prioritize based on the query, what search patterns and synonyms to use, and how to best categorize the findings for the user.
+### Semantic Code Search (Primary Discovery)
+
+ALWAYS try `ccc search` first to discover relevant research documents before falling back to Grep/Glob:
+
+```bash
+ccc search --path 'research/*' <natural language query>   # search within research/
+ccc search --path 'specs/*' <natural language query>       # search within specs/
+ccc search --path 'research/*' --path 'specs/*' <query>    # search both
+```
+
+- Describe the topic in natural language (e.g., `ccc search --path 'research/*' rate limiting design decisions`)
+- If `ccc search` fails with an init error, run `ccc init && ccc index` first, then retry
+- Fall back to Grep/Glob for exact string matching or filename pattern searches
+
+Then think deeply about the search approach - consider which directories to prioritize based on the query, what search patterns and synonyms to use, and how to best categorize the findings for the user.
 
 ### Directory Structure
 

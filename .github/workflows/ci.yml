@@ -36,7 +36,7 @@ jobs:
               run: bun run lint
 
             - name: Run tests with coverage
-              run: bun test --coverage --coverage-reporter=lcov 2>&1 | cat
+              run: bun run test:coverage 2>&1 | cat
 
             - name: Upload coverage
               uses: codecov/codecov-action@v5

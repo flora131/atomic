@@ -323,8 +323,8 @@ export function ParallelAgentsTree({
       visibleAgents,
       doneRenderedAgentIdsRef.current,
     );
+    doneRenderedAgentIdsRef.current = nextDoneRenderedAgentIds;
     if (markers.length > 0) {
-      doneRenderedAgentIdsRef.current = nextDoneRenderedAgentIds;
       const timestampMs = Date.now();
       for (const agentId of markers) {
         onAgentDoneRendered({ agentId, timestampMs });

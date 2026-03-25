@@ -179,7 +179,7 @@ export function UserQuestionDialog({
     useCallback(
       (event: KeyEvent) => {
         handleUserQuestionKey(event, {
-          visible: !!question,
+          visible,
           isEditingCustom,
           isChatAboutThis,
           optionsCount,

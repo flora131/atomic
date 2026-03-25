@@ -348,7 +348,7 @@ main() {
         esac
     done
 
-    # Export for detect_platform's Windows delegation branch
+    # Export for Windows PowerShell installer delegation
     export ATOMIC_INSTALL_VERSION="$version"
     export ATOMIC_INSTALL_PRERELEASE="$prerelease"
 

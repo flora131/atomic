@@ -382,7 +382,7 @@ export interface ConductorConfig {
    *
    * Used by the UI layer to update stage indicators.
    */
-  readonly onStageTransition: (from: string | null, to: string) => void;
+  readonly onStageTransition: (from: string | null, to: string, options?: { isResume?: boolean }) => void;
 
   /**
    * Called when the task list changes (e.g., after the planner parses

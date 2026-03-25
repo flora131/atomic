@@ -152,13 +152,6 @@ export async function executeConductorWorkflow(
               workflowName: definition.name,
             },
           });
-
-          pipelineLog("Workflow", "stage_transition", {
-            workflow: definition.name,
-            from: from ?? "start",
-            to,
-            indicator,
-          });
         }
 
         // Re-enable streaming for this stage.  The previous stage's
@@ -167,6 +160,13 @@ export async function executeConductorWorkflow(
         // new message is created as a streaming target.
         context.setStreaming(true);
         context.addMessage("assistant", "");
+
+        pipelineLog("Workflow", "stage_transition", {
+          workflow: definition.name,
+          from: from ?? "start",
+          to,
+          indicator: options?.isResume ? "(resume)" : undefined,
+        });
       },
 
       onTaskUpdate: (tasks: TaskItem[]) => {

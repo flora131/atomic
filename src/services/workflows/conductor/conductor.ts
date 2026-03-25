@@ -76,6 +76,8 @@ export class WorkflowSessionConductor {
   private resumeResolver: ((message: string | null) => void) | null = null;
   private pendingResumeMessage: string | null = null;
   private preserveSessionForResume = false;
+  private preservedSession: Session | null = null;
+  private isResuming = false;
 
   constructor(config: ConductorConfig, stages: readonly StageDefinition[]) {
     this.config = config;
@@ -213,15 +215,21 @@ export class WorkflowSessionConductor {
         if (stageResult.output.status === "interrupted") {
           const resumeInput = await this.waitForResumeInput();
 
-          if (resumeInput !== null) {
+          if (resumeInput !== null && resumeInput.trim().length > 0) {
             // Re-execute the same stage with the follow-up message
             nodeQueue.unshift(nodeId);
             visited.delete(nodeId);
             this.pendingResumeMessage = resumeInput;
             this.preserveSessionForResume = true;
+            this.isResuming = true;
             continue;
           }
-          // If null (no follow-up), fall through to advance to next node
+          // No follow-up — destroy the preserved session immediately
+          if (this.preservedSession) {
+            await this.config.destroySession(this.preservedSession).catch(() => {});
+            this.preservedSession = null;
+          }
+          // Fall through to advance to next node
         }
       } else {
         result = await this.executeDeterministicNode(node, state);
@@ -243,6 +251,13 @@ export class WorkflowSessionConductor {
     }
 
     const success = !abortSignal.aborted && !encounteredError;
+
+    // Clean up any preserved session that wasn't reused
+    if (this.preservedSession) {
+      await this.config.destroySession(this.preservedSession).catch(() => {});
+      this.preservedSession = null;
+    }
+
     return this.buildResult(success, state);
   }
 
@@ -290,8 +305,9 @@ export class WorkflowSessionConductor {
       return { output: skippedOutput, result: {}, skipped: true };
     }
 
-    // Notify UI of stage transition
-    this.config.onStageTransition(previousStageId, nodeId);
+    // Notify UI of stage transition (skip banner on resume re-entry)
+    this.config.onStageTransition(previousStageId, nodeId, this.isResuming ? { isResume: true } : undefined);
+    this.isResuming = false;
 
     // Track the currently-executing stage
     this.currentStage = nodeId;
@@ -378,7 +394,14 @@ export class WorkflowSessionConductor {
           this.preserveSessionForResume = false;
         }
 
-        session = await this.config.createSession(stage.sessionConfig);
+        // Reuse preserved session from a previous interrupt when available,
+        // otherwise create a fresh session
+        if (this.preservedSession) {
+          session = this.preservedSession;
+          this.preservedSession = null;
+        } else {
+          session = await this.config.createSession(stage.sessionConfig);
+        }
         this.currentSession = session;
 
         // Stream through the full SDK adapter pipeline when available,
@@ -402,6 +425,11 @@ export class WorkflowSessionConductor {
         // Check for per-stage interrupt (set by conductor.interrupt())
         if (this.interrupted) {
           this.interrupted = false;
+
+          // Preserve the session for potential reuse on resume
+          this.preservedSession = session;
+          session = undefined;
+
           return {
             stageId: stage.id,
             rawResponse: accumulatedResponse + rawResponse,
@@ -501,6 +529,11 @@ export class WorkflowSessionConductor {
           // Check for interrupt during the follow-up stream
           if (this.interrupted) {
             this.interrupted = false;
+
+            // Preserve the session for potential reuse on resume
+            this.preservedSession = session;
+            session = undefined;
+
             return {
               stageId: stage.id,
               rawResponse: accumulatedResponse,
@@ -532,6 +565,11 @@ export class WorkflowSessionConductor {
       } catch (error) {
         // Abort-induced errors are "interrupted", not "error"
         if (this.interrupted || context.abortSignal.aborted) {
+          if (this.interrupted) {
+            // Conductor interrupt — preserve session for potential resume
+            this.preservedSession = session ?? null;
+            session = undefined;
+          }
           this.interrupted = false;
           return {
             stageId: stage.id,

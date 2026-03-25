@@ -68,16 +68,6 @@ You are bound to run into errors when testing. As you test and run into issues/e
 
 Rely on the `tmux-cli` tool (e.g. run `claude` in a `tmux` session using the `tmux-cli` tool) to debug the application E2E.
 
-### Using React DevTools
-
-OpenTUI React supports React DevTools for debugging your terminal applications. To enable DevTools integration:
-
-1. Run your app with the DEV environment variable:
-   ```bash
-   DEV=true bun run dev chat -a <AGENT>
-   ```
-2. After the app starts, you should see the component tree in React DevTools. You can inspect and modify props in real-time, and changes will be reflected immediately in your terminal UI.
-
 ## Docs
 
 Relevant resources (use the deepwiki mcp `ask_question` tool for repos):

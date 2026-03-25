@@ -176,27 +176,27 @@ describe("executeConductorWorkflow — interrupt/queue integration", () => {
       let sessionCallCount = 0;
       const streamedPrompts: string[] = [];
 
+      let hasInterrupted = false;
       const sessionFactory = mock(async () => {
         sessionCallCount++;
         const session = createMockSession("", `session-${sessionCallCount}`);
 
-        if (sessionCallCount === 1) {
-          // First session: will be interrupted mid-stream
-          session.stream = async function* (msg: string) {
-            streamedPrompts.push(msg);
+        // The session triggers interrupt only once (first stream call).
+        // On resume, the preserved session is reused — its stream must
+        // complete normally to avoid an infinite interrupt loop.
+        session.stream = async function* (msg: string) {
+          streamedPrompts.push(msg);
+          if (!hasInterrupted) {
+            hasInterrupted = true;
             yield { type: "text" as const, content: "initial output" } as AgentMessage;
             // Simulate interrupt being called externally
             if (capturedInterruptFn) {
               capturedInterruptFn();
             }
-          };
-        } else {
-          // Second session: receives the queued message and completes
-          session.stream = async function* (msg: string) {
-            streamedPrompts.push(msg);
+          } else {
             yield { type: "text" as const, content: "resumed output" } as AgentMessage;
-          };
-        }
+          }
+        };
 
         return session;
       });
@@ -583,28 +583,29 @@ describe("executeConductorWorkflow — interrupt/queue integration", () => {
       let capturedInterruptFn: (() => void) | null = null;
       let sessionCallCount = 0;
       const streamedPrompts: string[] = [];
+      let plannerHasInterrupted = false;
 
       const sessionFactory = mock(async () => {
         sessionCallCount++;
         const session = createMockSession("", `session-${sessionCallCount}`);
 
         if (sessionCallCount === 1) {
-          // First session (planner): gets interrupted
+          // First session (planner): gets interrupted once, then completes
+          // normally on resume (preserved session is reused by the conductor).
           session.stream = async function* (msg: string) {
             streamedPrompts.push(msg);
-            yield { type: "text" as const, content: "planner initial" } as AgentMessage;
-            if (capturedInterruptFn) {
-              capturedInterruptFn();
+            if (!plannerHasInterrupted) {
+              plannerHasInterrupted = true;
+              yield { type: "text" as const, content: "planner initial" } as AgentMessage;
+              if (capturedInterruptFn) {
+                capturedInterruptFn();
+              }
+            } else {
+              yield { type: "text" as const, content: "planner resumed" } as AgentMessage;
             }
           };
-        } else if (sessionCallCount === 2) {
-          // Second session (planner resume): receives queued message
-          session.stream = async function* (msg: string) {
-            streamedPrompts.push(msg);
-            yield { type: "text" as const, content: "planner resumed" } as AgentMessage;
-          };
         } else {
-          // Third session (reviewer): normal execution
+          // Second session (reviewer): normal execution
           session.stream = async function* (msg: string) {
             streamedPrompts.push(msg);
             yield { type: "text" as const, content: "reviewer output" } as AgentMessage;
@@ -638,8 +639,8 @@ describe("executeConductorWorkflow — interrupt/queue integration", () => {
       // The queued message should have been delivered as the resume prompt
       expect(streamedPrompts[1]).toBe("queued correction");
 
-      // All three sessions should have been created
-      expect(sessionCallCount).toBeGreaterThanOrEqual(3);
+      // Two sessions: planner (reused on resume) + reviewer
+      expect(sessionCallCount).toBeGreaterThanOrEqual(2);
     });
   });
 

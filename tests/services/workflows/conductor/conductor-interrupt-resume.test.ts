@@ -305,24 +305,30 @@ describe("WorkflowSessionConductor — interrupt-pause-resume (§5.1)", () => {
       });
 
       let conductor: WorkflowSessionConductor;
-      let sessionCallCount = 0;
+      let hasInterrupted = false;
 
       const sessionFactory = async () => {
-        sessionCallCount++;
-        if (sessionCallCount === 1) {
-          const session: Session = {
-            ...createMockSession(""),
-            stream: async function* () {
+        const session: Session = {
+          ...createMockSession(""),
+          // The session only interrupts once — on resume the preserved
+          // session is reused and must complete normally.
+          stream: async function* () {
+            if (!hasInterrupted) {
+              hasInterrupted = true;
               yield {
                 type: "text" as const,
                 content: "initial",
               } as AgentMessage;
               conductor!.interrupt();
-            },
-          };
-          return session;
-        }
-        return createMockSession("resumed output");
+            } else {
+              yield {
+                type: "text" as const,
+                content: "resumed output",
+              } as AgentMessage;
+            }
+          },
+        };
+        return session;
       };
 
       const graph = buildLinearGraph([agentNode("planner")]);
@@ -392,34 +398,30 @@ describe("WorkflowSessionConductor — interrupt-pause-resume (§5.1)", () => {
 
     test("resume(message) re-executes the same stage with the follow-up message", async () => {
       let conductor: WorkflowSessionConductor;
-      let sessionCallCount = 0;
       const streamedMessages: string[] = [];
+      let hasInterrupted = false;
 
       const sessionFactory = async () => {
-        sessionCallCount++;
-        if (sessionCallCount === 1) {
-          // First session: will be interrupted
-          const session: Session = {
-            ...createMockSession(""),
-            stream: async function* (msg: string) {
-              streamedMessages.push(msg);
+        // The conductor preserves the session on interrupt and reuses it.
+        // The stream must only interrupt once; on resume it completes normally.
+        const session: Session = {
+          ...createMockSession(""),
+          stream: async function* (msg: string) {
+            streamedMessages.push(msg);
+            if (!hasInterrupted) {
+              hasInterrupted = true;
               yield {
                 type: "text" as const,
                 content: "initial output",
               } as AgentMessage;
               conductor!.interrupt();
-            },
-          };
-          return session;
-        }
-        // Second session: for resumed execution
-        const session = createMockSession("resumed output");
-        session.stream = async function* (msg: string) {
-          streamedMessages.push(msg);
-          yield {
-            type: "text" as const,
-            content: "resumed output",
-          } as AgentMessage;
+            } else {
+              yield {
+                type: "text" as const,
+                content: "resumed output",
+              } as AgentMessage;
+            }
+          },
         };
         return session;
       };
@@ -433,7 +435,7 @@ describe("WorkflowSessionConductor — interrupt-pause-resume (§5.1)", () => {
       conductor = new WorkflowSessionConductor(config, stages);
       const result = await conductor.execute("test");
 
-      // The second session should have received the follow-up message as prompt
+      // The preserved session should have received the follow-up message as prompt
       expect(streamedMessages.length).toBeGreaterThanOrEqual(2);
       expect(streamedMessages[1]).toBe("follow-up message");
       expect(result.stageOutputs.get("planner")!.status).toBe("completed");
@@ -445,25 +447,33 @@ describe("WorkflowSessionConductor — interrupt-pause-resume (§5.1)", () => {
   // -----------------------------------------------------------------------
 
   describe("session preservation on resume", () => {
-    test("session is NOT destroyed when preserveSessionForResume is true", async () => {
+    test("preserved session is reused on resume instead of creating a new one", async () => {
       let conductor: WorkflowSessionConductor;
       const destroyedSessions: string[] = [];
       let sessionCallCount = 0;
-      let sharedSession: Session;
+      let hasInterrupted = false;
 
       const sessionFactory = async () => {
         sessionCallCount++;
-        sharedSession = createMockSession("output", `session-${sessionCallCount}`);
-        if (sessionCallCount === 1) {
-          sharedSession.stream = async function* () {
+        const session = createMockSession("output", `session-${sessionCallCount}`);
+        // The session only interrupts once; on resume the preserved
+        // session completes normally.
+        session.stream = async function* () {
+          if (!hasInterrupted) {
+            hasInterrupted = true;
             yield {
               type: "text" as const,
               content: "initial",
             } as AgentMessage;
             conductor!.interrupt();
-          };
-        }
-        return sharedSession;
+          } else {
+            yield {
+              type: "text" as const,
+              content: "resumed",
+            } as AgentMessage;
+          }
+        };
+        return session;
       };
 
       const graph = buildLinearGraph([agentNode("planner")]);
@@ -478,68 +488,12 @@ describe("WorkflowSessionConductor — interrupt-pause-resume (§5.1)", () => {
       conductor = new WorkflowSessionConductor(config, stages);
       await conductor.execute("test");
 
-      // The first session should have been preserved (not destroyed during interrupt).
-      // After the resume with a new session creates and completes, that second session
-      // is destroyed normally. We expect the total destroy count to be 1 (only the
-      // resumed session's final cleanup).
-      // Actually, the session IS reused, so createSession is called again for the
-      // resumed stage (since the existing session goes through the interrupt return path
-      // which sets preserveSessionForResume=true in the execute() loop, then
-      // runStageSession reuses it). But the finally block after the interrupted
-      // return does NOT destroy it because preserveSessionForResume is true at that point.
-      // Then on re-entry, the session is reused, and after completing, it IS destroyed.
-      //
-      // Key assertion: the session is created only once if preserved
-      // Actually re-examining the flow: the interrupt return happens inside
-      // runStageSession's try block, so finally runs. preserveSessionForResume
-      // is set to true in the execute() loop AFTER runStageSession returns.
-      // So the finally block still has preserveSessionForResume=false at that
-      // point... Let me re-check.
-      //
-      // The flow is:
-      // 1. runStageSession() detects this.interrupted = true, returns interrupted output
-      //    -> finally block runs with session defined, this.preserveSessionForResume = false
-      //    -> session IS destroyed
-      // 2. execute() loop sees interrupted, calls waitForResumeInput(), gets "resume message"
-      //    -> sets this.preserveSessionForResume = true, this.pendingResumeMessage = "resume message"
-      //    -> continues loop, re-visits the node
-      // 3. runStageSession() enters again, sees preserveSessionForResume = true BUT
-      //    this.currentSession is null (was cleared in step 1 finally block)
-      //    -> Falls through to createSession since currentSession is null
-      //
-      // So session preservation requires the finally block to NOT destroy/clear the session.
-      // Let me re-examine the finally block:
-      // ```
-      // } finally {
-      //   if (session && !this.preserveSessionForResume) {
-      //     this.currentSession = null;
-      //     ...destroy...
-      //   }
-      // }
-      // ```
-      // But preserveSessionForResume is set AFTER runStageSession returns...
-      // This means we need to set it BEFORE the return for it to work.
-      //
-      // Actually, looking at the code flow more carefully:
-      // The `interrupted` check in runStageSession returns early from inside the try block.
-      // The `preserveSessionForResume` is set in the execute() loop AFTER runStageSession
-      // returns. So by the time the finally block runs, preserveSessionForResume is still false.
-      //
-      // This means the current implementation will destroy the session in the finally block
-      // and then try to reuse it (but currentSession will be null). The reuse path will
-      // fail the condition `this.preserveSessionForResume && this.currentSession` and fall
-      // through to creating a new session.
-      //
-      // The result is that a new session IS created for the resume. This is a valid
-      // implementation choice that still works correctly, just without session reuse.
-      //
-      // For this test, let's verify the overall behavior is correct.
-
-      // Session 1: created for planner (interrupted, destroyed by finally)
-      // Session 2: created for planner resume (completed, destroyed by finally)
-      expect(sessionCallCount).toBe(2);
-      // Both sessions are destroyed
-      expect(destroyedSessions).toHaveLength(2);
+      // With session preservation, the conductor reuses the interrupted session
+      // on resume instead of creating a new one. Only 1 session is created.
+      expect(sessionCallCount).toBe(1);
+      // The preserved session is destroyed once after the resumed stage completes.
+      expect(destroyedSessions).toHaveLength(1);
+      expect(destroyedSessions[0]).toBe("session-1");
     });
   });
 
@@ -768,37 +722,35 @@ describe("WorkflowSessionConductor — interrupt-pause-resume (§5.1)", () => {
   describe("multiple sequential interrupts", () => {
     test("interrupt stage A, resume, interrupt stage B, resume — works correctly", async () => {
       let conductor: WorkflowSessionConductor;
-      let sessionCallCount = 0;
       const executionOrder: Array<{ stage: string; action: string }> = [];
       let waitCallCount = 0;
+      // Track which stages have been interrupted so each only interrupts once
+      const interruptedStages = new Set<string>();
 
       const sessionFactory = async () => {
-        sessionCallCount++;
-        const sessionId = `session-${sessionCallCount}`;
-        const session = createMockSession("", sessionId);
+        const session = createMockSession("");
 
-        // Odd sessions: will be interrupted
-        // Even sessions: complete normally
-        if (sessionCallCount % 2 === 1) {
-          session.stream = async function* (msg: string) {
-            const stageId = sessionCallCount <= 2 ? "stageA" : "stageB";
-            executionOrder.push({ stage: stageId, action: "stream-interrupted" });
+        // Each stage interrupts once, then completes on resume.
+        // The conductor preserves and reuses the session, so the same
+        // session's stream function is called again on resume.
+        session.stream = async function* (_msg: string) {
+          const currentStage = conductor.getCurrentStage() ?? "unknown";
+          if (!interruptedStages.has(currentStage)) {
+            interruptedStages.add(currentStage);
+            executionOrder.push({ stage: currentStage, action: "stream-interrupted" });
             yield {
               type: "text" as const,
-              content: `${stageId}-partial`,
+              content: `${currentStage}-partial`,
             } as AgentMessage;
             conductor!.interrupt();
-          };
-        } else {
-          session.stream = async function* (msg: string) {
-            const stageId = sessionCallCount <= 2 ? "stageA" : "stageB";
-            executionOrder.push({ stage: stageId, action: "stream-completed" });
+          } else {
+            executionOrder.push({ stage: currentStage, action: "stream-completed" });
             yield {
               type: "text" as const,
-              content: `${stageId}-complete`,
+              content: `${currentStage}-complete`,
             } as AgentMessage;
-          };
-        }
+          }
+        };
 
         return session;
       };
@@ -877,24 +829,29 @@ describe("WorkflowSessionConductor — interrupt-pause-resume (§5.1)", () => {
     test("checkQueuedMessage returns message on interrupt — waitForResumeInput not called", async () => {
       let conductor: WorkflowSessionConductor;
       const waitForResumeInputMock = mock(async () => "user input");
-      let sessionCallCount = 0;
+      let hasInterrupted = false;
 
       const sessionFactory = async () => {
-        sessionCallCount++;
-        if (sessionCallCount === 1) {
-          const session: Session = {
-            ...createMockSession(""),
-            stream: async function* () {
+        const session: Session = {
+          ...createMockSession(""),
+          // Only interrupt once; on resume the preserved session completes.
+          stream: async function* () {
+            if (!hasInterrupted) {
+              hasInterrupted = true;
               yield {
                 type: "text" as const,
                 content: "initial",
               } as AgentMessage;
               conductor!.interrupt();
-            },
-          };
-          return session;
-        }
-        return createMockSession("resumed output");
+            } else {
+              yield {
+                type: "text" as const,
+                content: "resumed output",
+              } as AgentMessage;
+            }
+          },
+        };
+        return session;
       };
 
       let checkCallCount = 0;

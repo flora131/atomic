@@ -645,7 +645,118 @@ describe("executeConductorWorkflow — interrupt/queue integration", () => {
   });
 
   // -----------------------------------------------------------------------
-  // 8. setStreaming cleanup
+  // 8. Banner suppression on resume
+  // -----------------------------------------------------------------------
+
+  describe("banner suppression on resume", () => {
+    test("updateWorkflowState is NOT called on resume transition", async () => {
+      let capturedInterruptFn: (() => void) | null = null;
+      const updateWorkflowStateMock = mock((_state: Record<string, unknown>) => {});
+      let hasInterrupted = false;
+
+      const sessionFactory = mock(async () => {
+        const session = createMockSession("");
+        session.stream = async function* () {
+          if (!hasInterrupted) {
+            hasInterrupted = true;
+            yield { type: "text" as const, content: "initial output" } as AgentMessage;
+            // Trigger interrupt
+            if (capturedInterruptFn) {
+              capturedInterruptFn();
+            }
+          } else {
+            yield { type: "text" as const, content: "resumed output" } as AgentMessage;
+          }
+        };
+        return session;
+      });
+
+      let dequeueCallCount = 0;
+      const dequeueMock = mock(() => {
+        dequeueCallCount++;
+        // First call (on interrupt path): return a queued message to resume
+        if (dequeueCallCount === 1) return "follow-up message";
+        // Subsequent calls: no more messages
+        return null;
+      });
+
+      const context = createMockContext({
+        registerConductorInterrupt: mock((fn: (() => void) | null) => {
+          capturedInterruptFn = fn;
+        }),
+        dequeueMessage: dequeueMock,
+        updateWorkflowState: updateWorkflowStateMock,
+        createAgentSession: sessionFactory as CommandContext["createAgentSession"],
+      });
+
+      const definition = createDefinition();
+      await executeConductorWorkflow(definition, "test prompt", context);
+
+      // updateWorkflowState should have been called exactly ONCE — for the
+      // initial stage transition, NOT for the resume transition.
+      expect(updateWorkflowStateMock).toHaveBeenCalledTimes(1);
+    });
+
+    test("setStreaming and addMessage ARE called even on resume transition", async () => {
+      let capturedInterruptFn: (() => void) | null = null;
+      const setStreamingMock = mock((_streaming: boolean) => {});
+      const addMessageMock = mock((_role: string, _content: string) => {});
+      let hasInterrupted = false;
+
+      const sessionFactory = mock(async () => {
+        const session = createMockSession("");
+        session.stream = async function* () {
+          if (!hasInterrupted) {
+            hasInterrupted = true;
+            yield { type: "text" as const, content: "initial output" } as AgentMessage;
+            // Trigger interrupt
+            if (capturedInterruptFn) {
+              capturedInterruptFn();
+            }
+          } else {
+            yield { type: "text" as const, content: "resumed output" } as AgentMessage;
+          }
+        };
+        return session;
+      });
+
+      let dequeueCallCount = 0;
+      const dequeueMock = mock(() => {
+        dequeueCallCount++;
+        if (dequeueCallCount === 1) return "follow-up message";
+        return null;
+      });
+
+      const context = createMockContext({
+        registerConductorInterrupt: mock((fn: (() => void) | null) => {
+          capturedInterruptFn = fn;
+        }),
+        dequeueMessage: dequeueMock,
+        setStreaming: setStreamingMock,
+        addMessage: addMessageMock,
+        createAgentSession: sessionFactory as CommandContext["createAgentSession"],
+      });
+
+      const definition = createDefinition();
+      await executeConductorWorkflow(definition, "test prompt", context);
+
+      // setStreaming(true) should be called for BOTH transitions (initial + resume).
+      // There is also a final setStreaming(false) from the executor's cleanup.
+      const setStreamingTrueCalls = setStreamingMock.mock.calls.filter(
+        (call) => call[0] === true,
+      );
+      expect(setStreamingTrueCalls.length).toBeGreaterThanOrEqual(2);
+
+      // addMessage("assistant", "") should be called for BOTH transitions.
+      const addAssistantCalls = addMessageMock.mock.calls.filter(
+        (call) => call[0] === "assistant" && call[1] === "",
+      );
+      expect(addAssistantCalls.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // 9. setStreaming cleanup
   // -----------------------------------------------------------------------
 
   describe("setStreaming cleanup", () => {

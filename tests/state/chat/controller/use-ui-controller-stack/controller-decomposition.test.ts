@@ -58,6 +58,7 @@ function createMockArgs(): UseChatUiControllerStackArgs {
       workingDir: "/test",
     },
     hitl: {
+      activeHitlToolCallId: null,
       activeHitlToolCallIdRef: noopRef as any,
       activeQuestion: null,
       handleAgentDoneRendered: noop as any,

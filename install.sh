@@ -373,7 +373,10 @@ main() {
             if [[ "${ATOMIC_INSTALL_PRERELEASE:-}" == "true" ]]; then
                 ps_args="${ps_args} -Prerelease"
             fi
-            powershell -c "iex \"& { \$(irm https://raw.githubusercontent.com/${GITHUB_REPO}/main/install.ps1) }${ps_args}\""
+            if ! command -v pwsh &>/dev/null; then
+                error "PowerShell 7+ (pwsh) is required but not found. Install it from https://aka.ms/install-powershell"
+            fi
+            pwsh -Command "iex \"& { \$(irm https://raw.githubusercontent.com/${GITHUB_REPO}/main/install.ps1) }${ps_args}\""
             exit $?
             ;;
     esac

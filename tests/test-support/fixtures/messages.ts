@@ -86,7 +86,7 @@ export function createHitlContext(
     header: "Permission Request",
     answer: "Yes",
     cancelled: false,
-    responseMode: "buttons",
+    responseMode: "option",
     ...overrides,
   };
 }

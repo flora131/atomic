@@ -114,6 +114,7 @@ export function useChatStreamRuntime({
     deferredCompleteTimeoutRef: refs.deferredCompleteTimeoutRef,
     hasRunningToolRef: refs.hasRunningToolRef,
     isAgentOnlyStreamRef: refs.isAgentOnlyStreamRef,
+    setHasRunningTool,
     isStreamingRef: refs.isStreamingRef,
     lastTurnFinishReasonRef: refs.lastTurnFinishReasonRef,
     nextRunIdFloorRef: refs.nextRunIdFloorRef,

@@ -99,6 +99,7 @@ export function TranscriptView({
       verticalScrollbarOptions={{ visible: false }}
       horizontalScrollbarOptions={{ visible: false }}
     >
+      {/* Index keys are safe here — transcript is append-only and lines are never reordered or removed */}
       {transcriptLines.map((tl: TranscriptLine, idx: number) => {
         if (tl.type === "blank") {
           return <text key={idx}>{" "}</text>;

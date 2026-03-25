@@ -139,6 +139,7 @@ function CollapsibleContent({
         paddingLeft={SPACING.CONTAINER_PAD}
         paddingRight={SPACING.CONTAINER_PAD}
       >
+        {/* Index keys are safe here — list is static display lines derived from tool output, never reordered */}
         {displayLines.map((line, index) => {
           // Apply diff coloring
           let lineColor = contentColor;
@@ -363,6 +364,7 @@ export function ToolResult({
       {/* Error message - separate display */}
       {hasError && typeof output === "string" && !renderResult.content.includes(output) && (
         <box marginTop={SPACING.NONE} marginLeft={SPACING.CONTAINER_PAD}>
+          {/* Index keys are safe here — list is static error output lines, never reordered */}
           {truncatedErrorLines.map((line, index) => (
             <text key={index} fg={colors.error}>
               {line || " "}

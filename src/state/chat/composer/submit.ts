@@ -22,9 +22,9 @@ interface HandleComposerSubmitArgs extends Pick<
   | "setWorkflowSessionId"
   | "todoItemsRef"
   | "waitForUserInputResolverRef"
+  | "workflowActiveRef"
   | "workflowSessionDirRef"
   | "workflowSessionIdRef"
-  | "workflowState"
   | "workflowTaskIdsRef"
 > {
   appendPromptHistory: (value: string) => void;
@@ -60,9 +60,9 @@ export function handleComposerSubmit({
   textareaRef,
   todoItemsRef,
   waitForUserInputResolverRef,
+  workflowActiveRef,
   workflowSessionDirRef,
   workflowSessionIdRef,
-  workflowState,
   workflowTaskIdsRef,
 }: HandleComposerSubmitArgs): void {
   const value = textareaRef.current?.plainText ?? "";
@@ -117,9 +117,12 @@ export function handleComposerSubmit({
   }
 
   if (waitForUserInputResolverRef.current) {
+    // Use workflowActiveRef (always-current ref) rather than the closure
+    // value workflowState.workflowActive, which can be stale when the
+    // OpenTUI reconciler hasn't yet propagated the latest callback prop.
     const workflowInput = consumeWorkflowInputSubmission(
       waitForUserInputResolverRef.current,
-      workflowState.workflowActive,
+      workflowActiveRef.current,
       trimmedValue,
     );
     waitForUserInputResolverRef.current = workflowInput.nextResolver;
@@ -131,7 +134,7 @@ export function handleComposerSubmit({
 
   // Don't clear workflow session state during an active workflow —
   // the message will be enqueued for the conductor.
-  if (agentType === "copilot" && workflowSessionDirRef.current && !workflowState.workflowActive) {
+  if (agentType === "copilot" && workflowSessionDirRef.current && !workflowActiveRef.current) {
     setWorkflowSessionDir(null);
     setWorkflowSessionId(null);
     workflowSessionDirRef.current = null;
@@ -161,7 +164,7 @@ export function handleComposerSubmit({
   // checkQueuedMessage to pick up. This closes the race condition between
   // interruptStreaming() resetting isStreamingRef and the conductor's
   // waitForResumeInput() setting the resolver.
-  if (workflowState.workflowActive) {
+  if (workflowActiveRef.current) {
     emitMessageSubmitTelemetry({
       messageLength: trimmedValue.length,
       queued: true,

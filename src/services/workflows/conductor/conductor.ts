@@ -591,10 +591,16 @@ export class WorkflowSessionConductor {
           }
         }
 
-        // Drain queued messages to the active session before completing
+        // Drain queued messages to the active session before completing.
+        // Each iteration re-enables streaming in the TUI via onBeforeQueuedStream
+        // because the previous stream's `stream.session.idle` already stopped it.
         while (session) {
           const queuedMessage = this.config.checkQueuedMessage?.();
           if (!queuedMessage) break;
+
+          // Re-enable streaming and create a new message target so the
+          // queued message's text deltas have a UI destination.
+          this.config.onBeforeQueuedStream?.();
 
           // Deliver the queued message to the still-active session
           let queuedResponse: string;

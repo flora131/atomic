@@ -232,6 +232,14 @@ export async function executeConductorWorkflow(
         }
       },
 
+      // Re-enable streaming before each queued message in the drain loop.
+      // The previous stream's session.idle already stopped the TUI's stream
+      // state; this restores it so the queued message's events bind correctly.
+      onBeforeQueuedStream: () => {
+        context.setStreaming(true);
+        context.addMessage("assistant", "");
+      },
+
       // TODO: Wire contextPressure config once session.getContextUsage() is available
       // on sessions created via context.createAgentSession
     };

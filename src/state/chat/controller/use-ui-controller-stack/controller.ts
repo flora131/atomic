@@ -325,6 +325,7 @@ export function useChatUiControllerStack({
     todoItemsRef,
     updateWorkflowState,
     waitForUserInputResolverRef,
+    workflowActiveRef,
     workflowSessionDirRef,
     workflowSessionIdRef,
     workflowState,

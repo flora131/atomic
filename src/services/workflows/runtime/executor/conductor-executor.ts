@@ -132,23 +132,34 @@ export async function executeConductorWorkflow(
         await session.destroy();
       },
 
-      onStageTransition: (from, to) => {
-        const stage = stages.find((s) => s.id === to);
-        const indicator = stage?.indicator ?? to;
-        const stageIndex = stages.findIndex((s) => s.id === to);
-        const stageIndicator = stageIndex >= 0
-          ? `Stage ${stageIndex + 1}/${stages.length}: ${indicator}`
-          : indicator;
+      onStageTransition: (from, to, options) => {
+        // On resume, skip the stage banner update — the UI already shows
+        // the correct stage indicator from the initial transition.
+        if (!options?.isResume) {
+          const stage = stages.find((s) => s.id === to);
+          const indicator = stage?.indicator ?? to;
+          const stageIndex = stages.findIndex((s) => s.id === to);
+          const stageIndicator = stageIndex >= 0
+            ? `Stage ${stageIndex + 1}/${stages.length}: ${indicator}`
+            : indicator;
 
-        context.updateWorkflowState({
-          currentStage: to,
-          stageIndicator,
-          workflowConfig: {
-            userPrompt: prompt,
-            sessionId,
-            workflowName: definition.name,
-          },
-        });
+          context.updateWorkflowState({
+            currentStage: to,
+            stageIndicator,
+            workflowConfig: {
+              userPrompt: prompt,
+              sessionId,
+              workflowName: definition.name,
+            },
+          });
+
+          pipelineLog("Workflow", "stage_transition", {
+            workflow: definition.name,
+            from: from ?? "start",
+            to,
+            indicator,
+          });
+        }
 
         // Re-enable streaming for this stage.  The previous stage's
         // stream.session.idle handler calls handleStreamComplete() which sets
@@ -156,13 +167,6 @@ export async function executeConductorWorkflow(
         // new message is created as a streaming target.
         context.setStreaming(true);
         context.addMessage("assistant", "");
-
-        pipelineLog("Workflow", "stage_transition", {
-          workflow: definition.name,
-          from: from ?? "start",
-          to,
-          indicator,
-        });
       },
 
       onTaskUpdate: (tasks: TaskItem[]) => {

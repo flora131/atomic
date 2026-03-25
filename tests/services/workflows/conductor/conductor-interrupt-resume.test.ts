@@ -495,6 +495,231 @@ describe("WorkflowSessionConductor — interrupt-pause-resume (§5.1)", () => {
       expect(destroyedSessions).toHaveLength(1);
       expect(destroyedSessions[0]).toBe("session-1");
     });
+
+    test("preserved session is destroyed when resume returns null (no follow-up)", async () => {
+      let conductor: WorkflowSessionConductor;
+      const destroyedSessions: string[] = [];
+      let sessionCallCount = 0;
+
+      const sessionFactory = async () => {
+        sessionCallCount++;
+        const sessionId = `session-${sessionCallCount}`;
+        if (sessionCallCount === 1) {
+          // First session (planner): interrupts during streaming
+          const session = createMockSession("output", sessionId);
+          session.stream = async function* () {
+            yield {
+              type: "text" as const,
+              content: "initial output",
+            } as AgentMessage;
+            conductor!.interrupt();
+          };
+          return session;
+        }
+        // Second session (reviewer): completes normally
+        return createMockSession("reviewer output", sessionId);
+      };
+
+      const graph = buildLinearGraph([
+        agentNode("planner"),
+        agentNode("reviewer"),
+      ]);
+      const config = buildConfig(graph, sessionFactory, {
+        destroySession: mock(async (session: Session) => {
+          destroyedSessions.push(session.id);
+        }),
+        // Return null = no follow-up, should destroy preserved session
+        waitForResumeInput: async () => null,
+      });
+      const stages = [stage("planner"), stage("reviewer")];
+
+      conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      // The planner session was interrupted; waitForResumeInput returned null,
+      // so the preserved session should have been destroyed immediately (lines 227-231).
+      expect(destroyedSessions).toContain("session-1");
+
+      // The conductor should advance to the reviewer stage after destroying the preserved session.
+      expect(result.stageOutputs.has("reviewer")).toBe(true);
+      expect(result.stageOutputs.get("reviewer")!.status).toBe("completed");
+
+      // session-1 was the interrupted (planner) session destroyed on null resume;
+      // session-2 is the reviewer session destroyed after normal completion.
+      expect(sessionCallCount).toBe(2);
+      expect(destroyedSessions).toHaveLength(2);
+    });
+
+    test("preserved session is cleaned up at end of execute() if never reused", async () => {
+      let conductor: WorkflowSessionConductor;
+      const destroyedSessions: string[] = [];
+      let sessionCallCount = 0;
+
+      // Use a pre-aborted abort signal so the conductor exits the loop
+      // before it can resume the interrupted stage.
+      const abortController = new AbortController();
+
+      const sessionFactory = async () => {
+        sessionCallCount++;
+        const session = createMockSession("output", `session-${sessionCallCount}`);
+        session.stream = async function* () {
+          yield {
+            type: "text" as const,
+            content: "initial output",
+          } as AgentMessage;
+          conductor!.interrupt();
+        };
+        return session;
+      };
+
+      const graph = buildLinearGraph([
+        agentNode("planner"),
+        agentNode("reviewer"),
+      ]);
+      const config = buildConfig(graph, sessionFactory, {
+        destroySession: mock(async (session: Session) => {
+          destroyedSessions.push(session.id);
+        }),
+        abortSignal: abortController.signal,
+        // waitForResumeInput resolves after abort fires, returning null
+        waitForResumeInput: async () => {
+          // Abort before returning so the main loop exits
+          abortController.abort();
+          return null;
+        },
+      });
+      const stages = [stage("planner"), stage("reviewer")];
+
+      conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      // The workflow was aborted, so it should not be successful
+      expect(result.success).toBe(false);
+
+      // The preserved session from the interrupted planner stage should be
+      // cleaned up in the finally block at the end of execute() (lines 255-259).
+      // It was destroyed either in the null-resume path or the finally block.
+      expect(destroyedSessions).toContain("session-1");
+      expect(sessionCallCount).toBe(1);
+    });
+
+    test("session is preserved (not destroyed) on error-path interrupt in catch block", async () => {
+      let conductor: WorkflowSessionConductor;
+      const destroyedSessions: string[] = [];
+      let sessionCallCount = 0;
+      let hasInterrupted = false;
+
+      const sessionFactory = async () => {
+        sessionCallCount++;
+        const session = createMockSession("output", `session-${sessionCallCount}`);
+        session.stream = async function* () {
+          if (!hasInterrupted) {
+            hasInterrupted = true;
+            conductor!.interrupt();
+            // Throw an error after interrupting — this triggers the catch block
+            // (lines 567-572) which should preserve the session, not destroy it.
+            throw new Error("Stream aborted due to interrupt");
+          } else {
+            yield {
+              type: "text" as const,
+              content: "resumed output",
+            } as AgentMessage;
+          }
+        };
+        return session;
+      };
+
+      const graph = buildLinearGraph([agentNode("planner")]);
+      const config = buildConfig(graph, sessionFactory, {
+        destroySession: mock(async (session: Session) => {
+          destroyedSessions.push(session.id);
+        }),
+        // Resume with a follow-up so the preserved session is reused
+        waitForResumeInput: async () => "follow-up after error interrupt",
+      });
+      const stages = [stage("planner")];
+
+      conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      // The session should have been preserved through the catch-block interrupt
+      // and then reused on resume. Only 1 session should have been created.
+      expect(sessionCallCount).toBe(1);
+
+      // After resume, the stage should complete successfully
+      expect(result.stageOutputs.get("planner")!.status).toBe("completed");
+
+      // The preserved session is destroyed once — after the resumed stage completes
+      expect(destroyedSessions).toHaveLength(1);
+      expect(destroyedSessions[0]).toBe("session-1");
+    });
+
+    test("multiple interrupt-resume cycles reuse and destroy sessions correctly", async () => {
+      let conductor: WorkflowSessionConductor;
+      const destroyedSessions: string[] = [];
+      let sessionCallCount = 0;
+      // Track which stages have been interrupted (each only once)
+      const interruptedStages = new Set<string>();
+
+      const sessionFactory = async () => {
+        sessionCallCount++;
+        const session = createMockSession("output", `session-${sessionCallCount}`);
+        session.stream = async function* () {
+          const currentStage = conductor.getCurrentStage() ?? "unknown";
+          if (!interruptedStages.has(currentStage)) {
+            interruptedStages.add(currentStage);
+            yield {
+              type: "text" as const,
+              content: `${currentStage}-partial`,
+            } as AgentMessage;
+            conductor!.interrupt();
+          } else {
+            yield {
+              type: "text" as const,
+              content: `${currentStage}-complete`,
+            } as AgentMessage;
+          }
+        };
+        return session;
+      };
+
+      const graph = buildLinearGraph([
+        agentNode("stageA"),
+        agentNode("stageB"),
+        agentNode("stageC"),
+      ]);
+      const config = buildConfig(graph, sessionFactory, {
+        destroySession: mock(async (session: Session) => {
+          destroyedSessions.push(session.id);
+        }),
+        waitForResumeInput: async () => "resume",
+      });
+      const stages = [stage("stageA"), stage("stageB"), stage("stageC")];
+
+      conductor = new WorkflowSessionConductor(config, stages);
+      const result = await conductor.execute("test");
+
+      // All stages should have completed
+      expect(result.success).toBe(true);
+      expect(result.stageOutputs.has("stageA")).toBe(true);
+      expect(result.stageOutputs.has("stageB")).toBe(true);
+      expect(result.stageOutputs.has("stageC")).toBe(true);
+
+      // Each stage interrupts once and is resumed — the preserved session is reused
+      // each time, so only one session is created per stage (not two).
+      expect(sessionCallCount).toBe(3);
+
+      // Each session should be destroyed exactly once after its resumed stage completes.
+      expect(destroyedSessions).toHaveLength(3);
+      expect(destroyedSessions).toContain("session-1");
+      expect(destroyedSessions).toContain("session-2");
+      expect(destroyedSessions).toContain("session-3");
+
+      // Each stage's final output should be "completed"
+      expect(result.stageOutputs.get("stageA")!.status).toBe("completed");
+      expect(result.stageOutputs.get("stageB")!.status).toBe("completed");
+      expect(result.stageOutputs.get("stageC")!.status).toBe("completed");
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -878,7 +1103,114 @@ describe("WorkflowSessionConductor — interrupt-pause-resume (§5.1)", () => {
   });
 
   // -----------------------------------------------------------------------
-  // 12. Error propagation still works after interrupt changes
+  // 12. Resume-aware stage transitions
+  // -----------------------------------------------------------------------
+
+  describe("resume-aware stage transitions", () => {
+    test("onStageTransition receives { isResume: true } when resuming interrupted stage", async () => {
+      let conductor: WorkflowSessionConductor;
+      const transitionCalls: Array<{ from: string | null; to: string; options?: { isResume?: boolean } }> = [];
+      let hasInterrupted = false;
+
+      const sessionFactory = async () => {
+        const session = createMockSession("");
+        session.stream = async function* () {
+          if (!hasInterrupted) {
+            hasInterrupted = true;
+            yield { type: "text" as const, content: "initial" } as AgentMessage;
+            conductor!.interrupt();
+          } else {
+            yield { type: "text" as const, content: "resumed" } as AgentMessage;
+          }
+        };
+        return session;
+      };
+
+      const graph = buildLinearGraph([agentNode("planner")]);
+      const config = buildConfig(graph, sessionFactory, {
+        onStageTransition: mock((from: string | null, to: string, options?: { isResume?: boolean }) => {
+          transitionCalls.push({ from, to, options });
+        }),
+        waitForResumeInput: async () => "follow-up",
+      });
+      const stages = [stage("planner")];
+
+      conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("test");
+
+      // First call: normal transition (no isResume)
+      expect(transitionCalls[0]!.options?.isResume).toBeUndefined();
+      // Second call: resume transition
+      expect(transitionCalls[1]!.options).toEqual({ isResume: true });
+    });
+
+    test("onStageTransition does NOT receive isResume when advancing normally (no interrupt)", async () => {
+      const transitionCalls: Array<{ from: string | null; to: string; options?: { isResume?: boolean } }> = [];
+
+      const graph = buildLinearGraph([agentNode("planner"), agentNode("reviewer")]);
+      const config = buildConfig(graph, async () => createMockSession("output"), {
+        onStageTransition: mock((from: string | null, to: string, options?: { isResume?: boolean }) => {
+          transitionCalls.push({ from, to, options });
+        }),
+      });
+      const stages = [stage("planner"), stage("reviewer")];
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("test");
+
+      // Both transitions should have no isResume option
+      expect(transitionCalls).toHaveLength(2);
+      expect(transitionCalls[0]!.options).toBeUndefined();
+      expect(transitionCalls[1]!.options).toBeUndefined();
+    });
+
+    test("isResuming flag is reset after resume transition", async () => {
+      let conductor: WorkflowSessionConductor;
+      const transitionCalls: Array<{ from: string | null; to: string; options?: { isResume?: boolean } }> = [];
+      let hasInterrupted = false;
+
+      const sessionFactory = async () => {
+        const session = createMockSession("");
+        session.stream = async function* () {
+          if (!hasInterrupted) {
+            hasInterrupted = true;
+            yield { type: "text" as const, content: "initial" } as AgentMessage;
+            conductor!.interrupt();
+          } else {
+            yield { type: "text" as const, content: "completed" } as AgentMessage;
+          }
+        };
+        return session;
+      };
+
+      const graph = buildLinearGraph([agentNode("planner"), agentNode("reviewer")]);
+      const config = buildConfig(graph, sessionFactory, {
+        onStageTransition: mock((from: string | null, to: string, options?: { isResume?: boolean }) => {
+          transitionCalls.push({ from, to, options });
+        }),
+        waitForResumeInput: async () => "resume message",
+      });
+      const stages = [stage("planner"), stage("reviewer")];
+
+      conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("test");
+
+      // Should have 3 transitions:
+      // 1. planner (initial) - no isResume
+      // 2. planner (resume) - isResume: true
+      // 3. reviewer (normal advance) - no isResume (flag was reset)
+      expect(transitionCalls).toHaveLength(3);
+      expect(transitionCalls[0]!.to).toBe("planner");
+      expect(transitionCalls[0]!.options).toBeUndefined();
+      expect(transitionCalls[1]!.to).toBe("planner");
+      expect(transitionCalls[1]!.options).toEqual({ isResume: true });
+      expect(transitionCalls[2]!.to).toBe("reviewer");
+      expect(transitionCalls[2]!.options).toBeUndefined();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // 13. Error propagation still works after interrupt changes
   // -----------------------------------------------------------------------
 
   describe("error handling preserved", () => {

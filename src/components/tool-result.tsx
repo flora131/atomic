@@ -5,7 +5,7 @@
  * Inspired by OpenCode's BasicTool with collapsible behavior.
  */
 
-import React, { useMemo } from "react";
+import React, { memo, useMemo } from "react";
 import { useTheme } from "@/theme/index.tsx";
 import { AnimatedBlinkIndicator } from "@/components/animated-blink-indicator.tsx";
 import { STATUS, MISC } from "@/theme/icons.ts";
@@ -73,13 +73,15 @@ export function getToolStatusColorKey(status: ToolExecutionStatus): ToolStatusCo
   }
 }
 
-function StatusIndicator({
-  status,
-  theme,
-}: {
+interface StatusIndicatorProps {
   status: ToolExecutionStatus;
   theme: ReturnType<typeof useTheme>["theme"];
-}): React.ReactNode {
+}
+
+const StatusIndicator = memo(function StatusIndicator({
+  status,
+  theme,
+}: StatusIndicatorProps): React.ReactNode {
   const colors = theme.colors;
   const color = colors[getToolStatusColorKey(status)];
 
@@ -95,7 +97,7 @@ function StatusIndicator({
       {icon}
     </text>
   );
-}
+});
 
 // ============================================================================
 // COLLAPSIBLE CONTENT COMPONENT
@@ -110,7 +112,7 @@ interface CollapsibleContentProps {
   language?: string;
 }
 
-function CollapsibleContent({
+const CollapsibleContent = memo(function CollapsibleContent({
   content,
   expanded,
   maxCollapsedLines,
@@ -171,7 +173,7 @@ function CollapsibleContent({
       )}
     </box>
   );
-}
+});
 
 // ============================================================================
 // UTILITY FUNCTIONS

@@ -1,4 +1,4 @@
-import React, { useMemo, useRef } from "react";
+import React, { memo, useMemo, useRef } from "react";
 import type { SyntaxStyle } from "@opentui/core";
 import { getCatppuccinPalette, useThemeColors } from "@/theme/index.tsx";
 import { formatDuration as formatDurationObj, truncateText } from "@/lib/ui/format.ts";
@@ -230,15 +230,17 @@ export function collectDoneRenderMarkers(
 
 export const MAX_VISIBLE_INLINE_TOOLS = 3;
 
-function AgentSummaryBlock({
-  agent,
-  compact,
-  syntaxStyle,
-}: {
+interface AgentSummaryBlockProps {
   agent: ParallelAgent;
   compact: boolean;
   syntaxStyle?: SyntaxStyle;
-}): React.ReactNode {
+}
+
+const AgentSummaryBlock = memo(function AgentSummaryBlock({
+  agent,
+  compact,
+  syntaxStyle,
+}: AgentSummaryBlockProps): React.ReactNode {
   const colors = useThemeColors();
   const allTools = getAgentInlineDisplayParts(agent.inlineParts ?? []);
   const hiddenToolCount = Math.max(0, allTools.length - MAX_VISIBLE_INLINE_TOOLS);
@@ -297,7 +299,7 @@ function AgentSummaryBlock({
       })}
     </box>
   );
-}
+});
 
 export function ParallelAgentsTree({
   agents,

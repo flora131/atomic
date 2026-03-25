@@ -41,12 +41,21 @@ import type {
 } from "@/services/workflows/conductor/types.ts";
 import { truncateStageOutput } from "@/services/workflows/conductor/truncate.ts";
 import { isPipelineDebug } from "@/services/events/pipeline-logger.ts";
-import { appendFileSync } from "node:fs";
+import { DEFAULT_LOG_DIR } from "@/services/events/debug-subscriber/config.ts";
+import { mkdirSync, appendFileSync } from "node:fs";
+import { join } from "node:path";
 
-const CONDUCTOR_LOG = "/tmp/conductor-debug.log";
+const CONDUCTOR_LOG_DIR = process.env.LOG_DIR?.trim() || DEFAULT_LOG_DIR;
+const CONDUCTOR_LOG = join(CONDUCTOR_LOG_DIR, "conductor-debug.log");
+
+let conductorLogDirEnsured = false;
 
 function conductorLog(action: string, data?: Record<string, unknown>): void {
   if (!isPipelineDebug()) return;
+  if (!conductorLogDirEnsured) {
+    mkdirSync(CONDUCTOR_LOG_DIR, { recursive: true });
+    conductorLogDirEnsured = true;
+  }
   const ts = new Date().toISOString();
   const payload = data ? ` ${JSON.stringify(data)}` : "";
   appendFileSync(CONDUCTOR_LOG, `[${ts}] ${action}${payload}\n`);

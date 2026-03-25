@@ -14,7 +14,6 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import { EchoSuppressor } from "@/services/events/consumers/echo-suppressor.ts";
 import { StreamPipelineConsumer } from "@/services/events/consumers/stream-pipeline-consumer.ts";
-import type { EnrichedBusEvent } from "@/services/events/bus-events.ts";
 import type { StreamPartEvent } from "@/state/parts/stream-pipeline.ts";
 
 describe("StreamPipelineConsumer - lifecycle", () => {
@@ -29,7 +28,6 @@ describe("StreamPipelineConsumer - lifecycle", () => {
   describe("onStreamParts()", () => {
     it("should return an unsubscribe function", () => {
       const receivedBefore: StreamPartEvent[] = [];
-      const receivedAfter: StreamPartEvent[] = [];
 
       const unsub = consumer.onStreamParts((events) => {
         receivedBefore.push(...events);

@@ -12,7 +12,6 @@
 
 import { beforeEach, describe, expect, it, mock, spyOn } from "bun:test";
 import { EventBus, type InternalBusError } from "@/services/events/event-bus.ts";
-import type { BusEvent } from "@/services/events/bus-events.ts";
 
 describe("EventBus", () => {
   let bus: EventBus;

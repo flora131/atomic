@@ -10,7 +10,7 @@
  * - Empty flush behavior
  */
 
-import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { BatchDispatcher } from "@/services/events/batch-dispatcher.ts";
 import { EventBus } from "@/services/events/event-bus.ts";
 import type { BusEvent } from "@/services/events/bus-events.ts";

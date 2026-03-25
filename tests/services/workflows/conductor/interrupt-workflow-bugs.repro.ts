@@ -333,7 +333,7 @@ describe("Bug B: Queued message + interrupt bypasses drain loop", () => {
       stage("planner"),
       stage("reviewer"),
     ]);
-    const result = await conductor.execute("Build a snake game");
+    await conductor.execute("Build a snake game");
 
     const timeline = events.map(
       (e) => `${e.type}:${e.data.nodeId}(${e.data.status ?? ""})`,

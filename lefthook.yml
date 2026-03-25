@@ -12,4 +12,4 @@ pre-commit:
 pre-push:
     commands:
         test-coverage:
-            run: bun test --coverage
+            run: bun run test:coverage

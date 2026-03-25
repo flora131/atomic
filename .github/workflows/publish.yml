@@ -1,11 +1,10 @@
 name: Publish
 
 on:
-  push:
+  pull_request:
+    types: [closed]
     branches:
       - main
-      - "release/**"
-      - "prerelease/**"
   release:
     types: [published]
   workflow_dispatch:
@@ -30,6 +29,11 @@ jobs:
   build:
     name: Build Binaries
     runs-on: ubuntu-latest
+    if: >-
+      github.event_name != 'pull_request'
+      || (github.event.pull_request.merged == true
+      && (startsWith(github.event.pull_request.head.ref, 'release/')
+      || startsWith(github.event.pull_request.head.ref, 'prerelease/')))
 
     steps:
       - name: Checkout repository
@@ -102,6 +106,11 @@ jobs:
   build-windows:
     name: Build Windows Binary
     runs-on: windows-latest
+    if: >-
+      github.event_name != 'pull_request'
+      || (github.event.pull_request.merged == true
+      && (startsWith(github.event.pull_request.head.ref, 'release/')
+      || startsWith(github.event.pull_request.head.ref, 'prerelease/')))
 
     steps:
       - name: Checkout repository
@@ -130,7 +139,11 @@ jobs:
     name: Create Release
     runs-on: ubuntu-latest
     needs: [build, build-windows]
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+    if: >-
+      github.event_name != 'pull_request'
+      || (github.event.pull_request.merged == true
+      && (startsWith(github.event.pull_request.head.ref, 'release/')
+      || startsWith(github.event.pull_request.head.ref, 'prerelease/')))
 
     steps:
       - name: Checkout repository
@@ -202,7 +215,11 @@ jobs:
     name: Publish Workflow SDK to npm
     runs-on: ubuntu-latest
     needs: [release]
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+    if: >-
+      github.event_name != 'pull_request'
+      || (github.event.pull_request.merged == true
+      && (startsWith(github.event.pull_request.head.ref, 'release/')
+      || startsWith(github.event.pull_request.head.ref, 'prerelease/')))
     permissions:
       contents: read
       id-token: write # Required for OIDC provenance

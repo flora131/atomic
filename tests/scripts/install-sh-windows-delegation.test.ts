@@ -58,11 +58,11 @@ describe("install.sh Windows delegation", () => {
     expect(exportPrereleaseLine).toBeGreaterThan(-1);
 
     // Find the Windows delegation block in main() by looking for the
-    // powershell invocation with ps_args (unique to main's delegation block)
+    // pwsh invocation with ps_args (unique to main's delegation block)
     let delegationPowershellLine = -1;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]!;
-      if (line.includes("powershell") && line.includes("ps_args")) {
+      if (line.includes("pwsh") && line.includes("ps_args")) {
         delegationPowershellLine = i;
         break;
       }

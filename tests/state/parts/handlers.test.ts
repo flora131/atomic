@@ -22,6 +22,7 @@ import {
   createCompletedToolState,
   resetPartIdCounter,
 } from "../../test-support/fixtures/parts.ts";
+import { createMessageFromParts } from "../../test-support/fixtures/messages.ts";
 import {
   assertPartType,
   findPartByType,
@@ -39,7 +40,7 @@ beforeEach(() => {
 
 /** Create a minimal ChatMessage from a parts array. */
 function msgFrom(parts: Part[]): ChatMessage {
-  return { parts } as unknown as ChatMessage;
+  return createMessageFromParts(parts);
 }
 
 /** Shortcut: create a finalized text part (not streaming). */
@@ -47,7 +48,7 @@ function finalizedText(content: string, id?: string): TextPart {
   return createTextPart({
     content,
     isStreaming: false,
-    ...(id ? { id: id as any } : { id: createPartId() as any }),
+    ...(id ? { id } : { id: createPartId() }),
   });
 }
 
@@ -56,7 +57,7 @@ function streamingText(content: string): TextPart {
   return createTextPart({
     content,
     isStreaming: true,
-    id: createPartId() as any,
+    id: createPartId(),
   });
 }
 
@@ -119,7 +120,7 @@ describe("handleTextDelta — append to streaming TextPart", () => {
   });
 
   test("appends to streaming part even when non-text parts precede it", () => {
-    const tool = createToolPart({ state: createCompletedToolState(), id: createPartId() as any });
+    const tool = createToolPart({ state: createCompletedToolState(), id: createPartId() });
     const text = streamingText("before ");
 
     const msg = msgFrom([tool, text]);
@@ -196,7 +197,7 @@ describe("handleTextDelta — merge back into finalized TextPart", () => {
   test("only merges when finalized text is the last part", () => {
     // If finalized text is NOT the last part, it should create a new part
     const text = finalizedText("Before");
-    const reasoning = createReasoningPart({ id: createPartId() as any });
+    const reasoning = createReasoningPart({ id: createPartId() });
     const msg = msgFrom([text, reasoning]);
     const result = handleTextDelta(msg, " continuation");
 
@@ -219,7 +220,7 @@ describe("handleTextDelta — tool boundary scenarios", () => {
     const finalized = { ...msg.parts![0]!, isStreaming: false } as TextPart;
     const tool = createToolPart({
       state: createCompletedToolState(),
-      id: createPartId() as any,
+      id: createPartId(),
     });
     msg = msgFrom([finalized, tool]);
 
@@ -302,7 +303,7 @@ describe("handleTextDelta — immutability", () => {
 
 describe("handleTextDelta — multi-part messages", () => {
   test("handles reasoning then text interleaving", () => {
-    const reasoning = createReasoningPart({ id: createPartId() as any });
+    const reasoning = createReasoningPart({ id: createPartId() });
     let msg = msgFrom([reasoning]);
     msg = handleTextDelta(msg, "Hello from the model");
 
@@ -314,8 +315,8 @@ describe("handleTextDelta — multi-part messages", () => {
 
   test("handles multiple tool parts between text", () => {
     const text1 = finalizedText("Planning");
-    const tool1 = createToolPart({ state: createCompletedToolState(), id: createPartId() as any });
-    const tool2 = createToolPart({ state: createCompletedToolState(), id: createPartId() as any });
+    const tool1 = createToolPart({ state: createCompletedToolState(), id: createPartId() });
+    const tool2 = createToolPart({ state: createCompletedToolState(), id: createPartId() });
 
     let msg = msgFrom([text1, tool1, tool2]);
     msg = handleTextDelta(msg, "\n\nResults");

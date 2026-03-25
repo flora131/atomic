@@ -64,6 +64,7 @@ export function UserQuestionDialog({
   const [isChatAboutThis, setIsChatAboutThis] = useState(false);
 
   const textareaRef = useRef<TextareaRenderable>(null);
+  const prevHighlightedRef = useRef(highlightedIndex);
 
   // Build the full options list including "Type something" and "Chat about this"
   const allOptions = useMemo(() => {
@@ -104,9 +105,17 @@ export function UserQuestionDialog({
   const maxListHeight = Math.max(5, terminalHeight - 12);
   const listHeight = Math.min(optionRowOffsets.totalRows, maxListHeight);
 
-  // Scroll to keep highlighted item visible
-  useEffect(() => {
-    if (!scrollRef.current || allOptions.length === 0 || isEditingCustom || isChatAboutThis) return;
+  // Render-time scroll correction: adjust scroll position when
+  // highlightedIndex changes, using a prevRef guard to prevent
+  // redundant scrollTo calls.
+  if (
+    scrollRef.current &&
+    allOptions.length > 0 &&
+    !isEditingCustom &&
+    !isChatAboutThis &&
+    prevHighlightedRef.current !== highlightedIndex
+  ) {
+    prevHighlightedRef.current = highlightedIndex;
     const scrollBox = scrollRef.current;
     const selectedRow = optionRowOffsets.offsets[highlightedIndex] ?? 0;
     const itemHeight = allOptions[highlightedIndex]?.description ? 2 : 1;
@@ -116,7 +125,8 @@ export function UserQuestionDialog({
     } else if (selectedRow + itemHeight > scrollBox.scrollTop + listHeight) {
       scrollBox.scrollTo(selectedRow + itemHeight - listHeight);
     }
-  }, [highlightedIndex, optionRowOffsets, listHeight, isEditingCustom, isChatAboutThis, allOptions]);
+  }
+  prevHighlightedRef.current = highlightedIndex;
 
   // Submit the answer
   const submitAnswer = useCallback((

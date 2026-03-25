@@ -9,7 +9,7 @@
  * - Capability badges for model features
  */
 
-import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import React, { useState, useCallback, useMemo, useRef } from "react";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import type { KeyEvent, ScrollBoxRenderable, MouseEvent } from "@opentui/core";
 import { useTheme } from "@/theme/index.tsx";
@@ -68,6 +68,7 @@ export function ModelSelectorDialog({
   const colors = theme.colors;
   const { height: terminalHeight } = useTerminalDimensions();
   const scrollRef = useRef<ScrollBoxRenderable>(null);
+  const prevSelectedRef = useRef(0);
 
   const [selectedIndex, setSelectedIndex] = useState(() => {
     if (currentModel && models.length > 0) {
@@ -126,9 +127,14 @@ export function ModelSelectorDialog({
   const maxListHeight = Math.max(5, terminalHeight - 12);
   const listHeight = Math.min(modelRowOffsets.totalRows, maxListHeight);
 
-  // Scroll to keep selected item visible
-  useEffect(() => {
-    if (!scrollRef.current || flatModels.length === 0) return;
+  // Render-time scroll correction: adjust scroll position when
+  // selectedIndex changes, using a prevRef guard.
+  if (
+    scrollRef.current &&
+    flatModels.length > 0 &&
+    prevSelectedRef.current !== selectedIndex
+  ) {
+    prevSelectedRef.current = selectedIndex;
     const scrollBox = scrollRef.current;
     const selectedRow = modelRowOffsets.offsets[selectedIndex] ?? 0;
 
@@ -137,7 +143,8 @@ export function ModelSelectorDialog({
     } else if (selectedRow + 1 > scrollBox.scrollTop + listHeight) {
       scrollBox.scrollTo(selectedRow + 1 - listHeight);
     }
-  }, [selectedIndex, modelRowOffsets, listHeight, flatModels.length]);
+  }
+  prevSelectedRef.current = selectedIndex;
 
   // Translate mouse wheel scroll into selection movement so the highlight follows
   const handleMouseScroll = useCallback((event: MouseEvent) => {

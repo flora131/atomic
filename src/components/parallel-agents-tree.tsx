@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useMemo, useRef } from "react";
 import type { SyntaxStyle } from "@opentui/core";
 import { getCatppuccinPalette, useThemeColors } from "@/theme/index.tsx";
 import { formatDuration as formatDurationObj, truncateText } from "@/lib/ui/format.ts";
@@ -313,20 +313,22 @@ export function ParallelAgentsTree({
   const colors = useThemeColors();
   const doneRenderedAgentIdsRef = useRef<Set<string>>(new Set());
 
-  useEffect(() => {
-    if (!onAgentDoneRendered) return;
+  // Render-time derivation: compute done-render markers during render
+  // rather than in a post-commit effect. doneRenderedAgentIdsRef serves
+  // as the prevRef guard (same role as prevNotifiedRef in autocomplete.tsx).
+  if (onAgentDoneRendered) {
     const { markers, nextDoneRenderedAgentIds } = collectDoneRenderMarkers(
       visibleAgents,
       doneRenderedAgentIdsRef.current,
     );
-    // Update the ref only after computing markers (pure computation above)
-    doneRenderedAgentIdsRef.current = nextDoneRenderedAgentIds;
-    if (markers.length === 0) return;
-    const timestampMs = Date.now();
-    for (const agentId of markers) {
-      onAgentDoneRendered({ agentId, timestampMs });
+    if (markers.length > 0) {
+      doneRenderedAgentIdsRef.current = nextDoneRenderedAgentIds;
+      const timestampMs = Date.now();
+      for (const agentId of markers) {
+        onAgentDoneRendered({ agentId, timestampMs });
+      }
     }
-  }, [onAgentDoneRendered, visibleAgents]);
+  }
 
   if (visibleAgents.length === 0) {
     return null;

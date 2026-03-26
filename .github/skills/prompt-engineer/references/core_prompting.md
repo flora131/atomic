@@ -1,16 +1,16 @@
 # Core Prompting Techniques
 
-This document covers fundamental prompt engineering techniques that form the foundation of effective Claude interactions.
+This document covers fundamental prompt engineering techniques that form the foundation of effective language model interactions.
 
 ## Be Clear and Direct
 
 ### Core Principle
 
-Think of Claude as "a brilliant but very new employee (with amnesia) who needs explicit instructions." The better you explain what you want, the better Claude performs.
+Think of the model as "a brilliant but very new employee (with amnesia) who needs explicit instructions." The better you explain what you want, the better the model performs.
 
 ### The Golden Rule
 
-Show your prompt to a colleague with minimal context and ask them to follow the instructions. If they're confused, Claude likely will be too.
+Show your prompt to a colleague with minimal context and ask them to follow the instructions. If they're confused, the model likely will be too.
 
 ### Key Techniques
 
@@ -25,7 +25,7 @@ Show your prompt to a colleague with minimal context and ask them to follow the 
 Explicitly state formatting requirements (e.g., "output only code and nothing else")
 
 **3. Use Sequential Instructions**
-Structure requests with numbered lists or bullet points to ensure Claude follows your exact process.
+Structure requests with numbered lists or bullet points to ensure the model follows your exact process.
 
 ### Practical Examples
 
@@ -46,7 +46,7 @@ Structure requests with numbered lists or bullet points to ensure Claude follows
 
 ### Key Insight
 
-Precision prevents hallucination and ensures Claude delivers exactly what you need.
+Precision prevents hallucination and ensures the model delivers exactly what you need.
 
 ---
 
@@ -54,17 +54,17 @@ Precision prevents hallucination and ensures Claude delivers exactly what you ne
 
 ### Core Technique
 
-Use the `system` parameter to assign Claude a specific professional identity. This transforms Claude from a general assistant into a specialized expert in a particular domain.
+Use the `system` parameter to assign the model a specific professional identity. This transforms it from a general assistant into a specialized expert in a particular domain.
 
 ### Key Benefits
 
 - **Enhanced accuracy** in complex domains like legal analysis or financial modeling
 - **Tailored tone** adjusted to match the assigned role's communication style
-- **Improved focus** keeping Claude aligned with task-specific requirements
+- **Improved focus** keeping the model aligned with task-specific requirements
 
 ### Best Practice
 
-"Use the `system` parameter to set Claude's role. Put everything else, like task-specific instructions, in the `user` turn instead."
+"Use the `system` parameter to set the model's role. Put everything else, like task-specific instructions, in the `user` turn instead."
 
 ### Experimentation is Key
 
@@ -88,7 +88,7 @@ Roles can significantly impact outputs. A "data scientist" provides different in
 
 ### Core Purpose
 
-XML tags help Claude parse prompts more accurately by clearly separating different components like context, instructions, and examples.
+XML tags help the model parse prompts more accurately by clearly separating different components like context, instructions, and examples.
 
 ### Key Benefits
 
@@ -112,7 +112,7 @@ Arrange tags hierarchically for complex information structures
 <instructions>What to do</instructions>
 <examples>Sample inputs/outputs</examples>
 <documents>Long-form content</documents>
-<thinking>Claude's reasoning process</thinking>
+<thinking>Model reasoning process</thinking>
 <answer>Final response</answer>
 ```
 

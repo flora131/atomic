@@ -6,13 +6,13 @@ This document covers sophisticated prompt engineering techniques for complex tas
 
 ### What is Chain of Thought?
 
-Chain of thought prompting encourages Claude to break down complex problems systematically. Giving Claude space to think can dramatically improve its performance on research, analysis, and problem-solving tasks.
+Chain of thought prompting encourages the model to break down complex problems systematically. Giving the model space to think can dramatically improve its performance on research, analysis, and problem-solving tasks.
 
 ### Key Benefits
 
 - **Accuracy**: Stepping through problems reduces errors, especially in math, logic, analysis, or generally complex tasks
 - **Coherence**: Structured reasoning produces more organized responses
-- **Debugging**: Observing Claude's thought process reveals unclear prompt areas
+- **Debugging**: Observing the model's thought process reveals unclear prompt areas
 
 ### When to Use CoT
 
@@ -32,7 +32,7 @@ Apply CoT for tasks that a human would need to think through, like:
 Include "Think step-by-step" in your request. Simple but lacks specific guidance.
 
 **2. Guided Prompt**
-Outline specific steps for Claude's reasoning process. Provides direction without structuring the output format, making answer extraction more difficult.
+Outline specific steps for the model's reasoning process. Provides direction without structuring the output format, making answer extraction more difficult.
 
 **3. Structured Prompt**
 Use XML tags like `<thinking>` and `<answer>` to separate reasoning from final answers. This enables easy parsing of both thought process and conclusions.
@@ -48,7 +48,7 @@ Put your final answer in <answer> tags.
 
 ### Critical Implementation Note
 
-**"Always have Claude output its thinking. Without outputting its thought process, no thinking occurs!"** Visible reasoning is essential for CoT effectiveness.
+**"Always have the model output its thinking. Without outputting its thought process, no thinking occurs!"** Visible reasoning is essential for CoT effectiveness.
 
 ---
 
@@ -56,13 +56,13 @@ Put your final answer in <answer> tags.
 
 ### Core Concept
 
-Multishot prompting (also called few-shot prompting) involves providing a few well-crafted examples in your prompt to improve Claude's output quality. This technique is particularly effective for tasks requiring structured outputs or adherence to specific formats.
+Multishot prompting (also called few-shot prompting) involves providing a few well-crafted examples in your prompt to improve the model's output quality. This technique is particularly effective for tasks requiring structured outputs or adherence to specific formats.
 
 ### Key Benefits
 
 - **Accuracy**: Examples reduce misinterpretation of instructions
 - **Consistency**: Examples enforce uniform structure and style
-- **Performance**: Well-chosen examples boost Claude's ability to handle complex tasks
+- **Performance**: Well-chosen examples boost the model's ability to handle complex tasks
 
 ### Crafting Effective Examples
 
@@ -103,7 +103,7 @@ Include 3-5 diverse, relevant examples. More examples = better performance, espe
 
 ### Core Concept
 
-Prompt chaining breaks complex tasks into smaller, sequential subtasks, with each step receiving Claude's focused attention. This approach improves accuracy, clarity, and traceability compared to handling everything in a single prompt.
+Prompt chaining breaks complex tasks into smaller, sequential subtasks, with each step receiving the model's focused attention. This approach improves accuracy, clarity, and traceability compared to handling everything in a single prompt.
 
 ### Key Benefits
 
@@ -118,7 +118,7 @@ Apply this technique for multi-step tasks involving:
 - Research synthesis and document analysis
 - Iterative content creation
 - Multiple transformations or citations
-- Tasks where Claude might miss or mishandle steps
+- Tasks where the model might miss or mishandle steps
 
 ### Core Techniques
 
@@ -132,7 +132,7 @@ Use XML tags to pass outputs between prompts for clear handoffs between steps.
 Each subtask should focus on one objective to maintain clarity.
 
 **4. Iterate & Refine**
-Adjust subtasks based on Claude's performance.
+Adjust subtasks based on the model's performance.
 
 ### Workflow Examples
 
@@ -186,7 +186,7 @@ This workflow is particularly well-suited for complex projects where upfront inv
 
 ### Advanced: Self-Correction Chains
 
-Chain prompts so Claude reviews its own work, catching errors and refining outputs—especially valuable for high-stakes tasks.
+Chain prompts so the model reviews its own work, catching errors and refining outputs—especially valuable for high-stakes tasks.
 
 ### Optimization Tip
 
@@ -227,7 +227,7 @@ Now analyze these documents and answer: [Your question here]
 ```
 
 **3. Quote Grounding**
-Request that Claude extract relevant quotes from source materials before completing the primary task. This method helps the model navigate through extraneous content and focus on pertinent information.
+Request that the model extract relevant quotes from source materials before completing the primary task. This method helps the model navigate through extraneous content and focus on pertinent information.
 
 ### Practical Example
 
@@ -235,7 +235,7 @@ For medical diagnostics, request quotes from patient records placed in `<quotes>
 
 ### Context Window Advantage
 
-Claude 4 models support 1 million token windows, enabling complex, data-rich analysis across multiple documents simultaneously—making these organizational techniques particularly valuable for sophisticated tasks.
+Modern language models support large context windows (100K–1M+ tokens), enabling complex, data-rich analysis across multiple documents simultaneously—making these organizational techniques particularly valuable for sophisticated tasks.
 
 ---
 
@@ -244,28 +244,28 @@ Claude 4 models support 1 million token windows, enabling complex, data-rich ana
 ### Core Prompting Techniques
 
 **General Over Prescriptive Instructions**
-Rather than providing step-by-step guidance, Claude performs better with high-level directives. Ask Claude to "think about this thoroughly and in great detail" and "consider multiple approaches" rather than numbering specific steps it must follow.
+Rather than providing step-by-step guidance, models often perform better with high-level directives. Ask the model to "think about this thoroughly and in great detail" and "consider multiple approaches" rather than numbering specific steps it must follow.
 
 **Multishot Prompting**
-When you provide examples using XML tags like `<thinking>` or `<scratchpad>`, Claude generalizes these patterns to its formal extended thinking process. This helps the model follow similar reasoning trajectories for new problems.
+When you provide examples using XML tags like `<thinking>` or `<scratchpad>`, the model generalizes these patterns to its formal extended thinking process. This helps the model follow similar reasoning trajectories for new problems.
 
 **Instruction Following Enhancement**
-Extended thinking significantly improves how well Claude follows instructions by allowing it to reason about them internally before executing them in responses. For complex instructions, breaking them into numbered steps that Claude can methodically work through yields better results.
+Extended thinking significantly improves how well the model follows instructions by allowing it to reason about them internally before executing them in responses. For complex instructions, breaking them into numbered steps that the model can methodically work through yields better results.
 
 ### Advanced Strategies
 
 **Debugging and Steering**
-You can examine Claude's thinking output to understand its logic, though this method isn't perfectly reliable. Importantly, you should not pass Claude's thinking back as user input, as this degrades performance.
+You can examine the model's thinking output to understand its logic, though this method isn't perfectly reliable. Importantly, you should not pass the model's thinking back as user input, as this degrades performance.
 
 **Long-Form Output Optimization**
 For extensive content generation, explicitly request detailed outputs and increase both thinking budget and maximum token limits. For very long pieces (20,000+ words), request detailed outlines with paragraph-level word counts.
 
 **Verification and Error Reduction**
-Prompt Claude to verify its work with test cases before completion. For coding tasks, ask it to run through test scenarios within extended thinking itself.
+Prompt the model to verify its work with test cases before completion. For coding tasks, ask it to run through test scenarios within extended thinking itself.
 
 ### Technical Considerations
 
 - Thinking tokens require a minimum budget of 1,024 tokens
 - Extended thinking functions optimally in English
-- With Claude 4's 1M token context window, thinking budgets can scale significantly higher (200K+ tokens are supported)
+- With large context windows, thinking budgets can scale significantly higher
 - Traditional chain-of-thought prompting with XML tags works for smaller thinking requirements

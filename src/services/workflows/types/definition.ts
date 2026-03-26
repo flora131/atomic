@@ -7,7 +7,7 @@
 
 import type { BaseState, CompiledGraph, Edge, NodeDefinition } from "@/services/workflows/graph/types.ts";
 import type { WorkflowRuntimeFeatureFlagOverrides } from "@/services/workflows/runtime-contracts.ts";
-import type { StageDefinition } from "@/services/workflows/conductor/types.ts";
+import type { ContextPressureConfig, StageDefinition } from "@/services/workflows/conductor/types.ts";
 
 export interface WorkflowMetadata {
   name: string;
@@ -71,6 +71,15 @@ export interface WorkflowDefinition extends WorkflowMetadata {
    * the conductor falls back to `createGraph()` or `graphConfig`.
    */
   createConductorGraph?: () => CompiledGraph<BaseState>;
+  /**
+   * Context pressure monitoring configuration. When provided, the conductor
+   * tracks context window usage per stage and can automatically create
+   * continuation sessions when usage exceeds configured thresholds.
+   *
+   * Use `createDefaultContextPressureConfig()` from
+   * `@/services/workflows/conductor/context-pressure.ts` for sensible defaults.
+   */
+  contextPressure?: ContextPressureConfig;
   runtime?: {
     featureFlags?: WorkflowRuntimeFeatureFlagOverrides;
   };

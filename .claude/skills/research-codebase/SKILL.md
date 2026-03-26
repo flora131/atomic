@@ -85,7 +85,28 @@ Success Criteria: [What "done" looks like — e.g., "A developer unfamiliar with
 Prior Research: [Relevant existing docs in research/ to extend, not duplicate]
 ```
 
-#### 0d. Produce the Formalized Research Question
+#### 0d. Recognize and Resolve Agent Confusion
+
+During research decomposition and synthesis, you may encounter your own uncertainty — especially when the codebase is larger or more complex than anticipated, or when findings contradict your initial assumptions. This is a signal to pause and re-engage the intent-formalization framework, not to power through with vague research output.
+
+**Watch for these signals in your own reasoning:**
+
+- **Changing research direction**: You start investigating one component, then silently pivot to a different one without updating the research plan. This means the original decomposition was wrong or incomplete — formalize why before continuing.
+- **Hedging language in synthesis**: You write findings containing "might be related", "this seems to...", "possibly connected to..." — these indicate you haven't verified the connection and are guessing. Research documents should state facts ("X calls Y at line 42") not speculations.
+- **Scope drift**: You keep spawning sub-agents for areas outside the formalized `in_bounds` scope. If the research genuinely needs broader scope, re-formalize with the user rather than silently expanding.
+- **Conflicting sub-agent findings**: Two sub-agents report contradictory information about the same component. Rather than picking one arbitrarily, this is a decision point that may require additional investigation or user input.
+- **Inability to decompose**: You can't break the research question into clear sub-tasks. This usually means the question itself is too vague — return to Step 0c and re-formalize.
+
+**When you detect any of these, STOP and:**
+
+1. **Name the confusion.** Articulate the specific gap or conflict. "Sub-agent A says the auth flow uses JWT, but sub-agent B found session-based auth in a different module" is actionable.
+2. **Re-consult the formalized intent.** Does the research scope from Step 0c already address this? If the question is about something explicitly `out_of_bounds`, stop investigating it. If the `Depth` field says "overview" but you're going deep, recalibrate.
+3. **Escalate if needed.** If the confusion reveals that the original research question was misframed (e.g., the system works fundamentally differently than assumed), flag this to the user using contrastive clarification (Rung 3) before spawning more sub-agents. Wasting sub-agent compute on the wrong question is the primary risk here.
+4. **Update the formalized research question** with any scope adjustments before continuing.
+
+Research documents that contain unresolved agent confusion ("this might be X or Y") fail their core purpose — they should reduce uncertainty for the reader, not pass it along.
+
+#### 0e. Produce the Formalized Research Question
 
 Once intent is clear (either implicitly resolved or explicitly confirmed), produce a **formalized research question** that will guide all subsequent steps. This question should be:
 - Specific about scope (which components, which directories)

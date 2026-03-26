@@ -17,6 +17,7 @@ const PROPERTY_NAMES: Record<string, string> = {
   deadlockFreedom: "Deadlock-Freedom",
   loopBounds: "Loop Bounds",
   stateDataFlow: "State Data-Flow",
+  modelValidation: "Model Validation",
 };
 
 /**
@@ -57,6 +58,7 @@ export function formatVerificationReport(
   lines.push("");
 
   for (const [name, propResult] of Object.entries(result.properties)) {
+    if (propResult === undefined) continue;
     lines.push(formatPropertyResult(name, propResult));
   }
 

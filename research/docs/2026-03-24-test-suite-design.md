@@ -1305,7 +1305,7 @@ A previous 85% coverage plan was created on 2026-02-15 when the codebase had ~88
 | Prior Document | Status | Key Takeaway |
 |---|---|---|
 | `research/docs/2026-02-15-test-coverage-audit-and-85-percent-plan.md` | Superseded by this document | Tiered coverage strategy, Bun mock limitations, anti-pattern catalog |
-| `specs/test-coverage-85-percent-plan.md` | Superseded by this document | Detailed spec with module matrix (now outdated due to restructure) |
+| `specs/2026-02-15-test-coverage-85-percent-plan.md` | Superseded by this document | Detailed spec with module matrix (now outdated due to restructure) |
 | `research/docs/2026-02-14-testing-infrastructure-and-dev-setup.md` | Historical | Established testing philosophy: "test real behavior, not trivial properties" |
 | `research/docs/2026-02-12-bun-test-failures-root-cause-analysis.md` | Historical | 104 tests failed because source code evolved but tests weren't updated — lesson: test stable interfaces, not implementation details |
 | `research/docs/2026-02-14-failing-tests-mcp-config-discovery.md` | Historical | MCP config discovery test failures |

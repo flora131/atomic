@@ -701,7 +701,7 @@ User presses Enter/Tab
 - `research/docs/2026-02-01-claude-code-ui-patterns-for-atomic.md` -- Claude Code UI patterns study
 - `research/docs/2026-02-05-subagent-ui-opentui-independent-context.md` -- Subagent UI research
 - `research/docs/2026-02-06-mcp-tool-calling-opentui.md` -- MCP tool calling research
-- `specs/mcp-tool-calling-opentui.md` -- MCP tool calling specification
+- `specs/2026-02-07-mcp-tool-calling-opentui.md` -- MCP tool calling specification
 
 ## Related Research
 
@@ -741,4 +741,4 @@ User presses Enter/Tab
 
 5. **Agent invocation semantics**: When `@agent-name` is selected, what exactly should happen? (a) Insert text and let the user add a message before submitting, (b) immediately invoke the agent with the remaining prompt text, (c) open a sub-session with the agent.
 
-6. **MCP resource integration**: Should MCP resources appear in the `@` dropdown alongside files and agents? This depends on the MCP tool calling implementation (see `specs/mcp-tool-calling-opentui.md`).
+6. **MCP resource integration**: Should MCP resources appear in the `@` dropdown alongside files and agents? This depends on the MCP tool calling implementation (see `specs/2026-02-07-mcp-tool-calling-opentui.md`).

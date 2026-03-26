@@ -130,7 +130,10 @@ export async function verifySingleWorkflow(
     : "";
 
   const encoded = encodeGraph(graph);
-  const result = await verifier(graph, { encodedGraph: encoded });
+  const result = await verifier(graph, {
+    encodedGraph: encoded,
+    conductorStages: definition.conductorStages,
+  });
   const report = formatVerificationReport(id, result) + agentWarningText;
 
   return { report, passed: result.valid };

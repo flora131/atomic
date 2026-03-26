@@ -13,6 +13,8 @@ coveragePathIgnorePatterns = [
   "tests/**",
   # Temp files created during test runs (e.g. discovery tests writing to /tmp)
   "**/tmp/**",
+  # Compiled workflow temp files generated at runtime
+  "**/.atomic/.tmp/**",
   # Entry points (not unit-testable)
   "src/cli.ts",
   "src/version.ts",

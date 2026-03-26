@@ -653,8 +653,8 @@ src/ui/commands/
 
 | Spec | Relevance |
 |------|-----------|
-| `specs/workflow-sdk-implementation.md` | Implementation spec for customToolNode, subagentNode, parallelSubagentNode |
-| `specs/ralph-dag-orchestration.md` | Spec for Ralph DAG-based orchestration with parallel dispatch |
+| `specs/2026-02-11-workflow-sdk-implementation.md` | Implementation spec for customToolNode, subagentNode, parallelSubagentNode |
+| `specs/2026-02-16-ralph-dag-orchestration.md` | Spec for Ralph DAG-based orchestration with parallel dispatch |
 
 ---
 

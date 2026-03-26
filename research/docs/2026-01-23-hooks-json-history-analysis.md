@@ -23,7 +23,7 @@
 
 ## Root Cause: Spec Error
 
-The implementation followed the specification in `specs/anonymous-telemetry-implementation.md`, which contained **incorrect guidance**:
+The implementation followed the specification in `specs/2026-01-21-anonymous-telemetry-implementation.md`, which contained **incorrect guidance**:
 
 ### What the Spec Said (Incorrect)
 
@@ -159,7 +159,7 @@ When testing via AI agents:
 
 ### For the Spec
 
-The `specs/anonymous-telemetry-implementation.md` should be updated to clarify:
+The `specs/2026-01-21-anonymous-telemetry-implementation.md` should be updated to clarify:
 - Correct hook name: `SessionEnd` not `Stop`
 - Correct location: `.claude/settings.json` not `.claude/hooks/hooks.json`
 - Correct format: Reference official Claude Code hooks documentation
@@ -171,4 +171,4 @@ The `specs/anonymous-telemetry-implementation.md` should be updated to clarify:
 - [Claude Code Settings Guide](https://code.claude.com/docs/en/settings)
 - Commit 99f3999: Initial (incorrect) implementation
 - Commit 89e7b01: Bug fix (didn't address root cause)
-- Spec: `specs/anonymous-telemetry-implementation.md` (contains errors)
+- Spec: `specs/2026-01-21-anonymous-telemetry-implementation.md` (contains errors)

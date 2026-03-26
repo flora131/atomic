@@ -28,6 +28,7 @@ export { defineWorkflow, WorkflowBuilder } from "./define-workflow.ts";
 export type { WorkflowBlueprint } from "./define-workflow.ts";
 export type {
   BaseState,
+  InferState,
   ExecutionContext,
   ExecutionError,
   ErrorAction,
@@ -47,6 +48,7 @@ export type {
   ContextPressureLevel,
   ContinuationRecord,
   AccumulatedContextPressure,
+  AgentType,
   SessionConfig,
   StageOptions,
   ToolOptions,

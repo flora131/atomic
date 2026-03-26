@@ -7,8 +7,8 @@
  * resolution.
  */
 
-import { mkdir } from "fs/promises";
-import { join } from "path";
+import { mkdir, unlink } from "fs/promises";
+import { join, relative } from "path";
 import { existsSync } from "fs";
 import { homedir } from "os";
 
@@ -105,8 +105,11 @@ export function getLocalWorkflowsDir(projectDir: string = process.cwd()): string
  * Install the @bastani/atomic-workflows SDK from a local package directory
  * (e.g. packages/workflow-sdk in the monorepo) into the given workflows directory.
  *
- * @param workflowsDir     - The workflows directory (e.g. ~/.atomic/workflows)
- * @param localPackagePath - Absolute path to the local workflow-sdk package
+ * Uses the provided path directly (caller should pass an absolute path for global
+ * installs or a relative path for local project installs).
+ *
+ * @param workflowsDir     - The workflows directory (e.g. ~/.atomic/workflows or .atomic/workflows)
+ * @param localPackagePath - Path to the local workflow-sdk package (absolute or relative)
  * @returns true if the install succeeded, false otherwise
  */
 export async function installWorkflowSdkFromLocal(
@@ -115,11 +118,51 @@ export async function installWorkflowSdkFromLocal(
 ): Promise<boolean> {
   await ensureWorkflowPackageScaffold(workflowsDir);
 
-  const result = Bun.spawnSync(["bun", "add", localPackagePath], {
+  // Write the dependency directly into package.json instead of using `bun add`,
+  // which can create duplicate JSON keys when run repeatedly with local paths.
+  const pkgPath = join(workflowsDir, "package.json");
+  try {
+    const pkg = await Bun.file(pkgPath).json();
+    pkg.dependencies = { ...pkg.dependencies, "@bastani/atomic-workflows": localPackagePath };
+    await Bun.write(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+  } catch {
+    const pkg = { ...WORKFLOW_PACKAGE_JSON, dependencies: { "@bastani/atomic-workflows": localPackagePath } };
+    await Bun.write(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+  }
+
+  // Remove stale lockfile that may contain duplicate entries from prior corrupted runs
+  const lockPath = join(workflowsDir, "bun.lock");
+  try { await unlink(lockPath); } catch { /* no-op if missing */ }
+
+  const result = Bun.spawnSync(["bun", "install"], {
     cwd: workflowsDir,
     stdout: "ignore",
     stderr: "pipe",
   });
 
   return result.exitCode === 0;
+}
+
+/**
+ * Get the absolute path to the local workflow-sdk package in the monorepo.
+ *
+ * @param repoRoot - The root directory of the atomic monorepo
+ * @returns Absolute path to packages/workflow-sdk
+ */
+export function getLocalSdkPackagePath(repoRoot: string): string {
+  return join(repoRoot, "packages", "workflow-sdk");
+}
+
+/**
+ * Get a relative path from a workflows directory to the local workflow-sdk package.
+ *
+ * Used for project-scoped `.atomic/workflows/` so the dependency stays portable
+ * within the repo.
+ *
+ * @param workflowsDir - The workflows directory (e.g. /repo/.atomic/workflows)
+ * @param sdkPath      - Absolute path to the workflow-sdk package
+ * @returns Relative path like "../../packages/workflow-sdk"
+ */
+export function getRelativeSdkPath(workflowsDir: string, sdkPath: string): string {
+  return relative(workflowsDir, sdkPath);
 }

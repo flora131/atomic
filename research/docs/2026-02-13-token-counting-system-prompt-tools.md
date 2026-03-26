@@ -257,8 +257,8 @@ No prior research documents found specifically on this topic.
 
 ## Related Research
 
-- `specs/context-command-session-usage.md` — Spec for `/context` command implementation
-- `specs/token-count-thinking-timer-bugs.md` — Spec for fixing token count display bugs
+- `specs/YYYY-MM-DD-context-command-session-usage.md` — Spec for `/context` command implementation
+- `specs/2026-02-10-token-count-thinking-timer-bugs.md` — Spec for fixing token count display bugs
 
 ---
 

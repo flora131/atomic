@@ -233,4 +233,103 @@ describe("checkStateDataFlow", () => {
       expect(result.verified).toBe(true);
     });
   });
+
+  describe("stateFields validation", () => {
+    test("read referencing undefined field fails when stateFields provided", async () => {
+      const graph = buildGraph({
+        nodes: [
+          { id: "A", type: "agent", reads: ["nonExistent"] },
+        ],
+        edges: [],
+        start: "A",
+        ends: ["A"],
+        stateFields: ["validField"],
+      });
+      const result = await checkStateDataFlow(graph);
+      expect(result.verified).toBe(false);
+      expect(result.counterexample).toContain("nonExistent");
+      expect(result.counterexample).toContain("not declared in globalState");
+    });
+
+    test("output referencing undefined field fails when stateFields provided", async () => {
+      const graph = buildGraph({
+        nodes: [
+          { id: "A", type: "agent", outputs: ["nonExistent"] },
+        ],
+        edges: [],
+        start: "A",
+        ends: ["A"],
+        stateFields: ["validField"],
+      });
+      const result = await checkStateDataFlow(graph);
+      expect(result.verified).toBe(false);
+      expect(result.counterexample).toContain("nonExistent");
+      expect(result.counterexample).toContain("not declared in globalState");
+    });
+
+    test("read and output referencing valid fields passes", async () => {
+      const graph = buildGraph({
+        nodes: [
+          { id: "writer", type: "agent", outputs: ["result"] },
+          { id: "reader", type: "agent", reads: ["result"] },
+        ],
+        edges: [["writer", "reader"]],
+        start: "writer",
+        ends: ["reader"],
+        stateFields: ["result"],
+      });
+      const result = await checkStateDataFlow(graph);
+      expect(result.verified).toBe(true);
+    });
+
+    test("no stateFields skips schema validation (backward compat)", async () => {
+      const graph = buildGraph({
+        nodes: [
+          { id: "writer", type: "agent", outputs: ["anything"] },
+          { id: "reader", type: "agent", reads: ["anything"] },
+        ],
+        edges: [["writer", "reader"]],
+        start: "writer",
+        ends: ["reader"],
+      });
+      const result = await checkStateDataFlow(graph);
+      expect(result.verified).toBe(true);
+    });
+
+    test("multiple undefined references reported separately", async () => {
+      const graph = buildGraph({
+        nodes: [
+          { id: "A", type: "agent", reads: ["bad1"], outputs: ["bad2"] },
+        ],
+        edges: [],
+        start: "A",
+        ends: ["A"],
+        stateFields: ["good"],
+      });
+      const result = await checkStateDataFlow(graph);
+      expect(result.verified).toBe(false);
+      const violations = result.details?.violations as Array<{ nodeId: string; field: string; reason: string }>;
+      expect(violations.length).toBeGreaterThanOrEqual(2);
+      expect(violations.some((v) => v.field === "bad1")).toBe(true);
+      expect(violations.some((v) => v.field === "bad2")).toBe(true);
+    });
+
+    test("mix of valid and invalid references — only invalid flagged", async () => {
+      const graph = buildGraph({
+        nodes: [
+          { id: "A", type: "agent", outputs: ["good", "bad"] },
+          { id: "B", type: "agent", reads: ["good"] },
+        ],
+        edges: [["A", "B"]],
+        start: "A",
+        ends: ["B"],
+        stateFields: ["good"],
+      });
+      const result = await checkStateDataFlow(graph);
+      expect(result.verified).toBe(false);
+      const violations = result.details?.violations as Array<{ nodeId: string; field: string; reason: string }>;
+      expect(violations.some((v) => v.field === "bad")).toBe(true);
+      expect(violations.some((v) => v.field === "good")).toBe(false);
+    });
+  });
 });

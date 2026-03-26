@@ -204,7 +204,7 @@ Found extensively in `research/` and `specs/` directories:
 | `🖌️` | Style guide decoration | docs/style-guide.md:2 |
 | `⚡ ✦ ⚛️` | Category/branding in docs | research/docs/ |
 
-**Note:** `specs/bun-test-failures-remediation.md:240-245` documents a **previous migration** from emoji tool icons (📄, 💻, 📝, 🔍, 🔎, 🔧) to the current Unicode icons (≡, $, ►, ◆, ★, ▶). This confirms the codebase has already undergone one round of emoji-to-Unicode migration.
+**Note:** `specs/2026-02-12-bun-test-failures-remediation.md:240-245` documents a **previous migration** from emoji tool icons (📄, 💻, 📝, 🔍, 🔎, 🔧) to the current Unicode icons (≡, $, ►, ◆, ★, ▶). This confirms the codebase has already undergone one round of emoji-to-Unicode migration.
 
 ---
 
@@ -362,7 +362,7 @@ There is **no centralized icon module** or theme-based icon configuration. To re
 
 ### Previous Migration History
 
-`specs/bun-test-failures-remediation.md` documents that the codebase previously migrated **from emoji to Unicode**:
+`specs/2026-02-12-bun-test-failures-remediation.md` documents that the codebase previously migrated **from emoji to Unicode**:
 - `📄` → `≡` (Read)
 - `💻` → `$` (Bash)
 - `📝` → `►` (Write)

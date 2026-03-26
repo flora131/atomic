@@ -14,7 +14,7 @@
 import type { AgentType } from "@/services/telemetry/types.ts";
 import type { ChatUIConfig } from "@/app.tsx";
 import { getModelPreference, getReasoningEffortPreference } from "@/services/config/settings.ts";
-import { ADDITIONAL_ENHANCED_INSTRUCTIONS } from "@/services/agents/additional-enhanced-instructions.ts";
+import { ENHANCED_INSTRUCTIONS } from "@/services/agents/enhanced-instructions.ts";
 // initCommand is lazy-loaded only when auto-init is needed
 import {
   ensureAtomicGlobalAgentConfigsForInstallType,
@@ -83,15 +83,15 @@ export {
   shouldAutoInitChat,
 } from "./auto-init.ts";
 
-export function resolveChatAdditionalInstructions(
+export function resolveChatSystemInstructions(
   options: Pick<ChatCommandOptions, "additionalInstructions">
 ): string {
   const trimmedAdditionalInstructions = options.additionalInstructions?.trim();
   if (!trimmedAdditionalInstructions) {
-    return ADDITIONAL_ENHANCED_INSTRUCTIONS;
+    return ENHANCED_INSTRUCTIONS;
   }
 
-  return `${ADDITIONAL_ENHANCED_INSTRUCTIONS}\n\n${trimmedAdditionalInstructions}`;
+  return `${ENHANCED_INSTRUCTIONS}\n\n${trimmedAdditionalInstructions}`;
 }
 
 // ============================================================================
@@ -168,7 +168,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     ensureAtomicGlobalAgentConfigsForInstallType(installType, configRoot),
   ]);
   const effectiveModel = model ?? resolvedModel;
-  const resolvedAdditionalInstructions = resolveChatAdditionalInstructions({ additionalInstructions });
+  const resolvedSystemInstructions = resolveChatSystemInstructions({ additionalInstructions });
 
   // Auto-init when project SCM skills are missing or out of sync
   if (await shouldAutoInitChat(agentType, projectRoot, { selectedScm, configRoot })) {
@@ -266,7 +266,8 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
         model: effectiveModel,
         reasoningEffort: resolvedReasoningEffort,
         mcpServers,
-        additionalInstructions: resolvedAdditionalInstructions,
+        systemPrompt: resolvedSystemInstructions,
+        excludedTools: ["report_intent"],
       },
       theme: await getTheme(theme),
       version: VERSION,

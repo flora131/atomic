@@ -8,10 +8,10 @@ import {
   hasProjectScmSkills,
   hasProjectScmSkillsInSync,
   logActiveProviderDiscoveryPlan,
-  resolveChatAdditionalInstructions,
+  resolveChatSystemInstructions,
   shouldAutoInitChat,
 } from "@/commands/cli/chat.ts";
-import { ADDITIONAL_ENHANCED_INSTRUCTIONS } from "@/services/agents/additional-enhanced-instructions";
+import { ENHANCED_INSTRUCTIONS } from "@/services/agents/enhanced-instructions";
 import { upsertTrustedWorkspacePath } from "@/services/config/settings.ts";
 
 async function withTempDir(run: (dir: string) => Promise<void>): Promise<void> {
@@ -313,22 +313,22 @@ test("logActiveProviderDiscoveryPlan only emits when DEBUG=1", () => {
   }
 });
 
-test("resolveChatAdditionalInstructions defaults to the enhanced system prompt", () => {
-  expect(resolveChatAdditionalInstructions({})).toBe(ADDITIONAL_ENHANCED_INSTRUCTIONS);
+test("resolveChatSystemInstructions defaults to the enhanced system prompt", () => {
+  expect(resolveChatSystemInstructions({})).toBe(ENHANCED_INSTRUCTIONS);
 });
 
-test("resolveChatAdditionalInstructions appends explicit text to the enhanced system prompt", () => {
+test("resolveChatSystemInstructions appends explicit text to the enhanced system prompt", () => {
   expect(
-    resolveChatAdditionalInstructions({
+    resolveChatSystemInstructions({
       additionalInstructions: "Use short answers.",
     })
-  ).toBe(`${ADDITIONAL_ENHANCED_INSTRUCTIONS}\n\nUse short answers.`);
+  ).toBe(`${ENHANCED_INSTRUCTIONS}\n\nUse short answers.`);
 });
 
-test("resolveChatAdditionalInstructions ignores blank appended instructions", () => {
+test("resolveChatSystemInstructions ignores blank appended instructions", () => {
   expect(
-    resolveChatAdditionalInstructions({
+    resolveChatSystemInstructions({
       additionalInstructions: "   ",
     })
-  ).toBe(ADDITIONAL_ENHANCED_INSTRUCTIONS);
+  ).toBe(ENHANCED_INSTRUCTIONS);
 });

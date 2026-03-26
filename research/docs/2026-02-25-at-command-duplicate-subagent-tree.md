@@ -409,7 +409,7 @@ These layers explain why the duplicate **collapses** — the system catches it, 
 ## Historical Context (from research/)
 
 - `research/tickets/2026-02-15-205-skill-loading-indicator-duplicate.md` — Identical dual-path rendering issue for skills, fixed by filtering one path
-- `specs/skill-loading-indicator-duplicate-fix.md` — Established the pattern of filtering tools with dedicated renderers from `visibleToolCalls`
+- `specs/2026-02-16-skill-loading-indicator-duplicate-fix.md` — Established the pattern of filtering tools with dedicated renderers from `visibleToolCalls`
 - `research/docs/2026-02-16-sub-agent-tree-inline-state-lifecycle-research.md` — Documents premature lifecycle finalization at 4+ code sites
 - `research/docs/2026-02-15-sub-agent-tree-status-lifecycle-sdk-parity.md` — Documents two-path agent creation (eager + subagent.start) and SDK parity
 - `research/docs/2026-02-15-subagent-premature-completion-investigation.md` — Detailed root cause of `tool.complete` unconditionally finalizing status
@@ -418,10 +418,10 @@ These layers explain why the duplicate **collapses** — the system catches it, 
 
 ## Related Research
 
-- `specs/background-agents-ui-issue-258-parity-hardening.md` — Background agents UI parity spec
-- `specs/background-agents-sdk-pipeline-fix.md` — SDK pipeline fix spec
-- `specs/sub-agent-tree-inline-state-lifecycle-fix.md` — Tree lifecycle fix spec
-- `specs/chat-system-parts-based-rendering.md` — Parts-based rendering architecture spec
+- `specs/2026-02-22-background-agents-ui-issue-258-parity-hardening.md` — Background agents UI parity spec
+- `specs/2026-02-22-background-agents-sdk-pipeline-fix.md` — SDK pipeline fix spec
+- `specs/2026-02-16-sub-agent-tree-inline-state-lifecycle-fix.md` — Tree lifecycle fix spec
+- `specs/2026-02-16-chat-system-parts-based-rendering.md` — Parts-based rendering architecture spec
 
 ## Open Questions
 

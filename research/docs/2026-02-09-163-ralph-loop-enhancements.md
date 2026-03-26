@@ -408,4 +408,4 @@ Three-tier priority system:
 
 6. **progress.txt auto-creation**: Issue #163 says "progress.txt should be auto-created in the `.ralph` folder." Currently it is created in `.ralph/sessions/{id}/progress.txt` by `initializeProgressFile()`. The skill instructions reference `research/progress.txt`. Which location should be canonical?
 
-7. **Prompt argument handling**: Issue #163 proposes `/ralph "specs/progress-bar.md"` for spec mode and `/ralph "PROMPT" --yolo` for yolo mode. Currently the `/ralph` command uses positional text as the prompt, not a spec path. How should spec path vs prompt be differentiated?
+7. **Prompt argument handling**: Issue #163 proposes `/ralph "specs/YYYY-MM-DD-progress-bar.md"` for spec mode and `/ralph "PROMPT" --yolo` for yolo mode. Currently the `/ralph` command uses positional text as the prompt, not a spec path. How should spec path vs prompt be differentiated?

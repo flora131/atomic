@@ -17,7 +17,7 @@
  *   internal structure, enforcing that workflows are only executed through
  *   the conductor.
  *
- * @see specs/workflow-sdk-simplification.md section 5.1.5
+ * @see specs/2026-03-23-workflow-sdk-simplification-z3-verification.md section 5.1.5
  */
 
 import type { BaseState, ExecutionContext } from "@/services/workflows/graph/types.ts";

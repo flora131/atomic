@@ -12,7 +12,7 @@
  * - The conductor (which creates sessions, captures output, and routes)
  * - The UI layer (which receives stage transition and task update callbacks)
  *
- * @see specs/ralph-workflow-redesign.md §5.1 for the full design.
+ * @see specs/2026-03-23-ralph-workflow-redesign.md §5.1 for the full design.
  */
 
 import type { BaseState, CompiledGraph } from "@/services/workflows/graph/types.ts";

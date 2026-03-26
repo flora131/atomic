@@ -425,10 +425,10 @@ CopilotStreamAdapter
 5. **Copilot dual event hierarchies** — `SessionEvent` and `SessionLifecycleEvent` are separate type hierarchies requiring different handler signatures (2026-03-06 copilot schema reference)
 
 ### Related Specs
-- `specs/streaming-architecture-event-bus-migration.md` — Technical design for the event bus migration
-- `specs/streaming-event-bus-spec-compliance-remediation.md` — Spec compliance fixes
-- `specs/codebase-architecture-modularity-refactor.md` — Module boundary refactor including EventBus
-- `specs/sdk-v2-first-unified-layer.md` — SDK v2-first unified layer design
+- `specs/2026-03-02-streaming-architecture-event-bus-migration.md` — Technical design for the event bus migration
+- `specs/2026-03-02-streaming-event-bus-spec-compliance-remediation.md` — Spec compliance fixes
+- `specs/2026-03-18-codebase-architecture-modularity-refactor.md` — Module boundary refactor including EventBus
+- `specs/2026-02-20-sdk-v2-first-unified-layer.md` — SDK v2-first unified layer design
 
 ---
 

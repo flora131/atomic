@@ -11,7 +11,7 @@
  * maintaining a `StageContext` that accumulates `StageOutput` records so each
  * downstream stage can reference prior outputs.
  *
- * @see specs/ralph-workflow-redesign.md §5.1
+ * @see specs/2026-03-23-ralph-workflow-redesign.md §5.1
  */
 
 import type { TaskItem } from "@/services/workflows/builtin/ralph/helpers/prompts.ts";

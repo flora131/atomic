@@ -15,7 +15,7 @@
  * 4. Generates a createState() factory via state-compiler.
  * 5. Assembles the final WorkflowDefinition.
  *
- * @see specs/workflow-sdk-simplification.md section 5.1.5
+ * @see specs/2026-03-23-workflow-sdk-simplification-z3-verification.md section 5.1.5
  */
 
 import type {

@@ -71,7 +71,7 @@ cp -r .claude /path/to/your-project/
 bunx @bastani/atomic
 
 # Run agent with slash commands
-atomic --agent claude-code /create-feature-list specs/my-spec.md
+atomic --agent claude-code /create-feature-list specs/YYYY-MM-DD-my-spec.md
 ```
 
 ---
@@ -208,7 +208,7 @@ atomic --agent claude-code /create-spec research/docs/my-research.md
 ### Step 3: Break Into Features
 
 ```bash
-atomic --agent claude-code /create-feature-list specs/my-spec.md
+atomic --agent claude-code /create-feature-list specs/YYYY-MM-DD-my-spec.md
 ```
 
 ### Step 4: Implement Features
@@ -249,7 +249,7 @@ After setup, run commands through your agent:
 
 ```bash
 # Claude Code
-atomic --agent claude-code /create-feature-list specs/my-spec.md
+atomic --agent claude-code /create-feature-list specs/YYYY-MM-DD-my-spec.md
 
 # OpenCode
 atomic --agent opencode /implement-feature
@@ -288,7 +288,7 @@ From `research/docs/2026-01-19-slash-commands.md`:
 | `/commit` | `/commit "feat: add login"` | Conventional commits |
 | `/research-codebase` | `/research-codebase "How does X work?"` | Document codebase |
 | `/create-spec` | `/create-spec research/` | Create TDD/RFC |
-| `/create-feature-list` | `/create-feature-list specs/spec.md` | Generate feature-list.json |
+| `/create-feature-list` | `/create-feature-list specs/YYYY-MM-DD-spec.md` | Generate feature-list.json |
 | `/implement-feature` | `/implement-feature` | Implement one feature |
 | `/create-gh-pr` | `/create-gh-pr` | Push and create PR |
 | `/explain-code` | `/explain-code src/file.ts` | Explain code in detail |
@@ -367,7 +367,7 @@ atomic --agent claude-code /create-spec research/
 ### 3. Generate Feature List
 
 ```bash
-atomic --agent claude-code /create-feature-list specs/your-spec.md
+atomic --agent claude-code /create-feature-list specs/YYYY-MM-DD-your-spec.md
 ```
 
 ### 4. Implement

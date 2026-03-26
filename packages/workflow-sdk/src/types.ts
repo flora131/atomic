@@ -293,8 +293,6 @@ export interface StageOptions<TState extends BaseState = BaseState> {
   readonly outputMapper: (response: string) => Record<string, unknown>;
   readonly sessionConfig?: Partial<SessionConfig>;
   readonly maxOutputBytes?: number;
-  readonly reads?: string[];
-  readonly outputs?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -306,9 +304,8 @@ export interface ToolOptions<TState extends BaseState = BaseState> {
   readonly execute: (
     context: ExecutionContext<TState>,
   ) => Promise<Record<string, unknown>>;
+  readonly outputMapper?: (result: Record<string, unknown>) => Record<string, unknown>;
   readonly description?: string;
-  readonly reads?: string[];
-  readonly outputs?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -331,9 +328,7 @@ export interface AskUserQuestionOptions<TState extends BaseState = BaseState> {
     | AskUserQuestionConfig
     | ((state: TState) => AskUserQuestionConfig);
   readonly description?: string;
-  readonly onAnswer?: (answer: string | string[]) => Record<string, unknown>;
-  readonly reads?: string[];
-  readonly outputs?: string[];
+  readonly outputMapper?: (answer: string | string[]) => Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------

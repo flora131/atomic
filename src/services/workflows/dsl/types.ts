@@ -129,18 +129,6 @@ export interface StageOptions<TState extends BaseState = BaseState> {
    * Set to `0` or `Infinity` to disable truncation.
    */
   readonly maxOutputBytes?: number;
-
-  /**
-   * State field names that this stage reads from.
-   * Used for documentation and future dependency analysis.
-   */
-  readonly reads?: string[];
-
-  /**
-   * State field names that this stage writes to.
-   * Used for documentation and future dependency analysis.
-   */
-  readonly outputs?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -163,26 +151,29 @@ export interface ToolOptions<TState extends BaseState = BaseState> {
 
   /**
    * The function to execute. Receives the full `ExecutionContext` with
-   * current workflow state and returns a record of state updates.
+   * current workflow state and returns a record of raw results.
+   *
+   * When `outputMapper` is provided, the result is passed through it
+   * before being written to state. Otherwise the result is written
+   * to state directly.
    */
   readonly execute: (
     context: ExecutionContext<TState>,
   ) => Promise<Record<string, unknown>>;
 
+  /**
+   * Maps the raw execute result into structured state updates.
+   * The returned record is merged into the workflow state after the
+   * tool completes. The keys of this record implicitly declare the
+   * state fields that this tool writes to (no separate `outputs`
+   * declaration needed).
+   *
+   * When omitted, the `execute` return value is written to state directly.
+   */
+  readonly outputMapper?: (result: Record<string, unknown>) => Record<string, unknown>;
+
   /** Optional description of what the tool does. */
   readonly description?: string;
-
-  /**
-   * State field names that this tool reads from.
-   * Used for documentation and future dependency analysis.
-   */
-  readonly reads?: string[];
-
-  /**
-   * State field names that this tool writes to.
-   * Used for documentation and future dependency analysis.
-   */
-  readonly outputs?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -240,7 +231,9 @@ export interface AskUserQuestionOptions<TState extends BaseState = BaseState> {
   /**
    * Maps the user's answer into structured state updates.
    * Receives the raw answer string (or array for multi-select)
-   * and returns a record merged into workflow state.
+   * and returns a record merged into workflow state. The keys of
+   * this record implicitly declare the state fields that this node
+   * writes to (no separate `outputs` declaration needed).
    *
    * When provided, the compiled node blocks execution until the user
    * answers via the `respond` callback on the emitted event. The
@@ -250,25 +243,13 @@ export interface AskUserQuestionOptions<TState extends BaseState = BaseState> {
    * If omitted, the answer is stored in `state.outputs[nodeId]`.
    *
    * @remarks
-   * `onAnswer` requires the execution context to provide an `emit`
+   * `outputMapper` requires the execution context to provide an `emit`
    * function (i.e., the node must be executed through a path that
    * supports event emission). When `emit` is unavailable, the
    * callback is not invoked and the node falls back to the default
    * `dslAskUser` flag behavior.
    */
-  readonly onAnswer?: (answer: string | string[]) => Record<string, unknown>;
-
-  /**
-   * State field names that this node reads from.
-   * Used for documentation and future dependency analysis.
-   */
-  readonly reads?: string[];
-
-  /**
-   * State field names that this node writes to.
-   * Used for documentation and future dependency analysis.
-   */
-  readonly outputs?: string[];
+  readonly outputMapper?: (answer: string | string[]) => Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------
@@ -492,9 +473,9 @@ export interface WorkflowBuilderInterface {
   /**
    * Add a human-in-the-loop question node to the workflow.
    * Pauses execution and presents an interactive question dialog.
-   * The user's answer is mapped into workflow state via `onAnswer`.
+   * The user's answer is mapped into workflow state via `outputMapper`.
    *
-   * @param options - Question configuration (name, question, options, onAnswer, etc.).
+   * @param options - Question configuration (name, question, options, outputMapper, etc.).
    * @throws Error if `options.name` duplicates an existing node name.
    */
   askUserQuestion(options: AskUserQuestionOptions<any>): this;

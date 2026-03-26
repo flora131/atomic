@@ -248,7 +248,9 @@ export class WorkflowSessionConductor {
    */
   async execute(userPrompt: string): Promise<WorkflowResult> {
     const executionId = generateExecutionId();
-    let state = initializeExecutionState<BaseState>(executionId);
+    let state = this.config.createState
+      ? this.config.createState({ sessionId: executionId, prompt: userPrompt, sessionDir: "" })
+      : initializeExecutionState<BaseState>(executionId);
     const { graph, abortSignal } = this.config;
 
     const nodeQueue: string[] = [graph.startNode];
@@ -787,12 +789,30 @@ export class WorkflowSessionConductor {
     node: NodeDefinition<BaseState>,
     state: BaseState,
   ): Promise<NodeResult<BaseState>> {
+    // Build an emit function that dispatches bus events when the event bus
+    // is available. This is required for askUserQuestion nodes to emit
+    // human_input_required events that the TUI subscribes to.
+    const emitFn = this.canDispatch
+      ? (type: string, data?: Record<string, unknown>) => {
+          const busType = `stream.${type}`;
+          this.config.dispatchEvent!({
+            type: busType,
+            sessionId: this.config.sessionId!,
+            runId: this.config.runId!,
+            timestamp: Date.now(),
+            data: { ...data, nodeId: node.id },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          } as any);
+        }
+      : undefined;
+
     const context: ExecutionContext<BaseState> = {
       state,
       config: this.config.graph.config,
       errors: [],
       abortSignal: this.config.abortSignal,
       getNodeOutput: (nodeId) => state.outputs[nodeId],
+      emit: emitFn,
     };
 
     try {

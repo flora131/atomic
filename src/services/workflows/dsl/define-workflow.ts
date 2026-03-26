@@ -140,9 +140,9 @@ export class WorkflowBuilder implements WorkflowBuilderInterface {
   /**
    * Add a human-in-the-loop question node to the workflow.
    * Pauses execution and presents an interactive question dialog.
-   * The user's answer is mapped into workflow state via `onAnswer`.
+   * The user's answer is mapped into workflow state via `outputMapper`.
    *
-   * @param options - Question configuration (name, question, options, onAnswer, etc.).
+   * @param options - Question configuration (name, question, options, outputMapper, etc.).
    * @throws Error if `options.name` duplicates an existing node name.
    */
   askUserQuestion(options: AskUserQuestionOptions<any>): this {

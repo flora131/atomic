@@ -32,14 +32,12 @@ export default defineWorkflow({
         { label: "Aggressive", description: "Full refactor, high reward" },
       ],
     },
-    onAnswer: (answer) => ({ strategy: String(answer) }),
-    outputs: ["strategy"],
+    outputMapper: (answer) => ({ strategy: String(answer) }),
   })
   .stage({
     name: "plan",
     agent: "planner",
     description: "📋 PLAN",
-    outputs: ["tasks"],
     prompt: (ctx) => `Plan using ${ctx.state.strategy} strategy:\n${ctx.userPrompt}`,
     outputMapper: (response) => ({ tasks: response }),
   })
@@ -55,8 +53,7 @@ export default defineWorkflow({
         { label: "Revise", description: "Go back and re-plan" },
       ],
     }),
-    onAnswer: (answer) => ({ userApproved: answer === "Approve" }),
-    outputs: ["userApproved"],
+    outputMapper: (answer) => ({ userApproved: answer === "Approve" }),
   })
   // Multi-select question
   .askUserQuestion({
@@ -73,8 +70,7 @@ export default defineWorkflow({
       ],
       multiSelect: true,
     },
-    onAnswer: (answers) => ({ selectedIssues: answers }),
-    outputs: ["selectedIssues"],
+    outputMapper: (answers) => ({ selectedIssues: answers }),
   })
   // Free-text input (no options)
   .askUserQuestion({
@@ -84,8 +80,7 @@ export default defineWorkflow({
       question: "Any additional instructions for the implementation?",
       header: "User Feedback",
     },
-    onAnswer: (answer) => ({ userFeedback: String(answer) }),
-    outputs: ["userFeedback"],
+    outputMapper: (answer) => ({ userFeedback: String(answer) }),
   })
   .stage({
     name: "implement",

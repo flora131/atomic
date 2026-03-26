@@ -46,15 +46,13 @@ export default defineWorkflow({
         { label: "Thorough", description: "Deep analysis, multiple review cycles" },
       ],
     },
-    onAnswer: (answer) => ({ strategy: String(answer).toLowerCase() }),
-    outputs: ["strategy"],
+    outputMapper: (answer) => ({ strategy: String(answer).toLowerCase() }),
   })
   // Step 2: Plan the work
   .stage({
     name: "planner",
     agent: "planner",
     description: "⌕ PLANNER",
-    outputs: ["tasks"],
     prompt: (ctx) => `Using "${ctx.state.strategy}" strategy, plan:\n${ctx.userPrompt}`,
     outputMapper: (response) => {
       try {
@@ -72,7 +70,7 @@ export default defineWorkflow({
   .tool({
     name: "validate-plan",
     description: "Validate task plan structure",
-    outputs: ["allFindings"],
+    outputMapper: (result) => result,
     execute: async (ctx) => {
       const tasks = ctx.state.tasks;
       const findings: string[] = [];
@@ -105,8 +103,7 @@ export default defineWorkflow({
         ],
       };
     },
-    onAnswer: (answer) => ({ approvalStatus: String(answer).toLowerCase() }),
-    outputs: ["approvalStatus"],
+    outputMapper: (answer) => ({ approvalStatus: String(answer).toLowerCase() }),
   })
   // Step 5: Conditional — only implement if approved
   .if((ctx) => ctx.state.approvalStatus === "approve")
@@ -134,7 +131,6 @@ export default defineWorkflow({
         name: "reviewer",
         agent: "reviewer",
         description: "🔍 REVIEWER",
-        outputs: ["reviewResult", "allFindings", "totalIterations", "loopFindings"],
         prompt: (ctx) => `Review the implementation against:\n${ctx.userPrompt}`,
         outputMapper: (response) => {
           try {

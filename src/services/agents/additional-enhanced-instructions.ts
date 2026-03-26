@@ -18,6 +18,14 @@ export const ADDITIONAL_ENHANCED_INSTRUCTIONS = `
   - ALWAYS ASSUME you have the playwright-cli tool installed (if the \`playwright-cli\` command fails, fallback to \`bunx playwright-cli\`).
 - ALWAYS invoke your testing-anti-patterns skill BEFORE creating or modifying any tests.
 
+## Semantic Code Search
+
+- When searching the codebase, TRY \`ccc search <query>\` first to speed up discovery. Semantic search finds conceptually related code faster than text-based grep/glob.
+  - ALWAYS complement semantic search results with text-based tools (grep/glob) for exact string matching (error messages, config values, import paths).
+  - If \`ccc search\` fails with an initialization error (e.g., "Not in an initialized project directory"), IMMEDIATELY fall back to grep/glob/LSP tools. Do NOT run \`ccc init && ccc index\` automatically — this causes excessive waiting while the index builds.
+  - EXCEPTION: If the user explicitly asks to use semantic search, \`ccc\`, or \`cocoindex-code\`, initialize and index the project (\`ccc init && ccc index\`) before searching.
+  - Refer to the **semantic-code-search** skill for detailed guidance on search syntax, filtering, pagination, and index management.
+
 ## Sub-Agent Usage
 
 - PREFER to use the codebase-analyzer, codebase-locator, codebase-online-researcher, codebase-pattern-finder, codebase-research-analyzer, and codebase-research-locator sub-agents OVER the explore sub-agent.

@@ -28,9 +28,9 @@ You are a specialist at understanding HOW code works. Your job is to analyze imp
 
 ## Analysis Strategy
 
-### Semantic Code Search (Primary Discovery)
+### Semantic Code Search (Accelerated Discovery)
 
-ALWAYS try `ccc search` first to discover relevant files before deep reading:
+TRY `ccc search` first to speed up code discovery — it finds conceptually related code faster than text search:
 
 ```bash
 ccc search <natural language query>          # semantic search
@@ -39,7 +39,9 @@ ccc search --path 'src/services/*' <query>   # filter by path
 ```
 
 - Describe concepts and behavior in natural language (e.g., `ccc search webhook validation pipeline` not `ccc search validateWebhook`)
-- If `ccc search` fails with an init error, run `ccc init && ccc index` first, then retry
+- If `ccc search` fails with an initialization error, IMMEDIATELY fall back to grep/glob/LSP. Do NOT run `ccc init && ccc index` — this causes excessive waiting while the index builds.
+- EXCEPTION: If the user explicitly requests semantic search or `ccc`, initialize the project (`ccc init && ccc index`) before searching.
+- Refer to the **semantic-code-search** skill for detailed guidance on search syntax, filtering, pagination, and index management.
 
 ### Code Intelligence (Precise Navigation)
 
@@ -51,9 +53,9 @@ After `ccc search` identifies candidate files, use LSP for tracing:
 - `hover` for type info without reading the file
 - `incomingCalls` / `outgoingCalls` for call hierarchy
 
-### Grep/Glob (Fallback)
+### Grep/Glob (Complement & Fallback)
 
-Use Grep/Glob only when `ccc search` and LSP are insufficient:
+ALWAYS complement semantic search with grep/glob for exact matches, and use as primary tool when `ccc search` is unavailable:
 - Exact string matching (error messages, config values, import paths)
 - Regex pattern searches
 - File extension/name pattern matching

@@ -536,6 +536,21 @@ export interface ConductorConfig {
    * (tests that don't use the full TUI pipeline can omit this safely).
    */
   readonly onBeforeQueuedStream?: () => void;
+
+  // -------------------------------------------------------------------------
+  // State Initialization (optional — enables globalState defaults)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Factory for creating workflow state with globalState defaults.
+   *
+   * When provided, the conductor calls this instead of bare
+   * `initializeExecutionState()` so that user-declared `globalState` fields
+   * (e.g. `strategy: { default: "balanced" }`) are present from the start.
+   *
+   * When omitted, only the bare `BaseState` is created.
+   */
+  readonly createState?: (params: { sessionId: string; prompt: string; sessionDir: string }) => BaseState;
 }
 
 // ---------------------------------------------------------------------------

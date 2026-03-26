@@ -20,7 +20,6 @@ export default defineWorkflow({
     name: "plan",
     agent: "planner",
     description: "📋 PLAN",
-    outputs: ["tasks"],
     prompt: (ctx) => `Break this into tasks:\n${ctx.userPrompt}`,
     outputMapper: (response) => {
       try {
@@ -33,8 +32,7 @@ export default defineWorkflow({
   .tool({
     name: "validate-tasks",
     description: "Validate that all tasks have required fields",
-    reads: ["tasks"],
-    outputs: ["validationResult"],
+    outputMapper: (result) => result,
     execute: async (ctx) => {
       const tasks = ctx.state.tasks;
       const valid = Array.isArray(tasks) && tasks.every((t) => t.id && t.description);
@@ -44,8 +42,7 @@ export default defineWorkflow({
   .tool({
     name: "summarize-tasks",
     description: "Generate a summary from the task list",
-    reads: ["tasks"],
-    outputs: ["summary"],
+    outputMapper: (result) => result,
     execute: async (ctx) => {
       const tasks = ctx.state.tasks;
       const summary = Array.isArray(tasks)
@@ -57,7 +54,6 @@ export default defineWorkflow({
   .stage({
     name: "execute",
     description: "⚡ EXECUTE",
-    reads: ["tasks", "validationResult", "summary"],
     prompt: (ctx) => {
       const summary = ctx.stageOutputs.get("summarize-tasks")?.rawResponse ?? "";
       return `Execute the following validated tasks:\n${summary}`;

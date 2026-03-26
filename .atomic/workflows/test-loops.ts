@@ -17,6 +17,7 @@ export default defineWorkflow({
     },
   })
   .version("1.0.0")
+  .argumentHint("<code-to-review>")
   .stage({
     name: "initial-impl",
     description: "⚡ INITIAL IMPLEMENTATION",
@@ -29,7 +30,6 @@ export default defineWorkflow({
       name: "review",
       agent: "reviewer",
       description: "🔍 REVIEW",
-      outputs: ["reviewResult"],
       prompt: (ctx) => `Review the implementation for:\n${ctx.userPrompt}`,
       outputMapper: (response) => {
         try {
@@ -48,7 +48,6 @@ export default defineWorkflow({
       name: "fix",
       agent: "fixer",
       description: "🔧 FIX",
-      outputs: ["refinementCount"],
       prompt: (ctx) => {
         const review = ctx.stageOutputs.get("review")?.rawResponse ?? "";
         return `Fix issues found in review:\n${review}`;
@@ -67,7 +66,6 @@ export default defineWorkflow({
     .stage({
       name: "polish",
       description: "✨ POLISH",
-      outputs: ["polishIteration", "improvements"],
       prompt: (ctx) => `Polish iteration ${ctx.state.polishIteration}:\n${ctx.userPrompt}`,
       outputMapper: (response) => ({
         polishIteration: 1,

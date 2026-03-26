@@ -6,6 +6,7 @@ import {
   inferAskUserOutputs,
   inferAskUserReads,
   inferToolReads,
+  inferToolOutputs,
   inferStageMetadata,
   inferAskUserMetadata,
   inferToolMetadata,
@@ -105,28 +106,28 @@ describe("inferStageReads", () => {
 // ---------------------------------------------------------------------------
 
 describe("inferAskUserOutputs", () => {
-  test("returns single key from onAnswer", () => {
-    const onAnswer = (answer: string | string[]) => ({ userChoice: answer });
-    expect(inferAskUserOutputs(onAnswer)).toEqual(["userChoice"]);
+  test("returns single key from outputMapper", () => {
+    const outputMapper = (answer: string | string[]) => ({ userChoice: answer });
+    expect(inferAskUserOutputs(outputMapper)).toEqual(["userChoice"]);
   });
 
-  test("returns multiple keys from onAnswer", () => {
-    const onAnswer = (answer: string | string[]) => ({
+  test("returns multiple keys from outputMapper", () => {
+    const outputMapper = (answer: string | string[]) => ({
       approved: true,
       reason: answer,
     });
-    expect(inferAskUserOutputs(onAnswer)).toEqual(["approved", "reason"]);
+    expect(inferAskUserOutputs(outputMapper)).toEqual(["approved", "reason"]);
   });
 
-  test("returns empty array when onAnswer is undefined", () => {
+  test("returns empty array when outputMapper is undefined", () => {
     expect(inferAskUserOutputs(undefined)).toEqual([]);
   });
 
-  test("returns empty array when onAnswer throws", () => {
-    const onAnswer = (_answer: string | string[]): Record<string, unknown> => {
+  test("returns empty array when outputMapper throws", () => {
+    const outputMapper = (_answer: string | string[]): Record<string, unknown> => {
       throw new Error("handler crashed");
     };
-    expect(inferAskUserOutputs(onAnswer)).toEqual([]);
+    expect(inferAskUserOutputs(outputMapper)).toEqual([]);
   });
 });
 
@@ -189,6 +190,66 @@ describe("inferToolReads", () => {
     expect(reads).toContain("sourceCode");
     expect(reads).toContain("language");
   });
+
+  test("captures direct ctx.state.field accesses", () => {
+    const execute = async (ctx: ExecutionContext<BaseState>) => {
+      const findings = (ctx.state as any).findings;
+      return { count: findings, total: (ctx.state as any).totalTokens };
+    };
+    const reads = inferToolReads(execute);
+    expect(reads).toContain("findings");
+    expect(reads).toContain("totalTokens");
+  });
+
+  test("captures destructured state accesses", () => {
+    const execute = async (ctx: ExecutionContext<BaseState>) => {
+      const { plan, feedback } = ctx.state as any;
+      return { result: `${plan}-${feedback}` };
+    };
+    const reads = inferToolReads(execute);
+    expect(reads).toContain("plan");
+    expect(reads).toContain("feedback");
+  });
+
+  test("does not execute the function body (no side effects)", () => {
+    let sideEffectTriggered = false;
+    const execute = async (ctx: ExecutionContext<BaseState>) => {
+      sideEffectTriggered = true;
+      const value = (ctx.state as any).someField;
+      return { result: value };
+    };
+    inferToolReads(execute);
+    expect(sideEffectTriggered).toBe(false);
+  });
+
+  test("returns empty array when execute has no state accesses", () => {
+    const execute = async () => {
+      return { result: "static" };
+    };
+    expect(inferToolReads(execute)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5b. inferToolOutputs
+// ---------------------------------------------------------------------------
+
+describe("inferToolOutputs", () => {
+  test("returns keys from outputMapper", () => {
+    const outputMapper = (_result: Record<string, unknown>) => ({ formatted: "data", count: 1 });
+    expect(inferToolOutputs(outputMapper)).toEqual(["formatted", "count"]);
+  });
+
+  test("returns empty array when outputMapper is undefined", () => {
+    expect(inferToolOutputs(undefined)).toEqual([]);
+  });
+
+  test("returns empty array when outputMapper throws", () => {
+    const outputMapper = (_result: Record<string, unknown>): Record<string, unknown> => {
+      throw new Error("mapper crashed");
+    };
+    expect(inferToolOutputs(outputMapper)).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -196,7 +257,7 @@ describe("inferToolReads", () => {
 // ---------------------------------------------------------------------------
 
 describe("inferStageMetadata", () => {
-  test("explicit reads/outputs take precedence over inference", () => {
+  test("always infers reads from prompt function", () => {
     const config = {
       name: "test-stage",
       agent: "test-agent",
@@ -206,12 +267,10 @@ describe("inferStageMetadata", () => {
         return `${s.plan}`;
       },
       outputMapper: (_response: string) => ({ result: _response }),
-      reads: ["explicitField"],
-      outputs: ["explicitOutput"],
     };
     const meta = inferStageMetadata(config);
-    expect(meta.reads).toEqual(["explicitField"]);
-    expect(meta.outputs).toEqual(["explicitOutput"]);
+    expect(meta.reads).toContain("plan");
+    expect(meta.outputs).toEqual(["result"]);
   });
 
   test("infers reads and outputs when not explicitly provided", () => {
@@ -240,20 +299,18 @@ describe("inferStageMetadata", () => {
 // ---------------------------------------------------------------------------
 
 describe("inferAskUserMetadata", () => {
-  test("explicit reads/outputs take precedence over inference", () => {
+  test("always infers reads from question function", () => {
     const config = {
       name: "ask-review",
       question: (state: BaseState) => {
         const s = state as unknown as Record<string, unknown>;
         return { question: `Review: ${s.plan}` };
       },
-      onAnswer: (answer: string | string[]) => ({ approved: answer }),
-      reads: ["manualRead"],
-      outputs: ["manualOutput"],
+      outputMapper: (answer: string | string[]) => ({ approved: answer }),
     };
     const meta = inferAskUserMetadata(config);
-    expect(meta.reads).toEqual(["manualRead"]);
-    expect(meta.outputs).toEqual(["manualOutput"]);
+    expect(meta.reads).toContain("plan");
+    expect(meta.outputs).toEqual(["approved"]);
   });
 
   test("infers reads and outputs when not explicitly provided", () => {
@@ -263,7 +320,7 @@ describe("inferAskUserMetadata", () => {
         const s = state as unknown as Record<string, unknown>;
         return { question: `Review: ${s.plan}` };
       },
-      onAnswer: (answer: string | string[]) => ({
+      outputMapper: (answer: string | string[]) => ({
         approved: true,
         comment: answer,
       }),
@@ -279,22 +336,22 @@ describe("inferAskUserMetadata", () => {
 // ---------------------------------------------------------------------------
 
 describe("inferToolMetadata", () => {
-  test("explicit reads/outputs take precedence over inference", () => {
+  test("infers reads from execute and outputs from outputMapper", () => {
     const config = {
       name: "transform-tool",
       execute: async (ctx: ExecutionContext<BaseState>) => {
         const s = ctx.state as unknown as Record<string, unknown>;
         return { result: s.data };
       },
-      reads: ["manualRead"],
-      outputs: ["manualOutput"],
+      outputMapper: (result: Record<string, unknown>) => result,
     };
     const meta = inferToolMetadata(config);
-    expect(meta.reads).toEqual(["manualRead"]);
-    expect(meta.outputs).toEqual(["manualOutput"]);
+    expect(meta.reads).toContain("data");
+    // outputMapper({}) returns {}, so no outputs inferred
+    expect(meta.outputs).toEqual([]);
   });
 
-  test("infers reads when not provided, outputs defaults to empty array", () => {
+  test("infers reads when not provided, outputs defaults to empty when no outputMapper", () => {
     const config = {
       name: "transform-tool",
       execute: async (ctx: ExecutionContext<BaseState>) => {
@@ -305,6 +362,16 @@ describe("inferToolMetadata", () => {
     const meta = inferToolMetadata(config);
     expect(meta.reads).toContain("sourceCode");
     expect(meta.outputs).toEqual([]);
+  });
+
+  test("infers outputs from outputMapper keys", () => {
+    const config = {
+      name: "transform-tool",
+      execute: async () => ({ raw: "data" }),
+      outputMapper: (_result: Record<string, unknown>) => ({ formatted: "data", count: 1 }),
+    };
+    const meta = inferToolMetadata(config);
+    expect(meta.outputs).toEqual(["formatted", "count"]);
   });
 });
 

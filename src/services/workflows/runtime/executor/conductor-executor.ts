@@ -241,6 +241,12 @@ export async function executeConductorWorkflow(
         context.addMessage("assistant", "");
       },
 
+      // State factory — uses definition.createState when available so that
+      // user-declared globalState defaults are initialized in the conductor state.
+      createState: definition.createState
+        ? (params) => definition.createState!({ ...params, prompt, sessionDir })
+        : undefined,
+
       // TODO: Wire contextPressure config once session.getContextUsage() is available
       // on sessions created via context.createAgentSession
     };

@@ -273,44 +273,46 @@ describe("Ralph Workflow Definition (DSL)", () => {
   // Graph nodes carry reads/outputs for data-flow verification
   // -------------------------------------------------------------------------
 
-  test("conductor graph nodes carry reads/outputs metadata", () => {
+  test("conductor graph nodes carry inferred reads/outputs metadata", () => {
     const graph = ralphWorkflowDefinition.createConductorGraph!();
     const planner = graph.nodes.get("planner");
     expect(planner?.outputs).toEqual(["tasks"]);
 
+    // Reads are inferred from ctx.state.* accesses in prompt functions.
+    // Ralph stages use ctx.stageOutputs/ctx.tasks instead of ctx.state,
+    // so inferred reads are empty.
     const orchestrator = graph.nodes.get("orchestrator");
-    expect(orchestrator?.reads).toEqual(["tasks"]);
+    expect(orchestrator?.reads).toEqual([]);
 
     const reviewer = graph.nodes.get("reviewer");
-    expect(reviewer?.reads).toEqual(["tasks"]);
+    expect(reviewer?.reads).toEqual([]);
     expect(reviewer?.outputs).toEqual(["reviewResult"]);
 
     const debugger_ = graph.nodes.get("debugger");
-    expect(debugger_?.reads).toEqual(["reviewResult"]);
+    expect(debugger_?.reads).toEqual([]);
   });
 
   // -------------------------------------------------------------------------
   // Runtime outputMapper key validation
   // -------------------------------------------------------------------------
 
-  test("parseOutput throws when outputMapper keys do not match declared outputs", () => {
-    // Compile a workflow with mismatched outputMapper keys vs declared outputs
+  test("outputs are inferred from outputMapper keys (no explicit outputs needed)", () => {
+    // Compile a workflow and verify that the graph node's outputs are
+    // inferred from the outputMapper return keys.
     const { defineWorkflow: dw } = require("@/services/workflows/dsl/define-workflow.ts");
-    const mismatchedWorkflow = dw("test-mismatch", "test")
+    const workflow = dw({ name: "test-infer", description: "test" })
       .stage({
-        name: "bad-stage",
-        agent: "bad-stage",
+        name: "infer-stage",
+        agent: "infer-stage",
         description: "test",
         prompt: () => "test",
-        outputMapper: (_r: string) => ({ wrongKey: "value" }),
-        outputs: ["correctKey"],
+        outputMapper: (_r: string) => ({ inferredKey: "value", otherKey: 42 }),
       })
       .compile();
 
-    const stage = mismatchedWorkflow.conductorStages![0]!;
-    expect(() => stage.parseOutput!("test response")).toThrow(
-      /outputMapper keys do not match declared outputs/,
-    );
+    const graph = workflow.createConductorGraph!();
+    const node = graph.nodes.get("infer-stage")!;
+    expect(node.outputs).toEqual(["inferredKey", "otherKey"]);
   });
 
   // -------------------------------------------------------------------------

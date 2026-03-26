@@ -31,9 +31,9 @@ Available tools:
   - ALWAYS ASSUME you have the playwright-cli tool installed (if the `playwright-cli` command fails, fallback to `bunx playwright-cli`).
 - ALWAYS invoke your testing-anti-patterns skill BEFORE creating or modifying any tests.
 
-### Semantic Code Search (Primary Discovery)
+### Semantic Code Search (Accelerated Discovery)
 
-ALWAYS try `ccc search` first to find relevant code before falling back to other tools:
+TRY `ccc search` first to speed up code discovery — it finds conceptually related code faster than text search:
 
 ```bash
 ccc search <natural language query>          # semantic search
@@ -42,7 +42,9 @@ ccc search --path 'src/services/*' <query>   # filter by path
 ```
 
 - Describe the bug or behavior in natural language (e.g., `ccc search stream timeout error handling`)
-- If `ccc search` fails with an init error, run `ccc init && ccc index` first, then retry
+- If `ccc search` fails with an initialization error, IMMEDIATELY fall back to grep/glob/LSP. Do NOT run `ccc init && ccc index` — this causes excessive waiting while the index builds.
+- EXCEPTION: If the user explicitly requests semantic search or `ccc`, initialize the project (`ccc init && ccc index`) before searching.
+- Refer to the **semantic-code-search** skill for detailed guidance on search syntax, filtering, pagination, and index management.
 
 ### Code Intelligence
 
@@ -54,7 +56,7 @@ After `ccc search` identifies candidate files, use LSP for precise navigation:
 - `hover` for type info without reading the file
 - `incomingCalls` / `outgoingCalls` for call hierarchy
 
-Use Grep/Glob only for exact string matching (error messages, config values) where `ccc search` and LSP don't help.
+ALWAYS complement semantic search with grep/glob for exact string matching (error messages, config values), and use as primary tool when `ccc search` is unavailable.
 
 After writing or editing code, check LSP diagnostics before
 moving on. Fix any type errors or missing imports immediately.

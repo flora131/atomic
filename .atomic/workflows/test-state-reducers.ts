@@ -44,11 +44,6 @@ export default defineWorkflow({
   .stage({
     name: "gather",
     description: "📊 GATHER",
-    outputs: [
-      "currentPhase", "findings", "metadata", "tasks",
-      "highScore", "lowestLatency", "totalTokens",
-      "hasErrors", "allPassing", "log",
-    ],
     prompt: (ctx) => `Gather data for:\n${ctx.userPrompt}`,
     outputMapper: (response) => ({
       currentPhase: "gathering",
@@ -72,11 +67,6 @@ export default defineWorkflow({
     .stage({
       name: "analyze",
       description: "🔬 ANALYZE",
-      outputs: [
-        "findings", "metadata", "tasks",
-        "highScore", "totalTokens", "hasErrors", "allPassing",
-        "log", "iterationFindings",
-      ],
       prompt: (ctx) => {
         const tasks = ctx.state.tasks;
         return `Analyze tasks: ${JSON.stringify(tasks)}`;
@@ -97,10 +87,8 @@ export default defineWorkflow({
   .tool({
     name: "finalize",
     description: "Compute final summary from accumulated state",
-    outputs: ["currentPhase"],
+    outputMapper: (result) => result,
     execute: async (ctx) => {
-      const findings = ctx.state.findings;
-      console.log(`Findings: ${findings.length}, Tokens: ${ctx.state.totalTokens}`);
       return { currentPhase: "complete" };
     },
   })

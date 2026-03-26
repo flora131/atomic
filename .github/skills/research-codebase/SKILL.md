@@ -14,10 +14,87 @@ The user's research question/request is: **$ARGUMENTS**
 
 <EXTREMELY_IMPORTANT>
 
-- OPTIMIZE the user's research question request using your prompt-engineer skill and confirm that the your refined question captures the user's intent BEFORE proceeding using the `AskUserQuestion` tool.
+- FORMALIZE the user's research intent using the intent-formalization framework BEFORE proceeding. Research fails far more often from investigating the *wrong question* than from investigating the right question poorly. Use the ambiguity/risk matrix and the intent formalization ladder (Rungs 1–4) to ensure you understand what the user actually needs — not what you assume they need. See Step 0 below for the full process.
+- After intent is formalized, OPTIMIZE the research question using your prompt-engineer skill to refine phrasing and structure for maximum clarity and precision.
 - After research is complete and the research artifact(s) are generated, provide an executive summary of the research and path to the research document(s) to the user, and ask if they have any follow-up questions or need clarification.
 
 </EXTREMELY_IMPORTANT>
+
+### Step 0: Formalize Research Intent
+
+Before decomposing or researching anything, apply the intent-formalization framework. Research spawns many sub-agents and consumes significant resources — formalizing intent upfront prevents wasted effort from investigating the wrong question.
+
+<intent_formalization>
+
+#### 0a. Build a World Model (Rung 1 — Zero User Effort)
+
+Resolve ambiguity silently using available context before asking the user anything:
+
+1. **Recent changes.** Run `git --no-pager log --oneline -10` and `git --no-pager diff --stat HEAD~3`. If the user's question relates to recently changed code, their intent is likely scoped to those changes — not a broad system survey.
+2. **Existing research.** Use the **codebase-research-locator** agent to check if `research/docs/` already covers this topic. If prior research exists, the user likely wants to extend or update it — not duplicate it. Note what's already documented to avoid redundant investigation.
+3. **Specs.** Scan `specs/` for related design documents. A spec's Goals/Non-Goals and scope boundaries often disambiguate vague terms like "the auth system" or "how billing works."
+4. **Project conventions.** Check CLAUDE.md, AGENTS.md, README.md for project-specific terminology, component names, and architectural context that ground the user's vocabulary.
+
+#### 0b. Assess Ambiguity and Risk
+
+Apply the **ambiguity/risk matrix** to decide how much formalization the research question needs:
+
+|                      | Low Risk (focused, narrow scope)     | High Risk (broad, multi-system scope)        |
+| -------------------- | ------------------------------------ | -------------------------------------------- |
+| **Clear intent**     | Proceed directly to Step 1           | Emit plan summary (Rung 2), then proceed     |
+| **Ambiguous intent** | Contrastive clarification (Rung 3)   | Full structured research intent (Rung 4)     |
+
+Research is read-only, so the primary risk is wasted effort — spawning many sub-agents to investigate the wrong question.
+
+**Signals the research intent is ambiguous:**
+- Vague verbs: "how does X work" (which aspect?), "research the system" (which system?), "look into the issues" (which issues?)
+- Multiple plausible research scopes exist (e.g., "research auth" could mean login flow, token management, RBAC, or all of them)
+- Unspecified depth (overview vs. deep dive) or breadth (one component vs. cross-cutting)
+- The question's scope conflicts with the codebase structure (e.g., they say "the API" but there are 5 API modules)
+
+#### 0c. Clarify Using the Appropriate Rung
+
+**If >90% confident (Rung 2 — Plan Summary):** Emit a brief statement of what you'll research and let the user interrupt if wrong:
+
+> "I'll research how the OAuth token refresh flow works by tracing the code path from `src/auth/` through the token store. I'll document the current implementation and its integration points. Sound right?"
+
+**If 2-3 plausible interpretations exist (Rung 3 — Contrastive Clarification):** Present specific, contrasting research scopes — never ask open-ended "can you clarify?" questions:
+
+> I see a couple of ways to scope "research the authentication system":
+>
+> **(A) Login flow deep-dive** — Trace the full authentication path from login through token issuance. Focuses on `src/auth/` and related middleware. Single deep document.
+>
+> **(B) Auth architecture overview** — Document all auth components: login, registration, token management, RBAC, and how they connect. Broader but less deep.
+>
+> **(C) Auth integration points** — Focus on how auth interacts with other systems (API gateway, session management, third-party providers).
+>
+> Which direction?
+
+**If the research is complex and multi-faceted (Rung 4 — Structured Research Intent):** Produce a structured research intent object and ask the user to validate before proceeding:
+
+```yaml
+Research Goal: [What we're trying to understand]
+Scope:
+  in_bounds:
+    - [Specific directories, modules, or systems to investigate]
+  out_of_bounds:
+    - [What we're explicitly NOT researching]
+Depth: [Overview / Implementation-level / Deep-dive with edge cases]
+Output: [Number and type of research documents expected]
+Success Criteria: [What "done" looks like — e.g., "A developer unfamiliar with X could understand Y"]
+Prior Research: [Relevant existing docs in research/ to extend, not duplicate]
+```
+
+#### 0d. Produce the Formalized Research Question
+
+Once intent is clear (either implicitly resolved or explicitly confirmed), produce a **formalized research question** that will guide all subsequent steps. This question should be:
+- Specific about scope (which components, which directories)
+- Clear about depth (overview vs. implementation details)
+- Explicit about what's in-bounds and out-of-bounds
+
+Then OPTIMIZE this formalized question using prompt-engineer techniques for maximum clarity and precision before proceeding to Step 1.
+
+</intent_formalization>
 
 1. **Read any directly mentioned files first:**
     - If the user mentions specific files (tickets, docs, or other notes), read them FULLY first
@@ -25,15 +102,17 @@ The user's research question/request is: **$ARGUMENTS**
     - **CRITICAL**: Read these files yourself in the main context before spawning any sub-tasks
     - This ensures you have full context before decomposing the research
 
-2. **Analyze and decompose the research question:**
-    - Break down the user's query into composable research areas
+2. **Analyze and decompose the formalized research question:**
+    - Using the formalized research question and validated intent from Step 0, break it down into composable research areas that align with the agreed scope boundaries
+    - Reference the in_bounds/out_of_bounds constraints from the formalized intent to ensure decomposition stays within scope
     - Take time to ultrathink about the underlying patterns, connections, and architectural implications the user might be seeking
     - Identify specific components, patterns, or concepts to investigate
     - Create a research plan using TodoWrite to track all subtasks
     - Consider which directories, files, or architectural patterns are relevant
 
-3. **Spawn parallel sub-agent tasks for comprehensive research:**
+3. **Spawn parallel sub-agent tasks guided by the formalized research intent:**
     - Create multiple Task agents to research different aspects concurrently
+    - **Pass the formalized intent to each sub-agent** as structured context (scope, depth, in/out bounds, success criteria) rather than just a natural language prompt. This prevents intent drift across delegation hops — each sub-agent sees the same validated scope boundaries, not a game-of-telephone rephrasing of the original question.
     - We now have specialized agents that know how to do specific research tasks:
 
     **For codebase research:**
@@ -69,15 +148,17 @@ The user's research question/request is: **$ARGUMENTS**
     - Don't write detailed prompts about HOW to search - the agents already know
     - Remind agents they are documenting, not evaluating or improving
 
-4. **Wait for all sub-agents to complete and synthesize findings:**
+4. **Wait for all sub-agents to complete and synthesize against the formalized intent:**
     - IMPORTANT: Wait for ALL sub-agent tasks to complete before proceeding
+    - **Validate coverage against the formalized intent:** Check that all in_bounds areas were investigated and no out_of_bounds areas were explored. If gaps exist, spawn additional focused sub-agents to fill them.
     - Compile all sub-agent results (both codebase and research findings)
     - Prioritize live codebase findings as primary source of truth
     - Use research findings as supplementary historical context
     - Connect findings across different components
     - Include specific file paths and line numbers for reference
     - Highlight patterns, connections, and architectural decisions
-    - Answer the user's specific questions with concrete evidence
+    - Answer the user's **formalized research question** with concrete evidence — trace each finding back to the specific aspect of the question it addresses
+    - **If findings reveal the original question was misframed** (e.g., the system works differently than assumed, or the components don't exist where expected), flag this to the user before finalizing the document. This is valuable signal — don't bury it.
 
 5. **Generate research document:**
     - Follow the directory structure for research documents:
@@ -181,11 +262,13 @@ research/
 
 3. **Handle follow-up questions:**
 
+- **Re-formalize intent** for follow-up questions using the same framework (Step 0). Follow-ups often shift scope, and the just-completed research enriches the world model (Rung 1) — use it. A follow-up like "what about the error handling?" after auth research should be interpreted in the auth context, not as a broad error-handling investigation.
+- Use **contrastive clarification** (Rung 3) if the follow-up is ambiguous — present 2-3 interpretations scoped to the original research context rather than asking open-ended questions.
 - If the user has follow-up questions, append to the same research document
 - Update the frontmatter fields `last_updated` and `last_updated_by` to reflect the update
 - Add `last_updated_note: "Added follow-up research for [brief description]"` to frontmatter
 - Add a new section: `## Follow-up Research [timestamp]`
-- Spawn new sub-agents as needed for additional investigation
+- Spawn new sub-agents as needed for additional investigation, passing the updated formalized intent
 - Continue updating the document and syncing
 
 ## Important notes:

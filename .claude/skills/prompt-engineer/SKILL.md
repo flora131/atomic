@@ -5,7 +5,7 @@ description: Create, improve, or optimize prompts using best practices
 
 # Prompt Engineering Skill
 
-This skill provides comprehensive guidance for creating effective prompts for Claude based on Anthropic's official best practices. Use this skill whenever working on prompt design, optimization, or troubleshooting.
+This skill provides comprehensive guidance for creating effective prompts for language models using proven best practices. Use this skill whenever working on prompt design, optimization, or troubleshooting.
 
 ## Overview
 
@@ -17,7 +17,7 @@ Trigger this skill when users request:
 
 - Help writing a prompt for a specific task
 - Improving an existing prompt that isn't performing well
-- Making Claude more consistent, accurate, or secure
+- Making outputs more consistent, accurate, or secure
 - Creating system prompts for specialized roles
 - Implementing specific techniques (chain-of-thought, multishot, XML tags)
 - Reducing hallucinations or errors in outputs

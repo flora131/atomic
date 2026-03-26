@@ -25,6 +25,7 @@ export function useSessionMessageEvents({
 
     const { message, infoType } = event.data;
     if (infoType === "cancellation") return;
+    if (infoType === "configuration") return;
     if (infoType === "snapshot") return;
     if (!message) return;
     if (isLikelyFilePath(message.trim())) return;

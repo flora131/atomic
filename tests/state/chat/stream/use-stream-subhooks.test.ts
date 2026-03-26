@@ -541,6 +541,10 @@ describe("useSessionMessageEvents structural verification", () => {
     expect(source).toContain('"cancellation"');
   });
 
+  test("filters configuration info type", () => {
+    expect(source).toContain('"configuration"');
+  });
+
   test("filters snapshot info type", () => {
     expect(source).toContain('"snapshot"');
   });

@@ -63,13 +63,13 @@ describe("StageOptions", () => {
       description: "Executes tasks",
       prompt: () => "Execute",
       outputMapper: () => ({}),
-      sessionConfig: { model: "claude-sonnet" },
+      sessionConfig: { model: { claude: "claude-sonnet" } },
       maxOutputBytes: 1024,
       reads: ["plan"],
       outputs: ["result"],
     };
 
-    expect(config.sessionConfig?.model).toBe("claude-sonnet");
+    expect(config.sessionConfig?.model).toEqual({ claude: "claude-sonnet" });
     expect(config.maxOutputBytes).toBe(1024);
     expect(config.reads).toEqual(["plan"]);
     expect(config.outputs).toEqual(["result"]);

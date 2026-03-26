@@ -15,7 +15,7 @@
  */
 
 import type { TaskItem } from "@/services/workflows/builtin/ralph/helpers/prompts.ts";
-import type { Session } from "@/services/agents/types.ts";
+import type { Session, SessionConfig } from "@/services/agents/types.ts";
 import type {
   BaseState,
   NodeDefinition,
@@ -39,6 +39,11 @@ import type {
   StageOutput,
   WorkflowResult,
 } from "@/services/workflows/conductor/types.ts";
+import type { WorkflowSessionConfig } from "@/services/workflows/dsl/types.ts";
+import {
+  getModelPreference,
+  getReasoningEffortPreference,
+} from "@/services/config/settings.ts";
 import { truncateStageOutput } from "@/services/workflows/conductor/truncate.ts";
 import { isPipelineDebug } from "@/services/events/pipeline-logger.ts";
 import { DEFAULT_LOG_DIR } from "@/services/events/debug-subscriber/config.ts";
@@ -107,6 +112,57 @@ export class WorkflowSessionConductor {
     this.accumulatedPressure = createEmptyAccumulatedPressure();
 
     this.validateStagesCoverAgentNodes();
+  }
+
+  // -------------------------------------------------------------------------
+  // Session Config Resolution
+  // -------------------------------------------------------------------------
+
+  /**
+   * Resolve a `WorkflowSessionConfig` (SDK-agnostic, per-agent model maps)
+   * into an agent-level `SessionConfig` for the active agent.
+   *
+   * Resolution order for `model` and `reasoningEffort`:
+   * 1. Stage-level per-agent value (e.g., `{ model: { claude: "opus" } }`)
+   * 2. User's persisted settings (`~/.atomic/settings.json` or `.atomic/settings.json`)
+   *
+   * Other fields (systemPrompt, tools, etc.) pass through unchanged.
+   */
+  private async resolveSessionConfig(
+    workflowConfig?: Partial<WorkflowSessionConfig>,
+  ): Promise<SessionConfig | undefined> {
+    const agentType = this.config.agentType;
+
+    // Resolve model: stage config → user settings
+    const stageModel = agentType
+      ? workflowConfig?.model?.[agentType as keyof NonNullable<WorkflowSessionConfig["model"]>]
+      : undefined;
+    const model = stageModel ?? (agentType ? await getModelPreference(agentType) : undefined);
+
+    // Resolve reasoning effort: stage config → user settings
+    const stageReasoning = agentType
+      ? workflowConfig?.reasoningEffort?.[agentType as keyof NonNullable<WorkflowSessionConfig["reasoningEffort"]>]
+      : undefined;
+    const reasoningEffort = stageReasoning ?? (agentType ? await getReasoningEffortPreference(agentType) : undefined);
+
+    // If no workflow config and no defaults resolved, return undefined
+    if (!workflowConfig && !model && !reasoningEffort) {
+      return undefined;
+    }
+
+    const resolved: SessionConfig = {};
+    if (workflowConfig?.sessionId !== undefined) resolved.sessionId = workflowConfig.sessionId;
+    if (workflowConfig?.systemPrompt !== undefined) resolved.systemPrompt = workflowConfig.systemPrompt;
+    if (workflowConfig?.additionalInstructions !== undefined) resolved.additionalInstructions = workflowConfig.additionalInstructions;
+    if (workflowConfig?.tools !== undefined) resolved.tools = workflowConfig.tools;
+    if (workflowConfig?.permissionMode !== undefined) resolved.permissionMode = workflowConfig.permissionMode;
+    if (workflowConfig?.maxBudgetUsd !== undefined) resolved.maxBudgetUsd = workflowConfig.maxBudgetUsd;
+    if (workflowConfig?.maxTurns !== undefined) resolved.maxTurns = workflowConfig.maxTurns;
+    if (workflowConfig?.maxThinkingTokens !== undefined) resolved.maxThinkingTokens = workflowConfig.maxThinkingTokens;
+    if (model !== undefined) resolved.model = model;
+    if (reasoningEffort !== undefined) resolved.reasoningEffort = reasoningEffort;
+
+    return resolved;
   }
 
   // -------------------------------------------------------------------------
@@ -474,7 +530,8 @@ export class WorkflowSessionConductor {
             sessionId: session.id,
           });
         } else {
-          session = await this.config.createSession(stage.sessionConfig);
+          const resolvedConfig = await this.resolveSessionConfig(stage.sessionConfig);
+          session = await this.config.createSession(resolvedConfig);
           conductorLog("conductor_session_created", {
             stageId: stage.id,
             sessionId: session.id,

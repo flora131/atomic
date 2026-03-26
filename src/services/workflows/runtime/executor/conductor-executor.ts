@@ -121,6 +121,7 @@ export async function executeConductorWorkflow(
 
     const conductorConfig: ConductorConfig = {
       graph: compiled,
+      agentType: context.agentType,
 
       createSession: async (sessionConfig) => {
         return createSession(sessionConfig);

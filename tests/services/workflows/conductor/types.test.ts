@@ -227,7 +227,7 @@ describe("isStageDefinition", () => {
       ...makeValidDefinition(),
       parseOutput: (response: string) => JSON.parse(response),
       shouldRun: (_ctx: StageContext) => true,
-      sessionConfig: { model: "claude-sonnet-4-20250514" },
+      sessionConfig: { model: { claude: "claude-sonnet-4-20250514" } },
     };
     expect(isStageDefinition(full)).toBe(true);
   });

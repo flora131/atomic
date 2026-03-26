@@ -17,6 +17,7 @@ export interface SessionConfig {
   /** Appended to the default system prompt. Ignored when `systemPrompt` is set. */
   additionalInstructions?: string;
   tools?: string[];
+  excludedTools?: string[];
   mcpServers?: McpServerConfig[];
   permissionMode?: PermissionMode;
   maxBudgetUsd?: number;

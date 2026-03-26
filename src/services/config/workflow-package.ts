@@ -20,10 +20,26 @@ const WORKFLOW_PACKAGE_JSON = {
 
 const WORKFLOW_GITIGNORE = "node_modules/\n";
 
+const WORKFLOW_TSCONFIG = {
+  compilerOptions: {
+    lib: ["ESNext"],
+    target: "ESNext",
+    module: "ESNext",
+    moduleResolution: "bundler",
+    allowImportingTsExtensions: true,
+    verbatimModuleSyntax: true,
+    noEmit: true,
+    strict: true,
+    skipLibCheck: true,
+  },
+  include: ["*.ts"],
+};
+
 /**
  * Ensure a workflows directory has the required package scaffolding:
- * - package.json (created if missing)
- * - .gitignore  (created if missing)
+ * - package.json   (created if missing)
+ * - tsconfig.json  (created if missing)
+ * - .gitignore     (created if missing)
  *
  * Does NOT run `bun add` — call {@link installWorkflowSdk} for that.
  */
@@ -33,6 +49,11 @@ export async function ensureWorkflowPackageScaffold(workflowsDir: string): Promi
   const pkgPath = join(workflowsDir, "package.json");
   if (!existsSync(pkgPath)) {
     await Bun.write(pkgPath, JSON.stringify(WORKFLOW_PACKAGE_JSON, null, 2) + "\n");
+  }
+
+  const tsconfigPath = join(workflowsDir, "tsconfig.json");
+  if (!existsSync(tsconfigPath)) {
+    await Bun.write(tsconfigPath, JSON.stringify(WORKFLOW_TSCONFIG, null, 2) + "\n");
   }
 
   const gitignorePath = join(workflowsDir, ".gitignore");

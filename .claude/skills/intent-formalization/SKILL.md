@@ -106,6 +106,41 @@ Sources to ground your interpretation (check all that are available):
 4. **Project artifacts.** READMEs, ADRs, CI configs, and issue trackers carry intent signal.
    A linked GitHub issue often disambiguates a terse request completely.
 
+5. **Technical specs.** The `specs/` directory contains technical design documents that capture
+   past and current design decisions — goals vs. non-goals, chosen approaches vs. rejected
+   alternatives, scope boundaries, and architectural constraints. When a user's request touches
+   a subsystem covered by a spec, reading the relevant spec often disambiguates intent entirely.
+
+   - **Goals and Non-Goals** tell you what the team explicitly decided was in- and out-of-scope.
+     If a user says "improve the workflow system," the spec's non-goals reveal what they probably
+     *don't* mean.
+   - **Proposed Solutions** reveal the intended architecture. A request to "fix" something should
+     align with the spec's design, not introduce a competing pattern.
+   - **Cross-references** to research documents link decisions to their evidence base — follow
+     these to understand *why* a design choice was made.
+
+   To find relevant specs: look for keywords from the user's request in spec filenames (they use
+   `YYYY-MM-DD-kebab-case-topic.md` naming), or search spec contents for module/file names mentioned in the
+   request.
+
+6. **Research documents.** The `research/docs/` directory contains dated investigation reports
+   that document how the system works, what problems were found, and what alternatives were
+   considered. These capture institutional knowledge that isn't visible in the code alone.
+
+   - **Research Questions** reveal what the team needed to understand and why.
+   - **Findings** document actual system behavior — bugs, edge cases, and architectural
+     constraints that aren't obvious from reading the source.
+   - **Implementation Analysis** files show how subsystems were built and what tradeoffs were
+     made.
+
+   Research docs are dated (`YYYY-MM-DD-topic.md`) and include metadata (researcher, git commit,
+   branch, status). More recent research supersedes older findings on the same topic.
+
+   Research + specs together form a **decision trail**: research explains *what was learned*,
+   specs explain *what was decided*, and the code reflects *what was built*. When the user says
+   "fix" or "improve" something, this trail tells you whether to align with the existing design
+   (the spec's intent) or deviate from it (when research reveals the design has known limitations).
+
 #### Abductive Inference
 
 With context assembled, apply abductive reasoning: "What is the simplest explanation of the
@@ -217,6 +252,28 @@ Rollback: Git revert on the single commit
 
 Present this as a reviewable artifact the user can edit, annotate, or approve. The structured
 format forces disambiguation — the agent can't hide behind vague language.
+
+#### Pre-populating from Specs and Research
+
+When formalizing intent for a task covered by an existing spec, use the spec to pre-populate
+the structured intent schema. This dramatically reduces the user's validation effort — they're
+reviewing a mostly-complete plan rather than building one from scratch.
+
+- **Goal**: Derive from the spec's Executive Summary and Goals section
+- **Scope (in_bounds / out_of_bounds)**: Pull directly from the spec's scope boundaries and
+  non-goals
+- **Approach**: Align with the spec's Proposed Solution unless the user explicitly wants to
+  deviate
+- **Constraints**: Inherit from both the spec's constraints and any `must_preserve` items
+  discovered in research docs
+- **Expected outcome**: Match the spec's success criteria
+
+Present the pre-populated schema with a note like: "I based this on the existing spec at
+`specs/YYYY-MM-DD-<name>.md` — let me know if your intent differs from the original design."
+
+This pattern is especially powerful for tasks that extend or modify existing features. The
+spec tells you the original design intent, and the user tells you how they want to evolve it.
+The delta between spec and user request is often the most precise expression of intent.
 
 ### Rung 5: Formal Pre/Post Conditions (High User Effort, High Assurance)
 
@@ -391,6 +448,26 @@ generating intermediate specifications from the source code and using them to gu
 significantly improves correctness. The spec serves as a language-independent contract that both
 the original and translated code should satisfy.
 
+### Discovering Constraints from Specs and Research
+
+The hardest part of change intent is knowing what `must_preserve` — the implicit invariants
+the user assumes won't break. Specs and research docs surface these constraints that the user
+forgot to mention because they seem "obvious" from the project's history:
+
+- **From specs**: Non-goals, out-of-scope items, and explicitly preserved behaviors. If the
+  spec says "do not change public API signatures," that's a `must_preserve` constraint even
+  if the user didn't mention it.
+- **From research**: Known edge cases, regression bugs, and behavioral invariants discovered
+  during investigation. A research doc that documents a subtle concurrency fix in the auth
+  module tells you that concurrency safety is a `must_preserve` even for "simple" auth changes.
+- **From the decision trail**: When a spec chose approach A over approach B and research
+  explains why, that reasoning becomes a constraint. Don't inadvertently reintroduce the
+  problems that the original design was built to avoid.
+
+Cross-reference the user's change request against relevant specs and research *before* executing.
+This is where the agent adds the most value — catching the things the user didn't say because
+they expected the agent to know.
+
 ## Anti-Patterns to Avoid
 
 **Over-clarification.** Don't ask 5 questions when 1 would suffice. Don't formalize simple
@@ -429,10 +506,12 @@ The techniques above should be layered, not chosen in isolation. A recommended b
 3. **For high-risk actions**, generate lightweight pre/post conditions as a "contract" the user
    signs off on. Self-check for completeness before presenting.
 4. **Over time, invest in the world model** (Rung 1). The more context the agent can leverage —
-   code structure, project conventions, recent changes, historical decisions — the more ambiguity
-   it resolves without asking. Every clarification question the user answers is data that should
-   improve future inference. Track which types of requests required clarification and what the
-   resolution was — this builds a project-specific model of intent patterns.
+   code structure, project conventions, recent changes, specs, research documents, and historical
+   decisions — the more ambiguity it resolves without asking. Treat `specs/` and `research/docs/`
+   as primary context sources: specs encode design decisions, research encodes the reasoning
+   behind them. Every clarification question the user answers is data that should improve future
+   inference. Track which types of requests required clarification and what the resolution was —
+   this builds a project-specific model of intent patterns.
 
 The goal is a virtuous cycle: each interaction teaches the agent something about how this user
 and this codebase work, so the next interaction requires less clarification. The best agent is
@@ -444,14 +523,19 @@ one that rarely needs to ask because it has built a rich enough world model to i
 User request arrives
   │
   ├─ Is this a change to existing code?
-  │   └─ Yes → Include must_preserve constraints in any formalization
+  │   ├─ Yes → Check specs/ and research/docs/ for relevant design docs
+  │   └─ Yes → Include must_preserve constraints (from specs, research, and code analysis)
   │
-  ├─ Can the world model resolve intent? (recent changes, code structure, conventions)
+  ├─ Can the world model resolve intent? (recent changes, code structure, conventions,
+  │   specs, research docs)
   │   ├─ Yes + Low risk  → Execute directly
   │   └─ Yes + High risk → Rung 2: Plan summary, then execute
   │
   ├─ Is the task exploratory / easily decomposable / cheap to undo?
   │   └─ Yes → Progressive disclosure: execute in small steps, let feedback narrow intent
+  │
+  ├─ Does a relevant spec exist?
+  │   └─ Yes → Pre-populate intent schema from spec (Rung 4), ask user to validate delta
   │
   └─ Intent is ambiguous
       ├─ Code generation task?

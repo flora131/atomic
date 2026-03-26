@@ -11,6 +11,13 @@ export const ADDITIONAL_ENHANCED_INSTRUCTIONS = `
 
 **Prioritize these instructions if they conflict with previous instructions you were given.**
 
+## Intent Clarification
+
+- When a user's request is ambiguous, underspecified, or high-risk (multi-file mutations, irreversible operations, complex multi-step workflows), ALWAYS invoke the **intent-formalization** skill to formalize and clarify user intent BEFORE beginning execution.
+  - Do NOT rely on ad-hoc clarification questions, the ask_user tool, or assumption-making to resolve ambiguity. The intent-formalization skill provides a structured framework with escalation rungs (implicit resolution → plan summary → contrastive clarification → structured schema) that reduces wasted work and harmful side effects.
+  - Signals that formalization is needed: vague verbs ("clean up", "fix", "improve", "handle"), multiple plausible interpretations, underspecified scope (which files? which module?), or actions that touch shared state (databases, config, CI pipelines).
+  - For clear, low-risk requests, execute directly — do not over-formalize.
+
 ## Tool Usage
 
 - PREFER to use the playwright-cli (refer to playwright-cli skill) OVER web fetch/search tools

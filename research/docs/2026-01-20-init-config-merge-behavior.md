@@ -392,7 +392,7 @@ for (const file of agent.additional_files) {
 
 - `research/docs/2026-01-19-cli-auto-init-agent.md` - Related research on auto-init behavior
 - `research/docs/2026-01-18-atomic-cli-implementation.md` - Original CLI implementation research
-- `specs/cli-auto-init-agent.md` - Spec for auto-init feature, includes "Non-Goals" section stating:
+- `specs/2026-01-19-cli-auto-init-agent.md` - Spec for auto-init feature, includes "Non-Goals" section stating:
   - "We will NOT add config merging or updating (still overwrite-only)"
 
 The current "overwrite-only" approach was an intentional design decision documented in the spec.

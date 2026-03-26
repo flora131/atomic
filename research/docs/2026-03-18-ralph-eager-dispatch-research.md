@@ -340,8 +340,8 @@ The Ralph dispatch mechanism went through three architectural phases:
 - `research/docs/2026-02-25-graph-execution-engine-technical-documentation.md` — Graph execution engine technical reference
 
 ### Relevant Specs
-- `specs/ralph-dag-orchestration.md` — DAG orchestrator TDD; Section 9 explicitly called for `Promise.race()` for eager dispatch — the same problem we're solving now
-- `specs/ralph-loop-manual-worker-dispatch.md` — Manual dispatch TDD; proposed removing the orchestrator
+- `specs/2026-02-16-ralph-dag-orchestration.md` — DAG orchestrator TDD; Section 9 explicitly called for `Promise.race()` for eager dispatch — the same problem we're solving now
+- `specs/2026-02-16-ralph-loop-manual-worker-dispatch.md` — Manual dispatch TDD; proposed removing the orchestrator
 
 ## Open Questions
 

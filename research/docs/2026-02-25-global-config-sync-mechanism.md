@@ -1222,10 +1222,10 @@ syncAtomicGlobalAgentConfigs(configRoot) → copies from data dir to ~/.atomic/
 
 ### Related Documentation
 
-- `specs/init-config-merge-behavior.md` - Init command behavior
+- `specs/2026-01-20-init-config-merge-behavior.md` - Init command behavior
 - `research/docs/2026-01-23-update-data-dir-clean-install.md` - Update mechanism
 - `research/docs/2026-02-08-skill-loading-from-configs-and-ui.md` - Skill loading
-- `specs/mcp-support-and-discovery.md` - MCP config discovery
+- `specs/2026-02-09-mcp-support-and-discovery.md` - MCP config discovery
 
 ---
 

@@ -498,10 +498,10 @@ GraphExecutor.stream() → Node Queue → agentNode.execute()
 - `research/docs/2026-02-04-agent-subcommand-parity-audit.md` -- Agent subcommand standardization
 
 ### Related Specs
-- `specs/sdk-migration-and-graph-execution.md` -- SDK migration with graph execution patterns
-- `specs/chat-tui-parity-implementation.md` -- Chat TUI parity TDD
-- `specs/claude-code-ui-patterns-enhancement.md` -- UI patterns enhancement TDD
-- `specs/pluggable-workflows-sdk.md` -- Pluggable workflows with agent definitions
+- `specs/2026-01-31-sdk-migration-and-graph-execution.md` -- SDK migration with graph execution patterns
+- `specs/2026-02-01-chat-tui-parity-implementation.md` -- Chat TUI parity TDD
+- `specs/2026-02-01-claude-code-ui-patterns-enhancement.md` -- UI patterns enhancement TDD
+- `specs/2026-02-05-pluggable-workflows-sdk.md` -- Pluggable workflows with agent definitions
 
 ## Related Research
 

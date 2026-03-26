@@ -1,6 +1,6 @@
 /**
  * Tests for filterStaleEvents, splitIntoBatches, and readEventsFromJSONL functions
- * Reference: specs/phase-6-telemetry-upload-backend.md
+ * Reference: specs/2026-01-22-phase-6-telemetry-upload-backend.md
  */
 import { describe, expect, test, beforeEach, afterEach, spyOn } from "bun:test";
 import { writeFileSync, mkdirSync, rmSync } from "fs";

@@ -113,8 +113,8 @@ This architecture already supports inline sub-agent-tree rendering, but completi
 - `research/docs/2026-02-15-subagent-premature-completion-quick-ref.md`
 - `research/docs/2026-02-15-subagent-premature-completion-fix-comparison.md`
 - `research/docs/2026-02-12-tui-layout-streaming-content-ordering.md`
-- `specs/ui-inline-streaming-vs-pinned-elements.md`
-- `specs/subagent-output-propagation-fix.md`
+- `specs/2026-02-16-ui-inline-streaming-vs-pinned-elements.md`
+- `specs/2026-02-14-subagent-output-propagation-fix.md`
 
 ## Open Questions
 - What is the canonical event that should mark background-mode Task agents terminal in UI (`subagent.complete`, `read_agent`, or another completion signal)?

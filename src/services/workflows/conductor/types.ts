@@ -12,11 +12,12 @@
  * - The conductor (which creates sessions, captures output, and routes)
  * - The UI layer (which receives stage transition and task update callbacks)
  *
- * @see specs/ralph-workflow-redesign.md §5.1 for the full design.
+ * @see specs/2026-03-23-ralph-workflow-redesign.md §5.1 for the full design.
  */
 
 import type { BaseState, CompiledGraph } from "@/services/workflows/graph/types.ts";
 import type { Session, SessionConfig } from "@/services/agents/types.ts";
+import type { WorkflowSessionConfig } from "@/services/workflows/dsl/types.ts";
 import type { TaskItem } from "@/services/workflows/builtin/ralph/helpers/prompts.ts";
 import type { BusEvent } from "@/services/events/bus-events/types.ts";
 import type { PartsTruncationConfig } from "@/state/parts/truncation.ts";
@@ -232,7 +233,8 @@ export interface StageOutput {
  * Read-only context provided to `StageDefinition.buildPrompt` and
  * `StageDefinition.shouldRun`. Contains everything a stage needs to
  * construct its prompt: the user's original request, outputs from prior
- * stages, the current task list, and a cancellation signal.
+ * stages, the current task list, current workflow state, and a
+ * cancellation signal.
  */
 export interface StageContext {
   /** The user's original prompt that initiated the workflow. */
@@ -249,6 +251,16 @@ export interface StageContext {
 
   /** Cancellation signal — stages should check this for early exit. */
   readonly abortSignal: AbortSignal;
+
+  /**
+   * Current workflow state snapshot.
+   *
+   * Includes all fields from `BaseState` plus any custom fields defined
+   * in the workflow's `globalState` schema. Stages, `.if()` conditions,
+   * and prompt builders use this to access accumulated state from prior
+   * nodes.
+   */
+  readonly state: BaseState;
 
   /**
    * Accumulated context pressure state across all previously-completed stages.
@@ -312,9 +324,13 @@ export interface StageDefinition {
    * Optional session configuration overrides for this stage.
    * Merged with the conductor's default session config.
    *
+   * `model` and `reasoningEffort` are keyed by agent type for SDK-agnostic
+   * configuration. At runtime, the conductor resolves the entry for the
+   * active agent. Other fields apply regardless of agent type.
+   *
    * @example Setting a specific model or additional instructions per stage.
    */
-  readonly sessionConfig?: Partial<SessionConfig>;
+  readonly sessionConfig?: Partial<WorkflowSessionConfig>;
 
   /**
    * Maximum byte size for this stage's `rawResponse` when forwarded to
@@ -345,6 +361,16 @@ export interface ConductorConfig {
    * deterministic operations.
    */
   readonly graph: CompiledGraph<BaseState>;
+
+  /**
+   * The active agent type (e.g., "claude", "copilot", "opencode").
+   *
+   * Used to resolve per-agent `model` and `reasoningEffort` from
+   * `WorkflowSessionConfig` at stage session creation time, and to
+   * look up default model/reasoning from user settings when a stage
+   * does not specify its own.
+   */
+  readonly agentType?: string;
 
   /**
    * Factory for creating a fresh agent session for each stage.
@@ -510,6 +536,21 @@ export interface ConductorConfig {
    * (tests that don't use the full TUI pipeline can omit this safely).
    */
   readonly onBeforeQueuedStream?: () => void;
+
+  // -------------------------------------------------------------------------
+  // State Initialization (optional — enables globalState defaults)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Factory for creating workflow state with globalState defaults.
+   *
+   * When provided, the conductor calls this instead of bare
+   * `initializeExecutionState()` so that user-declared `globalState` fields
+   * (e.g. `strategy: { default: "balanced" }`) are present from the start.
+   *
+   * When omitted, only the bare `BaseState` is created.
+   */
+  readonly createState?: (params: { sessionId: string; prompt: string; sessionDir: string }) => BaseState;
 }
 
 // ---------------------------------------------------------------------------

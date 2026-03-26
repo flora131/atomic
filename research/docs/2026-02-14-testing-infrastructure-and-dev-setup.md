@@ -352,7 +352,7 @@ src/
 
 - [`research/docs/2026-02-12-bun-test-failures-root-cause-analysis.md`](https://github.com/flora131/atomic/blob/66590e164ec3aaae8603a8b3c5d362f53da835db/research/docs/2026-02-12-bun-test-failures-root-cause-analysis.md) — Root cause analysis of 104 failing tests across 6 categories; all failures due to source evolution without test updates
 - [`research/docs/2026-02-14-failing-tests-mcp-config-discovery.md`](https://github.com/flora131/atomic/blob/66590e164ec3aaae8603a8b3c5d362f53da835db/research/docs/2026-02-14-failing-tests-mcp-config-discovery.md) — MCP config discovery test failures
-- [`specs/bun-test-failures-remediation.md`](https://github.com/flora131/atomic/blob/66590e164ec3aaae8603a8b3c5d362f53da835db/specs/bun-test-failures-remediation.md) — Spec for remediating test failures
+- [`specs/2026-02-12-bun-test-failures-remediation.md`](https://github.com/flora131/atomic/blob/66590e164ec3aaae8603a8b3c5d362f53da835db/specs/2026-02-12-bun-test-failures-remediation.md) — Spec for remediating test failures
 - [`docs/style-guide.md`](https://github.com/flora131/atomic/blob/66590e164ec3aaae8603a8b3c5d362f53da835db/docs/style-guide.md) — UI/UX style guide for contributions
 
 ---

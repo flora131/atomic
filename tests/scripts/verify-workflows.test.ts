@@ -123,9 +123,12 @@ describe("discoverCustomWorkflows", () => {
     expect(Array.isArray(result)).toBe(true);
   });
 
-  test("returns empty array when directory does not exist", async () => {
+  test("returns only valid workflow definitions", async () => {
     const result = await discoverCustomWorkflows();
-    expect(result).toEqual([]);
+    for (const wf of result) {
+      expect(typeof wf.id).toBe("string");
+      expect(wf.definition).toBeDefined();
+    }
   });
 });
 

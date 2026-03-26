@@ -10,6 +10,9 @@ import { deployPlaywrightSkill } from "@/scripts/postinstall-playwright.ts";
 import {
   installWorkflowSdkFromLocal,
   getGlobalWorkflowsDir,
+  getLocalWorkflowsDir,
+  getLocalSdkPackagePath,
+  getRelativeSdkPath,
 } from "@/services/config/workflow-package.ts";
 
 function formatErrorMessage(error: unknown): string {
@@ -35,11 +38,22 @@ async function main(): Promise<void> {
     syncAndVerifyConfigs(configRoot),
     deployPlaywrightSkill(configRoot),
     (async () => {
-      const localSdkPath = resolve(import.meta.dir, "..", "..", "packages", "workflow-sdk");
+      const repoRoot = resolve(import.meta.dir, "..", "..");
+      const localSdkPath = getLocalSdkPackagePath(repoRoot);
+
+      // Global ~/.atomic/workflows/ — use absolute path
       const globalWorkflowsDir = getGlobalWorkflowsDir();
-      const installed = await installWorkflowSdkFromLocal(globalWorkflowsDir, localSdkPath);
-      if (!installed) {
-        throw new Error("failed to install workflow SDK from local package");
+      const globalInstalled = await installWorkflowSdkFromLocal(globalWorkflowsDir, localSdkPath);
+      if (!globalInstalled) {
+        throw new Error("failed to install workflow SDK from local package into global dir");
+      }
+
+      // Local .atomic/workflows/ — use relative path so it stays portable within the repo
+      const localWorkflowsDir = getLocalWorkflowsDir(repoRoot);
+      const relativeSdkPath = getRelativeSdkPath(localWorkflowsDir, localSdkPath);
+      const localInstalled = await installWorkflowSdkFromLocal(localWorkflowsDir, relativeSdkPath);
+      if (!localInstalled) {
+        throw new Error("failed to install workflow SDK from local package into local dir");
       }
     })(),
   ]);

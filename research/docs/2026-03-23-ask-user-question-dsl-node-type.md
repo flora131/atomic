@@ -405,9 +405,9 @@ The following research documents provide relevant historical context:
 
 ## Related Specs
 
-- `specs/workflow-sdk-simplification-z3-verification.md` — Section 5.1.5 referenced by DSL types
-- `specs/workflow-sdk-implementation.md` — Custom tools, sub-agents, graph execution
-- `specs/workflow-sdk-standardization.md` — Unified graph engine, declarative API
+- `specs/2026-03-23-workflow-sdk-simplification-z3-verification.md` — Section 5.1.5 referenced by DSL types
+- `specs/2026-02-11-workflow-sdk-implementation.md` — Custom tools, sub-agents, graph execution
+- `specs/2026-03-02-workflow-sdk-standardization.md` — Unified graph engine, declarative API
 
 ## Open Questions
 

@@ -8,7 +8,7 @@
  * TaskListPanel: Persistent, file-driven wrapper that reads from tasks.json
  * via file watcher during workflow execution, feeding data to TaskListBox.
  *
- * Reference: specs/ralph-task-list-ui.md
+ * Reference: specs/2026-02-14-ralph-task-list-ui.md
  */
 
 import React, { memo, useState, useEffect } from "react";

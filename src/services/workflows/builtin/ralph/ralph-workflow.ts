@@ -51,7 +51,6 @@ const _ralphWorkflowBuilder = defineWorkflow({
     name: "planner",
     agent: "planner",
     description: "\u2315 PLANNER",
-    outputs: ["tasks"],
     prompt: (ctx) => buildSpecToTasksPrompt(ctx.userPrompt),
     outputMapper: (response) => ({ tasks: parseTasks(response) }),
   })
@@ -59,7 +58,6 @@ const _ralphWorkflowBuilder = defineWorkflow({
     name: "orchestrator",
     agent: "orchestrator",
     description: "\u26A1 ORCHESTRATOR",
-    reads: ["tasks"],
     prompt: (ctx) => {
       if (ctx.tasks.length > 0) {
         return buildOrchestratorPrompt([...ctx.tasks]);
@@ -89,8 +87,6 @@ const _ralphWorkflowBuilder = defineWorkflow({
     name: "reviewer",
     agent: "reviewer",
     description: "\uD83D\uDD0D REVIEWER",
-    reads: ["tasks"],
-    outputs: ["reviewResult"],
     prompt: (ctx) => {
       const orchestratorOutput = ctx.stageOutputs.get("orchestrator");
       const progressSummary = orchestratorOutput?.rawResponse ?? "";
@@ -116,7 +112,6 @@ const _ralphWorkflowBuilder = defineWorkflow({
     name: "debugger",
     agent: "debugger",
     description: "\uD83D\uDD27 DEBUGGER",
-    reads: ["reviewResult"],
     prompt: (ctx) => {
       const review = getReviewResult(ctx.stageOutputs);
       const tasks = [...ctx.tasks];

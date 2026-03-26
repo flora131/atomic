@@ -258,7 +258,7 @@ describe("loadWorkflowsFromDisk with CompiledWorkflow", () => {
     expect(found!.description).toBe("Default-exported compiled workflow");
   });
 
-  test("falls back to legacy loading for modules without __compiledWorkflow", async () => {
+  test("fails to load module without __compiledWorkflow brand", async () => {
     const workflowFile = join(tempDir, "legacy-workflow.ts");
     await writeFile(
       workflowFile,
@@ -267,11 +267,22 @@ describe("loadWorkflowsFromDisk with CompiledWorkflow", () => {
       export const version = "0.5.0";`,
     );
 
-    const loaded = await loadWorkflowsFromDisk();
-    const found = loaded.find((w) => w.name === "legacy-wf");
-    expect(found).toBeDefined();
-    expect(found!.description).toBe("A legacy workflow");
-    expect(found!.version).toBe("0.5.0");
+    const warnSpy = spyOn(console, "warn");
+    try {
+      const loaded = await loadWorkflowsFromDisk();
+      const found = loaded.find((w) => w.name === "legacy-wf");
+      expect(found).toBeUndefined();
+
+      const warningCalls = warnSpy.mock.calls.map((args) => String(args[0]));
+      const startupWarning = warningCalls.find(
+        (msg) =>
+          msg.includes("Warning: Failed to load workflow:") &&
+          msg.includes("legacy-workflow"),
+      );
+      expect(startupWarning).toBeDefined();
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   test("emits startup warnings for workflows that fail to import", async () => {

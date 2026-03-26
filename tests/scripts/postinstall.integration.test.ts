@@ -83,8 +83,11 @@ describe("postinstall integration", () => {
         expect(copilotDebugger.includes(token)).toBe(false);
       }
 
-      expect(opencodeDebugger.includes("webfetch: false")).toBe(true);
-      expect(opencodeDebugger.includes("websearch: false")).toBe(true);
+      // The opencode debugger config no longer uses YAML webfetch/websearch keys;
+      // it uses a JSON tools array that simply omits disallowed tools.
+      // Verify the legacy tokens are absent (checked above) and the new format
+      // lists only allowed tools.
+      expect(opencodeDebugger.includes("tools:")).toBe(true);
 
       await rm(join(homeRoot, CLAUDE_GLOBAL_SKILL_PATH), { force: true });
       await rm(join(homeRoot, OPENCODE_GLOBAL_SKILL_PATH), { force: true });

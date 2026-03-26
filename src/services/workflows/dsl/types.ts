@@ -21,9 +21,45 @@
  */
 
 import type { BaseState, ExecutionContext } from "@/services/workflows/graph/types.ts";
-import type { SessionConfig } from "@/services/agents/types.ts";
 import type { StageContext } from "@/services/workflows/conductor/types.ts";
 import type { WorkflowDefinition } from "@/services/workflows/types/definition.ts";
+
+// ---------------------------------------------------------------------------
+// Agent Type (mirrors SDK)
+// ---------------------------------------------------------------------------
+
+/**
+ * Known agent types for per-SDK model and reasoning effort configuration.
+ * Matches the keys in `settings.schema.json` and the SDK's `AgentType`.
+ */
+export type WorkflowAgentType = "claude" | "opencode" | "copilot";
+
+// ---------------------------------------------------------------------------
+// Workflow Session Configuration
+// ---------------------------------------------------------------------------
+
+/**
+ * Session configuration for workflow stages with SDK-agnostic model overrides.
+ *
+ * `model` and `reasoningEffort` are keyed by agent type so that a single
+ * workflow definition can declare per-SDK overrides. At runtime, the
+ * conductor resolves the correct entry for the active agent. When omitted,
+ * the user's currently selected model/reasoning from settings is used.
+ *
+ * Other fields (systemPrompt, tools, etc.) apply regardless of agent type.
+ */
+export interface WorkflowSessionConfig {
+  model?: Partial<Record<WorkflowAgentType, string>>;
+  sessionId?: string;
+  systemPrompt?: string;
+  additionalInstructions?: string;
+  tools?: string[];
+  permissionMode?: "auto" | "prompt" | "deny" | "bypass";
+  maxBudgetUsd?: number;
+  maxTurns?: number;
+  reasoningEffort?: Partial<Record<WorkflowAgentType, string>>;
+  maxThinkingTokens?: number;
+}
 
 // ---------------------------------------------------------------------------
 // Stage Configuration
@@ -35,8 +71,10 @@ import type { WorkflowDefinition } from "@/services/workflows/types/definition.t
  *
  * Stages are the primary unit of work in a DSL workflow. Each stage runs in
  * a fresh agent session with an isolated context window.
+ *
+ * @typeParam TState - The workflow state type (inferred from `globalState`).
  */
-export interface StageOptions {
+export interface StageOptions<TState extends BaseState = BaseState> {
   /**
    * Unique name for this stage within the workflow.
    *
@@ -83,7 +121,7 @@ export interface StageOptions {
    * Merged with the conductor's default session config (e.g., to set a
    * specific model or additional instructions per stage).
    */
-  readonly sessionConfig?: Partial<SessionConfig>;
+  readonly sessionConfig?: Partial<WorkflowSessionConfig>;
 
   /**
    * Maximum byte size for this stage's raw response when forwarded to
@@ -116,8 +154,10 @@ export interface StageOptions {
  *
  * Tools are useful for data transformation, API calls, file I/O,
  * or any deterministic operation between agent stages.
+ *
+ * @typeParam TState - The workflow state type (inferred from `globalState`).
  */
-export interface ToolOptions {
+export interface ToolOptions<TState extends BaseState = BaseState> {
   /** Human-readable name for the tool (used in logging and debugging). */
   readonly name: string;
 
@@ -126,7 +166,7 @@ export interface ToolOptions {
    * current workflow state and returns a record of state updates.
    */
   readonly execute: (
-    context: ExecutionContext<BaseState>,
+    context: ExecutionContext<TState>,
   ) => Promise<Record<string, unknown>>;
 
   /** Optional description of what the tool does. */
@@ -179,8 +219,10 @@ export interface AskUserQuestionConfig {
  * and presents an interactive question dialog to the user.
  *
  * Reuses the existing HITL UI (UserQuestionDialog) and event pipeline.
+ *
+ * @typeParam TState - The workflow state type (inferred from `globalState`).
  */
-export interface AskUserQuestionOptions {
+export interface AskUserQuestionOptions<TState extends BaseState = BaseState> {
   /** Unique name for this ask-user node within the workflow. */
   readonly name: string;
 
@@ -190,7 +232,7 @@ export interface AskUserQuestionOptions {
    */
   readonly question:
     | AskUserQuestionConfig
-    | ((state: BaseState) => AskUserQuestionConfig);
+    | ((state: TState) => AskUserQuestionConfig);
 
   /** Brief description of the node's purpose (used in logging). */
   readonly description?: string;
@@ -323,8 +365,12 @@ export interface StateFieldOptions<T = unknown> {
 /**
  * Configuration for the workflow as a whole.
  * Passed as the single argument to `defineWorkflow()`.
+ *
+ * @typeParam TGlobalState - The shape of the `globalState` schema object.
  */
-export interface WorkflowOptions {
+export interface WorkflowOptions<
+  TGlobalState extends Record<string, StateFieldOptions<any>> = Record<string, StateFieldOptions>,
+> {
   /** Unique workflow identifier. */
   readonly name: string;
 
@@ -337,7 +383,7 @@ export interface WorkflowOptions {
    * value and optional reducer. These fields are available to all
    * stages, tools, and loops in the workflow.
    */
-  readonly globalState?: Record<string, StateFieldOptions>;
+  readonly globalState?: TGlobalState;
 }
 
 // ---------------------------------------------------------------------------
@@ -354,9 +400,9 @@ export interface WorkflowOptions {
  * This is a discriminated union on the `type` field.
  */
 export type Instruction =
-  | { readonly type: "stage"; readonly id: string; readonly config: StageOptions }
-  | { readonly type: "tool"; readonly id: string; readonly config: ToolOptions }
-  | { readonly type: "askUserQuestion"; readonly id: string; readonly config: AskUserQuestionOptions }
+  | { readonly type: "stage"; readonly id: string; readonly config: StageOptions<any> }
+  | { readonly type: "tool"; readonly id: string; readonly config: ToolOptions<any> }
+  | { readonly type: "askUserQuestion"; readonly id: string; readonly config: AskUserQuestionOptions<any> }
   | { readonly type: "if"; readonly condition: (ctx: StageContext) => boolean }
   | { readonly type: "elseIf"; readonly condition: (ctx: StageContext) => boolean }
   | { readonly type: "else" }
@@ -433,7 +479,7 @@ export interface WorkflowBuilderInterface {
    * @param options - Stage configuration (name, agent, prompt, output mapper, etc.).
    * @throws Error if `options.name` duplicates an existing stage name.
    */
-  stage(options: StageOptions): this;
+  stage(options: StageOptions<any>): this;
 
   /**
    * Add a deterministic tool node to the workflow.
@@ -441,7 +487,7 @@ export interface WorkflowBuilderInterface {
    * @param options - Tool configuration (name, execute function, etc.).
    * @throws Error if `options.name` duplicates an existing node name.
    */
-  tool(options: ToolOptions): this;
+  tool(options: ToolOptions<any>): this;
 
   /**
    * Add a human-in-the-loop question node to the workflow.
@@ -451,7 +497,7 @@ export interface WorkflowBuilderInterface {
    * @param options - Question configuration (name, question, options, onAnswer, etc.).
    * @throws Error if `options.name` duplicates an existing node name.
    */
-  askUserQuestion(options: AskUserQuestionOptions): this;
+  askUserQuestion(options: AskUserQuestionOptions<any>): this;
 
   // -- Conditional branching ------------------------------------------------
 

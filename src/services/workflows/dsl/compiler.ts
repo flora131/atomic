@@ -320,10 +320,10 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
   function addNode(
     id: string,
     type: "agent" | "tool",
-    options: StageOptions | ToolOptions,
+    options: StageOptions<any> | ToolOptions<any>,
   ): string {
     const stageAgent = "agent" in options && type === "agent"
-      ? (options as StageOptions).agent
+      ? (options as StageOptions<any>).agent
       : undefined;
     const nodeName = stageAgent ?? options.name;
     const node: NodeDefinition<BaseState> = {
@@ -336,7 +336,7 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
         type === "agent"
           ? agentNoopExecute
           : async (context: ExecutionContext<BaseState>) => {
-              const toolOptions = options as ToolOptions;
+              const toolOptions = options as ToolOptions<any>;
               const result = await toolOptions.execute(context);
               return { stateUpdate: result as Partial<BaseState> };
             },

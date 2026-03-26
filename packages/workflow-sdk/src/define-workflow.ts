@@ -31,6 +31,7 @@
 
 import type {
   BaseState,
+  InferState,
   StageContext,
   StageOptions,
   ToolOptions,
@@ -46,16 +47,16 @@ import type {
 // ---------------------------------------------------------------------------
 
 type Instruction =
-  | { readonly type: "stage"; readonly id: string; readonly config: StageOptions }
-  | { readonly type: "tool"; readonly id: string; readonly config: ToolOptions }
-  | { readonly type: "askUserQuestion"; readonly id: string; readonly config: AskUserQuestionOptions }
-  | { readonly type: "if"; readonly condition: (ctx: StageContext) => boolean }
-  | { readonly type: "elseIf"; readonly condition: (ctx: StageContext) => boolean }
+  | { readonly type: "stage"; readonly id: string; readonly config: StageOptions<any> }
+  | { readonly type: "tool"; readonly id: string; readonly config: ToolOptions<any> }
+  | { readonly type: "askUserQuestion"; readonly id: string; readonly config: AskUserQuestionOptions<any> }
+  | { readonly type: "if"; readonly condition: (ctx: StageContext<any>) => boolean }
+  | { readonly type: "elseIf"; readonly condition: (ctx: StageContext<any>) => boolean }
   | { readonly type: "else" }
   | { readonly type: "endIf" }
   | { readonly type: "loop"; readonly config: LoopOptions }
   | { readonly type: "endLoop" }
-  | { readonly type: "break"; readonly condition?: () => (state: BaseState) => boolean };
+  | { readonly type: "break"; readonly condition?: () => (state: any) => boolean };
 
 // ---------------------------------------------------------------------------
 // Blueprint — the data structure carried by the branded CompiledWorkflow
@@ -78,7 +79,11 @@ export interface WorkflowBlueprint {
 // Entry Point
 // ---------------------------------------------------------------------------
 
-export function defineWorkflow(options: WorkflowOptions): WorkflowBuilder {
+export function defineWorkflow<
+  TGlobalState extends Record<string, StateFieldOptions<any>> = Record<string, StateFieldOptions>,
+>(
+  options: WorkflowOptions<TGlobalState>,
+): WorkflowBuilder<InferState<TGlobalState>> {
   return new WorkflowBuilder(options);
 }
 
@@ -86,7 +91,7 @@ export function defineWorkflow(options: WorkflowOptions): WorkflowBuilder {
 // WorkflowBuilder
 // ---------------------------------------------------------------------------
 
-export class WorkflowBuilder {
+export class WorkflowBuilder<TState extends BaseState = BaseState> {
   readonly name: string;
   readonly description: string;
   readonly instructions: Instruction[] = [];
@@ -97,7 +102,7 @@ export class WorkflowBuilder {
   private loopDepth: number = 0;
   private nodeNames: Set<string> = new Set();
 
-  constructor(options: WorkflowOptions) {
+  constructor(options: WorkflowOptions<any>) {
     this.name = options.name;
     this.description = options.description;
     this._globalState = options.globalState;
@@ -117,7 +122,7 @@ export class WorkflowBuilder {
 
   // -- Linear flow ----------------------------------------------------------
 
-  stage(options: StageOptions): this {
+  stage(options: StageOptions<TState>): this {
     if (this.nodeNames.has(options.name)) {
       throw new Error(
         `Duplicate node name: "${options.name}". Each node must have a unique name within the workflow.`,
@@ -128,7 +133,7 @@ export class WorkflowBuilder {
     return this;
   }
 
-  tool(options: ToolOptions): this {
+  tool(options: ToolOptions<TState>): this {
     if (this.nodeNames.has(options.name)) {
       throw new Error(
         `Duplicate node name: "${options.name}". Each node must have a unique name within the workflow.`,
@@ -139,7 +144,7 @@ export class WorkflowBuilder {
     return this;
   }
 
-  askUserQuestion(options: AskUserQuestionOptions): this {
+  askUserQuestion(options: AskUserQuestionOptions<TState>): this {
     if (this.nodeNames.has(options.name)) {
       throw new Error(
         `Duplicate node name: "${options.name}". Each node must have a unique name within the workflow.`,
@@ -152,12 +157,12 @@ export class WorkflowBuilder {
 
   // -- Conditional branching ------------------------------------------------
 
-  if(condition: (ctx: StageContext) => boolean): this {
+  if(condition: (ctx: StageContext<TState>) => boolean): this {
     this.instructions.push({ type: "if", condition });
     return this;
   }
 
-  elseIf(condition: (ctx: StageContext) => boolean): this {
+  elseIf(condition: (ctx: StageContext<TState>) => boolean): this {
     this.instructions.push({ type: "elseIf", condition });
     return this;
   }
@@ -189,7 +194,7 @@ export class WorkflowBuilder {
     return this;
   }
 
-  break(condition?: () => (state: BaseState) => boolean): this {
+  break(condition?: () => (state: TState) => boolean): this {
     if (this.loopDepth === 0) {
       throw new Error("break() can only be used inside a loop() block");
     }

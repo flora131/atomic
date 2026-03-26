@@ -41,6 +41,7 @@ import type {
   WorkflowOptions,
 } from "@/services/workflows/dsl/types.ts";
 import type { StageContext } from "@/services/workflows/conductor/types.ts";
+import type { BaseState } from "@/services/workflows/graph/types.ts";
 import { compileWorkflow } from "@/services/workflows/dsl/compiler.ts";
 
 // ---------------------------------------------------------------------------
@@ -53,7 +54,7 @@ import { compileWorkflow } from "@/services/workflows/dsl/compiler.ts";
  * @param options - Workflow configuration (name, description, globalState, etc.)
  * @returns A WorkflowBuilder instance for chaining
  */
-export function defineWorkflow(options: WorkflowOptions): WorkflowBuilder {
+export function defineWorkflow(options: WorkflowOptions<any>): WorkflowBuilder {
   return new WorkflowBuilder(options);
 }
 
@@ -82,7 +83,7 @@ export class WorkflowBuilder implements WorkflowBuilderInterface {
   private loopDepth: number = 0;
   private nodeNames: Set<string> = new Set();
 
-  constructor(options: WorkflowOptions) {
+  constructor(options: WorkflowOptions<any>) {
     this.name = options.name;
     this.description = options.description;
     this._globalState = options.globalState;
@@ -109,7 +110,7 @@ export class WorkflowBuilder implements WorkflowBuilderInterface {
    * @param options - Stage configuration (name, agent, prompt, output mapper, etc.).
    * @throws Error if `options.name` duplicates an existing node name.
    */
-  stage(options: StageOptions): this {
+  stage(options: StageOptions<any>): this {
     if (this.nodeNames.has(options.name)) {
       throw new Error(
         `Duplicate node name: "${options.name}". Each node must have a unique name within the workflow.`,
@@ -125,7 +126,7 @@ export class WorkflowBuilder implements WorkflowBuilderInterface {
    * @param options - Tool configuration (name, execute function, etc.).
    * @throws Error if `options.name` duplicates an existing node name.
    */
-  tool(options: ToolOptions): this {
+  tool(options: ToolOptions<any>): this {
     if (this.nodeNames.has(options.name)) {
       throw new Error(
         `Duplicate node name: "${options.name}". Each node must have a unique name within the workflow.`,
@@ -144,7 +145,7 @@ export class WorkflowBuilder implements WorkflowBuilderInterface {
    * @param options - Question configuration (name, question, options, onAnswer, etc.).
    * @throws Error if `options.name` duplicates an existing node name.
    */
-  askUserQuestion(options: AskUserQuestionOptions): this {
+  askUserQuestion(options: AskUserQuestionOptions<any>): this {
     if (this.nodeNames.has(options.name)) {
       throw new Error(
         `Duplicate node name: "${options.name}". Each node must have a unique name within the workflow.`,

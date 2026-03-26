@@ -349,7 +349,7 @@ export class WorkflowSessionConductor {
       return { output: skippedOutput, result: {}, skipped: true };
     }
 
-    const context = this.buildStageContext(userPrompt);
+    const context = this.buildStageContext(userPrompt, state);
 
     // Evaluate shouldRun condition
     if (stage.shouldRun && !stage.shouldRun(context)) {
@@ -755,12 +755,13 @@ export class WorkflowSessionConductor {
   // -------------------------------------------------------------------------
 
   /** Build a StageContext snapshot from accumulated state. */
-  private buildStageContext(userPrompt: string): StageContext {
+  private buildStageContext(userPrompt: string, state: BaseState): StageContext {
     const context: StageContext = {
       userPrompt,
       stageOutputs: new Map(this.stageOutputs),
       tasks: [...this.tasks],
       abortSignal: this.config.abortSignal,
+      state,
     };
 
     // Include context pressure data when monitoring is configured

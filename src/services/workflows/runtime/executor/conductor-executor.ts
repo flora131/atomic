@@ -247,8 +247,10 @@ export async function executeConductorWorkflow(
         ? (params) => definition.createState!({ ...params, prompt, sessionDir })
         : undefined,
 
-      // TODO: Wire contextPressure config once session.getContextUsage() is available
-      // on sessions created via context.createAgentSession
+      // Context pressure monitoring — opt-in via definition.contextPressure.
+      // Sessions created by context.createAgentSession implement getContextUsage(),
+      // which the conductor calls via takeContextSnapshot() after each stage stream.
+      contextPressure: definition.contextPressure,
     };
 
     // Phase 4: Execute via conductor

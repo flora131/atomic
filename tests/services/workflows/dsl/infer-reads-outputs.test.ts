@@ -193,8 +193,8 @@ describe("inferToolReads", () => {
 
   test("captures direct ctx.state.field accesses", () => {
     const execute = async (ctx: ExecutionContext<BaseState>) => {
-      const findings = (ctx.state as any).findings;
-      return { count: findings, total: (ctx.state as any).totalTokens };
+      const findings = (ctx.state as unknown as Record<string, unknown>).findings;
+      return { count: findings, total: (ctx.state as unknown as Record<string, unknown>).totalTokens };
     };
     const reads = inferToolReads(execute);
     expect(reads).toContain("findings");
@@ -203,7 +203,7 @@ describe("inferToolReads", () => {
 
   test("captures destructured state accesses", () => {
     const execute = async (ctx: ExecutionContext<BaseState>) => {
-      const { plan, feedback } = ctx.state as any;
+      const { plan, feedback } = ctx.state as unknown as Record<string, unknown>;
       return { result: `${plan}-${feedback}` };
     };
     const reads = inferToolReads(execute);
@@ -215,7 +215,7 @@ describe("inferToolReads", () => {
     let sideEffectTriggered = false;
     const execute = async (ctx: ExecutionContext<BaseState>) => {
       sideEffectTriggered = true;
-      const value = (ctx.state as any).someField;
+      const value = (ctx.state as unknown as Record<string, unknown>).someField;
       return { result: value };
     };
     inferToolReads(execute);

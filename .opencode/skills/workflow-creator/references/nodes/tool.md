@@ -9,8 +9,6 @@
 ```ts
 .tool({
   name: "validate-schema",
-  reads: ["tasks"],
-  outputs: ["schemaValid"],
   execute: async (ctx) => {
     const valid = ctx.state.tasks.every((t) => t.id && t.description);
     return { schemaValid: valid };
@@ -30,10 +28,9 @@ The `execute` function receives an `ExecutionContext<BaseState>` with the curren
 
 ## `ToolOptions` reference
 
-| Field         | Type                                                                    | Required | Description                                    |
-| ------------- | ----------------------------------------------------------------------- | -------- | ---------------------------------------------- |
-| `name`        | `string`                                                                | yes      | Unique node identifier (also used in logging)  |
-| `execute`     | `(ctx: ExecutionContext<BaseState>) => Promise<Record<string, unknown>>` | yes      | The function to run                            |
-| `description` | `string`                                                                | no       | Description of what the tool does              |
-| `reads`       | `string[]`                                                              | no       | State fields this tool depends on              |
-| `outputs`     | `string[]`                                                              | no       | State fields this tool produces                |
+| Field          | Type                                                                    | Required | Description                                                |
+| -------------- | ----------------------------------------------------------------------- | -------- | ---------------------------------------------------------- |
+| `name`         | `string`                                                                | yes      | Unique node identifier (also used in logging)              |
+| `execute`      | `(ctx: ExecutionContext<BaseState>) => Promise<Record<string, unknown>>` | yes      | The function to run                                        |
+| `outputMapper` | `(result: Record<string, unknown>) => Record<string, unknown>`          | no       | Transforms the execute result before merging into state    |
+| `description`  | `string`                                                                | no       | Description of what the tool does                          |

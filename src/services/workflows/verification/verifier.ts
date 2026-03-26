@@ -1,9 +1,9 @@
 /**
  * Workflow Verifier
  *
- * Orchestrates all structural property checks and model validation
- * on a compiled workflow graph. Verification is mandatory — all
- * workflows must pass before registration.
+ * Orchestrates all structural property checks, model validation,
+ * and TypeScript type-checking on a compiled workflow graph.
+ * Verification is mandatory — all workflows must pass before registration.
  */
 
 import type {
@@ -23,12 +23,16 @@ import { checkDeadlockFreedom as defaultCheckDeadlockFreedom } from "@/services/
 import { checkLoopBounds as defaultCheckLoopBounds } from "@/services/workflows/verification/loop-bounds.ts";
 import { checkStateDataFlow as defaultCheckStateDataFlow } from "@/services/workflows/verification/state-data-flow.ts";
 import { checkModelValidation as defaultCheckModelValidation } from "@/services/workflows/verification/model-validation.ts";
+import { checkTypeChecking as defaultCheckTypeChecking } from "@/services/workflows/verification/type-checking.ts";
 
 /** Property checker function signature. */
 type PropertyChecker = (graph: EncodedGraph) => Promise<PropertyResult>;
 
 /** Model validation checker function signature. */
 type ModelValidationChecker = (stages: readonly StageDefinition[]) => Promise<PropertyResult>;
+
+/** Type-checking checker function signature. */
+type TypeCheckingChecker = (sourcePaths: string[], tsconfigPath?: string) => Promise<PropertyResult>;
 
 /**
  * Injectable property checkers for testing.
@@ -42,6 +46,7 @@ export interface PropertyCheckers {
   checkLoopBounds: PropertyChecker;
   checkStateDataFlow: PropertyChecker;
   checkModelValidation: ModelValidationChecker;
+  checkTypeChecking: TypeCheckingChecker;
 }
 
 /** Default production checkers. */
@@ -52,6 +57,7 @@ const DEFAULT_CHECKERS: PropertyCheckers = {
   checkLoopBounds: defaultCheckLoopBounds,
   checkStateDataFlow: defaultCheckStateDataFlow,
   checkModelValidation: defaultCheckModelValidation,
+  checkTypeChecking: defaultCheckTypeChecking,
 };
 
 /** Options for workflow verification. */
@@ -62,6 +68,10 @@ export interface VerifyWorkflowOptions {
   checkers?: Partial<PropertyCheckers>;
   /** Conductor stage definitions for model validation. */
   conductorStages?: readonly StageDefinition[];
+  /** Source file paths for TypeScript type-checking. */
+  sourcePaths?: string[];
+  /** Path to tsconfig.json for the workflow directory. */
+  tsconfigPath?: string;
 }
 
 /**
@@ -75,9 +85,10 @@ export interface VerifyWorkflowOptions {
  * 4. Loop bounds - all loops have bounded iterations
  * 5. State data-flow - all reads have preceding writes on all paths
  * 6. Model validation - all declared models and reasoning efforts exist
+ * 7. Type checking - workflow source files are free of TypeScript errors
  *
  * @param graph - The compiled graph to verify
- * @param options - Optional verification options (pre-encoded graph, custom checkers, stages)
+ * @param options - Optional verification options (pre-encoded graph, custom checkers, stages, source paths)
  * @returns VerificationResult with per-property results
  */
 export async function verifyWorkflow(
@@ -87,8 +98,9 @@ export async function verifyWorkflow(
   const encoded = options?.encodedGraph ?? defaultEncodeGraph(graph);
   const checkers = { ...DEFAULT_CHECKERS, ...options?.checkers };
   const stages = options?.conductorStages ?? [];
+  const sourcePaths = options?.sourcePaths ?? [];
 
-  const [reachability, termination, deadlockFreedom, loopBounds, stateDataFlow, modelValidation] =
+  const [reachability, termination, deadlockFreedom, loopBounds, stateDataFlow, modelValidation, typeChecking] =
     await Promise.all([
       checkers.checkReachability(encoded),
       checkers.checkTermination(encoded),
@@ -98,6 +110,9 @@ export async function verifyWorkflow(
       stages.length > 0
         ? checkers.checkModelValidation(stages)
         : Promise.resolve({ verified: true } as PropertyResult),
+      sourcePaths.length > 0
+        ? checkers.checkTypeChecking(sourcePaths, options?.tsconfigPath)
+        : Promise.resolve({ verified: true } as PropertyResult),
     ]);
 
   const valid =
@@ -106,7 +121,8 @@ export async function verifyWorkflow(
     deadlockFreedom.verified &&
     loopBounds.verified &&
     stateDataFlow.verified &&
-    modelValidation.verified;
+    modelValidation.verified &&
+    typeChecking.verified;
 
   return {
     valid,
@@ -117,6 +133,7 @@ export async function verifyWorkflow(
       loopBounds,
       stateDataFlow,
       modelValidation,
+      typeChecking,
     },
   };
 }

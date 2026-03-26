@@ -18,6 +18,7 @@ const PROPERTY_NAMES: Record<string, string> = {
   loopBounds: "Loop Bounds",
   stateDataFlow: "State Data-Flow",
   modelValidation: "Model Validation",
+  typeChecking: "Type Checking",
 };
 
 /**

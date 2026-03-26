@@ -19,6 +19,7 @@ function makeStageContext(overrides?: Partial<StageContext>): StageContext {
     stageOutputs: new Map(),
     tasks: [],
     abortSignal: new AbortController().signal,
+    state: { executionId: "", lastUpdated: "", outputs: {} },
     ...overrides,
   };
 }

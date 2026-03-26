@@ -198,6 +198,7 @@ describe("SDK blueprint → binary loader round-trip", () => {
       stageOutputs: new Map(),
       tasks: [],
       abortSignal: new AbortController().signal,
+      state: { executionId: "", lastUpdated: "", outputs: {} },
     });
 
     expect(result).toBe("Do: hello world");

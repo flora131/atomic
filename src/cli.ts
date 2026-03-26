@@ -249,7 +249,7 @@ export const program = createProgram();
  * Spawn a detached background process to upload telemetry events.
  * Uses fire-and-forget pattern - parent process exits immediately.
  *
- * Reference: specs/phase-6-telemetry-upload-backend.md Section 5.5
+ * Reference: specs/2026-01-22-phase-6-telemetry-upload-backend.md Section 5.5
  */
 export async function spawnTelemetryUpload(): Promise<void> {
     // Prevent recursive spawns - if this is already an upload process, don't spawn another

@@ -15,7 +15,7 @@
  * 4. Generates a createState() factory via state-compiler.
  * 5. Assembles the final WorkflowDefinition.
  *
- * @see specs/workflow-sdk-simplification.md section 5.1.5
+ * @see specs/2026-03-23-workflow-sdk-simplification-z3-verification.md section 5.1.5
  */
 
 import type {
@@ -43,6 +43,14 @@ import {
   buildAgentLookup,
   resolveStageSystemPrompt,
 } from "@/services/workflows/dsl/agent-resolution.ts";
+import {
+  inferStageOutputs,
+  inferStageReads,
+  inferToolOutputs,
+  inferToolReads,
+  inferAskUserOutputs,
+  inferAskUserReads,
+} from "@/services/workflows/dsl/infer-reads-outputs.ts";
 
 // ============================================================================
 // Agent No-op Execute
@@ -241,20 +249,6 @@ function generateStageDefinitions(
       buildPrompt: config.prompt,
       parseOutput: (response: string) => {
         const mapped = config.outputMapper(response);
-        if (config.outputs && config.outputs.length > 0) {
-          const mappedKeys = Object.keys(mapped);
-          const missing = config.outputs.filter((k) => !mappedKeys.includes(k));
-          const extra = mappedKeys.filter((k) => !config.outputs!.includes(k));
-          if (missing.length > 0 || extra.length > 0) {
-            const parts: string[] = [];
-            if (missing.length > 0) parts.push(`missing keys: [${missing.join(", ")}]`);
-            if (extra.length > 0) parts.push(`unexpected keys: [${extra.join(", ")}]`);
-            throw new Error(
-              `Stage "${instruction.id}" outputMapper keys do not match declared outputs. ` +
-              `Declared: [${config.outputs.join(", ")}], returned: [${mappedKeys.join(", ")}]. ${parts.join("; ")}`,
-            );
-          }
-        }
         const values = Object.values(mapped);
         if (values.length === 1 && Array.isArray(values[0])) {
           return values[0];
@@ -320,10 +314,10 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
   function addNode(
     id: string,
     type: "agent" | "tool",
-    options: StageOptions | ToolOptions,
+    options: StageOptions<any> | ToolOptions<any>,
   ): string {
     const stageAgent = "agent" in options && type === "agent"
-      ? (options as StageOptions).agent
+      ? (options as StageOptions<any>).agent
       : undefined;
     const nodeName = stageAgent ?? options.name;
     const node: NodeDefinition<BaseState> = {
@@ -336,12 +330,19 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
         type === "agent"
           ? agentNoopExecute
           : async (context: ExecutionContext<BaseState>) => {
-              const toolOptions = options as ToolOptions;
+              const toolOptions = options as ToolOptions<any>;
               const result = await toolOptions.execute(context);
-              return { stateUpdate: result as Partial<BaseState> };
+              const mapped = toolOptions.outputMapper
+                ? toolOptions.outputMapper(result)
+                : result;
+              return { stateUpdate: mapped as Partial<BaseState> };
             },
-      reads: options.reads,
-      outputs: options.outputs,
+      reads: type === "agent"
+        ? inferStageReads((options as StageOptions<any>).prompt)
+        : inferToolReads((options as ToolOptions<any>).execute),
+      outputs: type === "agent"
+        ? inferStageOutputs((options as StageOptions<any>).outputMapper)
+        : inferToolOutputs((options as ToolOptions<any>).outputMapper),
     };
     nodes.set(id, node);
     return id;
@@ -362,12 +363,15 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
     if (previousNodeId !== null) {
       const breakPred = breakPredicates.get(previousNodeId);
       if (breakPred) {
-        // Conditional break: only continue to next node when predicate is false
+        // Conditional break: only continue to next node when predicate is false.
+        // Share a conditionGroup with the matching exit edge (wired in endLoop)
+        // so the deadlock-freedom verifier recognises the pair as exhaustive.
         edges.push({
           from: previousNodeId,
           to: targetNodeId,
           condition: (state: BaseState) => !breakPred(state),
           label: "break_continue",
+          conditionGroup: `break_decision_${previousNodeId}`,
         });
       } else {
         edges.push({ from: previousNodeId, to: targetNodeId });
@@ -394,7 +398,7 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
       case "askUserQuestion": {
         const config = instruction.config;
         const questionOptions = config.question;
-        const onAnswer = config.onAnswer;
+        const askUserOutputMapper = config.outputMapper;
 
         // Create an ask_user node using the existing factory
         const askNode = askUserNode({
@@ -419,21 +423,25 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
           description: config.description,
         });
 
+        // Propagate inferred reads and outputs to the node definition.
+        askNode.reads = inferAskUserReads(config.question);
+        askNode.outputs = inferAskUserOutputs(askUserOutputMapper);
+
         // Wrap execute to set dslAskUser flag on emitted events and
-        // wire the onAnswer callback when provided.
+        // wire the outputMapper callback when provided.
         const originalExecute = askNode.execute;
         askNode.execute = async (ctx: ExecutionContext<BaseState>) => {
-          // When onAnswer is provided AND emit is available, block the
+          // When outputMapper is provided AND emit is available, block the
           // node's execution until the user answers via the respond
           // callback. This lets the conductor receive the mapped state
           // updates as part of the normal NodeResult.stateUpdate flow.
-          if (onAnswer && ctx.emit) {
+          if (askUserOutputMapper && ctx.emit) {
             let resolveAnswer!: (answer: string | string[]) => void;
             const answerPromise = new Promise<string | string[]>((resolve) => {
               resolveAnswer = resolve;
             });
 
-            const onAnswerCtx: ExecutionContext<BaseState> = {
+            const outputMapperCtx: ExecutionContext<BaseState> = {
               ...ctx,
               emit: (type: string, data?: Record<string, unknown>) => {
                 ctx.emit!(type, {
@@ -448,13 +456,13 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
 
             // Execute the original node (emits the event with our
             // custom respond callback that resolves the promise).
-            const result = await originalExecute(onAnswerCtx);
+            const result = await originalExecute(outputMapperCtx);
 
             // Wait for the user's answer via the respond callback.
             const answer = await answerPromise;
 
-            // Apply onAnswer mapping and merge with original state update.
-            const mappedUpdates = onAnswer(answer);
+            // Apply outputMapper mapping and merge with original state update.
+            const mappedUpdates = askUserOutputMapper(answer);
             return {
               ...result,
               stateUpdate: {
@@ -465,7 +473,7 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
             };
           }
 
-          // No onAnswer or no emit: just add dslAskUser flag.
+          // No outputMapper or no emit: just add dslAskUser flag.
           const wrappedCtx: ExecutionContext<BaseState> = {
             ...ctx,
             emit: ctx.emit
@@ -557,11 +565,14 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
         for (const entry of loopCtx.breaks) {
           const predicate = breakPredicates.get(entry.nodeId);
           if (predicate) {
+            // Share a conditionGroup with the matching continue edge (wired by
+            // connectPrevious) so the verifier sees the break as exhaustive.
             edges.push({
               from: entry.nodeId,
               to: exitNodeId,
               condition: (state: BaseState) => predicate(state),
               label: "break_exit",
+              conditionGroup: `break_decision_${entry.nodeId}`,
             });
           } else {
             edges.push({ from: entry.nodeId, to: exitNodeId });

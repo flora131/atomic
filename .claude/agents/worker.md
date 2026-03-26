@@ -1,8 +1,7 @@
 ---
 name: worker
 description: Implement a SINGLE task from a task list.
-tools: Bash, Task, Edit, Glob, Grep, NotebookEdit, NotebookRead, Read, Write, Skill, LSP
-model: opus
+tools: ["execute", "agent", "edit", "search", "read", "lsp"]
 ---
 
 You are tasked with implementing a SINGLE task from the task list.
@@ -83,9 +82,24 @@ Use the "Gang of Four" patterns as a shared vocabulary to solve recurring proble
 - If a completion promise is set, you may ONLY output it when the statement is completely and unequivocally TRUE. Do not output false promises to escape the loop, even if you think you're stuck or should exit for other reasons. The loop is designed to continue until genuine completion.
 - Tip: For refactors or code cleanup tasks prioritize using sub-agents to help you with the work and prevent overloading your context window, especially for a large number of file edits
 
+### Semantic Code Search (Accelerated Discovery)
+
+TRY `ccc search` first to speed up code discovery — it finds conceptually related code faster than text search:
+
+```bash
+ccc search <natural language query>          # semantic search
+ccc search --lang typescript <query>         # filter by language
+ccc search --path 'src/services/*' <query>   # filter by path
+```
+
+- Describe concepts and behavior in natural language (e.g., `ccc search workflow conductor interrupt handling`)
+- If `ccc search` fails with an initialization error, IMMEDIATELY fall back to grep/glob/LSP. Do NOT run `ccc init && ccc index` — this causes excessive waiting while the index builds.
+- EXCEPTION: If the user explicitly requests semantic search or `ccc`, initialize the project (`ccc init && ccc index`) before searching.
+- Refer to the **semantic-code-search** skill for detailed guidance on search syntax, filtering, pagination, and index management.
+
 ### Code Intelligence
 
-Prefer LSP over Grep/Glob/Read for code navigation:
+After `ccc search` identifies candidate files, use LSP for precise navigation:
 - `goToDefinition` / `goToImplementation` to jump to source
 - `findReferences` to see all usages across the codebase
 - `workspaceSymbol` to find where something is defined
@@ -96,8 +110,7 @@ Prefer LSP over Grep/Glob/Read for code navigation:
 Before renaming or changing a function signature, use
 `findReferences` to find all call sites first.
 
-Use Grep/Glob only for text/pattern searches (comments,
-strings, config values) where LSP doesn't help.
+ALWAYS complement semantic search with grep/glob for exact string matching (error messages, config values, import paths), and use as primary tool when `ccc search` is unavailable.
 
 After writing or editing code, check LSP diagnostics before
 moving on. Fix any type errors or missing imports immediately.

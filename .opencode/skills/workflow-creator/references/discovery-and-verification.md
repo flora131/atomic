@@ -30,6 +30,7 @@ All workflows are verified at load time for structural correctness:
 3. **Deadlock-freedom** — no node can get stuck
 4. **Loop bounds** — all loops have bounded iterations
 5. **State data-flow** — all reads have preceding writes on all paths
+6. **Model validation** — models and reasoning efforts declared in `sessionConfig` are valid for each agent type
 
 ### Running the verifier
 
@@ -57,6 +58,7 @@ Workflow "my-workflow" passed all verification checks
   PASS  Deadlock-Freedom
   PASS  Loop Bounds
   PASS  State Data-Flow
+  PASS  Model Validation
 
 All workflows passed verification.
 ```

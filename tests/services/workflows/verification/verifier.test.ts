@@ -50,6 +50,7 @@ function allPassCheckers(): PropertyCheckers {
     checkDeadlockFreedom: pass,
     checkLoopBounds: pass,
     checkStateDataFlow: pass,
+    checkModelValidation: async () => ({ verified: true }),
   };
 }
 
@@ -200,6 +201,7 @@ describe("verifyWorkflow", () => {
         callOrder.push("sdf-end");
         return { verified: true };
       },
+      checkModelValidation: async () => ({ verified: true }),
     };
 
     await verifyWorkflow(graph, { checkers });

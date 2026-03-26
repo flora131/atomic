@@ -538,10 +538,10 @@ The event bus normalization and `applyStreamPartEvent` reducer are provider-agno
 - `research/docs/2026-02-19-sdk-v2-first-unified-layer-research.md` — Unified provider abstraction documentation
 
 ### Related Specs (19 specs in `specs/` directory)
-- `specs/workflow-sdk-standardization.md` — Workflow SDK patterns standardization
-- `specs/workflow-tui-rendering-unification-refactor.md` — PART_REGISTRY dispatch for workflows
-- `specs/streaming-architecture-event-bus-migration.md` — Callbacks-to-event-bus migration
-- `specs/unified-workflow-execution.md` — Unified workflow execution interface
+- `specs/2026-03-02-workflow-sdk-standardization.md` — Workflow SDK patterns standardization
+- `specs/2026-03-02-workflow-tui-rendering-unification-refactor.md` — PART_REGISTRY dispatch for workflows
+- `specs/2026-03-02-streaming-architecture-event-bus-migration.md` — Callbacks-to-event-bus migration
+- `specs/2026-03-02-unified-workflow-execution.md` — Unified workflow execution interface
 
 ---
 

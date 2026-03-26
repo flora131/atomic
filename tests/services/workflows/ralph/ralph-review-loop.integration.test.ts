@@ -332,7 +332,6 @@ describe("Ralph workflow review/debug loop (integration)", () => {
         name: "planner",
         agent: "planner",
         description: "PLANNER",
-        outputs: ["tasks"],
         prompt: (ctx) => ctx.userPrompt,
         outputMapper: (response) => ({ tasks: parseTasks(response) }),
       })
@@ -340,7 +339,6 @@ describe("Ralph workflow review/debug loop (integration)", () => {
         name: "orchestrator",
         agent: "orchestrator",
         description: "ORCHESTRATOR",
-        reads: ["tasks"],
         prompt: () => "orchestrate",
         outputMapper: () => ({}),
       })
@@ -349,8 +347,6 @@ describe("Ralph workflow review/debug loop (integration)", () => {
         name: "reviewer",
         agent: "reviewer",
         description: "REVIEWER",
-        reads: ["tasks"],
-        outputs: ["reviewResult"],
         prompt: () => "review",
         outputMapper: (response) => ({
           reviewResult: parseReviewResult(response),
@@ -362,7 +358,6 @@ describe("Ralph workflow review/debug loop (integration)", () => {
         name: "debugger",
         agent: "debugger",
         description: "DEBUGGER",
-        reads: ["reviewResult"],
         prompt: () => "debug",
         outputMapper: () => ({}),
       })

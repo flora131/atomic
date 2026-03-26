@@ -5,7 +5,7 @@ description: Create custom multi-agent workflows for Atomic CLI using the define
 
 # Workflow Creator
 
-Help users create custom workflows using the `defineWorkflow()` chainable DSL. Workflows orchestrate multiple coding agent stages into automated pipelines — plan/execute/review loops, conditional branching, and structured data flow between stages.
+You are a workflow architect specializing in the Atomic CLI `defineWorkflow()` chainable DSL. Your role is to translate user intent into well-structured, verification-passing workflow files that orchestrate multiple coding agent stages.
 
 ## Before You Start
 
@@ -22,7 +22,7 @@ Read the reference files in `references/` for the full DSL API. Start with `gett
 
 ## How Workflows Work
 
-A workflow is a TypeScript file that chains `.stage()`, `.tool()`, `.askUserQuestion()`, `.if()`, `.loop()`, and other methods to define a directed graph of agent stages. The chain reads top-to-bottom as the execution order. At the end, `.compile()` validates the structure and produces a `WorkflowDefinition`.
+A workflow is a TypeScript file that chains `.stage()`, `.tool()`, `.askUserQuestion()`, `.if()`, `.loop()`, and other methods to define a directed graph of agent stages. The chain reads top-to-bottom as the execution order. At the end, `.compile()` validates the structure and produces a `CompiledWorkflow`.
 
 Each `.stage()` launches a fresh agent session with its own context window. The `prompt` function builds what the agent sees, and `outputMapper` extracts structured data from its response for downstream stages to consume.
 
@@ -32,14 +32,17 @@ Workflows are saved to `.atomic/workflows/<name>.ts` (local) or `~/.atomic/workf
 
 ### 1. Understand the User's Goal
 
-Ask the user what they want to automate. Key questions:
+Ask the user what they want to automate. Use these questions to map their intent to DSL constructs:
 
-- What are the distinct steps? (Each step typically becomes a `.stage()`)
-- Do any steps need to repeat? (Use `.loop()` / `.break()` / `.endLoop()`)
-- Are there conditional paths? (Use `.if()` / `.elseIf()` / `.else()` / `.endIf()`)
-- What data flows between steps? (Declare `reads` and `outputs`)
-- Does the workflow need user input at any point? (Use `.askUserQuestion()`)
-- Do any steps need a specific model or config? (Use `sessionConfig`)
+| Question | Maps to |
+|----------|---------|
+| What are the distinct steps? | Each step → `.stage()` |
+| Does any step need deterministic computation (no LLM)? | → `.tool()` |
+| Do any steps need to repeat? | → `.loop()` / `.break()` / `.endLoop()` |
+| Are there conditional paths? | → `.if()` / `.elseIf()` / `.else()` / `.endIf()` |
+| What data flows between steps? | → `reads` and `outputs` declarations |
+| Does the workflow need user input? | → `.askUserQuestion()` |
+| Do any steps need a specific model? | → `sessionConfig` with per-agent-type model |
 
 ### 2. Design the Stage Graph
 
@@ -47,8 +50,8 @@ Map the user's intent to a sequence of stages. Each stage needs:
 
 - **`name`** — unique key used to reference this stage's output downstream (via `ctx.stageOutputs.get("<name>")`)
 - **`agent`** *(optional)* — which agent definition to invoke. When `null` or omitted, the stage uses the SDK's default session instructions. Multiple stages can share the same agent.
-- **`description`** — short label for logging
-- **`prompt`** — function that builds the prompt from `StageContext`
+- **`description`** — short label for logging (use emoji prefixes for visual clarity: ⌕ 🔍 ⚡ 🔧 📋 ✨)
+- **`prompt`** — function receiving `StageContext` that builds the prompt text
 - **`outputMapper`** — function that extracts structured data from the raw response
 
 Think of `name` as the database key and `agent` as the worker type. A "writer" agent could power both a "draft" stage and a "revise" stage — each referenced by its own name. Omit `agent` when you want the raw SDK behavior without a custom system prompt.
@@ -70,6 +73,7 @@ export default defineWorkflow({
     },
   })
   .version("1.0.0")
+  .argumentHint("<task-description>")  // Shown as placeholder in TUI input after /command-name
   // Chain stages, tools, conditionals, and loops here
   .stage({
     name: "<unique-stage-name>",
@@ -84,13 +88,13 @@ export default defineWorkflow({
 
 ### 4. Verify the Workflow
 
-After writing, remind the user to run verification:
+After writing, always run verification:
 
 ```bash
 atomic workflow verify .atomic/workflows/<workflow-name>.ts
 ```
 
-This checks reachability, termination, deadlock-freedom, loop bounds, and state data-flow.
+This runs 6 structural checks: reachability, termination, deadlock-freedom, loop bounds, state data-flow, and model validation. All 6 must pass.
 
 ## Key Patterns
 
@@ -147,7 +151,6 @@ Use `.tool()` for validation, data transforms, or I/O that doesn't need an LLM:
 ```ts
 .tool({
   name: "validate",
-  reads: ["tasks"],
   outputs: ["isValid"],
   execute: async (ctx) => ({
     isValid: ctx.state.tasks.every((t) => t.id && t.description),
@@ -188,9 +191,9 @@ defineWorkflow({
     name: "stateful",
     description: "With custom state",
     globalState: {
-      findings: { default: [], reducer: "concat" },
+      findings: { default: () => [], reducer: "concat" },
       score: { default: 0, reducer: "max" },
-      tasks: { default: [], reducer: "mergeById", key: "id" },
+      tasks: { default: () => [], reducer: "mergeById", key: "id" },
     },
   })
   // ...stages...
@@ -199,9 +202,11 @@ defineWorkflow({
 
 Built-in reducers: `replace` (default), `concat`, `merge`, `mergeById`, `max`, `min`, `sum`, `or`, `and`. Custom functions also work: `reducer: (current, update) => ...`.
 
+**Important:** Use factory functions (`() => []`) for mutable defaults like arrays and objects to prevent shared references.
+
 ### Per-Stage Session Config
 
-Override model, reasoning effort, or permissions for specific stages:
+Override model, reasoning effort, or permissions for specific stages. `model` and `reasoningEffort` are keyed by agent type (`"claude" | "opencode" | "copilot"`):
 
 ```ts
 .stage({
@@ -211,8 +216,8 @@ Override model, reasoning effort, or permissions for specific stages:
   prompt: (ctx) => `Thoroughly review: ${ctx.userPrompt}`,
   outputMapper: (response) => ({ reviewResult: JSON.parse(response) }),
   sessionConfig: {
-    model: "claude-opus-4-20250514",
-    reasoningEffort: "high",
+    model: { claude: "claude-opus-4-20250514", copilot: "claude-sonnet-4" },
+    reasoningEffort: { claude: "high" },
     maxThinkingTokens: 32000,
   },
 })
@@ -220,19 +225,23 @@ Override model, reasoning effort, or permissions for specific stages:
 
 Omitted fields inherit from the parent session automatically.
 
-## Common Mistakes to Avoid
+## Structural Rules
 
-1. **Duplicate stage names** — every `name` must be unique. The builder throws at definition time if it detects a duplicate.
+These rules are enforced by the builder and compiler. Violating them causes build-time errors:
 
-2. **Forgetting `.compile()`** — the chain must end with `.compile()` to produce a valid `WorkflowDefinition`.
+1. **Unique stage names** — every `name` must be unique across all `.stage()`, `.tool()`, and `.askUserQuestion()` calls. The builder throws immediately on duplicates.
 
-3. **Unbalanced control flow** — every `.if()` needs `.endIf()`, every `.loop()` needs `.endLoop()`. The compiler rejects unbalanced blocks.
+2. **`.compile()` required** — the chain must end with `.compile()` to produce a valid `CompiledWorkflow`.
 
-4. **`.break()` outside a loop** — `.break()` can only appear inside `.loop()` / `.endLoop()`. The builder throws immediately if misplaced.
+3. **Balanced control flow** — every `.if()` needs `.endIf()`, every `.loop()` needs `.endLoop()`. The compiler counts depth and rejects unbalanced blocks.
 
-5. **Referencing a stage that hasn't run yet** — `ctx.stageOutputs.get("<name>")` only has data from stages that have already executed. The data-flow verifier catches undeclared reads.
+4. **`.break()` inside loops only** — `.break()` can only appear inside `.loop()` / `.endLoop()`. The builder throws immediately if misplaced.
 
-6. **Not exporting as default** — workflow files must use `export default` so the discovery system can load them.
+5. **Non-empty branches** — every branch in a conditional block (`.if()`, `.elseIf()`, `.else()`) must contain at least one `.stage()`, `.tool()`, or `.askUserQuestion()`. Empty branches are rejected.
+
+6. **`export default` required** — workflow files must use `export default` so the discovery system can load them.
+
+7. **Forward-only data flow** — `ctx.stageOutputs.get("<name>")` only has data from stages that have already executed. The data-flow verifier catches undeclared reads.
 
 ## Reference
 

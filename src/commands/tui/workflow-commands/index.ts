@@ -55,10 +55,7 @@ export {
 export type {
     WorkflowCommandArgs,
     WorkflowDefinition,
-    WorkflowGraphConfig,
     WorkflowMetadata,
-    WorkflowStateMigrator,
-    WorkflowStateParams,
 } from "./types.ts";
 
 // ============================================================================
@@ -72,10 +69,12 @@ export type {
  * @param metadata - Workflow metadata (may be a full WorkflowDefinition)
  * @returns Command definition for the workflow
  */
+const DEFAULT_WORKFLOW_ARGUMENT_HINT = "<prompt>";
+
 function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
     const definition = metadata as WorkflowDefinition;
-    const hasExecutionLogic = definition.createState || definition.graphConfig || definition.createGraph;
     const hasConductorStages = definition.conductorStages && definition.conductorStages.length > 0;
+    const argumentHint = metadata.argumentHint || DEFAULT_WORKFLOW_ARGUMENT_HINT;
 
     if (hasConductorStages && (definition.createConductorGraph || definition.createGraph || definition.graphConfig)) {
         // Conductor-based workflow — uses WorkflowSessionConductor for per-stage sessions
@@ -84,7 +83,7 @@ function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
             description: metadata.description,
             category: "workflow",
             aliases: metadata.aliases,
-            argumentHint: metadata.argumentHint,
+            argumentHint,
             execute: async (
                 args: string,
                 context: CommandContext,
@@ -113,34 +112,18 @@ function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
         };
     }
 
-    if (hasExecutionLogic) {
-        // Legacy graph-based workflow path — executor has been removed.
-        // Workflows must define conductorStages to use the conductor path.
-        return {
-            name: metadata.name,
-            description: metadata.description,
-            category: "workflow",
-            aliases: metadata.aliases,
-            argumentHint: metadata.argumentHint,
-            execute: (): CommandResult => ({
-                success: false,
-                message: `Workflow "${metadata.name}" uses the removed legacy graph executor. Add conductorStages to use the conductor path.`,
-            }),
-        };
-    }
-
     // Chat-based workflow — simple state update, no graph execution
     return {
         name: metadata.name,
         description: metadata.description,
         category: "workflow",
         aliases: metadata.aliases,
-        argumentHint: metadata.argumentHint,
+        argumentHint,
         execute: (args: string, context: CommandContext): CommandResult => {
             if (context.state.workflowActive) {
                 return {
                     success: false,
-                    message: `A workflow is already active (${context.state.workflowType}). Check research/progress.txt for progress.`,
+                    message: `A workflow is already active (${context.state.workflowType}).`,
                 };
             }
 

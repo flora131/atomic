@@ -528,14 +528,14 @@ CodingAgentClient (src/sdk/types.ts:494-545)
 
 ## Historical Context (from research/)
 
-- `specs/skill-loading-from-configs-and-ui.md` — Detailed spec for skill loading that establishes the discovery + priority + registration pattern. Sections 5.1-5.3 are directly applicable to tool discovery.
-- `specs/mcp-support-and-discovery.md` — MCP config discovery spec, demonstrates multi-format, multi-location config discovery.
+- `specs/2026-02-09-skill-loading-from-configs-and-ui.md` — Detailed spec for skill loading that establishes the discovery + priority + registration pattern. Sections 5.1-5.3 are directly applicable to tool discovery.
+- `specs/2026-02-09-mcp-support-and-discovery.md` — MCP config discovery spec, demonstrates multi-format, multi-location config discovery.
 - `research/docs/2026-02-08-skill-loading-from-configs-and-ui.md` — Research document supporting the skill loading spec.
 
 ## Related Research
 
-- `specs/skill-loading-from-configs-and-ui.md` — Most directly relevant: same discovery/priority/registration pattern
-- `specs/mcp-support-and-discovery.md` — MCP discovery pattern (multi-location, deduplication)
+- `specs/2026-02-09-skill-loading-from-configs-and-ui.md` — Most directly relevant: same discovery/priority/registration pattern
+- `specs/2026-02-09-mcp-support-and-discovery.md` — MCP discovery pattern (multi-location, deduplication)
 
 ## Open Questions
 

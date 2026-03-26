@@ -19,14 +19,12 @@ export default defineWorkflow({
     name: "plan",
     agent: "planner",
     description: "PLANNER",
-    outputs: ["tasks"],
     prompt: (ctx) => `Decompose this into tasks:\n${ctx.userPrompt}`,
     outputMapper: (response) => ({ tasks: JSON.parse(response) }),
   })
   .stage({
     name: "execute",
     description: "EXECUTOR",
-    reads: ["tasks"],
     prompt: (ctx) => `Execute these tasks:\n${JSON.stringify(ctx.stageOutputs.get("plan")?.parsedOutput)}`,
     outputMapper: () => ({}),
   })
@@ -34,8 +32,6 @@ export default defineWorkflow({
     name: "review",
     agent: "reviewer",
     description: "REVIEWER",
-    reads: ["tasks"],
-    outputs: ["reviewResult"],
     prompt: (ctx) => `Review the implementation against: ${ctx.userPrompt}`,
     outputMapper: (response) => ({ reviewResult: JSON.parse(response) }),
   })
@@ -52,7 +48,7 @@ Note that the `execute` stage omits `agent` — it runs with the SDK's default s
 |---|---|
 | `nodes/stage.md` | `.stage()` API, `name` vs `agent`, null agent behavior, `StageOptions` reference |
 | `nodes/tool.md` | `.tool()` API, common use cases, `ToolOptions` reference |
-| `nodes/ask-user-question.md` | `.askUserQuestion()` API, static/dynamic questions, multi-select, `onAnswer` mapping |
+| `nodes/ask-user-question.md` | `.askUserQuestion()` API, static/dynamic questions, multi-select, `outputMapper` mapping |
 | `control-flow.md` | `.if()` / `.elseIf()` / `.else()` / `.endIf()` conditionals, `.loop()` / `.break()` / `.endLoop()` bounded loops |
 | `state-and-reducers.md` | `globalState`, `loopState`, `StateFieldOptions`, built-in reducers, data flow declarations |
 | `session-config.md` | Per-stage `sessionConfig` overrides, system prompt resolution order |

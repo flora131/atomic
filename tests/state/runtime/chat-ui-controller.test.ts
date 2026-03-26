@@ -329,7 +329,7 @@ describe("createChatUIController", () => {
     expect(capturedConfigs[0]?.reasoningEffort).toBeUndefined();
   });
 
-  test("inherits additional instructions when creating a subagent session", async () => {
+  test("inherits system prompt when creating a subagent session", async () => {
     const sessions = [createMockSession("session-1")];
     const capturedConfigs: SessionConfig[] = [];
     const client: CodingAgentClient = {
@@ -345,7 +345,7 @@ describe("createChatUIController", () => {
       client,
       resolvedAgentType: "opencode",
       sessionConfig: {
-        additionalInstructions: "Base prompt + enhanced prompt",
+        systemPrompt: "Base prompt + enhanced prompt",
       },
       modelOps: {
         invalidateModelCache: () => {},
@@ -372,12 +372,12 @@ describe("createChatUIController", () => {
       {
         model: "claude-sonnet-4.5",
         tools: ["bash"],
-        additionalInstructions: "Base prompt + enhanced prompt",
+        systemPrompt: "Base prompt + enhanced prompt",
       },
     ]);
   });
 
-  test("preserves explicit subagent additional instructions when provided", async () => {
+  test("preserves explicit subagent system prompt when provided", async () => {
     const sessions = [createMockSession("session-1")];
     const capturedConfigs: SessionConfig[] = [];
     const client: CodingAgentClient = {
@@ -393,7 +393,7 @@ describe("createChatUIController", () => {
       client,
       resolvedAgentType: "opencode",
       sessionConfig: {
-        additionalInstructions: "Parent instructions",
+        systemPrompt: "Parent instructions",
       },
       modelOps: {
         invalidateModelCache: () => {},
@@ -412,12 +412,12 @@ describe("createChatUIController", () => {
     });
 
     await controller.createSubagentSession({
-      additionalInstructions: "Subagent override",
+      systemPrompt: "Subagent override",
     });
 
     expect(capturedConfigs).toEqual([
       {
-        additionalInstructions: "Subagent override",
+        systemPrompt: "Subagent override",
       },
     ]);
   });

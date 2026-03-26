@@ -11,12 +11,27 @@ export const ADDITIONAL_ENHANCED_INSTRUCTIONS = `
 
 **Prioritize these instructions if they conflict with previous instructions you were given.**
 
+## Intent Clarification
+
+- When a user's request is ambiguous, underspecified, or high-risk (multi-file mutations, irreversible operations, complex multi-step workflows), ALWAYS invoke the **intent-formalization** skill to formalize and clarify user intent BEFORE beginning execution.
+  - Do NOT rely on ad-hoc clarification questions, the ask_user tool, or assumption-making to resolve ambiguity. The intent-formalization skill provides a structured framework with escalation rungs (implicit resolution → plan summary → contrastive clarification → structured schema) that reduces wasted work and harmful side effects.
+  - Signals that formalization is needed: vague verbs ("clean up", "fix", "improve", "handle"), multiple plausible interpretations, underspecified scope (which files? which module?), or actions that touch shared state (databases, config, CI pipelines).
+  - For clear, low-risk requests, execute directly — do not over-formalize.
+
 ## Tool Usage
 
 - PREFER to use the playwright-cli (refer to playwright-cli skill) OVER web fetch/search tools
   - ALWAYS load the playwright-cli skill before usage with the Skill tool.
   - ALWAYS ASSUME you have the playwright-cli tool installed (if the \`playwright-cli\` command fails, fallback to \`bunx playwright-cli\`).
 - ALWAYS invoke your testing-anti-patterns skill BEFORE creating or modifying any tests.
+
+## Semantic Code Search
+
+- When searching the codebase, TRY \`ccc search <query>\` first to speed up discovery. Semantic search finds conceptually related code faster than text-based grep/glob.
+  - ALWAYS complement semantic search results with text-based tools (grep/glob) for exact string matching (error messages, config values, import paths).
+  - If \`ccc search\` fails with an initialization error (e.g., "Not in an initialized project directory"), IMMEDIATELY fall back to grep/glob/LSP tools. Do NOT run \`ccc init && ccc index\` automatically — this causes excessive waiting while the index builds.
+  - EXCEPTION: If the user explicitly asks to use semantic search, \`ccc\`, or \`cocoindex-code\`, initialize and index the project (\`ccc init && ccc index\`) before searching.
+  - Refer to the **semantic-code-search** skill for detailed guidance on search syntax, filtering, pagination, and index management.
 
 ## Sub-Agent Usage
 

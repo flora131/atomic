@@ -11,11 +11,11 @@
  * maintaining a `StageContext` that accumulates `StageOutput` records so each
  * downstream stage can reference prior outputs.
  *
- * @see specs/ralph-workflow-redesign.md §5.1
+ * @see specs/2026-03-23-ralph-workflow-redesign.md §5.1
  */
 
 import type { TaskItem } from "@/services/workflows/builtin/ralph/helpers/prompts.ts";
-import type { Session } from "@/services/agents/types.ts";
+import type { Session, SessionConfig } from "@/services/agents/types.ts";
 import type {
   BaseState,
   NodeDefinition,
@@ -39,6 +39,11 @@ import type {
   StageOutput,
   WorkflowResult,
 } from "@/services/workflows/conductor/types.ts";
+import type { WorkflowSessionConfig } from "@/services/workflows/dsl/types.ts";
+import {
+  getModelPreference,
+  getReasoningEffortPreference,
+} from "@/services/config/settings.ts";
 import { truncateStageOutput } from "@/services/workflows/conductor/truncate.ts";
 import { isPipelineDebug } from "@/services/events/pipeline-logger.ts";
 import { DEFAULT_LOG_DIR } from "@/services/events/debug-subscriber/config.ts";
@@ -107,6 +112,57 @@ export class WorkflowSessionConductor {
     this.accumulatedPressure = createEmptyAccumulatedPressure();
 
     this.validateStagesCoverAgentNodes();
+  }
+
+  // -------------------------------------------------------------------------
+  // Session Config Resolution
+  // -------------------------------------------------------------------------
+
+  /**
+   * Resolve a `WorkflowSessionConfig` (SDK-agnostic, per-agent model maps)
+   * into an agent-level `SessionConfig` for the active agent.
+   *
+   * Resolution order for `model` and `reasoningEffort`:
+   * 1. Stage-level per-agent value (e.g., `{ model: { claude: "opus" } }`)
+   * 2. User's persisted settings (`~/.atomic/settings.json` or `.atomic/settings.json`)
+   *
+   * Other fields (systemPrompt, tools, etc.) pass through unchanged.
+   */
+  private async resolveSessionConfig(
+    workflowConfig?: Partial<WorkflowSessionConfig>,
+  ): Promise<SessionConfig | undefined> {
+    const agentType = this.config.agentType;
+
+    // Resolve model: stage config → user settings
+    const stageModel = agentType
+      ? workflowConfig?.model?.[agentType as keyof NonNullable<WorkflowSessionConfig["model"]>]
+      : undefined;
+    const model = stageModel ?? (agentType ? await getModelPreference(agentType) : undefined);
+
+    // Resolve reasoning effort: stage config → user settings
+    const stageReasoning = agentType
+      ? workflowConfig?.reasoningEffort?.[agentType as keyof NonNullable<WorkflowSessionConfig["reasoningEffort"]>]
+      : undefined;
+    const reasoningEffort = stageReasoning ?? (agentType ? await getReasoningEffortPreference(agentType) : undefined);
+
+    // If no workflow config and no defaults resolved, return undefined
+    if (!workflowConfig && !model && !reasoningEffort) {
+      return undefined;
+    }
+
+    const resolved: SessionConfig = {};
+    if (workflowConfig?.sessionId !== undefined) resolved.sessionId = workflowConfig.sessionId;
+    if (workflowConfig?.systemPrompt !== undefined) resolved.systemPrompt = workflowConfig.systemPrompt;
+    if (workflowConfig?.additionalInstructions !== undefined) resolved.additionalInstructions = workflowConfig.additionalInstructions;
+    if (workflowConfig?.tools !== undefined) resolved.tools = workflowConfig.tools;
+    if (workflowConfig?.permissionMode !== undefined) resolved.permissionMode = workflowConfig.permissionMode;
+    if (workflowConfig?.maxBudgetUsd !== undefined) resolved.maxBudgetUsd = workflowConfig.maxBudgetUsd;
+    if (workflowConfig?.maxTurns !== undefined) resolved.maxTurns = workflowConfig.maxTurns;
+    if (workflowConfig?.maxThinkingTokens !== undefined) resolved.maxThinkingTokens = workflowConfig.maxThinkingTokens;
+    if (model !== undefined) resolved.model = model;
+    if (reasoningEffort !== undefined) resolved.reasoningEffort = reasoningEffort;
+
+    return resolved;
   }
 
   // -------------------------------------------------------------------------
@@ -192,7 +248,9 @@ export class WorkflowSessionConductor {
    */
   async execute(userPrompt: string): Promise<WorkflowResult> {
     const executionId = generateExecutionId();
-    let state = initializeExecutionState<BaseState>(executionId);
+    let state = this.config.createState
+      ? this.config.createState({ sessionId: executionId, prompt: userPrompt, sessionDir: "" })
+      : initializeExecutionState<BaseState>(executionId);
     const { graph, abortSignal } = this.config;
 
     const nodeQueue: string[] = [graph.startNode];
@@ -349,7 +407,7 @@ export class WorkflowSessionConductor {
       return { output: skippedOutput, result: {}, skipped: true };
     }
 
-    const context = this.buildStageContext(userPrompt);
+    const context = this.buildStageContext(userPrompt, state);
 
     // Evaluate shouldRun condition
     if (stage.shouldRun && !stage.shouldRun(context)) {
@@ -474,7 +532,8 @@ export class WorkflowSessionConductor {
             sessionId: session.id,
           });
         } else {
-          session = await this.config.createSession(stage.sessionConfig);
+          const resolvedConfig = await this.resolveSessionConfig(stage.sessionConfig);
+          session = await this.config.createSession(resolvedConfig);
           conductorLog("conductor_session_created", {
             stageId: stage.id,
             sessionId: session.id,
@@ -730,12 +789,30 @@ export class WorkflowSessionConductor {
     node: NodeDefinition<BaseState>,
     state: BaseState,
   ): Promise<NodeResult<BaseState>> {
+    // Build an emit function that dispatches bus events when the event bus
+    // is available. This is required for askUserQuestion nodes to emit
+    // human_input_required events that the TUI subscribes to.
+    const emitFn = this.canDispatch
+      ? (type: string, data?: Record<string, unknown>) => {
+          const busType = `stream.${type}`;
+          this.config.dispatchEvent!({
+            type: busType,
+            sessionId: this.config.sessionId!,
+            runId: this.config.runId!,
+            timestamp: Date.now(),
+            data: { ...data, nodeId: node.id },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          } as any);
+        }
+      : undefined;
+
     const context: ExecutionContext<BaseState> = {
       state,
       config: this.config.graph.config,
       errors: [],
       abortSignal: this.config.abortSignal,
       getNodeOutput: (nodeId) => state.outputs[nodeId],
+      emit: emitFn,
     };
 
     try {
@@ -755,12 +832,13 @@ export class WorkflowSessionConductor {
   // -------------------------------------------------------------------------
 
   /** Build a StageContext snapshot from accumulated state. */
-  private buildStageContext(userPrompt: string): StageContext {
+  private buildStageContext(userPrompt: string, state: BaseState): StageContext {
     const context: StageContext = {
       userPrompt,
       stageOutputs: new Map(this.stageOutputs),
       tasks: [...this.tasks],
       abortSignal: this.config.abortSignal,
+      state,
     };
 
     // Include context pressure data when monitoring is configured

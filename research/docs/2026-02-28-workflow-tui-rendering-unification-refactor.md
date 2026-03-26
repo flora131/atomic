@@ -419,7 +419,7 @@ executeWorkflow()
 
 ### The Unification Path
 
-The selected architecture (from `specs/workflow-tui-rendering-unification.md`) is **Bus-Integrated Sub-Agent Sessions**: replace the silent stream consumption loop with `SubagentStreamAdapter` instances that publish to the shared `AtomicEventBus`.
+The selected architecture (from `specs/2026-03-02-workflow-tui-rendering-unification.md`) is **Bus-Integrated Sub-Agent Sessions**: replace the silent stream consumption loop with `SubagentStreamAdapter` instances that publish to the shared `AtomicEventBus`.
 
 **Why this approach:**
 
@@ -456,10 +456,10 @@ The selected architecture (from `specs/workflow-tui-rendering-unification.md`) i
 
 ### Related Specs
 
-- `specs/workflow-tui-rendering-unification.md` — RFC/Design doc for unifying rendering (Draft/WIP — not yet implemented)
-- `specs/unified-workflow-execution.md` — Companion spec for unified workflow execution interface
-- `specs/chat-system-parts-based-rendering.md` — Parts-based rendering system design
-- `specs/streaming-architecture-event-bus-migration.md` — Streaming architecture migration design
+- `specs/2026-03-02-workflow-tui-rendering-unification.md` — RFC/Design doc for unifying rendering (Draft/WIP — not yet implemented)
+- `specs/2026-03-02-unified-workflow-execution.md` — Companion spec for unified workflow execution interface
+- `specs/2026-02-16-chat-system-parts-based-rendering.md` — Parts-based rendering system design
+- `specs/2026-03-02-streaming-architecture-event-bus-migration.md` — Streaming architecture migration design
 
 ---
 

@@ -19,7 +19,7 @@ Research the current chat TUI input handling architecture to understand how to i
 
 ## Summary
 
-The Atomic CLI already has an **in-memory prompt history** system in `src/ui/chat.tsx` (lines 1720-1723) that supports up/down arrow navigation through previously submitted prompts. However, this history is **session-scoped** — it is lost when the process exits. The spec `specs/tui-command-autocomplete-system.md` explicitly listed cross-session persistence as a non-goal, but the user now wants to add this feature.
+The Atomic CLI already has an **in-memory prompt history** system in `src/ui/chat.tsx` (lines 1720-1723) that supports up/down arrow navigation through previously submitted prompts. However, this history is **session-scoped** — it is lost when the process exits. The spec `specs/2026-01-31-tui-command-autocomplete-system.md` explicitly listed cross-session persistence as a non-goal, but the user now wants to add this feature.
 
 The key components involved are:
 1. **`src/ui/chat.tsx`** — The central hub for all input handling, keyboard events, cursor tracking, and prompt history state
@@ -250,7 +250,7 @@ The textarea handles its own internal cursor movement (left/right/up/down within
 
 ### 11. Previous Design Decisions
 
-**From** `specs/tui-command-autocomplete-system.md:69`:
+**From** `specs/2026-01-31-tui-command-autocomplete-system.md:69`:
 > "We will NOT persist command history across sessions"
 
 This was listed as a non-goal in the original autocomplete system spec. The current research is to reverse this decision and add cross-session persistence.
@@ -268,7 +268,7 @@ This was listed as a non-goal in the original autocomplete system spec. The curr
 - `src/ui/utils/conversation-history-buffer.ts:1-166` — NDJSON file persistence pattern
 - `src/utils/settings.ts:55-64` — `~/.atomic/` path construction pattern
 - `src/ui/utils/navigation.ts:1-30` — `navigateUp`/`navigateDown` helpers
-- `specs/tui-command-autocomplete-system.md:69` — Original non-goal for cross-session history
+- `specs/2026-01-31-tui-command-autocomplete-system.md:69` — Original non-goal for cross-session history
 - `research/docs/2026-01-24-copilot-agent-detection-findings.md:211-224` — Copilot CLI history format reference
 
 ## Architecture Documentation
@@ -377,7 +377,7 @@ User presses Up arrow at cursorOffset === 0
 - `research/docs/2026-02-16-atomic-chat-architecture-current.md` — Current chat architecture documentation
 - `research/docs/2026-02-16-chat-system-design-reference.md` — Chat system design reference
 - `research/docs/2026-02-01-chat-tui-parity-implementation.md` — TUI feature parity research
-- `specs/tui-command-autocomplete-system.md` — Original autocomplete spec (contains history non-goal)
+- `specs/2026-01-31-tui-command-autocomplete-system.md` — Original autocomplete spec (contains history non-goal)
 
 ## Open Questions
 

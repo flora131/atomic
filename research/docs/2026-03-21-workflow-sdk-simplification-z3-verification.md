@@ -595,11 +595,11 @@ This requires understanding the `GraphBuilder` API, the conductor system, the an
 
 ### Formal Specs
 
-- `specs/ralph-workflow-redesign.md` (2026-03-20) — RFC that introduced the conductor model replacing the compiled-graph engine
-- `specs/workflow-sdk-standardization.md` (2026-02-25) — RFC for unified `WorkflowSDK` entry point
-- `specs/pluggable-workflows-sdk.md` (2026-02-05) — RFC for unified SDK with entity registry
-- `specs/atomic-v2-rebuild.md` (2026-03-15) — RFC proposing ground-up rebuild reducing the graph engine from 8.7K lines to ~1K
-- `specs/unified-workflow-execution.md` (2026-02-26) — RFC for generic workflow execution replacing `if (name === "ralph")` dispatch
+- `specs/2026-03-23-ralph-workflow-redesign.md` (2026-03-20) — RFC that introduced the conductor model replacing the compiled-graph engine
+- `specs/2026-03-02-workflow-sdk-standardization.md` (2026-02-25) — RFC for unified `WorkflowSDK` entry point
+- `specs/2026-02-05-pluggable-workflows-sdk.md` (2026-02-05) — RFC for unified SDK with entity registry
+- `specs/2026-03-18-atomic-v2-rebuild.md` (2026-03-15) — RFC proposing ground-up rebuild reducing the graph engine from 8.7K lines to ~1K
+- `specs/2026-03-02-unified-workflow-execution.md` (2026-02-26) — RFC for generic workflow execution replacing `if (name === "ralph")` dispatch
 
 ### V2 Rebuild Specs
 

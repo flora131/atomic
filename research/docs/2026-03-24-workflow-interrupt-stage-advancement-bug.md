@@ -259,8 +259,8 @@ interruptStreaming()                handleInterrupt()
 - `research/docs/2026-02-25-graph-execution-engine.md` — Graph execution engine technical documentation
 - `research/docs/2026-02-28-workflow-issues-research.md` — Prior workflow issues research
 - `research/docs/v1/2026-03-15-spec-04-workflow-engine.md` — V2 workflow engine specification
-- `specs/ralph-workflow-redesign.md` — Ralph workflow redesign spec
-- `specs/workflow-issues-fixes.md` — Prior workflow issues and fixes
+- `specs/2026-03-23-ralph-workflow-redesign.md` — Ralph workflow redesign spec
+- `specs/2026-03-02-workflow-issues-fixes.md` — Prior workflow issues and fixes
 
 ## Related Research
 

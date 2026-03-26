@@ -36,7 +36,7 @@ import {
   ensureAtomicGlobalAgentConfigsForInstallType,
   getTemplateAgentFolder,
 } from "@/services/config/atomic-global-config.ts";
-import { installWorkflowSdk, getLocalWorkflowsDir } from "@/services/config/workflow-package.ts";
+import { installWorkflowSdk, installWorkflowSdkFromLocal, getLocalWorkflowsDir, getGlobalWorkflowsDir, getLocalSdkPackagePath, getRelativeSdkPath } from "@/services/config/workflow-package.ts";
 import { VERSION } from "@/version.ts";
 import {
   getScmPrefix,
@@ -358,12 +358,40 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
   const [playwrightResult, sdkResult] = await Promise.allSettled([
     // Playwright install (sync call wrapped in async)
     (async () => { runPlaywrightCliInstall(); })(),
-    // Workflow SDK install
+    // Workflow SDK install — branch on installation type
     (async () => {
+      const installType = detectInstallationType();
       const localWorkflowsDir = getLocalWorkflowsDir(targetDir);
-      const installed = await installWorkflowSdk(localWorkflowsDir, VERSION);
-      if (!installed) {
-        throw new Error("SDK install returned false");
+      const globalWorkflowsDir = getGlobalWorkflowsDir();
+
+      if (installType === "source") {
+        // Dev mode: use local packages/workflow-sdk from the repo
+        const configRoot = getConfigRoot();
+        const localSdkPath = getLocalSdkPackagePath(configRoot);
+
+        // Local .atomic/workflows/ — relative path (portable within repo)
+        const relativeSdkPath = getRelativeSdkPath(localWorkflowsDir, localSdkPath);
+        const localInstalled = await installWorkflowSdkFromLocal(localWorkflowsDir, relativeSdkPath);
+        if (!localInstalled) {
+          throw new Error("SDK local install returned false");
+        }
+
+        // Global ~/.atomic/workflows/ — absolute path
+        const globalInstalled = await installWorkflowSdkFromLocal(globalWorkflowsDir, localSdkPath);
+        if (!globalInstalled) {
+          throw new Error("SDK global install returned false");
+        }
+      } else {
+        // Binary/npm mode: use published npm package with matching version
+        const localInstalled = await installWorkflowSdk(localWorkflowsDir, VERSION);
+        if (!localInstalled) {
+          throw new Error("SDK local install returned false");
+        }
+
+        const globalInstalled = await installWorkflowSdk(globalWorkflowsDir, VERSION);
+        if (!globalInstalled) {
+          throw new Error("SDK global install returned false");
+        }
       }
     })(),
   ]);
@@ -381,7 +409,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     const message = sdkResult.reason instanceof Error ? sdkResult.reason.message : String(sdkResult.reason);
     log.warn(`Could not set up workflow SDK: ${message}`);
   } else {
-    log.success("Workflow SDK installed in .atomic/workflows/");
+    log.success("Workflow SDK installed in .atomic/workflows/ and ~/.atomic/workflows/");
   }
 
   // Check for WSL on Windows

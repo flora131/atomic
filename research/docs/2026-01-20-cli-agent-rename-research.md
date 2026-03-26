@@ -264,11 +264,11 @@ These are historical specs that document the original design. They should be upd
 
 | File | Reference Count |
 |------|-----------------|
-| `specs/readme-update-spec.md` | ~20 references |
-| `specs/atomic-cli-implementation.md` | ~10 references |
-| `specs/cli-auto-init-agent.md` | ~25 references |
-| `specs/cli-banner-ordering-fix.md` | ~8 references |
-| `specs/init-config-merge-behavior.md` | ~30 references |
+| `specs/2026-01-19-readme-update-spec.md` | ~20 references |
+| `specs/2026-01-18-atomic-cli-implementation.md` | ~10 references |
+| `specs/2026-01-19-cli-auto-init-agent.md` | ~25 references |
+| `specs/2026-01-19-cli-banner-ordering-fix.md` | ~8 references |
+| `specs/2026-01-20-init-config-merge-behavior.md` | ~30 references |
 
 ---
 

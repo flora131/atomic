@@ -4,12 +4,43 @@
  * Handlers for `atomic workflow verify [path]`.
  */
 
-import { resolve } from "path";
+import { resolve, dirname, join } from "path";
+import { existsSync } from "fs";
 import { COLORS } from "@/theme/colors.ts";
 import {
   importWorkflowModule,
   cleanupTempWorkflowFiles,
 } from "@/commands/tui/workflow-commands/workflow-files.ts";
+
+/**
+ * Run TypeScript type checking on a workflow file.
+ *
+ * Looks for a tsconfig.json in the workflow file's directory
+ * (e.g. `.atomic/workflows/tsconfig.json`) and runs `bunx tsc --noEmit`.
+ * Returns diagnostic output on failure, or null on success/skip.
+ */
+async function typecheckWorkflowFile(filePath: string): Promise<string | null> {
+  const dir = dirname(filePath);
+  const tsconfigPath = join(dir, "tsconfig.json");
+
+  if (!existsSync(tsconfigPath)) {
+    return null; // No tsconfig — skip type checking
+  }
+
+  const result = Bun.spawnSync(["bunx", "tsc", "--noEmit", "--project", tsconfigPath], {
+    cwd: dir,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  if (result.exitCode !== 0) {
+    const stderr = result.stderr.toString().trim();
+    const stdout = result.stdout.toString().trim();
+    return stderr || stdout || "TypeScript type checking failed";
+  }
+
+  return null;
+}
 
 /**
  * Entry point for `atomic workflow verify [path]`.
@@ -37,6 +68,13 @@ async function verifySingleFile(filePath: string): Promise<void> {
   const file = Bun.file(resolved);
   if (!(await file.exists())) {
     console.error(`${COLORS.red}Error: File not found: ${resolved}${COLORS.reset}`);
+    process.exit(1);
+  }
+
+  // Phase 1: TypeScript type checking (if tsconfig.json present)
+  const typecheckError = await typecheckWorkflowFile(resolved);
+  if (typecheckError) {
+    console.error(`${COLORS.red}TypeScript type errors:${COLORS.reset}\n${typecheckError}`);
     process.exit(1);
   }
 

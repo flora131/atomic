@@ -472,7 +472,7 @@ atomic chat -a opencode --theme <light/dark>
 /ralph "Build a REST API for user management"
 
 # Start from a spec file
-/ralph "specs/my-feature.md"
+/ralph "specs/YYYY-MM-DD-my-feature.md"
 ```
 
 ---

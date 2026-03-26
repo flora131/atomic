@@ -121,6 +121,7 @@ export async function executeConductorWorkflow(
 
     const conductorConfig: ConductorConfig = {
       graph: compiled,
+      agentType: context.agentType,
 
       createSession: async (sessionConfig) => {
         return createSession(sessionConfig);
@@ -239,6 +240,12 @@ export async function executeConductorWorkflow(
         context.setStreaming(true);
         context.addMessage("assistant", "");
       },
+
+      // State factory — uses definition.createState when available so that
+      // user-declared globalState defaults are initialized in the conductor state.
+      createState: definition.createState
+        ? (params) => definition.createState!({ ...params, prompt, sessionDir })
+        : undefined,
 
       // TODO: Wire contextPressure config once session.getContextUsage() is available
       // on sessions created via context.createAgentSession

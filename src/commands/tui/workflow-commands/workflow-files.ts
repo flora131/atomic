@@ -1,17 +1,13 @@
 import { existsSync, readdirSync, unlinkSync, mkdirSync, rmdirSync } from "node:fs";
 import { join, dirname } from "path";
 import { homedir } from "os";
-import type { BaseState, CompiledGraph } from "@/services/workflows/graph/types.ts";
 import { VERSION } from "@/version.ts";
 import { getRalphWorkflowDefinition } from "@/services/workflows/builtin/ralph/ralph-workflow.ts";
 import { compileWorkflow } from "@/services/workflows/dsl/compiler.ts";
 import type { WorkflowBuilder } from "@/services/workflows/dsl/define-workflow.ts";
 import type {
   WorkflowDefinition,
-  WorkflowGraphConfig,
   WorkflowMetadata,
-  WorkflowStateMigrator,
-  WorkflowStateParams,
 } from "./types.ts";
 
 // ============================================================================
@@ -313,10 +309,8 @@ export async function loadWorkflowsFromDisk(): Promise<WorkflowDefinition[]> {
   for (const { path, source } of discovered) {
     try {
       const module = await importWorkflowModule(path);
-      const filename =
-        path.split("/").pop()?.replace(".ts", "") ?? "unknown";
 
-      // -- New DSL path: detect __compiledWorkflow brand --
+      // Detect __compiledWorkflow brand from the SDK
       const compiledDefinition = extractWorkflowDefinition(module);
       if (compiledDefinition) {
         const name = compiledDefinition.name;
@@ -359,98 +353,10 @@ export async function loadWorkflowsFromDisk(): Promise<WorkflowDefinition[]> {
         continue;
       }
 
-      // -- Legacy path: extract raw module properties --
-      const mod = module as Record<string, any>;
-      const name = mod.name ?? filename;
-
-      if (loadedNames.has(name.toLowerCase())) {
-        continue;
-      }
-
-      const migrateState =
-        typeof mod.migrateState === "function"
-          ? (mod.migrateState as WorkflowStateMigrator)
-          : undefined;
-
-      const graphConfig = mod.graphConfig as WorkflowGraphConfig | undefined;
-      const createGraph = typeof mod.createGraph === "function"
-        ? (mod.createGraph as () => CompiledGraph<BaseState>)
-        : undefined;
-      const createState = mod.createState as ((params: WorkflowStateParams) => BaseState) | undefined;
-      const nodeDescriptions = mod.nodeDescriptions as Record<string, string> | undefined;
-      const runtime = mod.runtime as WorkflowDefinition["runtime"] | undefined;
-
-      if (graphConfig) {
-        const nodeIds = new Set(graphConfig.nodes.map((n) => n.id));
-
-        if (!nodeIds.has(graphConfig.startNode)) {
-          console.warn(`[workflow:${name}] startNode "${graphConfig.startNode}" not found in nodes`);
-        }
-
-        for (const edge of graphConfig.edges) {
-          if (!nodeIds.has(edge.from)) {
-            console.warn(`[workflow:${name}] edge from "${edge.from}" references unknown node`);
-          }
-          if (!nodeIds.has(edge.to)) {
-            console.warn(`[workflow:${name}] edge to "${edge.to}" references unknown node`);
-          }
-        }
-
-        const nodesWithEdges = new Set<string>();
-        for (const edge of graphConfig.edges) {
-          nodesWithEdges.add(edge.from);
-          nodesWithEdges.add(edge.to);
-        }
-
-        for (const node of graphConfig.nodes) {
-          if (node.id !== graphConfig.startNode && !nodesWithEdges.has(node.id)) {
-            console.warn(`[workflow:${name}] node "${node.id}" is orphaned (no edges to/from it)`);
-          }
-        }
-      }
-
-      const definition: WorkflowDefinition = {
-        name,
-        description: mod.description ?? `Custom workflow: ${name}`,
-        aliases: mod.aliases,
-        defaultConfig: mod.defaultConfig,
-        version: mod.version,
-        minSDKVersion: mod.minSDKVersion,
-        stateVersion: mod.stateVersion,
-        migrateState,
-        source,
-        graphConfig,
-        createGraph,
-        createState,
-        nodeDescriptions,
-        runtime,
-      };
-
-      if (typeof definition.minSDKVersion === "string") {
-        if (!parseSemver(definition.minSDKVersion)) {
-          console.warn(
-            `Workflow "${definition.name}" has invalid minSDKVersion "${definition.minSDKVersion}". Expected semver format like "1.2.3".`,
-          );
-        } else if (
-          isWorkflowMinSdkNewerThanCurrent(
-            definition.minSDKVersion,
-            VERSION,
-          )
-        ) {
-          console.warn(
-            `Workflow "${definition.name}" requires SDK ${definition.minSDKVersion}, but current SDK is ${VERSION}.`,
-          );
-        }
-      }
-
-      loaded.push(definition);
-      loadedNames.add(name.toLowerCase());
-
-      if (definition.aliases) {
-        for (const alias of definition.aliases) {
-          loadedNames.add(alias.toLowerCase());
-        }
-      }
+      throw new Error(
+        `Workflow "${path}" does not export a compiled workflow (missing __compiledWorkflow brand). ` +
+        `Use defineWorkflow() from @bastani/atomic-workflows and call .compile().`,
+      );
     } catch (error) {
       const workflowId = path.split("/").pop()?.replace(".ts", "") ?? path;
       startupWarnings.push(workflowId);

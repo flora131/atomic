@@ -15,7 +15,7 @@ last_updated_by: Copilot
 
 ## Research Question
 
-Review the correctness of the current `src/events/` implementation against the spec `specs/streaming-architecture-event-bus-migration.md`, identify missing logic and errors, and reference OpenCode's event-bus patterns for design validation.
+Review the correctness of the current `src/events/` implementation against the spec `specs/2026-03-02-streaming-architecture-event-bus-migration.md`, identify missing logic and errors, and reference OpenCode's event-bus patterns for design validation.
 
 ## Summary
 
@@ -380,7 +380,7 @@ React component state update
 
 ## Related Research
 
-- `specs/streaming-architecture-event-bus-migration.md` — Source spec (908 lines)
+- `specs/2026-03-02-streaming-architecture-event-bus-migration.md` — Source spec (908 lines)
 - `research/docs/2026-02-26-opencode-event-bus-patterns.md` — OpenCode patterns reference
 
 ---

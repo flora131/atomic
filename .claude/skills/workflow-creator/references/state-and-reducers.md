@@ -95,3 +95,5 @@ These declarations are contracts used for verification:
 ```
 
 The verifier checks that every `reads` field has a preceding `outputs` declaration on all execution paths.
+
+> **Auto-inference:** When `reads` or `outputs` are omitted, the compiler can automatically infer them — it uses Proxy-based state tracking to detect which fields your `prompt`, `execute`, or `question` functions access, and inspects `outputMapper`/`onAnswer` return keys. Explicit declarations are still recommended for clarity and to catch data-flow errors early via the verifier.

@@ -74,6 +74,8 @@ coveragePathIgnorePatterns = [
   "src/services/workflows/runtime/executor/**",
   "src/services/workflows/conductor/**",
   "src/services/workflows/builtin/ralph/ralph-workflow.ts",
+  # Workflow verification (wraps TypeScript compiler API — defensive branches untestable without fragile mocks)
+  "src/services/workflows/verification/type-checking.ts",
   # System utilities (I/O-heavy)
   "src/services/system/file-lock.ts",
   "src/lib/spawn.ts",

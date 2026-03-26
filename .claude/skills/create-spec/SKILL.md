@@ -97,7 +97,27 @@ The `must_preserve` section is critical for modification specs. Without it, an e
 - **From research**: Known edge cases, regression bugs, and behavioral invariants
 - **From the decision trail**: When a spec chose approach A over B and research explains why, that reasoning is a constraint
 
-### 0d. Carry Formalized Intent into the Spec
+### 0d. Recognize and Resolve Agent Confusion
+
+During spec writing, you may encounter your own uncertainty — especially when the design space is large or the codebase reveals unexpected complexity. This is a signal to stop writing and re-engage the intent-formalization framework, not to power through with hedged language.
+
+**Watch for these signals in your own reasoning:**
+
+- **Direction changes mid-spec**: You start drafting an architecture in § 4 (Proposed Solution), then pivot to a different approach mid-section without explicitly resolving why the first was wrong. This means you haven't formalized the design decision — you're exploring in prose, which produces an ambiguous spec.
+- **Hedging language in spec content**: You write "might", "probably", "perhaps", "it depends", or "this could also be done via..." These are unresolved decision points masquerading as spec content. Every hedge is a missing intent-formalization step.
+- **Scope creep beyond formalized boundaries**: You keep expanding what the spec covers beyond the `in_bounds` / `out_of_bounds` established in Step 0c. This often means the original scope was wrong, not that you should silently expand it.
+- **Conflicting sections**: You describe an approach in § 4 that contradicts constraints in § 7, or goals in § 3 that conflict with the behavioral delta from the formalized intent. Internal contradictions mean the intent wasn't fully resolved.
+
+**When you detect any of these, STOP writing spec content and:**
+
+1. **Name the confusion.** Articulate the specific design question or tradeoff you're uncertain about. "I'm unsure whether the caching layer should be per-request or shared" is actionable; "I'm not sure about the design" is not.
+2. **Re-consult the formalized intent.** Does the schema from Step 0c already answer this? If the `Approach` or `Constraints` fields address it, align with them. If not, the formalized intent was incomplete.
+3. **Escalate to the user using contrastive clarification (Rung 3).** Present 2-3 concrete design options with tradeoffs — never ask "what do you think?" or "how should I handle this?"
+4. **Update the formalized intent schema** with the user's answer before resuming spec writing. The schema is a living document during Phase 0, not a one-time artifact.
+
+Specs that contain unresolved agent confusion propagate that confusion to every engineer who implements from them. A spec with one clearly resolved decision point is worth more than a spec with five hedged recommendations.
+
+### 0e. Carry Formalized Intent into the Spec
 
 The formalized intent directly maps to spec sections — this mapping ensures every section traces back to a validated design decision rather than an assumption:
 

@@ -267,6 +267,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
         reasoningEffort: resolvedReasoningEffort,
         mcpServers,
         systemPrompt: resolvedSystemInstructions,
+        excludedTools: ["report_intent"],
       },
       theme: await getTheme(theme),
       version: VERSION,

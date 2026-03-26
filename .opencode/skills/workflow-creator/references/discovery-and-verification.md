@@ -31,6 +31,7 @@ All workflows are verified at load time for structural correctness:
 4. **Loop bounds** — all loops have bounded iterations
 5. **State data-flow** — all reads have preceding writes on all paths
 6. **Model validation** — models and reasoning efforts declared in `sessionConfig` are valid for each agent type
+7. **Type checking** — workflow source files are free of TypeScript type errors (invalid fields, wrong function signatures, missing required properties, incorrect `sessionConfig` shapes)
 
 ### Running the verifier
 
@@ -59,6 +60,7 @@ Workflow "my-workflow" passed all verification checks
   PASS  Loop Bounds
   PASS  State Data-Flow
   PASS  Model Validation
+  PASS  Type Checking
 
 All workflows passed verification.
 ```
@@ -73,6 +75,8 @@ Workflow "broken-workflow" failed verification
   FAIL  Deadlock-Freedom: Node(s) "brancher" may deadlock
   PASS  Loop Bounds
   PASS  State Data-Flow
+  PASS  Model Validation
+  FAIL  Type Checking: my-workflow.ts:12:5 - error TS2353: Object literal may only specify known properties, and 'reads' does not exist in type 'StageOptions'
 ```
 
 Workflows that fail verification at startup are rejected with a warning:

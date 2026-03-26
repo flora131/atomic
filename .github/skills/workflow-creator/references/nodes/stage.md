@@ -14,8 +14,6 @@ Every stage requires a `name` identity field and an optional `agent` field:
   name: "plan",                  // Unique stage key (used in ctx.stageOutputs)
   agent: "planner",              // Agent definition to invoke (null = use SDK defaults)
   description: "PLANNER",
-  reads: ["previousData"],       // State fields this stage depends on
-  outputs: ["tasks"],            // State fields this stage produces
   prompt: (ctx) => `Plan: ${ctx.userPrompt}`,
   outputMapper: (response) => ({ tasks: parseTasks(response) }),
   sessionConfig: { model: "claude-sonnet-4-5-20250514" },  // Optional overrides
@@ -57,5 +55,3 @@ Downstream stages access prior outputs via `ctx.stageOutputs.get("<name>")` — 
 | `outputMapper`   | `(response: string) => Record<string, unknown>` | yes     | Extracts structured data from the raw response                  |
 | `sessionConfig`  | `Partial<SessionConfig>`                       | no       | Per-stage session overrides (see `session-config.md`)           |
 | `maxOutputBytes` | `number`                                       | no       | Max byte size for raw response forwarded to downstream stages   |
-| `reads`          | `string[]`                                     | no       | State fields this stage depends on                              |
-| `outputs`        | `string[]`                                     | no       | State fields this stage produces                                |

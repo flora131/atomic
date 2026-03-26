@@ -65,35 +65,30 @@ Both `globalState` and `loopState` fields are merged into a single state schema 
 
 Custom functions also work: `reducer: (current, update) => ...`.
 
-## Data flow declarations
+## Data flow (auto-inferred)
 
-Each node declares which state fields it **reads** and which it **outputs**:
+The compiler automatically infers which state fields each node **reads** and which it **produces** — you do not declare these manually. It works by inspecting your functions:
 
-- `reads` — State fields this node depends on
-- `outputs` — State fields this node produces
-
-These declarations are contracts used for verification:
+- **Reads** — For stages, the compiler uses Proxy-based state tracking to detect which `state.*` fields your `prompt` function accesses. For tools, it uses TypeScript AST analysis to statically determine which `ctx.state.*` fields your `execute` function reads (without running it, to avoid side effects). For ask-user nodes, it inspects the `question` function.
+- **Outputs** — The compiler inspects the return keys of your `outputMapper` (or `execute` for tools) to determine which state fields each node produces.
 
 ```ts
 .stage({
   name: "plan",
   agent: "planner",
   description: "PLANNER",
-  outputs: ["tasks"],                    // Produces tasks
   prompt: (ctx) => `Plan: ${ctx.userPrompt}`,
   outputMapper: (response) => ({ tasks: parseTasks(response) }),
+  // ↑ compiler infers: outputs ["tasks"]
 })
 .stage({
   name: "execute",
   agent: "executor",
   description: "EXECUTOR",
-  reads: ["tasks"],                      // Reads tasks from plan stage
-  outputs: ["progress"],                 // Produces progress
   prompt: (ctx) => `Execute: ${JSON.stringify(ctx.stageOutputs.get("plan")?.parsedOutput)}`,
   outputMapper: (response) => ({ progress: parseProgress(response) }),
+  // ↑ compiler infers: outputs ["progress"]
 })
 ```
 
-The verifier checks that every `reads` field has a preceding `outputs` declaration on all execution paths.
-
-> **Auto-inference:** When `reads` or `outputs` are omitted, the compiler can automatically infer them — it uses Proxy-based state tracking to detect which fields your `prompt`, `execute`, or `question` functions access, and inspects `outputMapper`/`onAnswer` return keys. Explicit declarations are still recommended for clarity and to catch data-flow errors early via the verifier.
+The verifier uses these inferred declarations to check that every field a node reads has a preceding write on all execution paths. If the verifier reports a state data-flow error, check that upstream stages actually return the field in their `outputMapper`.

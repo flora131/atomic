@@ -18,8 +18,7 @@ Reuses the existing HITL UI (`UserQuestionDialog`) and event pipeline.
       { label: "No", description: "Cancel deployment" },
     ],
   },
-  onAnswer: (answer) => ({ deployConfirmed: answer === "Yes" }),
-  outputs: ["deployConfirmed"],
+  outputMapper: (answer) => ({ deployConfirmed: answer === "Yes" }),
 })
 ```
 
@@ -39,7 +38,7 @@ The `question` field accepts either a static config object or a function that bu
       { label: "Aggressive", description: "Full refactor" },
     ],
   },
-  onAnswer: (answer) => ({ strategy: answer }),
+  outputMapper: (answer) => ({ strategy: answer }),
 })
 ```
 
@@ -48,7 +47,6 @@ The `question` field accepts either a static config object or a function that bu
 ```ts
 .askUserQuestion({
   name: "review-tasks",
-  reads: ["tasks"],
   question: (state) => ({
     question: `Found ${state.tasks.length} tasks. Proceed with implementation?`,
     header: "Task Review",
@@ -57,14 +55,13 @@ The `question` field accepts either a static config object or a function that bu
       { label: "Revise", description: "Go back and re-plan" },
     ],
   }),
-  onAnswer: (answer) => ({ userApproved: answer === "Proceed" }),
-  outputs: ["userApproved"],
+  outputMapper: (answer) => ({ userApproved: answer === "Proceed" }),
 })
 ```
 
 ## Multi-select
 
-Set `multiSelect: true` to show checkboxes. The answer passed to `onAnswer` becomes a `string[]`:
+Set `multiSelect: true` to show checkboxes. The answer passed to `outputMapper` becomes a `string[]`:
 
 ```ts
 .askUserQuestion({
@@ -79,8 +76,7 @@ Set `multiSelect: true` to show checkboxes. The answer passed to `onAnswer` beco
     ],
     multiSelect: true,
   },
-  onAnswer: (answers) => ({ selectedFixes: answers }),
-  outputs: ["selectedFixes"],
+  outputMapper: (answers) => ({ selectedFixes: answers }),
 })
 ```
 
@@ -95,8 +91,7 @@ Omit `options` to present a free-text input field instead of predefined choices:
     question: "Any additional instructions for the implementation?",
     header: "User Feedback",
   },
-  onAnswer: (answer) => ({ userFeedback: answer }),
-  outputs: ["userFeedback"],
+  outputMapper: (answer) => ({ userFeedback: answer }),
 })
 ```
 
@@ -114,8 +109,7 @@ Combine with `.if()` to route execution based on the user's response:
       { label: "Reject" },
     ],
   },
-  onAnswer: (answer) => ({ planApproved: answer === "Approve" }),
-  outputs: ["planApproved"],
+  outputMapper: (answer) => ({ planApproved: answer === "Approve" }),
 })
 .if((ctx) => ctx.state.planApproved === true)
   .stage({ name: "implement", agent: "implementer", ... })
@@ -124,22 +118,20 @@ Combine with `.if()` to route execution based on the user's response:
 .endIf()
 ```
 
-## `onAnswer` behavior
+## `outputMapper` behavior
 
-When `onAnswer` is provided, the node blocks execution until the user responds. The returned record is merged into workflow state.
+When `outputMapper` is provided, the node blocks execution until the user responds. The returned record is merged into workflow state.
 
-When `onAnswer` is omitted, the raw answer is stored in `state.outputs[nodeId]` and the workflow continues after the user responds.
+When `outputMapper` is omitted, the raw answer is stored in `state.outputs[nodeId]` and the workflow continues after the user responds.
 
 ## `AskUserQuestionOptions` reference
 
-| Field         | Type                                                                     | Required | Description                                                        |
-| ------------- | ------------------------------------------------------------------------ | -------- | ------------------------------------------------------------------ |
-| `name`        | `string`                                                                 | yes      | Unique node identifier (also used in logging)                      |
-| `question`    | `AskUserQuestionConfig \| (state: BaseState) => AskUserQuestionConfig`   | yes      | Static config or state-dependent factory for the question dialog   |
-| `description` | `string`                                                                 | no       | Description of what this question node does                        |
-| `onAnswer`    | `(answer: string \| string[]) => Record<string, unknown>`                | no       | Maps the user's answer into state updates                          |
-| `reads`       | `string[]`                                                               | no       | State fields this node depends on                                  |
-| `outputs`     | `string[]`                                                               | no       | State fields this node produces                                    |
+| Field          | Type                                                                     | Required | Description                                                        |
+| -------------- | ------------------------------------------------------------------------ | -------- | ------------------------------------------------------------------ |
+| `name`         | `string`                                                                 | yes      | Unique node identifier (also used in logging)                      |
+| `question`     | `AskUserQuestionConfig \| (state: BaseState) => AskUserQuestionConfig`   | yes      | Static config or state-dependent factory for the question dialog   |
+| `description`  | `string`                                                                 | no       | Description of what this question node does                        |
+| `outputMapper` | `(answer: string \| string[]) => Record<string, unknown>`                | no       | Maps the user's answer into state updates                          |
 
 ## `AskUserQuestionConfig` reference
 

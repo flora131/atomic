@@ -17,6 +17,8 @@ import {
 export interface DiscoveredWorkflow {
   id: string;
   definition: WorkflowDefinition;
+  /** Absolute path to the source .ts file (custom workflows only). */
+  sourcePath?: string;
 }
 
 /**
@@ -79,7 +81,7 @@ export async function discoverCustomWorkflows(): Promise<DiscoveredWorkflow[]> {
           ) {
             // CompiledWorkflow spreads definition properties directly
             const def = exported as WorkflowDefinition;
-            workflows.push({ id: def.name, definition: def });
+            workflows.push({ id: def.name, definition: def, sourcePath: file });
           }
         } catch {
           // Skip files that cannot be imported as workflow modules
@@ -133,6 +135,7 @@ export async function verifySingleWorkflow(
   const result = await verifier(graph, {
     encodedGraph: encoded,
     conductorStages: definition.conductorStages,
+    sourcePaths: workflow.sourcePath ? [workflow.sourcePath] : undefined,
   });
   const report = formatVerificationReport(id, result) + agentWarningText;
 

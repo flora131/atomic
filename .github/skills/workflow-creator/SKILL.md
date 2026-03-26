@@ -14,7 +14,7 @@ Read the reference files in `references/` for the full DSL API. Start with `gett
 - `getting-started.md` — Quick-start example and reference file index
 - `nodes/stage.md` — `.stage()` API, `name` vs `agent`, null agent behavior, `StageOptions` reference
 - `nodes/tool.md` — `.tool()` API, common use cases, `ToolOptions` reference
-- `nodes/ask-user-question.md` — `.askUserQuestion()` API, static/dynamic questions, multi-select, `onAnswer` mapping
+- `nodes/ask-user-question.md` — `.askUserQuestion()` API, static/dynamic questions, multi-select, `outputMapper` mapping
 - `control-flow.md` — Conditionals (`.if()` / `.endIf()`) and bounded loops (`.loop()` / `.break()`)
 - `state-and-reducers.md` — `globalState`, `loopState`, reducers, data flow declarations
 - `session-config.md` — Per-stage session overrides, system prompt resolution order
@@ -40,7 +40,7 @@ Ask the user what they want to automate. Use these questions to map their intent
 | Does any step need deterministic computation (no LLM)? | → `.tool()` |
 | Do any steps need to repeat? | → `.loop()` / `.break()` / `.endLoop()` |
 | Are there conditional paths? | → `.if()` / `.elseIf()` / `.else()` / `.endIf()` |
-| What data flows between steps? | → `reads` and `outputs` declarations |
+| What data flows between steps? | → `outputMapper` return keys (auto-inferred) |
 | Does the workflow need user input? | → `.askUserQuestion()` |
 | Do any steps need a specific model? | → `sessionConfig` with per-agent-type model |
 
@@ -52,7 +52,7 @@ Map the user's intent to a sequence of stages. Each stage needs:
 - **`agent`** *(optional)* — which agent definition to invoke. When `null` or omitted, the stage uses the SDK's default session instructions. Multiple stages can share the same agent.
 - **`description`** — short label for logging (use emoji prefixes for visual clarity: ⌕ 🔍 ⚡ 🔧 📋 ✨)
 - **`prompt`** — function receiving `StageContext` that builds the prompt text
-- **`outputMapper`** — function that extracts structured data from the raw response
+- **`outputMapper`** — function that extracts structured data from the raw response. The keys returned here automatically become the state fields this stage produces (auto-inferred by the compiler).
 
 Think of `name` as the database key and `agent` as the worker type. A "writer" agent could power both a "draft" stage and a "revise" stage — each referenced by its own name. Omit `agent` when you want the raw SDK behavior without a custom system prompt.
 
@@ -79,7 +79,6 @@ export default defineWorkflow({
     name: "<unique-stage-name>",
     agent: "<agent-definition>",
     description: "<STAGE LABEL>",
-    outputs: ["<field-names-this-stage-produces>"],
     prompt: (ctx) => `Your prompt using ${ctx.userPrompt}`,
     outputMapper: (response) => ({ /* structured output */ }),
   })
@@ -88,13 +87,45 @@ export default defineWorkflow({
 
 ### 4. Verify the Workflow
 
-After writing, always run verification:
+After writing, always verify the workflow in two ways:
+
+#### Type-check with TypeScript
+
+The workflow SDK (`@bastani/atomic-workflows`) ships full TypeScript types. The `.atomic/workflows/` directory includes a `tsconfig.json` pre-configured for type checking. Run the TypeScript compiler to catch incorrect arguments, missing required fields, wrong function signatures, and type mismatches **before** runtime:
+
+```bash
+cd .atomic/workflows && npx tsc --noEmit
+```
+
+Common errors this catches:
+- Passing unknown fields to `StageOptions`, `ToolOptions`, or `AskUserQuestionOptions` (e.g., a misspelled `promt` instead of `prompt`)
+- Wrong function signature for `prompt`, `outputMapper`, or `execute` (e.g., returning `string` instead of `Record<string, unknown>`)
+- Using fields that no longer exist on the type definitions (e.g., `reads`, `outputs`, `onAnswer`)
+- Type mismatches in `globalState` defaults vs reducer expectations
+
+If the project uses Bun, you can also use `bunx tsc --noEmit` or `bun check` depending on setup.
+
+#### Structural verification
+
+Then run the workflow verifier to validate the graph structure:
 
 ```bash
 atomic workflow verify .atomic/workflows/<workflow-name>.ts
 ```
 
-This runs 6 structural checks: reachability, termination, deadlock-freedom, loop bounds, state data-flow, and model validation. All 6 must pass.
+This runs 7 verification checks:
+
+1. **Reachability** — all nodes reachable from start
+2. **Termination** — all paths reach an end node
+3. **Deadlock-freedom** — no node can get stuck
+4. **Loop bounds** — all loops have bounded iterations
+5. **State data-flow** — all reads have preceding writes on all paths
+6. **Model validation** — models and reasoning efforts declared in `sessionConfig` exist for each agent type, and reasoning effort levels are valid for the target model
+7. **Type checking** — workflow source files are free of TypeScript type errors (invalid fields, wrong function signatures, missing required properties)
+
+All checks must pass.
+
+> **Important:** `atomic workflow verify` now runs both TypeScript type-checking AND structural graph verification in a single command. TypeScript catches argument and type errors at the API surface level (wrong fields, wrong signatures, removed APIs), the model validator catches invalid model/reasoning configurations against your environment's available models, and the graph verifier catches structural errors (unreachable nodes, deadlocks, missing state writes) that types alone cannot express.
 
 ## Key Patterns
 
@@ -151,7 +182,6 @@ Use `.tool()` for validation, data transforms, or I/O that doesn't need an LLM:
 ```ts
 .tool({
   name: "validate",
-  outputs: ["isValid"],
   execute: async (ctx) => ({
     isValid: ctx.state.tasks.every((t) => t.id && t.description),
   }),
@@ -172,8 +202,7 @@ Use `.askUserQuestion()` to pause the workflow and collect user input:
       { label: "Reject" },
     ],
   },
-  onAnswer: (answer) => ({ planApproved: answer === "Approve" }),
-  outputs: ["planApproved"],
+  outputMapper: (answer) => ({ planApproved: answer === "Approve" }),
 })
 .if((ctx) => ctx.state.planApproved === true)
   .stage({ name: "implement", agent: "implementer", ... })
@@ -241,7 +270,7 @@ These rules are enforced by the builder and compiler. Violating them causes buil
 
 6. **`export default` required** — workflow files must use `export default` so the discovery system can load them.
 
-7. **Forward-only data flow** — `ctx.stageOutputs.get("<name>")` only has data from stages that have already executed. The data-flow verifier catches undeclared reads.
+7. **Forward-only data flow** — `ctx.stageOutputs.get("<name>")` only has data from stages that have already executed. The compiler auto-infers which state fields each node reads and produces (from `prompt`, `outputMapper`, and `execute` function bodies), and the data-flow verifier validates that every read has a preceding write on all execution paths.
 
 ## Reference
 

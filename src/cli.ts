@@ -102,7 +102,7 @@ export function createProgram() {
         )
         .option(
             "--additional-instructions <text>",
-            "Append additional instructions to the default chat system prompt",
+            "Append extra instructions to the enhanced system prompt",
         )
         .argument(
             "[prompt...]",

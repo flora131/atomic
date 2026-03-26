@@ -66,6 +66,10 @@ ALWAYS complement semantic search with grep/glob for exact matches, and use as p
 - Treat date-prefixed filenames (`YYYY-MM-DD-*`) as the primary ordering signal.
 - If files are not date-prefixed, use filesystem modified time as a fallback.
 - Prioritize the most recent documents in `research/docs/`, `research/tickets/`, `research/notes/`, and `specs/` when gathering context.
+- **Recency-weighted context gathering**: When using specs or research for background context, apply the following heuristic based on the `YYYY-MM-DD` date prefix:
+  - **≤ 30 days old** — Read fully for relevant context.
+  - **31–90 days old** — Skim for key decisions if topic-relevant.
+  - **> 90 days old** — Skip unless directly referenced by newer docs or no newer alternative exists.
 
 ### Step 1: Read Entry Points
 

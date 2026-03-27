@@ -381,9 +381,9 @@ export interface WorkflowOptions<
  * This is a discriminated union on the `type` field.
  */
 export type Instruction =
-  | { readonly type: "stage"; readonly id: string; readonly config: StageOptions<any> }
-  | { readonly type: "tool"; readonly id: string; readonly config: ToolOptions<any> }
-  | { readonly type: "askUserQuestion"; readonly id: string; readonly config: AskUserQuestionOptions<any> }
+  | { readonly type: "stage"; readonly id: string; readonly config: StageOptions<BaseState> }
+  | { readonly type: "tool"; readonly id: string; readonly config: ToolOptions<BaseState> }
+  | { readonly type: "askUserQuestion"; readonly id: string; readonly config: AskUserQuestionOptions<BaseState> }
   | { readonly type: "if"; readonly condition: (ctx: StageContext) => boolean }
   | { readonly type: "elseIf"; readonly condition: (ctx: StageContext) => boolean }
   | { readonly type: "else" }
@@ -460,7 +460,7 @@ export interface WorkflowBuilderInterface {
    * @param options - Stage configuration (name, agent, prompt, output mapper, etc.).
    * @throws Error if `options.name` duplicates an existing stage name.
    */
-  stage(options: StageOptions<any>): this;
+  stage(options: StageOptions<BaseState>): this;
 
   /**
    * Add a deterministic tool node to the workflow.
@@ -468,7 +468,7 @@ export interface WorkflowBuilderInterface {
    * @param options - Tool configuration (name, execute function, etc.).
    * @throws Error if `options.name` duplicates an existing node name.
    */
-  tool(options: ToolOptions<any>): this;
+  tool(options: ToolOptions<BaseState>): this;
 
   /**
    * Add a human-in-the-loop question node to the workflow.
@@ -478,7 +478,7 @@ export interface WorkflowBuilderInterface {
    * @param options - Question configuration (name, question, options, outputMapper, etc.).
    * @throws Error if `options.name` duplicates an existing node name.
    */
-  askUserQuestion(options: AskUserQuestionOptions<any>): this;
+  askUserQuestion(options: AskUserQuestionOptions<BaseState>): this;
 
   // -- Conditional branching ------------------------------------------------
 

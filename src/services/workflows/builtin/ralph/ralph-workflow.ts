@@ -64,15 +64,16 @@ const _ralphWorkflowBuilder = defineWorkflow({
       }
       const plannerOutput = ctx.stageOutputs.get("planner");
       if (plannerOutput?.parsedOutput) {
-        return buildOrchestratorPrompt(
-          plannerOutput.parsedOutput as Array<{
-            id?: string;
-            description: string;
-            status: string;
-            summary: string;
-            blockedBy?: string[];
-          }>,
-        );
+        const tasks = plannerOutput.parsedOutput.tasks as Array<{
+          id?: string;
+          description: string;
+          status: string;
+          summary: string;
+          blockedBy?: string[];
+        }>;
+        if (Array.isArray(tasks) && tasks.length > 0) {
+          return buildOrchestratorPrompt(tasks);
+        }
       }
       if (plannerOutput?.rawResponse) {
         const tasks = parseTasks(plannerOutput.rawResponse);

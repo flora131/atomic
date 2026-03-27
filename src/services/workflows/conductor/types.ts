@@ -190,8 +190,12 @@ export interface StageOutput {
   /**
    * Structured data extracted by the stage's `parseOutput` function.
    * `undefined` when the stage has no parser or parsing failed.
+   *
+   * The type matches `outputMapper`'s return signature
+   * (`Record<string, unknown>`) so downstream stages can access
+   * properties without casting.
    */
-  readonly parsedOutput?: unknown;
+  readonly parsedOutput?: Record<string, unknown>;
 
   /** How the stage terminated. */
   readonly status: StageOutputStatus;
@@ -309,7 +313,7 @@ export interface StageDefinition {
    *
    * When omitted, `parsedOutput` is left `undefined`.
    */
-  readonly parseOutput?: (response: string) => unknown;
+  readonly parseOutput?: (response: string) => Record<string, unknown>;
 
   /**
    * Determines whether this stage should execute.

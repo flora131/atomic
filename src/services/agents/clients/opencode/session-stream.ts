@@ -13,14 +13,11 @@ import {
 	isContextOverflowError,
 	type OpenCodeSessionState,
 } from "@/services/agents/clients/opencode/shared.ts";
+import {
+	STREAM_STALE_TIMEOUT_MS,
+	StaleStreamError,
+} from "@/services/agents/clients/send-timeout.ts";
 import type { AgentMessage } from "@/services/agents/types.ts";
-
-/**
- * If no stream events arrive for this many ms after the prompt is dispatched,
- * the session is considered stale and the stream throws.  90 s accommodates
- * reasoning models that may pause before responding.
- */
-const STREAM_STALE_TIMEOUT_MS = 90_000;
 
 export function createOpenCodeSessionStream(args: {
 	runtimeArgs: OpenCodeSessionRuntimeArgs;
@@ -118,9 +115,7 @@ export function createOpenCodeSessionStream(args: {
 				clearStaleTimer();
 				staleTimer = setTimeout(() => {
 					controller.setStreamError(
-						new Error(
-							`OpenCode stream timed out: no events received for ${Math.round(STREAM_STALE_TIMEOUT_MS / 1000)}s`,
-						),
+						new StaleStreamError(STREAM_STALE_TIMEOUT_MS),
 					);
 					controller.markStreamDone();
 				}, STREAM_STALE_TIMEOUT_MS);

@@ -252,7 +252,7 @@ describe("CopilotClient abort support", () => {
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
     abortController.abort();
 
-    await expect(consumption).rejects.toMatchObject({ name: "AbortError" });
+    await expect(consumption).rejects.toThrow("The operation was aborted");
   });
 });
 

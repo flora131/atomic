@@ -5,12 +5,12 @@
     "": {
       "name": "atomic-workflows",
       "dependencies": {
-        "@bastani/atomic-workflows": "0.4.29-0",
+        "@bastani/atomic-workflows": "0.4.32",
       },
     },
   },
   "packages": {
-    "@bastani/atomic-workflows": ["@bastani/atomic-workflows@0.4.29-0", "", { "dependencies": { "zod": "^4.3.6" } }, "sha512-XS1Bu9JDVLjIXs5DQlbBWdii6rhzYKvp7p3dwVByA9L0TXB41H4Xte/SHuozb9NMTbFNh31sFAhRJd41K6A4vQ=="],
+    "@bastani/atomic-workflows": ["@bastani/atomic-workflows@0.4.32", "", { "dependencies": { "zod": "^4.3.6" } }, "sha512-syywMjmcRDqrqIWHYSOotlvEt06msHS3Qcynap5Z3Gp/kd4Fb2Q3JUEvOykC+u4Bm3bSj1hKAWvoC6Zqej+k/g=="],
 
     "zod": ["zod@4.3.6", "", {}, "sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg=="],
   }

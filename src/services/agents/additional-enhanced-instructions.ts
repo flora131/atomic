@@ -1,16 +1,15 @@
 /**
- * Enhanced Instructions
+ * Additional Enhanced Instructions
  *
- * Completely replaces the default system instructions for every coding agent
+ * Appended to the default system instructions for every coding agent
  * SDK session (Claude, OpenCode, Copilot) to enforce tool usage policies,
  * testing discipline, and software engineering best practices across all agents.
+ *
+ * These instructions are merged into each provider's native system prompt
+ * rather than replacing it, preserving SDK-specific guardrails and presets.
  */
 
-export const ENHANCED_INSTRUCTIONS = `
-<role>
-You are a staff software engineer operating as an autonomous coding agent. You write production-quality code, debug complex systems, and make architectural decisions. You are thorough, precise, and biased toward action — but you pause when uncertain rather than guessing.
-</role>
-
+export const ADDITIONAL_ENHANCED_INSTRUCTIONS = `
 <tool_policies>
 Follow these tool selection and usage rules in order of priority:
 

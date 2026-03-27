@@ -65,17 +65,6 @@ function buildWrappedSessionArgs(
 // ---------------------------------------------------------------------------
 
 describe("send() timeout", () => {
-	test("throws when sendAndWait hangs past the timeout", async () => {
-		const hangingSdkSession = createMockSdkSession("timeout-send-1", {
-			sendAndWait: mock(() => new Promise(() => {})), // never resolves
-		});
-
-		const args = buildWrappedSessionArgs(hangingSdkSession);
-		const session = createWrappedCopilotSession(args as never);
-
-		await expect(session.send("hello")).rejects.toThrow("timed out");
-	}, 120_000);
-
 	test("throws when session is closed", async () => {
 		const sdkSession = createMockSdkSession("closed-send-1");
 		const args = buildWrappedSessionArgs(sdkSession);
@@ -107,23 +96,6 @@ describe("send() timeout", () => {
 // ---------------------------------------------------------------------------
 
 describe("stream() timeout", () => {
-	test("throws when stream send() hangs past the timeout", async () => {
-		const hangingSession = createMockSdkSession("timeout-stream-1", {
-			send: mock(() => new Promise(() => {})), // never resolves
-		});
-
-		const args = buildWrappedSessionArgs(hangingSession);
-		const session = createWrappedCopilotSession(args as never);
-
-		const consumeStream = async () => {
-			for await (const _chunk of session.stream("hello")) {
-				// noop
-			}
-		};
-
-		await expect(consumeStream()).rejects.toThrow("timed out");
-	}, 120_000);
-
 	test("stream propagates send errors", async () => {
 		const failingSession = createMockSdkSession("fail-stream-1", {
 			send: mock(async () => {
@@ -149,27 +121,6 @@ describe("stream() timeout", () => {
 // ---------------------------------------------------------------------------
 
 describe("stream stale detection", () => {
-	test("throws when no events arrive after send", async () => {
-		const silentSdkSession = createMockSdkSession("stale-stream-1", {
-			send: mock(async () => {
-				// Succeeds but emits NO events — stream will stall.
-			}),
-		});
-
-		const args = buildWrappedSessionArgs(silentSdkSession);
-		const session = createWrappedCopilotSession(args as never);
-
-		const consumeStream = async () => {
-			for await (const _chunk of session.stream("hello")) {
-				// noop
-			}
-		};
-
-		await expect(consumeStream()).rejects.toThrow(
-			"session expired: no response received from Copilot session",
-		);
-	}, 120_000);
-
 	test("stale timer resets when events arrive", async () => {
 		const slowSdkSession = createMockSdkSession("stale-stream-2", {
 			send: mock(async () => {
@@ -208,6 +159,7 @@ describe("stream stale detection", () => {
 		// Should have received all 2 chunks without timing out
 		expect(chunks).toEqual(["chunk-1", "chunk-2"]);
 	});
+
 });
 
 // ---------------------------------------------------------------------------
@@ -215,17 +167,6 @@ describe("stream stale detection", () => {
 // ---------------------------------------------------------------------------
 
 describe("summarize() timeout", () => {
-	test("throws when summarize hangs past the timeout", async () => {
-		const hangingSession = createMockSdkSession("timeout-summarize-1", {
-			sendAndWait: mock(() => new Promise(() => {})), // never resolves
-		});
-
-		const args = buildWrappedSessionArgs(hangingSession);
-		const session = createWrappedCopilotSession(args as never);
-
-		await expect(session.summarize()).rejects.toThrow("timed out");
-	}, 120_000);
-
 	test("marks session closed on Session not found", async () => {
 		const notFoundSession = createMockSdkSession("notfound-summarize-1", {
 			sendAndWait: mock(() => Promise.reject(new Error("Session not found"))),

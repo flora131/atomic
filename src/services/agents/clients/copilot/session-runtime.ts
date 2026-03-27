@@ -10,6 +10,11 @@ import type {
 	ProviderStreamEventDataMap,
 	ProviderStreamEventType,
 } from "@/services/agents/provider-events.ts";
+import {
+	STREAM_STALE_TIMEOUT_MS,
+	StaleStreamError,
+	withSendTimeout,
+} from "@/services/agents/clients/send-timeout.ts";
 import type {
 	AgentMessage,
 	ContextUsage,
@@ -17,54 +22,6 @@ import type {
 	Session,
 	SessionConfig,
 } from "@/services/agents/types.ts";
-
-/**
- * Maximum time (ms) to wait for the SDK `send()` call to dispatch a message
- * to the CLI process. This is a safety net: if the CLI is hung (e.g. due to
- * an expired API token or a stale session), we time out rather than blocking
- * the TUI indefinitely.
- *
- * The 60-second default is generous — `send()` only dispatches the prompt
- * over IPC and returns; the response streams back asynchronously via events.
- */
-const SDK_SEND_TIMEOUT_MS = 60_000;
-
-/**
- * During streaming, if no SDK events arrive for this many ms the session is
- * considered stale and the stream throws so the caller can retry.
- * 90 s accommodates reasoning models that may pause before responding.
- */
-const STREAM_STALE_TIMEOUT_MS = 90_000;
-
-/**
- * Races an SDK operation against a timeout.  When the timeout fires, a
- * "session expired" error is thrown so the existing recovery path in the
- * TUI controller can create a fresh session and retry transparently.
- *
- * The timer is always cleaned up (via `finally`) regardless of outcome.
- */
-function withSendTimeout<T>(
-	operation: Promise<T>,
-	timeoutMs: number = SDK_SEND_TIMEOUT_MS,
-): Promise<T> {
-	let timer: ReturnType<typeof setTimeout> | null = null;
-	return Promise.race([
-		operation,
-		new Promise<T>((_resolve, reject) => {
-			timer = setTimeout(() => {
-				reject(
-					new Error(
-						`session expired: send timed out after ${Math.round(timeoutMs / 1000)}s`,
-					),
-				);
-			}, timeoutMs);
-		}),
-	]).finally(() => {
-		if (timer !== null) {
-			clearTimeout(timer);
-		}
-	});
-}
 
 export function createAbortError(
 	message = "The operation was aborted.",
@@ -474,15 +431,19 @@ export function createWrappedCopilotSession(args: {
 						}
 
 						if (streamTimedOut) {
-							throw new Error(
-								"session expired: no response received from Copilot session " +
-									`for ${Math.round(STREAM_STALE_TIMEOUT_MS / 1000)}s`,
-							);
+							throw new StaleStreamError(STREAM_STALE_TIMEOUT_MS);
 						}
 					} catch (sendError) {
 						if (isSessionNotFoundError(sendError)) {
 							state.isClosed = true;
 							throw createAbortError("Session was closed during send.");
+						}
+						// Preserve StaleStreamError type so adapter-level retry/resume
+						// logic can detect it (via instanceof or isRetryable) and
+						// transparently recover with resumeSession() instead of
+						// escalating a fatal session-expired error.
+						if (sendError instanceof StaleStreamError) {
+							throw sendError;
 						}
 						throw new Error(args.extractErrorMessage(sendError));
 					} finally {

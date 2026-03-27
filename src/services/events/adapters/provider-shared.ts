@@ -100,6 +100,14 @@ export function isSessionExpiredMessage(message: string): boolean {
   return SESSION_EXPIRED_PATTERNS.some((pattern) => lower.includes(pattern));
 }
 
+/**
+ * Error indicating that a session has expired and is no longer valid.
+ *
+ * Thrown by the provider runtime adapters when a stream error message
+ * matches one of the known session-expiry patterns (see
+ * {@link isSessionExpiredMessage}).  The TUI controller catches this error
+ * to transparently create a fresh session and retry the operation.
+ */
 export class SessionExpiredError extends Error {
   override readonly name = "SessionExpiredError";
 

@@ -5,36 +5,8 @@ import {
 	extractOpenCodeErrorMessage,
 	type OpenCodeSessionState,
 } from "@/services/agents/clients/opencode/shared.ts";
+import { withSendTimeout } from "@/services/agents/clients/send-timeout.ts";
 import type { AgentMessage } from "@/services/agents/types.ts";
-
-/**
- * Maximum time (ms) to wait for a synchronous SDK prompt call before
- * treating the server as hung. Prevents the TUI from blocking indefinitely.
- */
-const SEND_TIMEOUT_MS = 60_000;
-
-function withSendTimeout<T>(
-	operation: Promise<T>,
-	timeoutMs: number = SEND_TIMEOUT_MS,
-): Promise<T> {
-	let timer: ReturnType<typeof setTimeout> | null = null;
-	return Promise.race([
-		operation,
-		new Promise<T>((_resolve, reject) => {
-			timer = setTimeout(() => {
-				reject(
-					new Error(
-						`OpenCode send timed out after ${Math.round(timeoutMs / 1000)}s`,
-					),
-				);
-			}, timeoutMs);
-		}),
-	]).finally(() => {
-		if (timer !== null) {
-			clearTimeout(timer);
-		}
-	});
-}
 
 export async function sendOpenCodeSessionPrompt(args: {
 	runtimeArgs: OpenCodeSessionRuntimeArgs;

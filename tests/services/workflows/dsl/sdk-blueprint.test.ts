@@ -55,6 +55,7 @@ describe("SDK blueprint → binary loader round-trip", () => {
     })
       .stage({
         name: "analyzer",
+        agent: null,
         description: "Analyzes",
         prompt: (ctx) => ctx.userPrompt,
         outputMapper: () => ({}),
@@ -62,6 +63,7 @@ describe("SDK blueprint → binary loader round-trip", () => {
       .if((ctx) => ctx.stageOutputs.has("analyzer"))
         .stage({
           name: "executor",
+          agent: null,
           description: "Executes",
           prompt: () => "execute",
           outputMapper: () => ({}),
@@ -69,6 +71,7 @@ describe("SDK blueprint → binary loader round-trip", () => {
       .else()
         .stage({
           name: "fallback",
+          agent: null,
           description: "Fallback",
           prompt: () => "fallback",
           outputMapper: () => ({}),
@@ -95,6 +98,7 @@ describe("SDK blueprint → binary loader round-trip", () => {
       .loop({ maxCycles: 3 })
         .stage({
           name: "worker",
+          agent: null,
           description: "Works",
           prompt: () => "work",
           outputMapper: () => ({}),
@@ -128,6 +132,7 @@ describe("SDK blueprint → binary loader round-trip", () => {
     })
       .stage({
         name: "worker",
+        agent: null,
         description: "Works",
         prompt: () => "work",
         outputMapper: () => ({}),
@@ -156,6 +161,7 @@ describe("SDK blueprint → binary loader round-trip", () => {
     })
       .stage({
         name: "s1",
+        agent: null,
         description: "d",
         prompt: () => "",
         outputMapper: () => ({}),
@@ -180,6 +186,7 @@ describe("SDK blueprint → binary loader round-trip", () => {
     const compiled = sdkDefineWorkflow({ name: "wf", description: "d" })
       .stage({
         name: "s1",
+        agent: null,
         description: "d",
         prompt: (ctx) => {
           capturedPrompt = ctx.userPrompt;

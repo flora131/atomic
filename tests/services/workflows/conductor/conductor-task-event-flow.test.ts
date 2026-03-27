@@ -105,7 +105,7 @@ function createTaskProducingStage(
     id,
     indicator: `[${id.toUpperCase()}]`,
     buildPrompt: (_ctx: StageContext) => `Prompt for ${id}`,
-    parseOutput: (_response: string) => tasks,
+    parseOutput: (_response: string) => ({ tasks }),
     ...overrides,
   };
 }
@@ -320,7 +320,7 @@ describe("task update event flow (§5.6)", () => {
       // parseOutput returns a string, not a task array
       const stages = [
         createTaskProducingStage("planner", undefined, {
-          parseOutput: () => "not a task array",
+          parseOutput: () => ({ value: "not a task array" }),
         }),
       ];
       const definition = createDefinition({ conductorStages: stages });

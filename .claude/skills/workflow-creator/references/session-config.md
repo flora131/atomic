@@ -18,6 +18,7 @@ By default, each stage inherits the parent session's configuration — model, re
 })
 .stage({
   name: "execute",
+  agent: null,
   description: "EXECUTOR",
   prompt: (ctx) => `Execute: ${JSON.stringify(ctx.stageOutputs.get("plan")?.parsedOutput)}`,
   outputMapper: () => ({}),
@@ -65,6 +66,6 @@ The system prompt for a stage is determined by this priority:
 
 1. **`sessionConfig.systemPrompt`** — if set explicitly, this replaces everything.
 2. **`agent` definition body** — if `agent` is set to a named agent, the compiler reads the agent definition file's markdown body and injects it as the system prompt.
-3. **SDK defaults** — if `agent` is `null`/omitted and no `systemPrompt` is set, the SDK's built-in instructions are preserved (e.g., Claude Code preset, Copilot guardrails).
+3. **SDK defaults** — if `agent` is `null` and no `systemPrompt` is set, the SDK's built-in instructions are preserved (e.g., Claude Code preset, Copilot guardrails).
 
 Use `additionalInstructions` when you want to augment (not replace) the default prompt.

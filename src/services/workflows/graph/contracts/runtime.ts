@@ -57,6 +57,14 @@ export interface NodeDefinition<TState extends BaseState = BaseState> {
   isRecoveryNode?: boolean;
   name?: string;
   description?: string;
+  /**
+   * Agent definition name for this node.
+   * Set from `StageOptions.agent` by the DSL compiler.
+   * - `string` — references a discovered agent definition file.
+   * - `null` — stage intentionally has no agent definition.
+   * - `undefined` — field was not set (verifier treats this as an error for agent-type nodes).
+   */
+  agent?: string | null;
   model?: ModelSpec;
   /** State field names this node reads from (propagated from DSL stage/tool config). */
   reads?: string[];

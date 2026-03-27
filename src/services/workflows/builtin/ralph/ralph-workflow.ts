@@ -29,9 +29,23 @@ import {
   hasActionableFindings,
   createReviewLoopTerminator,
 } from "@/services/workflows/builtin/ralph/helpers/review.ts";
+import { z } from "zod";
 
 export { createReviewLoopTerminator } from "@/services/workflows/builtin/ralph/helpers/review.ts";
 import { VERSION } from "@/version";
+
+/**
+ * Zod schema for validating task items from planner parsed output.
+ * Mirrors the SDK's TaskItemSchema to validate before passing to
+ * buildOrchestratorPrompt, avoiding unsafe `as` casts.
+ */
+const TaskItemSchema = z.object({
+  id: z.string().optional(),
+  description: z.string(),
+  status: z.string(),
+  summary: z.string(),
+  blockedBy: z.array(z.string()).optional(),
+});
 
 // ---------------------------------------------------------------------------
 // Workflow Definition via DSL
@@ -64,15 +78,12 @@ const _ralphWorkflowBuilder = defineWorkflow({
       }
       const plannerOutput = ctx.stageOutputs.get("planner");
       if (plannerOutput?.parsedOutput) {
-        return buildOrchestratorPrompt(
-          plannerOutput.parsedOutput as Array<{
-            id?: string;
-            description: string;
-            status: string;
-            summary: string;
-            blockedBy?: string[];
-          }>,
+        const result = TaskItemSchema.array().safeParse(
+          plannerOutput.parsedOutput.tasks,
         );
+        if (result.success && result.data.length > 0) {
+          return buildOrchestratorPrompt(result.data);
+        }
       }
       if (plannerOutput?.rawResponse) {
         const tasks = parseTasks(plannerOutput.rawResponse);

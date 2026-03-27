@@ -416,7 +416,7 @@ describe("WorkflowSessionConductor", () => {
       const stages = [
         stage("planner", "", {
           buildPrompt: () => "plan",
-          parseOutput: () => taskArray,
+          parseOutput: () => ({ tasks: taskArray }),
         }),
         stage("orchestrator", "", {
           buildPrompt: (ctx) => {
@@ -869,7 +869,7 @@ describe("WorkflowSessionConductor", () => {
       const stages = [
         stage("planner", "", {
           buildPrompt: () => "plan",
-          parseOutput: () => taskArray,
+          parseOutput: () => ({ tasks: taskArray }),
         }),
       ];
 
@@ -1268,7 +1268,7 @@ describe("WorkflowSessionConductor", () => {
       const stages = [
         stage("planner", "", {
           buildPrompt: () => "plan",
-          parseOutput: () => taskArray,
+          parseOutput: () => ({ tasks: taskArray }),
         }),
         stage("orchestrator", "", {
           buildPrompt: (ctx) => {
@@ -1634,7 +1634,7 @@ describe("WorkflowSessionConductor", () => {
       const stages = [
         stage("planner", "", {
           buildPrompt: () => "plan",
-          parseOutput: () => taskArray,
+          parseOutput: () => ({ tasks: taskArray }),
         }),
         stage("debugger", "", {
           buildPrompt: () => "debug",

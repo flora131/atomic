@@ -15,6 +15,22 @@
  */
 
 import type { TaskItem } from "@/services/workflows/builtin/ralph/helpers/prompts.ts";
+import { z } from "zod";
+
+/**
+ * Zod schema for validating TaskItem-shaped objects from parsed output.
+ * Mirrors the core fields of TaskItem without the runtime-only extensions
+ * (identity, taskResult) that the conductor adds after validation.
+ */
+const TaskItemBaseSchema = z.object({
+  id: z.string().optional(),
+  description: z.string(),
+  status: z.string(),
+  summary: z.string(),
+  blockedBy: z.array(z.string()).optional(),
+});
+
+const TaskItemArraySchema = TaskItemBaseSchema.array();
 import type { Session, SessionConfig } from "@/services/agents/types.ts";
 import type {
   BaseState,
@@ -708,7 +724,7 @@ export class WorkflowSessionConductor {
         }
 
         // Parse output if a parser is provided (uses full accumulated response)
-        let parsedOutput: unknown;
+        let parsedOutput: Record<string, unknown> | undefined;
         if (stage.parseOutput) {
           try {
             parsedOutput = stage.parseOutput(accumulatedResponse);
@@ -879,23 +895,20 @@ export class WorkflowSessionConductor {
    * the task list and notify the UI. This is the mechanism by which the
    * planner stage populates tasks for the orchestrator.
    */
-  private updateTasksFromParsedOutput(parsedOutput: unknown): void {
-    if (!Array.isArray(parsedOutput)) {
-      return;
-    }
+  private updateTasksFromParsedOutput(parsedOutput: Record<string, unknown>): void {
+    // Task lists are stored under a "tasks" key or as a direct array value.
+    // Check each value in the parsed output for an array of TaskItem-shaped objects.
+    // Use the SDK's Zod schema for structural validation instead of duck-typing.
+    const values = Object.values(parsedOutput);
+    for (const value of values) {
+      if (!Array.isArray(value)) continue;
 
-    // Validate that items look like TaskItem (have description + status)
-    const isTaskArray = parsedOutput.every(
-      (item: unknown) =>
-        typeof item === "object" &&
-        item !== null &&
-        "description" in item &&
-        "status" in item,
-    );
-
-    if (isTaskArray) {
-      this.tasks = parsedOutput as TaskItem[];
-      this.config.onTaskUpdate([...this.tasks]);
+      const result = TaskItemArraySchema.safeParse(value);
+      if (result.success) {
+        this.tasks = result.data as TaskItem[];
+        this.config.onTaskUpdate([...this.tasks]);
+        return;
+      }
     }
   }
 

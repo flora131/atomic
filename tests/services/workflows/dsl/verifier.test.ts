@@ -34,7 +34,7 @@ function createMockCheckers(): PropertyCheckers & { mocks: { r: MC; t: MC; d: MC
   const d = mock<(g: EncodedGraph) => Promise<PropertyResult>>(async () => PASS);
   const l = mock<(g: EncodedGraph) => Promise<PropertyResult>>(async () => PASS);
   const s = mock<(g: EncodedGraph) => Promise<PropertyResult>>(async () => PASS);
-  return { checkReachability: r, checkTermination: t, checkDeadlockFreedom: d, checkLoopBounds: l, checkStateDataFlow: s, checkModelValidation: async () => PASS, checkTypeChecking: async () => PASS, mocks: { r, t, d, l, s } };
+  return { checkReachability: r, checkTermination: t, checkDeadlockFreedom: d, checkLoopBounds: l, checkStateDataFlow: s, checkModelValidation: async () => PASS, mocks: { r, t, d, l, s } };
 }
 
 describe("verifyWorkflow", () => {

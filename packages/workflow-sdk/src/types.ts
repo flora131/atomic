@@ -5,9 +5,58 @@
  * These types mirror the Atomic CLI runtime types so that user workflow
  * files get full IDE support (autocomplete, type checking) without
  * depending on the full CLI codebase.
+ *
+ * Core data structures (TaskItem, StageOutput, SignalData, SessionConfig,
+ * etc.) are defined as Zod schemas in `./schemas.ts` and re-exported here
+ * as inferred types. This gives callers both compile-time types and
+ * runtime validation from a single source of truth.
  */
 
 import type { z } from "zod";
+
+// ---------------------------------------------------------------------------
+// JSON Value — recursive type for all JSON-serializable data
+// ---------------------------------------------------------------------------
+
+/**
+ * Recursive type covering all JSON-serializable values.
+ * Used throughout the SDK instead of `unknown` to express that workflow
+ * data flows are always JSON-round-trippable.
+ */
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+// Re-export schema-derived types so they stay in scope for this file
+// and for downstream consumers who `import type` from the SDK.
+export type {
+  TaskItem,
+  StageOutput,
+  StageOutputStatus,
+  Signal,
+  SignalData,
+  ContextPressureLevel,
+  ContextPressureSnapshot,
+  ContinuationRecord,
+  AgentType,
+  SessionConfig,
+  AskUserQuestionConfig,
+} from "./schemas.ts";
+
+import type {
+  SignalData,
+  StageOutput,
+  ContextPressureSnapshot,
+  ContinuationRecord,
+  AgentType,
+  SessionConfig,
+  AskUserQuestionConfig,
+  TaskItem,
+} from "./schemas.ts";
 
 // ---------------------------------------------------------------------------
 // Graph Core
@@ -17,18 +66,6 @@ export type NodeId = string;
 
 export type ModelSpec = string | "inherit";
 
-export type Signal =
-  | "context_window_warning"
-  | "checkpoint"
-  | "human_input_required"
-  | "debug_report_generated";
-
-export interface SignalData {
-  type: Signal;
-  message?: string;
-  data?: Record<string, unknown>;
-}
-
 /**
  * Base workflow state. All workflow state extends this shape.
  * The `outputs` record is keyed by node ID and holds each node's output.
@@ -36,7 +73,7 @@ export interface SignalData {
 export interface BaseState {
   executionId: string;
   lastUpdated: string;
-  outputs: Record<NodeId, unknown>;
+  outputs: Record<NodeId, Record<string, JsonValue>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -68,7 +105,7 @@ type Widen<T> =
 type InferFieldType<F> =
   F extends StateFieldOptions<infer V>
     ? V extends (...args: never[]) => infer R ? Widen<R> : Widen<V>
-    : unknown;
+    : never;
 
 /**
  * Infer the full workflow state type from a `globalState` schema.
@@ -87,7 +124,7 @@ type InferFieldType<F> =
  * // S = BaseState & { count: number; approved: boolean; items: string[] }
  * ```
  */
-export type InferState<TSchema extends Record<string, StateFieldOptions<any>>> =
+export type InferState<TSchema extends Record<string, StateFieldOptionsBase>> =
   BaseState & { [K in keyof TSchema]: InferFieldType<TSchema[K]> };
 
 export interface ExecutionError {
@@ -131,7 +168,7 @@ export interface GraphConfig<TState extends BaseState = BaseState> {
   timeout?: number;
   contextWindowThreshold?: number;
   autoCheckpoint?: boolean;
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, JsonValue>;
   defaultModel?: ModelSpec;
   outputSchema?: z.ZodType<TState>;
 }
@@ -158,8 +195,8 @@ export interface ExecutionContext<TState extends BaseState = BaseState> {
   config: GraphConfig<TState>;
   errors: ExecutionError[];
   abortSignal?: AbortSignal;
-  emit?: (type: string, data?: Record<string, unknown>) => void;
-  getNodeOutput?: (nodeId: NodeId) => unknown;
+  emit?: (type: string, data?: Record<string, JsonValue>) => void;
+  getNodeOutput?: (nodeId: NodeId) => Record<string, JsonValue>;
   model?: string;
 }
 
@@ -167,37 +204,9 @@ export interface ExecutionContext<TState extends BaseState = BaseState> {
 // Conductor Types (passed to stage prompt/condition callbacks)
 // ---------------------------------------------------------------------------
 
-export type StageOutputStatus = "completed" | "interrupted" | "error";
-
-export type ContextPressureLevel = "normal" | "elevated" | "critical";
-
-export interface ContextPressureSnapshot {
-  readonly inputTokens: number;
-  readonly outputTokens: number;
-  readonly maxTokens: number;
-  readonly usagePercentage: number;
-  readonly level: ContextPressureLevel;
-  readonly timestamp: string;
-}
-
-export interface ContinuationRecord {
-  readonly stageId: string;
-  readonly continuationIndex: number;
-  readonly triggerSnapshot: ContextPressureSnapshot;
-  readonly partialResponse: string;
-  readonly timestamp: string;
-}
-
-export interface StageOutput {
-  readonly stageId: string;
-  readonly rawResponse: string;
-  readonly parsedOutput?: unknown;
-  readonly status: StageOutputStatus;
-  readonly error?: string;
-  readonly contextUsage?: ContextPressureSnapshot;
-  readonly continuations?: readonly ContinuationRecord[];
-  readonly originalByteLength?: number;
-}
+// StageOutputStatus, ContextPressureLevel, ContextPressureSnapshot,
+// ContinuationRecord, and StageOutput are defined as Zod schemas in
+// ./schemas.ts and re-exported above. See schemas.ts for field docs.
 
 export interface AccumulatedContextPressure {
   readonly totalInputTokens: number;
@@ -207,17 +216,7 @@ export interface AccumulatedContextPressure {
   readonly continuations: readonly ContinuationRecord[];
 }
 
-/**
- * Task item in the workflow task list.
- * Populated after the planner stage and updated throughout execution.
- */
-export interface TaskItem {
-  id?: string;
-  description: string;
-  status: string;
-  summary: string;
-  blockedBy?: string[];
-}
+// TaskItem is defined as a Zod schema in ./schemas.ts and re-exported above.
 
 /**
  * Read-only context provided to stage prompt builders and conditional
@@ -238,48 +237,13 @@ export interface StageContext<TState extends BaseState = BaseState> {
 // Agent Type
 // ---------------------------------------------------------------------------
 
-/**
- * Known agent types. Matches the keys in `settings.schema.json`'s
- * `model` and `reasoningEffort` objects.
- */
-export type AgentType = "claude" | "opencode" | "copilot";
+// AgentType is defined as a Zod schema in ./schemas.ts and re-exported above.
 
 // ---------------------------------------------------------------------------
 // Session Configuration
 // ---------------------------------------------------------------------------
 
-/**
- * Agent session configuration overrides.
- * Used in `StageOptions.sessionConfig` to customize per-stage sessions.
- *
- * `model` and `reasoningEffort` are keyed by agent type so that a single
- * workflow definition can declare per-SDK overrides (SDK-agnostic). At
- * runtime, the conductor resolves the correct entry for the active agent.
- *
- * When a stage omits `model` / `reasoningEffort`, the user's currently
- * selected model and reasoning level (from `~/.atomic/settings.json` or
- * `.atomic/settings.json`) are used as defaults.
- *
- * @example
- * ```ts
- * sessionConfig: {
- *   model: { claude: "claude-opus-4.6-1m", copilot: "claude-sonnet-4" },
- *   reasoningEffort: { claude: "high" },
- * }
- * ```
- */
-export interface SessionConfig {
-  model?: Partial<Record<AgentType, string>>;
-  sessionId?: string;
-  systemPrompt?: string;
-  additionalInstructions?: string;
-  tools?: string[];
-  permissionMode?: "auto" | "prompt" | "deny" | "bypass";
-  maxBudgetUsd?: number;
-  maxTurns?: number;
-  reasoningEffort?: Partial<Record<AgentType, string>>;
-  maxThinkingTokens?: number;
-}
+// SessionConfig is defined as a Zod schema in ./schemas.ts and re-exported above.
 
 // ---------------------------------------------------------------------------
 // DSL Stage Options
@@ -287,10 +251,10 @@ export interface SessionConfig {
 
 export interface StageOptions<TState extends BaseState = BaseState> {
   readonly name: string;
-  readonly agent?: string | null;
+  readonly agent: string | null;
   readonly description: string;
   readonly prompt: (context: StageContext<TState>) => string;
-  readonly outputMapper: (response: string) => Record<string, unknown>;
+  readonly outputMapper: (response: string) => Record<string, JsonValue>;
   readonly sessionConfig?: Partial<SessionConfig>;
   readonly maxOutputBytes?: number;
 }
@@ -303,8 +267,8 @@ export interface ToolOptions<TState extends BaseState = BaseState> {
   readonly name: string;
   readonly execute: (
     context: ExecutionContext<TState>,
-  ) => Promise<Record<string, unknown>>;
-  readonly outputMapper?: (result: Record<string, unknown>) => Record<string, unknown>;
+  ) => Promise<Record<string, JsonValue>>;
+  readonly outputMapper?: (result: Record<string, JsonValue>) => Record<string, JsonValue>;
   readonly description?: string;
 }
 
@@ -312,15 +276,8 @@ export interface ToolOptions<TState extends BaseState = BaseState> {
 // DSL Ask User Question Options
 // ---------------------------------------------------------------------------
 
-export interface AskUserQuestionConfig {
-  readonly question: string;
-  readonly header?: string;
-  readonly options?: ReadonlyArray<{
-    readonly label: string;
-    readonly description?: string;
-  }>;
-  readonly multiSelect?: boolean;
-}
+// AskUserQuestionConfig is defined as a Zod schema in ./schemas.ts and
+// re-exported above.
 
 export interface AskUserQuestionOptions<TState extends BaseState = BaseState> {
   readonly name: string;
@@ -328,7 +285,7 @@ export interface AskUserQuestionOptions<TState extends BaseState = BaseState> {
     | AskUserQuestionConfig
     | ((state: TState) => AskUserQuestionConfig);
   readonly description?: string;
-  readonly outputMapper?: (answer: string | string[]) => Record<string, unknown>;
+  readonly outputMapper?: (answer: string | string[]) => Record<string, JsonValue>;
 }
 
 // ---------------------------------------------------------------------------
@@ -344,19 +301,60 @@ export interface LoopOptions {
 // State Field Options
 // ---------------------------------------------------------------------------
 
-export interface StateFieldOptions<T = unknown> {
+/**
+ * Built-in reducer names available for state fields.
+ *
+ * Defined as a const tuple so the literal union is derived in one place
+ * and shared by both `StateFieldOptions<T>` and `StateFieldOptionsBase`.
+ */
+export const BUILTIN_REDUCERS = [
+  "replace",
+  "concat",
+  "merge",
+  "mergeById",
+  "max",
+  "min",
+  "sum",
+  "or",
+  "and",
+] as const;
+
+/** Union of built-in reducer name literals. */
+export type BuiltinReducer = (typeof BUILTIN_REDUCERS)[number];
+
+export interface StateFieldOptions<T = JsonValue> {
   readonly default: T | (() => T);
-  readonly reducer?:
-    | "replace"
-    | "concat"
-    | "merge"
-    | "mergeById"
-    | "max"
-    | "min"
-    | "sum"
-    | "or"
-    | "and"
-    | ((current: T, update: T) => T);
+  readonly reducer?: BuiltinReducer | ((current: T, update: T) => T);
+  readonly key?: string;
+}
+
+/**
+ * Non-generic base interface that every concrete `StateFieldOptions<T>`
+ * satisfies, regardless of `T`.
+ *
+ * Used as the generic constraint in `InferState`, `WorkflowOptions`, and
+ * `defineWorkflow` so that TypeScript can infer an independent `T` per
+ * field in a heterogeneous state schema — without resorting to `any`.
+ *
+ * ### Why `never` parameters?
+ *
+ * The reducer callback uses `never` parameters and `JsonValue` return.
+ * This works because of **function parameter contravariance**:
+ *
+ * ```
+ *   (current: string[], update: string[]) => string[]
+ *   IS assignable to
+ *   (current: never, update: never) => JsonValue
+ * ```
+ *
+ * since `never extends string[]` (params) and `string[] extends JsonValue` (return).
+ * This lets the base interface accept any concrete `StateFieldOptions<T>`
+ * without knowing `T`, enabling heterogeneous state schemas where each
+ * field independently infers its own type.
+ */
+export interface StateFieldOptionsBase {
+  readonly default: JsonValue | (() => JsonValue);
+  readonly reducer?: BuiltinReducer | ((current: never, update: never) => JsonValue);
   readonly key?: string;
 }
 
@@ -365,7 +363,7 @@ export interface StateFieldOptions<T = unknown> {
 // ---------------------------------------------------------------------------
 
 export interface WorkflowOptions<
-  TGlobalState extends Record<string, StateFieldOptions<any>> = Record<string, StateFieldOptions>,
+  TGlobalState extends Record<string, StateFieldOptionsBase> = Record<string, StateFieldOptions>,
 > {
   readonly name: string;
   readonly description: string;

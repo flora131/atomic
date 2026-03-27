@@ -44,10 +44,10 @@ const mockVerifyWorkflow = mock(async () => makeAllPassResult());
 function makeMinimalGraph(): CompiledGraph<BaseState> {
   const nodes = new Map<
     string,
-    { type: string; execute: () => Promise<Record<string, unknown>> }
+    { type: string; agent: string | null; execute: () => Promise<Record<string, unknown>> }
   >();
-  nodes.set("start", { type: "agent", execute: async () => ({}) });
-  nodes.set("end", { type: "agent", execute: async () => ({}) });
+  nodes.set("start", { type: "agent", agent: null, execute: async () => ({}) });
+  nodes.set("end", { type: "agent", agent: null, execute: async () => ({}) });
 
   return {
     nodes: nodes as unknown as CompiledGraph<BaseState>["nodes"],

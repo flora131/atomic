@@ -18,7 +18,6 @@ const PROPERTY_NAMES: Record<string, string> = {
   loopBounds: "Loop Bounds",
   stateDataFlow: "State Data-Flow",
   modelValidation: "Model Validation",
-  typeChecking: "Type Checking",
 };
 
 /**
@@ -34,6 +33,15 @@ function formatPropertyResult(name: string, result: PropertyResult): string {
   if (result.counterexample) {
     line += `: ${result.counterexample}`;
   }
+
+  // Surface per-error details for type checking (and other properties)
+  const details = result.details as Record<string, unknown> | undefined;
+  if (details?.errors && Array.isArray(details.errors)) {
+    for (const err of details.errors as string[]) {
+      line += `\n         ${err}`;
+    }
+  }
+
   return line;
 }
 

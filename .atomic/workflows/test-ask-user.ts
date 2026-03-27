@@ -84,6 +84,7 @@ export default defineWorkflow({
   })
   .stage({
     name: "implement",
+    agent: null,
     description: "⚡ IMPLEMENT",
     prompt: (ctx) => {
       return [

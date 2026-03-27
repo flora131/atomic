@@ -83,15 +83,16 @@ describe("StageOptions", () => {
     expect(config.agent).toBeNull();
   });
 
-  test("accepts omitted agent (defaults to undefined)", () => {
+  test("requires agent to be explicitly set (string or null)", () => {
     const config: StageOptions = {
       name: "no-agent",
+      agent: null,
       description: "Uses default SDK instructions",
       prompt: () => "Do something",
       outputMapper: (response: string) => ({ result: response }),
     };
 
-    expect(config.agent).toBeUndefined();
+    expect(config.agent).toBeNull();
   });
 
   test("prompt receives StageContext and returns string", () => {

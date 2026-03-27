@@ -248,12 +248,7 @@ function generateStageDefinitions(
       indicator: config.description,
       buildPrompt: config.prompt,
       parseOutput: (response: string) => {
-        const mapped = config.outputMapper(response);
-        const values = Object.values(mapped);
-        if (values.length === 1 && Array.isArray(values[0])) {
-          return values[0];
-        }
-        return mapped;
+        return config.outputMapper(response);
       },
       shouldRun,
       sessionConfig: resolvedSessionConfig,
@@ -324,6 +319,7 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
       id,
       type,
       name: nodeName,
+      agent: stageAgent,
       description:
         "description" in options ? (options.description as string) : nodeName,
       execute:

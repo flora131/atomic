@@ -49,6 +49,54 @@ Both `globalState` and `loopState` fields are merged into a single state schema 
 | `reducer` | `string \| ((current: T, update: T) => T)`  | no       | Merge strategy (default: `"replace"`)          |
 | `key`     | `string`                                    | no       | Key field for `"mergeById"` reducer            |
 
+`T` defaults to `JsonValue` when not specified — meaning all state field values must be JSON-serializable (strings, numbers, booleans, null, arrays, or plain objects). When you provide a `default` value, TypeScript infers the concrete type automatically:
+
+```ts
+globalState: {
+  count: { default: 0 },              // T inferred as number
+  items: { default: () => [] as string[] },  // T inferred as string[]
+  approved: { default: false },        // T inferred as boolean
+}
+```
+
+Custom reducer functions get correctly typed parameters matching the inferred `T`:
+
+```ts
+globalState: {
+  log: {
+    default: () => [] as string[],
+    reducer: (current: string[], update: string[]) => [...current, ...update].slice(-50),
+    // ↑ TypeScript knows current and update are string[], not JsonValue
+  },
+}
+```
+
+## Type inference with `InferState`
+
+When you declare `globalState`, the SDK uses the `InferState` utility type to derive a concrete state type from your field defaults. This means `ctx.state` in prompt functions and `.if()` conditions is fully typed — not `BaseState` with loose `JsonValue` fields, but a precise intersection type:
+
+```ts
+const workflow = defineWorkflow({
+  name: "typed-example",
+  description: "Type inference demo",
+  globalState: {
+    count: { default: 0, reducer: "sum" },
+    items: { default: () => [] as string[], reducer: "concat" },
+    approved: { default: false },
+  },
+});
+
+// In .stage() prompt:
+// ctx.state.count   → number
+// ctx.state.items   → string[]
+// ctx.state.approved → boolean
+// ctx.state.outputs  → Record<string, Record<string, JsonValue>> (from BaseState)
+```
+
+This type inference is what makes the builder generic — `WorkflowBuilder<TState>` carries the inferred state type through all chained methods, so `.if()` conditions, `.stage()` prompts, and `.tool()` execute functions all see the same typed `ctx.state`.
+
+**Tip:** Use `as const` on string literal defaults if you want narrow string types, and `as Type[]` casts on factory defaults to get precise array element types.
+
 ## Built-in reducers
 
 | Reducer      | Behavior                                           |

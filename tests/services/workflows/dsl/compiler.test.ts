@@ -1160,11 +1160,12 @@ describe("compiler null agent handling", () => {
     ).not.toThrow();
   });
 
-  test("stage with omitted agent compiles without error", () => {
+  test("stage with null agent compiles without error", () => {
     expect(() =>
       compileGraph((b) =>
         b.stage({
           name: "s1",
+          agent: null,
           description: "Uses default SDK instructions",
           prompt: () => "Do something",
           outputMapper: () => ({}),

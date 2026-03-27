@@ -20,6 +20,30 @@
 
 import { z } from "zod";
 
+import type { JsonValue } from "./types.ts";
+
+// ---------------------------------------------------------------------------
+// Recursive JSON value schema
+// ---------------------------------------------------------------------------
+
+/**
+ * Recursive Zod schema matching the {@link JsonValue} type.
+ *
+ * Explicitly enumerates permitted JSON primitives and recursive
+ * structures instead of using `z.json()` which also accepts
+ * `undefined` and other non-JSON-serializable values.
+ */
+export const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
+  z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.null(),
+    z.array(JsonValueSchema),
+    z.record(z.string(), JsonValueSchema),
+  ]),
+);
+
 // ---------------------------------------------------------------------------
 // Task Items
 // ---------------------------------------------------------------------------
@@ -105,7 +129,7 @@ export type StageOutputStatus = z.infer<typeof StageOutputStatusSchema>;
 export const StageOutputSchema = z.object({
   stageId: z.string(),
   rawResponse: z.string(),
-  parsedOutput: z.record(z.string(), z.json()).optional(),
+  parsedOutput: z.record(z.string(), JsonValueSchema).optional(),
   status: StageOutputStatusSchema,
   error: z.string().optional(),
   contextUsage: ContextPressureSnapshotSchema.optional(),
@@ -135,7 +159,7 @@ export type Signal = z.infer<typeof SignalTypeSchema>;
 export const SignalDataSchema = z.object({
   type: SignalTypeSchema,
   message: z.string().optional(),
-  data: z.record(z.string(), z.json()).optional(),
+  data: z.record(z.string(), JsonValueSchema).optional(),
 });
 
 export type SignalData = z.infer<typeof SignalDataSchema>;

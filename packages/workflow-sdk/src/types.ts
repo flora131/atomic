@@ -301,19 +301,30 @@ export interface LoopOptions {
 // State Field Options
 // ---------------------------------------------------------------------------
 
+/**
+ * Built-in reducer names available for state fields.
+ *
+ * Defined as a const tuple so the literal union is derived in one place
+ * and shared by both `StateFieldOptions<T>` and `StateFieldOptionsBase`.
+ */
+export const BUILTIN_REDUCERS = [
+  "replace",
+  "concat",
+  "merge",
+  "mergeById",
+  "max",
+  "min",
+  "sum",
+  "or",
+  "and",
+] as const;
+
+/** Union of built-in reducer name literals. */
+export type BuiltinReducer = (typeof BUILTIN_REDUCERS)[number];
+
 export interface StateFieldOptions<T = JsonValue> {
   readonly default: T | (() => T);
-  readonly reducer?:
-    | "replace"
-    | "concat"
-    | "merge"
-    | "mergeById"
-    | "max"
-    | "min"
-    | "sum"
-    | "or"
-    | "and"
-    | ((current: T, update: T) => T);
+  readonly reducer?: BuiltinReducer | ((current: T, update: T) => T);
   readonly key?: string;
 }
 
@@ -325,26 +336,25 @@ export interface StateFieldOptions<T = JsonValue> {
  * `defineWorkflow` so that TypeScript can infer an independent `T` per
  * field in a heterogeneous state schema — without resorting to `any`.
  *
+ * ### Why `never` parameters?
+ *
  * The reducer callback uses `never` parameters and `JsonValue` return.
- * This works because of function parameter contravariance:
- *   `(current: string[], update: string[]) => string[]`
+ * This works because of **function parameter contravariance**:
+ *
+ * ```
+ *   (current: string[], update: string[]) => string[]
  *   IS assignable to
- *   `(current: never, update: never) => JsonValue`
+ *   (current: never, update: never) => JsonValue
+ * ```
+ *
  * since `never extends string[]` (params) and `string[] extends JsonValue` (return).
+ * This lets the base interface accept any concrete `StateFieldOptions<T>`
+ * without knowing `T`, enabling heterogeneous state schemas where each
+ * field independently infers its own type.
  */
 export interface StateFieldOptionsBase {
   readonly default: JsonValue | (() => JsonValue);
-  readonly reducer?:
-    | "replace"
-    | "concat"
-    | "merge"
-    | "mergeById"
-    | "max"
-    | "min"
-    | "sum"
-    | "or"
-    | "and"
-    | ((current: never, update: never) => JsonValue);
+  readonly reducer?: BuiltinReducer | ((current: never, update: never) => JsonValue);
   readonly key?: string;
 }
 

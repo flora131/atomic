@@ -176,7 +176,6 @@ export async function verifySingleWorkflow(
   const result = await verifier(graph, {
     encodedGraph: encoded,
     conductorStages: definition.conductorStages,
-    sourcePaths: workflow.sourcePath ? [workflow.sourcePath] : undefined,
   });
   const report = formatVerificationReport(id, result) + nodeErrorText + agentWarningText;
   const passed = result.valid && nodeErrors.length === 0;

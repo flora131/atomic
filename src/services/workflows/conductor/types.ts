@@ -191,9 +191,8 @@ export interface StageOutput {
    * Structured data extracted by the stage's `parseOutput` function.
    * `undefined` when the stage has no parser or parsing failed.
    *
-   * The type matches `outputMapper`'s return signature
-   * (`Record<string, unknown>`) so downstream stages can access
-   * properties without casting.
+   * Typed as `Record<string, unknown>` for flexibility — downstream
+   * consumers narrow with Zod `safeParse` when they need a specific shape.
    */
   readonly parsedOutput?: Record<string, unknown>;
 

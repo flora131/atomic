@@ -20,7 +20,7 @@ Load the topic-specific reference files from `references/` as needed. Start with
 | `control-flow.md` | Conditionals (`.if()`) or bounded loops (`.loop()` / `.break()`) |
 | `state-and-reducers.md` | Custom state fields, reducers, data flow |
 | `session-config.md` | Per-stage model, reasoning, or permission overrides |
-| `discovery-and-verification.md` | File discovery, export format, verifier CLI and checks |
+| `discovery-and-verification.md` | File discovery, export format, verifier CLI, tsc type checking |
 
 ## How Workflows Work
 
@@ -88,7 +88,17 @@ export default defineWorkflow({
   .compile();
 ```
 
-### 4. Verify the Workflow
+### 4. Type-Check the Workflow
+
+Before running the verifier, run `tsc` to catch TypeScript errors:
+
+```bash
+bunx tsc --noEmit --pretty false
+```
+
+This catches invalid fields, wrong function signatures, missing required properties, and incorrect `sessionConfig` shapes. Fix all errors before proceeding.
+
+### 5. Verify the Workflow
 
 After writing, run the workflow verifier:
 
@@ -96,7 +106,7 @@ After writing, run the workflow verifier:
 atomic workflow verify .atomic/workflows/<workflow-name>.ts
 ```
 
-This runs 7 structural checks plus node validation:
+This runs 6 structural checks plus node validation:
 
 1. **Reachability** — all nodes reachable from start
 2. **Termination** — all paths reach an end node
@@ -104,7 +114,6 @@ This runs 7 structural checks plus node validation:
 4. **Loop bounds** — all loops have bounded iterations
 5. **State data-flow** — all reads have preceding writes on all paths
 6. **Model validation** — models and reasoning efforts in `sessionConfig` are valid
-7. **Type checking** — source files are free of TypeScript type errors
 
 The verifier also enforces:
 - Every node has a `name` field

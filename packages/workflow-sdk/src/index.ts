@@ -29,6 +29,7 @@ export type { WorkflowBlueprint } from "./define-workflow.ts";
 
 // Zod schemas — runtime-validated, single source of truth
 export {
+  JsonValueSchema,
   TaskItemSchema,
   StageOutputSchema,
   StageOutputStatusSchema,
@@ -63,6 +64,7 @@ export type {
   LoopOptions,
   StateFieldOptions,
   StateFieldOptionsBase,
+  BuiltinReducer,
   WorkflowOptions,
   CompiledWorkflow,
   // Schema-derived types (re-exported from schemas.ts via types.ts)
@@ -79,3 +81,6 @@ export type {
   AskUserQuestionConfig,
   AccumulatedContextPressure,
 } from "./types.ts";
+
+// Runtime constants
+export { BUILTIN_REDUCERS } from "./types.ts";

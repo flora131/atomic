@@ -28,6 +28,45 @@ Each `.stage()` launches a fresh agent session with its own context window. The 
 
 Workflows are saved to `.atomic/workflows/<name>.ts` (local) or `~/.atomic/workflows/<name>.ts` (global), and exported as the default export.
 
+## Type System
+
+The SDK uses precise types throughout — **no `unknown` or `any` types anywhere**. All data flowing between stages is typed as `JsonValue`, a recursive type covering all JSON-serializable values:
+
+```ts
+type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+```
+
+This means `outputMapper` functions return `Record<string, JsonValue>` — not `Record<string, unknown>`. The compiler enforces that all stage data is JSON-serializable.
+
+### Zod Schemas
+
+The SDK exports Zod schemas for runtime validation of core data structures. Import them alongside the builder:
+
+```ts
+import { defineWorkflow, TaskItemSchema, StageOutputSchema, SessionConfigSchema } from "@bastani/atomic-workflows";
+```
+
+Available schemas:
+- `TaskItemSchema` — validates task items (id, description, status, summary, blockedBy)
+- `StageOutputSchema` — validates stage output records
+- `SignalDataSchema` — validates signal payloads
+- `SessionConfigSchema` — validates session configuration
+- `AgentTypeSchema` — validates agent type strings (`"claude" | "opencode" | "copilot"`)
+- `ContextPressureSnapshotSchema` — validates context pressure data
+- `AskUserQuestionConfigSchema` — validates question configurations
+
+Use `.parse()` for strict validation or `.safeParse()` for graceful error handling:
+
+```ts
+.tool({
+  name: "validate-plan",
+  execute: async (ctx) => {
+    const result = TaskItemSchema.array().safeParse(ctx.state.tasks);
+    return { tasksValid: result.success, errorCount: result.success ? 0 : result.error.issues.length };
+  },
+})
+```
+
 ## Authoring Process
 
 ### 1. Understand the User's Goal
@@ -99,7 +138,7 @@ cd .atomic/workflows && npx tsc --noEmit
 
 Common errors this catches:
 - Passing unknown fields to `StageOptions`, `ToolOptions`, or `AskUserQuestionOptions` (e.g., a misspelled `promt` instead of `prompt`)
-- Wrong function signature for `prompt`, `outputMapper`, or `execute` (e.g., returning `string` instead of `Record<string, unknown>`)
+- Wrong function signature for `prompt`, `outputMapper`, or `execute` (e.g., returning `string` instead of `Record<string, JsonValue>`)
 - Using fields that no longer exist on the type definitions (e.g., `reads`, `outputs`, `onAnswer`)
 - Type mismatches in `globalState` defaults vs reducer expectations
 

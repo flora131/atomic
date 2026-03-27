@@ -131,7 +131,7 @@ When `outputMapper` is omitted, the raw answer is stored in `state.outputs[nodeI
 | `name`         | `string`                                                                 | yes      | Unique node identifier (also used in logging)                      |
 | `question`     | `AskUserQuestionConfig \| (state: BaseState) => AskUserQuestionConfig`   | yes      | Static config or state-dependent factory for the question dialog   |
 | `description`  | `string`                                                                 | no       | Description of what this question node does                        |
-| `outputMapper` | `(answer: string \| string[]) => Record<string, unknown>`                | no       | Maps the user's answer into state updates                          |
+| `outputMapper` | `(answer: string \| string[]) => Record<string, JsonValue>`                | no       | Maps the user's answer into state updates                          |
 
 ## `AskUserQuestionConfig` reference
 

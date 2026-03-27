@@ -49,6 +49,28 @@ Both `globalState` and `loopState` fields are merged into a single state schema 
 | `reducer` | `string \| ((current: T, update: T) => T)`  | no       | Merge strategy (default: `"replace"`)          |
 | `key`     | `string`                                    | no       | Key field for `"mergeById"` reducer            |
 
+`T` defaults to `JsonValue` when not specified — meaning all state field values must be JSON-serializable (strings, numbers, booleans, null, arrays, or plain objects). When you provide a `default` value, TypeScript infers the concrete type automatically:
+
+```ts
+globalState: {
+  count: { default: 0 },              // T inferred as number
+  items: { default: () => [] as string[] },  // T inferred as string[]
+  approved: { default: false },        // T inferred as boolean
+}
+```
+
+Custom reducer functions get correctly typed parameters matching the inferred `T`:
+
+```ts
+globalState: {
+  log: {
+    default: () => [] as string[],
+    reducer: (current: string[], update: string[]) => [...current, ...update].slice(-50),
+    // ↑ TypeScript knows current and update are string[], not JsonValue
+  },
+}
+```
+
 ## Built-in reducers
 
 | Reducer      | Behavior                                           |

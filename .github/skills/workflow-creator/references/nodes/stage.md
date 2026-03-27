@@ -52,6 +52,6 @@ Downstream stages access prior outputs via `ctx.stageOutputs.get("<name>")` — 
 | `agent`          | `string \| null`                               | no       | Agent definition name (`null` = SDK defaults)                   |
 | `description`    | `string`                                       | yes      | Short label for logging and UI indicators                       |
 | `prompt`         | `(ctx: StageContext) => string`                 | yes      | Builds the prompt sent to the agent session                     |
-| `outputMapper`   | `(response: string) => Record<string, unknown>` | yes     | Extracts structured data from the raw response                  |
+| `outputMapper`   | `(response: string) => Record<string, JsonValue>` | yes     | Extracts structured data from the raw response                  |
 | `sessionConfig`  | `Partial<SessionConfig>`                       | no       | Per-stage session overrides (see `session-config.md`)           |
 | `maxOutputBytes` | `number`                                       | no       | Max byte size for raw response forwarded to downstream stages   |

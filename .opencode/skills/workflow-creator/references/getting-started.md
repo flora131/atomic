@@ -59,4 +59,44 @@ Note that the `execute` stage sets `agent: null` — it runs with the SDK's defa
 
 The SDK is fully typed with **zero `unknown` or `any`** annotations. All data flowing between stages uses the `JsonValue` type — a recursive type covering all JSON-serializable values. `outputMapper` functions return `Record<string, JsonValue>`, and the compiler validates data flow statically.
 
-The SDK also exports **Zod schemas** for runtime validation of core data structures (e.g., `TaskItemSchema`, `StageOutputSchema`, `SessionConfigSchema`). Import them alongside the builder for `.parse()` or `.safeParse()` validation in `.tool()` nodes.
+When you declare `globalState`, the SDK infers concrete types automatically via `InferState` — so `ctx.state.count` is `number` (not `JsonValue`) when you write `count: { default: 0 }`. This gives full IDE autocomplete and type checking in prompt functions and `.if()` conditions.
+
+## SDK Exports
+
+The SDK (`@bastani/atomic-workflows`) exports everything you need for workflow authoring:
+
+**Builder:**
+- `defineWorkflow` — entry point, returns a chainable `WorkflowBuilder`
+- `WorkflowBuilder` — the builder class (rarely needed directly)
+
+**Zod schemas** (for runtime validation in `.tool()` nodes):
+- `TaskItemSchema` — validates task items (`{ id, description, status, summary, blockedBy? }`)
+- `StageOutputSchema` — validates stage outputs
+- `SessionConfigSchema` — validates session config objects
+- `AgentTypeSchema` — validates agent type strings (`"claude" | "opencode" | "copilot"`)
+- `AskUserQuestionConfigSchema` — validates question config objects
+- `JsonValueSchema` — recursive schema matching `JsonValue`
+
+```ts
+import { defineWorkflow, TaskItemSchema } from "@bastani/atomic-workflows";
+
+// Use in .tool() nodes for runtime validation:
+.tool({
+  name: "validate-tasks",
+  execute: async (ctx) => {
+    const result = TaskItemSchema.array().safeParse(ctx.state.tasks);
+    return { tasksValid: result.success };
+  },
+})
+```
+
+**Types** (import with `import type`):
+- `BaseState`, `InferState`, `StageContext`, `ExecutionContext` — context types for callbacks
+- `StageOptions`, `ToolOptions`, `AskUserQuestionOptions`, `LoopOptions` — node config types
+- `StateFieldOptions`, `BuiltinReducer` — state declaration types
+- `SessionConfig`, `AgentType` — session config types
+- `StageOutput`, `TaskItem`, `JsonValue` — data types
+- `CompiledWorkflow`, `WorkflowOptions` — workflow-level types
+
+**Constants:**
+- `BUILTIN_REDUCERS` — tuple of all 9 built-in reducer names (`["replace", "concat", "merge", ...]`)

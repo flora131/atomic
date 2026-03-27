@@ -13,18 +13,18 @@ Load the topic-specific reference files from `references/` as needed. Start with
 
 | File | When to load |
 |---|---|
-| `getting-started.md` | Always — quick-start example and reference index |
-| `nodes/stage.md` | Creating agent stages (`name`, `agent`, `prompt`, `outputMapper`) |
-| `nodes/tool.md` | Adding deterministic computation (validation, I/O, transforms) |
+| `getting-started.md` | Always — quick-start example, SDK exports, and reference index |
+| `nodes/stage.md` | Creating agent stages (`name`, `agent`, `prompt`, `outputMapper`), `StageContext` fields, `StageOutput` shape |
+| `nodes/tool.md` | Adding deterministic computation (validation, I/O, transforms), Zod schema validation |
 | `nodes/ask-user-question.md` | Collecting user input mid-workflow |
 | `control-flow.md` | Conditionals (`.if()`) or bounded loops (`.loop()` / `.break()`) |
-| `state-and-reducers.md` | Custom state fields, reducers, data flow |
+| `state-and-reducers.md` | Custom state fields, reducers, type inference via `InferState`, data flow |
 | `session-config.md` | Per-stage model, reasoning, or permission overrides |
 | `discovery-and-verification.md` | File discovery, export format, verifier CLI, tsc type checking |
 
 ## How Workflows Work
 
-A workflow is a TypeScript file that chains `.stage()`, `.tool()`, `.askUserQuestion()`, `.if()`, `.loop()`, and other methods to define a directed graph of agent stages. The chain reads top-to-bottom as the execution order. At the end, `.compile()` validates the structure and produces a `CompiledWorkflow`.
+A workflow is a TypeScript file that chains `.stage()`, `.tool()`, `.askUserQuestion()`, `.if()`, `.loop()`, and other methods to define a directed graph of agent stages. The chain reads top-to-bottom as the execution order. At the end, `.compile()` produces a branded `CompiledWorkflow` blueprint that the CLI binary compiles at load time.
 
 Each `.stage()` launches a fresh agent session with its own context window. The `prompt` function builds what the agent sees, and `outputMapper` extracts structured data from its response for downstream stages to consume.
 
@@ -45,6 +45,7 @@ Map the user's intent to DSL constructs:
 | What data flows between steps? | → `outputMapper` return keys (auto-inferred) |
 | Does the workflow need user input? | → `.askUserQuestion()` |
 | Do any steps need a specific model? | → `sessionConfig` with per-agent-type model |
+| Does a tool need to validate data shapes? | → Zod schemas from the SDK (see `nodes/tool.md`) |
 
 ### 2. Design the Stage Graph
 
@@ -55,8 +56,8 @@ Map the user's intent to a sequence of stages. Every stage requires these fields
 | **`name`** | Unique identifier for this stage. Used as the key in `ctx.stageOutputs.get("<name>")` for downstream access. |
 | **`agent`** | Which agent definition to invoke. Set to an agent name (e.g., `"planner"`) or `null` for SDK default instructions. **Required — must be explicitly set.** |
 | **`description`** | Short label for logging (use emoji prefixes: ⌕ 🔍 ⚡ 🔧 📋 ✨) |
-| **`prompt`** | Function receiving `StageContext` that builds the prompt text |
-| **`outputMapper`** | Function that extracts structured data from the raw response |
+| **`prompt`** | Function receiving `StageContext` that builds the prompt text. Has access to `ctx.userPrompt`, `ctx.stageOutputs`, `ctx.state`, and `ctx.tasks`. |
+| **`outputMapper`** | Function that extracts structured data from the raw response string. Returns `Record<string, JsonValue>`. |
 
 Think of `name` as the database key and `agent` as the worker type. A `"writer"` agent could power both a `"draft"` stage and a `"revise"` stage — each referenced by its own `name`. Set `agent: null` when you want the raw SDK behavior without a custom system prompt.
 
@@ -71,7 +72,7 @@ import { defineWorkflow } from "@bastani/atomic-workflows";
 export default defineWorkflow({
     name: "<workflow-name>",
     description: "<what this workflow does>",
-    // Optional: declare custom state fields
+    // Optional: declare custom state fields (types are auto-inferred)
     globalState: {
       // fieldName: { default: <value>, reducer: "<strategy>" },
     },
@@ -87,6 +88,8 @@ export default defineWorkflow({
   })
   .compile();
 ```
+
+When you declare `globalState`, the SDK infers types automatically — `ctx.state.fieldName` in prompt functions will have the correct type based on the `default` value. For example, `{ default: 0, reducer: "sum" }` gives `ctx.state.fieldName` the type `number`. See `state-and-reducers.md` for details.
 
 ### 4. Type-Check the Workflow
 
@@ -207,7 +210,7 @@ Use factory functions (`() => []`) for mutable defaults like arrays and objects.
 .stage({
   name: "deep-review",
   agent: "reviewer",
-  description: "DEEP REVIEW",
+  description: "🔍 DEEP REVIEW",
   prompt: (ctx) => `Thoroughly review: ${ctx.userPrompt}`,
   outputMapper: (response) => ({ reviewResult: JSON.parse(response) }),
   sessionConfig: {
@@ -218,6 +221,25 @@ Use factory functions (`() => []`) for mutable defaults like arrays and objects.
 })
 ```
 
+### Validation with Zod Schemas
+
+The SDK exports Zod schemas for runtime validation — especially useful in `.tool()` nodes:
+
+```ts
+import { defineWorkflow, TaskItemSchema } from "@bastani/atomic-workflows";
+
+// ... in a tool node:
+.tool({
+  name: "validate-tasks",
+  execute: async (ctx) => {
+    const result = TaskItemSchema.array().safeParse(ctx.state.tasks);
+    return { tasksValid: result.success, validationErrors: result.error?.issues ?? [] };
+  },
+})
+```
+
+Available schemas: `TaskItemSchema`, `StageOutputSchema`, `SessionConfigSchema`, `AgentTypeSchema`, `AskUserQuestionConfigSchema`, `JsonValueSchema`.
+
 ## Type System
 
 The SDK uses precise types — **no `unknown` or `any`**. All data flowing between stages is typed as `JsonValue`:
@@ -226,7 +248,9 @@ The SDK uses precise types — **no `unknown` or `any`**. All data flowing betwe
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 ```
 
-The SDK exports Zod schemas for runtime validation: `TaskItemSchema`, `StageOutputSchema`, `SessionConfigSchema`, `AgentTypeSchema`, `AskUserQuestionConfigSchema`.
+When you provide `globalState`, the SDK uses `InferState` to derive a concrete type from your field defaults. This means `ctx.state` in prompt functions and `.if()` conditions is fully typed — `ctx.state.count` will be `number` if `default: 0`, `ctx.state.items` will be `string[]` if `default: () => [] as string[]`, etc.
+
+The SDK also exports Zod schemas for runtime validation in `.tool()` nodes: `TaskItemSchema`, `StageOutputSchema`, `SessionConfigSchema`, `AgentTypeSchema`, `AskUserQuestionConfigSchema`, `JsonValueSchema`. See `nodes/tool.md` for usage patterns.
 
 ## Structural Rules
 

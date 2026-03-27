@@ -45,9 +45,12 @@ The `question` field accepts either a static config object or a function that bu
 ### Dynamic question (state-dependent)
 
 ```ts
+import type { BaseState } from "@bastani/atomic-workflows";
+
+// ...
 .askUserQuestion({
   name: "review-tasks",
-  question: (state) => ({
+  question: (state: BaseState) => ({
     question: `Found ${state.tasks.length} tasks. Proceed with implementation?`,
     header: "Task Review",
     options: [

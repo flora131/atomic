@@ -52,3 +52,59 @@ Downstream stages access prior outputs via `ctx.stageOutputs.get("<name>")` — 
 | `outputMapper`   | `(response: string) => Record<string, JsonValue>` | **yes** | Extracts structured data from the raw response                  |
 | `sessionConfig`  | `Partial<SessionConfig>`                       | no       | Per-stage session overrides (see `session-config.md`)           |
 | `maxOutputBytes` | `number`                                       | no       | Max byte size for raw response forwarded to downstream stages   |
+
+## `StageContext` reference
+
+The `StageContext` object is passed to `prompt` functions and `.if()` / `.elseIf()` condition callbacks. It provides read-only access to the workflow's current state:
+
+| Field              | Type                                          | Description                                                          |
+| ------------------ | --------------------------------------------- | -------------------------------------------------------------------- |
+| `userPrompt`       | `string`                                      | The original prompt the user passed when invoking the workflow        |
+| `stageOutputs`     | `ReadonlyMap<string, StageOutput>`            | Outputs from previously executed stages, keyed by stage `name`       |
+| `state`            | `TState` (your inferred state type)           | Current accumulated workflow state including all `outputMapper` results |
+| `tasks`            | `readonly TaskItem[]`                         | Current task list (populated after planner stages)                   |
+| `abortSignal`      | `AbortSignal`                                 | Signal to detect workflow cancellation                               |
+| `contextPressure`  | `AccumulatedContextPressure \| undefined`     | Context window usage metrics across all stages (when configured)     |
+
+```ts
+prompt: (ctx) => {
+  // Access the user's original prompt
+  const task = ctx.userPrompt;
+
+  // Access raw response from a prior stage
+  const analysis = ctx.stageOutputs.get("analyze")?.rawResponse ?? "";
+
+  // Access parsed/structured output from a prior stage
+  const tasks = ctx.stageOutputs.get("plan")?.parsedOutput;
+
+  // Access typed state (auto-inferred from globalState)
+  const score = ctx.state.score;
+
+  // Access current task list
+  const pendingTasks = ctx.tasks.filter(t => t.status === "pending");
+
+  return `Implement based on: ${analysis}`;
+},
+```
+
+## `StageOutput` reference
+
+Each entry in `ctx.stageOutputs` is a `StageOutput` object with these fields:
+
+| Field              | Type                                    | Description                                                     |
+| ------------------ | --------------------------------------- | --------------------------------------------------------------- |
+| `stageId`          | `string`                                | The `name` of the stage that produced this output                |
+| `rawResponse`      | `string`                                | The full raw text response from the agent session                |
+| `parsedOutput`     | `Record<string, JsonValue> \| undefined`| Structured data returned by `outputMapper` (undefined if parsing failed) |
+| `status`           | `"completed" \| "interrupted" \| "error"` | How the stage ended                                           |
+| `error`            | `string \| undefined`                   | Error message if the stage failed                                |
+| `contextUsage`     | `ContextPressureSnapshot \| undefined`  | Context window usage at completion                               |
+| `continuations`    | `readonly ContinuationRecord[] \| undefined` | Records of any continuations triggered by context pressure  |
+| `originalByteLength` | `number \| undefined`                 | Original byte size before any `maxOutputBytes` truncation        |
+
+```ts
+// Common access patterns in prompt functions:
+const raw = ctx.stageOutputs.get("plan")?.rawResponse ?? "";
+const parsed = ctx.stageOutputs.get("plan")?.parsedOutput;
+const succeeded = ctx.stageOutputs.get("plan")?.status === "completed";
+```

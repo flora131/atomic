@@ -20,11 +20,51 @@ The `execute` function receives an `ExecutionContext<BaseState>` with the curren
 
 ## Common use cases
 
-- **Validation** — check parsed output before proceeding
+- **Validation** — check parsed output before proceeding (use Zod schemas for runtime validation)
 - **Data transforms** — reshape or filter data between agent stages
 - **File I/O** — read/write files as part of the pipeline
 - **API calls** — fetch external data or trigger webhooks
 - **Notifications** — emit events or log progress
+
+## Validation with Zod schemas
+
+The SDK exports Zod schemas that pair naturally with `.tool()` for runtime validation. This is especially useful for validating data produced by LLM stages before passing it downstream:
+
+```ts
+import { defineWorkflow, TaskItemSchema } from "@bastani/atomic-workflows";
+
+// ...
+.tool({
+  name: "validate-tasks",
+  description: "Validate planner output matches TaskItem schema",
+  execute: async (ctx) => {
+    const result = TaskItemSchema.array().safeParse(ctx.state.tasks);
+    if (!result.success) {
+      return {
+        tasksValid: false,
+        validationErrors: result.error.issues.map(i => i.message),
+      };
+    }
+    return { tasksValid: true, validationErrors: [] };
+  },
+})
+```
+
+Available schemas: `TaskItemSchema`, `StageOutputSchema`, `SessionConfigSchema`, `AgentTypeSchema`, `AskUserQuestionConfigSchema`, `JsonValueSchema`.
+
+## `ExecutionContext` reference
+
+The `execute` function receives an `ExecutionContext` with access to the full workflow state:
+
+| Field          | Type                          | Description                                                |
+| -------------- | ----------------------------- | ---------------------------------------------------------- |
+| `state`        | `TState`                      | Current workflow state (typed from `globalState`)          |
+| `config`       | `GraphConfig`                 | Graph execution configuration                              |
+| `errors`       | `ExecutionError[]`            | Errors from prior node executions                          |
+| `abortSignal`  | `AbortSignal \| undefined`   | Signal to detect workflow cancellation                     |
+| `emit`         | `((type: string, data?) => void) \| undefined` | Emit events to the workflow event bus |
+| `getNodeOutput`| `((nodeId: string) => Record<string, JsonValue>) \| undefined` | Get a specific node's output |
+| `model`        | `string \| undefined`        | Current model identifier                                   |
 
 ## `ToolOptions` reference
 

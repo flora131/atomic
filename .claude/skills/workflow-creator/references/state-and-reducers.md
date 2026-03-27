@@ -71,6 +71,32 @@ globalState: {
 }
 ```
 
+## Type inference with `InferState`
+
+When you declare `globalState`, the SDK uses the `InferState` utility type to derive a concrete state type from your field defaults. This means `ctx.state` in prompt functions and `.if()` conditions is fully typed — not `BaseState` with loose `JsonValue` fields, but a precise intersection type:
+
+```ts
+const workflow = defineWorkflow({
+  name: "typed-example",
+  description: "Type inference demo",
+  globalState: {
+    count: { default: 0, reducer: "sum" },
+    items: { default: () => [] as string[], reducer: "concat" },
+    approved: { default: false },
+  },
+});
+
+// In .stage() prompt:
+// ctx.state.count   → number
+// ctx.state.items   → string[]
+// ctx.state.approved → boolean
+// ctx.state.outputs  → Record<string, Record<string, JsonValue>> (from BaseState)
+```
+
+This type inference is what makes the builder generic — `WorkflowBuilder<TState>` carries the inferred state type through all chained methods, so `.if()` conditions, `.stage()` prompts, and `.tool()` execute functions all see the same typed `ctx.state`.
+
+**Tip:** Use `as const` on string literal defaults if you want narrow string types, and `as Type[]` casts on factory defaults to get precise array element types.
+
 ## Built-in reducers
 
 | Reducer      | Behavior                                           |

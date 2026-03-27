@@ -43,6 +43,7 @@ export default defineWorkflow({
   .version("1.0.0")
   .stage({
     name: "gather",
+    agent: null,
     description: "📊 GATHER",
     prompt: (ctx) => `Gather data for:\n${ctx.userPrompt}`,
     outputMapper: (response) => ({
@@ -66,6 +67,7 @@ export default defineWorkflow({
   })
     .stage({
       name: "analyze",
+      agent: null,
       description: "🔬 ANALYZE",
       prompt: (ctx) => {
         const tasks = ctx.state.tasks;

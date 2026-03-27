@@ -319,6 +319,7 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
       id,
       type,
       name: nodeName,
+      agent: stageAgent,
       description:
         "description" in options ? (options.description as string) : nodeName,
       execute:

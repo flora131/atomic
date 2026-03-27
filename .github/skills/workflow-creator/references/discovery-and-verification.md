@@ -14,8 +14,8 @@ Export your compiled workflow as the default export:
 import { defineWorkflow } from "@bastani/atomic-workflows";
 
 export default defineWorkflow({ name: "my-workflow", description: "My custom workflow" })
-  .stage({ name: "step1", description: "Step 1", ... })
-  .stage({ name: "step2", agent: "step2", description: "Step 2", ... })
+  .stage({ name: "step1", agent: null, description: "Step 1", ... })
+  .stage({ name: "step2", agent: "worker", description: "Step 2", ... })
   .compile();
 ```
 
@@ -23,7 +23,9 @@ The `.compile()` result is a `WorkflowDefinition` that can be used directly — 
 
 ## Verification
 
-All workflows are verified at load time for structural correctness:
+All workflows are verified at load time for structural correctness.
+
+### Structural checks (7 properties)
 
 1. **Reachability** — all nodes reachable from start
 2. **Termination** — all paths reach an end node
@@ -32,6 +34,15 @@ All workflows are verified at load time for structural correctness:
 5. **State data-flow** — all reads have preceding writes on all paths
 6. **Model validation** — models and reasoning efforts declared in `sessionConfig` are valid for each agent type
 7. **Type checking** — workflow source files are free of TypeScript type errors (invalid fields, wrong function signatures, missing required properties, incorrect `sessionConfig` shapes)
+
+### Node validation
+
+In addition to the 7 structural checks, the verifier validates every graph node:
+
+- **Required `name`** — every node (stage, tool, ask-user) must have a `name` field
+- **Required `agent` on stages** — every agent-type node must have `agent` explicitly set (to a string or `null`)
+- **Unique names** — no two nodes may share the same `name`, regardless of node type
+- **Agent definition matching** — when `agent` is a non-null string, the verifier checks it against discovered agent definition files and warns if no match is found
 
 ### Running the verifier
 
@@ -77,6 +88,10 @@ Workflow "broken-workflow" failed verification
   PASS  State Data-Flow
   PASS  Model Validation
   FAIL  Type Checking: my-workflow.ts:12:5 - error TS2353: Object literal may only specify known properties, and 'reads' does not exist in type 'StageOptions'
+  Errors:
+    ✗ Stage "deploy" is missing required "agent" field. Set to an agent name or null.
+  Warnings:
+    ⚠ Stage "custom-agent" has no matching agent definition file. Available agents: planner, reviewer, worker
 ```
 
 Workflows that fail verification at startup are rejected with a warning:

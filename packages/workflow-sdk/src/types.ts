@@ -251,7 +251,7 @@ export interface StageContext<TState extends BaseState = BaseState> {
 
 export interface StageOptions<TState extends BaseState = BaseState> {
   readonly name: string;
-  readonly agent?: string | null;
+  readonly agent: string | null;
   readonly description: string;
   readonly prompt: (context: StageContext<TState>) => string;
   readonly outputMapper: (response: string) => Record<string, JsonValue>;

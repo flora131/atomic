@@ -24,6 +24,7 @@ export default defineWorkflow({
   })
   .stage({
     name: "execute",
+    agent: null,
     description: "EXECUTOR",
     prompt: (ctx) => `Execute these tasks:\n${JSON.stringify(ctx.stageOutputs.get("plan")?.parsedOutput)}`,
     outputMapper: () => ({}),
@@ -40,7 +41,7 @@ export default defineWorkflow({
 
 Reading top-to-bottom: `plan → execute → review`. No separate flow config needed.
 
-Note that the `execute` stage omits `agent` — it runs with the SDK's default session instructions instead of a custom agent definition. See `nodes/stage.md` for details.
+Note that the `execute` stage sets `agent: null` — it runs with the SDK's default session instructions instead of a custom agent definition. Both `name` and `agent` are required on every stage. See `nodes/stage.md` for details.
 
 ## Reference files
 

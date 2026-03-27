@@ -91,13 +91,11 @@ export interface StageOptions<TState extends BaseState = BaseState> {
    * Agent definition name to use for this stage.
    * Selects the agent definition that is loaded at runtime.
    *
-   * When `null` or omitted, the stage runs with the SDK's default session
+   * When `null`, the stage runs with the SDK's default session
    * instructions (e.g., Claude Code preset, Copilot guardrails) instead of
    * overwriting them with an agent definition's system prompt.
-   *
-   * @default null
    */
-  readonly agent?: string | null;
+  readonly agent: string | null;
 
   /** Brief description of the stage's purpose (used in logging and debugging). */
   readonly description: string;

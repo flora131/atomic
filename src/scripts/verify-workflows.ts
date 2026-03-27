@@ -118,15 +118,56 @@ export async function verifySingleWorkflow(
     };
   }
 
-  // Warn about agent-type graph nodes that lack matching agent definition files
+  // ── Validate graph nodes ─────────────────────────────────────────────
+  // 1. Every node must have a name (node.id).
+  // 2. No two nodes may share the same name, regardless of type.
+  // 3. Agent-type nodes must have `agent` defined (string or null).
+  // 4. When `agent` is a non-null string, validate it against discovered agents.
+  // 5. When `agent` is null, skip agent-definition validation.
   const agentLookup = buildAgentLookup();
-  const agentNodeIds: string[] = [];
+  const nodeErrors: string[] = [];
+  const agentNames: string[] = [];
+  const seenNodeNames = new Map<string, number>();
+
   for (const [nodeId, node] of graph.nodes) {
+    // Required field: name (node.id) — applies to ALL node types
+    if (!nodeId) {
+      nodeErrors.push(`A ${node.type ?? "unknown"}-type node is missing required "name" field.`);
+    }
+
+    // Track duplicate names across ALL node types
+    seenNodeNames.set(nodeId, (seenNodeNames.get(nodeId) ?? 0) + 1);
+
+    // Agent-specific validation
     if (node.type === "agent") {
-      agentNodeIds.push(nodeId);
+      // Required field: agent (must be explicitly set, not undefined)
+      if (node.agent === undefined) {
+        nodeErrors.push(
+          `Stage "${nodeId}" is missing required "agent" field. Set to an agent name or null.`,
+        );
+      } else if (typeof node.agent === "string") {
+        // Non-null agent — collect for agent-definition validation
+        agentNames.push(node.agent);
+      }
+      // agent === null is valid — intentionally no agent definition
     }
   }
-  const agentWarnings = validateStageAgents(agentNodeIds, agentLookup);
+
+  // Check for duplicate node names
+  for (const [name, count] of seenNodeNames) {
+    if (count > 1) {
+      nodeErrors.push(
+        `Duplicate node name "${name}" found ${count} times. Each node must have a unique name.`,
+      );
+    }
+  }
+
+  // Validate agent names against discovered agent definition files
+  const agentWarnings = validateStageAgents(agentNames, agentLookup);
+
+  const nodeErrorText = nodeErrors.length > 0
+    ? `\n  Errors:\n${nodeErrors.map((e) => `    ✗ ${e}`).join("\n")}`
+    : "";
   const agentWarningText = agentWarnings.length > 0
     ? `\n  Warnings:\n${agentWarnings.map((w) => `    ⚠ ${w}`).join("\n")}`
     : "";
@@ -137,9 +178,10 @@ export async function verifySingleWorkflow(
     conductorStages: definition.conductorStages,
     sourcePaths: workflow.sourcePath ? [workflow.sourcePath] : undefined,
   });
-  const report = formatVerificationReport(id, result) + agentWarningText;
+  const report = formatVerificationReport(id, result) + nodeErrorText + agentWarningText;
+  const passed = result.valid && nodeErrors.length === 0;
 
-  return { report, passed: result.valid };
+  return { report, passed };
 }
 
 /**

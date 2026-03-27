@@ -24,6 +24,7 @@ export default defineWorkflow({
   })
   .stage({
     name: "execute",
+    agent: null,
     description: "EXECUTOR",
     prompt: (ctx) => `Execute these tasks:\n${JSON.stringify(ctx.stageOutputs.get("plan")?.parsedOutput)}`,
     outputMapper: () => ({}),
@@ -40,7 +41,7 @@ export default defineWorkflow({
 
 Reading top-to-bottom: `plan → execute → review`. No separate flow config needed.
 
-Note that the `execute` stage omits `agent` — it runs with the SDK's default session instructions instead of a custom agent definition. See `nodes/stage.md` for details.
+Note that the `execute` stage sets `agent: null` — it runs with the SDK's default session instructions instead of a custom agent definition. Both `name` and `agent` are required on every stage. See `nodes/stage.md` for details.
 
 ## Reference files
 
@@ -53,3 +54,9 @@ Note that the `execute` stage omits `agent` — it runs with the SDK's default s
 | `state-and-reducers.md` | `globalState`, `loopState`, `StateFieldOptions`, built-in reducers, data flow declarations |
 | `session-config.md` | Per-stage `sessionConfig` overrides, system prompt resolution order |
 | `discovery-and-verification.md` | Workflow file discovery paths, `export default`, verifier checks and CLI |
+
+## Type safety
+
+The SDK is fully typed with **zero `unknown` or `any`** annotations. All data flowing between stages uses the `JsonValue` type — a recursive type covering all JSON-serializable values. `outputMapper` functions return `Record<string, JsonValue>`, and the compiler validates data flow statically.
+
+The SDK also exports **Zod schemas** for runtime validation of core data structures (e.g., `TaskItemSchema`, `StageOutputSchema`, `SessionConfigSchema`). Import them alongside the builder for `.parse()` or `.safeParse()` validation in `.tool()` nodes.

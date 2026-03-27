@@ -79,6 +79,7 @@ export default defineWorkflow({
   })
   .stage({
     name: "plan",
+    agent: null,
     description: "PLANNER",
     prompt: (ctx) => \`Plan: \${ctx.userPrompt}\`,
     outputMapper: (response) => ({ tasks: response }),
@@ -103,6 +104,7 @@ export default defineWorkflow({
   })
   .stage({
     name: "plan",
+    agent: null,
     description: "PLANNER",
     reads: ["tasks"],
     outputs: ["result"],
@@ -138,6 +140,7 @@ export default defineWorkflow({
   })
   .stage({
     name: "plan",
+    agent: null,
     description: "PLANNER",
     prompt: (ctx) => \`Plan: \${ctx.userPrompt}\`,
     outputMapper: (response): string => response,
@@ -189,6 +192,7 @@ export default defineWorkflow({
   })
   .stage({
     name: "plan",
+    agent: null,
     // missing: description, prompt, outputMapper
   } as any)
   .compile();
@@ -207,6 +211,7 @@ export default defineWorkflow({
   })
   .stage({
     name: "plan",
+    agent: null,
     description: "PLAN",
     prompt: (ctx) => ctx.userPrompt,
   })
@@ -233,12 +238,14 @@ export default defineWorkflow({
   })
   .stage({
     name: "s1",
+    agent: null,
     description: "S1",
     prompt: (ctx) => ctx.userPrompt,
     outputMapper: (response): string => response,
   })
   .stage({
     name: "s2",
+    agent: null,
     description: "S2",
     prompt: (ctx) => ctx.userPrompt,
     outputMapper: (response): string => response,
@@ -274,6 +281,7 @@ export default defineWorkflow({
   })
   .stage({
     name: "step",
+    agent: null,
     description: "STEP",
     prompt: (ctx) => \`Do: \${ctx.userPrompt}\`,
     outputMapper: (response) => ({ result: response }),

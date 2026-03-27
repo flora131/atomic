@@ -317,10 +317,20 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
           error instanceof Error ? error.message : String(error),
         );
       if (isSessionError && state.session) {
+        const expiredSessionId = state.session.id;
         adapter.dispose();
         state.session = null;
         try {
-          await ensureSession();
+          // Try to resume the existing session first to preserve conversation
+          // history. Only fall back to creating a brand-new session when
+          // resume fails (e.g. the session truly no longer exists).
+          const resumed = await client.resumeSession(expiredSessionId);
+          if (resumed) {
+            state.session = resumed;
+            state.ownedSessionIds.add(resumed.id);
+          } else {
+            await ensureSession();
+          }
           const retryAdapter = createStreamAdapter({ client, state, resolvedAgentType });
           state.streamAbortController = new AbortController();
           const retryRunId = ++state.runCounter;

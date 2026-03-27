@@ -261,10 +261,11 @@ describe("Ralph Workflow Definition (DSL)", () => {
         },
       ]),
     );
-    // The compiler unwraps single-key { tasks: [...] } to a raw array
-    // for backward compatibility with the conductor's task detection.
-    expect(Array.isArray(result)).toBe(true);
-    const tasks = result as Array<{ description: string }>;
+    // The outputMapper returns { tasks: [...] }, so parseOutput returns a Record.
+    expect(typeof result).toBe("object");
+    expect(result).not.toBeNull();
+    const parsed = result as Record<string, unknown>;
+    const tasks = parsed.tasks as Array<{ description: string }>;
     expect(tasks).toHaveLength(1);
     expect(tasks[0]!.description).toBe("Task A");
   });

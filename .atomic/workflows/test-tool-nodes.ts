@@ -53,6 +53,7 @@ export default defineWorkflow({
   })
   .stage({
     name: "execute",
+    agent: null,
     description: "⚡ EXECUTE",
     prompt: (ctx) => {
       const summary = ctx.stageOutputs.get("summarize-tasks")?.rawResponse ?? "";

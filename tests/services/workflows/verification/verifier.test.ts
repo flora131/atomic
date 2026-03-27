@@ -51,7 +51,6 @@ function allPassCheckers(): PropertyCheckers {
     checkLoopBounds: pass,
     checkStateDataFlow: pass,
     checkModelValidation: async () => ({ verified: true }),
-    checkTypeChecking: async () => ({ verified: true }),
   };
 }
 
@@ -203,7 +202,6 @@ describe("verifyWorkflow", () => {
         return { verified: true };
       },
       checkModelValidation: async () => ({ verified: true }),
-      checkTypeChecking: async () => ({ verified: true }),
     };
 
     await verifyWorkflow(graph, { checkers });

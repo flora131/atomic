@@ -28,7 +28,6 @@ export interface VerificationResult {
     loopBounds: PropertyResult;
     stateDataFlow: PropertyResult;
     modelValidation?: PropertyResult;
-    typeChecking?: PropertyResult;
   };
 }
 

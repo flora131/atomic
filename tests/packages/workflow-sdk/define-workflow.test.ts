@@ -373,7 +373,7 @@ describe("WorkflowBuilder loops", () => {
   });
 
   test("break inside loop records instruction", () => {
-    const breakCondition = () => (state: BaseState) => state.outputs["done"] === true;
+    const breakCondition = () => (state: BaseState) => state.outputs["done"] !== undefined;
     const builder = defineWorkflow({ name: "wf", description: "d" })
       .loop({ maxCycles: 5 })
         .stage(makeStage("step"))

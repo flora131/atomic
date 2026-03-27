@@ -20,6 +20,7 @@ export default defineWorkflow({
   .argumentHint("<code-to-review>")
   .stage({
     name: "initial-impl",
+    agent: null,
     description: "⚡ INITIAL IMPLEMENTATION",
     prompt: (ctx) => `Implement:\n${ctx.userPrompt}`,
     outputMapper: () => ({}),
@@ -65,6 +66,7 @@ export default defineWorkflow({
   })
     .stage({
       name: "polish",
+      agent: null,
       description: "✨ POLISH",
       prompt: (ctx) => `Polish iteration ${ctx.state.polishIteration}:\n${ctx.userPrompt}`,
       outputMapper: (response) => ({

@@ -32,12 +32,14 @@
 import type {
   BaseState,
   InferState,
+  JsonValue,
   StageContext,
   StageOptions,
   ToolOptions,
   AskUserQuestionOptions,
   LoopOptions,
   StateFieldOptions,
+  StateFieldOptionsBase,
   WorkflowOptions,
   CompiledWorkflow,
 } from "./types.ts";
@@ -47,16 +49,16 @@ import type {
 // ---------------------------------------------------------------------------
 
 type Instruction =
-  | { readonly type: "stage"; readonly id: string; readonly config: StageOptions<any> }
-  | { readonly type: "tool"; readonly id: string; readonly config: ToolOptions<any> }
-  | { readonly type: "askUserQuestion"; readonly id: string; readonly config: AskUserQuestionOptions<any> }
-  | { readonly type: "if"; readonly condition: (ctx: StageContext<any>) => boolean }
-  | { readonly type: "elseIf"; readonly condition: (ctx: StageContext<any>) => boolean }
+  | { readonly type: "stage"; readonly id: string; readonly config: StageOptions<BaseState> }
+  | { readonly type: "tool"; readonly id: string; readonly config: ToolOptions<BaseState> }
+  | { readonly type: "askUserQuestion"; readonly id: string; readonly config: AskUserQuestionOptions<BaseState> }
+  | { readonly type: "if"; readonly condition: (ctx: StageContext<BaseState>) => boolean }
+  | { readonly type: "elseIf"; readonly condition: (ctx: StageContext<BaseState>) => boolean }
   | { readonly type: "else" }
   | { readonly type: "endIf" }
   | { readonly type: "loop"; readonly config: LoopOptions }
   | { readonly type: "endLoop" }
-  | { readonly type: "break"; readonly condition?: () => (state: any) => boolean };
+  | { readonly type: "break"; readonly condition?: () => (state: BaseState) => boolean };
 
 // ---------------------------------------------------------------------------
 // Blueprint — the data structure carried by the branded CompiledWorkflow
@@ -80,7 +82,7 @@ export interface WorkflowBlueprint {
 // ---------------------------------------------------------------------------
 
 export function defineWorkflow<
-  TGlobalState extends Record<string, StateFieldOptions<any>> = Record<string, StateFieldOptions>,
+  TGlobalState extends Record<string, StateFieldOptionsBase> = Record<string, StateFieldOptions>,
 >(
   options: WorkflowOptions<TGlobalState>,
 ): WorkflowBuilder<InferState<TGlobalState>> {
@@ -98,11 +100,11 @@ export class WorkflowBuilder<TState extends BaseState = BaseState> {
 
   private _version: string | undefined;
   private _argumentHint: string | undefined;
-  private readonly _globalState: Record<string, StateFieldOptions> | undefined;
+  private readonly _globalState: Record<string, StateFieldOptionsBase> | undefined;
   private loopDepth: number = 0;
   private nodeNames: Set<string> = new Set();
 
-  constructor(options: WorkflowOptions<any>) {
+  constructor(options: WorkflowOptions<Record<string, StateFieldOptionsBase>>) {
     this.name = options.name;
     this.description = options.description;
     this._globalState = options.globalState;
@@ -129,7 +131,9 @@ export class WorkflowBuilder<TState extends BaseState = BaseState> {
       );
     }
     this.nodeNames.add(options.name);
-    this.instructions.push({ type: "stage", id: options.name, config: options });
+    // Cast: instruction tape erases the generic state type to BaseState.
+    // Safe because the compiler accesses instruction configs structurally.
+    this.instructions.push({ type: "stage", id: options.name, config: options as StageOptions<BaseState> });
     return this;
   }
 
@@ -140,7 +144,7 @@ export class WorkflowBuilder<TState extends BaseState = BaseState> {
       );
     }
     this.nodeNames.add(options.name);
-    this.instructions.push({ type: "tool", id: options.name, config: options });
+    this.instructions.push({ type: "tool", id: options.name, config: options as ToolOptions<BaseState> });
     return this;
   }
 
@@ -151,19 +155,19 @@ export class WorkflowBuilder<TState extends BaseState = BaseState> {
       );
     }
     this.nodeNames.add(options.name);
-    this.instructions.push({ type: "askUserQuestion", id: options.name, config: options });
+    this.instructions.push({ type: "askUserQuestion", id: options.name, config: options as AskUserQuestionOptions<BaseState> });
     return this;
   }
 
   // -- Conditional branching ------------------------------------------------
 
   if(condition: (ctx: StageContext<TState>) => boolean): this {
-    this.instructions.push({ type: "if", condition });
+    this.instructions.push({ type: "if", condition: condition as (ctx: StageContext<BaseState>) => boolean });
     return this;
   }
 
   elseIf(condition: (ctx: StageContext<TState>) => boolean): this {
-    this.instructions.push({ type: "elseIf", condition });
+    this.instructions.push({ type: "elseIf", condition: condition as (ctx: StageContext<BaseState>) => boolean });
     return this;
   }
 
@@ -198,7 +202,7 @@ export class WorkflowBuilder<TState extends BaseState = BaseState> {
     if (this.loopDepth === 0) {
       throw new Error("break() can only be used inside a loop() block");
     }
-    this.instructions.push({ type: "break", condition });
+    this.instructions.push({ type: "break", condition: condition as (() => (state: BaseState) => boolean) | undefined });
     return this;
   }
 

@@ -110,6 +110,7 @@ export default defineWorkflow({
     // Step 5a: Execute implementation
     .stage({
       name: "implementer",
+      agent: null,
       description: "⚡ IMPLEMENTER",
       prompt: (ctx) => {
         const tasks = ctx.state.tasks;
@@ -188,6 +189,7 @@ export default defineWorkflow({
     // Plan was rejected
     .stage({
       name: "report-rejection",
+      agent: null,
       description: "📋 REJECTION REPORT",
       prompt: () => "Generate a summary of why the plan was rejected.",
       outputMapper: () => ({}),

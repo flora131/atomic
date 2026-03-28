@@ -37,6 +37,7 @@
     "test": "bun test",
     "test:coverage": "bun test --coverage",
     "typecheck": "bunx tsc --noEmit",
+    "validate:agents": "bun run src/scripts/validate-agents.ts",
     "lint": "oxlint --config=oxlint.json src tests",
     "lint:fix": "oxlint --config=oxlint.json --fix src tests",
     "postinstall": "lefthook install && bun run src/scripts/postinstall.ts"

@@ -188,6 +188,3 @@ tmux-screenshots/
 .cocoindex_code
 # CocoIndex Code (ccc)
 /.cocoindex_code/
-
-# Symlinks (DevPod can't overwrite existing symlinks on rebuild)
-AGENTS.md

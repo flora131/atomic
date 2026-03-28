@@ -8,6 +8,7 @@
         "COCOINDEX_CODE_DB_PATH_MAPPING": "/workspaces=/tmp/cocoindex-db"
     },
     "installsAfter": [
-        "ghcr.io/devcontainers/features/common-utils"
+        "ghcr.io/devcontainers/features/common-utils",
+        "ghcr.io/devcontainers/features/github-cli"
     ]
 }

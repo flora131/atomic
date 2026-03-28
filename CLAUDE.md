@@ -84,16 +84,20 @@ Rely on the `tmux-cli` tool (e.g. run `claude` in a `tmux` session using the `tm
 Relevant resources (use the deepwiki mcp `ask_question` tool for repos):
 
 1. Bun (runtime) repo: `oven-sh/bun`
-2. OpenCode SDK / OpenCode repo: `anomalyco/opencode`
-3. OpenTUI repo: `anomalyco/opentui`
-4. Copilot:
+2. OpenCode:
+   1. SDK repo: `anomalyco/opencode`
+   2. CLI repo: `anomalyco/opencode`
+3. Copilot:
     1. SDK repo: `github/copilot-sdk`
     2. CLI repo: `github/copilot-cli`
         1. [Usage](docs/copilot-cli/usage.md)
         2. [Hooks](docs/copilot-cli/hooks.md)
         3. [Skills](docs/copilot-cli/skills.md)
-5. [Claude Agent SDK](docs/claude-agent-sdk.md)
-    - v1 preferred (v2 is unstable and has many bugs)
+4. Claude Code:
+   1. SDK repo: `anthropics/claude-agent-sdk-typescript`
+      1. [Docs](docs/claude-agent-sdk.md), v1 preferred (v2 is unstable and has many bugs)
+   2. CLI repo: `anthropics/claude-code`
+5. OpenTUI repo: `anomalyco/opentui`
 
 ### Coding Agent Configuration Locations
 

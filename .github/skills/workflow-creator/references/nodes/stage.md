@@ -29,6 +29,86 @@ Every stage requires both a `name` and an `agent` field:
 })
 ```
 
+## Agent Definitions
+
+When a stage sets `agent` to a non-null string, that string must match the `name` field in a discovered agent definition file. The verifier treats a missing match as an error — the workflow will not pass verification.
+
+### File format
+
+Agent definitions are markdown files (`<agent-name>.md`) with YAML frontmatter followed by the system prompt body.
+
+**Frontmatter fields:**
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | **yes** | Agent name — must exactly match the `agent` value in `.stage()` |
+| `description` | **yes** | One-line summary of what this agent does |
+| `tools` | no | Array of tool names the agent can use (e.g., `["search", "read", "execute"]`) |
+
+Everything after the frontmatter block becomes the agent's **system prompt** at runtime.
+
+### Where to place agent files
+
+Each SDK discovers agent definitions from its own directories:
+
+| SDK | Local path | Global path |
+|-----|-----------|-------------|
+| Claude Code | `.claude/agents/<name>.md` | `~/.claude/agents/<name>.md` |
+| Copilot CLI | `.github/agents/<name>.md` | `~/.copilot/agents/<name>.md` |
+| OpenCode | `.opencode/agents/<name>.md` | `~/.opencode/agents/<name>.md` |
+
+**Cross-SDK workflows:** Place the agent file in **all three** local agent directories so the workflow passes verification regardless of which CLI runs it.
+
+### How to create an agent definition
+
+1. **Choose a name** — a descriptive, lowercase identifier (e.g., `reviewer`, `planner`, `security-auditor`). This becomes both the filename and the `agent` value in `.stage()`.
+2. **Write the system prompt** — define the agent's role, constraints, and expected output format in the markdown body after the frontmatter.
+3. **Set frontmatter** — add `name`, `description`, and optionally `tools`.
+4. **Save to agent directories** — place `<name>.md` in the appropriate directory (see table above).
+5. **Reference in stage** — use `agent: "<name>"` in your `.stage()` call.
+6. **Verify** — run `atomic workflow verify` to confirm the agent is discovered and the workflow passes.
+
+### SDK-specific sub-agent guidance
+
+Each SDK has its own conventions for sub-agent capabilities, tool access, and permissions. Use the DeepWiki MCP `ask_question` tool with these repositories to look up SDK-specific details:
+
+| SDK | Repository | Example questions to ask |
+|-----|-----------|--------------------------|
+| Claude Code | `anthropics/claude-code` | "How do custom agents work?", "What tools can agents access?", "How are agent permissions configured?" |
+| Copilot CLI | `github/copilot-sdk` | "How do custom agents work?", "What tools can agents access?", "How are agent permissions configured?" |
+| OpenCode | `anomalyco/opencode` | "How do custom agents work?", "What tools can agents access?", "How are agent permissions configured?" |
+
+### Example — end to end
+
+**Step 1.** Create the agent definition file (e.g., `.claude/agents/reviewer.md`):
+
+```markdown
+---
+name: reviewer
+description: Reviews code changes for correctness, style, and security issues.
+tools: ["search", "read", "execute"]
+---
+
+You are a code reviewer. Analyze the provided code changes and report:
+1. Correctness issues (bugs, logic errors)
+2. Style violations (naming, formatting)
+3. Security concerns (injection, secrets, OWASP top 10)
+
+Be concise. Use bullet points. Flag severity as HIGH / MEDIUM / LOW.
+```
+
+**Step 2.** Reference it in a workflow stage:
+
+```ts
+.stage({
+  name: "review",
+  agent: "reviewer",  // matches `name` in reviewer.md frontmatter
+  description: "🔍 CODE REVIEW",
+  prompt: (ctx) => `Review these changes:\n${ctx.stageOutputs.get("implement")?.rawResponse}`,
+  outputMapper: (response) => ({ reviewFeedback: response }),
+})
+```
+
 ## `name` vs `agent`
 
 `name` identifies the stage, `agent` selects which sub-agent to run. The same agent definition can power multiple stages with different purposes, and each is referenced by its own `name`:

@@ -122,7 +122,7 @@ The verifier also enforces:
 - Every node has a `name` field
 - Every agent-type node has an `agent` field (string or null)
 - No duplicate node names across all node types
-- Agent names reference valid agent definition files (warning if not found)
+- Agent names reference valid agent definition files (error if not found)
 
 All checks must pass. The verifier exits with code 1 on failure, making it CI-ready.
 

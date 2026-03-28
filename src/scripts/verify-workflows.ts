@@ -163,13 +163,13 @@ export async function verifySingleWorkflow(
   }
 
   // Validate agent names against discovered agent definition files
-  const agentWarnings = validateStageAgents(agentNames, agentLookup);
+  const agentErrors = validateStageAgents(agentNames, agentLookup);
 
   const nodeErrorText = nodeErrors.length > 0
     ? `\n  Errors:\n${nodeErrors.map((e) => `    ✗ ${e}`).join("\n")}`
     : "";
-  const agentWarningText = agentWarnings.length > 0
-    ? `\n  Warnings:\n${agentWarnings.map((w) => `    ⚠ ${w}`).join("\n")}`
+  const agentErrorText = agentErrors.length > 0
+    ? `\n  Errors:\n${agentErrors.map((e) => `    ✗ ${e}`).join("\n")}`
     : "";
 
   const encoded = encodeGraph(graph);
@@ -177,8 +177,8 @@ export async function verifySingleWorkflow(
     encodedGraph: encoded,
     conductorStages: definition.conductorStages,
   });
-  const report = formatVerificationReport(id, result) + nodeErrorText + agentWarningText;
-  const passed = result.valid && nodeErrors.length === 0;
+  const report = formatVerificationReport(id, result) + nodeErrorText + agentErrorText;
+  const passed = result.valid && nodeErrors.length === 0 && agentErrors.length === 0;
 
   return { report, passed };
 }

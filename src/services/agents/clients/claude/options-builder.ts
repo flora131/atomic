@@ -194,6 +194,7 @@ export function buildClaudeSdkOptions(args: {
     supportedReasoningEfforts: ReadonlySet<ReasoningEffort>;
     adaptiveThinkingModels: ReadonlySet<string>;
     allowedTools: readonly string[];
+    disallowedTools: readonly string[];
     executablePath: string;
     resolveToolPermission: (
         sessionId: string,
@@ -271,6 +272,7 @@ export function buildClaudeSdkOptions(args: {
     options.permissionMode = "bypassPermissions";
     options.allowDangerouslySkipPermissions = true;
     options.allowedTools = [...args.allowedTools];
+    options.disallowedTools = [...args.disallowedTools];
 
     if (args.config.sessionId) {
         options.resume = args.config.sessionId;

@@ -2,7 +2,6 @@
 name: reviewer
 description: Code reviewer for proposed code changes.
 tools: Bash, Agent, Glob, Grep, Read, TodoWrite, mcp__deepwiki__ask_question
-model: opus
 ---
 
 # Review guidelines:

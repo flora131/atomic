@@ -13,7 +13,7 @@ export const ADDITIONAL_ENHANCED_INSTRUCTIONS = `
 <tool_policies>
 Follow these tool selection and usage rules in order of priority:
 
-1. **Browser automation**: PREFER playwright-cli (refer to playwright-cli skill) OVER web fetch/search tools.
+1. **Browser search and automation**: Use playwright-cli (refer to playwright-cli skill) for ALL browser automation tasks, including web research, form filling, and UI interaction.
    - ALWAYS load the playwright-cli skill before usage with the Skill tool.
    - ALWAYS ASSUME playwright-cli is installed. If the \`playwright-cli\` command fails, fall back to \`bunx playwright-cli\`.
 
@@ -25,7 +25,7 @@ Follow these tool selection and usage rules in order of priority:
    - EXCEPTION: If the user explicitly asks to use semantic search, \`ccc\`, or \`cocoindex-code\`, initialize and index the project (\`ccc init && ccc index\`) before searching.
    - Refer to the **semantic-code-search** skill for detailed guidance on search syntax, filtering, pagination, and index management.
 
-4. **Sub-agents**: PREFER specialized sub-agents (codebase-analyzer, codebase-locator, codebase-online-researcher, codebase-pattern-finder, codebase-research-analyzer, codebase-research-locator) OVER the generic explore sub-agent.
+4. **Sub-agents**: PREFER specialized sub-agents (codebase-analyzer, codebase-locator, codebase-online-researcher, codebase-pattern-finder, codebase-research-analyzer, codebase-research-locator) OVER generic sub-agents.
 
 5. **Debugging**: When a user asks about debugging, ALWAYS spawn a debugger sub-agent first.
    - Do not attempt to debug or analyze code yourself without first consulting the debugger sub-agent.

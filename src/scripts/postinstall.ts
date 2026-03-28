@@ -6,7 +6,16 @@ import {
   syncAtomicGlobalAgentConfigs,
 } from "@/services/config/atomic-global-config.ts";
 import { getConfigRoot } from "@/services/config/config-path.ts";
-import { deployPlaywrightSkill } from "@/scripts/postinstall-playwright.ts";
+import {
+  ensurePlaywrightPackageManagers,
+  deployPlaywrightSkill,
+  installPlaywrightCli,
+} from "@/scripts/postinstall-playwright.ts";
+import {
+  ensureUv,
+  installCocoindexCode,
+  writeCocoindexGlobalSettings,
+} from "@/scripts/postinstall-uv.ts";
 import {
   installWorkflowSdkFromLocal,
   getGlobalWorkflowsDir,
@@ -33,7 +42,25 @@ async function syncAndVerifyConfigs(configRoot: string): Promise<void> {
 async function main(): Promise<void> {
   const configRoot = getConfigRoot();
 
-  // All steps are independent — run them in parallel
+  // Phase 1: ensure package managers are available (needed by later steps)
+  const pmResults = await Promise.allSettled([
+    ensurePlaywrightPackageManagers(),
+    ensureUv(),
+  ]);
+
+  const pmLabels = [
+    "failed to ensure bun/npm",
+    "failed to ensure uv",
+  ];
+
+  for (let i = 0; i < pmResults.length; i++) {
+    const result = pmResults[i];
+    if (result && result.status === "rejected") {
+      warnPostinstallStep(pmLabels[i] ?? `pm step ${i}`, result.reason);
+    }
+  }
+
+  // Phase 2: all remaining steps in parallel
   const results = await Promise.allSettled([
     syncAndVerifyConfigs(configRoot),
     deployPlaywrightSkill(configRoot),
@@ -56,6 +83,9 @@ async function main(): Promise<void> {
         throw new Error("failed to install workflow SDK from local package into local dir");
       }
     })(),
+    installCocoindexCode(),
+    writeCocoindexGlobalSettings(),
+    installPlaywrightCli(),
   ]);
 
   // Report warnings for any failures (non-fatal)
@@ -63,6 +93,9 @@ async function main(): Promise<void> {
     "failed to sync/verify provider home-root configs",
     "failed to deploy Playwright SKILL.md",
     "failed to install workflow SDK",
+    "failed to install cocoindex-code",
+    "failed to write cocoindex global settings",
+    "failed to install @playwright/cli",
   ];
 
   for (let i = 0; i < results.length; i++) {

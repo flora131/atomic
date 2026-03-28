@@ -1,153 +1,549 @@
-# About hooks
+# Hooks configuration
 
-Extend and customize GitHub Copilot agent behavior by executing custom shell commands at key points during agent execution.
+Find information about configuring hooks for use with GitHub Copilot CLI and Copilot coding agent.
 
-## About hooks
+This reference article describes the available hook types with examples, including their input and output formats, script best practices, and advanced patterns for logging, security enforcement, and external integrations. For general information about creating hooks, see [Using hooks with GitHub Copilot agents](/en/copilot/how-tos/use-copilot-agents/coding-agent/use-hooks). For a tutorial on creating hooks for the CLI, see [Using hooks with Copilot CLI for predictable, policy-compliant execution](/en/copilot/tutorials/copilot-cli-hooks).
 
-Hooks enable you to execute custom shell commands at strategic points in an agent's workflow, such as when an agent session starts or ends, or before and after a prompt is entered or a tool is called.
+## Hook types
 
-Hooks receive detailed information about agent actions via JSON input, enabling context-aware automation. For example, you can use hooks to:
+### Session start hook
 
-* Programmatically approve or deny tool executions.
-* Utilize built-in security features like secret scanning to prevent credential leaks.
-* Implement custom validation rules and audit logging for compliance.
+Executed when a new agent session begins or when resuming an existing session.
 
-Copilot agents support hooks stored in JSON files in your repository at `.github/hooks/*.json`.
-
-Hooks are available for use with:
-
-* Copilot coding agent on GitHub
-* GitHub Copilot CLI in the terminal
-
-## Types of hooks
-
-The following types of hooks are available:
-
-* **sessionStart**: Executed when a new agent session begins or when resuming an existing session. Can be used to initialize environments, log session starts for auditing, validate project state, and set up temporary resources.
-* **sessionEnd**: Executed when the agent session completes or is terminated. Can be used to cleanup temporary resources, generate and archive session reports and logs, or send notifications about session completion.
-* **userPromptSubmitted**: Executed when the user submits a prompt to the agent. Can be used to log user requests for auditing and usage analysis.
-* **preToolUse**: Executed before the agent uses any tool (such as `bash`, `edit`, `view`). This is the most powerful hook as it can **approve or deny tool executions**. Use this hook to block dangerous commands, enforce security policies and coding standards, require approval for sensitive operations, or log tool usage for compliance.
-* **postToolUse**: Executed after a tool completes execution (whether successful or failed). Can be used to log execution results, track usage statistics, generate audit trails, monitor performance metrics, and send failure alerts.
-* **errorOccurred**: Executed when an error occurs during agent execution. Can be used to log errors for debugging, send notifications, track error patterns, and generate reports.
-
-To see a complete reference of hook types with example use cases, best practices, and advanced patterns, see [Hooks configuration](/en/copilot/reference/hooks-configuration).
-
-## Hook configuration format
-
-You configure hooks using a special JSON format. The JSON must contain a `version` field with a value of `1` and a `hooks` object containing arrays of hook definitions.
+**Input JSON:**
 
 ```json copy
 {
-  "version": 1,
-  "hooks": {
-    "sessionStart": [
-      {
-        "type": "command",
-        "bash": "string (optional)",
-        "powershell": "string (optional)",
-        "cwd": "string (optional)",
-        "env": { "KEY": "value" },
-        "timeoutSec": 30
-      }
-    ],
+  "timestamp": 1704614400000,
+  "cwd": "/path/to/project",
+  "source": "new",
+  "initialPrompt": "Create a new feature"
+}
+```
+
+**Fields:**
+
+* `timestamp`: Unix timestamp in milliseconds
+* `cwd`: Current working directory
+* `source`: Either `"new"` (new session), `"resume"` (resumed session), or `"startup"`
+* `initialPrompt`: The user's initial prompt (if provided)
+
+**Output:** Ignored (no return value processed)
+
+**Example hook:**
+
+```json copy
+{
+  "type": "command",
+  "bash": "./scripts/session-start.sh",
+  "powershell": "./scripts/session-start.ps1",
+  "cwd": "scripts",
+  "timeoutSec": 30
+}
+```
+
+**Example script (Bash):**
+
+```shell copy
+#!/bin/bash
+INPUT=$(cat)
+SOURCE=$(echo "$INPUT" | jq -r '.source')
+TIMESTAMP=$(echo "$INPUT" | jq -r '.timestamp')
+
+echo "Session started from $SOURCE at $TIMESTAMP" >> session.log
+```
+
+### Session end hook
+
+Executed when the agent session completes or is terminated.
+
+**Input JSON:**
+
+```json copy
+{
+  "timestamp": 1704618000000,
+  "cwd": "/path/to/project",
+  "reason": "complete"
+}
+```
+
+**Fields:**
+
+* `timestamp`: Unix timestamp in milliseconds
+* `cwd`: Current working directory
+* `reason`: One of `"complete"`, `"error"`, `"abort"`, `"timeout"`, or `"user_exit"`
+
+**Output:** Ignored
+
+**Example script:**
+
+```shell copy
+#!/bin/bash
+INPUT=$(cat)
+REASON=$(echo "$INPUT" | jq -r '.reason')
+
+echo "Session ended: $REASON" >> session.log
+# Cleanup temporary files
+rm -rf /tmp/session-*
+```
+
+### User prompt submitted hook
+
+Executed when the user submits a prompt to the agent.
+
+**Input JSON:**
+
+```json copy
+{
+  "timestamp": 1704614500000,
+  "cwd": "/path/to/project",
+  "prompt": "Fix the authentication bug"
+}
+```
+
+**Fields:**
+
+* `timestamp`: Unix timestamp in milliseconds
+* `cwd`: Current working directory
+* `prompt`: The exact text the user submitted
+
+**Output:** Ignored (prompt modification not currently supported in customer hooks)
+
+**Example script:**
+
+```shell copy
+#!/bin/bash
+INPUT=$(cat)
+PROMPT=$(echo "$INPUT" | jq -r '.prompt')
+TIMESTAMP=$(echo "$INPUT" | jq -r '.timestamp')
+
+# Log to a structured file
+echo "$(date -d @$((TIMESTAMP/1000))): $PROMPT" >> prompts.log
+```
+
+### Pre-tool use hook
+
+Executed before the agent uses any tool (such as `bash`, `edit`, `view`). This is the most powerful hook as it can **approve or deny tool executions**.
+
+**Input JSON:**
+
+```json copy
+{
+  "timestamp": 1704614600000,
+  "cwd": "/path/to/project",
+  "toolName": "bash",
+  "toolArgs": "{\"command\":\"rm -rf dist\",\"description\":\"Clean build directory\"}"
+}
+```
+
+**Fields:**
+
+* `timestamp`: Unix timestamp in milliseconds
+* `cwd`: Current working directory
+* `toolName`: Name of the tool being invoked (such as "bash", "edit", "view", "create")
+* `toolArgs`: JSON string containing the tool's arguments
+
+**Output JSON (optional):**
+
+```json copy
+{
+  "permissionDecision": "deny",
+  "permissionDecisionReason": "Destructive operations require approval"
+}
+```
+
+**Output fields:**
+
+* `permissionDecision`: Either `"allow"`, `"deny"`, or `"ask"` (only `"deny"` is currently processed)
+* `permissionDecisionReason`: Human-readable explanation for the decision
+
+**Example hook to block dangerous commands:**
+
+```shell copy
+#!/bin/bash
+INPUT=$(cat)
+TOOL_NAME=$(echo "$INPUT" | jq -r '.toolName')
+TOOL_ARGS=$(echo "$INPUT" | jq -r '.toolArgs')
+
+# Log the tool use
+echo "$(date): Tool=$TOOL_NAME Args=$TOOL_ARGS" >> tool-usage.log
+
+# Check for dangerous patterns
+if echo "$TOOL_ARGS" | grep -qE "rm -rf /|format|DROP TABLE"; then
+  echo '{"permissionDecision":"deny","permissionDecisionReason":"Dangerous command detected"}'
+  exit 0
+fi
+
+# Allow by default (or omit output to allow)
+echo '{"permissionDecision":"allow"}'
+```
+
+**Example hook to enforce file permissions:**
+
+```shell copy
+#!/bin/bash
+INPUT=$(cat)
+TOOL_NAME=$(echo "$INPUT" | jq -r '.toolName')
+
+# Only allow editing specific directories
+if [ "$TOOL_NAME" = "edit" ]; then
+  PATH_ARG=$(echo "$INPUT" | jq -r '.toolArgs' | jq -r '.path')
+
+  if [[ ! "$PATH_ARG" =~ ^(src/|test/) ]]; then
+    echo '{"permissionDecision":"deny","permissionDecisionReason":"Can only edit files in src/ or test/ directories"}'
+    exit 0
+  fi
+fi
+
+# Allow all other tools
+```
+
+### Post-tool use hook
+
+Executed after a tool completes execution (whether successful or failed).
+
+**Example input JSON:**
+
+```json copy
+{
+  "timestamp": 1704614700000,
+  "cwd": "/path/to/project",
+  "toolName": "bash",
+  "toolArgs": "{\"command\":\"npm test\"}",
+  "toolResult": {
+    "resultType": "success",
+    "textResultForLlm": "All tests passed (15/15)"
   }
 }
 ```
 
-The hook object can contain the following keys:
+**Fields:**
 
-| Property     | Required              | Description                                                                    |
-| ------------ | --------------------- | ------------------------------------------------------------------------------ |
-| `type`       | Yes                   | Must be `"command"`                                                            |
-| `bash`       | Yes (on Unix systems) | Path to the bash script to execute                                             |
-| `powershell` | Yes (on Windows)      | Path to the PowerShell script to execute                                       |
-| `cwd`        | No                    | Working directory for the script (relative to repository root)                 |
-| `env`        | No                    | Additional environment variables that are merged with the existing environment |
-| `timeoutSec` | No                    | Maximum execution time in seconds (default: 30)                                |
+* `timestamp`: Unix timestamp in milliseconds
+* `cwd`: Current working directory
+* `toolName`: Name of the tool that was executed
+* `toolArgs`: JSON string containing the tool's arguments
+* `toolResult`: Result object containing:
+  * `resultType`: Either `"success"`, `"failure"`, or `"denied"`
+  * `textResultForLlm`: The result text shown to the agent
 
-## Example hook configuration file
+**Output:** Ignored (result modification is not currently supported)
 
-This is an example configuration file that lives in `~/.github/hooks/project-hooks.json` within a repository.
+**Example script that logs tool execution statistics to a CSV file:**
+
+This script logs tool execution statistics to a CSV file and sends an email alert when a tool fails.
+
+```shell copy
+#!/bin/bash
+INPUT=$(cat)
+TOOL_NAME=$(echo "$INPUT" | jq -r '.toolName')
+RESULT_TYPE=$(echo "$INPUT" | jq -r '.toolResult.resultType')
+
+# Track statistics
+echo "$(date),${TOOL_NAME},${RESULT_TYPE}" >> tool-stats.csv
+
+# Alert on failures
+if [ "$RESULT_TYPE" = "failure" ]; then
+  RESULT_TEXT=$(echo "$INPUT" | jq -r '.toolResult.textResultForLlm')
+  echo "FAILURE: $TOOL_NAME - $RESULT_TEXT" | mail -s "Agent Tool Failed" admin@example.com
+fi
+```
+
+### Error occurred hook
+
+Executed when an error occurs during agent execution.
+
+**Example input JSON:**
+
+```json copy
+{
+  "timestamp": 1704614800000,
+  "cwd": "/path/to/project",
+  "error": {
+    "message": "Network timeout",
+    "name": "TimeoutError",
+    "stack": "TimeoutError: Network timeout\n    at ..."
+  }
+}
+```
+
+**Fields:**
+
+* `timestamp`: Unix timestamp in milliseconds
+* `cwd`: Current working directory
+* `error`: Error object containing:
+  * `message`: Error message
+  * `name`: Error type/name
+  * `stack`: Stack trace (if available)
+
+**Output:** Ignored (error handling modification is not currently supported)
+
+**Example script that extracts error details to a log file:**
+
+```shell copy
+#!/bin/bash
+INPUT=$(cat)
+ERROR_MSG=$(echo "$INPUT" | jq -r '.error.message')
+ERROR_NAME=$(echo "$INPUT" | jq -r '.error.name')
+
+echo "$(date): [$ERROR_NAME] $ERROR_MSG" >> errors.log
+```
+
+## Script best practices
+
+### Reading input
+
+This example script reads JSON input from stdin into a variable, then uses `jq` to extract the `timestamp` and `cwd` fields.
+
+**Bash:**
+
+```shell copy
+#!/bin/bash
+# Read JSON from stdin
+INPUT=$(cat)
+
+# Parse with jq
+TIMESTAMP=$(echo "$INPUT" | jq -r '.timestamp')
+CWD=$(echo "$INPUT" | jq -r '.cwd')
+```
+
+**PowerShell:**
+
+```powershell copy
+# Read JSON from stdin
+$input = [Console]::In.ReadToEnd() | ConvertFrom-Json
+
+# Access properties
+$timestamp = $input.timestamp
+$cwd = $input.cwd
+```
+
+### Outputting JSON
+
+This example script shows how to output valid JSON from your hook script. Use `jq -c` in Bash for compact single-line output, or `ConvertTo-Json -Compress` in PowerShell.
+
+**Bash:**
+
+```shell copy
+#!/bin/bash
+# Use jq to compact the JSON output to a single line
+echo '{"permissionDecision":"deny","permissionDecisionReason":"Security policy violation"}' | jq -c
+
+# Or construct with variables
+REASON="Too dangerous"
+jq -n --arg reason "$REASON" '{permissionDecision: "deny", permissionDecisionReason: $reason}'
+```
+
+**PowerShell:**
+
+```powershell copy
+# Use ConvertTo-Json to compact the JSON output to a single line
+$output = @{
+    permissionDecision = "deny"
+    permissionDecisionReason = "Security policy violation"
+}
+$output | ConvertTo-Json -Compress
+```
+
+### Error handling
+
+This script example demonstrates how to handle errors in hook scripts.
+
+**Bash:**
+
+```shell copy
+#!/bin/bash
+set -e  # Exit on error
+
+INPUT=$(cat)
+# ... process input ...
+
+# Exit with 0 for success
+exit 0
+```
+
+**PowerShell:**
+
+```powershell copy
+$ErrorActionPreference = "Stop"
+
+try {
+    $input = [Console]::In.ReadToEnd() | ConvertFrom-Json
+    # ... process input ...
+    exit 0
+} catch {
+    Write-Error $_.Exception.Message
+    exit 1
+}
+```
+
+### Handling timeouts
+
+Hooks have a default timeout of 30 seconds. For longer operations, increase `timeoutSec`:
+
+```json copy
+{
+  "type": "command",
+  "bash": "./scripts/slow-validation.sh",
+  "timeoutSec": 120
+}
+```
+
+## Advanced patterns
+
+### Multiple hooks of the same type
+
+You can define multiple hooks for the same event. They execute in order:
 
 ```json copy
 {
   "version": 1,
   "hooks": {
-    "sessionStart": [
-      {
-        "type": "command",
-        "bash": "echo \"Session started: $(date)\" >> logs/session.log",
-        "powershell": "Add-Content -Path logs/session.log -Value \"Session started: $(Get-Date)\"",
-        "cwd": ".",
-        "timeoutSec": 10
-      }
-    ],
-    "userPromptSubmitted": [
-      {
-        "type": "command",
-        "bash": "./scripts/log-prompt.sh",
-        "powershell": "./scripts/log-prompt.ps1",
-        "cwd": "scripts",
-        "env": {
-          "LOG_LEVEL": "INFO"
-        }
-      }
-    ],
     "preToolUse": [
       {
         "type": "command",
         "bash": "./scripts/security-check.sh",
-        "powershell": "./scripts/security-check.ps1",
-        "cwd": "scripts",
-        "timeoutSec": 15
+        "comment": "Security validation - runs first"
       },
       {
         "type": "command",
-        "bash": "./scripts/log-tool-use.sh",
-        "powershell": "./scripts/log-tool-use.ps1",
-        "cwd": "scripts"
-      }
-    ],
-    "postToolUse": [
+        "bash": "./scripts/audit-log.sh",
+        "comment": "Audit logging - runs second"
+      },
       {
         "type": "command",
-        "bash": "cat >> logs/tool-results.jsonl",
-        "powershell": "$input | Add-Content -Path logs/tool-results.jsonl"
-      }
-    ],
-    "sessionEnd": [
-      {
-        "type": "command",
-        "bash": "./scripts/cleanup.sh",
-        "powershell": "./scripts/cleanup.ps1",
-        "cwd": "scripts",
-        "timeoutSec": 60
+        "bash": "./scripts/metrics.sh",
+        "comment": "Metrics collection - runs third"
       }
     ]
   }
 }
 ```
 
-## Performance considerations
+### Conditional logic in scripts
 
-Hooks run synchronously and block agent execution. To ensure a responsive experience, keep the following considerations in mind:
+**Example: Only block specific tools**
 
-* **Minimize execution time**: Keep hook execution time under 5 seconds when possible.
-* **Optimize logging**: Use asynchronous logging, like appending to files, rather than synchronous I/O.
-* **Use background processing**: For expensive operations, consider background processing.
-* **Cache results**: Cache expensive computations when possible.
+```shell copy
+#!/bin/bash
+INPUT=$(cat)
+TOOL_NAME=$(echo "$INPUT" | jq -r '.toolName')
 
-## Security considerations
+# Only validate bash commands
+if [ "$TOOL_NAME" != "bash" ]; then
+  exit 0  # Allow all non-bash tools
+fi
 
-To ensure security is maintained when using hooks, keep the following considerations in mind:
+# Check bash command for dangerous patterns
+COMMAND=$(echo "$INPUT" | jq -r '.toolArgs' | jq -r '.command')
+if echo "$COMMAND" | grep -qE "rm -rf|sudo|mkfs"; then
+  echo '{"permissionDecision":"deny","permissionDecisionReason":"Dangerous system command"}'
+fi
+```
 
-* **Always validate and sanitize the input processed by hooks**. Untrusted input could lead to unexpected behavior.
-* **Use proper shell escaping when constructing commands**. This prevents command injection vulnerabilities.
-* **Never log sensitive data, such as tokens or passwords**.
-* **Ensure hook scripts and logs have the appropriate permissions**.
-* **Be cautious with hooks that make external network calls**. These can introduce latency, failures, or expose data to third parties.
-* **Set appropriate timeouts to prevent resource exhaustion**. Long-running hooks can block agent execution and degrade performance.
+### Structured logging
 
-## Next steps
+**Example: JSON Lines format**
 
-To start creating hooks, see [Using hooks with GitHub Copilot agents](/en/copilot/how-tos/use-copilot-agents/coding-agent/use-hooks).
+```shell copy
+#!/bin/bash
+INPUT=$(cat)
+TIMESTAMP=$(echo "$INPUT" | jq -r '.timestamp')
+TOOL_NAME=$(echo "$INPUT" | jq -r '.toolName')
+RESULT_TYPE=$(echo "$INPUT" | jq -r '.toolResult.resultType')
+
+# Output structured log entry
+jq -n \
+  --arg ts "$TIMESTAMP" \
+  --arg tool "$TOOL_NAME" \
+  --arg result "$RESULT_TYPE" \
+  '{timestamp: $ts, tool: $tool, result: $result}' >> logs/audit.jsonl
+```
+
+### Integration with external systems
+
+**Example: Send alerts to Slack**
+
+```shell copy
+#!/bin/bash
+INPUT=$(cat)
+ERROR_MSG=$(echo "$INPUT" | jq -r '.error.message')
+
+WEBHOOK_URL="https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+
+curl -X POST "$WEBHOOK_URL" \
+  -H 'Content-Type: application/json' \
+  -d "{\"text\":\"Agent Error: $ERROR_MSG\"}"
+```
+
+## Example use cases
+
+### Compliance audit trail
+
+Log all agent actions for compliance requirements by utilizing log scripts:
+
+```json copy
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [{"type": "command", "bash": "./audit/log-session-start.sh"}],
+    "userPromptSubmitted": [{"type": "command", "bash": "./audit/log-prompt.sh"}],
+    "preToolUse": [{"type": "command", "bash": "./audit/log-tool-use.sh"}],
+    "postToolUse": [{"type": "command", "bash": "./audit/log-tool-result.sh"}],
+    "sessionEnd": [{"type": "command", "bash": "./audit/log-session-end.sh"}]
+  }
+}
+```
+
+### Cost tracking
+
+Track tool usage for cost allocation:
+
+```shell copy
+#!/bin/bash
+INPUT=$(cat)
+TOOL_NAME=$(echo "$INPUT" | jq -r '.toolName')
+TIMESTAMP=$(echo "$INPUT" | jq -r '.timestamp')
+USER=${USER:-unknown}
+
+echo "$TIMESTAMP,$USER,$TOOL_NAME" >> /var/log/copilot/usage.csv
+```
+
+### Code quality enforcement
+
+Prevent commits that violate code standards:
+
+```shell copy
+#!/bin/bash
+INPUT=$(cat)
+TOOL_NAME=$(echo "$INPUT" | jq -r '.toolName')
+
+if [ "$TOOL_NAME" = "edit" ] || [ "$TOOL_NAME" = "create" ]; then
+  # Run linter before allowing edits
+  npm run lint-staged
+  if [ $? -ne 0 ]; then
+    echo '{"permissionDecision":"deny","permissionDecisionReason":"Code does not pass linting"}'
+  fi
+fi
+```
+
+### Notification system
+
+Send notifications on important events:
+
+```shell copy
+#!/bin/bash
+INPUT=$(cat)
+PROMPT=$(echo "$INPUT" | jq -r '.prompt')
+
+# Notify on production-related prompts
+if echo "$PROMPT" | grep -iq "production"; then
+  echo "ALERT: Production-related prompt: $PROMPT" | mail -s "Agent Alert" team@example.com
+fi
+```
+
+## Further reading
+
+* [Concepts for GitHub Copilot coding agent](/en/copilot/concepts/agents/coding-agent)
+* [GitHub Copilot CLI](/en/copilot/how-tos/copilot-cli)
+* [GitHub Copilot CLI command reference](/en/copilot/reference/copilot-cli-reference/cli-command-reference)

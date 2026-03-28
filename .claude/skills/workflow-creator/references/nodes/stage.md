@@ -31,82 +31,51 @@ Every stage requires both a `name` and an `agent` field:
 
 ## Agent Definitions
 
-When a stage sets `agent` to a non-null string, that string must match the `name` field in a discovered agent definition file. The verifier treats a missing match as an error — the workflow will not pass verification.
+When `agent` is a non-null string, it must match the `name` in a discovered agent definition file. The verifier rejects unresolved agent names.
 
-### File format
+### Creating an agent definition
 
-Agent definitions are markdown files (`<agent-name>.md`) with YAML frontmatter followed by the system prompt body.
+Agent definitions are markdown files with YAML frontmatter + a system prompt body. **The frontmatter schema differs per SDK** — always start by copying an existing agent from the target directory, never write frontmatter from scratch.
 
-**Frontmatter fields:**
+**Steps:**
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `name` | **yes** | Agent name — must exactly match the `agent` value in `.stage()` |
-| `description` | **yes** | One-line summary of what this agent does |
-| `tools` | no | Array of tool names the agent can use (e.g., `["search", "read", "execute"]`) |
+1. **Pick a name** — lowercase, hyphenated identifier (e.g., `security-auditor`). This is both the filename and the `agent` value in `.stage()`.
+2. **Copy a template from each SDK directory** — choose the closest existing agent (e.g., `reviewer.md`) and copy it to `<name>.md` in all three directories:
+   - `.claude/agents/<name>.md`
+   - `.opencode/agents/<name>.md`
+   - `.github/agents/<name>.md`
+3. **Edit each copy** — update `name`, `description`, `tools`/`permission`, and rewrite the system prompt body. Keep the frontmatter structure from the template intact.
+4. **Reference in your workflow** — `agent: "<name>"` in `.stage()`.
+5. **Run `atomic workflow verify`** — validates agent schemas and workflow structure in one pass. Catches frontmatter errors, missing agents, and structural issues.
 
-Everything after the frontmatter block becomes the agent's **system prompt** at runtime.
+All three directories are needed for cross-SDK workflows. Each SDK discovers agents only from its own directory.
 
-### Where to place agent files
+### SDK-specific guidance
 
-Each SDK discovers agent definitions from its own directories:
+For details on tool access, permissions, or sub-agent capabilities, query DeepWiki with the relevant repository:
 
-| SDK | Local path | Global path |
-|-----|-----------|-------------|
-| Claude Code | `.claude/agents/<name>.md` | `~/.claude/agents/<name>.md` |
-| Copilot CLI | `.github/agents/<name>.md` | `~/.copilot/agents/<name>.md` |
-| OpenCode | `.opencode/agents/<name>.md` | `~/.opencode/agents/<name>.md` |
+| SDK | DeepWiki repo |
+|-----|--------------|
+| Claude Code | `anthropics/claude-code` |
+| Copilot CLI | `github/copilot-sdk` |
+| OpenCode | `anomalyco/opencode` |
 
-**Cross-SDK workflows:** Place the agent file in **all three** local agent directories so the workflow passes verification regardless of which CLI runs it.
-
-### How to create an agent definition
-
-1. **Choose a name** — a descriptive, lowercase identifier (e.g., `reviewer`, `planner`, `security-auditor`). This becomes both the filename and the `agent` value in `.stage()`.
-2. **Write the system prompt** — define the agent's role, constraints, and expected output format in the markdown body after the frontmatter.
-3. **Set frontmatter** — add `name`, `description`, and optionally `tools`.
-4. **Save to agent directories** — place `<name>.md` in the appropriate directory (see table above).
-5. **Reference in stage** — use `agent: "<name>"` in your `.stage()` call.
-6. **Verify** — run `atomic workflow verify` to confirm the agent is discovered and the workflow passes.
-
-### SDK-specific sub-agent guidance
-
-Each SDK has its own conventions for sub-agent capabilities, tool access, and permissions. Use the DeepWiki MCP `ask_question` tool with these repositories to look up SDK-specific details:
-
-| SDK | Repository | Example questions to ask |
-|-----|-----------|--------------------------|
-| Claude Code | `anthropics/claude-code` | "How do custom agents work?", "What tools can agents access?", "How are agent permissions configured?" |
-| Copilot CLI | `github/copilot-sdk` | "How do custom agents work?", "What tools can agents access?", "How are agent permissions configured?" |
-| OpenCode | `anomalyco/opencode` | "How do custom agents work?", "What tools can agents access?", "How are agent permissions configured?" |
-
-### Example — end to end
-
-**Step 1.** Create the agent definition file (e.g., `.claude/agents/reviewer.md`):
-
-```markdown
----
-name: reviewer
-description: Reviews code changes for correctness, style, and security issues.
-tools: ["search", "read", "execute"]
----
-
-You are a code reviewer. Analyze the provided code changes and report:
-1. Correctness issues (bugs, logic errors)
-2. Style violations (naming, formatting)
-3. Security concerns (injection, secrets, OWASP top 10)
-
-Be concise. Use bullet points. Flag severity as HIGH / MEDIUM / LOW.
-```
-
-**Step 2.** Reference it in a workflow stage:
+### Example
 
 ```ts
+// After creating security-auditor.md in all three agent directories:
 .stage({
-  name: "review",
-  agent: "reviewer",  // matches `name` in reviewer.md frontmatter
-  description: "🔍 CODE REVIEW",
-  prompt: (ctx) => `Review these changes:\n${ctx.stageOutputs.get("implement")?.rawResponse}`,
-  outputMapper: (response) => ({ reviewFeedback: response }),
+  name: "audit",
+  agent: "security-auditor",
+  description: "🔍 SECURITY AUDIT",
+  prompt: (ctx) => `Audit these changes:\n${ctx.stageOutputs.get("implement")?.rawResponse}`,
+  outputMapper: (response) => ({ auditResult: response }),
 })
+```
+
+```bash
+# Validates agent schemas + workflow graph in one command
+atomic workflow verify
 ```
 
 ## `name` vs `agent`

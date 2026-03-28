@@ -185,21 +185,29 @@ export async function verifySingleWorkflow(
 
 /**
  * Main entry point: discover all workflows, verify each, and output results.
+ * Also validates agent definition schemas as a prerequisite — workflows
+ * reference agents by name, so malformed agent files should be caught early.
+ *
  * Returns true if all pass, false if any fail.
  */
 export async function runVerification(): Promise<boolean> {
+  // ── Phase 1: Agent schema validation ────────────────────────────────
+  const { runAgentValidation } = await import("@/scripts/validate-agents.ts");
+  const agentsPassed = runAgentValidation();
+
+  // ── Phase 2: Workflow verification ──────────────────────────────────
   console.log("Verifying workflows...\n");
 
   const builtinWorkflows = await discoverBuiltinWorkflows();
   const customWorkflows = await discoverCustomWorkflows();
   const allWorkflows = [...builtinWorkflows, ...customWorkflows];
 
-  if (allWorkflows.length === 0) {
+  if (allWorkflows.length === 0 && agentsPassed) {
     console.log("No workflows found to verify.");
     return true;
   }
 
-  let hasFailures = false;
+  let hasFailures = !agentsPassed;
 
   for (const workflow of allWorkflows) {
     try {
@@ -219,9 +227,9 @@ export async function runVerification(): Promise<boolean> {
   }
 
   if (hasFailures) {
-    console.log("\nSome workflows failed verification.");
+    console.log("\nSome checks failed.");
   } else {
-    console.log("\nAll workflows passed verification.");
+    console.log("\nAll checks passed.");
   }
 
   return !hasFailures;

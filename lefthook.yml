@@ -8,6 +8,9 @@ pre-commit:
             run: bun run lint
         test:
             run: bun test --bail --path-ignore-patterns 'tests/screens/e2e/**'
+        validate-agents:
+            glob: ".{claude,opencode,github}/agents/*.md"
+            run: bun run validate:agents
 
 pre-push:
     commands:

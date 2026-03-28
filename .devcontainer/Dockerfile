@@ -1,7 +1,7 @@
 FROM mcr.microsoft.com/devcontainers/base:ubuntu
 
 # ─── System dependencies ─────────────────────────────────────────────────────
-RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm \
+RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm tmux \
     && rm -rf /var/lib/apt/lists/*
 
 # ─── System-wide tools (via multi-stage COPY) ────────────────────────────────

@@ -13,7 +13,6 @@
   "postCreateCommand": {
     "install-deps": "bun install"
   },
-  "postAttachCommand": "tmux new-session -A -s dev",
   "customizations": {
     "vscode": {
       "extensions": ["oven.bun-vscode", "oxc.oxc-vscode"]

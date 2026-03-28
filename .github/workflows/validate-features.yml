@@ -3,7 +3,7 @@ name: Validate Devcontainer Features
 on:
   pull_request:
     paths:
-      - 'src/devcontainer/**'
+      - 'devcontainer-features/**'
   workflow_dispatch:
 
 jobs:
@@ -15,4 +15,4 @@ jobs:
         uses: devcontainers/action@v1
         with:
           validate-only: "true"
-          base-path-to-features: "./src/devcontainer"
+          base-path-to-features: "./devcontainer-features/src"

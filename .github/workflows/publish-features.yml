@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'src/devcontainer/**'
+      - 'devcontainer-features/src/**'
 
 jobs:
   publish:
@@ -20,7 +20,7 @@ jobs:
       - name: Sync feature versions from package.json
         run: |
           VERSION=$(jq -r .version package.json)
-          for feature in src/devcontainer/*/devcontainer-feature.json; do
+          for feature in devcontainer-features/src/*/devcontainer-feature.json; do
             jq --arg v "$VERSION" '.version = $v' "$feature" > tmp.json && mv tmp.json "$feature"
           done
 
@@ -28,6 +28,6 @@ jobs:
         uses: devcontainers/action@v1
         with:
           publish-features: "true"
-          base-path-to-features: "./src/devcontainer"
+          base-path-to-features: "./devcontainer-features/src"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

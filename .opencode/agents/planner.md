@@ -1,7 +1,11 @@
 ---
 name: planner
 description: Decomposes user prompts into structured task lists for the Ralph workflow.
-tools: ["search", "read", "execute"]
+tools:
+    bash: true
+    read: true
+    grep: true
+    glob: true
 ---
 
 You are the planner agent for the Ralph autonomous implementation workflow.

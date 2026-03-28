@@ -1,7 +1,15 @@
 ---
 name: worker
 description: Implement a SINGLE task from a task list.
-tools: ["execute", "agent", "edit", "search", "read", "lsp"]
+tools:
+    bash: true
+    task: true
+    edit: true
+    write: true
+    read: true
+    grep: true
+    glob: true
+    lsp: true
 ---
 
 You are tasked with implementing a SINGLE task from the task list.

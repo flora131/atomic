@@ -81,7 +81,7 @@ Rely on the `tmux-cli` tool (e.g. run `claude` in a `tmux` session using the `tm
 
 ## Docs
 
-Relevant resources (use the deepwiki mcp `ask_question` tool for repos):
+Relevant resources (use the deepwiki mcp `ask_question` tool for the repos if the information is not available in the local docs):
 
 1. Bun (runtime) repo: `oven-sh/bun`
 2. OpenCode:
@@ -93,13 +93,21 @@ Relevant resources (use the deepwiki mcp `ask_question` tool for repos):
         1. [Usage](docs/copilot-cli/usage.md)
         2. [Hooks](docs/copilot-cli/hooks.md)
         3. [Skills](docs/copilot-cli/skills.md)
+        4. [Subagents](docs/copilot-cli/subagents.md)
 4. Claude Code:
    1. SDK repo: `anthropics/claude-agent-sdk-typescript`
-      1. [Docs](docs/claude-agent-sdk.md), v1 preferred (v2 is unstable and has many bugs)
+      1. [Docs](docs/claude-code/agent-sdk.md), v1 preferred (v2 is unstable and has many bugs)
    2. CLI repo: `anthropics/claude-code`
+      1. [Hooks](docs/claude-code/cli/hooks.md)
+      2. [Permissions](docs/claude-code/cli/permissions.md)
+      3. [Skills](docs/claude-code/cli/skills.md)
+      4. [Subagents](docs/claude-code/cli/subagents.md)
+      5. [Tools](docs/claude-code/cli/tools.md)
 5. OpenTUI repo: `anomalyco/opentui`
 
 ### Coding Agent Configuration Locations
+
+Note: There are three main coding agents used in this repository: OpenCode, Claude Code, and GitHub Copilot CLI. Each has specific configuration file locations. Their configurations may also differ in sytax and structure, so be sure to refer to the respective documentation for each agent when making changes:
 
 1. OpenCode:
     - global:

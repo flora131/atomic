@@ -322,6 +322,22 @@ async function main(): Promise<void> {
             await cleanupWindowsLeftoverFiles();
         }
 
+        // Ensure workflow SDK version matches CLI version before running commands.
+        // Skip for lightweight commands that don't use the SDK.
+        const skipSdkCommands = new Set(["--version", "-v", "--help", "-h", "upload-telemetry", "uninstall", "config"]);
+        const needsSdkCheck = !process.argv.slice(2).some((arg) => skipSdkCommands.has(arg));
+        if (needsSdkCheck) {
+            try {
+                const { ensureWorkflowSdkVersion } = await import("@/services/config/workflow-package.ts");
+                const { detectInstallationType, getConfigRoot } = await import("@/services/config/config-path.ts");
+                const installType = detectInstallationType();
+                const configRoot = getConfigRoot();
+                await ensureWorkflowSdkVersion(VERSION, installType, configRoot);
+            } catch {
+                // Non-fatal: SDK version sync should never block CLI operation
+            }
+        }
+
         // Parse and execute the command
         // Commander.js handles all argument parsing including the hidden upload-telemetry command
         await program.parseAsync();

@@ -7,7 +7,7 @@ pre-commit:
             glob: "*.{ts,tsx}"
             run: bun run lint
         test:
-            run: bun test --bail
+            run: bun test --bail --path-ignore-patterns 'tests/screens/e2e/**'
 
 pre-push:
     commands:

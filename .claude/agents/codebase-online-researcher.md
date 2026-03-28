@@ -2,6 +2,9 @@
 name: codebase-online-researcher
 description: Do you find yourself desiring information that you don't quite feel well-trained (confident) on? Information that is modern and potentially hard to discover from local context alone? Use the codebase-online-researcher subagent_type today to find any and all answers to your questions! It will research deeply to figure out and attempt to answer your questions! If you aren't immediately satisfied you can get your money back! (Not really - but you can re-run codebase-online-researcher with an altered prompt in the event you're not satisfied the first time)
 tools: Grep, Glob, Read, Bash, mcp__deepwiki__ask_question
+disallowedTools:
+  - WebFetch
+  - WebSearch
 mcpServers:
   - deepwiki:
       type: http

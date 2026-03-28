@@ -7,7 +7,7 @@
  * resolution.
  */
 
-import { mkdir, unlink } from "fs/promises";
+import { mkdir, rm, unlink } from "fs/promises";
 import { join, relative } from "path";
 import { existsSync } from "fs";
 import { homedir } from "os";
@@ -34,6 +34,21 @@ const WORKFLOW_TSCONFIG = {
   },
   include: ["*.ts"],
 };
+
+/**
+ * Read the installed version of @bastani/atomic-workflows from node_modules.
+ * Returns null if the package is not installed or the version cannot be read.
+ */
+export async function getInstalledWorkflowSdkVersion(workflowsDir: string): Promise<string | null> {
+  const pkgJsonPath = join(workflowsDir, "node_modules", "@bastani", "atomic-workflows", "package.json");
+  if (!existsSync(pkgJsonPath)) return null;
+  try {
+    const pkg = await Bun.file(pkgJsonPath).json();
+    return pkg.version ?? null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Ensure a workflows directory has the required package scaffolding:
@@ -151,9 +166,14 @@ export async function installWorkflowSdkFromLocal(
     await Bun.write(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
   }
 
-  // Remove stale lockfile that may contain duplicate entries from prior corrupted runs
+  // Remove stale lockfile and node_modules to avoid "symlink … file exists" errors
+  // when bun install tries to recreate .bin/ symlinks from a prior run.
   const lockPath = join(workflowsDir, "bun.lock");
-  try { await unlink(lockPath); } catch { /* no-op if missing */ }
+  const nodeModulesPath = join(workflowsDir, "node_modules");
+  await Promise.all([
+    unlink(lockPath).catch(() => {}),
+    rm(nodeModulesPath, { recursive: true, force: true }).catch(() => {}),
+  ]);
 
   const result = Bun.spawnSync(["bun", "install"], {
     cwd: workflowsDir,
@@ -162,6 +182,57 @@ export async function installWorkflowSdkFromLocal(
   });
 
   return result.exitCode === 0;
+}
+
+/**
+ * Ensure the installed @bastani/atomic-workflows SDK version matches the
+ * running CLI version in both local (.atomic/workflows/) and global
+ * (~/.atomic/workflows/) directories. Installs or updates when there is a
+ * mismatch or the SDK is missing entirely.
+ *
+ * @param cliVersion    - The current atomic CLI version (from VERSION)
+ * @param installType   - How the CLI was installed ("source", "npm", or "binary")
+ * @param configRoot    - Config root path (needed for source-mode local SDK resolution)
+ */
+export async function ensureWorkflowSdkVersion(
+  cliVersion: string,
+  installType: "source" | "npm" | "binary",
+  configRoot: string,
+): Promise<void> {
+  const localDir = getLocalWorkflowsDir();
+  const globalDir = getGlobalWorkflowsDir();
+
+  const [localVersion, globalVersion] = await Promise.all([
+    getInstalledWorkflowSdkVersion(localDir),
+    getInstalledWorkflowSdkVersion(globalDir),
+  ]);
+
+  const localNeedsUpdate = localVersion !== cliVersion;
+  const globalNeedsUpdate = globalVersion !== cliVersion;
+
+  if (!localNeedsUpdate && !globalNeedsUpdate) return;
+
+  const updates: Promise<boolean>[] = [];
+
+  if (installType === "source") {
+    const localSdkPath = getLocalSdkPackagePath(configRoot);
+    if (localNeedsUpdate) {
+      const relativeSdkPath = getRelativeSdkPath(localDir, localSdkPath);
+      updates.push(installWorkflowSdkFromLocal(localDir, relativeSdkPath));
+    }
+    if (globalNeedsUpdate) {
+      updates.push(installWorkflowSdkFromLocal(globalDir, localSdkPath));
+    }
+  } else {
+    if (localNeedsUpdate) {
+      updates.push(installWorkflowSdk(localDir, cliVersion));
+    }
+    if (globalNeedsUpdate) {
+      updates.push(installWorkflowSdk(globalDir, cliVersion));
+    }
+  }
+
+  await Promise.all(updates);
 }
 
 /**

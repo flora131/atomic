@@ -41,7 +41,7 @@ In addition to the 6 structural checks, the verifier validates every graph node:
 - **Required `name`** — every node (stage, tool, ask-user) must have a `name` field
 - **Required `agent` on stages** — every agent-type node must have `agent` explicitly set (to a string or `null`)
 - **Unique names** — no two nodes may share the same `name`, regardless of node type
-- **Agent definition matching** — when `agent` is a non-null string, the verifier checks it against discovered agent definition files and warns if no match is found
+- **Agent definition matching** — when `agent` is a non-null string, the verifier checks it against discovered agent definition files and errors if no match is found
 
 ### Running the verifier
 
@@ -87,8 +87,8 @@ Workflow "broken-workflow" failed verification
   PASS  Model Validation
   Errors:
     ✗ Stage "deploy" is missing required "agent" field. Set to an agent name or null.
-  Warnings:
-    ⚠ Stage "custom-agent" has no matching agent definition file. Available agents: planner, reviewer, worker
+  Errors:
+    ✗ Stage "custom-agent" has no matching agent definition file. Available agents: planner, reviewer, worker
 ```
 
 Workflows that fail verification at startup are rejected with a warning:

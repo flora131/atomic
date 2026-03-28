@@ -81,7 +81,7 @@ Rely on the `tmux-cli` tool (e.g. run `claude` in a `tmux` session using the `tm
 
 ## Docs
 
-Relevant resources (use the deepwiki mcp `ask_question` tool for repos):
+Relevant resources (use the deepwiki mcp `ask_question` tool for the repos if the information is not available in the local docs):
 
 1. Bun (runtime) repo: `oven-sh/bun`
 2. OpenCode:
@@ -93,6 +93,7 @@ Relevant resources (use the deepwiki mcp `ask_question` tool for repos):
         1. [Usage](docs/copilot-cli/usage.md)
         2. [Hooks](docs/copilot-cli/hooks.md)
         3. [Skills](docs/copilot-cli/skills.md)
+        4. [Subagents](docs/copilot-cli/subagents.md)
 4. Claude Code:
    1. SDK repo: `anthropics/claude-agent-sdk-typescript`
       1. [Docs](docs/claude-code/agent-sdk.md), v1 preferred (v2 is unstable and has many bugs)

@@ -10,7 +10,9 @@
     "GH_TOKEN": "${localEnv:GH_TOKEN}",
     "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}"
   },
-  "postCreateCommand": "bun install",
+  "postCreateCommand": {
+    "install-deps": "bun install"
+  },
   "customizations": {
     "vscode": {
       "extensions": ["oven.bun-vscode", "oxc.oxc-vscode"]

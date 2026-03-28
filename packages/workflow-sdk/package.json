@@ -1,6 +1,6 @@
 {
   "name": "@bastani/atomic-workflows",
-  "version": "0.4.33",
+  "version": "0.4.44-0",
   "description": "Workflow SDK for defining multi-agent workflows in Atomic CLI",
   "type": "module",
   "license": "MIT",

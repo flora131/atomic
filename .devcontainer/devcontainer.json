@@ -15,7 +15,7 @@
   },
   "customizations": {
     "vscode": {
-      "extensions": ["oven.bun-vscode", "oxc.oxc-vscode"]
+      "extensions": ["oven.bun-vscode", "oxc.oxc-vscode", "shd101wyy.markdown-preview-enhanced"]
     }
   },
   "remoteUser": "vscode"

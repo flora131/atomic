@@ -8,7 +8,7 @@
  */
 
 import { describe, test, expect, afterAll } from "bun:test";
-import { mkdtemp, symlink, mkdir, writeFile, rm } from "fs/promises";
+import { mkdtemp, symlink, mkdir, writeFile, rm, realpath } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import {
@@ -128,8 +128,10 @@ describe("assertRealPathWithinRoot", () => {
     try {
       const filePath = join(tempRoot, "subdir", "file.txt");
       const result = await assertRealPathWithinRoot(tempRoot, filePath, "Test");
-      // The returned path should be an absolute resolved path
-      expect(result).toBe(filePath);
+      // The returned path should be the realpath-resolved absolute path
+      // (on macOS /var -> /private/var, so compare against realpath)
+      const expectedPath = await realpath(filePath);
+      expect(result).toBe(expectedPath);
     } finally {
       await cleanup();
     }

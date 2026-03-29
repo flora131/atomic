@@ -119,17 +119,17 @@ export function useChatKeyboard({
         event.raw,
       );
 
-      if ((event.ctrl || event.meta) && event.shift && event.name === "c") {
+      if ((event.ctrl || event.meta) && event.shift && event.name.toLowerCase() === "c") {
         void handleCopy();
         return;
       }
 
-      if (event.meta && !event.ctrl && event.name === "c") {
+      if (event.meta && !event.ctrl && event.name.toLowerCase() === "c") {
         void handleCopy();
         return;
       }
 
-      if (event.ctrl && !event.shift && event.name === "c") {
+      if (event.ctrl && !event.shift && event.name.toLowerCase() === "c") {
         if (handleCtrlCKey(event)) {
           return;
         }

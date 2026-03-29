@@ -182,7 +182,7 @@ export function useKeyboardOwnership({
       }
 
       // Ctrl+C interrupt (runs in all modes)
-      if (event.ctrl && !event.shift && event.name === "c") {
+      if (event.ctrl && !event.shift && event.name.toLowerCase() === "c") {
         if (handleCtrlCKey(event)) {
           return;
         }

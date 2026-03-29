@@ -126,6 +126,26 @@ describe("handleClipboardKey", () => {
       expect(result).toBe(false);
       expect(args.handleCopy).not.toHaveBeenCalled();
     });
+
+    test("Ctrl+Shift+C with uppercase name (modifyOtherKeys encoding) triggers copy", () => {
+      const event = createKeyEvent({ ctrl: true, shift: true, name: "C" });
+      const args = createClipboardArgs();
+
+      const result = handleClipboardKey(event, args);
+
+      expect(result).toBe(true);
+      expect(args.handleCopy).toHaveBeenCalledTimes(1);
+    });
+
+    test("Meta+C with uppercase name triggers copy", () => {
+      const event = createKeyEvent({ meta: true, ctrl: false, name: "C" });
+      const args = createClipboardArgs();
+
+      const result = handleClipboardKey(event, args);
+
+      expect(result).toBe(true);
+      expect(args.handleCopy).toHaveBeenCalledTimes(1);
+    });
   });
 
   // ── Paste shortcuts ─────────────────────────────────────────────────

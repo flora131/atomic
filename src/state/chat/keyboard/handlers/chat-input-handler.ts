@@ -42,13 +42,14 @@ export function handleClipboardKey(
   }: ClipboardHandlerArgs,
 ): boolean {
   // Copy: Ctrl+Shift+C / Meta+Shift+C
-  if ((event.ctrl || event.meta) && event.shift && event.name === "c") {
+  // Case-insensitive: modifyOtherKeys encodes Ctrl+Shift+C with charCode 67 ('C')
+  if ((event.ctrl || event.meta) && event.shift && event.name.toLowerCase() === "c") {
     void handleCopy();
     return true;
   }
 
   // Copy: Meta+C (macOS)
-  if (event.meta && !event.ctrl && event.name === "c") {
+  if (event.meta && !event.ctrl && event.name.toLowerCase() === "c") {
     void handleCopy();
     return true;
   }

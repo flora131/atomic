@@ -6,32 +6,20 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-# ─── Redirect HOME to the devcontainer remote user's home directory ──────────
-# The devcontainer runtime sets _REMOTE_USER_HOME during feature installation.
-# Without this, the stock installer writes to /root/ which is invisible to the
-# non-root remoteUser (e.g. "vscode") on standard devcontainer base images.
-export HOME="${_REMOTE_USER_HOME:-$HOME}"
-
-# ─── Install Atomic CLI + all shared deps/configs via stock installer ────────
-curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
+# ─── Install Atomic CLI as the non-root remoteUser ──────────────────────────
+# The Atomic installer writes to $HOME-relative paths (~/.atomic, ~/.copilot,
+# ~/.bun, etc.). Running it as _REMOTE_USER via su ensures files are created
+# with correct ownership from the start — no post-install chown fixup needed.
+if [ -n "${_REMOTE_USER}" ] && [ "${_REMOTE_USER}" != "root" ]; then
+    su - "${_REMOTE_USER}" -c 'curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash'
+else
+    curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
+fi
 
 # ─── Install Copilot CLI ────────────────────────────────────────────────────
+# When run as root, the Copilot installer defaults PREFIX=/usr/local, placing
+# the binary in /usr/local/bin — a system directory already on PATH with no
+# user-ownership concerns.
 curl -fsSL https://gh.io/copilot-install | bash
-
-# ─── Fix ownership for the non-root remoteUser ──────────────────────────────
-# The installers above run as root, so all created files are owned by
-# root:root. The devcontainer runtime sets _REMOTE_USER to the non-root user
-# (e.g. "vscode") who will actually use these files at runtime. Without this
-# chown, the remoteUser hits "permission denied" writing to ~/.atomic/,
-# ~/.copilot/, ~/.bun/, etc.
-if [ -n "${_REMOTE_USER}" ] && [ "${_REMOTE_USER}" != "root" ]; then
-    chown -R "${_REMOTE_USER}:${_REMOTE_USER}" \
-        "$HOME/.local" \
-        "$HOME/.bun" \
-        "$HOME/.atomic" \
-        "$HOME/.copilot" \
-        "$HOME/.cocoindex_code" \
-        2>/dev/null || true
-fi
 
 echo "Atomic + Copilot CLI installed successfully."

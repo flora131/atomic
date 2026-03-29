@@ -280,16 +280,16 @@ These existing tests should be improved as part of reaching 85%:
 - `research/docs/2026-02-14-testing-infrastructure-and-dev-setup.md` — Prior research on testing infrastructure. Found 5 test files (now 18) with quality assessment. Planned pre-commit hooks and coverage thresholds. Established testing philosophy: "test real behavior, not trivial properties."
 - `research/docs/2026-02-12-bun-test-failures-root-cause-analysis.md` — 104 tests failed because source code evolved but tests were not updated. Tests were removed. Categories: agent model field mismatches, sentMessages tracking, theme migration, icon changes, Claude SDK refactor.
 - `research/docs/2026-02-14-failing-tests-mcp-config-discovery.md` — MCP config discovery test failures for project-level `.mcp.json`.
-- `specs/testing-infrastructure-and-dev-setup.md` — Formal spec for testing infrastructure.
-- `specs/bun-test-failures-remediation.md` — Formal spec for remediating historical test failures.
+- `specs/2026-02-14-testing-infrastructure-and-dev-setup.md` — Formal spec for testing infrastructure.
+- `specs/2026-02-12-bun-test-failures-remediation.md` — Formal spec for remediating historical test failures.
 
 ## Related Research
 
 - `research/docs/2026-02-14-testing-infrastructure-and-dev-setup.md`
 - `research/docs/2026-02-12-bun-test-failures-root-cause-analysis.md`
 - `research/docs/2026-02-14-failing-tests-mcp-config-discovery.md`
-- `specs/testing-infrastructure-and-dev-setup.md`
-- `specs/bun-test-failures-remediation.md`
+- `specs/2026-02-14-testing-infrastructure-and-dev-setup.md`
+- `specs/2026-02-12-bun-test-failures-remediation.md`
 
 ## Open Questions
 

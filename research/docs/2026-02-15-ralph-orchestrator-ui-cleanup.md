@@ -335,10 +335,10 @@ System messages (red text) + TaskListPanel (pinned)
 
 ### Related Specs
 
-- `specs/ralph-dag-orchestration.md` - Ralph DAG-Based Orchestration Technical Design
-- `specs/ralph-task-list-ui.md` - Ralph Persistent Task List UI Technical Design
-- `specs/subagent-output-propagation-fix.md` - Sub-Agent Output Propagation Fix
-- `specs/tui-layout-streaming-content-ordering.md` - TUI Layout Streaming Content Ordering Fix
+- `specs/2026-02-16-ralph-dag-orchestration.md` - Ralph DAG-Based Orchestration Technical Design
+- `specs/2026-02-14-ralph-task-list-ui.md` - Ralph Persistent Task List UI Technical Design
+- `specs/2026-02-14-subagent-output-propagation-fix.md` - Sub-Agent Output Propagation Fix
+- `specs/2026-02-13-tui-layout-streaming-content-ordering.md` - TUI Layout Streaming Content Ordering Fix
 
 ### Contextual Research
 

@@ -17,6 +17,7 @@ const PROPERTY_NAMES: Record<string, string> = {
   deadlockFreedom: "Deadlock-Freedom",
   loopBounds: "Loop Bounds",
   stateDataFlow: "State Data-Flow",
+  modelValidation: "Model Validation",
 };
 
 /**
@@ -32,6 +33,15 @@ function formatPropertyResult(name: string, result: PropertyResult): string {
   if (result.counterexample) {
     line += `: ${result.counterexample}`;
   }
+
+  // Surface per-error details for type checking (and other properties)
+  const details = result.details as Record<string, unknown> | undefined;
+  if (details?.errors && Array.isArray(details.errors)) {
+    for (const err of details.errors as string[]) {
+      line += `\n         ${err}`;
+    }
+  }
+
   return line;
 }
 
@@ -57,6 +67,7 @@ export function formatVerificationReport(
   lines.push("");
 
   for (const [name, propResult] of Object.entries(result.properties)) {
+    if (propResult === undefined) continue;
     lines.push(formatPropertyResult(name, propResult));
   }
 

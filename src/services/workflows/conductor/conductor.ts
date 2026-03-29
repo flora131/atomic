@@ -11,11 +11,27 @@
  * maintaining a `StageContext` that accumulates `StageOutput` records so each
  * downstream stage can reference prior outputs.
  *
- * @see specs/ralph-workflow-redesign.md §5.1
+ * @see specs/2026-03-23-ralph-workflow-redesign.md §5.1
  */
 
 import type { TaskItem } from "@/services/workflows/builtin/ralph/helpers/prompts.ts";
-import type { Session } from "@/services/agents/types.ts";
+import { z } from "zod";
+
+/**
+ * Zod schema for validating TaskItem-shaped objects from parsed output.
+ * Mirrors the core fields of TaskItem without the runtime-only extensions
+ * (identity, taskResult) that the conductor adds after validation.
+ */
+const TaskItemBaseSchema = z.object({
+  id: z.string().optional(),
+  description: z.string(),
+  status: z.string(),
+  summary: z.string(),
+  blockedBy: z.array(z.string()).optional(),
+});
+
+const TaskItemArraySchema = TaskItemBaseSchema.array();
+import type { Session, SessionConfig } from "@/services/agents/types.ts";
 import type {
   BaseState,
   NodeDefinition,
@@ -39,7 +55,32 @@ import type {
   StageOutput,
   WorkflowResult,
 } from "@/services/workflows/conductor/types.ts";
+import type { WorkflowSessionConfig } from "@/services/workflows/dsl/types.ts";
+import {
+  getModelPreference,
+  getReasoningEffortPreference,
+} from "@/services/config/settings.ts";
 import { truncateStageOutput } from "@/services/workflows/conductor/truncate.ts";
+import { isPipelineDebug } from "@/services/events/pipeline-logger.ts";
+import { DEFAULT_LOG_DIR } from "@/services/events/debug-subscriber/config.ts";
+import { mkdirSync, appendFileSync } from "node:fs";
+import { join } from "node:path";
+
+const CONDUCTOR_LOG_DIR = process.env.LOG_DIR?.trim() || DEFAULT_LOG_DIR;
+const CONDUCTOR_LOG = join(CONDUCTOR_LOG_DIR, "conductor-debug.log");
+
+let conductorLogDirEnsured = false;
+
+function conductorLog(action: string, data?: Record<string, unknown>): void {
+  if (!isPipelineDebug()) return;
+  if (!conductorLogDirEnsured) {
+    mkdirSync(CONDUCTOR_LOG_DIR, { recursive: true });
+    conductorLogDirEnsured = true;
+  }
+  const ts = new Date().toISOString();
+  const payload = data ? ` ${JSON.stringify(data)}` : "";
+  appendFileSync(CONDUCTOR_LOG, `[${ts}] ${action}${payload}\n`);
+}
 import {
   takeContextSnapshot,
   shouldContinueSession,
@@ -72,6 +113,12 @@ export class WorkflowSessionConductor {
   private accumulatedPressure: AccumulatedContextPressure;
   private currentStage: string | null = null;
   private currentSession: Session | null = null;
+  private interrupted = false;
+  private resumeResolver: ((message: string | null) => void) | null = null;
+  private pendingResumeMessage: string | null = null;
+  private preserveSessionForResume = false;
+  private preservedSession: Session | null = null;
+  private isResuming = false;
 
   constructor(config: ConductorConfig, stages: readonly StageDefinition[]) {
     this.config = config;
@@ -81,6 +128,57 @@ export class WorkflowSessionConductor {
     this.accumulatedPressure = createEmptyAccumulatedPressure();
 
     this.validateStagesCoverAgentNodes();
+  }
+
+  // -------------------------------------------------------------------------
+  // Session Config Resolution
+  // -------------------------------------------------------------------------
+
+  /**
+   * Resolve a `WorkflowSessionConfig` (SDK-agnostic, per-agent model maps)
+   * into an agent-level `SessionConfig` for the active agent.
+   *
+   * Resolution order for `model` and `reasoningEffort`:
+   * 1. Stage-level per-agent value (e.g., `{ model: { claude: "opus" } }`)
+   * 2. User's persisted settings (`~/.atomic/settings.json` or `.atomic/settings.json`)
+   *
+   * Other fields (systemPrompt, tools, etc.) pass through unchanged.
+   */
+  private async resolveSessionConfig(
+    workflowConfig?: Partial<WorkflowSessionConfig>,
+  ): Promise<SessionConfig | undefined> {
+    const agentType = this.config.agentType;
+
+    // Resolve model: stage config → user settings
+    const stageModel = agentType
+      ? workflowConfig?.model?.[agentType as keyof NonNullable<WorkflowSessionConfig["model"]>]
+      : undefined;
+    const model = stageModel ?? (agentType ? await getModelPreference(agentType) : undefined);
+
+    // Resolve reasoning effort: stage config → user settings
+    const stageReasoning = agentType
+      ? workflowConfig?.reasoningEffort?.[agentType as keyof NonNullable<WorkflowSessionConfig["reasoningEffort"]>]
+      : undefined;
+    const reasoningEffort = stageReasoning ?? (agentType ? await getReasoningEffortPreference(agentType) : undefined);
+
+    // If no workflow config and no defaults resolved, return undefined
+    if (!workflowConfig && !model && !reasoningEffort) {
+      return undefined;
+    }
+
+    const resolved: SessionConfig = {};
+    if (workflowConfig?.sessionId !== undefined) resolved.sessionId = workflowConfig.sessionId;
+    if (workflowConfig?.systemPrompt !== undefined) resolved.systemPrompt = workflowConfig.systemPrompt;
+    if (workflowConfig?.additionalInstructions !== undefined) resolved.additionalInstructions = workflowConfig.additionalInstructions;
+    if (workflowConfig?.tools !== undefined) resolved.tools = workflowConfig.tools;
+    if (workflowConfig?.permissionMode !== undefined) resolved.permissionMode = workflowConfig.permissionMode;
+    if (workflowConfig?.maxBudgetUsd !== undefined) resolved.maxBudgetUsd = workflowConfig.maxBudgetUsd;
+    if (workflowConfig?.maxTurns !== undefined) resolved.maxTurns = workflowConfig.maxTurns;
+    if (workflowConfig?.maxThinkingTokens !== undefined) resolved.maxThinkingTokens = workflowConfig.maxThinkingTokens;
+    if (model !== undefined) resolved.model = model;
+    if (reasoningEffort !== undefined) resolved.reasoningEffort = reasoningEffort;
+
+    return resolved;
   }
 
   // -------------------------------------------------------------------------
@@ -95,7 +193,56 @@ export class WorkflowSessionConductor {
    * observe the abort and return an `"interrupted"` StageOutput.
    */
   interrupt(): void {
+    this.interrupted = true;
+    const sessionId = this.currentSession?.id ?? null;
+    conductorLog("conductor_interrupt", {
+      sessionId,
+      hasAbort: typeof this.currentSession?.abort === "function",
+      currentStage: this.currentStage,
+      preservedSessionId: this.preservedSession?.id ?? null,
+    });
     this.currentSession?.abort?.();
+  }
+
+  /**
+   * Resume the conductor after an interrupt with a follow-up message.
+   * Called by the conductor executor when user input arrives.
+   * Passing `null` means "no follow-up; advance to next node."
+   */
+  resume(message: string | null): void {
+    if (this.resumeResolver) {
+      this.resumeResolver(message);
+      this.resumeResolver = null;
+    }
+  }
+
+  /**
+   * Wait for a resume message — checks queued messages first, then
+   * delegates to the config callback for user input.
+   */
+  private async waitForResumeInput(): Promise<string | null> {
+    const queuedMessage = this.config.checkQueuedMessage?.();
+    if (queuedMessage) {
+      conductorLog("conductor_waitForResume_queued", {
+        message: queuedMessage.slice(0, 50),
+        preservedSessionId: this.preservedSession?.id ?? null,
+      });
+      return queuedMessage;
+    }
+
+    if (this.config.waitForResumeInput) {
+      conductorLog("conductor_waitForResume_awaiting_user", {
+        preservedSessionId: this.preservedSession?.id ?? null,
+      });
+      const result = await this.config.waitForResumeInput();
+      conductorLog("conductor_waitForResume_user_responded", {
+        result: result?.slice(0, 50) ?? null,
+        preservedSessionId: this.preservedSession?.id ?? null,
+      });
+      return result;
+    }
+
+    return null;
   }
 
   /**
@@ -117,7 +264,9 @@ export class WorkflowSessionConductor {
    */
   async execute(userPrompt: string): Promise<WorkflowResult> {
     const executionId = generateExecutionId();
-    let state = initializeExecutionState<BaseState>(executionId);
+    let state = this.config.createState
+      ? this.config.createState({ sessionId: executionId, prompt: userPrompt, sessionDir: "" })
+      : initializeExecutionState<BaseState>(executionId);
     const { graph, abortSignal } = this.config;
 
     const nodeQueue: string[] = [graph.startNode];
@@ -176,6 +325,43 @@ export class WorkflowSessionConductor {
           });
           break;
         }
+
+        // Handle interrupted status: pause and wait for resume input
+        if (stageResult.output.status === "interrupted") {
+          conductorLog("conductor_await_resume", {
+            nodeId,
+            preservedSessionId: this.preservedSession?.id ?? null,
+          });
+          const resumeInput = await this.waitForResumeInput();
+
+          conductorLog("conductor_resume_received", {
+            nodeId,
+            resumeInput: resumeInput?.slice(0, 50) ?? null,
+            preservedSessionId: this.preservedSession?.id ?? null,
+          });
+
+          if (resumeInput !== null && resumeInput.trim().length > 0) {
+            // Re-execute the same stage with the follow-up message
+            nodeQueue.unshift(nodeId);
+            visited.delete(nodeId);
+            this.pendingResumeMessage = resumeInput;
+            this.preserveSessionForResume = true;
+            this.isResuming = true;
+            conductorLog("conductor_resume_requeue", {
+              nodeId,
+              preservedSessionId: this.preservedSession?.id ?? null,
+              preserveSessionForResume: true,
+              isResuming: true,
+            });
+            continue;
+          }
+          // No follow-up — destroy the preserved session immediately
+          if (this.preservedSession) {
+            await this.config.destroySession(this.preservedSession).catch(() => {});
+            this.preservedSession = null;
+          }
+          // Fall through to advance to next node
+        }
       } else {
         result = await this.executeDeterministicNode(node, state);
       }
@@ -196,6 +382,13 @@ export class WorkflowSessionConductor {
     }
 
     const success = !abortSignal.aborted && !encounteredError;
+
+    // Clean up any preserved session that wasn't reused
+    if (this.preservedSession) {
+      await this.config.destroySession(this.preservedSession).catch(() => {});
+      this.preservedSession = null;
+    }
+
     return this.buildResult(success, state);
   }
 
@@ -230,7 +423,7 @@ export class WorkflowSessionConductor {
       return { output: skippedOutput, result: {}, skipped: true };
     }
 
-    const context = this.buildStageContext(userPrompt);
+    const context = this.buildStageContext(userPrompt, state);
 
     // Evaluate shouldRun condition
     if (stage.shouldRun && !stage.shouldRun(context)) {
@@ -243,14 +436,19 @@ export class WorkflowSessionConductor {
       return { output: skippedOutput, result: {}, skipped: true };
     }
 
-    // Notify UI of stage transition
-    this.config.onStageTransition(previousStageId, nodeId);
+    // Notify UI of stage transition (skip banner on resume re-entry)
+    const resuming = this.isResuming;
+    this.config.onStageTransition(previousStageId, nodeId, resuming ? { isResume: true } : undefined);
+    this.isResuming = false;
 
     // Track the currently-executing stage
     this.currentStage = nodeId;
 
-    // Emit workflow.step.start event
-    this.emitStepStart(stage);
+    // Emit workflow.step.start event — skip on resume since the step
+    // was already started before the interrupt.
+    if (!resuming) {
+      this.emitStepStart(stage);
+    }
     const startTime = Date.now();
 
     // Execute the stage in an isolated session
@@ -267,7 +465,11 @@ export class WorkflowSessionConductor {
     this.emitStepComplete(
       stage,
       durationMs,
-      output.status === "completed" ? "completed" : "error",
+      output.status === "completed"
+        ? "completed"
+        : output.status === "interrupted"
+          ? "interrupted"
+          : "error",
       output.error,
     );
 
@@ -319,7 +521,40 @@ export class WorkflowSessionConductor {
       let contextUsage: ContextPressureSnapshot | null = null;
 
       try {
-        session = await this.config.createSession(stage.sessionConfig);
+        conductorLog("conductor_runStageSession_entry", {
+          stageId: stage.id,
+          preserveSessionForResume: this.preserveSessionForResume,
+          pendingResumeMessage: this.pendingResumeMessage?.slice(0, 50) ?? null,
+          preservedSessionId: this.preservedSession?.id ?? null,
+          interrupted: this.interrupted,
+          isResuming: this.isResuming,
+        });
+
+        // When resuming an interrupted stage, reuse the pending message
+        // instead of the original prompt
+        if (this.preserveSessionForResume && this.pendingResumeMessage !== null) {
+          currentPrompt = this.pendingResumeMessage;
+          this.pendingResumeMessage = null;
+          this.preserveSessionForResume = false;
+        }
+
+        // Reuse preserved session from a previous interrupt when available,
+        // otherwise create a fresh session
+        if (this.preservedSession) {
+          session = this.preservedSession;
+          this.preservedSession = null;
+          conductorLog("conductor_session_reused", {
+            stageId: stage.id,
+            sessionId: session.id,
+          });
+        } else {
+          const resolvedConfig = await this.resolveSessionConfig(stage.sessionConfig);
+          session = await this.config.createSession(resolvedConfig);
+          conductorLog("conductor_session_created", {
+            stageId: stage.id,
+            sessionId: session.id,
+          });
+        }
         this.currentSession = session;
 
         // Stream through the full SDK adapter pipeline when available,
@@ -340,18 +575,55 @@ export class WorkflowSessionConductor {
           }
         }
 
+        // Accumulate the streaming response immediately so all
+        // subsequent paths (interrupt, abort, completion) see it.
+        accumulatedResponse += rawResponse;
+
         // Check for abort after streaming
         if (context.abortSignal.aborted) {
+          conductorLog("conductor_abort_signal_detected", {
+            stageId: stage.id,
+            sessionId: session?.id ?? null,
+          });
           return {
             stageId: stage.id,
-            rawResponse: accumulatedResponse + rawResponse,
+            rawResponse: accumulatedResponse,
             status: "interrupted",
             contextUsage: contextUsage ?? undefined,
             continuations: continuations.length > 0 ? continuations : undefined,
           };
         }
 
-        accumulatedResponse += rawResponse;
+        conductorLog("conductor_post_stream", {
+          stageId: stage.id,
+          sessionId: session?.id ?? null,
+          interrupted: this.interrupted,
+          abortSignalAborted: context.abortSignal.aborted,
+          responseLength: rawResponse.length,
+        });
+
+        // Check for per-stage interrupt (set by conductor.interrupt()).
+        // Even if a follow-up is already queued, preserve the current session
+        // and return "interrupted" so execute() can consume that input via
+        // waitForResumeInput() and resume through the normal stage re-entry
+        // path. That path restores the spinner / streaming target before the
+        // follow-up stream starts.
+        if (this.interrupted) {
+          this.interrupted = false;
+          this.preservedSession = session;
+          session = undefined;
+          conductorLog("conductor_session_preserved", {
+            stageId: stage.id,
+            preservedSessionId: this.preservedSession?.id ?? null,
+          });
+          return {
+            stageId: stage.id,
+            rawResponse: accumulatedResponse,
+            status: "interrupted",
+            contextUsage: contextUsage ?? undefined,
+            continuations: continuations.length > 0 ? continuations : undefined,
+          };
+        }
 
         // Capture context usage if monitoring is enabled
         if (pressureConfig && session) {
@@ -403,8 +675,56 @@ export class WorkflowSessionConductor {
           }
         }
 
+        // Drain queued messages to the active session before completing.
+        // Each iteration re-enables streaming in the TUI via onBeforeQueuedStream
+        // because the previous stream's `stream.session.idle` already stopped it.
+        while (session) {
+          const queuedMessage = this.config.checkQueuedMessage?.();
+          if (!queuedMessage) break;
+
+          // Re-enable streaming and create a new message target so the
+          // queued message's text deltas have a UI destination.
+          this.config.onBeforeQueuedStream?.();
+
+          // Deliver the queued message to the still-active session
+          let queuedResponse: string;
+          if (this.config.streamSession) {
+            queuedResponse = await this.config.streamSession(session, queuedMessage, {
+              abortSignal: context.abortSignal,
+            });
+          } else {
+            queuedResponse = "";
+            for await (const message of session.stream(queuedMessage, {
+              abortSignal: context.abortSignal,
+            })) {
+              if (typeof message.content === "string") {
+                queuedResponse += message.content;
+              }
+            }
+          }
+
+          accumulatedResponse += queuedResponse;
+
+          // Check for interrupt during the follow-up stream
+          if (this.interrupted) {
+            this.interrupted = false;
+
+            // Preserve the session for potential reuse on resume
+            this.preservedSession = session;
+            session = undefined;
+
+            return {
+              stageId: stage.id,
+              rawResponse: accumulatedResponse,
+              status: "interrupted",
+              contextUsage: contextUsage ?? undefined,
+              continuations: continuations.length > 0 ? continuations : undefined,
+            };
+          }
+        }
+
         // Parse output if a parser is provided (uses full accumulated response)
-        let parsedOutput: unknown;
+        let parsedOutput: Record<string, unknown> | undefined;
         if (stage.parseOutput) {
           try {
             parsedOutput = stage.parseOutput(accumulatedResponse);
@@ -422,8 +742,26 @@ export class WorkflowSessionConductor {
           continuations: continuations.length > 0 ? continuations : undefined,
         };
       } catch (error) {
+        conductorLog("conductor_catch_block", {
+          stageId: stage.id,
+          interrupted: this.interrupted,
+          abortSignalAborted: context.abortSignal.aborted,
+          sessionId: session?.id ?? null,
+          error: error instanceof Error ? error.message : String(error),
+        });
+
         // Abort-induced errors are "interrupted", not "error"
-        if (context.abortSignal.aborted) {
+        if (this.interrupted || context.abortSignal.aborted) {
+          if (this.interrupted) {
+            // Conductor interrupt — preserve session for potential resume
+            this.preservedSession = session ?? null;
+            session = undefined;
+            conductorLog("conductor_catch_session_preserved", {
+              stageId: stage.id,
+              preservedSessionId: this.preservedSession?.id ?? null,
+            });
+          }
+          this.interrupted = false;
           return {
             stageId: stage.id,
             rawResponse: accumulatedResponse,
@@ -440,6 +778,12 @@ export class WorkflowSessionConductor {
           continuations: continuations.length > 0 ? continuations : undefined,
         };
       } finally {
+        conductorLog("conductor_finally_block", {
+          stageId: stage.id,
+          sessionId: session?.id ?? null,
+          willDestroy: !!session,
+          preservedSessionId: this.preservedSession?.id ?? null,
+        });
         this.currentSession = null;
         if (session) {
           await this.config.destroySession(session).catch(() => {
@@ -461,12 +805,30 @@ export class WorkflowSessionConductor {
     node: NodeDefinition<BaseState>,
     state: BaseState,
   ): Promise<NodeResult<BaseState>> {
+    // Build an emit function that dispatches bus events when the event bus
+    // is available. This is required for askUserQuestion nodes to emit
+    // human_input_required events that the TUI subscribes to.
+    const emitFn = this.canDispatch
+      ? (type: string, data?: Record<string, unknown>) => {
+          const busType = `stream.${type}`;
+          this.config.dispatchEvent!({
+            type: busType,
+            sessionId: this.config.sessionId!,
+            runId: this.config.runId!,
+            timestamp: Date.now(),
+            data: { ...data, nodeId: node.id },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          } as any);
+        }
+      : undefined;
+
     const context: ExecutionContext<BaseState> = {
       state,
       config: this.config.graph.config,
       errors: [],
       abortSignal: this.config.abortSignal,
       getNodeOutput: (nodeId) => state.outputs[nodeId],
+      emit: emitFn,
     };
 
     try {
@@ -486,12 +848,13 @@ export class WorkflowSessionConductor {
   // -------------------------------------------------------------------------
 
   /** Build a StageContext snapshot from accumulated state. */
-  private buildStageContext(userPrompt: string): StageContext {
+  private buildStageContext(userPrompt: string, state: BaseState): StageContext {
     const context: StageContext = {
       userPrompt,
       stageOutputs: new Map(this.stageOutputs),
       tasks: [...this.tasks],
       abortSignal: this.config.abortSignal,
+      state,
     };
 
     // Include context pressure data when monitoring is configured
@@ -532,23 +895,20 @@ export class WorkflowSessionConductor {
    * the task list and notify the UI. This is the mechanism by which the
    * planner stage populates tasks for the orchestrator.
    */
-  private updateTasksFromParsedOutput(parsedOutput: unknown): void {
-    if (!Array.isArray(parsedOutput)) {
-      return;
-    }
+  private updateTasksFromParsedOutput(parsedOutput: Record<string, unknown>): void {
+    // Task lists are stored under a "tasks" key or as a direct array value.
+    // Check each value in the parsed output for an array of TaskItem-shaped objects.
+    // Use the SDK's Zod schema for structural validation instead of duck-typing.
+    const values = Object.values(parsedOutput);
+    for (const value of values) {
+      if (!Array.isArray(value)) continue;
 
-    // Validate that items look like TaskItem (have description + status)
-    const isTaskArray = parsedOutput.every(
-      (item: unknown) =>
-        typeof item === "object" &&
-        item !== null &&
-        "description" in item &&
-        "status" in item,
-    );
-
-    if (isTaskArray) {
-      this.tasks = parsedOutput as TaskItem[];
-      this.config.onTaskUpdate([...this.tasks]);
+      const result = TaskItemArraySchema.safeParse(value);
+      if (result.success) {
+        this.tasks = result.data as TaskItem[];
+        this.config.onTaskUpdate([...this.tasks]);
+        return;
+      }
     }
   }
 
@@ -626,7 +986,7 @@ export class WorkflowSessionConductor {
   private emitStepComplete(
     stage: StageDefinition,
     durationMs: number,
-    status: "completed" | "error" | "skipped",
+    status: "completed" | "error" | "skipped" | "interrupted",
     error?: string,
   ): void {
     if (!this.canDispatch) return;

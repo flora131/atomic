@@ -7,7 +7,7 @@
  * Reference: Feature 15 - Implement terminal chat UI
  */
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useMemo } from "react";
 import {
   ChatShell,
   useChatStreamRuntime,
@@ -127,6 +127,7 @@ export function ChatApp({
     setTodoItems: runtime.setters.setTodoItems,
     setWorkflowState,
     todoItemsRef: runtime.refs.todoItemsRef,
+    workflowActiveRef: shellState.workflowActiveRef,
     workflowSessionIdRef: runtime.refs.workflowSessionIdRef,
   });
   shellState.continueQueuedConversationRef.current = orchestration.continueQueuedConversation;
@@ -147,31 +148,57 @@ export function ChatApp({
     workflowState,
   });
 
+  // Memoize the app config object to preserve referential equality across
+  // renders, preventing unnecessary downstream re-renders in the controller stack.
+  const app = useMemo(() => ({
+    createSubagentSession,
+    streamWithSession,
+    ensureSession,
+    getModelDisplayInfo,
+    getSession,
+    initialModelId,
+    initialPrompt,
+    model,
+    modelOps,
+    onCommandExecutionTelemetry,
+    onExit,
+    onInterrupt,
+    onModelChange,
+    onResetSession,
+    onSendMessage,
+    onSessionMcpServersChange,
+    onTerminateBackgroundAgents,
+    setStreamingState,
+    tier,
+    version,
+    workingDir,
+  }), [
+    createSubagentSession,
+    streamWithSession,
+    ensureSession,
+    getModelDisplayInfo,
+    getSession,
+    initialModelId,
+    initialPrompt,
+    model,
+    modelOps,
+    onCommandExecutionTelemetry,
+    onExit,
+    onInterrupt,
+    onModelChange,
+    onResetSession,
+    onSendMessage,
+    onSessionMcpServersChange,
+    onTerminateBackgroundAgents,
+    setStreamingState,
+    tier,
+    version,
+    workingDir,
+  ]);
+
   const { chatShellProps } = useChatUiControllerStack({
     agentType,
-    app: {
-      createSubagentSession,
-      streamWithSession,
-      ensureSession,
-      getModelDisplayInfo,
-      getSession,
-      initialModelId,
-      initialPrompt,
-      model,
-      modelOps,
-      onCommandExecutionTelemetry,
-      onExit,
-      onInterrupt,
-      onModelChange,
-      onResetSession,
-      onSendMessage,
-      onSessionMcpServersChange,
-      onTerminateBackgroundAgents,
-      setStreamingState,
-      tier,
-      version,
-      workingDir,
-    },
+    app,
     deferredCommandQueueRef,
     eventBus,
     hitl: runtimeStack,

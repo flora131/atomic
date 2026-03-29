@@ -123,23 +123,23 @@ describe("ClientBackedAgentProvider", () => {
 });
 
 describe("agent provider factories", () => {
-  test("creates claude provider with default supported models", () => {
+  test("creates claude provider with default supported models", async () => {
     const mock = createMockClient("claude");
-    const provider = createClaudeAgentProvider({ client: mock.client });
+    const provider = await createClaudeAgentProvider({ client: mock.client });
 
     expect(provider.name).toBe("claude");
     expect(provider.supportedModels()).toEqual(["opus", "sonnet", "haiku"]);
   });
 
-  test("creates opencode and copilot providers with provided models", () => {
+  test("creates opencode and copilot providers with provided models", async () => {
     const opencodeMock = createMockClient("opencode");
     const copilotMock = createMockClient("copilot");
 
-    const opencode = createOpenCodeAgentProvider({
+    const opencode = await createOpenCodeAgentProvider({
       client: opencodeMock.client,
       supportedModels: ["anthropic/claude-sonnet-4"],
     });
-    const copilot = createCopilotAgentProvider({
+    const copilot = await createCopilotAgentProvider({
       client: copilotMock.client,
       supportedModels: ["claude-opus-4.6", "gpt-5.2"],
     });
@@ -155,7 +155,7 @@ describe("agent provider factories", () => {
     const opencodeMock = createMockClient("opencode");
     const copilotMock = createMockClient("copilot");
 
-    const registry = createDefaultProviderRegistry({
+    const registry = await createDefaultProviderRegistry({
       claude: { client: claudeMock.client },
       opencode: { client: opencodeMock.client },
       copilot: { client: copilotMock.client },

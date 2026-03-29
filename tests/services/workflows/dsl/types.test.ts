@@ -63,16 +63,12 @@ describe("StageOptions", () => {
       description: "Executes tasks",
       prompt: () => "Execute",
       outputMapper: () => ({}),
-      sessionConfig: { model: "claude-sonnet" },
+      sessionConfig: { model: { claude: "claude-sonnet" } },
       maxOutputBytes: 1024,
-      reads: ["plan"],
-      outputs: ["result"],
     };
 
-    expect(config.sessionConfig?.model).toBe("claude-sonnet");
+    expect(config.sessionConfig?.model).toEqual({ claude: "claude-sonnet" });
     expect(config.maxOutputBytes).toBe(1024);
-    expect(config.reads).toEqual(["plan"]);
-    expect(config.outputs).toEqual(["result"]);
   });
 
   test("accepts null agent to use default SDK instructions", () => {
@@ -87,15 +83,16 @@ describe("StageOptions", () => {
     expect(config.agent).toBeNull();
   });
 
-  test("accepts omitted agent (defaults to undefined)", () => {
+  test("requires agent to be explicitly set (string or null)", () => {
     const config: StageOptions = {
       name: "no-agent",
+      agent: null,
       description: "Uses default SDK instructions",
       prompt: () => "Do something",
       outputMapper: (response: string) => ({ result: response }),
     };
 
-    expect(config.agent).toBeUndefined();
+    expect(config.agent).toBeNull();
   });
 
   test("prompt receives StageContext and returns string", () => {
@@ -136,14 +133,12 @@ describe("ToolOptions", () => {
     const config: ToolOptions = {
       name: "formatter",
       execute: async () => ({}),
+      outputMapper: (result) => result,
       description: "Formats output",
-      reads: ["rawData"],
-      outputs: ["formattedData"],
     };
 
     expect(config.description).toBe("Formats output");
-    expect(config.reads).toEqual(["rawData"]);
-    expect(config.outputs).toEqual(["formattedData"]);
+    expect(typeof config.outputMapper).toBe("function");
   });
 
   test("execute receives ExecutionContext and returns record", async () => {
@@ -248,7 +243,7 @@ describe("AskUserQuestionOptions", () => {
     expect(typeof config.question).toBe("object");
   });
 
-  test("accepts optional fields (header, options, multiSelect, onAnswer, description, reads, outputs)", () => {
+  test("accepts optional fields (header, options, multiSelect, outputMapper, description, reads)", () => {
     const config: AskUserQuestionOptions = {
       name: "review-choice",
       question: {
@@ -261,16 +256,12 @@ describe("AskUserQuestionOptions", () => {
         multiSelect: true,
       },
       description: "Ask user for review decision",
-      onAnswer: (answer) => ({ decision: answer }),
-      reads: ["plan"],
-      outputs: ["decision"],
+      outputMapper: (answer) => ({ decision: answer }),
     };
 
     expect(config.name).toBe("review-choice");
     expect(config.description).toBe("Ask user for review decision");
-    expect(typeof config.onAnswer).toBe("function");
-    expect(config.reads).toEqual(["plan"]);
-    expect(config.outputs).toEqual(["decision"]);
+    expect(typeof config.outputMapper).toBe("function");
   });
 
   test("accepts dynamic question function (state) => AskUserQuestionConfig", () => {
@@ -285,26 +276,26 @@ describe("AskUserQuestionOptions", () => {
     expect(typeof config.question).toBe("function");
   });
 
-  test("onAnswer receives string and returns record", () => {
-    const onAnswer = (answer: string | string[]) => ({ userChoice: answer });
+  test("outputMapper receives string and returns record", () => {
+    const outputMapper = (answer: string | string[]) => ({ userChoice: answer });
     const config: AskUserQuestionOptions = {
       name: "test",
       question: { question: "Pick one" },
-      onAnswer,
+      outputMapper,
     };
 
-    expect(config.onAnswer!("Approve")).toEqual({ userChoice: "Approve" });
+    expect(config.outputMapper!("Approve")).toEqual({ userChoice: "Approve" });
   });
 
-  test("onAnswer receives string[] for multi-select and returns record", () => {
-    const onAnswer = (answer: string | string[]) => ({ selections: answer });
+  test("outputMapper receives string[] for multi-select and returns record", () => {
+    const outputMapper = (answer: string | string[]) => ({ selections: answer });
     const config: AskUserQuestionOptions = {
       name: "test",
       question: { question: "Pick many", multiSelect: true },
-      onAnswer,
+      outputMapper,
     };
 
-    expect(config.onAnswer!(["A", "B"])).toEqual({ selections: ["A", "B"] });
+    expect(config.outputMapper!(["A", "B"])).toEqual({ selections: ["A", "B"] });
   });
 });
 

@@ -7,8 +7,8 @@ import {
 } from "@/services/config/atomic-global-config.ts";
 import { getConfigRoot } from "@/services/config/config-path.ts";
 import {
-  deployPlaywrightSkill,
   ensurePlaywrightPackageManagers,
+  deployPlaywrightSkill,
   installPlaywrightCli,
 } from "@/scripts/postinstall-playwright.ts";
 import {
@@ -19,6 +19,9 @@ import {
 import {
   installWorkflowSdkFromLocal,
   getGlobalWorkflowsDir,
+  getLocalWorkflowsDir,
+  getLocalSdkPackagePath,
+  getRelativeSdkPath,
 } from "@/services/config/workflow-package.ts";
 
 function formatErrorMessage(error: unknown): string {
@@ -29,7 +32,8 @@ function warnPostinstallStep(step: string, error: unknown): void {
   console.warn(`[atomic] Warning: ${step}: ${formatErrorMessage(error)}`);
 }
 
-async function verifyAtomicGlobalConfigSync(): Promise<void> {
+async function syncAndVerifyConfigs(configRoot: string): Promise<void> {
+  await syncAtomicGlobalAgentConfigs(configRoot);
   if (!(await hasAtomicGlobalAgentConfigs())) {
     throw new Error("Missing synced global config entries in provider home roots");
   }
@@ -38,64 +42,67 @@ async function verifyAtomicGlobalConfigSync(): Promise<void> {
 async function main(): Promise<void> {
   const configRoot = getConfigRoot();
 
-  try {
-    await syncAtomicGlobalAgentConfigs(configRoot);
-  } catch (error) {
-    warnPostinstallStep("failed to sync provider home-root configs", error);
-  }
+  // Phase 1: ensure package managers are available (needed by later steps)
+  const pmResults = await Promise.allSettled([
+    ensurePlaywrightPackageManagers(),
+    ensureUv(),
+  ]);
 
-  try {
-    ensurePlaywrightPackageManagers();
-  } catch (error) {
-    warnPostinstallStep("failed to install missing package managers (bun/npm)", error);
-  }
+  const pmLabels = [
+    "failed to ensure bun/npm",
+    "failed to ensure uv",
+  ];
 
-  try {
-    ensureUv();
-  } catch (error) {
-    warnPostinstallStep("failed to install uv", error);
-  }
-
-  try {
-    installCocoindexCode();
-  } catch (error) {
-    warnPostinstallStep("failed to install cocoindex-code via uv", error);
-  }
-
-  try {
-    await writeCocoindexGlobalSettings();
-  } catch (error) {
-    warnPostinstallStep("failed to write cocoindex global settings", error);
-  }
-
-  try {
-    await installPlaywrightCli();
-  } catch (error) {
-    warnPostinstallStep("failed to install @playwright/cli globally", error);
-  }
-
-  try {
-    await deployPlaywrightSkill(configRoot);
-  } catch (error) {
-    warnPostinstallStep("failed to deploy Playwright SKILL.md", error);
-  }
-
-  // Install workflow SDK from local packages/workflow-sdk into ~/.atomic/workflows/
-  try {
-    const localSdkPath = resolve(import.meta.dir, "..", "..", "packages", "workflow-sdk");
-    const globalWorkflowsDir = getGlobalWorkflowsDir();
-    const installed = await installWorkflowSdkFromLocal(globalWorkflowsDir, localSdkPath);
-    if (!installed) {
-      console.warn("[atomic] Warning: failed to install workflow SDK from local package");
+  for (let i = 0; i < pmResults.length; i++) {
+    const result = pmResults[i];
+    if (result && result.status === "rejected") {
+      warnPostinstallStep(pmLabels[i] ?? `pm step ${i}`, result.reason);
     }
-  } catch (error) {
-    warnPostinstallStep("failed to install workflow SDK", error);
   }
 
-  try {
-    await verifyAtomicGlobalConfigSync();
-  } catch (error) {
-    warnPostinstallStep("failed to verify provider home-root config sync", error);
+  // Phase 2: all remaining steps in parallel
+  const results = await Promise.allSettled([
+    syncAndVerifyConfigs(configRoot),
+    deployPlaywrightSkill(configRoot),
+    (async () => {
+      const repoRoot = resolve(import.meta.dir, "..", "..");
+      const localSdkPath = getLocalSdkPackagePath(repoRoot);
+
+      // Global ~/.atomic/workflows/ — use absolute path
+      const globalWorkflowsDir = getGlobalWorkflowsDir();
+      const globalInstalled = await installWorkflowSdkFromLocal(globalWorkflowsDir, localSdkPath);
+      if (!globalInstalled) {
+        throw new Error("failed to install workflow SDK from local package into global dir");
+      }
+
+      // Local .atomic/workflows/ — use relative path so it stays portable within the repo
+      const localWorkflowsDir = getLocalWorkflowsDir(repoRoot);
+      const relativeSdkPath = getRelativeSdkPath(localWorkflowsDir, localSdkPath);
+      const localInstalled = await installWorkflowSdkFromLocal(localWorkflowsDir, relativeSdkPath);
+      if (!localInstalled) {
+        throw new Error("failed to install workflow SDK from local package into local dir");
+      }
+    })(),
+    installCocoindexCode(),
+    writeCocoindexGlobalSettings(),
+    installPlaywrightCli(),
+  ]);
+
+  // Report warnings for any failures (non-fatal)
+  const labels = [
+    "failed to sync/verify provider home-root configs",
+    "failed to deploy Playwright SKILL.md",
+    "failed to install workflow SDK",
+    "failed to install cocoindex-code",
+    "failed to write cocoindex global settings",
+    "failed to install @playwright/cli",
+  ];
+
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    if (result && result.status === "rejected") {
+      warnPostinstallStep(labels[i] ?? `step ${i}`, result.reason);
+    }
   }
 }
 

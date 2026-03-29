@@ -49,6 +49,54 @@ Both `globalState` and `loopState` fields are merged into a single state schema 
 | `reducer` | `string \| ((current: T, update: T) => T)`  | no       | Merge strategy (default: `"replace"`)          |
 | `key`     | `string`                                    | no       | Key field for `"mergeById"` reducer            |
 
+`T` defaults to `JsonValue` when not specified — meaning all state field values must be JSON-serializable (strings, numbers, booleans, null, arrays, or plain objects). When you provide a `default` value, TypeScript infers the concrete type automatically:
+
+```ts
+globalState: {
+  count: { default: 0 },              // T inferred as number
+  items: { default: () => [] as string[] },  // T inferred as string[]
+  approved: { default: false },        // T inferred as boolean
+}
+```
+
+Custom reducer functions get correctly typed parameters matching the inferred `T`:
+
+```ts
+globalState: {
+  log: {
+    default: () => [] as string[],
+    reducer: (current: string[], update: string[]) => [...current, ...update].slice(-50),
+    // ↑ TypeScript knows current and update are string[], not JsonValue
+  },
+}
+```
+
+## Type inference with `InferState`
+
+When you declare `globalState`, the SDK uses the `InferState` utility type to derive a concrete state type from your field defaults. This means `ctx.state` in prompt functions and `.if()` conditions is fully typed — not `BaseState` with loose `JsonValue` fields, but a precise intersection type:
+
+```ts
+const workflow = defineWorkflow({
+  name: "typed-example",
+  description: "Type inference demo",
+  globalState: {
+    count: { default: 0, reducer: "sum" },
+    items: { default: () => [] as string[], reducer: "concat" },
+    approved: { default: false },
+  },
+});
+
+// In .stage() prompt:
+// ctx.state.count   → number
+// ctx.state.items   → string[]
+// ctx.state.approved → boolean
+// ctx.state.outputs  → Record<string, Record<string, JsonValue>> (from BaseState)
+```
+
+This type inference is what makes the builder generic — `WorkflowBuilder<TState>` carries the inferred state type through all chained methods, so `.if()` conditions, `.stage()` prompts, and `.tool()` execute functions all see the same typed `ctx.state`.
+
+**Tip:** Use `as const` on string literal defaults if you want narrow string types, and `as Type[]` casts on factory defaults to get precise array element types.
+
 ## Built-in reducers
 
 | Reducer      | Behavior                                           |
@@ -65,33 +113,30 @@ Both `globalState` and `loopState` fields are merged into a single state schema 
 
 Custom functions also work: `reducer: (current, update) => ...`.
 
-## Data flow declarations
+## Data flow (auto-inferred)
 
-Each node declares which state fields it **reads** and which it **outputs**:
+The compiler automatically infers which state fields each node **reads** and which it **produces** — you do not declare these manually. It works by inspecting your functions:
 
-- `reads` — State fields this node depends on
-- `outputs` — State fields this node produces
-
-These declarations are contracts used for verification:
+- **Reads** — For stages, the compiler uses Proxy-based state tracking to detect which `state.*` fields your `prompt` function accesses. For tools, it uses TypeScript AST analysis to statically determine which `ctx.state.*` fields your `execute` function reads (without running it, to avoid side effects). For ask-user nodes, it inspects the `question` function.
+- **Outputs** — The compiler inspects the return keys of your `outputMapper` (or `execute` for tools) to determine which state fields each node produces.
 
 ```ts
 .stage({
   name: "plan",
   agent: "planner",
   description: "PLANNER",
-  outputs: ["tasks"],                    // Produces tasks
   prompt: (ctx) => `Plan: ${ctx.userPrompt}`,
   outputMapper: (response) => ({ tasks: parseTasks(response) }),
+  // ↑ compiler infers: outputs ["tasks"]
 })
 .stage({
   name: "execute",
   agent: "executor",
   description: "EXECUTOR",
-  reads: ["tasks"],                      // Reads tasks from plan stage
-  outputs: ["progress"],                 // Produces progress
   prompt: (ctx) => `Execute: ${JSON.stringify(ctx.stageOutputs.get("plan")?.parsedOutput)}`,
   outputMapper: (response) => ({ progress: parseProgress(response) }),
+  // ↑ compiler infers: outputs ["progress"]
 })
 ```
 
-The verifier checks that every `reads` field has a preceding `outputs` declaration on all execution paths.
+The verifier uses these inferred declarations to check that every field a node reads has a preceding write on all execution paths. If the verifier reports a state data-flow error, check that upstream stages actually return the field in their `outputMapper`.

@@ -54,7 +54,7 @@ export interface UseChatStreamConsumerArgs {
   setParallelAgents: Dispatch<SetStateAction<ParallelAgent[]>>;
   setStreamingMeta: Dispatch<SetStateAction<StreamingMeta | null>>;
   setTodoItems: Dispatch<SetStateAction<NormalizedTodoItem[]>>;
-  setToolCompletionVersion: Dispatch<SetStateAction<number>>;
+  setHasRunningTool: Dispatch<SetStateAction<boolean>>;
   shouldHideActiveStreamContent: () => boolean;
   streamRunRuntimeRef: RefObject<StreamRunRuntime>;
   streamingMessageIdRef: RefObject<string | null>;
@@ -94,7 +94,7 @@ export function useChatStreamConsumer({
   setParallelAgents,
   setStreamingMeta,
   setTodoItems,
-  setToolCompletionVersion,
+  setHasRunningTool,
   shouldHideActiveStreamContent,
   streamRunRuntimeRef,
   streamingMessageIdRef,
@@ -121,7 +121,7 @@ export function useChatStreamConsumer({
     setMessagesWindowed,
     setParallelAgents,
     setTodoItems,
-    setToolCompletionVersion,
+    setHasRunningTool,
     streamingMessageIdRef,
     todoItemsRef,
     toolMessageIdByIdRef,

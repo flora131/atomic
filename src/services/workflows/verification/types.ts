@@ -27,6 +27,7 @@ export interface VerificationResult {
     deadlockFreedom: PropertyResult;
     loopBounds: PropertyResult;
     stateDataFlow: PropertyResult;
+    modelValidation?: PropertyResult;
   };
 }
 
@@ -37,7 +38,7 @@ export class WorkflowVerificationError extends Error {
 
   constructor(workflowId: string, result: VerificationResult) {
     const failedProps = Object.entries(result.properties)
-      .filter(([, prop]) => !prop.verified)
+      .filter(([, prop]) => prop !== undefined && !prop.verified)
       .map(([name]) => name);
     super(
       `Workflow "${workflowId}" failed verification: ${failedProps.join(", ")}`,

@@ -7,9 +7,12 @@ pre-commit:
             glob: "*.{ts,tsx}"
             run: bun run lint
         test:
-            run: bun test --bail
+            run: bun test --bail --path-ignore-patterns 'tests/screens/e2e/**'
+        validate-agents:
+            glob: ".{claude,opencode,github}/agents/*.md"
+            run: bun run validate:agents
 
 pre-push:
     commands:
         test-coverage:
-            run: bun test --coverage
+            run: bun run test:coverage

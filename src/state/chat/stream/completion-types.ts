@@ -26,7 +26,7 @@ export type UseChatStreamCompletionArgs = Pick<
   | "setLastStreamedMessageId"
   | "setMessagesWindowed"
   | "setParallelAgents"
-  | "setToolCompletionVersion"
+  | "setHasRunningTool"
   | "shouldHideActiveStreamContent"
   | "startAssistantStreamRef"
   | "stopSharedStreamState"

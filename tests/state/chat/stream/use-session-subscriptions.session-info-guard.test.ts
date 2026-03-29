@@ -26,6 +26,7 @@ function handleSessionInfo(
 
   const { message, infoType } = event.data;
   if (infoType === "cancellation") return;
+  if (infoType === "configuration") return;
   if (infoType === "snapshot") return;
   if (!message) return;
   if (isLikelyFilePath(message.trim())) return;
@@ -96,6 +97,14 @@ describe("stream.session.info infoType filtering", () => {
     handleSessionInfo(state, {
       runId: 5,
       data: { infoType: "cancellation", message: "Cancelled by user" },
+    });
+    expect(setMessagesWindowed).not.toHaveBeenCalled();
+  });
+
+  test("suppresses configuration infoType (e.g. disabled tools)", () => {
+    handleSessionInfo(state, {
+      runId: 5,
+      data: { infoType: "configuration", message: "Disabled tools: report_intent" },
     });
     expect(setMessagesWindowed).not.toHaveBeenCalled();
   });

@@ -14,7 +14,7 @@ The user's research question/request is: **$ARGUMENTS**
 
 <EXTREMELY_IMPORTANT>
 
-- OPTIMIZE the user's research question request using your prompt-engineer skill and confirm that the your refined question captures the user's intent BEFORE proceeding using the `AskUserQuestion` tool.
+- OPTIMIZE the research question using your prompt-engineer skill to refine phrasing and structure for maximum clarity and precision.
 - After research is complete and the research artifact(s) are generated, provide an executive summary of the research and path to the research document(s) to the user, and ask if they have any follow-up questions or need clarification.
 
 </EXTREMELY_IMPORTANT>
@@ -26,17 +26,18 @@ The user's research question/request is: **$ARGUMENTS**
     - This ensures you have full context before decomposing the research
 
 2. **Analyze and decompose the research question:**
-    - Break down the user's query into composable research areas
+    - Break the research question down into composable research areas
     - Take time to ultrathink about the underlying patterns, connections, and architectural implications the user might be seeking
     - Identify specific components, patterns, or concepts to investigate
     - Create a research plan using TodoWrite to track all subtasks
     - Consider which directories, files, or architectural patterns are relevant
 
-3. **Spawn parallel sub-agent tasks for comprehensive research:**
+3. **Spawn parallel sub-agent tasks:**
     - Create multiple Task agents to research different aspects concurrently
     - We now have specialized agents that know how to do specific research tasks:
 
     **For codebase research:**
+    - All codebase agents try `ccc search` (semantic code search) first to accelerate discovery — if it fails due to missing initialization, they fall back to grep/glob immediately without indexing. Refer to the **semantic-code-search** skill for detailed search guidance
     - Use the **codebase-locator** agent to find WHERE files and components live
     - Use the **codebase-analyzer** agent to understand HOW specific code works (without critiquing it)
     - Use the **codebase-pattern-finder** agent to find examples of existing patterns (without evaluating them)
@@ -68,7 +69,7 @@ The user's research question/request is: **$ARGUMENTS**
     - Don't write detailed prompts about HOW to search - the agents already know
     - Remind agents they are documenting, not evaluating or improving
 
-4. **Wait for all sub-agents to complete and synthesize findings:**
+4. **Wait for all sub-agents to complete and synthesize:**
     - IMPORTANT: Wait for ALL sub-agent tasks to complete before proceeding
     - Compile all sub-agent results (both codebase and research findings)
     - Prioritize live codebase findings as primary source of truth
@@ -76,7 +77,8 @@ The user's research question/request is: **$ARGUMENTS**
     - Connect findings across different components
     - Include specific file paths and line numbers for reference
     - Highlight patterns, connections, and architectural decisions
-    - Answer the user's specific questions with concrete evidence
+    - Answer the user's research question with concrete evidence
+    - **If findings reveal the original question was misframed** (e.g., the system works differently than assumed, or the components don't exist where expected), flag this to the user before finalizing the document. This is valuable signal — don't bury it.
 
 5. **Generate research document:**
     - Follow the directory structure for research documents:

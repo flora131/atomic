@@ -34,7 +34,7 @@ function createMockCheckers(): PropertyCheckers & { mocks: { r: MC; t: MC; d: MC
   const d = mock<(g: EncodedGraph) => Promise<PropertyResult>>(async () => PASS);
   const l = mock<(g: EncodedGraph) => Promise<PropertyResult>>(async () => PASS);
   const s = mock<(g: EncodedGraph) => Promise<PropertyResult>>(async () => PASS);
-  return { checkReachability: r, checkTermination: t, checkDeadlockFreedom: d, checkLoopBounds: l, checkStateDataFlow: s, mocks: { r, t, d, l, s } };
+  return { checkReachability: r, checkTermination: t, checkDeadlockFreedom: d, checkLoopBounds: l, checkStateDataFlow: s, checkModelValidation: async () => PASS, mocks: { r, t, d, l, s } };
 }
 
 describe("verifyWorkflow", () => {
@@ -108,7 +108,11 @@ describe("verifyWorkflow", () => {
     mc.mocks.s.mockImplementation(async () => FAIL_S);
     const result = await verifyWorkflow(makeDummyGraph(), { encodedGraph: makeEncodedGraph(), checkers: mc });
     expect(result.valid).toBe(false);
-    for (const p of Object.values(result.properties)) expect(p.verified).toBe(false);
+    expect(result.properties.reachability.verified).toBe(false);
+    expect(result.properties.termination.verified).toBe(false);
+    expect(result.properties.deadlockFreedom.verified).toBe(false);
+    expect(result.properties.loopBounds.verified).toBe(false);
+    expect(result.properties.stateDataFlow.verified).toBe(false);
   });
 
   test("passes encoded graph to all checkers", async () => {

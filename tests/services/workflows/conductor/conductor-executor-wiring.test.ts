@@ -47,6 +47,8 @@ mock.module("@/services/workflows/runtime/executor/session-runtime.ts", () => ({
 
 // Suppress pipeline logger side effects
 mock.module("@/services/events/pipeline-logger.ts", () => ({
+  isPipelineDebug: mock(() => false),
+  resetPipelineDebugCache: mock(() => {}),
   pipelineLog: mock(() => {}),
   pipelineError: mock(() => {}),
 }));

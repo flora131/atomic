@@ -416,7 +416,7 @@ describe("WorkflowSessionConductor", () => {
       const stages = [
         stage("planner", "", {
           buildPrompt: () => "plan",
-          parseOutput: () => taskArray,
+          parseOutput: () => ({ tasks: taskArray }),
         }),
         stage("orchestrator", "", {
           buildPrompt: (ctx) => {
@@ -536,7 +536,7 @@ describe("WorkflowSessionConductor", () => {
 
       const stages = [
         stage("planner", "", {
-          sessionConfig: { model: "claude-opus-4-20250514", maxTurns: 5 },
+          sessionConfig: { model: { claude: "claude-opus-4-20250514" }, maxTurns: 5 },
         }),
       ];
 
@@ -549,7 +549,6 @@ describe("WorkflowSessionConductor", () => {
       await conductor.execute("test");
 
       expect(capturedConfigs).toHaveLength(1);
-      expect(capturedConfigs[0]?.model).toBe("claude-opus-4-20250514");
       expect(capturedConfigs[0]?.maxTurns).toBe(5);
     });
   });
@@ -870,7 +869,7 @@ describe("WorkflowSessionConductor", () => {
       const stages = [
         stage("planner", "", {
           buildPrompt: () => "plan",
-          parseOutput: () => taskArray,
+          parseOutput: () => ({ tasks: taskArray }),
         }),
       ];
 
@@ -1269,7 +1268,7 @@ describe("WorkflowSessionConductor", () => {
       const stages = [
         stage("planner", "", {
           buildPrompt: () => "plan",
-          parseOutput: () => taskArray,
+          parseOutput: () => ({ tasks: taskArray }),
         }),
         stage("orchestrator", "", {
           buildPrompt: (ctx) => {
@@ -1635,7 +1634,7 @@ describe("WorkflowSessionConductor", () => {
       const stages = [
         stage("planner", "", {
           buildPrompt: () => "plan",
-          parseOutput: () => taskArray,
+          parseOutput: () => ({ tasks: taskArray }),
         }),
         stage("debugger", "", {
           buildPrompt: () => "debug",

@@ -252,3 +252,56 @@ describe("CopilotClient model switch event deduplication", () => {
     expect(deltas).toEqual(["hello"]);
   });
 });
+
+describe("CopilotClient send timeout", () => {
+  test("stream() throws session-expired when session is already closed", async () => {
+    const listeners: Array<(event: {
+      type: string;
+      data: Record<string, unknown>;
+    }) => void> = [];
+
+    const mockSdkSession = {
+      sessionId: "copilot-closed-session",
+      on: mock((handler: (event: { type: string; data: Record<string, unknown> }) => void) => {
+        listeners.push(handler);
+        return () => {
+          const idx = listeners.indexOf(handler);
+          if (idx >= 0) listeners.splice(idx, 1);
+        };
+      }),
+      send: mock(async () => {
+        for (const listener of [...listeners]) {
+          listener({ type: "session.idle", data: {} });
+        }
+      }),
+      sendAndWait: mock(() => Promise.resolve({ data: { content: "" } })),
+      destroy: mock(() => Promise.resolve()),
+      abort: mock(() => Promise.resolve()),
+    };
+
+    const client = new CopilotClient({});
+    const wrapSession = (client as unknown as {
+      wrapSession: (
+        sdkSession: unknown,
+        config: Record<string, unknown>,
+      ) => {
+        stream: (message: string) => AsyncIterable<unknown>;
+        destroy: () => Promise<void>;
+      };
+    }).wrapSession.bind(client);
+
+    const session = wrapSession(mockSdkSession, {});
+
+    // Destroy the session first to set isClosed = true
+    await session.destroy();
+
+    const consumeStream = async (): Promise<void> => {
+      for await (const _chunk of session.stream("hello")) {
+        // noop
+      }
+    };
+
+    // Should immediately throw with a message matching "session expired"
+    await expect(consumeStream()).rejects.toThrow("session expired");
+  });
+});

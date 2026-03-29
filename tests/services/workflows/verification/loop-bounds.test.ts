@@ -1,120 +1,189 @@
 /**
- * Tests for loop-bounds verification (Property 4).
+ * Tests for loop bounds verification.
  *
- * with a correct integer arithmetic solver that implements the ranking
- * function check: `ranking >= 0 AND iterCount < maxIter AND ranking <= 0`.
- *
- * The mock solver evaluates these constraints arithmetically to return
- * the correct sat/unsat result, matching real solver behavior.
+ * Property: Every loop has a declared maxIterations > 0.
  */
 
-import { describe, test, expect, mock } from "bun:test";
-import type { EncodedGraph } from "@/services/workflows/verification/types";
+import { test, expect, describe } from "bun:test";
+import { checkLoopBounds } from "@/services/workflows/verification/loop-bounds.ts";
+import { buildGraph } from "./test-support.ts";
+import type { VerificationLoop } from "@/services/workflows/verification/types.ts";
 
-// ---------------------------------------------------------------------------
-// Solver mock: integer arithmetic solver for the ranking function check
-// ---------------------------------------------------------------------------
+describe("checkLoopBounds", () => {
+  describe("passing cases", () => {
+    test("graph with no loops passes", async () => {
+      const graph = buildGraph({
+        nodes: ["A", "B"],
+        edges: [["A", "B"]],
+        start: "A",
+        ends: ["B"],
+      });
+      const result = await checkLoopBounds(graph);
+      expect(result.verified).toBe(true);
+    });
 
-interface MockIntExpr {
-  _type: "int";
-  _kind: "const" | "val" | "sub";
-  _name?: string;
-  _value?: number;
-  _left?: MockIntExpr;
-  _right?: MockIntExpr;
-}
+    test("single loop with positive maxIterations passes", async () => {
+      const loop: VerificationLoop = {
+        entryNode: "loop-start",
+        exitNode: "loop-end",
+        maxIterations: 5,
+        bodyNodes: ["step"],
+      };
+      const graph = buildGraph({
+        nodes: ["A", "loop-start", "step", "loop-end", "B"],
+        edges: [
+          ["A", "loop-start"],
+          ["loop-start", "step"],
+          ["step", "loop-start"],
+          ["loop-start", "loop-end"],
+          ["loop-end", "B"],
+        ],
+        start: "A",
+        ends: ["B"],
+        loops: [loop],
+      });
+      const result = await checkLoopBounds(graph);
+      expect(result.verified).toBe(true);
+    });
 
-interface MockConstraint {
-  _type: "ge" | "lt" | "le";
-  _left: MockIntExpr;
-  _right: MockIntExpr;
-}
+    test("multiple loops all with positive bounds pass", async () => {
+      const loops: VerificationLoop[] = [
+        { entryNode: "L1", exitNode: "E1", maxIterations: 3, bodyNodes: ["b1"] },
+        { entryNode: "L2", exitNode: "E2", maxIterations: 10, bodyNodes: ["b2"] },
+        { entryNode: "L3", exitNode: "E3", maxIterations: 1, bodyNodes: ["b3"] },
+      ];
+      const graph = buildGraph({
+        nodes: ["A", "end"],
+        edges: [["A", "end"]],
+        start: "A",
+        ends: ["end"],
+        loops,
+      });
+      const result = await checkLoopBounds(graph);
+      expect(result.verified).toBe(true);
+    });
 
-function mkConst(name: string): MockIntExpr {
-  return { _type: "int", _kind: "const", _name: name };
-}
+    test("loop with maxIterations of exactly 1 passes", async () => {
+      const loop: VerificationLoop = {
+        entryNode: "L",
+        exitNode: "E",
+        maxIterations: 1,
+        bodyNodes: [],
+      };
+      const graph = buildGraph({
+        nodes: ["A", "L", "E"],
+        edges: [["A", "E"]],
+        start: "A",
+        ends: ["E"],
+        loops: [loop],
+      });
+      const result = await checkLoopBounds(graph);
+      expect(result.verified).toBe(true);
+    });
 
-function mkVal(n: number): MockIntExpr {
-  return { _type: "int", _kind: "val", _value: n };
-}
+    test("large maxIterations value passes", async () => {
+      const loop: VerificationLoop = {
+        entryNode: "L",
+        exitNode: "E",
+        maxIterations: 999999,
+        bodyNodes: [],
+      };
+      const graph = buildGraph({
+        nodes: ["A", "E"],
+        edges: [["A", "E"]],
+        start: "A",
+        ends: ["E"],
+        loops: [loop],
+      });
+      const result = await checkLoopBounds(graph);
+      expect(result.verified).toBe(true);
+    });
+  });
 
-function mkSub(a: MockIntExpr, b: MockIntExpr): MockIntExpr {
-  return { _type: "int", _kind: "sub", _left: a, _right: b };
-}
+  describe("failing cases", () => {
+    test("loop with maxIterations of 0 fails", async () => {
+      const loop: VerificationLoop = {
+        entryNode: "L",
+        exitNode: "E",
+        maxIterations: 0,
+        bodyNodes: ["body"],
+      };
+      const graph = buildGraph({
+        nodes: ["A", "L", "E", "body"],
+        edges: [["A", "E"]],
+        start: "A",
+        ends: ["E"],
+        loops: [loop],
+      });
+      const result = await checkLoopBounds(graph);
+      expect(result.verified).toBe(false);
+      expect(result.counterexample).toContain("L");
+      expect(result.counterexample).toContain("maxIterations=0");
+    });
 
-/**
- * Evaluate a MockIntExpr given an assignment for the free variable.
- * The ranking function check uses a single free variable (iterCount).
- */
-function evaluate(expr: MockIntExpr, varValue: number): number {
-  switch (expr._kind) {
-    case "val":
-      return expr._value ?? 0;
-    case "const":
-      return varValue; // Only one free variable in our encoding
-    case "sub":
-      return evaluate(expr._left!, varValue) - evaluate(expr._right!, varValue);
-  }
-}
+    test("loop with negative maxIterations fails", async () => {
+      const loop: VerificationLoop = {
+        entryNode: "loop",
+        exitNode: "exit",
+        maxIterations: -1,
+        bodyNodes: [],
+      };
+      const graph = buildGraph({
+        nodes: ["A", "loop", "exit"],
+        edges: [["A", "exit"]],
+        start: "A",
+        ends: ["exit"],
+        loops: [loop],
+      });
+      const result = await checkLoopBounds(graph);
+      expect(result.verified).toBe(false);
+      expect(result.counterexample).toContain("loop");
+      expect(result.counterexample).toContain("-1");
+    });
 
-function checkConstraint(c: MockConstraint, varValue: number): boolean {
-  const left = evaluate(c._left, varValue);
-  const right = evaluate(c._right, varValue);
-  switch (c._type) {
-    case "ge":
-      return left >= right;
-    case "lt":
-      return left < right;
-    case "le":
-      return left <= right;
-  }
-}
+    test("multiple unbounded loops all reported", async () => {
+      const loops: VerificationLoop[] = [
+        { entryNode: "L1", exitNode: "E1", maxIterations: 0, bodyNodes: [] },
+        { entryNode: "L2", exitNode: "E2", maxIterations: -5, bodyNodes: [] },
+      ];
+      const graph = buildGraph({
+        nodes: ["A", "end"],
+        edges: [["A", "end"]],
+        start: "A",
+        ends: ["end"],
+        loops,
+      });
+      const result = await checkLoopBounds(graph);
+      expect(result.verified).toBe(false);
+      const unbounded = result.details?.unboundedLoops as Array<{
+        entryNode: string;
+        maxIterations: number;
+      }>;
+      expect(unbounded).toHaveLength(2);
+      expect(unbounded.map((l) => l.entryNode)).toContain("L1");
+      expect(unbounded.map((l) => l.entryNode)).toContain("L2");
+    });
 
-function createMockContext() {
-  return {
-    Int: {
-      const: (name: string) => mkConst(name),
-      val: (n: number) => mkVal(n),
-    },
-    Sub: (a: MockIntExpr, b: MockIntExpr) => mkSub(a, b),
-    GE: (a: MockIntExpr, b: MockIntExpr): MockConstraint => ({
-      _type: "ge",
-      _left: a,
-      _right: b,
-    }),
-    LT: (a: MockIntExpr, b: MockIntExpr): MockConstraint => ({
-      _type: "lt",
-      _left: a,
-      _right: b,
-    }),
-    LE: (a: MockIntExpr, b: MockIntExpr): MockConstraint => ({
-      _type: "le",
-      _left: a,
-      _right: b,
-    }),
-    Solver: class MockSolver {
-      constraints: MockConstraint[] = [];
-      add(constraint: MockConstraint) {
-        this.constraints.push(constraint);
-      }
-      async check(): Promise<"sat" | "unsat"> {
-        // Try all integer values in a reasonable range to find a satisfying assignment
-        // For the ranking function encoding:
-        //   ranking >= 0  =>  maxIter - iter >= 0  =>  iter <= maxIter
-        //   iter < maxIter
-        //   ranking <= 0  =>  maxIter - iter <= 0  =>  iter >= maxIter
-        // Combined: iter <= maxIter AND iter < maxIter AND iter >= maxIter
-        // => iter = maxIter AND iter < maxIter => contradiction => unsat
-        //
-        // We brute-force check a range of integer values.
-        for (let v = -100; v <= 200; v++) {
-          if (this.constraints.every((c) => checkConstraint(c, v))) {
-            return "sat";
-          }
-        }
-        return "unsat";
-      }
-    },
-  };
-}
-
+    test("mix of bounded and unbounded loops fails for unbounded only", async () => {
+      const loops: VerificationLoop[] = [
+        { entryNode: "ok-loop", exitNode: "ok-exit", maxIterations: 10, bodyNodes: [] },
+        { entryNode: "bad-loop", exitNode: "bad-exit", maxIterations: 0, bodyNodes: [] },
+      ];
+      const graph = buildGraph({
+        nodes: ["A", "end"],
+        edges: [["A", "end"]],
+        start: "A",
+        ends: ["end"],
+        loops,
+      });
+      const result = await checkLoopBounds(graph);
+      expect(result.verified).toBe(false);
+      const unbounded = result.details?.unboundedLoops as Array<{
+        entryNode: string;
+        maxIterations: number;
+      }>;
+      expect(unbounded).toHaveLength(1);
+      expect(unbounded[0]!.entryNode).toBe("bad-loop");
+    });
+  });
+});

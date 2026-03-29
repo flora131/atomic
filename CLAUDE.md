@@ -25,6 +25,7 @@ Default to using Bun instead of Node.js.
 
 - Use `bun <file>` instead of `node <file>` or `ts-node <file>`
 - Use `bun test` instead of `jest` or `vitest`
+- Use `bun test:coverage` instead of `jest --coverage` or `vitest --coverage`
 - Use `bun lint` to run the linters
 - Use `bun typecheck` to run TypeScript type checks
 - Use `bun build <file.html|file.ts|file.css>` instead of `webpack` or `esbuild`
@@ -33,223 +34,13 @@ Default to using Bun instead of Node.js.
 - Use `bunx <package> <command>` instead of `npx <package> <command>`
 - Bun automatically loads `.env`, so don't use `dotenv`.
 
-## Architecture
-
-### Layered Architecture
-
-The codebase follows a **strict layered architecture with a shared types layer**. Each layer may only depend on the layer directly below it and the shared layer.
-
-```
-┌──────────────────────────────────────────────────────────┐
-│  CLI Entry:  cli.ts → commands/cli/{chat,init,update}    │
-│  TUI Entry:  app.tsx                                     │
-└───────────────────────────┬──────────────────────────────┘
-                            ▼
-┌──────────────────────────────────────────────────────────┐
-│  UI Layer (screens/, components/, theme/, hooks/)         │
-└───────────────────────────┬──────────────────────────────┘
-                            ▼
-┌──────────────────────────────────────────────────────────┐
-│  State Layer (state/chat/, state/parts/, state/runtime/,  │
-│              state/streaming/)                            │
-└───────────────────────────┬──────────────────────────────┘
-                            ▼
-┌──────────────────────────────────────────────────────────┐
-│  Service Layer (services/agents/, services/events/,       │
-│     services/workflows/, services/config/,                │
-│     services/agent-discovery/, services/models/,          │
-│     services/telemetry/, services/system/)                │
-└──────────────────────────────────────────────────────────┘
-                            ▼
-┌──────────────────────────────────────────────────────────┐
-│  Shared Layer (types/, lib/)                              │
-│  - types/ = pure type definitions, no runtime values      │
-│  - lib/   = genuinely reusable, domain-agnostic utilities │
-└──────────────────────────────────────────────────────────┘
-```
-
-### Dependency Rules
-
-**Unidirectional flow — no upward or circular imports:**
-
-| Source Layer             | May Import From         | Must NOT Import From |
-| ------------------------ | ----------------------- | -------------------- |
-| UI (screens, components) | State, Services, Shared | —                    |
-| State                    | Services, Shared        | UI                   |
-| Services                 | Shared                  | UI, State            |
-| Shared (types, lib)      | —                       | UI, State, Services  |
-
-- `services/` must never import from `commands/` (use `services/agent-discovery/` for shared discovery logic)
-- `state/` must never import types from UI components (use `types/` for shared type definitions)
-- `lib/` must contain only domain-agnostic utilities — domain-specific helpers belong near their consumers
-
-### `state/chat/` Sub-Module Boundaries
-
-The `state/chat/` module is decomposed into 8 sub-modules with **enforced boundary rules**:
-
-```
-state/chat/
-├── agent/       # Agent state (background agents, parallel trees)
-├── command/     # Slash command execution context
-├── composer/    # Input composition (submit, mention, attachment)
-├── controller/  # UI controller bridge
-├── keyboard/    # Keyboard shortcuts + input handling
-├── session/     # Session lifecycle (create, resume, destroy)
-├── shell/       # Shell UI state (scroll, layout, footer)
-├── stream/      # Stream lifecycle (start, stop, finalize)
-├── shared/      # Types and helpers shared across sub-modules
-│   ├── types/   # Shared type definitions
-│   └── helpers/ # Shared helper functions
-└── exports.ts   # Public API barrel for external consumers
-```
-
-**Rules (enforced by `bun run lint:boundaries` and pre-commit hooks):**
-1. No sub-module may import from another sub-module's internal files
-2. Sibling imports must go through the sub-module's barrel (`index.ts`)
-3. Imports from `shared/` are always allowed from any sub-module
-4. External consumers must import from `state/chat/exports.ts`
-
-### Barrel Export Rules
-
-- **Max re-export depth: 1** — a barrel file may only re-export from its immediate children, never from other barrels
-- `state/chat/exports.ts` is the single public API surface for the chat state domain
-- Each module's `index.ts` re-exports from sibling implementation files only
-
-### Key Architectural Patterns
-
-| Pattern               | Usage                                                                   |
-| --------------------- | ----------------------------------------------------------------------- |
-| Strategy              | `CodingAgentClient` interface with 3 SDK implementations                |
-| Pub/Sub               | `EventBus` with 30 typed events + batched dispatch                      |
-| Builder               | `GraphBuilder` fluent API (LangGraph-inspired)                          |
-| Registry              | `ToolRegistry`, `PART_REGISTRY`, `CommandRegistry`, `ProviderRegistry`  |
-| Adapter               | 3 SDK-specific stream adapters → unified `BusEvent`                     |
-| Reducer               | `applyStreamPartEvent` pure state reducer                               |
-| Factory               | `createChatUIController()`, `createStreamAdapter()`                     |
-| Interface Segregation | `RalphWorkflowContext` (workflow-specific) vs `CommandContext` (shared) |
-
-### Key Interfaces
-
-- **`CommandContext`** — shared interface for slash command execution; must NOT contain workflow-specific fields
-- **`RalphWorkflowContext`** (`services/workflows/ralph/types.ts`) — Ralph-specific workflow context passed to graph nodes; isolates Ralph state from shared interfaces
-- **`CodingAgentClient`** (`services/agents/contracts/`) — strategy interface for SDK-specific agent implementations
-
-### Path Aliases
-
-- `@/*` → `src/*` (the only import alias; configured in `tsconfig.json`)
-
-## Architecture
-
-### Layered Architecture
-
-The codebase follows a **strict layered architecture with a shared types layer**. Each layer may only depend on the layer directly below it and the shared layer.
-
-```
-┌──────────────────────────────────────────────────────────┐
-│  CLI Entry:  cli.ts → commands/cli/{chat,init,update}    │
-│  TUI Entry:  app.tsx                                     │
-└───────────────────────────┬──────────────────────────────┘
-                            ▼
-┌──────────────────────────────────────────────────────────┐
-│  UI Layer (screens/, components/, theme/, hooks/)         │
-└───────────────────────────┬──────────────────────────────┘
-                            ▼
-┌──────────────────────────────────────────────────────────┐
-│  State Layer (state/chat/, state/parts/, state/runtime/,  │
-│              state/streaming/)                            │
-└───────────────────────────┬──────────────────────────────┘
-                            ▼
-┌──────────────────────────────────────────────────────────┐
-│  Service Layer (services/agents/, services/events/,       │
-│     services/workflows/, services/config/,                │
-│     services/agent-discovery/, services/models/,          │
-│     services/telemetry/, services/system/)                │
-└──────────────────────────────────────────────────────────┘
-                            ▼
-┌──────────────────────────────────────────────────────────┐
-│  Shared Layer (types/, lib/)                              │
-│  - types/ = pure type definitions, no runtime values      │
-│  - lib/   = genuinely reusable, domain-agnostic utilities │
-└──────────────────────────────────────────────────────────┘
-```
-
-### Dependency Rules
-
-**Unidirectional flow — no upward or circular imports:**
-
-| Source Layer             | May Import From         | Must NOT Import From |
-| ------------------------ | ----------------------- | -------------------- |
-| UI (screens, components) | State, Services, Shared | —                    |
-| State                    | Services, Shared        | UI                   |
-| Services                 | Shared                  | UI, State            |
-| Shared (types, lib)      | —                       | UI, State, Services  |
-
-- `services/` must never import from `commands/` (use `services/agent-discovery/` for shared discovery logic)
-- `state/` must never import types from UI components (use `types/` for shared type definitions)
-- `lib/` must contain only domain-agnostic utilities — domain-specific helpers belong near their consumers
-
-### `state/chat/` Sub-Module Boundaries
-
-The `state/chat/` module is decomposed into 8 sub-modules with **enforced boundary rules**:
-
-```
-state/chat/
-├── agent/       # Agent state (background agents, parallel trees)
-├── command/     # Slash command execution context
-├── composer/    # Input composition (submit, mention, attachment)
-├── controller/  # UI controller bridge
-├── keyboard/    # Keyboard shortcuts + input handling
-├── session/     # Session lifecycle (create, resume, destroy)
-├── shell/       # Shell UI state (scroll, layout, footer)
-├── stream/      # Stream lifecycle (start, stop, finalize)
-├── shared/      # Types and helpers shared across sub-modules
-│   ├── types/   # Shared type definitions
-│   └── helpers/ # Shared helper functions
-└── exports.ts   # Public API barrel for external consumers
-```
-
-**Rules (enforced by `bun run lint:boundaries` and pre-commit hooks):**
-1. No sub-module may import from another sub-module's internal files
-2. Sibling imports must go through the sub-module's barrel (`index.ts`)
-3. Imports from `shared/` are always allowed from any sub-module
-4. External consumers must import from `state/chat/exports.ts`
-
-### Barrel Export Rules
-
-- **Max re-export depth: 1** — a barrel file may only re-export from its immediate children, never from other barrels
-- `state/chat/exports.ts` is the single public API surface for the chat state domain
-- Each module's `index.ts` re-exports from sibling implementation files only
-
-### Key Architectural Patterns
-
-| Pattern               | Usage                                                                   |
-| --------------------- | ----------------------------------------------------------------------- |
-| Strategy              | `CodingAgentClient` interface with 3 SDK implementations                |
-| Pub/Sub               | `EventBus` with 30 typed events + batched dispatch                      |
-| Builder               | `GraphBuilder` fluent API (LangGraph-inspired)                          |
-| Registry              | `ToolRegistry`, `PART_REGISTRY`, `CommandRegistry`, `ProviderRegistry`  |
-| Adapter               | 3 SDK-specific stream adapters → unified `BusEvent`                     |
-| Reducer               | `applyStreamPartEvent` pure state reducer                               |
-| Factory               | `createChatUIController()`, `createStreamAdapter()`                     |
-| Interface Segregation | `RalphWorkflowContext` (workflow-specific) vs `CommandContext` (shared) |
-
-### Key Interfaces
-
-- **`CommandContext`** — shared interface for slash command execution; must NOT contain workflow-specific fields
-- **`RalphWorkflowContext`** (`services/workflows/ralph/types.ts`) — Ralph-specific workflow context passed to graph nodes; isolates Ralph state from shared interfaces
-- **`CodingAgentClient`** (`services/agents/contracts/`) — strategy interface for SDK-specific agent implementations
-
-### Path Aliases
-
-- `@/*` → `src/*` (the only import alias; configured in `tsconfig.json`)
-
 ## Best Practices
 
 - Avoid ambiguous types like `any` and `unknown`. Use specific types instead.
 
 ## Testing
 
-Use `bun test` to run tests.
+Use `bun test` to run tests and make use of your testing-anti-patterns skill to write high quality tests. Here's an example of a simple test file:
 
 ```ts#index.test.ts
 import { test, expect } from "bun:test";
@@ -258,6 +49,17 @@ test("hello world", () => {
   expect(1).toBe(1);
 });
 ```
+
+### AI Agent Integration
+
+When using Bun’s test runner with AI coding assistants, you can enable quieter output to improve readability and reduce context noise. This feature minimizes test output verbosity while preserving essential failure information.
+​
+**Environment Variables**
+
+Set any of the following environment variables to enable AI-friendly output:
+`CLAUDECODE=1` - For Claude Code
+`REPL_ID=1` - For Replit
+`AGENT=1` - Generic AI agent flag
 
 ### Code Quality
 
@@ -273,26 +75,39 @@ Strictly follow the guidelines in the [E2E Testing](docs/e2e-testing.md) doc.
 
 You are bound to run into errors when testing. As you test and run into issues/edges cases, address issues in a file you create called `issues.md` to track progress and support future iterations. Delegate to the debugging sub-agent for support. Delete the file when all issues are resolved to keep the repository clean.
 
-### UI Issues
+### Interactive Debugging
 
-Fix UI issues by referencing your frontend-design skill and referencing the experience of other coding agents like Claude Code with the `tmux-cli` tool (e.g. run `claude` in a `tmux` session using the `tmux-cli` tool).
+Rely on the `tmux-cli` tool (e.g. run `claude` in a `tmux` session using the `tmux-cli` tool) to debug the application E2E.
 
 ## Docs
 
-Relevant resources (use the deepwiki mcp `ask_question` tool for repos):
+Relevant resources (use the deepwiki mcp `ask_question` tool for the repos if the information is not available in the local docs):
 
-1. OpenCode SDK / OpenCode repo: `anomalyco/opencode`
-2. OpenTUI repo: `anomalyco/opentui`
+1. Bun (runtime) repo: `oven-sh/bun`
+2. OpenCode:
+   1. SDK repo: `anomalyco/opencode`
+   2. CLI repo: `anomalyco/opencode`
 3. Copilot:
     1. SDK repo: `github/copilot-sdk`
     2. CLI repo: `github/copilot-cli`
         1. [Usage](docs/copilot-cli/usage.md)
         2. [Hooks](docs/copilot-cli/hooks.md)
         3. [Skills](docs/copilot-cli/skills.md)
-4. [Claude Agent SDK](docs/claude-agent-sdk.md)
-    - v1 preferred (v2 is unstable and has many bugs)
+        4. [Subagents](docs/copilot-cli/subagents.md)
+4. Claude Code:
+   1. SDK repo: `anthropics/claude-agent-sdk-typescript`
+      1. [Docs](docs/claude-code/agent-sdk.md), v1 preferred (v2 is unstable and has many bugs)
+   2. CLI repo: `anthropics/claude-code`
+      1. [Hooks](docs/claude-code/cli/hooks.md)
+      2. [Permissions](docs/claude-code/cli/permissions.md)
+      3. [Skills](docs/claude-code/cli/skills.md)
+      4. [Subagents](docs/claude-code/cli/subagents.md)
+      5. [Tools](docs/claude-code/cli/tools.md)
+5. OpenTUI repo: `anomalyco/opentui`
 
 ### Coding Agent Configuration Locations
+
+Note: There are three main coding agents used in this repository: OpenCode, Claude Code, and GitHub Copilot CLI. Each has specific configuration file locations. Their configurations may also differ in sytax and structure, so be sure to refer to the respective documentation for each agent when making changes:
 
 1. OpenCode:
     - global:

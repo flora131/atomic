@@ -14,6 +14,13 @@ import { normalizeMarkdownNewlines } from "@/lib/ui/format.ts";
 import { navigateUp, navigateDown } from "@/lib/ui/navigation.ts";
 import { PROMPT, STATUS, CONNECTOR } from "@/theme/icons.ts";
 import { SPACING } from "@/theme/spacing.ts";
+import {
+  handleUserQuestionKey,
+  toggleSelection,
+  isMultiSelectSubmitKey,
+  CUSTOM_INPUT_VALUE,
+  CHAT_ABOUT_THIS_VALUE,
+} from "@/state/chat/keyboard/handlers/dialog-handler.ts";
 
 import type { UserQuestion, QuestionAnswer } from "@/state/chat/shared/types/hitl.ts";
 
@@ -23,29 +30,8 @@ export interface UserQuestionDialogProps {
   visible?: boolean;
 }
 
-// ============================================================================
-// UTILITY FUNCTIONS
-// ============================================================================
-
-
-export function toggleSelection(selected: string[], value: string): string[] {
-  if (selected.includes(value)) {
-    return selected.filter((v) => v !== value);
-  }
-  return [...selected, value];
-}
-
-export function isMultiSelectSubmitKey(key: string, ctrl: boolean, meta: boolean): boolean {
-  return (key === "return" || key === "linefeed") && (ctrl || meta);
-}
-
-// ============================================================================
-// CONSTANTS
-// ============================================================================
-
-// Special option values
-const CUSTOM_INPUT_VALUE = "__custom_input__";
-export const CHAT_ABOUT_THIS_VALUE = "__chat_about_this__";
+// Re-export utilities for backward compatibility (used by tests and app.tsx barrel)
+export { toggleSelection, isMultiSelectSubmitKey, CHAT_ABOUT_THIS_VALUE };
 
 // ============================================================================
 // USER QUESTION DIALOG COMPONENT
@@ -78,6 +64,7 @@ export function UserQuestionDialog({
   const [isChatAboutThis, setIsChatAboutThis] = useState(false);
 
   const textareaRef = useRef<TextareaRenderable>(null);
+  const prevHighlightedRef = useRef(highlightedIndex);
 
   // Build the full options list including "Type something" and "Chat about this"
   const allOptions = useMemo(() => {
@@ -118,9 +105,17 @@ export function UserQuestionDialog({
   const maxListHeight = Math.max(5, terminalHeight - 12);
   const listHeight = Math.min(optionRowOffsets.totalRows, maxListHeight);
 
-  // Scroll to keep highlighted item visible
-  useEffect(() => {
-    if (!scrollRef.current || allOptions.length === 0 || isEditingCustom || isChatAboutThis) return;
+  // Render-time scroll correction: adjust scroll position when
+  // highlightedIndex changes, using a prevRef guard to prevent
+  // redundant scrollTo calls.
+  if (
+    scrollRef.current &&
+    allOptions.length > 0 &&
+    !isEditingCustom &&
+    !isChatAboutThis &&
+    prevHighlightedRef.current !== highlightedIndex
+  ) {
+    prevHighlightedRef.current = highlightedIndex;
     const scrollBox = scrollRef.current;
     const selectedRow = optionRowOffsets.offsets[highlightedIndex] ?? 0;
     const itemHeight = allOptions[highlightedIndex]?.description ? 2 : 1;
@@ -130,7 +125,8 @@ export function UserQuestionDialog({
     } else if (selectedRow + itemHeight > scrollBox.scrollTop + listHeight) {
       scrollBox.scrollTo(selectedRow + itemHeight - listHeight);
     }
-  }, [highlightedIndex, optionRowOffsets, listHeight, isEditingCustom, isChatAboutThis, allOptions]);
+  }
+  prevHighlightedRef.current = highlightedIndex;
 
   // Submit the answer
   const submitAnswer = useCallback((
@@ -182,117 +178,25 @@ export function UserQuestionDialog({
   useKeyboard(
     useCallback(
       (event: KeyEvent) => {
-        if (!visible) return;
-
-        const key = event.name ?? "";
-
-        // If editing custom input or chatting about question, only handle escape and return
-        if (isEditingCustom || isChatAboutThis) {
-          if (key === "escape") {
-            event.stopPropagation();
-            setIsEditingCustom(false);
-            setIsChatAboutThis(false);
-            return;
-          }
-          if (key === "return") {
-            event.stopPropagation();
-            submitCustomText();
-            return;
-          }
-          // Don't stop propagation - let textarea handle other keys
-          return;
-        }
-
-        // Stop propagation to prevent other handlers from running
-        // This ensures the dialog captures keyboard events exclusively
-        event.stopPropagation();
-
-        if (question.multiSelect && isMultiSelectSubmitKey(key, event.ctrl, event.meta)) {
-          if (selectedValues.length > 0) {
-            submitAnswer(selectedValues);
-          }
-          return;
-        }
-
-        // Number keys 1-9 for direct selection
-        if (key >= "1" && key <= "9") {
-          const index = parseInt(key) - 1;
-          if (index < regularOptionsCount) {
-            const option = allOptions[index];
-            if (option) {
-              if (question.multiSelect) {
-                setSelectedValues((prev) => toggleSelection(prev, option.value));
-                setHighlightedIndex(index);
-              } else {
-                submitAnswer([option.value]);
-              }
-            }
-          }
-          return;
-        }
-
-        // Up navigation (also Ctrl+P, k)
-        if (key === "up" || (event.ctrl && key === "p") || key === "k") {
-          setHighlightedIndex((prev) => navigateUp(prev, optionsCount));
-          return;
-        }
-
-        // Down navigation (also Ctrl+N, j)
-        if (key === "down" || (event.ctrl && key === "n") || key === "j") {
-          setHighlightedIndex((prev) => navigateDown(prev, optionsCount));
-          return;
-        }
-
-        // Space for toggle in multi-select
-        if (key === "space") {
-          const option = allOptions[highlightedIndex];
-          if (!option) return;
-
-          // Don't toggle special options with space
-          if (option.value === CUSTOM_INPUT_VALUE || option.value === CHAT_ABOUT_THIS_VALUE) {
-            return;
-          }
-
-          if (question.multiSelect) {
-            setSelectedValues((prev) => toggleSelection(prev, option.value));
-          } else {
-            setSelectedValues([option.value]);
-          }
-          return;
-        }
-
-        // Enter to select/submit
-        if (key === "return") {
-          const option = allOptions[highlightedIndex];
-          if (!option) return;
-
-          // Handle "Type something" option
-          if (option.value === CUSTOM_INPUT_VALUE) {
-            setIsEditingCustom(true);
-            return;
-          }
-
-          // Handle "Chat about this" - enter chat input mode
-          if (option.value === CHAT_ABOUT_THIS_VALUE) {
-            setIsChatAboutThis(true);
-            return;
-          }
-
-          if (question.multiSelect) {
-            // In multi-select, enter on a regular option toggles it
-            setSelectedValues((prev) => toggleSelection(prev, option.value));
-          } else {
-            // In single-select, enter submits the highlighted option
-            submitAnswer([option.value]);
-          }
-          return;
-        }
-
-        // Escape to cancel
-        if (key === "escape") {
-          cancelDialog();
-          return;
-        }
+        handleUserQuestionKey(event, {
+          visible,
+          isEditingCustom,
+          isChatAboutThis,
+          optionsCount,
+          regularOptionsCount,
+          highlightedIndex,
+          selectedValues,
+          question,
+          allOptions,
+        }, {
+          setHighlightedIndex: (fn) => setHighlightedIndex(fn),
+          setSelectedValues: (fn) => setSelectedValues(fn),
+          setIsEditingCustom,
+          setIsChatAboutThis,
+          submitAnswer: (values, mode) => submitAnswer(values, mode),
+          cancelDialog: () => cancelDialog(),
+          submitCustomText: () => submitCustomText(),
+        });
       },
       [visible, isEditingCustom, isChatAboutThis, optionsCount, regularOptionsCount, highlightedIndex, selectedValues, question, allOptions, submitAnswer, cancelDialog, submitCustomText]
     )

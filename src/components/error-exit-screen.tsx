@@ -68,7 +68,7 @@ function ErrorScreen({ error, onExit, isDark = true }: ErrorScreenProps): React.
         </text>
         <text>{" "}</text>
 
-        {/* Stack trace (dimmed) */}
+        {/* Stack trace (dimmed) — index keys are safe here, list is static error stack, never reordered */}
         {stackLines.slice(1).map((line, i) => (
           <text key={i} fg={palette.overlay0}>
             {line.trim()}

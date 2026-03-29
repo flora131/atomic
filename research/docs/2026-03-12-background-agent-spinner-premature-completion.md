@@ -369,8 +369,8 @@ Six prior research documents investigated closely related issues:
 
 ### Existing Specs
 
-- [`specs/background-agents-sdk-pipeline-fix.md`](https://github.com/flora131/atomic/blob/93ca1e2513d78cf8da5e2ab4f5f74d24c8677309/specs/background-agents-sdk-pipeline-fix.md) — Specification for fixing the SDK pipeline for background agents.
-- [`specs/background-agents-ui-issue-258-parity-hardening.md`](https://github.com/flora131/atomic/blob/93ca1e2513d78cf8da5e2ab4f5f74d24c8677309/specs/background-agents-ui-issue-258-parity-hardening.md) — Specification for UI parity hardening related to issue #258.
+- [`specs/2026-02-22-background-agents-sdk-pipeline-fix.md`](https://github.com/flora131/atomic/blob/93ca1e2513d78cf8da5e2ab4f5f74d24c8677309/specs/2026-02-22-background-agents-sdk-pipeline-fix.md) — Specification for fixing the SDK pipeline for background agents.
+- [`specs/2026-02-22-background-agents-ui-issue-258-parity-hardening.md`](https://github.com/flora131/atomic/blob/93ca1e2513d78cf8da5e2ab4f5f74d24c8677309/specs/2026-02-22-background-agents-ui-issue-258-parity-hardening.md) — Specification for UI parity hardening related to issue #258.
 
 ## Related Research
 
@@ -380,8 +380,8 @@ Six prior research documents investigated closely related issues:
 - `research/docs/2026-02-15-subagent-premature-completion-fix-comparison.md`
 - `research/docs/2026-02-15-subagent-event-flow-diagram.md`
 - `research/docs/2026-02-16-sub-agent-tree-inline-state-lifecycle-research.md`
-- `specs/background-agents-sdk-pipeline-fix.md`
-- `specs/background-agents-ui-issue-258-parity-hardening.md`
+- `specs/2026-02-22-background-agents-sdk-pipeline-fix.md`
+- `specs/2026-02-22-background-agents-ui-issue-258-parity-hardening.md`
 
 ## Open Questions
 

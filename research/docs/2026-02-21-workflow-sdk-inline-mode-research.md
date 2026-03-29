@@ -457,10 +457,10 @@ The bridge uses a multi-layered event-driven architecture:
 - `research/docs/2026-02-16-opentui-rendering-architecture.md` — OpenTUI rendering architecture
 
 ### Related Specs
-- `specs/workflow-sdk-implementation.md` — Workflow SDK implementation spec
-- `specs/ralph-task-list-ui.md` — Ralph task list UI spec
-- `specs/ralph-dag-orchestration.md` — Ralph DAG orchestration spec
-- `specs/pluggable-workflows-sdk.md` — Pluggable workflows SDK spec
+- `specs/2026-02-11-workflow-sdk-implementation.md` — Workflow SDK implementation spec
+- `specs/2026-02-14-ralph-task-list-ui.md` — Ralph task list UI spec
+- `specs/2026-02-16-ralph-dag-orchestration.md` — Ralph DAG orchestration spec
+- `specs/2026-02-05-pluggable-workflows-sdk.md` — Pluggable workflows SDK spec
 
 ---
 

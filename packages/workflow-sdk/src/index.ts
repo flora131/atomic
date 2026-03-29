@@ -26,8 +26,28 @@
 
 export { defineWorkflow, WorkflowBuilder } from "./define-workflow.ts";
 export type { WorkflowBlueprint } from "./define-workflow.ts";
+
+// Zod schemas — runtime-validated, single source of truth
+export {
+  JsonValueSchema,
+  TaskItemSchema,
+  StageOutputSchema,
+  StageOutputStatusSchema,
+  SignalTypeSchema,
+  SignalDataSchema,
+  ContextPressureLevelSchema,
+  ContextPressureSnapshotSchema,
+  ContinuationRecordSchema,
+  AgentTypeSchema,
+  SessionConfigSchema,
+  AskUserQuestionConfigSchema,
+} from "./schemas.ts";
+
+// Types — inferred from schemas + structural interfaces
 export type {
   BaseState,
+  InferState,
+  JsonValue,
   ExecutionContext,
   ExecutionError,
   ErrorAction,
@@ -37,23 +57,30 @@ export type {
   NodeId,
   NodeResult,
   RetryConfig,
-  Signal,
-  SignalData,
   StageContext,
-  StageOutput,
-  StageOutputStatus,
-  TaskItem,
-  ContextPressureSnapshot,
-  ContextPressureLevel,
-  ContinuationRecord,
-  AccumulatedContextPressure,
-  SessionConfig,
   StageOptions,
   ToolOptions,
-  AskUserQuestionConfig,
   AskUserQuestionOptions,
   LoopOptions,
   StateFieldOptions,
+  StateFieldOptionsBase,
+  BuiltinReducer,
   WorkflowOptions,
   CompiledWorkflow,
+  // Schema-derived types (re-exported from schemas.ts via types.ts)
+  TaskItem,
+  StageOutput,
+  StageOutputStatus,
+  Signal,
+  SignalData,
+  ContextPressureLevel,
+  ContextPressureSnapshot,
+  ContinuationRecord,
+  AgentType,
+  SessionConfig,
+  AskUserQuestionConfig,
+  AccumulatedContextPressure,
 } from "./types.ts";
+
+// Runtime constants
+export { BUILTIN_REDUCERS } from "./types.ts";

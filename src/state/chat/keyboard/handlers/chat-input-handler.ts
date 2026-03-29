@@ -1,8 +1,8 @@
 /**
  * Chat Input Handler — Clipboard Operations & Shortcut Keys
  *
- * Extracted from `use-keyboard.ts` to isolate clipboard and global
- * shortcut handling from the main keyboard dispatch loop. These
+ * Clipboard and global shortcut handling, isolated from the main
+ * keyboard dispatch loop (`use-keyboard-ownership.ts`). These
  * handlers run in **all UI modes** (chat, dialog, model-selector).
  *
  * @module
@@ -136,9 +136,8 @@ export function handleShortcutKey(
  * Schedule a zero-delay reconciliation of the input state after the
  * framework has processed the key event into the textarea.
  *
- * Previously this was an implicit `setTimeout(() => { ... }, 0)` at the
- * bottom of the keyboard callback (use-keyboard.ts:221-226). By naming
- * it explicitly, the timing dependency is documented and reviewable.
+ * By naming this explicitly, the timing dependency is documented and
+ * reviewable.
  *
  * The reconciliation reads the current textarea value and cursor
  * position, then drives autocomplete derivation and scrollbar sync.

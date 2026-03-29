@@ -1,10 +1,9 @@
 /**
  * Keyboard Consolidation Tests
  *
- * Structural tests verifying that the keyboard system has been properly
- * consolidated from the old `useChatKeyboard` to `useKeyboardOwnership`,
- * and that dialog components delegate to extracted handlers instead of
- * duplicating keyboard logic inline.
+ * Structural tests verifying that the keyboard system uses
+ * `useKeyboardOwnership` and that dialog components delegate to
+ * extracted handlers instead of duplicating keyboard logic inline.
  */
 
 import { describe, expect, it } from "bun:test";
@@ -56,7 +55,7 @@ describe("controller.ts wiring", () => {
   });
 });
 
-// ── Step 3: barrel exports include both old and new ──────────────────
+// ── Step 3: barrel exports ──────────────────────────────────────────
 
 describe("keyboard/index.ts barrel exports", () => {
   const indexSource = readSource("state/chat/keyboard/index.ts");
@@ -73,8 +72,8 @@ describe("keyboard/index.ts barrel exports", () => {
     expect(indexSource).toContain("KeyboardOwnershipResult");
   });
 
-  it("still exports useChatKeyboard for backward compatibility", () => {
-    expect(indexSource).toContain("useChatKeyboard");
+  it("does not export deprecated useChatKeyboard", () => {
+    expect(indexSource).not.toContain("useChatKeyboard");
   });
 });
 

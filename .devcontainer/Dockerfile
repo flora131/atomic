@@ -11,6 +11,7 @@ RUN ln -s /usr/local/bin/bun /usr/local/bin/bunx
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 USER vscode
+ENV PATH="/home/vscode/.bun/bin:${PATH}"
 
 # ─── SSH agent forwarding in tmux ────────────────────────────────────────────
 RUN mkdir -p ~/.ssh \
@@ -34,6 +35,7 @@ RUN uv tool install --upgrade cocoindex-code \
 
 # ─── Dev tools ────────────────────────────────────────────────────────────────
 RUN bun install -g @playwright/cli@latest
+RUN bun install -g @llamaindex/liteparse@latest
 
 # ─── Coding agents ────────────────────────────────────────────────────────────
 RUN curl -fsSL https://opencode.ai/install | bash \

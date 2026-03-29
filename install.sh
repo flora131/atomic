@@ -324,6 +324,16 @@ PKGEOF
     else
         warn "Neither bun nor npm found. Install @playwright/cli manually for web browsing capabilities."
     fi
+
+    # Install @llamaindex/liteparse globally for local document parsing.
+    info "Installing @llamaindex/liteparse globally (if available)..."
+    if command -v bun >/dev/null 2>&1; then
+        bun install -g @llamaindex/liteparse@latest 2>/dev/null || true
+    elif command -v npm >/dev/null 2>&1; then
+        npm install -g @llamaindex/liteparse@latest 2>/dev/null || true
+    else
+        warn "Neither bun nor npm found. Install @llamaindex/liteparse manually for document parsing capabilities."
+    fi
 }
 
 # Get latest version (stable or prerelease)

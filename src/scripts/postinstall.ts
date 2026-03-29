@@ -16,6 +16,7 @@ import {
   installCocoindexCode,
   writeCocoindexGlobalSettings,
 } from "@/scripts/postinstall-uv.ts";
+import { installLiteparseCli } from "@/scripts/postinstall-liteparse.ts";
 import {
   installWorkflowSdkFromLocal,
   getGlobalWorkflowsDir,
@@ -86,6 +87,7 @@ async function main(): Promise<void> {
     installCocoindexCode(),
     writeCocoindexGlobalSettings(),
     installPlaywrightCli(),
+    installLiteparseCli(),
   ]);
 
   // Report warnings for any failures (non-fatal)
@@ -96,6 +98,7 @@ async function main(): Promise<void> {
     "failed to install cocoindex-code",
     "failed to write cocoindex global settings",
     "failed to install @playwright/cli",
+    "failed to install @llamaindex/liteparse",
   ];
 
   for (let i = 0; i < results.length; i++) {

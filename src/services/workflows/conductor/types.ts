@@ -343,6 +343,16 @@ export interface StageDefinition {
    * Set to `0` or `Infinity` to disable truncation for this stage.
    */
   readonly maxOutputBytes?: number;
+
+  /**
+   * Per-provider tool exclusion map for this stage.
+   *
+   * Keys are agent type identifiers (`"claude"`, `"opencode"`, `"copilot"`).
+   * Values are arrays of tool names to disallow in the stage's session.
+   * The conductor resolves the entry for the active agent type and passes
+   * the tool names as `excludedTools` on the session config.
+   */
+  readonly disallowedTools?: Partial<Record<string, string[]>>;
 }
 
 // ---------------------------------------------------------------------------

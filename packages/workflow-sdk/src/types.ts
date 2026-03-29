@@ -74,6 +74,10 @@ export interface BaseState {
   executionId: string;
   lastUpdated: string;
   outputs: Record<NodeId, Record<string, JsonValue>>;
+  /** Set automatically by the compiler when the user declines an askUserQuestion (ESC/Ctrl+C). */
+  __userDeclined?: boolean;
+  /** Set automatically by askUserQuestion nodes while waiting for user input. */
+  __waitingForInput?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -306,6 +310,9 @@ export interface ToolOptions<TState extends BaseState = BaseState> {
  * Sentinel value passed to `outputMapper` when the user declines to
  * answer (e.g. presses ESC or Ctrl+C).  Check this in your
  * `outputMapper` or downstream stages to handle the decline gracefully.
+ *
+ * Must stay in sync with the internal constant in
+ * `src/services/workflows/graph/nodes/control.ts`.
  *
  * @example
  * ```ts

@@ -183,6 +183,7 @@ import { defineWorkflow, USER_DECLINED_ANSWER } from "@bastani/atomic-workflows"
     planApproved: answer !== USER_DECLINED_ANSWER && answer === "Approve",
   }),
 })
+// __userDeclined is set automatically by the compiler — no need to set it in outputMapper
 .if((ctx) => ctx.state.__userDeclined === true)
   // User pressed ESC/Ctrl+C — skip gracefully
   .tool({ name: "log-cancel", execute: async () => ({ cancelled: true }) })

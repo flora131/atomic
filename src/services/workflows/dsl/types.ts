@@ -74,7 +74,7 @@ export interface WorkflowSessionConfig {
  *
  * @typeParam TState - The workflow state type (inferred from `globalState`).
  */
-export interface StageOptions<TState extends BaseState = BaseState> {
+export interface StageOptions {
   /**
    * Unique name for this stage within the workflow.
    *
@@ -403,7 +403,7 @@ export interface WorkflowOptions<
  * This is a discriminated union on the `type` field.
  */
 export type Instruction =
-  | { readonly type: "stage"; readonly id: string; readonly config: StageOptions<BaseState> }
+  | { readonly type: "stage"; readonly id: string; readonly config: StageOptions }
   | { readonly type: "tool"; readonly id: string; readonly config: ToolOptions<BaseState> }
   | { readonly type: "askUserQuestion"; readonly id: string; readonly config: AskUserQuestionOptions<BaseState> }
   | { readonly type: "if"; readonly condition: (ctx: StageContext) => boolean }
@@ -482,7 +482,7 @@ export interface WorkflowBuilderInterface {
    * @param options - Stage configuration (name, agent, prompt, output mapper, etc.).
    * @throws Error if `options.name` duplicates an existing stage name.
    */
-  stage(options: StageOptions<BaseState>): this;
+  stage(options: StageOptions): this;
 
   /**
    * Add a deterministic tool node to the workflow.

@@ -12,7 +12,8 @@
 
 import { describe, expect, test } from "bun:test";
 import { defineWorkflow } from "@/services/workflows/dsl/define-workflow.ts";
-import { validateInstructions, USER_DECLINED_ANSWER } from "@/services/workflows/dsl/compiler.ts";
+import { validateInstructions } from "@/services/workflows/dsl/compiler.ts";
+import { USER_DECLINED_ANSWER } from "@/services/workflows/graph/nodes/control.ts";
 import type { StageOptions, ToolOptions, LoopOptions, AskUserQuestionOptions, Instruction } from "@/services/workflows/dsl/types.ts";
 import type { StageContext } from "@/services/workflows/conductor/types.ts";
 import type { BaseState, Edge, CompiledGraph, ExecutionContext } from "@/services/workflows/graph/types.ts";
@@ -2045,6 +2046,17 @@ describe("compiler askUserQuestion outputMapper callback", () => {
       },
     };
 
-    expect(node.execute(ctx)).rejects.toThrow("outputMapper crashed");
+    let threw = false;
+    try {
+      await node.execute(ctx);
+    } catch (e: unknown) {
+      threw = true;
+      expect((e as Error).message).toBe("outputMapper crashed");
+    }
+    expect(threw).toBe(true);
+
+    // __userDeclined must NOT be set when a non-abort error occurs —
+    // the flag should only reflect actual user decline, not crashes.
+    expect(ctx.state.__userDeclined).toBeUndefined();
   });
 });

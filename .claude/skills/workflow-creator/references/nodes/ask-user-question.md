@@ -137,15 +137,15 @@ import { defineWorkflow, USER_DECLINED_ANSWER } from "@bastani/atomic-workflows"
   },
   outputMapper: (answer) => ({
     deployConfirmed: answer !== USER_DECLINED_ANSWER && answer === "Yes",
-    userDeclined: answer === USER_DECLINED_ANSWER,
   }),
 })
 ```
 
 When the user declines:
 - `outputMapper` receives `USER_DECLINED_ANSWER` (`"__user_declined_to_respond__"`) as the answer
-- The state update includes `__userDeclined: true` (set automatically by the compiler)
+- `__userDeclined` is set to `true` **automatically** by the compiler — you do **not** need to set this yourself in `outputMapper`
 - `__waitingForInput` is set to `false` so the workflow proceeds
+- On a normal answer, `__userDeclined` is automatically reset to `false`
 
 Use `.if()` to branch on declines:
 

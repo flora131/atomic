@@ -38,7 +38,7 @@ import type {
   ExecutionContext,
 } from "@/services/workflows/graph/types.ts";
 import { createStateFactory } from "@/services/workflows/dsl/state-compiler.ts";
-import { askUserNode } from "@/services/workflows/graph/nodes/control.ts";
+import { askUserNode, USER_DECLINED_ANSWER } from "@/services/workflows/graph/nodes/control.ts";
 import {
   buildAgentLookup,
   resolveStageSystemPrompt,
@@ -51,16 +51,6 @@ import {
   inferAskUserOutputs,
   inferAskUserReads,
 } from "@/services/workflows/dsl/infer-reads-outputs.ts";
-
-// ============================================================================
-// Constants
-// ============================================================================
-
-/**
- * Sentinel value passed to `outputMapper` when the user declines to
- * answer an askUserQuestion node (e.g. by pressing ESC or Ctrl+C).
- */
-export const USER_DECLINED_ANSWER = "__user_declined_to_respond__";
 
 // ============================================================================
 // Agent No-op Execute
@@ -360,10 +350,10 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
   function addNode(
     id: string,
     type: "agent" | "tool",
-    options: StageOptions<any> | ToolOptions<any>,
+    options: StageOptions | ToolOptions<any>,
   ): string {
     const stageAgent = "agent" in options && type === "agent"
-      ? (options as StageOptions<any>).agent
+      ? (options as StageOptions).agent
       : undefined;
     const nodeName = stageAgent ?? options.name;
     const node: NodeDefinition<BaseState> = {
@@ -385,10 +375,10 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
               return { stateUpdate: mapped as Partial<BaseState> };
             },
       reads: type === "agent"
-        ? inferStageReads((options as StageOptions<any>).prompt)
+        ? inferStageReads((options as StageOptions).prompt)
         : inferToolReads((options as ToolOptions<any>).execute),
       outputs: type === "agent"
-        ? inferStageOutputs((options as StageOptions<any>).outputMapper)
+        ? inferStageOutputs((options as StageOptions).outputMapper)
         : inferToolOutputs((options as ToolOptions<any>).outputMapper),
     };
     nodes.set(id, node);
@@ -532,7 +522,7 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
                 ...mappedUpdates,
                 __waitingForInput: false,
                 __userDeclined: userDeclined,
-              } as Partial<BaseState>,
+              },
             };
           }
 

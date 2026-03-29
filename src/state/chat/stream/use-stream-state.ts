@@ -17,6 +17,7 @@ export function useStreamState(messages: ChatMessage[]) {
   const [parallelAgents, setParallelAgents] = useState<ParallelAgent[]>([]);
   const [compactionSummary, setCompactionSummary] = useState<string | null>(null);
   const [showCompactionHistory, setShowCompactionHistory] = useState(false);
+  // Value unused — only the setter is consumed (to trigger re-renders during compaction).
   const [_isAutoCompacting, setIsAutoCompacting] = useState(false);
   const [todoItems, setTodoItems] = useState<NormalizedTodoItem[]>([]);
   const [workflowSessionDir, setWorkflowSessionDir] = useState<string | null>(null);
@@ -35,8 +36,16 @@ export function useStreamState(messages: ChatMessage[]) {
   );
 
   const hasLiveLoadingIndicator = useMemo(
-    () => activeBackgroundAgentCount > 0 || hasInProgressTask || messages.some((message) => message.streaming),
-    [activeBackgroundAgentCount, hasInProgressTask, messages],
+    () =>
+      activeBackgroundAgentCount > 0
+      || hasInProgressTask
+      || messages.some((message) => message.streaming)
+      // Keep the loading indicator alive during workflow stage transitions.
+      // Between stages, the previous message is finalized (streaming=false)
+      // before the next stage's message is created.  workflowSessionId
+      // remains non-null for the entire workflow execution, bridging the gap.
+      || workflowSessionId !== null,
+    [activeBackgroundAgentCount, hasInProgressTask, messages, workflowSessionId],
   );
 
   return {

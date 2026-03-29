@@ -37,19 +37,35 @@ describe("isTaskProgressComplete", () => {
 });
 
 describe("shouldShowMessageLoadingIndicator", () => {
-  test("stops loading indicator once live task progress reaches 100%", () => {
+  test("keeps spinner while streaming even when live tasks reach 100%", () => {
     expect(
       shouldShowMessageLoadingIndicator(
         { streaming: true },
-        [
-          { status: "completed" },
-          { status: "completed" },
-        ],
+        {
+          liveTodoItems: [
+            { status: "completed" },
+            { status: "completed" },
+          ],
+        },
+      ),
+    ).toBe(true);
+  });
+
+  test("stops loading indicator once tasks reach 100% and stream has ended", () => {
+    expect(
+      shouldShowMessageLoadingIndicator(
+        { streaming: false },
+        {
+          liveTodoItems: [
+            { status: "completed" },
+            { status: "completed" },
+          ],
+        },
       ),
     ).toBe(false);
   });
 
-  test("uses live streaming tasks when snapshot is stale", () => {
+  test("keeps spinner while streaming even when live tasks override stale snapshot", () => {
     expect(
       shouldShowMessageLoadingIndicator(
         {
@@ -59,10 +75,26 @@ describe("shouldShowMessageLoadingIndicator", () => {
             { status: "pending" },
           ],
         },
-        [
-          { status: "completed" },
-          { status: "completed" },
-        ],
+        {
+          liveTodoItems: [
+            { status: "completed" },
+            { status: "completed" },
+          ],
+        },
+      ),
+    ).toBe(true);
+  });
+
+  test("stops loading indicator once stream ends even when live tasks override stale snapshot", () => {
+    expect(
+      shouldShowMessageLoadingIndicator(
+        {
+          streaming: false,
+          taskItems: [
+            { status: "completed" },
+            { status: "completed" },
+          ],
+        },
       ),
     ).toBe(false);
   });
@@ -71,10 +103,12 @@ describe("shouldShowMessageLoadingIndicator", () => {
     expect(
       shouldShowMessageLoadingIndicator(
         { streaming: true },
-        [
-          { status: "completed" },
-          { status: "in_progress" },
-        ],
+        {
+          liveTodoItems: [
+            { status: "completed" },
+            { status: "in_progress" },
+          ],
+        },
       ),
     ).toBe(true);
   });
@@ -83,10 +117,12 @@ describe("shouldShowMessageLoadingIndicator", () => {
     expect(
       shouldShowMessageLoadingIndicator(
         { streaming: true },
-        [
-          { status: "completed" },
-          { status: "error" },
-        ],
+        {
+          liveTodoItems: [
+            { status: "completed" },
+            { status: "error" },
+          ],
+        },
       ),
     ).toBe(true);
   });
@@ -121,6 +157,7 @@ describe("shouldShowMessageLoadingIndicator", () => {
   });
 
   test("falls back to message task snapshot when live task rows are empty", () => {
+    // Streaming takes priority — spinner stays visible even with completed snapshot tasks
     expect(
       shouldShowMessageLoadingIndicator(
         {
@@ -130,7 +167,21 @@ describe("shouldShowMessageLoadingIndicator", () => {
             { status: "completed" },
           ],
         },
-        [],
+        { liveTodoItems: [] },
+      ),
+    ).toBe(true);
+
+    // Non-streaming with completed snapshot tasks — spinner hides
+    expect(
+      shouldShowMessageLoadingIndicator(
+        {
+          streaming: false,
+          taskItems: [
+            { status: "completed" },
+            { status: "completed" },
+          ],
+        },
+        { liveTodoItems: [] },
       ),
     ).toBe(false);
 
@@ -143,7 +194,7 @@ describe("shouldShowMessageLoadingIndicator", () => {
             { status: "pending" },
           ],
         },
-        [],
+        { liveTodoItems: [] },
       ),
     ).toBe(true);
   });
@@ -185,8 +236,7 @@ describe("shouldShowMessageLoadingIndicator", () => {
     expect(
       shouldShowMessageLoadingIndicator(
         { streaming: false },
-        undefined,
-        2,
+        { activeBackgroundAgentCount: 2 },
       ),
     ).toBe(true);
   });
@@ -201,8 +251,7 @@ describe("shouldShowMessageLoadingIndicator", () => {
             { status: "completed" },
           ],
         },
-        undefined,
-        1,
+        { activeBackgroundAgentCount: 1 },
       ),
     ).toBe(true);
   });
@@ -217,8 +266,7 @@ describe("shouldShowMessageLoadingIndicator", () => {
             { status: "completed" },
           ],
         },
-        undefined,
-        0,
+        { activeBackgroundAgentCount: 0 },
       ),
     ).toBe(false);
   });
@@ -227,14 +275,87 @@ describe("shouldShowMessageLoadingIndicator", () => {
     expect(
       shouldShowMessageLoadingIndicator(
         { streaming: true },
-        [{ status: "in_progress" }],
+        { liveTodoItems: [{ status: "in_progress" }] },
+      ),
+    ).toBe(true);
+  });
+
+  test("keeps spinner alive when keepAliveForWorkflow is true even if not streaming", () => {
+    expect(
+      shouldShowMessageLoadingIndicator(
+        { streaming: false },
+        { activeBackgroundAgentCount: 0, keepAliveForWorkflow: true },
+      ),
+    ).toBe(true);
+  });
+
+  test("keepAliveForWorkflow bridges the gap between workflow stages", () => {
+    // Simulates the gap between stage N (finalized, streaming=false)
+    // and stage N+1 (not yet created) during a workflow transition
+    expect(
+      shouldShowMessageLoadingIndicator(
+        {
+          streaming: false,
+          taskItems: [
+            { status: "completed" },
+            { status: "completed" },
+          ],
+        },
+        { activeBackgroundAgentCount: 0, keepAliveForWorkflow: true },
+      ),
+    ).toBe(true);
+  });
+
+  test("does not keep spinner alive when keepAliveForWorkflow is false", () => {
+    expect(
+      shouldShowMessageLoadingIndicator(
+        { streaming: false },
+        { activeBackgroundAgentCount: 0, keepAliveForWorkflow: false },
+      ),
+    ).toBe(false);
+  });
+
+  test("spinner hides after workflow completes (keepAliveForWorkflow cleared)", () => {
+    // During workflow: keepAliveForWorkflow bridges the gap
+    expect(
+      shouldShowMessageLoadingIndicator(
+        { streaming: false, taskItems: [{ status: "completed" }] },
+        { keepAliveForWorkflow: true },
+      ),
+    ).toBe(true);
+
+    // After workflow completes: keepAliveForWorkflow is cleared → spinner hides
+    expect(
+      shouldShowMessageLoadingIndicator(
+        { streaming: false, taskItems: [{ status: "completed" }] },
+        { keepAliveForWorkflow: false },
+      ),
+    ).toBe(false);
+  });
+
+  test("spinner hides after workflow errors mid-execution with error task status", () => {
+    // Mid-execution error: stream ends, tasks in error state, workflow no longer active
+    expect(
+      shouldShowMessageLoadingIndicator(
+        { streaming: false, taskItems: [{ status: "error" }] },
+        { keepAliveForWorkflow: false },
+      ),
+    ).toBe(false);
+  });
+
+  test("spinner persists during workflow error while stream is still active", () => {
+    // Error occurred but stream hasn't finalized yet
+    expect(
+      shouldShowMessageLoadingIndicator(
+        { streaming: true, taskItems: [{ status: "error" }] },
+        { keepAliveForWorkflow: true },
       ),
     ).toBe(true);
   });
 });
 
 describe("hasLiveLoadingIndicator", () => {
-  test("stops the shared elapsed timer once all visible progress reaches completion", () => {
+  test("keeps the shared elapsed timer while streaming even when tasks are complete", () => {
     expect(
       hasLiveLoadingIndicator(
         [
@@ -246,9 +367,27 @@ describe("hasLiveLoadingIndicator", () => {
             ],
           },
         ],
+        {
+          liveTodoItems: [
+            { status: "completed" },
+            { status: "completed" },
+          ],
+        },
+      ),
+    ).toBe(true);
+  });
+
+  test("stops the shared elapsed timer once stream ends and all tasks are complete", () => {
+    expect(
+      hasLiveLoadingIndicator(
         [
-          { status: "completed" },
-          { status: "completed" },
+          {
+            streaming: false,
+            taskItems: [
+              { status: "completed" },
+              { status: "completed" },
+            ],
+          },
         ],
       ),
     ).toBe(false);
@@ -310,8 +449,7 @@ describe("hasLiveLoadingIndicator", () => {
     expect(
       hasLiveLoadingIndicator(
         [{ streaming: false }],
-        undefined,
-        3,
+        { activeBackgroundAgentCount: 3 },
       ),
     ).toBe(true);
   });
@@ -320,8 +458,76 @@ describe("hasLiveLoadingIndicator", () => {
     expect(
       hasLiveLoadingIndicator(
         [{ streaming: false }],
-        undefined,
-        0,
+        { activeBackgroundAgentCount: 0 },
+      ),
+    ).toBe(false);
+  });
+
+  test("keeps the timer alive during workflow transitions via keepAliveForWorkflow on last message", () => {
+    expect(
+      hasLiveLoadingIndicator(
+        [
+          { streaming: false },
+          { streaming: false },
+        ],
+        { activeBackgroundAgentCount: 0, keepAliveForWorkflow: true },
+      ),
+    ).toBe(true);
+  });
+
+  test("keepAliveForWorkflow only applies to the last message in the list", () => {
+    // Single non-streaming message with keepAliveForWorkflow — it IS the last message
+    expect(
+      hasLiveLoadingIndicator(
+        [{ streaming: false }],
+        { activeBackgroundAgentCount: 0, keepAliveForWorkflow: true },
+      ),
+    ).toBe(true);
+
+    // Not active when keepAliveForWorkflow is false
+    expect(
+      hasLiveLoadingIndicator(
+        [{ streaming: false }],
+        { activeBackgroundAgentCount: 0, keepAliveForWorkflow: false },
+      ),
+    ).toBe(false);
+  });
+
+  test("timer stops after workflow completes and keepAliveForWorkflow is cleared", () => {
+    // Simulates post-workflow state: all messages finalized, workflow session ID cleared
+    expect(
+      hasLiveLoadingIndicator(
+        [
+          { streaming: false, taskItems: [{ status: "completed" }] },
+          { streaming: false, taskItems: [{ status: "completed" }] },
+        ],
+        { activeBackgroundAgentCount: 0, keepAliveForWorkflow: false },
+      ),
+    ).toBe(false);
+  });
+
+  test("timer stops after workflow errors mid-execution", () => {
+    // Workflow errored: stream ended, tasks in error state, keepAliveForWorkflow cleared
+    expect(
+      hasLiveLoadingIndicator(
+        [
+          { streaming: false, taskItems: [{ status: "completed" }] },
+          { streaming: false, taskItems: [{ status: "error" }] },
+        ],
+        { activeBackgroundAgentCount: 0, keepAliveForWorkflow: false },
+      ),
+    ).toBe(false);
+  });
+
+  test("keepAliveForWorkflow does not apply to non-last messages with error tasks", () => {
+    // Earlier message has error tasks, but keepAliveForWorkflow only applies to last
+    expect(
+      hasLiveLoadingIndicator(
+        [
+          { streaming: false, taskItems: [{ status: "error" }] },
+          { streaming: false, taskItems: [{ status: "completed" }] },
+        ],
+        { activeBackgroundAgentCount: 0, keepAliveForWorkflow: false },
       ),
     ).toBe(false);
   });

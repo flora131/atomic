@@ -10,6 +10,9 @@ mcpServers:
       type: http
       url: "https://mcp.deepwiki.com/mcp"
       tools: ["ask_question"]
+skills:
+  - testing-anti-patterns
+  - playwright-cli
 ---
 
 # Review guidelines:

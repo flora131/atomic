@@ -353,6 +353,11 @@ atomic chat -a claude
     model: { claude: "claude-opus-4-20250514" },
     reasoningEffort: { claude: "high" },
   },
+  disallowedTools: {            // Optional: per-provider tool exclusions
+    claude: ["AskUserQuestion"],
+    opencode: ["question"],
+    copilot: ["ask_user"],
+  },
 })
 ```
 

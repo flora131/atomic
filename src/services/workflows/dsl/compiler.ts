@@ -253,6 +253,7 @@ function generateStageDefinitions(
       shouldRun,
       sessionConfig: resolvedSessionConfig,
       maxOutputBytes: config.maxOutputBytes,
+      disallowedTools: config.disallowedTools,
     };
     stages.push(stage);
   }

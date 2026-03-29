@@ -479,9 +479,9 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
           // never called (e.g., in tests or contexts without a TUI).
           if (askUserOutputMapper && ctx.emit) {
             if (!ctx.abortSignal) {
-              console.warn(
+              throw new Error(
                 `[workflow:${instruction.id}] askUserQuestion has outputMapper but no abortSignal — ` +
-                `outputMapper will be skipped to avoid a blocking promise that cannot be cancelled.`,
+                `outputMapper requires an abortSignal to avoid a blocking promise that cannot be cancelled.`,
               );
             } else {
               let resolveAnswer!: (answer: string | string[]) => void;

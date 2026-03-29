@@ -477,6 +477,12 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
           // promise that has no cancellation path. Without an abort
           // signal, the promise would hang forever if respond() is
           // never called (e.g., in tests or contexts without a TUI).
+          if (askUserOutputMapper && ctx.emit && !ctx.abortSignal) {
+            console.warn(
+              `[workflow:${instruction.id}] askUserQuestion has outputMapper but no abortSignal — ` +
+              `outputMapper will be skipped to avoid a blocking promise that cannot be cancelled.`,
+            );
+          }
           if (askUserOutputMapper && ctx.emit && ctx.abortSignal) {
             let resolveAnswer!: (answer: string | string[]) => void;
             const answerPromise = new Promise<string | string[]>((resolve) => {

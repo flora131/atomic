@@ -135,7 +135,7 @@ export function useChatKeyboard({
         }
       }
 
-      if ((event.ctrl || event.meta) && event.name === "v") {
+      if ((event.ctrl || event.meta) && event.name.toLowerCase() === "v") {
         const textarea = textareaRef.current;
         if (textarea) {
           const clipboardText = clipboard.readText();
@@ -152,17 +152,17 @@ export function useChatKeyboard({
         return;
       }
 
-      if (event.ctrl && event.name === "o") {
+      if (event.ctrl && event.name.toLowerCase() === "o") {
         setTranscriptMode((previous) => !previous);
         return;
       }
 
-      if (event.ctrl && event.name === "e") {
+      if (event.ctrl && event.name.toLowerCase() === "e") {
         toggleVerbose();
         return;
       }
 
-      if (event.ctrl && !event.shift && event.name === "t") {
+      if (event.ctrl && !event.shift && event.name.toLowerCase() === "t") {
         setShowTodoPanel((previous) => !previous);
         return;
       }

@@ -55,7 +55,8 @@ export function handleClipboardKey(
   }
 
   // Paste: Ctrl+V / Meta+V
-  if ((event.ctrl || event.meta) && event.name === "v") {
+  // Case-insensitive: modifyOtherKeys may encode uppercase key names
+  if ((event.ctrl || event.meta) && event.name.toLowerCase() === "v") {
     const textarea = textareaRef.current;
     if (textarea) {
       const clipboardText = clipboard.readText();
@@ -99,17 +100,17 @@ export function handleShortcutKey(
     setShowTodoPanel,
   }: ShortcutHandlerArgs,
 ): boolean {
-  if (event.ctrl && event.name === "o") {
+  if (event.ctrl && event.name.toLowerCase() === "o") {
     setTranscriptMode((previous) => !previous);
     return true;
   }
 
-  if (event.ctrl && event.name === "e") {
+  if (event.ctrl && event.name.toLowerCase() === "e") {
     toggleVerbose();
     return true;
   }
 
-  if (event.ctrl && !event.shift && event.name === "t") {
+  if (event.ctrl && !event.shift && event.name.toLowerCase() === "t") {
     setShowTodoPanel((previous) => !previous);
     return true;
   }

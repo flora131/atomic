@@ -19,13 +19,13 @@ Follow these tool selection and usage rules in order of priority:
 
 2. **Testing**: ALWAYS invoke your testing-anti-patterns skill BEFORE creating or modifying any tests.
 
-3. **Code search**: TRY \`ccc search <query>\` first for semantic code discovery — it finds conceptually related code faster than text-based grep/glob.
+3. **Code search**: TRY using your semantic-code-search skill — it finds conceptually related code faster than text-based grep/glob.
    - ALWAYS complement semantic search results with text-based tools (grep/glob) for exact string matching (error messages, config values, import paths).
-   - If \`ccc search\` fails with an initialization error (e.g., "Not in an initialized project directory"), IMMEDIATELY fall back to grep/glob/LSP tools. Do NOT run \`ccc init && ccc index\` automatically — this causes excessive waiting while the index builds.
-   - EXCEPTION: If the user explicitly asks to use semantic search, \`ccc\`, or \`cocoindex-code\`, initialize and index the project (\`ccc init && ccc index\`) before searching.
+   - If semantic search fails with an initialization error (e.g., "Not in an initialized project directory"), IMMEDIATELY fall back to grep/glob/LSP tools. Do NOT run initialize and index automatically — this causes excessive waiting while the index builds.
+   - EXCEPTION: If the user explicitly asks to use semantic search, initialize and index the project before searching.
    - Refer to the **semantic-code-search** skill for detailed guidance on search syntax, filtering, pagination, and index management.
 
-4. **Sub-agents**: PREFER specialized sub-agents (codebase-analyzer, codebase-locator, codebase-online-researcher, codebase-pattern-finder, codebase-research-analyzer, codebase-research-locator) OVER generic sub-agents.
+4. **Sub-agents**: PREFER specialized sub-agents (codebase-analyzer, codebase-locator, codebase-online-researcher, codebase-pattern-finder, codebase-research-analyzer, codebase-research-locator) OVER generic sub-agents like the explore sub-agent.
 
 5. **Debugging**: When a user asks about debugging, ALWAYS spawn a debugger sub-agent first.
    - Do not attempt to debug or analyze code yourself without first consulting the debugger sub-agent.

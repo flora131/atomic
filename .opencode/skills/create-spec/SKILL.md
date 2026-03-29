@@ -10,6 +10,7 @@ You are tasked with creating a spec for implementing a new feature or system cha
 - Please DO NOT implement anything in this stage, just create the comprehensive spec as described below.
 - When writing the spec, DO NOT include information about concrete dates/timelines (e.g. # minutes, hours, days, weeks, etc.) and favor explicit phases (e.g. Phase 1, Phase 2, etc.).
 - Once the spec is generated, refer to the section, "## 9. Open Questions / Unresolved Issues", go through each question one by one, and use **contrastive clarification** (presenting 2-3 specific options with concrete tradeoffs) rather than open-ended questions. This means presenting interpretations like "(A) Option X — tradeoff Y" and "(B) Option Z — tradeoff W" instead of asking "what do you think about X?". Update the spec with the user's answers as you walk through the questions.
+    - Please use your question tool to ask the user for their input on each question and update the spec accordingly.
 - Finally, once the spec is generated and after open questions are answered, provide an executive summary of the spec to the user including the path to the generated spec document in the `specs/` directory.
     - Encourage the user to review the spec for best results and provide feedback or ask any follow-up questions they may have.
 

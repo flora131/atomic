@@ -161,8 +161,18 @@ export interface AskUserNodeConfig<TState extends BaseState = BaseState> {
   description?: string;
 }
 
+/**
+ * Sentinel value passed to `outputMapper` when the user declines to
+ * answer an askUserQuestion node (e.g. by pressing ESC or Ctrl+C).
+ *
+ * Also exported from `@bastani/atomic-workflows` for end-user workflows —
+ * both values must stay in sync.
+ */
+export const USER_DECLINED_ANSWER = "__user_declined_to_respond__";
+
 export interface AskUserWaitState {
   __waitingForInput?: boolean;
+  __userDeclined?: boolean;
   __waitNodeId?: string;
   __askUserRequestId?: string;
 }

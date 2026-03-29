@@ -4,7 +4,7 @@
     "dockerfile": "Dockerfile"
   },
   "features": {
-    "ghcr.io/devcontainers/features/github-cli:1": {}
+    "ghcr.io/devcontainers/features/github-cli": {}
   },
   "remoteEnv": {
     "GH_TOKEN": "${localEnv:GH_TOKEN}",
@@ -15,7 +15,7 @@
   },
   "customizations": {
     "vscode": {
-      "extensions": ["oven.bun-vscode", "oxc.oxc-vscode"]
+      "extensions": ["oven.bun-vscode", "oxc.oxc-vscode", "shd101wyy.markdown-preview-enhanced"]
     }
   },
   "remoteUser": "vscode"

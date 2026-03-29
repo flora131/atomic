@@ -222,6 +222,22 @@ embedding:
     } else {
         Write-Warn "Neither bun nor npm found. Install @playwright/cli manually for web browsing capabilities."
     }
+
+    # Install @llamaindex/liteparse globally for local document parsing.
+    Write-Info "Installing @llamaindex/liteparse globally (if available)..."
+    if (Get-Command bun -ErrorAction SilentlyContinue) {
+        bun install -g @llamaindex/liteparse@latest 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "Failed to install @llamaindex/liteparse with bun. Continuing without it."
+        }
+    } elseif (Get-Command npm -ErrorAction SilentlyContinue) {
+        npm install -g @llamaindex/liteparse@latest 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "Failed to install @llamaindex/liteparse with npm. Continuing without it."
+        }
+    } else {
+        Write-Warn "Neither bun nor npm found. Install @llamaindex/liteparse manually for document parsing capabilities."
+    }
 }
 
 # Colors for output

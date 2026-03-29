@@ -12,6 +12,7 @@ import { describe, test, expect, mock } from "bun:test";
 import {
   handleClipboardKey,
   handleShortcutKey,
+  isCtrlCInterrupt,
   postDispatchReconciliation,
   type ClipboardHandlerArgs,
   type ShortcutHandlerArgs,
@@ -125,6 +126,67 @@ describe("handleClipboardKey", () => {
       // and doesn't match meta&&!ctrl&&c (it has ctrl, no meta)
       expect(result).toBe(false);
       expect(args.handleCopy).not.toHaveBeenCalled();
+    });
+
+    test("Ctrl+Shift+C with uppercase name (modifyOtherKeys encoding) triggers copy", () => {
+      const event = createKeyEvent({ ctrl: true, shift: true, name: "C" });
+      const args = createClipboardArgs();
+
+      const result = handleClipboardKey(event, args);
+
+      expect(result).toBe(true);
+      expect(args.handleCopy).toHaveBeenCalledTimes(1);
+    });
+
+    test("Meta+C with uppercase name triggers copy", () => {
+      const event = createKeyEvent({ meta: true, ctrl: false, name: "C" });
+      const args = createClipboardArgs();
+
+      const result = handleClipboardKey(event, args);
+
+      expect(result).toBe(true);
+      expect(args.handleCopy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ── Paste with uppercase key name (modifyOtherKeys) ────────────────
+
+  describe("paste with uppercase key name", () => {
+    test("Ctrl+V with uppercase name (modifyOtherKeys encoding) triggers paste", () => {
+      const textarea = createMockTextarea();
+      const event = createKeyEvent({ ctrl: true, name: "V" });
+      const args = createClipboardArgs({
+        clipboard: {
+          readText: mock(() => "pasted content"),
+          writeText: mock(() => {}),
+        } as unknown as ClipboardAdapter,
+        textareaRef: { current: textarea },
+      });
+
+      const result = handleClipboardKey(event, args);
+
+      expect(result).toBe(true);
+      expect(event.preventDefault).toHaveBeenCalledTimes(1);
+      expect(textarea.insertText).toHaveBeenCalledWith("pasted content");
+      expect(args.handleTextareaContentChange).toHaveBeenCalledTimes(1);
+    });
+
+    test("Meta+V with uppercase name triggers paste", () => {
+      const textarea = createMockTextarea();
+      const event = createKeyEvent({ meta: true, name: "V" });
+      const args = createClipboardArgs({
+        clipboard: {
+          readText: mock(() => "meta paste"),
+          writeText: mock(() => {}),
+        } as unknown as ClipboardAdapter,
+        textareaRef: { current: textarea },
+      });
+
+      const result = handleClipboardKey(event, args);
+
+      expect(result).toBe(true);
+      expect(event.preventDefault).toHaveBeenCalledTimes(1);
+      expect(textarea.insertText).toHaveBeenCalledWith("meta paste");
     });
   });
 
@@ -332,6 +394,40 @@ describe("handleShortcutKey", () => {
     expect(args.setShowTodoPanel).not.toHaveBeenCalled();
   });
 
+  // ── Uppercase key names (modifyOtherKeys) ─────────────────────────
+
+  describe("uppercase key names (modifyOtherKeys encoding)", () => {
+    test("Ctrl+O with uppercase name triggers setTranscriptMode", () => {
+      const event = createKeyEvent({ ctrl: true, name: "O" });
+      const args = createShortcutArgs();
+
+      const result = handleShortcutKey(event, args);
+
+      expect(result).toBe(true);
+      expect(args.setTranscriptMode).toHaveBeenCalledTimes(1);
+    });
+
+    test("Ctrl+E with uppercase name triggers toggleVerbose", () => {
+      const event = createKeyEvent({ ctrl: true, name: "E" });
+      const args = createShortcutArgs();
+
+      const result = handleShortcutKey(event, args);
+
+      expect(result).toBe(true);
+      expect(args.toggleVerbose).toHaveBeenCalledTimes(1);
+    });
+
+    test("Ctrl+T with uppercase name triggers setShowTodoPanel", () => {
+      const event = createKeyEvent({ ctrl: true, shift: false, name: "T" });
+      const args = createShortcutArgs();
+
+      const result = handleShortcutKey(event, args);
+
+      expect(result).toBe(true);
+      expect(args.setShowTodoPanel).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe("unmatched keys", () => {
     test("plain 'o' without ctrl returns false", () => {
       const event = createKeyEvent({ name: "o" });
@@ -364,6 +460,37 @@ describe("handleShortcutKey", () => {
       expect(args.toggleVerbose).not.toHaveBeenCalled();
       expect(args.setShowTodoPanel).not.toHaveBeenCalled();
     });
+  });
+});
+
+// ============================================================================
+// isCtrlCInterrupt
+// ============================================================================
+
+describe("isCtrlCInterrupt", () => {
+  test("Ctrl+C (lowercase) returns true", () => {
+    const event = createKeyEvent({ ctrl: true, shift: false, name: "c" });
+    expect(isCtrlCInterrupt(event)).toBe(true);
+  });
+
+  test("Ctrl+C with uppercase name (modifyOtherKeys encoding) returns true", () => {
+    const event = createKeyEvent({ ctrl: true, shift: false, name: "C" });
+    expect(isCtrlCInterrupt(event)).toBe(true);
+  });
+
+  test("Ctrl+Shift+C returns false (shift guard)", () => {
+    const event = createKeyEvent({ ctrl: true, shift: true, name: "c" });
+    expect(isCtrlCInterrupt(event)).toBe(false);
+  });
+
+  test("plain 'c' without ctrl returns false", () => {
+    const event = createKeyEvent({ ctrl: false, name: "c" });
+    expect(isCtrlCInterrupt(event)).toBe(false);
+  });
+
+  test("Meta+C without ctrl returns false", () => {
+    const event = createKeyEvent({ meta: true, ctrl: false, name: "c" });
+    expect(isCtrlCInterrupt(event)).toBe(false);
   });
 });
 

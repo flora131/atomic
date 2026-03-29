@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { fromOpenCodeModel } from "@/services/models/model-transform.ts";
+import {
+  fromOpenCodeModel,
+  getBuiltInOpenCodeReasoningEfforts,
+} from "@/services/models/model-transform.ts";
 import { makeOpenCodeModel } from "./model-transform.test-support.ts";
 
 describe("fromOpenCodeModel", () => {
@@ -127,5 +130,172 @@ describe("fromOpenCodeModel", () => {
     }));
 
     expect(result.supportedReasoningEfforts).toEqual(["low"]);
+  });
+
+  test("returns undefined supportedReasoningEfforts when reasoning capability is false", () => {
+    const result = fromOpenCodeModel("anthropic", "model", makeOpenCodeModel({
+      reasoning: false,
+      variants: {
+        low: { reasoningEffort: "low" },
+        high: { reasoningEffort: "high" },
+      },
+    }));
+
+    expect(result.supportedReasoningEfforts).toBeUndefined();
+  });
+
+  test("prefers capabilities.reasoning over top-level reasoning field", () => {
+    const result = fromOpenCodeModel("test", "model", makeOpenCodeModel({
+      reasoning: false,
+      capabilities: { reasoning: true },
+      variants: {
+        low: {},
+        high: {},
+      },
+    }));
+
+    expect(result.capabilities.reasoning).toBe(true);
+    expect(result.supportedReasoningEfforts).toEqual(["low", "high"]);
+  });
+
+  test("maps cache cost from nested cache object", () => {
+    const result = fromOpenCodeModel("test", "model", makeOpenCodeModel({
+      cost: {
+        input: 1,
+        output: 2,
+        cache: { read: 0.1, write: 0.5 },
+      },
+    }));
+
+    expect(result.cost?.cacheRead).toBe(0.1);
+    expect(result.cost?.cacheWrite).toBe(0.5);
+  });
+
+  test("prefers flat cache_read/cache_write over nested cache object", () => {
+    const result = fromOpenCodeModel("test", "model", makeOpenCodeModel({
+      cost: {
+        input: 1,
+        output: 2,
+        cache_read: 0.3,
+        cache_write: 3.75,
+        cache: { read: 0.1, write: 0.5 },
+      },
+    }));
+
+    expect(result.cost?.cacheRead).toBe(0.3);
+    expect(result.cost?.cacheWrite).toBe(3.75);
+  });
+
+  test("handles model API field from model.api.id", () => {
+    const result = fromOpenCodeModel("test", "model", makeOpenCodeModel({
+      api: { id: "custom-api", url: "https://example.com" },
+    }), undefined);
+
+    expect(result.api).toBe("custom-api");
+  });
+
+  test("prefers provider API over model API", () => {
+    const result = fromOpenCodeModel("test", "model", makeOpenCodeModel({
+      api: { id: "model-api" },
+    }), "provider-api");
+
+    expect(result.api).toBe("provider-api");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getBuiltInOpenCodeReasoningEfforts (direct unit tests)
+// ---------------------------------------------------------------------------
+
+describe("getBuiltInOpenCodeReasoningEfforts", () => {
+  test("returns undefined for undefined variants", () => {
+    expect(getBuiltInOpenCodeReasoningEfforts(undefined)).toBeUndefined();
+  });
+
+  test("returns undefined for empty variants object", () => {
+    expect(getBuiltInOpenCodeReasoningEfforts({})).toBeUndefined();
+  });
+
+  test("returns only built-in effort names that are present and not disabled", () => {
+    const result = getBuiltInOpenCodeReasoningEfforts({
+      low: {},
+      medium: {},
+      high: {},
+    });
+
+    expect(result).toEqual(["low", "medium", "high"]);
+  });
+
+  test("filters out disabled variants", () => {
+    const result = getBuiltInOpenCodeReasoningEfforts({
+      low: {},
+      medium: { disabled: true },
+      high: {},
+      max: { disabled: true },
+    });
+
+    expect(result).toEqual(["low", "high"]);
+  });
+
+  test("preserves canonical ordering of built-in efforts", () => {
+    const result = getBuiltInOpenCodeReasoningEfforts({
+      max: {},
+      high: {},
+      low: {},
+      none: {},
+      medium: {},
+      minimal: {},
+      xhigh: {},
+    });
+
+    expect(result).toEqual(["none", "minimal", "low", "medium", "high", "max", "xhigh"]);
+  });
+
+  test("ignores custom variant names that are not built-in", () => {
+    const result = getBuiltInOpenCodeReasoningEfforts({
+      custom: {},
+      focused: { reasoningEffort: "high" },
+      turbo: {},
+      low: {},
+    });
+
+    expect(result).toEqual(["low"]);
+  });
+
+  test("returns undefined when all variants are disabled", () => {
+    const result = getBuiltInOpenCodeReasoningEfforts({
+      low: { disabled: true },
+      medium: { disabled: true },
+      high: { disabled: true },
+    });
+
+    expect(result).toBeUndefined();
+  });
+
+  test("returns undefined when only custom variants exist", () => {
+    const result = getBuiltInOpenCodeReasoningEfforts({
+      custom: {},
+      turbo: {},
+    });
+
+    expect(result).toBeUndefined();
+  });
+
+  test("includes variant when disabled is explicitly false", () => {
+    const result = getBuiltInOpenCodeReasoningEfforts({
+      low: { disabled: false },
+      high: {},
+    });
+
+    expect(result).toEqual(["low", "high"]);
+  });
+
+  test("returns a fresh array (not a reference to internal state)", () => {
+    const variants = { low: {}, high: {} };
+    const result1 = getBuiltInOpenCodeReasoningEfforts(variants);
+    const result2 = getBuiltInOpenCodeReasoningEfforts(variants);
+
+    expect(result1).toEqual(result2);
+    expect(result1).not.toBe(result2);
   });
 });

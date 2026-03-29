@@ -66,6 +66,8 @@ export interface UseChatShellStateResult {
   transcriptMode: boolean;
   /** Set by the conductor executor to expose `conductor.interrupt()` to the keyboard layer. */
   conductorInterruptRef: React.RefObject<(() => void) | null>;
+  /** Set by the conductor executor to expose `conductor.resume()` to the UI. */
+  conductorResumeRef: React.RefObject<((message: string | null) => void) | null>;
   waitForUserInputResolverRef: React.RefObject<WorkflowInputResolver | null>;
   workflowActiveRef: React.RefObject<boolean>;
   actions: {
@@ -146,6 +148,7 @@ export function useChatShellState({
 
   const waitForUserInputResolverRef = useRef<WorkflowInputResolver | null>(null);
   const conductorInterruptRef = useRef<(() => void) | null>(null);
+  const conductorResumeRef = useRef<((message: string | null) => void) | null>(null);
   const workflowActiveRef = useRef(false);
   const scrollAccelerationRef = useRef<MacOSScrollAccel | null>(null);
   if (!scrollAccelerationRef.current) {
@@ -261,6 +264,7 @@ export function useChatShellState({
     toggleTheme,
     transcriptMode,
     conductorInterruptRef,
+    conductorResumeRef,
     waitForUserInputResolverRef,
     workflowActiveRef,
     actions: {

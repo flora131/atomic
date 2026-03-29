@@ -50,7 +50,7 @@ export interface UseChatStreamLifecycleArgs {
   setMessagesWindowed: (next: SetStateAction<ChatMessage[]>) => void;
   setParallelAgents: Dispatch<SetStateAction<ParallelAgent[]>>;
   setStreamingMessageId: (messageId: string | null) => void;
-  setToolCompletionVersion: Dispatch<SetStateAction<number>>;
+  setHasRunningTool: Dispatch<SetStateAction<boolean>>;
   shouldHideActiveStreamContent: () => boolean;
   startAssistantStreamRef: RefObject<((content: string) => void) | null>;
   startTrackedAssistantRun: (

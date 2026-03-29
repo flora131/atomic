@@ -66,7 +66,7 @@ executor.ts:346 → publishStepStart()
 
 ### Root Cause
 
-The entire custom tools pipeline is built (discovery → import → schema conversion → registration) but the orchestrator function `registerCustomTools()` is never called from any init/startup code path. The spec's Phase 3 checklist (`specs/custom-tools-directory.md:853`) remains unchecked.
+The entire custom tools pipeline is built (discovery → import → schema conversion → registration) but the orchestrator function `registerCustomTools()` is never called from any init/startup code path. The spec's Phase 3 checklist (`specs/2026-02-09-custom-tools-directory.md:853`) remains unchecked.
 
 ### Files to Edit
 
@@ -463,7 +463,7 @@ SDK Events → SDK Adapter (Claude/OpenCode/Copilot)
 - `research/docs/2026-02-25-workflow-sdk-design.md` — Workflow SDK design patterns and architecture.
 - `research/docs/2026-02-25-graph-execution-engine.md` — Graph execution engine technical documentation.
 - `research/docs/2026-02-09-165-custom-tools-directory.md` — Custom tools directory research.
-- `specs/custom-tools-directory.md:853` — Phase 3 checklist: "Wire `registerCustomTools()` into `src/commands/chat.ts`" (unchecked).
+- `specs/2026-02-09-custom-tools-directory.md:853` — Phase 3 checklist: "Wire `registerCustomTools()` into `src/commands/chat.ts`" (unchecked).
 
 ## Related Research
 

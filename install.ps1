@@ -110,7 +110,10 @@ function Install-NpmIfMissing {
 }
 
 function Sync-GlobalAgentConfig {
-    param([string]$SourceRoot)
+    param(
+        [string]$SourceRoot,
+        [string]$InstallVersion
+    )
 
     $claudeDir = Join-Path $Home ".claude"
     $opencodeDir = Join-Path $Home ".opencode"
@@ -188,7 +191,9 @@ embedding:
         }
         Push-Location $WorkflowsDir
         try {
-            bun add @bastani/atomic-workflows@latest 2>$null
+            # Strip leading 'v' from version for npm semver (e.g. v0.4.30 -> 0.4.30)
+            $NpmVersion = $InstallVersion -replace '^v', ''
+            bun add "@bastani/atomic-workflows@${NpmVersion}" 2>$null
             if ($LASTEXITCODE -ne 0) {
                 Write-Err "Failed to install @bastani/atomic-workflows SDK with bun."
                 exit 1
@@ -369,7 +374,7 @@ try {
     Expand-Archive -Path $TempConfig -DestinationPath $DataDir -Force
 
     Write-Info "Syncing global agent configs to provider home roots..."
-    Sync-GlobalAgentConfig -SourceRoot $DataDir
+    Sync-GlobalAgentConfig -SourceRoot $DataDir -InstallVersion $Version
 
     # Verify installation
     $VersionOutput = & $BinaryPath --version 2>&1

@@ -13,6 +13,7 @@ function useStatusColor(status: WorkflowStepPart["status"]): string {
     case "completed": return colors.success;
     case "error": return colors.error;
     case "skipped": return colors.warning;
+    case "interrupted": return colors.warning;
   }
 }
 

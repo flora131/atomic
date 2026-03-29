@@ -28,9 +28,27 @@ You are a specialist at finding documents in the research/ directory. Your job i
 
 ## Search Strategy
 
-First, think deeply about the search approach - consider which directories to prioritize based on the query, what search patterns and synonyms to use, and how to best categorize the findings for the user.
+### Semantic Code Search (Accelerated Discovery)
+
+TRY `ccc search` first to speed up research document discovery — it finds conceptually related content faster than text search:
+
+```bash
+ccc search --path 'research/*' <natural language query>   # search within research/
+ccc search --path 'specs/*' <natural language query>       # search within specs/
+ccc search --path 'research/*' --path 'specs/*' <query>    # search both
+```
+
+- Describe the topic in natural language (e.g., `ccc search --path 'research/*' rate limiting design decisions`)
+- If `ccc search` fails with an initialization error, IMMEDIATELY fall back to grep/glob. Do NOT run `ccc init && ccc index` — this causes excessive waiting while the index builds.
+- EXCEPTION: If the user explicitly requests semantic search or `ccc`, initialize the project (`ccc init && ccc index`) before searching.
+- ALWAYS complement semantic search with grep/glob for exact string matching or filename pattern searches.
+- Refer to the **semantic-code-search** skill for detailed guidance on search syntax, filtering, pagination, and index management.
+
+Then think deeply about the search approach - consider which directories to prioritize based on the query, what search patterns and synonyms to use, and how to best categorize the findings for the user.
 
 ### Directory Structure
+
+Both `research/` and `specs/` use date-prefixed filenames (`YYYY-MM-DD-topic.md`).
 
 ```
 research/
@@ -42,6 +60,10 @@ research/
 │   ├── YYYY-MM-DD-meeting.md
 ├── ...
 └──
+
+specs/
+├── YYYY-MM-DD-topic.md
+└── ...
 ```
 
 ### Search Patterns
@@ -57,6 +79,22 @@ research/
 - If no date prefix exists, use filesystem modified time as fallback.
 - Prioritize the newest files in `research/docs/` and `specs/` before older docs/notes.
 
+### Recency-Weighted Relevance (Required)
+
+Use the `YYYY-MM-DD` date prefix in filenames to assign a relevance tier to every result. Compare each document's date against today's date:
+
+| Tier | Age | Label | Guidance |
+|------|-----|-------|----------|
+| 🟢 | ≤ 30 days old | **Recent** | High relevance — include by default when topic-related |
+| 🟡 | 31–90 days old | **Moderate** | Medium relevance — include if topic keyword matches |
+| 🔴 | > 90 days old | **Aged** | Low relevance — include only if directly referenced by a newer document or no newer alternative exists |
+
+Apply these rules:
+1. Parse the date from the filename prefix (e.g., `2026-03-18-atomic-v2-rebuild.md` → `2026-03-18`).
+2. Compute the age relative to today and assign the tier.
+3. Always display the tier label next to each result in your output.
+4. When a newer document and an older document cover the same topic, flag the older one as potentially superseded.
+
 ## Output Format
 
 Structure your findings like this:
@@ -65,20 +103,20 @@ Structure your findings like this:
 ## Research Documents about [Topic]
 
 ### Related Tickets
-- `research/tickets/2025-09-10-1234-implement-api-rate-limiting.md` - Implement rate limiting for API
-- `research/tickets/2025-09-10-1235-rate-limit-configuration-design.md` - Rate limit configuration design
+- 🟢 `research/tickets/2026-03-10-1234-implement-api-rate-limiting.md` - Implement rate limiting for API
+- 🟡 `research/tickets/2025-12-15-1235-rate-limit-configuration-design.md` - Rate limit configuration design
 
 ### Related Documents
-- `research/docs/2024-01-16-api-performance.md` - Contains section on rate limiting impact
-- `research/docs/2024-01-15-rate-limiting-approaches.md` - Research on different rate limiting strategies
+- 🟢 `research/docs/2026-03-16-api-performance.md` - Contains section on rate limiting impact
+- 🔴 `research/docs/2025-01-15-rate-limiting-approaches.md` - Research on different rate limiting strategies *(potentially superseded by 2026-03-16 doc)*
 
 ### Related Specs
-- `specs/2024-01-20-api-rate-limiting-spec.md` - Formal rate limiting implementation spec
+- 🟢 `specs/2026-03-20-api-rate-limiting.md` - Formal rate limiting implementation spec
 
 ### Related Discussions
-- `research/notes/2024-01-10-rate-limiting-team-discussion.md` - Transcript of team discussion about rate limiting
+- 🟡 `research/notes/2026-01-10-rate-limiting-team-discussion.md` - Transcript of team discussion about rate limiting
 
-Total: 6 relevant documents found
+Total: 5 relevant documents found (2 🟢 Recent, 2 🟡 Moderate, 1 🔴 Aged)
 ```
 
 ## Search Tips

@@ -102,7 +102,7 @@ export function createProgram() {
         )
         .option(
             "--additional-instructions <text>",
-            "Append additional instructions to the default chat system prompt",
+            "Append extra instructions to the enhanced system prompt",
         )
         .argument(
             "[prompt...]",
@@ -249,7 +249,7 @@ export const program = createProgram();
  * Spawn a detached background process to upload telemetry events.
  * Uses fire-and-forget pattern - parent process exits immediately.
  *
- * Reference: specs/phase-6-telemetry-upload-backend.md Section 5.5
+ * Reference: specs/2026-01-22-phase-6-telemetry-upload-backend.md Section 5.5
  */
 export async function spawnTelemetryUpload(): Promise<void> {
     // Prevent recursive spawns - if this is already an upload process, don't spawn another
@@ -320,6 +320,22 @@ async function main(): Promise<void> {
         if (process.platform === "win32") {
             const { cleanupWindowsLeftoverFiles } = await import("@/services/system/cleanup.ts");
             await cleanupWindowsLeftoverFiles();
+        }
+
+        // Ensure workflow SDK version matches CLI version before running commands.
+        // Skip for lightweight commands that don't use the SDK.
+        const skipSdkCommands = new Set(["--version", "-v", "--help", "-h", "upload-telemetry", "uninstall", "config"]);
+        const needsSdkCheck = !process.argv.slice(2).some((arg) => skipSdkCommands.has(arg));
+        if (needsSdkCheck) {
+            try {
+                const { ensureWorkflowSdkVersion } = await import("@/services/config/workflow-package.ts");
+                const { detectInstallationType, getConfigRoot } = await import("@/services/config/config-path.ts");
+                const installType = detectInstallationType();
+                const configRoot = getConfigRoot();
+                await ensureWorkflowSdkVersion(VERSION, installType, configRoot);
+            } catch {
+                // Non-fatal: SDK version sync should never block CLI operation
+            }
         }
 
         // Parse and execute the command

@@ -145,7 +145,7 @@ export interface WorkflowStepCompleteEvent {
   runId?: number;
   workflowId: string;
   nodeId: string;
-  status: "completed" | "error" | "skipped";
+  status: "completed" | "error" | "skipped" | "interrupted";
   durationMs: number;
   error?: string;
   /** When present, triggers parts truncation for the completed stage. */

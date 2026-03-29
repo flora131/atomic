@@ -32,6 +32,20 @@ import type {
 } from "@/services/events/adapters/providers/copilot/types.ts";
 import { createStaleStreamWatchdog } from "@/services/events/adapters/stale-stream-watchdog.ts";
 
+/**
+ * Detect whether an error represents a stale stream — either from the
+ * adapter-level watchdog or from the session-runtime's 90s
+ * `StaleStreamError`.  Both indicate the same condition (no activity for
+ * a prolonged period) and should be handled with `resumeSession()`.
+ */
+function isStaleStreamError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === "StaleStreamError" ||
+      error.message.includes("no response received"))
+  );
+}
+
 export async function startCopilotStreaming(
   deps: CopilotStreamAdapterDeps,
   state: CopilotStreamAdapterState,
@@ -142,8 +156,12 @@ export async function startCopilotStreaming(
         break;
       }
 
-      // If the watchdog fired, use SDK resume to get a fresh session handle
-      if (watchdog.hasFired && staleRetryCount < MAX_STALE_RETRIES) {
+      // Detect stale streams from both the adapter-level watchdog AND the
+      // session-runtime's StaleStreamError (90s "no response received").
+      // Both indicate the same condition and should be recovered with
+      // resumeSession() to preserve conversation history.
+      const isStale = watchdog.hasFired || isStaleStreamError(error);
+      if (isStale && staleRetryCount < MAX_STALE_RETRIES) {
         staleRetryCount++;
         watchdog.reset();
         cleanupCopilotSubscriptions(state);
@@ -153,6 +171,20 @@ export async function startCopilotStreaming(
         }
         subscribeToCopilotEvents(deps, state);
         continue;
+      }
+
+      // Stale retries exhausted — escalate silently to the controller for
+      // a more thorough recovery (resume or create a fresh session).
+      // Critically, do NOT publish error events to the bus: publishing
+      // stream.session.error here causes the TUI to render an "[error]"
+      // system message before the controller has a chance to recover,
+      // which is bad UX.  The controller's SessionExpiredError handler
+      // will transparently resume or recreate the session.
+      if (isStale) {
+        watchdog.dispose();
+        throw new SessionExpiredError(
+          error instanceof Error ? error.message : String(error),
+        );
       }
 
       if (error instanceof Error && error.name === "AbortError") {

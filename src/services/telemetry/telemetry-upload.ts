@@ -7,7 +7,7 @@
  * - emitEventsToAppInsights() for OpenTelemetry log emission
  * - handleTelemetryUpload() as the main entry point for --upload-telemetry flag
  *
- * Reference: specs/phase-6-telemetry-upload-backend.md
+ * Reference: specs/2026-01-22-phase-6-telemetry-upload-backend.md
  */
 
 import { existsSync, readFileSync, unlinkSync, renameSync, readdirSync } from "fs";
@@ -24,7 +24,7 @@ import type {
 
 /**
  * Configuration constants for telemetry upload
- * Reference: specs/phase-6-telemetry-upload-backend.md Section 5.4
+ * Reference: specs/2026-01-22-phase-6-telemetry-upload-backend.md Section 5.4
  */
 export const TELEMETRY_UPLOAD_CONFIG = {
   batch: {
@@ -48,7 +48,7 @@ export const TELEMETRY_UPLOAD_CONFIG = {
  * - Testing against different environments
  * - Key rotation without code changes
  *
- * Reference: specs/phase-6-telemetry-upload-backend.md Section 5.2
+ * Reference: specs/2026-01-22-phase-6-telemetry-upload-backend.md Section 5.2
  */
 const DEFAULT_CONNECTION_STRING =
   "InstrumentationKey=a37b0072-f282-44a4-9c9f-3b8517ab3984;IngestionEndpoint=https://westus2-2.in.applicationinsights.azure.com/;LiveEndpoint=https://westus2.livediagnostics.monitor.azure.com/;ApplicationId=6d2a02dd-79ff-4f0e-a593-57fb8a1673da";

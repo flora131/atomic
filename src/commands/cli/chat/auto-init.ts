@@ -2,7 +2,7 @@ import { join } from "path";
 import { readdir } from "fs/promises";
 import type { AgentType } from "@/services/telemetry/types.ts";
 import { AGENT_CONFIG, type SourceControlType } from "@/services/config/index.ts";
-import { hasProjectOnboardingFiles } from "@/commands/cli/init/index.ts";
+import { hasProjectOnboardingFiles } from "@/commands/cli/init/onboarding.ts";
 import { pathExists } from "@/services/system/copy.ts";
 import {
   getTemplateAgentFolder,

@@ -183,7 +183,7 @@ This function could be adapted for **execution scheduling** (not just display or
 
 ### 9. Dynamic DAG Mutation (Bug-Fix Insertion)
 
-Per [`specs/ralph-loop-enhancements.md`](https://github.com/flora131/atomic/blob/d5c8a4e/specs/ralph-loop-enhancements.md) (Section 5.1.4), workers can dynamically mutate the task DAG by:
+Per [`specs/2026-02-09-ralph-loop-enhancements.md`](https://github.com/flora131/atomic/blob/d5c8a4e/specs/2026-02-09-ralph-loop-enhancements.md) (Section 5.1.4), workers can dynamically mutate the task DAG by:
 1. Inserting a new bug-fix task (e.g., `#0`) at the top
 2. Adding `#0` to the `blockedBy` array of affected downstream tasks
 3. Writing the modified `tasks.json` to disk
@@ -234,5 +234,5 @@ A DAG orchestrator must handle this by:
 
 - [`research/docs/2026-02-09-163-ralph-loop-enhancements.md`](https://github.com/flora131/atomic/blob/d5c8a4e/research/docs/2026-02-09-163-ralph-loop-enhancements.md) - Original ralph loop enhancement research (Issue #163)
 - [`research/docs/2026-02-13-ralph-task-list-ui.md`](https://github.com/flora131/atomic/blob/d5c8a4e/research/docs/2026-02-13-ralph-task-list-ui.md) - Persistent task list UI implementation research
-- [`specs/ralph-loop-enhancements.md`](https://github.com/flora131/atomic/blob/d5c8a4e/specs/ralph-loop-enhancements.md) - Detailed design spec including dependency resolution (Section 5.1.3) and dynamic DAG mutations (Section 5.1.4)
-- [`specs/ralph-task-list-ui.md`](https://github.com/flora131/atomic/blob/d5c8a4e/specs/ralph-task-list-ui.md) - Task list UI spec with file-driven reactive pattern
+- [`specs/2026-02-09-ralph-loop-enhancements.md`](https://github.com/flora131/atomic/blob/d5c8a4e/specs/2026-02-09-ralph-loop-enhancements.md) - Detailed design spec including dependency resolution (Section 5.1.3) and dynamic DAG mutations (Section 5.1.4)
+- [`specs/2026-02-14-ralph-task-list-ui.md`](https://github.com/flora131/atomic/blob/d5c8a4e/specs/2026-02-14-ralph-task-list-ui.md) - Task list UI spec with file-driven reactive pattern

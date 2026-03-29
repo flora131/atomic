@@ -1,13 +1,4 @@
 import React, { useCallback, useMemo } from "react";
-import type {
-  KeyBinding,
-  MacOSScrollAccel,
-  PasteEvent,
-  ScrollBoxRenderable,
-  SyntaxStyle,
-  TextareaRenderable,
-} from "@opentui/core";
-import type { Model } from "@/services/models/model-transform.ts";
 import { Autocomplete } from "@/components/autocomplete.tsx";
 import { FooterStatus } from "@/components/footer-status.tsx";
 import { ModelSelectorDialog } from "@/components/model-selector-dialog.tsx";
@@ -15,80 +6,26 @@ import { QueueIndicator } from "@/components/queue-indicator.tsx";
 import { AtomicHeader } from "@/components/chat-header.tsx";
 import { TranscriptView } from "@/components/transcript-view.tsx";
 import { UserQuestionDialog } from "@/components/user-question-dialog.tsx";
-import type { QuestionAnswer, UserQuestion } from "@/state/chat/shared/types/hitl.ts";
 import { SCROLLBAR, PROMPT } from "@/theme/icons.ts";
 import { SPACING } from "@/theme/spacing.ts";
-import type { ThemeColors } from "@/theme/index.tsx";
-import type { ChatMessage, StreamingMeta, WorkflowChatState } from "@/state/chat/shared/types/index.ts";
-import type { UseMessageQueueReturn } from "@/hooks/use-message-queue.ts";
-import type { ParallelAgent } from "@/types/parallel-agents.ts";
 import { getActiveBackgroundAgents } from "@/state/chat/shared/helpers/background-agent-footer.ts";
-import type { ComposerAutocompleteSuggestion } from "@/state/chat/shared/types/composer.ts";
+import type { ShellLayoutProps, ShellInputProps, ShellDialogProps, ShellScrollProps } from "./prop-interfaces.ts";
 
-interface InputScrollbarState {
-  visible: boolean;
-  viewportHeight: number;
-  thumbTop: number;
-  thumbSize: number;
-}
+// Module-level constants for scrollbar options to avoid creating new object
+// references on every render (prevents unnecessary re-renders of scrollbox).
+const HIDDEN_VERTICAL_SCROLLBAR = { visible: false } as const;
+const HIDDEN_HORIZONTAL_SCROLLBAR = { visible: false } as const;
 
-export interface ChatShellProps {
-  activeQuestion: UserQuestion | null;
-  availableModels: Model[];
-  compactionSummary: string | null;
-  ctrlCPressed: boolean;
-  currentModelId?: string;
-  currentReasoningEffort?: string;
-  displayModel: string;
-  dynamicPlaceholder: string;
-
-  handleAutocompleteIndexChange: (index: number) => void;
-  handleAutocompleteSelect: (
-    command: ComposerAutocompleteSuggestion,
-    action: "complete" | "execute",
-  ) => void;
-  handleBracketedPaste: (event: PasteEvent) => void;
-  handleModelSelect: (selectedModel: Model, reasoningEffort?: string) => void;
-  handleModelSelectorCancel: () => void;
-  handleMouseUp: () => void;
-  handleQuestionAnswer?: (answer: QuestionAnswer) => void;
-  handleSubmit: () => void;
-  handleTextareaContentChange: () => void;
-  handleTextareaCursorChange: () => void;
-  historyBufferMessages: readonly ChatMessage[];
-  initialModelId?: string;
-  inputSyntaxStyle: SyntaxStyle;
-  inputFocused: boolean;
-  inputScrollbar: InputScrollbarState;
-  isEditingQueue: boolean;
-  isStreaming: boolean;
-  messageContent: React.ReactNode;
-  messageCount: number;
-  messageQueue: UseMessageQueueReturn;
-  messages: readonly ChatMessage[];
-  model: string;
-  parallelAgents: readonly ParallelAgent[];
-  scrollAcceleration: MacOSScrollAccel;
-  scrollboxRef: React.RefObject<ScrollBoxRenderable | null>;
-  setIsEditingQueue: React.Dispatch<React.SetStateAction<boolean>>;
-  showAutocomplete: boolean;
-  showCompactionHistory: boolean;
-  showModelSelector: boolean;
-  streamingMeta: StreamingMeta | null;
-  textareaKeyBindings: KeyBinding[];
-  textareaRef: React.RefObject<TextareaRenderable | null>;
-  themeColors: ThemeColors;
-  tier: string;
-  transcriptMode: boolean;
-  version: string;
-  workingDir: string;
-  workflowState: WorkflowChatState;
-  autocompleteInput: string;
-  autocompleteMode: "command" | "mention";
-  autocompleteSelectedIndex: number;
-  autocompleteSuggestions: ComposerAutocompleteSuggestion[];
-  argumentHint: string;
-}
+/**
+ * ChatShellProps — Composed from focused sub-interfaces.
+ *
+ * The sub-interfaces group related props by concern:
+ * - {@link ShellLayoutProps} — Chrome, header, model display
+ * - {@link ShellInputProps} — Textarea, composer, autocomplete
+ * - {@link ShellDialogProps} — HITL question dialog
+ * - {@link ShellScrollProps} — Scrollbox and scroll behavior
+ */
+export interface ChatShellProps extends ShellLayoutProps, ShellInputProps, ShellDialogProps, ShellScrollProps {}
 
 export function ChatShell({
   activeQuestion,
@@ -197,8 +134,8 @@ export function ChatShell({
             viewportCulling={false}
             paddingLeft={SPACING.CONTAINER_PAD}
             paddingRight={SPACING.CONTAINER_PAD}
-            verticalScrollbarOptions={{ visible: false }}
-            horizontalScrollbarOptions={{ visible: false }}
+            verticalScrollbarOptions={HIDDEN_VERTICAL_SCROLLBAR}
+            horizontalScrollbarOptions={HIDDEN_HORIZONTAL_SCROLLBAR}
             scrollAcceleration={scrollAcceleration}
           >
             {showCompactionHistory && compactionSummary && parallelAgents.length === 0 && (

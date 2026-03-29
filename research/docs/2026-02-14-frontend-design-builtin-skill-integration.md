@@ -187,8 +187,8 @@ Exception: PINNED_BUILTIN_SKILLS cannot be overridden
 
 ## Related Research
 
-- `specs/skills.md` — Agent Skills format specification (SKILL.md structure and frontmatter requirements)
-- `specs/skill-loading-from-configs-and-ui.md` — Technical design document for skill loading
+- `specs/2026-02-09-skills.md` — Agent Skills format specification (SKILL.md structure and frontmatter requirements)
+- `specs/2026-02-09-skill-loading-from-configs-and-ui.md` — Technical design document for skill loading
 - `docs/copilot-cli/skills.md` — Copilot CLI skills documentation
 
 ## Open Questions

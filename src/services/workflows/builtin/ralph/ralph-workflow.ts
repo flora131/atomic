@@ -29,15 +29,33 @@ import {
   hasActionableFindings,
   createReviewLoopTerminator,
 } from "@/services/workflows/builtin/ralph/helpers/review.ts";
+import { z } from "zod";
 
 export { createReviewLoopTerminator } from "@/services/workflows/builtin/ralph/helpers/review.ts";
 import { VERSION } from "@/version";
+
+/**
+ * Zod schema for validating task items from planner parsed output.
+ * Mirrors the SDK's TaskItemSchema to validate before passing to
+ * buildOrchestratorPrompt, avoiding unsafe `as` casts.
+ */
+const TaskItemSchema = z.object({
+  id: z.string().optional(),
+  description: z.string(),
+  status: z.string(),
+  summary: z.string(),
+  blockedBy: z.array(z.string()).optional(),
+});
 
 // ---------------------------------------------------------------------------
 // Workflow Definition via DSL
 // ---------------------------------------------------------------------------
 
-export const ralphWorkflowDefinition = defineWorkflow({
+// Build the workflow chain once (cheap — just records instructions).
+// `.compile()` is deferred to first access via the getter below because it
+// triggers agent discovery + YAML parsing (~60ms) which is wasted at import
+// time when the workflow isn't actually used.
+const _ralphWorkflowBuilder = defineWorkflow({
   name: "ralph",
   description: "Start autonomous implementation workflow",
 })
@@ -47,7 +65,6 @@ export const ralphWorkflowDefinition = defineWorkflow({
     name: "planner",
     agent: "planner",
     description: "\u2315 PLANNER",
-    outputs: ["tasks"],
     prompt: (ctx) => buildSpecToTasksPrompt(ctx.userPrompt),
     outputMapper: (response) => ({ tasks: parseTasks(response) }),
   })
@@ -55,22 +72,18 @@ export const ralphWorkflowDefinition = defineWorkflow({
     name: "orchestrator",
     agent: "orchestrator",
     description: "\u26A1 ORCHESTRATOR",
-    reads: ["tasks"],
     prompt: (ctx) => {
       if (ctx.tasks.length > 0) {
         return buildOrchestratorPrompt([...ctx.tasks]);
       }
       const plannerOutput = ctx.stageOutputs.get("planner");
       if (plannerOutput?.parsedOutput) {
-        return buildOrchestratorPrompt(
-          plannerOutput.parsedOutput as Array<{
-            id?: string;
-            description: string;
-            status: string;
-            summary: string;
-            blockedBy?: string[];
-          }>,
+        const result = TaskItemSchema.array().safeParse(
+          plannerOutput.parsedOutput.tasks,
         );
+        if (result.success && result.data.length > 0) {
+          return buildOrchestratorPrompt(result.data);
+        }
       }
       if (plannerOutput?.rawResponse) {
         const tasks = parseTasks(plannerOutput.rawResponse);
@@ -85,8 +98,6 @@ export const ralphWorkflowDefinition = defineWorkflow({
     name: "reviewer",
     agent: "reviewer",
     description: "\uD83D\uDD0D REVIEWER",
-    reads: ["tasks"],
-    outputs: ["reviewResult"],
     prompt: (ctx) => {
       const orchestratorOutput = ctx.stageOutputs.get("orchestrator");
       const progressSummary = orchestratorOutput?.rawResponse ?? "";
@@ -112,7 +123,6 @@ export const ralphWorkflowDefinition = defineWorkflow({
     name: "debugger",
     agent: "debugger",
     description: "\uD83D\uDD27 DEBUGGER",
-    reads: ["reviewResult"],
     prompt: (ctx) => {
       const review = getReviewResult(ctx.stageOutputs);
       const tasks = [...ctx.tasks];
@@ -133,5 +143,19 @@ export const ralphWorkflowDefinition = defineWorkflow({
     outputMapper: () => ({}),
   })
   .endIf()
-  .endLoop()
-  .compile();
+  .endLoop();
+
+let _compiledRalphDefinition: ReturnType<typeof _ralphWorkflowBuilder.compile> | null = null;
+
+/**
+ * Lazily compiled Ralph workflow definition.
+ * The first access triggers `.compile()` which runs agent discovery + YAML
+ * parsing (~60ms). Subsequent accesses return the cached result.
+ */
+export function getRalphWorkflowDefinition() {
+  if (!_compiledRalphDefinition) {
+    _compiledRalphDefinition = _ralphWorkflowBuilder.compile();
+  }
+  return _compiledRalphDefinition;
+}
+

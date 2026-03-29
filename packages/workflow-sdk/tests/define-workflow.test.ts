@@ -59,11 +59,11 @@ describe("WorkflowBuilder", () => {
 
   test("records conditional instructions", () => {
     const builder = defineWorkflow({ name: "wf", description: "d" })
-      .stage({ name: "a", description: "a", prompt: () => "", outputMapper: () => ({}) })
+      .stage({ name: "a", agent: null, description: "a", prompt: () => "", outputMapper: () => ({}) })
       .if(() => true)
-        .stage({ name: "b", description: "b", prompt: () => "", outputMapper: () => ({}) })
+        .stage({ name: "b", agent: null, description: "b", prompt: () => "", outputMapper: () => ({}) })
       .else()
-        .stage({ name: "c", description: "c", prompt: () => "", outputMapper: () => ({}) })
+        .stage({ name: "c", agent: null, description: "c", prompt: () => "", outputMapper: () => ({}) })
       .endIf();
 
     const types = builder.instructions.map((i) => i.type);
@@ -73,7 +73,7 @@ describe("WorkflowBuilder", () => {
   test("records loop instructions with break", () => {
     const builder = defineWorkflow({ name: "wf", description: "d" })
       .loop({ maxCycles: 5 })
-        .stage({ name: "a", description: "a", prompt: () => "", outputMapper: () => ({}) })
+        .stage({ name: "a", agent: null, description: "a", prompt: () => "", outputMapper: () => ({}) })
         .break(() => () => true)
       .endLoop();
 
@@ -83,10 +83,10 @@ describe("WorkflowBuilder", () => {
 
   test("throws on duplicate node names", () => {
     const builder = defineWorkflow({ name: "wf", description: "d" })
-      .stage({ name: "dup", description: "d", prompt: () => "", outputMapper: () => ({}) });
+      .stage({ name: "dup", agent: null, description: "d", prompt: () => "", outputMapper: () => ({}) });
 
     expect(() => builder.stage({
-      name: "dup", description: "d", prompt: () => "", outputMapper: () => ({}),
+      name: "dup", agent: null, description: "d", prompt: () => "", outputMapper: () => ({}),
     })).toThrow('Duplicate node name: "dup"');
   });
 
@@ -118,7 +118,7 @@ describe("WorkflowBuilder", () => {
       },
     })
       .loop({ loopState: { iteration: { default: 0, reducer: "sum" as const } } })
-        .stage({ name: "a", description: "a", prompt: () => "", outputMapper: () => ({}) })
+        .stage({ name: "a", agent: null, description: "a", prompt: () => "", outputMapper: () => ({}) })
       .endLoop();
 
     const schema = builder.getStateSchema();
@@ -165,7 +165,7 @@ describe("compile", () => {
       description: "d",
       globalState: { items: { default: () => [], reducer: "concat" as const } },
     })
-      .stage({ name: "a", description: "a", prompt: () => "", outputMapper: () => ({}) })
+      .stage({ name: "a", agent: null, description: "a", prompt: () => "", outputMapper: () => ({}) })
       .compile();
 
     const blueprint = (result as unknown as Record<string, unknown>).__blueprint as Record<string, unknown>;
@@ -178,6 +178,7 @@ describe("compile", () => {
     const result = defineWorkflow({ name: "wf", description: "d" })
       .stage({
         name: "s1",
+        agent: null,
         description: "d",
         prompt: promptFn as never,
         outputMapper: () => ({}),

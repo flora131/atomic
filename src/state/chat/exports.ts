@@ -67,7 +67,7 @@ export * from "@/state/chat/keyboard/index.ts";
 export type { Session, SessionConfig, CreateSessionFn } from "@/state/chat/session/types.ts";
 
 // ── Shell sub-module (depth 1) ────────────────────────────────────────
-export type { ChatShellProps } from "@/state/chat/shell/types.ts";
+export type { ChatShellProps, ShellLayoutProps, ShellInputProps, ShellDialogProps, ShellScrollProps } from "@/state/chat/shell/types.ts";
 export { ChatShell } from "@/state/chat/shell/ChatShell.tsx";
 export { buildChatShellProps } from "@/state/chat/shell/props.ts";
 export { useChatRenderModel, reorderStreamingMessageToEnd } from "@/state/chat/shell/use-render-model.tsx";

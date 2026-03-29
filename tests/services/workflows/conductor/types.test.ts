@@ -148,6 +148,7 @@ describe("isStageContext", () => {
       stageOutputs: new Map(),
       tasks: [],
       abortSignal: new AbortController().signal,
+      state: { executionId: "", lastUpdated: "", outputs: {} },
     };
   }
 
@@ -226,7 +227,7 @@ describe("isStageDefinition", () => {
       ...makeValidDefinition(),
       parseOutput: (response: string) => JSON.parse(response),
       shouldRun: (_ctx: StageContext) => true,
-      sessionConfig: { model: "claude-sonnet-4-20250514" },
+      sessionConfig: { model: { claude: "claude-sonnet-4-20250514" } },
     };
     expect(isStageDefinition(full)).toBe(true);
   });
@@ -443,6 +444,7 @@ describe("type assignability", () => {
         { description: "Add JWT auth", status: "pending", summary: "JWT", blockedBy: ["t1"] },
       ],
       abortSignal: new AbortController().signal,
+      state: { executionId: "", lastUpdated: "", outputs: {} },
     };
     expect(ctx.tasks).toHaveLength(2);
   });
@@ -458,6 +460,7 @@ describe("type assignability", () => {
       stageOutputs: new Map(),
       tasks: [],
       abortSignal: new AbortController().signal,
+      state: { executionId: "", lastUpdated: "", outputs: {} },
     };
     expect(def.buildPrompt(ctx)).toBe("Prompt: hello");
   });
@@ -478,6 +481,7 @@ describe("type assignability", () => {
       stageOutputs: new Map(),
       tasks: [],
       abortSignal: new AbortController().signal,
+      state: { executionId: "", lastUpdated: "", outputs: {} },
     };
     expect(def.shouldRun!(emptyCtx)).toBe(false);
 

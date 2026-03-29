@@ -22,6 +22,7 @@ export { compileWorkflow } from "./compiler.ts";
 export { compileStateSchema, createStateFactory } from "./state-compiler.ts";
 export {
   buildAgentLookup,
+  clearAgentLookupCache,
   readAgentBody,
   resolveStageSystemPrompt,
   validateStageAgents,

@@ -15,7 +15,7 @@ type UseChatStreamDeferredCompletionArgs = Pick<
   | "runningAskQuestionToolIdsRef"
   | "runningBlockingToolIdsRef"
   | "setMessagesWindowed"
-  | "setToolCompletionVersion"
+  | "setHasRunningTool"
   | "streamingMessageIdRef"
   | "toolMessageIdByIdRef"
   | "toolNameByIdRef"
@@ -29,7 +29,7 @@ export function useChatStreamDeferredCompletion({
   runningAskQuestionToolIdsRef,
   runningBlockingToolIdsRef,
   setMessagesWindowed,
-  setToolCompletionVersion,
+  setHasRunningTool,
   streamingMessageIdRef,
   toolMessageIdByIdRef,
   toolNameByIdRef,
@@ -88,7 +88,7 @@ export function useChatStreamDeferredCompletion({
                   : msg,
               ),
             );
-            setToolCompletionVersion((version) => version + 1);
+            setHasRunningTool(false);
           }
           deferredComplete();
         }
@@ -123,7 +123,7 @@ export function useChatStreamDeferredCompletion({
     runningAskQuestionToolIdsRef,
     runningBlockingToolIdsRef,
     setMessagesWindowed,
-    setToolCompletionVersion,
+    setHasRunningTool,
     streamingMessageIdRef,
     toolMessageIdByIdRef,
     toolNameByIdRef,

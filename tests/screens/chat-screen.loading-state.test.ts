@@ -314,6 +314,44 @@ describe("shouldShowMessageLoadingIndicator", () => {
       ),
     ).toBe(false);
   });
+
+  test("spinner hides after workflow completes (keepAliveForWorkflow cleared)", () => {
+    // During workflow: keepAliveForWorkflow bridges the gap
+    expect(
+      shouldShowMessageLoadingIndicator(
+        { streaming: false, taskItems: [{ status: "completed" }] },
+        { keepAliveForWorkflow: true },
+      ),
+    ).toBe(true);
+
+    // After workflow completes: keepAliveForWorkflow is cleared → spinner hides
+    expect(
+      shouldShowMessageLoadingIndicator(
+        { streaming: false, taskItems: [{ status: "completed" }] },
+        { keepAliveForWorkflow: false },
+      ),
+    ).toBe(false);
+  });
+
+  test("spinner hides after workflow errors mid-execution with error task status", () => {
+    // Mid-execution error: stream ends, tasks in error state, workflow no longer active
+    expect(
+      shouldShowMessageLoadingIndicator(
+        { streaming: false, taskItems: [{ status: "error" }] },
+        { keepAliveForWorkflow: false },
+      ),
+    ).toBe(false);
+  });
+
+  test("spinner persists during workflow error while stream is still active", () => {
+    // Error occurred but stream hasn't finalized yet
+    expect(
+      shouldShowMessageLoadingIndicator(
+        { streaming: true, taskItems: [{ status: "error" }] },
+        { keepAliveForWorkflow: true },
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("hasLiveLoadingIndicator", () => {
@@ -450,6 +488,45 @@ describe("hasLiveLoadingIndicator", () => {
     expect(
       hasLiveLoadingIndicator(
         [{ streaming: false }],
+        { activeBackgroundAgentCount: 0, keepAliveForWorkflow: false },
+      ),
+    ).toBe(false);
+  });
+
+  test("timer stops after workflow completes and keepAliveForWorkflow is cleared", () => {
+    // Simulates post-workflow state: all messages finalized, workflow session ID cleared
+    expect(
+      hasLiveLoadingIndicator(
+        [
+          { streaming: false, taskItems: [{ status: "completed" }] },
+          { streaming: false, taskItems: [{ status: "completed" }] },
+        ],
+        { activeBackgroundAgentCount: 0, keepAliveForWorkflow: false },
+      ),
+    ).toBe(false);
+  });
+
+  test("timer stops after workflow errors mid-execution", () => {
+    // Workflow errored: stream ended, tasks in error state, keepAliveForWorkflow cleared
+    expect(
+      hasLiveLoadingIndicator(
+        [
+          { streaming: false, taskItems: [{ status: "completed" }] },
+          { streaming: false, taskItems: [{ status: "error" }] },
+        ],
+        { activeBackgroundAgentCount: 0, keepAliveForWorkflow: false },
+      ),
+    ).toBe(false);
+  });
+
+  test("keepAliveForWorkflow does not apply to non-last messages with error tasks", () => {
+    // Earlier message has error tasks, but keepAliveForWorkflow only applies to last
+    expect(
+      hasLiveLoadingIndicator(
+        [
+          { streaming: false, taskItems: [{ status: "error" }] },
+          { streaming: false, taskItems: [{ status: "completed" }] },
+        ],
         { activeBackgroundAgentCount: 0, keepAliveForWorkflow: false },
       ),
     ).toBe(false);

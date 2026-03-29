@@ -17,6 +17,7 @@ export function useStreamState(messages: ChatMessage[]) {
   const [parallelAgents, setParallelAgents] = useState<ParallelAgent[]>([]);
   const [compactionSummary, setCompactionSummary] = useState<string | null>(null);
   const [showCompactionHistory, setShowCompactionHistory] = useState(false);
+  // Value unused — only the setter is consumed (to trigger re-renders during compaction).
   const [_isAutoCompacting, setIsAutoCompacting] = useState(false);
   const [todoItems, setTodoItems] = useState<NormalizedTodoItem[]>([]);
   const [workflowSessionDir, setWorkflowSessionDir] = useState<string | null>(null);

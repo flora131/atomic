@@ -225,8 +225,10 @@ export function useWorkflowHitl({
   }, [setMessagesWindowed, setTodoItems, todoItemsRef]);
 
   useEffect(() => {
-    if (!workflowState.workflowActive && workflowSessionDir) {
-      syncTerminalTaskStateFromSession(workflowSessionDir);
+    if (!workflowState.workflowActive && (workflowSessionDir || workflowSessionIdRef.current)) {
+      if (workflowSessionDir) {
+        syncTerminalTaskStateFromSession(workflowSessionDir);
+      }
       setWorkflowSessionDir(null);
       setWorkflowSessionId(null);
       workflowSessionDirRef.current = null;

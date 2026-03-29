@@ -37,6 +37,7 @@
     "test": "bun test",
     "test:coverage": "bun run src/scripts/test-coverage.ts",
     "typecheck": "bunx tsc --noEmit",
+    "bump-version": "bun run src/scripts/bump-version.ts",
     "validate:agents": "bun run src/scripts/validate-agents.ts",
     "lint": "oxlint --config=oxlint.json src tests",
     "lint:fix": "oxlint --config=oxlint.json --fix src tests",

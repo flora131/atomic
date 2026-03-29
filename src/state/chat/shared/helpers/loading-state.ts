@@ -37,10 +37,26 @@ export function shouldShowMessageLoadingIndicator(
   message: LoadingStateMessage,
   liveTodoItems?: readonly TaskProgressItem[],
   activeBackgroundAgentCount?: number,
+  keepAliveForWorkflow?: boolean,
 ): boolean {
   // When the external count says background agents are running, keep the
   // spinner alive regardless of task-progress or streaming state.
   if (activeBackgroundAgentCount != null && activeBackgroundAgentCount > 0) {
+    return true;
+  }
+
+  // Always show the spinner while the message is actively streaming,
+  // even if all tasks have already completed.  Task completion should
+  // only hide the spinner once the stream itself has finished.
+  if (message.streaming) {
+    return true;
+  }
+
+  // During workflow stage transitions the previous stage's message is
+  // finalized (streaming=false) before the next stage creates a new
+  // streaming message.  Keep the spinner on the last message while the
+  // workflow is active to bridge this gap.
+  if (keepAliveForWorkflow) {
     return true;
   }
 
@@ -58,19 +74,21 @@ export function shouldShowMessageLoadingIndicator(
     (agent) => !agent.background && (agent.status === "running" || agent.status === "pending"),
   );
 
-  return Boolean(message.streaming) || hasActiveBackground || hasActiveForeground;
+  return hasActiveBackground || hasActiveForeground;
 }
 
 export function hasLiveLoadingIndicator(
   messages: readonly LoadingStateMessage[],
   liveTodoItems?: readonly TaskProgressItem[],
   activeBackgroundAgentCount?: number,
+  keepAliveForWorkflow?: boolean,
 ): boolean {
-  return messages.some((message) =>
+  return messages.some((message, index) =>
     shouldShowMessageLoadingIndicator(
       message,
       message.streaming ? liveTodoItems : undefined,
       activeBackgroundAgentCount,
+      keepAliveForWorkflow && index === messages.length - 1,
     )
   );
 }

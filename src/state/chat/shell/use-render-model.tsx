@@ -87,7 +87,13 @@ export function useChatRenderModel({
             || msg.id === backgroundAgentMessageId
             || (msg.id === lastStreamedMessageId && !streamingMessageId);
           const scopedBgAgentCount = isAgentOwner ? activeBackgroundAgentCount : 0;
-          const showLive = shouldShowMessageLoadingIndicator(msg, liveTaskItems, scopedBgAgentCount);
+          const isLast = index === renderMessages.length - 1;
+          const showLive = shouldShowMessageLoadingIndicator(
+            msg,
+            liveTaskItems,
+            scopedBgAgentCount,
+            workflowState.workflowActive && isLast,
+          );
           const scopedStreamingMeta = showLive
             ? (streamingMessageId
               ? (msg.id === streamingMessageId ? streamingMeta : null)
@@ -97,7 +103,7 @@ export function useChatRenderModel({
             <MessageBubble
               key={msg.id}
               message={msg}
-              isLast={index === renderMessages.length - 1}
+              isLast={isLast}
               syntaxStyle={markdownSyntaxStyle}
               hideLoading={activeQuestion !== null}
               activeBackgroundAgentCount={scopedBgAgentCount}

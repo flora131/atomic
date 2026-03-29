@@ -264,6 +264,7 @@ export function MessageBubble({
       message,
       liveTaskItems,
       activeBackgroundAgentCount,
+      workflowActive && isLast,
     );
 
     return (

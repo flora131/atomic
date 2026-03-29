@@ -1692,11 +1692,13 @@ describe("compiler askUserQuestion outputMapper callback", () => {
     );
 
     const node = graph.nodes.get("q1")!;
-    // Simulate execution with emit that calls respond immediately
+    // Simulate execution with emit that calls respond immediately.
+    // abortSignal is required so the blocking outputMapper path is entered.
     const ctx: ExecutionContext<BaseState> = {
       state: makeBaseState(),
       config: {},
       errors: [],
+      abortSignal: new AbortController().signal,
       emit: (_type: string, data?: Record<string, unknown>) => {
         const respond = data?.respond as (answer: string | string[]) => void;
         // Simulate user selecting "Yes"
@@ -1734,6 +1736,7 @@ describe("compiler askUserQuestion outputMapper callback", () => {
       state: makeBaseState(),
       config: {},
       errors: [],
+      abortSignal: new AbortController().signal,
       emit: (_type: string, data?: Record<string, unknown>) => {
         const respond = data?.respond as (answer: string | string[]) => void;
         respond(["A", "C"]);
@@ -1765,6 +1768,7 @@ describe("compiler askUserQuestion outputMapper callback", () => {
       state: makeBaseState(),
       config: {},
       errors: [],
+      abortSignal: new AbortController().signal,
       emit: (_type: string, data?: Record<string, unknown>) => {
         const respond = data?.respond as (answer: string | string[]) => void;
         respond("yes");
@@ -1795,6 +1799,7 @@ describe("compiler askUserQuestion outputMapper callback", () => {
       state: makeBaseState(),
       config: {},
       errors: [],
+      abortSignal: new AbortController().signal,
       emit: (type: string, data?: Record<string, unknown>) => {
         emittedEvents.push({ type, data });
         const respond = data?.respond as (answer: string | string[]) => void;
@@ -1886,6 +1891,7 @@ describe("compiler askUserQuestion outputMapper callback", () => {
       state: makeBaseState({ executionId: "exec-42" }),
       config: {},
       errors: [],
+      abortSignal: new AbortController().signal,
       emit: (_type: string, data?: Record<string, unknown>) => {
         // Verify dynamic question was resolved
         expect(data?.question).toBe("Review exec-42?");
@@ -1913,6 +1919,7 @@ describe("compiler askUserQuestion outputMapper callback", () => {
       state: makeBaseState(),
       config: {},
       errors: [],
+      abortSignal: new AbortController().signal,
       emit: (_type: string, data?: Record<string, unknown>) => {
         const respond = data?.respond as (answer: string | string[]) => void;
         respond("yes");
@@ -2040,6 +2047,7 @@ describe("compiler askUserQuestion outputMapper callback", () => {
       state: makeBaseState(),
       config: {},
       errors: [],
+      abortSignal: new AbortController().signal,
       emit: (_type: string, data?: Record<string, unknown>) => {
         const respond = data?.respond as (answer: string | string[]) => void;
         respond("Yes");

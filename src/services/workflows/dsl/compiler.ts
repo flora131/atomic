@@ -472,7 +472,12 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
           // node's execution until the user answers via the respond
           // callback. This lets the conductor receive the mapped state
           // updates as part of the normal NodeResult.stateUpdate flow.
-          if (askUserOutputMapper && ctx.emit) {
+          //
+          // Guard: also require abortSignal so we never block on a
+          // promise that has no cancellation path. Without an abort
+          // signal, the promise would hang forever if respond() is
+          // never called (e.g., in tests or contexts without a TUI).
+          if (askUserOutputMapper && ctx.emit && ctx.abortSignal) {
             let resolveAnswer!: (answer: string | string[]) => void;
             const answerPromise = new Promise<string | string[]>((resolve) => {
               resolveAnswer = resolve;

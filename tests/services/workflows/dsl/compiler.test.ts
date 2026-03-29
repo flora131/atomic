@@ -13,6 +13,7 @@
 import { describe, expect, test } from "bun:test";
 import { defineWorkflow } from "@/services/workflows/dsl/define-workflow.ts";
 import { validateInstructions } from "@/services/workflows/dsl/compiler.ts";
+import { USER_DECLINED_ANSWER } from "@/services/workflows/graph/nodes/control.ts";
 import type { StageOptions, ToolOptions, LoopOptions, AskUserQuestionOptions, Instruction } from "@/services/workflows/dsl/types.ts";
 import type { StageContext } from "@/services/workflows/conductor/types.ts";
 import type { BaseState, Edge, CompiledGraph, ExecutionContext } from "@/services/workflows/graph/types.ts";
@@ -1924,5 +1925,138 @@ describe("compiler askUserQuestion outputMapper callback", () => {
     expect(result.signals).toBeDefined();
     expect(result.signals).toHaveLength(1);
     expect(result.signals![0]!.type).toBe("human_input_required");
+  });
+
+  test("abort before respond passes USER_DECLINED_ANSWER to outputMapper and sets __userDeclined", async () => {
+    const receivedAnswers: Array<string | string[]> = [];
+    const graph = compileGraph((b) =>
+      b.askUserQuestion({
+        name: "q1",
+        question: { question: "Continue?" },
+        outputMapper: (answer) => {
+          receivedAnswers.push(answer);
+          return { choice: answer };
+        },
+      }),
+    );
+
+    const node = graph.nodes.get("q1")!;
+    const controller = new AbortController();
+    const ctx: ExecutionContext<BaseState> = {
+      state: makeBaseState(),
+      config: {},
+      errors: [],
+      abortSignal: controller.signal,
+      emit: (_type: string, _data?: Record<string, unknown>) => {
+        // Simulate user pressing ESC / Ctrl+C — abort without calling respond
+        controller.abort();
+      },
+    };
+
+    const result = await node.execute(ctx);
+    const stateUpdate = result.stateUpdate as Record<string, unknown>;
+
+    // outputMapper receives the decline sentinel
+    const runtimeAnswers = receivedAnswers.filter((a) => a === USER_DECLINED_ANSWER);
+    expect(runtimeAnswers).toHaveLength(1);
+    expect(stateUpdate.choice).toBe(USER_DECLINED_ANSWER);
+
+    // __userDeclined flag is set so downstream nodes can detect it
+    expect(stateUpdate.__userDeclined).toBe(true);
+    expect(stateUpdate.__waitingForInput).toBe(false);
+  });
+
+  test("pre-aborted signal passes USER_DECLINED_ANSWER without blocking", async () => {
+    const graph = compileGraph((b) =>
+      b.askUserQuestion({
+        name: "q1",
+        question: { question: "Continue?" },
+        outputMapper: (answer) => ({ choice: answer }),
+      }),
+    );
+
+    const node = graph.nodes.get("q1")!;
+    const controller = new AbortController();
+    controller.abort();
+    const ctx: ExecutionContext<BaseState> = {
+      state: makeBaseState(),
+      config: {},
+      errors: [],
+      abortSignal: controller.signal,
+      emit: () => {
+        // respond never called
+      },
+    };
+
+    const result = await node.execute(ctx);
+    const stateUpdate = result.stateUpdate as Record<string, unknown>;
+    expect(stateUpdate.choice).toBe(USER_DECLINED_ANSWER);
+    expect(stateUpdate.__userDeclined).toBe(true);
+    expect(stateUpdate.__waitingForInput).toBe(false);
+  });
+
+  test("normal answer with abortSignal present sets __userDeclined to false", async () => {
+    const graph = compileGraph((b) =>
+      b.askUserQuestion({
+        name: "q1",
+        question: { question: "Continue?" },
+        outputMapper: (answer) => ({ choice: answer }),
+      }),
+    );
+
+    const node = graph.nodes.get("q1")!;
+    const controller = new AbortController();
+    const ctx: ExecutionContext<BaseState> = {
+      state: makeBaseState(),
+      config: {},
+      errors: [],
+      abortSignal: controller.signal,
+      emit: (_type: string, data?: Record<string, unknown>) => {
+        const respond = data?.respond as (answer: string | string[]) => void;
+        respond("Yes");
+      },
+    };
+
+    const result = await node.execute(ctx);
+    const stateUpdate = result.stateUpdate as Record<string, unknown>;
+    expect(stateUpdate.choice).toBe("Yes");
+    expect(stateUpdate.__userDeclined).toBe(false);
+    expect(stateUpdate.__waitingForInput).toBe(false);
+  });
+
+  test("non-AbortError during answer wait is re-thrown, not swallowed", async () => {
+    const graph = compileGraph((b) =>
+      b.askUserQuestion({
+        name: "q1",
+        question: { question: "Continue?" },
+        outputMapper: () => {
+          throw new Error("outputMapper crashed");
+        },
+      }),
+    );
+
+    const node = graph.nodes.get("q1")!;
+    const ctx: ExecutionContext<BaseState> = {
+      state: makeBaseState(),
+      config: {},
+      errors: [],
+      emit: (_type: string, data?: Record<string, unknown>) => {
+        const respond = data?.respond as (answer: string | string[]) => void;
+        respond("Yes");
+      },
+    };
+
+    let threw = false;
+    try {
+      await node.execute(ctx);
+    } catch (e: unknown) {
+      threw = true;
+      expect((e as Error).message).toBe("outputMapper crashed");
+    }
+    expect(threw).toBe(true);
+
+    // __userDeclined must NOT be set when a non-abort error occurs —
+    // the flag should only reflect actual user decline, not crashes.
+    expect(ctx.state.__userDeclined).toBeUndefined();
   });
 });

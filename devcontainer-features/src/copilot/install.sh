@@ -6,6 +6,12 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
+# ─── Ensure curl is available (bare images like ubuntu:latest lack it) ──────
+if ! command -v curl >/dev/null 2>&1; then
+    apt-get update -y && apt-get install -y --no-install-recommends curl ca-certificates
+    rm -rf /var/lib/apt/lists/*
+fi
+
 # ─── Install Atomic CLI as the non-root remoteUser ──────────────────────────
 # The Atomic installer writes to $HOME-relative paths (~/.atomic, ~/.copilot,
 # ~/.bun, etc.). Running it as _REMOTE_USER via su ensures files are created

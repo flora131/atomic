@@ -6,6 +6,12 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
+# ─── Ensure curl is available (bare images like ubuntu:latest lack it) ──────
+if ! command -v curl >/dev/null 2>&1; then
+    apt-get update -y && apt-get install -y --no-install-recommends curl ca-certificates
+    rm -rf /var/lib/apt/lists/*
+fi
+
 # ─── Install Atomic CLI + OpenCode as the non-root remoteUser ───────────────
 # Both installers write to $HOME-relative paths (~/.atomic, ~/.opencode, ~/.bun,
 # etc.). Running them as _REMOTE_USER via su ensures files are created with

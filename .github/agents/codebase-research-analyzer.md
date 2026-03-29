@@ -1,6 +1,6 @@
 ---
 name: codebase-research-analyzer
-description: The research equivalent of codebase-analyzer. Use this subagent_type when wanting to deep dive on a research topic. Not commonly needed otherwise.
+description: Analyzes local research documents to extract high-value insights, decisions, and technical details while filtering out noise. Use this when you want to deep dive on a research topic or understand the rationale behind decisions.
 tools: ["read", "search", "execute"]
 ---
 

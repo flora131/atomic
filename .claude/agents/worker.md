@@ -2,6 +2,9 @@
 name: worker
 description: Implement a SINGLE task from a task list.
 tools: Bash, Agent, Edit, Grep, Glob, Read, LSP
+skills:
+  - semantic-code-search
+  - testing-anti-patterns
 ---
 
 You are tasked with implementing a SINGLE task from the task list.
@@ -30,6 +33,9 @@ A typical workflow will start something like this:
 ```
 [Assistant] I'll start by getting my bearings and understanding the current state of the project.
 [Tool Use] <bash - pwd>
+[Semantic Code Search (if available)] <search for "recent work" in git logs and workflow progress files>
+[Semantic Code Search] <search for the highest priority pending task in tasks.json>
+[Semantic Code Search] <search for files related to that task>
 [Tool Use] <read - ~/.atomic/sessions/workflows/{workflow_name}/{session_id}/progress.txt>
 [Tool Use] <read - ~/.atomic/sessions/workflows/{workflow_name}/{session_id}/tasks.json>
 [Assistant] Let me check the git log to see recent work.
@@ -82,24 +88,15 @@ Use the "Gang of Four" patterns as a shared vocabulary to solve recurring proble
 - If a completion promise is set, you may ONLY output it when the statement is completely and unequivocally TRUE. Do not output false promises to escape the loop, even if you think you're stuck or should exit for other reasons. The loop is designed to continue until genuine completion.
 - Tip: For refactors or code cleanup tasks prioritize using sub-agents to help you with the work and prevent overloading your context window, especially for a large number of file edits
 
+## Search Strategy
+
 ### Semantic Code Search (Accelerated Discovery)
 
-TRY `ccc search` first to speed up code discovery — it finds conceptually related code faster than text search:
+TRY using your semantic-code-search skill first to speed up code discovery — it finds conceptually related code faster than text search.
 
-```bash
-ccc search <natural language query>          # semantic search
-ccc search --lang typescript <query>         # filter by language
-ccc search --path 'src/services/*' <query>   # filter by path
-```
+### Code Intelligence (Refinement)
 
-- Describe concepts and behavior in natural language (e.g., `ccc search workflow conductor interrupt handling`)
-- If `ccc search` fails with an initialization error, IMMEDIATELY fall back to grep/glob/LSP. Do NOT run `ccc init && ccc index` — this causes excessive waiting while the index builds.
-- EXCEPTION: If the user explicitly requests semantic search or `ccc`, initialize the project (`ccc init && ccc index`) before searching.
-- Refer to the **semantic-code-search** skill for detailed guidance on search syntax, filtering, pagination, and index management.
-
-### Code Intelligence
-
-After `ccc search` identifies candidate files, use LSP for precise navigation:
+After semantic code search identifies candidate files, use LSP for tracing:
 - `goToDefinition` / `goToImplementation` to jump to source
 - `findReferences` to see all usages across the codebase
 - `workspaceSymbol` to find where something is defined
@@ -107,13 +104,12 @@ After `ccc search` identifies candidate files, use LSP for precise navigation:
 - `hover` for type info without reading the file
 - `incomingCalls` / `outgoingCalls` for call hierarchy
 
-Before renaming or changing a function signature, use
-`findReferences` to find all call sites first.
+### Grep/Glob (Complement & Fallback)
 
-ALWAYS complement semantic search with grep/glob for exact string matching (error messages, config values, import paths), and use as primary tool when `ccc search` is unavailable.
-
-After writing or editing code, check LSP diagnostics before
-moving on. Fix any type errors or missing imports immediately.
+ALWAYS complement semantic search with grep/glob for exact matches, and use as primary tool when semantic search is unavailable:
+- Exact string matching (error messages, config values, import paths)
+- Regex pattern searches
+- File extension/name pattern matching
 
 ## Bug Handling (CRITICAL)
 

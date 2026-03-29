@@ -12,6 +12,7 @@ import { describe, test, expect, mock } from "bun:test";
 import {
   handleClipboardKey,
   handleShortcutKey,
+  isCtrlCInterrupt,
   postDispatchReconciliation,
   type ClipboardHandlerArgs,
   type ShortcutHandlerArgs,
@@ -459,6 +460,37 @@ describe("handleShortcutKey", () => {
       expect(args.toggleVerbose).not.toHaveBeenCalled();
       expect(args.setShowTodoPanel).not.toHaveBeenCalled();
     });
+  });
+});
+
+// ============================================================================
+// isCtrlCInterrupt
+// ============================================================================
+
+describe("isCtrlCInterrupt", () => {
+  test("Ctrl+C (lowercase) returns true", () => {
+    const event = createKeyEvent({ ctrl: true, shift: false, name: "c" });
+    expect(isCtrlCInterrupt(event)).toBe(true);
+  });
+
+  test("Ctrl+C with uppercase name (modifyOtherKeys encoding) returns true", () => {
+    const event = createKeyEvent({ ctrl: true, shift: false, name: "C" });
+    expect(isCtrlCInterrupt(event)).toBe(true);
+  });
+
+  test("Ctrl+Shift+C returns false (shift guard)", () => {
+    const event = createKeyEvent({ ctrl: true, shift: true, name: "c" });
+    expect(isCtrlCInterrupt(event)).toBe(false);
+  });
+
+  test("plain 'c' without ctrl returns false", () => {
+    const event = createKeyEvent({ ctrl: false, name: "c" });
+    expect(isCtrlCInterrupt(event)).toBe(false);
+  });
+
+  test("Meta+C without ctrl returns false", () => {
+    const event = createKeyEvent({ meta: true, ctrl: false, name: "c" });
+    expect(isCtrlCInterrupt(event)).toBe(false);
   });
 });
 

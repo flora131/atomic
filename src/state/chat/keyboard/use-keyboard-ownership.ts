@@ -27,6 +27,7 @@ import { determineUIMode } from "@/state/chat/keyboard/focus-manager.ts";
 import {
   handleClipboardKey,
   handleShortcutKey,
+  isCtrlCInterrupt,
   postDispatchReconciliation,
 } from "@/state/chat/keyboard/handlers/chat-input-handler.ts";
 import {
@@ -182,7 +183,7 @@ export function useKeyboardOwnership({
       }
 
       // Ctrl+C interrupt (runs in all modes)
-      if (event.ctrl && !event.shift && event.name.toLowerCase() === "c") {
+      if (isCtrlCInterrupt(event)) {
         if (handleCtrlCKey(event)) {
           return;
         }

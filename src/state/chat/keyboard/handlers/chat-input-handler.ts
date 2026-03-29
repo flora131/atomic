@@ -72,6 +72,18 @@ export function handleClipboardKey(
   return false;
 }
 
+// ── Ctrl+C interrupt detection ───────────────────────────────────────
+
+/**
+ * Detect a Ctrl+C interrupt key event (Ctrl+C without Shift).
+ *
+ * Case-insensitive: `modifyOtherKeys` may encode the key name as
+ * uppercase `"C"`.
+ */
+export function isCtrlCInterrupt(event: KeyEvent): boolean {
+  return event.ctrl && !event.shift && event.name.toLowerCase() === "c";
+}
+
 // ── Shortcut keys (chat mode only) ───────────────────────────────────
 
 export interface ShortcutHandlerArgs {

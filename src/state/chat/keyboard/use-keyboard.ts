@@ -7,6 +7,7 @@ import {
   handleComposeShortcutKey,
   handleNavigationKey,
 } from "@/state/chat/keyboard/navigation.ts";
+import { isCtrlCInterrupt } from "@/state/chat/keyboard/handlers/chat-input-handler.ts";
 import type { UseChatKeyboardArgs } from "@/state/chat/keyboard/types.ts";
 import { useChatInterruptControls } from "@/state/chat/keyboard/use-interrupt-controls.ts";
 
@@ -129,7 +130,7 @@ export function useChatKeyboard({
         return;
       }
 
-      if (event.ctrl && !event.shift && event.name.toLowerCase() === "c") {
+      if (isCtrlCInterrupt(event)) {
         if (handleCtrlCKey(event)) {
           return;
         }

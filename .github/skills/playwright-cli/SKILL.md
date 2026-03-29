@@ -155,7 +155,6 @@ playwright-cli video-stop video.webm
 ```
 
 ## Open parameters
-
 ```bash
 # Use specific browser when creating session
 playwright-cli open --browser=chrome
@@ -196,6 +195,31 @@ You can also take a snapshot on demand using `playwright-cli snapshot` command.
 
 If `--filename` is not provided, a new snapshot file is created with a timestamp. Default to automatic file naming, use `--filename=` when artifact is a part of the workflow result.
 
+## Targeting elements
+
+By default, use refs from the snapshot to interact with page elements.
+
+```bash
+# get snapshot with refs
+playwright-cli snapshot
+
+# interact using a ref
+playwright-cli click e15
+```
+
+You can also use css or role selectors, for example when explicitly asked for it.
+
+```bash
+# css selector
+playwright-cli click "#main > button.submit"
+
+# role selector
+playwright-cli click "role=button[name=Submit]"
+
+# chaining css and role selectors
+playwright-cli click "#footer >> role=button[name=Submit]"
+```
+
 ## Browser Sessions
 
 ```bash
@@ -214,13 +238,18 @@ playwright-cli close-all
 playwright-cli kill-all
 ```
 
-## Local installation
+## Installation
 
-In some cases user might want to install playwright-cli locally. If running globally available `playwright-cli` binary fails, use `bunx playwright-cli` to run the commands. For example:
+If global `playwright-cli` command is not available, try a local version via `bunx playwright-cli`:
 
 ```bash
-bunx playwright-cli open https://example.com
-bunx playwright-cli click e1
+bunx --no-install playwright-cli --version
+```
+
+When local version is available, use `bunx playwright-cli` in all commands. Otherwise, install `playwright-cli` as a global command:
+
+```bash
+bun install -g @playwright/cli@latest
 ```
 
 ## Example: Form submission
@@ -269,10 +298,11 @@ playwright-cli close
 
 ## Specific tasks
 
-- **Request mocking** [references/request-mocking.md](references/request-mocking.md)
-- **Running Playwright code** [references/running-code.md](references/running-code.md)
-- **Browser session management** [references/session-management.md](references/session-management.md)
-- **Storage state (cookies, localStorage)** [references/storage-state.md](references/storage-state.md)
-- **Test generation** [references/test-generation.md](references/test-generation.md)
-- **Tracing** [references/tracing.md](references/tracing.md)
-- **Video recording** [references/video-recording.md](references/video-recording.md)
+* **Running and Debugging Playwright tests** [references/playwright-tests.md](references/playwright-tests.md)
+* **Request mocking** [references/request-mocking.md](references/request-mocking.md)
+* **Running Playwright code** [references/running-code.md](references/running-code.md)
+* **Browser session management** [references/session-management.md](references/session-management.md)
+* **Storage state (cookies, localStorage)** [references/storage-state.md](references/storage-state.md)
+* **Test generation** [references/test-generation.md](references/test-generation.md)
+* **Tracing** [references/tracing.md](references/tracing.md)
+* **Video recording** [references/video-recording.md](references/video-recording.md)

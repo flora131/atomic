@@ -7,9 +7,9 @@ repository: atomic
 topic: "Windows ARM64 support — build, install, and runtime gaps (issues #388, #389)"
 tags: [research, codebase, windows, arm64, build, installer, bun-ffi, opentui, cross-compilation]
 status: complete
-last_updated: 2026-03-20
+last_updated: 2026-03-29
 last_updated_by: Claude Code
-last_updated_note: "UPDATE 2: x64-baseline path now viable — Bun v1.3.11 added static AVX verifier (PR #27801) guaranteeing baseline builds are AVX-free. Must use `bun-windows-x64-baseline` compile target + Bun >= v1.3.11."
+last_updated_note: "UPDATE 3: Bun issue #21869 confirmed fixed — baseline binary works on ARM64 Windows. CI updated: Windows binaries (standard + baseline) now built natively on `windows-latest` in the `build-windows` job, not cross-compiled from `ubuntu-latest`. `release` job downloads both `binaries` and `binaries-windows` artifacts."
 ---
 
 # Research: Windows ARM64 Support
@@ -56,19 +56,20 @@ The original crashes ([#21869](https://github.com/oven-sh/bun/issues/21869)) wer
 
 The workflow has two build jobs:
 
-- **`build` job** (lines 29-99): Runs on `ubuntu-latest`. Cross-compiles binaries for 4 platforms using `--target` flag:
-  - `bun-linux-x64` (line 59)
-  - `bun-linux-arm64` (line 62)
-  - `bun-darwin-x64` (line 65)
-  - `bun-darwin-arm64` (line 68)
+- **`build` job**: Runs on `ubuntu-latest`. Cross-compiles binaries for 4 platforms using `--target` flag:
+  - `bun-linux-x64`
+  - `bun-linux-arm64`
+  - `bun-darwin-x64`
+  - `bun-darwin-arm64`
 
-- **`build-windows` job** (lines 101-126): Runs on `windows-latest` (x64 runner). Builds **only** `atomic-windows-x64.exe` (line 120) with no `--target` flag (defaults to host arch).
+- **`build-windows` job**: Runs on `windows-latest` (x64 runner). Builds **two** Windows binaries natively:
+  - `atomic-windows-x64.exe` — standard build (no `--target` flag, with AVX for native x64 users)
+  - `atomic-windows-x64-baseline.exe` — baseline build (`--target=bun-windows-x64-baseline`, AVX-free for ARM64 Prism compatibility)
+  - Also runs `bun run prepare:opentui-bindings` to ensure all platform bindings are available.
 
-- **`release` job** (lines 128-197): Publishes 6 binaries + config archives. Release files list (lines 188-196) does NOT include `atomic-windows-arm64.exe`.
+- **`release` job**: Downloads both `binaries` (from `build`) and `binaries-windows` (from `build-windows`) artifacts. Publishes 6 binaries + config archives + checksums.
 
-**Key observation:** Windows builds are done natively on a Windows runner rather than cross-compiled from Linux. This is because `bun ci` installs Windows-specific native dependencies (like `@opentui/core-win32-x64`) that wouldn't be available on Linux.
-
-**However**, the `build` job already runs `bun run prepare:opentui-bindings` (line 46) which downloads ALL platform bindings including `win32-x64` and `win32-arm64`. So cross-compilation from Linux may now be viable.
+**UPDATE (2026-03-29):** The CI was corrected to match the `main` branch's two-job pattern. Previously on the feature branch, Windows binaries were being cross-compiled in the `build` job on `ubuntu-latest`, and the `build-windows` job's `binaries-windows` artifact was never downloaded by `release`. Now: Windows binaries are built natively on `windows-latest`, and `release` downloads both artifact sets. The Bun issue #21869 (baseline crash under Prism) has been confirmed fixed — the baseline binary works on ARM64 Windows.
 
 #### 1.2 build-binary.ts (`src/scripts/build-binary.ts`)
 
@@ -391,15 +392,19 @@ prepare-opentui-bindings.ts    build-binary.ts              publish.yml
   native bindings from      binary with embedded          & publishes to
   npm registry              entrypoints + assets          GitHub Releases
         │                            │                           │
-  darwin-x64              Infers target OS from           build (linux):
+  darwin-x64              Infers target OS from           build (ubuntu-latest):
   darwin-arm64            --target flag                     linux-x64
-  linux-arm64                                               linux-arm64
-  win32-x64               Missing:                          darwin-x64
-  win32-arm64              - inferTargetArch()               darwin-arm64
-                           - process.platform define
-                           - process.arch define          build-windows:
-                                                            windows-x64
-                                                            (missing: arm64)
+  linux-arm64             Detects baseline from             linux-arm64
+  win32-x64               --target flag                     darwin-x64
+  win32-arm64             Injects __ATOMIC_BASELINE__       darwin-arm64
+                          build-time flag when baseline
+                                                          build-windows (windows-latest):
+                                                            windows-x64 (standard, native)
+                                                            windows-x64-baseline (AVX-free)
+
+                                                          release:
+                                                            downloads binaries +
+                                                            binaries-windows artifacts
 ```
 
 ### Self-Update Flow
@@ -448,13 +453,13 @@ The spec also notes that when `--target` is set, Bun's `CompileTarget.defineValu
 
 ## Open Questions
 
-1. **~~CRITICAL~~ REDUCED — Prism/AVX viability:** ~~Does the x64 standalone compiled binary actually run under Prism on ARM64 Windows?~~ **Largely resolved.** The original crashes were caused by AVX instructions leaking into baseline builds through `highway.zig`. PR #27801 (merged Mar 11, 2026, available in Bun >= v1.3.11) added a static verifier that guarantees baseline builds are AVX-free. The correct compile target is `bun-windows-x64-baseline` (NOT `bun-windows-x64`). **Empirical validation on ARM64 hardware is still recommended** but the theoretical blocker is resolved. No public reports exist of someone testing a `bun build --compile --target=bun-windows-x64-baseline` standalone binary on ARM64 Windows with Bun v1.3.11.
+1. **~~CRITICAL~~ RESOLVED — Prism/AVX viability:** ~~Does the x64 standalone compiled binary actually run under Prism on ARM64 Windows?~~ **Confirmed fixed (2026-03-29).** Bun issue #21869 is resolved — the baseline binary works on ARM64 Windows. The AVX leak that caused crashes in v1.2.19 was fixed by PR #27801's static verifier (Bun >= v1.3.11). The correct compile target is `bun-windows-x64-baseline` (NOT `bun-windows-x64`).
 
 2. **TinyCC timeline:** When will Bun add `bun:ffi` support for ARM64 Windows? Tracked in [Bun #28055](https://github.com/oven-sh/bun/issues/28055). A community contributor (@bold84) is working on TinyCC Windows ARM64 support but no PR exists yet. No official timeline.
 
 3. **~~`process.platform`/`process.arch` define scope~~** — **Resolved by spec:** When `--target` is set, Bun's `CompileTarget.defineValues()` automatically sets `process.platform` and `process.arch` at bundle time.
 
-4. **Cross-compilation viability:** Can the `build-windows` job be eliminated entirely by cross-compiling Windows binaries from the Linux runner? Out of scope for this PR.
+4. **~~Cross-compilation viability~~** — **Resolved (2026-03-29).** Decision: keep native Windows builds on `windows-latest`. The `build-windows` job builds both standard and baseline binaries natively. Cross-compilation from Linux is possible but native builds avoid edge cases and match the environment users run on.
 
 5. **~~Installer ARM64 UX~~** — **Resolved by spec.**
 
@@ -462,9 +467,9 @@ The spec also notes that when `--target` is set, Bun's `CompileTarget.defineValu
 
 7. **~~Fallback if x64 emulation fails~~** — **Largely resolved.** Option (c) — `bun-windows-x64-baseline` — is now the recommended approach. PR #27801 (static AVX verifier) guarantees baseline builds are AVX-free, making them safe under Prism. If empirical testing still somehow fails, fallback to option (a): show a clear "Windows ARM64 not yet supported; blocked on Bun #28055" error.
 
-8. **Bun version pinning:** Should `publish.yml` pin Bun >= v1.3.11 to ensure the static AVX verifier is active? If CI uses an older Bun, the baseline binary may contain AVX instructions and crash on ARM64. Consider using a `.bun-version` file or explicit version pin in the workflow.
+8. **~~Bun version pinning~~** — **Resolved (2026-03-29).** Decision: keep `bun-version: latest` in CI. This ensures the static AVX verifier (PR #27801, v1.3.11+) is always active, and avoids manual version bumps.
 
-9. **Baseline performance tradeoff:** Using `bun-windows-x64-baseline` instead of `bun-windows-x64` means native x64 users also lose AVX optimizations. Is this acceptable for a TUI app, or should CI produce two separate Windows binaries? (Likely acceptable — AVX performance gains are negligible for TUI rendering and network I/O.)
+9. **~~Baseline performance tradeoff~~** — **Resolved (2026-03-29).** CI produces two Windows binaries: `atomic-windows-x64.exe` (standard, with AVX for native x64 users) and `atomic-windows-x64-baseline.exe` (AVX-free for ARM64 Prism). Native x64 users get full AVX performance. Both built natively on `windows-latest` in the `build-windows` job.
 
 ## External References (from online research)
 

@@ -121,9 +121,54 @@ Combine with `.if()` to route execution based on the user's response:
 .endIf()
 ```
 
+## Handling user decline (ESC / Ctrl+C)
+
+When the user presses ESC or Ctrl+C instead of answering, the workflow does **not** crash — it continues to the next step with a decline sentinel. Import `USER_DECLINED_ANSWER` to detect this:
+
+```ts
+import { defineWorkflow, USER_DECLINED_ANSWER } from "@bastani/atomic-workflows";
+
+// ...
+.askUserQuestion({
+  name: "confirm-deploy",
+  question: {
+    question: "Ready to deploy to production?",
+    options: [{ label: "Yes" }, { label: "No" }],
+  },
+  outputMapper: (answer) => ({
+    deployConfirmed: answer !== USER_DECLINED_ANSWER && answer === "Yes",
+    userDeclined: answer === USER_DECLINED_ANSWER,
+  }),
+})
+```
+
+When the user declines:
+- `outputMapper` receives `USER_DECLINED_ANSWER` (`"__user_declined_to_respond__"`) as the answer
+- The state update includes `__userDeclined: true` (set automatically by the compiler)
+- `__waitingForInput` is set to `false` so the workflow proceeds
+
+Use `.if()` to branch on declines:
+
+```ts
+.askUserQuestion({
+  name: "confirm",
+  question: { question: "Continue?", options: [{ label: "Yes" }, { label: "No" }] },
+  outputMapper: (answer) => ({
+    confirmed: answer !== USER_DECLINED_ANSWER && answer === "Yes",
+  }),
+})
+.if((ctx) => ctx.state.__userDeclined === true)
+  .stage({ name: "handle-cancel", agent: null, ... })
+.elseIf((ctx) => ctx.state.confirmed === true)
+  .stage({ name: "proceed", agent: null, ... })
+.else()
+  .stage({ name: "handle-no", agent: null, ... })
+.endIf()
+```
+
 ## `outputMapper` behavior
 
-When `outputMapper` is provided, the node blocks execution until the user responds. The returned record is merged into workflow state.
+When `outputMapper` is provided, the node blocks execution until the user responds (or declines). The returned record is merged into workflow state.
 
 When `outputMapper` is omitted, the raw answer is stored in `state.outputs[nodeId]` and the workflow continues after the user responds.
 

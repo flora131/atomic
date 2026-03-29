@@ -88,12 +88,11 @@ export function useChatRenderModel({
             || (msg.id === lastStreamedMessageId && !streamingMessageId);
           const scopedBgAgentCount = isAgentOwner ? activeBackgroundAgentCount : 0;
           const isLast = index === renderMessages.length - 1;
-          const showLive = shouldShowMessageLoadingIndicator(
-            msg,
-            liveTaskItems,
-            scopedBgAgentCount,
-            workflowState.workflowActive && isLast,
-          );
+          const showLive = shouldShowMessageLoadingIndicator(msg, {
+            liveTodoItems: liveTaskItems,
+            activeBackgroundAgentCount: scopedBgAgentCount,
+            keepAliveForWorkflow: workflowState.workflowActive && isLast,
+          });
           const scopedStreamingMeta = showLive
             ? (streamingMessageId
               ? (msg.id === streamingMessageId ? streamingMeta : null)

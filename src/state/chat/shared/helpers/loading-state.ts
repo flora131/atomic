@@ -33,12 +33,28 @@ export function isTaskProgressComplete(taskItems?: readonly TaskProgressItem[] |
   return taskItems.every((task) => task.status === "completed");
 }
 
+/** Optional context for determining spinner visibility. */
+export interface LoadingIndicatorOptions {
+  liveTodoItems?: readonly TaskProgressItem[];
+  activeBackgroundAgentCount?: number;
+  /**
+   * When `true`, keeps the spinner visible even after the stream ends.
+   * Bridges the gap between workflow stage transitions where the previous
+   * stage's message is finalized (`streaming=false`) before the next stage
+   * creates a new streaming message.
+   */
+  keepAliveForWorkflow?: boolean;
+}
+
 export function shouldShowMessageLoadingIndicator(
   message: LoadingStateMessage,
-  liveTodoItems?: readonly TaskProgressItem[],
-  activeBackgroundAgentCount?: number,
-  keepAliveForWorkflow?: boolean,
+  options?: LoadingIndicatorOptions,
 ): boolean {
+  const {
+    liveTodoItems,
+    activeBackgroundAgentCount,
+    keepAliveForWorkflow,
+  } = options ?? {};
   // When the external count says background agents are running, keep the
   // spinner alive regardless of task-progress or streaming state.
   if (activeBackgroundAgentCount != null && activeBackgroundAgentCount > 0) {
@@ -79,17 +95,14 @@ export function shouldShowMessageLoadingIndicator(
 
 export function hasLiveLoadingIndicator(
   messages: readonly LoadingStateMessage[],
-  liveTodoItems?: readonly TaskProgressItem[],
-  activeBackgroundAgentCount?: number,
-  keepAliveForWorkflow?: boolean,
+  options?: LoadingIndicatorOptions,
 ): boolean {
   return messages.some((message, index) =>
-    shouldShowMessageLoadingIndicator(
-      message,
-      message.streaming ? liveTodoItems : undefined,
-      activeBackgroundAgentCount,
-      keepAliveForWorkflow && index === messages.length - 1,
-    )
+    shouldShowMessageLoadingIndicator(message, {
+      liveTodoItems: message.streaming ? options?.liveTodoItems : undefined,
+      activeBackgroundAgentCount: options?.activeBackgroundAgentCount,
+      keepAliveForWorkflow: options?.keepAliveForWorkflow && index === messages.length - 1,
+    })
   );
 }
 

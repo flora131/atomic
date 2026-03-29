@@ -260,12 +260,11 @@ export function MessageBubble({
       effectiveParallelAgents ?? [],
     ).length > 0;
     const liveTaskItems = message.streaming ? todoItems : message.taskItems;
-    const showLoadingIndicator = shouldShowMessageLoadingIndicator(
-      message,
-      liveTaskItems,
+    const showLoadingIndicator = shouldShowMessageLoadingIndicator(message, {
+      liveTodoItems: liveTaskItems,
       activeBackgroundAgentCount,
-      workflowActive && isLast,
-    );
+      keepAliveForWorkflow: workflowActive && isLast,
+    });
 
     return (
       <box

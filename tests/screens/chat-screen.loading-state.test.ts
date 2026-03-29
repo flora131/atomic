@@ -41,10 +41,12 @@ describe("shouldShowMessageLoadingIndicator", () => {
     expect(
       shouldShowMessageLoadingIndicator(
         { streaming: true },
-        [
-          { status: "completed" },
-          { status: "completed" },
-        ],
+        {
+          liveTodoItems: [
+            { status: "completed" },
+            { status: "completed" },
+          ],
+        },
       ),
     ).toBe(true);
   });
@@ -53,10 +55,12 @@ describe("shouldShowMessageLoadingIndicator", () => {
     expect(
       shouldShowMessageLoadingIndicator(
         { streaming: false },
-        [
-          { status: "completed" },
-          { status: "completed" },
-        ],
+        {
+          liveTodoItems: [
+            { status: "completed" },
+            { status: "completed" },
+          ],
+        },
       ),
     ).toBe(false);
   });
@@ -71,10 +75,12 @@ describe("shouldShowMessageLoadingIndicator", () => {
             { status: "pending" },
           ],
         },
-        [
-          { status: "completed" },
-          { status: "completed" },
-        ],
+        {
+          liveTodoItems: [
+            { status: "completed" },
+            { status: "completed" },
+          ],
+        },
       ),
     ).toBe(true);
   });
@@ -97,10 +103,12 @@ describe("shouldShowMessageLoadingIndicator", () => {
     expect(
       shouldShowMessageLoadingIndicator(
         { streaming: true },
-        [
-          { status: "completed" },
-          { status: "in_progress" },
-        ],
+        {
+          liveTodoItems: [
+            { status: "completed" },
+            { status: "in_progress" },
+          ],
+        },
       ),
     ).toBe(true);
   });
@@ -109,10 +117,12 @@ describe("shouldShowMessageLoadingIndicator", () => {
     expect(
       shouldShowMessageLoadingIndicator(
         { streaming: true },
-        [
-          { status: "completed" },
-          { status: "error" },
-        ],
+        {
+          liveTodoItems: [
+            { status: "completed" },
+            { status: "error" },
+          ],
+        },
       ),
     ).toBe(true);
   });
@@ -157,7 +167,7 @@ describe("shouldShowMessageLoadingIndicator", () => {
             { status: "completed" },
           ],
         },
-        [],
+        { liveTodoItems: [] },
       ),
     ).toBe(true);
 
@@ -171,7 +181,7 @@ describe("shouldShowMessageLoadingIndicator", () => {
             { status: "completed" },
           ],
         },
-        [],
+        { liveTodoItems: [] },
       ),
     ).toBe(false);
 
@@ -184,7 +194,7 @@ describe("shouldShowMessageLoadingIndicator", () => {
             { status: "pending" },
           ],
         },
-        [],
+        { liveTodoItems: [] },
       ),
     ).toBe(true);
   });
@@ -226,8 +236,7 @@ describe("shouldShowMessageLoadingIndicator", () => {
     expect(
       shouldShowMessageLoadingIndicator(
         { streaming: false },
-        undefined,
-        2,
+        { activeBackgroundAgentCount: 2 },
       ),
     ).toBe(true);
   });
@@ -242,8 +251,7 @@ describe("shouldShowMessageLoadingIndicator", () => {
             { status: "completed" },
           ],
         },
-        undefined,
-        1,
+        { activeBackgroundAgentCount: 1 },
       ),
     ).toBe(true);
   });
@@ -258,8 +266,7 @@ describe("shouldShowMessageLoadingIndicator", () => {
             { status: "completed" },
           ],
         },
-        undefined,
-        0,
+        { activeBackgroundAgentCount: 0 },
       ),
     ).toBe(false);
   });
@@ -268,7 +275,7 @@ describe("shouldShowMessageLoadingIndicator", () => {
     expect(
       shouldShowMessageLoadingIndicator(
         { streaming: true },
-        [{ status: "in_progress" }],
+        { liveTodoItems: [{ status: "in_progress" }] },
       ),
     ).toBe(true);
   });
@@ -277,9 +284,7 @@ describe("shouldShowMessageLoadingIndicator", () => {
     expect(
       shouldShowMessageLoadingIndicator(
         { streaming: false },
-        undefined,
-        0,
-        true,
+        { activeBackgroundAgentCount: 0, keepAliveForWorkflow: true },
       ),
     ).toBe(true);
   });
@@ -296,9 +301,7 @@ describe("shouldShowMessageLoadingIndicator", () => {
             { status: "completed" },
           ],
         },
-        undefined,
-        0,
-        true,
+        { activeBackgroundAgentCount: 0, keepAliveForWorkflow: true },
       ),
     ).toBe(true);
   });
@@ -307,9 +310,7 @@ describe("shouldShowMessageLoadingIndicator", () => {
     expect(
       shouldShowMessageLoadingIndicator(
         { streaming: false },
-        undefined,
-        0,
-        false,
+        { activeBackgroundAgentCount: 0, keepAliveForWorkflow: false },
       ),
     ).toBe(false);
   });
@@ -328,10 +329,12 @@ describe("hasLiveLoadingIndicator", () => {
             ],
           },
         ],
-        [
-          { status: "completed" },
-          { status: "completed" },
-        ],
+        {
+          liveTodoItems: [
+            { status: "completed" },
+            { status: "completed" },
+          ],
+        },
       ),
     ).toBe(true);
   });
@@ -408,8 +411,7 @@ describe("hasLiveLoadingIndicator", () => {
     expect(
       hasLiveLoadingIndicator(
         [{ streaming: false }],
-        undefined,
-        3,
+        { activeBackgroundAgentCount: 3 },
       ),
     ).toBe(true);
   });
@@ -418,8 +420,7 @@ describe("hasLiveLoadingIndicator", () => {
     expect(
       hasLiveLoadingIndicator(
         [{ streaming: false }],
-        undefined,
-        0,
+        { activeBackgroundAgentCount: 0 },
       ),
     ).toBe(false);
   });
@@ -431,9 +432,7 @@ describe("hasLiveLoadingIndicator", () => {
           { streaming: false },
           { streaming: false },
         ],
-        undefined,
-        0,
-        true,
+        { activeBackgroundAgentCount: 0, keepAliveForWorkflow: true },
       ),
     ).toBe(true);
   });
@@ -443,9 +442,7 @@ describe("hasLiveLoadingIndicator", () => {
     expect(
       hasLiveLoadingIndicator(
         [{ streaming: false }],
-        undefined,
-        0,
-        true,
+        { activeBackgroundAgentCount: 0, keepAliveForWorkflow: true },
       ),
     ).toBe(true);
 
@@ -453,9 +450,7 @@ describe("hasLiveLoadingIndicator", () => {
     expect(
       hasLiveLoadingIndicator(
         [{ streaming: false }],
-        undefined,
-        0,
-        false,
+        { activeBackgroundAgentCount: 0, keepAliveForWorkflow: false },
       ),
     ).toBe(false);
   });

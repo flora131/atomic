@@ -38,7 +38,7 @@ import type {
   ExecutionContext,
 } from "@/services/workflows/graph/types.ts";
 import { createStateFactory } from "@/services/workflows/dsl/state-compiler.ts";
-import { askUserNode } from "@/services/workflows/graph/nodes/control.ts";
+import { askUserNode, USER_DECLINED_ANSWER } from "@/services/workflows/graph/nodes/control.ts";
 import {
   buildAgentLookup,
   resolveStageSystemPrompt,
@@ -58,6 +58,46 @@ import {
 
 function agentNoopExecute(): Promise<NodeResult<BaseState>> {
   return Promise.resolve({});
+}
+
+// ============================================================================
+// Abort-aware Promise race helper
+// ============================================================================
+
+/**
+ * Race a promise against an optional AbortSignal.
+ *
+ * - When a signal is provided, rejects with an `AbortError` if the signal
+ *   fires before the promise resolves. The abort listener is cleaned up
+ *   once the promise settles to avoid leaks.
+ * - When no signal is provided, returns the promise unchanged.
+ */
+function raceAbortSignal<T>(
+  promise: Promise<T>,
+  signal: AbortSignal | undefined,
+): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) {
+    return Promise.reject(
+      new DOMException("askUserQuestion aborted", "AbortError"),
+    );
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () =>
+      reject(new DOMException("askUserQuestion aborted", "AbortError"));
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (err) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(err);
+      },
+    );
+  });
 }
 
 // ============================================================================
@@ -310,10 +350,10 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
   function addNode(
     id: string,
     type: "agent" | "tool",
-    options: StageOptions<any> | ToolOptions<any>,
+    options: StageOptions | ToolOptions<any>,
   ): string {
     const stageAgent = "agent" in options && type === "agent"
-      ? (options as StageOptions<any>).agent
+      ? (options as StageOptions).agent
       : undefined;
     const nodeName = stageAgent ?? options.name;
     const node: NodeDefinition<BaseState> = {
@@ -335,10 +375,10 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
               return { stateUpdate: mapped as Partial<BaseState> };
             },
       reads: type === "agent"
-        ? inferStageReads((options as StageOptions<any>).prompt)
+        ? inferStageReads((options as StageOptions).prompt)
         : inferToolReads((options as ToolOptions<any>).execute),
       outputs: type === "agent"
-        ? inferStageOutputs((options as StageOptions<any>).outputMapper)
+        ? inferStageOutputs((options as StageOptions).outputMapper)
         : inferToolOutputs((options as ToolOptions<any>).outputMapper),
     };
     nodes.set(id, node);
@@ -455,8 +495,23 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
             // custom respond callback that resolves the promise).
             const result = await originalExecute(outputMapperCtx);
 
-            // Wait for the user's answer via the respond callback.
-            const answer = await answerPromise;
+            // Wait for the user's answer via the respond callback,
+            // but bail out if the execution is aborted (ESC / Ctrl+C)
+            // so we never block forever on a promise that will never
+            // resolve.  On abort we treat it as a "declined" answer and
+            // continue to the next step instead of crashing the workflow.
+            let answer: string | string[];
+            let userDeclined = false;
+            try {
+              answer = await raceAbortSignal(answerPromise, ctx.abortSignal);
+            } catch (err: unknown) {
+              if (err instanceof DOMException && err.name === "AbortError") {
+                answer = USER_DECLINED_ANSWER;
+                userDeclined = true;
+              } else {
+                throw err;
+              }
+            }
 
             // Apply outputMapper mapping and merge with original state update.
             const mappedUpdates = askUserOutputMapper(answer);
@@ -466,7 +521,8 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
                 ...result.stateUpdate,
                 ...mappedUpdates,
                 __waitingForInput: false,
-              } as Partial<BaseState>,
+                __userDeclined: userDeclined,
+              },
             };
           }
 

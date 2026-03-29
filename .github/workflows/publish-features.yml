@@ -2,14 +2,14 @@ name: Publish Devcontainer Features
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'devcontainer-features/src/**'
 
 jobs:
+  test-features:
+    name: Test Devcontainer Features
+    uses: ./.github/workflows/test-features.yml
+
   publish:
-    if: github.ref == 'refs/heads/main'
+    needs: [test-features]
     runs-on: ubuntu-latest
     permissions:
       contents: write

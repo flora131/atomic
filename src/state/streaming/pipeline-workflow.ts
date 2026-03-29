@@ -93,6 +93,7 @@ export function upsertWorkflowStepStart(
     type: "workflow-step",
     workflowId: event.workflowId,
     nodeId: event.nodeId,
+    indicator: event.indicator,
     status: "running",
     startedAt: now,
     createdAt: existingIdx >= 0 ? parts[existingIdx]!.createdAt : now,

@@ -1,8 +1,8 @@
 /**
  * Chat Input Handler — Clipboard Operations & Shortcut Keys
  *
- * Extracted from `use-keyboard.ts` to isolate clipboard and global
- * shortcut handling from the main keyboard dispatch loop. These
+ * Clipboard and global shortcut handling, isolated from the main
+ * keyboard dispatch loop (`use-keyboard-ownership.ts`). These
  * handlers run in **all UI modes** (chat, dialog, model-selector).
  *
  * @module
@@ -42,19 +42,21 @@ export function handleClipboardKey(
   }: ClipboardHandlerArgs,
 ): boolean {
   // Copy: Ctrl+Shift+C / Meta+Shift+C
-  if ((event.ctrl || event.meta) && event.shift && event.name === "c") {
+  // Case-insensitive: modifyOtherKeys encodes Ctrl+Shift+C with charCode 67 ('C')
+  if ((event.ctrl || event.meta) && event.shift && event.name.toLowerCase() === "c") {
     void handleCopy();
     return true;
   }
 
   // Copy: Meta+C (macOS)
-  if (event.meta && !event.ctrl && event.name === "c") {
+  if (event.meta && !event.ctrl && event.name.toLowerCase() === "c") {
     void handleCopy();
     return true;
   }
 
   // Paste: Ctrl+V / Meta+V
-  if ((event.ctrl || event.meta) && event.name === "v") {
+  // Case-insensitive: modifyOtherKeys may encode uppercase key names
+  if ((event.ctrl || event.meta) && event.name.toLowerCase() === "v") {
     const textarea = textareaRef.current;
     if (textarea) {
       const clipboardText = clipboard.readText();
@@ -68,6 +70,18 @@ export function handleClipboardKey(
   }
 
   return false;
+}
+
+// ── Ctrl+C interrupt detection ───────────────────────────────────────
+
+/**
+ * Detect a Ctrl+C interrupt key event (Ctrl+C without Shift).
+ *
+ * Case-insensitive: `modifyOtherKeys` may encode the key name as
+ * uppercase `"C"`.
+ */
+export function isCtrlCInterrupt(event: KeyEvent): boolean {
+  return event.ctrl && !event.shift && event.name.toLowerCase() === "c";
 }
 
 // ── Shortcut keys (chat mode only) ───────────────────────────────────
@@ -98,17 +112,17 @@ export function handleShortcutKey(
     setShowTodoPanel,
   }: ShortcutHandlerArgs,
 ): boolean {
-  if (event.ctrl && event.name === "o") {
+  if (event.ctrl && event.name.toLowerCase() === "o") {
     setTranscriptMode((previous) => !previous);
     return true;
   }
 
-  if (event.ctrl && event.name === "e") {
+  if (event.ctrl && event.name.toLowerCase() === "e") {
     toggleVerbose();
     return true;
   }
 
-  if (event.ctrl && !event.shift && event.name === "t") {
+  if (event.ctrl && !event.shift && event.name.toLowerCase() === "t") {
     setShowTodoPanel((previous) => !previous);
     return true;
   }
@@ -122,9 +136,8 @@ export function handleShortcutKey(
  * Schedule a zero-delay reconciliation of the input state after the
  * framework has processed the key event into the textarea.
  *
- * Previously this was an implicit `setTimeout(() => { ... }, 0)` at the
- * bottom of the keyboard callback (use-keyboard.ts:221-226). By naming
- * it explicitly, the timing dependency is documented and reviewable.
+ * By naming this explicitly, the timing dependency is documented and
+ * reviewable.
  *
  * The reconciliation reads the current textarea value and cursor
  * position, then drives autocomplete derivation and scrollbar sync.

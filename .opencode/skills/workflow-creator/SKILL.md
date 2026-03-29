@@ -169,15 +169,25 @@ defineWorkflow({ name: "branching", description: "Conditional routing" })
 ### Human-in-the-Loop
 
 ```ts
+import { defineWorkflow, USER_DECLINED_ANSWER } from "@bastani/atomic-workflows";
+
+// ...
 .askUserQuestion({
   name: "approve-plan",
   question: {
     question: "Approve this implementation plan?",
     options: [{ label: "Approve" }, { label: "Reject" }],
   },
-  outputMapper: (answer) => ({ planApproved: answer === "Approve" }),
+  // USER_DECLINED_ANSWER is passed when the user presses ESC / Ctrl+C
+  outputMapper: (answer) => ({
+    planApproved: answer !== USER_DECLINED_ANSWER && answer === "Approve",
+  }),
 })
-.if((ctx) => ctx.state.planApproved === true)
+// __userDeclined is set automatically by the compiler — no need to set it in outputMapper
+.if((ctx) => ctx.state.__userDeclined === true)
+  // User pressed ESC/Ctrl+C — skip gracefully
+  .tool({ name: "log-cancel", execute: async () => ({ cancelled: true }) })
+.elseIf((ctx) => ctx.state.planApproved === true)
   .stage({ name: "implement", agent: null, ... })
 .else()
   .stage({ name: "re-plan", agent: "planner", ... })

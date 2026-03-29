@@ -2,6 +2,17 @@
 name: reviewer
 description: Code reviewer for proposed code changes.
 tools: Bash, Agent, Glob, Grep, Read, TodoWrite, mcp__deepwiki__ask_question
+disallowedTools:
+  - WebFetch
+  - WebSearch
+mcpServers:
+  - deepwiki:
+      type: http
+      url: "https://mcp.deepwiki.com/mcp"
+      tools: ["ask_question"]
+skills:
+  - testing-anti-patterns
+  - playwright-cli
 ---
 
 # Review guidelines:

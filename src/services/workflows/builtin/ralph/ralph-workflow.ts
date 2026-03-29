@@ -48,6 +48,23 @@ const TaskItemSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Shared Stage Configuration
+// ---------------------------------------------------------------------------
+
+/**
+ * Disallow ask-user-question tools in all Ralph stages.
+ *
+ * Ralph is an autonomous workflow — stages must not pause execution to
+ * ask the user interactive questions. Each provider's ask-user tool has
+ * a different name, so all three are listed.
+ */
+const RALPH_DISALLOWED_TOOLS: Partial<Record<"claude" | "opencode" | "copilot", string[]>> = {
+  claude: ["AskUserQuestion"],
+  opencode: ["question"],
+  copilot: ["ask_user"],
+};
+
+// ---------------------------------------------------------------------------
 // Workflow Definition via DSL
 // ---------------------------------------------------------------------------
 
@@ -67,6 +84,7 @@ const _ralphWorkflowBuilder = defineWorkflow({
     description: "\u2315 PLANNER",
     prompt: (ctx) => buildSpecToTasksPrompt(ctx.userPrompt),
     outputMapper: (response) => ({ tasks: parseTasks(response) }),
+    disallowedTools: RALPH_DISALLOWED_TOOLS,
   })
   .stage({
     name: "orchestrator",
@@ -92,6 +110,7 @@ const _ralphWorkflowBuilder = defineWorkflow({
       return buildOrchestratorPrompt([]);
     },
     outputMapper: () => ({}),
+    disallowedTools: RALPH_DISALLOWED_TOOLS,
   })
   .loop({ maxCycles: 10 })
   .stage({
@@ -116,6 +135,7 @@ const _ralphWorkflowBuilder = defineWorkflow({
     outputMapper: (response) => ({
       reviewResult: parseReviewResult(response),
     }),
+    disallowedTools: RALPH_DISALLOWED_TOOLS,
   })
   .break(() => createReviewLoopTerminator(2))
   .if((ctx) => hasActionableFindings(ctx.stageOutputs))
@@ -141,6 +161,7 @@ const _ralphWorkflowBuilder = defineWorkflow({
       return "# Fix Request\n\nReview the recent implementation for \"" + ctx.userPrompt + "\" and fix any issues found.";
     },
     outputMapper: () => ({}),
+    disallowedTools: RALPH_DISALLOWED_TOOLS,
   })
   .endIf()
   .endLoop();

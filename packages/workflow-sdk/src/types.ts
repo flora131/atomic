@@ -74,6 +74,10 @@ export interface BaseState {
   executionId: string;
   lastUpdated: string;
   outputs: Record<NodeId, Record<string, JsonValue>>;
+  /** Set automatically by the compiler when the user declines an askUserQuestion (ESC/Ctrl+C). */
+  __userDeclined?: boolean;
+  /** Set automatically by askUserQuestion nodes while waiting for user input. */
+  __waitingForInput?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -257,6 +261,29 @@ export interface StageOptions<TState extends BaseState = BaseState> {
   readonly outputMapper: (response: string) => Record<string, JsonValue>;
   readonly sessionConfig?: Partial<SessionConfig>;
   readonly maxOutputBytes?: number;
+  /**
+   * Per-provider tool exclusion map for this stage.
+   *
+   * Keys are agent type identifiers (`"claude"`, `"opencode"`, `"copilot"`).
+   * Values are arrays of tool names to disallow for that provider's session.
+   * At runtime, the conductor resolves the entry for the active agent type
+   * and passes the tool names as excluded tools on the session config.
+   *
+   * Agent definition files already declare their own `tools` allowlists
+   * (via frontmatter), so there is no need for a corresponding `tools`
+   * field here — use `disallowedTools` to add **extra** exclusions
+   * beyond what the agent definition already restricts.
+   *
+   * @example Block human-input tools across all providers:
+   * ```ts
+   * disallowedTools: {
+   *   claude: ["AskUserQuestion"],
+   *   opencode: ["question"],
+   *   copilot: ["ask_user"],
+   * }
+   * ```
+   */
+  readonly disallowedTools?: Partial<Record<AgentType, string[]>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -278,6 +305,24 @@ export interface ToolOptions<TState extends BaseState = BaseState> {
 
 // AskUserQuestionConfig is defined as a Zod schema in ./schemas.ts and
 // re-exported above.
+
+/**
+ * Sentinel value passed to `outputMapper` when the user declines to
+ * answer (e.g. presses ESC or Ctrl+C).  Check this in your
+ * `outputMapper` or downstream stages to handle the decline gracefully.
+ *
+ * Must stay in sync with the internal constant in
+ * `src/services/workflows/graph/nodes/control.ts`.
+ *
+ * @example
+ * ```ts
+ * outputMapper: (answer) => ({
+ *   approved: answer !== USER_DECLINED_ANSWER && answer === "Yes",
+ *   declined: answer === USER_DECLINED_ANSWER,
+ * })
+ * ```
+ */
+export const USER_DECLINED_ANSWER = "__user_declined_to_respond__";
 
 export interface AskUserQuestionOptions<TState extends BaseState = BaseState> {
   readonly name: string;

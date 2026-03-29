@@ -41,7 +41,6 @@ import type {
   WorkflowOptions,
 } from "@/services/workflows/dsl/types.ts";
 import type { StageContext } from "@/services/workflows/conductor/types.ts";
-import type { BaseState } from "@/services/workflows/graph/types.ts";
 import { compileWorkflow } from "@/services/workflows/dsl/compiler.ts";
 
 // ---------------------------------------------------------------------------
@@ -110,7 +109,7 @@ export class WorkflowBuilder implements WorkflowBuilderInterface {
    * @param options - Stage configuration (name, agent, prompt, output mapper, etc.).
    * @throws Error if `options.name` duplicates an existing node name.
    */
-  stage(options: StageOptions<any>): this {
+  stage(options: StageOptions): this {
     if (this.nodeNames.has(options.name)) {
       throw new Error(
         `Duplicate node name: "${options.name}". Each node must have a unique name within the workflow.`,

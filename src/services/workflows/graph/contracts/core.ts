@@ -13,6 +13,10 @@ export interface BaseState {
   executionId: string;
   lastUpdated: string;
   outputs: Record<NodeId, unknown>;
+  /** Set automatically by the compiler when the user declines an askUserQuestion (ESC/Ctrl+C). */
+  __userDeclined?: boolean;
+  /** Set automatically by askUserQuestion nodes while waiting for user input. */
+  __waitingForInput?: boolean;
 }
 
 export interface ContextWindowUsage {

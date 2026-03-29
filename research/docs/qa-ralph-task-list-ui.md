@@ -1,7 +1,7 @@
 # QA Analysis: Ralph Persistent Task List UI
 
 **Date**: 2026-02-13
-**Spec**: `specs/ralph-task-list-ui.md`
+**Spec**: `specs/2026-02-14-ralph-task-list-ui.md`
 **Method**: Static code analysis (bun unavailable in QA environment for live TUI testing)
 **Files Analyzed**: `task-list-panel.tsx`, `task-list-indicator.tsx`, `workflow-commands.ts`, `chat.tsx`, `registry.ts`, `ralph-nodes.ts`
 

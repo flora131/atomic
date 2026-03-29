@@ -550,7 +550,7 @@ Nine `require()` calls exist in the codebase that can be converted to ESM import
 - `research/docs/2026-01-31-sdk-migration-and-graph-execution.md` — SDK migration paths analysis
 - `research/docs/2026-01-31-github-copilot-sdk-research.md` — Copilot SDK architecture deep dive
 - `research/docs/2026-02-25-install-postinstall-analysis.md` — Installation infrastructure
-- `specs/bun-shell-script-conversion.md` — RFC for bash-to-Bun conversion patterns
+- `specs/2026-01-24-bun-shell-script-conversion.md` — RFC for bash-to-Bun conversion patterns
 
 ## Open Questions
 

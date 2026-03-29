@@ -28,9 +28,24 @@ You are a specialist at finding WHERE code lives in a codebase. Your job is to l
 
 ## Search Strategy
 
-### Code Intelligence
+### Semantic Code Search (Accelerated Discovery)
 
-Prefer LSP over Grep/Glob/Read for code navigation:
+TRY `ccc search` first to speed up code discovery — it finds conceptually related code faster than text search:
+
+```bash
+ccc search <natural language query>          # semantic search
+ccc search --lang typescript <query>         # filter by language
+ccc search --path 'src/services/*' <query>   # filter by path
+```
+
+- Describe concepts and behavior in natural language (e.g., `ccc search event bus dispatching` not `ccc search EventBus`)
+- If `ccc search` fails with an initialization error, IMMEDIATELY fall back to grep/glob/LSP. Do NOT run `ccc init && ccc index` — this causes excessive waiting while the index builds.
+- EXCEPTION: If the user explicitly requests semantic search or `ccc`, initialize the project (`ccc init && ccc index`) before searching.
+- Refer to the **semantic-code-search** skill for detailed guidance on search syntax, filtering, pagination, and index management.
+
+### Code Intelligence (Refinement)
+
+After `ccc search` identifies candidate files, use LSP for precise navigation:
 - `goToDefinition` / `goToImplementation` to jump to source
 - `findReferences` to see all usages across the codebase
 - `workspaceSymbol` to find where something is defined
@@ -38,26 +53,12 @@ Prefer LSP over Grep/Glob/Read for code navigation:
 - `hover` for type info without reading the file
 - `incomingCalls` / `outgoingCalls` for call hierarchy
 
-Before renaming or changing a function signature, use
-`findReferences` to find all call sites first.
+### Grep/Glob (Complement & Fallback)
 
-Use Grep/Glob only for text/pattern searches (comments,
-strings, config values) where LSP doesn't help.
-
-After writing or editing code, check LSP diagnostics before
-moving on. Fix any type errors or missing imports immediately.
-
-### Initial Broad Search
-
-First, think deeply about the most effective search patterns for the requested feature or topic, considering:
-
-- Common naming conventions in this codebase
-- Language-specific directory structures
-- Related terms and synonyms that might be used
-
-1. Start with using your grep tool for finding keywords.
-2. Optionally, use glob for file patterns
-3. LS and Glob your way to victory as well!
+ALWAYS complement semantic search with grep/glob for exact matches, and use as primary tool when `ccc search` is unavailable:
+- Exact string matching (error messages, config values, import paths)
+- Regex pattern searches
+- File extension/name pattern matching
 
 ### Refine by Language/Framework
 

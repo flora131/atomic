@@ -83,8 +83,8 @@ Direct sub-agent spawn primitives are shared platform capabilities, while `/ralp
 - `research/docs/2026-02-15-ralph-dag-orchestration-blockedby.md` - Documents dependency enforcement and blockedBy execution behavior.
 - `research/docs/2026-02-15-ralph-orchestrator-ui-cleanup.md` - Documents orchestrator-linked UI lifecycle and sub-agent event integration.
 - `research/docs/2026-02-09-163-ralph-loop-enhancements.md` - Earlier loop architecture context and related evolution.
-- `specs/ralph-dag-orchestration.md` - Specification context for orchestration control-loop design.
-- `specs/ralph-loop-enhancements.md` - Specification context for broader `/ralph` loop behavior.
+- `specs/2026-02-16-ralph-dag-orchestration.md` - Specification context for orchestration control-loop design.
+- `specs/2026-02-09-ralph-loop-enhancements.md` - Specification context for broader `/ralph` loop behavior.
 
 ## Related Research
 - `research/docs/2026-02-13-ralph-task-list-ui.md`

@@ -1,6 +1,6 @@
 ---
 name: semantic-code-search
-description: "This skill should be used when code search is needed (whether explicitly requested or as part of completing a task), when indexing the codebase after changes, or when the user asks about ccc, cocoindex-code, or the codebase index. Trigger phrases include 'search the codebase', 'find code related to', 'update the index', 'ccc', 'cocoindex-code'."
+description: "Semantic code search accelerates codebase discovery and should be complemented by text-based search (grep/glob) for exact matches. Use this skill when code search is needed, when indexing the codebase, or when the user asks about ccc, cocoindex-code, or the codebase index. If ccc is not initialized, fall back to text search tools immediately unless the user explicitly requests semantic indexing. Trigger phrases include 'search the codebase', 'find code related to', 'update the index', 'ccc', 'cocoindex-code'."
 ---
 
 # ccc - Semantic Code Search & Indexing
@@ -9,10 +9,12 @@ description: "This skill should be used when code search is needed (whether expl
 
 ## Ownership
 
-The agent owns the `ccc` lifecycle for the current project — initialization, indexing, and searching. Do not ask the user to perform these steps; handle them automatically.
+The agent owns the `ccc` lifecycle for the current project — initialization, indexing, and searching.
 
-- **Initialization**: If `ccc search` or `ccc index` fails with an initialization error (e.g., "Not in an initialized project directory"), run `ccc init` from the project root directory, then `ccc index` to build the index, then retry the original command.
-- **Index freshness**: Keep the index up to date by running `ccc index` (or `ccc search --refresh`) when the index may be stale — e.g., at the start of a session, or after making significant code changes (new files, refactors, renamed modules). There is no need to re-index between consecutive searches if no code was changed in between.
+- **Graceful fallback**: If `ccc search` fails with an initialization error (e.g., "Not in an initialized project directory"), IMMEDIATELY fall back to grep/glob/LSP tools. Do NOT run `ccc init && ccc index` automatically — this causes excessive waiting while the index builds. The user should not be blocked by indexing they did not request.
+- **Explicit initialization**: If the user explicitly asks to use semantic search, `ccc`, or `cocoindex-code`, THEN initialize and index the project (`ccc init` from the project root, then `ccc index`) before searching. Only perform initialization when explicitly requested.
+- **Index freshness**: When `ccc` is already initialized, keep the index up to date by running `ccc index` (or `ccc search --refresh`) when the index may be stale — e.g., at the start of a session, or after making significant code changes (new files, refactors, renamed modules). There is no need to re-index between consecutive searches if no code was changed in between.
+- **Complement with text search**: ALWAYS complement semantic search results with targeted grep/glob for exact string matches (error messages, config values, import paths). Semantic search finds conceptually related code; text search finds exact occurrences.
 - **Installation**: If `ccc` itself is not found (command not found), refer to [management.md](references/management.md) for installation instructions and inform the user.
 
 ## Searching the Codebase

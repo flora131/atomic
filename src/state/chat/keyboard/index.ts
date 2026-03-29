@@ -11,3 +11,5 @@ export {
 } from "@/state/chat/keyboard/use-interrupt-confirmation.ts";
 export { useChatInterruptControls } from "@/state/chat/keyboard/use-interrupt-controls.ts";
 export { useChatKeyboard } from "@/state/chat/keyboard/use-keyboard.ts";
+export { useKeyboardOwnership } from "@/state/chat/keyboard/use-keyboard-ownership.ts";
+export type { UIMode, KeyboardOwnershipResult } from "@/state/chat/keyboard/types.ts";

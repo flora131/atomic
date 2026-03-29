@@ -153,6 +153,12 @@ export function useMessageQueue(): UseMessageQueueReturn {
       const count = newQueue.length;
       console.debug(`[useMessageQueue] queue_count: ${count}`);
 
+      // Eagerly update the ref so that dequeue() sees the new message
+      // even before React re-renders. Without this, dequeue() reads a
+      // stale ref and misses messages enqueued in the same tick — which
+      // breaks the conductor's checkQueuedMessage during interrupt resume.
+      queueRef.current = newQueue;
+
       // Warn when queue grows large
       if (count === QUEUE_SIZE_WARNING_THRESHOLD) {
         console.warn(
@@ -191,6 +197,10 @@ export function useMessageQueue(): UseMessageQueueReturn {
     // Log processing delay
     const delayMs = Date.now() - new Date(firstMessage.queuedAt).getTime();
     console.debug(`[useMessageQueue] queue_processing_delay_ms: ${delayMs}`);
+
+    // Eagerly update the ref so subsequent dequeue() calls in the same
+    // tick see the updated queue (mirrors the eager update in enqueue).
+    queueRef.current = queueRef.current.slice(1);
 
     // Remove the first message from the queue
     setQueue((prev) => prev.slice(1));

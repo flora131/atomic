@@ -130,7 +130,7 @@ export function watchTasksJson(
 - Uses Node.js native `fs.watch`
 - Returns cleanup function
 - **Not imported or called anywhere in the codebase**
-- Was designed for this exact use case (spec reference: `specs/ralph-loop-enhancements.md:126`)
+- Was designed for this exact use case (spec reference: `specs/2026-02-09-ralph-loop-enhancements.md:126`)
 
 ### 5. Workflow Session Storage
 
@@ -378,8 +378,8 @@ Or alternatively, inside the scrollbox but always at the bottom:
 ## Historical Context (from research/)
 
 - `research/docs/2026-02-09-163-ralph-loop-enhancements.md` — Previous research on ralph loop enhancements, includes design for `watchTasksJson()` and task persistence strategy
-- `specs/ralph-loop-enhancements.md` — Specification for ralph loop enhancements including `writeTasksJson()` design (line 124), `watchTasksJson()` design (line 126)
-- `specs/workflow-sdk-implementation.md` — Workflow SDK spec with `WORKFLOW_SESSIONS_DIR` definition (lines 592-605)
+- `specs/2026-02-09-ralph-loop-enhancements.md` — Specification for ralph loop enhancements including `writeTasksJson()` design (line 124), `watchTasksJson()` design (line 126)
+- `specs/2026-02-11-workflow-sdk-implementation.md` — Workflow SDK spec with `WORKFLOW_SESSIONS_DIR` definition (lines 592-605)
 
 ## Related Research
 

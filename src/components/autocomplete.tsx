@@ -7,7 +7,7 @@
  * Reference: Feature 6 - Create Autocomplete component with two-column layout
  */
 
-import React, { useMemo, useCallback, useRef, useEffect } from "react";
+import React, { memo, useMemo, useCallback, useRef, useEffect } from "react";
 import { useTerminalDimensions } from "@opentui/react";
 import { useTheme } from "@/theme/index.tsx";
 import { globalRegistry, type CommandDefinition } from "@/commands/tui/index.ts";
@@ -84,7 +84,7 @@ interface SuggestionRowProps {
  * Styled to match Claude Code's elegant autocomplete appearance.
  * Uses text color (not background) for selection indication.
  */
-function SuggestionRow({
+const SuggestionRow = memo(function SuggestionRow({
   command,
   isSelected,
   accentColor,
@@ -157,7 +157,7 @@ function SuggestionRow({
       )}
     </box>
   );
-}
+});
 
 // ============================================================================
 // AUTOCOMPLETE COMPONENT

@@ -690,10 +690,10 @@ The `research/` directory contains 48 relevant documents spanning 2026-01-19 to 
 
 | Spec | Summary |
 |------|---------|
-| `specs/workflow-sdk-standardization.md` | Unified graph engine, declarative API, provider-agnostic execution |
-| `specs/workflow-sdk-refactor.md` | Simplified syntax, module consolidation |
-| `specs/pluggable-workflows-sdk.md` | Unified entity registry normalizing commands/skills/agents |
-| `specs/workflow-sdk-implementation.md` | Custom tools, sub-agents, graph execution bridging |
+| `specs/2026-03-02-workflow-sdk-standardization.md` | Unified graph engine, declarative API, provider-agnostic execution |
+| `specs/2026-03-02-workflow-sdk-refactor.md` | Simplified syntax, module consolidation |
+| `specs/2026-02-05-pluggable-workflows-sdk.md` | Unified entity registry normalizing commands/skills/agents |
+| `specs/2026-02-11-workflow-sdk-implementation.md` | Custom tools, sub-agents, graph execution bridging |
 
 ### 12.3 Evolution Timeline
 

@@ -1160,11 +1160,12 @@ describe("compiler null agent handling", () => {
     ).not.toThrow();
   });
 
-  test("stage with omitted agent compiles without error", () => {
+  test("stage with null agent compiles without error", () => {
     expect(() =>
       compileGraph((b) =>
         b.stage({
           name: "s1",
+          agent: null,
           description: "Uses default SDK instructions",
           prompt: () => "Do something",
           outputMapper: () => ({}),
@@ -1671,11 +1672,11 @@ describe("compiler askUserQuestion uses askUserNode factory", () => {
 });
 
 // ---------------------------------------------------------------------------
-// askUserQuestion onAnswer callback wiring
+// askUserQuestion outputMapper callback wiring
 // ---------------------------------------------------------------------------
 
-describe("compiler askUserQuestion onAnswer callback", () => {
-  test("onAnswer is invoked with the user's answer and result is merged into stateUpdate", async () => {
+describe("compiler askUserQuestion outputMapper callback", () => {
+  test("outputMapper is invoked with the user's answer and result is merged into stateUpdate", async () => {
     const graph = compileGraph((b) =>
       b.askUserQuestion({
         name: "q1",
@@ -1683,7 +1684,7 @@ describe("compiler askUserQuestion onAnswer callback", () => {
           question: "Approve changes?",
           options: [{ label: "Yes" }, { label: "No" }],
         },
-        onAnswer: (answer) => ({
+        outputMapper: (answer) => ({
           approved: answer === "Yes",
         }),
       }),
@@ -1710,7 +1711,7 @@ describe("compiler askUserQuestion onAnswer callback", () => {
     expect(stateUpdate.__waitingForInput).toBe(false);
   });
 
-  test("onAnswer receives multi-select array when multiSelect is true", async () => {
+  test("outputMapper receives multi-select array when multiSelect is true", async () => {
     const receivedAnswers: Array<string | string[]> = [];
     const graph = compileGraph((b) =>
       b.askUserQuestion({
@@ -1720,7 +1721,7 @@ describe("compiler askUserQuestion onAnswer callback", () => {
           options: [{ label: "A" }, { label: "B" }, { label: "C" }],
           multiSelect: true,
         },
-        onAnswer: (answer) => {
+        outputMapper: (answer) => {
           receivedAnswers.push(answer);
           return { selections: answer };
         },
@@ -1740,18 +1741,21 @@ describe("compiler askUserQuestion onAnswer callback", () => {
 
     const result = await node.execute(ctx);
 
-    expect(receivedAnswers).toHaveLength(1);
-    expect(receivedAnswers[0]).toEqual(["A", "C"]);
+    // Compilation probes outputMapper("") once to infer outputs, so the runtime
+    // answer ["A", "C"] is the last entry rather than the only one.
+    const runtimeAnswers = receivedAnswers.filter((a) => Array.isArray(a));
+    expect(runtimeAnswers).toHaveLength(1);
+    expect(runtimeAnswers[0]).toEqual(["A", "C"]);
     const stateUpdate = result.stateUpdate as Record<string, unknown>;
     expect(stateUpdate.selections).toEqual(["A", "C"]);
   });
 
-  test("onAnswer result is merged with original askUserNode stateUpdate", async () => {
+  test("outputMapper result is merged with original askUserNode stateUpdate", async () => {
     const graph = compileGraph((b) =>
       b.askUserQuestion({
         name: "q1",
         question: { question: "Continue?" },
-        onAnswer: (answer) => ({ userChoice: answer }),
+        outputMapper: (answer) => ({ userChoice: answer }),
       }),
     );
 
@@ -1769,19 +1773,19 @@ describe("compiler askUserQuestion onAnswer callback", () => {
     const result = await node.execute(ctx);
     const stateUpdate = result.stateUpdate as Record<string, unknown>;
 
-    // onAnswer result
+    // outputMapper result
     expect(stateUpdate.userChoice).toBe("yes");
     // __waitingForInput is cleared after answer
     expect(stateUpdate.__waitingForInput).toBe(false);
   });
 
-  test("onAnswer emitted event still has dslAskUser flag", async () => {
+  test("outputMapper emitted event still has dslAskUser flag", async () => {
     const emittedEvents: Array<{ type: string; data?: Record<string, unknown> }> = [];
     const graph = compileGraph((b) =>
       b.askUserQuestion({
         name: "q1",
         question: { question: "Continue?" },
-        onAnswer: (answer) => ({ choice: answer }),
+        outputMapper: (answer) => ({ choice: answer }),
       }),
     );
 
@@ -1803,7 +1807,7 @@ describe("compiler askUserQuestion onAnswer callback", () => {
     expect(emittedEvents[0]!.data!.dslAskUser).toBe(true);
   });
 
-  test("without onAnswer, execute does not block (returns immediately)", async () => {
+  test("without outputMapper, execute does not block (returns immediately)", async () => {
     const graph = compileGraph((b) =>
       b.askUserQuestion(makeAskUserOptions({ name: "q1" })),
     );
@@ -1816,7 +1820,7 @@ describe("compiler askUserQuestion onAnswer callback", () => {
       errors: [],
       emit: (type: string, data?: Record<string, unknown>) => {
         emittedEvents.push({ type, data });
-        // Do NOT call respond — if onAnswer were wired, this would hang
+        // Do NOT call respond — if outputMapper were wired, this would hang
       },
     };
 
@@ -1828,18 +1832,22 @@ describe("compiler askUserQuestion onAnswer callback", () => {
     expect(stateUpdate.__waitingForInput).toBe(true);
   });
 
-  test("onAnswer is not invoked when emit is unavailable", async () => {
-    let onAnswerCalled = false;
+  test("outputMapper is not invoked when emit is unavailable", async () => {
+    let outputMapperCallCount = 0;
     const graph = compileGraph((b) =>
       b.askUserQuestion({
         name: "q1",
         question: { question: "Continue?" },
-        onAnswer: () => {
-          onAnswerCalled = true;
+        outputMapper: () => {
+          outputMapperCallCount++;
           return {};
         },
       }),
     );
+
+    // Compilation probes outputMapper once to infer outputs; record the
+    // count after compilation so we can detect runtime-only invocations.
+    const countAfterCompile = outputMapperCallCount;
 
     const node = graph.nodes.get("q1")!;
     const ctx: ExecutionContext<BaseState> = {
@@ -1851,14 +1859,14 @@ describe("compiler askUserQuestion onAnswer callback", () => {
 
     const result = await node.execute(ctx);
 
-    // Falls back to non-blocking path; onAnswer is not invoked
-    expect(onAnswerCalled).toBe(false);
+    // Falls back to non-blocking path; outputMapper is not invoked at runtime
+    expect(outputMapperCallCount).toBe(countAfterCompile);
     expect(result.stateUpdate).toBeDefined();
     const stateUpdate = result.stateUpdate as Record<string, unknown>;
     expect(stateUpdate.__waitingForInput).toBe(true);
   });
 
-  test("onAnswer with dynamic question resolves correctly", async () => {
+  test("outputMapper with dynamic question resolves correctly", async () => {
     const graph = compileGraph((b) =>
       b.askUserQuestion({
         name: "q1",
@@ -1866,7 +1874,7 @@ describe("compiler askUserQuestion onAnswer callback", () => {
           question: `Review ${state.executionId}?`,
           options: [{ label: "Approve" }, { label: "Reject" }],
         }),
-        onAnswer: (answer) => ({
+        outputMapper: (answer) => ({
           reviewResult: answer === "Approve" ? "approved" : "rejected",
         }),
       }),
@@ -1890,12 +1898,12 @@ describe("compiler askUserQuestion onAnswer callback", () => {
     expect(stateUpdate.reviewResult).toBe("approved");
   });
 
-  test("onAnswer signals are preserved from original result", async () => {
+  test("outputMapper signals are preserved from original result", async () => {
     const graph = compileGraph((b) =>
       b.askUserQuestion({
         name: "q1",
         question: { question: "Continue?" },
-        onAnswer: () => ({ answered: true }),
+        outputMapper: () => ({ answered: true }),
       }),
     );
 

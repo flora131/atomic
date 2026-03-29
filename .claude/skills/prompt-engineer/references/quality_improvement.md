@@ -1,17 +1,17 @@
 # Quality Improvement Techniques
 
-This document covers techniques for improving specific aspects of Claude's output quality: consistency, factual accuracy, and security.
+This document covers techniques for improving specific aspects of language model output quality: consistency, factual accuracy, and security.
 
 ## Reducing Hallucinations
 
 ### Core Definition
 
-Language models like Claude can generate factually incorrect or contextually inconsistent text, a problem termed "hallucination." This guide provides strategies to minimize such issues.
+Language models can generate factually incorrect or contextually inconsistent text, a problem termed "hallucination." This guide provides strategies to minimize such issues.
 
 ### Basic Strategies
 
 **1. Permission to Admit Uncertainty**
-Allow Claude to say "I don't know" by explicitly granting permission to acknowledge uncertainty. This straightforward approach substantially reduces false information generation.
+Allow the model to say "I don't know" by explicitly granting permission to acknowledge uncertainty. This straightforward approach substantially reduces false information generation.
 
 Example:
 
@@ -20,7 +20,7 @@ If you don't know the answer or are uncertain, please say so rather than guessin
 ```
 
 **2. Direct Quotation Grounding**
-For very lengthy documents (100K+ tokens) or when working with multiple large documents, request that Claude extract verbatim passages before proceeding with analysis. This anchors responses to actual source material rather than inferred content.
+For very lengthy documents (100K+ tokens) or when working with multiple large documents, request that the model extract verbatim passages before proceeding with analysis. This anchors responses to actual source material rather than inferred content.
 
 Example:
 
@@ -30,7 +30,7 @@ Then, based only on those quotes, provide your analysis.
 ```
 
 **3. Citation Verification**
-Make outputs traceable by requiring Claude to cite supporting quotes for each claim. The model should then verify claims by locating corroborating evidence; unsupported statements must be removed.
+Make outputs traceable by requiring the model to cite supporting quotes for each claim. The model should then verify claims by locating corroborating evidence; unsupported statements must be removed.
 
 Example:
 
@@ -43,7 +43,7 @@ Remove any claims that cannot be substantiated with quotes.
 ### Advanced Approaches
 
 **Step-by-step reasoning**
-Request Claude explain its logic before providing final answers, exposing potentially flawed assumptions
+Request the model explain its logic before providing final answers, exposing potentially flawed assumptions
 
 **Multiple-run comparison**
 Execute identical prompts several times and analyze outputs for inconsistencies suggesting hallucinations
@@ -52,7 +52,7 @@ Execute identical prompts several times and analyze outputs for inconsistencies 
 Use prior responses as foundation for follow-up queries asking for verification or expansion of statements
 
 **Information source limitation**
-Explicitly restrict Claude to provided materials, excluding general knowledge access
+Explicitly restrict the model to provided materials, excluding general knowledge access
 
 Example:
 
@@ -73,7 +73,7 @@ While these techniques significantly reduce hallucinations, they don't eliminate
 ### Core Techniques
 
 **1. Format Specification**
-Define desired output structures using JSON, XML, or custom templates. This approach ensures Claude understands all formatting requirements before generating responses.
+Define desired output structures using JSON, XML, or custom templates. This approach ensures the model understands all formatting requirements before generating responses.
 
 Example JSON:
 
@@ -101,7 +101,7 @@ Example XML:
 ```
 
 **2. Response Prefilling**
-Begin the Assistant turn with your desired structure. This technique "bypasses Claude's friendly preamble and enforces your structure," making it particularly effective for standardized reports.
+Begin the Assistant turn with your desired structure. This technique "bypasses the model's default preamble and enforces your structure," making it particularly effective for standardized reports.
 
 Example:
 
@@ -110,16 +110,16 @@ User: Analyze this customer feedback.
 Assistant: {
 ```
 
-This forces Claude to immediately start with the JSON structure.
+This forces the model to immediately start with the JSON structure.
 
 **3. Example-Based Constraints**
-Supply concrete examples of desired output. Examples train Claude's understanding better than abstract instructions alone.
+Supply concrete examples of desired output. Examples train the model's understanding better than abstract instructions alone.
 
 **4. Retrieval-Grounded Responses**
-For knowledge-dependent tasks, use retrieval mechanisms to anchor Claude's replies in fixed information sets. This maintains contextual consistency across multiple interactions.
+For knowledge-dependent tasks, use retrieval mechanisms to anchor the model's replies in fixed information sets. This maintains contextual consistency across multiple interactions.
 
 **5. Prompt Chaining**
-Decompose intricate workflows into sequential, focused subtasks. This prevents inconsistency errors by ensuring "each subtask gets Claude's full attention."
+Decompose intricate workflows into sequential, focused subtasks. This prevents inconsistency errors by ensuring "each subtask gets the model's full attention."
 
 ### Practical Applications
 
@@ -139,7 +139,7 @@ Each example illustrates how precise specifications and contextual grounding pro
 ### Core Strategies
 
 **1. Harmlessness Screening**
-Pre-screen user inputs using a lightweight model like Claude Haiku for content moderation. Have the model evaluate whether submitted content "refers to harmful, illegal, or explicit activities" and respond with Y or N accordingly.
+Pre-screen user inputs using a lightweight model for content moderation. Have the model evaluate whether submitted content "refers to harmful, illegal, or explicit activities" and respond with Y or N accordingly.
 
 Example:
 

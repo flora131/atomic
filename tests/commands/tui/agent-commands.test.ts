@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
@@ -189,7 +189,7 @@ describe("agent command routing", () => {
   test("treats absolute project discovery paths as project source", () => {
     const originalCwd = process.cwd();
     const originalHome = process.env.HOME;
-    const tempRoot = mkdtempSync(join(tmpdir(), "agent-source-detection-"));
+    const tempRoot = realpathSync(mkdtempSync(join(tmpdir(), "agent-source-detection-")));
     const tempHome = join(tempRoot, "home");
     const projectRoot = join(tempHome, "repo");
 
@@ -217,7 +217,7 @@ describe("agent command routing", () => {
     const originalHome = process.env.HOME;
     const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
 
-    const tempRoot = mkdtempSync(join(tmpdir(), "agent-runtime-filter-"));
+    const tempRoot = realpathSync(mkdtempSync(join(tmpdir(), "agent-runtime-filter-")));
     const homeDir = join(tempRoot, "home");
     const projectRoot = join(homeDir, "project");
     const xdgConfigHome = join(homeDir, ".config");
@@ -287,7 +287,7 @@ describe("agent command routing", () => {
     const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
     const originalDebug = process.env.DEBUG;
 
-    const tempRoot = mkdtempSync(join(tmpdir(), "agent-skip-reasons-"));
+    const tempRoot = realpathSync(mkdtempSync(join(tmpdir(), "agent-skip-reasons-")));
     const homeDir = join(tempRoot, "home");
     const projectRoot = join(homeDir, "project");
     const xdgConfigHome = join(homeDir, ".config");

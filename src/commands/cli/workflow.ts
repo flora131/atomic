@@ -83,6 +83,7 @@ async function verifySingleFile(filePath: string): Promise<void> {
     const { report, passed } = await verifySingleWorkflow({
       id: definition.name ?? filePath,
       definition,
+      sourcePath: resolved,
     });
     cleanupTempWorkflowFiles();
     console.log(report);

@@ -13,13 +13,13 @@ describe("isToolDisabledForAgent", () => {
         description: "Review code",
         prompt: "Review the code",
         tools: ["Read", "Grep"],
-        disallowedTools: ["Task"],
+        disallowedTools: ["Agent"],
       },
     },
   };
 
   test("denies tools explicitly disabled in frontmatter", () => {
-    expect(isToolDisabledForAgent(config, "reviewer", "Task")).toBe(true);
+    expect(isToolDisabledForAgent(config, "reviewer", "Agent")).toBe(true);
   });
 
   test("denies tools outside the explicit allowlist", () => {
@@ -37,7 +37,7 @@ describe("isToolDisabledForAgent — worker agent", () => {
       worker: {
         description: "Implement a SINGLE task from a task list.",
         prompt: "You are tasked with implementing a SINGLE task.",
-        tools: ["Bash", "Task", "Edit", "Glob", "Grep", "NotebookEdit", "NotebookRead", "Read", "Write", "Skill", "LSP"],
+        tools: ["Bash", "Agent", "Edit", "Glob", "Grep", "NotebookEdit", "Read", "Write", "Skill", "LSP"],
       },
     },
   };
@@ -60,7 +60,7 @@ describe("createClaudeSubagentToolPermissionHook", () => {
         description: "Review code",
         prompt: "Review the code",
         tools: ["Read"],
-        disallowedTools: ["Task"],
+        disallowedTools: ["Agent"],
       },
     },
   };
@@ -72,7 +72,7 @@ describe("createClaudeSubagentToolPermissionHook", () => {
       session_id: "sdk-session",
       transcript_path: "/tmp/transcript.jsonl",
       cwd: "/tmp",
-      tool_name: "Task",
+      tool_name: "Agent",
       tool_input: {},
       tool_use_id: "tool-1",
       agent_id: "agent-1",
@@ -95,7 +95,7 @@ describe("createClaudeSubagentToolPermissionHook", () => {
       session_id: "sdk-session",
       transcript_path: "/tmp/transcript.jsonl",
       cwd: "/tmp",
-      tool_name: "Task",
+      tool_name: "Agent",
       tool_input: {},
       tool_use_id: "tool-1",
       agent_type: "reviewer",

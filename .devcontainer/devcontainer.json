@@ -1,0 +1,22 @@
+{
+  "name": "Atomic CLI",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "remoteEnv": {
+    "GH_TOKEN": "${localEnv:GH_TOKEN}",
+    "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}"
+  },
+  "postCreateCommand": {
+    "install-deps": "bun install"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": ["oven.bun-vscode", "oxc.oxc-vscode"]
+    }
+  },
+  "remoteUser": "vscode"
+}

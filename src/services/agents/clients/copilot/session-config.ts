@@ -222,6 +222,7 @@ export function buildCopilotSdkSessionConfigBase(args: {
       args.artifacts?.instructions,
     ),
     availableTools: args.availableTools,
+    excludedTools: args.config.excludedTools,
     streaming: true,
     tools: args.tools,
     onPermissionRequest: args.onPermissionRequest,

@@ -112,7 +112,7 @@ Across lifecycle handling, stream completion is deferred while running sub-agent
 - `research/docs/2026-02-15-sub-agent-tree-status-lifecycle-sdk-parity.md` documents unified sub-agent lifecycle handling across SDKs and status transition behavior.
 
 ## Related Research
-- `specs/tui-layout-streaming-content-ordering.md`
+- `specs/2026-02-13-tui-layout-streaming-content-ordering.md`
 - `research/docs/2026-02-15-sub-agent-tree-status-lifecycle-sdk-parity.md`
 - `research/docs/2026-02-13-ralph-task-list-ui.md`
 - `research/docs/2026-02-12-tui-layout-streaming-content-ordering.md`

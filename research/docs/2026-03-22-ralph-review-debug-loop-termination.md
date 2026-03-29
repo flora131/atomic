@@ -377,8 +377,8 @@ tracks review history and signals loop exit via state mutation.
 - `research/docs/2026-03-18-ralph-eager-dispatch-research.md` — Eager dispatch research; documents worker loop (not review loop)
 - `research/docs/2026-02-25-ralph-workflow-implementation.md` — Earlier implementation details
 - `research/docs/2026-02-09-163-ralph-loop-enhancements.md` — Ralph loop enhancements (worker loop only)
-- `specs/ralph-workflow-redesign.md` — Session-based prompt-chained architecture proposal
-- `specs/ralph-loop-enhancements.md` — Worker loop iteration improvements
+- `specs/2026-03-23-ralph-workflow-redesign.md` — Session-based prompt-chained architecture proposal
+- `specs/2026-02-09-ralph-loop-enhancements.md` — Worker loop iteration improvements
 
 ## Related Research
 

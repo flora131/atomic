@@ -25,6 +25,7 @@ interface UseChatRuntimeControlsArgs {
   deferredCompleteTimeoutRef: RefObject<ReturnType<typeof setTimeout> | null>;
   hasRunningToolRef: RefObject<boolean>;
   isAgentOnlyStreamRef: RefObject<boolean>;
+  setHasRunningTool: Dispatch<SetStateAction<boolean>>;
   isStreamingRef: RefObject<boolean>;
   lastTurnFinishReasonRef: RefObject<SessionLoopFinishReason | null>;
   nextRunIdFloorRef: RefObject<number | null>;
@@ -56,6 +57,7 @@ export function useChatRuntimeControls({
   deferredCompleteTimeoutRef,
   hasRunningToolRef,
   isAgentOnlyStreamRef,
+  setHasRunningTool,
   isStreamingRef,
   lastTurnFinishReasonRef,
   nextRunIdFloorRef,
@@ -255,6 +257,7 @@ export function useChatRuntimeControls({
     isAgentOnlyStreamRef.current = next.isAgentOnlyStream;
     isStreamingRef.current = next.isStreaming;
     hasRunningToolRef.current = next.hasRunningTool;
+    setHasRunningTool(next.hasRunningTool);
     if (!next.isStreaming) {
       activeForegroundRunHandleIdRef.current = null;
       nextRunIdFloorRef.current = null;

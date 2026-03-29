@@ -121,6 +121,7 @@ export async function executeConductorWorkflow(
 
     const conductorConfig: ConductorConfig = {
       graph: compiled,
+      agentType: context.agentType,
 
       createSession: async (sessionConfig) => {
         return createSession(sessionConfig);
@@ -132,36 +133,48 @@ export async function executeConductorWorkflow(
         await session.destroy();
       },
 
-      onStageTransition: (from, to) => {
-        const stage = stages.find((s) => s.id === to);
-        const indicator = stage?.indicator ?? to;
-        const stageIndex = stages.findIndex((s) => s.id === to);
-        const stageIndicator = stageIndex >= 0
-          ? `Stage ${stageIndex + 1}/${stages.length}: ${indicator}`
-          : indicator;
+      onStageTransition: (from, to, options) => {
+        // On resume, skip the stage banner update — the UI already shows
+        // the correct stage indicator from the initial transition.
+        if (!options?.isResume) {
+          const stage = stages.find((s) => s.id === to);
+          const indicator = stage?.indicator ?? to;
+          const stageIndex = stages.findIndex((s) => s.id === to);
+          const stageIndicator = stageIndex >= 0
+            ? `Stage ${stageIndex + 1}/${stages.length}: ${indicator}`
+            : indicator;
 
-        context.updateWorkflowState({
-          currentStage: to,
-          stageIndicator,
-          workflowConfig: {
-            userPrompt: prompt,
-            sessionId,
-            workflowName: definition.name,
-          },
-        });
+          context.updateWorkflowState({
+            currentStage: to,
+            stageIndicator,
+            workflowConfig: {
+              userPrompt: prompt,
+              sessionId,
+              workflowName: definition.name,
+            },
+          });
+        }
 
         // Re-enable streaming for this stage.  The previous stage's
         // stream.session.idle handler calls handleStreamComplete() which sets
         // isStreamingRef=false.  We must restore it before addMessage so the
         // new message is created as a streaming target.
         context.setStreaming(true);
+
+        // Always add a new assistant message — even on resume.  The previous
+        // streaming message was already finalized (streaming=false,
+        // wasInterrupted=true) by interruptStreaming().  Without a new message,
+        // streamingMessageIdRef stays null, causing text deltas to have no
+        // target and handleStreamComplete() to return early (breaking the
+        // entire stream lifecycle).  The stage banner is already suppressed
+        // above via the updateWorkflowState guard.
         context.addMessage("assistant", "");
 
         pipelineLog("Workflow", "stage_transition", {
           workflow: definition.name,
           from: from ?? "start",
           to,
-          indicator,
+          indicator: options?.isResume ? "(resume)" : undefined,
         });
       },
 
@@ -209,8 +222,35 @@ export async function executeConductorWorkflow(
       // --- Parts truncation (reclaims memory on stage completion) ---
       partsTruncation: createDefaultPartsTruncationConfig(),
 
-      // TODO: Wire contextPressure config once session.getContextUsage() is available
-      // on sessions created via context.createAgentSession
+      // --- Interrupt & Queue Integration (enables pause/resume on interrupt) ---
+      checkQueuedMessage: context.dequeueMessage ?? undefined,
+      waitForResumeInput: async () => {
+        try {
+          return await context.waitForUserInput();
+        } catch {
+          // Rejection means workflow cancelled (double Ctrl+C)
+          throw new Error("Workflow cancelled");
+        }
+      },
+
+      // Re-enable streaming before each queued message in the drain loop.
+      // The previous stream's session.idle already stopped the TUI's stream
+      // state; this restores it so the queued message's events bind correctly.
+      onBeforeQueuedStream: () => {
+        context.setStreaming(true);
+        context.addMessage("assistant", "");
+      },
+
+      // State factory — uses definition.createState when available so that
+      // user-declared globalState defaults are initialized in the conductor state.
+      createState: definition.createState
+        ? (params) => definition.createState!({ ...params, prompt, sessionDir })
+        : undefined,
+
+      // Context pressure monitoring — opt-in via definition.contextPressure.
+      // Sessions created by context.createAgentSession implement getContextUsage(),
+      // which the conductor calls via takeContextSnapshot() after each stage stream.
+      contextPressure: definition.contextPressure,
     };
 
     // Phase 4: Execute via conductor
@@ -218,12 +258,15 @@ export async function executeConductorWorkflow(
 
     // Register conductor.interrupt() so the keyboard layer can abort the current stage (§5.5)
     context.registerConductorInterrupt?.(conductor.interrupt.bind(conductor));
+    // Register conductor.resume() so the keyboard/queue layer can resume paused stages
+    context.registerConductorResume?.(conductor.resume.bind(conductor));
     let result;
     try {
       result = await conductor.execute(prompt);
     } finally {
-      // Always deregister the conductor interrupt when execution completes or fails
+      // Always deregister the conductor interrupt and resume when execution completes or fails
       context.registerConductorInterrupt?.(null);
+      context.registerConductorResume?.(null);
     }
 
     // Phase 5: Report result

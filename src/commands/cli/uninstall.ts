@@ -166,38 +166,55 @@ export async function uninstallCommand(options: UninstallOptions = {}): Promise<
   }
 
   try {
-    if (!options.keepConfig) {
-      if (configRoot) {
-        log.step("Removing Atomic-managed provider config entries...");
-        await removeAtomicManagedGlobalAgentConfigs(configRoot);
-        log.success("Removed Atomic-managed provider config entries");
-      } else if (existingManagedConfigDirs.length > 0) {
-        log.warn("Skipped native provider-root cleanup because the Atomic data directory is missing.");
-      }
+    // Run independent removal steps in parallel
+    log.step("Removing Atomic components...");
+
+    const parallelTasks: Promise<void>[] = [];
+
+    // 1. Remove Atomic-managed provider config entries
+    if (!options.keepConfig && configRoot) {
+      parallelTasks.push(
+        removeAtomicManagedGlobalAgentConfigs(configRoot).then(
+          () => log.success("Removed Atomic-managed provider config entries"),
+          () => log.warn("Failed to remove Atomic-managed provider config entries")
+        )
+      );
+    } else if (!options.keepConfig && existingManagedConfigDirs.length > 0) {
+      log.warn("Skipped native provider-root cleanup because the Atomic data directory is missing.");
     }
 
-    // Remove @bastani/atomic-workflows SDK from global workflows directory
-    log.step("Removing @bastani/atomic-workflows SDK...");
-    try {
-      const globalWorkflowsDir = getGlobalWorkflowsDir();
-      const removed = await removeWorkflowSdk(globalWorkflowsDir);
-      if (removed) {
-        log.success("Removed @bastani/atomic-workflows SDK");
-      } else {
-        log.warn("@bastani/atomic-workflows SDK was not installed (skipped)");
-      }
-    } catch {
-      log.warn("Could not remove @bastani/atomic-workflows SDK (bun not found)");
-    }
+    // 2. Remove @bastani/atomic-workflows SDK
+    parallelTasks.push(
+      (async () => {
+        try {
+          const globalWorkflowsDir = getGlobalWorkflowsDir();
+          const removed = await removeWorkflowSdk(globalWorkflowsDir);
+          if (removed) {
+            log.success("Removed @bastani/atomic-workflows SDK");
+          } else {
+            log.warn("@bastani/atomic-workflows SDK was not installed (skipped)");
+          }
+        } catch {
+          log.warn("Could not remove @bastani/atomic-workflows SDK (bun not found)");
+        }
+      })()
+    );
 
-    // Remove data directory (unless --keep-config)
+    // 3. Remove data directory (unless --keep-config)
     if (dataDirExists && !options.keepConfig) {
-      log.step("Removing data directory...");
-      await rm(dataDir, { recursive: true, force: true });
-      log.success("Data directory removed");
+      parallelTasks.push(
+        rm(dataDir, { recursive: true, force: true }).then(
+          () => log.success("Data directory removed")
+        )
+      );
     }
 
-    // Remove binary (self-deletion)
+    // 4. Clean up orphaned native addon files from temp directory
+    parallelTasks.push(cleanupBunTempNativeAddons());
+
+    await Promise.all(parallelTasks);
+
+    // Remove binary last (self-deletion — must happen after everything else)
     if (binaryExists) {
       log.step("Removing binary...");
 
@@ -229,9 +246,6 @@ export async function uninstallCommand(options: UninstallOptions = {}): Promise<
         log.success("Binary removed");
       }
     }
-
-    // Clean up orphaned native addon files from temp directory
-    await cleanupBunTempNativeAddons();
 
     // Track successful uninstall command
     trackAtomicCommand("uninstall", null, true);

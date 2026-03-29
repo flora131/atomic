@@ -9,7 +9,7 @@ import type { DeferredPostCompleteDelta } from "@/state/chat/shared/types/stream
 export interface UseChatAgentProjectionArgs {
   activeBackgroundAgentCountRef: RefObject<number>;
   activeStreamRunIdRef: RefObject<number | null>;
-  agentAnchorSyncVersion: number;
+  agentMessageBindings: ReadonlyMap<string, string>;
   agentLifecycleLedgerRef: RefObject<AgentLifecycleLedger>;
   agentMessageIdByIdRef: RefObject<Map<string, string>>;
   agentOrderingStateRef: RefObject<AgentOrderingState>;
@@ -52,7 +52,10 @@ export interface UseChatAgentProjectionArgs {
   streamingMessageIdRef: RefObject<string | null>;
   streamingStartRef: RefObject<number | null>;
   todoItemsRef: RefObject<NormalizedTodoItem[]>;
-  toolCompletionVersion: number;
+  hasRunningTool: boolean;
+  streamingMessageId: string | null;
+  lastStreamedMessageId: string | null;
+  backgroundAgentMessageId: string | null;
   workflowActiveRef: RefObject<boolean>;
 }
 

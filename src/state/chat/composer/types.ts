@@ -69,6 +69,7 @@ export interface UseComposerControllerArgs {
   todoItemsRef: RefObject<NormalizedTodoItem[]>;
   updateWorkflowState: (updates: Partial<WorkflowChatState>) => void;
   waitForUserInputResolverRef: RefObject<WorkflowInputResolver | null>;
+  workflowActiveRef: RefObject<boolean>;
   workflowSessionDirRef: RefObject<string | null>;
   workflowSessionIdRef: RefObject<string | null>;
   workflowState: WorkflowChatState;

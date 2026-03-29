@@ -4,7 +4,7 @@
  * Provides format-specific parsers and a unified discovery function for
  * MCP server configurations across Claude, Copilot, and OpenCode config formats.
  *
- * Reference: specs/mcp-support-and-discovery.md section 5.2
+ * Reference: specs/2026-02-09-mcp-support-and-discovery.md section 5.2
  */
 
 import { join, resolve } from "node:path";

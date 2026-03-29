@@ -5,7 +5,7 @@ import type { TextPart, Part, ReasoningPart } from "@/state/parts/types.ts";
 
 function makeTextPart(content: string, id?: string): TextPart {
   return {
-    id: (id ?? createPartId()) as any,
+    id: id ?? createPartId(),
     type: "text",
     content,
     isStreaming: false,
@@ -15,7 +15,7 @@ function makeTextPart(content: string, id?: string): TextPart {
 
 function makeReasoningPart(content: string, id?: string): ReasoningPart {
   return {
-    id: (id ?? createPartId()) as any,
+    id: id ?? createPartId(),
     type: "reasoning",
     content,
     isStreaming: false,

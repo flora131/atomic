@@ -36,6 +36,8 @@ mock.module("@/services/workflows/runtime/executor/session-runtime.ts", () => ({
 }));
 
 mock.module("@/services/events/pipeline-logger.ts", () => ({
+  isPipelineDebug: mock(() => false),
+  resetPipelineDebugCache: mock(() => {}),
   pipelineLog: mock(() => {}),
   pipelineError: mock(() => {}),
 }));
@@ -255,6 +257,9 @@ describe("executeConductorWorkflow — stage-aware interrupt wiring (§5.5)", ()
       const context = createMockContext({
         registerConductorInterrupt: registerMock,
         createAgentSession: mock(async () => blockingSession) as any,
+        // After interrupt, the conductor waits for resume input via waitForUserInput.
+        // Reject to simulate workflow cancellation so the test doesn't hang.
+        waitForUserInput: mock(async () => { throw new Error("Workflow cancelled"); }),
       });
       const definition = createDefinition();
 

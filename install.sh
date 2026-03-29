@@ -247,6 +247,7 @@ verify_checksum() {
 # onboarded per-workspace by `atomic init`.
 sync_global_agent_configs() {
     local source_root="$1"
+    local install_version="$2"
 
     mkdir -p "$HOME/.claude/agents" "$HOME/.claude/skills"
     mkdir -p "$HOME/.opencode/agents" "$HOME/.opencode/skills"
@@ -305,7 +306,9 @@ PKGEOF
         if [[ ! -f "$workflows_dir/.gitignore" ]]; then
             printf 'node_modules/\n' > "$workflows_dir/.gitignore"
         fi
-        (cd "$workflows_dir" && bun add @bastani/atomic-workflows@latest 2>/dev/null) || true
+        # Strip leading 'v' from version for npm semver (e.g. v0.4.30 -> 0.4.30)
+        local npm_version="${install_version#v}"
+        (cd "$workflows_dir" && bun add "@bastani/atomic-workflows@${npm_version}" 2>/dev/null) || true
     else
         error "bun is required to install @bastani/atomic-workflows SDK. Install bun from https://bun.sh"
     fi
@@ -445,7 +448,7 @@ main() {
     tar -xzf "${tmp_dir}/${BINARY_NAME}-config.tar.gz" -C "$DATA_DIR"
 
     info "Syncing global agent configs to provider home roots..."
-    sync_global_agent_configs "$DATA_DIR"
+    sync_global_agent_configs "$DATA_DIR" "$version"
 
     # Verify installation
     "${BIN_DIR}/${BINARY_NAME}" --version >/dev/null 2>&1 ||

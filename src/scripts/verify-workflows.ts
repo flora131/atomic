@@ -17,6 +17,8 @@ import {
 export interface DiscoveredWorkflow {
   id: string;
   definition: WorkflowDefinition;
+  /** Absolute path to the source .ts file (custom workflows only). */
+  sourcePath?: string;
 }
 
 /**
@@ -27,7 +29,7 @@ export async function discoverBuiltinWorkflows(): Promise<DiscoveredWorkflow[]> 
 
   try {
     const ralphMod = await import("@/services/workflows/builtin/ralph/ralph-workflow.ts");
-    const ralphExport = ralphMod.ralphWorkflowDefinition;
+    const ralphExport = ralphMod.getRalphWorkflowDefinition();
 
     if (ralphExport && typeof ralphExport === "object" && "name" in ralphExport) {
       // CompiledWorkflow spreads WorkflowDefinition properties directly,
@@ -79,7 +81,7 @@ export async function discoverCustomWorkflows(): Promise<DiscoveredWorkflow[]> {
           ) {
             // CompiledWorkflow spreads definition properties directly
             const def = exported as WorkflowDefinition;
-            workflows.push({ id: def.name, definition: def });
+            workflows.push({ id: def.name, definition: def, sourcePath: file });
           }
         } catch {
           // Skip files that cannot be imported as workflow modules
@@ -116,43 +118,96 @@ export async function verifySingleWorkflow(
     };
   }
 
-  // Warn about agent-type graph nodes that lack matching agent definition files
+  // ── Validate graph nodes ─────────────────────────────────────────────
+  // 1. Every node must have a name (node.id).
+  // 2. No two nodes may share the same name, regardless of type.
+  // 3. Agent-type nodes must have `agent` defined (string or null).
+  // 4. When `agent` is a non-null string, validate it against discovered agents.
+  // 5. When `agent` is null, skip agent-definition validation.
   const agentLookup = buildAgentLookup();
-  const agentNodeIds: string[] = [];
+  const nodeErrors: string[] = [];
+  const agentNames: string[] = [];
+  const seenNodeNames = new Map<string, number>();
+
   for (const [nodeId, node] of graph.nodes) {
+    // Required field: name (node.id) — applies to ALL node types
+    if (!nodeId) {
+      nodeErrors.push(`A ${node.type ?? "unknown"}-type node is missing required "name" field.`);
+    }
+
+    // Track duplicate names across ALL node types
+    seenNodeNames.set(nodeId, (seenNodeNames.get(nodeId) ?? 0) + 1);
+
+    // Agent-specific validation
     if (node.type === "agent") {
-      agentNodeIds.push(nodeId);
+      // Required field: agent (must be explicitly set, not undefined)
+      if (node.agent === undefined) {
+        nodeErrors.push(
+          `Stage "${nodeId}" is missing required "agent" field. Set to an agent name or null.`,
+        );
+      } else if (typeof node.agent === "string") {
+        // Non-null agent — collect for agent-definition validation
+        agentNames.push(node.agent);
+      }
+      // agent === null is valid — intentionally no agent definition
     }
   }
-  const agentWarnings = validateStageAgents(agentNodeIds, agentLookup);
-  const agentWarningText = agentWarnings.length > 0
-    ? `\n  Warnings:\n${agentWarnings.map((w) => `    ⚠ ${w}`).join("\n")}`
+
+  // Check for duplicate node names
+  for (const [name, count] of seenNodeNames) {
+    if (count > 1) {
+      nodeErrors.push(
+        `Duplicate node name "${name}" found ${count} times. Each node must have a unique name.`,
+      );
+    }
+  }
+
+  // Validate agent names against discovered agent definition files
+  const agentErrors = validateStageAgents(agentNames, agentLookup);
+
+  const nodeErrorText = nodeErrors.length > 0
+    ? `\n  Errors:\n${nodeErrors.map((e) => `    ✗ ${e}`).join("\n")}`
+    : "";
+  const agentErrorText = agentErrors.length > 0
+    ? `\n  Errors:\n${agentErrors.map((e) => `    ✗ ${e}`).join("\n")}`
     : "";
 
   const encoded = encodeGraph(graph);
-  const result = await verifier(graph, { encodedGraph: encoded });
-  const report = formatVerificationReport(id, result) + agentWarningText;
+  const result = await verifier(graph, {
+    encodedGraph: encoded,
+    conductorStages: definition.conductorStages,
+  });
+  const report = formatVerificationReport(id, result) + nodeErrorText + agentErrorText;
+  const passed = result.valid && nodeErrors.length === 0 && agentErrors.length === 0;
 
-  return { report, passed: result.valid };
+  return { report, passed };
 }
 
 /**
  * Main entry point: discover all workflows, verify each, and output results.
+ * Also validates agent definition schemas as a prerequisite — workflows
+ * reference agents by name, so malformed agent files should be caught early.
+ *
  * Returns true if all pass, false if any fail.
  */
 export async function runVerification(): Promise<boolean> {
+  // ── Phase 1: Agent schema validation ────────────────────────────────
+  const { runAgentValidation } = await import("@/scripts/validate-agents.ts");
+  const agentsPassed = runAgentValidation();
+
+  // ── Phase 2: Workflow verification ──────────────────────────────────
   console.log("Verifying workflows...\n");
 
   const builtinWorkflows = await discoverBuiltinWorkflows();
   const customWorkflows = await discoverCustomWorkflows();
   const allWorkflows = [...builtinWorkflows, ...customWorkflows];
 
-  if (allWorkflows.length === 0) {
+  if (allWorkflows.length === 0 && agentsPassed) {
     console.log("No workflows found to verify.");
     return true;
   }
 
-  let hasFailures = false;
+  let hasFailures = !agentsPassed;
 
   for (const workflow of allWorkflows) {
     try {
@@ -172,9 +227,9 @@ export async function runVerification(): Promise<boolean> {
   }
 
   if (hasFailures) {
-    console.log("\nSome workflows failed verification.");
+    console.log("\nSome checks failed.");
   } else {
-    console.log("\nAll workflows passed verification.");
+    console.log("\nAll checks passed.");
   }
 
   return !hasFailures;

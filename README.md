@@ -21,7 +21,6 @@ Ship complex features with AI agents that actually understand your codebase. Res
 - [Supported Agents](#supported-agents)
 - [TUI Features](#tui-features)
 - [Configuration](#configuration)
-- [Devcontainer Features](#devcontainer-features)
 - [Installation Options](#installation-options)
 - [Updating & Uninstalling](#updating--uninstalling)
 - [Telemetry](#telemetry)
@@ -45,13 +44,62 @@ Ship complex features with AI agents that actually understand your codebase. Res
 
 ### 1. Install
 
-**macOS / Linux:**
+**Devcontainer (recommended):**
+
+> [!TIP]
+> Devcontainers isolate the coding agent from your host system, reducing the risk of destructive actions like unintended file deletions or misapplied shell commands. This makes them the safest way to run Atomic.
+>
+> Use the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) for VS Code or [DevPod](https://devpod.sh) to spawn and manage your devcontainers.
+
+Add a single feature to your `.devcontainer/devcontainer.json` — this installs Atomic, the coding agent, and all dependencies automatically.
+
+```
+your-project/
+├── .devcontainer/
+│   └── devcontainer.json   ← add the feature here
+├── src/
+└── ...
+```
+
+Here are some examples to get started:
+
+Ubuntu:
+
+```jsonc
+{
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/flora131/atomic/claude:latest": {}   // or /opencode:latest or /copilot:latest
+  }
+}
+```
+
+Windows:
+
+```jsonc
+{
+  "image": "mcr.microsoft.com/devcontainers/base:windows",
+  "features": {
+    "ghcr.io/flora131/atomic/claude:latest": {}   // or /opencode:latest or /copilot:latest
+  }
+}
+```
+
+| Feature | Reference | Agent |
+|---------|-----------|-------|
+| Atomic + Claude Code | `ghcr.io/flora131/atomic/claude:latest` | [Claude Code](https://claude.ai) |
+| Atomic + OpenCode | `ghcr.io/flora131/atomic/opencode:latest` | [OpenCode](https://opencode.ai) |
+| Atomic + Copilot CLI | `ghcr.io/flora131/atomic/copilot:latest` | [Copilot CLI](https://github.com/github/copilot-cli) |
+
+Each feature installs the Atomic CLI, all shared dependencies (bun, cocoindex-code, playwright-cli), agent-specific configurations (agents, skills), and the agent CLI itself. Features are versioned in sync with Atomic CLI releases.
+
+**macOS / Linux (standalone):**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
 ```
 
-**Windows PowerShell:**
+**Windows PowerShell (standalone):**
 
 ```powershell
 irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1 | iex
@@ -613,61 +661,6 @@ The `/model select` command opens an interactive picker that also lets you set r
 
 ---
 
-## Devcontainer Features
-
-Add Atomic CLI with your preferred coding agent to **any existing devcontainer** with a single line. Published as OCI artifacts to GitHub Container Registry.
-
-### Available Features
-
-| Feature | Reference | Agent |
-|---------|-----------|-------|
-| Atomic + Claude Code | `ghcr.io/flora131/atomic/claude:latest` | [Claude Code](https://claude.ai) |
-| Atomic + OpenCode | `ghcr.io/flora131/atomic/opencode:latest` | [OpenCode](https://opencode.ai) |
-| Atomic + Copilot CLI | `ghcr.io/flora131/atomic/copilot:latest` | [Copilot CLI](https://github.com/github/copilot-cli) |
-
-### Usage Examples
-
-**Atomic + Claude in a Rust project:**
-
-```jsonc
-{
-  "image": "mcr.microsoft.com/devcontainers/rust:latest",
-  "features": {
-    "ghcr.io/flora131/atomic/claude:latest": {}
-  },
-  "remoteEnv": {
-    "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}"
-  }
-}
-```
-
-**Atomic + Copilot in a Python project:**
-
-```jsonc
-{
-  "image": "mcr.microsoft.com/devcontainers/python:3.12",
-  "features": {
-    "ghcr.io/flora131/atomic/copilot:latest": {}
-  },
-  "remoteEnv": {
-    "GH_TOKEN": "${localEnv:GH_TOKEN}"
-  }
-}
-```
-
-**Atomic + OpenCode in a Go project:**
-
-```jsonc
-{
-  "image": "mcr.microsoft.com/devcontainers/go:1.22",
-  "features": {
-    "ghcr.io/flora131/atomic/opencode:latest": {}
-  }
-}
-```
-
-Each feature installs the Atomic CLI, all shared dependencies (bun, cocoindex-code, playwright-cli), agent-specific configurations (agents, skills), and the agent CLI itself. Features are versioned in sync with Atomic CLI releases.
-
 ## Installation Options
 
 <details>
@@ -719,6 +712,50 @@ ATOMIC_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/f
 
 ```powershell
 $env:ATOMIC_INSTALL_DIR = "C:\tools"; irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1 | iex
+```
+
+</details>
+
+<details>
+<summary>Devcontainer examples</summary>
+
+**Atomic + Claude in a Rust project:**
+
+```jsonc
+{
+  "image": "mcr.microsoft.com/devcontainers/rust:latest",
+  "features": {
+    "ghcr.io/flora131/atomic/claude:latest": {}
+  },
+  "remoteEnv": {
+    "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}"
+  }
+}
+```
+
+**Atomic + Copilot in a Python project:**
+
+```jsonc
+{
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+  "features": {
+    "ghcr.io/flora131/atomic/copilot:latest": {}
+  },
+  "remoteEnv": {
+    "GH_TOKEN": "${localEnv:GH_TOKEN}"
+  }
+}
+```
+
+**Atomic + OpenCode in a Go project:**
+
+```jsonc
+{
+  "image": "mcr.microsoft.com/devcontainers/go:1.22",
+  "features": {
+    "ghcr.io/flora131/atomic/opencode:latest": {}
+  }
+}
 ```
 
 </details>

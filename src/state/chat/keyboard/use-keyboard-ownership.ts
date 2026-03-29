@@ -1,7 +1,7 @@
 /**
  * useKeyboardOwnership — Single Entry Point for Keyboard Handling
  *
- * Replaces the former `useChatKeyboard` with a strategy-pattern design.
+ * Single entry point for keyboard handling using a strategy-pattern design.
  * It determines the current {@link UIMode} via {@link determineUIMode}
  * and delegates `KeyEvent` handling to the appropriate focused handler:
  *
@@ -12,9 +12,9 @@
  * |                   | component owns remaining keys via its handler      |
  * | `model-selector`  | Same as dialog                                    |
  *
- * The zero-delay post-key sync formerly at `use-keyboard.ts:221-226`
- * is absorbed into {@link postDispatchReconciliation}, making the
- * timing dependency explicit rather than implicit.
+ * The zero-delay post-key sync is handled by
+ * {@link postDispatchReconciliation}, making the timing dependency
+ * explicit rather than implicit.
  *
  * @module
  */
@@ -27,6 +27,7 @@ import { determineUIMode } from "@/state/chat/keyboard/focus-manager.ts";
 import {
   handleClipboardKey,
   handleShortcutKey,
+  isCtrlCInterrupt,
   postDispatchReconciliation,
 } from "@/state/chat/keyboard/handlers/chat-input-handler.ts";
 import {
@@ -182,7 +183,7 @@ export function useKeyboardOwnership({
       }
 
       // Ctrl+C interrupt (runs in all modes)
-      if (event.ctrl && !event.shift && event.name === "c") {
+      if (isCtrlCInterrupt(event)) {
         if (handleCtrlCKey(event)) {
           return;
         }
@@ -274,8 +275,7 @@ export function useKeyboardOwnership({
       // │ Phase 4 — Post-dispatch reconciliation                     │
       // │ Explicitly schedules a zero-delay sync to read the         │
       // │ textarea value after the framework processes the key event │
-      // │ into the textarea. Previously implicit at                  │
-      // │ use-keyboard.ts:221-226.                                   │
+      // │ into the textarea.                                         │
       // └─────────────────────────────────────────────────────────────┘
       postDispatchReconciliation(textareaRef, handleInputChange, syncInputScrollbar);
     }, [

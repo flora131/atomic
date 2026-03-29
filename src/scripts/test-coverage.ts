@@ -1,16 +1,19 @@
 /**
- * Wrapper around `bun test --coverage` that retries on SIGFPE.
+ * Wrapper around `bun test --coverage` that retries on Bun crashes.
  *
  * Bun's coverage reporter (CodeCoverage.zig) can intermittently crash with
- * SIGFPE on Linux due to a known bug where JavaScriptCore returns negative
- * offset values for coverage blocks. The crash happens *after* tests pass,
- * during coverage report generation, so a retry is safe — it won't mask
+ * SIGFPE, SIGSEGV, or SIGABRT on Linux due to known bugs where
+ * JavaScriptCore returns invalid values during coverage report generation.
+ * The crash happens *after* tests pass, so a retry is safe — it won't mask
  * real test failures.
  *
  * See: https://github.com/oven-sh/bun/issues/10836
  */
 
 const MAX_RETRIES = 3;
+
+/** Signals produced by known Bun coverage-reporter crashes. */
+const RETRYABLE_SIGNALS = new Set(["SIGFPE", "SIGSEGV", "SIGABRT"]);
 
 for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
   const proc = Bun.spawnSync(["bun", "test", "--coverage"], {
@@ -23,18 +26,19 @@ for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
   }
 
   // Bun.spawnSync reports signal kills via signalCode (not exitCode).
-  const killedBySigfpe = proc.signalCode === "SIGFPE";
+  const crashSignal = proc.signalCode;
+  const isRetryable = crashSignal != null && RETRYABLE_SIGNALS.has(crashSignal);
 
-  if (killedBySigfpe && attempt < MAX_RETRIES) {
+  if (isRetryable && attempt < MAX_RETRIES) {
     console.error(
-      `\n⚠ Coverage report crashed with SIGFPE (attempt ${attempt}/${MAX_RETRIES}), retrying…\n`,
+      `\n⚠ Coverage report crashed with ${crashSignal} (attempt ${attempt}/${MAX_RETRIES}), retrying…\n`,
     );
     continue;
   }
 
-  if (killedBySigfpe) {
+  if (isRetryable) {
     console.error(
-      `\n✗ Coverage report crashed with SIGFPE after ${MAX_RETRIES} attempts\n`,
+      `\n✗ Coverage report crashed with ${crashSignal} after ${MAX_RETRIES} attempts\n`,
     );
   }
 

@@ -621,9 +621,9 @@ Add Atomic CLI with your preferred coding agent to **any existing devcontainer**
 
 | Feature | Reference | Agent |
 |---------|-----------|-------|
-| Atomic + Claude Code | `ghcr.io/flora131/atomic/claude:0` | [Claude Code](https://claude.ai) |
-| Atomic + OpenCode | `ghcr.io/flora131/atomic/opencode:0` | [OpenCode](https://opencode.ai) |
-| Atomic + Copilot CLI | `ghcr.io/flora131/atomic/copilot:0` | [Copilot CLI](https://github.com/github/copilot-cli) |
+| Atomic + Claude Code | `ghcr.io/flora131/atomic/claude:latest` | [Claude Code](https://claude.ai) |
+| Atomic + OpenCode | `ghcr.io/flora131/atomic/opencode:latest` | [OpenCode](https://opencode.ai) |
+| Atomic + Copilot CLI | `ghcr.io/flora131/atomic/copilot:latest` | [Copilot CLI](https://github.com/github/copilot-cli) |
 
 ### Usage Examples
 
@@ -633,7 +633,7 @@ Add Atomic CLI with your preferred coding agent to **any existing devcontainer**
 {
   "image": "mcr.microsoft.com/devcontainers/rust:latest",
   "features": {
-    "ghcr.io/flora131/atomic/claude:0": {}
+    "ghcr.io/flora131/atomic/claude:latest": {}
   },
   "remoteEnv": {
     "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}"
@@ -648,7 +648,7 @@ Add Atomic CLI with your preferred coding agent to **any existing devcontainer**
   "image": "mcr.microsoft.com/devcontainers/python:3.12",
   "features": {
     "ghcr.io/devcontainers/features/github-cli:1": {},
-    "ghcr.io/flora131/atomic/copilot:0": {}
+    "ghcr.io/flora131/atomic/copilot:latest": {}
   },
   "remoteEnv": {
     "GH_TOKEN": "${localEnv:GH_TOKEN}"
@@ -662,7 +662,7 @@ Add Atomic CLI with your preferred coding agent to **any existing devcontainer**
 {
   "image": "mcr.microsoft.com/devcontainers/go:1.22",
   "features": {
-    "ghcr.io/flora131/atomic/opencode:0": {}
+    "ghcr.io/flora131/atomic/opencode:latest": {}
   }
 }
 ```

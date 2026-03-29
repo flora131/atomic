@@ -1,13 +1,13 @@
 # Running Playwright Tests
 
-To run Playwright tests, use the `npx playwright test` command, or a package manager script. To avoid opening the interactive html report, use `PLAYWRIGHT_HTML_OPEN=never` environment variable.
+To run Playwright tests, use the `bunx playwright test` command, or a package manager script. To avoid opening the interactive html report, use `PLAYWRIGHT_HTML_OPEN=never` environment variable.
 
 ```bash
 # Run all tests
-PLAYWRIGHT_HTML_OPEN=never npx playwright test
+PLAYWRIGHT_HTML_OPEN=never bunx playwright test
 
-# Run all tests through a custom npm script
-PLAYWRIGHT_HTML_OPEN=never npm run special-test-command
+# Run all tests through a custom bun script
+PLAYWRIGHT_HTML_OPEN=never bun run special-test-command
 ```
 
 # Debugging Playwright Tests
@@ -20,7 +20,7 @@ Once instructions are printed, use `playwright-cli` to explore the page. Debuggi
 
 ```bash
 # Run the test
-PLAYWRIGHT_HTML_OPEN=never PWPAUSE=cli npx playwright test
+PLAYWRIGHT_HTML_OPEN=never PWPAUSE=cli bunx playwright test
 # ...
 
 # Explore the page and interact if needed

@@ -18,10 +18,10 @@ fi
 # correct ownership from the start — no post-install chown fixup needed.
 if [ -n "${_REMOTE_USER}" ] && [ "${_REMOTE_USER}" != "root" ]; then
     su - "${_REMOTE_USER}" -c 'curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash'
-    su - "${_REMOTE_USER}" -c 'curl -fsSL https://claude.ai/install.sh | bash'
+    su - "${_REMOTE_USER}" -c 'curl -fsSL --retry 3 --retry-delay 5 https://claude.ai/install.sh | bash'
 else
     curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
-    curl -fsSL https://claude.ai/install.sh | bash
+    curl -fsSL --retry 3 --retry-delay 5 https://claude.ai/install.sh | bash
 fi
 
 echo "Atomic + Claude Code installed successfully."

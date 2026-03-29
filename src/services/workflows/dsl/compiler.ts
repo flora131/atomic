@@ -53,11 +53,61 @@ import {
 } from "@/services/workflows/dsl/infer-reads-outputs.ts";
 
 // ============================================================================
+// Constants
+// ============================================================================
+
+/**
+ * Sentinel value passed to `outputMapper` when the user declines to
+ * answer an askUserQuestion node (e.g. by pressing ESC or Ctrl+C).
+ */
+export const USER_DECLINED_ANSWER = "__user_declined_to_respond__";
+
+// ============================================================================
 // Agent No-op Execute
 // ============================================================================
 
 function agentNoopExecute(): Promise<NodeResult<BaseState>> {
   return Promise.resolve({});
+}
+
+// ============================================================================
+// Abort-aware Promise race helper
+// ============================================================================
+
+/**
+ * Race a promise against an optional AbortSignal.
+ *
+ * - When a signal is provided, rejects with an `AbortError` if the signal
+ *   fires before the promise resolves. The abort listener is cleaned up
+ *   once the promise settles to avoid leaks.
+ * - When no signal is provided, returns the promise unchanged.
+ */
+function raceAbortSignal<T>(
+  promise: Promise<T>,
+  signal: AbortSignal | undefined,
+): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) {
+    return Promise.reject(
+      new DOMException("askUserQuestion aborted", "AbortError"),
+    );
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () =>
+      reject(new DOMException("askUserQuestion aborted", "AbortError"));
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (err) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(err);
+      },
+    );
+  });
 }
 
 // ============================================================================
@@ -455,8 +505,23 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
             // custom respond callback that resolves the promise).
             const result = await originalExecute(outputMapperCtx);
 
-            // Wait for the user's answer via the respond callback.
-            const answer = await answerPromise;
+            // Wait for the user's answer via the respond callback,
+            // but bail out if the execution is aborted (ESC / Ctrl+C)
+            // so we never block forever on a promise that will never
+            // resolve.  On abort we treat it as a "declined" answer and
+            // continue to the next step instead of crashing the workflow.
+            let answer: string | string[];
+            let userDeclined = false;
+            try {
+              answer = await raceAbortSignal(answerPromise, ctx.abortSignal);
+            } catch (err: unknown) {
+              if (err instanceof DOMException && err.name === "AbortError") {
+                answer = USER_DECLINED_ANSWER;
+                userDeclined = true;
+              } else {
+                throw err;
+              }
+            }
 
             // Apply outputMapper mapping and merge with original state update.
             const mappedUpdates = askUserOutputMapper(answer);
@@ -466,6 +531,7 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
                 ...result.stateUpdate,
                 ...mappedUpdates,
                 __waitingForInput: false,
+                __userDeclined: userDeclined,
               } as Partial<BaseState>,
             };
           }

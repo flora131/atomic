@@ -302,6 +302,21 @@ export interface ToolOptions<TState extends BaseState = BaseState> {
 // AskUserQuestionConfig is defined as a Zod schema in ./schemas.ts and
 // re-exported above.
 
+/**
+ * Sentinel value passed to `outputMapper` when the user declines to
+ * answer (e.g. presses ESC or Ctrl+C).  Check this in your
+ * `outputMapper` or downstream stages to handle the decline gracefully.
+ *
+ * @example
+ * ```ts
+ * outputMapper: (answer) => ({
+ *   approved: answer !== USER_DECLINED_ANSWER && answer === "Yes",
+ *   declined: answer === USER_DECLINED_ANSWER,
+ * })
+ * ```
+ */
+export const USER_DECLINED_ANSWER = "__user_declined_to_respond__";
+
 export interface AskUserQuestionOptions<TState extends BaseState = BaseState> {
   readonly name: string;
   readonly question:

@@ -7,6 +7,7 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
+import { act } from "react";
 import { testRender } from "@opentui/react/test-utils";
 import { ThemeProvider, darkTheme } from "@/theme/index.tsx";
 import { HitlResponseWidget } from "@/components/hitl-response-widget.tsx";
@@ -46,14 +47,17 @@ async function renderWidget(
   );
   // Two render passes: the first triggers layout; the second allows the
   // <markdown> element to finish its async tree-sitter parse.
-  await testSetup.renderOnce();
-  await testSetup.renderOnce();
+  // Wrapped in act() to flush React state updates triggered by the render loop.
+  await act(async () => {
+    await testSetup!.renderOnce();
+    await testSetup!.renderOnce();
+  });
   return testSetup;
 }
 
 afterEach(() => {
   if (testSetup) {
-    testSetup.renderer.destroy();
+    act(() => { testSetup!.renderer.destroy(); });
     testSetup = null;
   }
 });
@@ -162,7 +166,7 @@ describe("HitlResponseWidget", () => {
     // markdownSyntaxStyle.destroy(). If the SyntaxStyle lifecycle is broken
     // (e.g., destroy called during render instead of cleanup), this would throw.
     expect(() => {
-      setup.renderer.destroy();
+      act(() => { setup.renderer.destroy(); });
     }).not.toThrow();
 
     // Prevent afterEach from double-destroying

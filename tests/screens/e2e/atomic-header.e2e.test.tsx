@@ -7,7 +7,7 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import React from "react";
+import React, { act } from "react";
 import { testRender } from "@opentui/react/test-utils";
 import { ThemeProvider, darkTheme } from "@/theme/index.tsx";
 import { AtomicHeader } from "@/components/chat-header.tsx";
@@ -23,13 +23,15 @@ type TestSetup = Awaited<ReturnType<typeof testRender>>;
 
 let testSetup: TestSetup;
 
-function renderAtomicHeader(props: AtomicHeaderProps = {}) {
-  return testRender(
+async function renderAtomicHeader(props: AtomicHeaderProps = {}) {
+  const setup = await testRender(
     <ThemeProvider initialTheme={darkTheme}>
       <AtomicHeader {...props} />
     </ThemeProvider>,
     RENDER_OPTIONS,
   );
+  await act(async () => { await setup.renderOnce(); });
+  return setup;
 }
 
 // ============================================================================
@@ -38,7 +40,7 @@ function renderAtomicHeader(props: AtomicHeaderProps = {}) {
 
 afterEach(() => {
   if (testSetup) {
-    testSetup.renderer.destroy();
+    act(() => { testSetup.renderer.destroy(); });
   }
 });
 
@@ -49,7 +51,6 @@ afterEach(() => {
 describe("AtomicHeader E2E", () => {
   test("renders with default props showing version", async () => {
     testSetup = await renderAtomicHeader();
-    await testSetup.renderOnce();
     const frame = testSetup.captureCharFrame();
 
     expect(frame).toContain("0.1.0");
@@ -57,7 +58,6 @@ describe("AtomicHeader E2E", () => {
 
   test("renders with custom version", async () => {
     testSetup = await renderAtomicHeader({ version: "2.5.3" });
-    await testSetup.renderOnce();
     const frame = testSetup.captureCharFrame();
 
     expect(frame).toContain("2.5.3");
@@ -65,7 +65,6 @@ describe("AtomicHeader E2E", () => {
 
   test("renders model information", async () => {
     testSetup = await renderAtomicHeader({ model: "claude-sonnet-4" });
-    await testSetup.renderOnce();
     const frame = testSetup.captureCharFrame();
 
     expect(frame).toContain("claude-sonnet-4");
@@ -73,7 +72,6 @@ describe("AtomicHeader E2E", () => {
 
   test("renders tier information", async () => {
     testSetup = await renderAtomicHeader({ tier: "standard" });
-    await testSetup.renderOnce();
     const frame = testSetup.captureCharFrame();
 
     expect(frame).toContain("standard");
@@ -81,7 +79,6 @@ describe("AtomicHeader E2E", () => {
 
   test("renders working directory", async () => {
     testSetup = await renderAtomicHeader({ workingDir: "~/projects/my-app" });
-    await testSetup.renderOnce();
     const frame = testSetup.captureCharFrame();
 
     expect(frame).toContain("~/projects/my-app");
@@ -94,7 +91,6 @@ describe("AtomicHeader E2E", () => {
       tier: "premium",
       workingDir: "~/Documents/code",
     });
-    await testSetup.renderOnce();
     const frame = testSetup.captureCharFrame();
 
     expect(frame).toContain("1.2.0");
@@ -110,7 +106,7 @@ describe("AtomicHeader E2E", () => {
       </ThemeProvider>,
       { width: 50, height: 10 },
     );
-    await testSetup.renderOnce();
+    await act(async () => { await testSetup.renderOnce(); });
     const frame = testSetup.captureCharFrame();
 
     // The logo contains block characters like "█▀▀█" — should NOT appear at narrow width
@@ -126,7 +122,7 @@ describe("AtomicHeader E2E", () => {
       </ThemeProvider>,
       { width: 80, height: 10 },
     );
-    await testSetup.renderOnce();
+    await act(async () => { await testSetup.renderOnce(); });
     const frame = testSetup.captureCharFrame();
 
     // The logo contains block characters — should appear at wide width

@@ -2002,6 +2002,27 @@ describe("compiler askUserQuestion outputMapper callback", () => {
     expect(stateUpdate.__waitingForInput).toBe(false);
   });
 
+  test("outputMapper with emit but no abortSignal throws an error", async () => {
+    const graph = compileGraph((b) =>
+      b.askUserQuestion({
+        name: "q1",
+        question: { question: "Continue?" },
+        outputMapper: (answer) => ({ choice: answer }),
+      }),
+    );
+
+    const node = graph.nodes.get("q1")!;
+    const ctx: ExecutionContext<BaseState> = {
+      state: makeBaseState(),
+      config: {},
+      errors: [],
+      emit: (_type: string, _data?: Record<string, unknown>) => {},
+      // No abortSignal
+    };
+
+    await expect(node.execute(ctx)).rejects.toThrow(/abortSignal/);
+  });
+
   test("normal answer with abortSignal present sets __userDeclined to false", async () => {
     const graph = compileGraph((b) =>
       b.askUserQuestion({

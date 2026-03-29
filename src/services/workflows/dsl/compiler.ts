@@ -483,59 +483,59 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
                 `[workflow:${instruction.id}] askUserQuestion has outputMapper but no abortSignal — ` +
                 `outputMapper requires an abortSignal to avoid a blocking promise that cannot be cancelled.`,
               );
-            } else {
-              let resolveAnswer!: (answer: string | string[]) => void;
-              const answerPromise = new Promise<string | string[]>((resolve) => {
-                resolveAnswer = resolve;
-              });
-
-              const outputMapperCtx: ExecutionContext<BaseState> = {
-                ...ctx,
-                emit: (type: string, data?: Record<string, unknown>) => {
-                  ctx.emit!(type, {
-                    ...data,
-                    dslAskUser: true,
-                    respond: (answer: string | string[]) => {
-                      resolveAnswer(answer);
-                    },
-                  });
-                },
-              };
-
-              // Execute the original node (emits the event with our
-              // custom respond callback that resolves the promise).
-              const result = await originalExecute(outputMapperCtx);
-
-              // Wait for the user's answer via the respond callback,
-              // but bail out if the execution is aborted (ESC / Ctrl+C)
-              // so we never block forever on a promise that will never
-              // resolve.  On abort we treat it as a "declined" answer and
-              // continue to the next step instead of crashing the workflow.
-              let answer: string | string[];
-              let userDeclined = false;
-              try {
-                answer = await raceAbortSignal(answerPromise, ctx.abortSignal);
-              } catch (err: unknown) {
-                if (err instanceof DOMException && err.name === "AbortError") {
-                  answer = USER_DECLINED_ANSWER;
-                  userDeclined = true;
-                } else {
-                  throw err;
-                }
-              }
-
-              // Apply outputMapper mapping and merge with original state update.
-              const mappedUpdates = askUserOutputMapper(answer);
-              return {
-                ...result,
-                stateUpdate: {
-                  ...result.stateUpdate,
-                  ...mappedUpdates,
-                  __waitingForInput: false,
-                  __userDeclined: userDeclined,
-                },
-              };
             }
+
+            let resolveAnswer!: (answer: string | string[]) => void;
+            const answerPromise = new Promise<string | string[]>((resolve) => {
+              resolveAnswer = resolve;
+            });
+
+            const outputMapperCtx: ExecutionContext<BaseState> = {
+              ...ctx,
+              emit: (type: string, data?: Record<string, unknown>) => {
+                ctx.emit!(type, {
+                  ...data,
+                  dslAskUser: true,
+                  respond: (answer: string | string[]) => {
+                    resolveAnswer(answer);
+                  },
+                });
+              },
+            };
+
+            // Execute the original node (emits the event with our
+            // custom respond callback that resolves the promise).
+            const result = await originalExecute(outputMapperCtx);
+
+            // Wait for the user's answer via the respond callback,
+            // but bail out if the execution is aborted (ESC / Ctrl+C)
+            // so we never block forever on a promise that will never
+            // resolve.  On abort we treat it as a "declined" answer and
+            // continue to the next step instead of crashing the workflow.
+            let answer: string | string[];
+            let userDeclined = false;
+            try {
+              answer = await raceAbortSignal(answerPromise, ctx.abortSignal);
+            } catch (err: unknown) {
+              if (err instanceof DOMException && err.name === "AbortError") {
+                answer = USER_DECLINED_ANSWER;
+                userDeclined = true;
+              } else {
+                throw err;
+              }
+            }
+
+            // Apply outputMapper mapping and merge with original state update.
+            const mappedUpdates = askUserOutputMapper(answer);
+            return {
+              ...result,
+              stateUpdate: {
+                ...result.stateUpdate,
+                ...mappedUpdates,
+                __waitingForInput: false,
+                __userDeclined: userDeclined,
+              },
+            };
           }
 
           // No outputMapper or no emit: just add dslAskUser flag.

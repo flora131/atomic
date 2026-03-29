@@ -25,7 +25,7 @@ export type { ClaudeHookConfig } from "@/services/agents/clients/claude/internal
 export class ClaudeAgentClient implements CodingAgentClient {
     readonly agentType = "claude" as const;
     private static readonly BUILTIN_ALLOWED_TOOLS = ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "Agent", "Skill", "TodoWrite", "NotebookEdit"] as const;
-    private static readonly BUILTIN_DISALLOWED_TOOLS = ["Agent(Explore)", "Agent(statusline-setup)", "Agent(Plan)", "WebFetch", "WebSearch"] as const;
+    private static readonly BUILTIN_DISALLOWED_TOOLS = ["Agent(statusline-setup)", "Agent(Plan)", "WebFetch", "WebSearch"] as const;
     private static readonly SUPPORTS_ADAPTIVE_THINKING = new Set<string>(["opus", "sonnet"]);
     private static readonly SUPPORTED_REASONING_EFFORTS = new Set<ReasoningEffort>(["low", "medium", "high", "max"]);
 

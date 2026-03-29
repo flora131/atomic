@@ -1,6 +1,6 @@
 {
   "name": "@bastani/atomic",
-  "version": "0.4.44",
+  "version": "0.4.45",
   "description": "Configuration management CLI for coding agents",
   "type": "module",
   "license": "MIT",
@@ -35,7 +35,7 @@
     "build": "bun run src/scripts/build-binary.ts --outfile atomic",
     "prepare:opentui-bindings": "bun run src/scripts/prepare-opentui-bindings.ts",
     "test": "bun test",
-    "test:coverage": "bun test --coverage",
+    "test:coverage": "bun run src/scripts/test-coverage.ts",
     "typecheck": "bunx tsc --noEmit",
     "validate:agents": "bun run src/scripts/validate-agents.ts",
     "lint": "oxlint --config=oxlint.json src tests",

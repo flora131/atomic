@@ -1,0 +1,8 @@
+{
+    "with_options": {
+        "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+        "features": {
+            "claude": {}
+        }
+    }
+}

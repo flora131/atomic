@@ -101,6 +101,33 @@ Downstream stages access prior outputs via `ctx.stageOutputs.get("<name>")` — 
 | `outputMapper`   | `(response: string) => Record<string, JsonValue>` | **yes** | Extracts structured data from the raw response                  |
 | `sessionConfig`  | `Partial<SessionConfig>`                       | no       | Per-stage session overrides (see `session-config.md`)           |
 | `maxOutputBytes` | `number`                                       | no       | Max byte size for raw response forwarded to downstream stages   |
+| `disallowedTools`| `Partial<Record<AgentType, string[]>>`         | no       | Per-provider tool exclusions for this stage (see below)         |
+
+## `disallowedTools` — per-provider tool exclusions
+
+Use `disallowedTools` to prevent a stage from using specific tools. Keys are agent type identifiers (`"claude"`, `"opencode"`, `"copilot"`), and values are arrays of tool names to exclude for that provider. At runtime, the conductor resolves the entry for the active agent type and passes the tool names as excluded tools on the session config.
+
+Agent definition files already declare their own `tools` allowlists via frontmatter — there is no need for a corresponding `tools` field on `.stage()`. Use `disallowedTools` to add **extra** exclusions beyond what the agent definition already restricts.
+
+Each provider has its own tool naming conventions, so tool names must be specified per provider:
+
+```ts
+// Block ask-user-question tools (autonomous workflow — no human input)
+.stage({
+  name: "plan",
+  agent: "planner",
+  description: "PLANNER",
+  prompt: (ctx) => `Plan: ${ctx.userPrompt}`,
+  outputMapper: (response) => ({ tasks: parseTasks(response) }),
+  disallowedTools: {
+    claude: ["AskUserQuestion"],
+    opencode: ["question"],
+    copilot: ["ask_user"],
+  },
+})
+```
+
+Only the entry matching the active agent type is applied. If a provider key is omitted, no extra exclusions are added for that provider.
 
 ## `StageContext` reference
 

@@ -144,6 +144,7 @@ export interface WorkflowStepPart extends BasePart {
   type: "workflow-step";
   workflowId: string;
   nodeId: string;
+  indicator?: string;
   status: "running" | "completed" | "error" | "skipped" | "interrupted";
   startedAt: string;
   completedAt?: string;

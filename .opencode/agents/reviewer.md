@@ -6,7 +6,6 @@ tools:
     edit: false
     bash: true
     todowrite: true
-    question: false
     lsp: true
     skill: true
 ---

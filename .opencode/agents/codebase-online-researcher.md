@@ -7,6 +7,7 @@ tools:
     grep: true
     glob: true
     webfetch: false
+    websearch: false
     skill: true
 ---
 

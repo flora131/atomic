@@ -21,6 +21,7 @@ Ship complex features with AI agents that actually understand your codebase. Res
 - [Supported Agents](#supported-agents)
 - [TUI Features](#tui-features)
 - [Configuration](#configuration)
+- [Devcontainer Features](#devcontainer-features)
 - [Installation Options](#installation-options)
 - [Updating & Uninstalling](#updating--uninstalling)
 - [Telemetry](#telemetry)
@@ -352,6 +353,11 @@ atomic chat -a claude
     model: { claude: "claude-opus-4-20250514" },
     reasoningEffort: { claude: "high" },
   },
+  disallowedTools: {            // Optional: per-provider tool exclusions
+    claude: ["AskUserQuestion"],
+    opencode: ["question"],
+    copilot: ["ask_user"],
+  },
 })
 ```
 
@@ -606,6 +612,62 @@ The `/model select` command opens an interactive picker that also lets you set r
 | GitHub Copilot | `.github/` | `.github/skills/` | `AGENTS.md` |
 
 ---
+
+## Devcontainer Features
+
+Add Atomic CLI with your preferred coding agent to **any existing devcontainer** with a single line. Published as OCI artifacts to GitHub Container Registry.
+
+### Available Features
+
+| Feature | Reference | Agent |
+|---------|-----------|-------|
+| Atomic + Claude Code | `ghcr.io/flora131/atomic/claude:0` | [Claude Code](https://claude.ai) |
+| Atomic + OpenCode | `ghcr.io/flora131/atomic/opencode:0` | [OpenCode](https://opencode.ai) |
+| Atomic + Copilot CLI | `ghcr.io/flora131/atomic/copilot:0` | [Copilot CLI](https://github.com/github/copilot-cli) |
+
+### Usage Examples
+
+**Atomic + Claude in a Rust project:**
+
+```jsonc
+{
+  "image": "mcr.microsoft.com/devcontainers/rust:latest",
+  "features": {
+    "ghcr.io/flora131/atomic/claude:0": {}
+  },
+  "remoteEnv": {
+    "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}"
+  }
+}
+```
+
+**Atomic + Copilot in a Python project:**
+
+```jsonc
+{
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/flora131/atomic/copilot:0": {}
+  },
+  "remoteEnv": {
+    "GH_TOKEN": "${localEnv:GH_TOKEN}"
+  }
+}
+```
+
+**Atomic + OpenCode in a Go project:**
+
+```jsonc
+{
+  "image": "mcr.microsoft.com/devcontainers/go:1.22",
+  "features": {
+    "ghcr.io/flora131/atomic/opencode:0": {}
+  }
+}
+```
+
+Each feature installs the Atomic CLI, all shared dependencies (bun, cocoindex-code, playwright-cli), agent-specific configurations (agents, skills), and the agent CLI itself. Features are versioned in sync with Atomic CLI releases.
 
 ## Installation Options
 

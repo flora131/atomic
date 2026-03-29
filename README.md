@@ -647,7 +647,6 @@ Add Atomic CLI with your preferred coding agent to **any existing devcontainer**
 {
   "image": "mcr.microsoft.com/devcontainers/python:3.12",
   "features": {
-    "ghcr.io/devcontainers/features/github-cli:1": {},
     "ghcr.io/flora131/atomic/copilot:latest": {}
   },
   "remoteEnv": {

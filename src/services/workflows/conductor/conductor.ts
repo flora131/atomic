@@ -142,10 +142,14 @@ export class WorkflowSessionConductor {
    * 1. Stage-level per-agent value (e.g., `{ model: { claude: "opus" } }`)
    * 2. User's persisted settings (`~/.atomic/settings.json` or `.atomic/settings.json`)
    *
+   * `disallowedTools` is resolved from the stage definition's per-provider
+   * map and mapped to `SessionConfig.excludedTools` for the active agent.
+   *
    * Other fields (systemPrompt, tools, etc.) pass through unchanged.
    */
   private async resolveSessionConfig(
     workflowConfig?: Partial<WorkflowSessionConfig>,
+    disallowedTools?: Partial<Record<string, string[]>>,
   ): Promise<SessionConfig | undefined> {
     const agentType = this.config.agentType;
 
@@ -161,8 +165,13 @@ export class WorkflowSessionConductor {
       : undefined;
     const reasoningEffort = stageReasoning ?? (agentType ? await getReasoningEffortPreference(agentType) : undefined);
 
+    // Resolve disallowed tools for the active agent type
+    const resolvedExcludedTools = agentType && disallowedTools
+      ? disallowedTools[agentType]
+      : undefined;
+
     // If no workflow config and no defaults resolved, return undefined
-    if (!workflowConfig && !model && !reasoningEffort) {
+    if (!workflowConfig && !model && !reasoningEffort && !resolvedExcludedTools) {
       return undefined;
     }
 
@@ -175,6 +184,7 @@ export class WorkflowSessionConductor {
     if (workflowConfig?.maxBudgetUsd !== undefined) resolved.maxBudgetUsd = workflowConfig.maxBudgetUsd;
     if (workflowConfig?.maxTurns !== undefined) resolved.maxTurns = workflowConfig.maxTurns;
     if (workflowConfig?.maxThinkingTokens !== undefined) resolved.maxThinkingTokens = workflowConfig.maxThinkingTokens;
+    if (resolvedExcludedTools !== undefined) resolved.excludedTools = resolvedExcludedTools;
     if (model !== undefined) resolved.model = model;
     if (reasoningEffort !== undefined) resolved.reasoningEffort = reasoningEffort;
 
@@ -548,7 +558,7 @@ export class WorkflowSessionConductor {
             sessionId: session.id,
           });
         } else {
-          const resolvedConfig = await this.resolveSessionConfig(stage.sessionConfig);
+          const resolvedConfig = await this.resolveSessionConfig(stage.sessionConfig, stage.disallowedTools);
           session = await this.config.createSession(resolvedConfig);
           conductorLog("conductor_session_created", {
             stageId: stage.id,

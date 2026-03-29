@@ -58,8 +58,11 @@ async function renderDialog(
   // Two render passes: the first triggers layout; the second allows the
   // <markdown> element to finish its async tree-sitter parse and display
   // the question text content.
-  await testSetup.renderOnce();
-  await testSetup.renderOnce();
+  // Wrapped in act() to flush React state updates triggered by the render loop.
+  await act(async () => {
+    await testSetup!.renderOnce();
+    await testSetup!.renderOnce();
+  });
   return testSetup;
 }
 
@@ -95,7 +98,7 @@ function getFirstAnswer(onAnswer: ReturnType<typeof mock>): QuestionAnswer {
 
 afterEach(() => {
   if (testSetup) {
-    testSetup.renderer.destroy();
+    act(() => { testSetup!.renderer.destroy(); });
     testSetup = null;
   }
 });
@@ -144,7 +147,7 @@ describe("UserQuestionDialog E2E", () => {
     // to scroll the scrollbox and reveal it
     for (let i = 0; i < 4; i++) {
       pressArrowAct(setup, "down");
-      await setup.renderOnce();
+      await act(async () => { await setup.renderOnce(); });
     }
     const scrolledFrame = setup.captureCharFrame();
     expect(scrolledFrame).toContain("Chat about this");
@@ -158,7 +161,7 @@ describe("UserQuestionDialog E2E", () => {
     const setup = await renderDialog(onAnswer);
 
     pressKeyAct(setup, "1");
-    await setup.renderOnce();
+    await act(async () => { await setup.renderOnce(); });
 
     expect(onAnswer).toHaveBeenCalledTimes(1);
     const answer = getFirstAnswer(onAnswer);
@@ -172,7 +175,7 @@ describe("UserQuestionDialog E2E", () => {
     const setup = await renderDialog(onAnswer);
 
     pressKeyAct(setup, "2");
-    await setup.renderOnce();
+    await act(async () => { await setup.renderOnce(); });
 
     expect(onAnswer).toHaveBeenCalledTimes(1);
     const answer = getFirstAnswer(onAnswer);
@@ -186,7 +189,7 @@ describe("UserQuestionDialog E2E", () => {
     const setup = await renderDialog(onAnswer);
 
     pressKeyAct(setup, "3");
-    await setup.renderOnce();
+    await act(async () => { await setup.renderOnce(); });
 
     expect(onAnswer).toHaveBeenCalledTimes(1);
     const answer = getFirstAnswer(onAnswer);
@@ -202,7 +205,7 @@ describe("UserQuestionDialog E2E", () => {
     const setup = await renderDialog(onAnswer);
 
     pressKeyAct(setup, "4");
-    await setup.renderOnce();
+    await act(async () => { await setup.renderOnce(); });
 
     expect(onAnswer).toHaveBeenCalledTimes(0);
   });
@@ -220,11 +223,11 @@ describe("UserQuestionDialog E2E", () => {
 
     // Press down arrow to move to second option
     pressArrowAct(setup, "down");
-    await setup.renderOnce();
+    await act(async () => { await setup.renderOnce(); });
 
     // Confirm by pressing Enter — should submit the second option
     pressEnterAct(setup);
-    await setup.renderOnce();
+    await act(async () => { await setup.renderOnce(); });
 
     expect(onAnswer).toHaveBeenCalledTimes(1);
     const answer = getFirstAnswer(onAnswer);
@@ -238,19 +241,19 @@ describe("UserQuestionDialog E2E", () => {
 
     // Press up from first option → wraps to last (Chat about this, idx 4)
     pressArrowAct(setup, "up");
-    await setup.renderOnce();
+    await act(async () => { await setup.renderOnce(); });
 
     // Up again → "Type something." (idx 3)
     pressArrowAct(setup, "up");
-    await setup.renderOnce();
+    await act(async () => { await setup.renderOnce(); });
 
     // Up again → "Deny" (idx 2)
     pressArrowAct(setup, "up");
-    await setup.renderOnce();
+    await act(async () => { await setup.renderOnce(); });
 
     // Confirm by pressing Enter — should submit "Deny"
     pressEnterAct(setup);
-    await setup.renderOnce();
+    await act(async () => { await setup.renderOnce(); });
 
     expect(onAnswer).toHaveBeenCalledTimes(1);
     const answer = getFirstAnswer(onAnswer);
@@ -268,15 +271,15 @@ describe("UserQuestionDialog E2E", () => {
 
     // Press down 3 times to wrap around back to first
     pressArrowAct(setup, "down");
-    await setup.renderOnce();
+    await act(async () => { await setup.renderOnce(); });
     pressArrowAct(setup, "down");
-    await setup.renderOnce();
+    await act(async () => { await setup.renderOnce(); });
     pressArrowAct(setup, "down");
-    await setup.renderOnce();
+    await act(async () => { await setup.renderOnce(); });
 
     // Should be back on "Only option" (index 0)
     pressEnterAct(setup);
-    await setup.renderOnce();
+    await act(async () => { await setup.renderOnce(); });
 
     expect(onAnswer).toHaveBeenCalledTimes(1);
     const answer = getFirstAnswer(onAnswer);
@@ -292,7 +295,7 @@ describe("UserQuestionDialog E2E", () => {
     const setup = await renderDialog(onAnswer);
 
     pressEscapeAct(setup);
-    await setup.renderOnce();
+    await act(async () => { await setup.renderOnce(); });
 
     expect(onAnswer).toHaveBeenCalledTimes(1);
     const answer = getFirstAnswer(onAnswer);
@@ -327,12 +330,12 @@ describe("UserQuestionDialog E2E", () => {
 
     // Press "1" to toggle first option — should NOT call onAnswer
     pressKeyAct(setup, "1");
-    await setup.renderOnce();
+    await act(async () => { await setup.renderOnce(); });
     expect(onAnswer).toHaveBeenCalledTimes(0);
 
     // Press "3" to toggle third option — still no submission
     pressKeyAct(setup, "3");
-    await setup.renderOnce();
+    await act(async () => { await setup.renderOnce(); });
     expect(onAnswer).toHaveBeenCalledTimes(0);
 
     // Capture frame should show checkmarks for selected items
@@ -347,13 +350,13 @@ describe("UserQuestionDialog E2E", () => {
 
     // Toggle first and third options
     pressKeyAct(setup, "1");
-    await setup.renderOnce();
+    await act(async () => { await setup.renderOnce(); });
     pressKeyAct(setup, "3");
-    await setup.renderOnce();
+    await act(async () => { await setup.renderOnce(); });
 
     // Submit with Ctrl+Enter
     pressEnterAct(setup, { ctrl: true });
-    await setup.renderOnce();
+    await act(async () => { await setup.renderOnce(); });
 
     expect(onAnswer).toHaveBeenCalledTimes(1);
     const answer = getFirstAnswer(onAnswer);
@@ -372,19 +375,19 @@ describe("UserQuestionDialog E2E", () => {
 
     // Toggle first option on
     pressKeyAct(setup, "1");
-    await setup.renderOnce();
+    await act(async () => { await setup.renderOnce(); });
 
     // Toggle first option off
     pressKeyAct(setup, "1");
-    await setup.renderOnce();
+    await act(async () => { await setup.renderOnce(); });
 
     // Only select second option
     pressKeyAct(setup, "2");
-    await setup.renderOnce();
+    await act(async () => { await setup.renderOnce(); });
 
     // Submit
     pressEnterAct(setup, { ctrl: true });
-    await setup.renderOnce();
+    await act(async () => { await setup.renderOnce(); });
 
     expect(onAnswer).toHaveBeenCalledTimes(1);
     const answer = getFirstAnswer(onAnswer);
@@ -399,7 +402,7 @@ describe("UserQuestionDialog E2E", () => {
 
     // Submit with no selections
     pressEnterAct(setup, { ctrl: true });
-    await setup.renderOnce();
+    await act(async () => { await setup.renderOnce(); });
 
     expect(onAnswer).toHaveBeenCalledTimes(0);
   });
@@ -424,13 +427,13 @@ describe("UserQuestionDialog E2E", () => {
 
     // Navigate to third option (Deny) — two down arrows
     pressArrowAct(setup, "down");
-    await setup.renderOnce();
+    await act(async () => { await setup.renderOnce(); });
     pressArrowAct(setup, "down");
-    await setup.renderOnce();
+    await act(async () => { await setup.renderOnce(); });
 
     // Press Enter to select it
     pressEnterAct(setup);
-    await setup.renderOnce();
+    await act(async () => { await setup.renderOnce(); });
 
     expect(onAnswer).toHaveBeenCalledTimes(1);
     const answer = getFirstAnswer(onAnswer);
@@ -464,7 +467,7 @@ describe("UserQuestionDialog E2E", () => {
     const setup = await renderDialog(onAnswer, question);
 
     pressEscapeAct(setup);
-    await setup.renderOnce();
+    await act(async () => { await setup.renderOnce(); });
 
     expect(onAnswer).toHaveBeenCalledTimes(1);
     const answer = getFirstAnswer(onAnswer);
@@ -524,7 +527,7 @@ describe("UserQuestionDialog E2E", () => {
     // markdownSyntaxStyle.destroy(). If the SyntaxStyle lifecycle is broken
     // (e.g., destroy called during render instead of cleanup), this would throw.
     expect(() => {
-      setup.renderer.destroy();
+      act(() => { setup.renderer.destroy(); });
     }).not.toThrow();
 
     // Prevent afterEach from double-destroying

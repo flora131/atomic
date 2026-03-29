@@ -7,7 +7,7 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import React from "react";
+import React, { act } from "react";
 import { testRender } from "@opentui/react/test-utils";
 import { ThemeProvider, darkTheme } from "@/theme/index.tsx";
 import { ToolResult, type ToolResultProps } from "@/components/tool-result.tsx";
@@ -40,7 +40,7 @@ async function renderToolResult(
   );
 
   activeRenderer = result;
-  await result.renderOnce();
+  await act(async () => { await result.renderOnce(); });
   return result.captureCharFrame();
 }
 
@@ -50,7 +50,7 @@ async function renderToolResult(
 
 afterEach(() => {
   if (activeRenderer) {
-    activeRenderer.renderer.destroy();
+    act(() => { activeRenderer!.renderer.destroy(); });
     activeRenderer = null;
   }
 });

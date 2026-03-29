@@ -7,7 +7,7 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import React from "react";
+import React, { act } from "react";
 import { testRender } from "@opentui/react/test-utils";
 import { ThemeProvider, darkTheme } from "@/theme/index.tsx";
 import {
@@ -43,7 +43,7 @@ async function renderIndicator(
   );
 
   activeRenderer = result;
-  await result.renderOnce();
+  await act(async () => { await result.renderOnce(); });
   return result.captureCharFrame();
 }
 
@@ -66,7 +66,7 @@ function makeMessage(
 
 afterEach(() => {
   if (activeRenderer) {
-    activeRenderer.renderer.destroy();
+    act(() => { activeRenderer!.renderer.destroy(); });
     activeRenderer = null;
   }
 });

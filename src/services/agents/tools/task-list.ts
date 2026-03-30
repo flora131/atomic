@@ -290,6 +290,7 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
             taskId,
             oldStatus,
             newStatus: status,
+            tasks: current,
             statusSummary: buildStatusSummary(current),
           };
         }
@@ -307,7 +308,7 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
             $blocked_by: JSON.stringify(task.blockedBy ?? []),
           });
           const current = syncAndNotify();
-          return { added: task, total: current.length };
+          return { added: task, tasks: current, total: current.length };
         }
 
         case "update_task_progress": {
@@ -362,7 +363,7 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
           deleteProgressForTask.run({ $task_id: taskId });
           deleteTaskStmt.run({ $id: taskId });
           const current = syncAndNotify();
-          return { deleted: taskId, remaining: current.length };
+          return { deleted: taskId, tasks: current, remaining: current.length };
         }
 
         default:

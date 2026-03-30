@@ -46,56 +46,14 @@ describe("isTaskListToolName helper", () => {
     expect(source).toContain('return name === "task_list"');
   });
 
-  test("is used in handleToolStart", () => {
-    expect(source).toContain("isTaskListToolName(toolName)");
-  });
-
   test("is used in handleToolComplete", () => {
     expect(source).toContain("isTaskListToolName(completedToolName)");
   });
-});
 
-// ===========================================================================
-// handleToolStart: task_list action coverage
-// ===========================================================================
-
-describe("handleToolStart: task_list action handling", () => {
-  test("handles create_tasks action", () => {
-    expect(source).toContain('action === "create_tasks"');
-    expect(source).toContain("Array.isArray(input.tasks)");
-  });
-
-  test("handles update_task_status action", () => {
-    expect(source).toContain('action === "update_task_status"');
-    expect(source).toContain("input.taskId && input.status");
-  });
-
-  test("handles add_task action", () => {
-    expect(source).toContain('action === "add_task"');
-    expect(source).toContain('input.task && typeof input.task === "object"');
-  });
-
-  test("handles delete_task action", () => {
-    expect(source).toContain('action === "delete_task"');
-    expect(source).toContain("todoItemsRef.current.filter");
-  });
-
-  test("updates todoItemsRef.current for each action in start handler", () => {
-    const startBlock = source.slice(
-      source.indexOf("// Handle task_list tool mutations"),
-      source.indexOf("  }, [", source.indexOf("// Handle task_list tool mutations")),
+  test("handleToolStart intentionally skips optimistic updates for task_list", () => {
+    expect(source).toContain(
+      "Optimistic updates are intentionally skipped in handleToolStart",
     );
-    const assignments = (startBlock.match(/todoItemsRef\.current\s*=/g) || []).length;
-    expect(assignments).toBeGreaterThanOrEqual(4);
-  });
-
-  test("calls setTodoItems for each action in start handler", () => {
-    const startBlock = source.slice(
-      source.indexOf("// Handle task_list tool mutations"),
-      source.indexOf("  }, [", source.indexOf("// Handle task_list tool mutations")),
-    );
-    const calls = (startBlock.match(/setTodoItems\(/g) || []).length;
-    expect(calls).toBeGreaterThanOrEqual(4);
   });
 });
 
@@ -104,31 +62,68 @@ describe("handleToolStart: task_list action handling", () => {
 // ===========================================================================
 
 describe("handleToolComplete: task_list action handling", () => {
+  // Extract the task_list complete block for scoped assertions
+  const completeBlockStart = source.indexOf("// Handle task_list tool completion");
+  const completeBlockEnd = source.indexOf("  }, [", completeBlockStart);
+  const completeBlock = source.slice(completeBlockStart, completeBlockEnd);
+
+  test("outer condition does not gate on input", () => {
+    // The authoritative output-based path must work even when input is
+    // undefined (toolInput is optional in stream.tool.complete schema).
+    expect(completeBlock).toContain("if (isTaskListToolName(completedToolName))");
+    // Must NOT have `&& input` in the outer condition
+    expect(completeBlock).not.toMatch(/isTaskListToolName\(completedToolName\)\s*&&\s*input\b/);
+  });
+
+  test("parses output when it is a JSON string", () => {
+    // SDK providers may serialize toolResult as a string rather than an object
+    expect(completeBlock).toContain('typeof output === "string"');
+    expect(completeBlock).toContain("JSON.parse(output)");
+  });
+
   test("prefers authoritative tasks from tool output", () => {
-    expect(source).toContain("Array.isArray(outputRecord.tasks)");
+    expect(completeBlock).toContain("Array.isArray(outputRecord.tasks)");
   });
 
   test("falls back to optimistic input-based updates", () => {
-    expect(source).toContain("Fallback: apply optimistic update from input");
+    expect(completeBlock).toContain("Fallback: apply optimistic update from input");
+  });
+
+  test("fallback path gates on input.action", () => {
+    expect(completeBlock).toContain("input && input.action");
   });
 
   test("avoids duplicate add_task entries on completion", () => {
-    expect(source).toContain("alreadyExists");
-    expect(source).toContain("todoItemsRef.current.some");
+    expect(completeBlock).toContain("alreadyExists");
+    expect(completeBlock).toContain("todoItemsRef.current.some");
+  });
+
+  test("handles create_tasks via authoritative output path", () => {
+    expect(completeBlock).toContain("Array.isArray(outputRecord.tasks)");
+    expect(completeBlock).toContain("normalizeTodoItem(t)");
   });
 
   test("handles update_task_status in fallback path", () => {
-    const completeBlock = source.slice(
-      source.indexOf("// Handle task_list tool completion"),
-    );
     expect(completeBlock).toContain('action === "update_task_status"');
   });
 
+  test("handles add_task in fallback path", () => {
+    expect(completeBlock).toContain('action === "add_task"');
+  });
+
   test("handles delete_task in fallback path", () => {
-    const completeBlock = source.slice(
-      source.indexOf("// Handle task_list tool completion"),
-    );
     expect(completeBlock).toContain('action === "delete_task"');
+  });
+
+  test("updates todoItemsRef.current for authoritative and fallback paths", () => {
+    const assignments = (completeBlock.match(/todoItemsRef\.current\s*=/g) || []).length;
+    // 1 authoritative + 3 fallback (update_task_status, add_task, delete_task) = 4
+    expect(assignments).toBeGreaterThanOrEqual(4);
+  });
+
+  test("calls setTodoItems for authoritative and fallback paths", () => {
+    const calls = (completeBlock.match(/setTodoItems\(/g) || []).length;
+    expect(calls).toBeGreaterThanOrEqual(4);
   });
 });
 
@@ -137,28 +132,21 @@ describe("handleToolComplete: task_list action handling", () => {
 // ===========================================================================
 
 describe("task_list does NOT persist to tasks.json", () => {
-  // Check for actual function call invocations (with opening paren) rather
-  // than the name appearing in comments.
-  test("persistWorkflowTasksToDisk is not invoked in task_list start block", () => {
-    const startBlockStart = source.indexOf("// Handle task_list tool mutations");
-    const startBlockEnd = source.indexOf("  }, [", startBlockStart);
-    const startBlock = source.slice(startBlockStart, startBlockEnd);
-    expect(startBlock).not.toContain("persistWorkflowTasksToDisk(");
-  });
+  // Extract the task_list complete block for scoped assertions
+  const completeBlockStart = source.indexOf("// Handle task_list tool completion");
+  const completeBlockEnd = source.indexOf("  }, [", completeBlockStart);
+  const completeBlock = source.slice(completeBlockStart, completeBlockEnd);
 
   test("persistWorkflowTasksToDisk is not invoked in task_list complete block", () => {
-    const completeBlockStart = source.indexOf("// Handle task_list tool completion");
-    const completeBlockEnd = source.indexOf("  }, [", completeBlockStart);
-    const completeBlock = source.slice(completeBlockStart, completeBlockEnd);
     expect(completeBlock).not.toContain("persistWorkflowTasksToDisk(");
   });
 
   test("persistWorkflowTasksToDisk is still invoked for TodoWrite", () => {
-    const todoWriteStartBlock = source.slice(
+    const todoWriteBlock = source.slice(
       source.indexOf("isTodoWriteToolName(toolName)"),
-      source.indexOf("// Handle task_list tool mutations"),
+      source.indexOf("// task_list tool mutations"),
     );
-    expect(todoWriteStartBlock).toContain("persistWorkflowTasksToDisk(");
+    expect(todoWriteBlock).toContain("persistWorkflowTasksToDisk(");
   });
 });
 
@@ -167,13 +155,6 @@ describe("task_list does NOT persist to tasks.json", () => {
 // ===========================================================================
 
 describe("task_list skips isWorkflowTaskUpdate guard", () => {
-  test("task_list start block does not reference isWorkflowTaskUpdate", () => {
-    const startBlockStart = source.indexOf("// Handle task_list tool mutations");
-    const startBlockEnd = source.indexOf("  }, [", startBlockStart);
-    const startBlock = source.slice(startBlockStart, startBlockEnd);
-    expect(startBlock).not.toContain("isWorkflowTaskUpdate");
-  });
-
   test("task_list complete block does not reference isWorkflowTaskUpdate", () => {
     const completeBlockStart = source.indexOf("// Handle task_list tool completion");
     const completeBlockEnd = source.indexOf("  }, [", completeBlockStart);
@@ -184,7 +165,7 @@ describe("task_list skips isWorkflowTaskUpdate guard", () => {
   test("isWorkflowTaskUpdate is still used for TodoWrite", () => {
     const todoWriteBlock = source.slice(
       source.indexOf("isTodoWriteToolName(toolName)"),
-      source.indexOf("// Handle task_list tool mutations"),
+      source.indexOf("// task_list tool mutations"),
     );
     expect(todoWriteBlock).toContain("isWorkflowTaskUpdate");
   });

@@ -340,9 +340,28 @@ export function useChatStreamToolEvents({
     // On completion, prefer the authoritative tasks array from the tool output
     // when available; otherwise fall back to optimistic input-based updates.
     // The tool itself persists to SQLite, so we only update TUI state here.
-    if (isTaskListToolName(completedToolName) && input && input.action) {
-      const action = input.action as string;
-      const outputRecord = (typeof output === "object" && output !== null ? output : {}) as Record<string, unknown>;
+    //
+    // NOTE: The outer condition intentionally does NOT gate on `input` because
+    // `ToolCompleteEvent.input` is optional (toolInput is optional in the
+    // stream.tool.complete schema) and some providers emit an empty `{}` for
+    // toolInput on tool-complete. The authoritative path reads from `output`,
+    // so it must not be blocked when `input` is absent. Only the fallback
+    // paths require `input` for action-specific optimistic updates.
+    //
+    // The tool output (`toolResult`) may arrive as a JSON string rather than a
+    // parsed object depending on the SDK provider, so we parse it defensively.
+    if (isTaskListToolName(completedToolName)) {
+      let outputRecord: Record<string, unknown>;
+      if (typeof output === "string") {
+        try {
+          const parsed: unknown = JSON.parse(output);
+          outputRecord = (typeof parsed === "object" && parsed !== null ? parsed : {}) as Record<string, unknown>;
+        } catch {
+          outputRecord = {};
+        }
+      } else {
+        outputRecord = (typeof output === "object" && output !== null ? output : {}) as Record<string, unknown>;
+      }
 
       // If the output contains a tasks array, use it as the authoritative state
       if (Array.isArray(outputRecord.tasks)) {
@@ -351,8 +370,10 @@ export function useChatStreamToolEvents({
         );
         todoItemsRef.current = todos;
         setTodoItems(todos);
-      } else {
+      } else if (input && input.action) {
         // Fallback: apply optimistic update from input when output lacks full task list
+        const action = input.action as string;
+
         if (action === "update_task_status" && input.taskId && input.status) {
           const taskId = String(input.taskId);
           const newStatus = normalizeTaskStatus(input.status);

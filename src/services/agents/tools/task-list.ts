@@ -182,6 +182,11 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
     `CREATE INDEX IF NOT EXISTS idx_progress_task_id ON progress(task_id);`
   );
 
+  // Index on status for efficient filtering (e.g., "get all pending tasks")
+  db.run(
+    `CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);`
+  );
+
   // Prepared statements for performance
   const insertTask = db.prepare(
     `INSERT OR REPLACE INTO tasks (id, description, status, summary, blocked_by, created_at, updated_at)
@@ -225,6 +230,11 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
     const status = validStatuses.has(row.status as TaskItem["status"])
       ? (row.status as TaskItem["status"])
       : "pending";
+    if (!validStatuses.has(row.status as TaskItem["status"])) {
+      console.warn(
+        `[task-list] Task "${row.id}" has invalid status "${row.status}", defaulting to "pending"`
+      );
+    }
     return {
       id: row.id,
       description: row.description,
@@ -496,7 +506,10 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
           const deleteTx = db.transaction((id: string) => {
             deleteProgressForTask.run({ $task_id: id });
             deleteTaskStmt.run({ $id: id });
-            // Remove the deleted ID from other tasks' blockedBy arrays
+            // Remove the deleted ID from other tasks' blockedBy arrays.
+            // Performance: O(n) scan over all tasks to update dependency arrays.
+            // Acceptable for typical workflow sizes (10-50 tasks). For larger task
+            // lists, consider a normalized dependency junction table with an index.
             const allRows = selectAllTasks.all() as TaskRow[];
             for (const row of allRows) {
               const deps: string[] = JSON.parse(row.blocked_by || "[]");

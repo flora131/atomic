@@ -220,20 +220,12 @@ describe("Ralph Workflow Definition (DSL)", () => {
     expect(prompt).toContain("Build a REST API");
   });
 
-  test("orchestrator buildPrompt uses tasks from context", () => {
+  test("orchestrator buildPrompt instructs to retrieve tasks via list_tasks", () => {
     const orchestrator = ralphWorkflowDefinition.conductorStages![1]!;
-    const ctx = makeStageContext({
-      tasks: [
-        {
-          description: "Create user model",
-          status: "pending",
-          summary: "Creating model",
-          blockedBy: [],
-        },
-      ],
-    });
+    const ctx = makeStageContext();
     const prompt = orchestrator.buildPrompt(ctx);
-    expect(prompt).toContain("Create user model");
+    expect(prompt).toContain("list_tasks");
+    expect(prompt).toContain("orchestrator managing");
   });
 
   test("reviewer parseOutput extracts findings", () => {
@@ -250,26 +242,14 @@ describe("Ralph Workflow Definition (DSL)", () => {
     expect(parsed.reviewResult).toBeDefined();
   });
 
-  test("planner parseOutput extracts tasks as array", () => {
+  test("planner parseOutput returns empty object (tasks persisted via tool)", () => {
     const planner = ralphWorkflowDefinition.conductorStages![0]!;
     const result = planner.parseOutput!(
-      JSON.stringify([
-        {
-          id: 1,
-          description: "Task A",
-          status: "pending",
-          summary: "Doing A",
-          blockedBy: [],
-        },
-      ]),
+      "I have created the tasks using the task_list tool.",
     );
-    // The outputMapper returns { tasks: [...] }, so parseOutput returns a Record.
     expect(typeof result).toBe("object");
     expect(result).not.toBeNull();
-    const parsed = result as Record<string, unknown>;
-    const tasks = parsed.tasks as Array<{ description: string }>;
-    expect(tasks).toHaveLength(1);
-    expect(tasks[0]!.description).toBe("Task A");
+    expect(result).toEqual({});
   });
 
   // -------------------------------------------------------------------------
@@ -279,7 +259,7 @@ describe("Ralph Workflow Definition (DSL)", () => {
   test("conductor graph nodes carry inferred reads/outputs metadata", () => {
     const graph = ralphWorkflowDefinition.createConductorGraph!();
     const planner = graph.nodes.get("planner");
-    expect(planner?.outputs).toEqual(["tasks"]);
+    expect(planner?.outputs).toEqual([]);
 
     // Reads are inferred from ctx.state.* accesses in prompt functions.
     // Ralph stages use ctx.stageOutputs/ctx.tasks instead of ctx.state,
@@ -413,10 +393,8 @@ describe("Ralph Workflow Definition (DSL)", () => {
   // Orchestrator handles empty task list from task_list tool flow
   // -------------------------------------------------------------------------
 
-  test("orchestrator buildPrompt falls through to empty task list when planner used task_list tool", () => {
+  test("orchestrator buildPrompt always instructs to use list_tasks (tool-first flow)", () => {
     const orchestrator = ralphWorkflowDefinition.conductorStages![1]!;
-    // Simulate: planner used task_list tool, so parsedOutput.tasks is []
-    // and rawResponse is text (no JSON)
     const ctx = makeStageContext({
       tasks: [],
       stageOutputs: new Map([
@@ -425,29 +403,27 @@ describe("Ralph Workflow Definition (DSL)", () => {
           makeStageOutput({
             stageId: "planner",
             rawResponse: "I have created the tasks using the task_list tool.",
-            parsedOutput: { tasks: [] },
+            parsedOutput: {},
           }),
         ],
       ]),
     });
     const prompt = orchestrator.buildPrompt(ctx);
-    // Should still produce a valid orchestrator prompt with empty task list
     expect(prompt).toContain("orchestrator managing");
-    expect(prompt).toContain("[]");
-    // Should include the list_tasks instruction for retrieving tasks from SQLite
     expect(prompt).toContain("list_tasks");
   });
 
-  test("orchestrator buildPrompt uses ctx.tasks when available (legacy flow)", () => {
+  test("orchestrator buildPrompt is deterministic (no task data dependency)", () => {
     const orchestrator = ralphWorkflowDefinition.conductorStages![1]!;
-    const ctx = makeStageContext({
+    const ctx1 = makeStageContext({ tasks: [] });
+    const ctx2 = makeStageContext({
       tasks: [
         { id: "1", description: "Setup project", status: "pending", summary: "Setting up", blockedBy: [] },
       ],
     });
-    const prompt = orchestrator.buildPrompt(ctx);
-    expect(prompt).toContain("Setup project");
-    // Should NOT include the empty-task note since tasks were provided
-    expect(prompt).not.toContain("The task list above is empty");
+    // Both contexts produce the same prompt since orchestrator reads from tool
+    const prompt1 = orchestrator.buildPrompt(ctx1);
+    const prompt2 = orchestrator.buildPrompt(ctx2);
+    expect(prompt1).toBe(prompt2);
   });
 });

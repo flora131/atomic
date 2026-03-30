@@ -5,8 +5,7 @@
  * - RALPH_DISALLOWED_TOOLS includes TodoWrite for all providers
  * - All 4 stages have TodoWrite in their disallowedTools
  * - AskUserQuestion tools remain disallowed alongside TodoWrite
- * - Planner outputMapper continues to extract tasks from text responses
- * - Planner outputMapper gracefully handles empty/non-JSON responses
+ * - Planner outputMapper returns empty object (tasks persisted via tool)
  */
 
 import { describe, test, expect } from "bun:test";
@@ -60,75 +59,33 @@ describe("RALPH_DISALLOWED_TOOLS includes TodoWrite", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Planner outputMapper: task extraction from text
+// Planner outputMapper: returns empty object (tasks persisted via tool)
 // ---------------------------------------------------------------------------
 
-describe("Planner outputMapper handles varied response formats", () => {
+describe("Planner outputMapper returns empty object (tool-first flow)", () => {
   const planner = stages.find((s) => s.id === "planner")!;
 
-  test("extracts tasks from a valid JSON array response", () => {
+  test("returns empty object for any response text", () => {
+    const response = "I have created the tasks using the task_list tool.";
+    const result = planner.parseOutput!(response);
+    expect(result).toEqual({});
+  });
+
+  test("returns empty object for JSON array response", () => {
     const response = JSON.stringify([
       { id: "1", description: "Setup project", status: "pending", summary: "Setting up" },
-      { id: "2", description: "Implement feature", status: "pending", summary: "Implementing", blockedBy: ["1"] },
     ]);
     const result = planner.parseOutput!(response);
-    const tasks = (result as Record<string, unknown>).tasks as Array<Record<string, unknown>>;
-    expect(tasks).toHaveLength(2);
-    expect(tasks[0]!.id).toBe("1");
-    expect(tasks[0]!.description).toBe("Setup project");
-    expect(tasks[1]!.blockedBy).toEqual(["1"]);
+    expect(result).toEqual({});
   });
 
-  test("returns empty tasks array for non-JSON response", () => {
-    const response = "I'll create a task list for you. Here are the tasks...";
-    const result = planner.parseOutput!(response);
-    const tasks = (result as Record<string, unknown>).tasks as Array<unknown>;
-    expect(tasks).toEqual([]);
-  });
-
-  test("returns empty tasks array for empty response", () => {
+  test("returns empty object for empty response", () => {
     const result = planner.parseOutput!("");
-    const tasks = (result as Record<string, unknown>).tasks as Array<unknown>;
-    expect(tasks).toEqual([]);
+    expect(result).toEqual({});
   });
 
-  test("extracts tasks embedded in surrounding text", () => {
-    const response = `Here are the tasks I've identified:
-    [
-      {"id": "1", "description": "Task A", "status": "pending", "summary": "Doing A"}
-    ]
-    Let me know if you need changes.`;
-    const result = planner.parseOutput!(response);
-    const tasks = (result as Record<string, unknown>).tasks as Array<Record<string, unknown>>;
-    expect(tasks).toHaveLength(1);
-    expect(tasks[0]!.description).toBe("Task A");
-  });
-
-  test("normalizes legacy content/activeForm fields to description/summary", () => {
-    const response = JSON.stringify([
-      { id: "#1", content: "Legacy task", status: "pending", activeForm: "Working on legacy task" },
-    ]);
-    const result = planner.parseOutput!(response);
-    const tasks = (result as Record<string, unknown>).tasks as Array<Record<string, unknown>>;
-    expect(tasks).toHaveLength(1);
-    expect(tasks[0]!.description).toBe("Legacy task");
-    expect(tasks[0]!.summary).toBe("Working on legacy task");
-  });
-
-  test("handles numeric IDs by converting to string", () => {
-    const response = JSON.stringify([
-      { id: 1, description: "Task", status: "pending", summary: "Working" },
-    ]);
-    const result = planner.parseOutput!(response);
-    const tasks = (result as Record<string, unknown>).tasks as Array<Record<string, unknown>>;
-    expect(tasks).toHaveLength(1);
-    expect(tasks[0]!.id).toBe("1");
-  });
-
-  test("always returns object with tasks key for graph output inference", () => {
-    // The outputMapper must always return { tasks: ... } so that
-    // inferStageOutputs correctly identifies "tasks" as a planner output key.
+  test("does not have tasks key (tasks are in SQLite, not outputMapper)", () => {
     const result = planner.parseOutput!("");
-    expect(result).toHaveProperty("tasks");
+    expect(result).not.toHaveProperty("tasks");
   });
 });

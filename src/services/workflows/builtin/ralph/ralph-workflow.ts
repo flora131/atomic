@@ -23,13 +23,11 @@ import {
   buildFixSpecFromRawReview,
   parseReviewResult,
 } from "@/services/workflows/builtin/ralph/helpers/prompts.ts";
-import { parseTasks } from "@/services/workflows/builtin/ralph/helpers/tasks.ts";
 import {
   getReviewResult,
   hasActionableFindings,
   createReviewLoopTerminator,
 } from "@/services/workflows/builtin/ralph/helpers/review.ts";
-import { z } from "zod";
 
 export { createReviewLoopTerminator } from "@/services/workflows/builtin/ralph/helpers/review.ts";
 import { VERSION } from "@/version";
@@ -42,19 +40,6 @@ const STAGE_ICON = {
   reviewer: "◎",      // U+25CE Bullseye
   debugger: "✦",      // U+2726 Black Four Pointed Star
 } as const;
-
-/**
- * Zod schema for validating task items from planner parsed output.
- * Mirrors the SDK's TaskItemSchema to validate before passing to
- * buildOrchestratorPrompt, avoiding unsafe `as` casts.
- */
-const TaskItemSchema = z.object({
-  id: z.string().optional(),
-  description: z.string(),
-  status: z.string(),
-  summary: z.string(),
-  blockedBy: z.array(z.string()).optional(),
-});
 
 // ---------------------------------------------------------------------------
 // Shared Stage Configuration
@@ -97,32 +82,14 @@ const _ralphWorkflowBuilder = defineWorkflow({
     agent: "planner",
     description: `${STAGE_ICON.planner} PLANNER`,
     prompt: (ctx) => buildSpecToTasksPrompt(ctx.userPrompt),
-    outputMapper: (response) => ({ tasks: parseTasks(response) }),
+    outputMapper: () => ({}),
     disallowedTools: RALPH_DISALLOWED_TOOLS,
   })
   .stage({
     name: "orchestrator",
     agent: "orchestrator",
     description: `${STAGE_ICON.orchestrator} ORCHESTRATOR`,
-    prompt: (ctx) => {
-      if (ctx.tasks.length > 0) {
-        return buildOrchestratorPrompt([...ctx.tasks]);
-      }
-      const plannerOutput = ctx.stageOutputs.get("planner");
-      if (plannerOutput?.parsedOutput) {
-        const result = TaskItemSchema.array().safeParse(
-          plannerOutput.parsedOutput.tasks,
-        );
-        if (result.success && result.data.length > 0) {
-          return buildOrchestratorPrompt(result.data);
-        }
-      }
-      if (plannerOutput?.rawResponse) {
-        const tasks = parseTasks(plannerOutput.rawResponse);
-        if (tasks.length > 0) return buildOrchestratorPrompt(tasks);
-      }
-      return buildOrchestratorPrompt([]);
-    },
+    prompt: () => buildOrchestratorPrompt(),
     outputMapper: () => ({}),
     disallowedTools: RALPH_DISALLOWED_TOOLS,
   })

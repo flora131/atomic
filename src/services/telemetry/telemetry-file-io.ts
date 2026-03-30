@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, appendFileSync } from "fs";
+import { existsSync, appendFileSync } from "fs";
 import { join } from "path";
 import { getBinaryDataDir } from "@/services/config/config-path.ts";
 import { withLock } from "@/services/system/file-lock.ts";
+import { ensureDirSync } from "@/services/system/copy.ts";
 import type { TelemetryEvent, AgentType } from "@/services/telemetry/types.ts";
 
 /**
@@ -35,7 +36,7 @@ export async function appendEvent(event: TelemetryEvent, agentType?: AgentType |
 
     // Ensure data directory exists before writing
     if (!existsSync(dataDir)) {
-      mkdirSync(dataDir, { recursive: true });
+      ensureDirSync(dataDir);
     }
 
     const eventsPath = getEventsFilePath(agentType);

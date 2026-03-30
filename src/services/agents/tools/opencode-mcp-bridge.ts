@@ -14,9 +14,10 @@
  *                                                   tool.handler()
  */
 
-import { mkdirSync, writeFileSync, unlinkSync, rmdirSync } from "fs";
+import { writeFileSync, unlinkSync, rmdirSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
+import { ensureDirSync } from "@/services/system/copy.ts";
 import type { ToolDefinition, ToolContext } from "@/services/agents/types.ts";
 
 const TMP_DIR = join(homedir(), ".atomic", ".tmp");
@@ -242,7 +243,7 @@ export async function createToolMcpServerScript(
   tools: ToolDefinition[],
   dispatchPort: number,
 ): Promise<string> {
-  mkdirSync(TMP_DIR, { recursive: true });
+  ensureDirSync(TMP_DIR);
 
   const scriptPath = join(TMP_DIR, `custom-tools-mcp-${Date.now()}.ts`);
   const toolDefs = tools.map((t) => ({

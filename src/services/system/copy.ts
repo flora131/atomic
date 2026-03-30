@@ -3,6 +3,7 @@
  */
 
 import { readdir, mkdir, stat, readFile } from "fs/promises";
+import { mkdirSync } from "fs";
 import { join, extname, relative, resolve } from "path";
 
 /**
@@ -16,6 +17,24 @@ import { join, extname, relative, resolve } from "path";
 export async function ensureDir(path: string): Promise<void> {
   try {
     await mkdir(path, { recursive: true });
+  } catch (error: unknown) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      (error as NodeJS.ErrnoException).code === "EEXIST"
+    ) {
+      return;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Synchronous version of {@link ensureDir}.
+ */
+export function ensureDirSync(path: string): void {
+  try {
+    mkdirSync(path, { recursive: true });
   } catch (error: unknown) {
     if (
       error instanceof Error &&

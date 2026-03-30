@@ -9,10 +9,11 @@
  * The --model CLI flag takes precedence over both (handled at call site).
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { homedir } from "node:os";
 import { SETTINGS_SCHEMA_URL } from "@/services/config/settings-schema.ts";
+import { ensureDirSync } from "@/services/system/copy.ts";
 import type { AgentKey } from "@/services/config/definitions.ts";
 
 export interface TrustedPathEntry {
@@ -100,7 +101,7 @@ async function loadSettingsFile(path: string): Promise<AtomicSettings> {
 function writeGlobalSettingsSync(settings: AtomicSettings): void {
   const path = globalSettingsPath();
   const dir = dirname(path);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  if (!existsSync(dir)) ensureDirSync(dir);
   writeFileSync(path, JSON.stringify(settings, null, 2), "utf-8");
 }
 

@@ -526,9 +526,9 @@ describe("task_list tool registration in conductor executor (§5.7)", () => {
       expect(result.success).toBe(true);
     });
 
-    test("workflow executes successfully when session directory does not exist", async () => {
+    test("workflow fails fast when session directory does not exist", async () => {
       // Use a non-existent directory — createTaskListTool will fail,
-      // but the try/catch should handle it gracefully
+      // and the executor intentionally re-throws to fail fast
       mockSessionDir = "/tmp/nonexistent-dir-for-task-list-test-" + Date.now();
       const registerToolMock = mock((_tool: ToolDefinition) => {});
       const context = createMockContext({ registerTool: registerToolMock });
@@ -536,9 +536,9 @@ describe("task_list tool registration in conductor executor (§5.7)", () => {
 
       const result = await executeConductorWorkflow(definition, "test prompt", context);
 
-      // Workflow should still succeed
-      expect(result.success).toBe(true);
-      // registerTool should NOT have been called (tool creation failed silently)
+      // Workflow should fail because task_list initialization is fatal
+      expect(result.success).toBe(false);
+      // registerTool should NOT have been called (tool creation failed before registration)
       expect(registerToolMock).toHaveBeenCalledTimes(0);
     });
   });

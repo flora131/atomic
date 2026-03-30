@@ -23,6 +23,9 @@
  */
 
 import { describe, expect, test, mock } from "bun:test";
+import { mkdtempSync, rmSync } from "fs";
+import { join } from "path";
+import { tmpdir } from "os";
 import type { StageDefinition, StageContext } from "@/services/workflows/conductor/types.ts";
 import type { WorkflowDefinition } from "@/services/workflows/types/index.ts";
 import type { CommandContext } from "@/types/command.ts";
@@ -33,8 +36,12 @@ import type { Session, AgentMessage } from "@/services/agents/types.ts";
 // ---------------------------------------------------------------------------
 
 const MOCK_SESSION_ID = "interrupt-integ-session-xyz";
-const MOCK_SESSION_DIR = "/tmp/interrupt-integ-session-dir";
+const MOCK_SESSION_DIR = mkdtempSync(join(tmpdir(), "conductor-interrupt-integ-test-"));
 const MOCK_RUN_ID = 77;
+
+process.on("exit", () => {
+  try { rmSync(MOCK_SESSION_DIR, { recursive: true, force: true }); } catch {}
+});
 
 mock.module("@/services/workflows/runtime/executor/session-runtime.ts", () => ({
   initializeWorkflowExecutionSession: mock(() => ({

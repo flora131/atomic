@@ -95,7 +95,7 @@ describe("handleToolComplete: task_list action handling", () => {
 
   test("avoids duplicate add_task entries on completion", () => {
     expect(completeBlock).toContain("alreadyExists");
-    expect(completeBlock).toContain("todoItemsRef.current.some");
+    expect(completeBlock).toContain("prev.some");
   });
 
   test("handles create_tasks via authoritative output path", () => {

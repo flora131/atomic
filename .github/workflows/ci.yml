@@ -45,6 +45,6 @@ jobs:
               run: bun run test:coverage 2>&1 | cat
 
             - name: Upload coverage
-              uses: codecov/codecov-action@v5
+              uses: codecov/codecov-action@v6
               with:
                   files: ./coverage/lcov.info

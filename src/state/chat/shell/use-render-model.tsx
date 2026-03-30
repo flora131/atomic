@@ -106,7 +106,7 @@ export function useChatRenderModel({
               syntaxStyle={markdownSyntaxStyle}
               hideLoading={activeQuestion !== null}
               activeBackgroundAgentCount={scopedBgAgentCount}
-              todoItems={msg.streaming ? todoItems : undefined}
+              todoItems={(msg.streaming || isLast) ? todoItems : undefined}
               elapsedMs={showLive ? streamingElapsedMs : undefined}
               streamingMeta={scopedStreamingMeta}
               collapsed={false}

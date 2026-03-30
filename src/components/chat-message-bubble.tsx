@@ -134,7 +134,7 @@ export function MessageBubble({
   onAgentDoneRendered,
 }: MessageBubbleProps): React.ReactNode {
   const themeColors = useThemeColors();
-  const showPersistentTaskPanel = Boolean(isLast && showTodoPanel && workflowSessionId);
+  const showPersistentTaskPanel = Boolean(isLast && showTodoPanel && (todoItems?.length ?? 0) > 0);
 
   const handleAgentDoneRendered = useCallback((marker: { agentId: string; timestampMs: number }) => {
     onAgentDoneRendered?.({
@@ -235,7 +235,7 @@ export function MessageBubble({
 
         {showPersistentTaskPanel && (
           <TaskListPanel
-            sessionId={workflowSessionId ?? undefined}
+            items={todoItems ?? []}
             expanded={tasksExpanded}
             workflowActive={workflowActive}
           />
@@ -278,7 +278,7 @@ export function MessageBubble({
 
         {showPersistentTaskPanel && (
           <TaskListPanel
-            sessionId={workflowSessionId ?? undefined}
+            items={todoItems ?? []}
             expanded={tasksExpanded}
             workflowActive={workflowActive}
           />

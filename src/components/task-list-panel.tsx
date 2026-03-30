@@ -5,9 +5,8 @@
  * with an industrial-dashboard aesthetic — bordered container, progress header,
  * visual progress bar, numbered task rows, and status-aware styling.
  *
- * TaskListPanel: Persistent wrapper that receives task data from either
- * bus events (preferred) or file watcher (fallback) during workflow execution,
- * feeding data to TaskListBox.
+ * TaskListPanel: Persistent wrapper that receives task items as props during
+ * workflow execution and feeds them to TaskListBox with auto-clear lifecycle.
  *
  * Reference: specs/2026-02-14-ralph-task-list-ui.md
  */
@@ -20,7 +19,6 @@ import { useThemeColors, useTheme, getCatppuccinPalette } from "@/theme/index.ts
 import { TaskListIndicator, type TaskItem } from "@/components/task-list-indicator.tsx";
 import { sortTasksTopologically } from "@/components/task-order.ts";
 import { shouldAutoClearTaskPanel, AUTO_CLEAR_DELAY_MS } from "@/components/task-list-lifecycle.ts";
-import { useOptionalEventBusContext } from "@/services/events/event-bus-provider.tsx";
 import { SPACING } from "@/theme/spacing.ts";
 
 // ============================================================================
@@ -37,10 +35,8 @@ export interface TaskListBoxProps {
 }
 
 export interface TaskListPanelProps {
-  /** Workflow session ID for filtering bus events */
-  sessionId?: string;
-  /** Event bus for receiving task updates (falls back to React context) */
-  eventBus?: import("@/services/events/event-bus.ts").EventBus;
+  /** Task items to display */
+  items: TaskItem[];
   /** Whether to show full task content without truncation */
   expanded?: boolean;
   /** Whether the parent workflow is currently active */
@@ -159,51 +155,42 @@ export const TaskListBox = memo(function TaskListBox({
 // ============================================================================
 
 export function TaskListPanel({
-  sessionId,
-  eventBus: eventBusProp,
+  items,
   expanded = false,
   workflowActive = false,
 }: TaskListPanelProps): React.ReactNode {
-  const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [hidden, setHidden] = useState(false);
-  const eventBusCtx = useOptionalEventBusContext();
-  const resolvedEventBus = eventBusProp ?? eventBusCtx?.bus ?? undefined;
+  const [displayItems, setDisplayItems] = useState<TaskItem[]>([]);
 
+  // Update display items whenever new non-empty items arrive.
+  // We preserve the last snapshot so the panel can linger during auto-clear.
   useEffect(() => {
-    if (!resolvedEventBus || !sessionId) return;
-
-    const unsubscribe = resolvedEventBus.on("workflow:tasks-updated", (event) => {
-      if (event.data.sessionId === sessionId) {
-        const items: TaskItem[] = event.data.tasks.map((t) => ({
-          id: t.id,
-          description: t.description,
-          status: t.status,
-          blockedBy: t.blockedBy,
-        }));
-        setTasks(sortTasksTopologically(items));
-      }
-    });
-    return unsubscribe;
-  }, [sessionId, resolvedEventBus]);
+    if (items.length > 0) {
+      setDisplayItems(sortTasksTopologically(items));
+    }
+  }, [items]);
 
   // Auto-hide after a delay once all tasks reach a terminal (completed) state
-  const shouldClear = !workflowActive && shouldAutoClearTaskPanel(tasks);
+  const shouldClear = !workflowActive && shouldAutoClearTaskPanel(displayItems);
 
   useEffect(() => {
     if (!shouldClear) {
       setHidden(false);
       return;
     }
-    const timer = setTimeout(() => setHidden(true), AUTO_CLEAR_DELAY_MS);
+    const timer = setTimeout(() => {
+      setHidden(true);
+      setDisplayItems([]);
+    }, AUTO_CLEAR_DELAY_MS);
     return () => clearTimeout(timer);
   }, [shouldClear]);
 
-  if (tasks.length === 0) return null;
+  if (displayItems.length === 0) return null;
   if (hidden) return null;
 
   return (
     <box flexDirection="column" paddingLeft={SPACING.INDENT} paddingRight={SPACING.INDENT} marginTop={SPACING.ELEMENT} flexShrink={0}>
-      <TaskListBox items={tasks} expanded={expanded} />
+      <TaskListBox items={displayItems} expanded={expanded} />
     </box>
   );
 }

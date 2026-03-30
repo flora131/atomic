@@ -1,28 +1,19 @@
 /**
- * Tests for TaskListPanel bus event subscription.
+ * Tests for TaskListPanel props-driven rendering.
  *
  * Verifies that:
- * - TaskListPanelProps includes sessionId and eventBus optional props
- * - When eventBus + sessionId are provided, the component subscribes to
- *   "workflow:tasks-updated" bus events via eventBus.on()
- * - The bus handler filters events by sessionId
- * - The bus handler maps event data tasks to TaskItem[] and calls
- *   sortTasksTopologically
- * - The useEffect depends on [sessionId, resolvedEventBus]
- * - The EventBus.on() API contract: subscribe returns an unsubscribe function
+ * - TaskListPanelProps includes items, expanded, and workflowActive props
+ * - The component renders TaskListBox from the items prop
+ * - The component preserves the last non-empty items snapshot during auto-clear
+ * - The auto-clear lifecycle (5-second buffer) still works
+ * - sortTasksTopologically is applied to incoming items
  *
- * Tests use two approaches:
- * 1. Source code structural verification (confirming the code structure)
- * 2. Real EventBus integration tests (verifying the subscription pattern works)
+ * Tests use source code structural verification.
  */
 
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { EventBus } from "@/services/events/event-bus.ts";
-import type { BusEvent } from "@/services/events/bus-events/index.ts";
-import { sortTasksTopologically } from "@/components/task-order.ts";
-import type { TaskItem } from "@/components/task-list-indicator.tsx";
 
 // ---------------------------------------------------------------------------
 // Source code reference
@@ -39,12 +30,16 @@ const source = fs.readFileSync(SOURCE_PATH, "utf-8");
 // ===========================================================================
 
 describe("TaskListPanelProps interface", () => {
-  test("includes sessionId optional prop", () => {
-    expect(source).toContain("sessionId?: string");
+  test("includes items required prop", () => {
+    expect(source).toContain("items: TaskItem[]");
   });
 
-  test("includes eventBus optional prop with EventBus type", () => {
-    expect(source).toContain('eventBus?: import("@/services/events/event-bus.ts").EventBus');
+  test("does not include sessionId prop (removed)", () => {
+    expect(source).not.toContain("sessionId?: string");
+  });
+
+  test("does not include eventBus prop (removed)", () => {
+    expect(source).not.toContain('eventBus?: import("@/services/events/event-bus.ts").EventBus');
   });
 
   test("retains expanded optional prop", () => {
@@ -61,346 +56,87 @@ describe("TaskListPanelProps interface", () => {
 // ===========================================================================
 
 describe("TaskListPanel component destructuring", () => {
-  test("destructures sessionId from props", () => {
-    expect(source).toContain("sessionId,");
+  test("destructures items from props", () => {
+    expect(source).toContain("items,");
   });
 
-  test("destructures eventBus from props (aliased to eventBusProp)", () => {
-    expect(source).toContain("eventBus: eventBusProp,");
-  });
-});
-
-// ===========================================================================
-// Bus event subscription logic
-// ===========================================================================
-
-describe("bus event subscription in useEffect", () => {
-  test("checks for resolvedEventBus && sessionId before subscribing", () => {
-    expect(source).toContain("if (!resolvedEventBus || !sessionId)");
+  test("does not destructure sessionId (removed)", () => {
+    expect(source).not.toMatch(/\bsessionId,/);
   });
 
-  test("subscribes to workflow:tasks-updated via resolvedEventBus.on()", () => {
-    expect(source).toContain('resolvedEventBus.on("workflow:tasks-updated"');
-  });
-
-  test("filters events by sessionId", () => {
-    expect(source).toContain("event.data.sessionId === sessionId");
-  });
-
-  test("maps event tasks to TaskItem array with id, description, status, blockedBy", () => {
-    expect(source).toContain("id: t.id,");
-    expect(source).toContain("description: t.description,");
-    expect(source).toContain("status: t.status,");
-    expect(source).toContain("blockedBy: t.blockedBy,");
-  });
-
-  test("applies sortTasksTopologically to mapped items", () => {
-    expect(source).toContain("setTasks(sortTasksTopologically(items))");
-  });
-
-  test("returns unsubscribe from useEffect cleanup", () => {
-    expect(source).toContain("return unsubscribe");
-  });
-
-  test("useEffect depends on sessionId and resolvedEventBus", () => {
-    expect(source).toContain("[sessionId, resolvedEventBus]");
+  test("does not destructure eventBus (removed)", () => {
+    expect(source).not.toContain("eventBus: eventBusProp,");
   });
 });
 
 // ===========================================================================
-// EventBus integration tests (real EventBus, no React rendering)
+// Items-driven display logic
 // ===========================================================================
 
-describe("EventBus subscription pattern integration", () => {
-  let bus: EventBus;
-
-  beforeEach(() => {
-    bus = new EventBus({ validatePayloads: true });
+describe("items-driven display logic", () => {
+  test("maintains displayItems state for snapshot preservation", () => {
+    expect(source).toContain("const [displayItems, setDisplayItems] = useState<TaskItem[]>([])");
   });
 
-  afterEach(() => {
-    bus.clear();
+  test("updates displayItems when non-empty items arrive", () => {
+    expect(source).toContain("if (items.length > 0)");
+    expect(source).toContain("setDisplayItems(sortTasksTopologically(items))");
   });
 
-  test("on() subscribes to workflow:tasks-updated and receives events", () => {
-    const received: BusEvent<"workflow:tasks-updated">[] = [];
-
-    bus.on("workflow:tasks-updated", (event) => {
-      received.push(event);
-    });
-
-    bus.publish({
-      type: "workflow:tasks-updated",
-      sessionId: "sess-1",
-      runId: 1,
-      timestamp: Date.now(),
-      data: {
-        sessionId: "sess-1",
-        tasks: [
-          { id: "1", description: "Task A", status: "pending", summary: "Doing A" },
-          { id: "2", description: "Task B", status: "completed", summary: "Done B" },
-        ],
-      },
-    });
-
-    expect(received).toHaveLength(1);
-    expect(received[0]!.data.tasks).toHaveLength(2);
-    expect(received[0]!.data.sessionId).toBe("sess-1");
+  test("applies sortTasksTopologically to incoming items", () => {
+    expect(source).toContain("sortTasksTopologically(items)");
   });
 
-  test("on() returns an unsubscribe function that stops delivery", () => {
-    const received: BusEvent<"workflow:tasks-updated">[] = [];
-
-    const unsubscribe = bus.on("workflow:tasks-updated", (event) => {
-      received.push(event);
-    });
-
-    bus.publish({
-      type: "workflow:tasks-updated",
-      sessionId: "sess-1",
-      runId: 1,
-      timestamp: Date.now(),
-      data: {
-        sessionId: "sess-1",
-        tasks: [{ id: "1", description: "Task A", status: "pending", summary: "Doing A" }],
-      },
-    });
-    expect(received).toHaveLength(1);
-
-    unsubscribe();
-
-    bus.publish({
-      type: "workflow:tasks-updated",
-      sessionId: "sess-1",
-      runId: 2,
-      timestamp: Date.now(),
-      data: {
-        sessionId: "sess-1",
-        tasks: [{ id: "2", description: "Task B", status: "pending", summary: "Doing B" }],
-      },
-    });
-    expect(received).toHaveLength(1);
+  test("renders null when displayItems is empty", () => {
+    expect(source).toContain("if (displayItems.length === 0) return null");
   });
 
-  test("sessionId filtering logic works correctly", () => {
-    const mySessionId = "session-abc";
-    const collected: TaskItem[][] = [];
-
-    bus.on("workflow:tasks-updated", (event) => {
-      if (event.data.sessionId === mySessionId) {
-        const items: TaskItem[] = event.data.tasks.map((t) => ({
-          id: t.id,
-          description: t.description,
-          status: t.status,
-          blockedBy: t.blockedBy,
-        }));
-        collected.push(sortTasksTopologically(items));
-      }
-    });
-
-    bus.publish({
-      type: "workflow:tasks-updated",
-      sessionId: "session-xyz",
-      runId: 1,
-      timestamp: Date.now(),
-      data: {
-        sessionId: "session-xyz",
-        tasks: [{ id: "1", description: "Other session task", status: "pending", summary: "Other" }],
-      },
-    });
-    expect(collected).toHaveLength(0);
-
-    bus.publish({
-      type: "workflow:tasks-updated",
-      sessionId: mySessionId,
-      runId: 1,
-      timestamp: Date.now(),
-      data: {
-        sessionId: mySessionId,
-        tasks: [
-          { id: "1", description: "My task", status: "in_progress", summary: "Working on it" },
-        ],
-      },
-    });
-    expect(collected).toHaveLength(1);
-    expect(collected[0]!).toHaveLength(1);
-    expect(collected[0]![0]!.description).toBe("My task");
-    expect(collected[0]![0]!.status).toBe("in_progress");
-  });
-
-  test("task mapping preserves all TaskItem fields correctly", () => {
-    let mappedItems: TaskItem[] = [];
-
-    bus.on("workflow:tasks-updated", (event) => {
-      mappedItems = event.data.tasks.map((t) => ({
-        id: t.id,
-        description: t.description,
-        status: t.status,
-        blockedBy: t.blockedBy,
-      }));
-    });
-
-    bus.publish({
-      type: "workflow:tasks-updated",
-      sessionId: "sess-1",
-      runId: 1,
-      timestamp: Date.now(),
-      data: {
-        sessionId: "sess-1",
-        tasks: [
-          {
-            id: "1",
-            description: "Implement feature X",
-            status: "in_progress",
-            summary: "Implementing feature X",
-            blockedBy: [],
-          },
-          {
-            id: "2",
-            description: "Write tests for feature X",
-            status: "pending",
-            summary: "Writing tests",
-            blockedBy: ["1"],
-          },
-          {
-            id: "3",
-            description: "Deploy feature X",
-            status: "error",
-            summary: "Deploying",
-            blockedBy: ["1", "2"],
-          },
-        ],
-      },
-    });
-
-    expect(mappedItems).toHaveLength(3);
-    expect(mappedItems[0]!.id).toBe("1");
-    expect(mappedItems[0]!.description).toBe("Implement feature X");
-    expect(mappedItems[0]!.status).toBe("in_progress");
-    expect(mappedItems[0]!.blockedBy).toEqual([]);
-    expect(mappedItems[1]!.id).toBe("2");
-    expect(mappedItems[1]!.description).toBe("Write tests for feature X");
-    expect(mappedItems[1]!.status).toBe("pending");
-    expect(mappedItems[1]!.blockedBy).toEqual(["1"]);
-    expect(mappedItems[2]!.id).toBe("3");
-    expect(mappedItems[2]!.description).toBe("Deploy feature X");
-    expect(mappedItems[2]!.status).toBe("error");
-    expect(mappedItems[2]!.blockedBy).toEqual(["1", "2"]);
-  });
-
-  test("tasks without blockedBy receive undefined (not required field)", () => {
-    let mappedItems: TaskItem[] = [];
-
-    bus.on("workflow:tasks-updated", (event) => {
-      mappedItems = event.data.tasks.map((t) => ({
-        id: t.id,
-        description: t.description,
-        status: t.status,
-        blockedBy: t.blockedBy,
-      }));
-    });
-
-    bus.publish({
-      type: "workflow:tasks-updated",
-      sessionId: "sess-1",
-      runId: 1,
-      timestamp: Date.now(),
-      data: {
-        sessionId: "sess-1",
-        tasks: [
-          { id: "1", description: "Independent task", status: "completed", summary: "Done" },
-        ],
-      },
-    });
-
-    expect(mappedItems).toHaveLength(1);
-    expect(mappedItems[0]!.id).toBe("1");
-    expect(mappedItems[0]!.blockedBy).toBeUndefined();
-  });
-
-  test("sortTasksTopologically is applied to bus-provided tasks", () => {
-    const tasks: TaskItem[] = [
-      { id: "2", description: "Task B", status: "pending", blockedBy: ["1"] },
-      { id: "1", description: "Task A", status: "pending" },
-    ];
-
-    const sorted = sortTasksTopologically(tasks);
-
-    expect(sorted[0]!.id).toBe("1");
-    expect(sorted[1]!.id).toBe("2");
-  });
-
-  test("schema validates all four status values", () => {
-    const statuses = ["pending", "in_progress", "completed", "error"] as const;
-
-    for (const status of statuses) {
-      const received: BusEvent<"workflow:tasks-updated">[] = [];
-
-      const unsubscribe = bus.on("workflow:tasks-updated", (event) => {
-        received.push(event);
-      });
-
-      bus.publish({
-        type: "workflow:tasks-updated",
-        sessionId: "sess-1",
-        runId: 1,
-        timestamp: Date.now(),
-        data: {
-          sessionId: "sess-1",
-          tasks: [{ id: "1", description: "Task", status, summary: "Summary" }],
-        },
-      });
-
-      expect(received).toHaveLength(1);
-      expect(received[0]!.data.tasks[0]!.status).toBe(status);
-      unsubscribe();
-    }
-  });
-
-  test("multiple subscriptions receive the same event", () => {
-    let count1 = 0;
-    let count2 = 0;
-
-    bus.on("workflow:tasks-updated", () => { count1++; });
-    bus.on("workflow:tasks-updated", () => { count2++; });
-
-    bus.publish({
-      type: "workflow:tasks-updated",
-      sessionId: "sess-1",
-      runId: 1,
-      timestamp: Date.now(),
-      data: {
-        sessionId: "sess-1",
-        tasks: [{ id: "1", description: "Task", status: "pending", summary: "S" }],
-      },
-    });
-
-    expect(count1).toBe(1);
-    expect(count2).toBe(1);
+  test("passes displayItems to TaskListBox", () => {
+    expect(source).toContain("items={displayItems}");
   });
 });
 
 // ===========================================================================
-// Import and structure verification
+// Auto-clear lifecycle
+// ===========================================================================
+
+describe("auto-clear lifecycle", () => {
+  test("shouldClear depends on workflowActive and shouldAutoClearTaskPanel", () => {
+    expect(source).toContain("const shouldClear = !workflowActive && shouldAutoClearTaskPanel(displayItems)");
+  });
+
+  test("resets hidden to false when shouldClear is false", () => {
+    expect(source).toContain("setHidden(false)");
+  });
+
+  test("sets hidden and clears displayItems on auto-clear timeout", () => {
+    expect(source).toContain("setHidden(true)");
+    expect(source).toContain("setDisplayItems([])");
+  });
+
+  test("uses AUTO_CLEAR_DELAY_MS for timeout", () => {
+    expect(source).toContain("AUTO_CLEAR_DELAY_MS");
+  });
+});
+
+// ===========================================================================
+// Import structure
 // ===========================================================================
 
 describe("import structure", () => {
-  test("imports useEffect from react", () => {
+  test("imports useEffect and useState from react", () => {
     expect(source).toContain("useEffect");
+    expect(source).toContain("useState");
     expect(source).toMatch(/import.*useEffect.*from\s+"react"/);
+    expect(source).toMatch(/import.*useState.*from\s+"react"/);
   });
 
-  test("does not import useBusSubscription (uses eventBus prop instead)", () => {
-    expect(source).not.toContain("useBusSubscription");
+  test("does not import useOptionalEventBusContext (bus subscription removed)", () => {
+    expect(source).not.toContain("useOptionalEventBusContext");
   });
 
-  test("imports useOptionalEventBusContext for context-based bus resolution", () => {
-    expect(source).toContain("useOptionalEventBusContext");
-    expect(source).toMatch(/import.*useOptionalEventBusContext.*from/);
-  });
-
-  test("resolves event bus from prop or context", () => {
-    expect(source).toContain("const resolvedEventBus = eventBusProp ?? eventBusCtx?.bus ?? undefined");
+  test("does not reference resolvedEventBus (bus subscription removed)", () => {
+    expect(source).not.toContain("resolvedEventBus");
   });
 
   test("exports TaskListPanelProps interface", () => {

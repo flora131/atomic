@@ -91,7 +91,7 @@ export function useChatRenderModel({
           const showLive = shouldShowMessageLoadingIndicator(msg, {
             liveTodoItems: liveTaskItems,
             activeBackgroundAgentCount: scopedBgAgentCount,
-            keepAliveForWorkflow: workflowState.workflowActive && isLast,
+            keepAliveForWorkflow: workflowState.workflowActive && isLast && !msg.wasInterrupted,
           });
           const scopedStreamingMeta = showLive
             ? (streamingMessageId

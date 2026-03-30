@@ -260,7 +260,7 @@ export function MessageBubble({
     const showLoadingIndicator = shouldShowMessageLoadingIndicator(message, {
       liveTodoItems: liveTaskItems,
       activeBackgroundAgentCount,
-      keepAliveForWorkflow: workflowActive && isLast,
+      keepAliveForWorkflow: workflowActive && isLast && !message.wasInterrupted,
     });
 
     return (

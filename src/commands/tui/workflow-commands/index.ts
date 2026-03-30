@@ -7,7 +7,8 @@
  *   Step 2: Agent dispatches worker sub-agents in a loop until all tasks complete
  *   Step 3: Review & Fix - code review and optional re-invocation with fix-spec
  *
- * Session state is persisted to tasks.json in the workflow session directory.
+ * Task state is persisted to SQLite via the `task_list` tool (Ralph) or
+ * to tasks.json in the session directory (non-Ralph / fallback workflows).
  */
 
 import type {

@@ -8,6 +8,15 @@
  * This module is intentionally kept in the services layer so that the
  * state layer (use-tool-events.ts) can import it without violating the
  * layered architecture constraints.
+ *
+ * DEPRECATION NOTE (2026-03-30): This function is a candidate for removal
+ * once bus-only UI updates are fully validated. The Ralph workflow now uses
+ * the SQLite-backed `task_list` tool, which persists tasks to workflow.db
+ * and publishes "workflow.tasks.updated" bus events directly. This file-based
+ * persistence is only retained for the TodoWrite code path used by non-Ralph
+ * contexts and as a fallback for the TaskListPanel file watcher
+ * (`watchTasksJson`). Once all consumers subscribe to bus events exclusively,
+ * this function and the tasks.json file watcher can be removed together.
  */
 
 import { join } from "path";
@@ -39,6 +48,9 @@ async function atomicWrite(
  *
  * Fire-and-forget: errors are logged but do not throw.
  * Debounced internally — rapid successive calls coalesce into a single write.
+ *
+ * @deprecated Candidate for removal — see module-level deprecation note.
+ * Only used by the TodoWrite code path in use-tool-events.ts.
  */
 let pendingWrite: { timer: ReturnType<typeof setTimeout>; tasks: NormalizedTodoItem[]; sessionDir: string } | null = null;
 

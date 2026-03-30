@@ -568,6 +568,11 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
     state.ownedSessionIds.clear();
   };
 
+  /** Register a custom tool on the underlying CodingAgentClient. */
+  const registerTool = (tool: Parameters<typeof client.registerTool>[0]) => {
+    client.registerTool(tool);
+  };
+
   const createSubagentSession = async (config?: SessionConfig) => {
     // Inherit parent session config as defaults (model, reasoningEffort,
     // maxThinkingTokens, systemPrompt, permissionMode, agentMode).
@@ -660,6 +665,7 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
     getSession,
     resetSession,
     createSubagentSession,
+    registerTool,
     streamWithSession,
     handleModelChange,
     handleSessionMcpServersChange,

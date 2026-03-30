@@ -1,88 +1,8 @@
-import { z } from "zod";
 import {
   normalizeWorkflowRuntimeTaskStatus,
   type WorkflowRuntimeTask,
 } from "@/services/workflows/runtime-contracts.ts";
 import type { TaskItem } from "@/services/workflows/builtin/ralph/helpers/prompts.ts";
-
-/**
- * Normalize a raw task object from LLM output, supporting both the current
- * schema (description/summary) and the legacy schema (content/activeForm).
- */
-function normalizeRawTaskRecord(raw: unknown): Record<string, unknown> {
-  if (typeof raw !== "object" || raw === null) return {};
-  const record = raw as Record<string, unknown>;
-  return {
-    ...record,
-    description: record.description ?? record.content,
-    summary: record.summary ?? record.activeForm,
-  };
-}
-
-const taskItemSchema = z.object({
-  id: z.union([z.number(), z.string()]).optional().transform((val) => {
-    if (val === null || val === undefined) return undefined;
-    return String(val);
-  }),
-  description: z.string().catch("Untitled task"),
-  status: z.string().catch("pending"),
-  summary: z.string().catch("Working on task"),
-  blockedBy: z.array(
-    z.union([z.number(), z.string()]).transform((val) => String(val)),
-  ).optional().catch([]),
-});
-
-function extractJsonArray(text: string): unknown | null {
-  const trimmed = text.trim();
-
-  try {
-    return JSON.parse(trimmed);
-  } catch { /* continue */ }
-
-  const match = trimmed.match(/\[[\s\S]*\]/);
-  if (match) {
-    try {
-      return JSON.parse(match[0]);
-    } catch { /* continue */ }
-  }
-
-  // Last resort: extract individual JSON objects when the array is malformed
-  const objectMatches = [...trimmed.matchAll(/\{[^{}]*\}/g)];
-  if (objectMatches.length > 0) {
-    const recovered: unknown[] = [];
-    for (const objMatch of objectMatches) {
-      try {
-        recovered.push(JSON.parse(objMatch[0]));
-      } catch { /* skip malformed objects */ }
-    }
-    if (recovered.length > 0) return recovered;
-  }
-
-  return null;
-}
-
-export function parseTasks(content: string): TaskItem[] {
-  const parsed = extractJsonArray(content);
-  if (!Array.isArray(parsed) || parsed.length === 0) return [];
-
-  const tasks: TaskItem[] = [];
-  for (const [index, item] of parsed.entries()) {
-    const normalized = normalizeRawTaskRecord(item);
-    const result = taskItemSchema.safeParse(normalized);
-    if (result.success) {
-      const task = result.data;
-      tasks.push({
-        id: task.id ?? String(index + 1),
-        description: task.description,
-        status: task.status,
-        summary: task.summary,
-        blockedBy: task.blockedBy,
-      });
-    }
-  }
-
-  return tasks;
-}
 
 /**
  * Normalize a task ID for consistent comparison.

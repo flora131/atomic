@@ -770,8 +770,8 @@ describe("Regression: Full interrupt/resume cycle matching trace 2026-03-25T0642
     });
 
     conductor = new WorkflowSessionConductor(config, [
-      stage("planner", { indicator: "⌕ PLANNER" }),
-      stage("orchestrator", { indicator: "⚡ ORCHESTRATOR" }),
+      stage("planner", { indicator: "❖ PLANNER" }),
+      stage("orchestrator", { indicator: "◈ ORCHESTRATOR" }),
     ]);
     const result = await conductor.execute("Build a Rust TUI snake game");
 

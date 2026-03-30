@@ -17,7 +17,10 @@
  * test files in the same bun process.
  */
 
-import { describe, expect, test, mock, beforeEach } from "bun:test";
+import { describe, expect, test, mock, beforeEach, afterEach } from "bun:test";
+import { mkdtempSync, rmSync } from "fs";
+import { join } from "path";
+import { tmpdir } from "os";
 import type { StageDefinition, StageContext } from "@/services/workflows/conductor/types.ts";
 import type { WorkflowDefinition } from "@/services/workflows/types/index.ts";
 import type { CommandContext } from "@/types/command.ts";
@@ -34,8 +37,20 @@ import { createDefaultPartsTruncationConfig } from "@/state/parts/truncation.ts"
 // ---------------------------------------------------------------------------
 
 const MOCK_SESSION_ID = "test-session-abc";
-const MOCK_SESSION_DIR = "/tmp/test-session-dir";
+let MOCK_SESSION_DIR: string;
 const MOCK_RUN_ID = 42;
+
+// Use a real temp directory so createTaskListTool can open SQLite
+MOCK_SESSION_DIR = mkdtempSync(join(tmpdir(), "conductor-wiring-test-"));
+
+afterEach(() => {
+  // Clean up any workflow.db created during tests
+});
+
+// Use afterAll-style cleanup via process exit handler
+process.on("exit", () => {
+  try { rmSync(MOCK_SESSION_DIR, { recursive: true, force: true }); } catch {}
+});
 
 mock.module("@/services/workflows/runtime/executor/session-runtime.ts", () => ({
   initializeWorkflowExecutionSession: mock(() => ({

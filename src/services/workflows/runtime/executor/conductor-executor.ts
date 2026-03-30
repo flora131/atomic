@@ -20,6 +20,7 @@ import type { CommandContext, CommandResult } from "@/types/command.ts";
 import type { ConductorConfig } from "@/services/workflows/conductor/types.ts";
 import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 import type { TaskItem } from "@/services/workflows/builtin/ralph/helpers/prompts.ts";
+import type { BusEvent } from "@/services/events/bus-events/types.ts";
 
 import { WorkflowSessionConductor } from "@/services/workflows/conductor/conductor.ts";
 import { pipelineLog, pipelineError } from "@/services/events/pipeline-logger.ts";
@@ -27,8 +28,10 @@ import {
   incrementRuntimeParityCounter,
   runtimeParityDebug,
 } from "@/services/workflows/runtime-parity-observability.ts";
+import { conductorDebug } from "./conductor-debug-log.ts";
 import { createDefaultPartsTruncationConfig } from "@/state/parts/truncation.ts";
 import { createTaskUpdatePublisher } from "@/services/workflows/conductor/event-bridge.ts";
+import { createTaskListTool, type TaskListTool } from "@/services/agents/tools/task-list.ts";
 import { initializeWorkflowExecutionSession } from "./session-runtime.ts";
 
 /**
@@ -79,6 +82,7 @@ export async function executeConductorWorkflow(
   });
 
   pipelineLog("Workflow", "start", { workflow: definition.name, sessionId, executor: "conductor" });
+  conductorDebug("workflow_start", { workflow: definition.name, sessionId, executor: "conductor" });
   incrementRuntimeParityCounter("workflow.runtime.parity.execution_total", {
     phase: "start",
     workflow: definition.name,
@@ -111,6 +115,59 @@ export async function executeConductorWorkflow(
     const publishTaskUpdate = context.eventBus
       ? createTaskUpdatePublisher(context.eventBus, sessionId, workflowRunId)
       : undefined;
+
+    // Create and register the task_list tool for this workflow session (§5.7).
+    // The tool is backed by a session-scoped SQLite database and emits
+    // workflow.tasks.updated events for real-time UI updates.
+    //
+    // Initialization failures (e.g., corrupt DB, missing session directory) are
+    // intentionally fatal — the workflow cannot function without task tracking.
+    let taskListTool: TaskListTool | undefined;
+    try {
+      taskListTool = createTaskListTool({
+        workflowName: definition.name,
+        sessionId,
+        sessionDir,
+        emitTaskUpdate: (tasks) => {
+          if (context.eventBus) {
+            const event: BusEvent<"workflow.tasks.updated"> = {
+              type: "workflow.tasks.updated",
+              sessionId,
+              runId: workflowRunId,
+              timestamp: Date.now(),
+              data: {
+                sessionId,
+                tasks: tasks.map((t) => ({
+                  id: t.id,
+                  description: t.description,
+                  status: t.status,
+                  summary: t.summary,
+                  ...(t.blockedBy && t.blockedBy.length > 0 ? { blockedBy: t.blockedBy } : {}),
+                })),
+              },
+            };
+            context.eventBus.publish(event);
+          }
+        },
+      });
+      context.registerTool?.(taskListTool);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      pipelineError("Workflow", "task_list_tool_registration_failed", {
+        workflow: definition.name,
+        sessionId,
+        error: errorMessage,
+      });
+      conductorDebug("task_list_tool_registration_failed", {
+        workflow: definition.name,
+        sessionId,
+        error: errorMessage,
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+      throw new Error(
+        `Failed to initialize task_list tool for workflow "${definition.name}": ${errorMessage}`,
+      );
+    }
 
     const conductorConfig: ConductorConfig = {
       graph: compiled,
@@ -168,6 +225,12 @@ export async function executeConductorWorkflow(
           from: from ?? "start",
           to,
           indicator: options?.isResume ? "(resume)" : undefined,
+        });
+        conductorDebug("stage_transition", {
+          workflow: definition.name,
+          from: from ?? "start",
+          to,
+          isResume: options?.isResume ?? false,
         });
       },
 
@@ -260,6 +323,8 @@ export async function executeConductorWorkflow(
       // Always deregister the conductor interrupt and resume when execution completes or fails
       context.registerConductorInterrupt?.(null);
       context.registerConductorResume?.(null);
+      // Close the task_list tool's SQLite connection to prevent resource leaks
+      taskListTool?.close();
     }
 
     // Phase 5: Report result
@@ -292,6 +357,13 @@ export async function executeConductorWorkflow(
         stageId: failedStageId,
         error: failedStage?.error,
       });
+      conductorDebug("execution_failed", {
+        workflow: definition.name,
+        sessionId,
+        workflowRunId,
+        stageId: failedStageId,
+        error: failedStage?.error,
+      });
       incrementRuntimeParityCounter("workflow.runtime.parity.execution_total", {
         phase: "failure",
         workflow: definition.name,
@@ -315,6 +387,7 @@ export async function executeConductorWorkflow(
     }
 
     pipelineLog("Workflow", "complete", { workflow: definition.name, sessionId });
+    conductorDebug("workflow_complete", { workflow: definition.name, sessionId });
     incrementRuntimeParityCounter("workflow.runtime.parity.execution_total", {
       phase: "success",
       workflow: definition.name,
@@ -348,6 +421,13 @@ export async function executeConductorWorkflow(
     pipelineError("Workflow", "execution_error", {
       workflow: definition.name,
       error: error instanceof Error ? error.message : String(error),
+    });
+    conductorDebug("execution_error", {
+      workflow: definition.name,
+      sessionId,
+      workflowRunId,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
     });
     incrementRuntimeParityCounter("workflow.runtime.parity.execution_total", {
       phase: "failure",

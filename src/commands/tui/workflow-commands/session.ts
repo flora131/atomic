@@ -1,9 +1,7 @@
 import { join } from "path";
-import { readFile, rename, unlink } from "fs/promises";
+import { rename, unlink } from "fs/promises";
 import {
   normalizeTodoItem,
-  normalizeTodoItems,
-  type NormalizedTodoItem,
 } from "@/state/parts/helpers/task-status.ts";
 import type { WorkflowRuntimeTaskResultEnvelope } from "@/services/workflows/runtime-contracts.ts";
 
@@ -76,14 +74,3 @@ export async function saveTasksToActiveSession(
   }
 }
 
-export async function readTasksFromDisk(
-  sessionDir: string,
-): Promise<NormalizedTodoItem[]> {
-  const tasksPath = join(sessionDir, "tasks.json");
-  try {
-    const content = await readFile(tasksPath, "utf-8");
-    return normalizeTodoItems(JSON.parse(content));
-  } catch {
-    return [];
-  }
-}

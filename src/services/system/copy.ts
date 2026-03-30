@@ -4,6 +4,29 @@
 
 import { readdir, mkdir, stat, readFile } from "fs/promises";
 import { join, extname, relative, resolve } from "path";
+
+/**
+ * Safely create a directory (and parents) without throwing on EEXIST.
+ *
+ * `mkdir` with `{ recursive: true }` is supposed to be idempotent, but
+ * cloud-sync tools like OneDrive can create the directory between the
+ * internal existence check and the actual syscall, causing a spurious
+ * EEXIST error on Windows.  This wrapper absorbs that race.
+ */
+export async function ensureDir(path: string): Promise<void> {
+  try {
+    await mkdir(path, { recursive: true });
+  } catch (error: unknown) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      (error as NodeJS.ErrnoException).code === "EEXIST"
+    ) {
+      return;
+    }
+    throw error;
+  }
+}
 import { getOppositeScriptExtension } from "@/services/system/detect.ts";
 import {
   assertPathWithinRoot,
@@ -173,7 +196,7 @@ async function copyDirInternal(
     await assertRealPathWithinRoot(root, src, "Source path");
 
     // Create destination directory
-    await mkdir(dest, { recursive: true });
+    await ensureDir(dest);
 
     // Read source directory entries
     const entries = await readdir(src, { withFileTypes: true });

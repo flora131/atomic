@@ -84,7 +84,7 @@ describe("createTaskListTool - structure", () => {
     expect(schema.required).toEqual(["action"]);
   });
 
-  test("inputSchema defines action enum with all 8 operations", () => {
+  test("inputSchema defines action enum with all 9 operations", () => {
     const result = createTestTool();
     sessionDir = result.sessionDir;
     const schema = result.tool.inputSchema as Record<string, unknown>;
@@ -101,6 +101,7 @@ describe("createTaskListTool - structure", () => {
       "update_task_progress",
       "get_task_progress",
       "delete_task",
+      "clear_progress",
     ]);
   });
 
@@ -956,9 +957,13 @@ describe("createTaskListTool - update_task_blockedBy", () => {
     const result = createTestTool();
     sessionDir = result.sessionDir;
 
+    // Create both tasks so blockedBy validation passes
     invoke(result.tool, {
-      action: "add_task",
-      task: { id: "x", description: "X", status: "pending", summary: "X", blockedBy: ["y"] },
+      action: "create_tasks",
+      tasks: [
+        { id: "y", description: "Y", status: "pending", summary: "Y" },
+        { id: "x", description: "X", status: "pending", summary: "X", blockedBy: ["y"] },
+      ],
     });
 
     const response = invoke(result.tool, {
@@ -968,7 +973,8 @@ describe("createTaskListTool - update_task_blockedBy", () => {
     });
 
     const tasks = response.tasks as TaskItem[];
-    expect(tasks[0]!.blockedBy).toEqual([]);
+    const taskX = tasks.find((t) => t.id === "x");
+    expect(taskX!.blockedBy).toEqual([]);
   });
 
   test("returns error for missing taskId", () => {

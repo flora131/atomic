@@ -6,6 +6,7 @@ tools:
     read: true
     grep: true
     glob: true
+    task_list: true
     skill: false
 ---
 

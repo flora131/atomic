@@ -148,11 +148,8 @@ export async function executeConductorWorkflow(
         },
       });
       context.registerTool?.(taskListTool);
-    } catch {
-      // task_list tool registration is best-effort. If the session directory
-      // does not exist yet (e.g., in test environments with mocked session-runtime),
-      // the SQLite database cannot be created and we silently skip registration.
-      // The workflow continues without the task_list tool.
+    } catch (err) {
+      console.debug("task_list tool registration skipped:", err);
     }
 
     const conductorConfig: ConductorConfig = {

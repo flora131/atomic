@@ -37,12 +37,32 @@ export interface TaskListTool extends ToolDefinition {
   close: () => void;
 }
 
+/** Shape of a row returned from the tasks table */
+interface TaskRow {
+  id: string;
+  description: string;
+  status: string;
+  summary: string;
+  blocked_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Shape of a row returned from the progress table */
+interface ProgressRow {
+  id: number;
+  task_id: string;
+  entry: string;
+  created_at: string;
+}
+
 /**
  * JSON Schema for the task_list tool input.
  * Uses an `action` discriminator to dispatch to the correct CRUD handler.
  */
 const taskListInputSchema = {
   type: "object",
+  additionalProperties: false,
   properties: {
     action: {
       type: "string",
@@ -55,6 +75,7 @@ const taskListInputSchema = {
         "update_task_progress",
         "get_task_progress",
         "delete_task",
+        "clear_progress",
       ],
       description: "The CRUD operation to perform",
     },
@@ -196,19 +217,19 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
   );
 
   /** Convert a DB row to a TaskItem */
-  function rowToTaskItem(row: Record<string, unknown>): TaskItem {
+  function rowToTaskItem(row: TaskRow): TaskItem {
     return {
-      id: row.id as string,
-      description: row.description as string,
+      id: row.id,
+      description: row.description,
       status: row.status as TaskItem["status"],
-      summary: row.summary as string,
-      blockedBy: JSON.parse((row.blocked_by as string) || "[]") as string[],
+      summary: row.summary,
+      blockedBy: JSON.parse(row.blocked_by || "[]") as string[],
     };
   }
 
   /** Read all tasks from DB and emit event for UI updates (best-effort) */
   function syncAndNotify(): TaskItem[] {
-    const rows = selectAllTasks.all() as Record<string, unknown>[];
+    const rows = selectAllTasks.all() as TaskRow[];
     const tasks = rows.map(rowToTaskItem);
     try {
       config.emitTaskUpdate?.(tasks);
@@ -233,8 +254,8 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
       "Manage workflow tasks with CRUD operations. Supports: create_tasks (batch create), " +
       "list_tasks (view all), update_task_status (change status), add_task (add one), " +
       "update_task_blockedBy (update dependencies), update_task_progress (append progress note), " +
-      "get_task_progress (read progress), delete_task (remove). All mutations persist to SQLite " +
-      "and emit UI update events.",
+      "get_task_progress (read progress), clear_progress (remove progress entries), " +
+      "delete_task (remove). All mutations persist to SQLite and emit UI update events.",
     inputSchema: taskListInputSchema,
 
     close: () => {
@@ -257,6 +278,19 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
           if (!tasks || !Array.isArray(tasks)) {
             return { error: "create_tasks requires a 'tasks' array" };
           }
+          // Validate blockedBy references: IDs must exist in the batch or in the DB
+          const batchIds = new Set(tasks.map((t) => t.id));
+          for (const t of tasks) {
+            const refs = t.blockedBy ?? [];
+            const invalidIds = refs.filter(
+              (id) => !batchIds.has(id) && !selectTask.get({ $id: id })
+            );
+            if (invalidIds.length > 0) {
+              return {
+                error: `Task "${t.id}" blockedBy references non-existent task(s): ${invalidIds.join(", ")}`,
+              };
+            }
+          }
           const insertMany = db.transaction((items: TaskItem[]) => {
             for (const t of items) {
               insertTask.run({
@@ -274,7 +308,7 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
         }
 
         case "list_tasks": {
-          const rows = selectAllTasks.all() as Record<string, unknown>[];
+          const rows = selectAllTasks.all() as TaskRow[];
           const tasks = rows.map(rowToTaskItem);
           return {
             tasks,
@@ -292,12 +326,12 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
             return { error: "update_task_status requires a 'status' string" };
           }
           const existing = selectTask.get({ $id: taskId }) as
-            | Record<string, unknown>
+            | TaskRow
             | undefined;
           if (!existing) {
             return { error: `Task not found: ${taskId}` };
           }
-          const oldStatus = existing.status as string;
+          const oldStatus = existing.status;
           updateStatus.run({ $status: status, $id: taskId });
           const current = syncAndNotify();
           return {
@@ -314,12 +348,24 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
           if (!task || typeof task !== "object") {
             return { error: "add_task requires a 'task' object" };
           }
+          // Validate that all blockedBy references exist
+          const refs = task.blockedBy ?? [];
+          if (refs.length > 0) {
+            const invalidIds = refs.filter(
+              (id) => !selectTask.get({ $id: id })
+            );
+            if (invalidIds.length > 0) {
+              return {
+                error: `blockedBy references non-existent task(s): ${invalidIds.join(", ")}`,
+              };
+            }
+          }
           insertTask.run({
             $id: task.id,
             $description: task.description,
             $status: task.status,
             $summary: task.summary,
-            $blocked_by: JSON.stringify(task.blockedBy ?? []),
+            $blocked_by: JSON.stringify(refs),
           });
           const current = syncAndNotify();
           return { added: task, tasks: current, total: current.length };
@@ -335,7 +381,7 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
             return { error: "update_task_blockedBy requires a 'blockedBy' array" };
           }
           const existing = selectTask.get({ $id: taskId }) as
-            | Record<string, unknown>
+            | TaskRow
             | undefined;
           if (!existing) {
             return { error: `Task not found: ${taskId}` };
@@ -367,7 +413,7 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
             return { error: "update_task_progress requires a 'progress' string" };
           }
           const existing = selectTask.get({ $id: taskId }) as
-            | Record<string, unknown>
+            | TaskRow
             | undefined;
           if (!existing) {
             return { error: `Task not found: ${taskId}` };
@@ -381,25 +427,38 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
           const taskId = input.taskId as string | undefined;
           if (taskId) {
             const existing = selectTask.get({ $id: taskId }) as
-              | Record<string, unknown>
+              | TaskRow
               | undefined;
             if (!existing) {
               return { error: `Task not found: ${taskId}` };
             }
-            const rows = selectProgress.all({ $task_id: taskId }) as Record<
-              string,
-              unknown
-            >[];
+            const rows = selectProgress.all({ $task_id: taskId }) as ProgressRow[];
             const entries = rows.map(
               (r) => `[${r.created_at}] ${r.entry}`
             );
             return { progress: entries.join("\n") };
           }
-          const rows = selectAllProgress.all() as Record<string, unknown>[];
+          const rows = selectAllProgress.all() as ProgressRow[];
           const entries = rows.map(
             (r) => `[${r.created_at}] [${r.task_id}] ${r.entry}`
           );
           return { progress: entries.join("\n") };
+        }
+
+        case "clear_progress": {
+          const taskId = input.taskId as string | undefined;
+          if (taskId) {
+            const existing = selectTask.get({ $id: taskId }) as
+              | TaskRow
+              | undefined;
+            if (!existing) {
+              return { error: `Task not found: ${taskId}` };
+            }
+            deleteProgressForTask.run({ $task_id: taskId });
+            return { cleared: true, taskId };
+          }
+          db.run("DELETE FROM progress");
+          return { cleared: true, all: true };
         }
 
         case "delete_task": {
@@ -408,7 +467,7 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
             return { error: "delete_task requires a 'taskId' string" };
           }
           const existing = selectTask.get({ $id: taskId }) as
-            | Record<string, unknown>
+            | TaskRow
             | undefined;
           if (!existing) {
             return { error: `Task not found: ${taskId}` };
@@ -416,6 +475,18 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
           const deleteTx = db.transaction((id: string) => {
             deleteProgressForTask.run({ $task_id: id });
             deleteTaskStmt.run({ $id: id });
+            // Remove the deleted ID from other tasks' blockedBy arrays
+            const allRows = selectAllTasks.all() as TaskRow[];
+            for (const row of allRows) {
+              const deps: string[] = JSON.parse(row.blocked_by || "[]");
+              if (deps.includes(id)) {
+                const updated = deps.filter((d) => d !== id);
+                updateBlockedBy.run({
+                  $id: row.id,
+                  $blocked_by: JSON.stringify(updated),
+                });
+              }
+            }
           });
           deleteTx(taskId);
           const current = syncAndNotify();

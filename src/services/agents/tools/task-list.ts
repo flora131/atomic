@@ -225,6 +225,17 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
 
   const validStatuses = new Set<TaskItem["status"]>(["pending", "in_progress", "completed", "error"]);
 
+  /** Safely parse a JSON string, returning fallback on failure */
+  function safeParseBlockedBy(raw: string | null | undefined): string[] {
+    try {
+      const parsed = JSON.parse(raw || "[]");
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      console.warn(`[task-list] Corrupt blocked_by JSON, defaulting to []: ${raw}`);
+      return [];
+    }
+  }
+
   /** Convert a DB row to a TaskItem */
   function rowToTaskItem(row: TaskRow): TaskItem {
     const status = validStatuses.has(row.status as TaskItem["status"])
@@ -240,7 +251,7 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
       description: row.description,
       status,
       summary: row.summary,
-      blockedBy: JSON.parse(row.blocked_by || "[]") as string[],
+      blockedBy: safeParseBlockedBy(row.blocked_by),
     };
   }
 
@@ -251,7 +262,7 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
     try {
       config.emitTaskUpdate?.(tasks);
     } catch (err) {
-      console.debug("emitTaskUpdate failed (best-effort):", err);
+      console.warn("[task-list] emitTaskUpdate failed — UI may be stale:", err);
     }
     return tasks;
   }
@@ -287,7 +298,10 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
       if (closed) {
         return { error: "task_list tool has been closed" };
       }
-      const action = input.action as string;
+      const action = input.action;
+      if (typeof action !== "string") {
+        return { error: "Missing or invalid 'action' field — must be a string" };
+      }
 
       switch (action) {
         case "create_tasks": {
@@ -507,17 +521,19 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
             deleteProgressForTask.run({ $task_id: id });
             deleteTaskStmt.run({ $id: id });
             // Remove the deleted ID from other tasks' blockedBy arrays.
-            // Performance: O(n) scan over all tasks to update dependency arrays.
-            // Acceptable for typical workflow sizes (10-50 tasks). For larger task
-            // lists, consider a normalized dependency junction table with an index.
-            const allRows = selectAllTasks.all() as TaskRow[];
-            for (const row of allRows) {
-              const deps: string[] = JSON.parse(row.blocked_by || "[]");
+            // Uses a targeted SQL query to only touch rows that reference the deleted ID,
+            // avoiding a full table scan + per-row JS deserialization.
+            const dependentRows = db
+              .prepare(
+                `SELECT id, blocked_by FROM tasks WHERE blocked_by LIKE '%' || $id || '%'`
+              )
+              .all({ $id: id }) as Pick<TaskRow, "id" | "blocked_by">[];
+            for (const row of dependentRows) {
+              const deps = safeParseBlockedBy(row.blocked_by);
               if (deps.includes(id)) {
-                const updated = deps.filter((d) => d !== id);
                 updateBlockedBy.run({
                   $id: row.id,
-                  $blocked_by: JSON.stringify(updated),
+                  $blocked_by: JSON.stringify(deps.filter((d) => d !== id)),
                 });
               }
             }

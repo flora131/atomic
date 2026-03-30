@@ -28,6 +28,7 @@ import {
   incrementRuntimeParityCounter,
   runtimeParityDebug,
 } from "@/services/workflows/runtime-parity-observability.ts";
+import { conductorDebug } from "./conductor-debug-log.ts";
 import { createDefaultPartsTruncationConfig } from "@/state/parts/truncation.ts";
 import { createTaskUpdatePublisher } from "@/services/workflows/conductor/event-bridge.ts";
 import { createTaskListTool, type TaskListTool } from "@/services/agents/tools/task-list.ts";
@@ -81,6 +82,7 @@ export async function executeConductorWorkflow(
   });
 
   pipelineLog("Workflow", "start", { workflow: definition.name, sessionId, executor: "conductor" });
+  conductorDebug("workflow_start", { workflow: definition.name, sessionId, executor: "conductor" });
   incrementRuntimeParityCounter("workflow.runtime.parity.execution_total", {
     phase: "start",
     workflow: definition.name,
@@ -154,7 +156,18 @@ export async function executeConductorWorkflow(
       });
       context.registerTool?.(taskListTool);
     } catch (err) {
-      console.debug("task_list tool registration skipped:", err);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      pipelineError("Workflow", "task_list_tool_registration_failed", {
+        workflow: definition.name,
+        sessionId,
+        error: errorMessage,
+      });
+      conductorDebug("task_list_tool_registration_failed", {
+        workflow: definition.name,
+        sessionId,
+        error: errorMessage,
+        stack: err instanceof Error ? err.stack : undefined,
+      });
     }
 
     const conductorConfig: ConductorConfig = {
@@ -213,6 +226,12 @@ export async function executeConductorWorkflow(
           from: from ?? "start",
           to,
           indicator: options?.isResume ? "(resume)" : undefined,
+        });
+        conductorDebug("stage_transition", {
+          workflow: definition.name,
+          from: from ?? "start",
+          to,
+          isResume: options?.isResume ?? false,
         });
       },
 
@@ -339,6 +358,13 @@ export async function executeConductorWorkflow(
         stageId: failedStageId,
         error: failedStage?.error,
       });
+      conductorDebug("execution_failed", {
+        workflow: definition.name,
+        sessionId,
+        workflowRunId,
+        stageId: failedStageId,
+        error: failedStage?.error,
+      });
       incrementRuntimeParityCounter("workflow.runtime.parity.execution_total", {
         phase: "failure",
         workflow: definition.name,
@@ -362,6 +388,7 @@ export async function executeConductorWorkflow(
     }
 
     pipelineLog("Workflow", "complete", { workflow: definition.name, sessionId });
+    conductorDebug("workflow_complete", { workflow: definition.name, sessionId });
     incrementRuntimeParityCounter("workflow.runtime.parity.execution_total", {
       phase: "success",
       workflow: definition.name,
@@ -395,6 +422,13 @@ export async function executeConductorWorkflow(
     pipelineError("Workflow", "execution_error", {
       workflow: definition.name,
       error: error instanceof Error ? error.message : String(error),
+    });
+    conductorDebug("execution_error", {
+      workflow: definition.name,
+      sessionId,
+      workflowRunId,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
     });
     incrementRuntimeParityCounter("workflow.runtime.parity.execution_total", {
       phase: "failure",

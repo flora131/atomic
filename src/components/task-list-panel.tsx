@@ -5,22 +5,22 @@
  * with an industrial-dashboard aesthetic — bordered container, progress header,
  * visual progress bar, numbered task rows, and status-aware styling.
  *
- * TaskListPanel: Event-driven wrapper that subscribes to workflow:tasks-updated
- * bus events during workflow execution, feeding data to TaskListBox.
- * The previous fs.watch on tasks.json has been removed entirely per the spec
- * (section 5.10); the bus event is now the sole data source.
+ * TaskListPanel: Persistent wrapper that receives task data from either
+ * bus events (preferred) or file watcher (fallback) during workflow execution,
+ * feeding data to TaskListBox.
  *
  * Reference: specs/2026-02-14-ralph-task-list-ui.md
  */
 
-import React, { memo, useState } from "react";
+import React, { memo, useState, useEffect } from "react";
 import { useTerminalDimensions } from "@opentui/react";
 
-import { useBusSubscription } from "@/services/events/hooks.ts";
+import { watchTasksJson } from "@/commands/tui/workflow-commands/index.ts";
 import { MISC, TASK as TASK_ICONS } from "@/theme/icons.ts";
 import { useThemeColors, useTheme, getCatppuccinPalette } from "@/theme/index.tsx";
 import { TaskListIndicator, type TaskItem } from "@/components/task-list-indicator.tsx";
 import { sortTasksTopologically } from "@/components/task-order.ts";
+import { normalizeTaskItem } from "@/state/parts/helpers/task-status.ts";
 import { shouldAutoClearTaskPanel } from "@/components/task-list-lifecycle.ts";
 import { SPACING } from "@/theme/spacing.ts";
 
@@ -38,8 +38,12 @@ export interface TaskListBoxProps {
 }
 
 export interface TaskListPanelProps {
-  /** Workflow session directory path (retained for non-event uses) */
+  /** Workflow session directory path */
   sessionDir: string;
+  /** Workflow session ID for filtering bus events */
+  sessionId?: string;
+  /** Event bus for receiving task updates */
+  eventBus?: import("@/services/events/event-bus.ts").EventBus;
   /** Whether to show full task content without truncation */
   expanded?: boolean;
   /** Whether the parent workflow is currently active */
@@ -158,24 +162,38 @@ export const TaskListBox = memo(function TaskListBox({
 // ============================================================================
 
 export function TaskListPanel({
-  sessionDir: _sessionDir,
+  sessionDir,
+  sessionId,
+  eventBus,
   expanded = false,
   workflowActive = false,
 }: TaskListPanelProps): React.ReactNode {
   const [tasks, setTasks] = useState<TaskItem[]>([]);
 
-  // Subscribe to workflow:tasks-updated bus events as the sole data source.
-  // The useBusSubscription hook obtains the bus from EventBusProvider context
-  // and automatically unsubscribes on unmount.
-  useBusSubscription("workflow:tasks-updated", (event) => {
-    const items: TaskItem[] = event.data.tasks.map((t) => ({
-      id: t.id,
-      description: t.description,
-      status: t.status,
-      blockedBy: t.blockedBy,
-    }));
-    setTasks(sortTasksTopologically(items));
-  });
+  useEffect(() => {
+    // Prefer bus event subscription when available
+    if (eventBus && sessionId) {
+      const unsubscribe = eventBus.on("workflow:tasks-updated", (event) => {
+        // Filter events to this session
+        if (event.data.sessionId === sessionId) {
+          const items: TaskItem[] = event.data.tasks.map((t) => ({
+            id: t.id,
+            description: t.description,
+            status: t.status,
+            blockedBy: t.blockedBy,
+          }));
+          setTasks(sortTasksTopologically(items));
+        }
+      });
+      return unsubscribe;
+    }
+
+    // Fallback: file watcher for non-bus contexts
+    const cleanup = watchTasksJson(sessionDir, (items) => {
+      setTasks(sortTasksTopologically(items.map(toTaskItem)));
+    });
+    return cleanup;
+  }, [sessionDir, sessionId, eventBus]);
 
   if (tasks.length === 0) return null;
   if (!workflowActive && shouldAutoClearTaskPanel(tasks)) return null;
@@ -185,6 +203,11 @@ export function TaskListPanel({
       <TaskListBox items={tasks} expanded={expanded} />
     </box>
   );
+}
+
+/** Convert persisted disk payload to a normalized TaskItem for TaskListIndicator */
+function toTaskItem(t: unknown): TaskItem {
+  return normalizeTaskItem(t);
 }
 
 export default TaskListPanel;

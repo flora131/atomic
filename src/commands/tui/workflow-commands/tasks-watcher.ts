@@ -1,3 +1,14 @@
+/**
+ * File-system watcher for tasks.json in a workflow session directory.
+ *
+ * DEPRECATION NOTE (2026-03-30): This watcher is retained as a fallback for
+ * the `TaskListPanel` when the event bus is not available. The primary data
+ * source for task updates in the Ralph workflow is now the "workflow:tasks-updated"
+ * bus event emitted by the `task_list` tool. Once bus-only UI updates are fully
+ * validated and all legacy TodoWrite consumers are migrated, this watcher and
+ * the corresponding `persistWorkflowTasksToDisk` writer can be removed together.
+ */
+
 import { readFile } from "fs/promises";
 import { watch, type FSWatcher } from "node:fs";
 import { join } from "path";

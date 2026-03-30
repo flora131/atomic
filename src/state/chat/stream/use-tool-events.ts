@@ -183,6 +183,9 @@ export function useChatStreamToolEvents({
       }
     }
 
+    // TodoWrite handling — retained for non-Ralph contexts (standalone chat, other
+    // workflows). The Ralph workflow disallows TodoWrite via RALPH_DISALLOWED_TOOLS
+    // and uses the SQLite-backed `task_list` tool instead (see block below).
     if (isTodoWriteToolName(toolName) && input.todos && Array.isArray(input.todos)) {
       const previousTodos = todoItemsRef.current;
       const todos = reconcileTodoWriteItems(input.todos, previousTodos);
@@ -344,6 +347,10 @@ export function useChatStreamToolEvents({
       });
     });
 
+    // TodoWrite completion — retained for non-Ralph contexts (standalone chat,
+    // other workflows). The Ralph workflow disallows TodoWrite via
+    // RALPH_DISALLOWED_TOOLS and uses the SQLite-backed `task_list` tool instead
+    // (see block below).
     const isTodoWriteCompletion = isTodoWriteToolName(completedToolName);
     if (isTodoWriteCompletion && input && input.todos && Array.isArray(input.todos)) {
       const previousTodos = todoItemsRef.current;

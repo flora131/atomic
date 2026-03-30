@@ -99,17 +99,12 @@ const _ralphWorkflowBuilder = defineWorkflow({
     agent: "reviewer",
     description: `${STAGE_ICON.reviewer} REVIEWER`,
     prompt: (ctx) => {
-      const orchestratorOutput = ctx.stageOutputs.get("orchestrator");
-      const progressSummary = orchestratorOutput?.rawResponse ?? "";
-
       // Get prior debugger output from previous loop iteration (if any)
       const debuggerStageOutput = ctx.stageOutputs.get("debugger");
       const priorDebuggerOutput = debuggerStageOutput?.rawResponse;
 
       return buildReviewPrompt(
-        [...ctx.tasks],
         ctx.userPrompt,
-        progressSummary,
         priorDebuggerOutput,
       );
     },

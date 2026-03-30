@@ -302,25 +302,9 @@ export interface ReviewResult {
 
 /** Build a prompt for the reviewer sub-agent to review completed implementation */
 export function buildReviewPrompt(
-    tasks: TaskItem[],
     userPrompt: string,
-    progressFilePath: string,
     priorDebuggerOutput?: string,
 ): string {
-    const completedTasks = tasks
-        .filter((t) => isCompletedStatus(t.status))
-        .map((t) => `- ${t.id ?? "?"}: ${t.description}`)
-        .join("\n");
-
-    const fullTaskPlan = tasks
-        .map((t) => `- ${t.id ?? "?"}: [${t.status.toUpperCase()}] ${t.description}`)
-        .join("\n");
-
-    const totalCount = tasks.length;
-    const completedCount = tasks.filter((t) => isCompletedStatus(t.status)).length;
-    const errorCount = tasks.filter((t) => t.status.trim().toLowerCase() === "error").length;
-    const pendingCount = tasks.filter((t) => t.status.trim().toLowerCase() === "pending").length;
-    const blockedCount = tasks.filter((t) => t.status.trim().toLowerCase().includes("blocked")).length;
 
     return `# Code Review Request
 
@@ -332,41 +316,29 @@ The implementation was requested to fulfill the following specification:
 ${userPrompt}
 </user_request>
 
-## Task Plan
+## Retrieve Task List
 
-The planner decomposed the specification into the following tasks. Use this as a checklist to verify that every specification requirement has been addressed:
+Start by calling the task_list tool to retrieve the current task list and progress:
+\`{"action": "list_tasks"}\`
 
-<task_plan>
-${fullTaskPlan}
-</task_plan>
+Use the returned task data to:
+1. Build the task plan (all tasks with their statuses)
+2. Identify completed vs incomplete tasks
+3. Calculate completion metrics
 
-## Task Completion Summary
-
-- **Total tasks:** ${totalCount}
-- **Completed:** ${completedCount}
-- **Errored:** ${errorCount}
-- **Pending:** ${pendingCount}
-- **Blocked:** ${blockedCount}
-- **Completion rate:** ${totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0}%
-
-${completedCount < totalCount ? `**WARNING: Only ${completedCount} of ${totalCount} tasks completed. The implementation is incomplete. Any non-completed tasks MUST be reported as P0 findings.**` : ""}
-
-## Completed Tasks
-
-The following tasks were marked as completed during implementation:
-
-${completedTasks}
+You can also retrieve detailed progress notes for individual tasks:
+\`{"action": "get_task_progress"}\`
 
 ## Review Instructions
 
-Your task is to conduct a thorough code review of the changes made during this implementation. Analyze the progress file in ${progressFilePath} to understand the changes that were made.
+Your task is to conduct a thorough code review of the changes made during this implementation. Use the task list from the task_list tool to understand the scope and status of all tasks.
 
 ### Review Focus Areas
 
 Examine the implementation for:
 
 1. **Task Completion & Specification Gap Analysis**: This is the MOST IMPORTANT review step. You MUST:
-   a. Check the Task Completion Summary above. If the completion rate is below 100%, the implementation is incomplete and MUST be flagged.
+   a. Check the task list for completion status. If any tasks are not completed, the implementation is incomplete and MUST be flagged.
    b. For each task in ERROR, PENDING, or BLOCKED status, create a separate P0 finding describing what specification requirement is missing from the implementation.
    c. Cross-reference the task plan against the original specification. Identify any specification requirements NOT covered by any task (missing tasks).
    d. Identify completed tasks that only partially fulfill their corresponding specification requirement.
@@ -417,7 +389,7 @@ Produce your review findings in the following JSON format:
 
 ### Guidelines
 
-- Begin by performing the specification gap analysis — this is the highest-priority review step
+- Begin by retrieving the task list via the task_list tool, then perform the specification gap analysis — this is the highest-priority review step
 - Focus on substantive issues that affect correctness, security, or functionality
 - Provide specific, actionable feedback with clear explanations
 - Include exact file paths and line ranges when referencing code

@@ -330,23 +330,6 @@ describe("Ralph Workflow Definition (DSL)", () => {
     const reviewer = ralphWorkflowDefinition.conductorStages![2]!;
     const ctx = makeStageContext({
       userPrompt: "Build a REST API",
-      tasks: [
-        {
-          description: "Create endpoints",
-          status: "completed",
-          summary: "Creating endpoints",
-          blockedBy: [],
-        },
-      ],
-      stageOutputs: new Map([
-        [
-          "orchestrator",
-          makeStageOutput({
-            stageId: "orchestrator",
-            rawResponse: "Orchestrator completed all tasks",
-          }),
-        ],
-      ]),
     });
     const prompt = reviewer.buildPrompt(ctx);
     expect(prompt).toContain("Build a REST API");
@@ -358,22 +341,7 @@ describe("Ralph Workflow Definition (DSL)", () => {
     const reviewer = ralphWorkflowDefinition.conductorStages![2]!;
     const ctx = makeStageContext({
       userPrompt: "Build a REST API",
-      tasks: [
-        {
-          description: "Create endpoints",
-          status: "completed",
-          summary: "Creating endpoints",
-          blockedBy: [],
-        },
-      ],
       stageOutputs: new Map([
-        [
-          "orchestrator",
-          makeStageOutput({
-            stageId: "orchestrator",
-            rawResponse: "Orchestrator completed all tasks",
-          }),
-        ],
         [
           "debugger",
           makeStageOutput({

@@ -28,6 +28,7 @@ import type { ToolDefinition, Session, AgentMessage } from "@/services/agents/ty
 import type { BusEvent } from "@/services/events/bus-events/types.ts";
 import type { BusEventDataMap } from "@/services/events/bus-events/types.ts";
 import { EventBus } from "@/services/events/event-bus.ts";
+import { createTaskListTool, type TaskListTool } from "@/services/agents/tools/task-list.ts";
 
 // ---------------------------------------------------------------------------
 // Setup: Create a real temp directory so SQLite can open workflow.db
@@ -236,46 +237,55 @@ describe("task_list tool registration in conductor executor (§5.7)", () => {
 
   describe("tool configuration", () => {
     test("tool handler responds to list_tasks action", async () => {
+      // Create a tool directly to verify handler behavior (the executor
+      // closes the DB in its finally block, so captured tools are unusable
+      // after executeConductorWorkflow returns).
       mockSessionDir = createTempSessionDir();
-      const registerToolMock = mock((_tool: ToolDefinition) => {});
-      const context = createMockContext({ registerTool: registerToolMock });
-      const definition = createDefinition({ name: "my-workflow" });
+      const tool = createTaskListTool({
+        workflowName: "my-workflow",
+        sessionId: MOCK_SESSION_ID,
+        sessionDir: mockSessionDir,
+      });
 
-      await executeConductorWorkflow(definition, "test prompt", context);
-
-      const registeredTool = registerToolMock.mock.calls[0]![0] as ToolDefinition;
-      const result = registeredTool.handler({ action: "list_tasks" }, {
-        sessionID: "",
-        messageID: "",
-        agent: "test",
-        directory: "",
-        abort: new AbortController().signal,
-      }) as Record<string, unknown>;
-      expect(result).toHaveProperty("tasks");
-      expect(result).toHaveProperty("statusSummary");
+      try {
+        const result = tool.handler({ action: "list_tasks" }, {
+          sessionID: "",
+          messageID: "",
+          agent: "test",
+          directory: "",
+          abort: new AbortController().signal,
+        }) as Record<string, unknown>;
+        expect(result).toHaveProperty("tasks");
+        expect(result).toHaveProperty("statusSummary");
+      } finally {
+        tool.close();
+      }
     });
 
     test("tool handler responds to create_tasks action", async () => {
       mockSessionDir = createTempSessionDir();
-      const registerToolMock = mock((_tool: ToolDefinition) => {});
-      const context = createMockContext({ registerTool: registerToolMock });
-      const definition = createDefinition();
+      const tool = createTaskListTool({
+        workflowName: "test-workflow",
+        sessionId: MOCK_SESSION_ID,
+        sessionDir: mockSessionDir,
+      });
 
-      await executeConductorWorkflow(definition, "test prompt", context);
-
-      const registeredTool = registerToolMock.mock.calls[0]![0] as ToolDefinition;
-      const tasks = [
-        { id: "1", description: "Test task", status: "pending", summary: "Testing" },
-      ];
-      const result = registeredTool.handler({ action: "create_tasks", tasks }, {
-        sessionID: "",
-        messageID: "",
-        agent: "test",
-        directory: "",
-        abort: new AbortController().signal,
-      }) as Record<string, unknown>;
-      expect(result).toHaveProperty("created", 1);
-      expect(result).toHaveProperty("tasks");
+      try {
+        const tasks = [
+          { id: "1", description: "Test task", status: "pending", summary: "Testing" },
+        ];
+        const result = tool.handler({ action: "create_tasks", tasks }, {
+          sessionID: "",
+          messageID: "",
+          agent: "test",
+          directory: "",
+          abort: new AbortController().signal,
+        }) as Record<string, unknown>;
+        expect(result).toHaveProperty("created", 1);
+        expect(result).toHaveProperty("tasks");
+      } finally {
+        tool.close();
+      }
     });
   });
 
@@ -284,241 +294,220 @@ describe("task_list tool registration in conductor executor (§5.7)", () => {
   // -----------------------------------------------------------------------
 
   describe("workflow:tasks-updated event emission", () => {
-    test("emits workflow:tasks-updated when tool handler triggers emitTaskUpdate", async () => {
+    // Helper: create a task_list tool wired to an EventBus, matching the
+    // emitTaskUpdate callback pattern from conductor-executor.
+    function createToolWithBus(bus: EventBus, sessionDir: string): TaskListTool {
+      return createTaskListTool({
+        workflowName: "test-workflow",
+        sessionId: MOCK_SESSION_ID,
+        sessionDir,
+        emitTaskUpdate: (tasks) => {
+          const event: BusEvent<"workflow:tasks-updated"> = {
+            type: "workflow:tasks-updated",
+            sessionId: MOCK_SESSION_ID,
+            runId: MOCK_RUN_ID,
+            timestamp: Date.now(),
+            data: {
+              sessionId: MOCK_SESSION_ID,
+              tasks: tasks.map((t) => ({
+                id: t.id,
+                description: t.description,
+                status: t.status,
+                summary: t.summary,
+                ...(t.blockedBy && t.blockedBy.length > 0 ? { blockedBy: t.blockedBy } : {}),
+              })),
+            },
+          };
+          bus.publish(event);
+        },
+      });
+    }
+
+    const toolContext = {
+      sessionID: "",
+      messageID: "",
+      agent: "test",
+      directory: "",
+      abort: new AbortController().signal,
+    };
+
+    test("emits workflow:tasks-updated when tool handler triggers emitTaskUpdate", () => {
       mockSessionDir = createTempSessionDir();
       const bus = new EventBus({ validatePayloads: false });
       const receivedEvents: BusEvent[] = [];
       bus.onAll((event) => receivedEvents.push(event));
 
-      const registerToolMock = mock((_tool: ToolDefinition) => {});
-      const context = createMockContext({ eventBus: bus, registerTool: registerToolMock });
-      const definition = createDefinition();
+      const tool = createToolWithBus(bus, mockSessionDir);
+      try {
+        tool.handler({
+          action: "create_tasks",
+          tasks: [
+            { id: "1", description: "Task A", status: "pending", summary: "A" },
+            { id: "2", description: "Task B", status: "in_progress", summary: "B", blockedBy: ["1"] },
+          ],
+        }, toolContext);
 
-      await executeConductorWorkflow(definition, "test prompt", context);
-
-      // Invoke the registered tool to trigger emitTaskUpdate
-      const registeredTool = registerToolMock.mock.calls[0]![0] as ToolDefinition;
-      const tasks = [
-        { id: "1", description: "Task A", status: "pending", summary: "A" },
-        { id: "2", description: "Task B", status: "in_progress", summary: "B", blockedBy: ["1"] },
-      ];
-      registeredTool.handler({ action: "create_tasks", tasks }, {
-        sessionID: "",
-        messageID: "",
-        agent: "test",
-        directory: "",
-        abort: new AbortController().signal,
-      });
-
-      const taskUpdatedEvents = receivedEvents.filter(
-        (e) => e.type === "workflow:tasks-updated",
-      );
-      expect(taskUpdatedEvents).toHaveLength(1);
+        const taskUpdatedEvents = receivedEvents.filter(
+          (e) => e.type === "workflow:tasks-updated",
+        );
+        expect(taskUpdatedEvents).toHaveLength(1);
+      } finally {
+        tool.close();
+      }
     });
 
-    test("workflow:tasks-updated event carries correct sessionId", async () => {
+    test("workflow:tasks-updated event carries correct sessionId", () => {
       mockSessionDir = createTempSessionDir();
       const bus = new EventBus({ validatePayloads: false });
       const receivedEvents: BusEvent[] = [];
       bus.onAll((event) => receivedEvents.push(event));
 
-      const registerToolMock = mock((_tool: ToolDefinition) => {});
-      const context = createMockContext({ eventBus: bus, registerTool: registerToolMock });
-      const definition = createDefinition();
+      const tool = createToolWithBus(bus, mockSessionDir);
+      try {
+        tool.handler({
+          action: "create_tasks",
+          tasks: [{ id: "1", description: "T", status: "pending", summary: "S" }],
+        }, toolContext);
 
-      await executeConductorWorkflow(definition, "test prompt", context);
-
-      const registeredTool = registerToolMock.mock.calls[0]![0] as ToolDefinition;
-      registeredTool.handler({
-        action: "create_tasks",
-        tasks: [{ id: "1", description: "T", status: "pending", summary: "S" }],
-      }, {
-        sessionID: "",
-        messageID: "",
-        agent: "test",
-        directory: "",
-        abort: new AbortController().signal,
-      });
-
-      const event = receivedEvents.find((e) => e.type === "workflow:tasks-updated")!;
-      expect(event.sessionId).toBe(MOCK_SESSION_ID);
+        const event = receivedEvents.find((e) => e.type === "workflow:tasks-updated")!;
+        expect(event.sessionId).toBe(MOCK_SESSION_ID);
+      } finally {
+        tool.close();
+      }
     });
 
-    test("workflow:tasks-updated event carries correct runId", async () => {
+    test("workflow:tasks-updated event carries correct runId", () => {
       mockSessionDir = createTempSessionDir();
       const bus = new EventBus({ validatePayloads: false });
       const receivedEvents: BusEvent[] = [];
       bus.onAll((event) => receivedEvents.push(event));
 
-      const registerToolMock = mock((_tool: ToolDefinition) => {});
-      const context = createMockContext({ eventBus: bus, registerTool: registerToolMock });
-      const definition = createDefinition();
+      const tool = createToolWithBus(bus, mockSessionDir);
+      try {
+        tool.handler({
+          action: "create_tasks",
+          tasks: [{ id: "1", description: "T", status: "pending", summary: "S" }],
+        }, toolContext);
 
-      await executeConductorWorkflow(definition, "test prompt", context);
-
-      const registeredTool = registerToolMock.mock.calls[0]![0] as ToolDefinition;
-      registeredTool.handler({
-        action: "create_tasks",
-        tasks: [{ id: "1", description: "T", status: "pending", summary: "S" }],
-      }, {
-        sessionID: "",
-        messageID: "",
-        agent: "test",
-        directory: "",
-        abort: new AbortController().signal,
-      });
-
-      const event = receivedEvents.find((e) => e.type === "workflow:tasks-updated")!;
-      expect(event.runId).toBe(MOCK_RUN_ID);
+        const event = receivedEvents.find((e) => e.type === "workflow:tasks-updated")!;
+        expect(event.runId).toBe(MOCK_RUN_ID);
+      } finally {
+        tool.close();
+      }
     });
 
-    test("workflow:tasks-updated event data contains all tasks", async () => {
+    test("workflow:tasks-updated event data contains all tasks", () => {
       mockSessionDir = createTempSessionDir();
       const bus = new EventBus({ validatePayloads: false });
       const receivedEvents: BusEvent[] = [];
       bus.onAll((event) => receivedEvents.push(event));
 
-      const registerToolMock = mock((_tool: ToolDefinition) => {});
-      const context = createMockContext({ eventBus: bus, registerTool: registerToolMock });
-      const definition = createDefinition();
+      const tool = createToolWithBus(bus, mockSessionDir);
+      try {
+        tool.handler({
+          action: "create_tasks",
+          tasks: [
+            { id: "1", description: "Task A", status: "pending", summary: "A" },
+            { id: "2", description: "Task B", status: "completed", summary: "B" },
+          ],
+        }, toolContext);
 
-      await executeConductorWorkflow(definition, "test prompt", context);
-
-      const registeredTool = registerToolMock.mock.calls[0]![0] as ToolDefinition;
-      registeredTool.handler({
-        action: "create_tasks",
-        tasks: [
-          { id: "1", description: "Task A", status: "pending", summary: "A" },
-          { id: "2", description: "Task B", status: "completed", summary: "B" },
-        ],
-      }, {
-        sessionID: "",
-        messageID: "",
-        agent: "test",
-        directory: "",
-        abort: new AbortController().signal,
-      });
-
-      const event = receivedEvents.find((e) => e.type === "workflow:tasks-updated")!;
-      const data = event.data as BusEventDataMap["workflow:tasks-updated"];
-      expect(data.tasks).toHaveLength(2);
-      expect(data.tasks[0]!.id).toBe("1");
-      expect(data.tasks[0]!.description).toBe("Task A");
-      expect(data.tasks[0]!.status).toBe("pending");
-      expect(data.tasks[1]!.id).toBe("2");
-      expect(data.tasks[1]!.status).toBe("completed");
+        const event = receivedEvents.find((e) => e.type === "workflow:tasks-updated")!;
+        const data = event.data as BusEventDataMap["workflow:tasks-updated"];
+        expect(data.tasks).toHaveLength(2);
+        expect(data.tasks[0]!.id).toBe("1");
+        expect(data.tasks[0]!.description).toBe("Task A");
+        expect(data.tasks[0]!.status).toBe("pending");
+        expect(data.tasks[1]!.id).toBe("2");
+        expect(data.tasks[1]!.status).toBe("completed");
+      } finally {
+        tool.close();
+      }
     });
 
-    test("workflow:tasks-updated event preserves blockedBy when present", async () => {
+    test("workflow:tasks-updated event preserves blockedBy when present", () => {
       mockSessionDir = createTempSessionDir();
       const bus = new EventBus({ validatePayloads: false });
       const receivedEvents: BusEvent[] = [];
       bus.onAll((event) => receivedEvents.push(event));
 
-      const registerToolMock = mock((_tool: ToolDefinition) => {});
-      const context = createMockContext({ eventBus: bus, registerTool: registerToolMock });
-      const definition = createDefinition();
+      const tool = createToolWithBus(bus, mockSessionDir);
+      try {
+        tool.handler({
+          action: "create_tasks",
+          tasks: [
+            { id: "1", description: "T", status: "pending", summary: "S" },
+            { id: "2", description: "T2", status: "pending", summary: "S2", blockedBy: ["1"] },
+          ],
+        }, toolContext);
 
-      await executeConductorWorkflow(definition, "test prompt", context);
-
-      const registeredTool = registerToolMock.mock.calls[0]![0] as ToolDefinition;
-      registeredTool.handler({
-        action: "create_tasks",
-        tasks: [
-          { id: "1", description: "T", status: "pending", summary: "S" },
-          { id: "2", description: "T2", status: "pending", summary: "S2", blockedBy: ["1"] },
-        ],
-      }, {
-        sessionID: "",
-        messageID: "",
-        agent: "test",
-        directory: "",
-        abort: new AbortController().signal,
-      });
-
-      const event = receivedEvents.find((e) => e.type === "workflow:tasks-updated")!;
-      const data = event.data as BusEventDataMap["workflow:tasks-updated"];
-      // Task without blockedBy should not have the property
-      expect(data.tasks[0]!.blockedBy).toBeUndefined();
-      // Task with blockedBy should have it
-      expect(data.tasks[1]!.blockedBy).toEqual(["1"]);
+        const event = receivedEvents.find((e) => e.type === "workflow:tasks-updated")!;
+        const data = event.data as BusEventDataMap["workflow:tasks-updated"];
+        // Task without blockedBy should not have the property
+        expect(data.tasks[0]!.blockedBy).toBeUndefined();
+        // Task with blockedBy should have it
+        expect(data.tasks[1]!.blockedBy).toEqual(["1"]);
+      } finally {
+        tool.close();
+      }
     });
 
-    test("workflow:tasks-updated emitted on update_task_status", async () => {
+    test("workflow:tasks-updated emitted on update_task_status", () => {
       mockSessionDir = createTempSessionDir();
       const bus = new EventBus({ validatePayloads: false });
       const receivedEvents: BusEvent[] = [];
       bus.onAll((event) => receivedEvents.push(event));
 
-      const registerToolMock = mock((_tool: ToolDefinition) => {});
-      const context = createMockContext({ eventBus: bus, registerTool: registerToolMock });
-      const definition = createDefinition();
+      const tool = createToolWithBus(bus, mockSessionDir);
+      try {
+        // First create a task
+        tool.handler({
+          action: "create_tasks",
+          tasks: [{ id: "1", description: "T", status: "pending", summary: "S" }],
+        }, toolContext);
 
-      await executeConductorWorkflow(definition, "test prompt", context);
+        // Clear received events
+        receivedEvents.length = 0;
 
-      const registeredTool = registerToolMock.mock.calls[0]![0] as ToolDefinition;
-      const toolContext = {
-        sessionID: "",
-        messageID: "",
-        agent: "test",
-        directory: "",
-        abort: new AbortController().signal,
-      };
+        // Update its status
+        tool.handler({
+          action: "update_task_status",
+          taskId: "1",
+          status: "in_progress",
+        }, toolContext);
 
-      // First create a task
-      registeredTool.handler({
-        action: "create_tasks",
-        tasks: [{ id: "1", description: "T", status: "pending", summary: "S" }],
-      }, toolContext);
+        const taskUpdatedEvents = receivedEvents.filter(
+          (e) => e.type === "workflow:tasks-updated",
+        );
+        expect(taskUpdatedEvents).toHaveLength(1);
 
-      // Clear received events
-      receivedEvents.length = 0;
-
-      // Update its status
-      registeredTool.handler({
-        action: "update_task_status",
-        taskId: "1",
-        status: "in_progress",
-      }, toolContext);
-
-      const taskUpdatedEvents = receivedEvents.filter(
-        (e) => e.type === "workflow:tasks-updated",
-      );
-      expect(taskUpdatedEvents).toHaveLength(1);
-
-      const data = taskUpdatedEvents[0]!.data as BusEventDataMap["workflow:tasks-updated"];
-      expect(data.tasks[0]!.status).toBe("in_progress");
+        const data = taskUpdatedEvents[0]!.data as BusEventDataMap["workflow:tasks-updated"];
+        expect(data.tasks[0]!.status).toBe("in_progress");
+      } finally {
+        tool.close();
+      }
     });
 
-    test("no workflow:tasks-updated event when eventBus is absent", async () => {
+    test("no workflow:tasks-updated event when emitTaskUpdate is absent", () => {
       mockSessionDir = createTempSessionDir();
-      const registerToolMock = mock((_tool: ToolDefinition) => {});
-      const context = createMockContext({
-        eventBus: undefined,
-        registerTool: registerToolMock,
+      const tool = createTaskListTool({
+        workflowName: "test-workflow",
+        sessionId: MOCK_SESSION_ID,
+        sessionDir: mockSessionDir,
       });
-      const definition = createDefinition();
 
-      await executeConductorWorkflow(definition, "test prompt", context);
+      try {
+        // Invoke the tool — should not crash even without emitTaskUpdate
+        const result = tool.handler({
+          action: "create_tasks",
+          tasks: [{ id: "1", description: "T", status: "pending", summary: "S" }],
+        }, toolContext) as Record<string, unknown>;
 
-      // Tool should still be registered
-      expect(registerToolMock).toHaveBeenCalledTimes(1);
-
-      // Invoke the tool — should not crash even without eventBus
-      const registeredTool = registerToolMock.mock.calls[0]![0] as ToolDefinition;
-      const result = registeredTool.handler({
-        action: "create_tasks",
-        tasks: [{ id: "1", description: "T", status: "pending", summary: "S" }],
-      }, {
-        sessionID: "",
-        messageID: "",
-        agent: "test",
-        directory: "",
-        abort: new AbortController().signal,
-      }) as Record<string, unknown>;
-
-      // Should still return a valid result
-      expect(result).toHaveProperty("created", 1);
+        // Should still return a valid result
+        expect(result).toHaveProperty("created", 1);
+      } finally {
+        tool.close();
+      }
     });
   });
 

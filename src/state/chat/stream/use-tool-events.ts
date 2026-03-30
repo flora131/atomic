@@ -203,43 +203,10 @@ export function useChatStreamToolEvents({
       }
     }
 
-    // Handle task_list tool mutations (SQLite-backed CRUD tool).
-    // The tool itself persists to SQLite, so we only update TUI state here.
-    if (isTaskListToolName(toolName) && input.action) {
-      const action = input.action as string;
-
-      if (action === "create_tasks" && Array.isArray(input.tasks)) {
-        const todos: NormalizedTodoItem[] = (input.tasks as Array<Record<string, unknown>>).map((t) =>
-          normalizeTodoItem(t),
-        );
-        todoItemsRef.current = todos;
-        setTodoItems(todos);
-      }
-
-      if (action === "update_task_status" && input.taskId && input.status) {
-        const taskId = String(input.taskId);
-        const newStatus = normalizeTaskStatus(input.status);
-        const updatedTodos = todoItemsRef.current.map((t) =>
-          t.id === taskId ? { ...t, status: newStatus } : t,
-        );
-        todoItemsRef.current = updatedTodos;
-        setTodoItems(updatedTodos);
-      }
-
-      if (action === "add_task" && input.task && typeof input.task === "object") {
-        const newTodo = normalizeTodoItem(input.task);
-        const updatedTodos = [...todoItemsRef.current, newTodo];
-        todoItemsRef.current = updatedTodos;
-        setTodoItems(updatedTodos);
-      }
-
-      if (action === "delete_task" && input.taskId) {
-        const taskId = String(input.taskId);
-        const updatedTodos = todoItemsRef.current.filter((t) => t.id !== taskId);
-        todoItemsRef.current = updatedTodos;
-        setTodoItems(updatedTodos);
-      }
-    }
+    // task_list tool mutations (SQLite-backed CRUD tool):
+    // Optimistic updates are intentionally skipped in handleToolStart to avoid
+    // race conditions with parallel agents. The authoritative task state is
+    // applied in handleToolComplete from the tool's output instead.
   }, [
     agentType,
     applyAutoCompactionIndicator,

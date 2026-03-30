@@ -182,6 +182,14 @@ export const BusEventSchemas = {
       truncateTools: z.boolean(),
     }).optional(),
   }),
+  /**
+   * Workflow-level task update event (dot notation).
+   *
+   * Published by the conductor's `onTaskUpdate` callback when a stage produces
+   * or modifies tasks. Flows through the stream-part pipeline: coalesced by
+   * sessionId and mapped to a `task-list-update` StreamPartEvent for the UI
+   * message reducer. Used for stage-driven task updates (e.g., planner output).
+   */
   "workflow.task.update": z.object({
     tasks: z.array(z.object({
       id: z.string().optional(),
@@ -192,6 +200,14 @@ export const BusEventSchemas = {
     })),
     sourceStageId: z.string().optional(),
   }),
+  /**
+   * Tool-level task update event (colon notation).
+   *
+   * Published by the SQLite-backed `task_list` tool's `emitTaskUpdate` callback
+   * on every CRUD mutation. Consumed directly by the TaskListPanel via the event
+   * bus — does NOT flow through the stream-part pipeline. Used for real-time UI
+   * updates driven by individual tool calls (e.g., agent adds/completes a task).
+   */
   "workflow:tasks-updated": z.object({
     sessionId: z.string(),
     tasks: z.array(z.object({

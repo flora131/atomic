@@ -29,6 +29,15 @@ export interface TaskListToolConfig {
 }
 
 /**
+ * Extended ToolDefinition that exposes a close() method for explicit
+ * database resource cleanup. Callers should invoke close() when the
+ * workflow session ends to release the underlying SQLite connection.
+ */
+export interface TaskListTool extends ToolDefinition {
+  close: () => void;
+}
+
+/**
  * JSON Schema for the task_list tool input.
  * Uses an `action` discriminator to dispatch to the correct CRUD handler.
  */
@@ -107,9 +116,10 @@ const taskListInputSchema = {
  * On every task mutation, the optional emitTaskUpdate callback is invoked
  * with the current task list for real-time UI updates via the event bus.
  */
-export function createTaskListTool(config: TaskListToolConfig): ToolDefinition {
+export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
   const dbPath = join(config.sessionDir, "workflow.db");
   const db = new Database(dbPath);
+  let closed = false;
 
   // Enable WAL mode for concurrent read/write performance
   db.run("PRAGMA journal_mode = WAL;");
@@ -213,12 +223,26 @@ export function createTaskListTool(config: TaskListToolConfig): ToolDefinition {
       "update_task_progress (append progress note), get_task_progress (read progress), " +
       "delete_task (remove). All mutations persist to SQLite and emit UI update events.",
     inputSchema: taskListInputSchema as unknown as Record<string, unknown>,
+
+    close: () => {
+      if (!closed) {
+        closed = true;
+        db.close();
+      }
+    },
+
     handler: (input: Record<string, unknown>): Record<string, unknown> => {
+      if (closed) {
+        return { error: "task_list tool has been closed" };
+      }
       const action = input.action as string;
 
       switch (action) {
         case "create_tasks": {
-          const tasks = input.tasks as TaskItem[];
+          const tasks = input.tasks as TaskItem[] | undefined;
+          if (!tasks || !Array.isArray(tasks)) {
+            return { error: "create_tasks requires a 'tasks' array" };
+          }
           const insertMany = db.transaction((items: TaskItem[]) => {
             for (const t of items) {
               insertTask.run({
@@ -245,8 +269,14 @@ export function createTaskListTool(config: TaskListToolConfig): ToolDefinition {
         }
 
         case "update_task_status": {
-          const taskId = input.taskId as string;
-          const status = input.status as string;
+          const taskId = input.taskId as string | undefined;
+          const status = input.status as string | undefined;
+          if (!taskId || typeof taskId !== "string") {
+            return { error: "update_task_status requires a 'taskId' string" };
+          }
+          if (!status || typeof status !== "string") {
+            return { error: "update_task_status requires a 'status' string" };
+          }
           const existing = selectTask.get({ $id: taskId }) as
             | Record<string, unknown>
             | undefined;
@@ -265,7 +295,10 @@ export function createTaskListTool(config: TaskListToolConfig): ToolDefinition {
         }
 
         case "add_task": {
-          const task = input.task as TaskItem;
+          const task = input.task as TaskItem | undefined;
+          if (!task || typeof task !== "object") {
+            return { error: "add_task requires a 'task' object" };
+          }
           insertTask.run({
             $id: task.id,
             $description: task.description,
@@ -278,8 +311,14 @@ export function createTaskListTool(config: TaskListToolConfig): ToolDefinition {
         }
 
         case "update_task_progress": {
-          const taskId = input.taskId as string;
-          const progress = input.progress as string;
+          const taskId = input.taskId as string | undefined;
+          const progress = input.progress as string | undefined;
+          if (!taskId || typeof taskId !== "string") {
+            return { error: "update_task_progress requires a 'taskId' string" };
+          }
+          if (!progress || typeof progress !== "string") {
+            return { error: "update_task_progress requires a 'progress' string" };
+          }
           const existing = selectTask.get({ $id: taskId }) as
             | Record<string, unknown>
             | undefined;
@@ -310,7 +349,10 @@ export function createTaskListTool(config: TaskListToolConfig): ToolDefinition {
         }
 
         case "delete_task": {
-          const taskId = input.taskId as string;
+          const taskId = input.taskId as string | undefined;
+          if (!taskId || typeof taskId !== "string") {
+            return { error: "delete_task requires a 'taskId' string" };
+          }
           const existing = selectTask.get({ $id: taskId }) as
             | Record<string, unknown>
             | undefined;

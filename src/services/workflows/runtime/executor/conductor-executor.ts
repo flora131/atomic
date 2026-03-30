@@ -30,7 +30,7 @@ import {
 } from "@/services/workflows/runtime-parity-observability.ts";
 import { createDefaultPartsTruncationConfig } from "@/state/parts/truncation.ts";
 import { createTaskUpdatePublisher } from "@/services/workflows/conductor/event-bridge.ts";
-import { createTaskListTool } from "@/services/agents/tools/task-list.ts";
+import { createTaskListTool, type TaskListTool } from "@/services/agents/tools/task-list.ts";
 import { initializeWorkflowExecutionSession } from "./session-runtime.ts";
 
 /**
@@ -119,8 +119,9 @@ export async function executeConductorWorkflow(
     // workflow:tasks-updated events for real-time UI updates.
     // Wrapped in try/catch so that SQLite initialization failures (e.g., missing
     // session directory in tests) do not prevent the workflow from executing.
+    let taskListTool: TaskListTool | undefined;
     try {
-      const taskListTool = createTaskListTool({
+      taskListTool = createTaskListTool({
         workflowName: definition.name,
         sessionId,
         sessionDir,
@@ -302,6 +303,8 @@ export async function executeConductorWorkflow(
       // Always deregister the conductor interrupt and resume when execution completes or fails
       context.registerConductorInterrupt?.(null);
       context.registerConductorResume?.(null);
+      // Close the task_list tool's SQLite connection to prevent resource leaks
+      taskListTool?.close();
     }
 
     // Phase 5: Report result

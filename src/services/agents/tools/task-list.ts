@@ -440,6 +440,34 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
               error: `blockedBy references non-existent task(s): ${invalidIds.join(", ")}`,
             };
           }
+          // Reject self-references
+          if (blockedBy.includes(taskId)) {
+            return { error: `Circular dependency: task "${taskId}" cannot block itself` };
+          }
+          // Detect transitive cycles: DFS from each proposed blocker to see if
+          // any path leads back to taskId through existing dependencies.
+          const allRows = selectAllTasks.all() as TaskRow[];
+          const depsMap = new Map<string, string[]>();
+          for (const row of allRows) {
+            depsMap.set(
+              row.id,
+              row.id === taskId ? blockedBy : safeParseBlockedBy(row.blocked_by),
+            );
+          }
+          const visited = new Set<string>();
+          const stack = [...blockedBy];
+          while (stack.length > 0) {
+            const current = stack.pop()!;
+            if (current === taskId) {
+              return {
+                error: `Circular dependency detected: updating blockedBy for "${taskId}" would create a cycle`,
+              };
+            }
+            if (visited.has(current)) continue;
+            visited.add(current);
+            const deps = depsMap.get(current) ?? [];
+            stack.push(...deps);
+          }
           updateBlockedBy.run({
             $id: taskId,
             $blocked_by: JSON.stringify(blockedBy),

@@ -1,7 +1,6 @@
 import { dirname, join } from "path";
-import { mkdir } from "fs/promises";
 import { AGENT_CONFIG, type AgentKey } from "@/services/config/index.ts";
-import { copyFile, pathExists } from "@/services/system/copy.ts";
+import { copyFile, pathExists, ensureDir } from "@/services/system/copy.ts";
 import { mergeJsonFile } from "@/lib/merge.ts";
 
 export async function applyManagedOnboardingFiles(
@@ -18,7 +17,7 @@ export async function applyManagedOnboardingFiles(
     }
 
     const destinationPath = join(projectRoot, managedFile.destination);
-    await mkdir(dirname(destinationPath), { recursive: true });
+    await ensureDir(dirname(destinationPath));
 
     if (managedFile.merge && (await pathExists(destinationPath))) {
       await mergeJsonFile(sourcePath, destinationPath);

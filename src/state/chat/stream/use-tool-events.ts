@@ -211,8 +211,6 @@ export function useChatStreamToolEvents({
         );
         todoItemsRef.current = todos;
         setTodoItems(todos);
-        const _sd1 = workflowSessionDirRef.current;
-        if (_sd1 && workflowSessionIdRef.current) { persistWorkflowTasksToDisk(_sd1, todos); }
       }
 
       if (action === "update_task_status" && input.taskId && input.status) {
@@ -223,8 +221,6 @@ export function useChatStreamToolEvents({
         );
         todoItemsRef.current = updatedTodos;
         setTodoItems(updatedTodos);
-        const _sd2 = workflowSessionDirRef.current;
-        if (_sd2 && workflowSessionIdRef.current) { persistWorkflowTasksToDisk(_sd2, updatedTodos); }
       }
 
       if (action === "add_task" && input.task && typeof input.task === "object") {
@@ -232,8 +228,6 @@ export function useChatStreamToolEvents({
         const updatedTodos = [...todoItemsRef.current, newTodo];
         todoItemsRef.current = updatedTodos;
         setTodoItems(updatedTodos);
-        const _sd3 = workflowSessionDirRef.current;
-        if (_sd3 && workflowSessionIdRef.current) { persistWorkflowTasksToDisk(_sd3, updatedTodos); }
       }
 
       if (action === "delete_task" && input.taskId) {
@@ -241,8 +235,6 @@ export function useChatStreamToolEvents({
         const updatedTodos = todoItemsRef.current.filter((t) => t.id !== taskId);
         todoItemsRef.current = updatedTodos;
         setTodoItems(updatedTodos);
-        const _sd4 = workflowSessionDirRef.current;
-        if (_sd4 && workflowSessionIdRef.current) { persistWorkflowTasksToDisk(_sd4, updatedTodos); }
       }
     }
   }, [
@@ -385,8 +377,6 @@ export function useChatStreamToolEvents({
         );
         todoItemsRef.current = todos;
         setTodoItems(todos);
-        const _cd1 = workflowSessionDirRef.current;
-        if (_cd1 && workflowSessionIdRef.current) { persistWorkflowTasksToDisk(_cd1, todos); }
       } else {
         // Fallback: apply optimistic update from input when output lacks full task list
         if (action === "update_task_status" && input.taskId && input.status) {
@@ -397,8 +387,6 @@ export function useChatStreamToolEvents({
           );
           todoItemsRef.current = updatedTodos;
           setTodoItems(updatedTodos);
-          const _cd2 = workflowSessionDirRef.current;
-          if (_cd2 && workflowSessionIdRef.current) { persistWorkflowTasksToDisk(_cd2, updatedTodos); }
         }
 
         if (action === "add_task" && input.task && typeof input.task === "object") {
@@ -409,8 +397,6 @@ export function useChatStreamToolEvents({
             const updatedTodos = [...todoItemsRef.current, newTodo];
             todoItemsRef.current = updatedTodos;
             setTodoItems(updatedTodos);
-            const _cd3 = workflowSessionDirRef.current;
-            if (_cd3 && workflowSessionIdRef.current) { persistWorkflowTasksToDisk(_cd3, updatedTodos); }
           }
         }
 
@@ -419,8 +405,6 @@ export function useChatStreamToolEvents({
           const updatedTodos = todoItemsRef.current.filter((t) => t.id !== taskId);
           todoItemsRef.current = updatedTodos;
           setTodoItems(updatedTodos);
-          const _cd4 = workflowSessionDirRef.current;
-          if (_cd4 && workflowSessionIdRef.current) { persistWorkflowTasksToDisk(_cd4, updatedTodos); }
         }
       }
     }

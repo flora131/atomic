@@ -60,16 +60,12 @@ function makeMinimalGraph(): CompiledGraph<BaseState> {
 /** Create a workflow definition with a graph factory. */
 function makeWorkflowDefinition(
   name: string,
-  opts?: { withGraph?: boolean; withConductorGraph?: boolean },
+  opts?: { withConductorGraph?: boolean },
 ): WorkflowDefinition {
   const def: WorkflowDefinition = {
     name,
     description: `Test workflow: ${name}`,
   };
-
-  if (opts?.withGraph) {
-    def.createGraph = () => makeMinimalGraph();
-  }
 
   if (opts?.withConductorGraph) {
     def.createConductorGraph = () => makeMinimalGraph();
@@ -103,10 +99,7 @@ describe("discoverBuiltinWorkflows", () => {
       // If Ralph loads successfully, validate its structure
       expect(ralph.definition.name).toBe("ralph");
       expect(typeof ralph.definition.description).toBe("string");
-      expect(
-        ralph.definition.createConductorGraph !== undefined ||
-          ralph.definition.createGraph !== undefined,
-      ).toBe(true);
+      expect(ralph.definition.createConductorGraph).toBeDefined();
     }
     // If Ralph is not found, that's acceptable -- the import error
     // is caught and logged by discoverBuiltinWorkflows
@@ -157,19 +150,6 @@ describe("verifySingleWorkflow", () => {
     expect(mockVerifyWorkflow).not.toHaveBeenCalled();
   });
 
-  test("returns a verification report for workflow with createGraph", async () => {
-    const workflow: DiscoveredWorkflow = {
-      id: "test-wf",
-      definition: makeWorkflowDefinition("test-wf", { withGraph: true }),
-    };
-
-    const result = await verifySingleWorkflow(workflow, mockVerifyWorkflow);
-    expect(result.passed).toBe(true);
-    expect(result.report).toContain("test-wf");
-    expect(result.report).toContain("PASS");
-    expect(mockVerifyWorkflow).toHaveBeenCalledTimes(1);
-  });
-
   test("returns a verification report for workflow with createConductorGraph", async () => {
     const workflow: DiscoveredWorkflow = {
       id: "conductor-wf",
@@ -198,7 +178,7 @@ describe("verifySingleWorkflow", () => {
 
     const workflow: DiscoveredWorkflow = {
       id: "failing-wf",
-      definition: makeWorkflowDefinition("failing-wf", { withGraph: true }),
+      definition: makeWorkflowDefinition("failing-wf", { withConductorGraph: true }),
     };
 
     const result = await verifySingleWorkflow(workflow, mockVerifyWorkflow);
@@ -210,7 +190,7 @@ describe("verifySingleWorkflow", () => {
   test("report contains PASS for all properties when verification passes", async () => {
     const workflow: DiscoveredWorkflow = {
       id: "check-output",
-      definition: makeWorkflowDefinition("check-output", { withGraph: true }),
+      definition: makeWorkflowDefinition("check-output", { withConductorGraph: true }),
     };
 
     const result = await verifySingleWorkflow(workflow, mockVerifyWorkflow);
@@ -221,24 +201,10 @@ describe("verifySingleWorkflow", () => {
     expect(result.report).toContain("PASS  State Data-Flow");
   });
 
-  test("prefers createConductorGraph over createGraph when both exist", async () => {
-    const definition: WorkflowDefinition = {
-      name: "both-graphs",
-      description: "Has both graph factories",
-      createGraph: () => makeMinimalGraph(),
-      createConductorGraph: () => makeMinimalGraph(),
-    };
-
-    const workflow: DiscoveredWorkflow = { id: "both-graphs", definition };
-    const result = await verifySingleWorkflow(workflow, mockVerifyWorkflow);
-    expect(result.passed).toBe(true);
-    expect(result.report).toContain("both-graphs");
-  });
-
   test("passes encoded graph to verifyWorkflow", async () => {
     const workflow: DiscoveredWorkflow = {
       id: "encoding-test",
-      definition: makeWorkflowDefinition("encoding-test", { withGraph: true }),
+      definition: makeWorkflowDefinition("encoding-test", { withConductorGraph: true }),
     };
 
     await verifySingleWorkflow(workflow, mockVerifyWorkflow);

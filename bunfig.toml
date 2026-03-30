@@ -97,6 +97,15 @@ coveragePathIgnorePatterns = [
   "vendor/**",
   "generated/**",
   ".atomic/**",
+  ".claude/**",
+  ".github/**",
   ".opencode/**",
+  ".playwright/**",
+  ".vscode/**",
+  ".devcontainer/**",
+  ".cocoindex_code/**",
+  "assets/**",
+  "specs/**",
+  "research/**",
 ]
 

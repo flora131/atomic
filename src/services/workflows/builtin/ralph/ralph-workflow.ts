@@ -35,10 +35,10 @@ import { VERSION } from "@/version";
 // ── Stage Icons ──────────────────────────────────────────────────
 // Text-safe Unicode glyphs for ralph stage indicators.
 const STAGE_ICON = {
-  planner: "❖",      // U+2756 Black Diamond Minus White X
-  orchestrator: "◈",  // U+25C8 White Diamond Containing Black Small Diamond
-  reviewer: "◎",      // U+25CE Bullseye
-  debugger: "✦",      // U+2726 Black Four Pointed Star
+  planner: "⏣",
+  orchestrator: "⎈",
+  reviewer: "⊙",
+  debugger: "✦",
 } as const;
 
 // ---------------------------------------------------------------------------

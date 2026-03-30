@@ -11,6 +11,7 @@ export function useOrchestrationState(args: UseChatUiControllerStackArgs) {
   // ── App ──────────────────────────────────────────────────────────────
   const {
     createSubagentSession,
+    registerTool,
     streamWithSession,
     ensureSession,
     getModelDisplayInfo,
@@ -175,6 +176,7 @@ export function useOrchestrationState(args: UseChatUiControllerStackArgs) {
     ...topLevel,
     // App
     createSubagentSession,
+    registerTool,
     streamWithSession,
     ensureSession,
     getModelDisplayInfo,

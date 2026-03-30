@@ -6,6 +6,8 @@ import type { ChatMessage } from "@/state/chat/shared/types/index.ts";
 import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 import {
   isTodoWriteToolName,
+  normalizeTaskStatus,
+  normalizeTodoItem,
   reconcileTodoWriteItems,
 } from "@/state/parts/helpers/task-status.ts";
 import { isAutoCompactionToolName, type AutoCompactionIndicatorState } from "@/state/chat/shared/helpers/auto-compaction-lifecycle.ts";
@@ -17,6 +19,11 @@ import {
 } from "@/state/chat/shared/helpers/index.ts";
 import { applyStreamPartEvent, isSubagentToolName } from "@/state/parts/index.ts";
 import { persistWorkflowTasksToDisk } from "@/services/workflows/helpers/persist-workflow-tasks.ts";
+
+/** Detect the SQLite-backed task_list CRUD tool by name. */
+function isTaskListToolName(name: string): boolean {
+  return name === "task_list";
+}
 
 interface UseChatStreamToolEventsArgs {
   agentType?: AgentType;
@@ -192,6 +199,52 @@ export function useChatStreamToolEvents({
         }
       }
     }
+
+    // Handle task_list tool mutations (SQLite-backed CRUD tool).
+    // The tool itself persists to SQLite, so we only update TUI state here.
+    if (isTaskListToolName(toolName) && input.action) {
+      const action = input.action as string;
+
+      if (action === "create_tasks" && Array.isArray(input.tasks)) {
+        const todos: NormalizedTodoItem[] = (input.tasks as Array<Record<string, unknown>>).map((t) =>
+          normalizeTodoItem(t),
+        );
+        todoItemsRef.current = todos;
+        setTodoItems(todos);
+        const _sd1 = workflowSessionDirRef.current;
+        if (_sd1 && workflowSessionIdRef.current) { persistWorkflowTasksToDisk(_sd1, todos); }
+      }
+
+      if (action === "update_task_status" && input.taskId && input.status) {
+        const taskId = String(input.taskId);
+        const newStatus = normalizeTaskStatus(input.status);
+        const updatedTodos = todoItemsRef.current.map((t) =>
+          t.id === taskId ? { ...t, status: newStatus } : t,
+        );
+        todoItemsRef.current = updatedTodos;
+        setTodoItems(updatedTodos);
+        const _sd2 = workflowSessionDirRef.current;
+        if (_sd2 && workflowSessionIdRef.current) { persistWorkflowTasksToDisk(_sd2, updatedTodos); }
+      }
+
+      if (action === "add_task" && input.task && typeof input.task === "object") {
+        const newTodo = normalizeTodoItem(input.task);
+        const updatedTodos = [...todoItemsRef.current, newTodo];
+        todoItemsRef.current = updatedTodos;
+        setTodoItems(updatedTodos);
+        const _sd3 = workflowSessionDirRef.current;
+        if (_sd3 && workflowSessionIdRef.current) { persistWorkflowTasksToDisk(_sd3, updatedTodos); }
+      }
+
+      if (action === "delete_task" && input.taskId) {
+        const taskId = String(input.taskId);
+        const updatedTodos = todoItemsRef.current.filter((t) => t.id !== taskId);
+        todoItemsRef.current = updatedTodos;
+        setTodoItems(updatedTodos);
+        const _sd4 = workflowSessionDirRef.current;
+        if (_sd4 && workflowSessionIdRef.current) { persistWorkflowTasksToDisk(_sd4, updatedTodos); }
+      }
+    }
   }, [
     agentType,
     applyAutoCompactionIndicator,
@@ -313,6 +366,61 @@ export function useChatStreamToolEvents({
         const sessionDir = workflowSessionDirRef.current;
         if (sessionDir && workflowSessionIdRef.current) {
           persistWorkflowTasksToDisk(sessionDir, todos);
+        }
+      }
+    }
+
+    // Handle task_list tool completion (SQLite-backed CRUD tool).
+    // On completion, prefer the authoritative tasks array from the tool output
+    // when available; otherwise fall back to optimistic input-based updates.
+    // The tool itself persists to SQLite, so we only update TUI state here.
+    if (isTaskListToolName(completedToolName) && input && input.action) {
+      const action = input.action as string;
+      const outputRecord = (typeof output === "object" && output !== null ? output : {}) as Record<string, unknown>;
+
+      // If the output contains a tasks array, use it as the authoritative state
+      if (Array.isArray(outputRecord.tasks)) {
+        const todos: NormalizedTodoItem[] = (outputRecord.tasks as Array<Record<string, unknown>>).map((t) =>
+          normalizeTodoItem(t),
+        );
+        todoItemsRef.current = todos;
+        setTodoItems(todos);
+        const _cd1 = workflowSessionDirRef.current;
+        if (_cd1 && workflowSessionIdRef.current) { persistWorkflowTasksToDisk(_cd1, todos); }
+      } else {
+        // Fallback: apply optimistic update from input when output lacks full task list
+        if (action === "update_task_status" && input.taskId && input.status) {
+          const taskId = String(input.taskId);
+          const newStatus = normalizeTaskStatus(input.status);
+          const updatedTodos = todoItemsRef.current.map((t) =>
+            t.id === taskId ? { ...t, status: newStatus } : t,
+          );
+          todoItemsRef.current = updatedTodos;
+          setTodoItems(updatedTodos);
+          const _cd2 = workflowSessionDirRef.current;
+          if (_cd2 && workflowSessionIdRef.current) { persistWorkflowTasksToDisk(_cd2, updatedTodos); }
+        }
+
+        if (action === "add_task" && input.task && typeof input.task === "object") {
+          const newTodo = normalizeTodoItem(input.task);
+          // Avoid duplicating if the optimistic start already added it
+          const alreadyExists = todoItemsRef.current.some((t) => t.id === newTodo.id);
+          if (!alreadyExists) {
+            const updatedTodos = [...todoItemsRef.current, newTodo];
+            todoItemsRef.current = updatedTodos;
+            setTodoItems(updatedTodos);
+            const _cd3 = workflowSessionDirRef.current;
+            if (_cd3 && workflowSessionIdRef.current) { persistWorkflowTasksToDisk(_cd3, updatedTodos); }
+          }
+        }
+
+        if (action === "delete_task" && input.taskId) {
+          const taskId = String(input.taskId);
+          const updatedTodos = todoItemsRef.current.filter((t) => t.id !== taskId);
+          todoItemsRef.current = updatedTodos;
+          setTodoItems(updatedTodos);
+          const _cd4 = workflowSessionDirRef.current;
+          if (_cd4 && workflowSessionIdRef.current) { persistWorkflowTasksToDisk(_cd4, updatedTodos); }
         }
       }
     }

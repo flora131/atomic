@@ -7,7 +7,7 @@
  * services must not import from commands.
  */
 
-import type { Session, SessionConfig, ModelDisplayInfo, McpServerConfig } from "@/services/agents/types.ts";
+import type { Session, SessionConfig, ModelDisplayInfo, McpServerConfig, ToolDefinition } from "@/services/agents/types.ts";
 import type { AgentType, ModelOperations } from "@/services/models/index.ts";
 import type { TodoItem } from "@/services/agents/tools/todo-write.ts";
 import type { McpServerToggleMap, McpSnapshotView } from "@/lib/ui/mcp-output.ts";
@@ -78,6 +78,12 @@ export interface CommandContext {
   spawnSubagentParallel?: (agents: SubagentSpawnOptions[], abortSignal?: AbortSignal, onAgentComplete?: (result: SubagentStreamResult) => void) => Promise<SubagentStreamResult[]>;
   /** Create a fresh isolated agent session (used by the conductor for per-stage sessions). */
   createAgentSession?: (config?: SessionConfig) => Promise<Session>;
+  /**
+   * Register a custom tool on the underlying CodingAgentClient so that it is
+   * available to all sessions created afterwards. Used by the conductor executor
+   * to register workflow-scoped tools (e.g. task_list) before stage sessions start.
+   */
+  registerTool?: (tool: ToolDefinition) => void;
   /**
    * Stream a message through a specific session using the real SDK adapter
    * pipeline, capturing the full response text. Used by the workflow conductor

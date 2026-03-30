@@ -198,25 +198,30 @@ describe("buildOrchestratorPrompt", () => {
         expect(prompt).toContain('"error"');
     });
 
-    test("forbids wave batching of status updates", () => {
+    test("requires separate update_task_status per completion", () => {
         const prompt = buildOrchestratorPrompt([]);
 
-        expect(prompt).toContain("Anti-pattern: wave batching");
-        expect(prompt).toContain("Do NOT combine");
+        expect(prompt).toContain("SEPARATE");
+        expect(prompt).toContain("update_task_status call for each completion");
+        expect(prompt).toContain("do not batch them");
     });
 
-    test("requires separate TodoWrite per completion", () => {
+    test("references task_list tool and incremental API", () => {
         const prompt = buildOrchestratorPrompt([]);
 
-        expect(prompt).toContain("SEPARATE TodoWrite");
-        expect(prompt).toContain("do not batch them into one call");
+        expect(prompt).toContain("task_list");
+        expect(prompt).toContain("Incremental API");
+        expect(prompt).toContain("updates a SINGLE task by ID");
+        expect(prompt).not.toContain("TodoWrite");
+        expect(prompt).not.toContain("snapshot-based API");
+        expect(prompt).not.toContain("Snapshot API");
     });
 
-    test("references TodoWrite tool and snapshot API", () => {
+    test("includes list_tasks action for checking task state", () => {
         const prompt = buildOrchestratorPrompt([]);
 
-        expect(prompt).toContain("TodoWrite");
-        expect(prompt).toContain("snapshot-based API");
+        expect(prompt).toContain("Checking task state");
+        expect(prompt).toContain('"action": "list_tasks"');
     });
 
     // ========================================================================

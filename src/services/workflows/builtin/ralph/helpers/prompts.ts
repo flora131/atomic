@@ -316,33 +316,32 @@ task list **immediately** at every transition — not in batches, not later.
 
 ### Required update sequence for EACH task
 
-1. **IMMEDIATELY BEFORE spawning** a sub-agent for a task, call TodoWrite to
-   set that task's status to "in_progress".
-2. **IMMEDIATELY AFTER a sub-agent returns** (success or failure), call
-   TodoWrite to set that task's status to "completed" or "error".
+1. **IMMEDIATELY BEFORE spawning** a sub-agent for a task, call the task_list
+   tool to set that task's status to "in_progress":
+   \`{"action": "update_task_status", "taskId": "<id>", "status": "in_progress"}\`
+2. **IMMEDIATELY AFTER a sub-agent returns** (success or failure), call the
+   task_list tool to set that task's status to "completed" or "error":
+   \`{"action": "update_task_status", "taskId": "<id>", "status": "completed"}\`
 
 ### Timing rules
 
-- Call TodoWrite **within the same tool-call turn** as the event that
+- Call the task_list tool **within the same tool-call turn** as the event that
   triggered the status change. Do NOT wait to combine it with other updates.
-- When multiple sub-agents complete in parallel, issue a SEPARATE TodoWrite
-  for each completion as you process it — do not batch them into one call.
-- When spawning the next wave of tasks, issue TWO TodoWrite calls:
-  first one marking the previous task(s) as "completed", then a second one
-  marking the new task(s) as "in_progress" BEFORE spawning their sub-agents.
+- When multiple sub-agents complete in parallel, issue a SEPARATE
+  update_task_status call for each completion — do not batch them.
+- When spawning the next wave of tasks, first mark the previous task(s) as
+  "completed", then mark the new task(s) as "in_progress" BEFORE spawning.
 
-### Anti-pattern: wave batching (DO NOT DO THIS)
+### Incremental API
 
-Do NOT combine "mark previous tasks completed" and "mark next tasks
-in_progress" into a single TodoWrite call. This causes the UI to skip
-the intermediate state and makes it look like tasks jump from "in_progress"
-to "completed" without the user seeing real-time progress.
+Each task_list call updates a SINGLE task by ID. You do NOT need to send the
+full task list — just the task ID and new status. This is more efficient and
+avoids data loss from dropped tasks in snapshot payloads.
 
-### Snapshot API
+### Checking task state
 
-Each TodoWrite call MUST include the FULL task list with ALL current
-statuses — not just the changed task. This is a snapshot-based API: every
-call replaces the entire list.`;
+To see the current state of all tasks, call:
+\`{"action": "list_tasks"}\``;
 }
 
 // ============================================================================

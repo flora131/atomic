@@ -1,7 +1,7 @@
 import type { AskUserQuestionEventData } from "@/services/workflows/graph/index.ts";
 import type { CreateSessionFn } from "@/services/workflows/graph/types.ts";
 import type { AgentType, ModelOperations } from "@/services/models/index.ts";
-import type { McpServerConfig, Session } from "@/services/agents/types.ts";
+import type { McpServerConfig, Session, ToolDefinition } from "@/services/agents/types.ts";
 import type { ChatMessage } from "@/state/chat/shared/types/message.ts";
 
 export type OnToolStart = (
@@ -82,6 +82,12 @@ export interface ChatAppProps {
     modelHint?: string,
   ) => Promise<import("@/services/agents/types.ts").ModelDisplayInfo>;
   createSubagentSession?: CreateSessionFn;
+  /**
+   * Register a custom tool on the underlying CodingAgentClient.
+   * Makes the tool available to all sessions created via createSubagentSession.
+   * Used by the conductor executor to register workflow-scoped tools (e.g., task_list).
+   */
+  registerTool?: (tool: ToolDefinition) => void;
   /**
    * Stream a message through a specific session using the real SDK adapter
    * pipeline, returning the captured response text. Used by the workflow

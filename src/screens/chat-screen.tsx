@@ -70,6 +70,7 @@ export function ChatApp({
   modelOps,
   getModelDisplayInfo,
   createSubagentSession,
+  registerTool,
   streamWithSession,
   initialPrompt,
   onModelChange,
@@ -152,6 +153,7 @@ export function ChatApp({
   // renders, preventing unnecessary downstream re-renders in the controller stack.
   const app = useMemo(() => ({
     createSubagentSession,
+    registerTool,
     streamWithSession,
     ensureSession,
     getModelDisplayInfo,
@@ -174,6 +176,7 @@ export function ChatApp({
     workingDir,
   }), [
     createSubagentSession,
+    registerTool,
     streamWithSession,
     ensureSession,
     getModelDisplayInfo,

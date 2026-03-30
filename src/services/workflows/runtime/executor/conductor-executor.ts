@@ -20,6 +20,7 @@ import type { CommandContext, CommandResult } from "@/types/command.ts";
 import type { ConductorConfig } from "@/services/workflows/conductor/types.ts";
 import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 import type { TaskItem } from "@/services/workflows/builtin/ralph/helpers/prompts.ts";
+import type { BusEvent } from "@/services/events/bus-events/types.ts";
 
 import { WorkflowSessionConductor } from "@/services/workflows/conductor/conductor.ts";
 import { pipelineLog, pipelineError } from "@/services/events/pipeline-logger.ts";
@@ -29,6 +30,7 @@ import {
 } from "@/services/workflows/runtime-parity-observability.ts";
 import { createDefaultPartsTruncationConfig } from "@/state/parts/truncation.ts";
 import { createTaskUpdatePublisher } from "@/services/workflows/conductor/event-bridge.ts";
+import { createTaskListTool } from "@/services/agents/tools/task-list.ts";
 import { initializeWorkflowExecutionSession } from "./session-runtime.ts";
 
 /**
@@ -111,6 +113,46 @@ export async function executeConductorWorkflow(
     const publishTaskUpdate = context.eventBus
       ? createTaskUpdatePublisher(context.eventBus, sessionId, workflowRunId)
       : undefined;
+
+    // Create and register the task_list tool for this workflow session (§5.7).
+    // The tool is backed by a session-scoped SQLite database and emits
+    // workflow:tasks-updated events for real-time UI updates.
+    // Wrapped in try/catch so that SQLite initialization failures (e.g., missing
+    // session directory in tests) do not prevent the workflow from executing.
+    try {
+      const taskListTool = createTaskListTool({
+        workflowName: definition.name,
+        sessionId,
+        sessionDir,
+        emitTaskUpdate: (tasks) => {
+          if (context.eventBus) {
+            const event: BusEvent<"workflow:tasks-updated"> = {
+              type: "workflow:tasks-updated",
+              sessionId,
+              runId: workflowRunId,
+              timestamp: Date.now(),
+              data: {
+                sessionId,
+                tasks: tasks.map((t) => ({
+                  id: t.id,
+                  description: t.description,
+                  status: t.status,
+                  summary: t.summary,
+                  ...(t.blockedBy && t.blockedBy.length > 0 ? { blockedBy: t.blockedBy } : {}),
+                })),
+              },
+            };
+            context.eventBus.publish(event);
+          }
+        },
+      });
+      context.registerTool?.(taskListTool);
+    } catch {
+      // task_list tool registration is best-effort. If the session directory
+      // does not exist yet (e.g., in test environments with mocked session-runtime),
+      // the SQLite database cannot be created and we silently skip registration.
+      // The workflow continues without the task_list tool.
+    }
 
     const conductorConfig: ConductorConfig = {
       graph: compiled,

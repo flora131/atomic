@@ -11,8 +11,9 @@
  */
 
 import { join } from "path";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import { getBinaryDataDir } from "@/services/config/config-path.ts";
+import { ensureDirSync } from "@/services/system/copy.ts";
 import type { TelemetryState } from "@/services/telemetry/types.ts";
 import { handleTelemetryError } from "@/services/telemetry/telemetry-errors.ts";
 
@@ -98,7 +99,7 @@ export function writeTelemetryState(state: TelemetryState): void {
 
   // Ensure directory exists
   if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
+    ensureDirSync(dir);
   }
 
   // Write atomically by writing to temp file first, then renaming

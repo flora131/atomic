@@ -7,8 +7,9 @@
 import { spinner, log } from "@clack/prompts";
 import { join } from "path";
 import { tmpdir } from "os";
-import { mkdir, rm, rename, chmod, copyFile as fsCopyFile, unlink } from "fs/promises";
+import { rm, rename, chmod, copyFile as fsCopyFile, unlink } from "fs/promises";
 import { existsSync } from "fs";
+import { ensureDir } from "@/services/system/copy.ts";
 
 import {
   detectInstallationType,
@@ -156,7 +157,7 @@ async function replaceBinaryWindows(newBinaryPath: string, targetPath: string): 
  */
 export async function extractConfig(archivePath: string, dataDir: string): Promise<void> {
   // Ensure data directory exists
-  await mkdir(dataDir, { recursive: true });
+  await ensureDir(dataDir);
 
   if (isWindows()) {
     // Use PowerShell's Expand-Archive for zip files
@@ -236,7 +237,7 @@ export async function updateCommand(): Promise<void> {
 
     // Create temp directory for downloads
     const tempDir = join(tmpdir(), `atomic-update-${Date.now()}`);
-    await mkdir(tempDir, { recursive: true });
+    await ensureDir(tempDir);
 
     try {
       const binaryFilename = getBinaryFilename();

@@ -84,7 +84,7 @@ describe("createTaskListTool - structure", () => {
     expect(schema.required).toEqual(["action"]);
   });
 
-  test("inputSchema defines action enum with all 7 operations", () => {
+  test("inputSchema defines action enum with all 8 operations", () => {
     const result = createTestTool();
     sessionDir = result.sessionDir;
     const schema = result.tool.inputSchema as Record<string, unknown>;
@@ -97,6 +97,7 @@ describe("createTaskListTool - structure", () => {
       "list_tasks",
       "update_task_status",
       "add_task",
+      "update_task_blockedBy",
       "update_task_progress",
       "get_task_progress",
       "delete_task",
@@ -823,5 +824,138 @@ describe("createTaskListTool - database file", () => {
     const dbPath = join(sessionDir, "workflow.db");
     const file = Bun.file(dbPath);
     expect(file.size).toBeGreaterThan(0);
+  });
+});
+
+// --- double-close safety ---
+
+describe("createTaskListTool - double close", () => {
+  let sessionDir: string;
+
+  afterEach(() => {
+    if (sessionDir) {
+      rmSync(sessionDir, { recursive: true, force: true });
+    }
+  });
+
+  test("calling close() twice does not throw", () => {
+    const result = createTestTool();
+    sessionDir = result.sessionDir;
+    const tool = result.tool as ReturnType<typeof createTaskListTool>;
+
+    expect(() => {
+      tool.close();
+      tool.close();
+    }).not.toThrow();
+  });
+
+  test("operations after close() return an error", () => {
+    const result = createTestTool();
+    sessionDir = result.sessionDir;
+    const tool = result.tool as ReturnType<typeof createTaskListTool>;
+
+    tool.close();
+    const response = invoke(tool, { action: "list_tasks" });
+    expect(response.error).toBe("task_list tool has been closed");
+  });
+});
+
+// --- update_task_blockedBy ---
+
+describe("createTaskListTool - update_task_blockedBy", () => {
+  let sessionDir: string;
+
+  afterEach(() => {
+    if (sessionDir) {
+      rmSync(sessionDir, { recursive: true, force: true });
+    }
+  });
+
+  test("updates blockedBy for an existing task", () => {
+    const result = createTestTool();
+    sessionDir = result.sessionDir;
+
+    invoke(result.tool, {
+      action: "create_tasks",
+      tasks: [
+        { id: "a", description: "A", status: "pending", summary: "A" },
+        { id: "b", description: "B", status: "pending", summary: "B" },
+        { id: "c", description: "C", status: "pending", summary: "C" },
+      ],
+    });
+
+    const response = invoke(result.tool, {
+      action: "update_task_blockedBy",
+      taskId: "c",
+      blockedBy: ["a", "b"],
+    });
+
+    expect(response.error).toBeUndefined();
+    expect(response.taskId).toBe("c");
+    expect(response.blockedBy).toEqual(["a", "b"]);
+    const tasks = response.tasks as TaskItem[];
+    const taskC = tasks.find((t) => t.id === "c");
+    expect(taskC!.blockedBy).toEqual(["a", "b"]);
+  });
+
+  test("clears blockedBy with an empty array", () => {
+    const result = createTestTool();
+    sessionDir = result.sessionDir;
+
+    invoke(result.tool, {
+      action: "add_task",
+      task: { id: "x", description: "X", status: "pending", summary: "X", blockedBy: ["y"] },
+    });
+
+    const response = invoke(result.tool, {
+      action: "update_task_blockedBy",
+      taskId: "x",
+      blockedBy: [],
+    });
+
+    const tasks = response.tasks as TaskItem[];
+    expect(tasks[0]!.blockedBy).toEqual([]);
+  });
+
+  test("returns error for missing taskId", () => {
+    const result = createTestTool();
+    sessionDir = result.sessionDir;
+
+    const response = invoke(result.tool, {
+      action: "update_task_blockedBy",
+      blockedBy: ["a"],
+    });
+
+    expect(response.error).toBe("update_task_blockedBy requires a 'taskId' string");
+  });
+
+  test("returns error for missing blockedBy array", () => {
+    const result = createTestTool();
+    sessionDir = result.sessionDir;
+
+    invoke(result.tool, {
+      action: "add_task",
+      task: { id: "t1", description: "T", status: "pending", summary: "T" },
+    });
+
+    const response = invoke(result.tool, {
+      action: "update_task_blockedBy",
+      taskId: "t1",
+    });
+
+    expect(response.error).toBe("update_task_blockedBy requires a 'blockedBy' array");
+  });
+
+  test("returns error for non-existent task", () => {
+    const result = createTestTool();
+    sessionDir = result.sessionDir;
+
+    const response = invoke(result.tool, {
+      action: "update_task_blockedBy",
+      taskId: "ghost",
+      blockedBy: [],
+    });
+
+    expect(response.error).toBe("Task not found: ghost");
   });
 });

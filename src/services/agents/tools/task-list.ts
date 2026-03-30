@@ -51,6 +51,7 @@ const taskListInputSchema = {
         "list_tasks",
         "update_task_status",
         "add_task",
+        "update_task_blockedBy",
         "update_task_progress",
         "get_task_progress",
         "delete_task",
@@ -102,9 +103,14 @@ const taskListInputSchema = {
       type: "string",
       description: "Progress text to append (for update_task_progress)",
     },
+    blockedBy: {
+      type: "array",
+      items: { type: "string" },
+      description: "Array of task IDs this task is blocked by (for update_task_blockedBy)",
+    },
   },
   required: ["action"],
-} as const;
+};
 
 /**
  * Create a task_list tool definition backed by a session-scoped SQLite database.
@@ -183,6 +189,10 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
     "SELECT task_id, entry, created_at FROM progress ORDER BY created_at"
   );
 
+  const updateBlockedBy = db.prepare(
+    "UPDATE tasks SET blocked_by = $blocked_by, updated_at = datetime('now') WHERE id = $id"
+  );
+
   /** Convert a DB row to a TaskItem */
   function rowToTaskItem(row: Record<string, unknown>): TaskItem {
     return {
@@ -200,8 +210,8 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
     const tasks = rows.map(rowToTaskItem);
     try {
       config.emitTaskUpdate?.(tasks);
-    } catch {
-      // UI updates are best-effort; do not fail the tool call
+    } catch (err) {
+      console.debug("emitTaskUpdate failed (best-effort):", err);
     }
     return tasks;
   }
@@ -220,13 +230,15 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
     description:
       "Manage workflow tasks with CRUD operations. Supports: create_tasks (batch create), " +
       "list_tasks (view all), update_task_status (change status), add_task (add one), " +
-      "update_task_progress (append progress note), get_task_progress (read progress), " +
-      "delete_task (remove). All mutations persist to SQLite and emit UI update events.",
-    inputSchema: taskListInputSchema as unknown as Record<string, unknown>,
+      "update_task_blockedBy (update dependencies), update_task_progress (append progress note), " +
+      "get_task_progress (read progress), delete_task (remove). All mutations persist to SQLite " +
+      "and emit UI update events.",
+    inputSchema: taskListInputSchema,
 
     close: () => {
       if (!closed) {
         closed = true;
+        db.run("PRAGMA wal_checkpoint(TRUNCATE);");
         db.close();
       }
     },
@@ -311,6 +323,29 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
           return { added: task, tasks: current, total: current.length };
         }
 
+        case "update_task_blockedBy": {
+          const taskId = input.taskId as string | undefined;
+          const blockedBy = input.blockedBy as string[] | undefined;
+          if (!taskId || typeof taskId !== "string") {
+            return { error: "update_task_blockedBy requires a 'taskId' string" };
+          }
+          if (!Array.isArray(blockedBy)) {
+            return { error: "update_task_blockedBy requires a 'blockedBy' array" };
+          }
+          const existing = selectTask.get({ $id: taskId }) as
+            | Record<string, unknown>
+            | undefined;
+          if (!existing) {
+            return { error: `Task not found: ${taskId}` };
+          }
+          updateBlockedBy.run({
+            $id: taskId,
+            $blocked_by: JSON.stringify(blockedBy),
+          });
+          const current = syncAndNotify();
+          return { taskId, blockedBy, tasks: current };
+        }
+
         case "update_task_progress": {
           const taskId = input.taskId as string | undefined;
           const progress = input.progress as string | undefined;
@@ -360,8 +395,11 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
           if (!existing) {
             return { error: `Task not found: ${taskId}` };
           }
-          deleteProgressForTask.run({ $task_id: taskId });
-          deleteTaskStmt.run({ $id: taskId });
+          const deleteTx = db.transaction((id: string) => {
+            deleteProgressForTask.run({ $task_id: id });
+            deleteTaskStmt.run({ $id: id });
+          });
+          deleteTx(taskId);
           const current = syncAndNotify();
           return { deleted: taskId, tasks: current, remaining: current.length };
         }

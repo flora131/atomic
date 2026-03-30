@@ -1064,3 +1064,305 @@ describe("createTaskListTool - update_task_blockedBy", () => {
     );
   });
 });
+
+// --- create_tasks input validation ---
+
+describe("createTaskListTool - create_tasks validation", () => {
+  let sessionDir: string;
+
+  afterEach(() => {
+    if (sessionDir) rmSync(sessionDir, { recursive: true, force: true });
+  });
+
+  test("returns error when tasks param is missing", () => {
+    const result = createTestTool();
+    sessionDir = result.sessionDir;
+
+    const response = invoke(result.tool, { action: "create_tasks" });
+    expect(response.error).toBe("create_tasks requires a 'tasks' array");
+  });
+
+  test("returns error when tasks param is not an array", () => {
+    const result = createTestTool();
+    sessionDir = result.sessionDir;
+
+    const response = invoke(result.tool, {
+      action: "create_tasks",
+      tasks: "not-an-array",
+    });
+    expect(response.error).toBe("create_tasks requires a 'tasks' array");
+  });
+
+  test("returns error when blockedBy references non-existent external task", () => {
+    const result = createTestTool();
+    sessionDir = result.sessionDir;
+
+    const response = invoke(result.tool, {
+      action: "create_tasks",
+      tasks: [
+        {
+          id: "a",
+          description: "A",
+          status: "pending",
+          summary: "A",
+          blockedBy: ["nonexistent"],
+        },
+      ],
+    });
+    expect(response.error).toBe(
+      'Task "a" blockedBy references non-existent task(s): nonexistent'
+    );
+  });
+});
+
+// --- update_task_status input validation ---
+
+describe("createTaskListTool - update_task_status validation", () => {
+  let sessionDir: string;
+
+  afterEach(() => {
+    if (sessionDir) rmSync(sessionDir, { recursive: true, force: true });
+  });
+
+  test("returns error when taskId is missing", () => {
+    const result = createTestTool();
+    sessionDir = result.sessionDir;
+
+    const response = invoke(result.tool, {
+      action: "update_task_status",
+      status: "completed",
+    });
+    expect(response.error).toBe(
+      "update_task_status requires a 'taskId' string"
+    );
+  });
+
+  test("returns error when status is missing", () => {
+    const result = createTestTool();
+    sessionDir = result.sessionDir;
+
+    const response = invoke(result.tool, {
+      action: "update_task_status",
+      taskId: "some-task",
+    });
+    expect(response.error).toBe(
+      "update_task_status requires a 'status' string"
+    );
+  });
+});
+
+// --- add_task input validation ---
+
+describe("createTaskListTool - add_task validation", () => {
+  let sessionDir: string;
+
+  afterEach(() => {
+    if (sessionDir) rmSync(sessionDir, { recursive: true, force: true });
+  });
+
+  test("returns error when task param is missing", () => {
+    const result = createTestTool();
+    sessionDir = result.sessionDir;
+
+    const response = invoke(result.tool, { action: "add_task" });
+    expect(response.error).toBe("add_task requires a 'task' object");
+  });
+
+  test("returns error when blockedBy references non-existent task", () => {
+    const result = createTestTool();
+    sessionDir = result.sessionDir;
+
+    const response = invoke(result.tool, {
+      action: "add_task",
+      task: {
+        id: "t1",
+        description: "Task 1",
+        status: "pending",
+        summary: "Doing",
+        blockedBy: ["ghost"],
+      },
+    });
+    expect(response.error).toBe(
+      "blockedBy references non-existent task(s): ghost"
+    );
+  });
+});
+
+// --- update_task_progress input validation ---
+
+describe("createTaskListTool - update_task_progress validation", () => {
+  let sessionDir: string;
+
+  afterEach(() => {
+    if (sessionDir) rmSync(sessionDir, { recursive: true, force: true });
+  });
+
+  test("returns error when taskId is missing", () => {
+    const result = createTestTool();
+    sessionDir = result.sessionDir;
+
+    const response = invoke(result.tool, {
+      action: "update_task_progress",
+      progress: "some progress",
+    });
+    expect(response.error).toBe(
+      "update_task_progress requires a 'taskId' string"
+    );
+  });
+
+  test("returns error when progress is missing", () => {
+    const result = createTestTool();
+    sessionDir = result.sessionDir;
+
+    const response = invoke(result.tool, {
+      action: "update_task_progress",
+      taskId: "some-task",
+    });
+    expect(response.error).toBe(
+      "update_task_progress requires a 'progress' string"
+    );
+  });
+
+  test("returns error for non-existent task", () => {
+    const result = createTestTool();
+    sessionDir = result.sessionDir;
+
+    const response = invoke(result.tool, {
+      action: "update_task_progress",
+      taskId: "ghost",
+      progress: "did stuff",
+    });
+    expect(response.error).toBe("Task not found: ghost");
+  });
+});
+
+// --- clear_progress ---
+
+describe("createTaskListTool - clear_progress", () => {
+  let sessionDir: string;
+
+  afterEach(() => {
+    if (sessionDir) rmSync(sessionDir, { recursive: true, force: true });
+  });
+
+  test("clears progress for a specific task", () => {
+    const result = createTestTool();
+    sessionDir = result.sessionDir;
+
+    invoke(result.tool, {
+      action: "create_tasks",
+      tasks: [
+        { id: "t1", description: "Task", status: "pending", summary: "S" },
+      ],
+    });
+    invoke(result.tool, {
+      action: "update_task_progress",
+      taskId: "t1",
+      progress: "step 1",
+    });
+
+    const response = invoke(result.tool, {
+      action: "clear_progress",
+      taskId: "t1",
+    });
+    expect(response.cleared).toBe(true);
+    expect(response.taskId).toBe("t1");
+
+    const progress = invoke(result.tool, {
+      action: "get_task_progress",
+      taskId: "t1",
+    });
+    expect(progress.progress).toBe("");
+  });
+
+  test("returns error for non-existent task", () => {
+    const result = createTestTool();
+    sessionDir = result.sessionDir;
+
+    const response = invoke(result.tool, {
+      action: "clear_progress",
+      taskId: "ghost",
+    });
+    expect(response.error).toBe("Task not found: ghost");
+  });
+
+  test("clears all progress when no taskId provided", () => {
+    const result = createTestTool();
+    sessionDir = result.sessionDir;
+
+    invoke(result.tool, {
+      action: "create_tasks",
+      tasks: [
+        { id: "t1", description: "A", status: "pending", summary: "A" },
+        { id: "t2", description: "B", status: "pending", summary: "B" },
+      ],
+    });
+    invoke(result.tool, {
+      action: "update_task_progress",
+      taskId: "t1",
+      progress: "p1",
+    });
+    invoke(result.tool, {
+      action: "update_task_progress",
+      taskId: "t2",
+      progress: "p2",
+    });
+
+    const response = invoke(result.tool, { action: "clear_progress" });
+    expect(response.cleared).toBe(true);
+    expect(response.all).toBe(true);
+
+    const progress = invoke(result.tool, { action: "get_task_progress" });
+    expect(progress.progress).toBe("");
+  });
+});
+
+// --- delete_task blockedBy cascade ---
+
+describe("createTaskListTool - delete_task blockedBy cleanup", () => {
+  let sessionDir: string;
+
+  afterEach(() => {
+    if (sessionDir) rmSync(sessionDir, { recursive: true, force: true });
+  });
+
+  test("returns error when taskId is missing", () => {
+    const result = createTestTool();
+    sessionDir = result.sessionDir;
+
+    const response = invoke(result.tool, { action: "delete_task" });
+    expect(response.error).toBe("delete_task requires a 'taskId' string");
+  });
+
+  test("removes deleted task from other tasks blockedBy arrays", () => {
+    const result = createTestTool();
+    sessionDir = result.sessionDir;
+
+    invoke(result.tool, {
+      action: "create_tasks",
+      tasks: [
+        { id: "a", description: "A", status: "pending", summary: "A" },
+        {
+          id: "b",
+          description: "B",
+          status: "pending",
+          summary: "B",
+          blockedBy: ["a"],
+        },
+      ],
+    });
+
+    // Verify blockedBy is set
+    const before = invoke(result.tool, { action: "list_tasks" });
+    const taskB = (before.tasks as TaskItem[]).find((t) => t.id === "b");
+    expect(taskB?.blockedBy).toEqual(["a"]);
+
+    // Delete task "a"
+    invoke(result.tool, { action: "delete_task", taskId: "a" });
+
+    // Task "b" should no longer have "a" in blockedBy
+    const after = invoke(result.tool, { action: "list_tasks" });
+    const taskBAfter = (after.tasks as TaskItem[]).find((t) => t.id === "b");
+    expect(taskBAfter?.blockedBy).toEqual([]);
+  });
+});

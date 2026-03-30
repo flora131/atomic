@@ -499,6 +499,48 @@ describe("createTaskListTool - update_task_progress", () => {
     expect(response.appended).toBe(true);
   });
 
+  test("emits task update events on progress mutation", () => {
+    const emitted: TaskItem[][] = [];
+    const result = createTestTool((tasks) => emitted.push(tasks));
+    sessionDir = result.sessionDir;
+
+    invoke(result.tool, {
+      action: "create_tasks",
+      tasks: [{ id: "1", description: "Task", status: "in_progress", summary: "Working" }],
+    });
+    const emitCountAfterCreate = emitted.length;
+
+    invoke(result.tool, {
+      action: "update_task_progress",
+      taskId: "1",
+      progress: "Made progress",
+    });
+
+    expect(emitted.length).toBe(emitCountAfterCreate + 1);
+    expect(emitted[emitted.length - 1]![0]!.id).toBe("1");
+  });
+
+  test("returns tasks in response after progress update", () => {
+    const result = createTestTool();
+    sessionDir = result.sessionDir;
+
+    invoke(result.tool, {
+      action: "create_tasks",
+      tasks: [{ id: "1", description: "Task", status: "in_progress", summary: "Working" }],
+    });
+
+    const response = invoke(result.tool, {
+      action: "update_task_progress",
+      taskId: "1",
+      progress: "Step done",
+    });
+
+    expect(response.tasks).toBeDefined();
+    const tasks = response.tasks as TaskItem[];
+    expect(tasks.length).toBe(1);
+    expect(tasks[0]!.id).toBe("1");
+  });
+
   test("progress entries are retrievable via get_task_progress", () => {
     const result = createTestTool();
     sessionDir = result.sessionDir;
@@ -556,6 +598,18 @@ describe("createTaskListTool - get_task_progress", () => {
     });
 
     expect(response.progress).toBe("");
+  });
+
+  test("returns error for non-existent task", () => {
+    const result = createTestTool();
+    sessionDir = result.sessionDir;
+
+    const response = invoke(result.tool, {
+      action: "get_task_progress",
+      taskId: "ghost",
+    });
+
+    expect(response.error).toBe("Task not found: ghost");
   });
 
   test("returns all progress when no taskId provided", () => {
@@ -957,5 +1011,50 @@ describe("createTaskListTool - update_task_blockedBy", () => {
     });
 
     expect(response.error).toBe("Task not found: ghost");
+  });
+
+  test("returns error when blockedBy references non-existent task IDs", () => {
+    const result = createTestTool();
+    sessionDir = result.sessionDir;
+
+    invoke(result.tool, {
+      action: "create_tasks",
+      tasks: [
+        { id: "a", description: "A", status: "pending", summary: "A" },
+      ],
+    });
+
+    const response = invoke(result.tool, {
+      action: "update_task_blockedBy",
+      taskId: "a",
+      blockedBy: ["nonexistent1", "nonexistent2"],
+    });
+
+    expect(response.error).toBe(
+      "blockedBy references non-existent task(s): nonexistent1, nonexistent2"
+    );
+  });
+
+  test("returns error when blockedBy partially references non-existent task IDs", () => {
+    const result = createTestTool();
+    sessionDir = result.sessionDir;
+
+    invoke(result.tool, {
+      action: "create_tasks",
+      tasks: [
+        { id: "a", description: "A", status: "pending", summary: "A" },
+        { id: "b", description: "B", status: "pending", summary: "B" },
+      ],
+    });
+
+    const response = invoke(result.tool, {
+      action: "update_task_blockedBy",
+      taskId: "a",
+      blockedBy: ["b", "ghost"],
+    });
+
+    expect(response.error).toBe(
+      "blockedBy references non-existent task(s): ghost"
+    );
   });
 });

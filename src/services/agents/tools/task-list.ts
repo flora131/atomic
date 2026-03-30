@@ -129,6 +129,8 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
 
   // Enable WAL mode for concurrent read/write performance
   db.run("PRAGMA journal_mode = WAL;");
+  // Enforce foreign key constraints at the database level
+  db.run("PRAGMA foreign_keys = ON;");
 
   // Create tables
   db.run(`
@@ -338,6 +340,15 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
           if (!existing) {
             return { error: `Task not found: ${taskId}` };
           }
+          // Validate that all referenced task IDs exist
+          const invalidIds = blockedBy.filter(
+            (id) => !selectTask.get({ $id: id })
+          );
+          if (invalidIds.length > 0) {
+            return {
+              error: `blockedBy references non-existent task(s): ${invalidIds.join(", ")}`,
+            };
+          }
           updateBlockedBy.run({
             $id: taskId,
             $blocked_by: JSON.stringify(blockedBy),
@@ -362,12 +373,19 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
             return { error: `Task not found: ${taskId}` };
           }
           insertProgress.run({ $task_id: taskId, $entry: progress });
-          return { taskId, appended: true };
+          const current = syncAndNotify();
+          return { taskId, appended: true, tasks: current };
         }
 
         case "get_task_progress": {
           const taskId = input.taskId as string | undefined;
           if (taskId) {
+            const existing = selectTask.get({ $id: taskId }) as
+              | Record<string, unknown>
+              | undefined;
+            if (!existing) {
+              return { error: `Task not found: ${taskId}` };
+            }
             const rows = selectProgress.all({ $task_id: taskId }) as Record<
               string,
               unknown

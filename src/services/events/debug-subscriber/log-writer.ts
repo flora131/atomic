@@ -1,5 +1,5 @@
 import { join } from "path";
-import { mkdir } from "fs/promises";
+import { ensureDir } from "@/services/system/copy.ts";
 import type { BusEvent } from "@/services/events/bus-events/index.ts";
 import {
   buildLogSessionName,
@@ -47,12 +47,12 @@ export async function initEventLog(options?: {
   logDirPath: string;
 }> {
   const logDir = options?.logDir ?? DEFAULT_LOG_DIR;
-  await mkdir(logDir, { recursive: true });
+  await ensureDir(logDir);
   await cleanup(logDir);
 
   const sessionName = buildLogSessionName();
   const logDirPath = join(logDir, sessionName);
-  await mkdir(logDirPath, { recursive: true });
+  await ensureDir(logDirPath);
 
   const logPath = join(logDirPath, LOG_EVENTS_FILENAME);
   const rawLogPath = join(logDirPath, LOG_RAW_STREAM_FILENAME);

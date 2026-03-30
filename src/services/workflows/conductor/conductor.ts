@@ -63,8 +63,9 @@ import {
 import { truncateStageOutput } from "@/services/workflows/conductor/truncate.ts";
 import { isPipelineDebug } from "@/services/events/pipeline-logger.ts";
 import { DEFAULT_LOG_DIR } from "@/services/events/debug-subscriber/config.ts";
-import { mkdirSync, appendFileSync } from "node:fs";
+import { appendFileSync } from "node:fs";
 import { join } from "node:path";
+import { ensureDirSync } from "@/services/system/copy.ts";
 
 const CONDUCTOR_LOG_DIR = process.env.LOG_DIR?.trim() || DEFAULT_LOG_DIR;
 const CONDUCTOR_LOG = join(CONDUCTOR_LOG_DIR, "conductor-debug.log");
@@ -74,7 +75,7 @@ let conductorLogDirEnsured = false;
 function conductorLog(action: string, data?: Record<string, unknown>): void {
   if (!isPipelineDebug()) return;
   if (!conductorLogDirEnsured) {
-    mkdirSync(CONDUCTOR_LOG_DIR, { recursive: true });
+    ensureDirSync(CONDUCTOR_LOG_DIR);
     conductorLogDirEnsured = true;
   }
   const ts = new Date().toISOString();

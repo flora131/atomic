@@ -192,4 +192,14 @@ export const BusEventSchemas = {
     })),
     sourceStageId: z.string().optional(),
   }),
+  "workflow:tasks-updated": z.object({
+    sessionId: z.string(),
+    tasks: z.array(z.object({
+      id: z.string(),
+      description: z.string(),
+      status: z.enum(["pending", "in_progress", "completed", "error"]),
+      summary: z.string(),
+      blockedBy: z.array(z.string()).optional(),
+    })),
+  }),
 } satisfies Record<string, z.ZodType>;

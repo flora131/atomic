@@ -371,35 +371,41 @@ export function useChatStreamToolEvents({
         todoItemsRef.current = todos;
         setTodoItems(todos);
       } else if (input && input.action) {
-        // Fallback: apply optimistic update from input when output lacks full task list
+        // Fallback: apply optimistic update from input when output lacks full task list.
+        // Uses functional setTodoItems updater so concurrent calls from parallel agents
+        // chain correctly instead of clobbering each other via stale todoItemsRef reads.
         const action = input.action as string;
 
         if (action === "update_task_status" && input.taskId && input.status) {
           const taskId = String(input.taskId);
           const newStatus = normalizeTaskStatus(input.status);
-          const updatedTodos = todoItemsRef.current.map((t) =>
-            t.id === taskId ? { ...t, status: newStatus } : t,
-          );
-          todoItemsRef.current = updatedTodos;
-          setTodoItems(updatedTodos);
+          setTodoItems((prev) => {
+            const updatedTodos = prev.map((t) =>
+              t.id === taskId ? { ...t, status: newStatus } : t,
+            );
+            todoItemsRef.current = updatedTodos;
+            return updatedTodos;
+          });
         }
 
         if (action === "add_task" && input.task && typeof input.task === "object") {
           const newTodo = normalizeTodoItem(input.task);
-          // Avoid duplicating if the optimistic start already added it
-          const alreadyExists = todoItemsRef.current.some((t) => t.id === newTodo.id);
-          if (!alreadyExists) {
-            const updatedTodos = [...todoItemsRef.current, newTodo];
+          setTodoItems((prev) => {
+            const alreadyExists = prev.some((t) => t.id === newTodo.id);
+            if (alreadyExists) return prev;
+            const updatedTodos = [...prev, newTodo];
             todoItemsRef.current = updatedTodos;
-            setTodoItems(updatedTodos);
-          }
+            return updatedTodos;
+          });
         }
 
         if (action === "delete_task" && input.taskId) {
           const taskId = String(input.taskId);
-          const updatedTodos = todoItemsRef.current.filter((t) => t.id !== taskId);
-          todoItemsRef.current = updatedTodos;
-          setTodoItems(updatedTodos);
+          setTodoItems((prev) => {
+            const updatedTodos = prev.filter((t) => t.id !== taskId);
+            todoItemsRef.current = updatedTodos;
+            return updatedTodos;
+          });
         }
       }
     }

@@ -352,6 +352,7 @@ export function createCommandContext(args: UseCommandExecutorArgs): CommandConte
     createAgentSession: args.createSubagentSession
       ? async (config) => args.createSubagentSession!(config)
       : undefined,
+    registerTool: args.registerTool,
     streamWithSession: args.streamWithSession,
     streamAndWait: (prompt: string, options?: { hideContent?: boolean }) => {
       const handle = args.trackAwaitedRun(

@@ -454,11 +454,9 @@ export class WorkflowSessionConductor {
     // Track the currently-executing stage
     this.currentStage = nodeId;
 
-    // Emit workflow.step.start event — skip on resume since the step
-    // was already started before the interrupt.
-    if (!resuming) {
-      this.emitStepStart(stage);
-    }
+    // Emit workflow.step.start event — also on resume so the UI
+    // transitions the step indicator back from "interrupted" to "running".
+    this.emitStepStart(stage);
     const startTime = Date.now();
 
     // Execute the stage in an isolated session

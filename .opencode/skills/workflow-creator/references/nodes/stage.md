@@ -16,7 +16,7 @@ Every stage requires both a `name` and an `agent` field:
   agent: "planner",              // Agent definition to invoke
   description: "PLANNER",
   prompt: (ctx) => `Plan: ${ctx.userPrompt}`,
-  outputMapper: (response) => ({ tasks: parseTasks(response) }),
+  outputMapper: () => ({}),
 })
 
 // Stage with null agent — uses SDK default instructions
@@ -118,7 +118,7 @@ Each provider has its own tool naming conventions, so tool names must be specifi
   agent: "planner",
   description: "PLANNER",
   prompt: (ctx) => `Plan: ${ctx.userPrompt}`,
-  outputMapper: (response) => ({ tasks: parseTasks(response) }),
+  outputMapper: () => ({}),
   disallowedTools: {
     claude: ["AskUserQuestion"],
     opencode: ["question"],

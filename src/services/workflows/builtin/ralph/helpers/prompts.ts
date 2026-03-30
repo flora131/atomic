@@ -35,108 +35,61 @@ function isCompletedStatus(status: string): boolean {
 // STEP 1: TASK DECOMPOSITION
 // ============================================================================
 
-/** Build the spec-to-tasks prompt for decomposing a spec into TodoItem[] */
+/** Build the spec-to-tasks prompt for decomposing a spec into tasks via the task_list tool */
 export function buildSpecToTasksPrompt(specContent: string): string {
-    return `You are a task decomposition engine. Your sole output is a JSON array.
+    return `You are a task decomposition engine.
 
 <specification>
 ${specContent}
 </specification>
 
 <instructions>
-Decompose the specification above into an ordered list of implementation tasks.
+Decompose the specification above into an ordered list of implementation tasks,
+then persist them using the task_list tool.
 
 1. Read the specification and identify every distinct deliverable.
 2. Order tasks by priority: foundational/infrastructure first, then features, then tests, then polish.
 3. Analyze technical dependencies between tasks and populate blockedBy arrays.
-4. Output the task list as a single raw JSON array. Nothing else.
+4. Call the task_list tool with the "create_tasks" action, passing all tasks at once.
 </instructions>
 
-<schema>
-The output MUST validate against the following JSON Schema:
+<tool_usage>
+You MUST call the task_list tool to create tasks. Do NOT output raw JSON.
 
+Call the tool like this:
 {
-  "type": "array",
-  "items": {
-    "type": "object",
-    "required": ["id", "description", "status", "summary", "blockedBy"],
-    "additionalProperties": false,
-    "properties": {
-      "id": {
-        "type": "integer",
-        "minimum": 1
-      },
-      "description": {
-        "type": "string",
-        "maxLength": 80
-      },
-      "status": {
-        "type": "string",
-        "const": "pending"
-      },
-      "summary": {
-        "type": "string",
-        "maxLength": 60
-      },
-      "blockedBy": {
-        "type": "array",
-        "items": {
-          "type": "integer",
-          "minimum": 1
-        }
-      }
+  "action": "create_tasks",
+  "tasks": [
+    {
+      "id": "1",
+      "description": "Concise imperative task description, under 80 characters",
+      "status": "pending",
+      "summary": "Present-participle phrase for UI display, under 60 characters",
+      "blockedBy": []
     }
-  }
+  ]
 }
 
 Field definitions:
 
-| Field       | Type       | Constraint                                                                 |
-|-------------|------------|----------------------------------------------------------------------------|
-| id          | integer    | Sequential starting at 1. Values: 1, 2, 3, …                              |
-| description | string     | Concise imperative task description, under 80 characters.                  |
-| status      | string     | Always the literal value "pending".                                        |
-| summary     | string     | Present-participle phrase for UI display (e.g. "Implementing auth endpoint"). Under 60 characters. |
-| blockedBy   | integer[]  | Array of id values this task depends on. Use [] when there are no dependencies. Every integer in this array MUST be the id of another task in the list. |
-</schema>
-
-<example>
-[
-  {
-    "id": 1,
-    "description": "Set up project scaffolding and install dependencies",
-    "status": "pending",
-    "summary": "Setting up project scaffolding",
-    "blockedBy": []
-  },
-  {
-    "id": 2,
-    "description": "Implement user authentication API endpoint",
-    "status": "pending",
-    "summary": "Implementing authentication endpoint",
-    "blockedBy": [1]
-  },
-  {
-    "id": 3,
-    "description": "Add unit tests for authentication flow",
-    "status": "pending",
-    "summary": "Adding authentication tests",
-    "blockedBy": [2]
-  }
-]
-</example>
+| Field       | Type     | Constraint                                                                 |
+|-------------|----------|----------------------------------------------------------------------------|
+| id          | string   | Sequential starting at "1". Values: "1", "2", "3", …                      |
+| description | string   | Concise imperative task description, under 80 characters.                  |
+| status      | string   | Always the literal value "pending".                                        |
+| summary     | string   | Present-participle phrase for UI display (e.g. "Implementing auth endpoint"). Under 60 characters. |
+| blockedBy   | string[] | Array of id values this task depends on. Use [] when there are no dependencies. Every value in this array MUST be the id of another task in the list. |
+</tool_usage>
 
 <constraints>
 - Every task object MUST have all five fields. Do not omit any field.
-- Do not add fields beyond the five listed in the schema.
-- id is an integer, NOT a string. Correct: 1. Wrong: "#1" or "1".
-- blockedBy values are integers, NOT strings. Correct: [1, 2]. Wrong: ["#1", "#2"].
-- blockedBy must only reference id values that exist in the array.
-- Do not truncate or merge field values. Each field is independent.
+- Do not add fields beyond the five listed above.
+- id is a string. Correct: "1". Wrong: 1 or "#1".
+- blockedBy values are strings. Correct: ["1", "2"]. Wrong: [1, 2] or ["#1", "#2"].
+- blockedBy must only reference id values that exist in the task list.
 - status is always "pending". Do not use any other value.
-</constraints>
-
-Output ONLY the raw JSON array. No markdown fences, no commentary, no explanation.`;
+- You MUST call the task_list tool. Do NOT output a raw JSON array as text.
+</constraints>`;
 }
 
 // ============================================================================
@@ -200,49 +153,33 @@ Begin implementation.`;
 // STEP 2b: ORCHESTRATOR
 // ============================================================================
 
-const DEFAULT_MAX_CONCURRENCY = 4;
-
 /**
  * Build the orchestrator prompt that instructs the main agent to manage
  * parallel task execution using its native sub-agent capabilities.
  *
- * Replaces the former programmatic dispatch coordinator with a prompt-driven
- * approach: the agent reads the task list, identifies ready tasks (pending +
- * all blockedBy completed), spawns sub-agents in parallel (up to the
- * concurrency limit), and loops until all tasks complete or are blocked.
+ * The orchestrator retrieves the current task list from the task_list tool
+ * (SQLite-backed CRUD) via the list_tasks action, rather than receiving
+ * tasks inline. This avoids duplicating task data in the prompt and ensures
+ * the orchestrator always sees the latest state.
  *
  * The prompt encodes:
- *   - Task list as JSON with statuses and blockedBy arrays
+ *   - Instructions to retrieve tasks via list_tasks action
  *   - blockedBy enforcement rules
- *   - Concurrency guidelines (configurable, default 4)
  *   - Error handling and failure propagation
  *   - Task status protocol (in_progress → completed/error)
  */
 export function buildOrchestratorPrompt(
-    tasks: TaskItem[],
-    options?: { maxConcurrency?: number },
 ): string {
-    const maxConcurrency = options?.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY;
-
-    const taskListJson = JSON.stringify(
-        tasks.map((t) => ({
-            id: t.id,
-            description: t.description,
-            status: t.status,
-            summary: t.summary,
-            blockedBy: t.blockedBy ?? [],
-        })),
-        null,
-        2,
-    );
 
     return `You are an orchestrator managing a set of implementation tasks.
 
-## Task List
+## Retrieve Task List
 
-\`\`\`json
-${taskListJson}
-\`\`\`
+Start by calling the task_list tool to retrieve the current task list:
+\`{"action": "list_tasks"}\`
+
+The planner has already created all tasks via the task_list tool (persisted
+to SQLite). You MUST call list_tasks before proceeding with any execution.
 
 ## Dependency Graph Integrity Check
 
@@ -265,23 +202,25 @@ Do NOT spawn a sub-agent for a task whose dependencies are not yet completed.
 
 ## Instructions
 
-1. **Validate the dependency graph** using the integrity check above. Remove any dangling dependencies.
+1. **Retrieve the task list** by calling list_tasks. This is your source of truth for all task data.
 
-2. **Identify ready tasks**: Find all tasks with status "pending" whose blockedBy
+2. **Validate the dependency graph** using the integrity check above. Remove any dangling dependencies.
+
+3. **Identify ready tasks**: Find all tasks with status "pending" whose blockedBy
    dependencies are all "completed". These are ready to execute.
 
-3. **Spawn parallel sub-agents**: For each ready task, spawn a sub-agent using
+4. **Spawn parallel sub-agents**: For each ready task, spawn a sub-agent using
    the Task tool. Give each sub-agent a focused prompt with:
    - The task description
    - Context about completed dependency tasks
    - Instructions to implement the task fully and test it
 
-4. **Monitor completions**: As sub-agents complete, check if any blocked tasks
+5. **Monitor completions**: As sub-agents complete, check if any blocked tasks
    are now unblocked. Spawn new sub-agents for newly-unblocked tasks immediately.
 
-5. **Continue until ALL tasks are complete.** Do NOT stop early.
+6. **Continue until ALL tasks are complete.** Do NOT stop early.
 
-6. **Report a summary** when finished, listing each task and its final status.
+7. **Report a summary** when finished, listing each task and its final status.
 
 ## IMPORTANT
 
@@ -289,20 +228,13 @@ Spawn ALL ready tasks in parallel — do not wait for one to finish
 before starting another unblocked task. Do NOT serialize task execution
 when multiple tasks are ready simultaneously.
 
-## Concurrency Guidelines
-
-- Spawn at most ${maxConcurrency} sub-agents in parallel at any time.
-- When a sub-agent completes, check for newly-unblocked tasks and spawn
-  replacements up to the concurrency limit.
-- This prevents API rate-limiting and keeps resource usage manageable.
-
 ## Error Handling
 
 When a sub-agent task FAILS:
 
 1. **Diagnose**: Read the error output to understand the root cause.
 2. **Retry with fix**: Spawn a NEW sub-agent for the same task with the error context included in its prompt. Instruct it to fix the issue and complete the task.
-3. **Retry limit**: Retry each failed task up to 2 times. If it still fails after retries, mark it as "error".
+3. **Retry limit**: Retry each failed task up to 3 times. If it still fails after retries, mark it as "error".
 4. **Continue regardless**: After marking a task as "error", do NOT stop. Continue executing all other tasks that are not blocked by the errored task.
 5. **Unblocked tasks proceed**: Tasks whose dependencies are all "completed" are still ready — execute them even if sibling tasks have errors.
 
@@ -316,33 +248,32 @@ task list **immediately** at every transition — not in batches, not later.
 
 ### Required update sequence for EACH task
 
-1. **IMMEDIATELY BEFORE spawning** a sub-agent for a task, call TodoWrite to
-   set that task's status to "in_progress".
-2. **IMMEDIATELY AFTER a sub-agent returns** (success or failure), call
-   TodoWrite to set that task's status to "completed" or "error".
+1. **IMMEDIATELY BEFORE spawning** a sub-agent for a task, call the task_list
+   tool to set that task's status to "in_progress":
+   \`{"action": "update_task_status", "taskId": "<id>", "status": "in_progress"}\`
+2. **IMMEDIATELY AFTER a sub-agent returns** (success or failure), call the
+   task_list tool to set that task's status to "completed" or "error":
+   \`{"action": "update_task_status", "taskId": "<id>", "status": "completed"}\`
 
 ### Timing rules
 
-- Call TodoWrite **within the same tool-call turn** as the event that
+- Call the task_list tool **within the same tool-call turn** as the event that
   triggered the status change. Do NOT wait to combine it with other updates.
-- When multiple sub-agents complete in parallel, issue a SEPARATE TodoWrite
-  for each completion as you process it — do not batch them into one call.
-- When spawning the next wave of tasks, issue TWO TodoWrite calls:
-  first one marking the previous task(s) as "completed", then a second one
-  marking the new task(s) as "in_progress" BEFORE spawning their sub-agents.
+- When multiple sub-agents complete in parallel, issue a SEPARATE
+  update_task_status call for each completion — do not batch them.
+- When spawning the next wave of tasks, first mark the previous task(s) as
+  "completed", then mark the new task(s) as "in_progress" BEFORE spawning.
 
-### Anti-pattern: wave batching (DO NOT DO THIS)
+### Incremental API
 
-Do NOT combine "mark previous tasks completed" and "mark next tasks
-in_progress" into a single TodoWrite call. This causes the UI to skip
-the intermediate state and makes it look like tasks jump from "in_progress"
-to "completed" without the user seeing real-time progress.
+Each task_list call updates a SINGLE task by ID. You do NOT need to send the
+full task list — just the task ID and new status. This is more efficient and
+avoids data loss from dropped tasks in snapshot payloads.
 
-### Snapshot API
+### Checking task state
 
-Each TodoWrite call MUST include the FULL task list with ALL current
-statuses — not just the changed task. This is a snapshot-based API: every
-call replaces the entire list.`;
+To see the current state of all tasks, call:
+\`{"action": "list_tasks"}\``;
 }
 
 // ============================================================================
@@ -371,25 +302,9 @@ export interface ReviewResult {
 
 /** Build a prompt for the reviewer sub-agent to review completed implementation */
 export function buildReviewPrompt(
-    tasks: TaskItem[],
     userPrompt: string,
-    progressFilePath: string,
     priorDebuggerOutput?: string,
 ): string {
-    const completedTasks = tasks
-        .filter((t) => isCompletedStatus(t.status))
-        .map((t) => `- ${t.id ?? "?"}: ${t.description}`)
-        .join("\n");
-
-    const fullTaskPlan = tasks
-        .map((t) => `- ${t.id ?? "?"}: [${t.status.toUpperCase()}] ${t.description}`)
-        .join("\n");
-
-    const totalCount = tasks.length;
-    const completedCount = tasks.filter((t) => isCompletedStatus(t.status)).length;
-    const errorCount = tasks.filter((t) => t.status.trim().toLowerCase() === "error").length;
-    const pendingCount = tasks.filter((t) => t.status.trim().toLowerCase() === "pending").length;
-    const blockedCount = tasks.filter((t) => t.status.trim().toLowerCase().includes("blocked")).length;
 
     return `# Code Review Request
 
@@ -401,41 +316,29 @@ The implementation was requested to fulfill the following specification:
 ${userPrompt}
 </user_request>
 
-## Task Plan
+## Retrieve Task List
 
-The planner decomposed the specification into the following tasks. Use this as a checklist to verify that every specification requirement has been addressed:
+Start by calling the task_list tool to retrieve the current task list and progress:
+\`{"action": "list_tasks"}\`
 
-<task_plan>
-${fullTaskPlan}
-</task_plan>
+Use the returned task data to:
+1. Build the task plan (all tasks with their statuses)
+2. Identify completed vs incomplete tasks
+3. Calculate completion metrics
 
-## Task Completion Summary
-
-- **Total tasks:** ${totalCount}
-- **Completed:** ${completedCount}
-- **Errored:** ${errorCount}
-- **Pending:** ${pendingCount}
-- **Blocked:** ${blockedCount}
-- **Completion rate:** ${totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0}%
-
-${completedCount < totalCount ? `**WARNING: Only ${completedCount} of ${totalCount} tasks completed. The implementation is incomplete. Any non-completed tasks MUST be reported as P0 findings.**` : ""}
-
-## Completed Tasks
-
-The following tasks were marked as completed during implementation:
-
-${completedTasks}
+You can also retrieve detailed progress notes for individual tasks:
+\`{"action": "get_task_progress"}\`
 
 ## Review Instructions
 
-Your task is to conduct a thorough code review of the changes made during this implementation. Analyze the progress file in ${progressFilePath} to understand the changes that were made.
+Your task is to conduct a thorough code review of the changes made during this implementation. Use the task list from the task_list tool to understand the scope and status of all tasks.
 
 ### Review Focus Areas
 
 Examine the implementation for:
 
 1. **Task Completion & Specification Gap Analysis**: This is the MOST IMPORTANT review step. You MUST:
-   a. Check the Task Completion Summary above. If the completion rate is below 100%, the implementation is incomplete and MUST be flagged.
+   a. Check the task list for completion status. If any tasks are not completed, the implementation is incomplete and MUST be flagged.
    b. For each task in ERROR, PENDING, or BLOCKED status, create a separate P0 finding describing what specification requirement is missing from the implementation.
    c. Cross-reference the task plan against the original specification. Identify any specification requirements NOT covered by any task (missing tasks).
    d. Identify completed tasks that only partially fulfill their corresponding specification requirement.
@@ -486,15 +389,14 @@ Produce your review findings in the following JSON format:
 
 ### Guidelines
 
-- Begin by performing the specification gap analysis — this is the highest-priority review step
+- Begin by retrieving the task list via the task_list tool, then perform the specification gap analysis — this is the highest-priority review step
 - Focus on substantive issues that affect correctness, security, or functionality
 - Provide specific, actionable feedback with clear explanations
 - Include exact file paths and line ranges when referencing code
 - Use confidence scores to indicate how certain you are about each finding
 - Set overall_correctness to "patch is incorrect" if there are P0 or P1 issues that prevent the feature from working correctly, including specification gaps
-${
-    priorDebuggerOutput
-        ? `
+${priorDebuggerOutput
+            ? `
 ## Prior Debugging Context
 
 The following fixes were applied by the debugger in the previous iteration. Pay special attention to whether these fixes actually resolved the issues they targeted, and whether they introduced any regressions:
@@ -503,8 +405,8 @@ The following fixes were applied by the debugger in the previous iteration. Pay 
 ${priorDebuggerOutput}
 </prior_debugger_output>
 `
-        : ""
-}
+            : ""
+        }
 Begin your review now.`;
 }
 

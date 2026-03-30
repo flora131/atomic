@@ -34,7 +34,6 @@ import {
 const ralphWorkflowDefinition = getRalphWorkflowDefinition();
 import { defineWorkflow } from "@/services/workflows/dsl/define-workflow.ts";
 import { parseReviewResult } from "@/services/workflows/builtin/ralph/helpers/prompts.ts";
-import { parseTasks } from "@/services/workflows/builtin/ralph/helpers/tasks.ts";
 
 // ---------------------------------------------------------------------------
 // Canned Responses
@@ -333,7 +332,7 @@ describe("Ralph workflow review/debug loop (integration)", () => {
         agent: "planner",
         description: "PLANNER",
         prompt: (ctx) => ctx.userPrompt,
-        outputMapper: (response) => ({ tasks: parseTasks(response) }),
+        outputMapper: () => ({}),
       })
       .stage({
         name: "orchestrator",

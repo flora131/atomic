@@ -45,6 +45,7 @@ describe("BusEventSchemas - comprehensive validation", () => {
       "workflow.step.start",
       "workflow.step.complete",
       "workflow.task.update",
+      "workflow.tasks.updated",
     ];
 
     for (const type of expectedTypes) {
@@ -352,6 +353,91 @@ describe("BusEventSchemas - comprehensive validation", () => {
 
     it("rejects missing tasks array", () => {
       expect(schema.safeParse({}).success).toBe(false);
+    });
+  });
+
+  // ── workflow.tasks.updated ────────────────────────────────────────────
+
+  describe("workflow.tasks.updated schema", () => {
+    const schema = BusEventSchemas["workflow.tasks.updated"];
+
+    it("accepts valid data with sessionId and tasks array", () => {
+      const result = schema.safeParse({
+        sessionId: "session-1",
+        tasks: [
+          {
+            id: "1",
+            description: "Implement feature X",
+            status: "pending",
+            summary: "Working on feature X",
+          },
+          {
+            id: "2",
+            description: "Fix bug Y",
+            status: "completed",
+            summary: "Bug Y fixed",
+            blockedBy: ["1"],
+          },
+        ],
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it("accepts all valid status enum values", () => {
+      const validStatuses = ["pending", "in_progress", "completed", "error"] as const;
+      for (const status of validStatuses) {
+        const result = schema.safeParse({
+          sessionId: "s1",
+          tasks: [{ id: "1", description: "t", status, summary: "s" }],
+        });
+        expect(result.success).toBe(true);
+      }
+    });
+
+    it("rejects invalid status values", () => {
+      const result = schema.safeParse({
+        sessionId: "s1",
+        tasks: [{ id: "1", description: "t", status: "unknown_status", summary: "s" }],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects missing sessionId", () => {
+      const result = schema.safeParse({
+        tasks: [{ id: "1", description: "t", status: "pending", summary: "s" }],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects missing tasks array", () => {
+      expect(schema.safeParse({ sessionId: "s1" }).success).toBe(false);
+    });
+
+    it("rejects task missing required id field", () => {
+      const result = schema.safeParse({
+        sessionId: "s1",
+        tasks: [{ description: "t", status: "pending", summary: "s" }],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it("accepts tasks with optional blockedBy", () => {
+      const withBlockedBy = schema.safeParse({
+        sessionId: "s1",
+        tasks: [{ id: "1", description: "t", status: "pending", summary: "s", blockedBy: ["0"] }],
+      });
+      expect(withBlockedBy.success).toBe(true);
+
+      const withoutBlockedBy = schema.safeParse({
+        sessionId: "s1",
+        tasks: [{ id: "1", description: "t", status: "pending", summary: "s" }],
+      });
+      expect(withoutBlockedBy.success).toBe(true);
+    });
+
+    it("accepts empty tasks array", () => {
+      const result = schema.safeParse({ sessionId: "s1", tasks: [] });
+      expect(result.success).toBe(true);
     });
   });
 

@@ -7,6 +7,7 @@ import { grepToolRenderer } from "@/components/tool-registry/registry/renderers/
 import { readToolRenderer } from "@/components/tool-registry/registry/renderers/read.ts";
 import { skillToolRenderer } from "@/components/tool-registry/registry/renderers/skill.ts";
 import { taskToolRenderer } from "@/components/tool-registry/registry/renderers/task.ts";
+import { taskListToolRenderer } from "@/components/tool-registry/registry/renderers/task-list.ts";
 import { todoWriteToolRenderer } from "@/components/tool-registry/registry/renderers/todo-write.ts";
 import { writeToolRenderer } from "@/components/tool-registry/registry/renderers/write.ts";
 
@@ -26,6 +27,7 @@ export function createToolRendererAliases(): Record<string, ToolRenderer> {
     grep: grepToolRenderer,
     TodoWrite: todoWriteToolRenderer,
     todowrite: todoWriteToolRenderer,
+    task_list: taskListToolRenderer,
     Task: taskToolRenderer,
     task: taskToolRenderer,
     launch_agent: taskToolRenderer,

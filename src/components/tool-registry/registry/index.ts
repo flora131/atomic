@@ -17,6 +17,7 @@ export { defaultToolRenderer } from "@/components/tool-registry/registry/rendere
 export { askQuestionToolRenderer, isSdkAskQuestionToolName } from "@/components/tool-registry/registry/renderers/ask-question.ts";
 export { mcpToolRenderer, parseMcpToolName } from "@/components/tool-registry/registry/renderers/mcp.ts";
 export { taskToolRenderer } from "@/components/tool-registry/registry/renderers/task.ts";
+export { taskListToolRenderer } from "@/components/tool-registry/registry/renderers/task-list.ts";
 export { todoWriteToolRenderer } from "@/components/tool-registry/registry/renderers/todo-write.ts";
 export { skillToolRenderer } from "@/components/tool-registry/registry/renderers/skill.ts";
 

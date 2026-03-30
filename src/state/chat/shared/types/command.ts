@@ -21,6 +21,7 @@ import type {
   McpServerConfig,
   ModelDisplayInfo,
   Session,
+  ToolDefinition,
 } from "@/services/agents/types.ts";
 import type { StreamMessageOptions } from "@/commands/tui/registry.ts";
 
@@ -43,6 +44,8 @@ export interface UseCommandExecutorArgs {
   /** Set by the conductor executor to expose conductor.resume() to the UI. */
   conductorResumeRef: RefObject<((message: string | null) => void) | null>;
   createSubagentSession?: CreateSessionFn;
+  /** Register a custom tool on the CodingAgentClient (available to all future sessions). */
+  registerTool?: (tool: ToolDefinition) => void;
   /** Dequeue the next message from the message queue for conductor workflow stages. */
   dequeueMessage?: () => string | null;
   /**

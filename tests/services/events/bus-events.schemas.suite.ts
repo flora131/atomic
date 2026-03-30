@@ -45,7 +45,7 @@ describe("BusEventSchemas - comprehensive validation", () => {
       "workflow.step.start",
       "workflow.step.complete",
       "workflow.task.update",
-      "workflow:tasks-updated",
+      "workflow.tasks.updated",
     ];
 
     for (const type of expectedTypes) {
@@ -356,10 +356,10 @@ describe("BusEventSchemas - comprehensive validation", () => {
     });
   });
 
-  // ── workflow:tasks-updated ────────────────────────────────────────────
+  // ── workflow.tasks.updated ────────────────────────────────────────────
 
-  describe("workflow:tasks-updated schema", () => {
-    const schema = BusEventSchemas["workflow:tasks-updated"];
+  describe("workflow.tasks.updated schema", () => {
+    const schema = BusEventSchemas["workflow.tasks.updated"];
 
     it("accepts valid data with sessionId and tasks array", () => {
       const result = schema.safeParse({

@@ -12,7 +12,7 @@
  * DEPRECATION NOTE (2026-03-30): This function is a candidate for removal
  * once bus-only UI updates are fully validated. The Ralph workflow now uses
  * the SQLite-backed `task_list` tool, which persists tasks to workflow.db
- * and publishes "workflow:tasks-updated" bus events directly. This file-based
+ * and publishes "workflow.tasks.updated" bus events directly. This file-based
  * persistence is only retained for the TodoWrite code path used by non-Ralph
  * contexts and as a fallback for the TaskListPanel file watcher
  * (`watchTasksJson`). Once all consumers subscribe to bus events exclusively,

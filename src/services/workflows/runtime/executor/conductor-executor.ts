@@ -116,7 +116,7 @@ export async function executeConductorWorkflow(
 
     // Create and register the task_list tool for this workflow session (§5.7).
     // The tool is backed by a session-scoped SQLite database and emits
-    // workflow:tasks-updated events for real-time UI updates.
+    // workflow.tasks.updated events for real-time UI updates.
     // Wrapped in try/catch so that SQLite initialization failures (e.g., missing
     // session directory in tests) do not prevent the workflow from executing.
     let taskListTool: TaskListTool | undefined;
@@ -127,8 +127,8 @@ export async function executeConductorWorkflow(
         sessionDir,
         emitTaskUpdate: (tasks) => {
           if (context.eventBus) {
-            const event: BusEvent<"workflow:tasks-updated"> = {
-              type: "workflow:tasks-updated",
+            const event: BusEvent<"workflow.tasks.updated"> = {
+              type: "workflow.tasks.updated",
               sessionId,
               runId: workflowRunId,
               timestamp: Date.now(),

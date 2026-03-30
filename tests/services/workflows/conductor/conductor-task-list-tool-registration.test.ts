@@ -4,12 +4,12 @@
  * Validates that `executeConductorWorkflow` creates a task_list tool via
  * `createTaskListTool()` and registers it on the CommandContext via
  * `context.registerTool()`, with proper event bus wiring for
- * `workflow:tasks-updated` events.
+ * `workflow.tasks.updated` events.
  *
  * Coverage:
  * 1. context.registerTool is called with a tool named "task_list"
  * 2. The tool is created with the correct sessionDir, sessionId, workflowName
- * 3. workflow:tasks-updated events are emitted when the tool's emitTaskUpdate fires
+ * 3. workflow.tasks.updated events are emitted when the tool's emitTaskUpdate fires
  * 4. No crash when context.registerTool is not provided (optional method)
  * 5. No crash when session directory is missing (best-effort tool creation)
  *
@@ -290,10 +290,10 @@ describe("task_list tool registration in conductor executor (§5.7)", () => {
   });
 
   // -----------------------------------------------------------------------
-  // 3. workflow:tasks-updated event emission
+  // 3. workflow.tasks.updated event emission
   // -----------------------------------------------------------------------
 
-  describe("workflow:tasks-updated event emission", () => {
+  describe("workflow.tasks.updated event emission", () => {
     // Helper: create a task_list tool wired to an EventBus, matching the
     // emitTaskUpdate callback pattern from conductor-executor.
     function createToolWithBus(bus: EventBus, sessionDir: string): TaskListTool {
@@ -302,8 +302,8 @@ describe("task_list tool registration in conductor executor (§5.7)", () => {
         sessionId: MOCK_SESSION_ID,
         sessionDir,
         emitTaskUpdate: (tasks) => {
-          const event: BusEvent<"workflow:tasks-updated"> = {
-            type: "workflow:tasks-updated",
+          const event: BusEvent<"workflow.tasks.updated"> = {
+            type: "workflow.tasks.updated",
             sessionId: MOCK_SESSION_ID,
             runId: MOCK_RUN_ID,
             timestamp: Date.now(),
@@ -331,7 +331,7 @@ describe("task_list tool registration in conductor executor (§5.7)", () => {
       abort: new AbortController().signal,
     };
 
-    test("emits workflow:tasks-updated when tool handler triggers emitTaskUpdate", () => {
+    test("emits workflow.tasks.updated when tool handler triggers emitTaskUpdate", () => {
       mockSessionDir = createTempSessionDir();
       const bus = new EventBus({ validatePayloads: false });
       const receivedEvents: BusEvent[] = [];
@@ -348,7 +348,7 @@ describe("task_list tool registration in conductor executor (§5.7)", () => {
         }, toolContext);
 
         const taskUpdatedEvents = receivedEvents.filter(
-          (e) => e.type === "workflow:tasks-updated",
+          (e) => e.type === "workflow.tasks.updated",
         );
         expect(taskUpdatedEvents).toHaveLength(1);
       } finally {
@@ -356,7 +356,7 @@ describe("task_list tool registration in conductor executor (§5.7)", () => {
       }
     });
 
-    test("workflow:tasks-updated event carries correct sessionId", () => {
+    test("workflow.tasks.updated event carries correct sessionId", () => {
       mockSessionDir = createTempSessionDir();
       const bus = new EventBus({ validatePayloads: false });
       const receivedEvents: BusEvent[] = [];
@@ -369,14 +369,14 @@ describe("task_list tool registration in conductor executor (§5.7)", () => {
           tasks: [{ id: "1", description: "T", status: "pending", summary: "S" }],
         }, toolContext);
 
-        const event = receivedEvents.find((e) => e.type === "workflow:tasks-updated")!;
+        const event = receivedEvents.find((e) => e.type === "workflow.tasks.updated")!;
         expect(event.sessionId).toBe(MOCK_SESSION_ID);
       } finally {
         tool.close();
       }
     });
 
-    test("workflow:tasks-updated event carries correct runId", () => {
+    test("workflow.tasks.updated event carries correct runId", () => {
       mockSessionDir = createTempSessionDir();
       const bus = new EventBus({ validatePayloads: false });
       const receivedEvents: BusEvent[] = [];
@@ -389,14 +389,14 @@ describe("task_list tool registration in conductor executor (§5.7)", () => {
           tasks: [{ id: "1", description: "T", status: "pending", summary: "S" }],
         }, toolContext);
 
-        const event = receivedEvents.find((e) => e.type === "workflow:tasks-updated")!;
+        const event = receivedEvents.find((e) => e.type === "workflow.tasks.updated")!;
         expect(event.runId).toBe(MOCK_RUN_ID);
       } finally {
         tool.close();
       }
     });
 
-    test("workflow:tasks-updated event data contains all tasks", () => {
+    test("workflow.tasks.updated event data contains all tasks", () => {
       mockSessionDir = createTempSessionDir();
       const bus = new EventBus({ validatePayloads: false });
       const receivedEvents: BusEvent[] = [];
@@ -412,8 +412,8 @@ describe("task_list tool registration in conductor executor (§5.7)", () => {
           ],
         }, toolContext);
 
-        const event = receivedEvents.find((e) => e.type === "workflow:tasks-updated")!;
-        const data = event.data as BusEventDataMap["workflow:tasks-updated"];
+        const event = receivedEvents.find((e) => e.type === "workflow.tasks.updated")!;
+        const data = event.data as BusEventDataMap["workflow.tasks.updated"];
         expect(data.tasks).toHaveLength(2);
         expect(data.tasks[0]!.id).toBe("1");
         expect(data.tasks[0]!.description).toBe("Task A");
@@ -425,7 +425,7 @@ describe("task_list tool registration in conductor executor (§5.7)", () => {
       }
     });
 
-    test("workflow:tasks-updated event preserves blockedBy when present", () => {
+    test("workflow.tasks.updated event preserves blockedBy when present", () => {
       mockSessionDir = createTempSessionDir();
       const bus = new EventBus({ validatePayloads: false });
       const receivedEvents: BusEvent[] = [];
@@ -441,8 +441,8 @@ describe("task_list tool registration in conductor executor (§5.7)", () => {
           ],
         }, toolContext);
 
-        const event = receivedEvents.find((e) => e.type === "workflow:tasks-updated")!;
-        const data = event.data as BusEventDataMap["workflow:tasks-updated"];
+        const event = receivedEvents.find((e) => e.type === "workflow.tasks.updated")!;
+        const data = event.data as BusEventDataMap["workflow.tasks.updated"];
         // Task without blockedBy should not have the property
         expect(data.tasks[0]!.blockedBy).toBeUndefined();
         // Task with blockedBy should have it
@@ -452,7 +452,7 @@ describe("task_list tool registration in conductor executor (§5.7)", () => {
       }
     });
 
-    test("workflow:tasks-updated emitted on update_task_status", () => {
+    test("workflow.tasks.updated emitted on update_task_status", () => {
       mockSessionDir = createTempSessionDir();
       const bus = new EventBus({ validatePayloads: false });
       const receivedEvents: BusEvent[] = [];
@@ -477,18 +477,18 @@ describe("task_list tool registration in conductor executor (§5.7)", () => {
         }, toolContext);
 
         const taskUpdatedEvents = receivedEvents.filter(
-          (e) => e.type === "workflow:tasks-updated",
+          (e) => e.type === "workflow.tasks.updated",
         );
         expect(taskUpdatedEvents).toHaveLength(1);
 
-        const data = taskUpdatedEvents[0]!.data as BusEventDataMap["workflow:tasks-updated"];
+        const data = taskUpdatedEvents[0]!.data as BusEventDataMap["workflow.tasks.updated"];
         expect(data.tasks[0]!.status).toBe("in_progress");
       } finally {
         tool.close();
       }
     });
 
-    test("no workflow:tasks-updated event when emitTaskUpdate is absent", () => {
+    test("no workflow.tasks.updated event when emitTaskUpdate is absent", () => {
       mockSessionDir = createTempSessionDir();
       const tool = createTaskListTool({
         workflowName: "test-workflow",

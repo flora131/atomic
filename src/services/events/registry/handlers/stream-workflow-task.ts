@@ -18,12 +18,12 @@ import { getEventHandlerRegistry } from "@/services/events/registry/registry.ts"
 const registry = getEventHandlerRegistry();
 
 /**
- * workflow:tasks-updated is a direct-to-UI event published by the task_list
+ * workflow.tasks.updated is a direct-to-UI event published by the task_list
  * tool handler on every mutation. The TaskListPanel subscribes to this event
  * directly via the bus — it does NOT flow through the stream-part pipeline,
  * so no toStreamPart mapper is needed.
  */
-registry.register("workflow:tasks-updated", {});
+registry.register("workflow.tasks.updated", {});
 
 registry.register("workflow.task.update", {
   coalescingKey: (event) => `workflow.task.update:${event.sessionId}`,

@@ -208,7 +208,7 @@ export const BusEventSchemas = {
    * bus — does NOT flow through the stream-part pipeline. Used for real-time UI
    * updates driven by individual tool calls (e.g., agent adds/completes a task).
    */
-  "workflow:tasks-updated": z.object({
+  "workflow.tasks.updated": z.object({
     sessionId: z.string(),
     tasks: z.array(z.object({
       id: z.string(),

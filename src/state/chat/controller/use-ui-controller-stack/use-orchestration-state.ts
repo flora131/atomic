@@ -110,6 +110,7 @@ export function useOrchestrationState(args: UseChatUiControllerStackArgs) {
       streamingElapsedMs,
       todoItems,
       workflowSessionDir,
+      workflowSessionId,
     },
     setters: {
       setActiveBackgroundAgentCount,
@@ -260,6 +261,7 @@ export function useOrchestrationState(args: UseChatUiControllerStackArgs) {
     streamingElapsedMs,
     todoItems,
     workflowSessionDir,
+    workflowSessionId,
     // Runtime setters
     setActiveBackgroundAgentCount,
     setCompactionSummary,

@@ -123,3 +123,12 @@ export function useEventBusContext(): EventBusContextValue {
   }
   return ctx;
 }
+
+/**
+ * Safe variant of useEventBusContext that returns null instead of throwing
+ * when used outside an EventBusProvider. Useful for components that may
+ * render in contexts where the provider is not guaranteed (e.g. tests).
+ */
+export function useOptionalEventBusContext(): EventBusContextValue | null {
+  return useContext(EventBusContext);
+}

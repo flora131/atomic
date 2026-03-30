@@ -8,8 +8,7 @@
  * - The bus handler filters events by sessionId
  * - The bus handler maps event data tasks to TaskItem[] and calls
  *   sortTasksTopologically
- * - When eventBus is not provided, the component falls back to watchTasksJson
- * - The useEffect depends on [sessionDir, sessionId, eventBus]
+ * - The useEffect depends on [sessionId, resolvedEventBus]
  * - The EventBus.on() API contract: subscribe returns an unsubscribe function
  *
  * Tests use two approaches:
@@ -48,10 +47,6 @@ describe("TaskListPanelProps interface", () => {
     expect(source).toContain('eventBus?: import("@/services/events/event-bus.ts").EventBus');
   });
 
-  test("retains sessionDir prop", () => {
-    expect(source).toContain("sessionDir: string");
-  });
-
   test("retains expanded optional prop", () => {
     expect(source).toContain("expanded?: boolean");
   });
@@ -70,12 +65,8 @@ describe("TaskListPanel component destructuring", () => {
     expect(source).toContain("sessionId,");
   });
 
-  test("destructures eventBus from props", () => {
-    expect(source).toContain("eventBus,");
-  });
-
-  test("retains sessionDir destructuring", () => {
-    expect(source).toContain("sessionDir,");
+  test("destructures eventBus from props (aliased to eventBusProp)", () => {
+    expect(source).toContain("eventBus: eventBusProp,");
   });
 });
 
@@ -84,12 +75,12 @@ describe("TaskListPanel component destructuring", () => {
 // ===========================================================================
 
 describe("bus event subscription in useEffect", () => {
-  test("checks for eventBus && sessionId before subscribing", () => {
-    expect(source).toContain("if (eventBus && sessionId)");
+  test("checks for resolvedEventBus && sessionId before subscribing", () => {
+    expect(source).toContain("if (!resolvedEventBus || !sessionId)");
   });
 
-  test("subscribes to workflow:tasks-updated via eventBus.on()", () => {
-    expect(source).toContain('eventBus.on("workflow:tasks-updated"');
+  test("subscribes to workflow:tasks-updated via resolvedEventBus.on()", () => {
+    expect(source).toContain('resolvedEventBus.on("workflow:tasks-updated"');
   });
 
   test("filters events by sessionId", () => {
@@ -111,34 +102,8 @@ describe("bus event subscription in useEffect", () => {
     expect(source).toContain("return unsubscribe");
   });
 
-  test("useEffect depends on sessionDir, sessionId, and eventBus", () => {
-    expect(source).toContain("[sessionDir, sessionId, eventBus]");
-  });
-});
-
-// ===========================================================================
-// Fallback to watchTasksJson
-// ===========================================================================
-
-describe("watchTasksJson fallback", () => {
-  test("retains watchTasksJson import", () => {
-    expect(source).toContain("import { watchTasksJson }");
-  });
-
-  test("calls watchTasksJson in fallback path", () => {
-    expect(source).toContain("watchTasksJson(sessionDir,");
-  });
-
-  test("uses toTaskItem in the fallback path", () => {
-    expect(source).toContain("items.map(toTaskItem)");
-  });
-
-  test("retains normalizeTaskItem import for toTaskItem helper", () => {
-    expect(source).toContain("import { normalizeTaskItem }");
-  });
-
-  test("defines toTaskItem helper function", () => {
-    expect(source).toContain("function toTaskItem(t: unknown): TaskItem");
+  test("useEffect depends on sessionId and resolvedEventBus", () => {
+    expect(source).toContain("[sessionId, resolvedEventBus]");
   });
 });
 
@@ -427,6 +392,15 @@ describe("import structure", () => {
 
   test("does not import useBusSubscription (uses eventBus prop instead)", () => {
     expect(source).not.toContain("useBusSubscription");
+  });
+
+  test("imports useOptionalEventBusContext for context-based bus resolution", () => {
+    expect(source).toContain("useOptionalEventBusContext");
+    expect(source).toMatch(/import.*useOptionalEventBusContext.*from/);
+  });
+
+  test("resolves event bus from prop or context", () => {
+    expect(source).toContain("const resolvedEventBus = eventBusProp ?? eventBusCtx?.bus ?? undefined");
   });
 
   test("exports TaskListPanelProps interface", () => {

@@ -24,7 +24,7 @@ interface UseChatRenderModelArgs {
   streamingMeta: StreamingMeta | null;
   tasksExpanded: boolean;
   todoItems: NormalizedTodoItem[];
-  workflowSessionDir: string | null;
+  workflowSessionId: string | null;
   workflowState: WorkflowChatState;
   backgroundAgentMessageId: string | null;
   lastStreamedMessageId: string | null;
@@ -50,7 +50,7 @@ export function useChatRenderModel({
   streamingMeta,
   tasksExpanded,
   todoItems,
-  workflowSessionDir,
+  workflowSessionId,
   workflowState,
 }: UseChatRenderModelArgs): UseChatRenderModelResult {
   const renderMessages = useMemo(() => {
@@ -111,7 +111,7 @@ export function useChatRenderModel({
               streamingMeta={scopedStreamingMeta}
               collapsed={false}
               tasksExpanded={tasksExpanded}
-              workflowSessionDir={workflowSessionDir}
+              workflowSessionId={workflowSessionId}
               workflowActive={workflowState.workflowActive}
               showTodoPanel={showTodoPanel}
               onAgentDoneRendered={handleAgentDoneRendered}
@@ -132,7 +132,7 @@ export function useChatRenderModel({
     streamingMeta,
     tasksExpanded,
     todoItems,
-    workflowSessionDir,
+    workflowSessionId,
     workflowState.workflowActive,
   ]);
 

@@ -15,13 +15,12 @@
 import React, { memo, useState, useEffect } from "react";
 import { useTerminalDimensions } from "@opentui/react";
 
-import { watchTasksJson } from "@/commands/tui/workflow-commands/index.ts";
 import { MISC, TASK as TASK_ICONS } from "@/theme/icons.ts";
 import { useThemeColors, useTheme, getCatppuccinPalette } from "@/theme/index.tsx";
 import { TaskListIndicator, type TaskItem } from "@/components/task-list-indicator.tsx";
 import { sortTasksTopologically } from "@/components/task-order.ts";
-import { normalizeTaskItem } from "@/state/parts/helpers/task-status.ts";
 import { shouldAutoClearTaskPanel } from "@/components/task-list-lifecycle.ts";
+import { useOptionalEventBusContext } from "@/services/events/event-bus-provider.tsx";
 import { SPACING } from "@/theme/spacing.ts";
 
 // ============================================================================
@@ -38,11 +37,9 @@ export interface TaskListBoxProps {
 }
 
 export interface TaskListPanelProps {
-  /** Workflow session directory path */
-  sessionDir: string;
   /** Workflow session ID for filtering bus events */
   sessionId?: string;
-  /** Event bus for receiving task updates */
+  /** Event bus for receiving task updates (falls back to React context) */
   eventBus?: import("@/services/events/event-bus.ts").EventBus;
   /** Whether to show full task content without truncation */
   expanded?: boolean;
@@ -162,38 +159,31 @@ export const TaskListBox = memo(function TaskListBox({
 // ============================================================================
 
 export function TaskListPanel({
-  sessionDir,
   sessionId,
-  eventBus,
+  eventBus: eventBusProp,
   expanded = false,
   workflowActive = false,
 }: TaskListPanelProps): React.ReactNode {
   const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const eventBusCtx = useOptionalEventBusContext();
+  const resolvedEventBus = eventBusProp ?? eventBusCtx?.bus ?? undefined;
 
   useEffect(() => {
-    // Prefer bus event subscription when available
-    if (eventBus && sessionId) {
-      const unsubscribe = eventBus.on("workflow:tasks-updated", (event) => {
-        // Filter events to this session
-        if (event.data.sessionId === sessionId) {
-          const items: TaskItem[] = event.data.tasks.map((t) => ({
-            id: t.id,
-            description: t.description,
-            status: t.status,
-            blockedBy: t.blockedBy,
-          }));
-          setTasks(sortTasksTopologically(items));
-        }
-      });
-      return unsubscribe;
-    }
+    if (!resolvedEventBus || !sessionId) return;
 
-    // Fallback: file watcher for non-bus contexts
-    const cleanup = watchTasksJson(sessionDir, (items) => {
-      setTasks(sortTasksTopologically(items.map(toTaskItem)));
+    const unsubscribe = resolvedEventBus.on("workflow:tasks-updated", (event) => {
+      if (event.data.sessionId === sessionId) {
+        const items: TaskItem[] = event.data.tasks.map((t) => ({
+          id: t.id,
+          description: t.description,
+          status: t.status,
+          blockedBy: t.blockedBy,
+        }));
+        setTasks(sortTasksTopologically(items));
+      }
     });
-    return cleanup;
-  }, [sessionDir, sessionId, eventBus]);
+    return unsubscribe;
+  }, [sessionId, resolvedEventBus]);
 
   if (tasks.length === 0) return null;
   if (!workflowActive && shouldAutoClearTaskPanel(tasks)) return null;
@@ -203,11 +193,6 @@ export function TaskListPanel({
       <TaskListBox items={tasks} expanded={expanded} />
     </box>
   );
-}
-
-/** Convert persisted disk payload to a normalized TaskItem for TaskListIndicator */
-function toTaskItem(t: unknown): TaskItem {
-  return normalizeTaskItem(t);
 }
 
 export default TaskListPanel;

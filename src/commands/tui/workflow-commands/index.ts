@@ -39,7 +39,6 @@ import {
     type WorkflowDefinition,
     type WorkflowMetadata,
 } from "./types.ts";
-import { watchTasksJson } from "./tasks-watcher.ts";
 export {
     completeSession,
     CUSTOM_WORKFLOW_SEARCH_PATHS,
@@ -51,7 +50,6 @@ export {
     parseWorkflowArgs,
     registerActiveSession,
     saveTasksToActiveSession,
-    watchTasksJson,
 };
 export type {
     WorkflowCommandArgs,

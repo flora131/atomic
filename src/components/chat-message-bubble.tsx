@@ -125,7 +125,7 @@ export function MessageBubble({
   hideLoading = false,
   todoItems,
   tasksExpanded = false,
-  workflowSessionDir,
+  workflowSessionId,
   workflowActive = false,
   showTodoPanel = true,
   elapsedMs,
@@ -134,10 +134,7 @@ export function MessageBubble({
   onAgentDoneRendered,
 }: MessageBubbleProps): React.ReactNode {
   const themeColors = useThemeColors();
-  const persistentTaskPanelSessionDir = isLast && showTodoPanel && workflowSessionDir
-    ? workflowSessionDir
-    : null;
-  const shouldShowPersistentTaskPanel = persistentTaskPanelSessionDir !== null;
+  const showPersistentTaskPanel = Boolean(isLast && showTodoPanel && workflowSessionId);
 
   const handleAgentDoneRendered = useCallback((marker: { agentId: string; timestampMs: number }) => {
     onAgentDoneRendered?.({
@@ -236,9 +233,9 @@ export function MessageBubble({
           </box>
         )}
 
-        {persistentTaskPanelSessionDir && (
+        {showPersistentTaskPanel && (
           <TaskListPanel
-            sessionDir={persistentTaskPanelSessionDir}
+            sessionId={workflowSessionId ?? undefined}
             expanded={tasksExpanded}
             workflowActive={workflowActive}
           />
@@ -250,7 +247,7 @@ export function MessageBubble({
   if (message.role === "assistant" && assistantParts) {
     const renderableMessage = {
       ...message,
-      parts: shouldShowPersistentTaskPanel
+      parts: showPersistentTaskPanel
         ? assistantParts.filter((part) => part.type !== "task-list")
         : assistantParts,
     };
@@ -279,9 +276,9 @@ export function MessageBubble({
           onAgentDoneRendered={handleAgentDoneRendered}
         />
 
-        {persistentTaskPanelSessionDir && (
+        {showPersistentTaskPanel && (
           <TaskListPanel
-            sessionDir={persistentTaskPanelSessionDir}
+            sessionId={workflowSessionId ?? undefined}
             expanded={tasksExpanded}
             workflowActive={workflowActive}
           />

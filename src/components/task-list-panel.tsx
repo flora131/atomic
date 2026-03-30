@@ -19,7 +19,7 @@ import { MISC, TASK as TASK_ICONS } from "@/theme/icons.ts";
 import { useThemeColors, useTheme, getCatppuccinPalette } from "@/theme/index.tsx";
 import { TaskListIndicator, type TaskItem } from "@/components/task-list-indicator.tsx";
 import { sortTasksTopologically } from "@/components/task-order.ts";
-import { shouldAutoClearTaskPanel } from "@/components/task-list-lifecycle.ts";
+import { shouldAutoClearTaskPanel, AUTO_CLEAR_DELAY_MS } from "@/components/task-list-lifecycle.ts";
 import { useOptionalEventBusContext } from "@/services/events/event-bus-provider.tsx";
 import { SPACING } from "@/theme/spacing.ts";
 
@@ -165,6 +165,7 @@ export function TaskListPanel({
   workflowActive = false,
 }: TaskListPanelProps): React.ReactNode {
   const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [hidden, setHidden] = useState(false);
   const eventBusCtx = useOptionalEventBusContext();
   const resolvedEventBus = eventBusProp ?? eventBusCtx?.bus ?? undefined;
 
@@ -185,8 +186,20 @@ export function TaskListPanel({
     return unsubscribe;
   }, [sessionId, resolvedEventBus]);
 
+  // Auto-hide after a delay once all tasks reach a terminal (completed) state
+  const shouldClear = !workflowActive && shouldAutoClearTaskPanel(tasks);
+
+  useEffect(() => {
+    if (!shouldClear) {
+      setHidden(false);
+      return;
+    }
+    const timer = setTimeout(() => setHidden(true), AUTO_CLEAR_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [shouldClear]);
+
   if (tasks.length === 0) return null;
-  if (!workflowActive && shouldAutoClearTaskPanel(tasks)) return null;
+  if (hidden) return null;
 
   return (
     <box flexDirection="column" paddingLeft={SPACING.INDENT} paddingRight={SPACING.INDENT} marginTop={SPACING.ELEMENT} flexShrink={0}>

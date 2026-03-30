@@ -344,12 +344,6 @@ export async function loadWorkflowsFromDisk(): Promise<WorkflowDefinition[]> {
 
         loaded.push(definition);
         loadedNames.add(name.toLowerCase());
-
-        if (definition.aliases) {
-          for (const alias of definition.aliases) {
-            loadedNames.add(alias.toLowerCase());
-          }
-        }
         continue;
       }
 
@@ -394,11 +388,6 @@ export function getAllWorkflows(): WorkflowMetadata[] {
     if (!seenNames.has(lowerName)) {
       allWorkflows.push(workflow);
       seenNames.add(lowerName);
-      if (workflow.aliases) {
-        for (const alias of workflow.aliases) {
-          seenNames.add(alias.toLowerCase());
-        }
-      }
     }
   }
 

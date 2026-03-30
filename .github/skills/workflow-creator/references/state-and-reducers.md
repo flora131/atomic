@@ -127,7 +127,7 @@ The compiler automatically infers which state fields each node **reads** and whi
   description: "PLANNER",
   prompt: (ctx) => `Plan: ${ctx.userPrompt}`,
   outputMapper: () => ({}),
-  // ↑ compiler infers: outputs ["tasks"]
+  // ↑ compiler infers: outputs [] (empty — no state fields produced)
 })
 .stage({
   name: "execute",

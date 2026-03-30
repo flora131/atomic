@@ -119,13 +119,9 @@ export async function executeConductorWorkflow(
     // Create and register the task_list tool for this workflow session (§5.7).
     // The tool is backed by a session-scoped SQLite database and emits
     // workflow.tasks.updated events for real-time UI updates.
-    // Wrapped in try/catch so that SQLite initialization failures (e.g., missing
-    // session directory in tests) do not prevent the workflow from executing.
     //
-    // NOTE: If context.registerTool() throws after createTaskListTool() succeeds,
-    // the tool is created (with an open SQLite connection) but the error is
-    // swallowed here. The tool will still be cleaned up in the finally block
-    // via taskListTool?.close(), so there is no resource leak.
+    // Initialization failures (e.g., corrupt DB, missing session directory) are
+    // intentionally fatal — the workflow cannot function without task tracking.
     let taskListTool: TaskListTool | undefined;
     try {
       taskListTool = createTaskListTool({
@@ -168,6 +164,9 @@ export async function executeConductorWorkflow(
         error: errorMessage,
         stack: err instanceof Error ? err.stack : undefined,
       });
+      throw new Error(
+        `Failed to initialize task_list tool for workflow "${definition.name}": ${errorMessage}`,
+      );
     }
 
     const conductorConfig: ConductorConfig = {

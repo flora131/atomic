@@ -14,7 +14,7 @@
 
 import { join } from "path";
 import { homedir } from "os";
-import { mkdirSync } from "fs";
+import { ensureDirSync } from "@/services/system/copy.ts";
 
 const LOG_DIR = join(homedir(), ".local", "share", "atomic", "log");
 const LOG_FILE = join(LOG_DIR, "conductor-debug.jsonl");
@@ -39,7 +39,7 @@ function isEnabled(): boolean {
 function getWriter() {
   if (_writer) return _writer;
   try {
-    mkdirSync(LOG_DIR, { recursive: true });
+    ensureDirSync(LOG_DIR);
     const file = Bun.file(LOG_FILE);
     _writer = file.writer();
     return _writer;

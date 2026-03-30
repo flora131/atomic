@@ -1,10 +1,10 @@
-import { copyFile, lstat, mkdir, readdir, rm, rmdir } from "fs/promises";
+import { copyFile, lstat, readdir, rm, rmdir } from "fs/promises";
 import { join, resolve } from "path";
 import { homedir } from "os";
 
 import { AGENT_CONFIG, type AgentKey } from "@/services/config/index.ts";
 import { mergeJsonFile } from "@/lib/merge.ts";
-import { copyDir, pathExists } from "@/services/system/copy.ts";
+import { copyDir, ensureDir, pathExists } from "@/services/system/copy.ts";
 import type { InstallationType } from "@/services/config/config-path.ts";
 
 const ATOMIC_HOME_DIR = join(homedir(), ".atomic");
@@ -209,7 +209,7 @@ async function syncManagedGlobalFile(
   sourcePath: string,
   destinationPath: string,
 ): Promise<void> {
-  await mkdir(resolve(destinationPath, ".."), { recursive: true });
+  await ensureDir(resolve(destinationPath, ".."));
 
   if (await pathExists(destinationPath)) {
     await mergeJsonFile(sourcePath, destinationPath);
@@ -286,7 +286,7 @@ export async function syncAtomicGlobalAgentConfigs(
   configRoot: string,
   baseDir: string = ATOMIC_HOME_DIR,
 ): Promise<void> {
-  await mkdir(baseDir, { recursive: true });
+  await ensureDir(baseDir);
 
   const agentKeys = Object.keys(AGENT_CONFIG) as AgentKey[];
   for (const agentKey of agentKeys) {
@@ -294,7 +294,7 @@ export async function syncAtomicGlobalAgentConfigs(
     if (!(await pathExists(sourceFolder))) continue;
 
     const destinationFolder = getAtomicManagedAgentDir(agentKey, baseDir);
-    await mkdir(destinationFolder, { recursive: true });
+    await ensureDir(destinationFolder);
 
     const sourceAgentsDir = join(sourceFolder, "agents");
     if (await pathExists(sourceAgentsDir)) {

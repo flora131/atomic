@@ -1,5 +1,6 @@
-import { mkdir, readdir, rm, unlink, writeFile } from "node:fs/promises";
+import { readdir, rm, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { ensureDir } from "@/services/system/copy.ts";
 import type {
   BaseState,
   Checkpointer,
@@ -20,7 +21,7 @@ export class FileSaver<TState extends BaseState = BaseState>
   }
 
   private async ensureDir(executionId: string): Promise<void> {
-    await mkdir(this.getExecutionDir(executionId), { recursive: true });
+    await ensureDir(this.getExecutionDir(executionId));
   }
 
   async save(

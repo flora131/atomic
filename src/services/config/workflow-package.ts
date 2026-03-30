@@ -7,10 +7,11 @@
  * resolution.
  */
 
-import { mkdir, rm, unlink } from "fs/promises";
+import { rm, unlink } from "fs/promises";
 import { join, relative } from "path";
 import { existsSync } from "fs";
 import { homedir } from "os";
+import { ensureDir } from "@/services/system/copy.ts";
 
 const WORKFLOW_PACKAGE_JSON = {
   name: "atomic-workflows",
@@ -59,7 +60,7 @@ export async function getInstalledWorkflowSdkVersion(workflowsDir: string): Prom
  * Does NOT run `bun add` — call {@link installWorkflowSdk} for that.
  */
 export async function ensureWorkflowPackageScaffold(workflowsDir: string): Promise<void> {
-  await mkdir(workflowsDir, { recursive: true });
+  await ensureDir(workflowsDir);
 
   const pkgPath = join(workflowsDir, "package.json");
   if (!existsSync(pkgPath)) {

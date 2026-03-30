@@ -295,7 +295,7 @@ export interface StageDefinition {
 
   /**
    * UI indicator displayed in the chat during this stage.
-   * @example "[PLANNER]", "⚡ ORCHESTRATOR", "🔍 REVIEWER"
+   * @example "[PLANNER]", "◈ ORCHESTRATOR", "◎ REVIEWER"
    */
   readonly indicator: string;
 

@@ -34,6 +34,15 @@ import { z } from "zod";
 export { createReviewLoopTerminator } from "@/services/workflows/builtin/ralph/helpers/review.ts";
 import { VERSION } from "@/version";
 
+// ── Stage Icons ──────────────────────────────────────────────────
+// Text-safe Unicode glyphs for ralph stage indicators.
+const STAGE_ICON = {
+  planner: "❖",      // U+2756 Black Diamond Minus White X
+  orchestrator: "◈",  // U+25C8 White Diamond Containing Black Small Diamond
+  reviewer: "◎",      // U+25CE Bullseye
+  debugger: "✦",      // U+2726 Black Four Pointed Star
+} as const;
+
 /**
  * Zod schema for validating task items from planner parsed output.
  * Mirrors the SDK's TaskItemSchema to validate before passing to
@@ -86,7 +95,7 @@ const _ralphWorkflowBuilder = defineWorkflow({
   .stage({
     name: "planner",
     agent: "planner",
-    description: "\u2315 PLANNER",
+    description: `${STAGE_ICON.planner} PLANNER`,
     prompt: (ctx) => buildSpecToTasksPrompt(ctx.userPrompt),
     outputMapper: (response) => ({ tasks: parseTasks(response) }),
     disallowedTools: RALPH_DISALLOWED_TOOLS,
@@ -94,7 +103,7 @@ const _ralphWorkflowBuilder = defineWorkflow({
   .stage({
     name: "orchestrator",
     agent: "orchestrator",
-    description: "\u26A1 ORCHESTRATOR",
+    description: `${STAGE_ICON.orchestrator} ORCHESTRATOR`,
     prompt: (ctx) => {
       if (ctx.tasks.length > 0) {
         return buildOrchestratorPrompt([...ctx.tasks]);
@@ -121,7 +130,7 @@ const _ralphWorkflowBuilder = defineWorkflow({
   .stage({
     name: "reviewer",
     agent: "reviewer",
-    description: "\uD83D\uDD0D REVIEWER",
+    description: `${STAGE_ICON.reviewer} REVIEWER`,
     prompt: (ctx) => {
       const orchestratorOutput = ctx.stageOutputs.get("orchestrator");
       const progressSummary = orchestratorOutput?.rawResponse ?? "";
@@ -147,7 +156,7 @@ const _ralphWorkflowBuilder = defineWorkflow({
   .stage({
     name: "debugger",
     agent: "debugger",
-    description: "\uD83D\uDD27 DEBUGGER",
+    description: `${STAGE_ICON.debugger} DEBUGGER`,
     prompt: (ctx) => {
       const review = getReviewResult(ctx.stageOutputs);
       const tasks = [...ctx.tasks];

@@ -394,56 +394,6 @@ describe("executeConductorWorkflow — ConductorConfig wiring", () => {
   // Additional wiring validations
   // -----------------------------------------------------------------------
 
-  describe("graph compilation precedence", () => {
-    test("prefers createConductorGraph over createGraph", async () => {
-      const conductorGraphFactory = mock(() => ({
-        nodes: new Map([["planner", { id: "planner", type: "agent" as const, execute: async () => ({}) }]]),
-        edges: [] as any[],
-        startNode: "planner",
-        endNodes: new Set(["planner"]),
-        config: {},
-      }));
-      const regularGraphFactory = mock(() => ({
-        nodes: new Map([["planner", { id: "planner", type: "agent" as const, execute: async () => ({}) }]]),
-        edges: [] as any[],
-        startNode: "planner",
-        endNodes: new Set(["planner"]),
-        config: {},
-      }));
-
-      const context = createMockContext();
-      const definition = createDefinition({
-        createConductorGraph: conductorGraphFactory,
-        createGraph: regularGraphFactory,
-      });
-
-      await executeConductorWorkflow(definition, "prompt", context);
-
-      expect(conductorGraphFactory).toHaveBeenCalledTimes(1);
-      expect(regularGraphFactory).not.toHaveBeenCalled();
-    });
-
-    test("falls back to createGraph when createConductorGraph is not defined", async () => {
-      const regularGraphFactory = mock(() => ({
-        nodes: new Map([["planner", { id: "planner", type: "agent" as const, execute: async () => ({}) }]]),
-        edges: [] as any[],
-        startNode: "planner",
-        endNodes: new Set(["planner"]),
-        config: {},
-      }));
-
-      const context = createMockContext();
-      const definition = createDefinition({
-        createConductorGraph: undefined,
-        createGraph: regularGraphFactory,
-      });
-
-      await executeConductorWorkflow(definition, "prompt", context);
-
-      expect(regularGraphFactory).toHaveBeenCalledTimes(1);
-    });
-  });
-
   describe("abortSignal wiring", () => {
     test("options.abortSignal is respected — aborted workflow returns success", async () => {
       const controller = new AbortController();

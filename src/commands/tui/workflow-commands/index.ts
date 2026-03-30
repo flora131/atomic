@@ -76,13 +76,12 @@ function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
     const hasConductorStages = definition.conductorStages && definition.conductorStages.length > 0;
     const argumentHint = metadata.argumentHint || DEFAULT_WORKFLOW_ARGUMENT_HINT;
 
-    if (hasConductorStages && (definition.createConductorGraph || definition.createGraph || definition.graphConfig)) {
+    if (hasConductorStages && definition.createConductorGraph) {
         // Conductor-based workflow — uses WorkflowSessionConductor for per-stage sessions
         return {
             name: metadata.name,
             description: metadata.description,
             category: "workflow",
-            aliases: metadata.aliases,
             argumentHint,
             execute: async (
                 args: string,
@@ -117,7 +116,6 @@ function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
         name: metadata.name,
         description: metadata.description,
         category: "workflow",
-        aliases: metadata.aliases,
         argumentHint,
         execute: (args: string, context: CommandContext): CommandResult => {
             if (context.state.workflowActive) {
@@ -213,8 +211,6 @@ export function getWorkflowMetadata(
 ): WorkflowMetadata | undefined {
     const lowerName = name.toLowerCase();
     return getAllWorkflows().find(
-        (w) =>
-            w.name.toLowerCase() === lowerName ||
-            w.aliases?.some((a) => a.toLowerCase() === lowerName),
+        (w) => w.name.toLowerCase() === lowerName,
     );
 }

@@ -8,7 +8,7 @@
  *
  * The conductor executor handles:
  * 1. Session initialization (reuses `initializeWorkflowExecutionSession`)
- * 2. Graph compilation (from `definition.createGraph()`)
+ * 2. Graph compilation (from `definition.createConductorGraph()`)
  * 3. `ConductorConfig` construction (session lifecycle, UI callbacks)
  * 4. Conductor execution with stage definitions
  * 5. Result mapping to `CommandResult`
@@ -30,7 +30,6 @@ import {
 import { createDefaultPartsTruncationConfig } from "@/state/parts/truncation.ts";
 import { createTaskUpdatePublisher } from "@/services/workflows/conductor/event-bridge.ts";
 import { initializeWorkflowExecutionSession } from "./session-runtime.ts";
-import { compileGraphConfig } from "./graph-helpers.ts";
 
 /**
  * Execute a workflow using the WorkflowSessionConductor.
@@ -86,19 +85,12 @@ export async function executeConductorWorkflow(
   });
 
   try {
-    // Phase 1: Compile graph — prefer conductor-specific graph
-    let compiled: CompiledGraph<BaseState>;
-    if (definition.createConductorGraph) {
-      compiled = definition.createConductorGraph();
-    } else if (definition.createGraph) {
-      compiled = definition.createGraph();
-    } else if (definition.graphConfig) {
-      compiled = compileGraphConfig(definition.graphConfig);
-    } else {
+    // Phase 1: Compile graph
+    if (!definition.createConductorGraph) {
       context.setStreaming(false);
       return {
         success: false,
-        message: `Workflow "${definition.name}" has no createGraph or graphConfig.`,
+        message: `Workflow "${definition.name}" has no createConductorGraph.`,
         stateUpdate: {
           workflowActive: false,
           workflowType: null,
@@ -106,6 +98,7 @@ export async function executeConductorWorkflow(
         },
       };
     }
+    const compiled: CompiledGraph<BaseState> = definition.createConductorGraph();
 
     // Phase 2: Set up abort signal
     const abortController = new AbortController();

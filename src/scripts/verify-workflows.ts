@@ -108,8 +108,7 @@ export async function verifySingleWorkflow(
   verifier: typeof verifyWorkflow = verifyWorkflow,
 ): Promise<{ report: string; passed: boolean }> {
   const { id, definition } = workflow;
-  const graph =
-    definition.createConductorGraph?.() ?? definition.createGraph?.();
+  const graph = definition.createConductorGraph?.();
 
   if (!graph) {
     return {

@@ -23,45 +23,44 @@ import {
   buildFixSpecFromRawReview,
   parseReviewResult,
 } from "@/services/workflows/builtin/ralph/helpers/prompts.ts";
-import { parseTasks } from "@/services/workflows/builtin/ralph/helpers/tasks.ts";
 import {
   getReviewResult,
   hasActionableFindings,
   createReviewLoopTerminator,
 } from "@/services/workflows/builtin/ralph/helpers/review.ts";
-import { z } from "zod";
 
 export { createReviewLoopTerminator } from "@/services/workflows/builtin/ralph/helpers/review.ts";
 import { VERSION } from "@/version";
 
-/**
- * Zod schema for validating task items from planner parsed output.
- * Mirrors the SDK's TaskItemSchema to validate before passing to
- * buildOrchestratorPrompt, avoiding unsafe `as` casts.
- */
-const TaskItemSchema = z.object({
-  id: z.string().optional(),
-  description: z.string(),
-  status: z.string(),
-  summary: z.string(),
-  blockedBy: z.array(z.string()).optional(),
-});
+// ── Stage Icons ──────────────────────────────────────────────────
+// Text-safe Unicode glyphs for ralph stage indicators.
+const STAGE_ICON = {
+  planner: "⏣",
+  orchestrator: "⎈",
+  reviewer: "⊙",
+  debugger: "✦",
+} as const;
 
 // ---------------------------------------------------------------------------
 // Shared Stage Configuration
 // ---------------------------------------------------------------------------
 
 /**
- * Disallow ask-user-question tools in all Ralph stages.
+ * Disallow certain tools in all Ralph stages.
  *
  * Ralph is an autonomous workflow — stages must not pause execution to
  * ask the user interactive questions. Each provider's ask-user tool has
  * a different name, so all three are listed.
+ *
+ * TodoWrite is also disallowed because the workflow uses the task_list
+ * tool (SQLite-backed CRUD) for task management instead. Blocking
+ * TodoWrite prevents agents from accidentally using the legacy
+ * snapshot-based protocol.
  */
 const RALPH_DISALLOWED_TOOLS: Partial<Record<"claude" | "opencode" | "copilot", string[]>> = {
-  claude: ["AskUserQuestion"],
-  opencode: ["question"],
-  copilot: ["ask_user"],
+  claude: ["AskUserQuestion", "TodoWrite"],
+  opencode: ["question", "TodoWrite"],
+  copilot: ["ask_user", "TodoWrite"],
 };
 
 // ---------------------------------------------------------------------------
@@ -81,34 +80,16 @@ const _ralphWorkflowBuilder = defineWorkflow({
   .stage({
     name: "planner",
     agent: "planner",
-    description: "\u2315 PLANNER",
+    description: `${STAGE_ICON.planner} PLANNER`,
     prompt: (ctx) => buildSpecToTasksPrompt(ctx.userPrompt),
-    outputMapper: (response) => ({ tasks: parseTasks(response) }),
+    outputMapper: () => ({}),
     disallowedTools: RALPH_DISALLOWED_TOOLS,
   })
   .stage({
     name: "orchestrator",
     agent: "orchestrator",
-    description: "\u26A1 ORCHESTRATOR",
-    prompt: (ctx) => {
-      if (ctx.tasks.length > 0) {
-        return buildOrchestratorPrompt([...ctx.tasks]);
-      }
-      const plannerOutput = ctx.stageOutputs.get("planner");
-      if (plannerOutput?.parsedOutput) {
-        const result = TaskItemSchema.array().safeParse(
-          plannerOutput.parsedOutput.tasks,
-        );
-        if (result.success && result.data.length > 0) {
-          return buildOrchestratorPrompt(result.data);
-        }
-      }
-      if (plannerOutput?.rawResponse) {
-        const tasks = parseTasks(plannerOutput.rawResponse);
-        if (tasks.length > 0) return buildOrchestratorPrompt(tasks);
-      }
-      return buildOrchestratorPrompt([]);
-    },
+    description: `${STAGE_ICON.orchestrator} ORCHESTRATOR`,
+    prompt: () => buildOrchestratorPrompt(),
     outputMapper: () => ({}),
     disallowedTools: RALPH_DISALLOWED_TOOLS,
   })
@@ -116,19 +97,14 @@ const _ralphWorkflowBuilder = defineWorkflow({
   .stage({
     name: "reviewer",
     agent: "reviewer",
-    description: "\uD83D\uDD0D REVIEWER",
+    description: `${STAGE_ICON.reviewer} REVIEWER`,
     prompt: (ctx) => {
-      const orchestratorOutput = ctx.stageOutputs.get("orchestrator");
-      const progressSummary = orchestratorOutput?.rawResponse ?? "";
-
       // Get prior debugger output from previous loop iteration (if any)
       const debuggerStageOutput = ctx.stageOutputs.get("debugger");
       const priorDebuggerOutput = debuggerStageOutput?.rawResponse;
 
       return buildReviewPrompt(
-        [...ctx.tasks],
         ctx.userPrompt,
-        progressSummary,
         priorDebuggerOutput,
       );
     },
@@ -142,7 +118,7 @@ const _ralphWorkflowBuilder = defineWorkflow({
   .stage({
     name: "debugger",
     agent: "debugger",
-    description: "\uD83D\uDD27 DEBUGGER",
+    description: `${STAGE_ICON.debugger} DEBUGGER`,
     prompt: (ctx) => {
       const review = getReviewResult(ctx.stageOutputs);
       const tasks = [...ctx.tasks];

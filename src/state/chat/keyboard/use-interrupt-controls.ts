@@ -232,6 +232,57 @@ export function useChatInterruptControls({
       }
     }
 
+    // Handle the case where the main stream has completed (partial-idle)
+    // but background agents (e.g. workflow sub-agents) are still running.
+    // Without this, Ctrl+C falls through to the text-clear / exit logic
+    // and the sub-agents keep running with the spinner stuck.
+    {
+      const activeBackgroundAgents = getActiveBackgroundAgents(parallelAgentsRef.current);
+      if (activeBackgroundAgents.length > 0) {
+        onInterrupt?.();
+        terminateActiveBackgroundAgents();
+
+        // Mark the last message as interrupted so the UI shows
+        // "Operation cancelled by user" instead of a stale spinner.
+        const interruptedTaskItems = finalizeTaskItemsOnInterrupt();
+        setMessagesWindowed((prev) => {
+          for (let i = prev.length - 1; i >= 0; i--) {
+            const msg = prev[i];
+            if (msg?.role === "assistant") {
+              return [
+                ...prev.slice(0, i),
+                {
+                  ...msg,
+                  wasInterrupted: true,
+                  taskItems: interruptedTaskItems,
+                  parts: finalizeStreamingTextParts(
+                    interruptRunningToolParts(msg.parts) ?? [],
+                  ),
+                },
+                ...prev.slice(i + 1),
+              ];
+            }
+          }
+          return prev;
+        });
+
+        if (workflowState.workflowActive) {
+          const nextCount = interruptCount + 1;
+          if (nextCount >= 2) {
+            // Double Ctrl+C: fully exit the workflow
+            cancelWorkflow();
+            clearInterruptConfirmation();
+          } else {
+            conductorInterruptRef.current?.();
+            scheduleInterruptConfirmation(nextCount);
+          }
+        } else {
+          clearInterruptConfirmation();
+        }
+        return true;
+      }
+    }
+
     {
       const textarea = textareaRef.current;
       if (textarea?.plainText) {
@@ -379,6 +430,47 @@ export function useChatInterruptControls({
           wasInterruptedRef,
         });
         terminateActiveBackgroundAgents();
+        return true;
+      }
+    }
+
+    // Handle the case where the main stream has completed (partial-idle)
+    // but background agents (e.g. workflow sub-agents) are still running.
+    // Without this, ESC falls through and the sub-agents keep running
+    // with the spinner stuck.
+    {
+      const activeBackgroundAgents = getActiveBackgroundAgents(parallelAgentsRef.current);
+      if (activeBackgroundAgents.length > 0) {
+        onInterrupt?.();
+        terminateActiveBackgroundAgents();
+
+        // Mark the last message as interrupted so the UI shows
+        // "Operation cancelled by user" instead of a stale spinner.
+        const interruptedTaskItems = finalizeTaskItemsOnInterrupt();
+        setMessagesWindowed((prev) => {
+          for (let i = prev.length - 1; i >= 0; i--) {
+            const msg = prev[i];
+            if (msg?.role === "assistant") {
+              return [
+                ...prev.slice(0, i),
+                {
+                  ...msg,
+                  wasInterrupted: true,
+                  taskItems: interruptedTaskItems,
+                  parts: finalizeStreamingTextParts(
+                    interruptRunningToolParts(msg.parts) ?? [],
+                  ),
+                },
+                ...prev.slice(i + 1),
+              ];
+            }
+          }
+          return prev;
+        });
+
+        if (workflowState.workflowActive) {
+          conductorInterruptRef.current?.();
+        }
         return true;
       }
     }

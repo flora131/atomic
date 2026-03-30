@@ -126,8 +126,8 @@ The compiler automatically infers which state fields each node **reads** and whi
   agent: "planner",
   description: "PLANNER",
   prompt: (ctx) => `Plan: ${ctx.userPrompt}`,
-  outputMapper: (response) => ({ tasks: parseTasks(response) }),
-  // ↑ compiler infers: outputs ["tasks"]
+  outputMapper: () => ({}),
+  // ↑ compiler infers: outputs [] (empty — no state fields produced)
 })
 .stage({
   name: "execute",

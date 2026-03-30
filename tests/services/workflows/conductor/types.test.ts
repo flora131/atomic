@@ -468,7 +468,7 @@ describe("type assignability", () => {
   test("StageDefinition.shouldRun controls stage execution", () => {
     const def: StageDefinition = {
       id: "debugger",
-      indicator: "🔧 DEBUGGER",
+      indicator: "✦ DEBUGGER",
       buildPrompt: () => "fix it",
       shouldRun: (ctx) => {
         const reviewOutput = ctx.stageOutputs.get("reviewer");

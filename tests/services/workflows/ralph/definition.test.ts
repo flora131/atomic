@@ -5,6 +5,8 @@
  * WorkflowDefinition with correct metadata, stage definitions, and graph.
  */
 
+import "./definition.task-list-config.suite.ts";
+
 import { describe, test, expect } from "bun:test";
 import { getRalphWorkflowDefinition } from "@/services/workflows/builtin/ralph/ralph-workflow.ts";
 
@@ -218,20 +220,12 @@ describe("Ralph Workflow Definition (DSL)", () => {
     expect(prompt).toContain("Build a REST API");
   });
 
-  test("orchestrator buildPrompt uses tasks from context", () => {
+  test("orchestrator buildPrompt instructs to retrieve tasks via list_tasks", () => {
     const orchestrator = ralphWorkflowDefinition.conductorStages![1]!;
-    const ctx = makeStageContext({
-      tasks: [
-        {
-          description: "Create user model",
-          status: "pending",
-          summary: "Creating model",
-          blockedBy: [],
-        },
-      ],
-    });
+    const ctx = makeStageContext();
     const prompt = orchestrator.buildPrompt(ctx);
-    expect(prompt).toContain("Create user model");
+    expect(prompt).toContain("list_tasks");
+    expect(prompt).toContain("orchestrator managing");
   });
 
   test("reviewer parseOutput extracts findings", () => {
@@ -248,26 +242,14 @@ describe("Ralph Workflow Definition (DSL)", () => {
     expect(parsed.reviewResult).toBeDefined();
   });
 
-  test("planner parseOutput extracts tasks as array", () => {
+  test("planner parseOutput returns empty object (tasks persisted via tool)", () => {
     const planner = ralphWorkflowDefinition.conductorStages![0]!;
     const result = planner.parseOutput!(
-      JSON.stringify([
-        {
-          id: 1,
-          description: "Task A",
-          status: "pending",
-          summary: "Doing A",
-          blockedBy: [],
-        },
-      ]),
+      "I have created the tasks using the task_list tool.",
     );
-    // The outputMapper returns { tasks: [...] }, so parseOutput returns a Record.
     expect(typeof result).toBe("object");
     expect(result).not.toBeNull();
-    const parsed = result as Record<string, unknown>;
-    const tasks = parsed.tasks as Array<{ description: string }>;
-    expect(tasks).toHaveLength(1);
-    expect(tasks[0]!.description).toBe("Task A");
+    expect(result).toEqual({});
   });
 
   // -------------------------------------------------------------------------
@@ -277,7 +259,7 @@ describe("Ralph Workflow Definition (DSL)", () => {
   test("conductor graph nodes carry inferred reads/outputs metadata", () => {
     const graph = ralphWorkflowDefinition.createConductorGraph!();
     const planner = graph.nodes.get("planner");
-    expect(planner?.outputs).toEqual(["tasks"]);
+    expect(planner?.outputs).toEqual([]);
 
     // Reads are inferred from ctx.state.* accesses in prompt functions.
     // Ralph stages use ctx.stageOutputs/ctx.tasks instead of ctx.state,
@@ -348,23 +330,6 @@ describe("Ralph Workflow Definition (DSL)", () => {
     const reviewer = ralphWorkflowDefinition.conductorStages![2]!;
     const ctx = makeStageContext({
       userPrompt: "Build a REST API",
-      tasks: [
-        {
-          description: "Create endpoints",
-          status: "completed",
-          summary: "Creating endpoints",
-          blockedBy: [],
-        },
-      ],
-      stageOutputs: new Map([
-        [
-          "orchestrator",
-          makeStageOutput({
-            stageId: "orchestrator",
-            rawResponse: "Orchestrator completed all tasks",
-          }),
-        ],
-      ]),
     });
     const prompt = reviewer.buildPrompt(ctx);
     expect(prompt).toContain("Build a REST API");
@@ -376,22 +341,7 @@ describe("Ralph Workflow Definition (DSL)", () => {
     const reviewer = ralphWorkflowDefinition.conductorStages![2]!;
     const ctx = makeStageContext({
       userPrompt: "Build a REST API",
-      tasks: [
-        {
-          description: "Create endpoints",
-          status: "completed",
-          summary: "Creating endpoints",
-          blockedBy: [],
-        },
-      ],
       stageOutputs: new Map([
-        [
-          "orchestrator",
-          makeStageOutput({
-            stageId: "orchestrator",
-            rawResponse: "Orchestrator completed all tasks",
-          }),
-        ],
         [
           "debugger",
           makeStageOutput({
@@ -405,5 +355,43 @@ describe("Ralph Workflow Definition (DSL)", () => {
     expect(prompt).toContain("Build a REST API");
     // Should contain the prior debugger output
     expect(prompt).toContain("Fixed the null pointer issue in user controller");
+  });
+
+  // -------------------------------------------------------------------------
+  // Orchestrator handles empty task list from task_list tool flow
+  // -------------------------------------------------------------------------
+
+  test("orchestrator buildPrompt always instructs to use list_tasks (tool-first flow)", () => {
+    const orchestrator = ralphWorkflowDefinition.conductorStages![1]!;
+    const ctx = makeStageContext({
+      tasks: [],
+      stageOutputs: new Map([
+        [
+          "planner",
+          makeStageOutput({
+            stageId: "planner",
+            rawResponse: "I have created the tasks using the task_list tool.",
+            parsedOutput: {},
+          }),
+        ],
+      ]),
+    });
+    const prompt = orchestrator.buildPrompt(ctx);
+    expect(prompt).toContain("orchestrator managing");
+    expect(prompt).toContain("list_tasks");
+  });
+
+  test("orchestrator buildPrompt is deterministic (no task data dependency)", () => {
+    const orchestrator = ralphWorkflowDefinition.conductorStages![1]!;
+    const ctx1 = makeStageContext({ tasks: [] });
+    const ctx2 = makeStageContext({
+      tasks: [
+        { id: "1", description: "Setup project", status: "pending", summary: "Setting up", blockedBy: [] },
+      ],
+    });
+    // Both contexts produce the same prompt since orchestrator reads from tool
+    const prompt1 = orchestrator.buildPrompt(ctx1);
+    const prompt2 = orchestrator.buildPrompt(ctx2);
+    expect(prompt1).toBe(prompt2);
   });
 });

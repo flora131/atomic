@@ -17,6 +17,7 @@ export {
   isSdkAskQuestionToolName,
   registerAgentToolNames,
   taskToolRenderer,
+  taskListToolRenderer,
   todoWriteToolRenderer,
   writeToolRenderer,
   type ToolRenderProps,

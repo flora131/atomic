@@ -157,6 +157,10 @@ export function createTaskListTool(config: TaskListToolConfig): ToolDefinition {
 
   const deleteTaskStmt = db.prepare("DELETE FROM tasks WHERE id = $id");
 
+  const deleteProgressForTask = db.prepare(
+    "DELETE FROM progress WHERE task_id = $task_id"
+  );
+
   const insertProgress = db.prepare(
     "INSERT INTO progress (task_id, entry) VALUES ($task_id, $entry)"
   );
@@ -276,6 +280,12 @@ export function createTaskListTool(config: TaskListToolConfig): ToolDefinition {
         case "update_task_progress": {
           const taskId = input.taskId as string;
           const progress = input.progress as string;
+          const existing = selectTask.get({ $id: taskId }) as
+            | Record<string, unknown>
+            | undefined;
+          if (!existing) {
+            return { error: `Task not found: ${taskId}` };
+          }
           insertProgress.run({ $task_id: taskId, $entry: progress });
           return { taskId, appended: true };
         }
@@ -307,6 +317,7 @@ export function createTaskListTool(config: TaskListToolConfig): ToolDefinition {
           if (!existing) {
             return { error: `Task not found: ${taskId}` };
           }
+          deleteProgressForTask.run({ $task_id: taskId });
           deleteTaskStmt.run({ $id: taskId });
           const current = syncAndNotify();
           return { deleted: taskId, remaining: current.length };

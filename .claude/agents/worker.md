@@ -136,7 +136,7 @@ When you encounter ANY bug — whether introduced by your changes, discovered du
       ```json
       {"id": "0", "description": "Fix: [describe the bug]", "status": "pending", "summary": "Fixing [bug]", "blockedBy": []}
       ```
-    - For each dependent task, call `task_list` with `action: "add_task"` to update its `blockedBy` to include the bug fix task's ID. This ensures those tasks cannot be started until the fix lands.
+    - For each dependent task, call `task_list` with `action: "update_task_blockedBy"` to add the bug fix task's ID to its `blockedBy` dependencies. This ensures those tasks cannot be started until the fix lands.
 3. **Log the debug report**: Call `task_list` with `action: "update_task_progress"` to log the debugger agent's report for future reference.
 4. **STOP immediately**: Do NOT continue working on the current feature. EXIT so the next iteration picks up the bug fix first.
 

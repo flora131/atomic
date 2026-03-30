@@ -84,6 +84,7 @@ const taskListInputSchema = {
       description: "Array of task objects (for create_tasks)",
       items: {
         type: "object",
+        additionalProperties: false,
         properties: {
           id: { type: "string" },
           description: { type: "string" },
@@ -107,6 +108,7 @@ const taskListInputSchema = {
     },
     task: {
       type: "object",
+      additionalProperties: false,
       description: "A single task object (for add_task)",
       properties: {
         id: { type: "string" },
@@ -216,12 +218,17 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
     "UPDATE tasks SET blocked_by = $blocked_by, updated_at = datetime('now') WHERE id = $id"
   );
 
+  const validStatuses = new Set<TaskItem["status"]>(["pending", "in_progress", "completed", "error"]);
+
   /** Convert a DB row to a TaskItem */
   function rowToTaskItem(row: TaskRow): TaskItem {
+    const status = validStatuses.has(row.status as TaskItem["status"])
+      ? (row.status as TaskItem["status"])
+      : "pending";
     return {
       id: row.id,
       description: row.description,
-      status: row.status as TaskItem["status"],
+      status,
       summary: row.summary,
       blockedBy: JSON.parse(row.blocked_by || "[]") as string[],
     };
@@ -280,15 +287,29 @@ export function createTaskListTool(config: TaskListToolConfig): TaskListTool {
           }
           // Validate blockedBy references: IDs must exist in the batch or in the DB
           const batchIds = new Set(tasks.map((t) => t.id));
+          // Collect all external refs (not in the batch) and check existence in one pass
+          const externalRefs = new Set<string>();
           for (const t of tasks) {
-            const refs = t.blockedBy ?? [];
-            const invalidIds = refs.filter(
-              (id) => !batchIds.has(id) && !selectTask.get({ $id: id })
-            );
-            if (invalidIds.length > 0) {
-              return {
-                error: `Task "${t.id}" blockedBy references non-existent task(s): ${invalidIds.join(", ")}`,
-              };
+            for (const id of t.blockedBy ?? []) {
+              if (!batchIds.has(id)) externalRefs.add(id);
+            }
+          }
+          if (externalRefs.size > 0) {
+            const placeholders = [...externalRefs].map(() => "?").join(",");
+            const existingRows = db
+              .prepare(`SELECT id FROM tasks WHERE id IN (${placeholders})`)
+              .all(...externalRefs) as { id: string }[];
+            const existingIds = new Set(existingRows.map((r) => r.id));
+            for (const t of tasks) {
+              const refs = t.blockedBy ?? [];
+              const invalidIds = refs.filter(
+                (id) => !batchIds.has(id) && !existingIds.has(id)
+              );
+              if (invalidIds.length > 0) {
+                return {
+                  error: `Task "${t.id}" blockedBy references non-existent task(s): ${invalidIds.join(", ")}`,
+                };
+              }
             }
           }
           const insertMany = db.transaction((items: TaskItem[]) => {

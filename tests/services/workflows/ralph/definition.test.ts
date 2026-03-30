@@ -5,6 +5,8 @@
  * WorkflowDefinition with correct metadata, stage definitions, and graph.
  */
 
+import "./definition.task-list-config.suite.ts";
+
 import { describe, test, expect } from "bun:test";
 import { getRalphWorkflowDefinition } from "@/services/workflows/builtin/ralph/ralph-workflow.ts";
 
@@ -405,5 +407,47 @@ describe("Ralph Workflow Definition (DSL)", () => {
     expect(prompt).toContain("Build a REST API");
     // Should contain the prior debugger output
     expect(prompt).toContain("Fixed the null pointer issue in user controller");
+  });
+
+  // -------------------------------------------------------------------------
+  // Orchestrator handles empty task list from task_list tool flow
+  // -------------------------------------------------------------------------
+
+  test("orchestrator buildPrompt falls through to empty task list when planner used task_list tool", () => {
+    const orchestrator = ralphWorkflowDefinition.conductorStages![1]!;
+    // Simulate: planner used task_list tool, so parsedOutput.tasks is []
+    // and rawResponse is text (no JSON)
+    const ctx = makeStageContext({
+      tasks: [],
+      stageOutputs: new Map([
+        [
+          "planner",
+          makeStageOutput({
+            stageId: "planner",
+            rawResponse: "I have created the tasks using the task_list tool.",
+            parsedOutput: { tasks: [] },
+          }),
+        ],
+      ]),
+    });
+    const prompt = orchestrator.buildPrompt(ctx);
+    // Should still produce a valid orchestrator prompt with empty task list
+    expect(prompt).toContain("orchestrator managing");
+    expect(prompt).toContain("[]");
+    // Should include the list_tasks instruction for retrieving tasks from SQLite
+    expect(prompt).toContain("list_tasks");
+  });
+
+  test("orchestrator buildPrompt uses ctx.tasks when available (legacy flow)", () => {
+    const orchestrator = ralphWorkflowDefinition.conductorStages![1]!;
+    const ctx = makeStageContext({
+      tasks: [
+        { id: "1", description: "Setup project", status: "pending", summary: "Setting up", blockedBy: [] },
+      ],
+    });
+    const prompt = orchestrator.buildPrompt(ctx);
+    expect(prompt).toContain("Setup project");
+    // Should NOT include the empty-task note since tasks were provided
+    expect(prompt).not.toContain("The task list above is empty");
   });
 });

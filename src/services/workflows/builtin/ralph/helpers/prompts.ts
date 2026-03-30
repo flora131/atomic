@@ -236,6 +236,17 @@ export function buildOrchestratorPrompt(
         2,
     );
 
+    const emptyTaskListNote = tasks.length === 0
+        ? `
+
+**The task list above is empty.** The planner created tasks via the task_list
+tool (persisted to SQLite). Start by calling:
+\`{"action": "list_tasks"}\`
+to retrieve the full task list before proceeding.
+
+`
+        : "\n";
+
     return `You are an orchestrator managing a set of implementation tasks.
 
 ## Task List
@@ -243,7 +254,7 @@ export function buildOrchestratorPrompt(
 \`\`\`json
 ${taskListJson}
 \`\`\`
-
+${emptyTaskListNote}
 ## Dependency Graph Integrity Check
 
 BEFORE executing any tasks, validate the dependency graph:

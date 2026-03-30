@@ -52,16 +52,21 @@ const TaskItemSchema = z.object({
 // ---------------------------------------------------------------------------
 
 /**
- * Disallow ask-user-question tools in all Ralph stages.
+ * Disallow certain tools in all Ralph stages.
  *
  * Ralph is an autonomous workflow — stages must not pause execution to
  * ask the user interactive questions. Each provider's ask-user tool has
  * a different name, so all three are listed.
+ *
+ * TodoWrite is also disallowed because the workflow uses the task_list
+ * tool (SQLite-backed CRUD) for task management instead. Blocking
+ * TodoWrite prevents agents from accidentally using the legacy
+ * snapshot-based protocol.
  */
 const RALPH_DISALLOWED_TOOLS: Partial<Record<"claude" | "opencode" | "copilot", string[]>> = {
-  claude: ["AskUserQuestion"],
-  opencode: ["question"],
-  copilot: ["ask_user"],
+  claude: ["AskUserQuestion", "TodoWrite"],
+  opencode: ["question", "TodoWrite"],
+  copilot: ["ask_user", "TodoWrite"],
 };
 
 // ---------------------------------------------------------------------------

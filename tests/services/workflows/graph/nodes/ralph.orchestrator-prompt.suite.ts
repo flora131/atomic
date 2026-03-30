@@ -278,6 +278,23 @@ describe("buildOrchestratorPrompt", () => {
         expect(prompt).toContain("Task Status Protocol");
     });
 
+    test("includes list_tasks instruction when task list is empty", () => {
+        const prompt = buildOrchestratorPrompt([]);
+
+        expect(prompt).toContain("The task list above is empty");
+        expect(prompt).toContain("list_tasks");
+        expect(prompt).toContain("retrieve the full task list");
+    });
+
+    test("does NOT include empty-task note when tasks are provided", () => {
+        const tasks: TaskItem[] = [
+            { id: "1", description: "Task A", status: "pending", summary: "Doing A" },
+        ];
+        const prompt = buildOrchestratorPrompt(tasks);
+
+        expect(prompt).not.toContain("The task list above is empty");
+    });
+
     test("handles tasks with mixed statuses", () => {
         const tasks: TaskItem[] = [
             { id: "1", description: "Done task", status: "completed", summary: "Done" },

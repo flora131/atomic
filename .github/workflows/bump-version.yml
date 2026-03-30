@@ -29,7 +29,7 @@ jobs:
         id: version
         run: |
           BRANCH="${{ github.head_ref }}"
-          VERSION=$(echo "$BRANCH" | sed -E 's|^(release|prerelease)/v||')
+          VERSION=$(echo "$BRANCH" | sed -E 's#^(release|prerelease)/v##')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Run bump-version script

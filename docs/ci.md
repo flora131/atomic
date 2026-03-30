@@ -264,7 +264,7 @@ End-to-end flow for a release, from branch creation to published artifacts:
 | `ci.yml`                   | PR (source/config changes)                     | Tests, typecheck, lint, coverage   |
 | `bump-version.yml`        | PR opened/synced (`release/*`, `prerelease/*`) | Auto-bump versions from branch name|
 | `validate-features.yml`   | PR (`devcontainer-features/**`)                | Schema validation                  |
-| `test-features.yml`       | PR (`devcontainer-features/**`), `workflow_call`| Feature install + scenario tests   |
+| `test-features.yml`       | `workflow_call`, `workflow_dispatch`            | Feature install + scenario tests   |
 | `installer-validation.yml`| PR (`install.sh`, `install.ps1`)               | Shell/PowerShell lint              |
 | `code-review.yml`         | PR opened/synced                               | AI code review                     |
 | `pr-description.yml`      | PR opened/synced                               | AI PR description                  |

@@ -28,7 +28,6 @@ export function createTestAtomicState(
     allFeaturesPassing: false,
     debugReports: [],
     prUrl: null,
-    contextWindowUsage: null,
     iteration: 1,
     ...overrides,
   };

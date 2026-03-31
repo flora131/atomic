@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import {
   buildReviewPrompt,
   parseReviewResult,
-  type TaskItem,
 } from "./ralph.test-support.ts";
 
 describe("buildReviewPrompt", () => {

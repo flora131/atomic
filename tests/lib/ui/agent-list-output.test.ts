@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { buildAgentListView } from "@/lib/ui/agent-list-output.ts";
 import type { AgentInfo } from "@/services/agent-discovery/types.ts";
 
@@ -7,6 +7,16 @@ function makeAgent(overrides: Partial<AgentInfo> & Pick<AgentInfo, "name" | "des
 }
 
 describe("buildAgentListView", () => {
+  const originalColumns = process.stdout.columns;
+
+  beforeEach(() => {
+    Object.defineProperty(process.stdout, "columns", { value: 80, writable: true, configurable: true });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(process.stdout, "columns", { value: originalColumns, writable: true, configurable: true });
+  });
+
   test("empty agents array returns correct structure with empty arrays", () => {
     const view = buildAgentListView([]);
     expect(view).toEqual({
@@ -38,7 +48,6 @@ describe("buildAgentListView", () => {
   });
 
   test("agents with unrecognized source types are excluded from both arrays but counted in totalCount", () => {
-    // Force an invalid source via type assertion to test the else branch
     const agent = { name: "builtin-agent", description: "A builtin agent.", source: "builtin", filePath: "/fake" } as unknown as AgentInfo;
     const view = buildAgentListView([agent]);
 
@@ -70,26 +79,38 @@ describe("buildAgentListView", () => {
   });
 });
 
-describe("firstSentence (via buildAgentListView)", () => {
-  test("extracts first sentence ending with period followed by space", () => {
-    const agent = makeAgent({ name: "a", description: "First sentence. Second sentence.", source: "project" });
-    const view = buildAgentListView([agent]);
+describe("description truncation (via buildAgentListView)", () => {
+  const originalColumns = process.stdout.columns;
 
-    expect(view.projectAgents[0]!.description).toBe("First sentence.");
+  beforeEach(() => {
+    Object.defineProperty(process.stdout, "columns", { value: 80, writable: true, configurable: true });
   });
 
-  test("returns full text when no period followed by space exists", () => {
-    const agent = makeAgent({ name: "a", description: "No period here", source: "project" });
-    const view = buildAgentListView([agent]);
-
-    expect(view.projectAgents[0]!.description).toBe("No period here");
+  afterEach(() => {
+    Object.defineProperty(process.stdout, "columns", { value: originalColumns, writable: true, configurable: true });
   });
 
-  test("returns full text when period is at the very end (no trailing space)", () => {
+  test("truncates long descriptions to fit terminal width", () => {
+    // name "a" (1 char) → available = 80 - 4 - 1 = 75
+    const longDesc = "X".repeat(100);
+    const agent = makeAgent({ name: "a", description: longDesc, source: "project" });
+    const view = buildAgentListView([agent]);
+
+    expect(view.projectAgents[0]!.description.length).toBeLessThanOrEqual(75);
+    expect(view.projectAgents[0]!.description).toEndWith("...");
+  });
+
+  test("keeps short descriptions intact", () => {
+    const agent = makeAgent({ name: "a", description: "Short text", source: "project" });
+    const view = buildAgentListView([agent]);
+
+    expect(view.projectAgents[0]!.description).toBe("Short text");
+  });
+
+  test("returns full text when description is short enough", () => {
     const agent = makeAgent({ name: "a", description: "Only one sentence.", source: "project" });
     const view = buildAgentListView([agent]);
 
-    // The regex requires `. ` (period + space) — a trailing period with no space won't match
     expect(view.projectAgents[0]!.description).toBe("Only one sentence.");
   });
 
@@ -97,15 +118,13 @@ describe("firstSentence (via buildAgentListView)", () => {
     const agent = makeAgent({ name: "a", description: "Line one.\nLine two. Line three.", source: "project" });
     const view = buildAgentListView([agent]);
 
-    // After newline replacement: "Line one. Line two. Line three."
-    // First sentence match: "Line one."
-    expect(view.projectAgents[0]!.description).toBe("Line one.");
+    expect(view.projectAgents[0]!.description).toContain("Line one. Line two.");
   });
 
-  test("trims leading/trailing whitespace before extracting", () => {
+  test("trims leading/trailing whitespace before truncating", () => {
     const agent = makeAgent({ name: "a", description: "  Spaced out. More text.  ", source: "project" });
     const view = buildAgentListView([agent]);
 
-    expect(view.projectAgents[0]!.description).toBe("Spaced out.");
+    expect(view.projectAgents[0]!.description).toStartWith("Spaced out.");
   });
 });

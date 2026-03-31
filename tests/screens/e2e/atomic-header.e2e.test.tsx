@@ -10,14 +10,14 @@ import { afterEach, describe, expect, test } from "bun:test";
 import React from "react";
 import { testRender } from "@opentui/react/test-utils";
 import { ThemeProvider, darkTheme } from "@/theme/index.tsx";
-import { AtomicHeader } from "@/components/chat-header.tsx";
+import { AtomicHeader, HEADER_MIN_WIDTH, HEADER_MIN_HEIGHT, HEADER_LOGO_MIN_WIDTH } from "@/components/chat-header.tsx";
 import type { AtomicHeaderProps } from "@/state/chat/shared/types/presentation.ts";
 
 // ============================================================================
 // HELPERS
 // ============================================================================
 
-const RENDER_OPTIONS = { width: 120, height: 10 };
+const RENDER_OPTIONS = { width: 120, height: 20 };
 
 type TestSetup = Awaited<ReturnType<typeof testRender>>;
 
@@ -103,12 +103,42 @@ describe("AtomicHeader E2E", () => {
     expect(frame).toContain("~/Documents/code");
   });
 
+  test("hides entire header when terminal is too narrow", async () => {
+    testSetup = await testRender(
+      <ThemeProvider initialTheme={darkTheme}>
+        <AtomicHeader version="1.0.0" model="claude-sonnet-4" workingDir="~/code" />
+      </ThemeProvider>,
+      { width: HEADER_MIN_WIDTH - 1, height: 30 },
+    );
+    await testSetup.renderOnce();
+    const frame = testSetup.captureCharFrame();
+
+    expect(frame).not.toContain("1.0.0");
+    expect(frame).not.toContain("claude-sonnet-4");
+    expect(frame).not.toContain("█");
+  });
+
+  test("hides entire header when terminal is too short", async () => {
+    testSetup = await testRender(
+      <ThemeProvider initialTheme={darkTheme}>
+        <AtomicHeader version="1.0.0" model="claude-sonnet-4" workingDir="~/code" />
+      </ThemeProvider>,
+      { width: 120, height: HEADER_MIN_HEIGHT - 1 },
+    );
+    await testSetup.renderOnce();
+    const frame = testSetup.captureCharFrame();
+
+    expect(frame).not.toContain("1.0.0");
+    expect(frame).not.toContain("claude-sonnet-4");
+    expect(frame).not.toContain("█");
+  });
+
   test("hides ASCII art logo in narrow terminal", async () => {
     testSetup = await testRender(
       <ThemeProvider initialTheme={darkTheme}>
         <AtomicHeader version="1.0.0" />
       </ThemeProvider>,
-      { width: 50, height: 10 },
+      { width: HEADER_LOGO_MIN_WIDTH - 1, height: 30 },
     );
     await testSetup.renderOnce();
     const frame = testSetup.captureCharFrame();
@@ -124,7 +154,7 @@ describe("AtomicHeader E2E", () => {
       <ThemeProvider initialTheme={darkTheme}>
         <AtomicHeader version="1.0.0" />
       </ThemeProvider>,
-      { width: 80, height: 10 },
+      { width: HEADER_LOGO_MIN_WIDTH + 10, height: 30 },
     );
     await testSetup.renderOnce();
     const frame = testSetup.captureCharFrame();

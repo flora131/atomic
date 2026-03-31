@@ -382,7 +382,7 @@ export class WorkflowSessionConductor {
         // `ctx.stageOutputs.get(nodeId)` — the same way agent stage
         // outputs are accessible.
         if (result.stateUpdate) {
-          const { __waitingForInput, __userDeclined, __waitNodeId, __askUserRequestId, outputs, lastUpdated, ...parsedFields } = result.stateUpdate as Record<string, unknown>;
+          const { __waitingForInput, __userDeclined, __waitNodeId, __askUserRequestId, outputs: _outputs, lastUpdated: _lastUpdated, ...parsedFields } = result.stateUpdate as Record<string, unknown>;
           const hasMeaningfulOutput = Object.keys(parsedFields).length > 0;
           if (hasMeaningfulOutput) {
             const syntheticOutput: StageOutput = {

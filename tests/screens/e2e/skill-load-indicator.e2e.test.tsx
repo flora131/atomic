@@ -6,7 +6,7 @@
  * frame output.
  */
 
-import React, { act } from "react";
+import React from "react";
 import { afterEach, describe, expect, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { ThemeProvider, darkTheme } from "@/theme/index.tsx";
@@ -42,14 +42,12 @@ async function renderIndicator(props: {
 
   destroyRenderer = () => renderer.destroy();
 
-  await act(async () => { await renderOnce(); });
+  await renderOnce();
   return captureCharFrame();
 }
 
 afterEach(() => {
-  if (destroyRenderer) {
-    act(() => { destroyRenderer!(); });
-  }
+  destroyRenderer?.();
   destroyRenderer = undefined;
 });
 

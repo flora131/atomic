@@ -8,7 +8,7 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import React, { act } from "react";
+import React from "react";
 import { testRender } from "@opentui/react/test-utils";
 import { ThemeProvider, darkTheme } from "@/theme/index.tsx";
 import { Autocomplete } from "@/components/autocomplete.tsx";
@@ -73,7 +73,7 @@ let destroyers: (() => void)[] = [];
 
 afterEach(() => {
   for (const destroy of destroyers) {
-    act(() => { destroy(); });
+    destroy();
   }
   destroyers = [];
 });
@@ -111,7 +111,7 @@ async function renderAutocomplete(props: {
   destroyers.push(() => result.renderer.destroy());
 
   // Perform an initial render pass so the frame is populated.
-  await act(async () => { await result.renderOnce(); });
+  await result.renderOnce();
 
   return result;
 }
@@ -303,7 +303,7 @@ describe("Autocomplete E2E", () => {
     });
 
     // The clamping now fires synchronously during render (no extra useEffect cycle).
-    await act(async () => { await renderOnce(); });
+    await renderOnce();
 
     // The component should have called onIndexChange with the clamped value.
     expect(indexChanges.length).toBeGreaterThanOrEqual(1);

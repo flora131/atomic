@@ -9,6 +9,7 @@ type BuildOptions = {
   outfile: string;
   minify: boolean;
   target?: string;
+  baseline: boolean;
 };
 
 function parseCompileTarget(target: string): string {
@@ -25,6 +26,7 @@ function parseBuildOptions(argv: string[]): BuildOptions {
     options: {
       outfile: { type: "string" },
       target: { type: "string" },
+      baseline: { type: "boolean", default: false },
       minify: { type: "boolean", default: false },
     },
     strict: true,
@@ -38,6 +40,7 @@ function parseBuildOptions(argv: string[]): BuildOptions {
   return {
     outfile: values.outfile,
     target: values.target ? parseCompileTarget(values.target) : undefined,
+    baseline: values.baseline ?? false,
     minify: values.minify ?? false,
   };
 }
@@ -76,7 +79,7 @@ const projectRoot = process.cwd();
 const parserWorker = realpathSync(resolve(projectRoot, "node_modules/@opentui/core/parser.worker.js"));
 const workerRelativePath = relative(projectRoot, parserWorker).replaceAll("\\", "/");
 const compileTargetOs = inferTargetOs(options.target);
-const isBaseline = options.target?.includes("baseline") ?? false;
+const isBaseline = options.baseline || (options.target?.includes("baseline") ?? false);
 
 const result = await Bun.build({
   entrypoints: ["src/cli.ts", parserWorker],

@@ -128,15 +128,25 @@ jobs:
       - name: Install all platform-specific opentui native bindings
         run: bun run prepare:opentui-bindings
 
-      - name: Build Windows binaries natively
+      - name: Build Windows x64 binary
         run: |
           mkdir dist
 
           # Windows x64 (standard, with AVX for native x64 users)
           bun run src/scripts/build-binary.ts --minify --outfile dist/atomic-windows-x64.exe
 
-          # Windows x64-baseline (AVX-free for ARM64 Prism compatibility)
-          bun run src/scripts/build-binary.ts --minify --target=bun-windows-x64-baseline --outfile dist/atomic-windows-x64-baseline.exe
+      - name: Download baseline Bun runtime
+        shell: bash
+        run: |
+          BUN_VERSION=$(bun --version)
+          curl -fsSL "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-windows-x64-baseline.zip" -o bun-baseline.zip
+          unzip -q bun-baseline.zip -d bun-baseline
+
+      - name: Build Windows x64-baseline binary
+        shell: bash
+        run: |
+          # Use baseline Bun to compile natively (embeds baseline runtime, no --target needed)
+          ./bun-baseline/bun-windows-x64-baseline/bun.exe run src/scripts/build-binary.ts --minify --baseline --outfile dist/atomic-windows-x64-baseline.exe
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v7

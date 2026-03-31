@@ -6,6 +6,8 @@ import type { ChatMessage } from "@/state/chat/shared/types/index.ts";
 import type { NormalizedTodoItem } from "@/state/parts/helpers/task-status.ts";
 import {
   isTodoWriteToolName,
+  normalizeTaskStatus,
+  normalizeTodoItem,
   reconcileTodoWriteItems,
 } from "@/state/parts/helpers/task-status.ts";
 import { isAutoCompactionToolName, type AutoCompactionIndicatorState } from "@/state/chat/shared/helpers/auto-compaction-lifecycle.ts";
@@ -17,6 +19,11 @@ import {
 } from "@/state/chat/shared/helpers/index.ts";
 import { applyStreamPartEvent, isSubagentToolName } from "@/state/parts/index.ts";
 import { persistWorkflowTasksToDisk } from "@/services/workflows/helpers/persist-workflow-tasks.ts";
+
+/** Detect the SQLite-backed task_list CRUD tool by name. */
+function isTaskListToolName(name: string): boolean {
+  return name === "task_list";
+}
 
 interface UseChatStreamToolEventsArgs {
   agentType?: AgentType;
@@ -176,6 +183,9 @@ export function useChatStreamToolEvents({
       }
     }
 
+    // TodoWrite handling — retained for non-Ralph contexts (standalone chat, other
+    // workflows). The Ralph workflow disallows TodoWrite via RALPH_DISALLOWED_TOOLS
+    // and uses the SQLite-backed `task_list` tool instead (see block below).
     if (isTodoWriteToolName(toolName) && input.todos && Array.isArray(input.todos)) {
       const previousTodos = todoItemsRef.current;
       const todos = reconcileTodoWriteItems(input.todos, previousTodos);
@@ -192,6 +202,11 @@ export function useChatStreamToolEvents({
         }
       }
     }
+
+    // task_list tool mutations (SQLite-backed CRUD tool):
+    // Optimistic updates are intentionally skipped in handleToolStart to avoid
+    // race conditions with parallel agents. The authoritative task state is
+    // applied in handleToolComplete from the tool's output instead.
   }, [
     agentType,
     applyAutoCompactionIndicator,
@@ -299,6 +314,10 @@ export function useChatStreamToolEvents({
       });
     });
 
+    // TodoWrite completion — retained for non-Ralph contexts (standalone chat,
+    // other workflows). The Ralph workflow disallows TodoWrite via
+    // RALPH_DISALLOWED_TOOLS and uses the SQLite-backed `task_list` tool instead
+    // (see block below).
     const isTodoWriteCompletion = isTodoWriteToolName(completedToolName);
     if (isTodoWriteCompletion && input && input.todos && Array.isArray(input.todos)) {
       const previousTodos = todoItemsRef.current;
@@ -313,6 +332,80 @@ export function useChatStreamToolEvents({
         const sessionDir = workflowSessionDirRef.current;
         if (sessionDir && workflowSessionIdRef.current) {
           persistWorkflowTasksToDisk(sessionDir, todos);
+        }
+      }
+    }
+
+    // Handle task_list tool completion (SQLite-backed CRUD tool).
+    // On completion, prefer the authoritative tasks array from the tool output
+    // when available; otherwise fall back to optimistic input-based updates.
+    // The tool itself persists to SQLite, so we only update TUI state here.
+    //
+    // NOTE: The outer condition intentionally does NOT gate on `input` because
+    // `ToolCompleteEvent.input` is optional (toolInput is optional in the
+    // stream.tool.complete schema) and some providers emit an empty `{}` for
+    // toolInput on tool-complete. The authoritative path reads from `output`,
+    // so it must not be blocked when `input` is absent. Only the fallback
+    // paths require `input` for action-specific optimistic updates.
+    //
+    // The tool output (`toolResult`) may arrive as a JSON string rather than a
+    // parsed object depending on the SDK provider, so we parse it defensively.
+    if (isTaskListToolName(completedToolName)) {
+      let outputRecord: Record<string, unknown>;
+      if (typeof output === "string") {
+        try {
+          const parsed: unknown = JSON.parse(output);
+          outputRecord = (typeof parsed === "object" && parsed !== null ? parsed : {}) as Record<string, unknown>;
+        } catch {
+          outputRecord = {};
+        }
+      } else {
+        outputRecord = (typeof output === "object" && output !== null ? output : {}) as Record<string, unknown>;
+      }
+
+      // If the output contains a tasks array, use it as the authoritative state
+      if (Array.isArray(outputRecord.tasks)) {
+        const todos: NormalizedTodoItem[] = (outputRecord.tasks as Array<Record<string, unknown>>).map((t) =>
+          normalizeTodoItem(t),
+        );
+        todoItemsRef.current = todos;
+        setTodoItems(todos);
+      } else if (input && input.action) {
+        // Fallback: apply optimistic update from input when output lacks full task list.
+        // Uses functional setTodoItems updater so concurrent calls from parallel agents
+        // chain correctly instead of clobbering each other via stale todoItemsRef reads.
+        const action = input.action as string;
+
+        if (action === "update_task_status" && input.taskId && input.status) {
+          const taskId = String(input.taskId);
+          const newStatus = normalizeTaskStatus(input.status);
+          setTodoItems((prev) => {
+            const updatedTodos = prev.map((t) =>
+              t.id === taskId ? { ...t, status: newStatus } : t,
+            );
+            todoItemsRef.current = updatedTodos;
+            return updatedTodos;
+          });
+        }
+
+        if (action === "add_task" && input.task && typeof input.task === "object") {
+          const newTodo = normalizeTodoItem(input.task);
+          setTodoItems((prev) => {
+            const alreadyExists = prev.some((t) => t.id === newTodo.id);
+            if (alreadyExists) return prev;
+            const updatedTodos = [...prev, newTodo];
+            todoItemsRef.current = updatedTodos;
+            return updatedTodos;
+          });
+        }
+
+        if (action === "delete_task" && input.taskId) {
+          const taskId = String(input.taskId);
+          setTodoItems((prev) => {
+            const updatedTodos = prev.filter((t) => t.id !== taskId);
+            todoItemsRef.current = updatedTodos;
+            return updatedTodos;
+          });
         }
       }
     }

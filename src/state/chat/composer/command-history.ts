@@ -1,11 +1,11 @@
 import {
   writeFileSync,
-  mkdirSync,
   existsSync,
   appendFileSync,
 } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
+import { ensureDirSync } from "@/services/system/copy.ts";
 
 const DEFAULT_MAX_HISTORY = 1000;
 const FILE_MODE = 0o600;
@@ -110,7 +110,7 @@ export function appendCommandHistory(command: string): void {
     const filePath = getCommandHistoryPath();
     const dir = dirname(filePath);
     if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
+      ensureDirSync(dir);
     }
 
     const encoded = encodeEntry(command);

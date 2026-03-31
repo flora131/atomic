@@ -6,7 +6,6 @@
  */
 
 export {
-    compileGraphConfig,
     createSubagentRegistry,
     inferHasSubagentNodes,
     inferHasTaskList,

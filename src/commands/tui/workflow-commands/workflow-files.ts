@@ -1,6 +1,7 @@
-import { existsSync, readdirSync, unlinkSync, mkdirSync, rmdirSync } from "node:fs";
+import { existsSync, readdirSync, unlinkSync, rmdirSync } from "node:fs";
 import { join, dirname } from "path";
 import { homedir } from "os";
+import { ensureDirSync } from "@/services/system/copy.ts";
 import { VERSION } from "@/version.ts";
 import { getRalphWorkflowDefinition } from "@/services/workflows/builtin/ralph/ralph-workflow.ts";
 import { compileWorkflow } from "@/services/workflows/dsl/compiler.ts";
@@ -164,7 +165,7 @@ const tempBundledFiles: string[] = [];
 export async function importWorkflowModule(
   workflowFilePath: string,
 ): Promise<Record<string, unknown>> {
-  mkdirSync(WORKFLOW_TMP_DIR, { recursive: true });
+  ensureDirSync(WORKFLOW_TMP_DIR);
   const basename = workflowFilePath.split("/").pop() ?? "workflow.ts";
   const bundledFile = join(
     WORKFLOW_TMP_DIR,
@@ -344,12 +345,6 @@ export async function loadWorkflowsFromDisk(): Promise<WorkflowDefinition[]> {
 
         loaded.push(definition);
         loadedNames.add(name.toLowerCase());
-
-        if (definition.aliases) {
-          for (const alias of definition.aliases) {
-            loadedNames.add(alias.toLowerCase());
-          }
-        }
         continue;
       }
 
@@ -394,11 +389,6 @@ export function getAllWorkflows(): WorkflowMetadata[] {
     if (!seenNames.has(lowerName)) {
       allWorkflows.push(workflow);
       seenNames.add(lowerName);
-      if (workflow.aliases) {
-        for (const alias of workflow.aliases) {
-          seenNames.add(alias.toLowerCase());
-        }
-      }
     }
   }
 

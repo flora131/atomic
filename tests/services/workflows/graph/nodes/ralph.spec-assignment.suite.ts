@@ -25,10 +25,11 @@ describe("buildSpecToTasksPrompt", () => {
     expect(prompt).toContain("blockedBy");
   });
 
-  test("instructs to output only JSON", () => {
-    expect(buildSpecToTasksPrompt("test spec")).toContain(
-      "Output ONLY the raw JSON array",
-    );
+  test("instructs to use the task_list tool", () => {
+    const prompt = buildSpecToTasksPrompt("test spec");
+    expect(prompt).toContain("task_list tool");
+    expect(prompt).toContain("create_tasks");
+    expect(prompt).toContain("Do NOT output raw JSON");
   });
 });
 

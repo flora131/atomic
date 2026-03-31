@@ -10,9 +10,10 @@
  * (discoverAndRegisterDiskSkills in skill-commands.ts).
  */
 
-import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, rmdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync, unlinkSync, rmdirSync } from "node:fs";
 import { join, resolve, dirname } from "path";
 import { homedir } from "os";
+import { ensureDirSync } from "@/services/system/copy.ts";
 import { z } from "zod";
 import type { CodingAgentClient, ToolDefinition, ToolContext, ToolHandlerResult } from "@/services/agents/types.ts";
 import type { ToolInput } from "@/services/agents/tools/plugin.ts";
@@ -94,7 +95,7 @@ function prepareToolFileForImport(toolFilePath: string): string {
 
   // Write to a temp file next to the original
   const tmpDir = join(HOME, ".atomic", ".tmp", "tools");
-  mkdirSync(tmpDir, { recursive: true });
+  ensureDirSync(tmpDir);
   const tmpFile = join(tmpDir, `${Date.now()}-${toolFilePath.split("/").pop()}`);
   writeFileSync(tmpFile, rewritten);
   tempToolFiles.push(tmpFile);

@@ -7,8 +7,9 @@
  * Uses lock files (.lock suffix) with process info to track ownership.
  */
 
-import { existsSync, writeFileSync, readFileSync, unlinkSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, writeFileSync, readFileSync, unlinkSync, readdirSync } from "node:fs";
 import { join, dirname } from "path";
+import { ensureDirSync } from "@/services/system/copy.ts";
 
 // ============================================================================
 // TYPES
@@ -116,7 +117,7 @@ export function tryAcquireLock(filePath: string, sessionId?: string): LockResult
     // Ensure directory exists
     const dir = dirname(lockPath);
     if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
+      ensureDirSync(dir);
     }
 
     // Write lock file with exclusive flag to prevent race conditions

@@ -9,7 +9,6 @@
  */
 
 import {
-  mkdirSync,
   writeFileSync,
   appendFileSync,
   readFileSync,
@@ -17,6 +16,7 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { ChatMessage } from "@/types/chat.ts";
+import { ensureDirSync } from "@/services/system/copy.ts";
 
 const BUFFER_DIR = join(tmpdir(), "atomic-cli");
 const BUFFER_FILE = join(BUFFER_DIR, `history-${process.pid}.json`);
@@ -35,7 +35,7 @@ let cachedMessages: ChatMessage[] = [];
  * Ensure the buffer directory exists.
  */
 function ensureBufferDir(): void {
-  mkdirSync(BUFFER_DIR, { recursive: true });
+  ensureDirSync(BUFFER_DIR);
 }
 
 /**

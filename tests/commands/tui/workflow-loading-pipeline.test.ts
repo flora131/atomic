@@ -335,32 +335,6 @@ describe("loadWorkflowsFromDisk with CompiledWorkflow", () => {
     expect(matches).toHaveLength(1);
   });
 
-  test("compiled workflows with aliases register alias names in dedup set", async () => {
-    const file1 = join(tempDir, "aliased-workflow.ts");
-    const file2 = join(tempDir, "conflict-workflow.ts");
-    await writeFile(
-      file1,
-      `export const wf = {
-        name: "primary",
-        description: "Primary workflow",
-        aliases: ["shortcut"],
-        __compiledWorkflow: true,
-      };`,
-    );
-    await writeFile(
-      file2,
-      `export const name = "shortcut";
-      export const description = "Conflicting workflow";`,
-    );
-
-    const loaded = await loadWorkflowsFromDisk();
-    const shortcutMatch = loaded.find((w) => w.name === "shortcut");
-    expect(shortcutMatch).toBeUndefined();
-    const primaryMatch = loaded.find((w) => w.name === "primary");
-    expect(primaryMatch).toBeDefined();
-    expect(primaryMatch!.aliases).toContain("shortcut");
-  });
-
   test("validates minSDKVersion on compiled workflows", async () => {
     const workflowFile = join(tempDir, "versioned-workflow.ts");
     await writeFile(

@@ -35,8 +35,6 @@ export {
   StageOutputStatusSchema,
   SignalTypeSchema,
   SignalDataSchema,
-  ContextPressureLevelSchema,
-  ContextPressureSnapshotSchema,
   AgentTypeSchema,
   SessionConfigSchema,
   AskUserQuestionConfigSchema,
@@ -72,12 +70,9 @@ export type {
   StageOutputStatus,
   Signal,
   SignalData,
-  ContextPressureLevel,
-  ContextPressureSnapshot,
   AgentType,
   SessionConfig,
   AskUserQuestionConfig,
-  AccumulatedContextPressure,
 } from "./types.ts";
 
 // Runtime constants

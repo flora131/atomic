@@ -37,93 +37,6 @@ export const STAGE_OUTPUT_STATUSES: readonly StageOutputStatus[] = [
 ] as const;
 
 // ---------------------------------------------------------------------------
-// Context Pressure Monitoring
-// ---------------------------------------------------------------------------
-
-/**
- * Severity level of context window pressure.
- *
- * - `normal`: Usage is within safe bounds — no action needed.
- * - `elevated`: Usage is approaching the threshold — worth monitoring.
- * - `critical`: Usage exceeds the threshold — action may be needed.
- */
-export type ContextPressureLevel = "normal" | "elevated" | "critical";
-
-/** All valid ContextPressureLevel values (used by guards). */
-export const CONTEXT_PRESSURE_LEVELS: readonly ContextPressureLevel[] = [
-  "normal",
-  "elevated",
-  "critical",
-] as const;
-
-/**
- * Point-in-time snapshot of context window usage for a session.
- *
- * Captured after each stage's session completes streaming, before
- * the session is destroyed. Stored in `StageOutput.contextUsage`
- * and accumulated across stages in `StageContext.contextPressure`.
- */
-export interface ContextPressureSnapshot {
-  /** Input tokens consumed in this session. */
-  readonly inputTokens: number;
-
-  /** Output tokens produced in this session. */
-  readonly outputTokens: number;
-
-  /** Maximum tokens allowed by the model's context window. */
-  readonly maxTokens: number;
-
-  /** Percentage of context window consumed (0–100). */
-  readonly usagePercentage: number;
-
-  /** Computed pressure level based on configured thresholds. */
-  readonly level: ContextPressureLevel;
-
-  /** ISO timestamp when the snapshot was taken. */
-  readonly timestamp: string;
-}
-
-/**
- * Accumulated context pressure state across all stages of a workflow.
- *
- * Provided to stages via `StageContext.contextPressure` so that
- * `buildPrompt` and `shouldRun` can make pressure-aware decisions.
- */
-export interface AccumulatedContextPressure {
-  /** Total input tokens consumed across all completed stages. */
-  readonly totalInputTokens: number;
-
-  /** Total output tokens produced across all completed stages. */
-  readonly totalOutputTokens: number;
-
-  /** Per-stage snapshots, keyed by stage ID. */
-  readonly stageSnapshots: ReadonlyMap<string, ContextPressureSnapshot>;
-}
-
-/**
- * Configuration for context pressure monitoring.
- *
- * When provided in `ConductorConfig.contextPressure`, the conductor
- * will query `session.getContextUsage()` after each stage completes
- * streaming and take action when thresholds are exceeded.
- */
-export interface ContextPressureConfig {
-  /**
-   * Usage percentage (0–100) at which context pressure is "elevated".
-   * Stages receive this information but no automatic action is taken.
-   * At runtime, capped by min(0.4T, 100K) via `computeCompactionThresholdPercent`.
-   * @default 40
-   */
-  readonly elevatedThreshold: number;
-
-  /**
-   * Usage percentage (0–100) at which context pressure is "critical".
-   * @default 60
-   */
-  readonly criticalThreshold: number;
-}
-
-// ---------------------------------------------------------------------------
 // StageOutput — captured result of a single stage execution
 // ---------------------------------------------------------------------------
 
@@ -155,15 +68,6 @@ export interface StageOutput {
 
   /** Error message when `status === "error"`. */
   readonly error?: string;
-
-  /**
-   * Context window usage snapshot captured after this stage's session
-   * completed streaming, before the session was destroyed.
-   *
-   * Present only when `ConductorConfig.contextPressure` is configured
-   * and the session's `getContextUsage()` succeeds.
-   */
-  readonly contextUsage?: ContextPressureSnapshot;
 
   /**
    * Original byte length of `rawResponse` before truncation.
@@ -210,15 +114,6 @@ export interface StageContext {
    */
   readonly state: BaseState;
 
-  /**
-   * Accumulated context pressure state across all previously-completed stages.
-   *
-   * Present only when `ConductorConfig.contextPressure` is configured.
-   * Stages can use this to make pressure-aware decisions in `buildPrompt`
-   * (e.g., requesting more concise output) or `shouldRun` (e.g., skipping
-   * non-essential stages when pressure is high).
-   */
-  readonly contextPressure?: AccumulatedContextPressure;
 }
 
 // ---------------------------------------------------------------------------
@@ -418,34 +313,6 @@ export interface ConductorConfig {
   readonly runId?: number;
 
   // -------------------------------------------------------------------------
-  // Context Pressure Monitoring (optional — enables usage tracking)
-  // -------------------------------------------------------------------------
-
-  /**
-   * Configuration for context pressure monitoring.
-   *
-   * When provided, the conductor queries `session.getContextUsage()` after
-   * each stage's streaming completes, computes a pressure level, and:
-   * - Stores the snapshot in `StageOutput.contextUsage`
-   * - Accumulates usage across stages in `StageContext.contextPressure`
-   * - Calls `onContextPressure` for UI notification
-   *
-   * When omitted, context pressure monitoring is disabled (backward compatible).
-   */
-  readonly contextPressure?: ContextPressureConfig;
-
-  /**
-   * Called when context pressure is detected after a stage completes.
-   *
-   * Receives the stage ID and the pressure snapshot. Used by the UI layer
-   * to show warnings or progress indicators.
-   */
-  readonly onContextPressure?: (
-    stageId: string,
-    snapshot: ContextPressureSnapshot,
-  ) => void;
-
-  // -------------------------------------------------------------------------
   // Parts Truncation (optional — reclaims memory on stage completion)
   // -------------------------------------------------------------------------
 
@@ -527,12 +394,4 @@ export interface WorkflowResult {
 
   /** Final workflow state after all node executions. */
   readonly state: BaseState;
-
-  /**
-   * Accumulated context pressure state across all stages.
-   *
-   * Present only when `ConductorConfig.contextPressure` was configured.
-   * Includes total token usage and per-stage snapshots.
-   */
-  readonly contextPressure?: AccumulatedContextPressure;
 }

@@ -46,9 +46,7 @@ import {
 } from "@/services/workflows/graph/runtime/execution-state.ts";
 import { getNextExecutableNodes } from "@/services/workflows/conductor/graph-traversal.ts";
 import type {
-  AccumulatedContextPressure,
   ConductorConfig,
-  ContextPressureSnapshot,
   StageContext,
   StageDefinition,
   StageOutput,
@@ -101,7 +99,6 @@ export class WorkflowSessionConductor {
   private readonly stages: ReadonlyMap<string, StageDefinition>;
   private readonly stageOutputs: Map<string, StageOutput>;
   private tasks: TaskItem[];
-  private accumulatedPressure: AccumulatedContextPressure;
   private currentStage: string | null = null;
   private currentSession: Session | null = null;
   private interrupted = false;
@@ -116,7 +113,6 @@ export class WorkflowSessionConductor {
     this.stages = new Map(stages.map((s) => [s.id, s]));
     this.stageOutputs = new Map();
     this.tasks = [];
-    this.accumulatedPressure = { totalInputTokens: 0, totalOutputTokens: 0, stageSnapshots: new Map() };
 
     this.validateStagesCoverAgentNodes();
   }
@@ -510,12 +506,10 @@ export class WorkflowSessionConductor {
   }
 
   /**
-   * Run a stage in a fresh isolated session, with optional context
-   * pressure monitoring.
+   * Run a stage in a fresh isolated session.
    *
    * Creates a session, streams the prompt, collects the full response,
-   * and runs the optional parser. When `contextPressure` is configured,
-   * queries context usage after streaming.
+   * and runs the optional parser.
    *
    * Session cleanup runs in the finally block to ensure sessions are
    * destroyed even on error paths.
@@ -598,7 +592,6 @@ export class WorkflowSessionConductor {
             stageId: stage.id,
             rawResponse: accumulatedResponse,
             status: "interrupted",
-            contextUsage: contextUsage ?? undefined,
           };
         }
 
@@ -628,28 +621,7 @@ export class WorkflowSessionConductor {
             stageId: stage.id,
             rawResponse: accumulatedResponse,
             status: "interrupted",
-            contextUsage: contextUsage ?? undefined,
           };
-        }
-
-        // Capture context usage if monitoring is enabled
-        if (pressureConfig && session) {
-          contextUsage = await takeContextSnapshot(session, pressureConfig);
-
-          if (contextUsage) {
-            // Update accumulated pressure state
-            this.accumulatedPressure = accumulateStageSnapshot(
-              this.accumulatedPressure,
-              stage.id,
-              contextUsage,
-            );
-
-            // Notify UI of context pressure
-            this.config.onContextPressure?.(
-              stage.id,
-              contextUsage,
-            );
-          }
         }
 
         // Drain queued messages to the active session before completing.
@@ -694,7 +666,6 @@ export class WorkflowSessionConductor {
               stageId: stage.id,
               rawResponse: accumulatedResponse,
               status: "interrupted",
-              contextUsage: contextUsage ?? undefined,
             };
           }
         }
@@ -714,7 +685,6 @@ export class WorkflowSessionConductor {
           rawResponse: accumulatedResponse,
           parsedOutput,
           status: "completed",
-          contextUsage: contextUsage ?? undefined,
         };
       } catch (error) {
         conductorLog("conductor_catch_block", {
@@ -829,14 +799,6 @@ export class WorkflowSessionConductor {
       state,
     };
 
-    // Include context pressure data when monitoring is configured
-    if (this.config.contextPressure) {
-      return {
-        ...context,
-        contextPressure: { ...this.accumulatedPressure },
-      };
-    }
-
     return context;
   }
 
@@ -848,14 +810,6 @@ export class WorkflowSessionConductor {
       tasks: [...this.tasks],
       state,
     };
-
-    // Include context pressure data when monitoring is configured
-    if (this.config.contextPressure) {
-      return {
-        ...result,
-        contextPressure: { ...this.accumulatedPressure },
-      };
-    }
 
     return result;
   }

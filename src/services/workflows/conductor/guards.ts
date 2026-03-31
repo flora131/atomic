@@ -12,14 +12,9 @@ import type {
   StageOutput,
   StageOutputStatus,
   WorkflowResult,
-  ContextPressureLevel,
-  ContextPressureSnapshot,
-  ContextPressureConfig,
-  AccumulatedContextPressure,
 } from "@/services/workflows/conductor/types.ts";
 import {
   STAGE_OUTPUT_STATUSES,
-  CONTEXT_PRESSURE_LEVELS,
 } from "@/services/workflows/conductor/types.ts";
 
 /** Check whether a value is a valid `StageOutputStatus`. */
@@ -105,58 +100,5 @@ export function isWorkflowResult(value: unknown): value is WorkflowResult {
     obj.stageOutputs instanceof Map &&
     Array.isArray(obj.tasks) &&
     typeof obj.state === "object" && obj.state !== null
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Context Pressure Guards
-// ---------------------------------------------------------------------------
-
-/** Check whether a value is a valid `ContextPressureLevel`. */
-export function isContextPressureLevel(value: unknown): value is ContextPressureLevel {
-  return typeof value === "string" && (CONTEXT_PRESSURE_LEVELS as readonly string[]).includes(value);
-}
-
-/** Check whether a value satisfies the `ContextPressureSnapshot` shape. */
-export function isContextPressureSnapshot(value: unknown): value is ContextPressureSnapshot {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const obj = value as Record<string, unknown>;
-  return (
-    typeof obj.inputTokens === "number" &&
-    typeof obj.outputTokens === "number" &&
-    typeof obj.maxTokens === "number" &&
-    typeof obj.usagePercentage === "number" &&
-    isContextPressureLevel(obj.level) &&
-    typeof obj.timestamp === "string"
-  );
-}
-
-/** Check whether a value satisfies the `ContextPressureConfig` shape. */
-export function isContextPressureConfig(value: unknown): value is ContextPressureConfig {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const obj = value as Record<string, unknown>;
-  return (
-    typeof obj.elevatedThreshold === "number" &&
-    typeof obj.criticalThreshold === "number"
-  );
-}
-
-/** Check whether a value satisfies the `AccumulatedContextPressure` shape. */
-export function isAccumulatedContextPressure(value: unknown): value is AccumulatedContextPressure {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const obj = value as Record<string, unknown>;
-  return (
-    typeof obj.totalInputTokens === "number" &&
-    typeof obj.totalOutputTokens === "number" &&
-    obj.stageSnapshots instanceof Map
   );
 }

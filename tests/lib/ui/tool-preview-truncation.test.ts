@@ -41,7 +41,7 @@ describe("truncateToolLines", () => {
     expect(result.truncatedByCharCount).toBe(1);
     expect(result.truncatedLineCount).toBe(20);
     expect(result.lines.length).toBe(11);
-    expect(result.lines.at(-1)).toBe("… truncated 20 lines");
+    expect(result.lines.at(-1)).toBe("... truncated 20 lines");
     expect(result.lines[2]).toContain("chars truncated");
   });
 

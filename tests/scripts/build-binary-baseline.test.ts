@@ -13,8 +13,8 @@ import { describe, test, expect } from "bun:test";
 // Replicate the pure logic from build-binary.ts
 // ---------------------------------------------------------------------------
 
-function deriveIsBaseline(target?: string): boolean {
-  return target?.includes("baseline") ?? false;
+function deriveIsBaseline(baselineFlag: boolean, target?: string): boolean {
+  return baselineFlag || (target?.includes("baseline") ?? false);
 }
 
 function buildDefineBlock(
@@ -34,27 +34,35 @@ function buildDefineBlock(
 describe("build-binary baseline flag derivation", () => {
   describe("deriveIsBaseline", () => {
     test("returns true for bun-windows-x64-baseline target", () => {
-      expect(deriveIsBaseline("bun-windows-x64-baseline")).toBe(true);
+      expect(deriveIsBaseline(false, "bun-windows-x64-baseline")).toBe(true);
     });
 
     test("returns true for bun-linux-x64-baseline target", () => {
-      expect(deriveIsBaseline("bun-linux-x64-baseline")).toBe(true);
+      expect(deriveIsBaseline(false, "bun-linux-x64-baseline")).toBe(true);
+    });
+
+    test("returns true when --baseline flag is set without target", () => {
+      expect(deriveIsBaseline(true, undefined)).toBe(true);
+    });
+
+    test("returns true when --baseline flag is set with non-baseline target", () => {
+      expect(deriveIsBaseline(true, "bun-windows-x64")).toBe(true);
     });
 
     test("returns false for bun-windows-x64 target (no baseline)", () => {
-      expect(deriveIsBaseline("bun-windows-x64")).toBe(false);
+      expect(deriveIsBaseline(false, "bun-windows-x64")).toBe(false);
     });
 
     test("returns false for bun-darwin-arm64 target", () => {
-      expect(deriveIsBaseline("bun-darwin-arm64")).toBe(false);
+      expect(deriveIsBaseline(false, "bun-darwin-arm64")).toBe(false);
     });
 
     test("returns false when target is undefined (native build)", () => {
-      expect(deriveIsBaseline(undefined)).toBe(false);
+      expect(deriveIsBaseline(false, undefined)).toBe(false);
     });
 
     test("returns false for empty string target", () => {
-      expect(deriveIsBaseline("")).toBe(false);
+      expect(deriveIsBaseline(false, "")).toBe(false);
     });
   });
 

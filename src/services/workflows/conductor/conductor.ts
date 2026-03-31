@@ -375,6 +375,25 @@ export class WorkflowSessionConductor {
         }
       } else {
         result = await this.executeDeterministicNode(node, state);
+
+        // Deterministic nodes (tool, askUserQuestion) may produce state
+        // updates via outputMapper. Store a synthetic StageOutput so
+        // downstream stages can access the result via
+        // `ctx.stageOutputs.get(nodeId)` — the same way agent stage
+        // outputs are accessible.
+        if (result.stateUpdate) {
+          const { __waitingForInput, __userDeclined, __waitNodeId, __askUserRequestId, outputs, lastUpdated, ...parsedFields } = result.stateUpdate as Record<string, unknown>;
+          const hasMeaningfulOutput = Object.keys(parsedFields).length > 0;
+          if (hasMeaningfulOutput) {
+            const syntheticOutput: StageOutput = {
+              stageId: nodeId,
+              rawResponse: JSON.stringify(parsedFields),
+              parsedOutput: parsedFields as Record<string, unknown>,
+              status: "completed",
+            };
+            this.stageOutputs.set(nodeId, syntheticOutput);
+          }
+        }
       }
 
       // Merge state updates from node result

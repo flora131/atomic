@@ -30,6 +30,7 @@ import {
   getConfigArchiveFilename,
   getDownloadUrl,
   getChecksumsUrl,
+  checkNpmPackageExists,
 } from "@/services/system/download.ts";
 import { cleanupBunTempNativeAddons } from "@/services/system/cleanup.ts";
 import { trackAtomicCommand } from "@/services/telemetry/index.ts";
@@ -199,10 +200,8 @@ export async function updateCommand(): Promise<void> {
   if (installType === "npm") {
     log.error("'atomic update' is not available for npm/bun installations.");
     log.info("");
-    log.info("To update atomic, use your package manager:");
-    log.info("  bun upgrade @bastani/atomic");
-    log.info("  # or");
-    log.info("  npm update -g @bastani/atomic");
+    log.info("To update atomic, reinstall using the install script:");
+    log.info("  curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash");
     process.exit(1);
   }
 
@@ -230,6 +229,17 @@ export async function updateCommand(): Promise<void> {
     // Check if already on latest
     if (!isNewerVersion(targetVersionNum, VERSION)) {
       log.success("You're already running the latest version!");
+      return;
+    }
+
+    // Verify the @bastani/atomic-workflows npm package is published for this version
+    // before proceeding. Both the GH release and the npm package must be available.
+    s.start("Verifying package availability...");
+    const npmExists = await checkNpmPackageExists("@bastani/atomic-workflows", targetVersionNum);
+    s.stop(npmExists ? "Package available" : "Package not yet published");
+
+    if (!npmExists) {
+      log.success("No new updates available.");
       return;
     }
 

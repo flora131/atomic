@@ -90,10 +90,7 @@ export async function uninstallCommand(options: UninstallOptions = {}): Promise<
   if (installType === "npm") {
     log.error("'atomic uninstall' is not available for npm/bun installations.");
     log.info("");
-    log.info("To uninstall atomic, use your package manager:");
-    log.info("  bun remove -g @bastani/atomic");
-    log.info("  # or");
-    log.info("  npm uninstall -g @bastani/atomic");
+    log.info("To uninstall atomic, remove it using your package manager.");
     process.exit(1);
   }
 

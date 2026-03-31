@@ -81,6 +81,23 @@ export function interruptForegroundAgents({
       replaceMessage(previousMessages, interruptedId, (message) =>
         updateInterruptedMessage(message, { interruptedAgents, interruptedTaskItems })),
     );
+  } else {
+    // When the main stream has already completed (partial-idle),
+    // streamingMessageIdRef is null.  Fall back to the last assistant
+    // message so the interrupt is still reflected in the UI.
+    setMessagesWindowed((previousMessages) => {
+      for (let i = previousMessages.length - 1; i >= 0; i--) {
+        const msg = previousMessages[i];
+        if (msg?.role === "assistant") {
+          return [
+            ...previousMessages.slice(0, i),
+            updateInterruptedMessage(msg, { interruptedAgents, interruptedTaskItems }),
+            ...previousMessages.slice(i + 1),
+          ];
+        }
+      }
+      return previousMessages;
+    });
   }
 
   parallelAgentsRef.current = remainingLiveAgents;

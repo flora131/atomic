@@ -276,6 +276,7 @@ export function processClaudeMessage(args: {
                 case "local_command_output":
                 case "elicitation_complete":
                 case "api_retry":
+                case "session_state_changed":
                     break;
                 default: {
                     const unexpectedSystemMessage: never = sdkMessage;

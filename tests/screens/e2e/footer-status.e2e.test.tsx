@@ -7,7 +7,7 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import React, { act } from "react";
+import React from "react";
 import { testRender } from "@opentui/react/test-utils";
 import { ThemeProvider, darkTheme } from "@/theme/index.tsx";
 import { FooterStatus } from "@/components/footer-status.tsx";
@@ -38,7 +38,7 @@ function renderFooterStatus(props: FooterStatusComponentProps = {}) {
 
 afterEach(() => {
   if (testSetup) {
-    act(() => { testSetup.renderer.destroy(); });
+    testSetup.renderer.destroy();
   }
 });
 
@@ -49,7 +49,7 @@ afterEach(() => {
 describe("FooterStatus E2E", () => {
   test("returns null when idle — no streaming, no workflow, no background agents", async () => {
     testSetup = await renderFooterStatus();
-    await act(async () => { await testSetup.renderOnce(); });
+    await testSetup.renderOnce();
     const frame = testSetup.captureCharFrame();
 
     // When idle, the component returns null — nothing should be rendered
@@ -58,7 +58,7 @@ describe("FooterStatus E2E", () => {
 
   test("shows streaming hints when isStreaming is true", async () => {
     testSetup = await renderFooterStatus({ isStreaming: true });
-    await act(async () => { await testSetup.renderOnce(); });
+    await testSetup.renderOnce();
     const frame = testSetup.captureCharFrame();
 
     expect(frame).toContain("esc to interrupt");
@@ -66,7 +66,7 @@ describe("FooterStatus E2E", () => {
 
   test("shows workflow hints when workflowActive is true", async () => {
     testSetup = await renderFooterStatus({ workflowActive: true });
-    await act(async () => { await testSetup.renderOnce(); });
+    await testSetup.renderOnce();
     const frame = testSetup.captureCharFrame();
 
     expect(frame).toContain("workflow");
@@ -76,7 +76,7 @@ describe("FooterStatus E2E", () => {
 
   test("shows background agent count for multiple agents", async () => {
     testSetup = await renderFooterStatus({ backgroundAgentCount: 3 });
-    await act(async () => { await testSetup.renderOnce(); });
+    await testSetup.renderOnce();
     const frame = testSetup.captureCharFrame();
 
     expect(frame).toContain("[3] local agents");
@@ -85,7 +85,7 @@ describe("FooterStatus E2E", () => {
 
   test("shows singular 'agent' when backgroundAgentCount is 1", async () => {
     testSetup = await renderFooterStatus({ backgroundAgentCount: 1 });
-    await act(async () => { await testSetup.renderOnce(); });
+    await testSetup.renderOnce();
     const frame = testSetup.captureCharFrame();
 
     expect(frame).toContain("[1] local agent");
@@ -98,7 +98,7 @@ describe("FooterStatus E2E", () => {
       isStreaming: true,
       backgroundAgentCount: 2,
     });
-    await act(async () => { await testSetup.renderOnce(); });
+    await testSetup.renderOnce();
     const frame = testSetup.captureCharFrame();
 
     // Streaming hints
@@ -114,7 +114,7 @@ describe("FooterStatus E2E", () => {
       workflowActive: true,
       backgroundAgentCount: 4,
     });
-    await act(async () => { await testSetup.renderOnce(); });
+    await testSetup.renderOnce();
     const frame = testSetup.captureCharFrame();
 
     // Workflow hints

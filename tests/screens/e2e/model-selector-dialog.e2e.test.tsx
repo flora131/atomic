@@ -103,7 +103,7 @@ async function renderDialog(
     </ThemeProvider>,
     { width: TEST_WIDTH, height: TEST_HEIGHT, kittyKeyboard: true },
   );
-  await act(async () => { await testSetup!.renderOnce(); });
+  await testSetup.renderOnce();
   return testSetup;
 }
 
@@ -139,7 +139,7 @@ function getFirstCallArgs(fn: ReturnType<typeof mock>): unknown[] {
 
 afterEach(() => {
   if (testSetup) {
-    act(() => { testSetup!.renderer.destroy(); });
+    testSetup.renderer.destroy();
     testSetup = null;
   }
 });
@@ -174,9 +174,9 @@ describe("ModelSelectorDialog E2E", () => {
 
     // gpt-4o may be below the scroll viewport — navigate down to reveal it
     pressArrowAct(setup, "down");
-    await act(async () => { await setup.renderOnce(); });
+    await setup.renderOnce();
     pressArrowAct(setup, "down");
-    await act(async () => { await setup.renderOnce(); });
+    await setup.renderOnce();
 
     const scrolledFrame = setup.captureCharFrame();
     expect(scrolledFrame).toContain("gpt-4o");
@@ -227,11 +227,11 @@ describe("ModelSelectorDialog E2E", () => {
 
     // Move down once (from index 0 to index 1)
     pressArrowAct(setup, "down");
-    await act(async () => { await setup.renderOnce(); });
+    await setup.renderOnce();
 
     // Press Enter to confirm selection
     pressEnterAct(setup);
-    await act(async () => { await setup.renderOnce(); });
+    await setup.renderOnce();
 
     // claude-opus-4 has reasoning efforts, so it enters reasoning phase
     // instead of calling onSelect directly. The reasoning selector should appear.
@@ -249,11 +249,11 @@ describe("ModelSelectorDialog E2E", () => {
 
     // Press up from first item → wraps to last (gpt-4o, index 2)
     pressArrowAct(setup, "up");
-    await act(async () => { await setup.renderOnce(); });
+    await setup.renderOnce();
 
     // Press Enter to confirm
     pressEnterAct(setup);
-    await act(async () => { await setup.renderOnce(); });
+    await setup.renderOnce();
 
     // gpt-4o has no reasoning efforts, so onSelect should be called directly
     expect(onSelect).toHaveBeenCalledTimes(1);
@@ -271,7 +271,7 @@ describe("ModelSelectorDialog E2E", () => {
 
     // Press "1" to select first model (claude-sonnet-4)
     pressKeyAct(setup, "1");
-    await act(async () => { await setup.renderOnce(); });
+    await setup.renderOnce();
 
     // claude-sonnet-4 has no reasoning efforts → direct onSelect
     expect(onSelect).toHaveBeenCalledTimes(1);
@@ -288,7 +288,7 @@ describe("ModelSelectorDialog E2E", () => {
     const setup = await renderDialog({ onCancel });
 
     pressEscapeAct(setup);
-    await act(async () => { await setup.renderOnce(); });
+    await setup.renderOnce();
 
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
@@ -302,7 +302,7 @@ describe("ModelSelectorDialog E2E", () => {
 
     // Press "2" to select claude-opus-4 (which has reasoning efforts)
     pressKeyAct(setup, "2");
-    await act(async () => { await setup.renderOnce(); });
+    await setup.renderOnce();
 
     // Should NOT have called onSelect yet — reasoning selector should be shown
     expect(onSelect).toHaveBeenCalledTimes(0);
@@ -327,7 +327,7 @@ describe("ModelSelectorDialog E2E", () => {
 
     // Enter reasoning selector by selecting claude-opus-4
     pressKeyAct(setup, "2");
-    await act(async () => { await setup.renderOnce(); });
+    await setup.renderOnce();
 
     // Verify we're in reasoning phase
     let frame = setup.captureCharFrame();
@@ -335,7 +335,7 @@ describe("ModelSelectorDialog E2E", () => {
 
     // Press ESC to go back to model list
     pressEscapeAct(setup);
-    await act(async () => { await setup.renderOnce(); });
+    await setup.renderOnce();
 
     // Should be back to model list, not dismissed
     frame = setup.captureCharFrame();
@@ -358,16 +358,16 @@ describe("ModelSelectorDialog E2E", () => {
 
     // Enter reasoning selector by selecting claude-opus-4
     pressKeyAct(setup, "2");
-    await act(async () => { await setup.renderOnce(); });
+    await setup.renderOnce();
 
     // Default reasoning index should be "medium" (index 1, the default)
     // Navigate down to "high" (index 2)
     pressArrowAct(setup, "down");
-    await act(async () => { await setup.renderOnce(); });
+    await setup.renderOnce();
 
     // Press Enter to confirm reasoning effort
     pressEnterAct(setup);
-    await act(async () => { await setup.renderOnce(); });
+    await setup.renderOnce();
 
     expect(onSelect).toHaveBeenCalledTimes(1);
     const args = getFirstCallArgs(onSelect);
@@ -386,19 +386,19 @@ describe("ModelSelectorDialog E2E", () => {
 
     // Press "j" to move down (index 0 → 1)
     pressKeyAct(setup, "j");
-    await act(async () => { await setup.renderOnce(); });
+    await setup.renderOnce();
 
     // Press "j" again to move down (index 1 → 2)
     pressKeyAct(setup, "j");
-    await act(async () => { await setup.renderOnce(); });
+    await setup.renderOnce();
 
     // Press "k" to move back up (index 2 → 1)
     pressKeyAct(setup, "k");
-    await act(async () => { await setup.renderOnce(); });
+    await setup.renderOnce();
 
     // Confirm with Enter — should be on index 1 (claude-opus-4, which has reasoning)
     pressEnterAct(setup);
-    await act(async () => { await setup.renderOnce(); });
+    await setup.renderOnce();
 
     // Should show reasoning selector for claude-opus-4
     const frame = setup.captureCharFrame();
@@ -415,11 +415,11 @@ describe("ModelSelectorDialog E2E", () => {
 
     // Enter reasoning selector
     pressKeyAct(setup, "2");
-    await act(async () => { await setup.renderOnce(); });
+    await setup.renderOnce();
 
     // Press "3" to directly select "high" (the 3rd effort option)
     pressKeyAct(setup, "3");
-    await act(async () => { await setup.renderOnce(); });
+    await setup.renderOnce();
 
     expect(onSelect).toHaveBeenCalledTimes(1);
     const args = getFirstCallArgs(onSelect);

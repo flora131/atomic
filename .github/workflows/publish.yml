@@ -282,6 +282,7 @@ jobs:
 
   release:
     name: Create Release
+    if: false # TEMPORARY: disabled for CI testing
     runs-on: ubuntu-latest
     needs: [build, build-windows, validate-binaries]
 
@@ -355,11 +356,13 @@ jobs:
 
   test-features:
     name: Test Devcontainer Features
+    if: false # TEMPORARY: disabled for CI testing
     needs: [release]
     uses: ./.github/workflows/test-features.yml
 
   publish-features:
     name: Publish Devcontainer Features
+    if: false # TEMPORARY: disabled for CI testing
     runs-on: ubuntu-latest
     needs: [test-features]
     permissions:
@@ -385,6 +388,7 @@ jobs:
 
   publish-workflow-sdk:
     name: Publish Workflow SDK to npm
+    if: false # TEMPORARY: disabled for CI testing
     runs-on: ubuntu-latest
     needs: [test-features]
     permissions:

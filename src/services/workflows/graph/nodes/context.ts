@@ -6,7 +6,10 @@ import type {
   NodeResult,
   SignalData,
 } from "@/services/workflows/graph/types.ts";
-import { BACKGROUND_COMPACTION_THRESHOLD } from "@/services/workflows/graph/types.ts";
+import {
+  BACKGROUND_COMPACTION_THRESHOLD,
+  computeCompactionThresholdPercent,
+} from "@/services/workflows/graph/types.ts";
 import type { ContextUsage, Session } from "@/services/agents/types.ts";
 import type { AgentNodeAgentType } from "@/services/workflows/graph/nodes/agent.ts";
 
@@ -79,7 +82,7 @@ export function contextMonitorNode<
   const {
     id,
     agentType,
-    threshold = BACKGROUND_COMPACTION_THRESHOLD * 100,
+    threshold: configThreshold,
     action = getDefaultCompactionAction(agentType),
     getSession,
     getContextUsage: customGetContextUsage,
@@ -92,7 +95,7 @@ export function contextMonitorNode<
     id,
     type: "tool",
     name: name ?? "context-monitor",
-    description: description ?? `Monitor context window usage (threshold: ${threshold}%)`,
+    description: description ?? `Monitor context window usage (dynamic threshold)`,
     execute: async (ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> => {
       let usage: ContextUsage | null = null;
 
@@ -115,6 +118,9 @@ export function contextMonitorNode<
       const stateUpdate: Partial<TState> = {
         contextWindowUsage: usage ? toContextWindowUsage(usage) : null,
       } as Partial<TState>;
+
+      const threshold = configThreshold
+        ?? (usage ? computeCompactionThresholdPercent(usage.maxTokens) : BACKGROUND_COMPACTION_THRESHOLD * 100);
 
       if (!isContextThresholdExceeded(usage, threshold)) {
         return { stateUpdate };
@@ -191,8 +197,8 @@ export async function checkContextUsage(
   session: Session,
   options: ContextCheckOptions = {},
 ): Promise<{ exceeded: boolean; usage: ContextUsage }> {
-  const { threshold = BACKGROUND_COMPACTION_THRESHOLD * 100 } = options;
   const usage = await session.getContextUsage();
+  const threshold = options.threshold ?? computeCompactionThresholdPercent(usage.maxTokens);
   return {
     exceeded: isContextThresholdExceeded(usage, threshold),
     usage,

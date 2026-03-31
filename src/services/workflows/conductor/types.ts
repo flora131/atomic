@@ -142,7 +142,8 @@ export interface ContextPressureConfig {
   /**
    * Usage percentage (0–100) at which context pressure is "elevated".
    * Stages receive this information but no automatic action is taken.
-   * @default 45
+   * At runtime, capped by min(0.4T, 100K) via `computeCompactionThresholdPercent`.
+   * @default 40
    */
   readonly elevatedThreshold: number;
 

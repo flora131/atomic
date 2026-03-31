@@ -155,12 +155,11 @@ export async function resolveCreateSessionModelConfig(args: {
   };
 }
 
-export async function resolveModelContextWindow(args: {
+export function resolveModelContextWindow(args: {
   resolvedModel: string;
-  listModelsFresh: () => Promise<CopilotSdkModelRecord[]>;
-}): Promise<number> {
-  const models = await args.listModelsFresh();
-  const matched = models.find((model) => model.id === args.resolvedModel);
+  models: CopilotSdkModelRecord[];
+}): number {
+  const matched = args.models.find((model) => model.id === args.resolvedModel);
   const contextWindow = getModelContextWindow(matched);
   if (contextWindow === undefined) {
     throw new Error(
@@ -170,24 +169,19 @@ export async function resolveModelContextWindow(args: {
   return contextWindow;
 }
 
-export async function resolveModelSwitchReasoningEffort(args: {
+export function resolveModelSwitchReasoningEffort(args: {
   resolvedModel: string;
   requestedReasoningEffort?: string;
-  listModelsFresh: () => Promise<CopilotSdkModelRecord[]>;
-}): Promise<string | undefined> {
+  models: CopilotSdkModelRecord[];
+}): string | undefined {
   let sanitizedReasoningEffort = args.requestedReasoningEffort;
   if (sanitizedReasoningEffort === undefined) {
     return undefined;
   }
 
-  try {
-    const models = await args.listModelsFresh();
-    const matchedModel = models.find((entry) => entry.id === args.resolvedModel);
-    if (!modelSupportsReasoning(matchedModel)) {
-      sanitizedReasoningEffort = undefined;
-    }
-  } catch {
-    // If model metadata lookup fails, preserve the explicit user request.
+  const matchedModel = args.models.find((entry) => entry.id === args.resolvedModel);
+  if (!modelSupportsReasoning(matchedModel)) {
+    sanitizedReasoningEffort = undefined;
   }
 
   return sanitizedReasoningEffort;

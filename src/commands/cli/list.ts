@@ -8,6 +8,7 @@
  */
 
 import { COLORS } from "@/theme/colors.ts";
+import { truncateDescription } from "@/lib/ui/format.ts";
 
 /**
  * Entry point for `atomic list agents`.
@@ -43,9 +44,9 @@ export async function listAgentsCommand(): Promise<void> {
       `\n${COLORS.bold}Project agents${COLORS.reset} (${projectAgents.length}):`,
     );
     for (const agent of projectAgents) {
-      const desc = firstSentence(agent.description);
+      const { name, description: desc } = truncateDescription(agent.name, agent.description);
       console.log(
-        `  ${COLORS.green}${agent.name}${COLORS.reset}  ${COLORS.dim}${desc}${COLORS.reset}`,
+        `  ${COLORS.green}${name}${COLORS.reset}  ${COLORS.dim}${desc}${COLORS.reset}`,
       );
     }
   }
@@ -55,9 +56,9 @@ export async function listAgentsCommand(): Promise<void> {
       `\n${COLORS.bold}Global agents${COLORS.reset} (${globalAgents.length}):`,
     );
     for (const agent of globalAgents) {
-      const desc = firstSentence(agent.description);
+      const { name, description: desc } = truncateDescription(agent.name, agent.description);
       console.log(
-        `  ${COLORS.green}${agent.name}${COLORS.reset}  ${COLORS.dim}${desc}${COLORS.reset}`,
+        `  ${COLORS.green}${name}${COLORS.reset}  ${COLORS.dim}${desc}${COLORS.reset}`,
       );
     }
   }
@@ -68,10 +69,4 @@ export async function listAgentsCommand(): Promise<void> {
   console.log(
     `${COLORS.dim}Use these names in workflow .stage({ agent: "<name>" }) or agent: null for SDK defaults.${COLORS.reset}\n`,
   );
-}
-
-function firstSentence(text: string): string {
-  const cleaned = text.replace(/\n/g, " ").trim();
-  const match = cleaned.match(/^(.+?\.)\s/);
-  return match?.[1] ?? cleaned;
 }

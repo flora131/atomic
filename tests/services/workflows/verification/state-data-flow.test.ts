@@ -332,4 +332,203 @@ describe("checkStateDataFlow", () => {
       expect(violations.some((v) => v.field === "good")).toBe(false);
     });
   });
+
+  describe("globalState defaults as initial writes", () => {
+    test("read at start node passes when field is in stateFields (has default)", async () => {
+      const graph = buildGraph({
+        nodes: [
+          { id: "start", type: "agent", reads: ["counter"] },
+          { id: "end", type: "agent" },
+        ],
+        edges: [["start", "end"]],
+        start: "start",
+        ends: ["end"],
+        stateFields: ["counter"],
+      });
+      const result = await checkStateDataFlow(graph);
+      expect(result.verified).toBe(true);
+    });
+
+    test("read at start node fails when field is NOT in stateFields", async () => {
+      const graph = buildGraph({
+        nodes: [
+          { id: "start", type: "agent", reads: ["counter"] },
+          { id: "end", type: "agent" },
+        ],
+        edges: [["start", "end"]],
+        start: "start",
+        ends: ["end"],
+        stateFields: ["otherField"],
+      });
+      const result = await checkStateDataFlow(graph);
+      expect(result.verified).toBe(false);
+    });
+
+    test("downstream read of globalState field passes without explicit write", async () => {
+      const graph = buildGraph({
+        nodes: [
+          { id: "A", type: "agent" },
+          { id: "B", type: "agent", reads: ["status"] },
+        ],
+        edges: [["A", "B"]],
+        start: "A",
+        ends: ["B"],
+        stateFields: ["status"],
+      });
+      const result = await checkStateDataFlow(graph);
+      expect(result.verified).toBe(true);
+    });
+
+    test("diamond graph — globalState field readable on all branches without writes", async () => {
+      const graph = buildGraph({
+        nodes: [
+          { id: "start", type: "agent" },
+          { id: "left", type: "agent", reads: ["counter"] },
+          { id: "right", type: "agent", reads: ["counter"] },
+          { id: "merge", type: "agent", reads: ["counter"] },
+        ],
+        edges: [
+          ["start", "left"],
+          ["start", "right"],
+          ["left", "merge"],
+          ["right", "merge"],
+        ],
+        start: "start",
+        ends: ["merge"],
+        stateFields: ["counter"],
+      });
+      const result = await checkStateDataFlow(graph);
+      expect(result.verified).toBe(true);
+    });
+
+    test("empty stateFields does not produce fields at start (backward compat)", async () => {
+      const graph = buildGraph({
+        nodes: [
+          { id: "start", type: "agent", reads: ["x"] },
+          { id: "end", type: "agent" },
+        ],
+        edges: [["start", "end"]],
+        start: "start",
+        ends: ["end"],
+      });
+      const result = await checkStateDataFlow(graph);
+      expect(result.verified).toBe(false);
+    });
+  });
+
+  describe("loop back-edge handling", () => {
+    test("read inside loop body — field written before loop with stateFields", async () => {
+      // Simulates: init (writes counter) → loop_start → increment (reads counter) → loop_check → loop_start (back-edge)
+      const graph = buildGraph({
+        nodes: [
+          { id: "init", type: "tool", outputs: ["counter"] },
+          { id: "loop_start", type: "loop_start" },
+          { id: "increment", type: "tool", reads: ["counter"], outputs: ["counter"] },
+          { id: "loop_check", type: "loop_check" },
+          { id: "loop_exit", type: "loop_exit" },
+          { id: "end", type: "agent", reads: ["counter"] },
+        ],
+        edges: [
+          ["init", "loop_start"],
+          ["loop_start", "increment"],
+          ["increment", "loop_check"],
+          ["loop_check", "loop_start"],   // back-edge
+          ["loop_check", "loop_exit"],
+          ["loop_exit", "end"],
+        ],
+        start: "init",
+        ends: ["end"],
+        stateFields: ["counter"],
+      });
+      const result = await checkStateDataFlow(graph);
+      expect(result.verified).toBe(true);
+    });
+
+    test("read inside loop body — field NOT written before loop, no stateFields", async () => {
+      const graph = buildGraph({
+        nodes: [
+          { id: "start", type: "agent" },
+          { id: "loop_start", type: "loop_start" },
+          { id: "reader", type: "agent", reads: ["missing"] },
+          { id: "loop_check", type: "loop_check" },
+          { id: "loop_exit", type: "loop_exit" },
+          { id: "end", type: "agent" },
+        ],
+        edges: [
+          ["start", "loop_start"],
+          ["loop_start", "reader"],
+          ["reader", "loop_check"],
+          ["loop_check", "loop_start"],   // back-edge
+          ["loop_check", "loop_exit"],
+          ["loop_exit", "end"],
+        ],
+        start: "start",
+        ends: ["end"],
+      });
+      const result = await checkStateDataFlow(graph);
+      expect(result.verified).toBe(false);
+    });
+
+    test("nested loops — field readable through both loop levels", async () => {
+      const graph = buildGraph({
+        nodes: [
+          { id: "init", type: "tool", outputs: ["x"] },
+          { id: "outer_start", type: "loop_start" },
+          { id: "inner_start", type: "loop_start" },
+          { id: "worker", type: "agent", reads: ["x"], outputs: ["x"] },
+          { id: "inner_check", type: "loop_check" },
+          { id: "inner_exit", type: "loop_exit" },
+          { id: "outer_check", type: "loop_check" },
+          { id: "outer_exit", type: "loop_exit" },
+          { id: "end", type: "agent", reads: ["x"] },
+        ],
+        edges: [
+          ["init", "outer_start"],
+          ["outer_start", "inner_start"],
+          ["inner_start", "worker"],
+          ["worker", "inner_check"],
+          ["inner_check", "inner_start"],   // inner back-edge
+          ["inner_check", "inner_exit"],
+          ["inner_exit", "outer_check"],
+          ["outer_check", "outer_start"],   // outer back-edge
+          ["outer_check", "outer_exit"],
+          ["outer_exit", "end"],
+        ],
+        start: "init",
+        ends: ["end"],
+        stateFields: ["x"],
+      });
+      const result = await checkStateDataFlow(graph);
+      expect(result.verified).toBe(true);
+    });
+
+    test("loop with break — field available after break exits loop", async () => {
+      const graph = buildGraph({
+        nodes: [
+          { id: "init", type: "tool", outputs: ["result"] },
+          { id: "loop_start", type: "loop_start" },
+          { id: "work", type: "agent", reads: ["result"], outputs: ["result"] },
+          { id: "break", type: "break" },
+          { id: "loop_check", type: "loop_check" },
+          { id: "loop_exit", type: "loop_exit" },
+          { id: "finalize", type: "agent", reads: ["result"] },
+        ],
+        edges: [
+          ["init", "loop_start"],
+          ["loop_start", "work"],
+          ["work", "break"],
+          ["break", "loop_check"],
+          ["break", "loop_exit"],
+          ["loop_check", "loop_start"],   // back-edge
+          ["loop_check", "loop_exit"],
+          ["loop_exit", "finalize"],
+        ],
+        start: "init",
+        ends: ["finalize"],
+        stateFields: ["result"],
+      });
+      const result = await checkStateDataFlow(graph);
+      expect(result.verified).toBe(true);
+    });
+  });
 });

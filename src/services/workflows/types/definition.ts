@@ -53,4 +53,10 @@ export interface WorkflowDefinition extends WorkflowMetadata {
   runtime?: {
     featureFlags?: WorkflowRuntimeFeatureFlagOverrides;
   };
+  /**
+   * State field names declared in globalState (used for verification).
+   * Populated by the DSL compiler from the globalState schema so the
+   * verifier can treat these fields as having initial default values.
+   */
+  stateFields?: string[];
 }

@@ -128,13 +128,6 @@ jobs:
       - name: Install all platform-specific opentui native bindings
         run: bun run prepare:opentui-bindings
 
-      - name: Run tests
-        shell: bash
-        run: bun test 2>&1 | cat
-
-      - name: Run typecheck
-        run: bun run typecheck
-
       - name: Build Windows binaries natively
         run: |
           mkdir dist

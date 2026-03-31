@@ -7,6 +7,7 @@ import type {
   ExecutionContext,
   SignalData,
 } from "@/services/workflows/graph/types.ts";
+import { computeCompactionThresholdPercent } from "@/services/workflows/graph/types.ts";
 import type {
   SessionConfig,
   AgentMessage,
@@ -120,12 +121,17 @@ export function agentNode<TState extends BaseState = BaseState>(
 
         const signals: SignalData[] = [];
         if (contextUsage && ctx.config.contextWindowThreshold) {
+          const maxTokens = contextUsage.maxTokens || 100000;
           const usagePercent =
             ((contextUsage.inputTokens + contextUsage.outputTokens) /
-              (contextUsage.maxTokens || 100000)) *
+              maxTokens) *
             100;
 
-          if (usagePercent >= ctx.config.contextWindowThreshold) {
+          const effectiveThreshold = Math.min(
+            ctx.config.contextWindowThreshold,
+            computeCompactionThresholdPercent(maxTokens),
+          );
+          if (usagePercent >= effectiveThreshold) {
             signals.push({
               type: "context_window_warning",
               message: `Context usage at ${usagePercent.toFixed(1)}%`,

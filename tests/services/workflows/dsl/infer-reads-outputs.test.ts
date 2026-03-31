@@ -240,7 +240,7 @@ describe("inferToolOutputs", () => {
     expect(inferToolOutputs(outputMapper)).toEqual(["formatted", "count"]);
   });
 
-  test("returns empty array when outputMapper is undefined", () => {
+  test("returns empty array when outputMapper is undefined and no execute", () => {
     expect(inferToolOutputs(undefined)).toEqual([]);
   });
 
@@ -249,6 +249,32 @@ describe("inferToolOutputs", () => {
       throw new Error("mapper crashed");
     };
     expect(inferToolOutputs(outputMapper)).toEqual([]);
+  });
+
+  test("infers keys from execute return when no outputMapper", () => {
+    const execute = async () => ({ counter: 1, path: ["a"], status: "done" });
+    expect(inferToolOutputs(undefined, execute)).toEqual(["counter", "path", "status"]);
+  });
+
+  test("prefers outputMapper over execute when both present", () => {
+    const outputMapper = (_result: Record<string, unknown>) => ({ mapped: true });
+    const execute = async () => ({ raw: "data" });
+    expect(inferToolOutputs(outputMapper, execute)).toEqual(["mapped"]);
+  });
+
+  test("infers keys from arrow function with implicit return", () => {
+    const execute = async () => ({ score: 0, label: "test" });
+    expect(inferToolOutputs(undefined, execute)).toEqual(["score", "label"]);
+  });
+
+  test("infers keys from execute with ctx parameter", () => {
+    const execute = async (ctx: ExecutionContext<BaseState>) => {
+      const val = (ctx.state as unknown as Record<string, unknown>).counter;
+      return { counter: (val as number) + 1, updated: true };
+    };
+    const outputs = inferToolOutputs(undefined, execute);
+    expect(outputs).toContain("counter");
+    expect(outputs).toContain("updated");
   });
 });
 
@@ -351,7 +377,7 @@ describe("inferToolMetadata", () => {
     expect(meta.outputs).toEqual([]);
   });
 
-  test("infers reads when not provided, outputs defaults to empty when no outputMapper", () => {
+  test("infers reads and outputs from execute when no outputMapper", () => {
     const config = {
       name: "transform-tool",
       execute: async (ctx: ExecutionContext<BaseState>) => {
@@ -361,7 +387,8 @@ describe("inferToolMetadata", () => {
     };
     const meta = inferToolMetadata(config);
     expect(meta.reads).toContain("sourceCode");
-    expect(meta.outputs).toEqual([]);
+    // Without outputMapper, outputs are inferred from execute's return keys
+    expect(meta.outputs).toEqual(["result"]);
   });
 
   test("infers outputs from outputMapper keys", () => {

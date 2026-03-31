@@ -14,6 +14,7 @@
  */
 
 import type { ContextUsage, Session } from "@/services/agents/types.ts";
+import { computeCompactionThresholdPercent } from "@/services/workflows/graph/types.ts";
 import type {
   AccumulatedContextPressure,
   ContextPressureConfig,
@@ -26,8 +27,8 @@ import type {
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Default elevated threshold (45% — matches BACKGROUND_COMPACTION_THRESHOLD). */
-export const DEFAULT_ELEVATED_THRESHOLD = 45;
+/** Default elevated threshold (40% — matches BACKGROUND_COMPACTION_THRESHOLD). */
+export const DEFAULT_ELEVATED_THRESHOLD = 40;
 
 /** Default critical threshold (60% — matches BUFFER_EXHAUSTION_THRESHOLD). */
 export const DEFAULT_CRITICAL_THRESHOLD = 60;
@@ -43,7 +44,8 @@ export const DEFAULT_MAX_CONTINUATIONS_PER_STAGE = 3;
  * Create a `ContextPressureConfig` with sensible defaults.
  *
  * Thresholds align with the existing graph-level constants:
- * - `BACKGROUND_COMPACTION_THRESHOLD` (0.45 → 45%) for elevated
+ * - `BACKGROUND_COMPACTION_THRESHOLD` (0.4 → 40%) for elevated,
+ *   capped at runtime by min(0.4T, 100K) via `computeCompactionThresholdPercent`
  * - `BUFFER_EXHAUSTION_THRESHOLD` (0.6 → 60%) for critical
  */
 export function createDefaultContextPressureConfig(
@@ -63,15 +65,22 @@ export function createDefaultContextPressureConfig(
 
 /**
  * Compute the pressure level from a usage percentage and config thresholds.
+ *
+ * When `maxTokens` is provided, the elevated threshold is capped by
+ * `min(0.4T, 100K)` to limit the absolute token budget on large windows.
  */
 export function computePressureLevel(
   usagePercentage: number,
   config: ContextPressureConfig,
+  maxTokens?: number,
 ): ContextPressureLevel {
   if (usagePercentage >= config.criticalThreshold) {
     return "critical";
   }
-  if (usagePercentage >= config.elevatedThreshold) {
+  const effectiveElevated = maxTokens && maxTokens > 0
+    ? Math.min(config.elevatedThreshold, computeCompactionThresholdPercent(maxTokens))
+    : config.elevatedThreshold;
+  if (usagePercentage >= effectiveElevated) {
     return "elevated";
   }
   return "normal";
@@ -92,7 +101,7 @@ export function createSnapshot(
     outputTokens: usage.outputTokens,
     maxTokens: usage.maxTokens,
     usagePercentage: usage.usagePercentage,
-    level: computePressureLevel(usage.usagePercentage, config),
+    level: computePressureLevel(usage.usagePercentage, config, usage.maxTokens),
     timestamp: new Date().toISOString(),
   };
 }

@@ -172,6 +172,13 @@ export async function verifySingleWorkflow(
     : "";
 
   const encoded = encodeGraph(graph);
+
+  // Populate stateFields from the workflow definition so the verifier
+  // can treat globalState fields (which have defaults) as produced at start.
+  if (definition.stateFields && definition.stateFields.length > 0) {
+    encoded.stateFields = definition.stateFields;
+  }
+
   const result = await verifier(graph, {
     encodedGraph: encoded,
     conductorStages: definition.conductorStages,

@@ -379,7 +379,7 @@ function generateGraph(instructions: Instruction[]): GraphBuildResult {
         : inferToolReads((options as ToolOptions<any>).execute),
       outputs: type === "agent"
         ? inferStageOutputs((options as StageOptions).outputMapper)
-        : inferToolOutputs((options as ToolOptions<any>).outputMapper),
+        : inferToolOutputs((options as ToolOptions<any>).outputMapper, (options as ToolOptions<any>).execute),
     };
     nodes.set(id, node);
     return id;
@@ -719,6 +719,7 @@ export function compileWorkflow(builder: WorkflowBuilder): WorkflowDefinition {
     createState,
     nodeDescriptions,
     conductorStages,
+    stateFields: stateSchema ? Object.keys(stateSchema) : undefined,
     createConductorGraph: () => {
       const graphResult = generateGraph(instructions);
       return {

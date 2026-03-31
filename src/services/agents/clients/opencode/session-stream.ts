@@ -1,6 +1,7 @@
 import {
 	AUTO_COMPACTION_THRESHOLD,
 	OpenCodeCompactionError,
+	computeCompactionThresholdPercent,
 	setCompactionControlState,
 } from "@/services/agents/clients/opencode/compaction.ts";
 import type { OpenCodeResolvedPromptModel } from "@/services/agents/clients/opencode/model.ts";
@@ -260,9 +261,12 @@ export function createOpenCodeSessionStream(args: {
 										maxTokens) *
 									100
 								: 0;
+						const effectiveThresholdPercent = maxTokens && maxTokens > 0
+							? computeCompactionThresholdPercent(maxTokens)
+							: AUTO_COMPACTION_THRESHOLD * 100;
 						const shouldAttemptProactiveCompaction =
 							!isSubagentDispatch &&
-							usagePercentage >= AUTO_COMPACTION_THRESHOLD * 100 &&
+							usagePercentage >= effectiveThresholdPercent &&
 							!args.sessionState.compaction.isCompacting &&
 							args.sessionState.compaction.control.state === "STREAMING" &&
 							!args.sessionState.compaction.hasAutoCompacted;
@@ -275,7 +279,7 @@ export function createOpenCodeSessionStream(args: {
 						args.runtimeArgs.debugLog("compaction.proactive_trigger", {
 							sessionId: args.runtimeArgs.sessionId,
 							trigger: "threshold",
-							thresholdPercentage: AUTO_COMPACTION_THRESHOLD * 100,
+							thresholdPercentage: effectiveThresholdPercent,
 							usagePercentage,
 							inputTokens: args.sessionState.inputTokens,
 							outputTokens: args.sessionState.outputTokens,

@@ -14,6 +14,7 @@ on:
             - ".claude/agents/*.md"
             - ".opencode/agents/*.md"
             - ".github/agents/*.md"
+            - ".atomic/workflows/*.ts"
 
 jobs:
     typescript-tests:
@@ -34,6 +35,9 @@ jobs:
 
             - name: Validate agent schemas
               run: bun run validate:agents
+
+            - name: Validate workflows
+              run: bun run typecheck:workflows && bun run validate:workflows
 
             - name: Run type checking
               run: bun run typecheck

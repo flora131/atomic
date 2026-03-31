@@ -97,6 +97,9 @@ export function useChatInterruptControls({
   const terminateActiveBackgroundAgents = useCallback(() => {
     const activeBackgroundAgents = getActiveBackgroundAgents(parallelAgentsRef.current);
     if (activeBackgroundAgents.length > 0) {
+      // Reset count synchronously so the spinner hides on the very next
+      // render (Ctrl+C / ESC). The async `.then()` below confirms the
+      // same value once the actual termination completes.
       void executeBackgroundTermination({
         getAgents: () => parallelAgentsRef.current,
         onTerminateBackgroundAgents,
@@ -113,6 +116,11 @@ export function useChatInterruptControls({
         setActiveBackgroundAgentCount(0);
       });
     }
+    // Always reset the count synchronously so the spinner hides on the
+    // very next render — even when no background agents are found (stale
+    // count) or when the async termination hasn't resolved yet.
+    activeBackgroundAgentCountRef.current = 0;
+    setActiveBackgroundAgentCount(0);
   }, [activeBackgroundAgentCountRef, onTerminateBackgroundAgents, parallelAgentsRef, setActiveBackgroundAgentCount, setParallelAgents]);
 
   const cancelWorkflow = useCallback(() => {
@@ -219,6 +227,8 @@ export function useChatInterruptControls({
           streamingMessageIdRef,
           updateInterruptedMessage: (message, context) => ({
             ...message,
+            wasInterrupted: true,
+            streaming: false,
             parallelAgents: context.interruptedAgents,
             taskItems: context.interruptedTaskItems,
             parts: finalizeStreamingTextParts(
@@ -254,6 +264,7 @@ export function useChatInterruptControls({
                 {
                   ...msg,
                   wasInterrupted: true,
+                  streaming: false,
                   taskItems: interruptedTaskItems,
                   parts: finalizeStreamingTextParts(
                     interruptRunningToolParts(msg.parts) ?? [],
@@ -281,6 +292,48 @@ export function useChatInterruptControls({
         }
         return true;
       }
+    }
+
+    // Handle the case where the workflow is active but the stream has
+    // already completed (between-stage gap or race condition where
+    // stream.session.idle fired before the keyboard event).  Without
+    // this, the interrupt falls through to text-clear / exit and the
+    // spinner stays visible because wasInterrupted is never set on the
+    // last message while keepAliveForWorkflow remains true.
+    if (workflowState.workflowActive) {
+      onInterrupt?.();
+      const interruptedTaskItems = finalizeTaskItemsOnInterrupt();
+      setMessagesWindowed((prev) => {
+        for (let i = prev.length - 1; i >= 0; i--) {
+          const msg = prev[i];
+          if (msg?.role === "assistant") {
+            return [
+              ...prev.slice(0, i),
+              {
+                ...msg,
+                wasInterrupted: true,
+                streaming: false,
+                taskItems: interruptedTaskItems,
+                parts: finalizeStreamingTextParts(
+                  interruptRunningToolParts(msg.parts) ?? [],
+                ),
+              },
+              ...prev.slice(i + 1),
+            ];
+          }
+        }
+        return prev;
+      });
+
+      const nextCount = interruptCount + 1;
+      if (nextCount >= 2) {
+        cancelWorkflow();
+        clearInterruptConfirmation();
+      } else {
+        conductorInterruptRef.current?.();
+        scheduleInterruptConfirmation(nextCount);
+      }
+      return true;
     }
 
     {
@@ -421,6 +474,8 @@ export function useChatInterruptControls({
           streamingMessageIdRef,
           updateInterruptedMessage: (message, context) => ({
             ...message,
+            wasInterrupted: true,
+            streaming: false,
             parallelAgents: context.interruptedAgents,
             taskItems: context.interruptedTaskItems,
             parts: finalizeStreamingTextParts(
@@ -456,6 +511,7 @@ export function useChatInterruptControls({
                 {
                   ...msg,
                   wasInterrupted: true,
+                  streaming: false,
                   taskItems: interruptedTaskItems,
                   parts: finalizeStreamingTextParts(
                     interruptRunningToolParts(msg.parts) ?? [],
@@ -473,6 +529,41 @@ export function useChatInterruptControls({
         }
         return true;
       }
+    }
+
+    // Handle the case where the workflow is active but the stream has
+    // already completed (between-stage gap or race condition where
+    // stream.session.idle fired before the keyboard event).  Without
+    // this, ESC falls through and the spinner stays visible because
+    // wasInterrupted is never set on the last message while
+    // keepAliveForWorkflow remains true.
+    if (workflowState.workflowActive) {
+      onInterrupt?.();
+      const interruptedTaskItems = finalizeTaskItemsOnInterrupt();
+      setMessagesWindowed((prev) => {
+        for (let i = prev.length - 1; i >= 0; i--) {
+          const msg = prev[i];
+          if (msg?.role === "assistant") {
+            return [
+              ...prev.slice(0, i),
+              {
+                ...msg,
+                wasInterrupted: true,
+                streaming: false,
+                taskItems: interruptedTaskItems,
+                parts: finalizeStreamingTextParts(
+                  interruptRunningToolParts(msg.parts) ?? [],
+                ),
+              },
+              ...prev.slice(i + 1),
+            ];
+          }
+        }
+        return prev;
+      });
+
+      conductorInterruptRef.current?.();
+      return true;
     }
 
     return false;

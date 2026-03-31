@@ -80,22 +80,59 @@ export async function checkStateDataFlow(
       for (const field of outputs) allFields.add(field);
     }
 
-    // Build predecessor map
+    // ── Detect back-edges via DFS ──────────────────────────────────────
+    // Loops create back-edges (e.g., __loop_check → __loop_start) that
+    // form cycles. Kahn's algorithm silently drops all nodes in cycles,
+    // causing false-positive violations for every read inside a loop body.
+    // We detect back-edges using DFS and exclude them so the graph
+    // becomes a DAG that Kahn's algorithm can fully process.
+    const backEdges = new Set<string>();
+    {
+      const visited = new Set<string>();
+      const onStack = new Set<string>();
+      const adjacency = new Map<string, string[]>();
+      for (const node of graph.nodes) adjacency.set(node.id, []);
+      for (const edge of graph.edges) adjacency.get(edge.from)?.push(edge.to);
+
+      function dfs(nodeId: string): void {
+        visited.add(nodeId);
+        onStack.add(nodeId);
+        for (const target of adjacency.get(nodeId) ?? []) {
+          if (onStack.has(target)) {
+            backEdges.add(`${nodeId}->${target}`);
+          } else if (!visited.has(target)) {
+            dfs(target);
+          }
+        }
+        onStack.delete(nodeId);
+      }
+
+      dfs(graph.startNode);
+      for (const node of graph.nodes) {
+        if (!visited.has(node.id)) dfs(node.id);
+      }
+    }
+
+    // Build predecessor map excluding back-edges
     const predecessors = new Map<string, string[]>();
     for (const node of graph.nodes) {
       predecessors.set(node.id, []);
     }
     for (const edge of graph.edges) {
-      predecessors.get(edge.to)?.push(edge.from);
+      if (!backEdges.has(`${edge.from}->${edge.to}`)) {
+        predecessors.get(edge.to)?.push(edge.from);
+      }
     }
 
-    // Topological order via BFS (Kahn's algorithm)
+    // Topological order via BFS (Kahn's algorithm) on the DAG
     const inDegree = new Map<string, number>();
     for (const node of graph.nodes) {
       inDegree.set(node.id, 0);
     }
     for (const edge of graph.edges) {
-      inDegree.set(edge.to, (inDegree.get(edge.to) ?? 0) + 1);
+      if (!backEdges.has(`${edge.from}->${edge.to}`)) {
+        inDegree.set(edge.to, (inDegree.get(edge.to) ?? 0) + 1);
+      }
     }
     const topoOrder: string[] = [];
     const topoQueue: string[] = [];
@@ -106,7 +143,7 @@ export async function checkStateDataFlow(
       const id = topoQueue.shift()!;
       topoOrder.push(id);
       for (const edge of graph.edges) {
-        if (edge.from === id) {
+        if (edge.from === id && !backEdges.has(`${edge.from}->${edge.to}`)) {
           const newDeg = (inDegree.get(edge.to) ?? 1) - 1;
           inDegree.set(edge.to, newDeg);
           if (newDeg === 0) topoQueue.push(edge.to);
@@ -135,7 +172,10 @@ export async function checkStateDataFlow(
         } else {
           const preds = predecessors.get(nodeId) ?? [];
           if (preds.length === 0) {
-            produced.set(nodeId, false);
+            // Start node: globalState fields with defaults are always
+            // available from workflow initialization, so treat them as
+            // produced at the start.
+            produced.set(nodeId, graph.stateFields.includes(field));
           } else {
             const allPredsProduced = preds.every((p) => produced.get(p) === true);
             produced.set(nodeId, allPredsProduced);

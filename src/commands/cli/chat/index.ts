@@ -284,7 +284,6 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
 
     // Start standard chat
     const result = await startChatUI(client, chatConfig);
-    console.log(`\nChat ended. ${result.messageCount} messages exchanged.`);
     trackAtomicCommand("chat", agentType, true);
     return 0;
   } catch (error) {

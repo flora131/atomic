@@ -22,6 +22,16 @@ Load the topic-specific reference files from `references/` as needed. Start with
 | `session-config.md` | Per-stage model, reasoning, or permission overrides |
 | `discovery-and-verification.md` | File discovery, export format, verifier CLI, tsc type checking |
 
+## Before You Start
+
+Before designing a workflow, discover what agents are available:
+
+```bash
+atomic list agents
+```
+
+This shows all agent definitions from project-level directories (`.claude/agents/`, `.opencode/agents/`, `.github/agents/`) **and** global directories (`~/.claude/agents/`, `~/.opencode/agents/`, `~/.copilot/agents/`). Use these names in `.stage({ agent: "<name>" })`, or set `agent: null` to inherit SDK default instructions.
+
 ## How Workflows Work
 
 A workflow is a TypeScript file that chains `.stage()`, `.tool()`, `.askUserQuestion()`, `.if()`, `.loop()`, and other methods to define a directed graph of agent stages. The chain reads top-to-bottom as the execution order. At the end, `.compile()` produces a branded `CompiledWorkflow` blueprint that the CLI binary compiles at load time.
@@ -47,7 +57,19 @@ Map the user's intent to DSL constructs:
 | Do any steps need a specific model? | → `sessionConfig` with per-agent-type model |
 | Does a tool need to validate data shapes? | → Zod schemas from the SDK (see `nodes/tool.md`) |
 
-### 2. Design the Stage Graph
+### 2. Discover Available Agents
+
+Before designing stages, find out which agent definitions already exist. Agents are discovered from both **project-level** and **global (user-level)** directories:
+
+```bash
+atomic list agents
+```
+
+This lists all discovered agents with their source (project or global) and description. Use these names directly in `.stage({ agent: "<name>" })`. If no existing agent fits, create a new one (see `nodes/stage.md`). Set `agent: null` to run with the SDK's default session instructions (no custom system prompt).
+
+**Why this matters for verification:** The verifier resolves agent names against **all** discovered agent definitions — including global ones installed at `~/.claude/agents/`, `~/.opencode/agents/`, and `~/.copilot/agents/`. A workflow referencing an agent like `"worker"` will pass verification if that agent exists in *any* discovery path (project or global), even if it is not visible in the project directory. Always run `atomic list agents` to see the full picture.
+
+### 3. Design the Stage Graph
 
 Map the user's intent to a sequence of stages. Every stage requires these fields:
 
@@ -61,7 +83,7 @@ Map the user's intent to a sequence of stages. Every stage requires these fields
 
 Think of `name` as the database key and `agent` as the worker type. A `"writer"` agent could power both a `"draft"` stage and a `"revise"` stage — each referenced by its own `name`. Set `agent: null` when you want the raw SDK behavior without a custom system prompt.
 
-### 3. Write the Workflow File
+### 4. Write the Workflow File
 
 Follow this template:
 
@@ -91,7 +113,7 @@ export default defineWorkflow({
 
 When you declare `globalState`, the SDK infers types automatically — `ctx.state.fieldName` in prompt functions will have the correct type based on the `default` value. For example, `{ default: 0, reducer: "sum" }` gives `ctx.state.fieldName` the type `number`. See `state-and-reducers.md` for details.
 
-### 4. Type-Check the Workflow
+### 5. Type-Check the Workflow
 
 Before running the verifier, run `tsc` to catch TypeScript errors:
 
@@ -101,7 +123,7 @@ bunx tsc --noEmit --pretty false
 
 This catches invalid fields, wrong function signatures, missing required properties, and incorrect `sessionConfig` shapes. Fix all errors before proceeding.
 
-### 5. Verify the Workflow
+### 6. Verify the Workflow
 
 After writing, run the workflow verifier:
 
@@ -274,3 +296,125 @@ These are enforced by the builder and compiler at build time:
 6. **Non-empty branches** — every branch in a conditional block must contain at least one node.
 7. **`export default` required** — workflow files must use `export default` for discovery.
 8. **Forward-only data flow** — `ctx.stageOutputs.get("<name>")` only has data from already-executed stages. The compiler auto-infers reads/outputs and the verifier validates all paths.
+
+## Agent Discovery and Resolution
+
+The verifier resolves `agent` values against agent definition files discovered from **both project-level and global directories**. Understanding this is critical for debugging verification results.
+
+### Discovery paths
+
+| Scope | Directories searched |
+|-------|---------------------|
+| **Project** | `.claude/agents/`, `.opencode/agents/`, `.github/agents/` (relative to project root) |
+| **Global** | `~/.claude/agents/`, `~/.opencode/agents/`, `~/.copilot/agents/` |
+
+Project agents take priority over global agents when names collide (same name, different source). The verifier deduplicates by name.
+
+### Why verification passes for "unknown" agents
+
+When `agent: "worker"` passes verification but no `worker.md` exists in the project directory, the agent exists at **global** scope (e.g., `~/.copilot/agents/worker.md`). Global agents are first-class — they are discoverable by the verifier and usable at runtime.
+
+Run `atomic list agents` to see all available agents with their source:
+
+```bash
+atomic list agents
+# Output:
+#   Project agents (3):
+#     planner  Decomposes user prompts into structured task lists.
+#     reviewer  Code reviewer for proposed code changes.
+#     worker   Implement a SINGLE task from a task list.
+#
+#   Global agents (2):
+#     debugger  Debug errors, test failures, and unexpected behavior.
+#     researcher  Online research agent.
+```
+
+### Choosing an agent value
+
+- **Named agent** (`agent: "planner"`) — the verifier checks that a matching `.md` file exists in any discovery path. The agent file's markdown body becomes the stage's system prompt.
+- **`null`** (`agent: null`) — no agent definition is loaded. The stage runs with the SDK's default session instructions (e.g., Claude Code preset, Copilot guardrails). Use this for general-purpose implementation stages that don't need a specialized system prompt.
+
+Always run `atomic list agents` first to see what's available before creating new agent definitions.
+
+## The `task_list` Tool
+
+The `task_list` tool provides SQLite-backed CRUD operations for managing tasks within a workflow session. It is the primary mechanism for tracking work items across stages and is automatically available to agent stages that declare it in their `tools` frontmatter.
+
+### When to use `task_list` in workflows
+
+Use `task_list` when your workflow needs to:
+- **Plan work** — a planner stage creates tasks with `create_tasks`, then worker stages consume them
+- **Track progress** — worker stages update task status with `update_task_status` and log progress with `update_task_progress`
+- **Coordinate parallel work** — tasks have `blockedBy` arrays for dependency management, enabling the orchestrator to maximize parallel execution
+
+### Available actions
+
+| Action | Required Fields | Description |
+|--------|----------------|-------------|
+| `create_tasks` | `tasks[]` | Bulk-create tasks (INSERT OR REPLACE) |
+| `list_tasks` | — | Return all tasks |
+| `add_task` | `task` | Add a single task |
+| `update_task_status` | `taskId`, `status` | Update a task's status (`pending`, `in_progress`, `completed`, `error`) |
+| `update_task_blockedBy` | `taskId`, `blockedBy[]` | Update a task's dependency list |
+| `update_task_progress` | `taskId`, `progress` | Append a progress log entry |
+| `get_task_progress` | `taskId` | Retrieve progress entries for a task |
+| `delete_task` | `taskId` | Delete a task and clean up dependencies |
+| `clear_progress` | `taskId` | Clear all progress entries for a task |
+
+### Referencing `task_list` in agent definitions
+
+Agent definitions declare tool access in their frontmatter. The `task_list` tool must be listed for any agent that needs to read or write tasks:
+
+```yaml
+# .github/agents/planner.md
+---
+name: planner
+description: Decomposes user prompts into structured task lists.
+tools: ["search", "read", "execute", "task_list"]
+---
+```
+
+### Using tasks in workflow stages
+
+The current task list is available in `StageContext.tasks` for prompt functions:
+
+```ts
+.stage({
+  name: "implement",
+  agent: "worker",
+  description: "⚡ WORKER",
+  prompt: (ctx) => {
+    const pending = ctx.tasks.filter(t => t.status === "pending");
+    return `Implement the highest priority task:\n${JSON.stringify(pending[0])}`;
+  },
+  outputMapper: () => ({}),
+})
+```
+
+### Task schema
+
+Each task item has these fields:
+
+```ts
+interface TaskItem {
+  id: string;              // Unique task identifier (kebab-case recommended)
+  description: string;     // Human-readable task description
+  status: string;          // "pending" | "in_progress" | "completed" | "error"
+  summary: string;         // Present-participle phrase (e.g., "Fixing bug")
+  blockedBy?: string[];    // Task IDs this task depends on
+}
+```
+
+The SDK exports `TaskItemSchema` (Zod) for runtime validation in `.tool()` nodes:
+
+```ts
+import { defineWorkflow, TaskItemSchema } from "@bastani/atomic-workflows";
+
+.tool({
+  name: "validate-tasks",
+  execute: async (ctx) => {
+    const result = TaskItemSchema.array().safeParse(ctx.state.tasks);
+    return { tasksValid: result.success };
+  },
+})
+```

@@ -39,6 +39,8 @@
     "typecheck": "bunx tsc --noEmit",
     "bump-version": "bun run src/scripts/bump-version.ts",
     "validate:agents": "bun run src/scripts/validate-agents.ts",
+    "validate:workflows": "bun run dev workflow verify",
+    "typecheck:workflows": "bunx tsc --noEmit --project .atomic/workflows/tsconfig.json",
     "lint": "oxlint --config=oxlint.json src tests",
     "lint:fix": "oxlint --config=oxlint.json --fix src tests",
     "postinstall": "lefthook install && bun run src/scripts/postinstall.ts"

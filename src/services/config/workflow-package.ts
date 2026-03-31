@@ -23,7 +23,7 @@ const WORKFLOW_GITIGNORE = "node_modules/\n";
 
 const WORKFLOW_TSCONFIG = {
   compilerOptions: {
-    lib: ["ESNext"],
+    lib: ["ESNext", "DOM"],
     target: "ESNext",
     module: "ESNext",
     moduleResolution: "bundler",

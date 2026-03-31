@@ -185,7 +185,14 @@ describe("CopilotClient model switch event deduplication", () => {
 
     (client as unknown as { sdkClient: unknown }).sdkClient = {
       resumeSession: mock(async () => resumedSdkSession),
-      listModels: mock(async () => []),
+      listModels: mock(async () => [{
+        id: "gpt-4o",
+        name: "GPT-4o",
+        capabilities: {
+          limits: { max_context_window_tokens: 128000 },
+          supports: { reasoningEffort: false, vision: true },
+        },
+      }]),
     };
     (client as unknown as { isRunning: boolean }).isRunning = true;
     (client as unknown as { registeredTools: unknown[] }).registeredTools = [];

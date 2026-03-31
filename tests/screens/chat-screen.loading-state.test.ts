@@ -352,6 +352,38 @@ describe("shouldShowMessageLoadingIndicator", () => {
       ),
     ).toBe(true);
   });
+
+  test("spinner hides when wasInterrupted is set during workflow between-stage gap", () => {
+    // Simulates Ctrl+C/ESC during the gap between stages: the stream has
+    // ended (streaming=false), but the workflow is still active.  The
+    // keyboard handler sets wasInterrupted=true on the last message so
+    // keepAliveForWorkflow evaluates to false.
+    const workflowActive = true;
+    const isLast = true;
+    const wasInterrupted = true;
+    const keepAliveForWorkflow = workflowActive && isLast && !wasInterrupted;
+    expect(
+      shouldShowMessageLoadingIndicator(
+        { streaming: false },
+        { activeBackgroundAgentCount: 0, keepAliveForWorkflow },
+      ),
+    ).toBe(false);
+  });
+
+  test("spinner persists during workflow between-stage gap when NOT interrupted", () => {
+    // Normal between-stage transition: stream ended, wasInterrupted is
+    // not set → keepAliveForWorkflow bridges the gap.
+    const workflowActive = true;
+    const isLast = true;
+    const wasInterrupted = undefined;
+    const keepAliveForWorkflow = workflowActive && isLast && !wasInterrupted;
+    expect(
+      shouldShowMessageLoadingIndicator(
+        { streaming: false },
+        { activeBackgroundAgentCount: 0, keepAliveForWorkflow },
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("hasLiveLoadingIndicator", () => {

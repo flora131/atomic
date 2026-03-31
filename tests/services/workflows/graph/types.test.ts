@@ -45,7 +45,6 @@ describe("isNodeType", () => {
 describe("isSignal", () => {
   test("returns true for valid signal types", () => {
     const validSignals: Signal[] = [
-      "context_window_warning",
       "checkpoint",
       "human_input_required",
       "debug_report_generated",

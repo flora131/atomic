@@ -6,6 +6,7 @@
  */
 
 import React, { memo, useMemo } from "react";
+import { useTerminalDimensions } from "@opentui/react";
 import { useTheme } from "@/theme/index.tsx";
 import { AnimatedBlinkIndicator } from "@/components/animated-blink-indicator.tsx";
 import { STATUS, MISC } from "@/theme/icons.ts";
@@ -156,7 +157,7 @@ const CollapsibleContent = memo(function CollapsibleContent({
           }
 
           return (
-            <text key={index} fg={lineColor}>
+            <text key={index} wrapMode="none" fg={lineColor}>
               {line || " "}
             </text>
           );
@@ -273,6 +274,7 @@ export function ToolResult({
   // All hooks must be called unconditionally (Rules of Hooks)
   const { theme } = useTheme();
   const colors = theme.colors;
+  const { width: terminalWidth } = useTerminalDimensions();
   const renderer = getToolRenderer(toolName);
   const mcpParsed = parseMcpToolName(toolName);
   const displayLabel = mcpParsed ? `${mcpParsed.server} / ${mcpParsed.tool}` : toolName;
@@ -284,18 +286,26 @@ export function ToolResult({
   const title = renderer.getTitle({ input, output });
   const summary = getToolSummary(toolName, input, output, renderResult.content.length);
 
+  // Compute dynamic maxLineChars from terminal width to prevent overflow.
+  // Overhead: message paddingL/R (2) + content marginLeft (1) + border L/R (2) + box paddingL/R (2) = 7
+  const CONTENT_BOX_OVERHEAD = 7;
+  const dynamicMaxLineChars = Math.min(
+    MAIN_CHAT_TOOL_PREVIEW_LIMITS.maxLineChars,
+    Math.max(20, terminalWidth - CONTENT_BOX_OVERHEAD),
+  );
+
   const linkifiedTitle = truncateToolHeader(title, MAIN_CHAT_TOOL_PREVIEW_LIMITS.maxTitleChars);
   const truncatedDisplayLabel = truncateToolHeader(displayLabel, MAIN_CHAT_TOOL_PREVIEW_LIMITS.maxLabelChars);
   const truncatedSummaryText = truncateToolText(summary.text, MAIN_CHAT_TOOL_PREVIEW_LIMITS.maxSummaryChars);
   const truncatedRenderContent = truncateToolLines(renderResult.content, {
     maxLines: maxToolPreviewLines,
-    maxLineChars: MAIN_CHAT_TOOL_PREVIEW_LIMITS.maxLineChars,
+    maxLineChars: dynamicMaxLineChars,
   });
   const hasError = status === "error";
   const truncatedErrorLines = hasError && typeof output === "string"
     ? truncateToolLines(output.split("\n"), {
         maxLines: maxToolPreviewLines,
-        maxLineChars: MAIN_CHAT_TOOL_PREVIEW_LIMITS.maxLineChars,
+        maxLineChars: dynamicMaxLineChars,
       }).lines
     : [];
 

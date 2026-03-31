@@ -48,7 +48,7 @@ export function truncateToolText(text: string, maxChars: number): string {
   // Two passes are enough to stabilize marker length for practical limits.
   for (let i = 0; i < 2; i++) {
     const hiddenChars = text.length - keep;
-    marker = `… (+${hiddenChars} chars truncated)`;
+    marker = `... (+${hiddenChars} chars truncated)`;
     keep = maxChars - marker.length;
     if (keep <= 0) {
       return `${text.slice(0, maxChars - 3)}...`;
@@ -73,7 +73,7 @@ export function truncateToolLines(
   const preview = truncatedLineCount > 0
     ? [
       ...lineCharLimited.slice(0, options.maxLines),
-      `… truncated ${truncatedLineCount} line${truncatedLineCount === 1 ? "" : "s"}`,
+      `... truncated ${truncatedLineCount} line${truncatedLineCount === 1 ? "" : "s"}`,
     ]
     : lineCharLimited;
 

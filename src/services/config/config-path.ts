@@ -3,7 +3,7 @@
  *
  * Supports three installation modes:
  * 1. Source/Development: Running from source with `bun run src/cli.ts`
- * 2. npm/bun installed: Installed via `npm install -g @bastani/atomic`
+ * 2. npm/bun installed: Installed via a package manager (npm/bun)
  * 3. Binary executable: Installed via install.sh/install.ps1
  *
  * For binary installs, config files are stored in a data directory:
@@ -68,7 +68,7 @@ export function getBinaryDataDir(): string {
  *
  * Path resolution by installation type:
  * - Source: Navigate up from src/utils to repo root
- * - npm: Navigate up from node_modules/@bastani/atomic/src/utils to package root
+ * - npm: Navigate up from node_modules to package root
  * - Binary: Use the dedicated data directory (~/.local/share/atomic or %LOCALAPPDATA%\atomic)
  *
  * @returns The path to the config root directory

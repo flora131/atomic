@@ -41,14 +41,6 @@ export interface WorkflowDefinition extends WorkflowMetadata {
    * stage definitions handle inter-stage communication.
    */
   createConductorGraph?: () => CompiledGraph<BaseState>;
-  /**
-   * Context pressure monitoring configuration. When provided, the conductor
-   * tracks context window usage per stage.
-   *
-   * Use `createDefaultContextPressureConfig()` from
-   * `@/services/workflows/conductor/context-pressure.ts` for sensible defaults.
-   */
-  contextPressure?: ContextPressureConfig;
   runtime?: {
     featureFlags?: WorkflowRuntimeFeatureFlagOverrides;
   };

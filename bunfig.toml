@@ -13,6 +13,8 @@ coveragePathIgnorePatterns = [
   "tests/**",
   # Temp files created during test runs (e.g. discovery tests writing to /tmp)
   "**/tmp/**",
+  # macOS resolves temp dirs to /private/var/folders/…, which bypasses **/tmp/**
+  "**/var/folders/**",
   # Compiled workflow temp files generated at runtime
   "**/.atomic/.tmp/**",
   # Entry points (not unit-testable)

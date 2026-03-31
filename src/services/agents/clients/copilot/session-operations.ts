@@ -187,20 +187,17 @@ export async function setCopilotActiveSessionModel(args: {
     throw new Error("Model ID cannot be empty.");
   }
 
-  const listModelsFresh = async () =>
-    await args.listSdkModelsFresh() as CopilotSdkModelRecord[];
+  const models = await args.listSdkModelsFresh() as CopilotSdkModelRecord[];
 
-  const [sanitizedReasoningEffort, newModelContextWindow] = await Promise.all([
-    resolveModelSwitchReasoningEffort({
-      resolvedModel,
-      requestedReasoningEffort: args.options?.reasoningEffort,
-      listModelsFresh,
-    }),
-    resolveModelContextWindow({
-      resolvedModel,
-      listModelsFresh,
-    }),
-  ]);
+  const sanitizedReasoningEffort = resolveModelSwitchReasoningEffort({
+    resolvedModel,
+    requestedReasoningEffort: args.options?.reasoningEffort,
+    models,
+  });
+  const newModelContextWindow = resolveModelContextWindow({
+    resolvedModel,
+    models,
+  });
 
   const projectRoot = args.clientCwd ?? process.cwd();
   const artifacts = await args.loadCopilotSessionArtifacts(projectRoot);

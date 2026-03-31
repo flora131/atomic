@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatDuration, formatTimestamp, joinThinkingBlocks, normalizeMarkdownNewlines, truncateText, collapseNewlines } from "@/lib/ui/format.ts";
+import { formatDuration, formatTimestamp, joinThinkingBlocks, normalizeMarkdownNewlines, truncateText, truncateDescription, collapseNewlines } from "@/lib/ui/format.ts";
 
 describe("formatDuration", () => {
   test("formats sub-second values as seconds", () => {
@@ -204,6 +204,56 @@ describe("truncateText", () => {
   });
 });
 
+describe("truncateDescription", () => {
+  test("returns full name and truncated description when space is available", () => {
+    const result = truncateDescription("myAgent", "A description that is fairly long for truncation", 40);
+    expect(result.name).toBe("myAgent");
+    expect(result.description.length).toBeLessThanOrEqual(29);
+    expect(result.description.endsWith("...")).toBe(true);
+  });
+
+  test("returns full name and full description when both fit", () => {
+    const result = truncateDescription("ag", "Hi", 40);
+    expect(result.name).toBe("ag");
+    expect(result.description).toBe("Hi");
+  });
+
+  test("truncates name when it exceeds available space", () => {
+    const longName = "a".repeat(100);
+    const result = truncateDescription(longName, "desc", 40);
+    // Name should be truncated to cols - DESCRIPTION_PREFIX_PADDING = 36
+    expect(result.name.length).toBe(36);
+    expect(result.name.endsWith("...")).toBe(true);
+    expect(result.description).toBe("");
+  });
+
+  test("returns description when name leaves zero remaining space", () => {
+    // cols=20, padding=4, so maxNameLength=16; name of length 16 fits but available=0
+    const result = truncateDescription("a".repeat(16), "desc", 20);
+    expect(result.name).toBe("a".repeat(16));
+  });
+
+  test("truncates name when name exceeds terminal width minus padding", () => {
+    // cols=20, padding=4, so maxNameLength=16; name of length 17 should be truncated
+    const result = truncateDescription("a".repeat(17), "desc", 20);
+    expect(result.name.length).toBe(16);
+    expect(result.name.endsWith("...")).toBe(true);
+    expect(result.description).toBe("");
+  });
+
+  test("returns empty name for extremely narrow terminals", () => {
+    // cols=3, padding=4, maxNameLength=-1 which is < 3
+    const result = truncateDescription("agent", "desc", 3);
+    expect(result.name).toBe("");
+    expect(result.description).toBe("");
+  });
+
+  test("normalizes newlines in description", () => {
+    const result = truncateDescription("ag", "line1\nline2\nline3", 80);
+    expect(result.description).toBe("line1 line2 line3");
+  });
+});
+
 describe("collapseNewlines", () => {
   test("returns text unchanged when no newlines present", () => {
     expect(collapseNewlines("hello world")).toBe("hello world");
@@ -215,15 +265,15 @@ describe("collapseNewlines", () => {
   });
 
   test("truncates at double newline with ellipsis", () => {
-    expect(collapseNewlines("first paragraph\n\nsecond paragraph")).toBe("first paragraph…");
+    expect(collapseNewlines("first paragraph\n\nsecond paragraph")).toBe("first paragraph...");
   });
 
   test("truncates at double newline before replacing remaining single newlines", () => {
-    expect(collapseNewlines("line one\nline two\n\nline three\nline four")).toBe("line one line two…");
+    expect(collapseNewlines("line one\nline two\n\nline three\nline four")).toBe("line one line two...");
   });
 
   test("handles text starting with double newline", () => {
-    expect(collapseNewlines("\n\nafter")).toBe("…");
+    expect(collapseNewlines("\n\nafter")).toBe("...");
   });
 
   test("handles empty string", () => {
@@ -231,6 +281,6 @@ describe("collapseNewlines", () => {
   });
 
   test("handles triple+ newlines as double newline truncation", () => {
-    expect(collapseNewlines("before\n\n\nafter")).toBe("before…");
+    expect(collapseNewlines("before\n\n\nafter")).toBe("before...");
   });
 });

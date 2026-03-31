@@ -99,6 +99,15 @@ function GradientText({
   );
 }
 
+/** Minimum terminal width below which the entire header is hidden. */
+export const HEADER_MIN_WIDTH = 40;
+/** Minimum terminal height below which the entire header is hidden. */
+export const HEADER_MIN_HEIGHT = 15;
+/** Minimum terminal width required to display the block ASCII art logo. */
+export const HEADER_LOGO_MIN_WIDTH = 80;
+/** Minimum terminal height required to display the block ASCII art logo. */
+export const HEADER_LOGO_MIN_HEIGHT = 16;
+
 export function AtomicHeader({
   version = "0.1.0",
   model = "",
@@ -106,12 +115,20 @@ export function AtomicHeader({
   workingDir = "~/",
 }: AtomicHeaderProps): React.ReactNode {
   const { theme } = useTheme();
-  const { width: terminalWidth } = useTerminalDimensions();
+  const { width: terminalWidth, height: terminalHeight } =
+    useTerminalDimensions();
   const gradient = useMemo(
     () => buildAtomicGradient(theme.isDark),
     [theme.isDark],
   );
-  const showBlockLogo = terminalWidth >= 70;
+
+  if (terminalWidth < HEADER_MIN_WIDTH || terminalHeight < HEADER_MIN_HEIGHT) {
+    return null;
+  }
+
+  const showBlockLogo =
+    terminalWidth >= HEADER_LOGO_MIN_WIDTH &&
+    terminalHeight >= HEADER_LOGO_MIN_HEIGHT;
 
   return (
     <box

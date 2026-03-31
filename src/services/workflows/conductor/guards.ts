@@ -15,7 +15,6 @@ import type {
   ContextPressureLevel,
   ContextPressureSnapshot,
   ContextPressureConfig,
-  ContinuationRecord,
   AccumulatedContextPressure,
 } from "@/services/workflows/conductor/types.ts";
 import {
@@ -144,25 +143,7 @@ export function isContextPressureConfig(value: unknown): value is ContextPressur
   const obj = value as Record<string, unknown>;
   return (
     typeof obj.elevatedThreshold === "number" &&
-    typeof obj.criticalThreshold === "number" &&
-    typeof obj.maxContinuationsPerStage === "number" &&
-    typeof obj.enableContinuation === "boolean"
-  );
-}
-
-/** Check whether a value satisfies the `ContinuationRecord` shape. */
-export function isContinuationRecord(value: unknown): value is ContinuationRecord {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const obj = value as Record<string, unknown>;
-  return (
-    typeof obj.stageId === "string" &&
-    typeof obj.continuationIndex === "number" &&
-    isContextPressureSnapshot(obj.triggerSnapshot) &&
-    typeof obj.partialResponse === "string" &&
-    typeof obj.timestamp === "string"
+    typeof obj.criticalThreshold === "number"
   );
 }
 
@@ -176,8 +157,6 @@ export function isAccumulatedContextPressure(value: unknown): value is Accumulat
   return (
     typeof obj.totalInputTokens === "number" &&
     typeof obj.totalOutputTokens === "number" &&
-    typeof obj.totalContinuations === "number" &&
-    obj.stageSnapshots instanceof Map &&
-    Array.isArray(obj.continuations)
+    obj.stageSnapshots instanceof Map
   );
 }

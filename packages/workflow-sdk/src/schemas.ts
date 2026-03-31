@@ -92,23 +92,6 @@ export const ContextPressureSnapshotSchema = z.object({
 export type ContextPressureSnapshot = z.infer<typeof ContextPressureSnapshotSchema>;
 
 // ---------------------------------------------------------------------------
-// Continuation Records
-// ---------------------------------------------------------------------------
-
-/**
- * Record of a stage continuation triggered by context pressure.
- */
-export const ContinuationRecordSchema = z.object({
-  stageId: z.string(),
-  continuationIndex: z.number(),
-  triggerSnapshot: ContextPressureSnapshotSchema,
-  partialResponse: z.string(),
-  timestamp: z.string(),
-});
-
-export type ContinuationRecord = z.infer<typeof ContinuationRecordSchema>;
-
-// ---------------------------------------------------------------------------
 // Stage Output
 // ---------------------------------------------------------------------------
 
@@ -133,7 +116,6 @@ export const StageOutputSchema = z.object({
   status: StageOutputStatusSchema,
   error: z.string().optional(),
   contextUsage: ContextPressureSnapshotSchema.optional(),
-  continuations: z.array(ContinuationRecordSchema).readonly().optional(),
   originalByteLength: z.number().optional(),
 });
 

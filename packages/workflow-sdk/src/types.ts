@@ -41,7 +41,6 @@ export type {
   SignalData,
   ContextPressureLevel,
   ContextPressureSnapshot,
-  ContinuationRecord,
   AgentType,
   SessionConfig,
   AskUserQuestionConfig,
@@ -51,7 +50,6 @@ import type {
   SignalData,
   StageOutput,
   ContextPressureSnapshot,
-  ContinuationRecord,
   AgentType,
   SessionConfig,
   AskUserQuestionConfig,
@@ -209,15 +207,13 @@ export interface ExecutionContext<TState extends BaseState = BaseState> {
 // ---------------------------------------------------------------------------
 
 // StageOutputStatus, ContextPressureLevel, ContextPressureSnapshot,
-// ContinuationRecord, and StageOutput are defined as Zod schemas in
+// and StageOutput are defined as Zod schemas in
 // ./schemas.ts and re-exported above. See schemas.ts for field docs.
 
 export interface AccumulatedContextPressure {
   readonly totalInputTokens: number;
   readonly totalOutputTokens: number;
-  readonly totalContinuations: number;
   readonly stageSnapshots: ReadonlyMap<string, ContextPressureSnapshot>;
-  readonly continuations: readonly ContinuationRecord[];
 }
 
 // TaskItem is defined as a Zod schema in ./schemas.ts and re-exported above.

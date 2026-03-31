@@ -17,6 +17,9 @@
  */
 
 import { describe, expect, test, mock, beforeEach } from "bun:test";
+import { mkdtempSync, rmSync } from "fs";
+import { join } from "path";
+import { tmpdir } from "os";
 import type { StageDefinition, StageContext } from "@/services/workflows/conductor/types.ts";
 import type { WorkflowDefinition } from "@/services/workflows/types/index.ts";
 import type { CommandContext } from "@/types/command.ts";
@@ -31,8 +34,12 @@ import { EventBus } from "@/services/events/event-bus.ts";
 // ---------------------------------------------------------------------------
 
 const MOCK_SESSION_ID = "task-flow-session-1";
-const MOCK_SESSION_DIR = "/tmp/task-flow-session";
+const MOCK_SESSION_DIR = mkdtempSync(join(tmpdir(), "conductor-task-event-flow-test-"));
 const MOCK_RUN_ID = 7;
+
+process.on("exit", () => {
+  try { rmSync(MOCK_SESSION_DIR, { recursive: true, force: true }); } catch {}
+});
 
 mock.module("@/services/workflows/runtime/executor/session-runtime.ts", () => ({
   initializeWorkflowExecutionSession: mock(() => ({

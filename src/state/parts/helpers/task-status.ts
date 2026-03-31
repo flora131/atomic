@@ -391,6 +391,11 @@ export function mergeBlockedBy<T extends NormalizedTaskItem>(
 /**
  * Normalize a TodoWrite payload, restore missing dependency metadata, and
  * apply a stable dependency-aware order for rendering.
+ *
+ * NOTE (2026-03-30): Only used by the TodoWrite code path in
+ * `use-tool-events.ts`. The Ralph workflow now uses the `task_list` tool,
+ * which handles normalization and persistence internally. This function is
+ * retained for non-Ralph contexts that still use TodoWrite.
  */
 export function reconcileTodoWriteItems(
   incomingTodos: unknown,

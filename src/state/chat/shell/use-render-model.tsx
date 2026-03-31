@@ -24,7 +24,7 @@ interface UseChatRenderModelArgs {
   streamingMeta: StreamingMeta | null;
   tasksExpanded: boolean;
   todoItems: NormalizedTodoItem[];
-  workflowSessionDir: string | null;
+  workflowSessionId: string | null;
   workflowState: WorkflowChatState;
   backgroundAgentMessageId: string | null;
   lastStreamedMessageId: string | null;
@@ -50,7 +50,7 @@ export function useChatRenderModel({
   streamingMeta,
   tasksExpanded,
   todoItems,
-  workflowSessionDir,
+  workflowSessionId,
   workflowState,
 }: UseChatRenderModelArgs): UseChatRenderModelResult {
   const renderMessages = useMemo(() => {
@@ -91,7 +91,7 @@ export function useChatRenderModel({
           const showLive = shouldShowMessageLoadingIndicator(msg, {
             liveTodoItems: liveTaskItems,
             activeBackgroundAgentCount: scopedBgAgentCount,
-            keepAliveForWorkflow: workflowState.workflowActive && isLast,
+            keepAliveForWorkflow: workflowState.workflowActive && isLast && !msg.wasInterrupted,
           });
           const scopedStreamingMeta = showLive
             ? (streamingMessageId
@@ -106,12 +106,12 @@ export function useChatRenderModel({
               syntaxStyle={markdownSyntaxStyle}
               hideLoading={activeQuestion !== null}
               activeBackgroundAgentCount={scopedBgAgentCount}
-              todoItems={msg.streaming ? todoItems : undefined}
+              todoItems={(msg.streaming || isLast) ? todoItems : undefined}
               elapsedMs={showLive ? streamingElapsedMs : undefined}
               streamingMeta={scopedStreamingMeta}
               collapsed={false}
               tasksExpanded={tasksExpanded}
-              workflowSessionDir={workflowSessionDir}
+              workflowSessionId={workflowSessionId}
               workflowActive={workflowState.workflowActive}
               showTodoPanel={showTodoPanel}
               onAgentDoneRendered={handleAgentDoneRendered}
@@ -132,7 +132,7 @@ export function useChatRenderModel({
     streamingMeta,
     tasksExpanded,
     todoItems,
-    workflowSessionDir,
+    workflowSessionId,
     workflowState.workflowActive,
   ]);
 

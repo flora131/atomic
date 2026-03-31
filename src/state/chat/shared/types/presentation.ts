@@ -16,7 +16,7 @@ export interface MessageBubbleProps {
   hideLoading?: boolean;
   todoItems?: TaskItem[];
   tasksExpanded?: boolean;
-  workflowSessionDir?: string | null;
+  workflowSessionId?: string | null;
   workflowActive?: boolean;
   showTodoPanel?: boolean;
   elapsedMs?: number;

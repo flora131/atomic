@@ -7,11 +7,12 @@
  * 2) global `~/.atomic/settings.json` (default fallback)
  */
 
-import { readFile, writeFile, mkdir } from "fs/promises";
+import { readFile, writeFile } from "fs/promises";
 import { join, dirname } from "path";
 import { homedir } from "os";
 import { type SourceControlType } from "@/services/config/index.ts";
 import { SETTINGS_SCHEMA_URL } from "@/services/config/settings-schema.ts";
+import { ensureDir } from "@/services/system/copy.ts";
 
 const SETTINGS_DIR = ".atomic";
 const SETTINGS_FILENAME = "settings.json";
@@ -110,7 +111,7 @@ export async function saveAtomicConfig(
     $schema: SETTINGS_SCHEMA_URL,
   };
 
-  await mkdir(dirname(localPath), { recursive: true });
+  await ensureDir(dirname(localPath));
   await writeFile(localPath, JSON.stringify(nextSettings, null, 2) + "\n", "utf-8");
 }
 

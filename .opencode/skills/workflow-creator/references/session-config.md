@@ -10,7 +10,7 @@ By default, each stage inherits the parent session's configuration — model, re
   agent: "planner",
   description: "PLANNER",
   prompt: (ctx) => `Plan: ${ctx.userPrompt}`,
-  outputMapper: (response) => ({ tasks: parseTasks(response) }),
+  outputMapper: () => ({}),
   // Override the model per agent type for this stage only
   sessionConfig: {
     model: { claude: "claude-sonnet-4-5-20250514", copilot: "claude-sonnet-4" },

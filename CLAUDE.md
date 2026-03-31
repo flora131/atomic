@@ -125,6 +125,35 @@ Note: There are three main coding agents used in this repository: OpenCode, Clau
         - Windows: `%HOMEPATH%\\.copilot`
     - local: `.github` in the project directory
 
+## Releasing
+
+### Branch Naming Convention
+
+- **Release branches**: `release/v<major>.<minor>.<patch>` (e.g. `release/v0.4.47`)
+- **Prerelease branches**: `prerelease/v<major>.<minor>.<patch>-<prerelease>` (e.g. `prerelease/v0.4.47-0`)
+
+### Bumping Versions
+
+Use the `bump-version.ts` script to update the version across all tracked files (`package.json`, `packages/workflow-sdk/package.json`, and all devcontainer feature manifests):
+
+```sh
+# Explicit version
+bun run src/scripts/bump-version.ts 0.4.47
+bun run src/scripts/bump-version.ts 0.4.47-0
+
+# Auto-detect version from current branch name
+bun run src/scripts/bump-version.ts --from-branch
+```
+
+The `--from-branch` flag extracts the version from the current branch name, so check out the release or prerelease branch first.
+
+### Workflow
+
+1. Create a branch following the naming convention above.
+2. Run the bump-version script (prefer `--from-branch`).
+3. Commit with the message `chore(release): bump version to v<version>`.
+4. Open a PR to `main`.
+
 ## Tips
 
 1. Note: for the `.github` config for GitHub Copilot CLI, ignore the `.github/workflows` and `.github/dependabot.yml` files as they are NOT for Copilot CLI.

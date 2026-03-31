@@ -1,34 +1,6 @@
-import type { BaseState, CompiledGraph, GraphConfig, NodeDefinition } from "@/services/workflows/graph/types.ts";
+import type { BaseState, CompiledGraph, NodeDefinition } from "@/services/workflows/graph/types.ts";
 import { SubagentTypeRegistry } from "@/services/workflows/graph/subagent-registry.ts";
 import { discoverAgentInfos } from "@/services/agent-discovery/index.ts";
-import type { WorkflowGraphConfig } from "@/services/workflows/types/index.ts";
-
-export function compileGraphConfig<TState extends BaseState>(
-  graphConfig: WorkflowGraphConfig<TState>,
-): CompiledGraph<TState> {
-  const nodeMap = new Map<string, NodeDefinition<TState>>();
-  for (const node of graphConfig.nodes) {
-    nodeMap.set(node.id, node);
-  }
-
-  const nodesWithOutgoing = new Set(graphConfig.edges.map((e) => e.from));
-  const endNodes = new Set<string>();
-  for (const nodeId of nodeMap.keys()) {
-    if (!nodesWithOutgoing.has(nodeId)) {
-      endNodes.add(nodeId);
-    }
-  }
-
-  const config: GraphConfig<TState> = {};
-
-  return {
-    nodes: nodeMap,
-    edges: [...graphConfig.edges],
-    startNode: graphConfig.startNode,
-    endNodes,
-    config,
-  };
-}
 
 export function inferHasSubagentNodes<TState extends BaseState>(
   compiled: CompiledGraph<TState>,

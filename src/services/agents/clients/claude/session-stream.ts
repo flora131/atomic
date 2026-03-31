@@ -123,13 +123,13 @@ export function streamClaudeSessionMessages(args: {
 
                         if (event.type === "content_block_start") {
                             const blockIndex = getClaudeContentBlockIndex(
-                                event as Record<string, unknown>,
+                                event as unknown as Record<string, unknown>,
                             );
                             const blockType = (
-                                event as Record<string, unknown>
+                                event as unknown as Record<string, unknown>
                             ).content_block
                                 ? ((
-                                      event as Record<string, unknown>
+                                      event as unknown as Record<string, unknown>
                                   ).content_block as Record<string, unknown>).type
                                 : undefined;
                             currentBlockIsThinking = blockType === "thinking";
@@ -148,7 +148,7 @@ export function streamClaudeSessionMessages(args: {
                         ) {
                             if (activeThinkingSourceKey === null) {
                                 const blockIndex = getClaudeContentBlockIndex(
-                                    event as Record<string, unknown>,
+                                    event as unknown as Record<string, unknown>,
                                 );
                                 if (blockIndex !== null) {
                                     activeThinkingSourceKey = String(blockIndex);
@@ -195,7 +195,7 @@ export function streamClaudeSessionMessages(args: {
 
                         if (event.type === "message_delta") {
                             const usage = (
-                                event as Record<string, unknown>
+                                event as unknown as Record<string, unknown>
                             ).usage as { output_tokens?: number } | undefined;
                             if (usage?.output_tokens) {
                                 outputTokens += usage.output_tokens;
@@ -231,7 +231,7 @@ export function streamClaudeSessionMessages(args: {
                                     hasYieldedDeltas = true;
                                 }
                                 const blockIndex = getClaudeContentBlockIndex(
-                                    event as Record<string, unknown>,
+                                    event as unknown as Record<string, unknown>,
                                 );
                                 const resolvedThinkingSourceKey: string | null =
                                     blockIndex !== null
@@ -250,7 +250,7 @@ export function streamClaudeSessionMessages(args: {
                                     yield {
                                         type: "thinking",
                                         content: (
-                                            event.delta as Record<string, unknown>
+                                            event.delta as unknown as Record<string, unknown>
                                         ).thinking as string,
                                         role: "assistant",
                                         metadata: {
@@ -269,7 +269,7 @@ export function streamClaudeSessionMessages(args: {
                                     "reasoning.delta",
                                     {
                                         delta: (
-                                            event.delta as Record<string, unknown>
+                                            event.delta as unknown as Record<string, unknown>
                                         ).thinking as string,
                                         reasoningId:
                                             resolvedThinkingSourceKey ??

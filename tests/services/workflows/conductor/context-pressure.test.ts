@@ -3,16 +3,11 @@ import {
   computePressureLevel,
   createSnapshot,
   createDefaultContextPressureConfig,
-  shouldContinueSession,
-  buildContinuationPrompt,
-  createContinuationRecord,
   createEmptyAccumulatedPressure,
   accumulateStageSnapshot,
-  accumulateContinuation,
   takeContextSnapshot,
   DEFAULT_ELEVATED_THRESHOLD,
   DEFAULT_CRITICAL_THRESHOLD,
-  DEFAULT_MAX_CONTINUATIONS_PER_STAGE,
 } from "@/services/workflows/conductor/context-pressure.ts";
 import type {
   ContextPressureConfig,
@@ -89,29 +84,22 @@ describe("context-pressure", () => {
 
       expect(config.elevatedThreshold).toBe(DEFAULT_ELEVATED_THRESHOLD);
       expect(config.criticalThreshold).toBe(DEFAULT_CRITICAL_THRESHOLD);
-      expect(config.maxContinuationsPerStage).toBe(DEFAULT_MAX_CONTINUATIONS_PER_STAGE);
-      expect(config.enableContinuation).toBe(true);
     });
 
-    test("defaults are 40/60/3/true", () => {
+    test("defaults are 40/60", () => {
       const config = createDefaultContextPressureConfig();
 
       expect(config.elevatedThreshold).toBe(40);
       expect(config.criticalThreshold).toBe(60);
-      expect(config.maxContinuationsPerStage).toBe(3);
-      expect(config.enableContinuation).toBe(true);
     });
 
     test("accepts partial overrides", () => {
       const config = createDefaultContextPressureConfig({
         criticalThreshold: 80,
-        enableContinuation: false,
       });
 
       expect(config.elevatedThreshold).toBe(40);
       expect(config.criticalThreshold).toBe(80);
-      expect(config.maxContinuationsPerStage).toBe(3);
-      expect(config.enableContinuation).toBe(false);
     });
   });
 
@@ -219,134 +207,6 @@ describe("context-pressure", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Continuation Decision
-  // -------------------------------------------------------------------------
-
-  describe("shouldContinueSession", () => {
-    test("returns true when pressure is critical and within continuation limit", () => {
-      const snapshot = makeSnapshot({ level: "critical", usagePercentage: 70 });
-      const config = makeConfig();
-
-      expect(shouldContinueSession(snapshot, config, 0)).toBe(true);
-      expect(shouldContinueSession(snapshot, config, 1)).toBe(true);
-      expect(shouldContinueSession(snapshot, config, 2)).toBe(true);
-    });
-
-    test("returns false when continuation limit is reached", () => {
-      const snapshot = makeSnapshot({ level: "critical", usagePercentage: 70 });
-      const config = makeConfig({ maxContinuationsPerStage: 3 });
-
-      expect(shouldContinueSession(snapshot, config, 3)).toBe(false);
-      expect(shouldContinueSession(snapshot, config, 5)).toBe(false);
-    });
-
-    test("returns false when pressure is not critical", () => {
-      const config = makeConfig();
-
-      expect(shouldContinueSession(
-        makeSnapshot({ level: "normal" }),
-        config,
-        0,
-      )).toBe(false);
-
-      expect(shouldContinueSession(
-        makeSnapshot({ level: "elevated" }),
-        config,
-        0,
-      )).toBe(false);
-    });
-
-    test("returns false when continuation is disabled", () => {
-      const snapshot = makeSnapshot({ level: "critical", usagePercentage: 70 });
-      const config = makeConfig({ enableContinuation: false });
-
-      expect(shouldContinueSession(snapshot, config, 0)).toBe(false);
-    });
-
-    test("returns false when max continuations is 0", () => {
-      const snapshot = makeSnapshot({ level: "critical", usagePercentage: 70 });
-      const config = makeConfig({ maxContinuationsPerStage: 0 });
-
-      expect(shouldContinueSession(snapshot, config, 0)).toBe(false);
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // Continuation Prompt Building
-  // -------------------------------------------------------------------------
-
-  describe("buildContinuationPrompt", () => {
-    test("includes original prompt", () => {
-      const prompt = buildContinuationPrompt("Build auth module", "partial response", 0);
-
-      expect(prompt).toContain("Build auth module");
-    });
-
-    test("includes partial response", () => {
-      const prompt = buildContinuationPrompt("task", "Created file src/auth.ts", 0);
-
-      expect(prompt).toContain("Created file src/auth.ts");
-    });
-
-    test("includes continuation index (1-based)", () => {
-      expect(buildContinuationPrompt("t", "r", 0)).toContain("continuation #1");
-      expect(buildContinuationPrompt("t", "r", 2)).toContain("continuation #3");
-    });
-
-    test("includes instructions to continue without repeating", () => {
-      const prompt = buildContinuationPrompt("task", "partial", 0);
-
-      expect(prompt).toContain("Continue the task");
-      expect(prompt).toContain("Do not repeat work");
-    });
-
-    test("truncates long partial responses to preserve recent work", () => {
-      const longResponse = "X".repeat(20000);
-      const prompt = buildContinuationPrompt("task", longResponse, 0);
-
-      // The prompt should be shorter than original + overhead
-      expect(prompt.length).toBeLessThan(longResponse.length);
-      expect(prompt).toContain("truncated");
-    });
-
-    test("does not truncate short responses", () => {
-      const shortResponse = "Created file src/auth.ts\nAdded login function";
-      const prompt = buildContinuationPrompt("task", shortResponse, 0);
-
-      expect(prompt).not.toContain("truncated");
-      expect(prompt).toContain(shortResponse);
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // Continuation Record Factory
-  // -------------------------------------------------------------------------
-
-  describe("createContinuationRecord", () => {
-    test("creates a record with all fields", () => {
-      const snapshot = makeSnapshot({ level: "critical" });
-      const record = createContinuationRecord("orchestrator", 0, snapshot, "partial work");
-
-      expect(record.stageId).toBe("orchestrator");
-      expect(record.continuationIndex).toBe(0);
-      expect(record.triggerSnapshot).toBe(snapshot);
-      expect(record.partialResponse).toBe("partial work");
-      expect(typeof record.timestamp).toBe("string");
-    });
-
-    test("preserves different continuation indices", () => {
-      const snapshot = makeSnapshot();
-      const r0 = createContinuationRecord("s", 0, snapshot, "a");
-      const r1 = createContinuationRecord("s", 1, snapshot, "b");
-      const r2 = createContinuationRecord("s", 2, snapshot, "c");
-
-      expect(r0.continuationIndex).toBe(0);
-      expect(r1.continuationIndex).toBe(1);
-      expect(r2.continuationIndex).toBe(2);
-    });
-  });
-
-  // -------------------------------------------------------------------------
   // Accumulated Pressure
   // -------------------------------------------------------------------------
 
@@ -356,9 +216,7 @@ describe("context-pressure", () => {
 
       expect(empty.totalInputTokens).toBe(0);
       expect(empty.totalOutputTokens).toBe(0);
-      expect(empty.totalContinuations).toBe(0);
       expect(empty.stageSnapshots.size).toBe(0);
-      expect(empty.continuations).toHaveLength(0);
     });
 
     test("accumulateStageSnapshot adds tokens and stores snapshot", () => {
@@ -390,51 +248,5 @@ describe("context-pressure", () => {
       expect(acc.stageSnapshots.size).toBe(3);
     });
 
-    test("accumulateContinuation increments count and appends record", () => {
-      const empty = createEmptyAccumulatedPressure();
-      const snapshot = makeSnapshot({ level: "critical" });
-      const record = createContinuationRecord("orchestrator", 0, snapshot, "partial");
-
-      const result = accumulateContinuation(empty, record);
-
-      expect(result.totalContinuations).toBe(1);
-      expect(result.continuations).toHaveLength(1);
-      expect(result.continuations[0]).toBe(record);
-      // Original is not mutated
-      expect(empty.totalContinuations).toBe(0);
-    });
-
-    test("accumulateContinuation preserves existing state", () => {
-      let acc = createEmptyAccumulatedPressure();
-      acc = accumulateStageSnapshot(acc, "planner",
-        makeSnapshot({ inputTokens: 5000, outputTokens: 3000 }));
-
-      const record = createContinuationRecord("orchestrator", 0,
-        makeSnapshot({ level: "critical" }), "partial");
-      acc = accumulateContinuation(acc, record);
-
-      expect(acc.totalInputTokens).toBe(5000);
-      expect(acc.totalOutputTokens).toBe(3000);
-      expect(acc.totalContinuations).toBe(1);
-      expect(acc.stageSnapshots.size).toBe(1);
-    });
-
-    test("multiple continuations accumulate correctly", () => {
-      let acc = createEmptyAccumulatedPressure();
-      const snapshot = makeSnapshot({ level: "critical" });
-
-      acc = accumulateContinuation(acc,
-        createContinuationRecord("orch", 0, snapshot, "p1"));
-      acc = accumulateContinuation(acc,
-        createContinuationRecord("orch", 1, snapshot, "p2"));
-      acc = accumulateContinuation(acc,
-        createContinuationRecord("orch", 2, snapshot, "p3"));
-
-      expect(acc.totalContinuations).toBe(3);
-      expect(acc.continuations).toHaveLength(3);
-      expect(acc.continuations[0]!.continuationIndex).toBe(0);
-      expect(acc.continuations[1]!.continuationIndex).toBe(1);
-      expect(acc.continuations[2]!.continuationIndex).toBe(2);
-    });
   });
 });

@@ -13,7 +13,6 @@ import {
   TaskItemSchema,
   ContextPressureLevelSchema,
   ContextPressureSnapshotSchema,
-  ContinuationRecordSchema,
   StageOutputStatusSchema,
   StageOutputSchema,
   SignalTypeSchema,
@@ -184,42 +183,6 @@ describe("ContextPressureSnapshotSchema", () => {
     expect(
       ContextPressureSnapshotSchema.safeParse({ ...validSnapshot, level: "high" }).success,
     ).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// ContinuationRecordSchema
-// ---------------------------------------------------------------------------
-
-describe("ContinuationRecordSchema", () => {
-  const validSnapshot = {
-    inputTokens: 1000,
-    outputTokens: 500,
-    maxTokens: 4096,
-    usagePercentage: 0.85,
-    level: "critical" as const,
-    timestamp: "2026-03-27T00:00:00Z",
-  };
-
-  test("validates a complete continuation record", () => {
-    const result = ContinuationRecordSchema.safeParse({
-      stageId: "orchestrator",
-      continuationIndex: 1,
-      triggerSnapshot: validSnapshot,
-      partialResponse: "Partial output before continuation...",
-      timestamp: "2026-03-27T00:01:00Z",
-    });
-    expect(result.success).toBe(true);
-  });
-
-  test("rejects missing triggerSnapshot", () => {
-    const result = ContinuationRecordSchema.safeParse({
-      stageId: "orchestrator",
-      continuationIndex: 0,
-      partialResponse: "partial",
-      timestamp: "2026-03-27T00:01:00Z",
-    });
-    expect(result.success).toBe(false);
   });
 });
 

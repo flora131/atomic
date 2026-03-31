@@ -503,7 +503,6 @@ import {
   isContextPressureLevel,
   isContextPressureSnapshot,
   isContextPressureConfig,
-  isContinuationRecord,
   isAccumulatedContextPressure,
   CONTEXT_PRESSURE_LEVELS,
 } from "@/services/workflows/conductor/index.ts";
@@ -580,16 +579,10 @@ describe("isContextPressureConfig", () => {
   const validConfig = {
     elevatedThreshold: 45,
     criticalThreshold: 60,
-    maxContinuationsPerStage: 3,
-    enableContinuation: true,
   };
 
   test("accepts a valid config", () => {
     expect(isContextPressureConfig(validConfig)).toBe(true);
-  });
-
-  test("accepts config with continuation disabled", () => {
-    expect(isContextPressureConfig({ ...validConfig, enableContinuation: false })).toBe(true);
   });
 
   test("rejects missing fields", () => {
@@ -598,7 +591,6 @@ describe("isContextPressureConfig", () => {
   });
 
   test("rejects wrong types", () => {
-    expect(isContextPressureConfig({ ...validConfig, enableContinuation: "yes" })).toBe(false);
     expect(isContextPressureConfig({ ...validConfig, criticalThreshold: "high" })).toBe(false);
   });
 
@@ -608,58 +600,18 @@ describe("isContextPressureConfig", () => {
   });
 });
 
-describe("isContinuationRecord", () => {
-  const validRecord = {
-    stageId: "orchestrator",
-    continuationIndex: 0,
-    triggerSnapshot: {
-      inputTokens: 5000,
-      outputTokens: 3000,
-      maxTokens: 100000,
-      usagePercentage: 70,
-      level: "critical" as const,
-      timestamp: "2026-03-20T00:00:00.000Z",
-    },
-    partialResponse: "partial work done",
-    timestamp: "2026-03-20T00:00:01.000Z",
-  };
-
-  test("accepts a valid continuation record", () => {
-    expect(isContinuationRecord(validRecord)).toBe(true);
-  });
-
-  test("rejects missing fields", () => {
-    expect(isContinuationRecord({})).toBe(false);
-    expect(isContinuationRecord({ stageId: "x" })).toBe(false);
-  });
-
-  test("rejects invalid triggerSnapshot", () => {
-    expect(isContinuationRecord({
-      ...validRecord,
-      triggerSnapshot: { inputTokens: 0 },
-    })).toBe(false);
-  });
-
-  test("rejects non-objects", () => {
-    expect(isContinuationRecord(null)).toBe(false);
-    expect(isContinuationRecord(42)).toBe(false);
-  });
-});
-
 describe("isAccumulatedContextPressure", () => {
   const validAccumulated = {
     totalInputTokens: 5000,
     totalOutputTokens: 3000,
-    totalContinuations: 1,
     stageSnapshots: new Map(),
-    continuations: [],
   };
 
   test("accepts a valid accumulated pressure", () => {
     expect(isAccumulatedContextPressure(validAccumulated)).toBe(true);
   });
 
-  test("accepts with populated snapshots and continuations", () => {
+  test("accepts with populated snapshots", () => {
     const withData = {
       ...validAccumulated,
       stageSnapshots: new Map([["planner", {
@@ -670,13 +622,6 @@ describe("isAccumulatedContextPressure", () => {
         level: "normal" as const,
         timestamp: "2026-03-20T00:00:00.000Z",
       }]]),
-      continuations: [{
-        stageId: "x",
-        continuationIndex: 0,
-        triggerSnapshot: {} as never,
-        partialResponse: "",
-        timestamp: "",
-      }],
     };
     expect(isAccumulatedContextPressure(withData)).toBe(true);
   });
@@ -690,13 +635,6 @@ describe("isAccumulatedContextPressure", () => {
     expect(isAccumulatedContextPressure({
       ...validAccumulated,
       stageSnapshots: {},
-    })).toBe(false);
-  });
-
-  test("rejects when continuations is not an array", () => {
-    expect(isAccumulatedContextPressure({
-      ...validAccumulated,
-      continuations: "not-array",
     })).toBe(false);
   });
 

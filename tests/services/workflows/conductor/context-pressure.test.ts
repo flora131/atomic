@@ -93,10 +93,10 @@ describe("context-pressure", () => {
       expect(config.enableContinuation).toBe(true);
     });
 
-    test("defaults are 45/60/3/true", () => {
+    test("defaults are 40/60/3/true", () => {
       const config = createDefaultContextPressureConfig();
 
-      expect(config.elevatedThreshold).toBe(45);
+      expect(config.elevatedThreshold).toBe(40);
       expect(config.criticalThreshold).toBe(60);
       expect(config.maxContinuationsPerStage).toBe(3);
       expect(config.enableContinuation).toBe(true);
@@ -108,7 +108,7 @@ describe("context-pressure", () => {
         enableContinuation: false,
       });
 
-      expect(config.elevatedThreshold).toBe(45);
+      expect(config.elevatedThreshold).toBe(40);
       expect(config.criticalThreshold).toBe(80);
       expect(config.maxContinuationsPerStage).toBe(3);
       expect(config.enableContinuation).toBe(false);
@@ -125,11 +125,11 @@ describe("context-pressure", () => {
     test("returns 'normal' when usage is below elevated threshold", () => {
       expect(computePressureLevel(0, config)).toBe("normal");
       expect(computePressureLevel(10, config)).toBe("normal");
-      expect(computePressureLevel(44.9, config)).toBe("normal");
+      expect(computePressureLevel(39.9, config)).toBe("normal");
     });
 
     test("returns 'elevated' when usage is at or above elevated but below critical", () => {
-      expect(computePressureLevel(45, config)).toBe("elevated");
+      expect(computePressureLevel(40, config)).toBe("elevated");
       expect(computePressureLevel(50, config)).toBe("elevated");
       expect(computePressureLevel(59.9, config)).toBe("elevated");
     });

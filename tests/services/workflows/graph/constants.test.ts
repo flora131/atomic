@@ -17,8 +17,8 @@ describe("BACKGROUND_COMPACTION_THRESHOLD", () => {
     expect(BACKGROUND_COMPACTION_THRESHOLD).toBeLessThan(1);
   });
 
-  test("equals 0.45", () => {
-    expect(BACKGROUND_COMPACTION_THRESHOLD).toBe(0.45);
+  test("equals 0.4", () => {
+    expect(BACKGROUND_COMPACTION_THRESHOLD).toBe(0.4);
   });
 });
 
@@ -84,7 +84,7 @@ describe("DEFAULT_GRAPH_CONFIG", () => {
     expect(DEFAULT_GRAPH_CONFIG.contextWindowThreshold).toBe(
       BACKGROUND_COMPACTION_THRESHOLD * 100,
     );
-    expect(DEFAULT_GRAPH_CONFIG.contextWindowThreshold).toBe(45);
+    expect(DEFAULT_GRAPH_CONFIG.contextWindowThreshold).toBe(40);
   });
 
   test("has autoCheckpoint set to true", () => {

@@ -10,8 +10,10 @@ import {
   type Session,
   type SessionConfig,
 } from "@/services/agents/types.ts";
+import { computeCompactionThreshold } from "@/services/workflows/graph/types.ts";
 import {
   resolveCreateSessionModelConfig,
+  resolveModelContextWindow,
   resolveModelSwitchReasoningEffort,
 } from "@/services/agents/clients/copilot/models.ts";
 import type {
@@ -63,14 +65,19 @@ export async function createCopilotSession(args: {
     throw new Error("Failed to resolve context window size from Copilot SDK listModels()");
   }
 
+  const baseConfig = args.buildSdkSessionConfigBase(args.config, {
+    sessionIdForUserInput: tentativeSessionId,
+    model: modelConfig.resolvedModel,
+    reasoningEffort: modelConfig.sanitizedReasoningEffort,
+    artifacts,
+  });
   const sdkConfig: SdkSessionConfig = {
     sessionId: args.config.sessionId,
-    ...args.buildSdkSessionConfigBase(args.config, {
-      sessionIdForUserInput: tentativeSessionId,
-      model: modelConfig.resolvedModel,
-      reasoningEffort: modelConfig.sanitizedReasoningEffort,
-      artifacts,
-    }),
+    ...baseConfig,
+    infiniteSessions: {
+      ...baseConfig.infiniteSessions,
+      backgroundCompactionThreshold: computeCompactionThreshold(modelConfig.contextWindow),
+    },
   };
 
   const sdkSession = await args.sdkClient.createSession(sdkConfig);
@@ -180,12 +187,20 @@ export async function setCopilotActiveSessionModel(args: {
     throw new Error("Model ID cannot be empty.");
   }
 
-  const sanitizedReasoningEffort = await resolveModelSwitchReasoningEffort({
-    resolvedModel,
-    requestedReasoningEffort: args.options?.reasoningEffort,
-    listModelsFresh: async () =>
-      await args.listSdkModelsFresh() as CopilotSdkModelRecord[],
-  });
+  const listModelsFresh = async () =>
+    await args.listSdkModelsFresh() as CopilotSdkModelRecord[];
+
+  const [sanitizedReasoningEffort, newModelContextWindow] = await Promise.all([
+    resolveModelSwitchReasoningEffort({
+      resolvedModel,
+      requestedReasoningEffort: args.options?.reasoningEffort,
+      listModelsFresh,
+    }),
+    resolveModelContextWindow({
+      resolvedModel,
+      listModelsFresh,
+    }),
+  ]);
 
   const projectRoot = args.clientCwd ?? process.cwd();
   const artifacts = await args.loadCopilotSessionArtifacts(projectRoot);
@@ -200,12 +215,19 @@ export async function setCopilotActiveSessionModel(args: {
     delete nextConfig.reasoningEffort;
   }
 
-  const resumeConfig: SdkResumeSessionConfig = args.buildSdkSessionConfigBase(nextConfig, {
+  const baseResumeConfig: SdkResumeSessionConfig = args.buildSdkSessionConfigBase(nextConfig, {
     sessionIdForUserInput: activeState.sessionId,
     model: resolvedModel,
     reasoningEffort: sanitizedReasoningEffort as SdkSessionConfig["reasoningEffort"] | undefined,
     artifacts,
   });
+  const resumeConfig: SdkResumeSessionConfig = {
+    ...baseResumeConfig,
+    infiniteSessions: {
+      ...baseResumeConfig.infiniteSessions,
+      backgroundCompactionThreshold: computeCompactionThreshold(newModelContextWindow),
+    },
+  };
 
   const resumedSession = await args.sdkClient.resumeSession(activeState.sessionId, resumeConfig);
 

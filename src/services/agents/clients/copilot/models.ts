@@ -155,6 +155,21 @@ export async function resolveCreateSessionModelConfig(args: {
   };
 }
 
+export async function resolveModelContextWindow(args: {
+  resolvedModel: string;
+  listModelsFresh: () => Promise<CopilotSdkModelRecord[]>;
+}): Promise<number> {
+  const models = await args.listModelsFresh();
+  const matched = models.find((model) => model.id === args.resolvedModel);
+  const contextWindow = getModelContextWindow(matched);
+  if (contextWindow === undefined) {
+    throw new Error(
+      `Failed to resolve context window for model "${args.resolvedModel}"`,
+    );
+  }
+  return contextWindow;
+}
+
 export async function resolveModelSwitchReasoningEffort(args: {
   resolvedModel: string;
   requestedReasoningEffort?: string;

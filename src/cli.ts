@@ -11,6 +11,8 @@
  *   atomic config set <key> <value> Set configuration value
  *   atomic workflow verify          Verify all workflows
  *   atomic workflow verify <path>   Verify a specific workflow file
+ *   atomic list agents              List discovered agent definitions
+ *   atomic ls agents                Alias for list agents
  *   atomic update                   Self-update to latest version
  *   atomic uninstall                Remove atomic installation
  *   atomic --version                Show version
@@ -213,6 +215,20 @@ Slash Commands (in workflow mode):
                 dryRun: localOpts.dryRun,
                 keepConfig: localOpts.keepConfig,
             });
+        });
+
+    // Add list command for inspecting project resources
+    const listCmd = program
+        .command("list")
+        .alias("ls")
+        .description("List project resources (agents, workflows)");
+
+    listCmd
+        .command("agents")
+        .description("List all discovered agent definitions (project + global)")
+        .action(async () => {
+            const { listAgentsCommand } = await import("@/commands/cli/list.ts");
+            await listAgentsCommand();
         });
 
     // Add workflow command for verification and management

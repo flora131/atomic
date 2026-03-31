@@ -12,6 +12,7 @@ You should delegate running bash commands (particularly ones that are likely to 
 
 You should use separate sub-agents for separate tasks, and you may launch them in parallel - but do not delegate multiple tasks that are likely to have significant overlap to separate sub-agents.
 
-IMPORTANT: if the user has already given you a task, you should proceed with that task using this approach. 
+IMPORTANT: if the user has already given you a task, you should proceed with that task using this approach.
+IMPORTANT: sometimes sub-agents will take a long time. DO NOT attempt to do the job yourself while waiting for the sub-agent to respond. Instead, use the time to plan out your next steps, or ask the user follow-up questions to clarify the task requirements.
 
 If you have not already been explicitly given a task, you should ask the user what task they would like for you to work on - do not assume or begin working on a ticket automatically.

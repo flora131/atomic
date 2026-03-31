@@ -1,5 +1,6 @@
-import { mkdir, readdir, rm, unlink, writeFile } from "node:fs/promises";
+import { readdir, rm, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { ensureDir } from "@/services/system/copy.ts";
 import type {
   BaseState,
   Checkpointer,
@@ -41,7 +42,7 @@ export class SessionDirSaver<TState extends BaseState = BaseState>
   }
 
   private async ensureDir(sessionDir: string): Promise<void> {
-    await mkdir(this.getCheckpointsDir(sessionDir), { recursive: true });
+    await ensureDir(this.getCheckpointsDir(sessionDir));
   }
 
   private extractCheckpointNumber(label: string): number | null {

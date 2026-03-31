@@ -2,7 +2,7 @@
  * Graph traversal utilities used by the conductor.
  *
  * Extracted from the legacy `execution-ops.ts` module so the conductor
- * can function independently of the deprecated BFS graph executor.
+ * can function independently of the original BFS graph executor.
  */
 
 import type {

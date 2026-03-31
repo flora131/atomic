@@ -1,6 +1,6 @@
 import { join } from "path";
-import { mkdir, readdir } from "fs/promises";
-import { copyFile, pathExists } from "@/services/system/copy.ts";
+import { readdir } from "fs/promises";
+import { copyFile, pathExists, ensureDir } from "@/services/system/copy.ts";
 import { getOppositeScriptExtension } from "@/services/system/detect.ts";
 import type { SourceControlType } from "@/services/config/index.ts";
 
@@ -57,7 +57,7 @@ async function copyDirPreserving(
 ): Promise<void> {
   const { exclude = [] } = options;
 
-  await mkdir(dest, { recursive: true });
+  await ensureDir(dest);
 
   const entries = await readdir(src, { withFileTypes: true });
   const oppositeExt = getOppositeScriptExtension();
@@ -91,7 +91,7 @@ export async function syncProjectScmSkills(options: SyncProjectScmSkillsOptions)
     return 0;
   }
 
-  await mkdir(targetSkillsDir, { recursive: true });
+  await ensureDir(targetSkillsDir);
 
   const entries = await readdir(sourceSkillsDir, { withFileTypes: true });
   let copiedCount = 0;

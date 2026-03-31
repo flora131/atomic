@@ -94,7 +94,21 @@ coveragePathIgnorePatterns = [
   "src/commands/tui/workflow-commands/**",
   "src/commands/tui/builtin-commands.ts",
   "src/commands/catalog/**",
+  "node_modules/**",
+  "vendor/**",
+  "generated/**",
+  ".atomic/**",
+  ".claude/**",
+  ".github/**",
+  ".opencode/**",
+  ".playwright/**",
+  ".vscode/**",
+  ".devcontainer/**",
+  ".cocoindex_code/**",
+  "assets/**",
+  "specs/**",
+  "research/**",
+  "devcontainer-features/**",
+  "docs/**",
 ]
 
-# Execution
-timeout = 30000

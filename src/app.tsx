@@ -227,6 +227,7 @@ export async function startChatUI(
                       getSession: controller.getSession,
                       ensureSession: controller.ensureSession,
                       createSubagentSession: controller.createSubagentSession,
+                      registerTool: controller.registerTool,
                       streamWithSession: controller.streamWithSession,
                       initialPrompt,
                       maxIterations,

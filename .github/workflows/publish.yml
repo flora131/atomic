@@ -129,6 +129,7 @@ jobs:
         run: bun run prepare:opentui-bindings
 
       - name: Run tests
+        shell: bash
         run: bun test 2>&1 | cat
 
       - name: Run typecheck

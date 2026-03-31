@@ -18,6 +18,7 @@ describe("listAgentsCommand", () => {
   let logSpy: ReturnType<typeof spyOn>;
   let discoverSpy: ReturnType<typeof spyOn>;
   let logs: string[];
+  const originalColumns = process.stdout.columns;
 
   beforeEach(() => {
     logs = [];
@@ -25,11 +26,14 @@ describe("listAgentsCommand", () => {
       logs.push(args.map(String).join(" "));
     });
     discoverSpy = spyOn(discovery, "discoverAgentInfos").mockReturnValue([]);
+    // Use a known terminal width for deterministic tests
+    Object.defineProperty(process.stdout, "columns", { value: 80, writable: true, configurable: true });
   });
 
   afterEach(() => {
     logSpy.mockRestore();
     discoverSpy.mockRestore();
+    Object.defineProperty(process.stdout, "columns", { value: originalColumns, writable: true, configurable: true });
   });
 
   test("prints 'no agents' message when none are discovered", async () => {
@@ -116,37 +120,38 @@ describe("listAgentsCommand", () => {
     expect(output).toContain('.stage({ agent: "<name>" })');
   });
 
-  test("truncates description to first sentence", async () => {
+  test("truncates long descriptions to fit terminal width", async () => {
+    // With columns=80 and name="verbose" (7 chars), available = 80 - 4 - 7 = 69
+    const longDesc = "A".repeat(100);
     discoverSpy.mockReturnValue([
       makeAgent({
         name: "verbose",
-        description:
-          "First sentence here. Second sentence with more detail. Third.",
+        description: longDesc,
       }),
     ]);
 
     await listAgentsCommand();
 
     const output = logs.join("\n");
-    expect(output).toContain("First sentence here.");
-    expect(output).not.toContain("Second sentence");
+    expect(output).not.toContain(longDesc);
+    expect(output).toContain("...");
   });
 
-  test("uses full text when no sentence boundary found", async () => {
+  test("keeps short descriptions intact", async () => {
     discoverSpy.mockReturnValue([
       makeAgent({
         name: "minimal",
-        description: "No period at end",
+        description: "Short desc",
       }),
     ]);
 
     await listAgentsCommand();
 
     const output = logs.join("\n");
-    expect(output).toContain("No period at end");
+    expect(output).toContain("Short desc");
   });
 
-  test("handles description with newlines", async () => {
+  test("handles description with newlines by collapsing them", async () => {
     discoverSpy.mockReturnValue([
       makeAgent({
         name: "multiline",
@@ -157,8 +162,8 @@ describe("listAgentsCommand", () => {
     await listAgentsCommand();
 
     const output = logs.join("\n");
-    expect(output).toContain("First line.");
-    expect(output).not.toContain("Second line");
+    // Newlines should be collapsed to spaces
+    expect(output).toContain("First line. Second line. Third line.");
   });
 
   test("handles description ending with period but no trailing space", async () => {
@@ -172,7 +177,6 @@ describe("listAgentsCommand", () => {
     await listAgentsCommand();
 
     const output = logs.join("\n");
-    // firstSentence regex needs `. ` (period+space), so full string is returned
     expect(output).toContain("Only sentence.");
   });
 });

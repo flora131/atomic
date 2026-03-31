@@ -8,7 +8,7 @@
  */
 
 import { COLORS } from "@/theme/colors.ts";
-import { truncateText } from "@/lib/ui/format.ts";
+import { truncateDescription } from "@/lib/ui/format.ts";
 
 /**
  * Entry point for `atomic list agents`.
@@ -44,9 +44,9 @@ export async function listAgentsCommand(): Promise<void> {
       `\n${COLORS.bold}Project agents${COLORS.reset} (${projectAgents.length}):`,
     );
     for (const agent of projectAgents) {
-      const desc = truncateDescription(agent.name, agent.description);
+      const { name, description: desc } = truncateDescription(agent.name, agent.description);
       console.log(
-        `  ${COLORS.green}${agent.name}${COLORS.reset}  ${COLORS.dim}${desc}${COLORS.reset}`,
+        `  ${COLORS.green}${name}${COLORS.reset}  ${COLORS.dim}${desc}${COLORS.reset}`,
       );
     }
   }
@@ -56,9 +56,9 @@ export async function listAgentsCommand(): Promise<void> {
       `\n${COLORS.bold}Global agents${COLORS.reset} (${globalAgents.length}):`,
     );
     for (const agent of globalAgents) {
-      const desc = truncateDescription(agent.name, agent.description);
+      const { name, description: desc } = truncateDescription(agent.name, agent.description);
       console.log(
-        `  ${COLORS.green}${agent.name}${COLORS.reset}  ${COLORS.dim}${desc}${COLORS.reset}`,
+        `  ${COLORS.green}${name}${COLORS.reset}  ${COLORS.dim}${desc}${COLORS.reset}`,
       );
     }
   }
@@ -69,15 +69,4 @@ export async function listAgentsCommand(): Promise<void> {
   console.log(
     `${COLORS.dim}Use these names in workflow .stage({ agent: "<name>" }) or agent: null for SDK defaults.${COLORS.reset}\n`,
   );
-}
-
-/** Prefix width: 2 leading spaces + name + 2 spaces separator. */
-const PREFIX_PADDING = 4;
-const DEFAULT_COLUMNS = 80;
-
-function truncateDescription(name: string, description: string): string {
-  const cleaned = description.replace(/\n/g, " ").trim();
-  const columns = process.stdout.columns || DEFAULT_COLUMNS;
-  const available = columns - PREFIX_PADDING - name.length;
-  return available > 0 ? truncateText(cleaned, available) : cleaned;
 }

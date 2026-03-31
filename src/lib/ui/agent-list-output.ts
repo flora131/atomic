@@ -1,5 +1,5 @@
 import type { AgentInfo, AgentSource } from "@/services/agent-discovery/types.ts";
-import { truncateText } from "@/lib/ui/format.ts";
+import { truncateDescription } from "@/lib/ui/format.ts";
 
 export interface AgentListItemView {
   name: string;
@@ -14,16 +14,11 @@ export interface AgentListView {
   globalAgents: AgentListItemView[];
 }
 
-const DEFAULT_COLUMNS = 80;
-const PREFIX_PADDING = 4;
-
 function toItemView(agent: AgentInfo): AgentListItemView {
-  const cleaned = agent.description.replace(/\n/g, " ").trim();
-  const columns = process.stdout.columns || DEFAULT_COLUMNS;
-  const available = columns - PREFIX_PADDING - agent.name.length;
+  const truncated = truncateDescription(agent.name, agent.description);
   return {
-    name: agent.name,
-    description: available > 0 ? truncateText(cleaned, available) : cleaned,
+    name: truncated.name,
+    description: truncated.description,
     source: agent.source,
   };
 }

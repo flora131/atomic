@@ -188,7 +188,7 @@ export function joinThinkingBlocks(blocks: Iterable<string>): string {
 /**
  * Collapse newlines in text to keep it on a single display line.
  *
- * - Truncates at the first double-newline (`\n\n`), appending "…"
+ * - Truncates at the first double-newline (`\n\n`), appending "..."
  * - Replaces remaining single newlines with a space
  *
  * This prevents multi-line tool call text from breaking tree branch rendering.
@@ -196,7 +196,7 @@ export function joinThinkingBlocks(blocks: Iterable<string>): string {
 export function collapseNewlines(text: string): string {
   const doubleNewlineIndex = text.indexOf("\n\n");
   const truncated = doubleNewlineIndex >= 0
-    ? `${text.slice(0, doubleNewlineIndex)}…`
+    ? `${text.slice(0, doubleNewlineIndex)}...`
     : text;
   return truncated.replace(/\n/g, " ");
 }
@@ -210,17 +210,57 @@ export function collapseNewlines(text: string): string {
  *
  * @param text - Text to truncate
  * @param maxLength - Maximum length including ellipsis (default: 40)
- * @returns Truncated text with "…" if it exceeded maxLength
+ * @returns Truncated text with "..." if it exceeded maxLength
  *
  * @example
  * ```ts
- * truncateText("Hello World", 8)   // "Hello W…"
+ * truncateText("Hello World", 8)   // "Hello W..."
  * truncateText("Short", 10)        // "Short"
  * ```
  */
 export function truncateText(text: string, maxLength: number = 40): string {
   if (text.length <= maxLength) return text;
   return `${text.slice(0, maxLength - 3)}...`;
+}
+
+// ============================================================================
+// DESCRIPTION TRUNCATION FOR COLUMN-AWARE LAYOUTS
+// ============================================================================
+
+/** Prefix width used for column-aware description truncation: leading spaces + separator. */
+const DESCRIPTION_PREFIX_PADDING = 4;
+const DEFAULT_TERMINAL_COLUMNS = 80;
+
+/**
+ * Truncate a name and description to fit available terminal width.
+ *
+ * Normalizes newlines to spaces, then truncates based on available space
+ * given the terminal width, name length, and prefix padding.
+ *
+ * When the name itself exceeds the available space, the name is truncated
+ * and an empty description is returned.
+ *
+ * @param name - The label/name preceding the description
+ * @param description - Raw description text (may contain newlines)
+ * @param columns - Terminal width override (defaults to `process.stdout.columns`)
+ */
+export function truncateDescription(
+  name: string,
+  description: string,
+  columns?: number,
+): { name: string; description: string } {
+  const cleaned = description.replace(/\n/g, " ").trim();
+  const cols = columns ?? process.stdout.columns ?? DEFAULT_TERMINAL_COLUMNS;
+  const maxNameLength = cols - DESCRIPTION_PREFIX_PADDING;
+
+  if (name.length > maxNameLength) {
+    const truncatedName =
+      maxNameLength >= 3 ? truncateText(name, maxNameLength) : "";
+    return { name: truncatedName, description: "" };
+  }
+
+  const available = cols - DESCRIPTION_PREFIX_PADDING - name.length;
+  return { name, description: truncateText(cleaned, available) };
 }
 
 // ============================================================================
@@ -232,5 +272,6 @@ export default {
   formatTimestamp,
   joinThinkingBlocks,
   truncateText,
+  truncateDescription,
   collapseNewlines,
 };

@@ -412,6 +412,12 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
           if (state.session?.abort) {
             await state.session.abort();
           }
+          // For signal-based interrupts the UI-layer
+          // terminateActiveBackgroundAgents never fires, so we must
+          // explicitly abort background agents here.
+          if (sourceType === "signal" && state.session?.abortBackgroundAgents) {
+            await state.session.abortBackgroundAgents();
+          }
         })();
 
         state.pendingAbortPromise = abortPromise;
@@ -445,6 +451,15 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
       }
       void cleanup();
       return;
+    }
+
+    // For signal-based interrupts when not streaming, still try to
+    // abort background agents (the UI-layer key handlers handle this
+    // for "ui" interrupts via terminateActiveBackgroundAgents).
+    if (sourceType === "signal" && state.session?.abortBackgroundAgents) {
+      void state.session.abortBackgroundAgents().catch((error) => {
+        logCleanupError("abortBackgroundAgents in handleInterrupt (not streaming)", error);
+      });
     }
 
     if (state.interruptTimeout) {

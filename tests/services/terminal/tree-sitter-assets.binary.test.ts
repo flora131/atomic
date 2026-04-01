@@ -80,17 +80,26 @@ describe("tree-sitter assets in compiled binaries", () => {
     const bunfsRoot = process.platform === "win32" ? "B:/~BUN/root/" : "/$bunfs/root/";
     const workerRelativePath = relative(process.cwd(), parserWorkerPath).replaceAll("\\", "/");
 
-    const build = await Bun.build({
-      entrypoints: [scriptPath, parserWorkerPath],
-      compile: {
-        outfile: binaryPath,
-        autoloadDotenv: false,
-        autoloadBunfig: false,
-      },
-      define: {
-        OTUI_TREE_SITTER_WORKER_PATH: JSON.stringify(`${bunfsRoot}${workerRelativePath}`),
-      },
-    });
+    // Run Bun.build from /tmp to avoid virtiofs/fakeowner path resolution
+    // issues in DevPod Docker-on-macOS environments (ENOENT on .bun-build temp files).
+    const originalCwd = process.cwd();
+    process.chdir(tmpdir());
+    let build: Awaited<ReturnType<typeof Bun.build>>;
+    try {
+      build = await Bun.build({
+        entrypoints: [scriptPath, parserWorkerPath],
+        compile: {
+          outfile: binaryPath,
+          autoloadDotenv: false,
+          autoloadBunfig: false,
+        },
+        define: {
+          OTUI_TREE_SITTER_WORKER_PATH: JSON.stringify(`${bunfsRoot}${workerRelativePath}`),
+        },
+      });
+    } finally {
+      process.chdir(originalCwd);
+    }
 
     expect(build.success).toBe(true);
 

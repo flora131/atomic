@@ -4,7 +4,14 @@
     "dockerfile": "Dockerfile"
   },
   "features": {
-    "ghcr.io/devcontainers/features/github-cli": {}
+    "ghcr.io/devcontainers/features/common-utils": {},
+    "ghcr.io/devcontainers-extra/features/bun:1": {},
+    "ghcr.io/devcontainers/features/node:1": {},
+    "ghcr.io/devcontainers-extra/features/uv:1": {},
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1": {},
+    "ghcr.io/devcontainers/features/copilot-cli:1": {},
+    "ghcr.io/devcontainers-extra/features/opencode:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
   },
   "remoteEnv": {
     "GH_TOKEN": "${localEnv:GH_TOKEN}",
@@ -13,10 +20,12 @@
   "postCreateCommand": {
     "install-deps": "bun install"
   },
+  "containerEnv": {
+    "COCOINDEX_CODE_DB_PATH_MAPPING": "/workspaces=/tmp/cocoindex-db"
+  },
   "customizations": {
     "vscode": {
       "extensions": ["oven.bun-vscode", "oxc.oxc-vscode", "shd101wyy.markdown-preview-enhanced"]
     }
-  },
-  "remoteUser": "vscode"
+  }
 }

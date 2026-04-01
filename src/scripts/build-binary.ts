@@ -9,6 +9,7 @@ type BuildOptions = {
   outfile: string;
   minify: boolean;
   target?: string;
+  baseline: boolean;
 };
 
 function parseCompileTarget(target: string): string {
@@ -25,6 +26,7 @@ function parseBuildOptions(argv: string[]): BuildOptions {
     options: {
       outfile: { type: "string" },
       target: { type: "string" },
+      baseline: { type: "boolean", default: false },
       minify: { type: "boolean", default: false },
     },
     strict: true,
@@ -38,6 +40,7 @@ function parseBuildOptions(argv: string[]): BuildOptions {
   return {
     outfile: values.outfile,
     target: values.target ? parseCompileTarget(values.target) : undefined,
+    baseline: values.baseline ?? false,
     minify: values.minify ?? false,
   };
 }
@@ -68,32 +71,42 @@ function getBunfsRoot(targetOs: NodeJS.Platform): string {
   return targetOs === "win32" ? "B:/~BUN/root/" : "/$bunfs/root/";
 }
 
-const options = parseBuildOptions(Bun.argv.slice(2));
+export function deriveIsBaseline(baselineFlag: boolean, target?: string): boolean {
+  return baselineFlag || (target?.includes("baseline") ?? false);
+}
 
-ensureWebTreeSitterWasmShim();
 
-const projectRoot = process.cwd();
-const parserWorker = realpathSync(resolve(projectRoot, "node_modules/@opentui/core/parser.worker.js"));
-const workerRelativePath = relative(projectRoot, parserWorker).replaceAll("\\", "/");
-const compileTargetOs = inferTargetOs(options.target);
+if (import.meta.main) {
+  const options = parseBuildOptions(Bun.argv.slice(2));
 
-const result = await Bun.build({
-  entrypoints: ["src/cli.ts", parserWorker],
-  minify: options.minify,
-  compile: {
-    outfile: options.outfile,
-    autoloadDotenv: false,
-    autoloadBunfig: false,
-    ...(options.target ? { target: options.target as never } : {}),
-  },
-  define: {
-    OTUI_TREE_SITTER_WORKER_PATH: JSON.stringify(`${getBunfsRoot(compileTargetOs)}${workerRelativePath}`),
-  },
-});
+  ensureWebTreeSitterWasmShim();
 
-if (!result.success) {
-  for (const log of result.logs) {
-    console.error(log);
+  const projectRoot = process.cwd();
+  const parserWorker = realpathSync(resolve(projectRoot, "node_modules/@opentui/core/parser.worker.js"));
+  const workerRelativePath = relative(projectRoot, parserWorker).replaceAll("\\", "/");
+  const compileTargetOs = inferTargetOs(options.target);
+  const isBaseline = deriveIsBaseline(options.baseline, options.target);
+  const workerBunfsPath = `${getBunfsRoot(compileTargetOs)}${workerRelativePath}`;
+
+  const result = await Bun.build({
+    entrypoints: ["src/cli.ts", parserWorker],
+    minify: options.minify,
+    compile: {
+      outfile: options.outfile,
+      autoloadDotenv: false,
+      autoloadBunfig: false,
+      ...(options.target ? { target: options.target as never } : {}),
+    },
+    define: {
+      OTUI_TREE_SITTER_WORKER_PATH: JSON.stringify(workerBunfsPath),
+      ...(isBaseline ? { __ATOMIC_BASELINE__: JSON.stringify(true) } : {}),
+    },
+  });
+
+  if (!result.success) {
+    for (const log of result.logs) {
+      console.error(log);
+    }
+    process.exit(1);
   }
-  process.exit(1);
 }

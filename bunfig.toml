@@ -13,6 +13,8 @@ coveragePathIgnorePatterns = [
   "tests/**",
   # Temp files created during test runs (e.g. discovery tests writing to /tmp)
   "**/tmp/**",
+  # macOS resolves temp dirs to /private/var/folders/…, which bypasses **/tmp/**
+  "**/var/folders/**",
   # Compiled workflow temp files generated at runtime
   "**/.atomic/.tmp/**",
   # Entry points (not unit-testable)
@@ -77,6 +79,7 @@ coveragePathIgnorePatterns = [
   # Workflow verification (wraps TypeScript compiler API — defensive branches untestable without fragile mocks)
   "src/services/workflows/verification/type-checking.ts",
   # System utilities (I/O-heavy)
+  "src/services/system/download.ts",
   "src/services/system/file-lock.ts",
   "src/lib/spawn.ts",
   "src/lib/ui/clipboard.ts",

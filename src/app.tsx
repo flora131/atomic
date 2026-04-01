@@ -170,14 +170,14 @@ export async function startChatUI(
     //   For native terminal text selection, hold Shift (Linux/Windows) or
     //   Option (macOS/iTerm2) while clicking — this is a built-in terminal
     //   emulator bypass that works with virtually all modern terminals.
-    // - screenMode: "alternate-screen" to prevent scrollbox from corrupting terminal output
+    // - useAlternateScreen: true to prevent scrollbox from corrupting terminal output
     // - exitOnCtrlC: false to allow double-press Ctrl+C behavior
     // - useKittyKeyboard: with disambiguate so Ctrl+C is received as keyboard event
     state.renderer = await createCliRenderer({
       useMouse: true,
       enableMouseMovement: false,
       openConsoleOnError: false,
-      screenMode: "alternate-screen",
+      useAlternateScreen: true,
       exitOnCtrlC: false,
       useKittyKeyboard: { disambiguate: true },
     });

@@ -21,11 +21,3 @@ if [ -n "${_REMOTE_USER}" ] && [ "${_REMOTE_USER}" != "root" ]; then
 else
     curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
 fi
-
-# ─── Install Copilot CLI ────────────────────────────────────────────────────
-# When run as root, the Copilot installer defaults PREFIX=/usr/local, placing
-# the binary in /usr/local/bin — a system directory already on PATH with no
-# user-ownership concerns.
-curl -fsSL https://gh.io/copilot-install | bash
-
-echo "Atomic + Copilot CLI installed successfully."

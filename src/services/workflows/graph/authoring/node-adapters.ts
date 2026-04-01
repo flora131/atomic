@@ -29,7 +29,6 @@ export function buildToolBuilderNode<
     execute: config.execute,
     args: config.args,
     outputMapper: config.outputMapper,
-    timeout: config.timeout,
     retry: config.retry,
     name: config.name,
     description: config.description,

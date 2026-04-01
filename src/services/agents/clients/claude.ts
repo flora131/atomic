@@ -24,6 +24,10 @@ export {
 export type { ClaudeHookConfig } from "@/services/agents/clients/claude/internal-types.ts";
 export class ClaudeAgentClient implements CodingAgentClient {
     readonly agentType = "claude" as const;
+    // Full set of Claude Code built-in tools. Expanded from the minimal set to include
+    // PowerShell (Windows support), WebFetch/WebSearch (web research), LSP (code intelligence),
+    // MCP resource tools, Task management, and AskUserQuestion for interactive workflows.
+    // Only Agent(statusline-setup) is disallowed (internal UI plumbing, not useful for users).
     private static readonly BUILTIN_ALLOWED_TOOLS = ["Agent", "AskUserQuestion", "Bash", "Edit", "Glob", "Grep", "ListMcpResourcesTool", "LSP", "NotebookEdit", "PowerShell", "Read", "ReadMcpResourceTool", "Skill", "TaskCreate", "TaskGet", "TaskList", "TaskOutput", "TaskStop", "TaskUpdate", "TodoWrite", "ToolSearch", "WebFetch", "WebSearch", "Write"] as const;
     private static readonly BUILTIN_DISALLOWED_TOOLS = ["Agent(statusline-setup)"] as const;
     private static readonly SUPPORTS_ADAPTIVE_THINKING = new Set<string>(["opus", "sonnet"]);

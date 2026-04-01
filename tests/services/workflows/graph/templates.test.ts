@@ -63,19 +63,15 @@ describe("sequential", () => {
 
   test("applies default config when provided", () => {
     const compiled = sequential<TestState>([makeNode("a")], {
-      timeout: 5000,
       metadata: { workflow: "test" },
     }).compile();
-    expect(compiled.config.timeout).toBe(5000);
     expect(compiled.config.metadata).toEqual({ workflow: "test" });
   });
 
   test("compile-time config overrides template default config", () => {
     const compiled = sequential<TestState>([makeNode("a")], {
-      timeout: 5000,
       metadata: { from: "template" },
-    }).compile({ timeout: 10000, metadata: { from: "compile" } });
-    expect(compiled.config.timeout).toBe(10000);
+    }).compile({ metadata: { from: "compile" } });
     expect(compiled.config.metadata).toEqual({ from: "compile" });
   });
 
@@ -250,9 +246,9 @@ describe("mapReduce", () => {
       splitter: makeNode("s"),
       worker: makeNode("w"),
       merger: () => ({}),
-      config: { timeout: 3000 },
+      config: { maxConcurrency: 3 },
     }).compile();
-    expect(compiled.config.timeout).toBe(3000);
+    expect(compiled.config.maxConcurrency).toBe(3);
   });
 
   test("reducer node has type tool", () => {
@@ -515,14 +511,14 @@ describe("applyDefaultConfig metadata merging", () => {
     const compiled = sequential<TestState>(
       [makeNode("a")],
       { metadata: { defaultKey: "defaultVal" } },
-    ).compile({ timeout: 100 });
+    ).compile({ maxConcurrency: 2 });
     expect(compiled.config.metadata).toEqual({ defaultKey: "defaultVal" });
   });
 
   test("compile-time metadata only (no default metadata)", () => {
     const compiled = sequential<TestState>(
       [makeNode("a")],
-      { timeout: 100 },
+      { maxConcurrency: 1 },
     ).compile({ metadata: { compileKey: "compileVal" } });
     expect(compiled.config.metadata).toEqual({ compileKey: "compileVal" });
   });
@@ -530,7 +526,7 @@ describe("applyDefaultConfig metadata merging", () => {
   test("neither default nor compile-time has metadata", () => {
     const compiled = sequential<TestState>(
       [makeNode("a")],
-      { timeout: 100 },
+      { maxConcurrency: 1 },
     ).compile({ maxConcurrency: 2 });
     expect(compiled.config.metadata).toBeUndefined();
   });
@@ -538,10 +534,9 @@ describe("applyDefaultConfig metadata merging", () => {
   test("compile-time overrides default config scalar fields", () => {
     const compiled = sequential<TestState>(
       [makeNode("a")],
-      { timeout: 1000, maxConcurrency: 1 },
-    ).compile({ timeout: 2000 });
-    expect(compiled.config.timeout).toBe(2000);
-    expect(compiled.config.maxConcurrency).toBe(1);
+      { maxConcurrency: 1 },
+    ).compile({ maxConcurrency: 2 });
+    expect(compiled.config.maxConcurrency).toBe(2);
   });
 
   test("metadata from both sources are merged with compile-time precedence", () => {

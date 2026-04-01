@@ -84,8 +84,7 @@ describe("DEFAULT_GRAPH_CONFIG", () => {
     expect(DEFAULT_GRAPH_CONFIG.autoCheckpoint).toBe(true);
   });
 
-  test("is a partial GraphConfig (no checkpointer, timeout, etc.)", () => {
-    expect(DEFAULT_GRAPH_CONFIG.timeout).toBeUndefined();
+  test("is a partial GraphConfig (no checkpointer, etc.)", () => {
     expect(DEFAULT_GRAPH_CONFIG.metadata).toBeUndefined();
   });
 

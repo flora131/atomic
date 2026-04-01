@@ -95,7 +95,6 @@ export interface SubagentSpawnOptions {
   task: string;
   model?: string;
   tools?: string[];
-  timeout?: number;
   /** Abort if no stream chunks arrive within this duration (ms). Defaults to 5 minutes (20 minutes for workflows). Set 0 to disable. */
   staleTimeoutMs?: number;
   abortSignal?: AbortSignal;
@@ -154,7 +153,6 @@ export interface GraphRuntimeDependencies {
 export interface GraphConfig<TState extends BaseState = BaseState> {
   checkpointer?: Checkpointer<TState>;
   maxConcurrency?: number;
-  timeout?: number;
   onProgress?: (event: ProgressEvent<TState>) => void;
   autoCheckpoint?: boolean;
   metadata?: Record<string, unknown>;

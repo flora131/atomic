@@ -88,20 +88,8 @@ export function createProgram() {
         .command("chat", { isDefault: true })
         .description("Start an interactive chat session with a coding agent")
         .option("-a, --agent <name>", `Agent to chat with (${agentChoices})`)
-        .option("-w, --workflow", "Enable graph workflow mode", false)
         .option("-t, --theme <name>", "UI theme (dark, light)", "dark")
         .option("-m, --model <name>", "Model to use for the chat session")
-        .option(
-            "--max-iterations <number>",
-            "Maximum conductor graph traversal steps (default: 100)",
-            (val: string) => {
-                const n = Number.parseInt(val, 10);
-                if (Number.isNaN(n) || n < 1) {
-                    throw new Error(`--max-iterations must be a positive integer, got "${val}"`);
-                }
-                return n;
-            },
-        )
         .option(
             "--additional-instructions <text>",
             "Append extra instructions to the enhanced system prompt",
@@ -116,14 +104,13 @@ export function createProgram() {
 Examples:
   $ atomic chat -a claude                   Start chat with Claude
   $ atomic chat -a opencode                  Start chat with OpenCode
-  $ atomic chat -a copilot --workflow        Start workflow-enabled chat with Copilot
+  $ atomic chat -a copilot                   Start workflow-enabled chat with Copilot
   $ atomic chat -a claude --theme light      Start chat with light theme
   $ atomic chat -a claude --additional-instructions "Be concise" "review this patch"
   $ atomic chat -a claude "fix the typecheck errors"
   $ atomic chat -a claude "refactor utils"   Start chat with agent and prompt
 
-Slash Commands (in workflow mode):
-  /workflow - Start the Atomic workflow
+Slash Commands:
   /theme    - Switch theme (dark/light)
   /help     - Show available commands`,
         )
@@ -164,10 +151,8 @@ Slash Commands (in workflow mode):
             const { chatCommand } = await import("@/commands/cli/chat.ts");
             const exitCode = await chatCommand({
                 agentType: agentType as "claude" | "opencode" | "copilot",
-                workflow: localOpts.workflow,
                 theme: localOpts.theme as "dark" | "light",
                 model: localOpts.model,
-                maxIterations: localOpts.maxIterations,
                 initialPrompt: prompt,
                 additionalInstructions: localOpts.additionalInstructions,
             });
@@ -336,6 +321,16 @@ async function main(): Promise<void> {
         if (process.platform === "win32") {
             const { cleanupWindowsLeftoverFiles } = await import("@/services/system/cleanup.ts");
             await cleanupWindowsLeftoverFiles();
+        }
+
+        // Ensure config data directory exists for binary installs.
+        // Downloads config on first run if the binary was installed without it
+        // (e.g., via a devcontainer feature that only copies the binary).
+        const skipConfigCommands = new Set(["--version", "-v", "--help", "-h", "upload-telemetry"]);
+        const needsConfig = !process.argv.slice(2).some((arg) => skipConfigCommands.has(arg));
+        if (needsConfig) {
+            const { ensureConfigDataDir } = await import("@/services/config/config-path.ts");
+            await ensureConfigDataDir(VERSION);
         }
 
         // Ensure workflow SDK version matches CLI version before running commands.

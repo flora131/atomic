@@ -193,10 +193,14 @@ embedding:
         try {
             # Strip leading 'v' from version for npm semver (e.g. v0.4.30 -> 0.4.30)
             $NpmVersion = $InstallVersion -replace '^v', ''
+            # Try exact version first; fall back to latest if not yet published
             bun add "@bastani/atomic-workflows@${NpmVersion}" 2>$null
             if ($LASTEXITCODE -ne 0) {
-                Write-Err "Failed to install @bastani/atomic-workflows SDK with bun."
-                exit 1
+                Write-Warn "Exact SDK version ${NpmVersion} not found on npm, falling back to latest..."
+                bun add "@bastani/atomic-workflows@latest" 2>$null
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Warn "Could not install @bastani/atomic-workflows SDK. Install manually: cd $WorkflowsDir && bun add @bastani/atomic-workflows"
+                }
             }
         } finally {
             Pop-Location

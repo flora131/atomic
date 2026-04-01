@@ -309,6 +309,14 @@ export function useStreamAgentSubscriptions({
             return agent;
           }
 
+          // Don't override user-initiated interrupts — the Ctrl+C / ESC
+          // handler already set this agent to "interrupted".  Late-arriving
+          // synthetic completions (e.g. from flushCopilotOrphanedAgentCompletions
+          // during abort) must not revert the status to "completed".
+          if (agent.status === "interrupted") {
+            return agent;
+          }
+
           const startedAtMs = new Date(agent.startedAt).getTime();
           return {
             ...agent,

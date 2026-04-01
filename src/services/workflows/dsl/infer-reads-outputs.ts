@@ -52,7 +52,6 @@ export function inferStageReads(prompt: StageOptions["prompt"]): string[] {
     tasks: [],
     abortSignal: new AbortController().signal,
     state: tracker.proxy,
-    contextPressure: undefined,
   };
   try { prompt(ctx); } catch {}
   return filterUserFields(tracker.accessed);
@@ -180,12 +179,78 @@ export function inferToolReads(execute: ToolOptions["execute"]): string[] {
   }
 }
 
-export function inferToolOutputs(outputMapper: ToolOptions["outputMapper"]): string[] {
-  if (!outputMapper) return [];
+export function inferToolOutputs(outputMapper: ToolOptions["outputMapper"], execute?: ToolOptions["execute"]): string[] {
+  if (outputMapper) {
+    try {
+      const result = outputMapper({});
+      return Object.keys(result);
+    } catch { return []; }
+  }
+  // No outputMapper — the execute return value IS the state update.
+  // Use AST analysis to find the top-level object literal keys in return statements.
+  if (execute) {
+    return inferExecuteReturnKeys(execute);
+  }
+  return [];
+}
+
+/**
+ * Infers which state fields a tool's `execute` function writes by parsing
+ * the function source and finding the keys of returned object literals.
+ *
+ * Handles: `return { key1: val, key2: val }`, arrow functions with implicit
+ * return `async (ctx) => ({ key: val })`, and conditional returns.
+ */
+function inferExecuteReturnKeys(execute: ToolOptions["execute"]): string[] {
   try {
-    const result = outputMapper({});
-    return Object.keys(result);
-  } catch { return []; }
+    const source = execute.toString();
+    const sourceFile = ts.createSourceFile(
+      "infer-outputs.ts",
+      `const __fn = ${source};`,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    );
+
+    const keys = new Set<string>();
+
+    function extractObjectLiteralKeys(node: ts.Node): void {
+      const unwrapped = unwrapTypeCasts(node);
+      if (ts.isObjectLiteralExpression(unwrapped)) {
+        for (const prop of unwrapped.properties) {
+          if (ts.isPropertyAssignment(prop) || ts.isShorthandPropertyAssignment(prop)) {
+            const name = prop.name;
+            if (ts.isIdentifier(name)) {
+              keys.add(name.text);
+            } else if (ts.isStringLiteral(name)) {
+              keys.add(name.text);
+            }
+          }
+          if (ts.isSpreadAssignment(prop)) {
+            // Cannot statically resolve spread — skip
+          }
+        }
+      }
+    }
+
+    function visit(node: ts.Node): void {
+      // Explicit return: return { key: value }
+      if (ts.isReturnStatement(node) && node.expression) {
+        extractObjectLiteralKeys(node.expression);
+      }
+      // Arrow function with expression body (implicit return):
+      // (ctx) => ({ key: value })
+      if (ts.isArrowFunction(node) && !ts.isBlock(node.body)) {
+        extractObjectLiteralKeys(node.body);
+      }
+      ts.forEachChild(node, visit);
+    }
+
+    visit(sourceFile);
+    return [...keys].filter((k) => !BASE_STATE_FIELDS.has(k));
+  } catch {
+    return [];
+  }
 }
 
 export interface InferredMetadata { reads: string[]; outputs: string[]; }
@@ -207,6 +272,6 @@ export function inferAskUserMetadata(config: AskUserQuestionOptions): InferredMe
 export function inferToolMetadata(config: ToolOptions): InferredMetadata {
   return {
     reads: inferToolReads(config.execute),
-    outputs: inferToolOutputs(config.outputMapper),
+    outputs: inferToolOutputs(config.outputMapper, config.execute),
   };
 }

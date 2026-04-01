@@ -4,7 +4,6 @@ import type { SubagentEntry } from "@/services/workflows/graph/subagent-registry
 import type {
   BaseState,
   Checkpointer,
-  ContextWindowUsage,
   DebugReport,
   ErrorAction,
   ExecutionError,
@@ -32,8 +31,6 @@ export interface ExecutionContext<TState extends BaseState = BaseState> {
   config: GraphConfig;
   errors: ExecutionError[];
   abortSignal?: AbortSignal;
-  contextWindowUsage?: ContextWindowUsage;
-  contextWindowThreshold?: number;
   emit?: (type: string, data?: Record<string, unknown>) => void;
   getNodeOutput?: (nodeId: NodeId) => unknown;
   model?: string;
@@ -159,7 +156,6 @@ export interface GraphConfig<TState extends BaseState = BaseState> {
   maxConcurrency?: number;
   timeout?: number;
   onProgress?: (event: ProgressEvent<TState>) => void;
-  contextWindowThreshold?: number;
   autoCheckpoint?: boolean;
   metadata?: Record<string, unknown>;
   defaultModel?: ModelSpec;

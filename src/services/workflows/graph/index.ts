@@ -11,7 +11,6 @@ export type {
   NodeDefinition,
   NodeExecuteFn,
   BaseState,
-  ContextWindowUsage,
   Signal,
   SignalData,
   ExecutionError,
@@ -47,7 +46,6 @@ export {
   DEFAULT_RETRY_CONFIG,
   DEFAULT_GRAPH_CONFIG,
   BACKGROUND_COMPACTION_THRESHOLD,
-  BUFFER_EXHAUSTION_THRESHOLD,
 } from "@/services/workflows/graph/types.ts";
 
 // === State management and annotations ===
@@ -113,7 +111,6 @@ export type {
   DecisionNodeConfig,
   InputMapper,
   WaitNodeConfig,
-  ClearContextNodeConfig,
   AskUserOption,
   AskUserOptions,
   AskUserNodeConfig,
@@ -121,7 +118,6 @@ export type {
   AskUserQuestionEventData,
 } from "@/services/workflows/graph/nodes/control.ts";
 export {
-  clearContextNode,
   decisionNode,
   waitNode,
   askUserNode,
@@ -150,22 +146,6 @@ export type {
 export {
   subgraphNode,
 } from "@/services/workflows/graph/nodes/subgraph.ts";
-
-// --- Context nodes ---
-export type {
-  ContextCompactionAction,
-  ContextMonitoringState,
-  ContextMonitorNodeConfig,
-  ContextCheckOptions,
-} from "@/services/workflows/graph/nodes/context.ts";
-export {
-  contextMonitorNode,
-  getDefaultCompactionAction,
-  toContextWindowUsage,
-  isContextThresholdExceeded,
-  checkContextUsage,
-  compactContext,
-} from "@/services/workflows/graph/nodes/context.ts";
 
 // === Workflow templates ===
 export type { MapReduceOptions, ReviewCycleOptions, TaskLoopOptions } from "@/services/workflows/graph/templates.ts";

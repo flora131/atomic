@@ -39,9 +39,6 @@ export type {
   StageOutputStatus,
   Signal,
   SignalData,
-  ContextPressureLevel,
-  ContextPressureSnapshot,
-  ContinuationRecord,
   AgentType,
   SessionConfig,
   AskUserQuestionConfig,
@@ -50,8 +47,6 @@ export type {
 import type {
   SignalData,
   StageOutput,
-  ContextPressureSnapshot,
-  ContinuationRecord,
   AgentType,
   SessionConfig,
   AskUserQuestionConfig,
@@ -170,7 +165,6 @@ export interface NodeResult<TState extends BaseState = BaseState> {
 export interface GraphConfig<TState extends BaseState = BaseState> {
   maxConcurrency?: number;
   timeout?: number;
-  contextWindowThreshold?: number;
   autoCheckpoint?: boolean;
   metadata?: Record<string, JsonValue>;
   defaultModel?: ModelSpec;
@@ -208,17 +202,8 @@ export interface ExecutionContext<TState extends BaseState = BaseState> {
 // Conductor Types (passed to stage prompt/condition callbacks)
 // ---------------------------------------------------------------------------
 
-// StageOutputStatus, ContextPressureLevel, ContextPressureSnapshot,
-// ContinuationRecord, and StageOutput are defined as Zod schemas in
+// StageOutputStatus and StageOutput are defined as Zod schemas in
 // ./schemas.ts and re-exported above. See schemas.ts for field docs.
-
-export interface AccumulatedContextPressure {
-  readonly totalInputTokens: number;
-  readonly totalOutputTokens: number;
-  readonly totalContinuations: number;
-  readonly stageSnapshots: ReadonlyMap<string, ContextPressureSnapshot>;
-  readonly continuations: readonly ContinuationRecord[];
-}
 
 // TaskItem is defined as a Zod schema in ./schemas.ts and re-exported above.
 
@@ -233,7 +218,6 @@ export interface StageContext<TState extends BaseState = BaseState> {
   readonly stageOutputs: ReadonlyMap<string, StageOutput>;
   readonly tasks: readonly TaskItem[];
   readonly abortSignal: AbortSignal;
-  readonly contextPressure?: AccumulatedContextPressure;
   readonly state: TState;
 }
 

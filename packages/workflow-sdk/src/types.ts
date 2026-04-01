@@ -164,7 +164,6 @@ export interface NodeResult<TState extends BaseState = BaseState> {
  */
 export interface GraphConfig<TState extends BaseState = BaseState> {
   maxConcurrency?: number;
-  timeout?: number;
   autoCheckpoint?: boolean;
   metadata?: Record<string, JsonValue>;
   defaultModel?: ModelSpec;

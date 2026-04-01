@@ -522,7 +522,35 @@ export function createWrappedCopilotSession(args: {
 		},
 
 		abortBackgroundAgents: async (): Promise<void> => {
-			await runAbortWithLock();
+			// Abort every active session in the shared sessions map so that
+			// background agents running in sibling sessions are terminated —
+			// not just the foreground turn of *this* session.
+			const abortPromises: Promise<void>[] = [];
+			for (const [sid, peerState] of args.sessions) {
+				if (peerState.isClosed) {
+					continue;
+				}
+				if (sid === sessionId) {
+					// Use the lock-guarded path for our own session to avoid
+					// racing with a concurrent foreground abort.
+					abortPromises.push(runAbortWithLock());
+				} else {
+					abortPromises.push(
+						peerState.sdkSession.abort().catch((error: unknown) => {
+							if (isSessionNotFoundError(error)) {
+								return;
+							}
+							if (process.env.DEBUG) {
+								console.debug(
+									`[copilot] failed to abort sibling session ${sid}:`,
+									error,
+								);
+							}
+						}),
+					);
+				}
+			}
+			await Promise.allSettled(abortPromises);
 		},
 
 		getSystemToolsTokens: (): number => {

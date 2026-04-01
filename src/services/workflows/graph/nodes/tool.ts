@@ -35,7 +35,6 @@ export interface ToolNodeConfig<
   execute?: ToolExecuteFn<TArgs, TResult>;
   args?: TArgs | ((state: TState) => TArgs);
   outputMapper?: ToolOutputMapper<TState, TResult>;
-  timeout?: number;
   retry?: RetryConfig;
   name?: string;
   description?: string;
@@ -52,7 +51,6 @@ export function toolNode<
     execute,
     args,
     outputMapper,
-    timeout,
     retry = DEFAULT_RETRY_CONFIG,
     name,
     description,
@@ -74,38 +72,21 @@ export function toolNode<
           ? (args as (state: TState) => TArgs)(ctx.state)
           : args;
 
-      let timeoutId: ReturnType<typeof setTimeout> | undefined;
-      const abortController = new AbortController();
+      const result = await execute(
+        resolvedArgs as TArgs,
+        ctx.abortSignal,
+      );
 
-      if (timeout) {
-        timeoutId = setTimeout(() => {
-          abortController.abort(
-            new Error(`Tool "${toolName}" timed out after ${timeout}ms`),
-          );
-        }, timeout);
-      }
+      const stateUpdate = outputMapper
+        ? outputMapper(result, ctx.state)
+        : ({
+            outputs: {
+              ...ctx.state.outputs,
+              [id]: result,
+            },
+          } as Partial<TState>);
 
-      try {
-        const result = await execute(
-          resolvedArgs as TArgs,
-          abortController.signal,
-        );
-
-        const stateUpdate = outputMapper
-          ? outputMapper(result, ctx.state)
-          : ({
-              outputs: {
-                ...ctx.state.outputs,
-                [id]: result,
-              },
-            } as Partial<TState>);
-
-        return { stateUpdate };
-      } finally {
-        if (timeoutId) {
-          clearTimeout(timeoutId);
-        }
-      }
+      return { stateUpdate };
     },
   };
 }
@@ -122,7 +103,6 @@ export interface CustomToolNodeConfig<
   inputSchema?: z.ZodType<TArgs>;
   args?: TArgs | ((state: TState) => TArgs);
   outputMapper?: (result: TResult, state: TState) => Partial<TState>;
-  timeout?: number;
   retry?: RetryConfig;
 }
 
@@ -174,9 +154,7 @@ export function customToolNode<
         messageID: crypto.randomUUID(),
         agent: "workflow",
         directory: process.cwd(),
-        abort: config.timeout
-          ? AbortSignal.timeout(config.timeout)
-          : new AbortController().signal,
+        abort: ctx.abortSignal ?? new AbortController().signal,
         workflowState: Object.freeze({ ...ctx.state }),
         nodeId: config.id,
         executionId: ctx.state.executionId,

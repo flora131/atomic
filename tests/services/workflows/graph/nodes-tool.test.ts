@@ -155,6 +155,7 @@ describe("toolNode", () => {
 
   test("passes abort signal to execute", async () => {
     let receivedSignal: AbortSignal | undefined;
+    const abortController = new AbortController();
     const node = toolNode({
       id: "tool_1",
       toolName: "my-tool",
@@ -164,7 +165,7 @@ describe("toolNode", () => {
       },
     });
 
-    await node.execute(makeCtx());
+    await node.execute({ ...makeCtx(), abortSignal: abortController.signal });
     expect(receivedSignal).toBeDefined();
     expect(receivedSignal).toBeInstanceOf(AbortSignal);
   });

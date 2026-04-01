@@ -61,11 +61,10 @@ describe("asBaseGraph", () => {
 
   test("preserves structural fields through widening", () => {
     const specific = makeTestGraph({
-      config: { timeout: 5000, maxConcurrency: 2 } as GraphConfig<TestState>,
+      config: { maxConcurrency: 2 } as GraphConfig<TestState>,
     });
     const widened = asBaseGraph(specific);
 
-    expect(widened.config.timeout).toBe(5000);
     expect(widened.config.maxConcurrency).toBe(2);
   });
 

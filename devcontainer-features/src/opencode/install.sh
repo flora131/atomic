@@ -12,16 +12,12 @@ if ! command -v curl >/dev/null 2>&1 || ! command -v unzip >/dev/null 2>&1; then
     rm -rf /var/lib/apt/lists/*
 fi
 
-# ─── Install Atomic CLI + OpenCode as the non-root remoteUser ───────────────
-# Both installers write to $HOME-relative paths (~/.atomic, ~/.opencode, ~/.bun,
-# etc.). Running them as _REMOTE_USER via su ensures files are created with
-# correct ownership from the start — no post-install chown fixup needed.
+# ─── Install Atomic CLI as the non-root remoteUser ──────────────────────────
+# The Atomic installer writes to $HOME-relative paths (~/.atomic, ~/.copilot,
+# ~/.bun, etc.). Running it as _REMOTE_USER via su ensures files are created
+# with correct ownership from the start — no post-install chown fixup needed.
 if [ -n "${_REMOTE_USER}" ] && [ "${_REMOTE_USER}" != "root" ]; then
     su - "${_REMOTE_USER}" -c 'curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash'
-    su - "${_REMOTE_USER}" -c 'curl -fsSL https://opencode.ai/install | bash'
 else
     curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
-    curl -fsSL https://opencode.ai/install | bash
 fi
-
-echo "Atomic + OpenCode installed successfully."

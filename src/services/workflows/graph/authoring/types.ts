@@ -44,7 +44,6 @@ export interface ToolBuilderConfig<
   execute?: (args: TArgs, abortSignal?: AbortSignal) => Promise<TResult>;
   args?: TArgs | ((state: TState) => TArgs);
   outputMapper?: (result: TResult, state: TState) => Partial<TState>;
-  timeout?: number;
   retry?: RetryConfig;
   name?: string;
   description?: string;

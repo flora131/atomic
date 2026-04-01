@@ -111,10 +111,6 @@ async function spawnParallelSubagents(
       session = await args.createSubagentSession!(sessionConfig);
 
       const agentAbort = new AbortController();
-      let timeoutId: ReturnType<typeof setTimeout> | undefined;
-      if (options.timeout) {
-        timeoutId = setTimeout(() => agentAbort.abort(), options.timeout);
-      }
 
       // Stall detection: abort if no stream chunks arrive within stallTimeoutMs
       const stallTimeoutMs = options.staleTimeoutMs ?? DEFAULT_STALE_TIMEOUT_MS;
@@ -181,7 +177,7 @@ async function spawnParallelSubagents(
             ? `Sub-agent "${options.agentName}" was cancelled`
             : stalledAbort
               ? `Sub-agent "${options.agentName}" stalled (no activity for ${stallTimeoutMs / 1000}s) ${STALL_ERROR_MARKER}`
-              : `Sub-agent "${options.agentName}" timed out after ${options.timeout}ms`;
+              : `Sub-agent "${options.agentName}" was aborted`;
           return {
             ...result,
             success: false,
@@ -191,7 +187,6 @@ async function spawnParallelSubagents(
 
         return result;
       } finally {
-        if (timeoutId) clearTimeout(timeoutId);
         if (staleTimerId) clearTimeout(staleTimerId);
       }
     } catch (error) {

@@ -228,6 +228,10 @@ main() {
         fi
     fi
 
+    # Export for Windows PowerShell installer delegation
+    export ATOMIC_INSTALL_VERSION="$version"
+    export ATOMIC_INSTALL_PRERELEASE="$prerelease"
+
     local platform download_url checksums_url config_url tmp_dir
 
     # Check dependencies

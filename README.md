@@ -230,7 +230,6 @@ Each agent spawns sub-agents that query DeepWiki, pull external documentation, a
 | Flag | Default | Description |
 | --- | --- | --- |
 | `-a, --agent <name>` | (required) | Agent: `claude`, `opencode`, `copilot` |
-| `-w, --workflow` | `false` | Enable graph workflow mode |
 | `-t, --theme <name>` | `"dark"` | UI theme: `dark`, `light` |
 | `-m, --model <name>` | (none) | Model override |
 | `[prompt...]` | (none) | Initial prompt |

@@ -115,39 +115,49 @@ export async function ensureConfigDataDir(version: string): Promise<void> {
     return;
   }
 
-  const { log } = await import("@clack/prompts");
-  const { downloadFile, getDownloadUrl, getConfigArchiveFilename } = await import(
-    "@/services/system/download.ts"
-  );
-  const { extractConfig } = await import("@/commands/cli/update.ts");
-  const { tmpdir } = await import("os");
-  const { rm } = await import("fs/promises");
-  const { ensureDir } = await import("@/services/system/copy.ts");
-
+  const { withLock } = await import("@/services/system/file-lock.ts");
   const dataDir = getBinaryDataDir();
-  const configFilename = getConfigArchiveFilename();
-  const tmpPath = join(tmpdir(), `atomic-config-${Date.now()}`);
+  const lockTarget = join(dataDir, "config-download");
 
-  try {
-    await ensureDir(tmpPath);
-    const configPath = join(tmpPath, configFilename);
-    const tag = version.startsWith("v") ? version : `v${version}`;
+  await withLock(lockTarget, async () => {
+    // Re-check after acquiring the lock — another process may have completed the download
+    if (configDataDirExists()) {
+      return;
+    }
 
-    log.info("Downloading config data for first run...");
-    await downloadFile(getDownloadUrl(tag, configFilename), configPath);
-    await ensureDir(dataDir);
-    await extractConfig(configPath, dataDir);
-    log.success("Config data installed");
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(
-      `Failed to download config data: ${message}\n\n` +
-        `You can fix this by reinstalling:\n` +
-        `  curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash`,
+    const { log } = await import("@clack/prompts");
+    const { downloadFile, getDownloadUrl, getConfigArchiveFilename } = await import(
+      "@/services/system/download.ts"
     );
-  } finally {
-    await rm(tmpPath, { recursive: true, force: true }).catch(() => {});
-  }
+    const { extractConfig } = await import("@/commands/cli/update.ts");
+    const { tmpdir } = await import("os");
+    const { rm } = await import("fs/promises");
+    const { ensureDir } = await import("@/services/system/copy.ts");
+
+    const configFilename = getConfigArchiveFilename();
+    const tmpPath = join(tmpdir(), `atomic-config-${Date.now()}`);
+
+    try {
+      await ensureDir(tmpPath);
+      const configPath = join(tmpPath, configFilename);
+      const tag = version.startsWith("v") ? version : `v${version}`;
+
+      log.info("Downloading config data for first run...");
+      await downloadFile(getDownloadUrl(tag, configFilename), configPath);
+      await ensureDir(dataDir);
+      await extractConfig(configPath, dataDir);
+      log.success("Config data installed");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Failed to download config data: ${message}\n\n` +
+          `You can fix this by reinstalling:\n` +
+          `  curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash`,
+      );
+    } finally {
+      await rm(tmpPath, { recursive: true, force: true }).catch(() => {});
+    }
+  });
 }
 
 /**

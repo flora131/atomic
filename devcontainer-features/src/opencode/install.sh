@@ -47,11 +47,11 @@ if [ -n "${GITHUB_TOKEN:-}" ]; then
 fi
 
 if [ "${ATOMIC_VERSION}" = "latest" ]; then
-    ATOMIC_VERSION=$(curl -fsSL "${CURL_AUTH_ARGS[@]}" \
+    ATOMIC_VERSION=$(curl -fsSL ${CURL_AUTH_ARGS[@]+"${CURL_AUTH_ARGS[@]}"} \
         "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" \
         | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
 elif [ "${ATOMIC_VERSION}" = "prerelease" ]; then
-    ATOMIC_VERSION=$(curl -fsSL "${CURL_AUTH_ARGS[@]}" \
+    ATOMIC_VERSION=$(curl -fsSL ${CURL_AUTH_ARGS[@]+"${CURL_AUTH_ARGS[@]}"} \
         "https://api.github.com/repos/${GITHUB_REPO}/releases" \
         | grep -E '"tag_name"|"prerelease"' | paste - - \
         | grep '"prerelease": true' | head -1 \
@@ -64,12 +64,19 @@ if [ -z "${ATOMIC_VERSION}" ] || [ "${ATOMIC_VERSION}" = "v" ]; then
     exit 1
 fi
 
+# Validate semver format (vMAJOR.MINOR.PATCH with optional prerelease suffix)
+if ! echo "${ATOMIC_VERSION}" | grep -qE '^v?[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
+    echo "Error: Resolved version '${ATOMIC_VERSION}' is not a valid semver format." >&2
+    echo "Expected format: vMAJOR.MINOR.PATCH (e.g., v1.0.0 or v1.0.0-1)" >&2
+    exit 1
+fi
+
 case "$ATOMIC_VERSION" in v*) ;; *) ATOMIC_VERSION="v${ATOMIC_VERSION}" ;; esac
 
 echo "Installing Atomic CLI ${ATOMIC_VERSION} (linux-${arch})..."
 
 # ─── Download and install binary ────────────────────────────────────────────
-curl -fL# "${CURL_AUTH_ARGS[@]}" -o /usr/local/bin/atomic \
+curl -fL# ${CURL_AUTH_ARGS[@]+"${CURL_AUTH_ARGS[@]}"} -o /usr/local/bin/atomic \
     "https://github.com/${GITHUB_REPO}/releases/download/${ATOMIC_VERSION}/atomic-linux-${arch}"
 chmod +x /usr/local/bin/atomic
 

@@ -45,15 +45,15 @@ download_file() {
 
     if command -v curl >/dev/null 2>&1; then
         if [[ "$quiet" == "true" ]]; then
-            curl -fsSL "${curl_auth[@]}" "$url" -o "$output"
+            curl -fsSL ${curl_auth[@]+"${curl_auth[@]}"} "$url" -o "$output"
         else
-            curl --fail --location --progress-bar "${curl_auth[@]}" --output "$output" "$url"
+            curl --fail --location --progress-bar ${curl_auth[@]+"${curl_auth[@]}"} --output "$output" "$url"
         fi
     elif command -v wget >/dev/null 2>&1; then
         if [[ "$quiet" == "true" ]]; then
-            wget -qO "$output" "${wget_auth[@]}" "$url"
+            wget -qO "$output" ${wget_auth[@]+"${wget_auth[@]}"} "$url"
         else
-            wget -O "$output" "${wget_auth[@]}" "$url"
+            wget -O "$output" ${wget_auth[@]+"${wget_auth[@]}"} "$url"
         fi
     else
         error "Neither curl nor wget found. Please install one of them."
@@ -71,9 +71,9 @@ fetch_url() {
     fi
 
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL "${curl_auth[@]}" "$url"
+        curl -fsSL ${curl_auth[@]+"${curl_auth[@]}"} "$url"
     elif command -v wget >/dev/null 2>&1; then
-        wget -qO- "${wget_auth[@]}" "$url"
+        wget -qO- ${wget_auth[@]+"${wget_auth[@]}"} "$url"
     else
         error "Neither curl nor wget found. Please install one of them."
     fi

@@ -46,10 +46,7 @@ import {
 } from "@/services/workflows/graph/runtime/execution-state.ts";
 import { getNextExecutableNodes } from "@/services/workflows/conductor/graph-traversal.ts";
 import type {
-  AccumulatedContextPressure,
   ConductorConfig,
-  ContextPressureSnapshot,
-  ContinuationRecord,
   StageContext,
   StageDefinition,
   StageOutput,
@@ -82,15 +79,6 @@ function conductorLog(action: string, data?: Record<string, unknown>): void {
   const payload = data ? ` ${JSON.stringify(data)}` : "";
   appendFileSync(CONDUCTOR_LOG, `[${ts}] ${action}${payload}\n`);
 }
-import {
-  takeContextSnapshot,
-  shouldContinueSession,
-  buildContinuationPrompt,
-  createContinuationRecord,
-  createEmptyAccumulatedPressure,
-  accumulateStageSnapshot,
-  accumulateContinuation,
-} from "@/services/workflows/conductor/context-pressure.ts";
 
 // ---------------------------------------------------------------------------
 // WorkflowSessionConductor
@@ -111,7 +99,6 @@ export class WorkflowSessionConductor {
   private readonly stages: ReadonlyMap<string, StageDefinition>;
   private readonly stageOutputs: Map<string, StageOutput>;
   private tasks: TaskItem[];
-  private accumulatedPressure: AccumulatedContextPressure;
   private currentStage: string | null = null;
   private currentSession: Session | null = null;
   private interrupted = false;
@@ -126,7 +113,6 @@ export class WorkflowSessionConductor {
     this.stages = new Map(stages.map((s) => [s.id, s]));
     this.stageOutputs = new Map();
     this.tasks = [];
-    this.accumulatedPressure = createEmptyAccumulatedPressure();
 
     this.validateStagesCoverAgentNodes();
   }
@@ -375,6 +361,25 @@ export class WorkflowSessionConductor {
         }
       } else {
         result = await this.executeDeterministicNode(node, state);
+
+        // Deterministic nodes (tool, askUserQuestion) may produce state
+        // updates via outputMapper. Store a synthetic StageOutput so
+        // downstream stages can access the result via
+        // `ctx.stageOutputs.get(nodeId)` — the same way agent stage
+        // outputs are accessible.
+        if (result.stateUpdate) {
+          const { __waitingForInput, __userDeclined, __waitNodeId, __askUserRequestId, outputs: _outputs, lastUpdated: _lastUpdated, ...parsedFields } = result.stateUpdate as Record<string, unknown>;
+          const hasMeaningfulOutput = Object.keys(parsedFields).length > 0;
+          if (hasMeaningfulOutput) {
+            const syntheticOutput: StageOutput = {
+              stageId: nodeId,
+              rawResponse: JSON.stringify(parsedFields),
+              parsedOutput: parsedFields as Record<string, unknown>,
+              status: "completed",
+            };
+            this.stageOutputs.set(nodeId, syntheticOutput);
+          }
+        }
       }
 
       // Merge state updates from node result
@@ -501,13 +506,10 @@ export class WorkflowSessionConductor {
   }
 
   /**
-   * Run a stage in a fresh isolated session, with optional context
-   * pressure monitoring and continuation sessions.
+   * Run a stage in a fresh isolated session.
    *
    * Creates a session, streams the prompt, collects the full response,
-   * and runs the optional parser. When `contextPressure` is configured,
-   * queries context usage after streaming and may create continuation
-   * sessions if critical pressure is detected.
+   * and runs the optional parser.
    *
    * Session cleanup runs in the finally block to ensure sessions are
    * destroyed even on error paths.
@@ -517,19 +519,11 @@ export class WorkflowSessionConductor {
     context: StageContext,
   ): Promise<StageOutput> {
     const prompt = stage.buildPrompt(context);
-    const pressureConfig = this.config.contextPressure;
-    const continuations: ContinuationRecord[] = [];
     let currentPrompt = prompt;
     let accumulatedResponse = "";
-    let continuationCount = 0;
+    let session: Session | undefined;
 
-    // Outer loop: handles continuation sessions
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      let session: Session | undefined;
-      let contextUsage: ContextPressureSnapshot | null = null;
-
-      try {
+    try {
         conductorLog("conductor_runStageSession_entry", {
           stageId: stage.id,
           preserveSessionForResume: this.preserveSessionForResume,
@@ -598,8 +592,6 @@ export class WorkflowSessionConductor {
             stageId: stage.id,
             rawResponse: accumulatedResponse,
             status: "interrupted",
-            contextUsage: contextUsage ?? undefined,
-            continuations: continuations.length > 0 ? continuations : undefined,
           };
         }
 
@@ -629,59 +621,7 @@ export class WorkflowSessionConductor {
             stageId: stage.id,
             rawResponse: accumulatedResponse,
             status: "interrupted",
-            contextUsage: contextUsage ?? undefined,
-            continuations: continuations.length > 0 ? continuations : undefined,
           };
-        }
-
-        // Capture context usage if monitoring is enabled
-        if (pressureConfig && session) {
-          contextUsage = await takeContextSnapshot(session, pressureConfig);
-
-          if (contextUsage) {
-            // Update accumulated pressure state
-            this.accumulatedPressure = accumulateStageSnapshot(
-              this.accumulatedPressure,
-              stage.id,
-              contextUsage,
-            );
-
-            // Notify UI of context pressure
-            this.config.onContextPressure?.(
-              stage.id,
-              contextUsage,
-              shouldContinueSession(contextUsage, pressureConfig, continuationCount),
-            );
-
-            // Check if continuation is needed
-            if (shouldContinueSession(contextUsage, pressureConfig, continuationCount)) {
-              const record = createContinuationRecord(
-                stage.id,
-                continuationCount,
-                contextUsage,
-                accumulatedResponse,
-              );
-              continuations.push(record);
-              this.accumulatedPressure = accumulateContinuation(
-                this.accumulatedPressure,
-                record,
-              );
-
-              // Destroy the current session before creating a continuation
-              await this.config.destroySession(session).catch(() => {});
-              session = undefined;
-              this.currentSession = null;
-
-              // Build continuation prompt and loop
-              currentPrompt = buildContinuationPrompt(
-                prompt,
-                accumulatedResponse,
-                continuationCount,
-              );
-              continuationCount++;
-              continue;
-            }
-          }
         }
 
         // Drain queued messages to the active session before completing.
@@ -726,8 +666,6 @@ export class WorkflowSessionConductor {
               stageId: stage.id,
               rawResponse: accumulatedResponse,
               status: "interrupted",
-              contextUsage: contextUsage ?? undefined,
-              continuations: continuations.length > 0 ? continuations : undefined,
             };
           }
         }
@@ -747,8 +685,6 @@ export class WorkflowSessionConductor {
           rawResponse: accumulatedResponse,
           parsedOutput,
           status: "completed",
-          contextUsage: contextUsage ?? undefined,
-          continuations: continuations.length > 0 ? continuations : undefined,
         };
       } catch (error) {
         conductorLog("conductor_catch_block", {
@@ -775,7 +711,6 @@ export class WorkflowSessionConductor {
             stageId: stage.id,
             rawResponse: accumulatedResponse,
             status: "interrupted",
-            continuations: continuations.length > 0 ? continuations : undefined,
           };
         }
 
@@ -784,7 +719,6 @@ export class WorkflowSessionConductor {
           rawResponse: accumulatedResponse,
           status: "error",
           error: error instanceof Error ? error.message : String(error),
-          continuations: continuations.length > 0 ? continuations : undefined,
         };
       } finally {
         conductorLog("conductor_finally_block", {
@@ -800,7 +734,6 @@ export class WorkflowSessionConductor {
           });
         }
       }
-    }
   }
 
   // -------------------------------------------------------------------------
@@ -866,14 +799,6 @@ export class WorkflowSessionConductor {
       state,
     };
 
-    // Include context pressure data when monitoring is configured
-    if (this.config.contextPressure) {
-      return {
-        ...context,
-        contextPressure: { ...this.accumulatedPressure },
-      };
-    }
-
     return context;
   }
 
@@ -885,14 +810,6 @@ export class WorkflowSessionConductor {
       tasks: [...this.tasks],
       state,
     };
-
-    // Include context pressure data when monitoring is configured
-    if (this.config.contextPressure) {
-      return {
-        ...result,
-        contextPressure: { ...this.accumulatedPressure },
-      };
-    }
 
     return result;
   }

@@ -19,15 +19,7 @@ export interface BaseState {
   __waitingForInput?: boolean;
 }
 
-export interface ContextWindowUsage {
-  inputTokens: number;
-  outputTokens: number;
-  maxTokens: number;
-  usagePercentage: number;
-}
-
 export type Signal =
-  | "context_window_warning"
   | "checkpoint"
   | "human_input_required"
   | "debug_report_generated";

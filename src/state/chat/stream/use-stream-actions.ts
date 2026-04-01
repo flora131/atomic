@@ -97,20 +97,28 @@ export function useStreamActions({
       }
     }
 
+    const now = Date.now();
+    const interruptAgent = (agent: ParallelAgent): ParallelAgent =>
+      agent.status === "running" || agent.status === "pending" || agent.status === "background"
+        ? {
+          ...agent,
+          status: "interrupted" as const,
+          currentTool: undefined,
+          durationMs: now - new Date(agent.startedAt).getTime(),
+        }
+        : agent;
+
     return {
       interruptedAgents: [
-        ...foregroundAgents.map((agent) =>
-          agent.status === "running" || agent.status === "pending"
-            ? {
-              ...agent,
-              status: "interrupted" as const,
-              currentTool: undefined,
-              durationMs: Date.now() - new Date(agent.startedAt).getTime(),
-            }
-            : agent,
-        ),
-        ...backgroundAgents,
+        ...foregroundAgents.map(interruptAgent),
+        // Background agents are also marked as interrupted in the message
+        // snapshot so hasActiveBackgroundAgentsForSpinner() returns false
+        // and the spinner hides immediately on Ctrl+C / ESC.
+        ...backgroundAgents.map(interruptAgent),
       ],
+      // remainingLiveAgents keeps background agents with their original
+      // status so terminateActiveBackgroundAgents() can still find and
+      // clean them up.
       remainingLiveAgents: backgroundAgents,
     };
   }, []);

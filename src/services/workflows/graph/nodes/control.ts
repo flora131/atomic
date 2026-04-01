@@ -5,48 +5,6 @@ import type {
   NodeResult,
   ExecutionContext,
 } from "@/services/workflows/graph/types.ts";
-import { BUFFER_EXHAUSTION_THRESHOLD } from "@/services/workflows/graph/types.ts";
-
-export interface ClearContextNodeConfig<TState extends BaseState = BaseState> {
-  id: NodeId;
-  name?: string;
-  description?: string;
-  message?: string | ((state: TState) => string);
-}
-
-export function clearContextNode<TState extends BaseState = BaseState>(
-  config: ClearContextNodeConfig<TState>,
-): NodeDefinition<TState> {
-  const { id, name, description, message } = config;
-
-  return {
-    id,
-    type: "tool",
-    name: name ?? "clear-context",
-    description: description ?? "Clears the context window",
-    execute: async (ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> => {
-      const resolvedMessage =
-        typeof message === "function" ? message(ctx.state) : message;
-
-      return {
-        signals: [
-          {
-            type: "context_window_warning",
-            message: resolvedMessage ?? "Clearing context window",
-            data: {
-              usage: 100,
-              threshold:
-                ctx.contextWindowThreshold ??
-                BUFFER_EXHAUSTION_THRESHOLD * 100,
-              nodeId: id,
-              action: "summarize",
-            },
-          },
-        ],
-      };
-    },
-  };
-}
 
 export interface DecisionRoute<TState extends BaseState = BaseState> {
   condition: (state: TState) => boolean;

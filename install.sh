@@ -308,7 +308,12 @@ PKGEOF
         fi
         # Strip leading 'v' from version for npm semver (e.g. v0.4.30 -> 0.4.30)
         local npm_version="${install_version#v}"
-        (cd "$workflows_dir" && bun add "@bastani/atomic-workflows@${npm_version}" 2>/dev/null) || true
+        # Try exact version first; fall back to latest if not yet published
+        if ! (cd "$workflows_dir" && bun add "@bastani/atomic-workflows@${npm_version}" 2>/dev/null); then
+            warn "Exact SDK version ${npm_version} not found on npm, falling back to latest..."
+            (cd "$workflows_dir" && bun add "@bastani/atomic-workflows@latest" 2>/dev/null) || \
+                warn "Could not install @bastani/atomic-workflows SDK. Install manually: cd $workflows_dir && bun add @bastani/atomic-workflows"
+        fi
     else
         error "bun is required to install @bastani/atomic-workflows SDK. Install bun from https://bun.sh"
     fi

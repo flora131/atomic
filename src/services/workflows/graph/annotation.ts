@@ -11,7 +11,7 @@
  * Reference: Feature 10 - Create src/graph/annotation.ts with state annotation system
  */
 
-import type { ContextWindowUsage, DebugReport, NodeId } from "@/services/workflows/graph/types.ts";
+import type { DebugReport, NodeId } from "@/services/workflows/graph/types.ts";
 
 // ============================================================================
 // ANNOTATION TYPES
@@ -326,9 +326,6 @@ export const AtomicStateAnnotation = {
 
   // PR management
   prUrl: annotation<string | null>(null),
-
-  // Context management
-  contextWindowUsage: annotation<ContextWindowUsage | null>(null),
 
   // Iteration tracking
   iteration: annotation<number>(1),

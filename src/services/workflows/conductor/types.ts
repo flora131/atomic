@@ -37,139 +37,6 @@ export const STAGE_OUTPUT_STATUSES: readonly StageOutputStatus[] = [
 ] as const;
 
 // ---------------------------------------------------------------------------
-// Context Pressure Monitoring
-// ---------------------------------------------------------------------------
-
-/**
- * Severity level of context window pressure.
- *
- * - `normal`: Usage is within safe bounds — no action needed.
- * - `elevated`: Usage is approaching the threshold — worth monitoring.
- * - `critical`: Usage exceeds the threshold — continuation recommended.
- */
-export type ContextPressureLevel = "normal" | "elevated" | "critical";
-
-/** All valid ContextPressureLevel values (used by guards). */
-export const CONTEXT_PRESSURE_LEVELS: readonly ContextPressureLevel[] = [
-  "normal",
-  "elevated",
-  "critical",
-] as const;
-
-/**
- * Point-in-time snapshot of context window usage for a session.
- *
- * Captured after each stage's session completes streaming, before
- * the session is destroyed. Stored in `StageOutput.contextUsage`
- * and accumulated across stages in `StageContext.contextPressure`.
- */
-export interface ContextPressureSnapshot {
-  /** Input tokens consumed in this session. */
-  readonly inputTokens: number;
-
-  /** Output tokens produced in this session. */
-  readonly outputTokens: number;
-
-  /** Maximum tokens allowed by the model's context window. */
-  readonly maxTokens: number;
-
-  /** Percentage of context window consumed (0–100). */
-  readonly usagePercentage: number;
-
-  /** Computed pressure level based on configured thresholds. */
-  readonly level: ContextPressureLevel;
-
-  /** ISO timestamp when the snapshot was taken. */
-  readonly timestamp: string;
-}
-
-/**
- * Record of a continuation session created when context pressure
- * exceeded the threshold during a stage's execution.
- *
- * The conductor creates a new session with a summary of prior work
- * and continues the stage. Each `ContinuationRecord` captures the
- * context state at the point of continuation.
- */
-export interface ContinuationRecord {
-  /** The stage ID where continuation was triggered. */
-  readonly stageId: string;
-
-  /** Zero-based index of this continuation within the stage. */
-  readonly continuationIndex: number;
-
-  /** Context snapshot that triggered the continuation. */
-  readonly triggerSnapshot: ContextPressureSnapshot;
-
-  /** Partial response accumulated before continuation. */
-  readonly partialResponse: string;
-
-  /** ISO timestamp when the continuation was created. */
-  readonly timestamp: string;
-}
-
-/**
- * Accumulated context pressure state across all stages of a workflow.
- *
- * Provided to stages via `StageContext.contextPressure` so that
- * `buildPrompt` and `shouldRun` can make pressure-aware decisions.
- */
-export interface AccumulatedContextPressure {
-  /** Total input tokens consumed across all completed stages. */
-  readonly totalInputTokens: number;
-
-  /** Total output tokens produced across all completed stages. */
-  readonly totalOutputTokens: number;
-
-  /** Number of continuation sessions created so far. */
-  readonly totalContinuations: number;
-
-  /** Per-stage snapshots, keyed by stage ID. */
-  readonly stageSnapshots: ReadonlyMap<string, ContextPressureSnapshot>;
-
-  /** All continuation records across the workflow. */
-  readonly continuations: readonly ContinuationRecord[];
-}
-
-/**
- * Configuration for context pressure monitoring and continuation sessions.
- *
- * When provided in `ConductorConfig.contextPressure`, the conductor
- * will query `session.getContextUsage()` after each stage completes
- * streaming and take action when thresholds are exceeded.
- */
-export interface ContextPressureConfig {
-  /**
-   * Usage percentage (0–100) at which context pressure is "elevated".
-   * Stages receive this information but no automatic action is taken.
-   * @default 45
-   */
-  readonly elevatedThreshold: number;
-
-  /**
-   * Usage percentage (0–100) at which context pressure is "critical"
-   * and a continuation session is created.
-   * @default 60
-   */
-  readonly criticalThreshold: number;
-
-  /**
-   * Maximum number of continuation sessions per stage.
-   * Prevents infinite continuation loops.
-   * @default 3
-   */
-  readonly maxContinuationsPerStage: number;
-
-  /**
-   * Whether to enable continuation sessions.
-   * When `false`, context pressure is still monitored and reported
-   * via `onContextPressure`, but continuations are not created.
-   * @default true
-   */
-  readonly enableContinuation: boolean;
-}
-
-// ---------------------------------------------------------------------------
 // StageOutput — captured result of a single stage execution
 // ---------------------------------------------------------------------------
 
@@ -201,24 +68,6 @@ export interface StageOutput {
 
   /** Error message when `status === "error"`. */
   readonly error?: string;
-
-  /**
-   * Context window usage snapshot captured after this stage's session
-   * completed streaming, before the session was destroyed.
-   *
-   * Present only when `ConductorConfig.contextPressure` is configured
-   * and the session's `getContextUsage()` succeeds.
-   */
-  readonly contextUsage?: ContextPressureSnapshot;
-
-  /**
-   * Continuation records for this stage, if any continuation sessions
-   * were created due to context pressure.
-   *
-   * Empty array when no continuations occurred. Each record captures
-   * the partial response and trigger snapshot at the continuation point.
-   */
-  readonly continuations?: readonly ContinuationRecord[];
 
   /**
    * Original byte length of `rawResponse` before truncation.
@@ -265,15 +114,6 @@ export interface StageContext {
    */
   readonly state: BaseState;
 
-  /**
-   * Accumulated context pressure state across all previously-completed stages.
-   *
-   * Present only when `ConductorConfig.contextPressure` is configured.
-   * Stages can use this to make pressure-aware decisions in `buildPrompt`
-   * (e.g., requesting more concise output) or `shouldRun` (e.g., skipping
-   * non-essential stages when pressure is high).
-   */
-  readonly contextPressure?: AccumulatedContextPressure;
 }
 
 // ---------------------------------------------------------------------------
@@ -473,37 +313,6 @@ export interface ConductorConfig {
   readonly runId?: number;
 
   // -------------------------------------------------------------------------
-  // Context Pressure Monitoring (optional — enables usage tracking & continuations)
-  // -------------------------------------------------------------------------
-
-  /**
-   * Configuration for context pressure monitoring and continuation sessions.
-   *
-   * When provided, the conductor queries `session.getContextUsage()` after
-   * each stage's streaming completes, computes a pressure level, and:
-   * - Stores the snapshot in `StageOutput.contextUsage`
-   * - Accumulates usage across stages in `StageContext.contextPressure`
-   * - Triggers continuation sessions when critical threshold is exceeded
-   * - Calls `onContextPressure` for UI notification
-   *
-   * When omitted, context pressure monitoring is disabled (backward compatible).
-   */
-  readonly contextPressure?: ContextPressureConfig;
-
-  /**
-   * Called when context pressure is detected after a stage completes.
-   *
-   * Receives the stage ID, the pressure snapshot, and whether a continuation
-   * session was (or will be) created. Used by the UI layer to show warnings
-   * or progress indicators.
-   */
-  readonly onContextPressure?: (
-    stageId: string,
-    snapshot: ContextPressureSnapshot,
-    continuation: boolean,
-  ) => void;
-
-  // -------------------------------------------------------------------------
   // Parts Truncation (optional — reclaims memory on stage completion)
   // -------------------------------------------------------------------------
 
@@ -585,12 +394,4 @@ export interface WorkflowResult {
 
   /** Final workflow state after all node executions. */
   readonly state: BaseState;
-
-  /**
-   * Accumulated context pressure state across all stages.
-   *
-   * Present only when `ConductorConfig.contextPressure` was configured.
-   * Includes total token usage, per-stage snapshots, and all continuation records.
-   */
-  readonly contextPressure?: AccumulatedContextPressure;
 }

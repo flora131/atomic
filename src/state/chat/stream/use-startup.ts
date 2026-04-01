@@ -7,6 +7,7 @@ import type { UseChatStreamLifecycleArgs } from "@/state/chat/stream/lifecycle-t
 
 type UseChatStreamStartupArgs = Pick<
   UseChatStreamLifecycleArgs,
+  | "activeBackgroundAgentCountRef"
   | "activeStreamRunIdRef"
   | "bindTrackedRunToMessage"
   | "clearDeferredCompletion"
@@ -17,14 +18,17 @@ type UseChatStreamStartupArgs = Pick<
   | "lastTurnFinishReasonRef"
   | "nextRunIdFloorRef"
   | "onStreamMessage"
+  | "parallelAgentsRef"
   | "resetConsumers"
   | "resetThinkingSourceTracking"
   | "resetTodoItemsForNewStream"
   | "runningAskQuestionToolIdsRef"
   | "runningBlockingToolIdsRef"
+  | "setActiveBackgroundAgentCount"
   | "setIsStreaming"
   | "setLastStreamedMessageId"
   | "setMessagesWindowed"
+  | "setParallelAgents"
   | "setStreamingMessageId"
   | "startTrackedAssistantRun"
   | "streamingStartRef"
@@ -101,6 +105,7 @@ function clearStreamBootstrapState({
 }
 
 export function useChatStreamStartup({
+  activeBackgroundAgentCountRef,
   activeStreamRunIdRef,
   bindTrackedRunToMessage,
   clearDeferredCompletion,
@@ -112,14 +117,17 @@ export function useChatStreamStartup({
   lastTurnFinishReasonRef,
   nextRunIdFloorRef,
   onStreamMessage,
+  parallelAgentsRef,
   resetConsumers,
   resetThinkingSourceTracking,
   resetTodoItemsForNewStream,
   runningAskQuestionToolIdsRef,
   runningBlockingToolIdsRef,
+  setActiveBackgroundAgentCount,
   setIsStreaming,
   setLastStreamedMessageId,
   setMessagesWindowed,
+  setParallelAgents,
   setStreamingMessageId,
   startTrackedAssistantRun,
   streamingStartRef,
@@ -152,6 +160,14 @@ export function useChatStreamStartup({
       toolNameByIdRef,
     });
 
+    // Clear stale parallel agents from the previous stream so they don't
+    // bleed into the new message's rendering (e.g. an interrupted background
+    // agent from a prior turn showing in the current turn's agent tree).
+    parallelAgentsRef.current = [];
+    setParallelAgents([]);
+    activeBackgroundAgentCountRef.current = 0;
+    setActiveBackgroundAgentCount(0);
+
     const runHandle = startTrackedAssistantRun(options);
     const assistantMessage = createMessage("assistant", "", true);
     setStreamingMessageId(assistantMessage.id);
@@ -164,6 +180,7 @@ export function useChatStreamStartup({
     });
     return runHandle;
   }, [
+    activeBackgroundAgentCountRef,
     activeStreamRunIdRef,
     bindTrackedRunToMessage,
     clearDeferredCompletion,
@@ -174,14 +191,17 @@ export function useChatStreamStartup({
     lastStreamingContentRef,
     nextRunIdFloorRef,
     onStreamMessage,
+    parallelAgentsRef,
     resetConsumers,
     resetThinkingSourceTracking,
     resetTodoItemsForNewStream,
     runningAskQuestionToolIdsRef,
     runningBlockingToolIdsRef,
+    setActiveBackgroundAgentCount,
     setIsStreaming,
     setLastStreamedMessageId,
     setMessagesWindowed,
+    setParallelAgents,
     setStreamingMessageId,
     startTrackedAssistantRun,
     streamingStartRef,

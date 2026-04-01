@@ -1,10 +1,14 @@
-import { BACKGROUND_COMPACTION_THRESHOLD } from "@/services/workflows/graph/types.ts";
+import {
+  BACKGROUND_COMPACTION_THRESHOLD,
+  computeCompactionThresholdPercent,
+} from "@/services/workflows/graph/types.ts";
 import {
   incrementRuntimeParityCounter,
   runtimeParityDebug,
 } from "@/services/workflows/runtime-parity-observability.ts";
 
 export const AUTO_COMPACTION_THRESHOLD = BACKGROUND_COMPACTION_THRESHOLD;
+export { computeCompactionThresholdPercent };
 export const MAX_COMPACTION_WAIT_MS = 15_000;
 export const COMPACTION_TERMINAL_ERROR_MESSAGE =
   "Compaction failed, please start a new chat.";

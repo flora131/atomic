@@ -7,7 +7,7 @@
 
 import type { BaseState, CompiledGraph } from "@/services/workflows/graph/types.ts";
 import type { WorkflowRuntimeFeatureFlagOverrides } from "@/services/workflows/runtime-contracts.ts";
-import type { ContextPressureConfig, StageDefinition } from "@/services/workflows/conductor/types.ts";
+import type { StageDefinition } from "@/services/workflows/conductor/types.ts";
 
 export interface WorkflowMetadata {
   name: string;
@@ -41,16 +41,13 @@ export interface WorkflowDefinition extends WorkflowMetadata {
    * stage definitions handle inter-stage communication.
    */
   createConductorGraph?: () => CompiledGraph<BaseState>;
-  /**
-   * Context pressure monitoring configuration. When provided, the conductor
-   * tracks context window usage per stage and can automatically create
-   * continuation sessions when usage exceeds configured thresholds.
-   *
-   * Use `createDefaultContextPressureConfig()` from
-   * `@/services/workflows/conductor/context-pressure.ts` for sensible defaults.
-   */
-  contextPressure?: ContextPressureConfig;
   runtime?: {
     featureFlags?: WorkflowRuntimeFeatureFlagOverrides;
   };
+  /**
+   * State field names declared in globalState (used for verification).
+   * Populated by the DSL compiler from the globalState schema so the
+   * verifier can treat these fields as having initial default values.
+   */
+  stateFields?: string[];
 }

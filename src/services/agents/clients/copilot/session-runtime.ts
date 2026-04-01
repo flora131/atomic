@@ -161,6 +161,49 @@ export function createWrappedCopilotSession(args: {
 		return abortPromise;
 	};
 
+	// Wait for any in-flight foreground abort to settle, then send a
+	// **fresh** session.abort RPC.  The Copilot CLI manages background
+	// agents via its internal TaskRegistry – a second abort arriving after
+	// the foreground one has been processed causes the CLI to reject any
+	// new pending tool/command requests that background agents created in
+	// the interim, effectively tearing them down.  This mirrors the
+	// two-phase pattern used by `abortAndDestroySession` in the controller.
+	const abortBackgroundAgentsSessions = async (): Promise<void> => {
+		// Phase 1 – let the foreground abort finish so the lock is released.
+		const pendingAbort = state.pendingAbortPromise;
+		if (pendingAbort) {
+			try {
+				await pendingAbort;
+			} catch {
+				// Swallow – we only need the lock to clear.
+			}
+		}
+
+		// Phase 2 – send a fresh abort RPC (bypasses runAbortWithLock since
+		// the lock is now cleared).  Also abort any sibling sessions that
+		// may host work for other background agents.
+		const abortPromises: Promise<void>[] = [];
+		for (const [sid, peerState] of args.sessions) {
+			if (peerState.isClosed) {
+				continue;
+			}
+			abortPromises.push(
+				peerState.sdkSession.abort().catch((error: unknown) => {
+					if (isSessionNotFoundError(error)) {
+						return;
+					}
+					if (process.env.DEBUG) {
+						console.debug(
+							`[copilot] failed to abort session ${sid} for background agents:`,
+							error,
+						);
+					}
+				}),
+			);
+		}
+		await Promise.allSettled(abortPromises);
+	};
+
 	args.sessions.set(sessionId, state);
 	args.emitEvent("session.start", sessionId, { config: args.config });
 	args.emitProviderEvent(
@@ -522,7 +565,7 @@ export function createWrappedCopilotSession(args: {
 		},
 
 		abortBackgroundAgents: async (): Promise<void> => {
-			await runAbortWithLock();
+			await abortBackgroundAgentsSessions();
 		},
 
 		getSystemToolsTokens: (): number => {

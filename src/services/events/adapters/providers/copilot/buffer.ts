@@ -130,10 +130,15 @@ export function cleanupCopilotOrphanedTools(
  * Synthesize `stream.agent.complete` events for foreground agents whose
  * `subagent.complete` event was never received from the Copilot SDK.
  *
- * Background agents are preserved — their completion is signaled by a
- * `system.notification` event with `kind.type === "agent_idle"` that
+ * Background agents are preserved by default — their completion is signaled
+ * by a `system.notification` event with `kind.type === "agent_idle"` that
  * arrives via the persistent `session.on()` subscription after the
  * foreground stream ends.
+ *
+ * When `forceFlushBackground` is true (e.g. during abort), background
+ * agents are also flushed with synthetic completions because the abort
+ * tears down event subscriptions so real completion events will never
+ * arrive.
  *
  * Call this in the `finally` block of `startCopilotStreaming`, after
  * `cleanupCopilotOrphanedTools`.
@@ -141,6 +146,7 @@ export function cleanupCopilotOrphanedTools(
 export function flushCopilotOrphanedAgentCompletions(
   state: CopilotStreamAdapterState,
   bus: EventBus,
+  options?: { forceFlushBackground?: boolean },
 ): void {
   if (!state.subagentTracker) {
     // No tracker — clean up any remaining tool entries that
@@ -155,6 +161,9 @@ export function flushCopilotOrphanedAgentCompletions(
   // Collect background agent entries to preserve — their real
   // completion events (system.notification with agent_idle) will arrive
   // via onProviderEvent after the foreground stream ends.
+  // When forceFlushBackground is set (abort path), skip preservation
+  // since the subscription is torn down and real events will never arrive.
+  const forceFlush = options?.forceFlushBackground === true;
   const preservedBackgroundEntries: [string, string][] = [];
 
   for (const [toolCallId, agentId] of state.toolCallIdToSubagentId) {
@@ -163,7 +172,7 @@ export function flushCopilotOrphanedAgentCompletions(
       continue;
     }
 
-    if (state.subagentTracker.isAgentBackground(agentId)) {
+    if (!forceFlush && state.subagentTracker.isAgentBackground(agentId)) {
       preservedBackgroundEntries.push([toolCallId, agentId]);
       continue;
     }
@@ -181,7 +190,7 @@ export function flushCopilotOrphanedAgentCompletions(
           toolId: toolCallId,
           toolName,
           toolResult: null,
-          success: true,
+          success: !forceFlush,
           sdkCorrelationId: toolCallId,
           ...(activeToolContext?.parentAgentId
             ? { parentAgentId: activeToolContext.parentAgentId }
@@ -200,7 +209,7 @@ export function flushCopilotOrphanedAgentCompletions(
       timestamp: Date.now(),
       data: {
         agentId,
-        success: true,
+        success: !forceFlush,
       },
     });
   }

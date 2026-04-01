@@ -250,7 +250,23 @@ export function useChatInterruptControls({
       const activeBackgroundAgents = getActiveBackgroundAgents(parallelAgentsRef.current);
       if (activeBackgroundAgents.length > 0) {
         onInterrupt?.();
+        parallelInterruptHandlerRef.current?.();
+
+        // Temporarily keep original status so terminateActiveBackgroundAgents
+        // can still find the agents via getActiveBackgroundAgents().
+        const { interruptedAgents, remainingLiveAgents } = separateAndInterruptAgents(parallelAgentsRef.current);
+        parallelAgentsRef.current = remainingLiveAgents;
+
+        // terminateActiveBackgroundAgents captures the agent snapshot
+        // synchronously, so it sees the original-status agents above.
         terminateActiveBackgroundAgents();
+
+        // Now that termination captured its snapshot, mark all agents as
+        // interrupted in the live state.  This prevents late-arriving
+        // stream.agent.complete events (from the adapter's force-flush)
+        // from reverting the status to "completed" (green).
+        parallelAgentsRef.current = interruptedAgents;
+        setParallelAgents(interruptedAgents);
 
         // Mark the last message as interrupted so the UI shows
         // "Operation cancelled by user" instead of a stale spinner.
@@ -265,6 +281,7 @@ export function useChatInterruptControls({
                   ...msg,
                   wasInterrupted: true,
                   streaming: false,
+                  parallelAgents: interruptedAgents,
                   taskItems: interruptedTaskItems,
                   parts: finalizeStreamingTextParts(
                     interruptRunningToolParts(msg.parts) ?? [],
@@ -497,7 +514,23 @@ export function useChatInterruptControls({
       const activeBackgroundAgents = getActiveBackgroundAgents(parallelAgentsRef.current);
       if (activeBackgroundAgents.length > 0) {
         onInterrupt?.();
+        parallelInterruptHandlerRef.current?.();
+
+        // Temporarily keep original status so terminateActiveBackgroundAgents
+        // can still find the agents via getActiveBackgroundAgents().
+        const { interruptedAgents, remainingLiveAgents } = separateAndInterruptAgents(parallelAgentsRef.current);
+        parallelAgentsRef.current = remainingLiveAgents;
+
+        // terminateActiveBackgroundAgents captures the agent snapshot
+        // synchronously, so it sees the original-status agents above.
         terminateActiveBackgroundAgents();
+
+        // Now that termination captured its snapshot, mark all agents as
+        // interrupted in the live state.  This prevents late-arriving
+        // stream.agent.complete events (from the adapter's force-flush)
+        // from reverting the status to "completed" (green).
+        parallelAgentsRef.current = interruptedAgents;
+        setParallelAgents(interruptedAgents);
 
         // Mark the last message as interrupted so the UI shows
         // "Operation cancelled by user" instead of a stale spinner.
@@ -512,6 +545,7 @@ export function useChatInterruptControls({
                   ...msg,
                   wasInterrupted: true,
                   streaming: false,
+                  parallelAgents: interruptedAgents,
                   taskItems: interruptedTaskItems,
                   parts: finalizeStreamingTextParts(
                     interruptRunningToolParts(msg.parts) ?? [],

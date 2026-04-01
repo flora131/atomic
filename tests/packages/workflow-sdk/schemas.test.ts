@@ -11,9 +11,6 @@ import { describe, test, expect } from "bun:test";
 import {
   JsonValueSchema,
   TaskItemSchema,
-  ContextPressureLevelSchema,
-  ContextPressureSnapshotSchema,
-  ContinuationRecordSchema,
   StageOutputStatusSchema,
   StageOutputSchema,
   SignalTypeSchema,
@@ -141,89 +138,6 @@ describe("TaskItemSchema", () => {
 });
 
 // ---------------------------------------------------------------------------
-// ContextPressureLevelSchema
-// ---------------------------------------------------------------------------
-
-describe("ContextPressureLevelSchema", () => {
-  test("accepts valid levels", () => {
-    expect(ContextPressureLevelSchema.safeParse("normal").success).toBe(true);
-    expect(ContextPressureLevelSchema.safeParse("elevated").success).toBe(true);
-    expect(ContextPressureLevelSchema.safeParse("critical").success).toBe(true);
-  });
-
-  test("rejects invalid levels", () => {
-    expect(ContextPressureLevelSchema.safeParse("high").success).toBe(false);
-    expect(ContextPressureLevelSchema.safeParse("").success).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// ContextPressureSnapshotSchema
-// ---------------------------------------------------------------------------
-
-describe("ContextPressureSnapshotSchema", () => {
-  const validSnapshot = {
-    inputTokens: 1000,
-    outputTokens: 500,
-    maxTokens: 4096,
-    usagePercentage: 0.37,
-    level: "normal" as const,
-    timestamp: "2026-03-27T00:00:00Z",
-  };
-
-  test("validates a complete snapshot", () => {
-    expect(ContextPressureSnapshotSchema.safeParse(validSnapshot).success).toBe(true);
-  });
-
-  test("rejects missing fields", () => {
-    const { inputTokens: _, ...incomplete } = validSnapshot;
-    expect(ContextPressureSnapshotSchema.safeParse(incomplete).success).toBe(false);
-  });
-
-  test("rejects invalid level enum", () => {
-    expect(
-      ContextPressureSnapshotSchema.safeParse({ ...validSnapshot, level: "high" }).success,
-    ).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// ContinuationRecordSchema
-// ---------------------------------------------------------------------------
-
-describe("ContinuationRecordSchema", () => {
-  const validSnapshot = {
-    inputTokens: 1000,
-    outputTokens: 500,
-    maxTokens: 4096,
-    usagePercentage: 0.85,
-    level: "critical" as const,
-    timestamp: "2026-03-27T00:00:00Z",
-  };
-
-  test("validates a complete continuation record", () => {
-    const result = ContinuationRecordSchema.safeParse({
-      stageId: "orchestrator",
-      continuationIndex: 1,
-      triggerSnapshot: validSnapshot,
-      partialResponse: "Partial output before continuation...",
-      timestamp: "2026-03-27T00:01:00Z",
-    });
-    expect(result.success).toBe(true);
-  });
-
-  test("rejects missing triggerSnapshot", () => {
-    const result = ContinuationRecordSchema.safeParse({
-      stageId: "orchestrator",
-      continuationIndex: 0,
-      partialResponse: "partial",
-      timestamp: "2026-03-27T00:01:00Z",
-    });
-    expect(result.success).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // StageOutputSchema
 // ---------------------------------------------------------------------------
 
@@ -299,7 +213,6 @@ describe("StageOutputStatusSchema", () => {
 
 describe("SignalTypeSchema", () => {
   test("accepts valid signal types", () => {
-    expect(SignalTypeSchema.safeParse("context_window_warning").success).toBe(true);
     expect(SignalTypeSchema.safeParse("checkpoint").success).toBe(true);
     expect(SignalTypeSchema.safeParse("human_input_required").success).toBe(true);
     expect(SignalTypeSchema.safeParse("debug_report_generated").success).toBe(true);
@@ -320,8 +233,8 @@ describe("SignalDataSchema", () => {
 
   test("validates full signal data with nested JSON values", () => {
     const result = SignalDataSchema.safeParse({
-      type: "context_window_warning",
-      message: "Context window at 85%",
+      type: "checkpoint",
+      message: "Checkpoint reached",
       data: { usagePercent: 85, tokens: { input: 3500, output: 400 } },
     });
     expect(result.success).toBe(true);

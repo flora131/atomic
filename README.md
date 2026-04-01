@@ -51,7 +51,7 @@ Ship complex features with AI agents that actually understand your codebase. Res
 >
 > Use the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) for VS Code or [DevPod](https://devpod.sh) to spawn and manage your devcontainers.
 
-Add a single feature to your `.devcontainer/devcontainer.json` — this installs Atomic, the coding agent, and all dependencies automatically.
+Add a single feature to your `.devcontainer/devcontainer.json` — this installs Atomic, the coding agent, GitHub CLI, and all dependencies automatically.
 
 ```
 your-project/
@@ -61,24 +61,8 @@ your-project/
 └── ...
 ```
 
-Here are some examples to get started:
-
-Ubuntu:
-
 ```jsonc
 {
-  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
-  "features": {
-    "ghcr.io/flora131/atomic/claude:latest": {}   // or /opencode:latest or /copilot:latest
-  }
-}
-```
-
-Windows:
-
-```jsonc
-{
-  "image": "mcr.microsoft.com/devcontainers/base:windows",
   "features": {
     "ghcr.io/flora131/atomic/claude:latest": {}   // or /opencode:latest or /copilot:latest
   }

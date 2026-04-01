@@ -27,7 +27,6 @@ export function useStreamSessionSubscriptions(
     | "handlePermissionRequest"
     | "handleStreamComplete"
     | "handleStreamStartupError"
-    | "hasPendingTaskResultContract"
     | "hasRunningToolRef"
     | "isStreamingRef"
     | "lastStreamedMessageIdRef"

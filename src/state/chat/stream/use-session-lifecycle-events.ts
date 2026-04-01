@@ -10,9 +10,7 @@ import {
 } from "@/state/chat/shared/helpers/skill-load-tracking.ts";
 import {
   interruptRunningToolParts,
-  shouldContinueParentSessionLoop,
 } from "@/state/chat/shared/helpers/stream-continuation.ts";
-import { hasActiveForegroundAgents } from "@/state/parts/index.ts";
 import {
   getActiveBackgroundAgents,
   isActiveBackgroundStatus,
@@ -28,7 +26,6 @@ export function useSessionLifecycleEvents({
   batchDispatcher,
   handleStreamComplete,
   handleStreamStartupError,
-  hasPendingTaskResultContract,
   hasRunningToolRef,
   isStreamingRef,
   lastStreamedMessageIdRef,
@@ -56,7 +53,6 @@ export function useSessionLifecycleEvents({
   | "batchDispatcher"
   | "handleStreamComplete"
   | "handleStreamStartupError"
-  | "hasPendingTaskResultContract"
   | "hasRunningToolRef"
   | "isStreamingRef"
   | "lastStreamedMessageIdRef"
@@ -263,16 +259,23 @@ export function useSessionLifecycleEvents({
       setParallelAgents(cleanedAgents);
     }
 
-    const continuationSignal = shouldContinueParentSessionLoop({
-      finishReason: lastTurnFinishReasonRef.current ?? undefined,
-      hasActiveForegroundAgents: hasActiveForegroundAgents(parallelAgentsRef.current),
-      hasRunningBlockingTool: hasRunningToolRef.current,
-      hasPendingTaskContract: hasPendingTaskResultContract(),
-    });
-
-    if (!continuationSignal.shouldContinue) {
-      handleStreamComplete();
+    // session.idle is the definitive terminal signal from the SDK — all
+    // processing is complete and no more events will be produced. Clear
+    // any stale tool / finish-reason state that could cause
+    // shouldContinueParentSessionLoop to incorrectly return
+    // shouldContinue: true (e.g. a lingering "tool-calls" finish reason
+    // from a turn that preceded compaction). Without this, the stream
+    // never finalizes and the original user message can be re-dispatched
+    // indefinitely.
+    lastTurnFinishReasonRef.current = null;
+    if (hasRunningToolRef.current) {
+      hasRunningToolRef.current = false;
+      runningBlockingToolIdsRef.current.clear();
+      runningAskQuestionToolIdsRef.current.clear();
+      setHasRunningTool(false);
     }
+
+    handleStreamComplete();
   });
 
   useBusSubscription("stream.session.partial-idle", (event) => {

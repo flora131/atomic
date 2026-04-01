@@ -22,7 +22,6 @@ describe("createAtomicState", () => {
     expect(state.allFeaturesPassing).toBe(false);
     expect(state.debugReports).toEqual([]);
     expect(state.prUrl).toBeNull();
-    expect(state.contextWindowUsage).toBeNull();
     expect(state.iteration).toBe(1);
   });
 

@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { agentNode, contextMonitorNode, parallelNode, parallelSubagentNode } from "@/services/workflows/graph/nodes.ts";
+import { agentNode, parallelNode, parallelSubagentNode } from "@/services/workflows/graph/nodes.ts";
 import { askUserNode } from "@/services/workflows/graph/nodes/control.ts";
 import type { AskUserQuestionEventData, AskUserWaitState } from "@/services/workflows/graph/nodes/control.ts";
-import type { BaseState, ContextWindowUsage, ExecutionContext, SubagentStreamResult } from "@/services/workflows/graph/types.ts";
-import type { CodingAgentClient, ContextUsage, Session, SessionConfig } from "@/services/agents/types.ts";
+import type { BaseState, ExecutionContext, SubagentStreamResult } from "@/services/workflows/graph/types.ts";
+import type { CodingAgentClient, Session, SessionConfig } from "@/services/agents/types.ts";
 
 interface TestState extends BaseState {
   mapperSource?: string;
@@ -32,58 +32,6 @@ function createMockSpawnParallel(results: SubagentStreamResult[]) {
   return async (): Promise<SubagentStreamResult[]> => results;
 }
 
-interface MonitorState extends BaseState {
-  contextWindowUsage: ContextWindowUsage | null;
-}
-
-function createMonitorContext(
-  overrides: Partial<MonitorState> = {},
-): ExecutionContext<MonitorState> {
-  return {
-    state: {
-      executionId: "exec-monitor",
-      lastUpdated: new Date(0).toISOString(),
-      outputs: {},
-      contextWindowUsage: null,
-      ...overrides,
-    },
-    config: {},
-    errors: [],
-  };
-}
-
-function createMockMonitoringSession(options: {
-  usagePercentage: number;
-  hasAutoCompacted: boolean;
-  isCompacting?: boolean;
-}): { session: Session; getSummarizeCalls: () => number } {
-  let summarizeCalls = 0;
-  const usage: ContextUsage = {
-    inputTokens: 60,
-    outputTokens: 0,
-    maxTokens: 100,
-    usagePercentage: options.usagePercentage,
-  };
-  const session: Session = {
-    id: "ses_monitor",
-    send: async () => ({ type: "text", content: "" }),
-    stream: async function* () {},
-    summarize: async () => {
-      summarizeCalls += 1;
-    },
-    getContextUsage: async () => usage,
-    getSystemToolsTokens: () => 0,
-    getCompactionState: () => ({
-      isCompacting: options.isCompacting ?? false,
-      hasAutoCompacted: options.hasAutoCompacted,
-    }),
-    destroy: async () => {},
-  };
-  return {
-    session,
-    getSummarizeCalls: () => summarizeCalls,
-  };
-}
 
 describe("parallelNode mapper standardization", () => {
   test("uses outputMapper when provided", async () => {
@@ -370,88 +318,5 @@ describe("askUserNode multiSelect and dslAskUser fields", () => {
     expect(result.stateUpdate?.__waitingForInput).toBe(true);
     expect(result.stateUpdate?.__waitNodeId).toBe("ask-wait");
     expect(result.stateUpdate?.__askUserRequestId).toBeDefined();
-  });
-});
-
-describe("contextMonitorNode compaction conflict guard", () => {
-  test("skips summarize when session has already auto-compacted", async () => {
-    const { session, getSummarizeCalls } = createMockMonitoringSession({
-      usagePercentage: 60,
-      hasAutoCompacted: true,
-    });
-    const node = contextMonitorNode<MonitorState>({
-      id: "context-monitor",
-      agentType: "opencode",
-      getSession: () => session,
-    });
-
-    const result = await node.execute(createMonitorContext());
-
-    expect(getSummarizeCalls()).toBe(0);
-    expect(result.stateUpdate?.contextWindowUsage?.usagePercentage).toBe(60);
-  });
-
-  test("summarizes when threshold is exceeded and no compaction conflict exists", async () => {
-    const { session, getSummarizeCalls } = createMockMonitoringSession({
-      usagePercentage: 60,
-      hasAutoCompacted: false,
-    });
-    const node = contextMonitorNode<MonitorState>({
-      id: "context-monitor",
-      agentType: "opencode",
-      getSession: () => session,
-    });
-
-    await node.execute(createMonitorContext());
-
-    expect(getSummarizeCalls()).toBe(1);
-  });
-
-  test("throws when summarize action is selected without a session", async () => {
-    const node = contextMonitorNode<MonitorState>({
-      id: "context-monitor",
-      agentType: "opencode",
-      getSession: () => null,
-      getContextUsage: async () => ({
-        inputTokens: 60,
-        outputTokens: 0,
-        maxTokens: 100,
-        usagePercentage: 60,
-      }),
-    });
-
-    await expect(node.execute(createMonitorContext())).rejects.toThrow(
-      /no session available for summarization/i,
-    );
-  });
-
-  test("surfaces summarize failures instead of downgrading to warning signals", async () => {
-    const session: Session = {
-      id: "ses_monitor_error",
-      send: async () => ({ type: "text", content: "" }),
-      stream: async function* () {},
-      summarize: async () => {
-        throw new Error("Compaction timed out");
-      },
-      getContextUsage: async () => ({
-        inputTokens: 60,
-        outputTokens: 0,
-        maxTokens: 100,
-        usagePercentage: 60,
-      }),
-      getSystemToolsTokens: () => 0,
-      getCompactionState: () => ({
-        isCompacting: false,
-        hasAutoCompacted: false,
-      }),
-      destroy: async () => {},
-    };
-    const node = contextMonitorNode<MonitorState>({
-      id: "context-monitor",
-      agentType: "opencode",
-      getSession: () => session,
-    });
-
-    await expect(node.execute(createMonitorContext())).rejects.toThrow(/compaction timed out/i);
   });
 });

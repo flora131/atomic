@@ -33,7 +33,7 @@ describe("formatSubagentToolSummary", () => {
   test("truncates at double newlines in bash commands", () => {
     expect(formatSubagentToolSummary("Bash", {
       command: "echo hello\n\necho world",
-    })).toBe("Bash echo hello…");
+    })).toBe("Bash echo hello...");
   });
 
   test("collapses newlines in task descriptions", () => {
@@ -45,6 +45,6 @@ describe("formatSubagentToolSummary", () => {
   test("truncates at double newlines in task descriptions", () => {
     expect(formatSubagentToolSummary("task", {
       description: "Find files\n\nMore details here",
-    })).toBe("Task Find files…");
+    })).toBe("Task Find files...");
   });
 });

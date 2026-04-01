@@ -72,7 +72,7 @@ export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
   copilot: {
     name: "GitHub Copilot CLI",
     cmd: "copilot",
-    additional_flags: ["--add-dir", ".", "--yolo", "--disable-builtin-mcps"],
+    additional_flags: ["--add-dir", ".", "--yolo", "--disable-builtin-mcps", "--no-auto-update"],
     folder: ".github",
     install_url:
       "https://github.com/github/copilot-cli?tab=readme-ov-file#installation",

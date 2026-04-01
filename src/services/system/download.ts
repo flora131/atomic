@@ -380,3 +380,23 @@ export function getDownloadUrl(version: string, filename: string): string {
 export function getChecksumsUrl(version: string): string {
   return getDownloadUrl(version, "checksums.txt");
 }
+
+/**
+ * Check whether a specific version of an npm package exists on the registry.
+ *
+ * @param packageName - Full package name including scope (e.g. "@bastani/atomic-workflows")
+ * @param version     - Semver version without 'v' prefix (e.g. "0.4.30")
+ * @returns true if the package version exists, false otherwise
+ */
+export async function checkNpmPackageExists(
+  packageName: string,
+  version: string,
+): Promise<boolean> {
+  const url = `https://registry.npmjs.org/${packageName}/${version}`;
+  try {
+    const response = await fetch(url);
+    return response.ok;
+  } catch {
+    return false;
+  }
+}

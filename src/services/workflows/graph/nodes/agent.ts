@@ -5,7 +5,6 @@ import type {
   NodeResult,
   RetryConfig,
   ExecutionContext,
-  SignalData,
 } from "@/services/workflows/graph/types.ts";
 import type {
   SessionConfig,
@@ -107,8 +106,6 @@ export function agentNode<TState extends BaseState = BaseState>(
           messages.push(chunk);
         }
 
-        const contextUsage = await session.getContextUsage();
-
         const stateUpdate = outputMapper
           ? outputMapper(messages, ctx.state)
           : ({
@@ -118,26 +115,7 @@ export function agentNode<TState extends BaseState = BaseState>(
               },
             } as Partial<TState>);
 
-        const signals: SignalData[] = [];
-        if (contextUsage && ctx.config.contextWindowThreshold) {
-          const usagePercent =
-            ((contextUsage.inputTokens + contextUsage.outputTokens) /
-              (contextUsage.maxTokens || 100000)) *
-            100;
-
-          if (usagePercent >= ctx.config.contextWindowThreshold) {
-            signals.push({
-              type: "context_window_warning",
-              message: `Context usage at ${usagePercent.toFixed(1)}%`,
-              data: { usagePercent, contextUsage },
-            });
-          }
-        }
-
-        return {
-          stateUpdate,
-          signals: signals.length > 0 ? signals : undefined,
-        };
+        return { stateUpdate };
       } finally {
         await session.destroy();
       }

@@ -17,8 +17,8 @@ describe("BACKGROUND_COMPACTION_THRESHOLD", () => {
     expect(BACKGROUND_COMPACTION_THRESHOLD).toBeLessThan(1);
   });
 
-  test("equals 0.45", () => {
-    expect(BACKGROUND_COMPACTION_THRESHOLD).toBe(0.45);
+  test("equals 0.4", () => {
+    expect(BACKGROUND_COMPACTION_THRESHOLD).toBe(0.4);
   });
 });
 
@@ -80,13 +80,6 @@ describe("DEFAULT_GRAPH_CONFIG", () => {
     expect(DEFAULT_GRAPH_CONFIG.maxConcurrency).toBe(1);
   });
 
-  test("has contextWindowThreshold derived from BACKGROUND_COMPACTION_THRESHOLD * 100", () => {
-    expect(DEFAULT_GRAPH_CONFIG.contextWindowThreshold).toBe(
-      BACKGROUND_COMPACTION_THRESHOLD * 100,
-    );
-    expect(DEFAULT_GRAPH_CONFIG.contextWindowThreshold).toBe(45);
-  });
-
   test("has autoCheckpoint set to true", () => {
     expect(DEFAULT_GRAPH_CONFIG.autoCheckpoint).toBe(true);
   });
@@ -98,6 +91,6 @@ describe("DEFAULT_GRAPH_CONFIG", () => {
 
   test("has exactly the expected keys", () => {
     const keys = Object.keys(DEFAULT_GRAPH_CONFIG).sort();
-    expect(keys).toEqual(["autoCheckpoint", "contextWindowThreshold", "maxConcurrency"]);
+    expect(keys).toEqual(["autoCheckpoint", "maxConcurrency"]);
   });
 });

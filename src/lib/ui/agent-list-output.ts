@@ -1,4 +1,5 @@
 import type { AgentInfo, AgentSource } from "@/services/agent-discovery/types.ts";
+import { truncateDescription } from "@/lib/ui/format.ts";
 
 export interface AgentListItemView {
   name: string;
@@ -14,17 +15,12 @@ export interface AgentListView {
 }
 
 function toItemView(agent: AgentInfo): AgentListItemView {
+  const truncated = truncateDescription(agent.name, agent.description);
   return {
-    name: agent.name,
-    description: firstSentence(agent.description),
+    name: truncated.name,
+    description: truncated.description,
     source: agent.source,
   };
-}
-
-function firstSentence(text: string): string {
-  const cleaned = text.replace(/\n/g, " ").trim();
-  const match = cleaned.match(/^(.+?\.)\s/);
-  return match?.[1] ?? cleaned;
 }
 
 export function buildAgentListView(agents: AgentInfo[]): AgentListView {

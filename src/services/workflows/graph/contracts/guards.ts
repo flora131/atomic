@@ -20,7 +20,6 @@ export function isSignal(value: unknown): value is Signal {
   return (
     typeof value === "string" &&
     [
-      "context_window_warning",
       "checkpoint",
       "human_input_required",
       "debug_report_generated",

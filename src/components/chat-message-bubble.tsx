@@ -125,7 +125,7 @@ export function MessageBubble({
   hideLoading = false,
   todoItems,
   tasksExpanded = false,
-  workflowSessionId,
+  workflowSessionId: _workflowSessionId,
   workflowActive = false,
   showTodoPanel = true,
   elapsedMs,

@@ -2,9 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   decisionNode,
   waitNode,
-  clearContextNode,
 } from "@/services/workflows/graph/nodes/control.ts";
-import { BUFFER_EXHAUSTION_THRESHOLD } from "@/services/workflows/graph/types.ts";
 import type { BaseState, ExecutionContext } from "@/services/workflows/graph/types.ts";
 
 function makeCtx(state?: Partial<BaseState>): ExecutionContext<BaseState> {
@@ -183,92 +181,5 @@ describe("waitNode", () => {
 
     const data = result.signals![0]!.data as Record<string, unknown>;
     expect(data.nodeId).toBe("my_wait");
-  });
-});
-
-describe("clearContextNode", () => {
-  test("returns the correct type", () => {
-    const node = clearContextNode({ id: "clear_1" });
-    expect(node.type).toBe("tool");
-  });
-
-  test("emits context_window_warning signal", async () => {
-    const node = clearContextNode({ id: "clear_1" });
-    const result = await node.execute(makeCtx());
-
-    expect(result.signals).toBeDefined();
-    expect(result.signals!.length).toBe(1);
-    expect(result.signals![0]!.type).toBe("context_window_warning");
-  });
-
-  test("uses custom message when provided", async () => {
-    const node = clearContextNode({
-      id: "clear_1",
-      message: "Please compact now",
-    });
-    const result = await node.execute(makeCtx());
-    expect(result.signals![0]!.message).toBe("Please compact now");
-  });
-
-  test("uses default message when not provided", async () => {
-    const node = clearContextNode({ id: "clear_1" });
-    const result = await node.execute(makeCtx());
-    expect(result.signals![0]!.message).toBe("Clearing context window");
-  });
-
-  test("resolves dynamic message from state", async () => {
-    interface TestState extends BaseState {
-      phase: string;
-    }
-
-    const node = clearContextNode<TestState>({
-      id: "clear_1",
-      message: (state) => `Clearing during ${state.phase}`,
-    });
-
-    const ctx = {
-      state: {
-        executionId: "exec_1",
-        lastUpdated: "",
-        outputs: {},
-        phase: "review",
-      },
-      config: {},
-      errors: [],
-    } as ExecutionContext<TestState>;
-
-    const result = await node.execute(ctx);
-    expect(result.signals![0]!.message).toBe("Clearing during review");
-  });
-
-  test("signal data includes action summarize", async () => {
-    const node = clearContextNode({ id: "clear_1" });
-    const result = await node.execute(makeCtx());
-
-    const data = result.signals![0]!.data as Record<string, unknown>;
-    expect(data.action).toBe("summarize");
-  });
-
-  test("uses contextWindowThreshold from execution context", async () => {
-    const node = clearContextNode({ id: "clear_1" });
-    const ctx = makeCtx();
-    ctx.contextWindowThreshold = 75;
-    const result = await node.execute(ctx);
-
-    const data = result.signals![0]!.data as Record<string, unknown>;
-    expect(data.threshold).toBe(75);
-  });
-
-  test("falls back to BUFFER_EXHAUSTION_THRESHOLD * 100 when no ctx threshold", async () => {
-    const node = clearContextNode({ id: "clear_1" });
-    const result = await node.execute(makeCtx());
-
-    const data = result.signals![0]!.data as Record<string, unknown>;
-    expect(data.threshold).toBe(BUFFER_EXHAUSTION_THRESHOLD * 100);
-  });
-
-  test("uses custom name when provided", () => {
-    const node = clearContextNode({ id: "clear_1", name: "my-cleaner" });
-    expect(node.name).toBe("my-cleaner");
   });
 });

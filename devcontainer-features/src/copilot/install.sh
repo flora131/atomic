@@ -3,6 +3,10 @@
 # Installs the Atomic CLI binary only. Config data, agent config syncing,
 # tooling (bun, uv, cocoindex, playwright, liteparse), and SDK installation
 # are all handled on first `atomic init` / `atomic chat` run via auto-init.
+#
+# NOTE: This script is duplicated across claude, copilot, and opencode features.
+#       Keep all three copies in sync when making changes.
+#       See: devcontainer-features/src/{claude,copilot,opencode}/install.sh
 #-------------------------------------------------------------------------------------------------------------
 
 set -e
@@ -36,14 +40,28 @@ fi
 ATOMIC_VERSION="${VERSION:-latest}"
 GITHUB_REPO="flora131/atomic"
 
+# Support GITHUB_TOKEN for authenticated API requests (avoids rate limits)
+CURL_AUTH_ARGS=()
+if [ -n "${GITHUB_TOKEN:-}" ]; then
+    CURL_AUTH_ARGS=(-H "Authorization: token ${GITHUB_TOKEN}")
+fi
+
 if [ "${ATOMIC_VERSION}" = "latest" ]; then
-    ATOMIC_VERSION=$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" \
+    ATOMIC_VERSION=$(curl -fsSL "${CURL_AUTH_ARGS[@]}" \
+        "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" \
         | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
 elif [ "${ATOMIC_VERSION}" = "prerelease" ]; then
-    ATOMIC_VERSION=$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases" \
+    ATOMIC_VERSION=$(curl -fsSL "${CURL_AUTH_ARGS[@]}" \
+        "https://api.github.com/repos/${GITHUB_REPO}/releases" \
         | grep -E '"tag_name"|"prerelease"' | paste - - \
         | grep '"prerelease": true' | head -1 \
         | sed -E 's/.*"tag_name": "([^"]+)".*/\1/')
+fi
+
+# Validate that version resolution succeeded
+if [ -z "${ATOMIC_VERSION}" ] || [ "${ATOMIC_VERSION}" = "v" ]; then
+    echo "Error: Failed to resolve Atomic CLI version. No matching release found." >&2
+    exit 1
 fi
 
 case "$ATOMIC_VERSION" in v*) ;; *) ATOMIC_VERSION="v${ATOMIC_VERSION}" ;; esac
@@ -51,7 +69,7 @@ case "$ATOMIC_VERSION" in v*) ;; *) ATOMIC_VERSION="v${ATOMIC_VERSION}" ;; esac
 echo "Installing Atomic CLI ${ATOMIC_VERSION} (linux-${arch})..."
 
 # ─── Download and install binary ────────────────────────────────────────────
-curl -fL# -o /usr/local/bin/atomic \
+curl -fL# "${CURL_AUTH_ARGS[@]}" -o /usr/local/bin/atomic \
     "https://github.com/${GITHUB_REPO}/releases/download/${ATOMIC_VERSION}/atomic-linux-${arch}"
 chmod +x /usr/local/bin/atomic
 

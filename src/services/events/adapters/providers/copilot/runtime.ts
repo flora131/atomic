@@ -147,6 +147,7 @@ export async function startCopilotStreaming(
       const streamIterator = activeSession.stream(message, options);
       watchdog.start();
       for await (const _chunk of streamIterator) {
+        if (abortedBySignal) break;
         watchdog.kick();
       }
       // Stream completed normally — exit the retry loop
@@ -227,15 +228,31 @@ export async function startCopilotStreaming(
   });
 
   cleanupCopilotOrphanedTools(state, deps.bus);
-  flushCopilotOrphanedAgentCompletions(state, deps.bus);
+
+  // When aborted, force-flush background agents too — the abort tears down
+  // event subscriptions so real completion events will never arrive.
+  flushCopilotOrphanedAgentCompletions(state, deps.bus, {
+    forceFlushBackground: abortedBySignal,
+  });
   const pendingIdleReason = state.pendingIdleReason;
   state.pendingIdleReason = null;
 
-  // Background agents are preserved in the tracker by the flush, so this
-  // check reflects the true post-cleanup state — no snapshot needed.
+  // After flush: background agents are preserved (normal path) or already
+  // flushed (abort path).
   const hasBackgroundAgents = state.subagentTracker?.hasActiveBackgroundAgents() ?? false;
 
-  if (!abortedBySignal && pendingIdleReason !== null) {
+  if (abortedBySignal) {
+    // Emit session idle with "aborted" so the UI transitions all agents to
+    // interrupted state and finalizes the stream — matching Claude/OpenCode
+    // behavior.
+    publishCopilotBufferedEvent(state, deps.bus, {
+      type: "stream.session.idle",
+      sessionId: state.sessionId,
+      runId: state.runId,
+      timestamp: Date.now(),
+      data: { reason: "aborted" },
+    });
+  } else if (pendingIdleReason !== null) {
     if (hasBackgroundAgents) {
       state.isBackgroundOnly = true;
       publishCopilotBufferedEvent(state, deps.bus, {
@@ -284,6 +301,28 @@ export async function startCopilotStreaming(
       };
       options.abortSignal?.addEventListener("abort", onAbort, { once: true });
     });
+
+    // If the background wait was resolved by abort (not natural completion),
+    // emit synthetic completions for remaining background agents and signal
+    // session idle.  Without this the UI never receives stream.agent.complete
+    // events and the spinner stays stuck in "running" state.
+    if (
+      options.abortSignal?.aborted
+      && state.subagentTracker?.hasActiveBackgroundAgents()
+    ) {
+      flushCopilotOrphanedAgentCompletions(state, deps.bus, {
+        forceFlushBackground: true,
+      });
+      publishCopilotBufferedEvent(state, deps.bus, {
+        type: "stream.session.idle",
+        sessionId: state.sessionId,
+        runId: state.runId,
+        timestamp: Date.now(),
+        data: { reason: "aborted" },
+      });
+      state.isBackgroundOnly = false;
+      state.isActive = false;
+    }
   }
 }
 

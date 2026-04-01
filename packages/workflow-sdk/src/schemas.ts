@@ -65,50 +65,6 @@ export const TaskItemSchema = z.object({
 export type TaskItem = z.infer<typeof TaskItemSchema>;
 
 // ---------------------------------------------------------------------------
-// Context Pressure
-// ---------------------------------------------------------------------------
-
-/** Valid context pressure levels. */
-export const ContextPressureLevelSchema = z.enum([
-  "normal",
-  "elevated",
-  "critical",
-]);
-
-export type ContextPressureLevel = z.infer<typeof ContextPressureLevelSchema>;
-
-/**
- * Snapshot of context window usage at a point in time.
- */
-export const ContextPressureSnapshotSchema = z.object({
-  inputTokens: z.number(),
-  outputTokens: z.number(),
-  maxTokens: z.number(),
-  usagePercentage: z.number(),
-  level: ContextPressureLevelSchema,
-  timestamp: z.string(),
-});
-
-export type ContextPressureSnapshot = z.infer<typeof ContextPressureSnapshotSchema>;
-
-// ---------------------------------------------------------------------------
-// Continuation Records
-// ---------------------------------------------------------------------------
-
-/**
- * Record of a stage continuation triggered by context pressure.
- */
-export const ContinuationRecordSchema = z.object({
-  stageId: z.string(),
-  continuationIndex: z.number(),
-  triggerSnapshot: ContextPressureSnapshotSchema,
-  partialResponse: z.string(),
-  timestamp: z.string(),
-});
-
-export type ContinuationRecord = z.infer<typeof ContinuationRecordSchema>;
-
-// ---------------------------------------------------------------------------
 // Stage Output
 // ---------------------------------------------------------------------------
 
@@ -132,8 +88,6 @@ export const StageOutputSchema = z.object({
   parsedOutput: z.record(z.string(), JsonValueSchema).optional(),
   status: StageOutputStatusSchema,
   error: z.string().optional(),
-  contextUsage: ContextPressureSnapshotSchema.optional(),
-  continuations: z.array(ContinuationRecordSchema).readonly().optional(),
   originalByteLength: z.number().optional(),
 });
 
@@ -145,7 +99,6 @@ export type StageOutput = z.infer<typeof StageOutputSchema>;
 
 /** Known signal types emitted during workflow execution. */
 export const SignalTypeSchema = z.enum([
-  "context_window_warning",
   "checkpoint",
   "human_input_required",
   "debug_report_generated",

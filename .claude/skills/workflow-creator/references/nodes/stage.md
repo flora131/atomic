@@ -175,7 +175,6 @@ Each entry in `ctx.stageOutputs` is a `StageOutput` object with these fields:
 | `status`           | `"completed" \| "interrupted" \| "error"` | How the stage ended                                           |
 | `error`            | `string \| undefined`                   | Error message if the stage failed                                |
 | `contextUsage`     | `ContextPressureSnapshot \| undefined`  | Context window usage at completion                               |
-| `continuations`    | `readonly ContinuationRecord[] \| undefined` | Records of any continuations triggered by context pressure  |
 | `originalByteLength` | `number \| undefined`                 | Original byte size before any `maxOutputBytes` truncation        |
 
 ```ts

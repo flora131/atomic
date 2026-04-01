@@ -80,13 +80,6 @@ describe("DEFAULT_GRAPH_CONFIG", () => {
     expect(DEFAULT_GRAPH_CONFIG.maxConcurrency).toBe(1);
   });
 
-  test("has contextWindowThreshold derived from BACKGROUND_COMPACTION_THRESHOLD * 100", () => {
-    expect(DEFAULT_GRAPH_CONFIG.contextWindowThreshold).toBe(
-      BACKGROUND_COMPACTION_THRESHOLD * 100,
-    );
-    expect(DEFAULT_GRAPH_CONFIG.contextWindowThreshold).toBe(40);
-  });
-
   test("has autoCheckpoint set to true", () => {
     expect(DEFAULT_GRAPH_CONFIG.autoCheckpoint).toBe(true);
   });
@@ -98,6 +91,6 @@ describe("DEFAULT_GRAPH_CONFIG", () => {
 
   test("has exactly the expected keys", () => {
     const keys = Object.keys(DEFAULT_GRAPH_CONFIG).sort();
-    expect(keys).toEqual(["autoCheckpoint", "contextWindowThreshold", "maxConcurrency"]);
+    expect(keys).toEqual(["autoCheckpoint", "maxConcurrency"]);
   });
 });

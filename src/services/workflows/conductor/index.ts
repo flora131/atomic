@@ -7,12 +7,7 @@
  */
 
 export type {
-  AccumulatedContextPressure,
   ConductorConfig,
-  ContextPressureConfig,
-  ContextPressureLevel,
-  ContextPressureSnapshot,
-  ContinuationRecord,
   StageContext,
   StageDefinition,
   StageOutput,
@@ -21,39 +16,17 @@ export type {
 } from "@/services/workflows/conductor/types.ts";
 
 export {
-  CONTEXT_PRESSURE_LEVELS,
   STAGE_OUTPUT_STATUSES,
 } from "@/services/workflows/conductor/types.ts";
 
 export {
-  isAccumulatedContextPressure,
   isConductorConfig,
-  isContextPressureConfig,
-  isContextPressureLevel,
-  isContextPressureSnapshot,
-  isContinuationRecord,
   isStageContext,
   isStageDefinition,
   isStageOutput,
   isStageOutputStatus,
   isWorkflowResult,
 } from "@/services/workflows/conductor/guards.ts";
-
-export {
-  accumulateContinuation,
-  accumulateStageSnapshot,
-  buildContinuationPrompt,
-  computePressureLevel,
-  createContinuationRecord,
-  createDefaultContextPressureConfig,
-  createEmptyAccumulatedPressure,
-  createSnapshot,
-  DEFAULT_CRITICAL_THRESHOLD,
-  DEFAULT_ELEVATED_THRESHOLD,
-  DEFAULT_MAX_CONTINUATIONS_PER_STAGE,
-  shouldContinueSession,
-  takeContextSnapshot,
-} from "@/services/workflows/conductor/context-pressure.ts";
 
 export {
   truncateStageOutput,

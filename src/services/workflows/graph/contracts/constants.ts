@@ -36,6 +36,5 @@ export const DEFAULT_RETRY_CONFIG: RetryConfig = {
 
 export const DEFAULT_GRAPH_CONFIG: Partial<GraphConfig> = {
   maxConcurrency: 1,
-  contextWindowThreshold: BACKGROUND_COMPACTION_THRESHOLD * 100, // nominal default; runtime uses computeCompactionThresholdPercent
   autoCheckpoint: true,
 };

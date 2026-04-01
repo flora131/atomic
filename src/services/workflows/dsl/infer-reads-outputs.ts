@@ -52,7 +52,6 @@ export function inferStageReads(prompt: StageOptions["prompt"]): string[] {
     tasks: [],
     abortSignal: new AbortController().signal,
     state: tracker.proxy,
-    contextPressure: undefined,
   };
   try { prompt(ctx); } catch {}
   return filterUserFields(tracker.accessed);

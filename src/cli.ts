@@ -88,15 +88,12 @@ export function createProgram() {
         .command("chat", { isDefault: true })
         .description("Start an interactive chat session with a coding agent")
         .option("-a, --agent <name>", `Agent to chat with (${agentChoices})`)
+        .option("-p, --prompt <text>", "Initial prompt to send")
         .option("-t, --theme <name>", "UI theme (dark, light)", "dark")
         .option("-m, --model <name>", "Model to use for the chat session")
         .option(
             "--additional-instructions <text>",
             "Append extra instructions to the enhanced system prompt",
-        )
-        .argument(
-            "[prompt...]",
-            "Initial prompt to send (opens interactive session with prompt)",
         )
         .addHelpText(
             "after",
@@ -104,17 +101,16 @@ export function createProgram() {
 Examples:
   $ atomic chat -a claude                   Start chat with Claude
   $ atomic chat -a opencode                  Start chat with OpenCode
-  $ atomic chat -a copilot                   Start workflow-enabled chat with Copilot
+  $ atomic chat -a copilot                   Start chat with Copilot
   $ atomic chat -a claude --theme light      Start chat with light theme
-  $ atomic chat -a claude --additional-instructions "Be concise" "review this patch"
-  $ atomic chat -a claude "fix the typecheck errors"
-  $ atomic chat -a claude "refactor utils"   Start chat with agent and prompt
+  $ atomic chat -a claude -p "fix the typecheck errors"
+  $ atomic chat -a claude --additional-instructions "Be concise" -p "review this patch"
 
 Slash Commands:
   /theme    - Switch theme (dark/light)
   /help     - Show available commands`,
         )
-        .action(async (promptParts: string[], localOpts) => {
+        .action(async (localOpts) => {
             const validAgents = Object.keys(AGENT_CONFIG);
             const agentType = localOpts.agent;
 
@@ -146,8 +142,7 @@ Slash Commands:
                 process.exit(1);
             }
 
-            const prompt =
-                promptParts.length > 0 ? promptParts.join(" ") : undefined;
+            const prompt = localOpts.prompt || undefined;
             const { chatCommand } = await import("@/commands/cli/chat.ts");
             const exitCode = await chatCommand({
                 agentType: agentType as "claude" | "opencode" | "copilot",

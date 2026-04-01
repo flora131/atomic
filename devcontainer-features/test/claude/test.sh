@@ -6,6 +6,10 @@ source dev-container-features-test-lib
 
 check "atomic CLI is installed" bash -c "which atomic"
 check "bun is installed" bash -c "which bun"
+
+# Run atomic init to trigger runtime tool installation
+atomic init -a claude -y --no-banner
+
 check "cocoindex-code is installed" bash -c "which ccc"
 check "playwright-cli is installed" bash -c "which playwright-cli"
 check "claude agents dir exists" bash -c "test -d ~/.claude/agents"

@@ -5,7 +5,6 @@ import { tmpdir } from "os";
 
 import { syncAtomicGlobalAgentConfigs } from "@/services/config/atomic-global-config.ts";
 import { getConfigRoot } from "@/services/config/config-path.ts";
-import { deployPlaywrightSkill } from "@/scripts/postinstall-playwright.ts";
 
 const PLAYWRIGHT_SKILL_RELATIVE_PATH = join("skills", "playwright-cli", "SKILL.md");
 const LEGACY_WEB_TOOL_TOKENS = [
@@ -40,7 +39,7 @@ async function readTextFile(baseDir: string, relativePath: string): Promise<stri
 }
 
 describe("postinstall integration", () => {
-  test("syncs cleaned configs and re-deploys playwright skills", async () => {
+  test("syncs cleaned configs and deploys playwright skills", async () => {
     const root = await mkdtemp(join(tmpdir(), "postinstall-integration-"));
 
     try {
@@ -88,12 +87,6 @@ describe("postinstall integration", () => {
       // Verify the legacy tokens are absent (checked above) and the new format
       // lists only allowed tools.
       expect(opencodeDebugger.includes("tools:")).toBe(true);
-
-      await rm(join(homeRoot, CLAUDE_GLOBAL_SKILL_PATH), { force: true });
-      await rm(join(homeRoot, OPENCODE_GLOBAL_SKILL_PATH), { force: true });
-      await rm(join(homeRoot, COPILOT_GLOBAL_SKILL_PATH), { force: true });
-
-      await deployPlaywrightSkill(configRoot, atomicHome);
 
       const sourceClaudeSkill = await readTextFile(configRoot, CLAUDE_SKILL_TEMPLATE_PATH);
       const sourceOpencodeSkill = await readTextFile(configRoot, OPENCODE_SKILL_TEMPLATE_PATH);

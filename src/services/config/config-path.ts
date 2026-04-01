@@ -11,7 +11,7 @@
  * - Windows: %LOCALAPPDATA%\atomic
  */
 
-import { join } from "path";
+import { join, dirname } from "path";
 import { existsSync } from "fs";
 import { isWindows } from "@/services/system/detect.ts";
 
@@ -72,25 +72,13 @@ export function getBinaryDataDir(): string {
  * - Binary: Use the dedicated data directory (~/.local/share/atomic or %LOCALAPPDATA%\atomic)
  *
  * @returns The path to the config root directory
- * @throws Error if binary data directory is not found (install may be incomplete)
+ * @throws Error if binary data directory is not found and ensureConfigDataDir() hasn't been called
  */
 export function getConfigRoot(): string {
   const installType = detectInstallationType();
 
   if (installType === "binary") {
-    const dataDir = getBinaryDataDir();
-
-    // Validate that the data directory exists for binary installs
-    if (!existsSync(dataDir)) {
-      throw new Error(
-        `Config data directory not found: ${dataDir}\n\n` +
-          `This usually means the installation is incomplete.\n` +
-          `Please reinstall using the install script:\n` +
-          `  curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash`
-      );
-    }
-
-    return dataDir;
+    return getBinaryDataDir();
   }
 
   // For source and npm installs, navigate up from the current file
@@ -114,17 +102,78 @@ export function configDataDirExists(): boolean {
 }
 
 /**
+ * Ensure the config data directory exists for binary installs.
+ *
+ * If the binary was installed without config data (e.g., via a devcontainer
+ * feature that only copies the binary), this function downloads and extracts
+ * the config tarball for the current version from GitHub releases.
+ *
+ * No-op for source/npm installs or if the data dir already exists.
+ */
+export async function ensureConfigDataDir(version: string): Promise<void> {
+  if (configDataDirExists()) {
+    return;
+  }
+
+  const { log } = await import("@clack/prompts");
+  const { downloadFile, getDownloadUrl, getConfigArchiveFilename } = await import(
+    "@/services/system/download.ts"
+  );
+  const { extractConfig } = await import("@/commands/cli/update.ts");
+  const { tmpdir } = await import("os");
+  const { rm } = await import("fs/promises");
+  const { ensureDir } = await import("@/services/system/copy.ts");
+
+  const dataDir = getBinaryDataDir();
+  const configFilename = getConfigArchiveFilename();
+  const tmpPath = join(tmpdir(), `atomic-config-${Date.now()}`);
+
+  try {
+    await ensureDir(tmpPath);
+    const configPath = join(tmpPath, configFilename);
+    const tag = version.startsWith("v") ? version : `v${version}`;
+
+    log.info("Downloading config data for first run...");
+    await downloadFile(getDownloadUrl(tag, configFilename), configPath);
+    await ensureDir(dataDir);
+    await extractConfig(configPath, dataDir);
+    log.success("Config data installed");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Failed to download config data: ${message}\n\n` +
+        `You can fix this by reinstalling:\n` +
+        `  curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash`,
+    );
+  } finally {
+    await rm(tmpPath, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/**
  * Get the directory where the binary is installed.
  *
- * Default locations:
+ * For binary installs, derives from the actual running executable path
+ * via process.execPath — this is correct regardless of where the binary
+ * was installed (/usr/local/bin, ~/.local/bin, or any custom location).
+ *
+ * For non-binary installs, returns the default install directory:
  * - Unix: ~/.local/bin
  * - Windows: %USERPROFILE%\.local\bin
  *
- * Can be overridden via ATOMIC_INSTALL_DIR environment variable.
+ * Can be overridden via ATOMIC_INSTALL_DIR environment variable
+ * (only applies to non-binary installs, e.g., during initial installation).
  *
  * @returns The path to the binary installation directory
  */
 export function getBinaryInstallDir(): string {
+  const installType = detectInstallationType();
+
+  // For compiled binary installs, derive from the actual binary location
+  if (installType === "binary") {
+    return dirname(process.execPath);
+  }
+
   // Allow override via environment variable
   if (process.env.ATOMIC_INSTALL_DIR) {
     return process.env.ATOMIC_INSTALL_DIR;
@@ -140,13 +189,23 @@ export function getBinaryInstallDir(): string {
 /**
  * Get the full path to the atomic binary executable.
  *
- * Returns platform-specific binary path:
+ * For binary installs, returns the actual path of the running executable
+ * (via process.execPath), which is correct regardless of install location.
+ *
+ * For non-binary installs, returns the default path:
  * - Unix: ~/.local/bin/atomic
  * - Windows: %USERPROFILE%\.local\bin\atomic.exe
  *
  * @returns The full path to the atomic binary
  */
 export function getBinaryPath(): string {
+  const installType = detectInstallationType();
+
+  // For compiled binary installs, use the actual running binary path
+  if (installType === "binary") {
+    return process.execPath;
+  }
+
   const dir = getBinaryInstallDir();
   const binaryName = isWindows() ? "atomic.exe" : "atomic";
   return join(dir, binaryName);

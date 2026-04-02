@@ -1,7 +1,3 @@
-import {
-  createToolMcpServerScript,
-  startToolDispatchServer,
-} from "@/services/agents/tools/opencode-mcp-bridge.ts";
 import { initOpenCodeConfigOverrides } from "@/services/agents/init.ts";
 import type { OpencodeClient as OpenCodeSdkClient } from "@opencode-ai/sdk/v2/client";
 import type {
@@ -9,7 +5,6 @@ import type {
   Session,
   SessionConfig,
   SessionMessageWithParts,
-  ToolDefinition,
 } from "@/services/agents/types.ts";
 import type { OpenCodeListableProvider } from "@/services/agents/clients/opencode/client-types.ts";
 import { extractOpenCodeErrorMessage } from "@/services/agents/clients/opencode/shared.ts";
@@ -56,13 +51,13 @@ export async function listOpenCodeProviderModels(args: {
 
   const result = await (
     providerClient.provider?.list as
-      | ((params: { query: { directory?: string } }) => Promise<{
-          data?: {
-            all?: OpenCodeListableProvider[];
-            connected?: string[];
-          };
-        }>)
-      | undefined
+    | ((params: { query: { directory?: string } }) => Promise<{
+      data?: {
+        all?: OpenCodeListableProvider[];
+        connected?: string[];
+      };
+    }>)
+    | undefined
   )?.({
     query: {
       directory: args.directory,
@@ -122,56 +117,12 @@ export async function registerOpenCodeMcpServers(args: {
   }
 }
 
-export async function registerOpenCodeToolsMcpServer(args: {
-  sdkClient: OpenCodeMcpClient | null;
-  directory?: string;
-  currentSessionId: string | null;
-  registeredTools: Map<string, ToolDefinition>;
-  setDispatchServerStop: (stop: (() => void) | null) => void;
-}): Promise<void> {
-  if (!args.sdkClient) return;
-
-  const contextFactory = () => ({
-    sessionID: args.currentSessionId ?? "",
-    messageID: "",
-    agent: "opencode" as const,
-    directory: args.directory ?? process.cwd(),
-    abort: new AbortController().signal,
-  });
-
-  const { port, stop } = await startToolDispatchServer(
-    args.registeredTools,
-    contextFactory,
-  );
-  args.setDispatchServerStop(stop);
-
-  const tools = Array.from(args.registeredTools.values());
-  const scriptPath = await createToolMcpServerScript(tools, port);
-
-  try {
-    await args.sdkClient.mcp.add({
-      directory: args.directory,
-      name: "atomic-custom-tools",
-      config: {
-        type: "local",
-        command: ["bun", "run", scriptPath],
-        enabled: true,
-      },
-    });
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    console.error(`Failed to register custom tools MCP server: ${errorMsg}`);
-  }
-}
-
 export async function createManagedOpenCodeSession(args: {
   isRunning: boolean;
   sdkClient: OpenCodeManagementClient | null;
   directory?: string;
   config: SessionConfig;
-  registeredTools: Map<string, ToolDefinition>;
   registerMcpServers: (servers: NonNullable<SessionConfig["mcpServers"]>) => Promise<void>;
-  registerToolsMcpServer: () => Promise<void>;
   setCurrentSessionId: (sessionId: string) => void;
   onSessionCreated?: (sessionId: string) => void;
   registerActiveSession: (sessionId: string) => void;
@@ -188,10 +139,6 @@ export async function createManagedOpenCodeSession(args: {
 
   if (args.config.mcpServers && args.config.mcpServers.length > 0) {
     await args.registerMcpServers(args.config.mcpServers);
-  }
-
-  if (args.registeredTools.size > 0) {
-    await args.registerToolsMcpServer();
   }
 
   const result = await args.sdkClient.session.create({
@@ -220,18 +167,12 @@ export async function resumeManagedOpenCodeSession(args: {
   sdkClient: OpenCodeSessionClient | null;
   directory?: string;
   sessionId: string;
-  registeredTools: Map<string, ToolDefinition>;
-  registerToolsMcpServer: () => Promise<void>;
   setCurrentSessionId: (sessionId: string) => void;
   registerActiveSession: (sessionId: string) => void;
   wrapSession: (sessionId: string, config: SessionConfig) => Promise<Session>;
 }): Promise<Session | null> {
   if (!args.isRunning || !args.sdkClient) {
     throw new Error("Client not started. Call start() first.");
-  }
-
-  if (args.registeredTools.size > 0) {
-    await args.registerToolsMcpServer();
   }
 
   const result = await args.sdkClient.session.get({

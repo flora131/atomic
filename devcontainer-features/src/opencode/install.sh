@@ -26,7 +26,7 @@ check_packages() {
     fi
 }
 
-check_packages curl ca-certificates
+check_packages curl ca-certificates unzip jq
 
 # ─── Detect architecture ────────────────────────────────────────────────────
 arch=$(dpkg --print-architecture)
@@ -49,23 +49,21 @@ fi
 if [ "${ATOMIC_VERSION}" = "latest" ]; then
     ATOMIC_VERSION=$(curl -fsSL ${CURL_AUTH_ARGS[@]+"${CURL_AUTH_ARGS[@]}"} \
         "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" \
-        | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+        | jq -r '.tag_name')
 elif [ "${ATOMIC_VERSION}" = "prerelease" ]; then
     ATOMIC_VERSION=$(curl -fsSL ${CURL_AUTH_ARGS[@]+"${CURL_AUTH_ARGS[@]}"} \
         "https://api.github.com/repos/${GITHUB_REPO}/releases" \
-        | grep -E '"tag_name"|"prerelease"' | paste - - \
-        | grep '"prerelease": true' | head -1 \
-        | sed -E 's/.*"tag_name": "([^"]+)".*/\1/')
+        | jq -r '[.[] | select(.prerelease == true)][0].tag_name')
 fi
 
 # Validate that version resolution succeeded
-if [ -z "${ATOMIC_VERSION}" ] || [ "${ATOMIC_VERSION}" = "v" ]; then
+if [ -z "${ATOMIC_VERSION}" ] || [ "${ATOMIC_VERSION}" = "null" ]; then
     echo "Error: Failed to resolve Atomic CLI version. No matching release found." >&2
     exit 1
 fi
 
-# Validate semver format (vMAJOR.MINOR.PATCH with optional prerelease suffix)
-if ! echo "${ATOMIC_VERSION}" | grep -qE '^v?[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
+# Validate semver format (vMAJOR.MINOR.PATCH with optional numeric prerelease suffix)
+if ! echo "${ATOMIC_VERSION}" | grep -qE '^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9]+)?$'; then
     echo "Error: Resolved version '${ATOMIC_VERSION}' is not a valid semver format." >&2
     echo "Expected format: vMAJOR.MINOR.PATCH (e.g., v1.0.0 or v1.0.0-1)" >&2
     exit 1

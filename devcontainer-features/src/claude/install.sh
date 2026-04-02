@@ -36,6 +36,12 @@ if [ "${arch}" != "x64" ] && [ "${arch}" != "arm64" ]; then
     exit 1
 fi
 
+echo "Installing Claude Code..."
+
+curl -fsSL --retry 3 --retry-delay 5 https://claude.ai/install.sh | bash
+
+echo "✓ Claude Code installed"
+
 # ─── Resolve version ────────────────────────────────────────────────────────
 ATOMIC_VERSION="${VERSION:-latest}"
 GITHUB_REPO="flora131/atomic"
@@ -79,9 +85,3 @@ curl -fL# ${CURL_AUTH_ARGS[@]+"${CURL_AUTH_ARGS[@]}"} -o /usr/local/bin/atomic \
 chmod +x /usr/local/bin/atomic
 
 echo "✓ Atomic CLI installed to /usr/local/bin/atomic"
-
-echo "Installing Claude Code..."
-
-curl -fsSL --retry 3 --retry-delay 5 https://claude.ai/install.sh | bash
-
-echo "✓ Claude Code installed"

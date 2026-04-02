@@ -5,6 +5,7 @@
  * eliminating duplication across postinstall-playwright, postinstall-uv, etc.
  */
 
+import { existsSync } from "fs";
 import { join } from "path";
 
 export interface SpawnResult {
@@ -60,19 +61,59 @@ export function getHomeDir(): string | undefined {
 }
 
 /**
- * Get the path to the user's bun binary directory.
+ * Get the path to Bun's binary directory.
+ *
+ * Prefer BUN_INSTALL/bin when Bun explicitly sets its install root; otherwise
+ * fall back to the default ~/.bun/bin location.
  */
-export function getBunBinDir(): string | undefined {
+function getBunInstallRoot(): string | undefined {
+  const bunInstallDir = process.env.BUN_INSTALL;
+  if (bunInstallDir) {
+    return bunInstallDir;
+  }
+
   const home = getHomeDir();
-  return home ? join(home, ".bun", "bin") : undefined;
+  return home ? join(home, ".bun") : undefined;
+}
+
+export function getBunBinDir(): string | undefined {
+  const bunInstallRoot = getBunInstallRoot();
+  return bunInstallRoot ? join(bunInstallRoot, "bin") : undefined;
+}
+
+/**
+ * Resolve Bun's executable path, falling back to Bun's default install
+ * location when the current PATH has not been refreshed yet.
+ */
+export function resolveBunExecutable(): string | undefined {
+  const bunPath = Bun.which("bun");
+  if (bunPath) {
+    return bunPath;
+  }
+
+  const bunBinDir = getBunBinDir();
+  if (!bunBinDir) {
+    return undefined;
+  }
+
+  const bunExecutable = join(
+    bunBinDir,
+    process.platform === "win32" ? "bun.exe" : "bun",
+  );
+  if (!existsSync(bunExecutable)) {
+    return undefined;
+  }
+
+  prependPath(bunBinDir);
+  return bunExecutable;
 }
 
 /**
  * Get the path to bun's global install directory (where `bun install -g` places packages).
  */
 export function getBunGlobalInstallDir(): string | undefined {
-  const home = getHomeDir();
-  return home ? join(home, ".bun", "install", "global") : undefined;
+  const bunInstallRoot = getBunInstallRoot();
+  return bunInstallRoot ? join(bunInstallRoot, "install", "global") : undefined;
 }
 
 /**
@@ -83,7 +124,7 @@ export async function trustGlobalBunPackages(packages: string[]): Promise<SpawnR
   if (packages.length === 0) {
     return { success: true, details: "no packages to trust" };
   }
-  const bunPath = Bun.which("bun");
+  const bunPath = resolveBunExecutable();
   if (!bunPath) {
     return { success: false, details: "bun not found" };
   }

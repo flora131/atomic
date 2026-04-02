@@ -128,7 +128,7 @@ describe("install.sh Windows delegation", () => {
   test("ps_args construction produces correct output for version + prerelease", async () => {
     const script = `
       set -euo pipefail
-      ATOMIC_INSTALL_VERSION="v1.2.3-beta.1"
+      ATOMIC_INSTALL_VERSION="v1.2.3-1"
       ATOMIC_INSTALL_PRERELEASE="true"
       ps_args=""
       if [[ -n "\${ATOMIC_INSTALL_VERSION:-}" ]]; then
@@ -144,7 +144,7 @@ describe("install.sh Windows delegation", () => {
     `;
     const result = Bun.spawnSync(["bash", "-c", script]);
     const output = result.stdout.toString().trim();
-    expect(output).toBe("-Version 'v1.2.3-beta.1' -Prerelease");
+    expect(output).toBe("-Version 'v1.2.3-1' -Prerelease");
   });
 
   test("ps_args construction produces empty string when no version or prerelease", async () => {
@@ -199,7 +199,7 @@ describe("install.sh Windows delegation", () => {
       "v1.2.3",
       "1.2.3",
       "v0.4.29",
-      "v1.0.0-beta.1",
+      "v1.0.0-1",
       "v1.0.0-alpha",
       "v0.4.29-0",
     ];

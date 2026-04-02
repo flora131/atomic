@@ -269,7 +269,6 @@ function emitEventsToAppInsights(events: TelemetryEvent[]): void {
         attributes.command_count = event.commandCount;
         break;
       case "tui_session_start":
-        attributes.workflow_enabled = event.workflowEnabled;
         attributes.has_initial_prompt = event.hasInitialPrompt;
         break;
       case "tui_session_end":

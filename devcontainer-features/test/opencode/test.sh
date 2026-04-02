@@ -5,6 +5,10 @@ set -e
 source dev-container-features-test-lib
 
 check "atomic CLI is installed" bash -c "which atomic"
+
+# Run atomic init to trigger runtime tool installation (installs bun, ccc, etc.)
+atomic init -a opencode -y --no-banner
+
 check "bun is installed" bash -c "which bun"
 check "cocoindex-code is installed" bash -c "which ccc"
 check "playwright-cli is installed" bash -c "which playwright-cli"

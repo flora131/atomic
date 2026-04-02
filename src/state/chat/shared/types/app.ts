@@ -99,8 +99,6 @@ export interface ChatAppProps {
     options?: { abortSignal?: AbortSignal },
   ) => Promise<string>;
   initialPrompt?: string;
-  /** Maximum graph traversal steps for the conductor (overrides default 100) */
-  maxIterations?: number;
   onModelChange?: (model: string) => void;
   onSessionMcpServersChange?: (servers: McpServerConfig[]) => void;
   initialModelId?: string;

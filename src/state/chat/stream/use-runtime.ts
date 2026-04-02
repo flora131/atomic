@@ -174,7 +174,6 @@ export function useChatStreamRuntime({
     todoItemsRef: refs.todoItemsRef,
     toolMessageIdByIdRef: refs.toolMessageIdByIdRef,
     toolNameByIdRef: refs.toolNameByIdRef,
-    workflowSessionDirRef: refs.workflowSessionDirRef,
     workflowSessionIdRef: refs.workflowSessionIdRef,
   });
 

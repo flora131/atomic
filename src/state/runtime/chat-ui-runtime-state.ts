@@ -51,7 +51,7 @@ export async function createChatUIRuntimeState(
     validatePayloads: process.env.ATOMIC_VALIDATE_BUS_EVENTS === "1",
   });
   const dispatcher = new BatchDispatcher(bus, FLUSH_FRAME_MS);
-  const debugSub = await attachDebugSubscriber(bus);
+  const debugSub = await attachDebugSubscriber(bus, args.resolvedAgentType);
 
   maybeLogDebugSubscription(debugSub);
 

@@ -14,7 +14,7 @@ export function registerClaudeTool(args: {
     const sdkToolDef = {
         name: args.tool.name,
         description: args.tool.description,
-        inputSchema: {},
+        inputSchema: args.tool.inputSchema,
         handler: async (input: unknown, _extra: unknown) => {
             try {
                 const context: ToolContext = {

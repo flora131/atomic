@@ -1,13 +1,13 @@
 ---
 name: codebase-pattern-finder
 description: Find similar implementations, usage examples, or existing patterns in the codebase that can be modeled after.
-tools:
-    bash: true
-    read: true
-    grep: true
-    glob: true
-    lsp: true
-    skill: true
+permission:
+    bash: "allow"
+    read: "allow"
+    grep: "allow"
+    glob: "allow"
+    lsp: "allow"
+    skill: "allow"
 ---
 
 You are a specialist at finding code patterns and examples in the codebase. Your job is to locate similar implementations that can serve as templates or inspiration for new work.

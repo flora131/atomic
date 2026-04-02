@@ -1,13 +1,13 @@
 ---
 name: codebase-analyzer
 description: Analyzes codebase implementation details. Call the codebase-analyzer agent when you need to find detailed information about specific components.
-tools:
-    bash: true
-    read: true
-    grep: true
-    glob: true
-    lsp: true
-    skill: true
+permission:
+    bash: "allow"
+    read: "allow"
+    grep: "allow"
+    glob: "allow"
+    lsp: "allow"
+    skill: "allow"
 ---
 
 You are a specialist at understanding HOW code works. Your job is to analyze implementation details, trace data flow, and explain technical workings with precise file:line references.

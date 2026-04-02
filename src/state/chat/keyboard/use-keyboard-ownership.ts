@@ -37,6 +37,68 @@ import {
 } from "@/state/chat/keyboard/handlers/navigation-handler.ts";
 import { useChatInterruptControls } from "@/state/chat/keyboard/handlers/interrupt-handler.ts";
 import type { UseChatKeyboardArgs, KeyboardOwnershipResult } from "@/state/chat/keyboard/types.ts";
+import { isPipelineDebug } from "@/services/events/pipeline-logger.ts";
+import { getActiveDiagnosticWriter } from "@/services/events/debug-subscriber/index.ts";
+
+/**
+ * Named keys that are safe to log for diagnostic purposes.
+ * These represent navigation/control keys, not printable characters the user types.
+ */
+export const LOGGABLE_NAMED_KEYS = new Set([
+  "escape",
+  "return",
+  "enter",
+  "tab",
+  "backspace",
+  "delete",
+  "pageup",
+  "pagedown",
+  "up",
+  "down",
+  "left",
+  "right",
+  "home",
+  "end",
+  "f1", "f2", "f3", "f4", "f5", "f6",
+  "f7", "f8", "f9", "f10", "f11", "f12",
+  "insert",
+  "space",
+]);
+
+/**
+ * Determines the privacy-safe key name to log for a key event.
+ *
+ * Privacy rules:
+ * - Named navigation/control keys are always safe to log.
+ * - Modifier combos (ctrl+key, meta+key) are logged as hotkeys, not text input.
+ * - Single-char printable keys without ctrl/meta are redacted to avoid logging user input.
+ * - The raw field is never used.
+ *
+ * @returns The safe key name string, or null if the event should not be logged.
+ */
+export function getPrivacySafeKeyName(event: KeyEvent): string | null {
+  const nameLower = event.name.toLowerCase();
+
+  // Modifier combos (ctrl or meta) are logged as hotkey identifiers.
+  // Single-char key names in modifier combos are included (e.g. "ctrl+c").
+  if (event.ctrl || event.meta) {
+    const modPrefix = event.ctrl && event.meta
+      ? "ctrl+meta+"
+      : event.ctrl
+        ? "ctrl+"
+        : "meta+";
+    return modPrefix + nameLower;
+  }
+
+  // Named navigation/control keys are always safe to log.
+  if (LOGGABLE_NAMED_KEYS.has(nameLower)) {
+    return nameLower;
+  }
+
+  // Single-char printable key names without modifiers represent text input — redact.
+  // Multi-char names not in LOGGABLE_NAMED_KEYS are also suppressed to be safe.
+  return null;
+}
 
 /**
  * Unified keyboard ownership hook.
@@ -161,6 +223,29 @@ export function useKeyboardOwnership({
   // ── Single keyboard listener with strategy delegation ─────────────
   useKeyboard(
     useCallback((event: KeyEvent) => {
+      // ┌─────────────────────────────────────────────────────────────┐
+      // │ Phase 0 — Diagnostic logging (gated on DEBUG=1)            │
+      // └─────────────────────────────────────────────────────────────┘
+      if (isPipelineDebug()) {
+        const writeDiagnostic = getActiveDiagnosticWriter();
+        if (writeDiagnostic) {
+          const keyName = getPrivacySafeKeyName(event);
+          if (keyName !== null) {
+            writeDiagnostic({
+              category: "key_press",
+              keyName,
+              modifiers: {
+                ctrl: event.ctrl,
+                shift: event.shift,
+                meta: event.meta,
+              },
+              eventType: event.eventType,
+              owner: mode,
+            });
+          }
+        }
+      }
+
       // ┌─────────────────────────────────────────────────────────────┐
       // │ Phase 1 — Always (all modes)                               │
       // └─────────────────────────────────────────────────────────────┘

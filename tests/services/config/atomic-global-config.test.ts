@@ -25,6 +25,7 @@ async function createTemplateAgentConfigs(configRoot: string): Promise<void> {
 
   await mkdir(join(configRoot, ".opencode", "agents"), { recursive: true });
   await mkdir(join(configRoot, ".opencode", "skills", "init"), { recursive: true });
+  await mkdir(join(configRoot, ".opencode", "tools"), { recursive: true });
   await writeFile(
     join(configRoot, ".opencode", "opencode.json"),
     '{"permissions":[]}\n',

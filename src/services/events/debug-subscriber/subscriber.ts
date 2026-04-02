@@ -1,10 +1,37 @@
+import { readdirSync, copyFileSync } from "fs";
+import { join } from "path";
+import type { AgentType } from "@/services/models/index.ts";
 import type { EventBus } from "@/services/events/event-bus.ts";
 import type { BusEvent } from "@/services/events/bus-events/index.ts";
-import { resolveStreamDebugLogConfig } from "./config.ts";
+import { isWindows } from "@/services/system/detect.ts";
+import {
+  clearActiveDiagnosticWriter,
+  clearActiveSessionLogDir,
+  getActiveSessionLogDir,
+  resolveStreamDebugLogConfig,
+  setActiveDiagnosticWriter,
+  setActiveSessionLogDir,
+} from "./config.ts";
 import type { RawStreamLogEntry } from "./config.ts";
 import { initEventLog } from "./log-writer.ts";
 
-export async function attachDebugSubscriber(bus: EventBus): Promise<{
+/**
+ * Resolve the OpenCode log directory using platform-appropriate conventions.
+ * - Windows: %LOCALAPPDATA%\opencode\log
+ * - Unix: $XDG_DATA_HOME/opencode/log or ~/.local/share/opencode/log
+ */
+function resolveOpencodeLogDir(): string {
+  if (isWindows()) {
+    const localAppData = process.env.LOCALAPPDATA
+      || join(process.env.USERPROFILE || "", "AppData", "Local");
+    return join(localAppData, "opencode", "log");
+  }
+  const xdgDataHome = process.env.XDG_DATA_HOME
+    || join(process.env.HOME || "", ".local", "share");
+  return join(xdgDataHome, "opencode", "log");
+}
+
+export async function attachDebugSubscriber(bus: EventBus, agentType?: AgentType): Promise<{
   unsubscribe: () => Promise<void>;
   logPath: string | null;
   rawLogPath: string | null;
@@ -29,6 +56,11 @@ export async function attachDebugSubscriber(bus: EventBus): Promise<{
     };
   }
 
+  // If a session log directory was pre-created (e.g. early in chatCommand
+  // to support SDK options that read the path at build time), reuse it
+  // instead of generating a new timestamped directory.
+  const preExistingSessionDir = getActiveSessionLogDir();
+
   const {
     write,
     writeDiagnostic,
@@ -39,7 +71,14 @@ export async function attachDebugSubscriber(bus: EventBus): Promise<{
     logDirPath,
   } = await initEventLog({
     logDir: debugConfig.logDir,
+    sessionDir: preExistingSessionDir,
   });
+
+  if (logDirPath) {
+    setActiveSessionLogDir(logDirPath);
+  }
+
+  setActiveDiagnosticWriter(writeDiagnostic);
 
   writeDiagnostic({
     category: "startup",
@@ -113,6 +152,34 @@ export async function attachDebugSubscriber(bus: EventBus): Promise<{
     process.removeListener("uncaughtException", onUncaughtException);
     process.removeListener("unhandledRejection", onUnhandledRejection);
     await close();
+
+    // Copy the most recent OpenCode log file into the Atomic session directory,
+    // but only when the active agent is actually OpenCode.
+    if (agentType === "opencode") {
+      try {
+        const sessionDir = getActiveSessionLogDir();
+        const opencodeLogDir = resolveOpencodeLogDir();
+        if (sessionDir) {
+          const entries = readdirSync(opencodeLogDir, { withFileTypes: true });
+          const logFiles = entries
+            .filter((e) => e.isFile())
+            .map((e) => e.name)
+            .sort();
+          if (logFiles.length > 0) {
+            const mostRecentLog = logFiles[logFiles.length - 1]!;
+            copyFileSync(
+              join(opencodeLogDir, mostRecentLog),
+              join(sessionDir, "opencode-debug.log"),
+            );
+          }
+        }
+      } catch {
+        // OpenCode log directory may not exist — silently skip.
+      }
+    }
+
+    clearActiveSessionLogDir();
+    clearActiveDiagnosticWriter();
   };
 
   return { unsubscribe, logPath, rawLogPath, logDirPath, writeRawLine };

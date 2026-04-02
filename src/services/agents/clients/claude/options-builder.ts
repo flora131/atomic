@@ -1,3 +1,4 @@
+import { join } from "path";
 import type {
     HookCallback,
     McpSdkServerConfigWithInstance,
@@ -19,6 +20,8 @@ import type {
 } from "@/services/agents/clients/claude/internal-types.ts";
 import { buildClaudeNativeHooks } from "@/services/agents/clients/claude/internal-types.ts";
 import { createClaudeSubagentToolPermissionHook } from "@/services/agents/clients/claude/tool-permissions.ts";
+import { isPipelineDebug } from "@/services/events/pipeline-logger.ts";
+import { getActiveSessionLogDir } from "@/services/events/debug-subscriber/index.ts";
 
 export function getClaudeReasoningEffort(
     effort: string | undefined,
@@ -276,6 +279,14 @@ export function buildClaudeSdkOptions(args: {
 
     if (args.config.sessionId) {
         options.resume = args.config.sessionId;
+    }
+
+    if (isPipelineDebug()) {
+        const sessionLogDir = getActiveSessionLogDir();
+        if (sessionLogDir) {
+            options.debug = true;
+            options.debugFile = join(sessionLogDir, "claude-debug.txt");
+        }
     }
 
     return options;

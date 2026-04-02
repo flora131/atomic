@@ -8,7 +8,7 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 import React from "react";
-import { testRender } from "@opentui/react/test-utils";
+import { testRender } from "./test-support.ts";
 import { ThemeProvider, darkTheme } from "@/theme/index.tsx";
 import { AtomicHeader, HEADER_MIN_WIDTH, HEADER_MIN_HEIGHT, HEADER_LOGO_MIN_WIDTH } from "@/components/chat-header.tsx";
 import type { AtomicHeaderProps } from "@/state/chat/shared/types/presentation.ts";

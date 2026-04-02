@@ -36,7 +36,7 @@ export function getClaudeNativeMeta(
         meta.nativeMessageId = native.uuid;
     }
     if ("parent_tool_use_id" in native) {
-        meta.parentToolUseId =
+        meta.parentToolCallId =
             native.parent_tool_use_id === null || typeof native.parent_tool_use_id === "string"
                 ? native.parent_tool_use_id
                 : undefined;
@@ -141,7 +141,8 @@ export function registerClaudeProviderEventBridges(args: {
             toolInput: ((event.data as { toolInput?: Record<string, unknown> }).toolInput ?? {}) as Record<string, unknown>,
             toolUseId: (event.data as { toolUseID?: string; toolUseId?: string }).toolUseID
                 ?? (event.data as { toolUseID?: string; toolUseId?: string }).toolUseId,
-            parentToolCallId: (event.data as { parentToolUseId?: string }).parentToolUseId,
+            parentToolCallId: (event.data as { parentToolCallId?: string; parentToolUseId?: string }).parentToolCallId
+                ?? (event.data as { parentToolCallId?: string; parentToolUseId?: string }).parentToolUseId,
             parentAgentId: (event.data as { parentAgentId?: string }).parentAgentId,
         }, {
             native: event,
@@ -158,7 +159,8 @@ export function registerClaudeProviderEventBridges(args: {
             error: (event.data as { error?: string }).error,
             toolUseId: (event.data as { toolUseID?: string; toolUseId?: string }).toolUseID
                 ?? (event.data as { toolUseID?: string; toolUseId?: string }).toolUseId,
-            parentToolCallId: (event.data as { parentToolUseId?: string }).parentToolUseId,
+            parentToolCallId: (event.data as { parentToolCallId?: string; parentToolUseId?: string }).parentToolCallId
+                ?? (event.data as { parentToolCallId?: string; parentToolUseId?: string }).parentToolUseId,
             parentAgentId: (event.data as { parentAgentId?: string }).parentAgentId,
         }, {
             native: event,
@@ -173,7 +175,8 @@ export function registerClaudeProviderEventBridges(args: {
             task: (event.data as { task?: string }).task,
             toolUseId: (event.data as { toolUseID?: string; toolUseId?: string }).toolUseID
                 ?? (event.data as { toolUseID?: string; toolUseId?: string }).toolUseId,
-            parentToolCallId: (event.data as { parentToolUseId?: string }).parentToolUseId,
+            parentToolCallId: (event.data as { parentToolCallId?: string; parentToolUseId?: string }).parentToolCallId
+                ?? (event.data as { parentToolCallId?: string; parentToolUseId?: string }).parentToolUseId,
             subagentSessionId: (event.data as { subagentSessionId?: string }).subagentSessionId,
         }, {
             native: event,

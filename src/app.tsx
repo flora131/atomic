@@ -28,6 +28,11 @@ import type { ProviderDiscoveryPlan } from "@/services/config/provider-discovery
 import { createChatUIController, createChatUIRuntimeState } from "@/state/runtime/chat-ui-controller.ts";
 import { createChatUIModelOperations } from "@/state/runtime/chat-ui-model-operations.ts";
 import { createMockChatClient } from "@/state/runtime/chat-ui-mock-client.ts";
+import {
+  FrameRecorder,
+  resolveFrameCaptureInterval,
+  getActiveSessionLogDir,
+} from "@/services/events/debug-subscriber/index.ts";
 
 /**
  * Configuration for starting the chat UI.
@@ -177,6 +182,37 @@ export async function startChatUI(
 
     if (process.stdout.isTTY) {
       process.stdout.write("\x1b[>4;2m");
+    }
+
+    // Attach frame recorder when debug logging is active.
+    // Frames are only captured while a stream is active to avoid
+    // unbounded disk growth when a session sits idle.
+    const sessionLogDir = getActiveSessionLogDir();
+    if (sessionLogDir) {
+      const captureInterval = resolveFrameCaptureInterval();
+      if (captureInterval > 0) {
+        const frameRecorder = new FrameRecorder({
+          sessionLogDir,
+          captureInterval,
+        });
+        await frameRecorder.attach(state.renderer);
+
+        const unsubFrameGate = state.bus.onAll((event) => {
+          if (event.type === "stream.session.start") {
+            frameRecorder.resume();
+          } else if (
+            event.type === "stream.session.idle" ||
+            event.type === "stream.session.error"
+          ) {
+            frameRecorder.pause();
+          }
+        });
+
+        state.cleanupHandlers.push(() => {
+          unsubFrameGate();
+          frameRecorder.dispose();
+        });
+      }
     }
 
     // Create React root

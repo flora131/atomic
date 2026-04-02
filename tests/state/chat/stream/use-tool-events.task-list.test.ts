@@ -7,7 +7,6 @@
  *   update_task_status, add_task, delete_task)
  * - handleToolComplete prefers authoritative output.tasks when available
  * - handleToolComplete falls back to optimistic input-based updates
- * - persistWorkflowTasksToDisk is NOT called for task_list tool calls
  * - isWorkflowTaskUpdate guard is NOT applied for task_list tool calls
  *
  * Since useChatStreamToolEvents is a React hook, these tests verify the
@@ -124,29 +123,6 @@ describe("handleToolComplete: task_list action handling", () => {
   test("calls setTodoItems for authoritative and fallback paths", () => {
     const calls = (completeBlock.match(/setTodoItems\(/g) || []).length;
     expect(calls).toBeGreaterThanOrEqual(4);
-  });
-});
-
-// ===========================================================================
-// persistWorkflowTasksToDisk is NOT used for task_list
-// ===========================================================================
-
-describe("task_list does NOT persist to tasks.json", () => {
-  // Extract the task_list complete block for scoped assertions
-  const completeBlockStart = source.indexOf("// Handle task_list tool completion");
-  const completeBlockEnd = source.indexOf("  }, [", completeBlockStart);
-  const completeBlock = source.slice(completeBlockStart, completeBlockEnd);
-
-  test("persistWorkflowTasksToDisk is not invoked in task_list complete block", () => {
-    expect(completeBlock).not.toContain("persistWorkflowTasksToDisk(");
-  });
-
-  test("persistWorkflowTasksToDisk is still invoked for TodoWrite", () => {
-    const todoWriteBlock = source.slice(
-      source.indexOf("isTodoWriteToolName(toolName)"),
-      source.indexOf("// task_list tool mutations"),
-    );
-    expect(todoWriteBlock).toContain("persistWorkflowTasksToDisk(");
   });
 });
 

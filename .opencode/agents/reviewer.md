@@ -1,13 +1,13 @@
 ---
 description: Code reviewer for proposed code changes.
 mode: subagent
-tools:
-    write: false
-    edit: false
-    bash: true
-    todowrite: true
-    lsp: true
-    skill: true
+permission:
+    write: "deny"
+    edit: "deny"
+    bash: "allow"
+    todowrite: "allow"
+    lsp: "allow"
+    skill: "allow"
 ---
 
 # Review guidelines:

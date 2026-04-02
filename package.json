@@ -56,13 +56,10 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.89",
-    "@azure/monitor-opentelemetry": "^1.16.0",
     "@clack/prompts": "^1.2.0",
     "@commander-js/extra-typings": "^14.0.0",
     "@github/copilot-sdk": "^0.2.0",
     "@opencode-ai/sdk": "^1.3.13",
-    "@opentelemetry/api": "^1.9.1",
-    "@opentelemetry/api-logs": "^0.214.0",
     "@opentui/core": "^0.1.95",
     "@opentui/react": "^0.1.95",
     "ci-info": "^4.4.0",

@@ -9,7 +9,7 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 import React from "react";
-import { testRender } from "@opentui/react/test-utils";
+import { testRender } from "./test-support.ts";
 import { ThemeProvider, darkTheme } from "@/theme/index.tsx";
 import {
   ParallelAgentsTree,

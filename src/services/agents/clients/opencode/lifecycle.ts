@@ -1,4 +1,3 @@
-import { stopToolDispatchServer } from "@/services/agents/tools/opencode-mcp-bridge.ts";
 import type { EventType } from "@/services/agents/types.ts";
 import type {
   OpenCodeSseAbortReason,
@@ -175,8 +174,6 @@ export async function stopOpenCodeClientLifecycle(args: {
   isRunning: boolean;
   disconnect: () => Promise<void>;
   releaseServerLease: () => void;
-  dispatchServerStop: (() => void) | null;
-  clearDispatchServerStop: () => void;
   clearEventHandlers: () => void;
   setRunning: (value: boolean) => void;
 }): Promise<void> {
@@ -186,13 +183,6 @@ export async function stopOpenCodeClientLifecycle(args: {
 
   await args.disconnect();
   args.releaseServerLease();
-
-  if (args.dispatchServerStop) {
-    args.dispatchServerStop();
-    args.clearDispatchServerStop();
-  }
-  stopToolDispatchServer();
-
   args.clearEventHandlers();
   args.setRunning(false);
 }

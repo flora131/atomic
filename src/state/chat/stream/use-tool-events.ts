@@ -18,7 +18,6 @@ import {
   upsertSyntheticTaskAgentForToolStart,
 } from "@/state/chat/shared/helpers/index.ts";
 import { applyStreamPartEvent, isSubagentToolName } from "@/state/parts/index.ts";
-import { persistWorkflowTasksToDisk } from "@/services/workflows/helpers/persist-workflow-tasks.ts";
 
 /** Detect the SQLite-backed task_list CRUD tool by name. */
 function isTaskListToolName(name: string): boolean {
@@ -48,7 +47,6 @@ interface UseChatStreamToolEventsArgs {
   todoItemsRef: RefObject<NormalizedTodoItem[]>;
   toolMessageIdByIdRef: RefObject<Map<string, string>>;
   toolNameByIdRef: RefObject<Map<string, string>>;
-  workflowSessionDirRef: RefObject<string | null>;
   workflowSessionIdRef: RefObject<string | null>;
 }
 
@@ -92,7 +90,6 @@ export function useChatStreamToolEvents({
   todoItemsRef,
   toolMessageIdByIdRef,
   toolNameByIdRef,
-  workflowSessionDirRef,
   workflowSessionIdRef,
 }: UseChatStreamToolEventsArgs): UseChatStreamToolEventsResult {
   const handleToolStart = useCallback((
@@ -194,12 +191,6 @@ export function useChatStreamToolEvents({
       if (shouldApplyTodoState) {
         todoItemsRef.current = todos;
         setTodoItems(todos);
-
-        // Persist to tasks.json so the TaskListPanel file watcher picks up changes
-        const sessionDir = workflowSessionDirRef.current;
-        if (sessionDir && workflowSessionIdRef.current) {
-          persistWorkflowTasksToDisk(sessionDir, todos);
-        }
       }
     }
 
@@ -223,7 +214,6 @@ export function useChatStreamToolEvents({
     todoItemsRef,
     toolMessageIdByIdRef,
     toolNameByIdRef,
-    workflowSessionDirRef,
     workflowSessionIdRef,
   ]);
 
@@ -327,12 +317,6 @@ export function useChatStreamToolEvents({
       if (shouldApplyTodoState) {
         todoItemsRef.current = todos;
         setTodoItems(todos);
-
-        // Persist to tasks.json so the TaskListPanel file watcher picks up changes
-        const sessionDir = workflowSessionDirRef.current;
-        if (sessionDir && workflowSessionIdRef.current) {
-          persistWorkflowTasksToDisk(sessionDir, todos);
-        }
       }
     }
 
@@ -428,7 +412,6 @@ export function useChatStreamToolEvents({
     todoItemsRef,
     toolMessageIdByIdRef,
     toolNameByIdRef,
-    workflowSessionDirRef,
     workflowSessionIdRef,
   ]);
 

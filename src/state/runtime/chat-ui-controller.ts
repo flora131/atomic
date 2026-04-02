@@ -4,7 +4,6 @@ import type {
   OnTerminateBackgroundAgents,
 } from "@/types/chat.ts";
 import type { SessionConfig } from "@/services/agents/types.ts";
-import { cleanupMcpBridgeScripts } from "@/services/agents/tools/opencode-mcp-bridge.ts";
 import { SessionExpiredError } from "@/services/events/adapters/provider-shared.ts";
 import { registerAgentToolNames } from "@/components/tool-registry/registry/index.ts";
 import { createChatUIRuntimeState } from "@/state/runtime/chat-ui-runtime-state.ts";
@@ -88,7 +87,6 @@ export function createChatUIController(args: CreateChatUIControllerArgs) {
     await debugSub.unsubscribe();
     state.dispatcher.dispose();
     state.bus.clear();
-    cleanupMcpBridgeScripts();
 
     for (const handler of state.cleanupHandlers) {
       handler();

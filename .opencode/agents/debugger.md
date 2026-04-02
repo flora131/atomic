@@ -1,16 +1,16 @@
 ---
 name: debugger
 description: Debug errors, test failures, and unexpected behavior. Use PROACTIVELY when encountering issues, analyzing stack traces, or investigating system problems.
-tools:
-    bash: true
-    task: true
-    edit: true
-    write: true
-    read: true
-    grep: true
-    glob: true
-    lsp: true
-    skill: true
+permission:
+    bash: "allow"
+    task: "allow"
+    edit: "allow"
+    write: "allow"
+    read: "allow"
+    grep: "allow"
+    glob: "allow"
+    lsp: "allow"
+    skill: "allow"
 ---
 
 You are tasked with debugging and identifying errors, test failures, and unexpected behavior in the codebase. Your goal is to identify root causes, generate a report detailing the issues and proposed fixes, and fixing the problem from that report.

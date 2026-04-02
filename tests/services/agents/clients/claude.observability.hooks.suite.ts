@@ -90,10 +90,10 @@ describe("ClaudeAgentClient observability and parity", () => {
     const unsubTool = client.on("tool.start", (event) => {
       const data = event.data as {
         parentAgentId?: string;
-        parentToolUseId?: string;
+        parentToolCallId?: string;
       };
       seenParentAgentIds.push(data.parentAgentId);
-      seenParentToolIds.push(data.parentToolUseId);
+      seenParentToolIds.push(data.parentToolCallId);
     });
     const unsubSubagent = client.on("subagent.start", () => {});
 

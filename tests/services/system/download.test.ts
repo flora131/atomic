@@ -3,7 +3,7 @@
  *
  * Focuses on getBinaryFilename() and its __ATOMIC_BASELINE__ behavior.
  */
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import {
   getBinaryFilename,
   parseChecksums,
@@ -11,6 +11,16 @@ import {
   getChecksumsUrl,
   getConfigArchiveFilename,
 } from "@/services/system/download.ts";
+
+declare global {
+  var __ATOMIC_BASELINE__: boolean | undefined;
+}
+
+const originalBaseline = globalThis.__ATOMIC_BASELINE__;
+
+afterEach(() => {
+  globalThis.__ATOMIC_BASELINE__ = originalBaseline;
+});
 
 describe("getBinaryFilename", () => {
   test("should return a filename matching the current platform and architecture", () => {
@@ -52,6 +62,25 @@ describe("getBinaryFilename", () => {
     // so the typeof guard should prevent a ReferenceError and baselineSuffix should be ""
     const filename = getBinaryFilename();
     expect(filename).not.toContain("-baseline");
+  });
+
+  test("should map Windows baseline builds to the arm64 release asset name", () => {
+    const descriptor = Object.getOwnPropertyDescriptor(process, "platform");
+    if (!descriptor?.configurable) {
+      return;
+    }
+
+    globalThis.__ATOMIC_BASELINE__ = true;
+    Object.defineProperty(process, "platform", {
+      configurable: true,
+      value: "win32",
+    });
+
+    try {
+      expect(getBinaryFilename()).toBe("atomic-windows-arm64.exe");
+    } finally {
+      Object.defineProperty(process, "platform", descriptor);
+    }
   });
 
   test("should produce correct filename format for current platform", () => {

@@ -142,11 +142,11 @@ jobs:
           curl -fsSL "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-windows-x64-baseline.zip" -o bun-baseline.zip
           unzip -q bun-baseline.zip -d bun-baseline
 
-      - name: Build Windows x64-baseline binary
+      - name: Build Windows arm64 binary
         shell: bash
         run: |
           # Use baseline Bun to compile natively (embeds baseline runtime, no --target needed)
-          ./bun-baseline/bun-windows-x64-baseline/bun.exe run src/scripts/build-binary.ts --minify --baseline --outfile dist/atomic-windows-x64-baseline.exe
+          ./bun-baseline/bun-windows-x64-baseline/bun.exe run src/scripts/build-binary.ts --minify --baseline --outfile dist/atomic-windows-arm64.exe
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v7
@@ -191,7 +191,7 @@ jobs:
             os: windows
             config-archive: atomic-config.zip
 
-          - binary: atomic-windows-x64-baseline.exe
+          - binary: atomic-windows-arm64.exe
             runner: windows-11-arm
             artifact: binaries-windows
             os: windows
@@ -352,7 +352,7 @@ jobs:
             dist/atomic-darwin-x64
             dist/atomic-darwin-arm64
             dist/atomic-windows-x64.exe
-            dist/atomic-windows-x64-baseline.exe
+            dist/atomic-windows-arm64.exe
             dist/atomic-config.tar.gz
             dist/atomic-config.zip
             dist/checksums.txt

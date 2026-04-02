@@ -52,8 +52,8 @@ $Arch = $env:PROCESSOR_ARCHITECTURE
 switch ($Arch) {
     "AMD64" { $Target = "windows-x64.exe" }
     "ARM64" {
-        Write-Info "Windows ARM64 detected -- installing x64-baseline binary (runs via x64 emulation; requires Windows 11)"
-        $Target = "windows-x64-baseline.exe"
+        Write-Info "Windows ARM64 detected -- installing arm64-named baseline binary (runs via x64 emulation; requires Windows 11)"
+        $Target = "windows-arm64.exe"
     }
     default {
         Write-Err "Unsupported architecture: $Arch"

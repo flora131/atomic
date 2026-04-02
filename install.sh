@@ -33,14 +33,46 @@ success() { echo -e "${GREEN}success${NC}: $*"; }
 warn() { echo -e "${YELLOW}warn${NC}: $*"; }
 error() { echo -e "${RED}error${NC}: $*" >&2; exit 1; }
 
-# Download a file using curl or wget with optional GITHUB_TOKEN auth
+# Create a temporary netrc file for authenticated GitHub API requests.
+# This avoids exposing GITHUB_TOKEN on the command line (visible via ps).
+# Sets AUTH_NETRC_FILE to the path; caller must clean up via cleanup_auth.
+AUTH_NETRC_FILE=""
+setup_auth() {
+    AUTH_NETRC_FILE=""
+    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+        AUTH_NETRC_FILE=$(mktemp "${TMPDIR:-/tmp}/atomic-netrc.XXXXXX")
+        chmod 600 "$AUTH_NETRC_FILE"
+        cat > "$AUTH_NETRC_FILE" <<EOF
+machine api.github.com
+  login x-access-token
+  password ${GITHUB_TOKEN}
+
+machine github.com
+  login x-access-token
+  password ${GITHUB_TOKEN}
+EOF
+    fi
+}
+
+cleanup_auth() {
+    if [[ -n "${AUTH_NETRC_FILE:-}" && -f "$AUTH_NETRC_FILE" ]]; then
+        rm -f "$AUTH_NETRC_FILE"
+        AUTH_NETRC_FILE=""
+    fi
+}
+
+# Download a file using curl or wget with optional GITHUB_TOKEN auth.
+# Auth credentials are passed via a temporary netrc file, not the command line.
 download_file() {
     local url="$1" output="$2" quiet="${3:-false}"
     local curl_auth=() wget_auth=()
 
-    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-        curl_auth=(-H "Authorization: token $GITHUB_TOKEN")
-        wget_auth=(--header="Authorization: token $GITHUB_TOKEN")
+    setup_auth
+    trap cleanup_auth RETURN
+
+    if [[ -n "$AUTH_NETRC_FILE" ]]; then
+        curl_auth=(--netrc-file "$AUTH_NETRC_FILE")
+        wget_auth=(--netrc-file "$AUTH_NETRC_FILE")
     fi
 
     if command -v curl >/dev/null 2>&1; then
@@ -65,9 +97,12 @@ fetch_url() {
     local url="$1"
     local curl_auth=() wget_auth=()
 
-    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-        curl_auth=(-H "Authorization: token $GITHUB_TOKEN")
-        wget_auth=(--header="Authorization: token $GITHUB_TOKEN")
+    setup_auth
+    trap cleanup_auth RETURN
+
+    if [[ -n "$AUTH_NETRC_FILE" ]]; then
+        curl_auth=(--netrc-file "$AUTH_NETRC_FILE")
+        wget_auth=(--netrc-file "$AUTH_NETRC_FILE")
     fi
 
     if command -v curl >/dev/null 2>&1; then

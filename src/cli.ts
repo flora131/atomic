@@ -55,10 +55,7 @@ export function createProgram() {
                 // Format error messages with color
                 write(`${COLORS.red}${str}${COLORS.reset}`);
             },
-        })
-
-        // Enable positional options for subcommands that use passThroughOptions
-        .enablePositionalOptions();
+        });
 
     // Build agent choices string for help text
     const agentChoices = Object.keys(AGENT_CONFIG).join(", ");

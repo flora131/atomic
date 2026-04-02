@@ -7,7 +7,9 @@ source dev-container-features-test-lib
 check "atomic CLI is installed" bash -c "which atomic"
 
 # Run atomic init to trigger runtime tool installation (installs bun, ccc, etc.)
-atomic init -a copilot -y --no-banner
+# Global flags (-y, --no-banner) must precede the subcommand for backward
+# compatibility with older binaries that used enablePositionalOptions().
+atomic -y --no-banner init -a copilot
 
 check "bun is installed" bash -c "which bun"
 check "cocoindex-code is installed" bash -c "which ccc"

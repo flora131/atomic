@@ -1,10 +1,12 @@
 import { join } from "path";
 import { homedir } from "os";
-import { readdir, rm } from "fs/promises";
+import { readdir, rm, stat } from "fs/promises";
 import type { BusEvent } from "@/services/events/bus-events/index.ts";
 
 export const DEFAULT_LOG_DIR = join(homedir(), ".local", "share", "atomic", "log", "events");
 export const MAX_LOG_SESSIONS = 10;
+/** Maximum total size of the log directory in bytes (1 GB). */
+export const MAX_LOG_DIR_SIZE_BYTES = 1024 * 1024 * 1024;
 const DEBUG_ENV = "DEBUG";
 const LOG_DIR_ENV = "LOG_DIR";
 export const LOG_SESSION_NAME_REGEX = /^\d{4}-\d{2}-\d{2}T\d{6}$/;
@@ -97,9 +99,16 @@ export interface AgentTreeEntry {
 export interface DiagnosticLogEntry {
   seq: number;
   ts: string;
-  category: "bus_error" | "process_error" | "startup";
+  category: "bus_error" | "process_error" | "startup" | "key_press";
   kind?: string;
   eventType?: string;
+  keyName?: string;
+  modifiers?: {
+    ctrl: boolean;
+    shift: boolean;
+    meta: boolean;
+  };
+  owner?: string;
   error?: string;
   stack?: string;
   agentTreeSnapshot?: AgentTreeSnapshot;
@@ -140,6 +149,36 @@ export interface SessionRunDebugState {
   rawStatusLogged: boolean;
   rawThinkingLogged: boolean;
   rawTextBuffer: string;
+}
+
+let activeSessionLogDir: string | undefined;
+
+export function setActiveSessionLogDir(dir: string): void {
+  activeSessionLogDir = dir;
+}
+
+export function clearActiveSessionLogDir(): void {
+  activeSessionLogDir = undefined;
+}
+
+export function getActiveSessionLogDir(): string | undefined {
+  return activeSessionLogDir;
+}
+
+type DiagnosticWriter = (entry: Omit<DiagnosticLogEntry, "seq" | "ts">) => void;
+
+let activeDiagnosticWriter: DiagnosticWriter | undefined;
+
+export function setActiveDiagnosticWriter(writer: DiagnosticWriter): void {
+  activeDiagnosticWriter = writer;
+}
+
+export function clearActiveDiagnosticWriter(): void {
+  activeDiagnosticWriter = undefined;
+}
+
+export function getActiveDiagnosticWriter(): DiagnosticWriter | undefined {
+  return activeDiagnosticWriter;
 }
 
 export function buildLogSessionName(now: Date = new Date()): string {
@@ -213,13 +252,42 @@ export async function listLogSessionDirectories(dir: string): Promise<string[]> 
   return sessionDirs;
 }
 
+/**
+ * Recursively compute the total size in bytes of all files under `dir`.
+ */
+export async function computeDirSize(dir: string): Promise<number> {
+  let total = 0;
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    const fullPath = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      total += await computeDirSize(fullPath);
+    } else if (entry.isFile()) {
+      const fileStat = await stat(fullPath).catch(() => null);
+      if (fileStat) total += fileStat.size;
+    }
+  }
+  return total;
+}
+
 export async function cleanup(dir: string): Promise<void> {
-  const sessionDirs = await listLogSessionDirectories(dir);
+  let sessionDirs = await listLogSessionDirectories(dir);
+
+  // Prune by session count.
   if (sessionDirs.length > MAX_LOG_SESSIONS) {
     const dirsToDelete = sessionDirs.slice(0, sessionDirs.length - MAX_LOG_SESSIONS);
     await Promise.all(
       dirsToDelete.map((sessionDir) =>
         rm(sessionDir, { recursive: true, force: true }).catch(() => {})),
     );
+    sessionDirs = sessionDirs.slice(sessionDirs.length - MAX_LOG_SESSIONS);
+  }
+
+  // Prune oldest sessions until total size is under the cap.
+  let totalSize = await computeDirSize(dir);
+  while (totalSize > MAX_LOG_DIR_SIZE_BYTES && sessionDirs.length > 1) {
+    const oldest = sessionDirs.shift()!;
+    await rm(oldest, { recursive: true, force: true }).catch(() => {});
+    totalSize = await computeDirSize(dir);
   }
 }

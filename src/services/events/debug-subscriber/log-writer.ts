@@ -29,6 +29,8 @@ import type {
 
 export async function initEventLog(options?: {
   logDir?: string;
+  /** Reuse a pre-created session directory instead of generating a new one. */
+  sessionDir?: string;
 }): Promise<{
   write: (event: BusEvent) => void;
   writeDiagnostic: (entry: Omit<DiagnosticLogEntry, "seq" | "ts">) => void;
@@ -50,8 +52,10 @@ export async function initEventLog(options?: {
   await ensureDir(logDir);
   await cleanup(logDir);
 
-  const sessionName = buildLogSessionName();
-  const logDirPath = join(logDir, sessionName);
+  // Reuse a pre-created session directory when provided (e.g. the dir was
+  // created early in chatCommand so that SDK options builders like Copilot
+  // OTel trace config can read it before the full subscriber is attached).
+  const logDirPath = options?.sessionDir ?? join(logDir, buildLogSessionName());
   await ensureDir(logDirPath);
 
   const logPath = join(logDirPath, LOG_EVENTS_FILENAME);
@@ -440,7 +444,9 @@ export async function initEventLog(options?: {
     writer.flush();
     const diagnosticMessage = partial.error
       ? `[${partial.category}] ${partial.error}`
-      : `[${partial.category}]`;
+      : partial.keyName
+        ? `[${partial.category}] ${partial.keyName}`
+        : `[${partial.category}]`;
     writeRawLine(diagnosticMessage, { component: "diagnostic" });
   };
 

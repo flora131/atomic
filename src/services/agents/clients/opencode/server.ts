@@ -7,6 +7,7 @@ import {
 } from "@opencode-ai/sdk/v2/client";
 import type { OpenCodeClientOptions } from "@/services/agents/clients/opencode.ts";
 import type { AtomicManagedOpenCodeServerState } from "@/services/agents/clients/opencode/shared.ts";
+import { isPipelineDebug } from "@/services/events/pipeline-logger.ts";
 
 let atomicManagedOpenCodeServer: AtomicManagedOpenCodeServerState | null = null;
 
@@ -82,6 +83,7 @@ export async function spawnAtomicManagedOpenCodeServer(args: {
       hostname,
       port,
       timeout: args.clientOptions.timeout ?? 30000,
+      ...(isPipelineDebug() ? { config: { logLevel: "DEBUG" } } : {}),
     };
 
     process.env.OPENCODE_EXPERIMENTAL_LSP_TOOL = "true";

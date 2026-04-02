@@ -134,7 +134,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   });
   const highestPrecedenceRoot =
     providerDiscoveryPlan.rootsInPrecedenceOrder[
-      providerDiscoveryPlan.rootsInPrecedenceOrder.length - 1
+    providerDiscoveryPlan.rootsInPrecedenceOrder.length - 1
     ];
   emitDiscoveryEvent("discovery.plan.generated", {
     tags: {
@@ -192,9 +192,10 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
 
   // Lazy-load SDK tools and create client in parallel — the tools import
   // and SDK client creation are independent of each other.
-  const [{ createTodoWriteTool }, { registerCustomTools, cleanupTempToolFiles }, client] = await Promise.all([
+  const [{ createTodoWriteTool }, { registerCustomTools, cleanupTempToolFiles }, { createTaskListTool }, client] = await Promise.all([
     import("@/services/agents/tools/todo-write.ts"),
     import("@/services/agents/tools/index.ts"),
+    import("@/services/agents/tools/task-list.ts"),
     createClientForAgentType(agentType),
   ]);
 
@@ -203,8 +204,55 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     client.registerTool(createTodoWriteTool());
   }
 
+  // Register task_list tool for all agents — provides persistent CRUD task
+  // management backed by SQLite, available in main chat sessions (not just
+  // workflow sessions).
+  const { join } = await import("path");
+  const { homedir } = await import("os");
+  const { ensureDirSync } = await import("@/services/system/copy.ts");
+  const chatSessionId = crypto.randomUUID();
+  const chatSessionDir = join(homedir(), ".atomic", "sessions", "chat", chatSessionId);
+  ensureDirSync(chatSessionDir);
+  const taskListTool = createTaskListTool({
+    workflowName: "chat",
+    sessionId: chatSessionId,
+    sessionDir: chatSessionDir,
+  });
+  client.registerTool(taskListTool);
+
   // Discover and register custom tools before starting the client
   await registerCustomTools(client);
+
+  // Pre-initialize the session log directory before client.start() so that
+  // SDK options builders (e.g. Copilot OTel trace file config) can read it
+  // via getActiveSessionLogDir(). The full debug subscriber is attached
+  // later in startChatUI → createChatUIRuntimeState and reuses this dir.
+  try {
+    const { isPipelineDebug } = await import("@/services/events/pipeline-logger.ts");
+    if (isPipelineDebug()) {
+      const {
+        resolveStreamDebugLogConfig,
+        setActiveSessionLogDir,
+        DEFAULT_LOG_DIR,
+        buildLogSessionName,
+      } = await import("@/services/events/debug-subscriber/config.ts");
+      const debugConfig = resolveStreamDebugLogConfig();
+      if (debugConfig.enabled) {
+        const { join } = await import("path");
+        const { ensureDir } = await import("@/services/system/copy.ts");
+        const logDir = debugConfig.logDir ?? DEFAULT_LOG_DIR;
+        await ensureDir(logDir);
+        const sessionName = buildLogSessionName();
+        const logDirPath = join(logDir, sessionName);
+        await ensureDir(logDirPath);
+        setActiveSessionLogDir(logDirPath);
+      }
+    }
+  } catch {
+    // Debug session-dir pre-init is non-critical; if it fails (e.g.
+    // permissions, disk full), skip it and let the chat session proceed.
+    // attachDebugSubscriber will attempt its own initialization later.
+  }
 
   try {
     // Start client and discover MCP configs in parallel.
@@ -231,17 +279,17 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     const resolvedReasoningEffort =
       agentType === "copilot" || agentType === "claude"
         ? (
-            modelDisplayInfo.supportsReasoning
-              ? (effectiveReasoningEffort ?? modelDisplayInfo.defaultReasoningEffort)
-              : undefined
-          )
+          modelDisplayInfo.supportsReasoning
+            ? (effectiveReasoningEffort ?? modelDisplayInfo.defaultReasoningEffort)
+            : undefined
+        )
         : agentType === "opencode"
           ? (
-              effectiveReasoningEffort
+            effectiveReasoningEffort
               && modelDisplayInfo.supportedReasoningEfforts?.includes(effectiveReasoningEffort)
-                ? effectiveReasoningEffort
-                : undefined
-            )
+              ? effectiveReasoningEffort
+              : undefined
+          )
           : effectiveReasoningEffort;
 
     // For providers with explicit reasoning effort selection, append the selected level.
@@ -298,6 +346,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     console.error("Chat error:", error instanceof Error ? error.message : String(error));
     return 1;
   } finally {
+    taskListTool.close();
     await client.stop();
     cleanupTempToolFiles();
     clearProviderDiscoverySessionCache();

@@ -37,7 +37,6 @@ function createTelemetryTracker(
 
   return createTuiTelemetrySessionTracker({
     agentType: resolvedAgentType,
-    workflowEnabled: args.workflowEnabled,
     hasInitialPrompt: Boolean(args.initialPrompt),
   });
 }

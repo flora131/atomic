@@ -192,8 +192,16 @@ export async function downloadFile(
   destPath: string,
   onProgress?: ProgressCallback
 ): Promise<void> {
+  const headers: Record<string, string> = {};
+
+  // Include token if available to avoid rate limits on download URLs
+  if (process.env.GITHUB_TOKEN) {
+    headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+  }
+
   const response = await fetch(url, {
     redirect: "follow",
+    headers,
   });
 
   if (!response.ok) {

@@ -28,7 +28,6 @@ import type {
 
 export interface CreateTuiTelemetrySessionOptions {
   agentType: AgentType;
-  workflowEnabled: boolean;
   hasInitialPrompt: boolean;
 }
 
@@ -108,7 +107,6 @@ export class TuiTelemetrySessionTracker {
       source: "tui",
       sessionId: this.sessionId,
       agentType: this.agentType,
-      workflowEnabled: options.workflowEnabled,
       hasInitialPrompt: options.hasInitialPrompt,
     };
 

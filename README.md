@@ -81,6 +81,8 @@ Each feature installs the Atomic CLI, all shared dependencies (bun, cocoindex-co
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
+# or with wget:
+wget -qO- https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
 ```
 
 **Windows PowerShell (standalone):**
@@ -228,7 +230,6 @@ Each agent spawns sub-agents that query DeepWiki, pull external documentation, a
 | Flag | Default | Description |
 | --- | --- | --- |
 | `-a, --agent <name>` | (required) | Agent: `claude`, `opencode`, `copilot` |
-| `-w, --workflow` | `false` | Enable graph workflow mode |
 | `-t, --theme <name>` | `"dark"` | UI theme: `dark`, `light` |
 | `-m, --model <name>` | (none) | Model override |
 | `[prompt...]` | (none) | Initial prompt |
@@ -654,12 +655,16 @@ The `/model select` command opens an interactive picker that also lets you set r
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash -s -- v1.0.0
+# or with VERSION env var:
+VERSION=v1.0.0 curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
 ```
 
 **Windows PowerShell:**
 
 ```powershell
 iex "& { $(irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1) } -Version v1.0.0"
+# or with VERSION env var:
+$env:VERSION='v1.0.0'; irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1 | iex
 ```
 
 </details>
@@ -673,12 +678,35 @@ iex "& { $(irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash -s -- --prerelease
+# or with VERSION env var:
+VERSION=prerelease curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
 ```
 
 **Windows PowerShell:**
 
 ```powershell
 iex "& { $(irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1) } -Prerelease"
+# or with VERSION env var:
+$env:VERSION='prerelease'; irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1 | iex
+```
+
+</details>
+
+<details>
+<summary>Authenticated downloads (CI / enterprise)</summary>
+
+Set `GITHUB_TOKEN` to use authenticated GitHub API requests, which avoids rate limits in CI/CD or enterprise environments:
+
+**macOS / Linux:**
+
+```bash
+GITHUB_TOKEN=ghp_... curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
+```
+
+**Windows PowerShell:**
+
+```powershell
+$env:GITHUB_TOKEN='ghp_...'; irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1 | iex
 ```
 
 </details>

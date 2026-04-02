@@ -1,8 +1,16 @@
 #!/usr/bin/env bash
 # Atomic CLI Installer
 # Usage: curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
-# Usage with version: curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash -s -- v1.0.0
-# Usage prerelease: curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash -s -- --prerelease
+#    or: wget -qO- https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
+# Usage with version: curl -fsSL ... | bash -s -- v1.0.0
+#    or: VERSION=v1.0.0 curl -fsSL ... | bash
+# Usage prerelease: curl -fsSL ... | bash -s -- --prerelease
+#    or: VERSION=prerelease curl -fsSL ... | bash
+# Set GITHUB_TOKEN for authenticated downloads (avoids API rate limits)
+#
+# Installs the Atomic CLI binary and config data only.
+# Agent config syncing, tooling (bun, uv, cocoindex, playwright), and SDK
+# installation are handled automatically on first `atomic init` / `atomic chat`.
 
 set -euo pipefail
 
@@ -25,107 +33,85 @@ success() { echo -e "${GREEN}success${NC}: $*"; }
 warn() { echo -e "${YELLOW}warn${NC}: $*"; }
 error() { echo -e "${RED}error${NC}: $*" >&2; exit 1; }
 
-run_with_optional_sudo() {
-    if [[ "$(id -u)" -eq 0 ]]; then
-        "$@"
-    elif command -v sudo >/dev/null 2>&1; then
-        sudo "$@"
-    else
-        return 1
+# Create a temporary netrc file for authenticated GitHub API requests.
+# This avoids exposing GITHUB_TOKEN on the command line (visible via ps).
+# Sets AUTH_NETRC_FILE to the path; caller must clean up via cleanup_auth.
+AUTH_NETRC_FILE=""
+setup_auth() {
+    AUTH_NETRC_FILE=""
+    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+        AUTH_NETRC_FILE=$(mktemp "${TMPDIR:-/tmp}/atomic-netrc.XXXXXX")
+        chmod 600 "$AUTH_NETRC_FILE"
+        cat > "$AUTH_NETRC_FILE" <<EOF
+machine api.github.com
+  login x-access-token
+  password ${GITHUB_TOKEN}
+
+machine github.com
+  login x-access-token
+  password ${GITHUB_TOKEN}
+EOF
     fi
 }
 
-install_bun_if_missing() {
-    if command -v bun >/dev/null 2>&1; then
-        return 0
+cleanup_auth() {
+    if [[ -n "${AUTH_NETRC_FILE:-}" && -f "$AUTH_NETRC_FILE" ]]; then
+        rm -f "$AUTH_NETRC_FILE"
+        AUTH_NETRC_FILE=""
     fi
-
-    info "bun not detected. Installing bun..."
-    local install_log
-    install_log=$(mktemp)
-    if curl -fsSL https://bun.sh/install | bash >"$install_log" 2>&1; then
-        export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
-        export PATH="$BUN_INSTALL/bin:$PATH"
-    fi
-
-    if command -v bun >/dev/null 2>&1; then
-        rm -f "$install_log"
-        info "bun installed successfully"
-        return 0
-    fi
-
-    warn "Failed to install bun automatically. Install log:"
-    cat "$install_log" >&2
-    rm -f "$install_log"
-    warn "Install bun manually from https://bun.sh"
-    return 1
 }
 
-install_uv_if_missing() {
-    if command -v uv >/dev/null 2>&1; then
-        return 0
+# Download a file using curl or wget with optional GITHUB_TOKEN auth.
+# Auth credentials are passed via a temporary netrc file, not the command line.
+download_file() {
+    local url="$1" output="$2" quiet="${3:-false}"
+    local curl_auth=() wget_auth=()
+
+    setup_auth
+    trap cleanup_auth RETURN
+
+    if [[ -n "$AUTH_NETRC_FILE" ]]; then
+        curl_auth=(--netrc-file "$AUTH_NETRC_FILE")
+        wget_auth=(--netrc-file "$AUTH_NETRC_FILE")
     fi
 
-    info "uv not detected. Installing uv..."
-    local install_log
-    install_log=$(mktemp)
-    if curl -LsSf https://astral.sh/uv/install.sh | sh >"$install_log" 2>&1; then
-        export PATH="$HOME/.local/bin:$PATH"
-    fi
-
-    if command -v uv >/dev/null 2>&1; then
-        rm -f "$install_log"
-        info "uv installed successfully"
-        return 0
-    fi
-
-    warn "Failed to install uv automatically. Install log:"
-    cat "$install_log" >&2
-    rm -f "$install_log"
-    warn "Install uv manually from https://docs.astral.sh/uv/"
-    return 1
-}
-
-install_npm_if_missing() {
-    if command -v npm >/dev/null 2>&1; then
-        return 0
-    fi
-
-    info "npm not detected. Installing Node.js/npm..."
-    local installed=0
-    local install_log
-    install_log=$(mktemp)
-
-    if command -v brew >/dev/null 2>&1; then
-        if brew install node >>"$install_log" 2>&1; then installed=1; fi
-    elif command -v apt-get >/dev/null 2>&1; then
-        if run_with_optional_sudo apt-get update >>"$install_log" 2>&1 &&
-            run_with_optional_sudo apt-get install -y nodejs npm >>"$install_log" 2>&1; then
-            installed=1
+    if command -v curl >/dev/null 2>&1; then
+        if [[ "$quiet" == "true" ]]; then
+            curl -fsSL ${curl_auth[@]+"${curl_auth[@]}"} "$url" -o "$output"
+        else
+            curl --fail --location --progress-bar ${curl_auth[@]+"${curl_auth[@]}"} --output "$output" "$url"
         fi
-    elif command -v dnf >/dev/null 2>&1; then
-        if run_with_optional_sudo dnf install -y nodejs npm >>"$install_log" 2>&1; then installed=1; fi
-    elif command -v yum >/dev/null 2>&1; then
-        if run_with_optional_sudo yum install -y nodejs npm >>"$install_log" 2>&1; then installed=1; fi
-    elif command -v pacman >/dev/null 2>&1; then
-        if run_with_optional_sudo pacman -Sy --noconfirm nodejs npm >>"$install_log" 2>&1; then installed=1; fi
-    elif command -v zypper >/dev/null 2>&1; then
-        if run_with_optional_sudo zypper --non-interactive install nodejs npm >>"$install_log" 2>&1; then installed=1; fi
-    elif command -v apk >/dev/null 2>&1; then
-        if run_with_optional_sudo apk add --no-cache nodejs npm >>"$install_log" 2>&1; then installed=1; fi
+    elif command -v wget >/dev/null 2>&1; then
+        if [[ "$quiet" == "true" ]]; then
+            wget -qO "$output" ${wget_auth[@]+"${wget_auth[@]}"} "$url"
+        else
+            wget -O "$output" ${wget_auth[@]+"${wget_auth[@]}"} "$url"
+        fi
+    else
+        error "Neither curl nor wget found. Please install one of them."
+    fi
+}
+
+# Fetch URL contents to stdout (for piping)
+fetch_url() {
+    local url="$1"
+    local curl_auth=() wget_auth=()
+
+    setup_auth
+    trap cleanup_auth RETURN
+
+    if [[ -n "$AUTH_NETRC_FILE" ]]; then
+        curl_auth=(--netrc-file "$AUTH_NETRC_FILE")
+        wget_auth=(--netrc-file "$AUTH_NETRC_FILE")
     fi
 
-    if [[ $installed -eq 1 ]] && command -v npm >/dev/null 2>&1; then
-        rm -f "$install_log"
-        info "npm installed successfully"
-        return 0
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL ${curl_auth[@]+"${curl_auth[@]}"} "$url"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -qO- ${wget_auth[@]+"${wget_auth[@]}"} "$url"
+    else
+        error "Neither curl nor wget found. Please install one of them."
     fi
-
-    warn "Failed to install npm automatically. Install log:"
-    cat "$install_log" >&2
-    rm -f "$install_log"
-    warn "Install Node.js/npm manually."
-    return 1
 }
 
 # Detect platform
@@ -242,114 +228,16 @@ verify_checksum() {
     info "Checksum verified successfully"
 }
 
-# Sync bundled config templates into provider home roots for global discovery
-# Installs only Atomic-managed agents and skills; provider config JSON files are
-# onboarded per-workspace by `atomic init`.
-sync_global_agent_configs() {
-    local source_root="$1"
-    local install_version="$2"
-
-    mkdir -p "$HOME/.claude/agents" "$HOME/.claude/skills"
-    mkdir -p "$HOME/.opencode/agents" "$HOME/.opencode/skills"
-    mkdir -p "$HOME/.copilot/agents" "$HOME/.copilot/skills"
-
-    cp -R "$source_root/.claude/agents/." "$HOME/.claude/agents/"
-    cp -R "$source_root/.claude/skills/." "$HOME/.claude/skills/"
-    cp -R "$source_root/.opencode/agents/." "$HOME/.opencode/agents/"
-    cp -R "$source_root/.opencode/skills/." "$HOME/.opencode/skills/"
-    cp -R "$source_root/.github/agents/." "$HOME/.copilot/agents/"
-    cp -R "$source_root/.github/skills/." "$HOME/.copilot/skills/"
-
-    # Remove SCM-managed skills from global config; these are project-scoped.
-    rm -rf "$HOME/.claude/skills/gh-"* "$HOME/.claude/skills/sl-"* 2>/dev/null || true
-    rm -rf "$HOME/.opencode/skills/gh-"* "$HOME/.opencode/skills/sl-"* 2>/dev/null || true
-    rm -rf "$HOME/.copilot/skills/gh-"* "$HOME/.copilot/skills/sl-"* 2>/dev/null || true
-
-    install_bun_if_missing || true
-    install_npm_if_missing || true
-    install_uv_if_missing || true
-
-    # Install cocoindex-code via uv if available.
-    if command -v uv >/dev/null 2>&1; then
-        info "Installing cocoindex-code via uv..."
-        uv tool install --upgrade cocoindex-code --prerelease explicit --with "cocoindex>=1.0.0a24" 2>/dev/null || true
-    else
-        warn "uv not available. Skipping cocoindex-code installation."
-    fi
-
-    # Write cocoindex global settings
-    local cocoindex_dir="$HOME/.cocoindex_code"
-    mkdir -p "$cocoindex_dir"
-    cat > "$cocoindex_dir/global_settings.yml" <<'COCOEOF'
-embedding:
-  model: lightonai/LateOn-Code-edge
-  provider: sentence-transformers
-COCOEOF
-    info "Wrote cocoindex global settings to $cocoindex_dir/global_settings.yml"
-
-    # Install @bastani/atomic-workflows SDK as a local package in ~/.atomic/workflows
-    info "Installing @bastani/atomic-workflows SDK in $ATOMIC_HOME/workflows..."
-    if command -v bun >/dev/null 2>&1; then
-        local workflows_dir="$ATOMIC_HOME/workflows"
-        mkdir -p "$workflows_dir"
-        # Create package.json if not present
-        if [[ ! -f "$workflows_dir/package.json" ]]; then
-            cat > "$workflows_dir/package.json" <<'PKGEOF'
-{
-  "name": "atomic-workflows",
-  "private": true,
-  "type": "module"
-}
-PKGEOF
-        fi
-        # Create .gitignore if not present
-        if [[ ! -f "$workflows_dir/.gitignore" ]]; then
-            printf 'node_modules/\n' > "$workflows_dir/.gitignore"
-        fi
-        # Strip leading 'v' from version for npm semver (e.g. v0.4.30 -> 0.4.30)
-        local npm_version="${install_version#v}"
-        # Try exact version first; fall back to latest if not yet published
-        if ! (cd "$workflows_dir" && bun add "@bastani/atomic-workflows@${npm_version}" 2>/dev/null); then
-            warn "Exact SDK version ${npm_version} not found on npm, falling back to latest..."
-            (cd "$workflows_dir" && bun add "@bastani/atomic-workflows@latest" 2>/dev/null) || \
-                warn "Could not install @bastani/atomic-workflows SDK. Install manually: cd $workflows_dir && bun add @bastani/atomic-workflows"
-        fi
-    else
-        error "bun is required to install @bastani/atomic-workflows SDK. Install bun from https://bun.sh"
-    fi
-
-    # Install @playwright/cli globally if a package manager is available.
-    # Do not install Chromium browsers here; defer to first use.
-    info "Installing @playwright/cli globally (if available)..."
-    if command -v bun >/dev/null 2>&1; then
-        bun install -g @playwright/cli@latest 2>/dev/null || true
-    elif command -v npm >/dev/null 2>&1; then
-        npm install -g @playwright/cli@latest 2>/dev/null || true
-    else
-        warn "Neither bun nor npm found. Install @playwright/cli manually for web browsing capabilities."
-    fi
-
-    # Install @llamaindex/liteparse globally for local document parsing.
-    info "Installing @llamaindex/liteparse globally (if available)..."
-    if command -v bun >/dev/null 2>&1; then
-        bun install -g @llamaindex/liteparse@latest 2>/dev/null || true
-    elif command -v npm >/dev/null 2>&1; then
-        npm install -g @llamaindex/liteparse@latest 2>/dev/null || true
-    else
-        warn "Neither bun nor npm found. Install @llamaindex/liteparse manually for document parsing capabilities."
-    fi
-}
-
 # Get latest version (stable or prerelease)
 get_latest_version() {
     local prerelease="${1:-false}"
     if [[ "$prerelease" == "true" ]]; then
-        curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases" |
+        fetch_url "https://api.github.com/repos/${GITHUB_REPO}/releases" |
             grep -E '"tag_name"|"prerelease"' | paste - - |
             grep '"prerelease": true' | head -1 |
             sed -E 's/.*"tag_name": "([^"]+)".*/\1/'
     else
-        curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" |
+        fetch_url "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" |
             grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
     fi
 }
@@ -366,6 +254,15 @@ main() {
         esac
     done
 
+    # Support VERSION env var (e.g., VERSION=v1.0.0 curl ... | bash)
+    if [[ -z "$version" && -n "${VERSION:-}" ]]; then
+        if [[ "$VERSION" == "prerelease" ]]; then
+            prerelease="true"
+        elif [[ "$VERSION" != "latest" ]]; then
+            version="$VERSION"
+        fi
+    fi
+
     # Export for Windows PowerShell installer delegation
     export ATOMIC_INSTALL_VERSION="$version"
     export ATOMIC_INSTALL_PRERELEASE="$prerelease"
@@ -373,7 +270,7 @@ main() {
     local platform download_url checksums_url config_url tmp_dir
 
     # Check dependencies
-    command -v curl >/dev/null || error "curl is required to install ${BINARY_NAME}"
+    command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1 || error "curl or wget is required to install ${BINARY_NAME}"
     command -v tar >/dev/null || error "tar is required to install ${BINARY_NAME}"
 
     # Handle Windows delegation before command substitution — exit inside $() only
@@ -384,7 +281,7 @@ main() {
             local ps_args=""
             if [[ -n "${ATOMIC_INSTALL_VERSION:-}" ]]; then
                 if [[ ! "${ATOMIC_INSTALL_VERSION}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
-                    error "Invalid version format: ${ATOMIC_INSTALL_VERSION} (expected semver like v1.2.3 or v1.2.3-beta.1)"
+                    error "Invalid version format: ${ATOMIC_INSTALL_VERSION} (expected semver like v1.2.3 or v1.2.3-1)"
                 fi
                 ps_args="${ps_args} -Version '${ATOMIC_INSTALL_VERSION}'"
             fi
@@ -418,7 +315,7 @@ main() {
 
     # Validate version format to prevent URL manipulation
     if [[ ! "$version" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
-        error "Invalid version format: $version (expected semver like v1.2.3 or v1.2.3-beta.1)"
+        error "Invalid version format: $version (expected semver like v1.2.3 or v1.2.3-1)"
     fi
 
     # Setup directories
@@ -435,22 +332,32 @@ main() {
 
     # Download binary
     info "Downloading ${BINARY_NAME} ${version}..."
-    curl --fail --location --progress-bar --output "${tmp_dir}/${BINARY_NAME}-${platform}" "$download_url" ||
+    download_file "$download_url" "${tmp_dir}/${BINARY_NAME}-${platform}" ||
         error "Failed to download binary from ${download_url}"
 
     # Download config files
     info "Downloading config files..."
-    curl --fail --location --progress-bar --output "${tmp_dir}/${BINARY_NAME}-config.tar.gz" "$config_url" ||
+    download_file "$config_url" "${tmp_dir}/${BINARY_NAME}-config.tar.gz" ||
         error "Failed to download config files from ${config_url}"
 
     # Download checksums
     info "Downloading checksums..."
-    curl -fsSL --output "${tmp_dir}/checksums.txt" "$checksums_url" ||
+    download_file "$checksums_url" "${tmp_dir}/checksums.txt" "true" ||
         error "Failed to download checksums from ${checksums_url}"
 
     # Verify checksums
     verify_checksum "${tmp_dir}/${BINARY_NAME}-${platform}" "${tmp_dir}/checksums.txt"
     verify_checksum "${tmp_dir}/${BINARY_NAME}-config.tar.gz" "${tmp_dir}/checksums.txt"
+
+    # Validate downloaded config archive
+    if ! tar -tzf "${tmp_dir}/${BINARY_NAME}-config.tar.gz" >/dev/null 2>&1; then
+        error "Downloaded config archive is not a valid tarball or is corrupted."
+    fi
+
+    # Notice when replacing existing binary
+    if [[ -f "${BIN_DIR}/${BINARY_NAME}" ]]; then
+        info "Replacing existing ${BINARY_NAME} binary at ${BIN_DIR}/${BINARY_NAME}"
+    fi
 
     # Install binary
     mv "${tmp_dir}/${BINARY_NAME}-${platform}" "${BIN_DIR}/${BINARY_NAME}"
@@ -462,16 +369,12 @@ main() {
     mkdir -p "$DATA_DIR"
     tar -xzf "${tmp_dir}/${BINARY_NAME}-config.tar.gz" -C "$DATA_DIR"
 
-    info "Syncing global agent configs to provider home roots..."
-    sync_global_agent_configs "$DATA_DIR" "$version"
-
     # Verify installation
     "${BIN_DIR}/${BINARY_NAME}" --version >/dev/null 2>&1 ||
         error "Installation verification failed"
 
     success "Installed ${BINARY_NAME} ${version} to ${BIN_DIR}/${BINARY_NAME}"
     success "Config files installed to ${DATA_DIR}"
-    success "Global agent configs synced to ~/.claude, ~/.opencode, and ~/.copilot"
 
     # Persist prerelease channel preference in settings (atomic write via temp + mv)
     local settings_file="${ATOMIC_HOME}/settings.json"
@@ -500,17 +403,40 @@ main() {
 
     # Update PATH in shell config
     if [[ ":$PATH:" != *":${BIN_DIR}:"* ]]; then
-        local config_file
+        local config_file path_line
         config_file=$(detect_shell_config)
 
-        if add_to_path "$config_file"; then
-            echo ""
-            warn "Restart your shell or run: source $config_file"
+        if [[ "$config_file" == *"fish"* ]]; then
+            path_line="fish_add_path $BIN_DIR"
+        else
+            path_line="export PATH=\"$BIN_DIR:\$PATH\""
         fi
-    fi
 
-    echo ""
-    success "Run 'atomic --help' to get started!"
+        # Prompt user to add to shell config (only if interactive)
+        if [ -t 0 ] || [ -e /dev/tty ]; then
+            echo ""
+            printf "Would you like to add %s to your PATH in %s? [y/N] " "$BIN_DIR" "$config_file"
+            if read -r REPLY </dev/tty 2>/dev/null; then
+                if [[ "$REPLY" == "y" || "$REPLY" == "Y" ]]; then
+                    add_to_path "$config_file"
+                    echo ""
+                    warn "Restart your shell or run: source $config_file"
+                fi
+            fi
+        else
+            echo ""
+            info "$BIN_DIR is not in your PATH."
+            info "To add it permanently, add this to $config_file:"
+            echo "  $path_line"
+        fi
+
+        echo ""
+        success "Installation complete! To get started, run:"
+        echo "  $path_line && ${BINARY_NAME} --help"
+    else
+        echo ""
+        success "Run '${BINARY_NAME} --help' to get started!"
+    fi
 }
 
 main "$@"

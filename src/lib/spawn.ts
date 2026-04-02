@@ -66,3 +66,54 @@ export function getBunBinDir(): string | undefined {
   const home = getHomeDir();
   return home ? join(home, ".bun", "bin") : undefined;
 }
+
+/**
+ * Get the path to bun's global install directory (where `bun install -g` places packages).
+ */
+export function getBunGlobalInstallDir(): string | undefined {
+  const home = getHomeDir();
+  return home ? join(home, ".bun", "install", "global") : undefined;
+}
+
+/**
+ * Run `bun pm trust <packages>` in bun's global install directory so that
+ * lifecycle scripts of the specified globally installed packages are allowed to execute.
+ */
+export async function trustGlobalBunPackages(packages: string[]): Promise<SpawnResult> {
+  if (packages.length === 0) {
+    return { success: true, details: "no packages to trust" };
+  }
+  const bunPath = Bun.which("bun");
+  if (!bunPath) {
+    return { success: false, details: "bun not found" };
+  }
+  const globalDir = getBunGlobalInstallDir();
+  if (!globalDir) {
+    return { success: false, details: "could not determine global install directory" };
+  }
+  try {
+    const proc = Bun.spawn({
+      cmd: [bunPath, "pm", "trust", ...packages],
+      cwd: globalDir,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stderr, stdout, exitCode] = await Promise.all([
+      new Response(proc.stderr).text(),
+      new Response(proc.stdout).text(),
+      proc.exited,
+    ]);
+    // bun pm trust exits 1 when packages are already trusted or have no
+    // scripts to run — treat that as success since the desired state is met.
+    const alreadyTrusted = exitCode !== 0 && stderr.includes("already trusted");
+    return {
+      success: exitCode === 0 || alreadyTrusted,
+      details: stderr.trim().length > 0 ? stderr.trim() : stdout.trim(),
+    };
+  } catch (error) {
+    return {
+      success: false,
+      details: error instanceof Error ? error.message : String(error),
+    };
+  }
+}

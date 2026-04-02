@@ -51,10 +51,6 @@ export interface ChatUIConfig {
   agentType?: import("@/services/models/index.ts").AgentType;
   /** Initial prompt to auto-submit on session start */
   initialPrompt?: string;
-  /** Whether workflow mode was requested for this chat session */
-  workflowEnabled?: boolean;
-  /** Maximum graph traversal steps for the conductor (overrides default 100) */
-  maxIterations?: number;
   /** Promise that resolves when client.start() completes (deferred start) */
   clientStartPromise?: Promise<void>;
 }
@@ -111,8 +107,6 @@ export async function startChatUI(
     workingDir,
     agentType,
     initialPrompt,
-    workflowEnabled = false,
-    maxIterations,
     clientStartPromise,
   } = config;
   const resolvedAgentType = agentType ?? client.agentType;
@@ -123,7 +117,6 @@ export async function startChatUI(
   );
   const { state, debugSub } = await createChatUIRuntimeState({
     resolvedAgentType,
-    workflowEnabled,
     initialPrompt,
   });
 
@@ -230,7 +223,6 @@ export async function startChatUI(
                       registerTool: controller.registerTool,
                       streamWithSession: controller.streamWithSession,
                       initialPrompt,
-                      maxIterations,
                       onModelChange: controller.handleModelChange,
                       onSessionMcpServersChange: controller.handleSessionMcpServersChange,
                       onCommandExecutionTelemetry: controller.handleCommandTelemetry,

@@ -114,7 +114,6 @@ export interface TuiSessionStartEvent extends TelemetryEventBase {
   source: "tui";
   sessionId: string;
   agentType: AgentType;
-  workflowEnabled: boolean;
   hasInitialPrompt: boolean;
 }
 

@@ -229,16 +229,6 @@ Slash Commands:
             await workflowVerifyCommand(path);
         });
 
-    // Add hidden command for internal telemetry upload (used by background process)
-    program
-        .command("upload-telemetry", { hidden: true })
-        .description("Upload telemetry events (internal use)")
-        .action(async () => {
-            const { handleTelemetryUpload } =
-                await import("@/services/telemetry/telemetry-upload.ts");
-            await handleTelemetryUpload();
-        });
-
     return program;
 }
 
@@ -246,69 +236,10 @@ Slash Commands:
 export const program = createProgram();
 
 /**
- * Spawn a detached background process to upload telemetry events.
- * Uses fire-and-forget pattern - parent process exits immediately.
- *
- * Reference: specs/2026-01-22-phase-6-telemetry-upload-backend.md Section 5.5
- */
-export async function spawnTelemetryUpload(): Promise<void> {
-    // Prevent recursive spawns - if this is already an upload process, don't spawn another
-    if (process.env.ATOMIC_TELEMETRY_UPLOAD === "1") {
-        return;
-    }
-
-    // Check if telemetry is enabled (lazy-load to avoid pulling in telemetry at startup)
-    let enabled = false;
-    try {
-        const { isTelemetryEnabledSync } = await import("@/services/telemetry/index.ts");
-        enabled = isTelemetryEnabledSync();
-    } catch {
-        return;
-    }
-    if (!enabled) {
-        return;
-    }
-
-    try {
-        // Build the spawn argv for the upload-telemetry hidden command.
-        // In compiled binaries, process.argv[1] is the $bunfs virtual-FS path
-        // to the bundled entry (e.g. "B:/~BUN/root/src/cli.js"). Passing it as
-        // a user argument to the re-spawned binary would add a phantom arg that
-        // prevents Commander from finding the upload-telemetry command.  The
-        // binary already embeds its entry — just pass the command directly.
-        const scriptPath = process.argv[1] ?? "atomic";
-        const isBunfsEntry = /[\\/]\$bunfs[\\/]|^[Bb]:[\\/]~BUN[\\/]/.test(scriptPath);
-        const spawnArgv = isBunfsEntry
-            ? [process.execPath, "upload-telemetry"]
-            : [process.execPath, scriptPath, "upload-telemetry"];
-
-        // Spawn detached process that outlives parent
-        const child = Bun.spawn(
-            spawnArgv,
-            {
-                detached: true,
-                stdin: "ignore",
-                stdout: "ignore",
-                stderr: "ignore",
-                env: { ...process.env, ATOMIC_TELEMETRY_UPLOAD: "1" },
-            },
-        );
-
-        // Allow parent to exit without waiting for child
-        if (child.unref) {
-            child.unref();
-        }
-    } catch {
-        // Fail silently - telemetry upload should never break the CLI
-    }
-}
-
-/**
  * Main entry point for the CLI
  *
  * Handles:
  * - Windows leftover file cleanup
- * - Telemetry upload spawning
  * - Error handling with colored output
  */
 async function main(): Promise<void> {
@@ -325,7 +256,7 @@ async function main(): Promise<void> {
         // Ensure config data directory exists for binary installs.
         // Downloads config on first run if the binary was installed without it
         // (e.g., via a devcontainer feature that only copies the binary).
-        const skipConfigCommands = new Set(["--version", "-v", "--help", "-h", "upload-telemetry"]);
+        const skipConfigCommands = new Set(["--version", "-v", "--help", "-h"]);
         const needsConfig = !process.argv.slice(2).some((arg) => skipConfigCommands.has(arg));
         if (needsConfig) {
             const { ensureConfigDataDir } = await import("@/services/config/config-path.ts");
@@ -334,7 +265,7 @@ async function main(): Promise<void> {
 
         // Ensure workflow SDK version matches CLI version before running commands.
         // Skip for lightweight commands that don't use the SDK.
-        const skipSdkCommands = new Set(["--version", "-v", "--help", "-h", "upload-telemetry", "uninstall", "config"]);
+        const skipSdkCommands = new Set(["--version", "-v", "--help", "-h", "uninstall", "config"]);
         const needsSdkCheck = !process.argv.slice(2).some((arg) => skipSdkCommands.has(arg));
         if (needsSdkCheck) {
             try {
@@ -349,18 +280,11 @@ async function main(): Promise<void> {
         }
 
         // Parse and execute the command
-        // Commander.js handles all argument parsing including the hidden upload-telemetry command
         await program.parseAsync();
-
-        // Spawn telemetry upload after successful command execution
-        await spawnTelemetryUpload();
     } catch (error) {
         // Handle errors with colored output
         const message = error instanceof Error ? error.message : String(error);
         console.error(`${COLORS.red}Error: ${message}${COLORS.reset}`);
-
-        // Spawn telemetry upload even on error
-        await spawnTelemetryUpload();
 
         process.exit(1);
     }

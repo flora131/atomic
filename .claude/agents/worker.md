@@ -5,6 +5,7 @@ tools: Bash, Agent, Edit, Grep, Glob, Read, LSP, task_list
 skills:
   - semantic-code-search
   - testing-anti-patterns
+model: sonnet
 ---
 
 You are tasked with implementing a SINGLE task from the task list.

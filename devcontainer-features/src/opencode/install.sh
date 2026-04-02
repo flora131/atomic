@@ -38,12 +38,17 @@ fi
 
 echo "Installing OpenCode..."
 
+# The feature runtime exports VERSION for this feature option; clear it before
+# invoking external installers that interpret VERSION for their own releases.
+ATOMIC_FEATURE_VERSION="${VERSION:-latest}"
+unset VERSION
+
 curl -fsSL --retry 3 --retry-delay 5 https://opencode.ai/install | bash
 
 echo "✓ OpenCode installed"
 
 # ─── Resolve version ────────────────────────────────────────────────────────
-ATOMIC_VERSION="${VERSION:-latest}"
+ATOMIC_VERSION="${ATOMIC_FEATURE_VERSION}"
 GITHUB_REPO="flora131/atomic"
 
 # Support GITHUB_TOKEN for authenticated API requests (avoids rate limits)

@@ -168,7 +168,10 @@ export async function importWorkflowModule(
 ): Promise<Record<string, unknown>> {
   const bunPath = resolveBunExecutable();
   if (!bunPath) {
-    throw new Error("Bun is required to load TypeScript workflows, but it could not be found.");
+    throw new Error(
+    "Bun is required to load TypeScript workflows, but it could not be found. " +
+    "Please ensure Bun is installed and either on your PATH or BUN_INSTALL is set."
+    );
   }
 
   ensureDirSync(WORKFLOW_TMP_DIR);

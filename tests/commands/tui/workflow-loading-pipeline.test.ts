@@ -8,10 +8,9 @@
  */
 
 import { describe, expect, test, beforeEach, afterEach, spyOn } from "bun:test";
-import { mkdirSync, writeFileSync } from "fs";
-import { mkdtemp, writeFile, rm } from "fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
-import { join } from "path";
+import { delimiter, join } from "path";
 import type { WorkflowDefinition } from "@/services/workflows/types/definition.ts";
 import {
   extractWorkflowDefinition,
@@ -480,38 +479,26 @@ describe("importWorkflowModule", () => {
       bunBinDir,
       process.platform === "win32" ? "bun.exe" : "bun",
     );
-    mkdirSync(bunBinDir, { recursive: true });
-    writeFileSync(bunExecutable, "");
+    await mkdir(bunBinDir, { recursive: true });
+    await writeFile(
+      bunExecutable,
+      process.platform === "win32"
+        ? "@echo off\r\ncopy /Y \"%2\" \"%4\" >NUL\r\n"
+        : "#!/bin/sh\ncp \"$2\" \"$4\"\n",
+    );
+    if (process.platform !== "win32") {
+      await chmod(bunExecutable, 0o755);
+    }
     process.env.BUN_INSTALL = bunInstallDir;
 
     using whichSpy = spyOn(Bun, "which").mockReturnValue(
       null as ReturnType<typeof Bun.which>,
     );
-    using spawnSpy = spyOn(Bun, "spawnSync").mockImplementation((
-      command,
-    ) => {
-      const cmd = Array.isArray(command) ? command : command.cmd;
-      const [, action, , , bundledFile] = cmd;
-      expect(cmd[0]).toBe(bunExecutable);
-      expect(action).toBe("build");
-      writeFileSync(
-        bundledFile!,
-        `export default {
-          name: "fallback-workflow",
-          description: "Loaded via bun fallback",
-          __compiledWorkflow: true,
-        };`,
-      );
-      return {
-        exitCode: 0,
-        stderr: new Uint8Array(),
-      } as ReturnType<typeof Bun.spawnSync>;
-    });
 
     const mod = await importWorkflowModule(workflowFile);
 
     expect((mod.default as { name: string }).name).toBe("fallback-workflow");
-    expect(spawnSpy).toHaveBeenCalled();
+    expect(process.env.PATH?.split(delimiter)[0]).toBe(bunBinDir);
     expect(whichSpy).toHaveBeenCalledWith("bun");
   });
 });

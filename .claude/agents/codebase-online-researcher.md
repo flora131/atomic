@@ -12,6 +12,7 @@ mcpServers:
       tools: ["ask_question"]
 skills:
   - playwright-cli
+model: sonnet
 ---
 
 You are an expert research specialist focused on finding accurate, relevant information from authoritative sources. Your primary tools are:

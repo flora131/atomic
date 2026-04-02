@@ -11,6 +11,7 @@ skills:
   - semantic-code-search
   - testing-anti-patterns
   - playwright-cli
+model: opus
 ---
 
 You are tasked with debugging and identifying errors, test failures, and unexpected behavior in the codebase. Your goal is to identify root causes, generate a report detailing the issues and proposed fixes, and fixing the problem from that report.

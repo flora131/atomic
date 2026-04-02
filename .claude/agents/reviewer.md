@@ -13,6 +13,7 @@ mcpServers:
 skills:
   - testing-anti-patterns
   - playwright-cli
+model: opus
 ---
 
 # Review guidelines:

@@ -86,19 +86,34 @@ export function getConfigRoot(): string {
   return join(import.meta.dir, "..", "..", "..");
 }
 
+const REQUIRED_BINARY_CONFIG_PATHS = [
+  ".claude",
+  ".opencode",
+  join(".github", "skills"),
+  join(".github", "agents"),
+  join(".github", "lsp.json"),
+  join(".vscode", "mcp.json"),
+];
+
+function hasRequiredBinaryConfigData(dataDir: string = getBinaryDataDir()): boolean {
+  return REQUIRED_BINARY_CONFIG_PATHS.every((relativePath) =>
+    existsSync(join(dataDir, relativePath)),
+  );
+}
+
 /**
- * Check if the config data directory exists (for binary installs).
+ * Check if the required config data exists for binary installs.
  * This can be used to provide better error messages before operations.
  */
-export function configDataDirExists(): boolean {
-  const installType = detectInstallationType();
-
+export function configDataDirExists(
+  installType: InstallationType = detectInstallationType(),
+): boolean {
   if (installType !== "binary") {
     // For source/npm installs, the config is always available
     return true;
   }
 
-  return existsSync(getBinaryDataDir());
+  return hasRequiredBinaryConfigData();
 }
 
 /**
@@ -108,10 +123,13 @@ export function configDataDirExists(): boolean {
  * feature that only copies the binary), this function downloads and extracts
  * the config tarball for the current version from GitHub releases.
  *
- * No-op for source/npm installs or if the data dir already exists.
+ * No-op for source/npm installs or if the required config data already exists.
  */
-export async function ensureConfigDataDir(version: string): Promise<void> {
-  if (configDataDirExists()) {
+export async function ensureConfigDataDir(
+  version: string,
+  installType: InstallationType = detectInstallationType(),
+): Promise<void> {
+  if (configDataDirExists(installType)) {
     return;
   }
 
@@ -127,7 +145,7 @@ export async function ensureConfigDataDir(version: string): Promise<void> {
 
   await withLock(lockTarget, async () => {
     // Re-check after acquiring the lock — another process may have completed the download
-    if (configDataDirExists()) {
+    if (configDataDirExists(installType)) {
       return;
     }
 

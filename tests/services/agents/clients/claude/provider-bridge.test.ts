@@ -120,34 +120,34 @@ describe("getClaudeNativeMeta", () => {
         expect(meta!.nativeMessageId).toBe("msg-456");
     });
 
-    test("extracts parent_tool_use_id as parentToolUseId (string)", () => {
+    test("extracts parent_tool_use_id as parentToolCallId from SDK (string)", () => {
         const native = {
             type: "assistant",
             parent_tool_use_id: "tool-789",
         } as unknown as ClaudeNativeEvent;
         const meta = getClaudeNativeMeta(native);
         expect(meta).toBeDefined();
-        expect(meta!.parentToolUseId).toBe("tool-789");
+        expect(meta!.parentToolCallId).toBe("tool-789");
     });
 
-    test("extracts parent_tool_use_id as parentToolUseId (null)", () => {
+    test("extracts parent_tool_use_id as parentToolCallId from SDK (null)", () => {
         const native = {
             type: "assistant",
             parent_tool_use_id: null,
         } as unknown as ClaudeNativeEvent;
         const meta = getClaudeNativeMeta(native);
         expect(meta).toBeDefined();
-        expect(meta!.parentToolUseId).toBeNull();
+        expect(meta!.parentToolCallId).toBeNull();
     });
 
-    test("sets parentToolUseId to undefined when parent_tool_use_id is non-string/non-null", () => {
+    test("sets parentToolCallId to undefined for non-string/non-null parent_tool_use_id", () => {
         const native = {
             type: "assistant",
             parent_tool_use_id: 42,
         } as unknown as ClaudeNativeEvent;
         const meta = getClaudeNativeMeta(native);
         expect(meta).toBeDefined();
-        expect(meta!.parentToolUseId).toBeUndefined();
+        expect(meta!.parentToolCallId).toBeUndefined();
     });
 
     test("extracts tool_use_id as toolUseId", () => {
@@ -194,7 +194,7 @@ describe("getClaudeNativeMeta", () => {
         expect(meta).toEqual({
             nativeSessionId: "sess-1",
             nativeMessageId: "msg-2",
-            parentToolUseId: "ptuid-3",
+            parentToolCallId: "ptuid-3",
             toolUseId: "tuid-4",
             taskId: "tid-5",
             hookId: "hid-6",
@@ -547,7 +547,7 @@ describe("registerClaudeProviderEventBridges", () => {
                 toolName: "Bash",
                 toolInput: { command: "ls" },
                 toolUseID: "tuid-1",
-                parentToolUseId: "ptuid-1",
+                parentToolCallId: "ptuid-1",
                 parentAgentId: "agent-1",
             });
 
@@ -627,7 +627,7 @@ describe("registerClaudeProviderEventBridges", () => {
                 success: true,
                 error: undefined,
                 toolUseID: "tuid-2",
-                parentToolUseId: "ptuid-2",
+                parentToolCallId: "ptuid-2",
                 parentAgentId: "agent-2",
             });
 
@@ -678,7 +678,7 @@ describe("registerClaudeProviderEventBridges", () => {
                 subagentType: "worker",
                 task: "implement feature",
                 toolUseID: "tuid-3",
-                parentToolUseId: "ptuid-3",
+                parentToolCallId: "ptuid-3",
                 subagentSessionId: "sub-sess-1",
             });
 

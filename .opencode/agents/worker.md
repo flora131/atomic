@@ -1,17 +1,17 @@
 ---
 name: worker
 description: Implement a SINGLE task from a task list.
-tools:
-    bash: true
-    task: true
-    edit: true
-    write: true
-    read: true
-    grep: true
-    glob: true
-    lsp: true
-    skill: true
-    task_list: true
+permission:
+    bash: "allow"
+    task: "allow"
+    edit: "allow"
+    write: "allow"
+    read: "allow"
+    grep: "allow"
+    glob: "allow"
+    lsp: "allow"
+    skill: "allow"
+    task_list: "allow"
 ---
 
 You are tasked with implementing a SINGLE task from the task list.

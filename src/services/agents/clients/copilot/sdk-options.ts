@@ -1,3 +1,5 @@
+import { join } from "path";
+
 import type { CopilotClientOptions as SdkClientOptions } from "@github/copilot-sdk";
 
 import type { CopilotConnectionMode, CopilotClientOptions } from "@/services/agents/clients/copilot.ts";
@@ -5,6 +7,8 @@ import {
   getBundledCopilotCliPath,
   resolveCopilotSdkCliLaunch,
 } from "@/services/agents/clients/copilot/cli-path.ts";
+import { isPipelineDebug } from "@/services/events/pipeline-logger.ts";
+import { getActiveSessionLogDir } from "@/services/events/debug-subscriber/index.ts";
 
 function applyConnectionMode(
   options: SdkClientOptions,
@@ -51,6 +55,18 @@ export async function buildCopilotSdkOptions(
   };
 
   applyConnectionMode(options, clientOptions.connectionMode);
+
+  if (isPipelineDebug()) {
+    options.logLevel = "debug";
+
+    const sessionLogDir = getActiveSessionLogDir();
+    if (sessionLogDir) {
+      options.telemetry = {
+        filePath: join(sessionLogDir, "copilot-traces.jsonl"),
+        exporterType: "file",
+      };
+    }
+  }
 
   return options;
 }

@@ -244,14 +244,6 @@ export const MUTABLE_STATE_INVENTORY: readonly MutableStateEntry[] = [
     coveredByResetAll: false,
   },
   {
-    file: "@/services/agents/tools/opencode-mcp-bridge.ts",
-    variables: ["dispatchServer", "generatedScripts"],
-    description:
-      "Active HTTP dispatch server for MCP tool bridge and generated script paths for cleanup.",
-    resetStrategy: "mock-module",
-    coveredByResetAll: false,
-  },
-  {
     file: "@/services/agents/tools/discovery.ts",
     variables: ["discoveredCustomTools", "tempToolFiles"],
     description:

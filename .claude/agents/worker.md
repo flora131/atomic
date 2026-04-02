@@ -1,7 +1,7 @@
 ---
 name: worker
 description: Implement a SINGLE task from a task list.
-tools: Bash, Agent, Edit, Grep, Glob, Read, LSP, task_list
+tools: Bash, Agent, Edit, Grep, Glob, Read, LSP, mcp__task_list__task_list
 skills:
   - semantic-code-search
   - testing-anti-patterns

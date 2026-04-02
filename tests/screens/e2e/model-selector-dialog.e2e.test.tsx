@@ -13,7 +13,7 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import React from "react";
 import { act } from "react";
-import { testRender } from "@opentui/react/test-utils";
+import { testRender } from "./test-support.ts";
 import { ThemeProvider, darkTheme } from "@/theme/index.tsx";
 import {
   ModelSelectorDialog,

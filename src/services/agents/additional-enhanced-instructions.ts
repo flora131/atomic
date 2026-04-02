@@ -12,6 +12,11 @@
 export const ADDITIONAL_ENHANCED_INSTRUCTIONS = `
 This section provides you with **CRITICAL** instructions that will help you to maintain coherency in long-horizon context-heavy tasks and better support users:
 
+<user_experience>
+- Always ask clarifying questions if the user's request is ambiguous or lacks necessary details. NEVER make assumptions about what the user wants.
+- If you find yourself circling in thought and asking what the user "really" wants, stop and ask the user for clarification. It's better to ask than to guess.
+</user_experience>
+
 <tool_policies>
 Follow these tool selection and usage rules in order of priority:
 

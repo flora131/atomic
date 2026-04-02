@@ -11,7 +11,7 @@
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { act } from "react";
-import { testRender } from "@opentui/react/test-utils";
+import { testRender } from "./test-support.ts";
 import { ThemeProvider, darkTheme } from "@/theme/index.tsx";
 import { UserQuestionDialog } from "@/components/user-question-dialog.tsx";
 import type { QuestionAnswer, UserQuestion } from "@/state/chat/shared/types/hitl.ts";

@@ -8,7 +8,7 @@
 
 import React from "react";
 import { afterEach, describe, expect, test } from "bun:test";
-import { testRender } from "@opentui/react/test-utils";
+import { testRender } from "./test-support.ts";
 import { ThemeProvider, darkTheme } from "@/theme/index.tsx";
 import {
   SkillLoadIndicator,

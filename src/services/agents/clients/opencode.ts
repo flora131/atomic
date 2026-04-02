@@ -10,7 +10,7 @@ import { buildOpenCodeMcpSnapshot } from "@/services/agents/clients/opencode/mcp
 import { getOpenCodeModelDisplayInfo, lookupOpenCodeRawModelIdFromProviders, resolveOpenCodeModelContextWindow, resolveOpenCodeModelForPrompt, type OpenCodeResolvedPromptModel } from "@/services/agents/clients/opencode/model.ts";
 import { releaseAtomicManagedOpenCodeServerLease, spawnAtomicManagedOpenCodeServer } from "@/services/agents/clients/opencode/server.ts";
 import { createWrappedOpenCodeSession, type OpenCodeSessionRuntimeArgs } from "@/services/agents/clients/opencode/session-runtime.ts";
-import { createManagedOpenCodeSession, getOpenCodeSessionMessagesWithParts, listOpenCodeProviderModels, listOpenCodeSessions, registerOpenCodeMcpServers, registerOpenCodeToolsMcpServer, resumeManagedOpenCodeSession } from "@/services/agents/clients/opencode/session-management.ts";
+import { createManagedOpenCodeSession, getOpenCodeSessionMessagesWithParts, listOpenCodeProviderModels, listOpenCodeSessions, registerOpenCodeMcpServers, resumeManagedOpenCodeSession } from "@/services/agents/clients/opencode/session-management.ts";
 import { OpenCodeSessionStateSupport, type OpenCodeSubagentSessionState } from "@/services/agents/clients/opencode/session-state.ts";
 import { type OpenCodeSessionState } from "@/services/agents/clients/opencode/shared.ts";
 import type { OpenCodeProviderEventHandler, ProviderStreamEventDataMap, ProviderStreamEventType } from "@/services/agents/provider-events.ts";
@@ -22,13 +22,14 @@ import {
 } from "@/services/agents/subagent-tool-policy.ts";
 import { createOpencodeClient as createSdkClient, type Event as OpenCodeEvent, type EventMessagePartRemoved, type EventPermissionAsked, type EventQuestionAsked, type OpencodeClient as SdkClient } from "@opencode-ai/sdk/v2/client";
 import { createOpenCodeKeepalive, type OpenCodeKeepaliveHandle } from "@/services/agents/clients/opencode/keepalive.ts";
+import { isPipelineDebug } from "@/services/events/pipeline-logger.ts";
 
 const DEFAULT_OPENCODE_BASE_URL = "http://127.0.0.1:4096";
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_RETRY_DELAY = 1000;
 const COMPACTION_COMPLETE_DEDUPE_WINDOW_MS = 1000;
 const OPENCODE_SSE_DIAGNOSTICS_MARKER = "opencode.sse.diagnostics";
-const debugLog = process.env.DEBUG === "1"
+const debugLog = isPipelineDebug()
   ? (label: string, data: Record<string, unknown>) => console.debug(`[opencode:${label}]`, JSON.stringify(data, null, 2))
   : () => {};
 
@@ -47,13 +48,11 @@ export class OpenCodeClient implements CodingAgentClient {
   private activeNativeProviderEvent: OpenCodeEvent | null = null;
   private activeSessions = new Set<string>();
   private sessionStateById = new Map<string, OpenCodeSessionState>();
-  private registeredTools = new Map<string, ToolDefinition>();
   private isRunning = false;
   private isConnected = false;
   private currentSessionId: string | null = null;
   private eventSubscriptionController: AbortController | null = null;
   private isServerSpawned = false;
-  private dispatchServerStop: (() => void) | null = null;
   private readonly sseDiagnosticsCounters: Record<OpenCodeSseDiagnosticsCounter, number> = {
     "sse.watchdog.timeout.count": 0,
     "sse.event.filtered.count": 0,
@@ -324,18 +323,6 @@ export class OpenCodeClient implements CodingAgentClient {
     return registerOpenCodeMcpServers({ sdkClient: this.sdkClient as never, directory: this.clientOptions.directory, servers });
   }
 
-  private async registerToolsMcpServer(): Promise<void> {
-    return registerOpenCodeToolsMcpServer({
-      sdkClient: this.sdkClient as never,
-      directory: this.clientOptions.directory,
-      currentSessionId: this.currentSessionId,
-      registeredTools: this.registeredTools,
-      setDispatchServerStop: (stop) => {
-        this.dispatchServerStop = stop;
-      },
-    });
-  }
-
   async createSession(config: SessionConfig = {}): Promise<Session> {
     const configuredAgents = await loadOpenCodeAgents({
       projectRoot: this.clientOptions.directory,
@@ -346,9 +333,7 @@ export class OpenCodeClient implements CodingAgentClient {
       sdkClient: this.sdkClient as never,
       directory: this.clientOptions.directory,
       config,
-      registeredTools: this.registeredTools,
       registerMcpServers: (servers) => this.registerMcpServers(servers),
-      registerToolsMcpServer: () => this.registerToolsMcpServer(),
       setCurrentSessionId: (sessionId) => {
         this.currentSessionId = sessionId;
       },
@@ -376,8 +361,6 @@ export class OpenCodeClient implements CodingAgentClient {
       sdkClient: this.sdkClient as never,
       directory: this.clientOptions.directory,
       sessionId,
-      registeredTools: this.registeredTools,
-      registerToolsMcpServer: () => this.registerToolsMcpServer(),
       setCurrentSessionId: (targetSessionId) => {
         this.currentSessionId = targetSessionId;
       },
@@ -452,8 +435,8 @@ export class OpenCodeClient implements CodingAgentClient {
     };
   }
 
-  registerTool(tool: ToolDefinition): void {
-    this.registeredTools.set(tool.name, tool);
+  registerTool(_tool: ToolDefinition): void {
+    // No-op for OpenCode: custom tools are auto-discovered from .opencode/tools/
   }
 
   private async spawnServer(): Promise<boolean> {
@@ -497,10 +480,6 @@ export class OpenCodeClient implements CodingAgentClient {
       isRunning: this.isRunning,
       disconnect: () => this.disconnect(),
       releaseServerLease: () => this.releaseServerLease(),
-      dispatchServerStop: this.dispatchServerStop,
-      clearDispatchServerStop: () => {
-        this.dispatchServerStop = null;
-      },
       clearEventHandlers: () => {
         this.eventHandlers.clear();
       },

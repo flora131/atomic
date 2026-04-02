@@ -1,8 +1,11 @@
 /**
  * Tests for pure utility functions in lib/spawn.ts
  */
-import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { prependPath, getHomeDir, getBunBinDir } from "@/lib/spawn.ts";
+import { describe, expect, test, beforeEach, afterEach, spyOn } from "bun:test";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { prependPath, getHomeDir, getBunBinDir, resolveBunExecutable } from "@/lib/spawn.ts";
 
 // ---------------------------------------------------------------------------
 // Environment save / restore
@@ -10,11 +13,15 @@ import { prependPath, getHomeDir, getBunBinDir } from "@/lib/spawn.ts";
 let savedPATH: string | undefined;
 let savedHOME: string | undefined;
 let savedUSERPROFILE: string | undefined;
+let savedBunInstall: string | undefined;
+let tempDirs: string[] = [];
 
 beforeEach(() => {
   savedPATH = process.env.PATH;
   savedHOME = process.env.HOME;
   savedUSERPROFILE = process.env.USERPROFILE;
+  savedBunInstall = process.env.BUN_INSTALL;
+  tempDirs = [];
 });
 
 afterEach(() => {
@@ -35,6 +42,16 @@ afterEach(() => {
     delete process.env.USERPROFILE;
   } else {
     process.env.USERPROFILE = savedUSERPROFILE;
+  }
+
+  if (savedBunInstall === undefined) {
+    delete process.env.BUN_INSTALL;
+  } else {
+    process.env.BUN_INSTALL = savedBunInstall;
+  }
+
+  for (const dir of tempDirs) {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
@@ -94,7 +111,14 @@ describe("getHomeDir", () => {
 // getBunBinDir
 // ---------------------------------------------------------------------------
 describe("getBunBinDir", () => {
+  test("prefers BUN_INSTALL when set", () => {
+    process.env.BUN_INSTALL = "/custom/bun";
+    process.env.HOME = "/home/testuser";
+    expect(getBunBinDir()).toBe("/custom/bun/bin");
+  });
+
   test("returns path with .bun/bin suffix when home is available", () => {
+    delete process.env.BUN_INSTALL;
     process.env.HOME = "/home/testuser";
     const result = getBunBinDir();
     expect(result).toBe("/home/testuser/.bun/bin");
@@ -104,5 +128,54 @@ describe("getBunBinDir", () => {
     delete process.env.HOME;
     delete process.env.USERPROFILE;
     expect(getBunBinDir()).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveBunExecutable
+// ---------------------------------------------------------------------------
+describe("resolveBunExecutable", () => {
+  test("returns Bun.which result when bun is already on PATH", () => {
+    using whichSpy = spyOn(Bun, "which").mockReturnValue(
+      "/usr/local/bin/bun" as ReturnType<typeof Bun.which>,
+    );
+
+    expect(resolveBunExecutable()).toBe("/usr/local/bin/bun");
+    expect(whichSpy).toHaveBeenCalledWith("bun");
+  });
+
+  test("falls back to the default bun install location and prepends PATH", () => {
+    using whichSpy = spyOn(Bun, "which").mockReturnValue(
+      null as ReturnType<typeof Bun.which>,
+    );
+    const bunInstallDir = mkdtempSync(join(tmpdir(), "bun-install-"));
+    tempDirs.push(bunInstallDir);
+    const bunBinDir = join(bunInstallDir, "bin");
+    mkdirSync(bunBinDir, { recursive: true });
+
+    const bunExecutable = join(
+      bunBinDir,
+      process.platform === "win32" ? "bun.exe" : "bun",
+    );
+    writeFileSync(bunExecutable, "");
+    process.env.BUN_INSTALL = bunInstallDir;
+    process.env.PATH = "/usr/bin";
+
+    expect(resolveBunExecutable()).toBe(bunExecutable);
+    const pathDelimiter = process.platform === "win32" ? ";" : ":";
+    expect(process.env.PATH).toBe(`${bunBinDir}${pathDelimiter}/usr/bin`);
+    expect(whichSpy).toHaveBeenCalledWith("bun");
+  });
+
+  test("returns undefined when bun is not installed", () => {
+    using whichSpy = spyOn(Bun, "which").mockReturnValue(
+      null as ReturnType<typeof Bun.which>,
+    );
+    delete process.env.BUN_INSTALL;
+    delete process.env.HOME;
+    delete process.env.USERPROFILE;
+
+    expect(resolveBunExecutable()).toBeUndefined();
+    expect(whichSpy).toHaveBeenCalledWith("bun");
   });
 });

@@ -5,6 +5,18 @@ on:
   workflow_dispatch:
 
 jobs:
+  test-feature:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        feature: [claude, copilot, opencode]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install devcontainer CLI
+        run: npm install -g @devcontainers/cli
+      - name: "Test ${{ matrix.feature }} feature init flow"
+        run: devcontainer features test --skip-scenarios --features ${{ matrix.feature }} --project-folder ./devcontainer-features
   test-global:
     runs-on: ubuntu-latest
     steps:

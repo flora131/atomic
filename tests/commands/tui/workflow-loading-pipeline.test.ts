@@ -8,6 +8,7 @@
  */
 
 import { describe, expect, test, beforeEach, afterEach, spyOn } from "bun:test";
+import { mkdirSync, writeFileSync } from "fs";
 import { mkdtemp, writeFile, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -17,6 +18,10 @@ import {
   CUSTOM_WORKFLOW_SEARCH_PATHS,
   loadWorkflowsFromDisk,
 } from "@/commands/tui/workflow-commands.ts";
+import {
+  cleanupTempWorkflowFiles,
+  importWorkflowModule,
+} from "@/commands/tui/workflow-commands/workflow-files.ts";
 
 // ============================================================================
 // extractWorkflowDefinition() -- unit tests
@@ -425,5 +430,88 @@ describe("extractWorkflowDefinition with real workflow structures", () => {
     const result = extractWorkflowDefinition(mod);
     expect(result).not.toBeNull();
     expect(typeof result!.createState).toBe("function");
+  });
+});
+
+describe("importWorkflowModule", () => {
+  let tempDir: string;
+  let savedBunInstall: string | undefined;
+  let savedPath: string | undefined;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "wf-import-test-"));
+    savedBunInstall = process.env.BUN_INSTALL;
+    savedPath = process.env.PATH;
+    process.env.PATH = "/usr/bin";
+  });
+
+  afterEach(async () => {
+    cleanupTempWorkflowFiles();
+
+    if (savedBunInstall === undefined) {
+      delete process.env.BUN_INSTALL;
+    } else {
+      process.env.BUN_INSTALL = savedBunInstall;
+    }
+
+    if (savedPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = savedPath;
+    }
+
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  test("uses bun from the default install dir when PATH has not been refreshed yet", async () => {
+    const workflowFile = join(tempDir, "fallback-workflow.ts");
+    await writeFile(
+      workflowFile,
+      `export default {
+        name: "fallback-workflow",
+        description: "Loaded via bun fallback",
+        __compiledWorkflow: true,
+      };`,
+    );
+
+    const bunInstallDir = join(tempDir, "bun-home");
+    const bunBinDir = join(bunInstallDir, "bin");
+    const bunExecutable = join(
+      bunBinDir,
+      process.platform === "win32" ? "bun.exe" : "bun",
+    );
+    mkdirSync(bunBinDir, { recursive: true });
+    writeFileSync(bunExecutable, "");
+    process.env.BUN_INSTALL = bunInstallDir;
+
+    using whichSpy = spyOn(Bun, "which").mockReturnValue(
+      null as ReturnType<typeof Bun.which>,
+    );
+    using spawnSpy = spyOn(Bun, "spawnSync").mockImplementation((
+      command,
+    ) => {
+      const cmd = Array.isArray(command) ? command : command.cmd;
+      const [, action, , , bundledFile] = cmd;
+      expect(cmd[0]).toBe(bunExecutable);
+      expect(action).toBe("build");
+      writeFileSync(
+        bundledFile!,
+        `export default {
+          name: "fallback-workflow",
+          description: "Loaded via bun fallback",
+          __compiledWorkflow: true,
+        };`,
+      );
+      return {
+        exitCode: 0,
+        stderr: new Uint8Array(),
+      } as ReturnType<typeof Bun.spawnSync>;
+    });
+
+    const mod = await importWorkflowModule(workflowFile);
+
+    expect((mod.default as { name: string }).name).toBe("fallback-workflow");
+    expect(spawnSpy).toHaveBeenCalled();
+    expect(whichSpy).toHaveBeenCalledWith("bun");
   });
 });

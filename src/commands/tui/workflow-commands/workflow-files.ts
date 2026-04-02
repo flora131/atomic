@@ -2,6 +2,7 @@ import { existsSync, readdirSync, unlinkSync, rmdirSync } from "node:fs";
 import { join, dirname } from "path";
 import { homedir } from "os";
 import { ensureDirSync } from "@/services/system/copy.ts";
+import { resolveBunExecutable } from "@/lib/spawn.ts";
 import { VERSION } from "@/version.ts";
 import { getRalphWorkflowDefinition } from "@/services/workflows/builtin/ralph/ralph-workflow.ts";
 import { compileWorkflow } from "@/services/workflows/dsl/compiler.ts";
@@ -165,6 +166,11 @@ const tempBundledFiles: string[] = [];
 export async function importWorkflowModule(
   workflowFilePath: string,
 ): Promise<Record<string, unknown>> {
+  const bunPath = resolveBunExecutable();
+  if (!bunPath) {
+    throw new Error("Bun is required to load TypeScript workflows, but it could not be found.");
+  }
+
   ensureDirSync(WORKFLOW_TMP_DIR);
   const basename = workflowFilePath.split("/").pop() ?? "workflow.ts";
   const bundledFile = join(
@@ -173,7 +179,7 @@ export async function importWorkflowModule(
   );
 
   const result = Bun.spawnSync(
-    ["bun", "build", workflowFilePath, "--outfile", bundledFile, "--target", "bun"],
+    [bunPath, "build", workflowFilePath, "--outfile", bundledFile, "--target", "bun"],
     { cwd: dirname(workflowFilePath), stderr: "pipe" },
   );
 

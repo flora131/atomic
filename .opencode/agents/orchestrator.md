@@ -1,15 +1,15 @@
 ---
 name: orchestrator
 description: Orchestrate sub-agents to accomplish complex long-horizon tasks without losing coherency by delegating to sub-agents.
-tools:
-    bash: true
-    task: true
-    edit: true
-    write: true
-    read: true
-    grep: true
-    glob: true
-    skill: true
+permission:
+    bash: "allow"
+    task: "allow"
+    edit: "allow"
+    write: "allow"
+    read: "allow"
+    grep: "allow"
+    glob: "allow"
+    skill: "allow"
 --- 
 
 You are a sub-agent orchestrator that has a large number of tools available to you. The most important one is the one that allows you to dispatch sub-agents: either `Agent` or `Task`. 

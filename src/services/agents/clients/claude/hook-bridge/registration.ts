@@ -91,7 +91,7 @@ export function registerClaudeHookHandler<T extends EventType>(args: {
                     eventData.subagentType = hookInput.agent_type;
                 }
                 if (resolvedParentToolUseId) {
-                    eventData.parentToolUseId = resolvedParentToolUseId;
+                    eventData.parentToolCallId = resolvedParentToolUseId;
                 }
 
                 const taskFromHook =

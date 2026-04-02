@@ -25,13 +25,22 @@ const TEMPLATE_AGENT_FOLDER_BY_KEY: Record<AgentKey, string> = {
 
 const REQUIRED_GLOBAL_CONFIG_ENTRIES: Record<AgentKey, string[]> = {
   claude: ["agents", "skills"],
-  opencode: ["agents", "skills"],
+  opencode: ["agents", "skills", "tools"],
   copilot: ["agents", "skills", "lsp-config.json"],
 };
 
 const GLOBAL_SYNC_SUBDIRECTORIES = ["agents", "skills"] as const;
 
+/**
+ * Additional subdirectories to sync per agent beyond the shared ones.
+ * OpenCode custom tools live in .opencode/tools/ and must be synced globally.
+ */
+const AGENT_EXTRA_SYNC_SUBDIRECTORIES: Partial<Record<AgentKey, readonly string[]>> = {
+  opencode: ["tools"],
+};
+
 const GLOBAL_SYNC_FILES: Partial<Record<AgentKey, readonly string[]>> = {
+  opencode: ["package.json"],
   copilot: ["lsp.json"],
 };
 
@@ -256,6 +265,27 @@ export async function removeAtomicManagedGlobalAgentConfigs(
       await removeEmptyDirectoryIfPresent(destinationSubdirectory);
     }
 
+    // Remove entries from agent-specific extra subdirectories (e.g. OpenCode tools/)
+    const extraSubdirs = AGENT_EXTRA_SYNC_SUBDIRECTORIES[agentKey] ?? [];
+    for (const extraSubdir of extraSubdirs) {
+      const sourceExtraSubdir = join(sourceFolder, extraSubdir);
+      if (!(await pathExists(sourceExtraSubdir))) continue;
+
+      const managedTree = await collectManagedTreeEntries(sourceExtraSubdir, []);
+      const destExtraSubdir = join(destinationFolder, extraSubdir);
+
+      for (const relativeFile of managedTree.files) {
+        await rm(join(destExtraSubdir, relativeFile), { force: true });
+      }
+      const sortedDirs = [...managedTree.directories].sort(
+        (left, right) => right.length - left.length,
+      );
+      for (const relativeDirectory of sortedDirs) {
+        await removeEmptyDirectoryIfPresent(join(destExtraSubdir, relativeDirectory));
+      }
+      await removeEmptyDirectoryIfPresent(destExtraSubdir);
+    }
+
     const managedFiles = GLOBAL_SYNC_FILES[agentKey] ?? [];
     for (const fileName of managedFiles) {
       const sourceFilePath = join(sourceFolder, fileName);
@@ -307,6 +337,15 @@ export async function syncAtomicGlobalAgentConfigs(
       await copyDir(sourceSkillsDir, join(destinationFolder, "skills"), {
         exclude: scmSkillExcludes,
       });
+    }
+
+    // Sync agent-specific extra subdirectories (e.g. OpenCode tools/)
+    const extraSubdirs = AGENT_EXTRA_SYNC_SUBDIRECTORIES[agentKey] ?? [];
+    for (const subdir of extraSubdirs) {
+      const sourceSubdir = join(sourceFolder, subdir);
+      if (await pathExists(sourceSubdir)) {
+        await copyDir(sourceSubdir, join(destinationFolder, subdir));
+      }
     }
 
     const managedFiles = GLOBAL_SYNC_FILES[agentKey] ?? [];

@@ -1,7 +1,7 @@
 ---
 name: planner
 description: Decomposes user prompts into structured task lists for the Ralph workflow.
-tools: Grep, Glob, Read, Bash, task_list
+tools: Grep, Glob, Read, Bash, mcp__task_list__task_list
 model: opus
 ---
 

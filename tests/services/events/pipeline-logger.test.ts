@@ -43,8 +43,44 @@ describe("Pipeline Logger", () => {
     expect(isPipelineDebug()).toBe(true);
   });
 
+  test("isPipelineDebug() returns true when DEBUG=true", () => {
+    process.env.DEBUG = "true";
+    resetPipelineDebugCache();
+    expect(isPipelineDebug()).toBe(true);
+  });
+
+  test("isPipelineDebug() returns true when DEBUG=on", () => {
+    process.env.DEBUG = "on";
+    resetPipelineDebugCache();
+    expect(isPipelineDebug()).toBe(true);
+  });
+
+  test("isPipelineDebug() returns true when DEBUG=TRUE (case-insensitive)", () => {
+    process.env.DEBUG = "TRUE";
+    resetPipelineDebugCache();
+    expect(isPipelineDebug()).toBe(true);
+  });
+
+  test("isPipelineDebug() returns true when DEBUG=ON (case-insensitive)", () => {
+    process.env.DEBUG = "ON";
+    resetPipelineDebugCache();
+    expect(isPipelineDebug()).toBe(true);
+  });
+
   test("isPipelineDebug() returns false when DEBUG=0", () => {
     process.env.DEBUG = "0";
+    resetPipelineDebugCache();
+    expect(isPipelineDebug()).toBe(false);
+  });
+
+  test("isPipelineDebug() returns false when DEBUG=false", () => {
+    process.env.DEBUG = "false";
+    resetPipelineDebugCache();
+    expect(isPipelineDebug()).toBe(false);
+  });
+
+  test("isPipelineDebug() returns false when DEBUG=off", () => {
+    process.env.DEBUG = "off";
     resetPipelineDebugCache();
     expect(isPipelineDebug()).toBe(false);
   });

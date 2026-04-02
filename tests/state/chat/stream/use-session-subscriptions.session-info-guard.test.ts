@@ -104,7 +104,7 @@ describe("stream.session.info infoType filtering", () => {
   test("suppresses configuration infoType (e.g. disabled tools)", () => {
     handleSessionInfo(state, {
       runId: 5,
-      data: { infoType: "configuration", message: "Disabled tools: report_intent" },
+      data: { infoType: "configuration", message: "Some configuration info" },
     });
     expect(setMessagesWindowed).not.toHaveBeenCalled();
   });

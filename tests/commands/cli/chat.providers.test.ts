@@ -80,7 +80,6 @@ mock.module("@/services/telemetry/index.ts", () => {
   const telemetry = require("@/services/telemetry/telemetry.ts");
   const tui = require("@/services/telemetry/telemetry-tui.ts");
   const session = require("@/services/telemetry/telemetry-session.ts");
-  const consent = require("@/services/telemetry/telemetry-consent.ts");
   const graph = require("@/services/telemetry/graph-integration.ts");
   const constants = require("@/services/telemetry/constants.ts");
   const fileIo = require("@/services/telemetry/telemetry-file-io.ts");
@@ -88,7 +87,6 @@ mock.module("@/services/telemetry/index.ts", () => {
     ...telemetry,
     ...tui,
     ...session,
-    ...consent,
     ...graph,
     ...constants,
     ...fileIo,

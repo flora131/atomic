@@ -61,17 +61,6 @@ export {
   createSessionEvent,
 } from "@/services/telemetry/telemetry-session.ts";
 
-// Consent flow
-export {
-  isFirstRun,
-  promptTelemetryConsent,
-  handleTelemetryConsent,
-} from "@/services/telemetry/telemetry-consent.ts";
-
-// Telemetry upload — lazy-loaded to avoid pulling in @azure/monitor-opentelemetry (244ms)
-// Import directly from "@/services/telemetry/telemetry-upload.ts" when needed.
-export type { UploadResult } from "@/services/telemetry/telemetry-upload.ts";
-
 // Graph workflow telemetry integration
 export {
   trackWorkflowExecution,

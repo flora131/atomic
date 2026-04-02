@@ -230,18 +230,14 @@ const openCodePermissionConfigSchema = z.union([
  *   - `name` is added (used for agent registration, defaults to filename)
  *   - `prompt` comes from the markdown body, not the frontmatter
  *   - AgentConfig has `[key: string]: unknown`, so passthrough is used
- *   - `tools` is deprecated in favor of `permission` (both accepted)
- *   - `maxSteps` is deprecated in favor of `steps` (both accepted)
  */
 const openCodeFrontmatterSchema = z.looseObject({
   // Registration field (maps to Agent.Info.name)
   name: nameSchema.optional(),
   // AgentConfig.description
   description: z.string().min(1, "Description must be non-empty"),
-  // AgentConfig.tools (@deprecated — use permission instead)
-  tools: z.record(z.string(), z.boolean()).optional(),
-  // AgentConfig.permission (replaces tools)
-  permission: openCodePermissionConfigSchema.optional(),
+  // AgentConfig.permission
+  permission: openCodePermissionConfigSchema,
   // AgentConfig.mode
   mode: z.enum(["subagent", "primary", "all"]).optional(),
   // AgentConfig.model
@@ -254,20 +250,15 @@ const openCodeFrontmatterSchema = z.looseObject({
   disable: z.boolean().optional(),
   // AgentConfig.color
   color: z.string().optional(),
-  // AgentConfig.steps (replaces maxSteps)
+  // AgentConfig.steps
   steps: z.number().int().positive().optional(),
-  // AgentConfig.maxSteps (@deprecated — use steps instead)
-  maxSteps: z.number().int().positive().optional(),
   // AgentConfig.temperature
   temperature: z.number().optional(),
   // AgentConfig.top_p
   top_p: z.number().optional(),
   // AgentConfig.options
   options: z.record(z.string(), z.unknown()).optional(),
-}).refine(
-  (data) => data.tools !== undefined || data.permission !== undefined,
-  { message: "Either 'tools' or 'permission' must be specified" },
-);
+});
 
 // Compile-time: verify mode enum matches SDK v2 type.
 type _OpenCodeModeCheck = NonNullable<OpenCodeAgentConfig["mode"]> extends

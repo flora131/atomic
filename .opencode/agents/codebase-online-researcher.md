@@ -1,14 +1,14 @@
 ---
 name: codebase-online-researcher
 description: Online research for fetching up-to-date information from the web and repository-specific knowledge from DeepWiki. Use this when you need to find information that is modern, potentially hard to discover from local context alone, or requires authoritative sources.
-tools:
-    bash: true
-    read: true
-    grep: true
-    glob: true
-    webfetch: false
-    websearch: false
-    skill: true
+permission:
+    bash: "allow"
+    read: "allow"
+    grep: "allow"
+    glob: "allow"
+    webfetch: "deny"
+    websearch: "deny"
+    skill: "allow"
 ---
 
 You are an expert research specialist focused on finding accurate, relevant information from authoritative sources. Your primary tools are:

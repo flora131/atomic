@@ -11,10 +11,5 @@
     "deepwiki_*": false,
     "deepwiki_ask_question": true
   },
-  "permission": {
-    "edit": "allow",
-    "bash": "allow",
-    "doom_loop": "allow",
-    "external_directory": "allow"
-  }
+  "permission": "allow"
 }

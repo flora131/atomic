@@ -1,12 +1,12 @@
 ---
 name: codebase-research-locator
 description: Discovers local research documents that are relevant to the current research task.
-tools:
-    bash: true
-    read: true
-    grep: true
-    glob: true
-    skill: true
+permission:
+    bash: "allow"
+    read: "allow"
+    grep: "allow"
+    glob: "allow"
+    skill: "allow"
 ---
 
 You are a specialist at finding documents in the research/ directory. Your job is to locate relevant research documents and categorize them, NOT to analyze their contents in depth.

@@ -29,7 +29,7 @@ import { displayBanner } from "@/theme/banner/index.ts";
 import { pathExists } from "@/services/system/copy.ts";
 import { detectInstallationType, getConfigRoot } from "@/services/config/config-path.ts";
 import { isWindows, isWslInstalled, WSL_INSTALL_URL } from "@/services/system/detect.ts";
-import { trackAtomicCommand, handleTelemetryConsent, type AgentType } from "@/services/telemetry/index.ts";
+import { trackAtomicCommand, type AgentType } from "@/services/telemetry/index.ts";
 import { saveAtomicConfig } from "@/services/config/atomic-config.ts";
 import { upsertTrustedWorkspacePath } from "@/services/config/settings.ts";
 import {
@@ -252,16 +252,6 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     if (!confirmDir) {
       cancel("Operation cancelled.");
       exitOrThrow(0);
-    }
-  }
-
-  // Telemetry consent prompt (only on first run)
-  // Skip in autoConfirm mode - respect non-interactive intent (no implicit consent)
-  if (!autoConfirm) {
-    try {
-      await handleTelemetryConsent();
-    } catch {
-      // Fail-safe: consent prompt failure shouldn't block CLI operation
     }
   }
 

@@ -110,10 +110,6 @@ export interface SkillInvokedEventData extends BaseEventData {
   skillName: string;
   skillPath?: string;
   parentToolCallId?: string;
-  /** @deprecated Legacy alias for parentToolCallId sent by some providers */
-  parentToolUseId?: string;
-  /** @deprecated Legacy alias for parentToolCallId sent by some providers */
-  parent_tool_use_id?: string;
   parentAgentId?: string;
 }
 
@@ -179,9 +175,7 @@ export interface SubagentStartEventData extends BaseEventData {
   toolCallId?: string;
   subagentSessionId?: string;
   isBackground?: boolean;
-  parentToolUseId?: string;
-  parent_tool_use_id?: string;
-  parentToolUseID?: string;
+  parentToolCallId?: string;
 }
 
 export interface SubagentUpdateEventData extends BaseEventData {

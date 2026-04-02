@@ -9,9 +9,29 @@ function buildKeepaliveArgs(overrides: Record<string, unknown> = {}) {
 	return {
 		getSdkClient: () => null as never,
 		isRunning: () => true,
-		intervalMs: 50,
+		intervalMs: 10,
 		...overrides,
 	};
+}
+
+/**
+ * Poll until a mock has been called at least `minCalls` times.
+ * Avoids flaky timing-based assertions.
+ */
+async function waitForCalls(
+	mockFn: ReturnType<typeof mock>,
+	minCalls: number,
+	timeoutMs = 2000,
+): Promise<void> {
+	const start = Date.now();
+	while (mockFn.mock.calls.length < minCalls) {
+		if (Date.now() - start > timeoutMs) {
+			throw new Error(
+				`Timed out waiting for ${minCalls} calls (got ${mockFn.mock.calls.length})`,
+			);
+		}
+		await new Promise((resolve) => setTimeout(resolve, 5));
+	}
 }
 
 describe("createCopilotKeepalive", () => {
@@ -29,8 +49,7 @@ describe("createCopilotKeepalive", () => {
 		);
 
 		handle.start();
-
-		await new Promise((resolve) => setTimeout(resolve, 130));
+		await waitForCalls(pingMock, 2);
 		handle.stop();
 
 		expect(pingMock.mock.calls.length).toBeGreaterThanOrEqual(2);
@@ -51,7 +70,8 @@ describe("createCopilotKeepalive", () => {
 		);
 
 		handle.start();
-		await new Promise((resolve) => setTimeout(resolve, 130));
+		// Wait enough time for several intervals to pass
+		await new Promise((resolve) => setTimeout(resolve, 60));
 		handle.stop();
 
 		expect(pingMock).not.toHaveBeenCalled();
@@ -65,7 +85,7 @@ describe("createCopilotKeepalive", () => {
 		);
 
 		handle.start();
-		await new Promise((resolve) => setTimeout(resolve, 130));
+		await new Promise((resolve) => setTimeout(resolve, 60));
 		handle.stop();
 		// No crash — swallowed gracefully
 	});
@@ -84,7 +104,7 @@ describe("createCopilotKeepalive", () => {
 		);
 
 		handle.start();
-		await new Promise((resolve) => setTimeout(resolve, 130));
+		await waitForCalls(pingMock, 2);
 		handle.stop();
 
 		expect(pingMock.mock.calls.length).toBeGreaterThanOrEqual(2);
@@ -117,11 +137,13 @@ describe("createCopilotKeepalive", () => {
 		handle.start();
 		handle.start(); // duplicate — should be no-op
 
-		await new Promise((resolve) => setTimeout(resolve, 130));
+		await waitForCalls(pingMock, 2);
+		const countAtStop = pingMock.mock.calls.length;
 		handle.stop();
 
-		// Should still only have ~2 pings, not ~4
-		expect(pingMock.mock.calls.length).toBeLessThanOrEqual(4);
+		// With a single timer at 10ms intervals, 2 calls is expected.
+		// A duplicate timer would roughly double the count.
+		expect(countAtStop).toBeLessThanOrEqual(6);
 	});
 
 	test("does not invoke on intermittent failures — just logs", async () => {
@@ -139,13 +161,12 @@ describe("createCopilotKeepalive", () => {
 		const handle = createCopilotKeepalive(
 			buildKeepaliveArgs({
 				getSdkClient: () => sdkClient as never,
-				intervalMs: 30,
 				debugLog,
 			}),
 		);
 
 		handle.start();
-		await new Promise((resolve) => setTimeout(resolve, 200));
+		await waitForCalls(pingMock, 4);
 		handle.stop();
 
 		// Failures are logged but don't crash

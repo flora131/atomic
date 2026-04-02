@@ -116,7 +116,13 @@ export async function ensureConfigDataDir(version: string): Promise<void> {
   }
 
   const { withLock } = await import("@/services/system/file-lock.ts");
+  const { ensureDirSync } = await import("@/services/system/copy.ts");
   const dataDir = getBinaryDataDir();
+
+  // Ensure the data directory exists before acquiring the lock,
+  // since the lock file is created inside it.
+  ensureDirSync(dataDir);
+
   const lockTarget = join(dataDir, "config-download");
 
   await withLock(lockTarget, async () => {

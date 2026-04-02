@@ -42,7 +42,7 @@ function parseVersionFromBranch(branch: string): string {
 }
 
 function validateVersion(version: string): void {
-  // Accept semver with optional prerelease suffix: 0.4.46, 0.4.46-0, 1.0.0-beta.1
+  // Accept semver with optional prerelease suffix: 0.4.46, 0.4.46-0, 1.0.0-1
   if (!/^\d+\.\d+\.\d+(-[\w.]+)?$/.test(version)) {
     console.error(
       `Error: "${version}" is not a valid semver version`

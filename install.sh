@@ -246,7 +246,7 @@ main() {
             local ps_args=""
             if [[ -n "${ATOMIC_INSTALL_VERSION:-}" ]]; then
                 if [[ ! "${ATOMIC_INSTALL_VERSION}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
-                    error "Invalid version format: ${ATOMIC_INSTALL_VERSION} (expected semver like v1.2.3 or v1.2.3-beta.1)"
+                    error "Invalid version format: ${ATOMIC_INSTALL_VERSION} (expected semver like v1.2.3 or v1.2.3-1)"
                 fi
                 ps_args="${ps_args} -Version '${ATOMIC_INSTALL_VERSION}'"
             fi
@@ -280,7 +280,7 @@ main() {
 
     # Validate version format to prevent URL manipulation
     if [[ ! "$version" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
-        error "Invalid version format: $version (expected semver like v1.2.3 or v1.2.3-beta.1)"
+        error "Invalid version format: $version (expected semver like v1.2.3 or v1.2.3-1)"
     fi
 
     # Setup directories

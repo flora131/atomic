@@ -346,11 +346,15 @@ export function getBinaryFilename(): string {
   }
 
   const ext = platform === "win32" ? ".exe" : "";
-  const baselineSuffix =
-    typeof __ATOMIC_BASELINE__ !== "undefined" && __ATOMIC_BASELINE__
-      ? "-baseline"
-      : "";
-  return `atomic-${os}-${archStr}${baselineSuffix}${ext}`;
+  if (
+    platform === "win32" &&
+    typeof __ATOMIC_BASELINE__ !== "undefined" &&
+    __ATOMIC_BASELINE__
+  ) {
+    return `atomic-${os}-arm64${ext}`;
+  }
+
+  return `atomic-${os}-${archStr}${ext}`;
 }
 
 /**

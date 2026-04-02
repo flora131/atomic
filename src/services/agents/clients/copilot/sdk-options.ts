@@ -47,7 +47,6 @@ export async function buildCopilotSdkOptions(
     cwd: clientOptions.cwd,
     logLevel: clientOptions.logLevel,
     autoStart: clientOptions.autoStart ?? true,
-    autoRestart: clientOptions.autoRestart ?? true,
     githubToken: clientOptions.githubToken,
   };
 

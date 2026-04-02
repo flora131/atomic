@@ -8,6 +8,7 @@
  *   atomic                          Interactive setup (same as 'atomic init')
  *   atomic init                     Interactive setup with agent selection
  *   atomic init -a <agent>          Setup specific agent (skip selection)
+ *   atomic init -s <scm>             Setup specific SCM (github, sapling)
  *   atomic config set <key> <value> Set configuration value
  *   atomic workflow verify          Verify all workflows
  *   atomic workflow verify <path>   Verify a specific workflow file
@@ -22,7 +23,7 @@
 import { Command } from "@commander-js/extra-typings";
 import { VERSION } from "@/version.ts";
 import { COLORS } from "@/theme/colors.ts";
-import { AGENT_CONFIG, type AgentKey } from "@/services/config/index.ts";
+import { AGENT_CONFIG, type AgentKey, SCM_CONFIG, type SourceControlType } from "@/services/config/index.ts";
 
 /**
  * Create and configure the main CLI program
@@ -59,6 +60,7 @@ export function createProgram() {
 
     // Build agent choices string for help text
     const agentChoices = Object.keys(AGENT_CONFIG).join(", ");
+    const scmChoices = Object.keys(SCM_CONFIG).join(", ");
 
     // Add init command
     program
@@ -68,6 +70,10 @@ export function createProgram() {
             "-a, --agent <name>",
             `Pre-select agent to configure (${agentChoices})`,
         )
+        .option(
+            "-s, --scm <name>",
+            `Pre-select source control system (${scmChoices})`,
+        )
         .action(async (localOpts) => {
             const globalOpts = program.opts();
             const { initCommand } = await import("@/commands/cli/init.ts");
@@ -75,6 +81,7 @@ export function createProgram() {
             await initCommand({
                 showBanner: globalOpts.banner !== false,
                 preSelectedAgent: localOpts.agent as AgentKey | undefined,
+                preSelectedScm: localOpts.scm as SourceControlType | undefined,
                 force: globalOpts.force,
                 yes: globalOpts.yes,
             });

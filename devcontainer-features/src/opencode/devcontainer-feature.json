@@ -4,6 +4,17 @@
   "name": "Atomic + OpenCode",
   "description": "Installs Atomic CLI with OpenCode agent, skills, and shared tooling (bun, cocoindex-code, playwright)",
   "documentationURL": "https://github.com/flora131/atomic",
+  "options": {
+    "version": {
+      "type": "string",
+      "proposals": [
+        "latest",
+        "prerelease"
+      ],
+      "default": "latest",
+      "description": "Select version of Atomic CLI, if not latest."
+    }
+  },
   "containerEnv": {
     "COCOINDEX_CODE_DB_PATH_MAPPING": "/workspaces=/tmp/cocoindex-db"
   },

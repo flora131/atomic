@@ -2,7 +2,7 @@
  * Tests for telemetry-file-io.ts — verifies appendEvent uses file locking
  * via withLock() and writes JSONL events correctly.
  */
-import { describe, expect, test, beforeEach, afterEach, mock } from "bun:test";
+import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -10,13 +10,11 @@ import { appendEvent, getEventsFilePath } from "@/services/telemetry/telemetry-f
 import { getLockPath } from "@/services/system/file-lock.ts";
 import type { TelemetryEvent } from "@/services/telemetry/types.ts";
 
-// Use a temp directory to avoid polluting real data dirs
-const TEST_DIR = join(tmpdir(), `telemetry-file-io-test-${process.pid}`);
-
-// Mock getBinaryDataDir to use our temp directory
-mock.module("@/services/config/config-path.ts", () => ({
-  getBinaryDataDir: () => TEST_DIR,
-}));
+// Steer getBinaryDataDir() via XDG_DATA_HOME instead of mock.module
+// (mock.module is process-global and irreversible, poisoning other test files).
+// getBinaryDataDir() returns join(XDG_DATA_HOME, "atomic"), so we set the parent.
+const TEST_BASE = join(tmpdir(), `telemetry-file-io-test-${process.pid}`);
+const TEST_DIR = join(TEST_BASE, "atomic");
 
 function makeEvent(overrides: Record<string, unknown> = {}): TelemetryEvent {
   return {
@@ -28,15 +26,24 @@ function makeEvent(overrides: Record<string, unknown> = {}): TelemetryEvent {
 }
 
 describe("telemetry-file-io", () => {
+  let savedXdgDataHome: string | undefined;
+
   beforeEach(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
+    savedXdgDataHome = process.env.XDG_DATA_HOME;
+    process.env.XDG_DATA_HOME = TEST_BASE;
+    if (existsSync(TEST_BASE)) {
+      rmSync(TEST_BASE, { recursive: true, force: true });
     }
   });
 
   afterEach(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
+    if (savedXdgDataHome !== undefined) {
+      process.env.XDG_DATA_HOME = savedXdgDataHome;
+    } else {
+      delete process.env.XDG_DATA_HOME;
+    }
+    if (existsSync(TEST_BASE)) {
+      rmSync(TEST_BASE, { recursive: true, force: true });
     }
   });
 

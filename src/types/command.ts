@@ -53,7 +53,6 @@ export interface CommandContextState {
   workflowActive?: boolean;
   workflowType?: string | null;
   initialPrompt?: string | null;
-  maxIterations?: number;
   /** Current conductor stage ID (e.g. "research", "plan", "implement"). */
   currentStage?: string | null;
   /** Human-readable stage progress indicator (e.g. "Stage 2/4: implement"). */

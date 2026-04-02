@@ -1,16 +1,7 @@
-import { mkdir } from "fs/promises";
 import { join } from "path";
 
-import { AGENT_CONFIG, type AgentKey } from "@/services/config/index.ts";
-import {
-  getAtomicManagedAgentDir,
-  getAtomicHomeDir,
-  getTemplateAgentFolder,
-} from "@/services/config/atomic-global-config.ts";
-import { copyFile, pathExists } from "@/services/system/copy.ts";
 import { runCommand, prependPath, getBunBinDir } from "@/lib/spawn.ts";
 
-const PLAYWRIGHT_SKILL_RELATIVE_PATH = join("skills", "playwright-cli", "SKILL.md");
 const PLAYWRIGHT_CLI_PACKAGE = "@playwright/cli@latest";
 
 async function installBunIfMissing(): Promise<void> {
@@ -128,43 +119,4 @@ export async function installPlaywrightCli(): Promise<void> {
   }
 
   throw new Error(`Failed to install ${PLAYWRIGHT_CLI_PACKAGE}: ${failures.join(" | ")}`);
-}
-
-export async function deployPlaywrightSkill(
-  configRoot: string,
-  atomicHomeDir: string = getAtomicHomeDir()
-): Promise<void> {
-  const agentKeys = Object.keys(AGENT_CONFIG) as AgentKey[];
-
-  const results = await Promise.all(
-    agentKeys.map(async (agentKey) => {
-      const sourceSkillPath = join(
-        configRoot,
-        getTemplateAgentFolder(agentKey),
-        PLAYWRIGHT_SKILL_RELATIVE_PATH
-      );
-
-      if (!(await pathExists(sourceSkillPath))) {
-        return { missing: sourceSkillPath };
-      }
-
-      const destinationAgentFolder = getAtomicManagedAgentDir(agentKey, atomicHomeDir);
-      const destinationSkillDir = join(destinationAgentFolder, "skills", "playwright-cli");
-      await mkdir(destinationSkillDir, { recursive: true });
-
-      const destinationSkillPath = join(destinationSkillDir, "SKILL.md");
-      await copyFile(sourceSkillPath, destinationSkillPath);
-      return { missing: null };
-    })
-  );
-
-  const missingSkillTemplates = results
-    .filter((r): r is { missing: string } => r.missing !== null)
-    .map((r) => r.missing);
-
-  if (missingSkillTemplates.length > 0) {
-    throw new Error(
-      `Missing Playwright skill template(s): ${missingSkillTemplates.join(", ")}`
-    );
-  }
 }

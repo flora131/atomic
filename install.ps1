@@ -1,7 +1,14 @@
 # Atomic CLI Installer for Windows
 # Usage: irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1 | iex
 # Usage with version: iex "& { $(irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1) } -Version v1.0.0"
+#    or: $env:VERSION='v1.0.0'; irm ... | iex
 # Usage prerelease: iex "& { $(irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1) } -Prerelease"
+#    or: $env:VERSION='prerelease'; irm ... | iex
+# Set $env:GITHUB_TOKEN for authenticated downloads (avoids API rate limits)
+#
+# Installs the Atomic CLI binary and config data only.
+# Agent config syncing, tooling (bun, uv, cocoindex, playwright), and SDK
+# installation are handled automatically on first `atomic init` / `atomic chat`.
 
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '')]
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingInvokeExpression', '')]
@@ -27,222 +34,6 @@ $BinaryName = "atomic"
 $BinDir = $(if ($env:ATOMIC_INSTALL_DIR) { $env:ATOMIC_INSTALL_DIR } elseif ($InstallDir) { $InstallDir } else { "${Home}\.local\bin" })
 $DataDir = $(if ($env:LOCALAPPDATA) { "${env:LOCALAPPDATA}\atomic" } else { "${Home}\AppData\Local\atomic" })
 $AtomicHome = "${Home}\.atomic"
-
-function Install-BunIfMissing {
-    if (Get-Command bun -ErrorAction SilentlyContinue) {
-        return
-    }
-
-    Write-Info "bun not detected. Installing bun..."
-    try {
-        Invoke-RestMethod "https://bun.sh/install.ps1" | Invoke-Expression
-    } catch {
-        Write-Warn "Failed to install bun automatically: $_"
-    }
-
-    $bunBin = Join-Path $Home ".bun\bin"
-    if (Test-Path (Join-Path $bunBin "bun.exe")) {
-        $env:Path = "${bunBin};${env:Path}"
-    }
-
-    if (Get-Command bun -ErrorAction SilentlyContinue) {
-        Write-Info "bun installed successfully"
-    } else {
-        Write-Warn "Failed to install bun automatically. Install bun manually from https://bun.sh"
-    }
-}
-
-function Install-UvIfMissing {
-    if (Get-Command uv -ErrorAction SilentlyContinue) {
-        return
-    }
-
-    Write-Info "uv not detected. Installing uv..."
-    try {
-        powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-    } catch {
-        Write-Warn "Failed to install uv automatically: $_"
-    }
-
-    $uvBin = Join-Path $Home ".local\bin"
-    if (Test-Path (Join-Path $uvBin "uv.exe")) {
-        $env:Path = "${uvBin};${env:Path}"
-    }
-
-    if (Get-Command uv -ErrorAction SilentlyContinue) {
-        Write-Info "uv installed successfully"
-    } else {
-        Write-Warn "Failed to install uv automatically. Install uv manually from https://docs.astral.sh/uv/"
-    }
-}
-
-function Install-NpmIfMissing {
-    if (Get-Command npm -ErrorAction SilentlyContinue) {
-        return
-    }
-
-    Write-Info "npm not detected. Installing Node.js/npm..."
-    $installed = $false
-
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
-        winget install --id OpenJS.NodeJS.LTS -e --silent --accept-source-agreements --accept-package-agreements
-        $installed = $LASTEXITCODE -eq 0
-    } elseif (Get-Command choco -ErrorAction SilentlyContinue) {
-        choco install nodejs-lts -y --no-progress
-        $installed = $LASTEXITCODE -eq 0
-    } elseif (Get-Command scoop -ErrorAction SilentlyContinue) {
-        scoop install nodejs-lts
-        $installed = $LASTEXITCODE -eq 0
-    } else {
-        Write-Warn "Could not find winget, choco, or scoop to install npm automatically."
-    }
-
-    $nodeBin = Join-Path ${env:ProgramFiles} "nodejs"
-    if (Test-Path (Join-Path $nodeBin "npm.cmd")) {
-        $env:Path = "${nodeBin};${env:Path}"
-    }
-
-    if ($installed -and (Get-Command npm -ErrorAction SilentlyContinue)) {
-        Write-Info "npm installed successfully"
-    } elseif (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
-        Write-Warn "Failed to install npm automatically. Install Node.js/npm manually."
-    }
-}
-
-function Sync-GlobalAgentConfig {
-    param(
-        [string]$SourceRoot,
-        [string]$InstallVersion
-    )
-
-    $claudeDir = Join-Path $Home ".claude"
-    $opencodeDir = Join-Path $Home ".opencode"
-    $copilotDir = Join-Path $Home ".copilot"
-
-    $null = New-Item -ItemType Directory -Force -Path (Join-Path $claudeDir "agents")
-    $null = New-Item -ItemType Directory -Force -Path (Join-Path $claudeDir "skills")
-    $null = New-Item -ItemType Directory -Force -Path (Join-Path $opencodeDir "agents")
-    $null = New-Item -ItemType Directory -Force -Path (Join-Path $opencodeDir "skills")
-    $null = New-Item -ItemType Directory -Force -Path (Join-Path $copilotDir "agents")
-    $null = New-Item -ItemType Directory -Force -Path (Join-Path $copilotDir "skills")
-
-    Copy-Item -Path (Join-Path $SourceRoot ".claude\agents\*") -Destination (Join-Path $claudeDir "agents") -Recurse -Force
-    Copy-Item -Path (Join-Path $SourceRoot ".claude\skills\*") -Destination (Join-Path $claudeDir "skills") -Recurse -Force
-    Copy-Item -Path (Join-Path $SourceRoot ".opencode\agents\*") -Destination (Join-Path $opencodeDir "agents") -Recurse -Force
-    Copy-Item -Path (Join-Path $SourceRoot ".opencode\skills\*") -Destination (Join-Path $opencodeDir "skills") -Recurse -Force
-    Copy-Item -Path (Join-Path $SourceRoot ".github\agents\*") -Destination (Join-Path $copilotDir "agents") -Recurse -Force
-    Copy-Item -Path (Join-Path $SourceRoot ".github\skills\*") -Destination (Join-Path $copilotDir "skills") -Recurse -Force
-
-    foreach ($agentDir in @($claudeDir, $opencodeDir, $copilotDir)) {
-        $skillsDir = Join-Path $agentDir "skills"
-        if (Test-Path $skillsDir) {
-            Get-ChildItem -Path $skillsDir -Directory -ErrorAction SilentlyContinue |
-                Where-Object { $_.Name -like "gh-*" -or $_.Name -like "sl-*" } |
-                ForEach-Object { Remove-Item -Recurse -Force $_.FullName -ErrorAction SilentlyContinue }
-        }
-    }
-
-    Install-BunIfMissing
-    Install-NpmIfMissing
-    Install-UvIfMissing
-
-    # Install cocoindex-code via uv if available.
-    if (Get-Command uv -ErrorAction SilentlyContinue) {
-        Write-Info "Installing cocoindex-code via uv..."
-        uv tool install --upgrade cocoindex-code --prerelease explicit --with "cocoindex>=1.0.0a24" 2>$null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warn "Failed to install cocoindex-code with uv. Continuing without it."
-        }
-    } else {
-        Write-Warn "uv not available. Skipping cocoindex-code installation."
-    }
-
-    # Write cocoindex global settings
-    $CocoindexDir = Join-Path $Home ".cocoindex_code"
-    $null = New-Item -ItemType Directory -Force -Path $CocoindexDir
-    $CocoindexSettings = @"
-embedding:
-  model: lightonai/LateOn-Code-edge
-  provider: sentence-transformers
-"@
-    Set-Content -Path (Join-Path $CocoindexDir "global_settings.yml") -Value $CocoindexSettings -Encoding UTF8
-    Write-Info "Wrote cocoindex global settings to $CocoindexDir\global_settings.yml"
-
-    # Install @bastani/atomic-workflows SDK as a local package in ~/.atomic/workflows
-    $WorkflowsDir = Join-Path $AtomicHome "workflows"
-    Write-Info "Installing @bastani/atomic-workflows SDK in $WorkflowsDir..."
-    if (Get-Command bun -ErrorAction SilentlyContinue) {
-        $null = New-Item -ItemType Directory -Force -Path $WorkflowsDir
-        # Create package.json if not present
-        $WorkflowsPkgJson = Join-Path $WorkflowsDir "package.json"
-        if (-not (Test-Path $WorkflowsPkgJson)) {
-            @'
-{
-  "name": "atomic-workflows",
-  "private": true,
-  "type": "module"
-}
-'@ | Set-Content -Path $WorkflowsPkgJson -Encoding UTF8
-        }
-        # Create .gitignore if not present
-        $WorkflowsGitignore = Join-Path $WorkflowsDir ".gitignore"
-        if (-not (Test-Path $WorkflowsGitignore)) {
-            "node_modules/" | Set-Content -Path $WorkflowsGitignore -Encoding UTF8
-        }
-        Push-Location $WorkflowsDir
-        try {
-            # Strip leading 'v' from version for npm semver (e.g. v0.4.30 -> 0.4.30)
-            $NpmVersion = $InstallVersion -replace '^v', ''
-            # Try exact version first; fall back to latest if not yet published
-            bun add "@bastani/atomic-workflows@${NpmVersion}" 2>$null
-            if ($LASTEXITCODE -ne 0) {
-                Write-Warn "Exact SDK version ${NpmVersion} not found on npm, falling back to latest..."
-                bun add "@bastani/atomic-workflows@latest" 2>$null
-                if ($LASTEXITCODE -ne 0) {
-                    Write-Warn "Could not install @bastani/atomic-workflows SDK. Install manually: cd $WorkflowsDir && bun add @bastani/atomic-workflows"
-                }
-            }
-        } finally {
-            Pop-Location
-        }
-    } else {
-        Write-Err "bun is required to install @bastani/atomic-workflows SDK. Install bun from https://bun.sh"
-        exit 1
-    }
-
-    # Install @playwright/cli globally if a package manager is available.
-    # Do not install Chromium browsers here; defer to first use.
-    Write-Info "Installing @playwright/cli globally (if available)..."
-    if (Get-Command bun -ErrorAction SilentlyContinue) {
-        bun install -g @playwright/cli@latest 2>$null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warn "Failed to install @playwright/cli with bun. Continuing without it."
-        }
-    } elseif (Get-Command npm -ErrorAction SilentlyContinue) {
-        npm install -g @playwright/cli@latest 2>$null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warn "Failed to install @playwright/cli with npm. Continuing without it."
-        }
-    } else {
-        Write-Warn "Neither bun nor npm found. Install @playwright/cli manually for web browsing capabilities."
-    }
-
-    # Install @llamaindex/liteparse globally for local document parsing.
-    Write-Info "Installing @llamaindex/liteparse globally (if available)..."
-    if (Get-Command bun -ErrorAction SilentlyContinue) {
-        bun install -g @llamaindex/liteparse@latest 2>$null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warn "Failed to install @llamaindex/liteparse with bun. Continuing without it."
-        }
-    } elseif (Get-Command npm -ErrorAction SilentlyContinue) {
-        npm install -g @llamaindex/liteparse@latest 2>$null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warn "Failed to install @llamaindex/liteparse with npm. Continuing without it."
-        }
-    } else {
-        Write-Warn "Neither bun nor npm found. Install @llamaindex/liteparse manually for document parsing capabilities."
-    }
-}
 
 # Colors for output
 $C_RESET = [char]27 + "[0m"
@@ -276,6 +67,23 @@ Write-Info "Installing to: $BinDir"
 Write-Info "Config directory: $DataDir"
 Write-Info "Atomic home: $AtomicHome"
 
+# Set up authentication for GitHub requests if GITHUB_TOKEN is available
+$AuthHeaders = @{}
+$CurlAuth = @()
+if ($env:GITHUB_TOKEN) {
+    $AuthHeaders["Authorization"] = "token $($env:GITHUB_TOKEN)"
+    $CurlAuth = @("-H", "Authorization: token $($env:GITHUB_TOKEN)")
+}
+
+# Support VERSION env var (e.g., $env:VERSION='v1.0.0'; irm ... | iex)
+if ($Version -eq "latest" -and $env:VERSION) {
+    if ($env:VERSION -eq "prerelease") {
+        $Prerelease = [switch]$true
+    } elseif ($env:VERSION -ne "latest") {
+        $Version = $env:VERSION
+    }
+}
+
 # Create install directories
 $null = New-Item -ItemType Directory -Force -Path $BinDir
 $null = New-Item -ItemType Directory -Force -Path $DataDir
@@ -285,14 +93,14 @@ if ($Version -eq "latest") {
     Write-Info "Fetching latest version..."
     try {
         if ($Prerelease) {
-            $Releases = Invoke-RestMethod "https://api.github.com/repos/${GithubRepo}/releases"
+            $Releases = Invoke-RestMethod "https://api.github.com/repos/${GithubRepo}/releases" -Headers $AuthHeaders
             $Release = $Releases | Where-Object { $_.prerelease -eq $true } | Select-Object -First 1
             if (-not $Release) {
                 Write-Err "No prerelease found"
                 exit 1
             }
         } else {
-            $Release = Invoke-RestMethod "https://api.github.com/repos/${GithubRepo}/releases/latest"
+            $Release = Invoke-RestMethod "https://api.github.com/repos/${GithubRepo}/releases/latest" -Headers $AuthHeaders
         }
         $Version = $Release.tag_name
     } catch {
@@ -308,7 +116,7 @@ if ($Prerelease -and $Version -ne "latest") {
 
 # Validate version format to prevent URL manipulation
 if ($Version -notmatch '^v?\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?$') {
-    Write-Err "Invalid version format: $Version (expected semver like v1.2.3 or v1.2.3-beta.1)"
+    Write-Err "Invalid version format: $Version (expected semver like v1.2.3 or v1.2.3-1)"
     exit 1
 }
 
@@ -330,25 +138,27 @@ try {
     # Download binary
     Write-Info "Downloading ${BinaryName} ${Version}..."
     if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
-        curl.exe "-#SfLo" $TempBinary $DownloadUrl
+        $CurlArgs = @("-#SfLo", $TempBinary) + $CurlAuth + @($DownloadUrl)
+        curl.exe @CurlArgs
         if ($LASTEXITCODE -ne 0) { throw "curl.exe failed with exit code $LASTEXITCODE" }
     } else {
         Write-Info "curl.exe not found, using Invoke-WebRequest..."
-        Invoke-WebRequest -Uri $DownloadUrl -OutFile $TempBinary -UseBasicParsing
+        Invoke-WebRequest -Uri $DownloadUrl -OutFile $TempBinary -UseBasicParsing -Headers $AuthHeaders
     }
 
     # Download config files
     Write-Info "Downloading config files..."
     if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
-        curl.exe "-#SfLo" $TempConfig $ConfigUrl
+        $CurlArgs = @("-#SfLo", $TempConfig) + $CurlAuth + @($ConfigUrl)
+        curl.exe @CurlArgs
         if ($LASTEXITCODE -ne 0) { throw "curl.exe failed to download config files with exit code $LASTEXITCODE" }
     } else {
-        Invoke-WebRequest -Uri $ConfigUrl -OutFile $TempConfig -UseBasicParsing
+        Invoke-WebRequest -Uri $ConfigUrl -OutFile $TempConfig -UseBasicParsing -Headers $AuthHeaders
     }
 
     # Download checksums
     Write-Info "Downloading checksums..."
-    Invoke-WebRequest -Uri $ChecksumsUrl -OutFile $TempChecksums -UseBasicParsing
+    Invoke-WebRequest -Uri $ChecksumsUrl -OutFile $TempChecksums -UseBasicParsing -Headers $AuthHeaders
 
     # Verify binary checksum
     Write-Info "Verifying binary checksum..."
@@ -384,6 +194,11 @@ try {
     }
     Write-Info "Config checksum verified successfully"
 
+    # Notice when replacing existing binary
+    if (Test-Path $BinaryPath) {
+        Write-Info "Replacing existing ${BinaryName} binary at ${BinaryPath}"
+    }
+
     # Install binary
     Move-Item -Force $TempBinary $BinaryPath
 
@@ -393,9 +208,6 @@ try {
     $null = New-Item -ItemType Directory -Force -Path $DataDir
     Expand-Archive -Path $TempConfig -DestinationPath $DataDir -Force
 
-    Write-Info "Syncing global agent configs to provider home roots..."
-    Sync-GlobalAgentConfig -SourceRoot $DataDir -InstallVersion $Version
-
     # Verify installation
     $VersionOutput = & $BinaryPath --version 2>&1
     if ($LASTEXITCODE -ne 0) {
@@ -404,7 +216,6 @@ try {
 
     Write-Success "Installed ${BinaryName} ${Version} to ${BinaryPath}"
     Write-Success "Config files installed to ${DataDir}"
-    Write-Success "Global agent configs synced to ~/.claude, ~/.opencode, and ~/.copilot"
 
     # Persist prerelease channel preference in settings
     $SettingsFile = Join-Path $AtomicHome "settings.json"

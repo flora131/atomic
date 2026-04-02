@@ -8,7 +8,6 @@ import {
 import { getConfigRoot } from "@/services/config/config-path.ts";
 import {
   ensurePlaywrightPackageManagers,
-  deployPlaywrightSkill,
   installPlaywrightCli,
 } from "@/scripts/postinstall-playwright.ts";
 import {
@@ -17,6 +16,7 @@ import {
   writeCocoindexGlobalSettings,
 } from "@/scripts/postinstall-uv.ts";
 import { installLiteparseCli } from "@/scripts/postinstall-liteparse.ts";
+import { trustGlobalBunPackages } from "@/lib/spawn.ts";
 import {
   installWorkflowSdkFromLocal,
   getGlobalWorkflowsDir,
@@ -64,7 +64,6 @@ async function main(): Promise<void> {
   // Phase 2: all remaining steps in parallel
   const results = await Promise.allSettled([
     syncAndVerifyConfigs(configRoot),
-    deployPlaywrightSkill(configRoot),
     (async () => {
       const repoRoot = resolve(import.meta.dir, "..", "..");
       const localSdkPath = getLocalSdkPackagePath(repoRoot);
@@ -93,7 +92,6 @@ async function main(): Promise<void> {
   // Report warnings for any failures (non-fatal)
   const labels = [
     "failed to sync/verify provider home-root configs",
-    "failed to deploy Playwright SKILL.md",
     "failed to install workflow SDK",
     "failed to install cocoindex-code",
     "failed to write cocoindex global settings",
@@ -106,6 +104,12 @@ async function main(): Promise<void> {
     if (result && result.status === "rejected") {
       warnPostinstallStep(labels[i] ?? `step ${i}`, result.reason);
     }
+  }
+
+  // Phase 3: trust lifecycle scripts for globally installed bun packages
+  const trustResult = await trustGlobalBunPackages(["@playwright/cli", "@llamaindex/liteparse"]);
+  if (!trustResult.success) {
+    warnPostinstallStep("failed to trust global bun packages", new Error(trustResult.details));
   }
 }
 

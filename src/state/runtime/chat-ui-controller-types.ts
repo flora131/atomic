@@ -41,7 +41,6 @@ export type ChatUIDebugSubscription = Awaited<
 
 export interface CreateChatUIRuntimeStateArgs {
   resolvedAgentType?: AgentType;
-  workflowEnabled: boolean;
   initialPrompt?: string;
 }
 

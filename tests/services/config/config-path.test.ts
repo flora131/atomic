@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import {
   getBinaryDataDir,
   getConfigRoot,
@@ -9,6 +11,16 @@ import {
   detectInstallationType,
   ensureConfigDataDir,
 } from "@/services/config/config-path.ts";
+
+async function createBinaryConfigData(dataDir: string): Promise<void> {
+  await mkdir(join(dataDir, ".claude"), { recursive: true });
+  await mkdir(join(dataDir, ".opencode"), { recursive: true });
+  await mkdir(join(dataDir, ".github", "skills"), { recursive: true });
+  await mkdir(join(dataDir, ".github", "agents"), { recursive: true });
+  await mkdir(join(dataDir, ".vscode"), { recursive: true });
+  await writeFile(join(dataDir, ".github", "lsp.json"), "{}");
+  await writeFile(join(dataDir, ".vscode", "mcp.json"), "{}");
+}
 
 /**
  * Tests for config-path.ts pure/deterministic functions.
@@ -204,6 +216,55 @@ describe("configDataDirExists", () => {
     const result = configDataDirExists();
     expect(typeof result).toBe("boolean");
   });
+
+  describe("binary installs", () => {
+    let savedXdgDataHome: string | undefined;
+    let savedHome: string | undefined;
+    let tempRoot: string;
+
+    beforeEach(async () => {
+      savedXdgDataHome = process.env.XDG_DATA_HOME;
+      savedHome = process.env.HOME;
+      tempRoot = await mkdtemp(join(tmpdir(), "atomic-config-data-"));
+      process.env.XDG_DATA_HOME = tempRoot;
+      process.env.HOME = tempRoot;
+    });
+
+    afterEach(async () => {
+      if (savedXdgDataHome !== undefined) {
+        process.env.XDG_DATA_HOME = savedXdgDataHome;
+      } else {
+        delete process.env.XDG_DATA_HOME;
+      }
+
+      if (savedHome !== undefined) {
+        process.env.HOME = savedHome;
+      } else {
+        delete process.env.HOME;
+      }
+
+      await rm(tempRoot, { recursive: true, force: true });
+    });
+
+    test("returns false when the binary data dir does not exist", () => {
+      expect(configDataDirExists("binary")).toBe(false);
+    });
+
+    test("does not treat an empty binary data dir as installed config", async () => {
+      await mkdir(getBinaryDataDir(), { recursive: true });
+      expect(configDataDirExists("binary")).toBe(false);
+    });
+
+    test("returns false when required binary config assets are missing", async () => {
+      await mkdir(join(getBinaryDataDir(), ".github", "skills"), { recursive: true });
+      expect(configDataDirExists("binary")).toBe(false);
+    });
+
+    test("returns true when all required binary config assets are present", async () => {
+      await createBinaryConfigData(getBinaryDataDir());
+      expect(configDataDirExists("binary")).toBe(true);
+    });
+  });
 });
 
 describe("ensureConfigDataDir", () => {
@@ -224,5 +285,33 @@ describe("ensureConfigDataDir", () => {
   test("returns a Promise", () => {
     const result = ensureConfigDataDir("1.0.0");
     expect(result).toBeInstanceOf(Promise);
+  });
+
+  test("returns immediately for binary installs when required config data already exists", async () => {
+    const savedXdgDataHome = process.env.XDG_DATA_HOME;
+    const savedHome = process.env.HOME;
+    const tempRoot = await mkdtemp(join(tmpdir(), "atomic-config-ensure-"));
+
+    try {
+      process.env.XDG_DATA_HOME = tempRoot;
+      process.env.HOME = tempRoot;
+      await createBinaryConfigData(getBinaryDataDir());
+
+      await expect(ensureConfigDataDir("1.0.0", "binary")).resolves.toBeUndefined();
+    } finally {
+      if (savedXdgDataHome !== undefined) {
+        process.env.XDG_DATA_HOME = savedXdgDataHome;
+      } else {
+        delete process.env.XDG_DATA_HOME;
+      }
+
+      if (savedHome !== undefined) {
+        process.env.HOME = savedHome;
+      } else {
+        delete process.env.HOME;
+      }
+
+      await rm(tempRoot, { recursive: true, force: true });
+    }
   });
 });

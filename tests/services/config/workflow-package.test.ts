@@ -5,11 +5,14 @@ import { join } from "path";
 import {
   installWorkflowSdk,
   installWorkflowSdkFromLocal,
+  removeWorkflowSdk,
 } from "@/services/config/workflow-package.ts";
 
 let tempDir: string;
 let savedBunInstall: string | undefined;
+let savedHome: string | undefined;
 let savedPath: string | undefined;
+let savedUserProfile: string | undefined;
 
 async function createFallbackBunExecutable(rootDir: string): Promise<string> {
   const bunInstallDir = join(rootDir, "bun-home");
@@ -30,7 +33,9 @@ describe("workflow package bun resolution", () => {
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), "workflow-package-test-"));
     savedBunInstall = process.env.BUN_INSTALL;
+    savedHome = process.env.HOME;
     savedPath = process.env.PATH;
+    savedUserProfile = process.env.USERPROFILE;
     process.env.PATH = "/usr/bin";
   });
 
@@ -45,6 +50,18 @@ describe("workflow package bun resolution", () => {
       delete process.env.PATH;
     } else {
       process.env.PATH = savedPath;
+    }
+
+    if (savedHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = savedHome;
+    }
+
+    if (savedUserProfile === undefined) {
+      delete process.env.USERPROFILE;
+    } else {
+      process.env.USERPROFILE = savedUserProfile;
     }
 
     await rm(tempDir, { recursive: true, force: true });
@@ -102,5 +119,49 @@ describe("workflow package bun resolution", () => {
     ) as { dependencies?: Record<string, string> };
     expect(packageJson.dependencies?.["@bastani/atomic-workflows"]).toBe(localSdkDir);
     expect(whichSpy).toHaveBeenCalledWith("bun");
+  });
+
+  test("installWorkflowSdk warns when bun cannot be resolved", async () => {
+    const workflowsDir = join(tempDir, "missing-bun-workflows");
+    delete process.env.BUN_INSTALL;
+    delete process.env.HOME;
+    delete process.env.USERPROFILE;
+
+    using whichSpy = spyOn(Bun, "which").mockReturnValue(
+      null as ReturnType<typeof Bun.which>,
+    );
+    using warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+
+    const installed = await installWorkflowSdk(workflowsDir, "1.2.3");
+
+    expect(installed).toBe(false);
+    expect(whichSpy).toHaveBeenCalledWith("bun");
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0]?.[0]).toContain("Could not resolve Bun executable");
+    expect(warnSpy.mock.calls[0]?.[0]).toContain(workflowsDir);
+    expect(warnSpy.mock.calls[0]?.[0]).toContain("Check PATH or BUN_INSTALL");
+  });
+
+  test("removeWorkflowSdk warns when bun cannot be resolved", async () => {
+    const workflowsDir = join(tempDir, "remove-missing-bun-workflows");
+    await mkdir(workflowsDir, { recursive: true });
+    await writeFile(join(workflowsDir, "package.json"), "{}\n");
+    delete process.env.BUN_INSTALL;
+    delete process.env.HOME;
+    delete process.env.USERPROFILE;
+
+    using whichSpy = spyOn(Bun, "which").mockReturnValue(
+      null as ReturnType<typeof Bun.which>,
+    );
+    using warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+
+    const removed = await removeWorkflowSdk(workflowsDir);
+
+    expect(removed).toBe(false);
+    expect(whichSpy).toHaveBeenCalledWith("bun");
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0]?.[0]).toContain("Could not resolve Bun executable");
+    expect(warnSpy.mock.calls[0]?.[0]).toContain(workflowsDir);
+    expect(warnSpy.mock.calls[0]?.[0]).toContain("Check PATH or BUN_INSTALL");
   });
 });

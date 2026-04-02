@@ -189,10 +189,11 @@ export async function uninstallCommand(options: UninstallOptions = {}): Promise<
           if (removed) {
             log.success("Removed @bastani/atomic-workflows SDK");
           } else {
-            log.warn("@bastani/atomic-workflows SDK was not installed (skipped)");
+            log.warn("Could not remove @bastani/atomic-workflows SDK");
           }
-        } catch {
-          log.warn("Could not remove @bastani/atomic-workflows SDK (bun not found)");
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          log.warn(`Could not remove @bastani/atomic-workflows SDK: ${message}`);
         }
       })()
     );

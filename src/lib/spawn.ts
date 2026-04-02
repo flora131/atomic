@@ -61,15 +61,24 @@ export function getHomeDir(): string | undefined {
 }
 
 /**
- * Get the path to the user's bun binary directory.
+ * Get the path to Bun's binary directory.
+ *
+ * Prefer BUN_INSTALL/bin when Bun explicitly sets its install root; otherwise
+ * fall back to the default ~/.bun/bin location.
  */
-export function getBunBinDir(): string | undefined {
+function getBunInstallRoot(): string | undefined {
   const bunInstallDir = process.env.BUN_INSTALL;
   if (bunInstallDir) {
-    return join(bunInstallDir, "bin");
+    return bunInstallDir;
   }
+
   const home = getHomeDir();
-  return home ? join(home, ".bun", "bin") : undefined;
+  return home ? join(home, ".bun") : undefined;
+}
+
+export function getBunBinDir(): string | undefined {
+  const bunInstallRoot = getBunInstallRoot();
+  return bunInstallRoot ? join(bunInstallRoot, "bin") : undefined;
 }
 
 /**
@@ -103,8 +112,8 @@ export function resolveBunExecutable(): string | undefined {
  * Get the path to bun's global install directory (where `bun install -g` places packages).
  */
 export function getBunGlobalInstallDir(): string | undefined {
-  const home = getHomeDir();
-  return home ? join(home, ".bun", "install", "global") : undefined;
+  const bunInstallRoot = getBunInstallRoot();
+  return bunInstallRoot ? join(bunInstallRoot, "install", "global") : undefined;
 }
 
 /**

@@ -5,7 +5,13 @@ import { describe, expect, test, beforeEach, afterEach, spyOn } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { prependPath, getHomeDir, getBunBinDir, resolveBunExecutable } from "@/lib/spawn.ts";
+import {
+  prependPath,
+  getHomeDir,
+  getBunBinDir,
+  getBunGlobalInstallDir,
+  resolveBunExecutable,
+} from "@/lib/spawn.ts";
 
 // ---------------------------------------------------------------------------
 // Environment save / restore
@@ -15,6 +21,13 @@ let savedHOME: string | undefined;
 let savedUSERPROFILE: string | undefined;
 let savedBunInstall: string | undefined;
 let tempDirs: string[] = [];
+
+const pathDelimiter = process.platform === "win32" ? ";" : ":";
+const samplePathEntries =
+  process.platform === "win32"
+    ? ["C:\\Windows\\System32", "C:\\Windows"]
+    : ["/usr/bin", "/bin"];
+const prependedDir = process.platform === "win32" ? "C:\\my\\dir" : "/my/dir";
 
 beforeEach(() => {
   savedPATH = process.env.PATH;
@@ -60,27 +73,29 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 describe("prependPath", () => {
   test("prepends directory to PATH", () => {
-    process.env.PATH = "/usr/bin:/bin";
-    prependPath("/my/dir");
-    expect(process.env.PATH).toBe("/my/dir:/usr/bin:/bin");
+    process.env.PATH = samplePathEntries.join(pathDelimiter);
+    prependPath(prependedDir);
+    expect(process.env.PATH).toBe(
+      `${prependedDir}${pathDelimiter}${samplePathEntries.join(pathDelimiter)}`,
+    );
   });
 
   test("does not duplicate if directory is already present", () => {
-    process.env.PATH = "/my/dir:/usr/bin";
-    prependPath("/my/dir");
-    expect(process.env.PATH).toBe("/my/dir:/usr/bin");
+    process.env.PATH = [prependedDir, samplePathEntries[0]].join(pathDelimiter);
+    prependPath(prependedDir);
+    expect(process.env.PATH).toBe([prependedDir, samplePathEntries[0]].join(pathDelimiter));
   });
 
   test("handles empty PATH", () => {
     process.env.PATH = "";
-    prependPath("/my/dir");
-    expect(process.env.PATH).toBe("/my/dir:");
+    prependPath(prependedDir);
+    expect(process.env.PATH).toBe(`${prependedDir}${pathDelimiter}`);
   });
 
   test("handles undefined PATH gracefully", () => {
     delete process.env.PATH;
-    prependPath("/my/dir");
-    expect(String(process.env["PATH"])).toBe("/my/dir:");
+    prependPath(prependedDir);
+    expect(String(process.env["PATH"])).toBe(`${prependedDir}${pathDelimiter}`);
   });
 });
 
@@ -111,23 +126,67 @@ describe("getHomeDir", () => {
 // getBunBinDir
 // ---------------------------------------------------------------------------
 describe("getBunBinDir", () => {
-  test("prefers BUN_INSTALL when set", () => {
-    process.env.BUN_INSTALL = "/custom/bun";
-    process.env.HOME = "/home/testuser";
-    expect(getBunBinDir()).toBe("/custom/bun/bin");
+  test("prefers BUN_INSTALL over HOME/.bun when both are set", () => {
+    const bunInstallDir = join(tmpdir(), "custom-bun");
+    const homeDir = join(tmpdir(), "home-testuser");
+    process.env.BUN_INSTALL = bunInstallDir;
+    process.env.HOME = homeDir;
+    expect(getBunBinDir()).toBe(join(bunInstallDir, "bin"));
   });
 
   test("returns path with .bun/bin suffix when home is available", () => {
     delete process.env.BUN_INSTALL;
-    process.env.HOME = "/home/testuser";
+    process.env.HOME = join(tmpdir(), "home-testuser");
     const result = getBunBinDir();
-    expect(result).toBe("/home/testuser/.bun/bin");
+    expect(result).toBe(join(process.env.HOME, ".bun", "bin"));
+  });
+
+  test("falls back to USERPROFILE when HOME is not set", () => {
+    delete process.env.BUN_INSTALL;
+    delete process.env.HOME;
+    process.env.USERPROFILE = join(tmpdir(), "userprofile-testuser");
+    expect(getBunBinDir()).toBe(join(process.env.USERPROFILE, ".bun", "bin"));
   });
 
   test("returns undefined when no home dir is available", () => {
     delete process.env.HOME;
     delete process.env.USERPROFILE;
     expect(getBunBinDir()).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getBunGlobalInstallDir
+// ---------------------------------------------------------------------------
+describe("getBunGlobalInstallDir", () => {
+  test("prefers BUN_INSTALL over HOME/.bun when both are set", () => {
+    const bunInstallDir = join(tmpdir(), "custom-bun");
+    const homeDir = join(tmpdir(), "home-testuser");
+    process.env.BUN_INSTALL = bunInstallDir;
+    process.env.HOME = homeDir;
+    expect(getBunGlobalInstallDir()).toBe(join(bunInstallDir, "install", "global"));
+  });
+
+  test("returns path with .bun/install/global suffix when home is available", () => {
+    delete process.env.BUN_INSTALL;
+    process.env.HOME = join(tmpdir(), "home-testuser");
+    expect(getBunGlobalInstallDir()).toBe(join(process.env.HOME, ".bun", "install", "global"));
+  });
+
+  test("falls back to USERPROFILE when HOME is not set", () => {
+    delete process.env.BUN_INSTALL;
+    delete process.env.HOME;
+    process.env.USERPROFILE = join(tmpdir(), "userprofile-testuser");
+    expect(getBunGlobalInstallDir()).toBe(
+      join(process.env.USERPROFILE, ".bun", "install", "global"),
+    );
+  });
+
+  test("returns undefined when no home dir is available", () => {
+    delete process.env.BUN_INSTALL;
+    delete process.env.HOME;
+    delete process.env.USERPROFILE;
+    expect(getBunGlobalInstallDir()).toBeUndefined();
   });
 });
 
@@ -159,11 +218,10 @@ describe("resolveBunExecutable", () => {
     );
     writeFileSync(bunExecutable, "");
     process.env.BUN_INSTALL = bunInstallDir;
-    process.env.PATH = "/usr/bin";
+    process.env.PATH = samplePathEntries[0];
 
     expect(resolveBunExecutable()).toBe(bunExecutable);
-    const pathDelimiter = process.platform === "win32" ? ";" : ":";
-    expect(process.env.PATH).toBe(`${bunBinDir}${pathDelimiter}/usr/bin`);
+    expect(process.env.PATH).toBe(`${bunBinDir}${pathDelimiter}${samplePathEntries[0]}`);
     expect(whichSpy).toHaveBeenCalledWith("bun");
   });
 

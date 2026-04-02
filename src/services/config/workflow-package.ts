@@ -37,6 +37,12 @@ const WORKFLOW_TSCONFIG = {
   include: ["*.ts"],
 };
 
+function warnBunResolutionFailure(action: string, workflowsDir: string): void {
+  console.warn(
+    `[workflow-package] Could not resolve Bun executable; skipped ${action} in ${workflowsDir}. Check PATH or BUN_INSTALL.`,
+  );
+}
+
 /**
  * Read the installed version of @bastani/atomic-workflows from node_modules.
  * Returns null if the package is not installed or the version cannot be read.
@@ -93,7 +99,10 @@ export async function installWorkflowSdk(
 ): Promise<boolean> {
   await ensureWorkflowPackageScaffold(workflowsDir);
   const bunPath = resolveBunExecutable();
-  if (!bunPath) return false;
+  if (!bunPath) {
+    warnBunResolutionFailure("installing @bastani/atomic-workflows", workflowsDir);
+    return false;
+  }
 
   const sdkSpec = `@bastani/atomic-workflows@${version}`;
   const result = Bun.spawnSync([bunPath, "add", sdkSpec], {
@@ -118,7 +127,10 @@ export async function removeWorkflowSdk(workflowsDir: string): Promise<boolean> 
   const pkgPath = join(workflowsDir, "package.json");
   if (!existsSync(pkgPath)) return true;
   const bunPath = resolveBunExecutable();
-  if (!bunPath) return false;
+  if (!bunPath) {
+    warnBunResolutionFailure("removing @bastani/atomic-workflows", workflowsDir);
+    return false;
+  }
 
   const result = Bun.spawnSync([bunPath, "remove", "@bastani/atomic-workflows"], {
     cwd: workflowsDir,
@@ -160,7 +172,13 @@ export async function installWorkflowSdkFromLocal(
 ): Promise<boolean> {
   await ensureWorkflowPackageScaffold(workflowsDir);
   const bunPath = resolveBunExecutable();
-  if (!bunPath) return false;
+  if (!bunPath) {
+    warnBunResolutionFailure(
+      "installing the local @bastani/atomic-workflows dependency",
+      workflowsDir,
+    );
+    return false;
+  }
 
   // Write the dependency directly into package.json instead of using `bun add`,
   // which can create duplicate JSON keys when run repeatedly with local paths.

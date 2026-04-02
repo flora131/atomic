@@ -1,11 +1,11 @@
 import { join } from "path";
 
-import { runCommand, prependPath, getBunBinDir } from "@/lib/spawn.ts";
+import { runCommand, prependPath, getBunBinDir, resolveBunExecutable } from "@/lib/spawn.ts";
 
 const PLAYWRIGHT_CLI_PACKAGE = "@playwright/cli@latest";
 
 async function installBunIfMissing(): Promise<void> {
-  if (Bun.which("bun")) {
+  if (resolveBunExecutable()) {
     return;
   }
 
@@ -96,7 +96,7 @@ export async function ensurePlaywrightPackageManagers(): Promise<void> {
 export async function installPlaywrightCli(): Promise<void> {
   const failures: string[] = [];
 
-  const bunPath = Bun.which("bun");
+  const bunPath = resolveBunExecutable();
   if (bunPath) {
     const bunInstall = await runCommand([bunPath, "install", "-g", PLAYWRIGHT_CLI_PACKAGE]);
     if (bunInstall.success) {

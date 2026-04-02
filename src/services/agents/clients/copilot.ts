@@ -100,7 +100,6 @@ export interface CopilotClientOptions {
 	cwd?: string;
 	logLevel?: "none" | "error" | "warning" | "info" | "debug" | "all";
 	autoStart?: boolean;
-	autoRestart?: boolean;
 	githubToken?: string;
 }
 
@@ -428,6 +427,8 @@ export class CopilotClient implements CodingAgentClient {
 		this.registeredTools.push(tool);
 	}
 
+	private isReconnecting = false;
+
 	async start(): Promise<void> {
 		await startCopilotRuntime({
 			isRunning: this.isRunning,
@@ -452,8 +453,56 @@ export class CopilotClient implements CodingAgentClient {
 		this.keepalive = createCopilotKeepalive({
 			getSdkClient: () => this.sdkClient,
 			isRunning: () => this.isRunning,
+			onConnectionLost: () => void this.reconnect(),
 		});
 		this.keepalive.start();
+	}
+
+	/**
+	 * Tears down the current SDK client and starts a fresh one.
+	 *
+	 * All existing sessions are marked closed — the next user interaction
+	 * will trigger the TUI's session-recovery flow which calls
+	 * `resumeSession()` to re-attach to persisted conversation history.
+	 */
+	private async reconnect(): Promise<void> {
+		if (this.isReconnecting || !this.isRunning) {
+			return;
+		}
+		this.isReconnecting = true;
+
+		try {
+			// Stop keepalive first to prevent re-entrant reconnect calls.
+			this.keepalive?.stop();
+			this.keepalive = null;
+
+			// Mark every tracked session as closed so the next send()
+			// surfaces a "session is closed" error which the controller
+			// handles via its existing recovery path.
+			for (const state of this.sessions.values()) {
+				if (!state.isClosed) {
+					state.isClosed = true;
+					state.unsubscribe();
+				}
+			}
+			this.sessions.clear();
+
+			// Tear down the old SDK client.
+			if (this.sdkClient) {
+				try {
+					await this.sdkClient.stop();
+				} catch {
+					// The connection is already dead — ignore cleanup errors.
+				}
+				this.sdkClient = null;
+			}
+			this.isRunning = false;
+
+			// Start a fresh client + keepalive.
+			await this.start();
+		} finally {
+			this.isReconnecting = false;
+		}
 	}
 
 	async stop(): Promise<void> {

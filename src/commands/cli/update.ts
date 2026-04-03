@@ -44,6 +44,7 @@ import {
   collectFailures,
   type ToolingStep,
 } from "@/lib/spawn.ts";
+import { getElevatedPrivilegesHint, isPermissionError } from "@/commands/cli/permission-guidance.ts";
 
 /**
  * Parse a version string into its components.
@@ -314,9 +315,8 @@ export async function updateCommand(): Promise<void> {
       const [, , sdkResult] = await Promise.all([
         // Clean up stale native addon DLLs from temp directory
         cleanupBunTempNativeAddons(),
-        // Update config files (clean install - remove stale artifacts)
+        // Update bundled config files without deleting unrelated user-owned data.
         (async () => {
-          await rm(dataDir, { recursive: true, force: true });
           await extractConfig(configPath, dataDir);
           await syncAtomicGlobalAgentConfigs(dataDir);
         })(),
@@ -392,6 +392,12 @@ export async function updateCommand(): Promise<void> {
       log.info("");
       log.info("This version may not exist. Check available versions at:");
       log.info("  https://github.com/flora131/atomic/releases");
+    }
+
+    if (isPermissionError(message)) {
+      for (const line of getElevatedPrivilegesHint("update", isWindows())) {
+        log.info(line);
+      }
     }
 
     process.exit(1);

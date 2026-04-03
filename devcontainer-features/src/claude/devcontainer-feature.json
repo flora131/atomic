@@ -1,6 +1,6 @@
 {
   "id": "claude",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "name": "Atomic + Claude Code",
   "description": "Installs Atomic CLI with Claude Code agent, skills, and shared tooling (bun, playwright)",
   "documentationURL": "https://github.com/flora131/atomic",
@@ -15,9 +15,11 @@
       "description": "Select version of Atomic CLI, if not latest."
     }
   },
+  "dependsOn": {
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1": {}
+  },
   "installsAfter": [
     "ghcr.io/devcontainers/features/common-utils",
-    "ghcr.io/anthropics/devcontainer-features/claude-code:1",
     "ghcr.io/devcontainers/features/github-cli:1"
   ]
 }

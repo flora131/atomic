@@ -1,7 +1,7 @@
 ---
 name: debugger
 description: Debug errors, test failures, and unexpected behavior. Use PROACTIVELY when encountering issues, analyzing stack traces, or investigating system problems.
-tools: Bash, Agent, Edit, Grep, Glob, Read, mcp__deepwiki__ask_question, LSP
+tools: Bash, Agent, Edit, Grep, Glob, Read, mcp__deepwiki__ask_question, mcp__task_list__task_list, LSP, WebFetch, WebSearch
 mcpServers:
   - deepwiki:
       type: http

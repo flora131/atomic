@@ -1,10 +1,7 @@
 ---
 name: reviewer
 description: Code reviewer for proposed code changes.
-tools: Bash, Agent, Glob, Grep, Read, TodoWrite, mcp__deepwiki__ask_question
-disallowedTools:
-  - WebFetch
-  - WebSearch
+tools: Bash, Agent, Glob, Grep, Read, TodoWrite, mcp__deepwiki__ask_question, mcp__task_list__task_list, WebFetch, WebSearch
 mcpServers:
   - deepwiki:
       type: http

@@ -9,7 +9,9 @@ tools:
         "search",
         "read",
         "deepwiki/ask_question",
-        "lsp"
+        "lsp",
+        "web_fetch",
+        "task_list"
     ]
 mcp-servers:
     deepwiki:

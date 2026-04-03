@@ -96,9 +96,12 @@ function decodeSpawnOutput(output: Uint8Array): string {
 
 function runPlaywrightCliInstall(): void {
   const playwrightCliPath = Bun.which("playwright-cli");
+  const bunxPath = Bun.which("bunx");
   const command = playwrightCliPath
     ? [playwrightCliPath, "install"]
-    : [process.execPath, "x", "@playwright/cli", "install"];
+    : bunxPath
+      ? [bunxPath, "@playwright/cli", "install"]
+      : ["bun", "x", "@playwright/cli", "install"];
 
   const result = Bun.spawnSync({
     cmd: command,

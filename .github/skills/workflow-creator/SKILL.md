@@ -246,7 +246,7 @@ Use factory functions (`() => []`) for mutable defaults like arrays and objects.
   prompt: (ctx) => `Thoroughly review: ${ctx.userPrompt}`,
   outputMapper: (response) => ({ reviewResult: JSON.parse(response) }),
   sessionConfig: {
-    model: { claude: "claude-opus-4-20250514", copilot: "claude-sonnet-4" },
+    model: { claude: "opus", copilot: "claude-sonnet-4.6" },
     reasoningEffort: { claude: "high" },
     maxThinkingTokens: 32000,
   },

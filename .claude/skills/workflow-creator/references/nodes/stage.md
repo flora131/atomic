@@ -78,6 +78,36 @@ For details on tool access, permissions, or sub-agent capabilities, query DeepWi
 atomic workflow verify
 ```
 
+### Frontmatter `model` field
+
+Agent definition files can declare a `model` field in their YAML frontmatter to set a default model for stages that use this agent:
+
+```yaml
+# .claude/agents/reviewer.md
+---
+name: reviewer
+description: Code reviewer for proposed code changes.
+model: opus
+---
+```
+
+At compile time, the compiler reads this field and merges it into the stage's `sessionConfig.model` under the agent type key inferred from the file's provider directory (`.claude/` → `claude`, `.opencode/` → `opencode`, `.github/`/`.copilot/` → `copilot`). This means stages using this agent automatically get the right model without repeating it in the DSL.
+
+Explicit `sessionConfig.model` values in the DSL take precedence over frontmatter:
+
+```ts
+// Agent frontmatter has model: opus
+// DSL override wins → this stage uses sonnet, not opus
+.stage({
+  name: "review",
+  agent: "reviewer",
+  sessionConfig: { model: { claude: "sonnet" } },
+  // ...
+})
+```
+
+See `session-config.md` for the full model resolution order.
+
 ## `name` vs `agent`
 
 `name` identifies the stage, `agent` selects which sub-agent to run. The same agent definition can power multiple stages with different purposes, and each is referenced by its own `name`:

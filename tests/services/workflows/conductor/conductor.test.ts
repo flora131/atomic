@@ -551,6 +551,98 @@ describe("WorkflowSessionConductor", () => {
       expect(capturedConfigs).toHaveLength(1);
       expect(capturedConfigs[0]?.maxTurns).toBe(5);
     });
+
+    test("resolves model from sessionConfig.model for the active agent type", async () => {
+      const capturedConfigs: (SessionConfig | undefined)[] = [];
+      const graph = buildLinearGraph([agentNode("planner")]);
+
+      const stages = [
+        stage("planner", "", {
+          sessionConfig: { model: { claude: "opus", opencode: "gpt-5" } },
+        }),
+      ];
+
+      const config = buildConfig(graph, async (cfg) => {
+        capturedConfigs.push(cfg);
+        return createMockSession("output");
+      }, { agentType: "claude" });
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("test");
+
+      expect(capturedConfigs).toHaveLength(1);
+      expect(capturedConfigs[0]?.model).toBe("opus");
+    });
+
+    test("resolves model for opencode agent type from multi-agent config", async () => {
+      const capturedConfigs: (SessionConfig | undefined)[] = [];
+      const graph = buildLinearGraph([agentNode("planner")]);
+
+      const stages = [
+        stage("planner", "", {
+          sessionConfig: { model: { claude: "opus", opencode: "gpt-5" } },
+        }),
+      ];
+
+      const config = buildConfig(graph, async (cfg) => {
+        capturedConfigs.push(cfg);
+        return createMockSession("output");
+      }, { agentType: "opencode" });
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("test");
+
+      expect(capturedConfigs).toHaveLength(1);
+      expect(capturedConfigs[0]?.model).toBe("gpt-5");
+    });
+
+    test("leaves model undefined when sessionConfig has no entry for the active agent type", async () => {
+      const capturedConfigs: (SessionConfig | undefined)[] = [];
+      const graph = buildLinearGraph([agentNode("planner")]);
+
+      const stages = [
+        stage("planner", "", {
+          sessionConfig: { model: { opencode: "gpt-5" } },
+        }),
+      ];
+
+      const config = buildConfig(graph, async (cfg) => {
+        capturedConfigs.push(cfg);
+        return createMockSession("output");
+      }, { agentType: "claude" });
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("test");
+
+      expect(capturedConfigs).toHaveLength(1);
+      expect(capturedConfigs[0]?.model).toBeUndefined();
+    });
+
+    test("resolves different models per stage for multi-stage workflows", async () => {
+      const capturedConfigs: (SessionConfig | undefined)[] = [];
+      const graph = buildLinearGraph([agentNode("planner"), agentNode("executor")]);
+
+      const stages = [
+        stage("planner", "", {
+          sessionConfig: { model: { claude: "sonnet" } },
+        }),
+        stage("executor", "", {
+          sessionConfig: { model: { claude: "opus" } },
+        }),
+      ];
+
+      const config = buildConfig(graph, async (cfg) => {
+        capturedConfigs.push(cfg);
+        return createMockSession("output");
+      }, { agentType: "claude" });
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("test");
+
+      expect(capturedConfigs).toHaveLength(2);
+      expect(capturedConfigs[0]?.model).toBe("sonnet");
+      expect(capturedConfigs[1]?.model).toBe("opus");
+    });
   });
 
   // -----------------------------------------------------------------------

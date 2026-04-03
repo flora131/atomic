@@ -41,7 +41,7 @@ import { createStateFactory } from "@/services/workflows/dsl/state-compiler.ts";
 import { askUserNode, USER_DECLINED_ANSWER } from "@/services/workflows/graph/nodes/control.ts";
 import {
   buildAgentLookup,
-  resolveStageAgentModel,
+  resolveStageAgentModelConfig,
   resolveStageSystemPrompt,
 } from "@/services/workflows/dsl/agent-resolution.ts";
 import {
@@ -284,11 +284,19 @@ function generateStageDefinitions(
       }
     }
 
-    // Resolve the model from the agent definition's frontmatter.
-    // When agent is null, skip — the default/selected model is used.
-    const agentFrontmatterModel = config.agent
-      ? resolveStageAgentModel(config.agent, agentLookup) ?? undefined
-      : undefined;
+    // Resolve the model from the agent definition's frontmatter and merge
+    // it into sessionConfig.model as a per-agent-type entry (e.g.,
+    // `{ claude: "opus" }`). Explicit sessionConfig.model entries from the
+    // workflow DSL take precedence — frontmatter values only fill in gaps.
+    if (config.agent) {
+      const frontmatterModelConfig = resolveStageAgentModelConfig(config.agent, agentLookup);
+      if (frontmatterModelConfig) {
+        resolvedSessionConfig = {
+          ...resolvedSessionConfig,
+          model: { ...frontmatterModelConfig, ...resolvedSessionConfig?.model },
+        };
+      }
+    }
 
     const stage: StageDefinition = {
       id: instruction.id,
@@ -299,7 +307,6 @@ function generateStageDefinitions(
       },
       shouldRun,
       sessionConfig: resolvedSessionConfig,
-      agentFrontmatterModel,
       maxOutputBytes: config.maxOutputBytes,
       disallowedTools: config.disallowedTools,
     };

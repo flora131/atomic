@@ -176,21 +176,6 @@ export interface StageDefinition {
   readonly sessionConfig?: Partial<WorkflowSessionConfig>;
 
   /**
-   * Model resolved from the agent definition file's frontmatter.
-   *
-   * Each SDK has its own agent directory with SDK-appropriate model
-   * values; the discovery system resolves the correct file. This field
-   * carries the raw `model` string from that file's frontmatter.
-   *
-   * Used as a fallback when the stage's `sessionConfig.model` does not
-   * specify an override for the active agent type. Priority order:
-   * 1. `sessionConfig.model[agentType]` (workflow DSL override)
-   * 2. `agentFrontmatterModel` (from the agent `.md` file)
-   * 3. User's persisted model preference
-   */
-  readonly agentFrontmatterModel?: string;
-
-  /**
    * Maximum byte size for this stage's `rawResponse` when forwarded to
    * downstream stages. Overrides the global `ConductorConfig.maxStageOutputBytes`
    * for this stage only. When omitted, the global limit applies.

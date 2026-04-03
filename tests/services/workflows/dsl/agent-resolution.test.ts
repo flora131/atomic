@@ -21,6 +21,8 @@ import { tmpdir } from "os";
 import {
   readAgentBody,
   readAgentFrontmatterModel,
+  inferAgentTypeFromFilePath,
+  resolveStageAgentModelConfig,
   validateStageAgents,
   resolveStageSystemPrompt,
   resolveStageAgentModel,
@@ -425,5 +427,148 @@ describe("resolveStageAgentModel", () => {
     const model = resolveStageAgentModel("CASE-AGENT", lookup);
     expect(model).toBe("opus");
     rmSync(filePath);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// inferAgentTypeFromFilePath
+// ---------------------------------------------------------------------------
+
+describe("inferAgentTypeFromFilePath", () => {
+  test("returns 'claude' for .claude/ directory paths", () => {
+    expect(inferAgentTypeFromFilePath("/home/user/.claude/agents/planner.md")).toBe("claude");
+    expect(inferAgentTypeFromFilePath("/project/.claude/agents/worker.md")).toBe("claude");
+  });
+
+  test("returns 'opencode' for .opencode/ directory paths", () => {
+    expect(inferAgentTypeFromFilePath("/home/user/.opencode/agents/planner.md")).toBe("opencode");
+    expect(inferAgentTypeFromFilePath("/project/.opencode/agents/worker.md")).toBe("opencode");
+  });
+
+  test("returns 'copilot' for .github/ directory paths", () => {
+    expect(inferAgentTypeFromFilePath("/project/.github/agents/planner.md")).toBe("copilot");
+  });
+
+  test("returns 'copilot' for .copilot/ directory paths", () => {
+    expect(inferAgentTypeFromFilePath("/home/user/.copilot/agents/planner.md")).toBe("copilot");
+  });
+
+  test("returns null for unrecognized directory paths", () => {
+    expect(inferAgentTypeFromFilePath("/tmp/random/agents/planner.md")).toBeNull();
+  });
+
+  test("handles deeply nested .claude/ paths", () => {
+    expect(inferAgentTypeFromFilePath("/a/b/c/.claude/agents/deep/nested/agent.md")).toBe("claude");
+  });
+
+  test("matches first provider segment when path contains multiple provider dirs", () => {
+    // .claude/ appears first, so "claude" wins
+    expect(inferAgentTypeFromFilePath("/project/.claude/backup/.opencode/agents/test.md")).toBe("claude");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveStageAgentModelConfig
+// ---------------------------------------------------------------------------
+
+/**
+ * Create an agent file inside a provider-specific temp directory and
+ * return the full path. Caller must clean up with rmSync(baseDir, { recursive: true }).
+ */
+function createProviderAgentFile(
+  providerDir: string,
+  agentName: string,
+  content: string,
+): { filePath: string; baseDir: string } {
+  const baseDir = join(tmpdir(), `agent-res-${providerDir.replace(/[/.]/g, "_")}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  const dir = join(baseDir, providerDir, "agents");
+  mkdirSync(dir, { recursive: true });
+  const filePath = join(dir, `${agentName}.md`);
+  writeFileSync(filePath, content, "utf-8");
+  return { filePath, baseDir };
+}
+
+describe("resolveStageAgentModelConfig", () => {
+  test("returns per-agent-type model config for .claude/ agent", () => {
+    const { filePath, baseDir } = createProviderAgentFile(
+      ".claude", "model-agent",
+      "---\nname: model-agent\nmodel: opus\n---\nYou are an agent.",
+    );
+    const lookup = makeLookup([{ name: "model-agent", filePath }]);
+    const config = resolveStageAgentModelConfig("model-agent", lookup);
+    expect(config).toEqual({ claude: "opus" });
+    rmSync(baseDir, { recursive: true });
+  });
+
+  test("returns per-agent-type model config for .opencode/ agent", () => {
+    const { filePath, baseDir } = createProviderAgentFile(
+      ".opencode", "model-agent",
+      "---\nname: model-agent\nmodel: gpt-5\n---\nYou are an agent.",
+    );
+    const lookup = makeLookup([{ name: "model-agent", filePath }]);
+    const config = resolveStageAgentModelConfig("model-agent", lookup);
+    expect(config).toEqual({ opencode: "gpt-5" });
+    rmSync(baseDir, { recursive: true });
+  });
+
+  test("returns per-agent-type model config for .github/ agent", () => {
+    const { filePath, baseDir } = createProviderAgentFile(
+      ".github", "model-agent",
+      "---\nname: model-agent\nmodel: gpt-4o\n---\nYou are an agent.",
+    );
+    const lookup = makeLookup([{ name: "model-agent", filePath }]);
+    const config = resolveStageAgentModelConfig("model-agent", lookup);
+    expect(config).toEqual({ copilot: "gpt-4o" });
+    rmSync(baseDir, { recursive: true });
+  });
+
+  test("returns per-agent-type model config for .copilot/ agent", () => {
+    const { filePath, baseDir } = createProviderAgentFile(
+      ".copilot", "model-agent",
+      "---\nname: model-agent\nmodel: claude-sonnet-4.6\n---\nYou are an agent.",
+    );
+    const lookup = makeLookup([{ name: "model-agent", filePath }]);
+    const config = resolveStageAgentModelConfig("model-agent", lookup);
+    expect(config).toEqual({ copilot: "claude-sonnet-4.6" });
+    rmSync(baseDir, { recursive: true });
+  });
+
+  test("returns null when agent has no model in frontmatter", () => {
+    const { filePath, baseDir } = createProviderAgentFile(
+      ".claude", "no-model",
+      "---\nname: no-model\n---\nYou are an agent.",
+    );
+    const lookup = makeLookup([{ name: "no-model", filePath }]);
+    const config = resolveStageAgentModelConfig("no-model", lookup);
+    expect(config).toBeNull();
+    rmSync(baseDir, { recursive: true });
+  });
+
+  test("returns null when no matching agent exists", () => {
+    const lookup = makeLookup([]);
+    const config = resolveStageAgentModelConfig("nonexistent", lookup);
+    expect(config).toBeNull();
+  });
+
+  test("returns null when agent path has unrecognized provider directory", () => {
+    const filePath = createTempFile(
+      "unknown-agent.md",
+      "---\nname: unknown-agent\nmodel: opus\n---\nYou are an agent.",
+    );
+    const lookup = makeLookup([{ name: "unknown-agent", filePath }]);
+    const config = resolveStageAgentModelConfig("unknown-agent", lookup);
+    expect(config).toBeNull();
+    rmSync(filePath);
+  });
+
+  test("matches case-insensitively for stage ID lookup", () => {
+    const { filePath, baseDir } = createProviderAgentFile(
+      ".claude", "case-agent",
+      "---\nname: case-agent\nmodel: haiku\n---\nYou are an agent.",
+    );
+    const lookup = makeLookup([{ name: "case-agent", filePath }]);
+    const config = resolveStageAgentModelConfig("CASE-AGENT", lookup);
+    expect(config).toEqual({ claude: "haiku" });
+    rmSync(baseDir, { recursive: true });
   });
 });

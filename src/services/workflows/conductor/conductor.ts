@@ -126,11 +126,14 @@ export class WorkflowSessionConductor {
    *
    * Resolution order for `model`:
    * 1. Stage-level per-agent value (e.g., `{ model: { claude: "opus" } }`)
-   * 2. Agent frontmatter `model` field (from the agent `.md` file)
-   * 3. Currently active TUI model (inherited automatically — when neither
-   *    1 nor 2 produces a value, `model` is left unset on the resolved
-   *    config, so `createSubagentSession`'s merge preserves the live
-   *    `sessionConfig.model` from the parent session)
+   *    This includes models from both the workflow DSL `sessionConfig.model`
+   *    and agent frontmatter `model` fields — the compiler merges frontmatter
+   *    models into `sessionConfig.model` under the appropriate agent type key,
+   *    with explicit DSL values taking precedence.
+   * 2. Currently active TUI model (inherited automatically — when the stage
+   *    config has no value for the active agent, `model` is left unset on
+   *    the resolved config, so `createSubagentSession`'s merge preserves the
+   *    live `sessionConfig.model` from the parent session)
    *
    * Resolution order for `reasoningEffort`:
    * 1. Stage-level per-agent value
@@ -144,18 +147,16 @@ export class WorkflowSessionConductor {
   private async resolveSessionConfig(
     workflowConfig?: Partial<WorkflowSessionConfig>,
     disallowedTools?: Partial<Record<string, string[]>>,
-    agentFrontmatterModel?: string,
   ): Promise<SessionConfig | undefined> {
     const agentType = this.config.agentType;
 
-    // Resolve model: stage config → agent frontmatter → inherit from TUI
-    // When neither the stage DSL nor the agent frontmatter specifies a model,
-    // `model` remains `undefined`. The live TUI model is then inherited
-    // via `createSubagentSession`'s merge: `{ ...liveSessionConfig, ...stageConfig }`.
-    const stageModel = agentType
+    // Resolve model for the active agent type from the per-agent model map.
+    // The compiler has already merged agent frontmatter models into
+    // sessionConfig.model, so this single lookup handles both DSL overrides
+    // and frontmatter values.
+    const model = agentType
       ? workflowConfig?.model?.[agentType as keyof NonNullable<WorkflowSessionConfig["model"]>]
       : undefined;
-    const model = stageModel ?? agentFrontmatterModel;
 
     // Resolve reasoning effort: stage config → user settings
     const stageReasoning = agentType
@@ -562,7 +563,7 @@ export class WorkflowSessionConductor {
             sessionId: session.id,
           });
         } else {
-          const resolvedConfig = await this.resolveSessionConfig(stage.sessionConfig, stage.disallowedTools, stage.agentFrontmatterModel);
+          const resolvedConfig = await this.resolveSessionConfig(stage.sessionConfig, stage.disallowedTools);
           session = await this.config.createSession(resolvedConfig);
           conductorLog("conductor_session_created", {
             stageId: stage.id,

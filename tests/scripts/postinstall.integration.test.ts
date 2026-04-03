@@ -8,8 +8,6 @@ import { getConfigRoot } from "@/services/config/config-path.ts";
 
 const PLAYWRIGHT_SKILL_RELATIVE_PATH = join("skills", "playwright-cli", "SKILL.md");
 const LEGACY_WEB_TOOL_TOKENS = [
-  "WebFetch",
-  "WebSearch",
   '"web"',
   "webfetch: true",
   "websearch: true",

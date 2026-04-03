@@ -82,6 +82,197 @@ export function getBunBinDir(): string | undefined {
 }
 
 /**
+ * Ensure Bun is installed, downloading it if necessary.
+ *
+ * For compiled-binary installs (e.g. devcontainer features) the PATH may not
+ * include a standalone `bun` binary.  This function checks for one and, when
+ * missing, runs the official Bun installer so that subsequent `bun add` /
+ * `bun install` calls succeed.
+ *
+ * No-op when Bun is already resolvable.
+ */
+export async function ensureBunInstalled(): Promise<void> {
+  if (resolveBunExecutable()) {
+    return;
+  }
+
+  if (process.platform === "win32") {
+    const powerShellPath = Bun.which("powershell") ?? Bun.which("pwsh");
+    if (!powerShellPath) {
+      throw new Error(
+        "Neither powershell nor pwsh is available to install bun.",
+      );
+    }
+    await runCommand([
+      powerShellPath,
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      "Invoke-RestMethod https://bun.sh/install.ps1 | Invoke-Expression",
+    ]);
+  } else {
+    const shell = Bun.which("bash") ?? Bun.which("sh");
+    if (!shell) {
+      throw new Error("Neither bash nor sh is available to install bun.");
+    }
+    await runCommand([shell, "-lc", "curl -fsSL https://bun.sh/install | bash"]);
+  }
+
+  const bunBinDir = getBunBinDir();
+  if (bunBinDir) {
+    prependPath(bunBinDir);
+  }
+}
+
+/**
+ * Ensure npm is installed, attempting to install Node.js via available system
+ * package managers when missing.
+ *
+ * No-op when npm is already on PATH.
+ */
+export async function ensureNpmInstalled(): Promise<void> {
+  if (Bun.which("npm")) {
+    return;
+  }
+
+  if (process.platform === "win32") {
+    if (Bun.which("winget")) {
+      await runCommand([
+        "winget",
+        "install",
+        "--id",
+        "OpenJS.NodeJS.LTS",
+        "-e",
+        "--silent",
+        "--accept-source-agreements",
+        "--accept-package-agreements",
+      ]);
+    } else if (Bun.which("choco")) {
+      await runCommand(["choco", "install", "nodejs-lts", "-y", "--no-progress"]);
+    } else if (Bun.which("scoop")) {
+      await runCommand(["scoop", "install", "nodejs-lts"]);
+    }
+
+    const programFiles = process.env.ProgramFiles;
+    if (programFiles) {
+      prependPath(join(programFiles, "nodejs"));
+    }
+    return;
+  }
+
+  const shell = Bun.which("bash") ?? Bun.which("sh");
+  if (!shell) {
+    throw new Error("Neither bash nor sh is available to install npm.");
+  }
+  const installers = [
+    "if command -v brew >/dev/null 2>&1; then brew install node; fi",
+    "if command -v apt-get >/dev/null 2>&1; then if command -v sudo >/dev/null 2>&1; then sudo apt-get update && sudo apt-get install -y nodejs npm; elif [ \"$(id -u)\" -eq 0 ]; then apt-get update && apt-get install -y nodejs npm; fi; fi",
+    "if command -v dnf >/dev/null 2>&1; then if command -v sudo >/dev/null 2>&1; then sudo dnf install -y nodejs npm; elif [ \"$(id -u)\" -eq 0 ]; then dnf install -y nodejs npm; fi; fi",
+    "if command -v yum >/dev/null 2>&1; then if command -v sudo >/dev/null 2>&1; then sudo yum install -y nodejs npm; elif [ \"$(id -u)\" -eq 0 ]; then yum install -y nodejs npm; fi; fi",
+    "if command -v pacman >/dev/null 2>&1; then if command -v sudo >/dev/null 2>&1; then sudo pacman -Sy --noconfirm nodejs npm; elif [ \"$(id -u)\" -eq 0 ]; then pacman -Sy --noconfirm nodejs npm; fi; fi",
+    "if command -v zypper >/dev/null 2>&1; then if command -v sudo >/dev/null 2>&1; then sudo zypper --non-interactive install nodejs npm; elif [ \"$(id -u)\" -eq 0 ]; then zypper --non-interactive install nodejs npm; fi; fi",
+    "if command -v apk >/dev/null 2>&1; then if command -v sudo >/dev/null 2>&1; then sudo apk add --no-cache nodejs npm; elif [ \"$(id -u)\" -eq 0 ]; then apk add --no-cache nodejs npm; fi; fi",
+  ];
+
+  for (const script of installers) {
+    if (Bun.which("npm")) {
+      return;
+    }
+    await runCommand([shell, "-lc", script]);
+    if (Bun.which("npm")) {
+      return;
+    }
+  }
+}
+
+/**
+ * Get the directory where uv installs its executables.
+ * uv defaults to ~/.local/bin on Unix and %USERPROFILE%\.local\bin on Windows.
+ */
+function getUvBinDir(): string | undefined {
+  const homeDir = getHomeDir();
+  return homeDir ? join(homeDir, ".local", "bin") : undefined;
+}
+
+/**
+ * Resolve uv's executable path, falling back to the default install location
+ * when the current PATH has not been refreshed yet.
+ */
+export function resolveUvExecutable(): string | undefined {
+  const uvPath = Bun.which("uv");
+  if (uvPath) {
+    return uvPath;
+  }
+
+  const uvBinDir = getUvBinDir();
+  if (!uvBinDir) {
+    return undefined;
+  }
+
+  const uvExecutable = join(
+    uvBinDir,
+    process.platform === "win32" ? "uv.exe" : "uv",
+  );
+  if (!existsSync(uvExecutable)) {
+    return undefined;
+  }
+
+  prependPath(uvBinDir);
+  return uvExecutable;
+}
+
+/**
+ * Ensure uv (Python package manager) is installed, downloading it if
+ * necessary via the official installer.
+ *
+ * No-op when uv is already on PATH.
+ */
+export async function ensureUvInstalled(): Promise<void> {
+  if (resolveUvExecutable()) {
+    return;
+  }
+
+  if (process.platform === "win32") {
+    const powerShellPath = Bun.which("powershell") ?? Bun.which("pwsh");
+    if (!powerShellPath) {
+      throw new Error(
+        "Neither powershell nor pwsh is available to install uv.",
+      );
+    }
+    await runCommand([
+      powerShellPath,
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      "irm https://astral.sh/uv/install.ps1 | iex",
+    ]);
+  } else {
+    const shell = Bun.which("bash") ?? Bun.which("sh");
+    if (!shell) {
+      throw new Error("Neither bash nor sh is available to install uv.");
+    }
+    await runCommand([
+      shell,
+      "-lc",
+      "curl -LsSf https://astral.sh/uv/install.sh | sh",
+    ]);
+  }
+
+  const uvBinDir = getUvBinDir();
+  if (uvBinDir) {
+    prependPath(uvBinDir);
+  }
+
+  if (!resolveUvExecutable()) {
+    throw new Error(
+      "uv was not found after installation. Install manually from https://docs.astral.sh/uv/",
+    );
+  }
+}
+
+/**
  * Resolve Bun's executable path, falling back to Bun's default install
  * location when the current PATH has not been refreshed yet.
  */

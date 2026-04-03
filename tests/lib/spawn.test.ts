@@ -149,6 +149,7 @@ describe("getBunBinDir", () => {
   });
 
   test("returns undefined when no home dir is available", () => {
+    delete process.env.BUN_INSTALL;
     delete process.env.HOME;
     delete process.env.USERPROFILE;
     expect(getBunBinDir()).toBeUndefined();

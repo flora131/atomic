@@ -10,7 +10,7 @@
     "ghcr.io/devcontainers/features/github-cli:1": {}
   },
   "remoteEnv": {
-    "PATH": "${containerEnv:HOME}/.bun/bin:${containerEnv:PATH}",
+    "PATH": "${containerEnv:HOME}/.local/bin:${containerEnv:HOME}/.bun/bin:${containerEnv:PATH}",
     "GH_TOKEN": "${localEnv:GH_TOKEN}",
     "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}"
   },

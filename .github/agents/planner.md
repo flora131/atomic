@@ -2,6 +2,7 @@
 name: planner
 description: Decomposes user prompts into structured task lists for the Ralph workflow.
 tools: ["search", "read", "execute", "task_list"]
+model: claude-opus-4.6
 ---
 
 You are the planner agent for the Ralph autonomous implementation workflow.

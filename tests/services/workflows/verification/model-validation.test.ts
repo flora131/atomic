@@ -256,4 +256,92 @@ describe("checkModelValidation", () => {
 
     expect(result.verified).toBe(true);
   });
+
+  // -------------------------------------------------------------------------
+  // Frontmatter-sourced models (merged into sessionConfig.model by compiler)
+  // -------------------------------------------------------------------------
+
+  test("validates frontmatter-sourced model merged under claude key", async () => {
+    mockListAvailableModels.mockResolvedValue([
+      makeModel({ id: "anthropic/opus", modelID: "opus" }),
+    ]);
+
+    // Simulates what the compiler produces: agent frontmatter `model: opus`
+    // in a .claude/ agent file → sessionConfig.model = { claude: "opus" }
+    const result = await checkModelValidation([
+      makeStage("planner", {
+        model: { claude: "opus" },
+      }),
+    ]);
+
+    expect(result.verified).toBe(true);
+  });
+
+  test("reports error for invalid frontmatter-sourced model", async () => {
+    mockListAvailableModels.mockResolvedValue([
+      makeModel({ id: "anthropic/opus", modelID: "opus" }),
+    ]);
+
+    // Simulates frontmatter `model: nonexistent` in a .claude/ agent file
+    const result = await checkModelValidation([
+      makeStage("planner", {
+        model: { claude: "nonexistent" },
+      }),
+    ]);
+
+    expect(result.verified).toBe(false);
+    expect(result.counterexample).toContain("nonexistent");
+    expect(result.counterexample).toContain("planner");
+  });
+
+  test("validates models from multiple providers in same stage config", async () => {
+    // This simulates a stage where the compiler merged a frontmatter model
+    // for one provider and the DSL specified a model for another:
+    //   frontmatter (from .opencode/agents/) → { opencode: "gpt-5" }
+    //   DSL override → { claude: "opus" }
+    //   merged → { claude: "opus", opencode: "gpt-5" }
+    mockListAvailableModels.mockResolvedValue([
+      makeModel({ id: "anthropic/opus", modelID: "opus" }),
+      makeModel({ id: "openai/gpt-5", modelID: "gpt-5" }),
+    ]);
+
+    const result = await checkModelValidation([
+      makeStage("planner", {
+        model: { claude: "opus", opencode: "gpt-5" },
+      }),
+    ]);
+
+    expect(result.verified).toBe(true);
+  });
+
+  test("reports error when one provider model is valid but another is not", async () => {
+    mockListAvailableModels.mockResolvedValue([
+      makeModel({ id: "anthropic/opus", modelID: "opus" }),
+    ]);
+
+    const result = await checkModelValidation([
+      makeStage("planner", {
+        model: { claude: "opus", opencode: "nonexistent-model" },
+      }),
+    ]);
+
+    expect(result.verified).toBe(false);
+    expect(result.counterexample).toContain("nonexistent-model");
+  });
+
+  test("validates frontmatter alias for claude (e.g. opus resolves via CLAUDE_ALIASES)", async () => {
+    mockListAvailableModels.mockResolvedValue([
+      makeModel({ id: "anthropic/opus", modelID: "opus" }),
+    ]);
+
+    // frontmatter `model: opus` → { claude: "opus" }
+    // CLAUDE_ALIASES maps "opus" → "opus", so the alias match finds it
+    const result = await checkModelValidation([
+      makeStage("reviewer", {
+        model: { claude: "opus" },
+      }),
+    ]);
+
+    expect(result.verified).toBe(true);
+  });
 });

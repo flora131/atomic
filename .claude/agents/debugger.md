@@ -8,7 +8,6 @@ mcpServers:
       url: "https://mcp.deepwiki.com/mcp"
       tools: ["ask_question"]
 skills:
-  - semantic-code-search
   - testing-anti-patterns
   - playwright-cli
 model: opus
@@ -30,13 +29,9 @@ Available tools:
 
 ## Search Strategy
 
-### Semantic Code Search (Accelerated Discovery)
-
-TRY using your semantic-code-search skill first to speed up code discovery — it finds conceptually related code faster than text search.
-
 ### Code Intelligence (Refinement)
 
-After semantic code search identifies candidate files, use LSP for tracing:
+Use LSP for tracing:
 - `goToDefinition` / `goToImplementation` to jump to source
 - `findReferences` to see all usages across the codebase
 - `workspaceSymbol` to find where something is defined
@@ -44,9 +39,9 @@ After semantic code search identifies candidate files, use LSP for tracing:
 - `hover` for type info without reading the file
 - `incomingCalls` / `outgoingCalls` for call hierarchy
 
-### Grep/Glob (Complement & Fallback)
+### Grep/Glob
 
-ALWAYS complement semantic search with grep/glob for exact matches, and use as primary tool when semantic search is unavailable:
+Use grep/glob for exact matches:
 - Exact string matching (error messages, config values, import paths)
 - Regex pattern searches
 - File extension/name pattern matching

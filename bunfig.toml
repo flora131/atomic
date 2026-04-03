@@ -106,7 +106,6 @@ coveragePathIgnorePatterns = [
   ".playwright/**",
   ".vscode/**",
   ".devcontainer/**",
-  ".cocoindex_code/**",
   "assets/**",
   "specs/**",
   "research/**",

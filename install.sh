@@ -9,7 +9,7 @@
 # Set GITHUB_TOKEN for authenticated downloads (avoids API rate limits)
 #
 # Installs the Atomic CLI binary and config data only.
-# Agent config syncing, tooling (bun, uv, cocoindex, playwright), and SDK
+# Agent config syncing, tooling (bun, uv, playwright, liteparse), and SDK
 # installation are handled automatically on first `atomic init` / `atomic chat`.
 
 set -euo pipefail

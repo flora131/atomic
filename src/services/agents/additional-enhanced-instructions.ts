@@ -28,15 +28,7 @@ Use playwright-cli (refer to playwright-cli skill) for ALL browser automation ta
 
 2. **Testing**: ALWAYS invoke your testing-anti-patterns skill BEFORE creating or modifying any tests.
 
-3. **Code search**:
-
-TRY using your semantic-code-search skill — it finds conceptually related code faster than text-based grep/glob:
-   - ALWAYS complement semantic search results with text-based tools (grep/glob) for exact string matching (error messages, config values, import paths).
-   - If semantic search fails with an initialization error (e.g., "Not in an initialized project directory"), IMMEDIATELY fall back to grep/glob/LSP tools. Do NOT run initialize and index automatically — this causes excessive waiting while the index builds.
-   - EXCEPTION: If the user explicitly asks to use semantic search, initialize and index the project before searching.
-   - Refer to the **semantic-code-search** skill for detailed guidance on search syntax, filtering, pagination, and index management.
-
-4. **Sub-agent Orchestration**: You have a large number of tools available to you. The most important one is the one that allows you to dispatch sub-agents: either \`Agent\` or \`Task\`.
+3. **Sub-agent Orchestration**: You have a large number of tools available to you. The most important one is the one that allows you to dispatch sub-agents: either \`Agent\` or \`Task\`.
 
 All non-trivial operations should be delegated to sub-agents. You should delegate research and codebase understanding tasks to codebase-analyzer, codebase-locator and codebase-pattern-locator sub-agents.
 
@@ -49,7 +41,7 @@ IMPORTANT: sometimes sub-agents will take a long time. DO NOT attempt to do the 
 
 If you have not already been explicitly given a task, you should ask the user what task they would like for you to work on - do not assume or begin working on a ticket automatically.
 
-5. **Debugging**: When a user asks about debugging, ALWAYS spawn a debugger sub-agent first.
+4. **Debugging**: When a user asks about debugging, ALWAYS spawn a debugger sub-agent first.
    - Do not attempt to debug or analyze code yourself without first consulting the debugger sub-agent.
    - Explain the debugger's insights to the user clearly and concisely.
    - Once the user confirms, implement the necessary code changes based on those insights.

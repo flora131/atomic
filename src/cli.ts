@@ -265,7 +265,7 @@ async function main(): Promise<void> {
 
         // Ensure all required tooling is available before running commands.
         // For binary installs this installs package managers (bun, npm, uv) and
-        // CLI tools (playwright-cli, liteparse, cocoindex-code) on first run.
+        // CLI tools (playwright-cli, liteparse) on first run.
         // Then ensures the workflow SDK version matches the CLI version.
         // Skip for lightweight commands that don't need any of this.
         const skipToolingCommands = new Set(["--version", "-v", "--help", "-h", "uninstall", "config"]);

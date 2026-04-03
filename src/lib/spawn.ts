@@ -2,7 +2,7 @@
  * Shared spawn utilities for postinstall and lifecycle scripts.
  *
  * Provides a thin async wrapper around Bun.spawn and a PATH-prepend helper,
- * eliminating duplication across postinstall-playwright, postinstall-uv, etc.
+ * eliminating duplication across postinstall-playwright, postinstall-liteparse, etc.
  */
 
 import { existsSync } from "fs";
@@ -13,12 +13,30 @@ export interface SpawnResult {
   details: string;
 }
 
+export interface RunCommandOptions {
+  /** When true, stdout/stderr are inherited so the user sees live output. */
+  inherit?: boolean;
+}
+
 /**
  * Run a command asynchronously and collect its output.
  * Returns a result object instead of throwing on failure.
+ *
+ * When `inherit` is true, output streams directly to the terminal so the
+ * user can follow installation progress in real time.
  */
-export async function runCommand(cmd: string[]): Promise<SpawnResult> {
+export async function runCommand(cmd: string[], options?: RunCommandOptions): Promise<SpawnResult> {
   try {
+    if (options?.inherit) {
+      const proc = Bun.spawn({
+        cmd,
+        stdout: "inherit",
+        stderr: "inherit",
+      });
+      const exitCode = await proc.exited;
+      return { success: exitCode === 0, details: "" };
+    }
+
     const proc = Bun.spawn({
       cmd,
       stdout: "pipe",
@@ -110,13 +128,13 @@ export async function ensureBunInstalled(): Promise<void> {
       "Bypass",
       "-Command",
       "Invoke-RestMethod https://bun.sh/install.ps1 | Invoke-Expression",
-    ]);
+    ], { inherit: true });
   } else {
     const shell = Bun.which("bash") ?? Bun.which("sh");
     if (!shell) {
       throw new Error("Neither bash nor sh is available to install bun.");
     }
-    await runCommand([shell, "-lc", "curl -fsSL https://bun.sh/install | bash"]);
+    await runCommand([shell, "-lc", "curl -fsSL https://bun.sh/install | bash"], { inherit: true });
   }
 
   const bunBinDir = getBunBinDir();
@@ -147,11 +165,11 @@ export async function ensureNpmInstalled(): Promise<void> {
         "--silent",
         "--accept-source-agreements",
         "--accept-package-agreements",
-      ]);
+      ], { inherit: true });
     } else if (Bun.which("choco")) {
-      await runCommand(["choco", "install", "nodejs-lts", "-y", "--no-progress"]);
+      await runCommand(["choco", "install", "nodejs-lts", "-y", "--no-progress"], { inherit: true });
     } else if (Bun.which("scoop")) {
-      await runCommand(["scoop", "install", "nodejs-lts"]);
+      await runCommand(["scoop", "install", "nodejs-lts"], { inherit: true });
     }
 
     const programFiles = process.env.ProgramFiles;
@@ -179,7 +197,7 @@ export async function ensureNpmInstalled(): Promise<void> {
     if (Bun.which("npm")) {
       return;
     }
-    await runCommand([shell, "-lc", script]);
+    await runCommand([shell, "-lc", script], { inherit: true });
     if (Bun.which("npm")) {
       return;
     }
@@ -247,7 +265,7 @@ export async function ensureUvInstalled(): Promise<void> {
       "Bypass",
       "-Command",
       "irm https://astral.sh/uv/install.ps1 | iex",
-    ]);
+    ], { inherit: true });
   } else {
     const shell = Bun.which("bash") ?? Bun.which("sh");
     if (!shell) {
@@ -257,7 +275,7 @@ export async function ensureUvInstalled(): Promise<void> {
       shell,
       "-lc",
       "curl -LsSf https://astral.sh/uv/install.sh | sh",
-    ]);
+    ], { inherit: true });
   }
 
   const uvBinDir = getUvBinDir();

@@ -46,8 +46,8 @@ A typical workflow will start something like this:
 ```
 [Assistant] I'll start by getting my bearings and understanding the current state of the project.
 [Tool Use] <bash - pwd>
-[Semantic Code Search (if available)] <search for "recent work" in git logs and workflow progress files>
-[Semantic Code Search] <search for files related to the highest priority pending task>
+[Grep/Glob] <search for "recent work" in git logs and workflow progress files>
+[Grep/Glob] <search for files related to the highest priority pending task>
 [Tool Use] <task_list - action: "get_task_progress">
 [Tool Use] <task_list - action: "list_tasks">
 [Assistant] Let me check the git log to see recent work.
@@ -102,13 +102,9 @@ Use the "Gang of Four" patterns as a shared vocabulary to solve recurring proble
 
 ## Search Strategy
 
-### Semantic Code Search (Accelerated Discovery)
-
-TRY using your semantic-code-search skill first to speed up code discovery — it finds conceptually related code faster than text search.
-
 ### Code Intelligence (Refinement)
 
-After semantic code search identifies candidate files, use LSP for tracing:
+Use LSP for tracing:
 - `goToDefinition` / `goToImplementation` to jump to source
 - `findReferences` to see all usages across the codebase
 - `workspaceSymbol` to find where something is defined
@@ -116,9 +112,9 @@ After semantic code search identifies candidate files, use LSP for tracing:
 - `hover` for type info without reading the file
 - `incomingCalls` / `outgoingCalls` for call hierarchy
 
-### Grep/Glob (Complement & Fallback)
+### Grep/Glob
 
-ALWAYS complement semantic search with grep/glob for exact matches, and use as primary tool when semantic search is unavailable:
+Use grep/glob for exact matches:
 - Exact string matching (error messages, config values, import paths)
 - Regex pattern searches
 - File extension/name pattern matching

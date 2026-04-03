@@ -17,9 +17,7 @@
   },
   "installsAfter": [
     "ghcr.io/devcontainers/features/common-utils",
-    "ghcr.io/devcontainers-extra/features/bun:1",
-    "ghcr.io/devcontainers/features/node:1",
-    "ghcr.io/devcontainers-extra/features/uv:1",
+    "ghcr.io/devcontainers/features/copilot-cli:1",
     "ghcr.io/devcontainers/features/github-cli:1"
   ]
 }

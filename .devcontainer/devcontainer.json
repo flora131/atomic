@@ -1,16 +1,18 @@
 {
   "name": "Atomic CLI",
-  "build": {
-    "dockerfile": "Dockerfile"
-  },
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
   "features": {
     "ghcr.io/devcontainers/features/common-utils": {},
+    "ghcr.io/devcontainers-extra/features/tmux-apt-get:1": {},
     "ghcr.io/devcontainers-extra/features/bun:1": {},
     "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1": {},
+    "ghcr.io/devcontainers/features/copilot-cli:1": {},
+    "ghcr.io/devcontainers-extra/features/opencode:1": {},
     "ghcr.io/devcontainers/features/github-cli:1": {}
   },
   "remoteEnv": {
-    "PATH": "${containerEnv:HOME}/.local/bin:${containerEnv:HOME}/.bun/bin:${containerEnv:PATH}",
+    "PATH": "${containerEnv:HOME}/.bun/bin:${containerEnv:PATH}",
     "GH_TOKEN": "${localEnv:GH_TOKEN}",
     "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}"
   },
@@ -22,7 +24,9 @@
       "extensions": [
         "oven.bun-vscode",
         "oxc.oxc-vscode",
-        "shd101wyy.markdown-preview-enhanced"
+        "shd101wyy.markdown-preview-enhanced",
+        "Anthropic.claude-code",
+        "sst-dev.opencode"
       ]
     }
   }

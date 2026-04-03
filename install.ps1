@@ -1,4 +1,4 @@
-# Atomic CLI Installer for Windows
+﻿# Atomic CLI Installer for Windows
 # Usage: irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1 | iex
 # Usage with version: iex "& { $(irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1) } -Version v1.0.0"
 #    or: $env:VERSION='v1.0.0'; irm ... | iex
@@ -124,7 +124,7 @@ function Install-GlobalBunPackage {
         try {
             & $BunPath install -g $Package
             if ($LASTEXITCODE -eq 0) { return }
-        } catch { }
+        } catch { Write-Debug "bun install -g ${Package} failed: $_" }
         Write-Warn "bun failed to install ${Package}, trying npm..."
     }
     $NpmCmd = Get-Command npm -ErrorAction SilentlyContinue
@@ -132,12 +132,12 @@ function Install-GlobalBunPackage {
         try {
             & $NpmCmd.Source install -g $Package
             if ($LASTEXITCODE -eq 0) { return }
-        } catch { }
+        } catch { Write-Debug "npm install -g ${Package} failed: $_" }
     }
     Write-Warn "Could not install ${Package}"
 }
 
-function Invoke-TrustBunGlobalPackages {
+function Invoke-TrustBunGlobalPackage {
     $BunPath = Resolve-BunPath
     if (-not $BunPath) { return }
     $BunInstallRoot = if ($env:BUN_INSTALL) { $env:BUN_INSTALL } else { "${Home}\.bun" }
@@ -147,7 +147,7 @@ function Invoke-TrustBunGlobalPackages {
     Push-Location $GlobalDir
     try {
         & $BunPath pm trust @playwright/cli @llamaindex/liteparse 2>$null
-    } catch { }
+    } catch { Write-Debug "bun pm trust failed: $_" }
     Pop-Location
 }
 
@@ -174,7 +174,7 @@ function Install-Tooling {
     Install-GlobalBunPackage "@llamaindex/liteparse@latest"
 
     # Phase 3: trust lifecycle scripts for globally installed bun packages
-    Invoke-TrustBunGlobalPackages
+    Invoke-TrustBunGlobalPackage
 
     # Phase 4: ensure ~/.bun/bin is in PATH
     Invoke-EnsureBunBinInPath

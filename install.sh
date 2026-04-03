@@ -273,7 +273,10 @@ install_npm() {
     fi
     info "Installing Node.js/npm..."
     if command -v brew >/dev/null 2>&1; then
-        brew install node && return 0
+        if brew install node; then
+            return 0
+        fi
+        warn "brew install node failed, trying system package managers..."
     fi
     local install_cmd=""
     if command -v apt-get >/dev/null 2>&1; then
@@ -294,9 +297,9 @@ install_npm() {
         return 1
     fi
     if command -v sudo >/dev/null 2>&1; then
-        eval "sudo $install_cmd"
+        sudo sh -c "$install_cmd"
     elif [[ "$(id -u)" -eq 0 ]]; then
-        eval "$install_cmd"
+        sh -c "$install_cmd"
     else
         warn "Cannot install npm: no sudo and not root"
         return 1
@@ -350,9 +353,11 @@ ensure_bun_bin_in_shell_profiles() {
     local bun_bin_dir="$bun_install_root/bin"
     local marker="# bun"
     local posix_block
+    # shellcheck disable=SC2016
     posix_block=$(printf '\n# bun\nexport BUN_INSTALL="%s"\nexport PATH="%s:$PATH"\n' \
         "$bun_install_root" "$bun_bin_dir")
     local fish_block
+    # shellcheck disable=SC2016
     fish_block=$(printf '\n# bun\nset --export BUN_INSTALL "%s"\nset --export PATH %s $PATH\n' \
         "$bun_install_root" "$bun_bin_dir")
 
@@ -370,15 +375,16 @@ ensure_bun_bin_in_shell_profiles() {
 
 install_tooling() {
     info "Installing required tooling (bun, npm, uv, playwright-cli, liteparse)..."
+    local failed_tools=()
 
     # Phase 1: package managers
-    install_bun || warn "bun installation skipped or failed — install manually from https://bun.sh"
-    install_npm || warn "npm installation skipped or failed — install Node.js manually from https://nodejs.org"
-    install_uv  || warn "uv installation skipped or failed — install manually from https://docs.astral.sh/uv/"
+    install_bun || { warn "bun installation skipped or failed — install manually from https://bun.sh"; failed_tools+=("bun"); }
+    install_npm || { warn "npm installation skipped or failed — install Node.js manually from https://nodejs.org"; failed_tools+=("npm"); }
+    install_uv  || { warn "uv installation skipped or failed — install manually from https://docs.astral.sh/uv/"; failed_tools+=("uv"); }
 
     # Phase 2: global CLI tools
-    install_global_bun_package "@playwright/cli@latest"        || warn "@playwright/cli installation skipped or failed"
-    install_global_bun_package "@llamaindex/liteparse@latest"  || warn "@llamaindex/liteparse installation skipped or failed"
+    install_global_bun_package "@playwright/cli@latest"        || { warn "@playwright/cli installation skipped or failed"; failed_tools+=("@playwright/cli"); }
+    install_global_bun_package "@llamaindex/liteparse@latest"  || { warn "@llamaindex/liteparse installation skipped or failed"; failed_tools+=("@llamaindex/liteparse"); }
 
     # Phase 3: trust lifecycle scripts for globally installed bun packages
     trust_bun_global_packages
@@ -386,7 +392,19 @@ install_tooling() {
     # Phase 4: ensure ~/.bun/bin is in shell profiles
     ensure_bun_bin_in_shell_profiles
 
-    success "Tooling installed"
+    # Summary
+    if [[ ${#failed_tools[@]} -gt 0 ]]; then
+        echo ""
+        warn "┌─────────────────────────────────────────────────────┐"
+        warn "│ The following tools failed to install:              │"
+        for tool in "${failed_tools[@]}"; do
+            warn "│   • ${tool}"
+        done
+        warn "│ Install them manually before using Atomic CLI.      │"
+        warn "└─────────────────────────────────────────────────────┘"
+    fi
+
+    success "Tooling setup complete"
 }
 
 # ─────────────────────────────────────────────────────────────────────────────

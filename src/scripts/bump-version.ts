@@ -25,9 +25,6 @@ const ROOT = resolve(import.meta.dir, "../..");
 const VERSION_FILES = [
   "package.json",
   "packages/workflow-sdk/package.json",
-  "devcontainer-features/src/claude/devcontainer-feature.json",
-  "devcontainer-features/src/copilot/devcontainer-feature.json",
-  "devcontainer-features/src/opencode/devcontainer-feature.json",
 ];
 
 function parseVersionFromBranch(branch: string): string {

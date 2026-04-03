@@ -82,9 +82,6 @@ Automatically bumps version numbers when a `release/*` or `prerelease/*` PR is o
   │  │  · package.json                 │  │
   │  │  · packages/workflow-sdk/       │  │
   │  │    package.json                 │  │
-  │  │  · claude/devcontainer-feature  │  │
-  │  │  · copilot/devcontainer-feature │  │
-  │  │  · opencode/devcontainer-feature│  │
   │  └────────────────┬────────────────┘  │
   │                   ▼                   │
   │  ┌─────────────────────────────────┐  │

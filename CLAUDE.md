@@ -134,7 +134,7 @@ Note: There are three main coding agents used in this repository: OpenCode, Clau
 
 ### Bumping Versions
 
-Use the `bump-version.ts` script to update the version across all tracked files (`package.json`, `packages/workflow-sdk/package.json`, and all devcontainer feature manifests):
+Use the `bump-version.ts` script to update the version across all tracked files (`package.json` and `packages/workflow-sdk/package.json`):
 
 ```sh
 # Explicit version

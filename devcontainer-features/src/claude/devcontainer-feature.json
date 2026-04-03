@@ -16,6 +16,7 @@
     }
   },
   "dependsOn": {
+    "ghcr.io/devcontainers/features/node:1": {},
     "ghcr.io/anthropics/devcontainer-features/claude-code:1": {}
   },
   "installsAfter": [

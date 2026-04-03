@@ -183,7 +183,7 @@ export async function importWorkflowModule(
 
   const result = Bun.spawnSync(
     [bunPath, "build", workflowFilePath, "--outfile", bundledFile, "--target", "bun"],
-    { cwd: dirname(workflowFilePath), stderr: "pipe" },
+    { cwd: dirname(workflowFilePath), stderr: "pipe", env: process.env },
   );
 
   if (result.exitCode !== 0) {

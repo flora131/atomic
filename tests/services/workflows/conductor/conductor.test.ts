@@ -551,6 +551,266 @@ describe("WorkflowSessionConductor", () => {
       expect(capturedConfigs).toHaveLength(1);
       expect(capturedConfigs[0]?.maxTurns).toBe(5);
     });
+
+    test("resolves model from sessionConfig.model for the active agent type", async () => {
+      const capturedConfigs: (SessionConfig | undefined)[] = [];
+      const graph = buildLinearGraph([agentNode("planner")]);
+
+      const stages = [
+        stage("planner", "", {
+          sessionConfig: { model: { claude: "opus", opencode: "gpt-5" } },
+        }),
+      ];
+
+      const config = buildConfig(graph, async (cfg) => {
+        capturedConfigs.push(cfg);
+        return createMockSession("output");
+      }, { agentType: "claude" });
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("test");
+
+      expect(capturedConfigs).toHaveLength(1);
+      expect(capturedConfigs[0]?.model).toBe("opus");
+    });
+
+    test("resolves model for opencode agent type from multi-agent config", async () => {
+      const capturedConfigs: (SessionConfig | undefined)[] = [];
+      const graph = buildLinearGraph([agentNode("planner")]);
+
+      const stages = [
+        stage("planner", "", {
+          sessionConfig: { model: { claude: "opus", opencode: "gpt-5" } },
+        }),
+      ];
+
+      const config = buildConfig(graph, async (cfg) => {
+        capturedConfigs.push(cfg);
+        return createMockSession("output");
+      }, { agentType: "opencode" });
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("test");
+
+      expect(capturedConfigs).toHaveLength(1);
+      expect(capturedConfigs[0]?.model).toBe("gpt-5");
+    });
+
+    test("leaves model undefined when sessionConfig has no entry for the active agent type", async () => {
+      const capturedConfigs: (SessionConfig | undefined)[] = [];
+      const graph = buildLinearGraph([agentNode("planner")]);
+
+      const stages = [
+        stage("planner", "", {
+          sessionConfig: { model: { opencode: "gpt-5" } },
+        }),
+      ];
+
+      const config = buildConfig(graph, async (cfg) => {
+        capturedConfigs.push(cfg);
+        return createMockSession("output");
+      }, { agentType: "claude" });
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("test");
+
+      expect(capturedConfigs).toHaveLength(1);
+      expect(capturedConfigs[0]?.model).toBeUndefined();
+    });
+
+    test("resolves different models per stage for multi-stage workflows", async () => {
+      const capturedConfigs: (SessionConfig | undefined)[] = [];
+      const graph = buildLinearGraph([agentNode("planner"), agentNode("executor")]);
+
+      const stages = [
+        stage("planner", "", {
+          sessionConfig: { model: { claude: "sonnet" } },
+        }),
+        stage("executor", "", {
+          sessionConfig: { model: { claude: "opus" } },
+        }),
+      ];
+
+      const config = buildConfig(graph, async (cfg) => {
+        capturedConfigs.push(cfg);
+        return createMockSession("output");
+      }, { agentType: "claude" });
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("test");
+
+      expect(capturedConfigs).toHaveLength(2);
+      expect(capturedConfigs[0]?.model).toBe("sonnet");
+      expect(capturedConfigs[1]?.model).toBe("opus");
+    });
+
+    test("clears model-coupled fields when stage mentions the active agent type", async () => {
+      const capturedConfigs: (SessionConfig | undefined)[] = [];
+      const graph = buildLinearGraph([agentNode("planner")]);
+
+      const stages = [
+        stage("planner", "", {
+          sessionConfig: { model: { claude: "haiku" } },
+        }),
+      ];
+
+      const config = buildConfig(graph, async (cfg) => {
+        capturedConfigs.push(cfg);
+        return createMockSession("output");
+      }, { agentType: "claude" });
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("test");
+
+      expect(capturedConfigs).toHaveLength(1);
+      const resolved = capturedConfigs[0]!;
+      expect(resolved.model).toBe("haiku");
+      // All model-coupled fields must be own properties so the spread
+      // merge in createSubagentSession clears inherited parent values.
+      expect(Object.prototype.hasOwnProperty.call(resolved, "reasoningEffort")).toBe(true);
+      expect(resolved.reasoningEffort).toBeUndefined();
+      expect(Object.prototype.hasOwnProperty.call(resolved, "maxThinkingTokens")).toBe(true);
+      expect(resolved.maxThinkingTokens).toBeUndefined();
+    });
+
+    test("clears model-coupled fields when only reasoningEffort mentions the active agent type", async () => {
+      const capturedConfigs: (SessionConfig | undefined)[] = [];
+      const graph = buildLinearGraph([agentNode("planner")]);
+
+      // No model override, but reasoningEffort mentions claude → stage
+      // owns model config for this provider.
+      const stages = [
+        stage("planner", "", {
+          sessionConfig: { reasoningEffort: { claude: "high" } },
+        }),
+      ];
+
+      const config = buildConfig(graph, async (cfg) => {
+        capturedConfigs.push(cfg);
+        return createMockSession("output");
+      }, { agentType: "claude" });
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("test");
+
+      expect(capturedConfigs).toHaveLength(1);
+      const resolved = capturedConfigs[0]!;
+      expect(resolved.reasoningEffort).toBe("high");
+      // model and maxThinkingTokens are cleared (own properties = undefined)
+      expect(Object.prototype.hasOwnProperty.call(resolved, "model")).toBe(true);
+      expect(resolved.model).toBeUndefined();
+      expect(Object.prototype.hasOwnProperty.call(resolved, "maxThinkingTokens")).toBe(true);
+      expect(resolved.maxThinkingTokens).toBeUndefined();
+    });
+
+    test("preserves all model-coupled fields when both are explicitly set", async () => {
+      const capturedConfigs: (SessionConfig | undefined)[] = [];
+      const graph = buildLinearGraph([agentNode("planner")]);
+
+      const stages = [
+        stage("planner", "", {
+          sessionConfig: {
+            model: { claude: "opus" },
+            reasoningEffort: { claude: "high" },
+            maxThinkingTokens: 32000,
+          },
+        }),
+      ];
+
+      const config = buildConfig(graph, async (cfg) => {
+        capturedConfigs.push(cfg);
+        return createMockSession("output");
+      }, { agentType: "claude" });
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("test");
+
+      expect(capturedConfigs).toHaveLength(1);
+      expect(capturedConfigs[0]?.model).toBe("opus");
+      expect(capturedConfigs[0]?.reasoningEffort).toBe("high");
+      expect(capturedConfigs[0]?.maxThinkingTokens).toBe(32000);
+    });
+
+    test("does not set model-coupled fields when stage does not mention the active agent type", async () => {
+      const capturedConfigs: (SessionConfig | undefined)[] = [];
+      const graph = buildLinearGraph([agentNode("planner")]);
+
+      const stages = [
+        stage("planner", "", {
+          sessionConfig: {},
+        }),
+      ];
+
+      const config = buildConfig(graph, async (cfg) => {
+        capturedConfigs.push(cfg);
+        return createMockSession("output");
+      }, { agentType: "claude" });
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("test");
+
+      expect(capturedConfigs).toHaveLength(1);
+      // No per-agent-type field mentions claude → parent inherits as a set.
+      expect(Object.prototype.hasOwnProperty.call(capturedConfigs[0], "model")).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(capturedConfigs[0], "reasoningEffort")).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(capturedConfigs[0], "maxThinkingTokens")).toBe(false);
+    });
+
+    test("does not clear fields when override targets a different agent type", async () => {
+      const capturedConfigs: (SessionConfig | undefined)[] = [];
+      const graph = buildLinearGraph([agentNode("planner")]);
+
+      const stages = [
+        stage("planner", "", {
+          sessionConfig: { model: { opencode: "gpt-5" } },
+        }),
+      ];
+
+      const config = buildConfig(graph, async (cfg) => {
+        capturedConfigs.push(cfg);
+        return createMockSession("output");
+      }, { agentType: "claude" });
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("test");
+
+      expect(capturedConfigs).toHaveLength(1);
+      const resolved = capturedConfigs[0]!;
+      // opencode is mentioned, not claude → parent inherits for claude.
+      expect(Object.prototype.hasOwnProperty.call(resolved, "model")).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(resolved, "reasoningEffort")).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(resolved, "maxThinkingTokens")).toBe(false);
+    });
+
+    test("multi-stage: clears for provider-aware stage, inherits for default stage", async () => {
+      const capturedConfigs: (SessionConfig | undefined)[] = [];
+      const graph = buildLinearGraph([agentNode("fast"), agentNode("inherited")]);
+
+      const stages = [
+        stage("fast", "", {
+          sessionConfig: { model: { claude: "haiku" } },
+        }),
+        stage("inherited", "", {
+          sessionConfig: {},
+        }),
+      ];
+
+      const config = buildConfig(graph, async (cfg) => {
+        capturedConfigs.push(cfg);
+        return createMockSession("output");
+      }, { agentType: "claude" });
+
+      const conductor = new WorkflowSessionConductor(config, stages);
+      await conductor.execute("test");
+
+      expect(capturedConfigs).toHaveLength(2);
+      // Stage 1: mentions claude → model-coupled fields explicitly set
+      expect(capturedConfigs[0]?.model).toBe("haiku");
+      expect(Object.prototype.hasOwnProperty.call(capturedConfigs[0], "reasoningEffort")).toBe(true);
+      // Stage 2: does not mention claude → parent inherits
+      expect(Object.prototype.hasOwnProperty.call(capturedConfigs[1], "model")).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(capturedConfigs[1], "reasoningEffort")).toBe(false);
+    });
   });
 
   // -----------------------------------------------------------------------

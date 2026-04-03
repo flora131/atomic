@@ -53,10 +53,6 @@ import type {
   WorkflowResult,
 } from "@/services/workflows/conductor/types.ts";
 import type { WorkflowSessionConfig } from "@/services/workflows/dsl/types.ts";
-import {
-  getModelPreference,
-  getReasoningEffortPreference,
-} from "@/services/config/settings.ts";
 import { truncateStageOutput } from "@/services/workflows/conductor/truncate.ts";
 import { isPipelineDebug } from "@/services/events/pipeline-logger.ts";
 import { DEFAULT_LOG_DIR } from "@/services/events/debug-subscriber/config.ts";
@@ -125,9 +121,18 @@ export class WorkflowSessionConductor {
    * Resolve a `WorkflowSessionConfig` (SDK-agnostic, per-agent model maps)
    * into an agent-level `SessionConfig` for the active agent.
    *
-   * Resolution order for `model` and `reasoningEffort`:
-   * 1. Stage-level per-agent value (e.g., `{ model: { claude: "opus" } }`)
-   * 2. User's persisted settings (`~/.atomic/settings.json` or `.atomic/settings.json`)
+   * Model-coupled fields (`model`, `reasoningEffort`, `maxThinkingTokens`)
+   * are treated as a group. If the stage's `sessionConfig` mentions the
+   * active agent type in *any* per-agent-type field (`model` or
+   * `reasoningEffort`), the stage is taking ownership of the model config
+   * for this provider — all three fields are explicitly set on the
+   * resolved config (stage value or `undefined`). This prevents the
+   * parent session's values from leaking through `createSubagentSession`'s
+   * spread merge to a potentially incompatible model.
+   *
+   * When the stage does NOT mention the active agent type, these fields
+   * are omitted entirely so the parent session's model, reasoning effort,
+   * and thinking tokens are inherited as a coherent set.
    *
    * `disallowedTools` is resolved from the stage definition's per-provider
    * map and mapped to `SessionConfig.excludedTools` for the active agent.
@@ -140,25 +145,27 @@ export class WorkflowSessionConductor {
   ): Promise<SessionConfig | undefined> {
     const agentType = this.config.agentType;
 
-    // Resolve model: stage config → user settings
-    const stageModel = agentType
-      ? workflowConfig?.model?.[agentType as keyof NonNullable<WorkflowSessionConfig["model"]>]
-      : undefined;
-    const model = stageModel ?? (agentType ? await getModelPreference(agentType) : undefined);
+    const agentKey = agentType as keyof NonNullable<WorkflowSessionConfig["model"]> | undefined;
 
-    // Resolve reasoning effort: stage config → user settings
-    const stageReasoning = agentType
-      ? workflowConfig?.reasoningEffort?.[agentType as keyof NonNullable<WorkflowSessionConfig["reasoningEffort"]>]
-      : undefined;
-    const reasoningEffort = stageReasoning ?? (agentType ? await getReasoningEffortPreference(agentType) : undefined);
+    // Check whether the stage mentions the active agent type in any
+    // per-agent-type field. If so, the stage owns the model config for
+    // this provider and all model-coupled fields are set explicitly
+    // (even as undefined) to prevent parent session values from leaking.
+    const stageOwnsModelConfig = Boolean(agentKey && (
+      workflowConfig?.model?.[agentKey] !== undefined ||
+      workflowConfig?.reasoningEffort?.[agentKey] !== undefined
+    ));
+
+    const model = agentKey ? workflowConfig?.model?.[agentKey] : undefined;
+    const reasoningEffort = agentKey ? workflowConfig?.reasoningEffort?.[agentKey] : undefined;
 
     // Resolve disallowed tools for the active agent type
-    const resolvedExcludedTools = agentType && disallowedTools
-      ? disallowedTools[agentType]
+    const resolvedExcludedTools = agentKey && disallowedTools
+      ? disallowedTools[agentKey]
       : undefined;
 
     // If no workflow config and no defaults resolved, return undefined
-    if (!workflowConfig && !model && !reasoningEffort && !resolvedExcludedTools) {
+    if (!workflowConfig && !stageOwnsModelConfig && !resolvedExcludedTools) {
       return undefined;
     }
 
@@ -170,10 +177,20 @@ export class WorkflowSessionConductor {
     if (workflowConfig?.permissionMode !== undefined) resolved.permissionMode = workflowConfig.permissionMode;
     if (workflowConfig?.maxBudgetUsd !== undefined) resolved.maxBudgetUsd = workflowConfig.maxBudgetUsd;
     if (workflowConfig?.maxTurns !== undefined) resolved.maxTurns = workflowConfig.maxTurns;
-    if (workflowConfig?.maxThinkingTokens !== undefined) resolved.maxThinkingTokens = workflowConfig.maxThinkingTokens;
     if (resolvedExcludedTools !== undefined) resolved.excludedTools = resolvedExcludedTools;
-    if (model !== undefined) resolved.model = model;
-    if (reasoningEffort !== undefined) resolved.reasoningEffort = reasoningEffort;
+
+    if (stageOwnsModelConfig) {
+      // Stage mentions the active provider — set all model-coupled fields
+      // explicitly (stage value or undefined) so the parent's values are
+      // cleared by the spread merge in createSubagentSession.
+      resolved.model = model;
+      resolved.reasoningEffort = reasoningEffort;
+      resolved.maxThinkingTokens = workflowConfig?.maxThinkingTokens;
+    } else {
+      // Stage does not mention the active provider — omit model-coupled
+      // fields so the parent session's values inherit as a coherent set.
+      if (workflowConfig?.maxThinkingTokens !== undefined) resolved.maxThinkingTokens = workflowConfig.maxThinkingTokens;
+    }
 
     return resolved;
   }

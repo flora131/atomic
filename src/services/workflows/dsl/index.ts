@@ -23,7 +23,11 @@ export { compileStateSchema, createStateFactory } from "./state-compiler.ts";
 export {
   buildAgentLookup,
   clearAgentLookupCache,
+  inferAgentTypeFromFilePath,
   readAgentBody,
+  readAgentFrontmatterModel,
+  resolveStageAgentModel,
+  resolveStageAgentModelConfig,
   resolveStageSystemPrompt,
   validateStageAgents,
 } from "./agent-resolution.ts";

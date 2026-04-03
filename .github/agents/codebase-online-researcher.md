@@ -7,6 +7,7 @@ mcp-servers:
         type: http
         url: "https://mcp.deepwiki.com/mcp"
         tools: ["ask_question"]
+model: claude-sonnet-4.6
 ---
 
 You are an expert research specialist focused on finding accurate, relevant information from authoritative sources. Your primary tools are:

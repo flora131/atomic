@@ -6,9 +6,8 @@
 #    or: $env:VERSION='prerelease'; irm ... | iex
 # Set $env:GITHUB_TOKEN for authenticated downloads (avoids API rate limits)
 #
-# Installs the Atomic CLI binary and config data only.
-# Agent config syncing, tooling (bun, uv, cocoindex, playwright), and SDK
-# installation are handled automatically on first `atomic init` / `atomic chat`.
+# Installs the Atomic CLI binary, config data, and all required tooling
+# (bun, npm, uv, @playwright/cli, @llamaindex/liteparse).
 
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '')]
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingInvokeExpression', '')]
@@ -46,6 +45,146 @@ function Write-Info { Write-Host "${C_BLUE}info${C_RESET}: $args" }
 function Write-Success { Write-Host "${C_GREEN}success${C_RESET}: $args" }
 function Write-Warn { Write-Host "${C_YELLOW}warn${C_RESET}: $args" }
 function Write-Err { Write-Host "${C_RED}error${C_RESET}: $args" }
+
+# --- Tooling helpers ----------------------------------------------------------
+
+function Resolve-BunPath {
+    $InPath = Get-Command bun -ErrorAction SilentlyContinue
+    if ($InPath) { return $InPath.Source }
+    $BunInstallRoot = if ($env:BUN_INSTALL) { $env:BUN_INSTALL } else { "${Home}\.bun" }
+    $Default = "${BunInstallRoot}\bin\bun.exe"
+    if (Test-Path $Default) { return $Default }
+    return $null
+}
+
+function Install-Bun {
+    if (Resolve-BunPath) {
+        Write-Info "bun is already installed"
+        return
+    }
+    Write-Info "Installing bun..."
+    try {
+        powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-RestMethod https://bun.sh/install.ps1 | Invoke-Expression"
+        $env:BUN_INSTALL = "${Home}\.bun"
+        $env:Path = "${env:BUN_INSTALL}\bin;${env:Path}"
+    } catch {
+        Write-Warn "bun installation failed: $_"
+    }
+}
+
+function Install-Npm {
+    if (Get-Command npm -ErrorAction SilentlyContinue) {
+        Write-Info "npm is already installed"
+        return
+    }
+    Write-Info "Installing Node.js/npm..."
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        try {
+            winget install --id OpenJS.NodeJS.LTS -e --silent --accept-source-agreements --accept-package-agreements
+            if ($env:ProgramFiles) { $env:Path = "${env:ProgramFiles}\nodejs;${env:Path}" }
+            return
+        } catch { Write-Warn "winget install nodejs failed: $_" }
+    }
+    if (Get-Command choco -ErrorAction SilentlyContinue) {
+        try {
+            choco install nodejs-lts -y --no-progress
+            return
+        } catch { Write-Warn "choco install nodejs failed: $_" }
+    }
+    if (Get-Command scoop -ErrorAction SilentlyContinue) {
+        try {
+            scoop install nodejs-lts
+            return
+        } catch { Write-Warn "scoop install nodejs failed: $_" }
+    }
+    Write-Warn "No supported package manager found to install npm - install Node.js manually from https://nodejs.org"
+}
+
+function Install-Uv {
+    if ((Get-Command uv -ErrorAction SilentlyContinue) -or
+        (Test-Path "${Home}\.local\bin\uv.exe") -or
+        (Test-Path "${Home}\.cargo\bin\uv.exe")) {
+        Write-Info "uv is already installed"
+        return
+    }
+    Write-Info "Installing uv..."
+    try {
+        powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://astral.sh/uv/install.ps1 | iex"
+        $env:Path = "${Home}\.local\bin;${env:Path}"
+    } catch {
+        Write-Warn "uv installation failed: $_ - install manually from https://docs.astral.sh/uv/"
+    }
+}
+
+function Install-GlobalBunPackage {
+    param([string]$Package)
+    Write-Info "Installing ${Package} globally..."
+    $BunPath = Resolve-BunPath
+    if ($BunPath) {
+        try {
+            & $BunPath install -g $Package
+            $bunExitCode = $LASTEXITCODE
+            if ($bunExitCode -eq 0) { return }
+            Write-Debug "bun install -g ${Package} exited with code $bunExitCode"
+        } catch { Write-Debug "bun install -g ${Package} failed: $_" }
+        Write-Warn "bun failed to install ${Package}, trying npm..."
+    }
+    $NpmCmd = Get-Command npm -ErrorAction SilentlyContinue
+    if ($NpmCmd) {
+        try {
+            & $NpmCmd.Source install -g $Package
+            if ($LASTEXITCODE -eq 0) { return }
+        } catch { Write-Debug "npm install -g ${Package} failed: $_" }
+    }
+    Write-Warn "Could not install ${Package}"
+}
+
+function Invoke-TrustBunGlobalPackage {
+    $BunPath = Resolve-BunPath
+    if (-not $BunPath) { return }
+    $BunInstallRoot = if ($env:BUN_INSTALL) { $env:BUN_INSTALL } else { "${Home}\.bun" }
+    $GlobalDir = "${BunInstallRoot}\install\global"
+    if (-not (Test-Path $GlobalDir)) { return }
+    Write-Info "Trusting global bun packages..."
+    Push-Location $GlobalDir
+    try {
+        & $BunPath pm trust @playwright/cli @llamaindex/liteparse 2>$null
+    } catch { Write-Debug "bun pm trust failed: $_" }
+    Pop-Location
+}
+
+function Invoke-EnsureBunBinInPath {
+    $BunInstallRoot = if ($env:BUN_INSTALL) { $env:BUN_INSTALL } else { "${Home}\.bun" }
+    $BunBinDir = "${BunInstallRoot}\bin"
+    $UserPath = [System.Environment]::GetEnvironmentVariable('Path', 'User')
+    if ($UserPath -like "*${BunBinDir}*") { return }
+    [System.Environment]::SetEnvironmentVariable('Path', "${BunBinDir};${UserPath}", 'User')
+    $env:Path = "${BunBinDir};${env:Path}"
+    Write-Info "Added ${BunBinDir} to PATH"
+}
+
+function Install-Tooling {
+    Write-Info "Installing required tooling (bun, npm, uv, playwright-cli, liteparse)..."
+
+    # Phase 1: package managers
+    Install-Bun
+    Install-Npm
+    Install-Uv
+
+    # Phase 2: global CLI tools
+    Install-GlobalBunPackage "@playwright/cli@latest"
+    Install-GlobalBunPackage "@llamaindex/liteparse@latest"
+
+    # Phase 3: trust lifecycle scripts for globally installed bun packages
+    Invoke-TrustBunGlobalPackage
+
+    # Phase 4: ensure ~/.bun/bin is in PATH
+    Invoke-EnsureBunBinInPath
+
+    Write-Success "Tooling installed"
+}
+
+# -----------------------------------------------------------------------------
 
 # Detect architecture
 $Arch = $env:PROCESSOR_ARCHITECTURE
@@ -216,6 +355,9 @@ try {
 
     Write-Success "Installed ${BinaryName} ${Version} to ${BinaryPath}"
     Write-Success "Config files installed to ${DataDir}"
+
+    # Install required tooling
+    Install-Tooling
 
     # Persist prerelease channel preference in settings
     $SettingsFile = Join-Path $AtomicHome "settings.json"

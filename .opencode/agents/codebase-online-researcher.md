@@ -6,8 +6,8 @@ permission:
     read: "allow"
     grep: "allow"
     glob: "allow"
-    webfetch: "deny"
-    websearch: "deny"
+    webfetch: "allow"
+    websearch: "allow"
     skill: "allow"
 ---
 

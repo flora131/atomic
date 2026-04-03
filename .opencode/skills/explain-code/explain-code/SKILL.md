@@ -18,21 +18,6 @@ The following MCP tools are available and SHOULD be used when relevant:
   - ALWAYS ASSUME you have the playwright-cli tool installed (if the `playwright-cli` command fails, fallback to `bunx playwright-cli`).
 </EXTREMELY_IMPORTANT>
 
-## Semantic Code Search (Accelerated Discovery)
-
-When you need to find related code, dependencies, or usage examples, TRY `ccc search` first to speed up discovery — it finds conceptually related code faster than text search:
-
-```bash
-ccc search <natural language query>          # semantic search
-ccc search --lang typescript <query>         # filter by language
-ccc search --path 'src/services/*' <query>   # filter by path
-```
-
-- Describe concepts in natural language (e.g., `ccc search event bus subscriber lifecycle`)
-- If `ccc search` fails with an initialization error, IMMEDIATELY fall back to grep/glob. Do NOT run `ccc init && ccc index` — this causes excessive waiting while the index builds.
-- EXCEPTION: If the user explicitly requests semantic search or `ccc`, initialize the project (`ccc init && ccc index`) before searching.
-- ALWAYS complement semantic search with grep/glob for exact string matching or regex patterns.
-
 ## Instructions
 
 Follow this systematic approach to explain code: **$ARGUMENTS**

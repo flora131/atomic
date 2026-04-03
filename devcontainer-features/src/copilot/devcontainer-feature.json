@@ -2,7 +2,7 @@
   "id": "copilot",
   "version": "1.0.0",
   "name": "Atomic + Copilot CLI",
-  "description": "Installs Atomic CLI with GitHub Copilot agent, skills, and shared tooling (bun, cocoindex-code, playwright)",
+  "description": "Installs Atomic CLI with GitHub Copilot agent, skills, and shared tooling (bun, playwright)",
   "documentationURL": "https://github.com/flora131/atomic",
   "options": {
     "version": {
@@ -14,9 +14,6 @@
       "default": "latest",
       "description": "Select version of Atomic CLI, if not latest."
     }
-  },
-  "containerEnv": {
-    "COCOINDEX_CODE_DB_PATH_MAPPING": "/workspaces=/tmp/cocoindex-db"
   },
   "installsAfter": [
     "ghcr.io/devcontainers/features/common-utils",

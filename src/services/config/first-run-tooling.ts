@@ -6,7 +6,7 @@
  * - cli.ts          (binary installs, runs on first CLI invocation)
  *
  * Phase 1: package managers  (bun, npm, uv)
- * Phase 2: CLI tools         (playwright-cli, liteparse, cocoindex-code)
+ * Phase 2: CLI tools         (playwright-cli, liteparse)
  * Phase 3: trust bun globals (@playwright/cli, @llamaindex/liteparse)
  *
  * For binary installs a version-stamped sentinel file prevents re-running on
@@ -109,13 +109,10 @@ export async function installTooling(): Promise<void> {
   // Phase 2: CLI tools in parallel
   const { installPlaywrightCli } = await import("@/scripts/postinstall-playwright.ts");
   const { installLiteparseCli } = await import("@/scripts/postinstall-liteparse.ts");
-  const { installCocoindexCode, writeCocoindexGlobalSettings } = await import("@/scripts/postinstall-uv.ts");
 
   const toolSteps: ToolingStep[] = [
     { label: "@playwright/cli", fn: installPlaywrightCli },
     { label: "@llamaindex/liteparse", fn: installLiteparseCli },
-    { label: "cocoindex-code", fn: installCocoindexCode },
-    { label: "cocoindex settings", fn: writeCocoindexGlobalSettings },
   ];
   const toolResults = await Promise.allSettled(toolSteps.map((s) => s.fn()));
   failures.push(...collectFailures(toolSteps, toolResults));

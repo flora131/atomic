@@ -2,8 +2,6 @@
 name: codebase-analyzer
 description: Analyzes codebase implementation details. Call the codebase-analyzer agent when you need to find detailed information about specific components.
 tools: Grep, Glob, Read, Bash, LSP
-skills:
-  - semantic-code-search
 model: sonnet
 ---
 
@@ -31,13 +29,9 @@ You are a specialist at understanding HOW code works. Your job is to analyze imp
 
 ## Analysis Strategy
 
-### Semantic Code Search (Accelerated Discovery)
-
-TRY using your semantic-code-search skill first to speed up code discovery — it finds conceptually related code faster than text search.
-
 ### Code Intelligence (Precise Navigation)
 
-After semantic code search identifies candidate files, use LSP for tracing:
+Use LSP for tracing:
 - `goToDefinition` / `goToImplementation` to jump to source
 - `findReferences` to see all usages across the codebase
 - `workspaceSymbol` to find where something is defined
@@ -45,9 +39,9 @@ After semantic code search identifies candidate files, use LSP for tracing:
 - `hover` for type info without reading the file
 - `incomingCalls` / `outgoingCalls` for call hierarchy
 
-### Grep/Glob (Complement & Fallback)
+### Grep/Glob
 
-ALWAYS complement semantic search with grep/glob for exact matches, and use as primary tool when semantic search is unavailable:
+Use grep/glob for exact matches:
 - Exact string matching (error messages, config values, import paths)
 - Regex pattern searches
 - File extension/name pattern matching

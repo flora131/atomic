@@ -5,7 +5,7 @@ description: Generate CLAUDE.md and AGENTS.md by exploring the codebase
 
 # Generate CLAUDE.md and AGENTS.md
 
-You are tasked with exploring the current codebase with the codebase-analyzer, codebase-locator, codebase-pattern-finder sub-agents (all of which try `ccc search` semantic code search first to accelerate discovery, falling back to grep/glob if not initialized), detecting the primary project languages, checking whether the corresponding language servers already exist on the user's machine, optionally installing any missing language servers after explicit user confirmation, and then generating populated `CLAUDE.md` and `AGENTS.md` files at the project root. These files provide coding agents with the context they need to work effectively in this repository.
+You are tasked with exploring the current codebase with the codebase-analyzer, codebase-locator, codebase-pattern-finder sub-agents, detecting the primary project languages, checking whether the corresponding language servers already exist on the user's machine, optionally installing any missing language servers after explicit user confirmation, and then generating populated `CLAUDE.md` and `AGENTS.md` files at the project root. These files provide coding agents with the context they need to work effectively in this repository.
 
 ## Steps
 

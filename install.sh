@@ -399,7 +399,8 @@ install_tooling() {
         warn "┌─────────────────────────────────────────────────────┐"
         warn "│ The following tools failed to install:              │"
         for tool in "${failed_tools[@]}"; do
-            warn "│   • ${tool}"
+            printf -v line "│   • %-48s│" "${tool}"
+            warn "$line"
         done
         warn "│ Install them manually before using Atomic CLI.      │"
         warn "└─────────────────────────────────────────────────────┘"

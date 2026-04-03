@@ -496,16 +496,23 @@ export async function upgradeUv(): Promise<void> {
  */
 export async function upgradeGlobalPackage(pkg: string): Promise<void> {
   const versionedPkg = pkg.includes("@latest") ? pkg : `${pkg}@latest`;
+  const errors: string[] = [];
   const bunPath = resolveBunExecutable();
   if (bunPath) {
     const result = await runCommand([bunPath, "install", "-g", versionedPkg]);
     if (result.success) return;
-    console.debug(`bun install failed for ${pkg}: ${result.details}`);
+    errors.push(`bun: ${result.details}`);
   }
   const npmPath = Bun.which("npm");
   if (npmPath) {
     const result = await runCommand([npmPath, "install", "-g", versionedPkg]);
     if (result.success) return;
+    errors.push(`npm: ${result.details}`);
+  }
+  if (errors.length > 0) {
+    throw new Error(
+      `Failed to upgrade ${pkg}:\n${errors.join("\n")}`,
+    );
   }
   throw new Error(`Neither bun nor npm is available to upgrade ${pkg}.`);
 }

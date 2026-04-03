@@ -46,7 +46,7 @@ function Write-Success { Write-Host "${C_GREEN}success${C_RESET}: $args" }
 function Write-Warn { Write-Host "${C_YELLOW}warn${C_RESET}: $args" }
 function Write-Err { Write-Host "${C_RED}error${C_RESET}: $args" }
 
-# ─── Tooling helpers ─────────────────────────────────────────────────────────
+# --- Tooling helpers ----------------------------------------------------------
 
 function Resolve-BunPath {
     $InPath = Get-Command bun -ErrorAction SilentlyContinue
@@ -97,7 +97,7 @@ function Install-Npm {
             return
         } catch { Write-Warn "scoop install nodejs failed: $_" }
     }
-    Write-Warn "No supported package manager found to install npm — install Node.js manually from https://nodejs.org"
+    Write-Warn "No supported package manager found to install npm - install Node.js manually from https://nodejs.org"
 }
 
 function Install-Uv {
@@ -112,7 +112,7 @@ function Install-Uv {
         powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://astral.sh/uv/install.ps1 | iex"
         $env:Path = "${Home}\.local\bin;${env:Path}"
     } catch {
-        Write-Warn "uv installation failed: $_ — install manually from https://docs.astral.sh/uv/"
+        Write-Warn "uv installation failed: $_ - install manually from https://docs.astral.sh/uv/"
     }
 }
 
@@ -123,7 +123,9 @@ function Install-GlobalBunPackage {
     if ($BunPath) {
         try {
             & $BunPath install -g $Package
-            if ($LASTEXITCODE -eq 0) { return }
+            $bunExitCode = $LASTEXITCODE
+            if ($bunExitCode -eq 0) { return }
+            Write-Debug "bun install -g ${Package} exited with code $bunExitCode"
         } catch { Write-Debug "bun install -g ${Package} failed: $_" }
         Write-Warn "bun failed to install ${Package}, trying npm..."
     }
@@ -182,7 +184,7 @@ function Install-Tooling {
     Write-Success "Tooling installed"
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 # Detect architecture
 $Arch = $env:PROCESSOR_ARCHITECTURE

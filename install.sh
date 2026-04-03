@@ -278,30 +278,31 @@ install_npm() {
         fi
         warn "brew install node failed, trying system package managers..."
     fi
-    local install_cmd=""
+    # Determine privilege escalation command
+    local sudo_cmd=""
+    if [[ "$(id -u)" -ne 0 ]]; then
+        if command -v sudo >/dev/null 2>&1; then
+            sudo_cmd="sudo"
+        else
+            warn "Cannot install npm: no sudo and not root"
+            return 1
+        fi
+    fi
+
     if command -v apt-get >/dev/null 2>&1; then
-        install_cmd="apt-get update && apt-get install -y nodejs npm"
+        $sudo_cmd apt-get update && $sudo_cmd apt-get install -y nodejs npm
     elif command -v dnf >/dev/null 2>&1; then
-        install_cmd="dnf install -y nodejs npm"
+        $sudo_cmd dnf install -y nodejs npm
     elif command -v yum >/dev/null 2>&1; then
-        install_cmd="yum install -y nodejs npm"
+        $sudo_cmd yum install -y nodejs npm
     elif command -v pacman >/dev/null 2>&1; then
-        install_cmd="pacman -Sy --noconfirm nodejs npm"
+        $sudo_cmd pacman -Sy --noconfirm nodejs npm
     elif command -v zypper >/dev/null 2>&1; then
-        install_cmd="zypper --non-interactive install nodejs npm"
+        $sudo_cmd zypper --non-interactive install nodejs npm
     elif command -v apk >/dev/null 2>&1; then
-        install_cmd="apk add --no-cache nodejs npm"
-    fi
-    if [[ -z "$install_cmd" ]]; then
-        warn "No supported package manager found to install npm"
-        return 1
-    fi
-    if command -v sudo >/dev/null 2>&1; then
-        sudo sh -c "$install_cmd"
-    elif [[ "$(id -u)" -eq 0 ]]; then
-        sh -c "$install_cmd"
+        $sudo_cmd apk add --no-cache nodejs npm
     else
-        warn "Cannot install npm: no sudo and not root"
+        warn "No supported package manager found to install npm"
         return 1
     fi
 }

@@ -466,10 +466,11 @@ export async function upgradeNpm(): Promise<void> {
   }
   const result = await runCommand([npmPath, "install", "-g", "npm@latest"]);
   if (!result.success) {
-    throw new Error(
-      `npm self-upgrade failed: ${result.details}\n` +
-      `If this is a permissions issue, try running with sudo: sudo npm install -g npm@latest`,
-    );
+    const hint =
+      result.details?.includes("EACCES") || result.details?.includes("permission")
+        ? "\nIf this is a permissions issue, try: sudo npm install -g npm@latest"
+        : "";
+    throw new Error(`npm self-upgrade failed: ${result.details}${hint}`);
   }
 }
 
@@ -499,6 +500,7 @@ export async function upgradeGlobalPackage(pkg: string): Promise<void> {
   if (bunPath) {
     const result = await runCommand([bunPath, "install", "-g", versionedPkg]);
     if (result.success) return;
+    console.debug(`bun install failed for ${pkg}: ${result.details}`);
   }
   const npmPath = Bun.which("npm");
   if (npmPath) {

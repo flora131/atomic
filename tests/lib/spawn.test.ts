@@ -330,7 +330,7 @@ describe("upgradeNpm", () => {
     expect(call.cmd).toEqual(["/usr/local/bin/npm", "install", "-g", "npm@latest"]);
   });
 
-  test("throws when npm self-upgrade fails", async () => {
+  test("throws with sudo hint when npm self-upgrade fails with permission error", async () => {
     using _whichSpy = spyOn(Bun, "which").mockReturnValue(
       "/usr/local/bin/npm" as ReturnType<typeof Bun.which>,
     );
@@ -338,7 +338,23 @@ describe("upgradeNpm", () => {
       createMockSubprocess(1, "", "permission denied") as any,
     );
 
-    await expect(upgradeNpm()).rejects.toThrow("npm self-upgrade failed: permission denied");
+    await expect(upgradeNpm()).rejects.toThrow(
+      "npm self-upgrade failed: permission denied\n" +
+      "If this is a permissions issue, try: sudo npm install -g npm@latest",
+    );
+  });
+
+  test("throws without sudo hint when npm self-upgrade fails for non-permission reasons", async () => {
+    using _whichSpy = spyOn(Bun, "which").mockReturnValue(
+      "/usr/local/bin/npm" as ReturnType<typeof Bun.which>,
+    );
+    using _spawnSpy = spyOn(Bun, "spawn").mockReturnValue(
+      createMockSubprocess(1, "", "network timeout") as any,
+    );
+
+    await expect(upgradeNpm()).rejects.toEqual(
+      new Error("npm self-upgrade failed: network timeout"),
+    );
   });
 });
 

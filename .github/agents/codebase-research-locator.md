@@ -28,13 +28,9 @@ You are a specialist at finding documents in the research/ directory. Your job i
 
 ## Search Strategy
 
-### Semantic Code Search (Accelerated Discovery)
+### Grep/Glob
 
-TRY using your semantic-code-search skill first to speed up code discovery — it finds conceptually related code faster than text search.
-
-### Grep/Glob (Complement & Fallback)
-
-ALWAYS complement semantic search with grep/glob for exact matches, and use as primary tool when semantic search is unavailable:
+Use grep/glob for exact matches:
 - Exact string matching (error messages, config values, import paths)
 - Regex pattern searches
 - File extension/name pattern matching

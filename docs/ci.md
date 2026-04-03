@@ -18,11 +18,8 @@ This document describes the GitHub Actions workflows that power Atomic CLI's con
   │  PR Description ........ ✓   │     │    → Publish SDK (npm)         │
   │  Bump Version .......... ✓   │     │                                │
   │  Validate Features ..... ✓   │     │  Publish Features ........ ✓  │
-  │  Test Features* ........ ✓   │     │    (only on devcontainer       │
-  │  Installer Validation .. ✓   │     │     changes, skips tests —     │
-  │                              │     │     trusts PR-stage checks)    │
-  │  * only on devcontainer-     │     │                                │
-  │    features/** changes       │     │                                │
+  │  Installer Validation .. ✓   │     │    (only on devcontainer       │
+  │                              │     │     changes)                   │
   └──────────────────────────────┘     └────────────────────────────────┘
 ```
 
@@ -97,10 +94,6 @@ Automatically bumps version numbers when a `release/*` or `prerelease/*` PR is o
 ### Validate Features (`validate-features.yml`)
 
 Validates `devcontainer-feature.json` schemas on any PR that touches devcontainer feature files.
-
-### Test Features (`test-features.yml`)
-
-Runs Docker-based devcontainer feature tests (install + `atomic init` flow) on any PR that touches `devcontainer-features/**`. Also available as a reusable workflow (`workflow_call`) and manual trigger (`workflow_dispatch`). Automatically sets the Atomic CLI version from `package.json` so tests always validate the matching release.
 
 ### Installer Validation (`installer-validation.yml`)
 
@@ -177,6 +170,7 @@ The publish pipeline (`publish.yml`) runs when:
 
 Devcontainer features are published independently via `publish-features.yml`
 when `devcontainer-features/**` files are merged to main or via manual dispatch.
+Features are validated via schema checks during PRs and published after merge.
 
 ### Why This Order?
 
@@ -189,11 +183,11 @@ when `devcontainer-features/**` files are merged to main or via manual dispatch.
 
 1. **Release first** — The GitHub release is created early because install scripts download binaries from it. The release can be deleted and re-created if needed.
 2. **Publish SDK last** — npm publishes are permanent (cannot be overwritten) and are gated behind a successful release.
-3. **Features are independent** — Devcontainer features just pull a released binary, so they're validated and tested during PRs and published in their own workflow triggered by `devcontainer-features/**` changes merging to main. Tests are not re-run at publish time since they already passed in the PR.
+3. **Features are independent** — Devcontainer features just pull a released binary, so they're validated during PRs (schema checks) and published in their own workflow triggered by `devcontainer-features/**` changes merging to main.
 
 ### Publish Features (`publish-features.yml`)
 
-Publishes devcontainer features to GHCR. Triggers automatically when `devcontainer-features/**` changes are merged to main, or manually via `workflow_dispatch`. Skips tests at publish time — relies on the PR-stage `Validate Features` and `Test Features` checks having already passed before merge.
+Publishes devcontainer features to GHCR. Triggers automatically when `devcontainer-features/**` changes are merged to main, or manually via `workflow_dispatch`. Relies on the PR-stage `Validate Features` schema check having passed before merge.
 
 ---
 
@@ -253,9 +247,9 @@ End-to-end flow for a release, from branch creation to published artifacts:
   ⑤ Done ◄───────────────────────────────────────────────────┘
 ```
 
-Devcontainer features are validated and tested during PRs, then published
+Devcontainer features are validated (schema checks) during PRs, then published
 independently when `devcontainer-features/**` changes merge to main (not part
-of the release pipeline). Tests are not re-run at publish time.
+of the release pipeline).
 
 ---
 
@@ -266,7 +260,6 @@ of the release pipeline). Tests are not re-run at publish time.
 | `ci.yml`                   | PR (source/config changes)                     | Tests, typecheck, lint, coverage   |
 | `bump-version.yml`        | PR opened/synced (`release/*`, `prerelease/*`) | Auto-bump versions from branch name|
 | `validate-features.yml`   | PR (`devcontainer-features/**`)                | Schema validation                  |
-| `test-features.yml`       | PR (`devcontainer-features/**`), `workflow_call`, `workflow_dispatch` | Feature install + init flow tests |
 | `installer-validation.yml`| PR (`install.sh`, `install.ps1`)               | Shell/PowerShell lint              |
 | `code-review.yml`         | PR opened/synced                               | AI code review                     |
 | `pr-description.yml`      | PR opened/synced                               | AI PR description                  |

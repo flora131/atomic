@@ -12,6 +12,9 @@ import {
   ensureNpmInstalled,
   ensureUvInstalled,
   trustGlobalBunPackages,
+  ToolingSetupError,
+  collectFailures,
+  type ToolingStep,
 } from "@/lib/spawn.ts";
 import {
   installWorkflowSdkFromLocal,
@@ -24,40 +27,6 @@ import {
 function warnPostinstallStep(step: string, error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   console.warn(`[atomic] Warning: ${step}: ${message}`);
-}
-
-class ToolingSetupError extends Error {
-  constructor(public readonly failures: string[]) {
-    const list = failures.map((f) => `  - ${f}`).join("\n");
-    super(
-      `Tooling setup failed:\n${list}\n\n` +
-      `Re-run \`bun install\` to retry, or install the failed tools manually.`,
-    );
-    this.name = "ToolingSetupError";
-  }
-}
-
-interface ToolingStep {
-  label: string;
-  fn: () => Promise<unknown>;
-}
-
-function collectFailures(
-  steps: ToolingStep[],
-  results: PromiseSettledResult<unknown>[],
-): string[] {
-  const failures: string[] = [];
-  for (let i = 0; i < results.length; i++) {
-    const result = results[i];
-    if (result && result.status === "rejected") {
-      const reason = result.reason instanceof Error
-        ? result.reason.message
-        : String(result.reason);
-      const label = steps[i]?.label ?? `step ${i}`;
-      failures.push(`${label}: ${reason}`);
-    }
-  }
-  return failures;
 }
 
 function shellSourceHint(): string {
@@ -80,7 +49,8 @@ function shellSourceHint(): string {
 async function installTooling(): Promise<void> {
   const failures: string[] = [];
 
-  // Phase 1: package managers (needed by later steps)
+  // Phase 1: package managers — these run in parallel, but the await ensures
+  // they all settle before Phase 2, which depends on bun/npm being available.
   const pmSteps: ToolingStep[] = [
     { label: "bun", fn: ensureBunInstalled },
     { label: "npm", fn: ensureNpmInstalled },
@@ -89,7 +59,7 @@ async function installTooling(): Promise<void> {
   const pmResults = await Promise.allSettled(pmSteps.map((s) => s.fn()));
   failures.push(...collectFailures(pmSteps, pmResults));
 
-  // Phase 2: CLI tools in parallel
+  // Phase 2: CLI tools in parallel (requires bun or npm from Phase 1)
   const { installPlaywrightCli } = await import("@/scripts/postinstall-playwright.ts");
   const { installLiteparseCli } = await import("@/scripts/postinstall-liteparse.ts");
 

@@ -1,4 +1,4 @@
-﻿# Atomic CLI Installer for Windows
+# Atomic CLI Installer for Windows
 # Usage: irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1 | iex
 # Usage with version: iex "& { $(irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1) } -Version v1.0.0"
 #    or: $env:VERSION='v1.0.0'; irm ... | iex

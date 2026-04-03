@@ -41,6 +41,8 @@ import {
   upgradeUv,
   upgradePlaywrightCli,
   upgradeLiteparse,
+  collectFailures,
+  type ToolingStep,
 } from "@/lib/spawn.ts";
 
 /**
@@ -335,7 +337,7 @@ export async function updateCommand(): Promise<void> {
 
       // Update tooling: bun, npm, uv, playwright-cli, liteparse
       s.start("Updating tools...");
-      const toolingSteps: Array<{ label: string; fn: () => Promise<void> }> = [
+      const toolingSteps: ToolingStep[] = [
         { label: "bun", fn: upgradeBun },
         { label: "npm", fn: upgradeNpm },
         { label: "uv", fn: upgradeUv },
@@ -343,14 +345,7 @@ export async function updateCommand(): Promise<void> {
         { label: "@llamaindex/liteparse", fn: upgradeLiteparse },
       ];
       const toolingResults = await Promise.allSettled(toolingSteps.map((step) => step.fn()));
-      const toolingFailures: string[] = [];
-      for (let i = 0; i < toolingResults.length; i++) {
-        const result = toolingResults[i];
-        if (result && result.status === "rejected") {
-          const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
-          toolingFailures.push(`${toolingSteps[i]?.label}: ${reason}`);
-        }
-      }
+      const toolingFailures = collectFailures(toolingSteps, toolingResults);
       s.stop("Tools updated");
       for (const failure of toolingFailures) {
         log.warn(`Could not update tool — ${failure}`);

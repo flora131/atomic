@@ -466,7 +466,10 @@ export async function upgradeNpm(): Promise<void> {
   }
   const result = await runCommand([npmPath, "install", "-g", "npm@latest"]);
   if (!result.success) {
-    throw new Error(`npm self-upgrade failed: ${result.details}`);
+    throw new Error(
+      `npm self-upgrade failed: ${result.details}\n` +
+      `If this is a permissions issue, try running with sudo: sudo npm install -g npm@latest`,
+    );
   }
 }
 
@@ -487,41 +490,32 @@ export async function upgradeUv(): Promise<void> {
 }
 
 /**
- * Upgrade @playwright/cli to the latest version globally.
+ * Upgrade a global npm/bun package to the latest version.
  * Tries bun first, falls back to npm.
  */
-export async function upgradePlaywrightCli(): Promise<void> {
-  const pkg = "@playwright/cli@latest";
+export async function upgradeGlobalPackage(pkg: string): Promise<void> {
+  const versionedPkg = pkg.includes("@latest") ? pkg : `${pkg}@latest`;
   const bunPath = resolveBunExecutable();
   if (bunPath) {
-    const result = await runCommand([bunPath, "install", "-g", pkg]);
+    const result = await runCommand([bunPath, "install", "-g", versionedPkg]);
     if (result.success) return;
   }
   const npmPath = Bun.which("npm");
   if (npmPath) {
-    const result = await runCommand([npmPath, "install", "-g", pkg]);
+    const result = await runCommand([npmPath, "install", "-g", versionedPkg]);
     if (result.success) return;
   }
-  throw new Error("Neither bun nor npm is available to upgrade @playwright/cli.");
+  throw new Error(`Neither bun nor npm is available to upgrade ${pkg}.`);
 }
 
-/**
- * Upgrade @llamaindex/liteparse to the latest version globally.
- * Tries bun first, falls back to npm.
- */
+/** Upgrade @playwright/cli to the latest version globally. */
+export async function upgradePlaywrightCli(): Promise<void> {
+  return upgradeGlobalPackage("@playwright/cli");
+}
+
+/** Upgrade @llamaindex/liteparse to the latest version globally. */
 export async function upgradeLiteparse(): Promise<void> {
-  const pkg = "@llamaindex/liteparse@latest";
-  const bunPath = resolveBunExecutable();
-  if (bunPath) {
-    const result = await runCommand([bunPath, "install", "-g", pkg]);
-    if (result.success) return;
-  }
-  const npmPath = Bun.which("npm");
-  if (npmPath) {
-    const result = await runCommand([npmPath, "install", "-g", pkg]);
-    if (result.success) return;
-  }
-  throw new Error("Neither bun nor npm is available to upgrade @llamaindex/liteparse.");
+  return upgradeGlobalPackage("@llamaindex/liteparse");
 }
 
 /**
@@ -566,4 +560,42 @@ export async function trustGlobalBunPackages(packages: string[]): Promise<SpawnR
       details: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Shared tooling-setup helpers (used by postinstall and update commands)
+// ---------------------------------------------------------------------------
+
+export class ToolingSetupError extends Error {
+  constructor(public readonly failures: string[]) {
+    const list = failures.map((f) => `  - ${f}`).join("\n");
+    super(
+      `Tooling setup failed:\n${list}\n\n` +
+      `Re-run \`bun install\` to retry, or install the failed tools manually.`,
+    );
+    this.name = "ToolingSetupError";
+  }
+}
+
+export interface ToolingStep {
+  label: string;
+  fn: () => Promise<unknown>;
+}
+
+export function collectFailures(
+  steps: ToolingStep[],
+  results: PromiseSettledResult<unknown>[],
+): string[] {
+  const failures: string[] = [];
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    if (result && result.status === "rejected") {
+      const reason = result.reason instanceof Error
+        ? result.reason.message
+        : String(result.reason);
+      const label = steps[i]?.label ?? `step ${i}`;
+      failures.push(`${label}: ${reason}`);
+    }
+  }
+  return failures;
 }

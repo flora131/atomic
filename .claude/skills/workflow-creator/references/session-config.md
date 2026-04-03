@@ -60,6 +60,44 @@ Where `AgentType = "claude" | "opencode" | "copilot"`.
 
 When a field is omitted, the user's current session config is used. When a field is explicitly set, it overrides the parent for that stage only.
 
+### Provider-level override behavior
+
+`model`, `reasoningEffort`, and `maxThinkingTokens` are treated as a group because they are tightly coupled — a reasoning effort or thinking budget from one model may be incompatible with another. The inheritance rule is:
+
+- **If the stage mentions the active agent type** in any per-agent-type field (`model` or `reasoningEffort`), the stage takes full ownership of the model config for that provider. All three fields (`model`, `reasoningEffort`, `maxThinkingTokens`) are reset to their SDK defaults unless the stage explicitly sets them. The parent session's values for these fields are **not** inherited.
+- **If the stage does not mention the active agent type**, all three fields inherit from the parent session as a coherent set.
+
+This prevents subtle bugs where, for example, a parent session running `opus` with `reasoningEffort: "high"` and `maxThinkingTokens: 32000` would leak those values into a stage that overrides the model to `haiku`.
+
+```ts
+// Parent session: opus, reasoningEffort: high, maxThinkingTokens: 32000
+
+// ✅ Stage mentions claude → full ownership. Gets haiku with SDK defaults
+// for reasoningEffort and maxThinkingTokens (parent's values do NOT leak).
+.stage({
+  name: "fast-check",
+  sessionConfig: { model: { claude: "haiku" } },
+  // ...
+})
+
+// ✅ Stage does not mention claude → inherits parent's opus + high + 32k.
+.stage({
+  name: "inherited",
+  sessionConfig: {},
+  // ...
+})
+
+// ✅ Stage mentions claude via reasoningEffort only → full ownership.
+// model resets to SDK default, maxThinkingTokens resets to SDK default.
+.stage({
+  name: "reasoning-only",
+  sessionConfig: { reasoningEffort: { claude: "low" } },
+  // ...
+})
+```
+
+Non-model fields (`systemPrompt`, `tools`, `permissionMode`, etc.) are unaffected by this rule — they always inherit individually from the parent when omitted.
+
 ## Model resolution order
 
 The model for each stage is resolved in this priority order:

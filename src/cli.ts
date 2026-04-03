@@ -263,28 +263,13 @@ async function main(): Promise<void> {
             await ensureConfigDataDir(VERSION);
         }
 
-        // Ensure all required tooling is available before running commands.
-        // For binary installs this installs package managers (bun, npm, uv) and
-        // CLI tools (playwright-cli, liteparse) on first run.
-        // Then ensures the workflow SDK version matches the CLI version.
-        // Skip for lightweight commands that don't need any of this.
+        // Ensure the workflow SDK version matches the CLI version.
+        // Skip for lightweight commands that don't need this.
         const skipToolingCommands = new Set(["--version", "-v", "--help", "-h", "uninstall", "config"]);
         const needsTooling = !process.argv.slice(2).some((arg) => skipToolingCommands.has(arg));
         if (needsTooling) {
             const { detectInstallationType, getConfigRoot } = await import("@/services/config/config-path.ts");
             const installType = detectInstallationType();
-
-            const { ensureFirstRunTooling, ToolingSetupError } = await import("@/services/config/first-run-tooling.ts");
-            try {
-                await ensureFirstRunTooling(VERSION, installType);
-            } catch (error) {
-                if (error instanceof ToolingSetupError) {
-                    console.error(`${COLORS.red}${error.message}${COLORS.reset}`);
-                    process.exit(1);
-                }
-                throw error;
-            }
-
             const { ensureWorkflowSdkVersion } = await import("@/services/config/workflow-package.ts");
             const configRoot = getConfigRoot();
             await ensureWorkflowSdkVersion(VERSION, installType, configRoot);

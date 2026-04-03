@@ -1,7 +1,7 @@
 ---
 name: codebase-online-researcher
 description: Online research for fetching up-to-date information from the web and repository-specific knowledge from DeepWiki. Use this when you need to find information that is modern, potentially hard to discover from local context alone, or requires authoritative sources.
-tools: ["search", "read", "execute", "deepwiki/ask_question"]
+tools: ["search", "read", "execute", "deepwiki/ask_question", "web_fetch"]
 mcp-servers:
     deepwiki:
         type: http

@@ -11,6 +11,11 @@ import {
   getBunBinDir,
   getBunGlobalInstallDir,
   resolveBunExecutable,
+  upgradeBun,
+  upgradeNpm,
+  upgradeUv,
+  upgradePlaywrightCli,
+  upgradeLiteparse,
 } from "@/lib/spawn.ts";
 
 // ---------------------------------------------------------------------------
@@ -236,5 +241,253 @@ describe("resolveBunExecutable", () => {
 
     expect(resolveBunExecutable()).toBeUndefined();
     expect(whichSpy).toHaveBeenCalledWith("bun");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Helpers for upgrade function tests
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a mock Bun.Subprocess-like object that runCommand can consume.
+ * runCommand reads proc.stdout, proc.stderr (via new Response().text()),
+ * and proc.exited.
+ */
+function createMockSubprocess(exitCode: number, stdout = "", stderr = "") {
+  return {
+    pid: 1,
+    stdin: undefined,
+    stdout: new ReadableStream<Uint8Array>({
+      start(controller) {
+        if (stdout) controller.enqueue(new TextEncoder().encode(stdout));
+        controller.close();
+      },
+    }),
+    stderr: new ReadableStream<Uint8Array>({
+      start(controller) {
+        if (stderr) controller.enqueue(new TextEncoder().encode(stderr));
+        controller.close();
+      },
+    }),
+    exited: Promise.resolve(exitCode),
+    kill() {},
+    ref() {},
+    unref() {},
+    killed: false,
+    exitCode: null,
+    signalCode: null,
+    resourceUsage: () => undefined,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// upgradeBun
+// ---------------------------------------------------------------------------
+describe("upgradeBun", () => {
+  test("runs 'bun upgrade' when bun is on PATH", async () => {
+    using _whichSpy = spyOn(Bun, "which").mockReturnValue(
+      "/usr/local/bin/bun" as ReturnType<typeof Bun.which>,
+    );
+    using spawnSpy = spyOn(Bun, "spawn").mockReturnValue(
+      createMockSubprocess(0, "Bun upgraded") as any,
+    );
+
+    await upgradeBun();
+
+    expect(spawnSpy).toHaveBeenCalled();
+    const call = spawnSpy.mock.calls[0]![0] as any;
+    expect(call.cmd).toEqual(["/usr/local/bin/bun", "upgrade"]);
+  });
+
+  test("throws when bun upgrade fails", async () => {
+    using _whichSpy = spyOn(Bun, "which").mockReturnValue(
+      "/usr/local/bin/bun" as ReturnType<typeof Bun.which>,
+    );
+    using _spawnSpy = spyOn(Bun, "spawn").mockReturnValue(
+      createMockSubprocess(1, "", "upgrade error") as any,
+    );
+
+    await expect(upgradeBun()).rejects.toThrow("bun upgrade failed: upgrade error");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// upgradeNpm
+// ---------------------------------------------------------------------------
+describe("upgradeNpm", () => {
+  test("runs 'npm install -g npm@latest' when npm is on PATH", async () => {
+    using _whichSpy = spyOn(Bun, "which").mockReturnValue(
+      "/usr/local/bin/npm" as ReturnType<typeof Bun.which>,
+    );
+    using spawnSpy = spyOn(Bun, "spawn").mockReturnValue(
+      createMockSubprocess(0) as any,
+    );
+
+    await upgradeNpm();
+
+    expect(spawnSpy).toHaveBeenCalled();
+    const call = spawnSpy.mock.calls[0]![0] as any;
+    expect(call.cmd).toEqual(["/usr/local/bin/npm", "install", "-g", "npm@latest"]);
+  });
+
+  test("throws with sudo hint when npm self-upgrade fails with permission error", async () => {
+    using _whichSpy = spyOn(Bun, "which").mockReturnValue(
+      "/usr/local/bin/npm" as ReturnType<typeof Bun.which>,
+    );
+    using _spawnSpy = spyOn(Bun, "spawn").mockReturnValue(
+      createMockSubprocess(1, "", "permission denied") as any,
+    );
+
+    await expect(upgradeNpm()).rejects.toThrow(
+      "npm self-upgrade failed: permission denied\n" +
+      "If this is a permissions issue, try: sudo npm install -g npm@latest",
+    );
+  });
+
+  test("throws without sudo hint when npm self-upgrade fails for non-permission reasons", async () => {
+    using _whichSpy = spyOn(Bun, "which").mockReturnValue(
+      "/usr/local/bin/npm" as ReturnType<typeof Bun.which>,
+    );
+    using _spawnSpy = spyOn(Bun, "spawn").mockReturnValue(
+      createMockSubprocess(1, "", "network timeout") as any,
+    );
+
+    await expect(upgradeNpm()).rejects.toEqual(
+      new Error("npm self-upgrade failed: network timeout"),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// upgradeUv
+// ---------------------------------------------------------------------------
+describe("upgradeUv", () => {
+  test("runs 'uv self update' when uv is on PATH", async () => {
+    using _whichSpy = spyOn(Bun, "which").mockReturnValue(
+      "/usr/local/bin/uv" as ReturnType<typeof Bun.which>,
+    );
+    using spawnSpy = spyOn(Bun, "spawn").mockReturnValue(
+      createMockSubprocess(0) as any,
+    );
+
+    await upgradeUv();
+
+    expect(spawnSpy).toHaveBeenCalled();
+    const call = spawnSpy.mock.calls[0]![0] as any;
+    expect(call.cmd).toEqual(["/usr/local/bin/uv", "self", "update"]);
+  });
+
+  test("throws when uv self update fails", async () => {
+    using _whichSpy = spyOn(Bun, "which").mockReturnValue(
+      "/usr/local/bin/uv" as ReturnType<typeof Bun.which>,
+    );
+    using _spawnSpy = spyOn(Bun, "spawn").mockReturnValue(
+      createMockSubprocess(1, "", "update error") as any,
+    );
+
+    await expect(upgradeUv()).rejects.toThrow("uv self update failed: update error");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// upgradePlaywrightCli — fallback behaviour
+// ---------------------------------------------------------------------------
+describe("upgradePlaywrightCli", () => {
+  test("succeeds via bun when bun install works", async () => {
+    using _whichSpy = spyOn(Bun, "which").mockReturnValue(
+      "/usr/local/bin/bun" as ReturnType<typeof Bun.which>,
+    );
+    using spawnSpy = spyOn(Bun, "spawn").mockReturnValue(
+      createMockSubprocess(0) as any,
+    );
+
+    await upgradePlaywrightCli();
+
+    expect(spawnSpy).toHaveBeenCalled();
+    const call = spawnSpy.mock.calls[0]![0] as any;
+    expect(call.cmd).toEqual(["/usr/local/bin/bun", "install", "-g", "@playwright/cli@latest"]);
+  });
+
+  test("falls back to npm when bun install fails", async () => {
+    let callCount = 0;
+    using _whichSpy = spyOn(Bun, "which").mockReturnValue(
+      "/usr/local/bin/mock" as ReturnType<typeof Bun.which>,
+    );
+    using spawnSpy = spyOn(Bun, "spawn").mockImplementation((() => {
+      callCount++;
+      // First call (bun install -g) fails, second call (npm install -g) succeeds
+      if (callCount === 1) return createMockSubprocess(1, "", "bun install failed");
+      return createMockSubprocess(0);
+    }) as any);
+
+    await upgradePlaywrightCli();
+
+    expect(spawnSpy).toHaveBeenCalledTimes(2);
+    const npmCall = spawnSpy.mock.calls[1]![0] as any;
+    expect(npmCall.cmd).toEqual(["/usr/local/bin/mock", "install", "-g", "@playwright/cli@latest"]);
+  });
+
+  test("throws when neither bun nor npm can install", async () => {
+    using _whichSpy = spyOn(Bun, "which").mockReturnValue(
+      null as ReturnType<typeof Bun.which>,
+    );
+    delete process.env.BUN_INSTALL;
+    delete process.env.HOME;
+    delete process.env.USERPROFILE;
+
+    await expect(upgradePlaywrightCli()).rejects.toThrow(
+      "Neither bun nor npm is available to upgrade @playwright/cli.",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// upgradeLiteparse — fallback behaviour
+// ---------------------------------------------------------------------------
+describe("upgradeLiteparse", () => {
+  test("succeeds via bun when bun install works", async () => {
+    using _whichSpy = spyOn(Bun, "which").mockReturnValue(
+      "/usr/local/bin/bun" as ReturnType<typeof Bun.which>,
+    );
+    using spawnSpy = spyOn(Bun, "spawn").mockReturnValue(
+      createMockSubprocess(0) as any,
+    );
+
+    await upgradeLiteparse();
+
+    expect(spawnSpy).toHaveBeenCalled();
+    const call = spawnSpy.mock.calls[0]![0] as any;
+    expect(call.cmd).toEqual(["/usr/local/bin/bun", "install", "-g", "@llamaindex/liteparse@latest"]);
+  });
+
+  test("falls back to npm when bun install fails", async () => {
+    let callCount = 0;
+    using _whichSpy = spyOn(Bun, "which").mockReturnValue(
+      "/usr/local/bin/mock" as ReturnType<typeof Bun.which>,
+    );
+    using spawnSpy = spyOn(Bun, "spawn").mockImplementation((() => {
+      callCount++;
+      if (callCount === 1) return createMockSubprocess(1, "", "bun install failed");
+      return createMockSubprocess(0);
+    }) as any);
+
+    await upgradeLiteparse();
+
+    expect(spawnSpy).toHaveBeenCalledTimes(2);
+    const npmCall = spawnSpy.mock.calls[1]![0] as any;
+    expect(npmCall.cmd).toEqual(["/usr/local/bin/mock", "install", "-g", "@llamaindex/liteparse@latest"]);
+  });
+
+  test("throws when neither bun nor npm can install", async () => {
+    using _whichSpy = spyOn(Bun, "which").mockReturnValue(
+      null as ReturnType<typeof Bun.which>,
+    );
+    delete process.env.BUN_INSTALL;
+    delete process.env.HOME;
+    delete process.env.USERPROFILE;
+
+    await expect(upgradeLiteparse()).rejects.toThrow(
+      "Neither bun nor npm is available to upgrade @llamaindex/liteparse.",
+    );
   });
 });

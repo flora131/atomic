@@ -439,6 +439,95 @@ export function getBunGlobalInstallDir(): string | undefined {
 }
 
 /**
+ * Upgrade Bun to the latest version.
+ * Falls back to installing Bun if it is not yet present.
+ */
+export async function upgradeBun(): Promise<void> {
+  const bunPath = resolveBunExecutable();
+  if (!bunPath) {
+    await ensureBunInstalled();
+    return;
+  }
+  const result = await runCommand([bunPath, "upgrade"]);
+  if (!result.success) {
+    throw new Error(`bun upgrade failed: ${result.details}`);
+  }
+}
+
+/**
+ * Upgrade npm to the latest version.
+ * Falls back to installing Node.js/npm if it is not yet present.
+ */
+export async function upgradeNpm(): Promise<void> {
+  const npmPath = Bun.which("npm");
+  if (!npmPath) {
+    await ensureNpmInstalled();
+    return;
+  }
+  const result = await runCommand([npmPath, "install", "-g", "npm@latest"]);
+  if (!result.success) {
+    const hint =
+      result.details?.includes("EACCES") || result.details?.includes("permission")
+        ? "\nIf this is a permissions issue, try: sudo npm install -g npm@latest"
+        : "";
+    throw new Error(`npm self-upgrade failed: ${result.details}${hint}`);
+  }
+}
+
+/**
+ * Upgrade uv to the latest version.
+ * Falls back to installing uv if it is not yet present.
+ */
+export async function upgradeUv(): Promise<void> {
+  const uvPath = resolveUvExecutable();
+  if (!uvPath) {
+    await ensureUvInstalled();
+    return;
+  }
+  const result = await runCommand([uvPath, "self", "update"]);
+  if (!result.success) {
+    throw new Error(`uv self update failed: ${result.details}`);
+  }
+}
+
+/**
+ * Upgrade a global npm/bun package to the latest version.
+ * Tries bun first, falls back to npm.
+ */
+export async function upgradeGlobalPackage(pkg: string): Promise<void> {
+  const versionedPkg = pkg.includes("@latest") ? pkg : `${pkg}@latest`;
+  const errors: string[] = [];
+  const bunPath = resolveBunExecutable();
+  if (bunPath) {
+    const result = await runCommand([bunPath, "install", "-g", versionedPkg]);
+    if (result.success) return;
+    errors.push(`bun: ${result.details}`);
+  }
+  const npmPath = Bun.which("npm");
+  if (npmPath) {
+    const result = await runCommand([npmPath, "install", "-g", versionedPkg]);
+    if (result.success) return;
+    errors.push(`npm: ${result.details}`);
+  }
+  if (errors.length > 0) {
+    throw new Error(
+      `Failed to upgrade ${pkg}:\n${errors.join("\n")}`,
+    );
+  }
+  throw new Error(`Neither bun nor npm is available to upgrade ${pkg}.`);
+}
+
+/** Upgrade @playwright/cli to the latest version globally. */
+export async function upgradePlaywrightCli(): Promise<void> {
+  return upgradeGlobalPackage("@playwright/cli");
+}
+
+/** Upgrade @llamaindex/liteparse to the latest version globally. */
+export async function upgradeLiteparse(): Promise<void> {
+  return upgradeGlobalPackage("@llamaindex/liteparse");
+}
+
+/**
  * Run `bun pm trust <packages>` in bun's global install directory so that
  * lifecycle scripts of the specified globally installed packages are allowed to execute.
  */
@@ -480,4 +569,42 @@ export async function trustGlobalBunPackages(packages: string[]): Promise<SpawnR
       details: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Shared tooling-setup helpers (used by postinstall and update commands)
+// ---------------------------------------------------------------------------
+
+export class ToolingSetupError extends Error {
+  constructor(public readonly failures: string[]) {
+    const list = failures.map((f) => `  - ${f}`).join("\n");
+    super(
+      `Tooling setup failed:\n${list}\n\n` +
+      `Re-run \`bun install\` to retry, or install the failed tools manually.`,
+    );
+    this.name = "ToolingSetupError";
+  }
+}
+
+export interface ToolingStep {
+  label: string;
+  fn: () => Promise<unknown>;
+}
+
+export function collectFailures(
+  steps: ToolingStep[],
+  results: PromiseSettledResult<unknown>[],
+): string[] {
+  const failures: string[] = [];
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    if (result && result.status === "rejected") {
+      const reason = result.reason instanceof Error
+        ? result.reason.message
+        : String(result.reason);
+      const label = steps[i]?.label ?? `step ${i}`;
+      failures.push(`${label}: ${reason}`);
+    }
+  }
+  return failures;
 }

@@ -1,10 +1,7 @@
 ---
 name: codebase-online-researcher
 description: Online research for fetching up-to-date information from the web and repository-specific knowledge from DeepWiki. Use this when you need to find information that is modern, potentially hard to discover from local context alone, or requires authoritative sources.
-tools: Grep, Glob, Read, Bash, mcp__deepwiki__ask_question
-disallowedTools:
-  - WebFetch
-  - WebSearch
+tools: Grep, Glob, Read, Bash(playwright-cli:*), Bash(bunx:*), Bash(bun:*), Bash(npx:*), Bash(npm:*), mcp__deepwiki__ask_question, WebFetch, WebSearch
 mcpServers:
   - deepwiki:
       type: http

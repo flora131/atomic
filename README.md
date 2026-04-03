@@ -737,7 +737,8 @@ $env:ATOMIC_INSTALL_DIR = "C:\tools"; irm https://raw.githubusercontent.com/flor
 {
   "image": "mcr.microsoft.com/devcontainers/rust:latest",
   "features": {
-    "ghcr.io/flora131/atomic/claude:1": {}
+    "ghcr.io/flora131/atomic/claude:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
   },
   "remoteEnv": {
     "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}"
@@ -751,7 +752,8 @@ $env:ATOMIC_INSTALL_DIR = "C:\tools"; irm https://raw.githubusercontent.com/flor
 {
   "image": "mcr.microsoft.com/devcontainers/python:3.12",
   "features": {
-    "ghcr.io/flora131/atomic/copilot:1": {}
+    "ghcr.io/flora131/atomic/copilot:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
   },
   "remoteEnv": {
     "GH_TOKEN": "${localEnv:GH_TOKEN}"
@@ -765,7 +767,8 @@ $env:ATOMIC_INSTALL_DIR = "C:\tools"; irm https://raw.githubusercontent.com/flor
 {
   "image": "mcr.microsoft.com/devcontainers/go:1.22",
   "features": {
-    "ghcr.io/flora131/atomic/opencode:1": {}
+    "ghcr.io/flora131/atomic/opencode:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
   }
 }
 ```

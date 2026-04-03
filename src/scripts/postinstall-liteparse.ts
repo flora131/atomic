@@ -7,20 +7,20 @@ export async function installLiteparseCli(): Promise<void> {
 
   const bunPath = resolveBunExecutable();
   if (bunPath) {
-    const bunInstall = await runCommand([bunPath, "install", "-g", LITEPARSE_PACKAGE]);
+    const bunInstall = await runCommand([bunPath, "install", "-g", LITEPARSE_PACKAGE], { inherit: true });
     if (bunInstall.success) {
       return;
     }
-    failures.push(`bun: ${bunInstall.details || "No output."}`);
+    failures.push(`bun: ${bunInstall.details || "install failed"}`);
   }
 
   const npmPath = Bun.which("npm");
   if (npmPath) {
-    const npmInstall = await runCommand([npmPath, "install", "-g", LITEPARSE_PACKAGE]);
+    const npmInstall = await runCommand([npmPath, "install", "-g", LITEPARSE_PACKAGE], { inherit: true });
     if (npmInstall.success) {
       return;
     }
-    failures.push(`npm: ${npmInstall.details || "No output."}`);
+    failures.push(`npm: ${npmInstall.details || "install failed"}`);
   }
 
   if (failures.length === 0) {

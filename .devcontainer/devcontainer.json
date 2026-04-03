@@ -20,9 +20,6 @@
   "postCreateCommand": {
     "install-deps": "bun install"
   },
-  "containerEnv": {
-    "COCOINDEX_CODE_DB_PATH_MAPPING": "/workspaces=/tmp/cocoindex-db"
-  },
   "customizations": {
     "vscode": {
       "extensions": ["oven.bun-vscode", "oxc.oxc-vscode", "shd101wyy.markdown-preview-enhanced"]

@@ -10,15 +10,10 @@ on:
   workflow_dispatch:
 
 jobs:
-  test-features:
-    name: Test Devcontainer Features
+  publish:
     if: >-
       github.event_name == 'workflow_dispatch'
       || (github.event.pull_request.merged == true)
-    uses: ./.github/workflows/test-features.yml
-
-  publish:
-    needs: [test-features]
     runs-on: ubuntu-latest
     permissions:
       contents: write

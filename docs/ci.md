@@ -19,8 +19,8 @@ This document describes the GitHub Actions workflows that power Atomic CLI's con
   │  Bump Version .......... ✓   │     │                                │
   │  Validate Features ..... ✓   │     │  Publish Features ........ ✓  │
   │  Test Features* ........ ✓   │     │    (only on devcontainer       │
-  │  Installer Validation .. ✓   │     │     changes, independent)      │
-  │                              │     │                                │
+  │  Installer Validation .. ✓   │     │     changes, skips tests —     │
+  │                              │     │     trusts PR-stage checks)    │
   │  * only on devcontainer-     │     │                                │
   │    features/** changes       │     │                                │
   └──────────────────────────────┘     └────────────────────────────────┘
@@ -189,11 +189,11 @@ when `devcontainer-features/**` files are merged to main or via manual dispatch.
 
 1. **Release first** — The GitHub release is created early because install scripts download binaries from it. The release can be deleted and re-created if needed.
 2. **Publish SDK last** — npm publishes are permanent (cannot be overwritten) and are gated behind a successful release.
-3. **Features are independent** — Devcontainer features just pull a released binary, so they're tested and published in their own workflow triggered by `devcontainer-features/**` changes.
+3. **Features are independent** — Devcontainer features just pull a released binary, so they're validated and tested during PRs and published in their own workflow triggered by `devcontainer-features/**` changes merging to main. Tests are not re-run at publish time since they already passed in the PR.
 
-### Manual Publish Features (`publish-features.yml`)
+### Publish Features (`publish-features.yml`)
 
-Publishes devcontainer features to GHCR. Triggers automatically when `devcontainer-features/**` changes are merged to main, or manually via `workflow_dispatch`. Runs the full test suite before publishing.
+Publishes devcontainer features to GHCR. Triggers automatically when `devcontainer-features/**` changes are merged to main, or manually via `workflow_dispatch`. Skips tests at publish time — relies on the PR-stage `Validate Features` and `Test Features` checks having already passed before merge.
 
 ---
 
@@ -253,8 +253,9 @@ End-to-end flow for a release, from branch creation to published artifacts:
   ⑤ Done ◄───────────────────────────────────────────────────┘
 ```
 
-Devcontainer features are tested and published independently when
-`devcontainer-features/**` files change (not part of the release pipeline).
+Devcontainer features are validated and tested during PRs, then published
+independently when `devcontainer-features/**` changes merge to main (not part
+of the release pipeline). Tests are not re-run at publish time.
 
 ---
 
@@ -271,4 +272,4 @@ Devcontainer features are tested and published independently when
 | `pr-description.yml`      | PR opened/synced                               | AI PR description                  |
 | `claude.yml`              | `@claude` mentions                             | Claude Code assistant              |
 | `publish.yml`             | Merged `release/*`/`prerelease/*` PR           | Build, release, publish SDK        |
-| `publish-features.yml`    | Merged PR (`devcontainer-features/**`), `workflow_dispatch` | Test + publish features to GHCR |
+| `publish-features.yml`    | Merged PR (`devcontainer-features/**`), `workflow_dispatch` | Publish features to GHCR       |

@@ -8,6 +8,7 @@ tools:
         "edit",
         "search",
         "read",
+        "task_list"
     ]
 model: claude-opus-4.6
 --- 

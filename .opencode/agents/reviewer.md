@@ -8,6 +8,9 @@ permission:
     todowrite: "allow"
     lsp: "allow"
     skill: "allow"
+    webfetch: "allow"
+    websearch: "allow"
+    task_list: "allow"
 ---
 
 # Review guidelines:

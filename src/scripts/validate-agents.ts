@@ -167,6 +167,9 @@ const copilotFrontmatterSchema = z.strictObject({
   "mcp-servers": z.record(z.string(), copilotMcpServerConfigSchema).optional(),
   // CustomAgentConfig.infer
   infer: z.boolean().optional(),
+  // Workflow model override — not part of the Copilot SDK type but read by
+  // the workflow conductor to select the model for this agent's stage.
+  model: z.string().min(1).optional(),
 });
 
 // Compile-time check: ensure frontmatter field types align with CustomAgentConfig.

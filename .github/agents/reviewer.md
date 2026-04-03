@@ -7,6 +7,7 @@ mcp-servers:
         type: http
         url: "https://mcp.deepwiki.com/mcp"
         tools: ["ask_question"]
+model: gpt-5.4
 ---
 
 # Review guidelines:

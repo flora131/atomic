@@ -2,6 +2,7 @@
 name: worker
 description: Implement a SINGLE task from a task list.
 tools: ["execute", "agent", "edit", "search", "read", "lsp", "task_list"]
+model: claude-sonnet-4.6
 ---
 
 You are tasked with implementing a SINGLE task from the task list.

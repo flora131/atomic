@@ -64,16 +64,16 @@ your-project/
 ```jsonc
 {
   "features": {
-    "ghcr.io/flora131/atomic/claude:latest": {}   // or /opencode:latest or /copilot:latest
+    "ghcr.io/flora131/atomic/claude:1": {}   // or /opencode:1 or /copilot:1
   }
 }
 ```
 
 | Feature | Reference | Agent |
 |---------|-----------|-------|
-| Atomic + Claude Code | `ghcr.io/flora131/atomic/claude:latest` | [Claude Code](https://claude.ai) |
-| Atomic + OpenCode | `ghcr.io/flora131/atomic/opencode:latest` | [OpenCode](https://opencode.ai) |
-| Atomic + Copilot CLI | `ghcr.io/flora131/atomic/copilot:latest` | [Copilot CLI](https://github.com/github/copilot-cli) |
+| Atomic + Claude Code | `ghcr.io/flora131/atomic/claude:1` | [Claude Code](https://claude.ai) |
+| Atomic + OpenCode | `ghcr.io/flora131/atomic/opencode:1` | [OpenCode](https://opencode.ai) |
+| Atomic + Copilot CLI | `ghcr.io/flora131/atomic/copilot:1` | [Copilot CLI](https://github.com/github/copilot-cli) |
 
 Each feature installs the Atomic CLI, all shared dependencies (bun, cocoindex-code, playwright-cli), agent-specific configurations (agents, skills), and the agent CLI itself. Features are versioned in sync with Atomic CLI releases.
 
@@ -737,7 +737,7 @@ $env:ATOMIC_INSTALL_DIR = "C:\tools"; irm https://raw.githubusercontent.com/flor
 {
   "image": "mcr.microsoft.com/devcontainers/rust:latest",
   "features": {
-    "ghcr.io/flora131/atomic/claude:latest": {}
+    "ghcr.io/flora131/atomic/claude:1": {}
   },
   "remoteEnv": {
     "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}"
@@ -751,7 +751,7 @@ $env:ATOMIC_INSTALL_DIR = "C:\tools"; irm https://raw.githubusercontent.com/flor
 {
   "image": "mcr.microsoft.com/devcontainers/python:3.12",
   "features": {
-    "ghcr.io/flora131/atomic/copilot:latest": {}
+    "ghcr.io/flora131/atomic/copilot:1": {}
   },
   "remoteEnv": {
     "GH_TOKEN": "${localEnv:GH_TOKEN}"
@@ -765,7 +765,7 @@ $env:ATOMIC_INSTALL_DIR = "C:\tools"; irm https://raw.githubusercontent.com/flor
 {
   "image": "mcr.microsoft.com/devcontainers/go:1.22",
   "features": {
-    "ghcr.io/flora131/atomic/opencode:latest": {}
+    "ghcr.io/flora131/atomic/opencode:1": {}
   }
 }
 ```

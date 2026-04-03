@@ -15,11 +15,14 @@ This document describes the GitHub Actions workflows that power Atomic CLI's con
   │                              │     │                                │
   │  CI ..................... ✓  │     │  Publish .................. ✓  │
   │  Code Review ........... ✓   │     │    Build → Release             │
-  │  PR Description ........ ✓   │     │    → Test Features             │
-  │  Bump Version .......... ✓   │     │    → Publish Features (GHCR)   │
-  │  Validate Features ..... ✓   │     │    → Publish SDK (npm)         │
-  │  Installer Validation .. ✓   │     │                                │
+  │  PR Description ........ ✓   │     │    → Publish SDK (npm)         │
+  │  Bump Version .......... ✓   │     │                                │
+  │  Validate Features ..... ✓   │     │  Publish Features ........ ✓  │
+  │  Test Features* ........ ✓   │     │    (only on devcontainer       │
+  │  Installer Validation .. ✓   │     │     changes, independent)      │
   │                              │     │                                │
+  │  * only on devcontainer-     │     │                                │
+  │    features/** changes       │     │                                │
   └──────────────────────────────┘     └────────────────────────────────┘
 ```
 
@@ -79,9 +82,6 @@ Automatically bumps version numbers when a `release/*` or `prerelease/*` PR is o
   │  │  · package.json                 │  │
   │  │  · packages/workflow-sdk/       │  │
   │  │    package.json                 │  │
-  │  │  · claude/devcontainer-feature  │  │
-  │  │  · copilot/devcontainer-feature │  │
-  │  │  · opencode/devcontainer-feature│  │
   │  └────────────────┬────────────────┘  │
   │                   ▼                   │
   │  ┌─────────────────────────────────┐  │
@@ -97,6 +97,10 @@ Automatically bumps version numbers when a `release/*` or `prerelease/*` PR is o
 ### Validate Features (`validate-features.yml`)
 
 Validates `devcontainer-feature.json` schemas on any PR that touches devcontainer feature files.
+
+### Test Features (`test-features.yml`)
+
+Runs Docker-based devcontainer feature tests (install + `atomic init` flow) on any PR that touches `devcontainer-features/**`. Also available as a reusable workflow (`workflow_call`) and manual trigger (`workflow_dispatch`). Automatically sets the Atomic CLI version from `package.json` so tests always validate the matching release.
 
 ### Installer Validation (`installer-validation.yml`)
 
@@ -144,6 +148,10 @@ The publish pipeline (`publish.yml`) runs when:
   │            └───────────┬────────────────┘                             │
   │                        ▼                                              │
   │   ┌────────────────────────────────────────┐                          │
+  │   │       Validate Binaries (6 platforms)  │                          │
+  │   └────────────────────┬───────────────────┘                          │
+  │                        ▼                                              │
+  │   ┌────────────────────────────────────────┐                          │
   │   │           Create Release               │   ◄── Overwritable       │
   │   │                                        │                          │
   │   │  · Checksums                           │                          │
@@ -152,46 +160,40 @@ The publish pipeline (`publish.yml`) runs when:
   │   │  · prerelease flag if version has -    │                          │
   │   └────────────────────┬───────────────────┘                          │
   │                        ▼                                              │
-  │   ┌────────────────────────────────────────┐                          │
-  │   │      Test Devcontainer Features        │   ◄── Requires release   │
-  │   │                                        │       binaries to exist  │
-  │   │  · 3 features × 2 base images          │                          │
-  │   │  · Scenario tests per feature          │                          │
-  │   │  · Global cross-feature scenarios      │                          │
-  │   └────────┬───────────────────┬───────────┘                          │
-  │            │                   │                                      │
-  │            ▼                   ▼                                      │
-  │   ┌─────────────────┐  ┌─────────────────────┐                        │
-  │   │  Publish        │  │  Publish            │   ◄── Permanent,       │
-  │   │  Features       │  │  Workflow SDK       │       gated by tests   │
-  │   │  (GHCR)         │  │  (npm)              │                        │
-  │   │                 │  │                     │                        │
-  │   │  · Sync         │  │  · tests            │                        │
-  │   │    versions     │  │  · typecheck        │                        │
-  │   │  · Publish      │  │  · lint             │                        │
-  │   │    to GHCR      │  │  · npm publish      │                        │
-  │   │                 │  │    (tag: latest     │                        │
-  │   │                 │  │     or next)        │                        │
-  │   └─────────────────┘  └─────────────────────┘                        │
+  │   ┌─────────────────────┐                                             │
+  │   │  Publish            │   ◄── Permanent, gated by release           │
+  │   │  Workflow SDK       │                                             │
+  │   │  (npm)              │                                             │
+  │   │                     │                                             │
+  │   │  · tests            │                                             │
+  │   │  · typecheck        │                                             │
+  │   │  · lint             │                                             │
+  │   │  · npm publish      │                                             │
+  │   │    (tag: latest     │                                             │
+  │   │     or next)        │                                             │
+  │   └─────────────────────┘                                             │
   └───────────────────────────────────────────────────────────────────────┘
 ```
+
+Devcontainer features are published independently via `publish-features.yml`
+when `devcontainer-features/**` files are merged to main or via manual dispatch.
 
 ### Why This Order?
 
 ```
-  ┌───────────────┐     ┌───────────────┐     ┌────────────────────────────┐
-  │    Release    │ ──► │ Test Features │ ──► │ Publish Features + SDK     │
-  │ (overwritable)│     │  (validates)  │     │ (permanent / hard to undo) │
-  └───────────────┘     └───────────────┘     └────────────────────────────┘
+  ┌───────────────┐     ┌──────────────────┐
+  │    Release    │ ──► │  Publish SDK     │
+  │ (overwritable)│     │  (permanent)     │
+  └───────────────┘     └──────────────────┘
 ```
 
-1. **Release first** — The GitHub release is created early because devcontainer feature install scripts download binaries from it. The release can be deleted and re-created if needed.
-2. **Test features second** — Feature tests run after the release exists so the install scripts can successfully download binaries. If tests fail, the pipeline stops here.
-3. **Publish last** — npm publishes are permanent (cannot be overwritten) and GHCR feature tags should only go out once validated. Both are gated behind passing feature tests.
+1. **Release first** — The GitHub release is created early because install scripts download binaries from it. The release can be deleted and re-created if needed.
+2. **Publish SDK last** — npm publishes are permanent (cannot be overwritten) and are gated behind a successful release.
+3. **Features are independent** — Devcontainer features just pull a released binary, so they're tested and published in their own workflow triggered by `devcontainer-features/**` changes.
 
 ### Manual Publish Features (`publish-features.yml`)
 
-A standalone workflow for manually re-publishing devcontainer features to GHCR via `workflow_dispatch`. Runs the full test suite before publishing.
+Publishes devcontainer features to GHCR. Triggers automatically when `devcontainer-features/**` changes are merged to main, or manually via `workflow_dispatch`. Runs the full test suite before publishing.
 
 ---
 
@@ -236,24 +238,23 @@ End-to-end flow for a release, from branch creation to published artifacts:
      Build binaries (Linux, macOS, Windows)                   │
            │                                                  │
            ▼                                                  │
+     Validate binaries (6 platforms)                          │
+           │                                                  │
+           ▼                                                  │
      Create GitHub Release (overwritable)                     │
            │                                                  │
            ▼                                                  │
-     Test devcontainer features (install from release)        │
-           │                                                  │
-           ├────────── FAIL ──► Pipeline stops.               │
-           │                    Release exists but nothing    │
-           │                    is published. Fix and re-run. │
-           │                                                  │
-           ▼                                                  │
-     ┌──────────────┐    ┌───────────────────┐                │
-     │ Publish      │    │ Publish Workflow  │                │
-     │ Features     │    │ SDK to npm        │                │
-     │ to GHCR      │    │ (permanent)       │                │
-     └──────────────┘    └───────────────────┘                │
+     ┌───────────────────┐                                    │
+     │ Publish Workflow  │                                    │
+     │ SDK to npm        │                                    │
+     │ (permanent)       │                                    │
+     └───────────────────┘                                    │
                                                               │
   ⑤ Done ◄───────────────────────────────────────────────────┘
 ```
+
+Devcontainer features are tested and published independently when
+`devcontainer-features/**` files change (not part of the release pipeline).
 
 ---
 
@@ -264,10 +265,10 @@ End-to-end flow for a release, from branch creation to published artifacts:
 | `ci.yml`                   | PR (source/config changes)                     | Tests, typecheck, lint, coverage   |
 | `bump-version.yml`        | PR opened/synced (`release/*`, `prerelease/*`) | Auto-bump versions from branch name|
 | `validate-features.yml`   | PR (`devcontainer-features/**`)                | Schema validation                  |
-| `test-features.yml`       | `workflow_call`, `workflow_dispatch`            | Feature install + scenario tests   |
+| `test-features.yml`       | PR (`devcontainer-features/**`), `workflow_call`, `workflow_dispatch` | Feature install + init flow tests |
 | `installer-validation.yml`| PR (`install.sh`, `install.ps1`)               | Shell/PowerShell lint              |
 | `code-review.yml`         | PR opened/synced                               | AI code review                     |
 | `pr-description.yml`      | PR opened/synced                               | AI PR description                  |
 | `claude.yml`              | `@claude` mentions                             | Claude Code assistant              |
-| `publish.yml`             | Merged `release/*`/`prerelease/*` PR           | Build, release, test, publish      |
-| `publish-features.yml`    | `workflow_dispatch`                            | Manual feature re-publish          |
+| `publish.yml`             | Merged `release/*`/`prerelease/*` PR           | Build, release, publish SDK        |
+| `publish-features.yml`    | Merged PR (`devcontainer-features/**`), `workflow_dispatch` | Test + publish features to GHCR |

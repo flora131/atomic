@@ -357,40 +357,10 @@ jobs:
             dist/atomic-config.zip
             dist/checksums.txt
 
-  test-features:
-    name: Test Devcontainer Features
-    needs: [release]
-    uses: ./.github/workflows/test-features.yml
-
-  publish-features:
-    name: Publish Devcontainer Features
-    runs-on: ubuntu-latest
-    needs: [test-features]
-    permissions:
-      contents: write
-      packages: write
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Sync feature versions from package.json
-        run: |
-          VERSION=$(jq -r .version package.json)
-          for feature in devcontainer-features/src/*/devcontainer-feature.json; do
-            jq --arg v "$VERSION" '.version = $v' "$feature" > tmp.json && mv tmp.json "$feature"
-          done
-
-      - name: Publish Features
-        uses: devcontainers/action@v1
-        with:
-          publish-features: "true"
-          base-path-to-features: "./devcontainer-features/src"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
   publish-workflow-sdk:
     name: Publish Workflow SDK to npm
     runs-on: ubuntu-latest
-    needs: [test-features]
+    needs: [release]
     permissions:
       contents: read
       id-token: write # Required for OIDC provenance

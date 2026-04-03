@@ -439,6 +439,92 @@ export function getBunGlobalInstallDir(): string | undefined {
 }
 
 /**
+ * Upgrade Bun to the latest version.
+ * Falls back to installing Bun if it is not yet present.
+ */
+export async function upgradeBun(): Promise<void> {
+  const bunPath = resolveBunExecutable();
+  if (!bunPath) {
+    await ensureBunInstalled();
+    return;
+  }
+  const result = await runCommand([bunPath, "upgrade"]);
+  if (!result.success) {
+    throw new Error(`bun upgrade failed: ${result.details}`);
+  }
+}
+
+/**
+ * Upgrade npm to the latest version.
+ * Falls back to installing Node.js/npm if it is not yet present.
+ */
+export async function upgradeNpm(): Promise<void> {
+  const npmPath = Bun.which("npm");
+  if (!npmPath) {
+    await ensureNpmInstalled();
+    return;
+  }
+  const result = await runCommand([npmPath, "install", "-g", "npm@latest"]);
+  if (!result.success) {
+    throw new Error(`npm self-upgrade failed: ${result.details}`);
+  }
+}
+
+/**
+ * Upgrade uv to the latest version.
+ * Falls back to installing uv if it is not yet present.
+ */
+export async function upgradeUv(): Promise<void> {
+  const uvPath = resolveUvExecutable();
+  if (!uvPath) {
+    await ensureUvInstalled();
+    return;
+  }
+  const result = await runCommand([uvPath, "self", "update"]);
+  if (!result.success) {
+    throw new Error(`uv self update failed: ${result.details}`);
+  }
+}
+
+/**
+ * Upgrade @playwright/cli to the latest version globally.
+ * Tries bun first, falls back to npm.
+ */
+export async function upgradePlaywrightCli(): Promise<void> {
+  const pkg = "@playwright/cli@latest";
+  const bunPath = resolveBunExecutable();
+  if (bunPath) {
+    const result = await runCommand([bunPath, "install", "-g", pkg]);
+    if (result.success) return;
+  }
+  const npmPath = Bun.which("npm");
+  if (npmPath) {
+    const result = await runCommand([npmPath, "install", "-g", pkg]);
+    if (result.success) return;
+  }
+  throw new Error("Neither bun nor npm is available to upgrade @playwright/cli.");
+}
+
+/**
+ * Upgrade @llamaindex/liteparse to the latest version globally.
+ * Tries bun first, falls back to npm.
+ */
+export async function upgradeLiteparse(): Promise<void> {
+  const pkg = "@llamaindex/liteparse@latest";
+  const bunPath = resolveBunExecutable();
+  if (bunPath) {
+    const result = await runCommand([bunPath, "install", "-g", pkg]);
+    if (result.success) return;
+  }
+  const npmPath = Bun.which("npm");
+  if (npmPath) {
+    const result = await runCommand([npmPath, "install", "-g", pkg]);
+    if (result.success) return;
+  }
+  throw new Error("Neither bun nor npm is available to upgrade @llamaindex/liteparse.");
+}
+
+/**
  * Run `bun pm trust <packages>` in bun's global install directory so that
  * lifecycle scripts of the specified globally installed packages are allowed to execute.
  */

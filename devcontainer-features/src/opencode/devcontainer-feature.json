@@ -1,6 +1,6 @@
 {
   "id": "opencode",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "name": "Atomic + OpenCode",
   "description": "Installs Atomic CLI with OpenCode agent, skills, and shared tooling (bun, playwright)",
   "documentationURL": "https://github.com/flora131/atomic",

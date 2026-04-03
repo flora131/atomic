@@ -99,7 +99,9 @@ export async function ensureBunInstalled(): Promise<void> {
   if (process.platform === "win32") {
     const powerShellPath = Bun.which("powershell") ?? Bun.which("pwsh");
     if (!powerShellPath) {
-      return;
+      throw new Error(
+        "Neither powershell nor pwsh is available to install bun.",
+      );
     }
     await runCommand([
       powerShellPath,
@@ -112,7 +114,7 @@ export async function ensureBunInstalled(): Promise<void> {
   } else {
     const shell = Bun.which("bash") ?? Bun.which("sh");
     if (!shell) {
-      return;
+      throw new Error("Neither bash nor sh is available to install bun.");
     }
     await runCommand([shell, "-lc", "curl -fsSL https://bun.sh/install | bash"]);
   }
@@ -161,7 +163,7 @@ export async function ensureNpmInstalled(): Promise<void> {
 
   const shell = Bun.which("bash") ?? Bun.which("sh");
   if (!shell) {
-    return;
+    throw new Error("Neither bash nor sh is available to install npm.");
   }
   const installers = [
     "if command -v brew >/dev/null 2>&1; then brew install node; fi",
@@ -178,6 +180,9 @@ export async function ensureNpmInstalled(): Promise<void> {
       return;
     }
     await runCommand([shell, "-lc", script]);
+    if (Bun.which("npm")) {
+      return;
+    }
   }
 }
 

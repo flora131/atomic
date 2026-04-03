@@ -1,11 +1,20 @@
 name: Publish Devcontainer Features
 
 on:
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+    paths:
+      - 'devcontainer-features/**'
   workflow_dispatch:
 
 jobs:
   test-features:
     name: Test Devcontainer Features
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event.pull_request.merged == true)
     uses: ./.github/workflows/test-features.yml
 
   publish:

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #-------------------------------------------------------------------------------------------------------------
 # Installs the Atomic CLI binary only. Config data, agent config syncing,
-# tooling (bun, uv, playwright, liteparse), and SDK installation
+# tooling (bun, uv, cocoindex, playwright, liteparse), and SDK installation
 # are all handled on first `atomic init` / `atomic chat` run via auto-init.
 #
 # NOTE: This script is duplicated across claude, copilot, and opencode features.
@@ -36,19 +36,8 @@ if [ "${arch}" != "x64" ] && [ "${arch}" != "arm64" ]; then
     exit 1
 fi
 
-echo "Installing OpenCode..."
-
-# The feature runtime exports VERSION for this feature option; clear it before
-# invoking external installers that interpret VERSION for their own releases.
-ATOMIC_FEATURE_VERSION="${VERSION:-latest}"
-unset VERSION
-
-curl -fsSL --retry 3 --retry-delay 5 https://opencode.ai/install | bash
-
-echo "✓ OpenCode installed"
-
 # ─── Resolve version ────────────────────────────────────────────────────────
-ATOMIC_VERSION="${ATOMIC_FEATURE_VERSION}"
+ATOMIC_VERSION="${VERSION:-latest}"
 GITHUB_REPO="flora131/atomic"
 
 # Support GITHUB_TOKEN for authenticated API requests (avoids rate limits)

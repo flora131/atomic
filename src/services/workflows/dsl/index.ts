@@ -24,6 +24,8 @@ export {
   buildAgentLookup,
   clearAgentLookupCache,
   readAgentBody,
+  readAgentFrontmatterModel,
+  resolveStageAgentModel,
   resolveStageSystemPrompt,
   validateStageAgents,
 } from "./agent-resolution.ts";

@@ -6,10 +6,12 @@
  *
  * Covers:
  * - readAgentBody: reads markdown body from agent files, handles missing/empty files
+ * - readAgentFrontmatterModel: reads model field from agent frontmatter
  * - buildAgentLookup: discovers agents from project, caches results
  * - clearAgentLookupCache: invalidates cached lookup
  * - validateStageAgents: matches stage IDs, case-insensitive, error messages
  * - resolveStageSystemPrompt: resolves body as system prompt, case-insensitive
+ * - resolveStageAgentModel: resolves model from agent frontmatter, case-insensitive
  */
 
 import { describe, expect, test, beforeEach } from "bun:test";
@@ -18,8 +20,10 @@ import { join } from "path";
 import { tmpdir } from "os";
 import {
   readAgentBody,
+  readAgentFrontmatterModel,
   validateStageAgents,
   resolveStageSystemPrompt,
+  resolveStageAgentModel,
   buildAgentLookup,
   clearAgentLookupCache,
 } from "@/services/workflows/dsl/agent-resolution.ts";
@@ -305,5 +309,121 @@ describe("clearAgentLookupCache", () => {
     // Should not throw
     const lookup = buildAgentLookup();
     expect(lookup.size).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// readAgentFrontmatterModel
+// ---------------------------------------------------------------------------
+
+describe("readAgentFrontmatterModel", () => {
+  test("reads model from frontmatter", () => {
+    const filePath = createTempFile(
+      "agent-with-model.md",
+      "---\nname: test-agent\nmodel: opus\n---\nYou are a test agent.",
+    );
+    const model = readAgentFrontmatterModel(filePath);
+    expect(model).toBe("opus");
+    rmSync(filePath);
+  });
+
+  test("returns null when frontmatter has no model field", () => {
+    const filePath = createTempFile(
+      "agent-no-model.md",
+      "---\nname: test-agent\n---\nYou are a test agent.",
+    );
+    const model = readAgentFrontmatterModel(filePath);
+    expect(model).toBeNull();
+    rmSync(filePath);
+  });
+
+  test("returns null when file has no frontmatter", () => {
+    const filePath = createTempFile(
+      "agent-plain.md",
+      "You are a plain agent.",
+    );
+    const model = readAgentFrontmatterModel(filePath);
+    expect(model).toBeNull();
+    rmSync(filePath);
+  });
+
+  test("returns null for nonexistent file", () => {
+    const model = readAgentFrontmatterModel("/nonexistent/agent.md");
+    expect(model).toBeNull();
+  });
+
+  test("returns null when model is an empty string", () => {
+    const filePath = createTempFile(
+      "agent-empty-model.md",
+      "---\nname: test-agent\nmodel: \"\"\n---\nYou are a test agent.",
+    );
+    const model = readAgentFrontmatterModel(filePath);
+    expect(model).toBeNull();
+    rmSync(filePath);
+  });
+
+  test("trims whitespace from model value", () => {
+    const filePath = createTempFile(
+      "agent-whitespace-model.md",
+      "---\nname: test-agent\nmodel: \"  sonnet  \"\n---\nYou are a test agent.",
+    );
+    const model = readAgentFrontmatterModel(filePath);
+    expect(model).toBe("sonnet");
+    rmSync(filePath);
+  });
+
+  test("returns null when model is a non-string value", () => {
+    const filePath = createTempFile(
+      "agent-numeric-model.md",
+      "---\nname: test-agent\nmodel: 42\n---\nYou are a test agent.",
+    );
+    const model = readAgentFrontmatterModel(filePath);
+    expect(model).toBeNull();
+    rmSync(filePath);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveStageAgentModel
+// ---------------------------------------------------------------------------
+
+describe("resolveStageAgentModel", () => {
+  test("resolves model from matching agent file frontmatter", () => {
+    const filePath = createTempFile(
+      "model-agent.md",
+      "---\nname: model-agent\nmodel: haiku\n---\nYou are an agent.",
+    );
+    const lookup = makeLookup([{ name: "model-agent", filePath }]);
+    const model = resolveStageAgentModel("model-agent", lookup);
+    expect(model).toBe("haiku");
+    rmSync(filePath);
+  });
+
+  test("returns null when no matching agent exists", () => {
+    const lookup = makeLookup([]);
+    const model = resolveStageAgentModel("nonexistent", lookup);
+    expect(model).toBeNull();
+  });
+
+  test("returns null when matched agent has no model in frontmatter", () => {
+    const filePath = createTempFile(
+      "no-model-agent.md",
+      "---\nname: no-model-agent\n---\nYou are an agent.",
+    );
+    const lookup = makeLookup([{ name: "no-model-agent", filePath }]);
+    const model = resolveStageAgentModel("no-model-agent", lookup);
+    expect(model).toBeNull();
+    rmSync(filePath);
+  });
+
+  test("matches case-insensitively", () => {
+    const filePath = createTempFile(
+      "case-agent.md",
+      "---\nname: case-agent\nmodel: opus\n---\nYou are an agent.",
+    );
+    const lookup = makeLookup([{ name: "case-agent", filePath }]);
+    const model = resolveStageAgentModel("CASE-AGENT", lookup);
+    expect(model).toBe("opus");
+    rmSync(filePath);
   });
 });

@@ -41,6 +41,7 @@ import { createStateFactory } from "@/services/workflows/dsl/state-compiler.ts";
 import { askUserNode, USER_DECLINED_ANSWER } from "@/services/workflows/graph/nodes/control.ts";
 import {
   buildAgentLookup,
+  resolveStageAgentModel,
   resolveStageSystemPrompt,
 } from "@/services/workflows/dsl/agent-resolution.ts";
 import {
@@ -283,6 +284,12 @@ function generateStageDefinitions(
       }
     }
 
+    // Resolve the model from the agent definition's frontmatter.
+    // When agent is null, skip — the default/selected model is used.
+    const agentFrontmatterModel = config.agent
+      ? resolveStageAgentModel(config.agent, agentLookup) ?? undefined
+      : undefined;
+
     const stage: StageDefinition = {
       id: instruction.id,
       indicator: config.description,
@@ -292,6 +299,7 @@ function generateStageDefinitions(
       },
       shouldRun,
       sessionConfig: resolvedSessionConfig,
+      agentFrontmatterModel,
       maxOutputBytes: config.maxOutputBytes,
       disallowedTools: config.disallowedTools,
     };

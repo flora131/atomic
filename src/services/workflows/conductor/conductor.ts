@@ -54,7 +54,6 @@ import type {
 } from "@/services/workflows/conductor/types.ts";
 import type { WorkflowSessionConfig } from "@/services/workflows/dsl/types.ts";
 import {
-  getModelPreference,
   getReasoningEffortPreference,
 } from "@/services/config/settings.ts";
 import { truncateStageOutput } from "@/services/workflows/conductor/truncate.ts";
@@ -125,9 +124,17 @@ export class WorkflowSessionConductor {
    * Resolve a `WorkflowSessionConfig` (SDK-agnostic, per-agent model maps)
    * into an agent-level `SessionConfig` for the active agent.
    *
-   * Resolution order for `model` and `reasoningEffort`:
+   * Resolution order for `model`:
    * 1. Stage-level per-agent value (e.g., `{ model: { claude: "opus" } }`)
-   * 2. User's persisted settings (`~/.atomic/settings.json` or `.atomic/settings.json`)
+   * 2. Agent frontmatter `model` field (from the agent `.md` file)
+   * 3. Currently active TUI model (inherited automatically — when neither
+   *    1 nor 2 produces a value, `model` is left unset on the resolved
+   *    config, so `createSubagentSession`'s merge preserves the live
+   *    `sessionConfig.model` from the parent session)
+   *
+   * Resolution order for `reasoningEffort`:
+   * 1. Stage-level per-agent value
+   * 2. User's persisted settings
    *
    * `disallowedTools` is resolved from the stage definition's per-provider
    * map and mapped to `SessionConfig.excludedTools` for the active agent.
@@ -137,14 +144,18 @@ export class WorkflowSessionConductor {
   private async resolveSessionConfig(
     workflowConfig?: Partial<WorkflowSessionConfig>,
     disallowedTools?: Partial<Record<string, string[]>>,
+    agentFrontmatterModel?: string,
   ): Promise<SessionConfig | undefined> {
     const agentType = this.config.agentType;
 
-    // Resolve model: stage config → user settings
+    // Resolve model: stage config → agent frontmatter → inherit from TUI
+    // When neither the stage DSL nor the agent frontmatter specifies a model,
+    // `model` remains `undefined`. The live TUI model is then inherited
+    // via `createSubagentSession`'s merge: `{ ...liveSessionConfig, ...stageConfig }`.
     const stageModel = agentType
       ? workflowConfig?.model?.[agentType as keyof NonNullable<WorkflowSessionConfig["model"]>]
       : undefined;
-    const model = stageModel ?? (agentType ? await getModelPreference(agentType) : undefined);
+    const model = stageModel ?? agentFrontmatterModel;
 
     // Resolve reasoning effort: stage config → user settings
     const stageReasoning = agentType
@@ -551,7 +562,7 @@ export class WorkflowSessionConductor {
             sessionId: session.id,
           });
         } else {
-          const resolvedConfig = await this.resolveSessionConfig(stage.sessionConfig, stage.disallowedTools);
+          const resolvedConfig = await this.resolveSessionConfig(stage.sessionConfig, stage.disallowedTools, stage.agentFrontmatterModel);
           session = await this.config.createSession(resolvedConfig);
           conductorLog("conductor_session_created", {
             stageId: stage.id,

@@ -15,6 +15,30 @@ import {
 } from "@/services/agent-discovery/index.ts";
 
 /**
+ * Read the `model` field from an agent definition file's frontmatter.
+ *
+ * Each SDK has its own agent directory (`.claude/agents/`,
+ * `.opencode/agents/`, `.github/agents/`) with SDK-appropriate model
+ * values. The discovery system resolves the correct file; this function
+ * simply extracts the `model` string as-is.
+ *
+ * Returns the model string if present and non-empty, or null otherwise.
+ */
+export function readAgentFrontmatterModel(filePath: string): string | null {
+  try {
+    const content = readFileSync(filePath, "utf-8");
+    const parsed = parseMarkdownFrontmatter(content);
+    if (!parsed) return null;
+    const model = parsed.frontmatter.model;
+    return typeof model === "string" && model.trim().length > 0
+      ? model.trim()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Read the body (system prompt) from an agent definition file.
  * Returns the markdown content after the frontmatter block.
  */
@@ -97,4 +121,17 @@ export function resolveStageSystemPrompt(
   const agent = agentLookup.get(stageId.toLowerCase());
   if (!agent) return null;
   return readAgentBody(agent.filePath);
+}
+
+/**
+ * Resolve the model from an agent definition file's frontmatter.
+ * Returns the model string, or null if the agent has no model field.
+ */
+export function resolveStageAgentModel(
+  stageId: string,
+  agentLookup: Map<string, AgentInfo>,
+): string | null {
+  const agent = agentLookup.get(stageId.toLowerCase());
+  if (!agent) return null;
+  return readAgentFrontmatterModel(agent.filePath);
 }

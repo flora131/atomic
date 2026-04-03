@@ -13,6 +13,7 @@ import {
   buildAgentLookup,
   validateStageAgents,
 } from "@/services/workflows/dsl/agent-resolution.ts";
+import { extractWorkflowDefinition } from "@/commands/tui/workflow-commands/workflow-files.ts";
 
 export interface DiscoveredWorkflow {
   id: string;
@@ -60,7 +61,7 @@ export async function discoverCustomWorkflows(): Promise<DiscoveredWorkflow[]> {
   const { importWorkflowModule, cleanupTempWorkflowFiles } = await import(
     "@/commands/tui/workflow-commands/workflow-files.ts"
   );
-  const workflowDirs = [
+  const workflowDirs: string[] = [
     ".atomic/workflows",
     join(homedir(), ".atomic", "workflows"),
   ];
@@ -70,19 +71,12 @@ export async function discoverCustomWorkflows(): Promise<DiscoveredWorkflow[]> {
       for await (const file of glob.scan({ cwd: dir, absolute: true })) {
         try {
           const mod = await importWorkflowModule(file);
-          const exported =
-            mod.default ?? (Object.values(mod)[0] as Record<string, unknown>);
+          const def = extractWorkflowDefinition(mod);
 
-          if (
-            exported &&
-            typeof exported === "object" &&
-            "name" in exported &&
-            typeof (exported as Record<string, unknown>).name === "string"
-          ) {
-            // CompiledWorkflow spreads definition properties directly
-            const def = exported as WorkflowDefinition;
+          if (def) {
             workflows.push({ id: def.name, definition: def, sourcePath: file });
           }
+          // No brand → silently skip (helper module / unregistered draft)
         } catch {
           // Skip files that cannot be imported as workflow modules
         }

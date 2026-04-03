@@ -322,45 +322,43 @@ export async function loadWorkflowsFromDisk(): Promise<WorkflowDefinition[]> {
 
       // Detect __compiledWorkflow brand from the SDK
       const compiledDefinition = extractWorkflowDefinition(module);
-      if (compiledDefinition) {
-        const name = compiledDefinition.name;
-
-        if (loadedNames.has(name.toLowerCase())) {
-          continue;
-        }
-
-        // Override source to match discovery location
-        const definition: WorkflowDefinition = {
-          ...compiledDefinition,
-          source,
-        };
-
-        if (typeof definition.minSDKVersion === "string") {
-          if (!parseSemver(definition.minSDKVersion)) {
-            console.warn(
-              `Workflow "${definition.name}" has invalid minSDKVersion "${definition.minSDKVersion}". Expected semver format like "1.2.3".`,
-            );
-          } else if (
-            isWorkflowMinSdkNewerThanCurrent(
-              definition.minSDKVersion,
-              VERSION,
-            )
-          ) {
-            console.warn(
-              `Workflow "${definition.name}" requires SDK ${definition.minSDKVersion}, but current SDK is ${VERSION}.`,
-            );
-          }
-        }
-
-        loaded.push(definition);
-        loadedNames.add(name.toLowerCase());
+      if (!compiledDefinition) {
+        // Module loaded successfully but has no compiled workflow brand.
+        // Treat as a shared library / unregistered draft — silently skip.
         continue;
       }
 
-      throw new Error(
-        `Workflow "${path}" does not export a compiled workflow (missing __compiledWorkflow brand). ` +
-        `Use defineWorkflow() from @bastani/atomic-workflows and call .compile().`,
-      );
+      const name = compiledDefinition.name;
+
+      if (loadedNames.has(name.toLowerCase())) {
+        continue;
+      }
+
+      // Override source to match discovery location
+      const definition: WorkflowDefinition = {
+        ...compiledDefinition,
+        source,
+      };
+
+      if (typeof definition.minSDKVersion === "string") {
+        if (!parseSemver(definition.minSDKVersion)) {
+          console.warn(
+            `Workflow "${definition.name}" has invalid minSDKVersion "${definition.minSDKVersion}". Expected semver format like "1.2.3".`,
+          );
+        } else if (
+          isWorkflowMinSdkNewerThanCurrent(
+            definition.minSDKVersion,
+            VERSION,
+          )
+        ) {
+          console.warn(
+            `Workflow "${definition.name}" requires SDK ${definition.minSDKVersion}, but current SDK is ${VERSION}.`,
+          );
+        }
+      }
+
+      loaded.push(definition);
+      loadedNames.add(name.toLowerCase());
     } catch (error) {
       const workflowId = path.split("/").pop()?.replace(".ts", "") ?? path;
       startupWarnings.push(workflowId);

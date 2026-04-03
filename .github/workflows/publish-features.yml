@@ -1,11 +1,20 @@
 name: Publish Devcontainer Features
 
 on:
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+    paths:
+      - 'devcontainer-features/**'
   workflow_dispatch:
 
 jobs:
   test-features:
     name: Test Devcontainer Features
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event.pull_request.merged == true)
     uses: ./.github/workflows/test-features.yml
 
   publish:
@@ -16,13 +25,6 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v6
-
-      - name: Sync feature versions from package.json
-        run: |
-          VERSION=$(jq -r .version package.json)
-          for feature in devcontainer-features/src/*/devcontainer-feature.json; do
-            jq --arg v "$VERSION" '.version = $v' "$feature" > tmp.json && mv tmp.json "$feature"
-          done
 
       - name: Publish Features
         uses: devcontainers/action@v1

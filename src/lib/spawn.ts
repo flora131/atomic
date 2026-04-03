@@ -5,7 +5,7 @@
  * eliminating duplication across postinstall-playwright, postinstall-liteparse, etc.
  */
 
-import { existsSync } from "fs";
+import { existsSync, readFileSync, appendFileSync } from "fs";
 import { join } from "path";
 
 export interface SpawnResult {
@@ -32,6 +32,7 @@ export async function runCommand(cmd: string[], options?: RunCommandOptions): Pr
         cmd,
         stdout: "inherit",
         stderr: "inherit",
+        env: process.env,
       });
       const exitCode = await proc.exited;
       return { success: exitCode === 0, details: "" };
@@ -41,6 +42,7 @@ export async function runCommand(cmd: string[], options?: RunCommandOptions): Pr
       cmd,
       stdout: "pipe",
       stderr: "pipe",
+      env: process.env,
     });
     const [stderr, stdout, exitCode] = await Promise.all([
       new Response(proc.stderr).text(),
@@ -97,6 +99,105 @@ function getBunInstallRoot(): string | undefined {
 export function getBunBinDir(): string | undefined {
   const bunInstallRoot = getBunInstallRoot();
   return bunInstallRoot ? join(bunInstallRoot, "bin") : undefined;
+}
+
+/**
+ * Marker used by bun's own installer to identify its PATH block in shell
+ * config files.  We reuse the same marker so we don't duplicate what the
+ * installer already wrote and vice-versa.
+ */
+const BUN_SHELL_MARKER = "# bun";
+
+/**
+ * Ensure Bun's global bin directory is present in the user's shell profile
+ * so that globally-installed packages (playwright-cli, lit, etc.) are
+ * available in new terminal sessions.
+ *
+ * Appends the same block that Bun's official installer writes:
+ *   # bun
+ *   export BUN_INSTALL="$HOME/.bun"
+ *   export PATH="$BUN_INSTALL/bin:$PATH"
+ *
+ * Skips files that already contain the marker.  On Windows, adds the
+ * directory to the persistent user-level PATH via the registry.
+ */
+/**
+ * @returns `true` when at least one shell profile was modified (caller
+ *          should tell the user to open a new terminal or source it).
+ */
+export async function ensureBunBinInShellProfile(): Promise<boolean> {
+  if (process.platform === "win32") {
+    return ensureBunBinInWindowsPath();
+  }
+  return ensureBunBinInUnixProfiles();
+}
+
+function ensureBunBinInUnixProfiles(): boolean {
+  const home = getHomeDir();
+  if (!home) return false;
+
+  const posixBlock = [
+    "",
+    BUN_SHELL_MARKER,
+    'export BUN_INSTALL="$HOME/.bun"',
+    'export PATH="$BUN_INSTALL/bin:$PATH"',
+    "",
+  ].join("\n");
+
+  const fishBlock = [
+    "",
+    BUN_SHELL_MARKER,
+    'set --export BUN_INSTALL "$HOME/.bun"',
+    "set --export PATH $BUN_INSTALL/bin $PATH",
+    "",
+  ].join("\n");
+
+  // .profile covers login shells (SSH, tmux, CI) where .bashrc's
+  // non-interactive guard causes an early return before the bun block.
+  const candidates: Array<{ path: string; block: string }> = [
+    { path: join(home, ".profile"), block: posixBlock },
+    { path: join(home, ".bashrc"), block: posixBlock },
+    { path: join(home, ".zshrc"), block: posixBlock },
+    { path: join(home, ".config", "fish", "config.fish"), block: fishBlock },
+  ];
+
+  let modified = false;
+  for (const { path: configPath, block } of candidates) {
+    if (!existsSync(configPath)) continue;
+    try {
+      const content = readFileSync(configPath, "utf-8");
+      if (content.includes(BUN_SHELL_MARKER)) continue;
+      appendFileSync(configPath, block, "utf-8");
+      modified = true;
+    } catch {
+      // Non-fatal — the profile may be read-only.
+    }
+  }
+  return modified;
+}
+
+async function ensureBunBinInWindowsPath(): Promise<boolean> {
+  const bunBinDir = getBunBinDir();
+  if (!bunBinDir) return false;
+
+  const ps = Bun.which("powershell") ?? Bun.which("pwsh");
+  if (!ps) return false;
+
+  // Read current user-level PATH from the registry.
+  const read = await runCommand([
+    ps, "-NoProfile", "-Command",
+    "[Environment]::GetEnvironmentVariable('Path', 'User')",
+  ]);
+  if (read.success && read.details.includes(".bun\\bin")) return false;
+
+  // Prepend bun's bin directory to the user-level PATH.
+  await runCommand([
+    ps, "-NoProfile", "-Command",
+    `$p = [Environment]::GetEnvironmentVariable('Path', 'User'); ` +
+    `if ($p) { $p = '${bunBinDir}' + ';' + $p } else { $p = '${bunBinDir}' }; ` +
+    `[Environment]::SetEnvironmentVariable('Path', $p, 'User')`,
+  ]);
+  return true;
 }
 
 /**
@@ -293,14 +394,27 @@ export async function ensureUvInstalled(): Promise<void> {
 /**
  * Resolve Bun's executable path, falling back to Bun's default install
  * location when the current PATH has not been refreshed yet.
+ *
+ * Always ensures Bun's bin directory (~/.bun/bin on Linux/macOS,
+ * %USERPROFILE%\.bun\bin on Windows, or $BUN_INSTALL/bin when set) is on
+ * PATH so that globally-installed bun packages (e.g. playwright-cli,
+ * liteparse) are discoverable by child processes.
  */
 export function resolveBunExecutable(): string | undefined {
+  // Always prepend Bun's global bin directory so that packages installed
+  // via `bun install -g` (playwright-cli, lit, etc.) are on PATH regardless
+  // of how Bun itself was installed (system package, Homebrew, official
+  // installer, etc.).
+  const bunBinDir = getBunBinDir();
+  if (bunBinDir) {
+    prependPath(bunBinDir);
+  }
+
   const bunPath = Bun.which("bun");
   if (bunPath) {
     return bunPath;
   }
 
-  const bunBinDir = getBunBinDir();
   if (!bunBinDir) {
     return undefined;
   }
@@ -313,7 +427,6 @@ export function resolveBunExecutable(): string | undefined {
     return undefined;
   }
 
-  prependPath(bunBinDir);
   return bunExecutable;
 }
 
@@ -347,6 +460,7 @@ export async function trustGlobalBunPackages(packages: string[]): Promise<SpawnR
       cwd: globalDir,
       stdout: "pipe",
       stderr: "pipe",
+      env: process.env,
     });
     const [stderr, stdout, exitCode] = await Promise.all([
       new Response(proc.stderr).text(),

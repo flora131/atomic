@@ -17,6 +17,7 @@ import { existsSync, readFileSync, writeFileSync, unlinkSync } from "fs";
 import { join } from "path";
 import {
   ensureBunInstalled,
+  ensureBunBinInShellProfile,
   ensureNpmInstalled,
   ensureUvInstalled,
   trustGlobalBunPackages,
@@ -89,6 +90,26 @@ function collectFailures(
 }
 
 /**
+ * Return a shell-appropriate hint telling the user how to reload their
+ * PATH after we've appended to their shell profile.
+ */
+function shellSourceHint(): string {
+  const suffix = "for Atomic tools to be available.";
+  if (process.platform === "win32") {
+    return `Restart your terminal ${suffix}`;
+  }
+
+  const shell = process.env.SHELL ?? "";
+  if (shell.endsWith("/fish")) {
+    return `Run \`source ~/.config/fish/config.fish\` (or open a new terminal) ${suffix}`;
+  }
+  if (shell.endsWith("/zsh")) {
+    return `Run \`source ~/.zshrc\` (or open a new terminal) ${suffix}`;
+  }
+  return `Run \`source ~/.bashrc\` (or open a new terminal) ${suffix}`;
+}
+
+/**
  * Install all required package managers and CLI tools.
  *
  * Throws {@link ToolingSetupError} if any step fails, listing every failure
@@ -121,6 +142,13 @@ export async function installTooling(): Promise<void> {
   const trustResult = await trustGlobalBunPackages(["@playwright/cli", "@llamaindex/liteparse"]);
   if (!trustResult.success) {
     failures.push(`trust global bun packages: ${trustResult.details}`);
+  }
+
+  // Phase 4: persist ~/.bun/bin in shell profiles so globally-installed
+  // tools (playwright-cli, lit) are available in new terminal sessions.
+  const profileModified = await ensureBunBinInShellProfile();
+  if (profileModified) {
+    console.log(shellSourceHint());
   }
 
   if (failures.length > 0) {

@@ -109,6 +109,7 @@ export async function installWorkflowSdk(
     cwd: workflowsDir,
     stdout: "ignore",
     stderr: "pipe",
+    env: process.env,
   });
 
   return result.exitCode === 0;
@@ -136,6 +137,7 @@ export async function removeWorkflowSdk(workflowsDir: string): Promise<boolean> 
     cwd: workflowsDir,
     stdout: "ignore",
     stderr: "ignore",
+    env: process.env,
   });
 
   return result.exitCode === 0;
@@ -205,6 +207,7 @@ export async function installWorkflowSdkFromLocal(
     cwd: workflowsDir,
     stdout: "ignore",
     stderr: "pipe",
+    env: process.env,
   });
 
   return result.exitCode === 0;

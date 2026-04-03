@@ -1,11 +1,11 @@
-import { runCommand } from "@/lib/spawn.ts";
+import { runCommand, resolveBunExecutable } from "@/lib/spawn.ts";
 
 const LITEPARSE_PACKAGE = "@llamaindex/liteparse@latest";
 
 export async function installLiteparseCli(): Promise<void> {
   const failures: string[] = [];
 
-  const bunPath = Bun.which("bun");
+  const bunPath = resolveBunExecutable();
   if (bunPath) {
     const bunInstall = await runCommand([bunPath, "install", "-g", LITEPARSE_PACKAGE]);
     if (bunInstall.success) {

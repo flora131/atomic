@@ -129,12 +129,33 @@ export async function runOpenCodeStreamingRuntime(args: {
             pushUnsubscriber(() => abortSignal.removeEventListener("abort", handleAbort));
           }
         }
+
+        // Initialize staleAbort for the sendAsync path so the watchdog's
+        // onStale callback can abort it and wake the completionPromise.
+        // Without this, staleAbort stays null and the 5-minute watchdog
+        // fires into the void — leaving completionPromise hung forever
+        // when SSE events are missed during a reconnect window.
+        staleAbort = new AbortController();
+        staleAbort.signal.addEventListener("abort", handleAbort, { once: true });
+        pushUnsubscriber(
+          () => staleAbort?.signal.removeEventListener("abort", handleAbort),
+        );
       });
 
       const adapterAbortSignal = getAbortController()?.signal;
-      const dispatchAbortSignal = adapterAbortSignal && abortSignal
-        ? AbortSignal.any([adapterAbortSignal, abortSignal])
-        : adapterAbortSignal ?? abortSignal;
+      // Include staleAbort so a hung HTTP POST (stale TCP connection after
+      // extended idle) gets cancelled when the 5-minute watchdog fires.
+      // Without this, `await session.sendAsync()` blocks forever and the
+      // already-resolved completionPromise is never reached.
+      // NOTE: staleAbort is assigned synchronously inside the Promise
+      // constructor above, but TypeScript's control flow can't track that.
+      const staleSignal = (staleAbort as AbortController | null)?.signal;
+      const dispatchSignals = [adapterAbortSignal, abortSignal, staleSignal].filter(
+        (s): s is AbortSignal => s != null,
+      );
+      const dispatchAbortSignal = dispatchSignals.length > 0
+        ? AbortSignal.any(dispatchSignals)
+        : undefined;
 
       const isDispatchAbortError = (error: unknown): boolean => {
         if (dispatchAbortSignal?.aborted) {

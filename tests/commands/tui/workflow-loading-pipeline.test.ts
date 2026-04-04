@@ -262,28 +262,57 @@ describe("loadWorkflowsFromDisk with CompiledWorkflow", () => {
     expect(found!.description).toBe("Default-exported compiled workflow");
   });
 
-  test("fails to load module without __compiledWorkflow brand", async () => {
-    const workflowFile = join(tempDir, "legacy-workflow.ts");
+  test("silently skips .ts files without __compiledWorkflow brand (helper/library modules)", async () => {
+    // A helper module that has no brand is a shared library or unregistered draft.
+    // It should be silently ignored — no warnings, no failures.
+    const workflowFile = join(tempDir, "helper-utils.ts");
     await writeFile(
       workflowFile,
-      `export const name = "legacy-wf";
-      export const description = "A legacy workflow";
-      export const version = "0.5.0";`,
+      `export const name = "helper-utils";
+      export const description = "Shared helper, not a workflow";
+      export function sharedHelper() { return 42; }`,
     );
 
     const warnSpy = spyOn(console, "warn");
     try {
       const loaded = await loadWorkflowsFromDisk();
-      const found = loaded.find((w) => w.name === "legacy-wf");
+      // Helper file must not appear in loaded workflows
+      const found = loaded.find((w) => w.name === "helper-utils");
       expect(found).toBeUndefined();
 
+      // No startup warnings should be emitted for a successfully-imported but
+      // un-branded module
       const warningCalls = warnSpy.mock.calls.map((args) => String(args[0]));
-      const startupWarning = warningCalls.find(
+      const noiseWarning = warningCalls.find(
         (msg) =>
-          msg.includes("Warning: Failed to load workflow:") &&
-          msg.includes("legacy-workflow"),
+          msg.includes("helper-utils") ||
+          msg.includes("Failed to load workflow"),
       );
-      expect(startupWarning).toBeDefined();
+      expect(noiseWarning).toBeUndefined();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  test("silently skips .ts files that export a plain object with name but no brand", async () => {
+    // Objects with a string `name` but no __compiledWorkflow brand must not be
+    // mistakenly treated as workflows.
+    const workflowFile = join(tempDir, "config-module.ts");
+    await writeFile(
+      workflowFile,
+      `export default { name: "config-module", description: "Not a workflow" };`,
+    );
+
+    const warnSpy = spyOn(console, "warn");
+    try {
+      const loaded = await loadWorkflowsFromDisk();
+      expect(loaded.find((w) => w.name === "config-module")).toBeUndefined();
+
+      const warningCalls = warnSpy.mock.calls.map((args) => String(args[0]));
+      const noiseWarning = warningCalls.find((msg) =>
+        msg.includes("config-module") || msg.includes("Failed to load"),
+      );
+      expect(noiseWarning).toBeUndefined();
     } finally {
       warnSpy.mockRestore();
     }

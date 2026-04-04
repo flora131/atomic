@@ -20,6 +20,16 @@ describe("install.sh Windows delegation", () => {
     expect(result.exitCode).toBe(0);
   });
 
+  test("installers preserve existing Atomic data instead of deleting the data directory", () => {
+    const shContent = readFileSync(INSTALL_SH_PATH, "utf-8");
+    const psContent = readFileSync(join(import.meta.dir, "../../install.ps1"), "utf-8");
+
+    expect(shContent).not.toContain('rm -rf "$DATA_DIR"');
+    expect(psContent).not.toContain("Remove-Item -Recurse -Force $DataDir");
+    expect(shContent).toContain('tar -xzf "${tmp_dir}/${BINARY_NAME}-config.tar.gz" -C "$DATA_DIR"');
+    expect(psContent).toContain("Expand-Archive -Path $TempConfig -DestinationPath $DataDir -Force");
+  });
+
   test("install.sh contains Windows delegation block in main()", () => {
     const content = readFileSync(INSTALL_SH_PATH, "utf-8");
     // Must have the Windows case pattern in main()

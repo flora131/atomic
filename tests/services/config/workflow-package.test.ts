@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "fs/promises";
+import { existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import {
@@ -140,6 +141,45 @@ describe("workflow package bun resolution", () => {
     expect(warnSpy.mock.calls[0]?.[0]).toContain("Could not resolve Bun executable");
     expect(warnSpy.mock.calls[0]?.[0]).toContain(workflowsDir);
     expect(warnSpy.mock.calls[0]?.[0]).toContain("Check PATH or BUN_INSTALL");
+  });
+
+  test("installWorkflowSdk preserves existing workflow files", async () => {
+    const workflowsDir = join(tempDir, "preserve-existing-workflows");
+    const workflowFile = join(workflowsDir, "existing-workflow.ts");
+    await mkdir(workflowsDir, { recursive: true });
+    await writeFile(workflowFile, "export const workflow = 'keep me';\n");
+
+    using spawnSpy = spyOn(Bun, "spawnSync").mockReturnValue({
+      exitCode: 0,
+    } as ReturnType<typeof Bun.spawnSync>);
+
+    const installed = await installWorkflowSdk(workflowsDir, "1.2.3");
+
+    expect(installed).toBe(true);
+    expect(spawnSpy).toHaveBeenCalledTimes(1);
+    expect(existsSync(workflowFile)).toBe(true);
+    expect(await readFile(workflowFile, "utf8")).toBe("export const workflow = 'keep me';\n");
+  });
+
+  test("installWorkflowSdkFromLocal preserves existing helper files while refreshing dependencies", async () => {
+    const workflowsDir = join(tempDir, "preserve-local-workflows");
+    const helperFile = join(workflowsDir, "shared-lib.ts");
+    const localSdkDir = join(tempDir, "workflow-sdk");
+    await mkdir(join(workflowsDir, "node_modules"), { recursive: true });
+    await mkdir(localSdkDir, { recursive: true });
+    await writeFile(helperFile, "export const helper = () => 'still here';\n");
+    await writeFile(join(workflowsDir, "bun.lock"), "stale lock\n");
+
+    using spawnSpy = spyOn(Bun, "spawnSync").mockReturnValue({
+      exitCode: 0,
+    } as ReturnType<typeof Bun.spawnSync>);
+
+    const installed = await installWorkflowSdkFromLocal(workflowsDir, localSdkDir);
+
+    expect(installed).toBe(true);
+    expect(spawnSpy).toHaveBeenCalledTimes(1);
+    expect(existsSync(helperFile)).toBe(true);
+    expect(await readFile(helperFile, "utf8")).toBe("export const helper = () => 'still here';\n");
   });
 
   test("removeWorkflowSdk warns when bun cannot be resolved", async () => {

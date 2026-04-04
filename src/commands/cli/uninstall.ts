@@ -29,6 +29,7 @@ import { isWindows } from "@/services/system/detect.ts";
 import { cleanupBunTempNativeAddons } from "@/services/system/cleanup.ts";
 import { trackAtomicCommand } from "@/services/telemetry/index.ts";
 import { removeWorkflowSdk, getGlobalWorkflowsDir } from "@/services/config/workflow-package.ts";
+import { getElevatedPrivilegesHint, isPermissionError } from "@/commands/cli/permission-guidance.ts";
 
 /** Options for the uninstall command */
 export interface UninstallOptions {
@@ -260,16 +261,10 @@ export async function uninstallCommand(options: UninstallOptions = {}): Promise<
     const message = error instanceof Error ? error.message : String(error);
     log.error(`Uninstall failed: ${message}`);
 
-    if (message.includes("permission") || message.includes("EACCES") || message.includes("EPERM")) {
-      log.info("");
-      log.info("Permission denied. Try running with elevated privileges:");
-      if (isWindows()) {
-        log.info("  Run PowerShell as Administrator and try again");
-      } else {
-        log.info("  sudo atomic uninstall");
+    if (isPermissionError(message)) {
+      for (const line of getElevatedPrivilegesHint("uninstall", isWindows(), true)) {
+        log.info(line);
       }
-      log.info("");
-      log.info("Or manually delete the files shown above.");
     }
 
     process.exit(1);

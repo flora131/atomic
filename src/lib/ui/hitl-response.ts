@@ -2,6 +2,8 @@
  * HITL response utilities for AskUserQuestion/question tool rendering.
  */
 
+export const HITL_DECLINED_MESSAGE = "User declined to answer.";
+
 export type HitlResponseMode = "option" | "custom_input" | "chat_about_this" | "declined";
 
 export interface HitlResponseRecord {
@@ -27,7 +29,7 @@ export function formatHitlDisplayText(response: {
   answerText: string;
 }): string {
   if (response.cancelled || response.responseMode === "declined") {
-    return "User declined to answer question";
+    return HITL_DECLINED_MESSAGE;
   }
 
   if (response.responseMode === "chat_about_this") {

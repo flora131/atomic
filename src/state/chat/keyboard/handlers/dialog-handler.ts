@@ -98,6 +98,13 @@ export function handleUserQuestionKey(
     return false;
   }
 
+  // Ctrl+C: cancel the dialog (sends a "declined" response to the SDK)
+  // and let the event bubble to the parent interrupt handler.
+  if (event.ctrl && key === "c") {
+    actions.cancelDialog();
+    return false;
+  }
+
   // Stop propagation to prevent other handlers from running.
   // This ensures the dialog captures keyboard events exclusively.
   event.stopPropagation();

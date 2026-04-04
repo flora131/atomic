@@ -26,6 +26,7 @@ import {
   isToolPart,
   mergeParallelAgentsIntoParts,
 } from "@/state/parts/index.ts";
+import { HITL_DECLINED_MESSAGE } from "@/lib/ui/hitl-response.ts";
 
 /** Extract first non-empty line and truncate to maxLen, appending "…" if needed. */
 function truncateFirstLine(text: string, maxLen: number): string {
@@ -287,7 +288,13 @@ export function MessageBubble({
         {message.wasInterrupted && !message.streaming && (
           <box marginTop={SPACING.ELEMENT}>
             <text fg={themeColors.warning}>
-              {STATUS.active} Operation cancelled by user
+              {STATUS.active} {
+                (message.parts ?? []).some((p) =>
+                  isToolPart(p) && p.hitlResponse?.cancelled,
+                )
+                  ? HITL_DECLINED_MESSAGE
+                  : "Operation cancelled by user"
+              }
             </text>
           </box>
         )}

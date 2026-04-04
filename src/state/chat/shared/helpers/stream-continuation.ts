@@ -1,5 +1,6 @@
 import type { Part, ToolPart } from "@/state/parts/types.ts";
 import { isHitlToolName } from "@/state/streaming/pipeline-tools/shared.ts";
+import { HITL_DECLINED_MESSAGE } from "@/lib/ui/hitl-response.ts";
 import {
   incrementRuntimeParityCounter,
   observeRuntimeParityHistogram,
@@ -197,7 +198,13 @@ export function interruptRunningToolParts(parts?: readonly Part[]): Part[] | und
         if (isHitlToolName(toolPart.toolName)) {
           return {
             ...toolPart,
-            state: { status: "error" as const, error: "User declined to answer." },
+            state: { status: "error" as const, error: HITL_DECLINED_MESSAGE },
+            hitlResponse: toolPart.hitlResponse ?? {
+              cancelled: true,
+              responseMode: "declined",
+              answerText: "",
+              displayText: HITL_DECLINED_MESSAGE,
+            },
             pendingQuestion: undefined,
           };
         }

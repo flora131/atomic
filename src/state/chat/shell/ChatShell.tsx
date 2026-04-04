@@ -194,66 +194,65 @@ export function ChatShell({
               />
             )}
 
-            {!activeQuestion && !showModelSelector && (
-              <>
-                <box
-                  border
-                  borderStyle="rounded"
-                  borderColor={workflowState.workflowActive ? themeColors.accent : themeColors.inputFocus}
-                  paddingLeft={SPACING.CONTAINER_PAD}
-                  paddingRight={SPACING.CONTAINER_PAD}
-                  marginTop={messageCount > 0 ? SPACING.ELEMENT : SPACING.NONE}
-                  flexDirection="row"
-                  alignItems="flex-start"
-                  flexShrink={0}
-                >
-                  <text flexShrink={0} fg={themeColors.accent}>{PROMPT.cursor}{" "}</text>
-                  <textarea
-                    ref={textareaRef}
-                    placeholder={messageCount === 0 ? dynamicPlaceholder : ""}
-                    focused={inputFocused}
-                    keyBindings={textareaKeyBindings}
-                    syntaxStyle={inputSyntaxStyle}
-                    onSubmit={handleSubmit}
-                    onPaste={handleBracketedPaste}
-                    onContentChange={handleTextareaContentChange}
-                    onCursorChange={handleTextareaCursorChange}
-                    wrapMode="word"
-                    flexGrow={argumentHint ? 0 : 1}
-                    flexShrink={1}
-                    flexBasis={argumentHint ? undefined : 0}
-                    minWidth={0}
-                    minHeight={1}
-                    maxHeight={8}
-                  />
-                  {argumentHint && (
-                    <text fg={themeColors.dim}>{argumentHint}</text>
-                  )}
-                  {argumentHint && <box flexGrow={1} />}
-                  {inputScrollbar.visible && (
-                    <box flexDirection="column" marginLeft={SPACING.ELEMENT}>
-                      {Array.from({ length: inputScrollbar.viewportHeight }).map((_, i) => {
-                        const inThumb = i >= inputScrollbar.thumbTop
-                          && i < inputScrollbar.thumbTop + inputScrollbar.thumbSize;
-                        return (
-                          <text
-                            key={`input-scroll-${i}`}
-                            fg={inThumb ? themeColors.scrollbarFg : themeColors.scrollbarBg}
-                          >
-                            {inThumb ? SCROLLBAR.thumb : SCROLLBAR.track}
-                          </text>
-                        );
-                      })}
-                    </box>
-                  )}
+            <box
+              visible={!activeQuestion && !showModelSelector}
+              border
+              borderStyle="rounded"
+              borderColor={workflowState.workflowActive ? themeColors.accent : themeColors.inputFocus}
+              paddingLeft={SPACING.CONTAINER_PAD}
+              paddingRight={SPACING.CONTAINER_PAD}
+              marginTop={messageCount > 0 ? SPACING.ELEMENT : SPACING.NONE}
+              flexDirection="row"
+              alignItems="flex-start"
+              flexShrink={0}
+            >
+              <text flexShrink={0} fg={themeColors.accent}>{PROMPT.cursor}{" "}</text>
+              <textarea
+                ref={textareaRef}
+                placeholder={messageCount === 0 ? dynamicPlaceholder : ""}
+                focused={!activeQuestion && !showModelSelector && inputFocused}
+                keyBindings={textareaKeyBindings}
+                syntaxStyle={inputSyntaxStyle}
+                onSubmit={handleSubmit}
+                onPaste={handleBracketedPaste}
+                onContentChange={handleTextareaContentChange}
+                onCursorChange={handleTextareaCursorChange}
+                wrapMode="word"
+                flexGrow={argumentHint ? 0 : 1}
+                flexShrink={1}
+                flexBasis={argumentHint ? undefined : 0}
+                minWidth={0}
+                minHeight={1}
+                maxHeight={8}
+              />
+              {argumentHint && (
+                <text fg={themeColors.dim}>{argumentHint}</text>
+              )}
+              {argumentHint && <box flexGrow={1} />}
+              {inputScrollbar.visible && (
+                <box flexDirection="column" marginLeft={SPACING.ELEMENT}>
+                  {Array.from({ length: inputScrollbar.viewportHeight }).map((_, i) => {
+                    const inThumb = i >= inputScrollbar.thumbTop
+                      && i < inputScrollbar.thumbTop + inputScrollbar.thumbSize;
+                    return (
+                      <text
+                        key={`input-scroll-${i}`}
+                        fg={inThumb ? themeColors.scrollbarFg : themeColors.scrollbarBg}
+                      >
+                        {inThumb ? SCROLLBAR.thumb : SCROLLBAR.track}
+                      </text>
+                    );
+                  })}
                 </box>
-                <FooterStatus
-                  isStreaming={isStreaming}
-                  workflowActive={workflowState.workflowActive}
-                  backgroundAgentCount={backgroundAgentCount}
-                />
-              </>
-            )}
+              )}
+            </box>
+            <box visible={!activeQuestion && !showModelSelector}>
+              <FooterStatus
+                isStreaming={isStreaming}
+                workflowActive={workflowState.workflowActive}
+                backgroundAgentCount={backgroundAgentCount}
+              />
+            </box>
 
             {showAutocomplete && (
               <box marginTop={SPACING.NONE} marginBottom={SPACING.NONE}>

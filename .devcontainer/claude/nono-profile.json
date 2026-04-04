@@ -1,0 +1,26 @@
+{
+  "meta": {
+    "name": "atomic-claude-code",
+    "version": "1.0.0",
+    "description": "Atomic CLI profile for Claude Code with SSH, gitconfig, and .atomic access"
+  },
+  "extends": "claude-code",
+  "filesystem": {
+    "allow": [
+      "$HOME/.atomic",
+      "$HOME/.local/share/atomic",
+      "$HOME/.local/share/atomic/log",
+      "$HOME/.local/share/atomic/telemetry-events-*.jsonl",
+      "$HOME/.claude",
+      "$HOME/.opencode",
+      "$HOME/.copilot"
+    ],
+    "read": [
+      "$HOME/.ssh",
+      "$HOME/.gitconfig"
+    ]
+  },
+  "policy": {
+    "override_deny": ["$HOME/.ssh"]
+  }
+}

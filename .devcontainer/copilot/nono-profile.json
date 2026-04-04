@@ -1,0 +1,41 @@
+{
+  "meta": {
+    "name": "atomic-copilot",
+    "version": "1.0.0",
+    "description": "Atomic CLI profile for GitHub Copilot with SSH, gitconfig, .copilot, and .atomic access"
+  },
+  "workdir": {
+    "access": "readwrite"
+  },
+  "security": {
+    "groups": [
+      "node_runtime",
+      "git_config",
+      "unlink_protection",
+      "user_caches_linux",
+      "system_read_linux",
+      "system_write_linux"
+    ]
+  },
+  "filesystem": {
+    "allow": [
+      "$HOME/.atomic",
+      "$HOME/.local/share/atomic",
+      "$HOME/.local/share/atomic/log",
+      "$HOME/.local/share/atomic/telemetry-events-*.jsonl",
+      "$HOME/.claude",
+      "$HOME/.opencode",
+      "$HOME/.copilot"
+    ],
+    "read": [
+      "$HOME/.ssh",
+      "$HOME/.gitconfig"
+    ]
+  },
+  "policy": {
+    "override_deny": ["$HOME/.ssh"]
+  },
+  "network": {
+    "block": false
+  }
+}

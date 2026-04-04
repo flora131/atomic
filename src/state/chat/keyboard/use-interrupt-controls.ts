@@ -138,6 +138,7 @@ export function useChatInterruptControls({
       const { suppressQueueContinuation } = interruptStreaming({
         afterStateReset: () => {
           activeHitlToolCallIdRef.current = null;
+          resetHitlState();
         },
         awaitedStreamRunIdsRef,
         clearDeferredCompletion,
@@ -238,6 +239,7 @@ export function useChatInterruptControls({
           wasInterruptedRef,
         });
         terminateActiveBackgroundAgents();
+        resetHitlState();
         return true;
       }
     }
@@ -293,6 +295,8 @@ export function useChatInterruptControls({
           }
           return prev;
         });
+
+        resetHitlState();
 
         if (workflowState.workflowActive) {
           const nextCount = interruptCount + 1;
@@ -394,6 +398,7 @@ export function useChatInterruptControls({
     onInterrupt,
     parallelAgentsRef,
     parallelInterruptHandlerRef,
+    resetHitlState,
     scheduleInterruptConfirmation,
     separateAndInterruptAgents,
     setMessagesWindowed,

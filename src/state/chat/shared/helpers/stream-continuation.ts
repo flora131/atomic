@@ -1,4 +1,5 @@
 import type { Part, ToolPart } from "@/state/parts/types.ts";
+import { isHitlToolName } from "@/state/streaming/pipeline-tools/shared.ts";
 import {
   incrementRuntimeParityCounter,
   observeRuntimeParityHistogram,
@@ -191,6 +192,15 @@ export function interruptRunningToolParts(parts?: readonly Part[]): Part[] | und
     if (part.type === "tool") {
       const toolPart = part as ToolPart;
       if (toolPart.state.status === "running") {
+        // HITL tools get a distinct error state signalling a user decline
+        // rather than a generic abort, and their pending question is cleared.
+        if (isHitlToolName(toolPart.toolName)) {
+          return {
+            ...toolPart,
+            state: { status: "error" as const, error: "User declined to answer." },
+            pendingQuestion: undefined,
+          };
+        }
         const startedAtMs = new Date(toolPart.state.startedAt).getTime();
         const durationMs = Number.isFinite(startedAtMs) ? Math.max(0, Date.now() - startedAtMs) : undefined;
         return { ...toolPart, state: { status: "interrupted" as const, durationMs } };

@@ -293,7 +293,7 @@ describe("HITL inline rendering integration", () => {
         cancelled: true,
         responseMode: "declined",
         answerText: "",
-        displayText: "User declined to answer question.",
+        displayText: "User declined to answer.",
       },
     };
 

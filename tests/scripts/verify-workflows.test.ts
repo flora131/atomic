@@ -8,10 +8,13 @@
  * mock.module to avoid global module contamination.
  */
 
-import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { describe, test, expect, mock, beforeEach, afterEach, spyOn } from "bun:test";
 import type { WorkflowDefinition } from "@/services/workflows/types/definition.ts";
 import type { BaseState, CompiledGraph } from "@/services/workflows/graph/types.ts";
 import type { VerificationResult, PropertyResult, EncodedGraph } from "@/services/workflows/verification/types.ts";
+import { mkdir, mkdtemp, rm, writeFile } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
 import {
   discoverBuiltinWorkflows,
   discoverCustomWorkflows,
@@ -122,6 +125,90 @@ describe("discoverCustomWorkflows", () => {
       expect(typeof wf.id).toBe("string");
       expect(wf.definition).toBeDefined();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// discoverCustomWorkflows — helper / non-compiled file handling
+// ---------------------------------------------------------------------------
+
+describe("discoverCustomWorkflows with workflow directories", () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "wf-discover-test-"));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  /**
+   * discoverCustomWorkflows() currently scans $HOME/.atomic/workflows and
+   * .atomic/workflows. To keep tests hermetic we write real TypeScript files
+   * into a temp dir and exercise the underlying branded-extraction path via
+   * a thin integration check: files without __compiledWorkflow brand must not
+   * produce warnings and must not be included in the discovered list.
+   *
+   * Because we cannot easily redirect the hard-coded search paths in
+   * discoverCustomWorkflows, these tests validate the extraction contract
+   * (the same logic the function uses) rather than invoking it with the
+   * temp dir injected.
+   */
+
+  test("extractWorkflowDefinition returns null for helper module (no brand) — discovery silently skips it", async () => {
+    // Write a helper module to disk
+    const helperFile = join(tempDir, "shared-helpers.ts");
+    await writeFile(
+      helperFile,
+      `export function helper() { return 42; }
+       export const name = "shared-helpers";`,
+    );
+
+    // Import and check via extractWorkflowDefinition — the same path
+    // used inside discoverCustomWorkflows
+    const { extractWorkflowDefinition } = await import(
+      "@/commands/tui/workflow-commands/workflow-files.ts"
+    );
+    const mod = await import(helperFile);
+    const result = extractWorkflowDefinition(mod);
+    // No brand → must be null, meaning the file is silently skipped
+    expect(result).toBeNull();
+  });
+
+  test("extractWorkflowDefinition returns null for plain-name object (no brand) — discovery silently skips it", async () => {
+    const helperFile = join(tempDir, "config.ts");
+    await writeFile(
+      helperFile,
+      `export default { name: "my-config", description: "Not a workflow" };`,
+    );
+
+    const { extractWorkflowDefinition } = await import(
+      "@/commands/tui/workflow-commands/workflow-files.ts"
+    );
+    const mod = await import(helperFile);
+    const result = extractWorkflowDefinition(mod);
+    expect(result).toBeNull();
+  });
+
+  test("extractWorkflowDefinition succeeds for a compiled workflow — discovery includes it", async () => {
+    const workflowFile = join(tempDir, "real-workflow.ts");
+    await writeFile(
+      workflowFile,
+      `export const wf = {
+        name: "real-workflow",
+        description: "A real compiled workflow",
+        __compiledWorkflow: true,
+      };`,
+    );
+
+    const { extractWorkflowDefinition } = await import(
+      "@/commands/tui/workflow-commands/workflow-files.ts"
+    );
+    const mod = await import(workflowFile);
+    const result = extractWorkflowDefinition(mod);
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe("real-workflow");
   });
 });
 

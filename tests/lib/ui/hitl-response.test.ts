@@ -25,7 +25,7 @@ describe("normalizeHitlAnswer", () => {
       responseMode: "declined",
     });
 
-    expect(result.displayText).toBe("User declined to answer question");
+    expect(result.displayText).toBe("User declined to answer.");
     expect(result.cancelled).toBe(true);
     expect(result.responseMode).toBe("declined");
   });

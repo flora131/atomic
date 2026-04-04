@@ -103,6 +103,46 @@ describe("handleOpenCodePermissionAsked", () => {
   });
 });
 
+function createMultiQuestionEvent(sessionID = "child-session"): EventQuestionAsked {
+  return {
+    type: "question.asked",
+    properties: {
+      id: "question-request-multi",
+      sessionID,
+      tool: { callID: "tool-call-3" },
+      questions: [
+        {
+          header: "Exercise",
+          question: "How often do you exercise?",
+          options: [
+            { label: "Daily", description: "Every day" },
+            { label: "Weekly", description: "A few times a week" },
+          ],
+          multiple: false,
+        },
+        {
+          header: "Sleep",
+          question: "How many hours do you sleep?",
+          options: [
+            { label: "6-7", description: "Six to seven hours" },
+            { label: "8+", description: "Eight or more hours" },
+          ],
+          multiple: false,
+        },
+        {
+          header: "Diet",
+          question: "How would you describe your diet?",
+          options: [
+            { label: "Balanced", description: "Well-balanced meals" },
+            { label: "Needs work", description: "Could be improved" },
+          ],
+          multiple: false,
+        },
+      ],
+    },
+  } as unknown as EventQuestionAsked;
+}
+
 describe("handleOpenCodeQuestionAsked", () => {
   test("emits a provider-backed human input request with tool correlation", async () => {
     const reply = mock(() => Promise.resolve());
@@ -141,5 +181,106 @@ describe("handleOpenCodeQuestionAsked", () => {
       directory: "/tmp/project",
       answers: [["Blue"]],
     });
+  });
+
+  test("emits one event per question and sends all answers together", async () => {
+    const reply = mock(() => Promise.resolve());
+    const emitEvent = mock(() => {});
+    const emitProviderEvent = mock(() => {});
+
+    handleOpenCodeQuestionAsked(createMultiQuestionEvent(), {
+      sdkClient: {
+        question: { reply },
+      } as never,
+      directory: "/tmp/project",
+      emitEvent,
+      emitProviderEvent,
+    });
+
+    expect(emitEvent).toHaveBeenCalledTimes(3);
+    expect(emitEvent).toHaveBeenNthCalledWith(1,
+      "human_input_required",
+      "child-session",
+      expect.objectContaining({
+        requestId: "question-request-multi_q0",
+        question: "How often do you exercise?",
+        toolCallId: "tool-call-3",
+      }),
+    );
+    expect(emitEvent).toHaveBeenNthCalledWith(2,
+      "human_input_required",
+      "child-session",
+      expect.objectContaining({
+        requestId: "question-request-multi_q1",
+        question: "How many hours do you sleep?",
+        toolCallId: "tool-call-3",
+      }),
+    );
+    expect(emitEvent).toHaveBeenNthCalledWith(3,
+      "human_input_required",
+      "child-session",
+      expect.objectContaining({
+        requestId: "question-request-multi_q2",
+        question: "How would you describe your diet?",
+        toolCallId: "tool-call-3",
+      }),
+    );
+
+    // Simulate answering each question via the respond callbacks
+    const calls = emitEvent.mock.calls as unknown as Array<
+      [string, string, { respond?: (answer: string | string[]) => void }]
+    >;
+
+    // Answer Q1 and Q2 — reply should NOT be called yet
+    calls[0]![2].respond?.("Daily");
+    calls[1]![2].respond?.("8+");
+    await Promise.resolve();
+    expect(reply).not.toHaveBeenCalled();
+
+    // Answer Q3 — barrier met, reply should be called with all answers
+    calls[2]![2].respond?.("Balanced");
+    await Promise.resolve();
+
+    expect(reply).toHaveBeenCalledWith({
+      requestID: "question-request-multi",
+      directory: "/tmp/project",
+      answers: [["Daily"], ["8+"], ["Balanced"]],
+    });
+  });
+
+  test("rejects the entire question request when a multi-question is cancelled", async () => {
+    const reply = mock(() => Promise.resolve());
+    const reject = mock(() => Promise.resolve());
+    const emitEvent = mock(() => {});
+    const emitProviderEvent = mock(() => {});
+
+    handleOpenCodeQuestionAsked(createMultiQuestionEvent(), {
+      sdkClient: {
+        question: { reply, reject },
+      } as never,
+      directory: "/tmp/project",
+      emitEvent,
+      emitProviderEvent,
+    });
+
+    const calls = emitEvent.mock.calls as unknown as Array<
+      [string, string, { respond?: (answer: string | string[]) => void }]
+    >;
+
+    // Answer Q1, then cancel Q2
+    calls[0]![2].respond?.("Daily");
+    calls[1]![2].respond?.("deny");
+    await Promise.resolve();
+
+    expect(reject).toHaveBeenCalledWith({
+      requestID: "question-request-multi",
+      directory: "/tmp/project",
+    });
+    expect(reply).not.toHaveBeenCalled();
+
+    // Subsequent answers after rejection are no-ops
+    calls[2]![2].respond?.("Balanced");
+    await Promise.resolve();
+    expect(reply).not.toHaveBeenCalled();
   });
 });

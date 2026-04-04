@@ -86,39 +86,103 @@ export function handleOpenCodeQuestionAsked(
   const request = event.properties;
   const requestId = request.id;
   const sessionId = request.sessionID;
-  const firstQuestion = request.questions[0];
+  const questions = request.questions;
 
-  if (!requestId || !firstQuestion) return;
+  if (!requestId || questions.length === 0) return;
 
-  const providerData = {
-    requestId,
-    question: firstQuestion.question,
-    header: firstQuestion.header,
-    options: firstQuestion.options.map((opt) => ({
-      label: opt.label,
-      description: opt.description,
-    })),
-    nodeId: request.tool?.callID ?? requestId,
-    respond: (answer: string | string[]) => {
-      if (!context.sdkClient) return;
-      const answers = Array.isArray(answer) ? [answer] : [[answer]];
-      context.sdkClient.question.reply({
-        requestID: requestId,
-        directory: context.directory,
-        answers,
-      }).catch((error) => {
-        console.error("Failed to reply to question:", error);
-      });
-    },
-    toolCallId: request.tool?.callID,
-  } satisfies ProviderStreamEventDataMap["human_input_required"];
+  // Single-question fast path — preserves existing behavior exactly.
+  if (questions.length === 1) {
+    const question = questions[0]!;
+    const providerData = {
+      requestId,
+      question: question.question,
+      header: question.header,
+      options: question.options.map((opt) => ({
+        label: opt.label,
+        description: opt.description,
+      })),
+      nodeId: request.tool?.callID ?? requestId,
+      respond: (answer: string | string[]) => {
+        if (!context.sdkClient) return;
+        const answers = Array.isArray(answer) ? [answer] : [[answer]];
+        context.sdkClient.question.reply({
+          requestID: requestId,
+          directory: context.directory,
+          answers,
+        }).catch((error) => {
+          console.error("Failed to reply to question:", error);
+        });
+      },
+      toolCallId: request.tool?.callID,
+    } satisfies ProviderStreamEventDataMap["human_input_required"];
 
-  context.emitEvent("human_input_required", sessionId, providerData);
-  context.emitProviderEvent("human_input_required", sessionId, providerData, {
-    native: event,
-    nativeEventId: requestId,
-    nativeSessionId: sessionId,
-  });
+    context.emitEvent("human_input_required", sessionId, providerData);
+    context.emitProviderEvent("human_input_required", sessionId, providerData, {
+      native: event,
+      nativeEventId: requestId,
+      nativeSessionId: sessionId,
+    });
+    return;
+  }
+
+  // Multi-question: emit one event per question. The HITL queue in
+  // use-workflow-hitl.ts handles sequential display. A barrier collects
+  // all answers, then sends a single question.reply to the OpenCode SDK.
+  const totalQuestions = questions.length;
+  const collectedAnswers: (string[] | null)[] = Array.from({ length: totalQuestions }, () => null);
+  let answeredCount = 0;
+  let rejected = false;
+
+  for (let i = 0; i < totalQuestions; i++) {
+    const question = questions[i]!;
+    const questionRequestId = `${requestId}_q${i}`;
+
+    const providerData = {
+      requestId: questionRequestId,
+      question: question.question,
+      header: question.header,
+      options: question.options.map((opt) => ({
+        label: opt.label,
+        description: opt.description,
+      })),
+      nodeId: request.tool?.callID ?? requestId,
+      respond: (answer: string | string[]) => {
+        if (rejected || !context.sdkClient) return;
+
+        if (answer === "deny") {
+          rejected = true;
+          context.sdkClient.question.reject({
+            requestID: requestId,
+            directory: context.directory,
+          }).catch((error) => {
+            console.error("Failed to reject question:", error);
+          });
+          return;
+        }
+
+        collectedAnswers[i] = Array.isArray(answer) ? answer : [answer];
+        answeredCount++;
+
+        if (answeredCount === totalQuestions) {
+          context.sdkClient.question.reply({
+            requestID: requestId,
+            directory: context.directory,
+            answers: collectedAnswers as string[][],
+          }).catch((error) => {
+            console.error("Failed to reply to question:", error);
+          });
+        }
+      },
+      toolCallId: request.tool?.callID,
+    } satisfies ProviderStreamEventDataMap["human_input_required"];
+
+    context.emitEvent("human_input_required", sessionId, providerData);
+    context.emitProviderEvent("human_input_required", sessionId, providerData, {
+      native: event,
+      nativeEventId: requestId,
+      nativeSessionId: sessionId,
+    });
+  }
 }
 
 export function handleOpenCodeMessagePartRemoved(

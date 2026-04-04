@@ -72,6 +72,7 @@ export class OpenCodeClient implements CodingAgentClient {
   private subagentToolPoliciesBySession = new Map<string, Record<string, SubagentToolPolicy>>();
   private sessionStateSupport: OpenCodeSessionStateSupport;
   private keepalive: OpenCodeKeepaliveHandle | null = null;
+  private isReconnecting = false;
 
   constructor(options: OpenCodeClientOptions = {}) {
     this.clientOptions = { baseUrl: DEFAULT_OPENCODE_BASE_URL, maxRetries: DEFAULT_MAX_RETRIES, retryDelay: DEFAULT_RETRY_DELAY, ...options, directory: options.directory ?? process.cwd() };
@@ -467,6 +468,7 @@ export class OpenCodeClient implements CodingAgentClient {
     this.keepalive = createOpenCodeKeepalive({
       getSdkClient: () => this.sdkClient,
       isRunning: () => this.isRunning,
+      onConnectionLost: () => void this.reconnect(),
       debugLog,
     });
     this.keepalive.start();
@@ -487,6 +489,46 @@ export class OpenCodeClient implements CodingAgentClient {
         this.isRunning = value;
       },
     });
+  }
+
+  /**
+   * Tears down the current connection and starts a fresh one.
+   *
+   * All existing sessions are marked closed — the next user interaction
+   * will trigger the TUI's session-recovery flow which calls
+   * `resumeSession()` to re-attach to persisted conversation history.
+   */
+  private async reconnect(): Promise<void> {
+    if (this.isReconnecting || !this.isRunning) {
+      return;
+    }
+    this.isReconnecting = true;
+
+    try {
+      // Stop keepalive first to prevent re-entrant reconnect calls.
+      this.keepalive?.stop();
+      this.keepalive = null;
+
+      // Mark every tracked session as closed so the next send()
+      // surfaces a recoverable error which the adapter handles
+      // via its existing retry/resume path.
+      for (const state of this.sessionStateById.values()) {
+        state.isClosed = true;
+      }
+
+      // Abort the SSE subscription and tear down the connection.
+      await this.disconnect();
+
+      // Release and re-acquire the server lease — this also
+      // health-checks the existing server and respawns it if needed.
+      this.releaseServerLease();
+      this.isRunning = false;
+
+      // Start a fresh client + keepalive.
+      await this.start();
+    } finally {
+      this.isReconnecting = false;
+    }
   }
 
   private releaseServerLease(): void {

@@ -287,7 +287,16 @@ export function MessageBubble({
         {message.wasInterrupted && !message.streaming && (
           <box marginTop={SPACING.ELEMENT}>
             <text fg={themeColors.warning}>
-              {STATUS.active} Operation cancelled by user
+              {STATUS.active} {
+                (message.parts ?? []).some((p) =>
+                  isToolPart(p) && (
+                    p.hitlResponse?.cancelled
+                    || (p.state.status === "error" && p.state.error === "User declined to answer.")
+                  ),
+                )
+                  ? "User declined to answer."
+                  : "Operation cancelled by user"
+              }
             </text>
           </box>
         )}

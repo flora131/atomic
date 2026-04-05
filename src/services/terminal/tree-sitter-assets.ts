@@ -4,44 +4,20 @@
  * When compiled with `bun build --compile`, the `import ... with { type: "file" }`
  * statements in @opentui/core's pre-bundled chunk resolve paths relative to
  * `import.meta.url`, which points to the binary—not the original package location.
- * This module re-imports Tree-sitter grammar/query assets so Bun's compiler
- * embeds them in the binary's virtual filesystem ($bunfs), then overrides
- * parser paths via `addDefaultParsers()`. The worker path itself is injected
- * at compile-time by `src/scripts/build-binary.ts` (OpenCode pattern).
+ *
+ * The generated `src/parsers.ts` (via `bun run update:parsers`) re-imports
+ * Tree-sitter grammar/query assets so Bun's compiler embeds them in the
+ * binary's virtual filesystem ($bunfs), then overrides parser paths via
+ * `addDefaultParsers()`. The worker path itself is injected at compile-time
+ * by `src/scripts/build-binary.ts`.
  */
 
 import { addDefaultParsers } from "@opentui/core";
 import { resolve } from "path";
 import { ensureWebTreeSitterWasmShim } from "@/services/terminal/web-tree-sitter-shim.ts";
+import { getParsers } from "@/parsers.ts";
 
 declare const OTUI_TREE_SITTER_WORKER_PATH: string;
-
-
-// -- WASM language grammars --------------------------------------------------
-// @ts-expect-error: Bun-specific import attribute for file embedding
-import jsWasm from "../../../node_modules/@opentui/core/assets/javascript/tree-sitter-javascript.wasm" with { type: "file" };
-// @ts-expect-error: Bun-specific import attribute for file embedding
-import tsWasm from "../../../node_modules/@opentui/core/assets/typescript/tree-sitter-typescript.wasm" with { type: "file" };
-// @ts-expect-error: Bun-specific import attribute for file embedding
-import mdWasm from "../../../node_modules/@opentui/core/assets/markdown/tree-sitter-markdown.wasm" with { type: "file" };
-// @ts-expect-error: Bun-specific import attribute for file embedding
-import mdInlineWasm from "../../../node_modules/@opentui/core/assets/markdown_inline/tree-sitter-markdown_inline.wasm" with { type: "file" };
-// @ts-expect-error: Bun-specific import attribute for file embedding
-import zigWasm from "../../../node_modules/@opentui/core/assets/zig/tree-sitter-zig.wasm" with { type: "file" };
-
-// -- SCM highlight / injection queries ---------------------------------------
-// @ts-expect-error: Bun-specific import attribute for file embedding
-import jsHighlights from "../../../node_modules/@opentui/core/assets/javascript/highlights.scm" with { type: "file" };
-// @ts-expect-error: Bun-specific import attribute for file embedding
-import tsHighlights from "../../../node_modules/@opentui/core/assets/typescript/highlights.scm" with { type: "file" };
-// @ts-expect-error: Bun-specific import attribute for file embedding
-import mdHighlights from "../../../node_modules/@opentui/core/assets/markdown/highlights.scm" with { type: "file" };
-// @ts-expect-error: Bun-specific import attribute for file embedding
-import mdInjections from "../../../node_modules/@opentui/core/assets/markdown/injections.scm" with { type: "file" };
-// @ts-expect-error: Bun-specific import attribute for file embedding
-import mdInlineHighlights from "../../../node_modules/@opentui/core/assets/markdown_inline/highlights.scm" with { type: "file" };
-// @ts-expect-error: Bun-specific import attribute for file embedding
-import zigHighlights from "../../../node_modules/@opentui/core/assets/zig/highlights.scm" with { type: "file" };
 
 function getCompileTimeTreeSitterWorkerPath(): string | undefined {
   if (
@@ -72,48 +48,5 @@ export function initTreeSitterAssets(): void {
     process.env.OTUI_TREE_SITTER_WORKER_PATH = getRuntimeTreeSitterWorkerPath();
   }
 
-  addDefaultParsers([
-    {
-      filetype: "javascript",
-      wasm: jsWasm,
-      queries: { highlights: [jsHighlights] },
-    },
-    {
-      filetype: "typescript",
-      wasm: tsWasm,
-      queries: { highlights: [tsHighlights] },
-    },
-    {
-      filetype: "markdown",
-      wasm: mdWasm,
-      queries: {
-        highlights: [mdHighlights],
-        injections: [mdInjections],
-      },
-      injectionMapping: {
-        nodeTypes: {
-          inline: "markdown_inline",
-          pipe_table_cell: "markdown_inline",
-        },
-        infoStringMap: {
-          javascript: "javascript",
-          js: "javascript",
-          typescript: "typescript",
-          ts: "typescript",
-          markdown: "markdown",
-          md: "markdown",
-        },
-      },
-    },
-    {
-      filetype: "markdown_inline",
-      wasm: mdInlineWasm,
-      queries: { highlights: [mdInlineHighlights] },
-    },
-    {
-      filetype: "zig",
-      wasm: zigWasm,
-      queries: { highlights: [zigHighlights] },
-    },
-  ]);
+  addDefaultParsers(getParsers());
 }

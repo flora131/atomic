@@ -1,8 +1,6 @@
 {
   "name": "Atomic CLI",
-  "build": {
-    "dockerfile": "Dockerfile"
-  },
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
   "features": {
     "ghcr.io/devcontainers/features/common-utils": {},
     "ghcr.io/devcontainers/features/node:1": { "version": "lts" },
@@ -19,9 +17,9 @@
     "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}"
   },
   "postCreateCommand": {
-    "install-deps": "bun install",
+    "install-deps": "bun install"
     // "install-atomic": "curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash"
-    "install-pre-atomic": "curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash -s -- --prerelease"
+    // "install-pre-atomic": "curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash -s -- --prerelease"
   },
   "mounts": [
     {

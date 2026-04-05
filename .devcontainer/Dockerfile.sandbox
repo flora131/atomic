@@ -14,9 +14,4 @@ RUN apt-get update \
 
 COPY ${AGENT_NAME}/nono-profile.json /etc/nono/profiles/atomic-${AGENT_NAME}.json
 
-# Create entrypoint with baked-in agent name
-# RUN printf '#!/bin/sh\nexec nono shell --silent --profile "/etc/nono/profiles/atomic-%s.json" --allow-cwd\n' "${AGENT_NAME}" > /usr/local/bin/entrypoint.sh \
-#     && chmod +x /usr/local/bin/entrypoint.sh
-
-# USER vscode
-# ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+ENTRYPOINT [ "nono", "run", "--profile", "/etc/nono/profiles/atomic-${AGENT_NAME}.json", "--allow", "/workspace" ]

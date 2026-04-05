@@ -1,9 +1,6 @@
 #!/usr/bin/env bun
 
-import { realpathSync } from "node:fs";
-import { relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { ensureWebTreeSitterWasmShim } from "@/services/terminal/web-tree-sitter-shim.ts";
 
 type BuildOptions = {
   outfile: string;
@@ -45,32 +42,6 @@ function parseBuildOptions(argv: string[]): BuildOptions {
   };
 }
 
-function inferTargetOs(target?: string): NodeJS.Platform {
-  if (!target) {
-    return process.platform;
-  }
-
-  const normalizedTarget = target.toLowerCase();
-
-  if (normalizedTarget.includes("windows") || normalizedTarget.includes("win32")) {
-    return "win32";
-  }
-
-  if (normalizedTarget.includes("linux")) {
-    return "linux";
-  }
-
-  if (normalizedTarget.includes("darwin") || normalizedTarget.includes("mac")) {
-    return "darwin";
-  }
-
-  throw new Error(`Unable to infer target OS from --target ${target}`);
-}
-
-function getBunfsRoot(targetOs: NodeJS.Platform): string {
-  return targetOs === "win32" ? "B:/~BUN/root/" : "/$bunfs/root/";
-}
-
 export function deriveIsBaseline(baselineFlag: boolean, target?: string): boolean {
   return baselineFlag || (target?.includes("baseline") ?? false);
 }
@@ -78,18 +49,10 @@ export function deriveIsBaseline(baselineFlag: boolean, target?: string): boolea
 
 if (import.meta.main) {
   const options = parseBuildOptions(Bun.argv.slice(2));
-
-  ensureWebTreeSitterWasmShim();
-
-  const projectRoot = process.cwd();
-  const parserWorker = realpathSync(resolve(projectRoot, "node_modules/@opentui/core/parser.worker.js"));
-  const workerRelativePath = relative(projectRoot, parserWorker).replaceAll("\\", "/");
-  const compileTargetOs = inferTargetOs(options.target);
   const isBaseline = deriveIsBaseline(options.baseline, options.target);
-  const workerBunfsPath = `${getBunfsRoot(compileTargetOs)}${workerRelativePath}`;
 
   const result = await Bun.build({
-    entrypoints: ["src/cli.ts", parserWorker],
+    entrypoints: ["src/cli.ts"],
     minify: options.minify,
     compile: {
       outfile: options.outfile,
@@ -97,10 +60,7 @@ if (import.meta.main) {
       autoloadBunfig: false,
       ...(options.target ? { target: options.target as never } : {}),
     },
-    define: {
-      OTUI_TREE_SITTER_WORKER_PATH: JSON.stringify(workerBunfsPath),
-      ...(isBaseline ? { __ATOMIC_BASELINE__: JSON.stringify(true) } : {}),
-    },
+    define: isBaseline ? { __ATOMIC_BASELINE__: JSON.stringify(true) } : {},
   });
 
   if (!result.success) {

@@ -184,7 +184,3 @@ tmux-screenshots/
 
 
 *.bun-build
-
-# Generated tree-sitter parser assets (regenerate with: bun run update:parsers)
-src/parsers/
-src/parsers.ts

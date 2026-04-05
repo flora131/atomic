@@ -36,7 +36,6 @@
   "scripts": {
     "dev": "bun run src/cli.ts",
     "build": "bun run src/scripts/build-binary.ts --outfile atomic",
-    "prebuild": "bun run src/scripts/update-parsers.ts --config ./parsers-config.json --assets ./src/parsers --output ./src/parsers.ts",
     "test": "bun test",
     "test:coverage": "bun test --coverage",
     "typecheck": "bunx tsc --noEmit",

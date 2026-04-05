@@ -48,8 +48,6 @@ jobs:
       - name: Install dependencies
         run: bun ci
 
-      - name: Download tree-sitter parsers
-        run: bun run prebuild
 
       - name: Run tests
         run: bun test 2>&1 | cat
@@ -125,8 +123,6 @@ jobs:
       - name: Install dependencies
         run: bun ci
 
-      - name: Download tree-sitter parsers
-        run: bun run prebuild
 
       - name: Build Windows x64 binary
         run: |

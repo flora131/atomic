@@ -81,7 +81,19 @@ chmod +x /usr/local/bin/atomic
 echo "✓ Atomic CLI installed to /usr/local/bin/atomic"
 
 # ─── Install global npm CLI tools ───────────────────────────────────────────
+# Source NVM (installed by the dependent node feature) so npm resolves to the
+# NVM-managed binary, then fix group permissions so the non-root container user
+# (already in the `nvm` group) can install packages later without permission errors.
+# This mirrors how devcontainers/features/node installs pnpm.
+NVM_DIR="${NVM_DIR:-"/usr/local/share/nvm"}"
 echo "Installing global npm CLI tools..."
-npm install -g @playwright/cli @llamaindex/liteparse 2>/dev/null \
-    && echo "✓ Global npm CLI tools installed" \
-    || echo "⚠ Some global npm CLI tools failed to install (non-fatal)"
+if [ -s "${NVM_DIR}/nvm.sh" ]; then
+    (. "${NVM_DIR}/nvm.sh" && npm install -g @playwright/cli @llamaindex/liteparse) 2>/dev/null \
+        && echo "✓ Global npm CLI tools installed" \
+        || echo "⚠ Some global npm CLI tools failed to install (non-fatal)"
+    chmod -R g+rw "${NVM_DIR}/versions" 2>/dev/null || true
+else
+    npm install -g @playwright/cli @llamaindex/liteparse 2>/dev/null \
+        && echo "✓ Global npm CLI tools installed" \
+        || echo "⚠ Some global npm CLI tools failed to install (non-fatal)"
+fi

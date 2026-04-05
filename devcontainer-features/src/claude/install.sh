@@ -89,11 +89,12 @@ NVM_DIR="${NVM_DIR:-"/usr/local/share/nvm"}"
 echo "Installing global npm CLI tools..."
 if [ -s "${NVM_DIR}/nvm.sh" ]; then
     (. "${NVM_DIR}/nvm.sh" && npm install -g @playwright/cli @llamaindex/liteparse) 2>&1 \
-        && echo "✓ Global npm CLI tools installed" \
+        && { echo "✓ Global npm CLI tools installed"; chmod -R g+rw "${NVM_DIR}/versions" 2>/dev/null || true; } \
         || echo "⚠ Some global npm CLI tools failed to install (non-fatal)"
-    chmod -R g+rw "${NVM_DIR}/versions" 2>/dev/null || true
 else
     npm install -g @playwright/cli @llamaindex/liteparse 2>&1 \
         && echo "✓ Global npm CLI tools installed" \
         || echo "⚠ Some global npm CLI tools failed to install (non-fatal)"
 fi
+command -v playwright >/dev/null && echo "✓ playwright available"
+command -v lit >/dev/null && echo "✓ liteparse (lit) available"

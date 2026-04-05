@@ -5,7 +5,6 @@
     "context": "..",
     "args": { "AGENT_NAME": "claude" }
   },
-  "overrideCommand": false,
   "features": {
     "ghcr.io/devcontainers/features/common-utils": {},
     "ghcr.io/flora131/atomic/claude:1": {},
@@ -31,17 +30,7 @@
       "extensions": [
         "shd101wyy.markdown-preview-enhanced",
         "Anthropic.claude-code"
-      ],
-      "settings": {
-        "terminal.integrated.profiles.linux": {
-          "nono": {
-            "path": "nono",
-            "args": ["shell", "--silent", "--profile", "/etc/nono/profiles/atomic-claude-code.json", "--allow-cwd"],
-            "overrideName": true
-          }
-        },
-        "terminal.integrated.defaultProfile.linux": "nono"
-      }
+      ]
     }
   }
 }

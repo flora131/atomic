@@ -5,7 +5,6 @@
     "context": "..",
     "args": { "AGENT_NAME": "copilot" }
   },
-  "overrideCommand": false,
   "features": {
     "ghcr.io/devcontainers/features/common-utils": {},
     "ghcr.io/flora131/atomic/copilot:1": {},
@@ -28,19 +27,7 @@
   },
   "customizations": {
     "vscode": {
-      "extensions": [
-        "shd101wyy.markdown-preview-enhanced"
-      ],
-      "settings": {
-        "terminal.integrated.profiles.linux": {
-          "nono": {
-            "path": "nono",
-            "args": ["shell", "--silent", "--profile", "/etc/nono/profiles/atomic-copilot.json", "--allow-cwd"],
-            "overrideName": true
-          }
-        },
-        "terminal.integrated.defaultProfile.linux": "nono"
-      }
+      "extensions": ["shd101wyy.markdown-preview-enhanced"]
     }
   }
 }

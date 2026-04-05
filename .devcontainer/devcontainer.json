@@ -3,7 +3,6 @@
   "build": {
     "dockerfile": "Dockerfile"
   },
-  "overrideCommand": false,
   "features": {
     "ghcr.io/devcontainers/features/common-utils": {},
     "ghcr.io/devcontainers/features/node:1": { "version": "lts" },
@@ -44,17 +43,7 @@
         "shd101wyy.markdown-preview-enhanced",
         "Anthropic.claude-code",
         "sst-dev.opencode"
-      ],
-      "settings": {
-        "terminal.integrated.profiles.linux": {
-          "nono": {
-            "path": "nono",
-            "args": ["shell", "--silent", "--profile", "/etc/nono/profiles/atomic-dev.json", "--allow-cwd"],
-            "overrideName": true
-          }
-        },
-        "terminal.integrated.defaultProfile.linux": "nono"
-      }
+      ]
     }
   }
 }

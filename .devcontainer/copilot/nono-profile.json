@@ -57,27 +57,12 @@
       "/mnt/c/Users",
       "/workspaces",
       "/proc",
-      "/etc/profile.d",
-      "/etc/zsh"
-    ],
-    "read_file": [
-      "/etc/profile",
-      "/etc/bash.bashrc",
-      "/etc/passwd",
-      "/etc/group",
-      "/etc/gitconfig",
-      "$HOME/.profile",
-      "$HOME/.bashrc",
-      "$HOME/.zshrc"
+      "/usr/local/share",
+      "/usr/local/bin"
     ]
   },
   "policy": {
-    "override_deny": [
-      "$HOME/.ssh",
-      "$HOME/.profile",
-      "$HOME/.bashrc",
-      "$HOME/.zshrc"
-    ]
+    "override_deny": ["$HOME/.ssh"]
   },
   "network": {
     "block": false

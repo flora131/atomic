@@ -398,98 +398,8 @@ install_global_npm_package() {
     return 1
 }
 
-install_nono() {
-    if command -v nono >/dev/null 2>&1; then
-        info "nono is already installed"
-        return 0
-    fi
-
-    info "Installing nono sandbox..."
-
-    # macOS: prefer Homebrew.
-    if [[ "$(uname -s)" == "Darwin" ]]; then
-        if command -v brew >/dev/null 2>&1; then
-            if brew install nono; then
-                success "nono $(nono --version 2>/dev/null || echo '') installed via Homebrew"
-                return 0
-            fi
-            warn "brew install nono failed"
-            return 1
-        fi
-        info "Skipping nono install (Homebrew not found on macOS)"
-        return 0
-    fi
-
-    # Linux: install .deb on Debian/Ubuntu.
-    if ! command -v dpkg >/dev/null 2>&1; then
-        info "Skipping nono install (dpkg not found — not Debian/Ubuntu)"
-        return 0
-    fi
-
-    local nono_version nono_arch deb_path
-    nono_arch=$(dpkg --print-architecture)
-
-    # Resolve latest version from GitHub Releases redirect.
-    nono_version=$(curl -sI https://github.com/always-further/nono/releases/latest \
-        | grep -i location | grep -oP 'v\K[0-9.]+') || true
-
-    if [[ -z "$nono_version" ]]; then
-        warn "Could not determine latest nono version"
-        return 1
-    fi
-
-    deb_path="/tmp/nono-cli_${nono_version}_${nono_arch}.deb"
-    local deb_url="https://github.com/always-further/nono/releases/download/v${nono_version}/nono-cli_${nono_version}_${nono_arch}.deb"
-
-    if ! download_file "$deb_url" "$deb_path" "true"; then
-        warn "Failed to download nono .deb"
-        return 1
-    fi
-
-    local sudo_cmd=""
-    if [[ "$(id -u)" -ne 0 ]]; then
-        if command -v sudo >/dev/null 2>&1; then
-            sudo_cmd="sudo"
-        else
-            warn "Cannot install nono: no sudo and not root"
-            rm -f "$deb_path"
-            return 1
-        fi
-    fi
-
-    $sudo_cmd dpkg -i "$deb_path" || $sudo_cmd apt-get install -f -y
-    rm -f "$deb_path"
-
-    if ! command -v nono >/dev/null 2>&1; then
-        warn "nono installed but not found on PATH"
-        return 1
-    fi
-
-    success "nono $(nono --version 2>/dev/null || echo '') installed"
-}
-
-install_nono_profile() {
-    local profiles_dir="${XDG_CONFIG_HOME:-$HOME/.config}/nono/profiles"
-    mkdir -p "$profiles_dir"
-
-    # If the config data directory contains the profile, copy it.
-    local src_file="$DATA_DIR/nono-profile.json"
-    if [[ -f "$src_file" ]]; then
-        cp "$src_file" "$profiles_dir/atomic.json"
-        info "Installed nono profile to $profiles_dir/atomic.json"
-        return 0
-    fi
-
-    # Fallback: download the combined profile directly from the repository.
-    local url="https://raw.githubusercontent.com/${GITHUB_REPO}/main/.devcontainer/nono-profile.json"
-    local dest="${profiles_dir}/atomic.json"
-    if download_file "$url" "$dest" "true" 2>/dev/null; then
-        info "Downloaded nono profile: atomic"
-    fi
-}
-
 install_tooling() {
-    info "Installing required tooling (npm, playwright-cli, liteparse, nono)..."
+    info "Installing required tooling (npm, playwright-cli, liteparse)..."
     local failed_tools=()
 
     # Phase 1: package manager
@@ -498,10 +408,6 @@ install_tooling() {
     # Phase 2: global CLI tools
     install_global_npm_package "@playwright/cli@latest"        || { warn "@playwright/cli installation skipped or failed"; failed_tools+=("@playwright/cli"); }
     install_global_npm_package "@llamaindex/liteparse@latest"  || { warn "@llamaindex/liteparse installation skipped or failed"; failed_tools+=("@llamaindex/liteparse"); }
-
-    # Phase 3: nono sandbox (Debian/Ubuntu only)
-    install_nono   || { warn "nono installation skipped or failed"; failed_tools+=("nono"); }
-    install_nono_profile
 
     # Summary
     if [[ ${#failed_tools[@]} -gt 0 ]]; then

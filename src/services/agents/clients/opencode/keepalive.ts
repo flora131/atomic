@@ -2,6 +2,7 @@ import type { OpencodeClient as SdkClient } from "@opencode-ai/sdk/v2/client";
 
 const DEFAULT_KEEPALIVE_INTERVAL_MS = 30_000;
 const DEFAULT_MAX_CONSECUTIVE_FAILURES = 3;
+const HEALTH_CHECK_TIMEOUT_MS = 10_000;
 
 export interface OpenCodeKeepaliveHandle {
   start(): void;
@@ -49,8 +50,18 @@ export function createOpenCodeKeepalive(args: {
       return;
     }
 
+    let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
     try {
-      const result = await client.global.health();
+      const timeout = new Promise<never>((_, reject) => {
+        timeoutTimer = setTimeout(
+          () => reject(new Error("Health check timed out")),
+          HEALTH_CHECK_TIMEOUT_MS,
+        );
+        if (timeoutTimer && typeof timeoutTimer === "object" && "unref" in timeoutTimer) {
+          timeoutTimer.unref();
+        }
+      });
+      const result = await Promise.race([client.global.health(), timeout]);
       if (result.error) {
         throw new Error(
           typeof result.error === "string"
@@ -71,6 +82,8 @@ export function createOpenCodeKeepalive(args: {
       if (consecutiveFailures >= maxFailures) {
         fireConnectionLost();
       }
+    } finally {
+      if (timeoutTimer) clearTimeout(timeoutTimer);
     }
   };
 

@@ -69,134 +69,133 @@ export async function runOpenCodeStreamingRuntime(args: {
 
   try {
     if (session.sendAsync) {
-      const completionPromise = new Promise<{ error?: string; reason: string }>((resolve) => {
-        let resolved = false;
-        const safeResolve = (value: { error?: string; reason: string }) => {
-          if (resolved) {
-            return;
-          }
-          resolved = true;
-          resolve(value);
-        };
-        const handleAbort = () => {
-          safeResolve({ reason: watchdog.hasFired ? "stale" : "aborted" });
-        };
+      // Creates fresh completion-promise wiring, stale-abort controller,
+      // and dispatch signals for one sendAsync round-trip. Called once for
+      // the initial send and again if stale recovery triggers a resume.
+      const createDispatchContext = () => {
+        const localStaleAbort = new AbortController();
 
-        const onIdle = providerClient.onProviderEvent((event) => {
-          if (event.type !== "session.idle" || event.sessionId !== sessionId) {
-            return;
-          }
-          watchdog.kick();
-          safeResolve({ reason: event.data.reason ?? "idle" });
-        });
-        pushUnsubscriber(onIdle);
+        const completionPromise = new Promise<{ error?: string; reason: string }>((resolve) => {
+          let resolved = false;
+          const safeResolve = (value: { error?: string; reason: string }) => {
+            if (resolved) {
+              return;
+            }
+            resolved = true;
+            resolve(value);
+          };
+          const handleAbort = () => {
+            safeResolve({ reason: watchdog.hasFired ? "stale" : "aborted" });
+          };
 
-        const onError = providerClient.onProviderEvent((event) => {
-          if (event.type !== "session.error" || event.sessionId !== sessionId) {
-            return;
-          }
-          watchdog.kick();
-          safeResolve({ error: event.data.error, reason: "error" });
-        });
-        pushUnsubscriber(onError);
+          const onIdle = providerClient.onProviderEvent((event) => {
+            if (event.type !== "session.idle" || event.sessionId !== sessionId) {
+              return;
+            }
+            watchdog.kick();
+            safeResolve({ reason: event.data.reason ?? "idle" });
+          });
+          pushUnsubscriber(onIdle);
 
-        // Kick watchdog on any provider event for this session
-        const onActivity = providerClient.onProviderEvent((event) => {
-          if (event.sessionId !== sessionId) {
-            return;
+          const onError = providerClient.onProviderEvent((event) => {
+            if (event.type !== "session.error" || event.sessionId !== sessionId) {
+              return;
+            }
+            watchdog.kick();
+            safeResolve({ error: event.data.error, reason: "error" });
+          });
+          pushUnsubscriber(onError);
+
+          // Kick watchdog on any provider event for this session
+          const onActivity = providerClient.onProviderEvent((event) => {
+            if (event.sessionId !== sessionId) {
+              return;
+            }
+            watchdog.kick();
+          });
+          pushUnsubscriber(onActivity);
+
+          const adapterAbortSignal = getAbortController()?.signal;
+          if (adapterAbortSignal) {
+            if (adapterAbortSignal.aborted) {
+              handleAbort();
+            } else {
+              adapterAbortSignal.addEventListener("abort", handleAbort, { once: true });
+              pushUnsubscriber(
+                () => adapterAbortSignal.removeEventListener("abort", handleAbort),
+              );
+            }
           }
-          watchdog.kick();
+
+          if (abortSignal) {
+            if (abortSignal.aborted) {
+              handleAbort();
+            } else {
+              abortSignal.addEventListener("abort", handleAbort, { once: true });
+              pushUnsubscriber(() => abortSignal.removeEventListener("abort", handleAbort));
+            }
+          }
+
+          localStaleAbort.signal.addEventListener("abort", handleAbort, { once: true });
+          pushUnsubscriber(
+            () => localStaleAbort.signal.removeEventListener("abort", handleAbort),
+          );
         });
-        pushUnsubscriber(onActivity);
 
         const adapterAbortSignal = getAbortController()?.signal;
-        if (adapterAbortSignal) {
-          if (adapterAbortSignal.aborted) {
-            handleAbort();
-          } else {
-            adapterAbortSignal.addEventListener("abort", handleAbort, { once: true });
-            pushUnsubscriber(
-              () => adapterAbortSignal.removeEventListener("abort", handleAbort),
-            );
-          }
-        }
-
-        if (abortSignal) {
-          if (abortSignal.aborted) {
-            handleAbort();
-          } else {
-            abortSignal.addEventListener("abort", handleAbort, { once: true });
-            pushUnsubscriber(() => abortSignal.removeEventListener("abort", handleAbort));
-          }
-        }
-
-        // Initialize staleAbort for the sendAsync path so the watchdog's
-        // onStale callback can abort it and wake the completionPromise.
-        // Without this, staleAbort stays null and the 5-minute watchdog
-        // fires into the void — leaving completionPromise hung forever
-        // when SSE events are missed during a reconnect window.
-        staleAbort = new AbortController();
-        staleAbort.signal.addEventListener("abort", handleAbort, { once: true });
-        pushUnsubscriber(
-          () => staleAbort?.signal.removeEventListener("abort", handleAbort),
+        const dispatchSignals = [adapterAbortSignal, abortSignal, localStaleAbort.signal].filter(
+          (s): s is AbortSignal => s != null,
         );
-      });
+        const dispatchAbortSignal = dispatchSignals.length > 0
+          ? AbortSignal.any(dispatchSignals)
+          : undefined;
 
-      const adapterAbortSignal = getAbortController()?.signal;
-      // Include staleAbort so a hung HTTP POST (stale TCP connection after
-      // extended idle) gets cancelled when the 5-minute watchdog fires.
-      // Without this, `await session.sendAsync()` blocks forever and the
-      // already-resolved completionPromise is never reached.
-      // NOTE: staleAbort is assigned synchronously inside the Promise
-      // constructor above, but TypeScript's control flow can't track that.
-      const staleSignal = (staleAbort as AbortController | null)?.signal;
-      const dispatchSignals = [adapterAbortSignal, abortSignal, staleSignal].filter(
-        (s): s is AbortSignal => s != null,
-      );
-      const dispatchAbortSignal = dispatchSignals.length > 0
-        ? AbortSignal.any(dispatchSignals)
-        : undefined;
+        const isDispatchAbortError = (error: unknown): boolean => {
+          if (dispatchAbortSignal?.aborted) {
+            return true;
+          }
+          if (error instanceof DOMException && error.name === "AbortError") {
+            return true;
+          }
+          if (!(error instanceof Error)) {
+            return false;
+          }
+          const errorWithCode = error as Error & { code?: string };
+          if (
+            error.name === "AbortError"
+            || errorWithCode.code === "ABORT_ERR"
+            || errorWithCode.code === "ERR_CANCELED"
+          ) {
+            return true;
+          }
+          return error.message.toLowerCase().includes("aborted");
+        };
 
-      const isDispatchAbortError = (error: unknown): boolean => {
-        if (dispatchAbortSignal?.aborted) {
-          return true;
-        }
-        if (error instanceof DOMException && error.name === "AbortError") {
-          return true;
-        }
-        if (!(error instanceof Error)) {
-          return false;
-        }
-        const errorWithCode = error as Error & { code?: string };
-        if (
-          error.name === "AbortError"
-          || errorWithCode.code === "ABORT_ERR"
-          || errorWithCode.code === "ERR_CANCELED"
-        ) {
-          return true;
-        }
-        return error.message.toLowerCase().includes("aborted");
+        const dispatchOptions = agent || dispatchAbortSignal
+          ? { agent: agent ?? undefined, abortSignal: dispatchAbortSignal }
+          : undefined;
+
+        return { completionPromise, staleAbort: localStaleAbort, isDispatchAbortError, dispatchOptions };
       };
 
-      const dispatchOptions = agent || dispatchAbortSignal
-        ? { agent: agent ?? undefined, abortSignal: dispatchAbortSignal }
-        : undefined;
+      const ctx = createDispatchContext();
+      staleAbort = ctx.staleAbort;
 
       watchdog.start();
 
       try {
         if (skillCommand) {
-          await session.command!(skillCommand.name, skillCommand.args, dispatchOptions);
+          await session.command!(skillCommand.name, skillCommand.args, ctx.dispatchOptions);
         } else {
-          await session.sendAsync(message, dispatchOptions);
+          await session.sendAsync(message, ctx.dispatchOptions);
         }
       } catch (error) {
-        if (!isDispatchAbortError(error)) {
+        if (!ctx.isDispatchAbortError(error)) {
           throw error;
         }
       }
 
-      const completion = await completionPromise;
+      const completion = await ctx.completionPromise;
 
       // Stale detection: silently use SDK resume to get a fresh session
       // handle, then re-dispatch. No UI indicators — invisible to the user.
@@ -210,10 +209,15 @@ export async function runOpenCodeStreamingRuntime(args: {
           const resumed = await resumeSession();
           if (resumed) {
             session = resumed;
+            // Fresh dispatch context for the resumed session so the
+            // completion promise and abort signals are independent of
+            // the stale initial attempt.
+            const resumeCtx = createDispatchContext();
+            staleAbort = resumeCtx.staleAbort;
             watchdog.start();
             try {
               if (resumed.sendAsync) {
-                await resumed.sendAsync("Continue", dispatchOptions);
+                await resumed.sendAsync("Continue", resumeCtx.dispatchOptions);
               } else {
                 // Fall back to iterator path on resumed session
                 const stream = resumed.stream("Continue", agent ? { agent } : undefined);
@@ -228,7 +232,7 @@ export async function runOpenCodeStreamingRuntime(args: {
                 publishSessionError(runId, error);
               }
             }
-            const resumeCompletion = await completionPromise;
+            const resumeCompletion = await resumeCtx.completionPromise;
             if (getTextAccumulator().length > 0) {
               publishTextComplete(runId, messageId);
             }

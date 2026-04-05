@@ -16,6 +16,9 @@
     "copilot",
     "bun"
   ],
+  "engines": {
+    "node": ">=22"
+  },
   "bin": {
     "atomic": "src/cli.ts"
   },
@@ -33,7 +36,6 @@
   "scripts": {
     "dev": "bun run src/cli.ts",
     "build": "bun run src/scripts/build-binary.ts --outfile atomic",
-    "prepare:opentui-bindings": "bun run src/scripts/prepare-opentui-bindings.ts",
     "test": "bun test",
     "test:coverage": "bun test --coverage",
     "typecheck": "bunx tsc --noEmit",

@@ -36,9 +36,7 @@ import { cleanupBunTempNativeAddons } from "@/services/system/cleanup.ts";
 import { trackAtomicCommand } from "@/services/telemetry/index.ts";
 import { installWorkflowSdk, getGlobalWorkflowsDir } from "@/services/config/workflow-package.ts";
 import {
-  upgradeBun,
   upgradeNpm,
-  upgradeUv,
   upgradePlaywrightCli,
   upgradeLiteparse,
   collectFailures,
@@ -335,12 +333,10 @@ export async function updateCommand(): Promise<void> {
         log.warn(`Could not update @bastani/atomic-workflows SDK. Run manually: cd ${globalWorkflowsDir} && bun add @bastani/atomic-workflows@${sdkResult.version}`);
       }
 
-      // Update tooling: bun, npm, uv, playwright-cli, liteparse
+      // Update tooling: npm, playwright-cli, liteparse
       s.start("Updating tools...");
       const toolingSteps: ToolingStep[] = [
-        { label: "bun", fn: upgradeBun },
         { label: "npm", fn: upgradeNpm },
-        { label: "uv", fn: upgradeUv },
         { label: "@playwright/cli", fn: upgradePlaywrightCli },
         { label: "@llamaindex/liteparse", fn: upgradeLiteparse },
       ];

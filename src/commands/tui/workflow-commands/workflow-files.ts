@@ -2,7 +2,6 @@ import { existsSync, readdirSync, unlinkSync, rmdirSync } from "node:fs";
 import { join, dirname } from "path";
 import { homedir } from "os";
 import { ensureDirSync } from "@/services/system/copy.ts";
-import { resolveBunExecutable } from "@/lib/spawn.ts";
 import { VERSION } from "@/version.ts";
 import { getRalphWorkflowDefinition } from "@/services/workflows/builtin/ralph/ralph-workflow.ts";
 import { compileWorkflow } from "@/services/workflows/dsl/compiler.ts";
@@ -156,24 +155,19 @@ const WORKFLOW_TMP_DIR = join(HOME, ".atomic", ".tmp", "workflows");
 const tempBundledFiles: string[] = [];
 
 /**
- * Import a workflow .ts file by first bundling it with `bun build`.
+ * Import a workflow .ts file by first bundling it with the Bun.build() API.
  *
  * Compiled Bun binaries cannot resolve node_modules for dynamically imported
  * files. Bundling the workflow file resolves all dependencies (SDK, user deps)
  * at bundle time, producing a self-contained JS file that the binary can
  * import with zero external resolution.
+ *
+ * Uses the programmatic Bun.build() API directly — no external `bun` binary
+ * is required on PATH.
  */
 export async function importWorkflowModule(
   workflowFilePath: string,
 ): Promise<Record<string, unknown>> {
-  const bunPath = resolveBunExecutable();
-  if (!bunPath) {
-    throw new Error(
-    "Bun is required to load TypeScript workflows, but it could not be found. " +
-    "Please ensure Bun is installed and either on your PATH or BUN_INSTALL is set."
-    );
-  }
-
   ensureDirSync(WORKFLOW_TMP_DIR);
   const basename = workflowFilePath.split("/").pop() ?? "workflow.ts";
   const bundledFile = join(
@@ -181,18 +175,28 @@ export async function importWorkflowModule(
     `${Date.now()}-${basename.replace(/\.ts$/, ".js")}`,
   );
 
-  const result = Bun.spawnSync(
-    [bunPath, "build", workflowFilePath, "--outfile", bundledFile, "--target", "bun"],
-    { cwd: dirname(workflowFilePath), stderr: "pipe", env: process.env },
-  );
+  const result = await Bun.build({
+    entrypoints: [workflowFilePath],
+    target: "bun",
+    root: dirname(workflowFilePath),
+  });
 
-  if (result.exitCode !== 0) {
-    const stderr = result.stderr.toString().trim();
+  if (!result.success) {
+    const errors = result.logs
+      .filter((l) => l.level === "error")
+      .map((l) => l.message)
+      .join("\n");
     throw new Error(
-      `Failed to bundle workflow ${basename}: ${stderr || "unknown error"}`,
+      `Failed to bundle workflow ${basename}: ${errors || "unknown error"}`,
     );
   }
 
+  const output = result.outputs[0];
+  if (!output) {
+    throw new Error(`Failed to bundle workflow ${basename}: no output produced`);
+  }
+
+  await Bun.write(bundledFile, output);
   tempBundledFiles.push(bundledFile);
 
   try {

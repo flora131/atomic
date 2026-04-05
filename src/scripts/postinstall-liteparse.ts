@@ -3,7 +3,7 @@ import { runCommand } from "@/lib/spawn.ts";
 const LITEPARSE_PACKAGE = "@llamaindex/liteparse@latest";
 
 export async function installLiteparseCli(): Promise<void> {
-  if (Bun.which("liteparse")) {
+  if (Bun.which("lit")) {
     return;
   }
 

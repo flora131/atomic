@@ -1,7 +1,9 @@
 {
   "name": "Atomic + Claude Code (sandboxed)",
   "build": {
-    "dockerfile": "Dockerfile"
+    "dockerfile": "../Dockerfile.sandbox",
+    "context": "..",
+    "args": { "AGENT_NAME": "claude" }
   },
   "overrideCommand": false,
   "features": {
@@ -29,7 +31,17 @@
       "extensions": [
         "shd101wyy.markdown-preview-enhanced",
         "Anthropic.claude-code"
-      ]
+      ],
+      "settings": {
+        "terminal.integrated.profiles.linux": {
+          "nono": {
+            "path": "nono",
+            "args": ["shell", "--silent", "--profile", "/etc/nono/profiles/atomic-claude-code.json", "--allow-cwd"],
+            "overrideName": true
+          }
+        },
+        "terminal.integrated.defaultProfile.linux": "nono"
+      }
     }
   }
 }

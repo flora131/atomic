@@ -1,16 +1,17 @@
 {
   "meta": {
-    "name": "atomic-opencode",
+    "name": "atomic-dev",
     "version": "1.0.0",
-    "description": "Atomic CLI profile for OpenCode with SSH, gitconfig, and .atomic access"
+    "description": "Aggregated Atomic CLI profile for development with all agents (Claude Code, OpenCode, Copilot)"
   },
-  "extends": "opencode",
+  "extends": ["claude-code", "opencode"],
   "filesystem": {
     "allow": [
       "$HOME/.vscode-server",
       "$HOME/.vscode-server-insiders",
       "$HOME/.atomic",
-      "$HOME/.local/share/atomic"
+      "$HOME/.local/share/atomic",
+      "$HOME/.copilot"
     ],
     "read": [
       "$HOME/.ssh",

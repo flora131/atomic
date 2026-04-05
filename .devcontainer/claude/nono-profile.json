@@ -7,20 +7,42 @@
   "extends": "claude-code",
   "filesystem": {
     "allow": [
+      "$HOME/.vscode-server",
+      "$HOME/.vscode-server-insiders",
       "$HOME/.atomic",
       "$HOME/.local/share/atomic",
-      "$HOME/.local/share/atomic/log",
-      "$HOME/.local/share/atomic/telemetry-events-*.jsonl",
-      "$HOME/.claude",
-      "$HOME/.opencode",
-      "$HOME/.copilot"
+      "$TMPDIR"
     ],
     "read": [
       "$HOME/.ssh",
-      "$HOME/.gitconfig"
+      "$HOME/Library/Keychains",
+      "$HOME/.local/share/keyrings",
+      "/mnt/c/Users",
+      "/workspaces",
+      "/proc",
+      "/etc/profile.d",
+      "/etc/zsh"
+    ],
+    "read_file": [
+      "/etc/profile",
+      "/etc/bash.bashrc",
+      "/etc/passwd",
+      "/etc/group",
+      "/etc/gitconfig",
+      "$HOME/.profile",
+      "$HOME/.bashrc",
+      "$HOME/.zshrc"
     ]
   },
   "policy": {
-    "override_deny": ["$HOME/.ssh"]
+    "override_deny": [
+      "$HOME/.ssh",
+      "$HOME/.profile",
+      "$HOME/.bashrc",
+      "$HOME/.zshrc"
+    ]
+  },
+  "network": {
+    "block": false
   }
 }

@@ -1,7 +1,9 @@
 {
   "name": "Atomic + Copilot CLI (sandboxed)",
   "build": {
-    "dockerfile": "Dockerfile"
+    "dockerfile": "../Dockerfile.sandbox",
+    "context": "..",
+    "args": { "AGENT_NAME": "copilot" }
   },
   "overrideCommand": false,
   "features": {
@@ -25,10 +27,20 @@
     "GH_TOKEN": "${localEnv:GH_TOKEN}"
   },
   "customizations": {
-   "vscode": {
+    "vscode": {
       "extensions": [
         "shd101wyy.markdown-preview-enhanced"
-      ]
+      ],
+      "settings": {
+        "terminal.integrated.profiles.linux": {
+          "nono": {
+            "path": "nono",
+            "args": ["shell", "--silent", "--profile", "/etc/nono/profiles/atomic-copilot.json", "--allow-cwd"],
+            "overrideName": true
+          }
+        },
+        "terminal.integrated.defaultProfile.linux": "nono"
+      }
     }
   }
 }

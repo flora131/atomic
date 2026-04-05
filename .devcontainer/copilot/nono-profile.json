@@ -9,31 +9,75 @@
   },
   "security": {
     "groups": [
+      "deny_credentials",
+      "deny_keychains_linux",
+      "deny_keychains_macos",
+      "deny_browser_data_linux",
+      "deny_browser_data_macos",
+      "deny_macos_private",
+      "deny_shell_history",
+      "deny_shell_configs",
+      "dangerous_commands",
+      "dangerous_commands_linux",
+      "dangerous_commands_macos",
+      "system_read_linux_core",
+      "system_read_macos",
+      "system_write_linux",
+      "system_write_macos",
+      "user_tools",
+      "homebrew_linux",
+      "homebrew_macos",
+      "linux_sysfs_read",
+      "vscode_linux",
+      "vscode_macos",
       "node_runtime",
+      "rust_runtime",
+      "python_runtime",
+      "nix_runtime",
       "git_config",
       "unlink_protection",
       "user_caches_linux",
-      "system_read_linux",
-      "system_write_linux"
-    ]
+      "user_caches_macos"
+    ],
+    "signal_mode": "isolated"
   },
   "filesystem": {
     "allow": [
+      "$HOME/.vscode-server",
+      "$HOME/.vscode-server-insiders",
       "$HOME/.atomic",
       "$HOME/.local/share/atomic",
-      "$HOME/.local/share/atomic/log",
-      "$HOME/.local/share/atomic/telemetry-events-*.jsonl",
-      "$HOME/.claude",
-      "$HOME/.opencode",
-      "$HOME/.copilot"
+      "$HOME/.copilot",
+      "$TMPDIR"
     ],
     "read": [
       "$HOME/.ssh",
-      "$HOME/.gitconfig"
+      "$HOME/Library/Keychains",
+      "$HOME/.local/share/keyrings",
+      "/mnt/c/Users",
+      "/workspaces",
+      "/proc",
+      "/etc/profile.d",
+      "/etc/zsh"
+    ],
+    "read_file": [
+      "/etc/profile",
+      "/etc/bash.bashrc",
+      "/etc/passwd",
+      "/etc/group",
+      "/etc/gitconfig",
+      "$HOME/.profile",
+      "$HOME/.bashrc",
+      "$HOME/.zshrc"
     ]
   },
   "policy": {
-    "override_deny": ["$HOME/.ssh"]
+    "override_deny": [
+      "$HOME/.ssh",
+      "$HOME/.profile",
+      "$HOME/.bashrc",
+      "$HOME/.zshrc"
+    ]
   },
   "network": {
     "block": false

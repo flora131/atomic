@@ -1,8 +1,12 @@
 {
   "name": "Atomic CLI",
-  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "overrideCommand": false,
   "features": {
     "ghcr.io/devcontainers/features/common-utils": {},
+    "ghcr.io/devcontainers/features/node:1": { "version": "lts" },
     "ghcr.io/devcontainers-extra/features/tmux-apt-get:1": {},
     "ghcr.io/devcontainers-extra/features/bun:1": {},
     "ghcr.io/devcontainers/features/docker-in-docker:2": {},
@@ -12,13 +16,24 @@
     "ghcr.io/devcontainers/features/github-cli:1": {}
   },
   "remoteEnv": {
-    "PATH": "${containerEnv:HOME}/.bun/bin:${containerEnv:PATH}",
     "GH_TOKEN": "${localEnv:GH_TOKEN}",
     "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}"
   },
   "postCreateCommand": {
     "install-deps": "bun install"
   },
+  "mounts": [
+    {
+      "source": "${localEnv:HOME}${localEnv:USERPROFILE}/.ssh",
+      "target": "/home/vscode/.ssh",
+      "type": "bind"
+    },
+    {
+      "source": "${localEnv:HOME}${localEnv:USERPROFILE}/.gitconfig",
+      "target": "/home/vscode/.gitconfig",
+      "type": "bind"
+    }
+  ],
   "customizations": {
     "vscode": {
       "extensions": [
@@ -27,7 +42,17 @@
         "shd101wyy.markdown-preview-enhanced",
         "Anthropic.claude-code",
         "sst-dev.opencode"
-      ]
+      ],
+      "settings": {
+        "terminal.integrated.profiles.linux": {
+          "nono": {
+            "path": "nono",
+            "args": ["shell", "--silent", "--profile", "/etc/nono/profiles/atomic-dev.json", "--allow-cwd"],
+            "overrideName": true
+          }
+        },
+        "terminal.integrated.defaultProfile.linux": "nono"
+      }
     }
   }
 }

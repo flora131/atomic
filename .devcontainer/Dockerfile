@@ -5,6 +5,7 @@ RUN VERSION=$(curl -sI https://github.com/always-further/nono/releases/latest | 
     && ARCH=$(dpkg --print-architecture) \
     && wget https://github.com/always-further/nono/releases/download/v${VERSION}/nono-cli_${VERSION}_${ARCH}.deb \
     && dpkg -i nono-cli_${VERSION}_${ARCH}.deb \
+    && apt-get install -f -y \
     && rm nono-cli_${VERSION}_${ARCH}.deb
 
 # Copy aggregated nono profile (covers all agents)

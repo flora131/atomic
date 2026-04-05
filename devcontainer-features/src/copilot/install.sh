@@ -79,3 +79,9 @@ curl -fL# ${CURL_AUTH_ARGS[@]+"${CURL_AUTH_ARGS[@]}"} -o /usr/local/bin/atomic \
 chmod +x /usr/local/bin/atomic
 
 echo "✓ Atomic CLI installed to /usr/local/bin/atomic"
+
+# ─── Install global npm CLI tools ───────────────────────────────────────────
+echo "Installing global npm CLI tools..."
+npm install -g @playwright/cli @llamaindex/liteparse 2>/dev/null \
+    && echo "✓ Global npm CLI tools installed" \
+    || echo "⚠ Some global npm CLI tools failed to install (non-fatal)"

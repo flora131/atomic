@@ -88,12 +88,12 @@ echo "✓ Atomic CLI installed to /usr/local/bin/atomic"
 NVM_DIR="${NVM_DIR:-"/usr/local/share/nvm"}"
 echo "Installing global npm CLI tools..."
 if [ -s "${NVM_DIR}/nvm.sh" ]; then
-    (. "${NVM_DIR}/nvm.sh" && npm install -g @playwright/cli @llamaindex/liteparse) 2>/dev/null \
+    (. "${NVM_DIR}/nvm.sh" && npm install -g @playwright/cli @llamaindex/liteparse) 2>&1 \
         && echo "✓ Global npm CLI tools installed" \
         || echo "⚠ Some global npm CLI tools failed to install (non-fatal)"
     chmod -R g+rw "${NVM_DIR}/versions" 2>/dev/null || true
 else
-    npm install -g @playwright/cli @llamaindex/liteparse 2>/dev/null \
+    npm install -g @playwright/cli @llamaindex/liteparse 2>&1 \
         && echo "✓ Global npm CLI tools installed" \
         || echo "⚠ Some global npm CLI tools failed to install (non-fatal)"
 fi

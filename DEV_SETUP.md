@@ -52,7 +52,6 @@ This builds the image defined in `.devcontainer/Dockerfile` (Ubuntu 24.04 base) 
 - **Claude CLI** — Claude agent
 - **Copilot CLI** — GitHub Copilot agent
 - **GitHub CLI** — via devcontainer feature
-- **uv** — Python package manager
 - **Playwright CLI** — browser automation
 
 After the container starts, `bun install` runs automatically via `postCreateCommand`.

@@ -2,7 +2,7 @@
   "id": "opencode",
   "version": "1.0.4",
   "name": "Atomic + OpenCode",
-  "description": "Installs Atomic CLI with OpenCode agent, skills, and shared tooling (bun, playwright)",
+  "description": "Installs Atomic CLI with OpenCode agent, skills, and shared tooling (playwright)",
   "documentationURL": "https://github.com/flora131/atomic",
   "options": {
     "version": {
@@ -16,9 +16,7 @@
     }
   },
   "dependsOn": {
-    "ghcr.io/devcontainers/features/node:1": {},
-    "ghcr.io/devcontainers-extra/features/bun:1": {},
-    "ghcr.io/devcontainers-extra/features/uv:1": {},
+    "ghcr.io/devcontainers/features/node:1": { "version": "lts" },
     "ghcr.io/devcontainers-extra/features/opencode:1": {}
   },
   "installsAfter": [

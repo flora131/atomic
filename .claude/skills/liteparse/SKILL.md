@@ -40,10 +40,6 @@ Then wait for the user's input.
 If `liteparse` is not yet installed, install it globally:
 
 ```bash
-bun i -g @llamaindex/liteparse
-```
-
-```bash
 npm i -g @llamaindex/liteparse
 ```
 
@@ -131,31 +127,31 @@ lit screenshot document.pdf --pages "1-10" -o ./screenshots
 
 ### OCR Options
 
-| Option | Description |
-|--------|-------------|
-| (default) | Tesseract.js — zero setup, built-in |
-| `--ocr-language fra` | Set OCR language (ISO code) |
+| Option                   | Description                                               |
+| ------------------------ | --------------------------------------------------------- |
+| (default)                | Tesseract.js — zero setup, built-in                       |
+| `--ocr-language fra`     | Set OCR language (ISO code)                               |
 | `--ocr-server-url <url>` | Use external HTTP OCR server (EasyOCR, PaddleOCR, custom) |
-| `--no-ocr` | Disable OCR entirely |
+| `--no-ocr`               | Disable OCR entirely                                      |
 
 ### Output Options
 
-| Option | Description |
-|--------|-------------|
+| Option          | Description                         |
+| --------------- | ----------------------------------- |
 | `--format json` | Structured JSON with bounding boxes |
-| `--format text` | Plain text (default) |
-| `-o <file>` | Save output to file |
+| `--format text` | Plain text (default)                |
+| `-o <file>`     | Save output to file                 |
 
 ### Performance / Quality Options
 
-| Option | Description |
-|--------|-------------|
-| `--dpi <n>` | Rendering DPI (default: 150; use 300 for high quality) |
-| `--max-pages <n>` | Limit pages parsed |
-| `--target-pages <pages>` | Parse specific pages (e.g. `"1-5,10"`) |
-| `--no-precise-bbox` | Disable precise bounding boxes (faster) |
-| `--skip-diagonal-text` | Ignore rotated/diagonal text |
-| `--preserve-small-text` | Keep very small text that would otherwise be dropped |
+| Option                   | Description                                            |
+| ------------------------ | ------------------------------------------------------ |
+| `--dpi <n>`              | Rendering DPI (default: 150; use 300 for high quality) |
+| `--max-pages <n>`        | Limit pages parsed                                     |
+| `--target-pages <pages>` | Parse specific pages (e.g. `"1-5,10"`)                 |
+| `--no-precise-bbox`      | Disable precise bounding boxes (faster)                |
+| `--skip-diagonal-text`   | Ignore rotated/diagonal text                           |
+| `--preserve-small-text`  | Keep very small text that would otherwise be dropped   |
 
 ---
 
@@ -215,12 +211,12 @@ Ready-to-use wrappers exist for EasyOCR and PaddleOCR in the LiteParse repo.
 
 ## Supported Input Formats
 
-| Category | Formats |
-|----------|---------|
-| PDF | `.pdf` |
-| Word | `.doc`, `.docx`, `.docm`, `.odt`, `.rtf` |
-| PowerPoint | `.ppt`, `.pptx`, `.pptm`, `.odp` |
-| Spreadsheets | `.xls`, `.xlsx`, `.xlsm`, `.ods`, `.csv`, `.tsv` |
-| Images | `.jpg`, `.jpeg`, `.png`, `.gif`, `.bmp`, `.tiff`, `.webp`, `.svg` |
+| Category     | Formats                                                           |
+| ------------ | ----------------------------------------------------------------- |
+| PDF          | `.pdf`                                                            |
+| Word         | `.doc`, `.docx`, `.docm`, `.odt`, `.rtf`                          |
+| PowerPoint   | `.ppt`, `.pptx`, `.pptm`, `.odp`                                  |
+| Spreadsheets | `.xls`, `.xlsx`, `.xlsm`, `.ods`, `.csv`, `.tsv`                  |
+| Images       | `.jpg`, `.jpeg`, `.png`, `.gif`, `.bmp`, `.tiff`, `.webp`, `.svg` |
 
 Office documents require LibreOffice; images require ImageMagick. LiteParse auto-converts these formats to PDF before parsing.

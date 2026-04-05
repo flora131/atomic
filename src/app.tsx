@@ -15,7 +15,8 @@ import {
 } from "@/screens/chat-screen.tsx";
 import { ThemeProvider, darkTheme, type Theme } from "@/theme/index.tsx";
 import { AppErrorBoundary } from "@/components/error-exit-screen.tsx";
-import { initTreeSitterAssets } from "@/services/terminal/tree-sitter-assets.ts";
+import { addDefaultParsers, type FiletypeParserOptions } from "@opentui/core";
+import parsersConfig from "../parsers-config.json";
 import { initializeCommandsAsync } from "@/commands/tui/index.ts";
 import { EventBusProvider } from "@/services/events/event-bus-provider.tsx";
 import { AnimationTickProvider } from "@/hooks/use-animation-tick.tsx";
@@ -157,10 +158,10 @@ export async function startChatUI(
       clientStartPromise ?? Promise.resolve(),
     ]);
 
-    // Ensure Tree-sitter WASM/SCM assets are embedded and reachable in
-    // compiled binaries ($bunfs) before any renderer or <markdown> component
-    // triggers syntax highlighting.
-    initTreeSitterAssets();
+    // Register Tree-sitter parsers before any renderer or <markdown> component
+    // triggers syntax highlighting. The client downloads and caches WASM/SCM
+    // assets from the URLs in parsers-config.json on first use.
+    addDefaultParsers(parsersConfig.parsers as FiletypeParserOptions[]);
 
     // Create the CLI renderer with:
     // - mouse tracking ENABLED for scroll-wheel support in scrollboxes and

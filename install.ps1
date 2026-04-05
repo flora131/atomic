@@ -7,7 +7,7 @@
 # Set $env:GITHUB_TOKEN for authenticated downloads (avoids API rate limits)
 #
 # Installs the Atomic CLI binary, config data, and all required tooling
-# (bun, npm, uv, @playwright/cli, @llamaindex/liteparse).
+# (npm, @playwright/cli, @llamaindex/liteparse).
 
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '')]
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingInvokeExpression', '')]
@@ -48,36 +48,60 @@ function Write-Err { Write-Host "${C_RED}error${C_RESET}: $args" }
 
 # --- Tooling helpers ----------------------------------------------------------
 
-function Resolve-BunPath {
-    $InPath = Get-Command bun -ErrorAction SilentlyContinue
-    if ($InPath) { return $InPath.Source }
-    $BunInstallRoot = if ($env:BUN_INSTALL) { $env:BUN_INSTALL } else { "${Home}\.bun" }
-    $Default = "${BunInstallRoot}\bin\bun.exe"
-    if (Test-Path $Default) { return $Default }
-    return $null
+
+function Install-Fnm {
+    if (Get-Command fnm -ErrorAction SilentlyContinue) {
+        Write-Info "fnm is already installed"
+        return $true
+    }
+    Write-Info "Installing fnm (Fast Node Manager)..."
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        try {
+            winget install --id Schniz.fnm -e --silent --accept-source-agreements --accept-package-agreements
+            # winget installs to a location already in PATH for new sessions;
+            # refresh current session by scanning the user PATH.
+            $UserPath = [System.Environment]::GetEnvironmentVariable('Path', 'User')
+            $env:Path = "${UserPath};${env:Path}"
+            if (Get-Command fnm -ErrorAction SilentlyContinue) { return $true }
+        } catch { Write-Warn "winget install fnm failed: $_" }
+    }
+    return $false
 }
 
-function Install-Bun {
-    if (Resolve-BunPath) {
-        Write-Info "bun is already installed"
-        return
-    }
-    Write-Info "Installing bun..."
+function Install-NodeViaFnm {
+    if (-not (Install-Fnm)) { return $false }
+    Write-Info "Installing Node.js LTS via fnm..."
     try {
-        powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-RestMethod https://bun.sh/install.ps1 | Invoke-Expression"
-        $env:BUN_INSTALL = "${Home}\.bun"
-        $env:Path = "${env:BUN_INSTALL}\bin;${env:Path}"
-    } catch {
-        Write-Warn "bun installation failed: $_"
-    }
+        fnm install --lts
+        fnm use --lts
+        # Add fnm-managed Node.js to the current session PATH.
+        $FnmEnv = fnm env --shell=powershell 2>$null
+        if ($FnmEnv) { $FnmEnv | Invoke-Expression }
+        if (Get-Command node -ErrorAction SilentlyContinue) {
+            Write-Info "Node.js $(node --version) installed via fnm"
+            return $true
+        }
+    } catch { Write-Warn "fnm install --lts failed: $_" }
+    return $false
 }
 
 function Install-Npm {
-    if (Get-Command npm -ErrorAction SilentlyContinue) {
-        Write-Info "npm is already installed"
-        return
+    # Check if a sufficient Node.js (>= 22) is already available.
+    if (Get-Command node -ErrorAction SilentlyContinue) {
+        $CurrentMajor = [int]((node --version) -replace '^v' -split '\.')[0]
+        if ($CurrentMajor -ge 22 -and (Get-Command npm -ErrorAction SilentlyContinue)) {
+            Write-Info "Node.js $(node --version) is already installed (>= 22)"
+            return
+        }
+        Write-Warn "Node.js $(node --version) is too old (need >= 22), upgrading..."
     }
+
     Write-Info "Installing Node.js/npm..."
+
+    # Preferred: install via fnm (no admin required).
+    if (Install-NodeViaFnm) { return }
+
+    # Fallback: direct Node.js installation via package managers.
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         try {
             winget install --id OpenJS.NodeJS.LTS -e --silent --accept-source-agreements --accept-package-agreements
@@ -100,35 +124,9 @@ function Install-Npm {
     Write-Warn "No supported package manager found to install npm - install Node.js manually from https://nodejs.org"
 }
 
-function Install-Uv {
-    if ((Get-Command uv -ErrorAction SilentlyContinue) -or
-        (Test-Path "${Home}\.local\bin\uv.exe") -or
-        (Test-Path "${Home}\.cargo\bin\uv.exe")) {
-        Write-Info "uv is already installed"
-        return
-    }
-    Write-Info "Installing uv..."
-    try {
-        powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://astral.sh/uv/install.ps1 | iex"
-        $env:Path = "${Home}\.local\bin;${env:Path}"
-    } catch {
-        Write-Warn "uv installation failed: $_ - install manually from https://docs.astral.sh/uv/"
-    }
-}
-
-function Install-GlobalBunPackage {
+function Install-GlobalNpmPackage {
     param([string]$Package)
     Write-Info "Installing ${Package} globally..."
-    $BunPath = Resolve-BunPath
-    if ($BunPath) {
-        try {
-            & $BunPath install -g $Package
-            $bunExitCode = $LASTEXITCODE
-            if ($bunExitCode -eq 0) { return }
-            Write-Debug "bun install -g ${Package} exited with code $bunExitCode"
-        } catch { Write-Debug "bun install -g ${Package} failed: $_" }
-        Write-Warn "bun failed to install ${Package}, trying npm..."
-    }
     $NpmCmd = Get-Command npm -ErrorAction SilentlyContinue
     if ($NpmCmd) {
         try {
@@ -139,47 +137,15 @@ function Install-GlobalBunPackage {
     Write-Warn "Could not install ${Package}"
 }
 
-function Invoke-TrustBunGlobalPackage {
-    $BunPath = Resolve-BunPath
-    if (-not $BunPath) { return }
-    $BunInstallRoot = if ($env:BUN_INSTALL) { $env:BUN_INSTALL } else { "${Home}\.bun" }
-    $GlobalDir = "${BunInstallRoot}\install\global"
-    if (-not (Test-Path $GlobalDir)) { return }
-    Write-Info "Trusting global bun packages..."
-    Push-Location $GlobalDir
-    try {
-        & $BunPath pm trust @playwright/cli @llamaindex/liteparse 2>$null
-    } catch { Write-Debug "bun pm trust failed: $_" }
-    Pop-Location
-}
-
-function Invoke-EnsureBunBinInPath {
-    $BunInstallRoot = if ($env:BUN_INSTALL) { $env:BUN_INSTALL } else { "${Home}\.bun" }
-    $BunBinDir = "${BunInstallRoot}\bin"
-    $UserPath = [System.Environment]::GetEnvironmentVariable('Path', 'User')
-    if ($UserPath -like "*${BunBinDir}*") { return }
-    [System.Environment]::SetEnvironmentVariable('Path', "${BunBinDir};${UserPath}", 'User')
-    $env:Path = "${BunBinDir};${env:Path}"
-    Write-Info "Added ${BunBinDir} to PATH"
-}
-
 function Install-Tooling {
-    Write-Info "Installing required tooling (bun, npm, uv, playwright-cli, liteparse)..."
+    Write-Info "Installing required tooling (npm, playwright-cli, liteparse)..."
 
-    # Phase 1: package managers
-    Install-Bun
+    # Phase 1: package manager
     Install-Npm
-    Install-Uv
 
     # Phase 2: global CLI tools
-    Install-GlobalBunPackage "@playwright/cli@latest"
-    Install-GlobalBunPackage "@llamaindex/liteparse@latest"
-
-    # Phase 3: trust lifecycle scripts for globally installed bun packages
-    Invoke-TrustBunGlobalPackage
-
-    # Phase 4: ensure ~/.bun/bin is in PATH
-    Invoke-EnsureBunBinInPath
+    Install-GlobalNpmPackage "@playwright/cli@latest"
+    Install-GlobalNpmPackage "@llamaindex/liteparse@latest"
 
     Write-Success "Tooling installed"
 }

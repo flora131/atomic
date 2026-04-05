@@ -9,7 +9,7 @@
 [![Bun](https://img.shields.io/badge/Bun-Runtime-f9f1e1?logo=bun&logoColor=black)](./package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-Atomic is an open-source **multi-agent harness** that orchestrates **Claude Code**, **OpenCode**, and **GitHub Copilot CLI** through a unified interface — with **containerized execution**, **DAG-based workflows**, **deep codebase research**, and **autonomous multi-hour coding sessions**.
+Atomic is an open-source **multi-agent harness** that orchestrates **Claude Code**, **OpenCode**, and **GitHub Copilot CLI** through a unified interface — with a **workflow sdk**, **containerized execution**, **DAG-based workflows**, **deep codebase research**, and **autonomous multi-hour coding sessions**.
 
 > One CLI. Three agent SDKs. Research it, spec it, ship it — then wake up to completed code ready for review.
 

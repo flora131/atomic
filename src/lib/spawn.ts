@@ -250,12 +250,105 @@ export async function ensureBunInstalled(): Promise<void> {
  *
  * No-op when npm is already on PATH.
  */
+
+
+async function installNodeViaFnm(): Promise<boolean> {
+  // Install fnm if not present.
+  if (!Bun.which("fnm")) {
+    let installed = false;
+    // macOS: prefer Homebrew
+    if (process.platform === "darwin" && Bun.which("brew")) {
+      const brew = await runCommand(
+        [Bun.which("brew")!, "install", "fnm"],
+        { inherit: true },
+      );
+      installed = brew.success;
+    }
+    // Windows: prefer winget
+    if (!installed && process.platform === "win32" && Bun.which("winget")) {
+      const winget = await runCommand(
+        [Bun.which("winget")!, "install", "Schniz.fnm"],
+        { inherit: true },
+      );
+      if (winget.success) {
+        // Refresh PATH — winget installs to a location on the user PATH.
+        const userPath = process.env.LOCALAPPDATA
+          ? join(process.env.LOCALAPPDATA, "Microsoft", "WinGet", "Links")
+          : null;
+        if (userPath) prependPath(userPath);
+      }
+      installed = winget.success;
+    }
+    // Linux / fallback: use the curl installer (requires a shell)
+    if (!installed) {
+      const shell = Bun.which("bash") ?? Bun.which("sh");
+      if (!shell) return false;
+
+      const curl = await runCommand(
+        [shell, "-lc", "curl -fsSL https://fnm.vercel.app/install | bash -s -- --skip-shell"],
+        { inherit: true },
+      );
+      if (!curl.success) return false;
+
+      // Add fnm to PATH for the current session.
+      const home = getHomeDir() ?? "/tmp";
+      const fnmDir = process.env.FNM_DIR ?? join(home, ".local", "share", "fnm");
+      prependPath(fnmDir);
+      // Some systems install to ~/.fnm instead
+      prependPath(join(home, ".fnm"));
+    }
+  }
+
+  const fnmPath = Bun.which("fnm");
+  if (!fnmPath) return false;
+
+  // Install LTS Node.js via fnm.
+  const fnmInstall = await runCommand(
+    [fnmPath, "install", "--lts"],
+    { inherit: true },
+  );
+  if (!fnmInstall.success) return false;
+
+  // Activate the installed version by adding its bin dir to PATH.
+  const envShell = process.platform === "win32" ? "cmd" : "bash";
+  const envResult = Bun.spawnSync({
+    cmd: [fnmPath, "env", "--shell", envShell],
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (envResult.success) {
+    const envOutput = envResult.stdout.toString();
+    if (process.platform === "win32") {
+      // cmd output: SET "PATH=C:\...\fnm_multishells\...;..."
+      const pathMatch = envOutput.match(/SET "PATH=([^"]+?)"/i);
+      if (pathMatch?.[1]) {
+        const firstEntry = pathMatch[1].split(";")[0];
+        if (firstEntry) prependPath(firstEntry);
+      }
+    } else {
+      // bash output: export PATH="/.../fnm_multishells/...:..."
+      const pathMatch = envOutput.match(/export PATH="([^"]+?):/);
+      if (pathMatch?.[1]) {
+        prependPath(pathMatch[1]);
+      }
+    }
+  }
+
+  return !!Bun.which("node");
+}
+
 export async function ensureNpmInstalled(): Promise<void> {
   if (Bun.which("npm")) {
     return;
   }
 
+  // Preferred: install via fnm (no root required, works on all platforms).
+  if (await installNodeViaFnm()) {
+    return;
+  }
+
   if (process.platform === "win32") {
+    // Fallback: direct Node.js installation via Windows package managers.
     if (Bun.which("winget")) {
       await runCommand([
         "winget",
@@ -282,16 +375,18 @@ export async function ensureNpmInstalled(): Promise<void> {
 
   const shell = Bun.which("bash") ?? Bun.which("sh");
   if (!shell) {
-    throw new Error("Neither bash nor sh is available to install npm.");
+    throw new Error("Neither bash nor sh is available to install Node.js.");
   }
+
+  // Fallback: Homebrew, NodeSource, then system package managers.
   const installers = [
-    "if command -v brew >/dev/null 2>&1; then brew install node; fi",
-    "if command -v apt-get >/dev/null 2>&1; then if command -v sudo >/dev/null 2>&1; then sudo apt-get update && sudo apt-get install -y nodejs npm; elif [ \"$(id -u)\" -eq 0 ]; then apt-get update && apt-get install -y nodejs npm; fi; fi",
-    "if command -v dnf >/dev/null 2>&1; then if command -v sudo >/dev/null 2>&1; then sudo dnf install -y nodejs npm; elif [ \"$(id -u)\" -eq 0 ]; then dnf install -y nodejs npm; fi; fi",
-    "if command -v yum >/dev/null 2>&1; then if command -v sudo >/dev/null 2>&1; then sudo yum install -y nodejs npm; elif [ \"$(id -u)\" -eq 0 ]; then yum install -y nodejs npm; fi; fi",
-    "if command -v pacman >/dev/null 2>&1; then if command -v sudo >/dev/null 2>&1; then sudo pacman -Sy --noconfirm nodejs npm; elif [ \"$(id -u)\" -eq 0 ]; then pacman -Sy --noconfirm nodejs npm; fi; fi",
-    "if command -v zypper >/dev/null 2>&1; then if command -v sudo >/dev/null 2>&1; then sudo zypper --non-interactive install nodejs npm; elif [ \"$(id -u)\" -eq 0 ]; then zypper --non-interactive install nodejs npm; fi; fi",
-    "if command -v apk >/dev/null 2>&1; then if command -v sudo >/dev/null 2>&1; then sudo apk add --no-cache nodejs npm; elif [ \"$(id -u)\" -eq 0 ]; then apk add --no-cache nodejs npm; fi; fi",
+    'if command -v brew >/dev/null 2>&1; then brew install node && brew link --overwrite node 2>/dev/null; fi',
+    'if command -v apt-get >/dev/null 2>&1; then SUDO=""; [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1 && SUDO="sudo"; $SUDO apt-get update && $SUDO apt-get install -y nodejs npm; fi',
+    'if command -v dnf >/dev/null 2>&1; then if command -v sudo >/dev/null 2>&1; then sudo dnf install -y nodejs npm; elif [ "$(id -u)" -eq 0 ]; then dnf install -y nodejs npm; fi; fi',
+    'if command -v yum >/dev/null 2>&1; then if command -v sudo >/dev/null 2>&1; then sudo yum install -y nodejs npm; elif [ "$(id -u)" -eq 0 ]; then yum install -y nodejs npm; fi; fi',
+    'if command -v pacman >/dev/null 2>&1; then if command -v sudo >/dev/null 2>&1; then sudo pacman -Sy --noconfirm nodejs npm; elif [ "$(id -u)" -eq 0 ]; then pacman -Sy --noconfirm nodejs npm; fi; fi',
+    'if command -v zypper >/dev/null 2>&1; then if command -v sudo >/dev/null 2>&1; then sudo zypper --non-interactive install nodejs npm; elif [ "$(id -u)" -eq 0 ]; then zypper --non-interactive install nodejs npm; fi; fi',
+    'if command -v apk >/dev/null 2>&1; then if command -v sudo >/dev/null 2>&1; then sudo apk add --no-cache nodejs npm; elif [ "$(id -u)" -eq 0 ]; then apk add --no-cache nodejs npm; fi; fi',
   ];
 
   for (const script of installers) {

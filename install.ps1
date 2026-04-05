@@ -72,12 +72,59 @@ function Install-Bun {
     }
 }
 
-function Install-Npm {
-    if (Get-Command npm -ErrorAction SilentlyContinue) {
-        Write-Info "npm is already installed"
-        return
+function Install-Fnm {
+    if (Get-Command fnm -ErrorAction SilentlyContinue) {
+        Write-Info "fnm is already installed"
+        return $true
     }
+    Write-Info "Installing fnm (Fast Node Manager)..."
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        try {
+            winget install --id Schniz.fnm -e --silent --accept-source-agreements --accept-package-agreements
+            # winget installs to a location already in PATH for new sessions;
+            # refresh current session by scanning the user PATH.
+            $UserPath = [System.Environment]::GetEnvironmentVariable('Path', 'User')
+            $env:Path = "${UserPath};${env:Path}"
+            if (Get-Command fnm -ErrorAction SilentlyContinue) { return $true }
+        } catch { Write-Warn "winget install fnm failed: $_" }
+    }
+    return $false
+}
+
+function Install-NodeViaFnm {
+    if (-not (Install-Fnm)) { return $false }
+    Write-Info "Installing Node.js LTS via fnm..."
+    try {
+        fnm install --lts
+        fnm use --lts
+        # Add fnm-managed Node.js to the current session PATH.
+        $FnmEnv = fnm env --shell=powershell 2>$null
+        if ($FnmEnv) { $FnmEnv | Invoke-Expression }
+        if (Get-Command node -ErrorAction SilentlyContinue) {
+            Write-Info "Node.js $(node --version) installed via fnm"
+            return $true
+        }
+    } catch { Write-Warn "fnm install --lts failed: $_" }
+    return $false
+}
+
+function Install-Npm {
+    # Check if a sufficient Node.js (>= 22) is already available.
+    if (Get-Command node -ErrorAction SilentlyContinue) {
+        $CurrentMajor = [int]((node --version) -replace '^v' -split '\.')[0]
+        if ($CurrentMajor -ge 22 -and (Get-Command npm -ErrorAction SilentlyContinue)) {
+            Write-Info "Node.js $(node --version) is already installed (>= 22)"
+            return
+        }
+        Write-Warn "Node.js $(node --version) is too old (need >= 22), upgrading..."
+    }
+
     Write-Info "Installing Node.js/npm..."
+
+    # Preferred: install via fnm (no admin required).
+    if (Install-NodeViaFnm) { return }
+
+    # Fallback: direct Node.js installation via package managers.
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         try {
             winget install --id OpenJS.NodeJS.LTS -e --silent --accept-source-agreements --accept-package-agreements

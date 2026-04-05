@@ -266,43 +266,145 @@ install_bun() {
     export PATH="$BUN_INSTALL/bin:$PATH"
 }
 
-install_npm() {
-    if command -v npm >/dev/null 2>&1; then
-        info "npm is already installed"
+install_fnm() {
+    if command -v fnm >/dev/null 2>&1; then
+        info "fnm is already installed"
         return 0
     fi
-    info "Installing Node.js/npm..."
+    info "Installing fnm (Fast Node Manager)..."
+    if [[ "$OSTYPE" == darwin* ]] && command -v brew >/dev/null 2>&1; then
+        if ! brew install fnm; then
+            warn "fnm installation via Homebrew failed"
+            return 1
+        fi
+    else
+        if ! curl -fsSL https://fnm.vercel.app/install | bash -s -- --skip-shell; then
+            warn "fnm installation failed"
+            return 1
+        fi
+        # Make fnm available in the current session.
+        export FNM_DIR="${FNM_DIR:-$HOME/.local/share/fnm}"
+        export PATH="$FNM_DIR:$PATH"
+        if ! command -v fnm >/dev/null 2>&1; then
+            # Some systems install to ~/.fnm
+            export PATH="$HOME/.fnm:$PATH"
+        fi
+    fi
+}
+
+ensure_fnm_in_shell_profiles() {
+    local marker="# fnm"
+    local fnm_dir="${FNM_DIR:-$HOME/.local/share/fnm}"
+    local posix_block
+    # shellcheck disable=SC2016
+    posix_block=$(printf '\n# fnm\nexport FNM_DIR="%s"\nexport PATH="%s:$PATH"\neval "$(fnm env)"\n' \
+        "$fnm_dir" "$fnm_dir")
+    local fish_block
+    # shellcheck disable=SC2016
+    fish_block=$(printf '\n# fnm\nset -gx FNM_DIR "%s"\nset -gx PATH "%s" $PATH\nfnm env | source\n' \
+        "$fnm_dir" "$fnm_dir")
+
+    for profile in "$HOME/.profile" "$HOME/.bashrc" "$HOME/.zshrc"; do
+        [[ -f "$profile" ]] || continue
+        grep -q "$marker" "$profile" 2>/dev/null && continue
+        printf '%s' "$posix_block" >> "$profile"
+    done
+
+    local fish_config="$HOME/.config/fish/config.fish"
+    if [[ -f "$fish_config" ]] && ! grep -q "$marker" "$fish_config" 2>/dev/null; then
+        printf '%s' "$fish_block" >> "$fish_config"
+    fi
+}
+
+install_npm() {
+    # Require Node.js 22+ (LTS) for Copilot CLI and modern tooling.
+    local NODE_MAJOR=22
+
+    if command -v node >/dev/null 2>&1; then
+        local current_major
+        current_major=$(node --version | sed 's/^v//' | cut -d. -f1)
+        if [[ "$current_major" -ge "$NODE_MAJOR" ]]; then
+            info "Node.js $(node --version) is already installed (>= $NODE_MAJOR)"
+            return 0
+        fi
+        warn "Node.js $(node --version) is too old (need >= $NODE_MAJOR), upgrading..."
+    fi
+
+    info "Installing Node.js $NODE_MAJOR LTS..."
+
+    # Preferred: install via fnm (works on macOS + Linux, no root required).
+    if install_fnm; then
+        if command -v fnm >/dev/null 2>&1; then
+            if fnm install --lts && eval "$(fnm env)"; then
+                ensure_fnm_in_shell_profiles
+                info "Node.js $(node --version) installed via fnm"
+                return 0
+            fi
+            warn "fnm install --lts failed, trying other methods..."
+        fi
+    fi
+
+    # Fallback: Homebrew (macOS).
     if command -v brew >/dev/null 2>&1; then
+        if brew install "node@$NODE_MAJOR" && brew link --overwrite "node@$NODE_MAJOR" 2>/dev/null; then
+            return 0
+        fi
         if brew install node; then
             return 0
         fi
-        warn "brew install node failed, trying system package managers..."
+        warn "brew install node failed, trying other methods..."
     fi
+
     # Determine privilege escalation command
     local sudo_cmd=""
     if [[ "$(id -u)" -ne 0 ]]; then
         if command -v sudo >/dev/null 2>&1; then
             sudo_cmd="sudo"
         else
-            warn "Cannot install npm: no sudo and not root"
+            warn "Cannot install Node.js: no sudo and not root"
             return 1
         fi
     fi
 
+    # Debian/Ubuntu: use NodeSource repository for current LTS.
     if command -v apt-get >/dev/null 2>&1; then
+        if curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | $sudo_cmd bash -; then
+            $sudo_cmd apt-get install -y nodejs
+            return $?
+        fi
+        warn "NodeSource setup failed, falling back to system package..."
         $sudo_cmd apt-get update && $sudo_cmd apt-get install -y nodejs npm
-    elif command -v dnf >/dev/null 2>&1; then
+        return $?
+    fi
+
+    # RHEL/Fedora: use NodeSource repository.
+    if command -v dnf >/dev/null 2>&1; then
+        if curl -fsSL "https://rpm.nodesource.com/setup_${NODE_MAJOR}.x" | $sudo_cmd bash -; then
+            $sudo_cmd dnf install -y nodejs
+            return $?
+        fi
         $sudo_cmd dnf install -y nodejs npm
-    elif command -v yum >/dev/null 2>&1; then
+        return $?
+    fi
+
+    if command -v yum >/dev/null 2>&1; then
+        if curl -fsSL "https://rpm.nodesource.com/setup_${NODE_MAJOR}.x" | $sudo_cmd bash -; then
+            $sudo_cmd yum install -y nodejs
+            return $?
+        fi
         $sudo_cmd yum install -y nodejs npm
-    elif command -v pacman >/dev/null 2>&1; then
+        return $?
+    fi
+
+    # Other Linux package managers: use system defaults (may not be 22+).
+    if command -v pacman >/dev/null 2>&1; then
         $sudo_cmd pacman -Sy --noconfirm nodejs npm
     elif command -v zypper >/dev/null 2>&1; then
         $sudo_cmd zypper --non-interactive install nodejs npm
     elif command -v apk >/dev/null 2>&1; then
         $sudo_cmd apk add --no-cache nodejs npm
     else
-        warn "No supported package manager found to install npm"
+        warn "No supported package manager found to install Node.js"
         return 1
     fi
 }
@@ -374,8 +476,98 @@ ensure_bun_bin_in_shell_profiles() {
     fi
 }
 
+install_nono() {
+    if command -v nono >/dev/null 2>&1; then
+        info "nono is already installed"
+        return 0
+    fi
+
+    info "Installing nono sandbox..."
+
+    # macOS: prefer Homebrew.
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        if command -v brew >/dev/null 2>&1; then
+            if brew install nono; then
+                success "nono $(nono --version 2>/dev/null || echo '') installed via Homebrew"
+                return 0
+            fi
+            warn "brew install nono failed"
+            return 1
+        fi
+        info "Skipping nono install (Homebrew not found on macOS)"
+        return 0
+    fi
+
+    # Linux: install .deb on Debian/Ubuntu.
+    if ! command -v dpkg >/dev/null 2>&1; then
+        info "Skipping nono install (dpkg not found — not Debian/Ubuntu)"
+        return 0
+    fi
+
+    local nono_version nono_arch deb_path
+    nono_arch=$(dpkg --print-architecture)
+
+    # Resolve latest version from GitHub Releases redirect.
+    nono_version=$(curl -sI https://github.com/always-further/nono/releases/latest \
+        | grep -i location | grep -oP 'v\K[0-9.]+') || true
+
+    if [[ -z "$nono_version" ]]; then
+        warn "Could not determine latest nono version"
+        return 1
+    fi
+
+    deb_path="/tmp/nono-cli_${nono_version}_${nono_arch}.deb"
+    local deb_url="https://github.com/always-further/nono/releases/download/v${nono_version}/nono-cli_${nono_version}_${nono_arch}.deb"
+
+    if ! download_file "$deb_url" "$deb_path" "true"; then
+        warn "Failed to download nono .deb"
+        return 1
+    fi
+
+    local sudo_cmd=""
+    if [[ "$(id -u)" -ne 0 ]]; then
+        if command -v sudo >/dev/null 2>&1; then
+            sudo_cmd="sudo"
+        else
+            warn "Cannot install nono: no sudo and not root"
+            rm -f "$deb_path"
+            return 1
+        fi
+    fi
+
+    $sudo_cmd dpkg -i "$deb_path" || $sudo_cmd apt-get install -f -y
+    rm -f "$deb_path"
+
+    if ! command -v nono >/dev/null 2>&1; then
+        warn "nono installed but not found on PATH"
+        return 1
+    fi
+
+    success "nono $(nono --version 2>/dev/null || echo '') installed"
+}
+
+install_nono_profile() {
+    local profiles_dir="${XDG_CONFIG_HOME:-$HOME/.config}/nono/profiles"
+    mkdir -p "$profiles_dir"
+
+    # If the config data directory contains the profile, copy it.
+    local src_file="$DATA_DIR/nono-profile.json"
+    if [[ -f "$src_file" ]]; then
+        cp "$src_file" "$profiles_dir/atomic.json"
+        info "Installed nono profile to $profiles_dir/atomic.json"
+        return 0
+    fi
+
+    # Fallback: download the combined profile directly from the repository.
+    local url="https://raw.githubusercontent.com/${GITHUB_REPO}/main/.devcontainer/nono-profile.json"
+    local dest="${profiles_dir}/atomic.json"
+    if download_file "$url" "$dest" "true" 2>/dev/null; then
+        info "Downloaded nono profile: atomic"
+    fi
+}
+
 install_tooling() {
-    info "Installing required tooling (bun, npm, uv, playwright-cli, liteparse)..."
+    info "Installing required tooling (bun, npm, uv, playwright-cli, liteparse, nono)..."
     local failed_tools=()
 
     # Phase 1: package managers
@@ -387,10 +579,14 @@ install_tooling() {
     install_global_bun_package "@playwright/cli@latest"        || { warn "@playwright/cli installation skipped or failed"; failed_tools+=("@playwright/cli"); }
     install_global_bun_package "@llamaindex/liteparse@latest"  || { warn "@llamaindex/liteparse installation skipped or failed"; failed_tools+=("@llamaindex/liteparse"); }
 
-    # Phase 3: trust lifecycle scripts for globally installed bun packages
+    # Phase 3: nono sandbox (Debian/Ubuntu only)
+    install_nono   || { warn "nono installation skipped or failed"; failed_tools+=("nono"); }
+    install_nono_profile
+
+    # Phase 4: trust lifecycle scripts for globally installed bun packages
     trust_bun_global_packages
 
-    # Phase 4: ensure ~/.bun/bin is in shell profiles
+    # Phase 5: ensure ~/.bun/bin is in shell profiles
     ensure_bun_bin_in_shell_profiles
 
     # Summary

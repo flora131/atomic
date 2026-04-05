@@ -16,6 +16,9 @@
     "copilot",
     "bun"
   ],
+  "engines": {
+    "node": ">=22"
+  },
   "bin": {
     "atomic": "src/cli.ts"
   },

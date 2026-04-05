@@ -27,6 +27,7 @@ import { isPipelineDebug } from "@/services/events/pipeline-logger.ts";
 const DEFAULT_OPENCODE_BASE_URL = "http://127.0.0.1:4096";
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_RETRY_DELAY = 1000;
+const MAX_RECONNECT_ATTEMPTS = 3;
 const COMPACTION_COMPLETE_DEDUPE_WINDOW_MS = 1000;
 const OPENCODE_SSE_DIAGNOSTICS_MARKER = "opencode.sse.diagnostics";
 const debugLog = isPipelineDebug()
@@ -72,6 +73,9 @@ export class OpenCodeClient implements CodingAgentClient {
   private subagentToolPoliciesBySession = new Map<string, Record<string, SubagentToolPolicy>>();
   private sessionStateSupport: OpenCodeSessionStateSupport;
   private keepalive: OpenCodeKeepaliveHandle | null = null;
+  private isReconnecting = false;
+  private isStopped = false;
+  private reconnectAttempts = 0;
 
   constructor(options: OpenCodeClientOptions = {}) {
     this.clientOptions = { baseUrl: DEFAULT_OPENCODE_BASE_URL, maxRetries: DEFAULT_MAX_RETRIES, retryDelay: DEFAULT_RETRY_DELAY, ...options, directory: options.directory ?? process.cwd() };
@@ -451,6 +455,7 @@ export class OpenCodeClient implements CodingAgentClient {
   }
 
   async start(): Promise<void> {
+    this.isStopped = false;
     await startOpenCodeClientLifecycle({
       isRunning: this.isRunning,
       autoStart: this.clientOptions.autoStart !== false,
@@ -467,12 +472,19 @@ export class OpenCodeClient implements CodingAgentClient {
     this.keepalive = createOpenCodeKeepalive({
       getSdkClient: () => this.sdkClient,
       isRunning: () => this.isRunning,
+      onConnectionLost: () => {
+        this.reconnect().catch((err) =>
+          debugLog("reconnect.failed", { error: err instanceof Error ? err.message : String(err) }),
+        );
+      },
       debugLog,
     });
     this.keepalive.start();
+    this.reconnectAttempts = 0;
   }
 
   async stop(): Promise<void> {
+    this.isStopped = true;
     this.keepalive?.stop();
     this.keepalive = null;
 
@@ -487,6 +499,73 @@ export class OpenCodeClient implements CodingAgentClient {
         this.isRunning = value;
       },
     });
+  }
+
+  /**
+   * Tears down the current connection and starts a fresh one.
+   *
+   * All existing sessions are marked closed — the next user interaction
+   * will trigger the TUI's session-recovery flow which calls
+   * `resumeSession()` to re-attach to persisted conversation history.
+   */
+  private async reconnect(): Promise<void> {
+    if (this.isReconnecting || !this.isRunning) {
+      return;
+    }
+    this.isReconnecting = true;
+    this.reconnectAttempts++;
+
+    try {
+      // Bail out if we've exhausted all retry attempts — emit an error
+      // so the TUI can surface it to the user instead of silently dying.
+      if (this.reconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
+        debugLog("reconnect.exhausted", {
+          attempts: this.reconnectAttempts - 1,
+          max: MAX_RECONNECT_ATTEMPTS,
+        });
+        this.emitEvent("session.error", this.currentSessionId ?? "", {
+          error: `Connection lost and reconnect failed after ${MAX_RECONNECT_ATTEMPTS} attempts. Please restart the session.`,
+        });
+        return;
+      }
+
+      // Stop keepalive first to prevent re-entrant reconnect calls.
+      this.keepalive?.stop();
+      this.keepalive = null;
+
+      // Mark every tracked session as closed so the next send()
+      // surfaces a recoverable error which the adapter handles
+      // via its existing retry/resume path.
+      for (const state of this.sessionStateById.values()) {
+        state.isClosed = true;
+      }
+
+      // Abort the SSE subscription and tear down the connection.
+      await this.disconnect();
+
+      // Release and re-acquire the server lease — this also
+      // health-checks the existing server and respawns it if needed.
+      this.releaseServerLease();
+      this.isRunning = false;
+
+      // Bail out if stop() was called during reconnect — user intent
+      // to shut down takes precedence over automatic recovery.
+      if (this.isStopped) {
+        return;
+      }
+
+      // Start a fresh client + keepalive.
+      await this.start();
+    } catch (error) {
+      debugLog("reconnect.failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      this.emitEvent("session.error", this.currentSessionId ?? "", {
+        error: `Connection lost and reconnect failed: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    } finally {
+      this.isReconnecting = false;
+    }
   }
 
   private releaseServerLease(): void {

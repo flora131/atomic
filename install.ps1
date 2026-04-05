@@ -7,7 +7,7 @@
 # Set $env:GITHUB_TOKEN for authenticated downloads (avoids API rate limits)
 #
 # Installs the Atomic CLI binary, config data, and all required tooling
-# (bun, npm, uv, @playwright/cli, @llamaindex/liteparse).
+# (npm, @playwright/cli, @llamaindex/liteparse).
 
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '')]
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingInvokeExpression', '')]
@@ -48,29 +48,6 @@ function Write-Err { Write-Host "${C_RED}error${C_RESET}: $args" }
 
 # --- Tooling helpers ----------------------------------------------------------
 
-function Resolve-BunPath {
-    $InPath = Get-Command bun -ErrorAction SilentlyContinue
-    if ($InPath) { return $InPath.Source }
-    $BunInstallRoot = if ($env:BUN_INSTALL) { $env:BUN_INSTALL } else { "${Home}\.bun" }
-    $Default = "${BunInstallRoot}\bin\bun.exe"
-    if (Test-Path $Default) { return $Default }
-    return $null
-}
-
-function Install-Bun {
-    if (Resolve-BunPath) {
-        Write-Info "bun is already installed"
-        return
-    }
-    Write-Info "Installing bun..."
-    try {
-        powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-RestMethod https://bun.sh/install.ps1 | Invoke-Expression"
-        $env:BUN_INSTALL = "${Home}\.bun"
-        $env:Path = "${env:BUN_INSTALL}\bin;${env:Path}"
-    } catch {
-        Write-Warn "bun installation failed: $_"
-    }
-}
 
 function Install-Fnm {
     if (Get-Command fnm -ErrorAction SilentlyContinue) {
@@ -147,35 +124,9 @@ function Install-Npm {
     Write-Warn "No supported package manager found to install npm - install Node.js manually from https://nodejs.org"
 }
 
-function Install-Uv {
-    if ((Get-Command uv -ErrorAction SilentlyContinue) -or
-        (Test-Path "${Home}\.local\bin\uv.exe") -or
-        (Test-Path "${Home}\.cargo\bin\uv.exe")) {
-        Write-Info "uv is already installed"
-        return
-    }
-    Write-Info "Installing uv..."
-    try {
-        powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://astral.sh/uv/install.ps1 | iex"
-        $env:Path = "${Home}\.local\bin;${env:Path}"
-    } catch {
-        Write-Warn "uv installation failed: $_ - install manually from https://docs.astral.sh/uv/"
-    }
-}
-
-function Install-GlobalBunPackage {
+function Install-GlobalNpmPackage {
     param([string]$Package)
     Write-Info "Installing ${Package} globally..."
-    $BunPath = Resolve-BunPath
-    if ($BunPath) {
-        try {
-            & $BunPath install -g $Package
-            $bunExitCode = $LASTEXITCODE
-            if ($bunExitCode -eq 0) { return }
-            Write-Debug "bun install -g ${Package} exited with code $bunExitCode"
-        } catch { Write-Debug "bun install -g ${Package} failed: $_" }
-        Write-Warn "bun failed to install ${Package}, trying npm..."
-    }
     $NpmCmd = Get-Command npm -ErrorAction SilentlyContinue
     if ($NpmCmd) {
         try {
@@ -186,47 +137,15 @@ function Install-GlobalBunPackage {
     Write-Warn "Could not install ${Package}"
 }
 
-function Invoke-TrustBunGlobalPackage {
-    $BunPath = Resolve-BunPath
-    if (-not $BunPath) { return }
-    $BunInstallRoot = if ($env:BUN_INSTALL) { $env:BUN_INSTALL } else { "${Home}\.bun" }
-    $GlobalDir = "${BunInstallRoot}\install\global"
-    if (-not (Test-Path $GlobalDir)) { return }
-    Write-Info "Trusting global bun packages..."
-    Push-Location $GlobalDir
-    try {
-        & $BunPath pm trust @playwright/cli @llamaindex/liteparse 2>$null
-    } catch { Write-Debug "bun pm trust failed: $_" }
-    Pop-Location
-}
-
-function Invoke-EnsureBunBinInPath {
-    $BunInstallRoot = if ($env:BUN_INSTALL) { $env:BUN_INSTALL } else { "${Home}\.bun" }
-    $BunBinDir = "${BunInstallRoot}\bin"
-    $UserPath = [System.Environment]::GetEnvironmentVariable('Path', 'User')
-    if ($UserPath -like "*${BunBinDir}*") { return }
-    [System.Environment]::SetEnvironmentVariable('Path', "${BunBinDir};${UserPath}", 'User')
-    $env:Path = "${BunBinDir};${env:Path}"
-    Write-Info "Added ${BunBinDir} to PATH"
-}
-
 function Install-Tooling {
-    Write-Info "Installing required tooling (bun, npm, uv, playwright-cli, liteparse)..."
+    Write-Info "Installing required tooling (npm, playwright-cli, liteparse)..."
 
-    # Phase 1: package managers
-    Install-Bun
+    # Phase 1: package manager
     Install-Npm
-    Install-Uv
 
     # Phase 2: global CLI tools
-    Install-GlobalBunPackage "@playwright/cli@latest"
-    Install-GlobalBunPackage "@llamaindex/liteparse@latest"
-
-    # Phase 3: trust lifecycle scripts for globally installed bun packages
-    Invoke-TrustBunGlobalPackage
-
-    # Phase 4: ensure ~/.bun/bin is in PATH
-    Invoke-EnsureBunBinInPath
+    Install-GlobalNpmPackage "@playwright/cli@latest"
+    Install-GlobalNpmPackage "@llamaindex/liteparse@latest"
 
     Write-Success "Tooling installed"
 }

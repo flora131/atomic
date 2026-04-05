@@ -123,22 +123,19 @@ The publish pipeline (`publish.yml`) runs when:
   ┌───────────────────────────────────────────────────────────────────────┐
   │                          Publish Workflow                             │
   │                                                                       │
-  │   ┌───────────────────┐    ┌─────────────────────────┐                │
-  │   │  Build Binaries   │    │  Build Windows Binary   │                │
-  │   │  (ubuntu)         │    │  (windows)              │                │
-  │   │                   │    │                         │                │
-  │   │  · bun ci         │    │  · bun ci               │                │
-  │   │  · tests          │    │  · build .exe           │                │
-  │   │  · typecheck      │    │                         │                │
-  │   │  · build x4:      │    └────────────┬────────────┘                │
-  │   │    linux-x64      │                 │                             │
-  │   │    linux-arm64    │                 │                             │
-  │   │    darwin-x64     │                 │                             │
-  │   │    darwin-arm64   │                 │                             │
-  │   │  · config archive │                 │                             │
-  │   └────────┬──────────┘                 │                             │
-  │            │                            │                             │
-  │            └───────────┬────────────────┘                             │
+  │   ┌─────────────────────────────────────────────┐                    │
+  │   │  Build Binaries (single ubuntu runner)      │                    │
+  │   │                                             │                    │
+  │   │  · bun ci                                   │                    │
+  │   │  · install cross-platform native modules    │                    │
+  │   │    (bun install --os="*" --cpu="*")          │                    │
+  │   │  · tests + typecheck                        │                    │
+  │   │  · cross-compile all 6 targets:             │                    │
+  │   │    linux-x64, linux-arm64,                  │                    │
+  │   │    darwin-x64, darwin-arm64,                │                    │
+  │   │    windows-x64, windows-arm64              │                    │
+  │   │  · config archives (tar.gz + zip)           │                    │
+  │   └────────────────────┬────────────────────────┘                    │
   │                        ▼                                              │
   │   ┌────────────────────────────────────────┐                          │
   │   │       Validate Binaries (6 platforms)  │                          │

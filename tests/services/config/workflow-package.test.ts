@@ -10,71 +10,20 @@ import {
 } from "@/services/config/workflow-package.ts";
 
 let tempDir: string;
-let savedBunInstall: string | undefined;
-let savedHome: string | undefined;
-let savedPath: string | undefined;
-let savedUserProfile: string | undefined;
 
-async function createFallbackBunExecutable(rootDir: string): Promise<string> {
-  const bunInstallDir = join(rootDir, "bun-home");
-  const bunBinDir = join(bunInstallDir, "bin");
-  const bunExecutable = join(
-    bunBinDir,
-    process.platform === "win32" ? "bun.exe" : "bun",
-  );
-
-  await mkdir(bunBinDir, { recursive: true });
-  await writeFile(bunExecutable, "");
-  process.env.BUN_INSTALL = bunInstallDir;
-
-  return bunExecutable;
-}
-
-describe("workflow package bun resolution", () => {
+describe("workflow package npm resolution", () => {
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), "workflow-package-test-"));
-    savedBunInstall = process.env.BUN_INSTALL;
-    savedHome = process.env.HOME;
-    savedPath = process.env.PATH;
-    savedUserProfile = process.env.USERPROFILE;
-    process.env.PATH = "/usr/bin";
   });
 
   afterEach(async () => {
-    if (savedBunInstall === undefined) {
-      delete process.env.BUN_INSTALL;
-    } else {
-      process.env.BUN_INSTALL = savedBunInstall;
-    }
-
-    if (savedPath === undefined) {
-      delete process.env.PATH;
-    } else {
-      process.env.PATH = savedPath;
-    }
-
-    if (savedHome === undefined) {
-      delete process.env.HOME;
-    } else {
-      process.env.HOME = savedHome;
-    }
-
-    if (savedUserProfile === undefined) {
-      delete process.env.USERPROFILE;
-    } else {
-      process.env.USERPROFILE = savedUserProfile;
-    }
-
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  test("installWorkflowSdk uses bun from the default install dir when PATH is stale", async () => {
-    const bunExecutable = await createFallbackBunExecutable(tempDir);
+  test("installWorkflowSdk calls npm install with the SDK spec", async () => {
     const workflowsDir = join(tempDir, "workflows");
 
-    using whichSpy = spyOn(Bun, "which").mockReturnValue(
-      null as ReturnType<typeof Bun.which>,
-    );
+    using whichSpy = spyOn(Bun, "which").mockReturnValue("/usr/local/bin/npm");
     using spawnSpy = spyOn(Bun, "spawnSync").mockReturnValue({
       exitCode: 0,
     } as ReturnType<typeof Bun.spawnSync>);
@@ -83,7 +32,7 @@ describe("workflow package bun resolution", () => {
 
     expect(installed).toBe(true);
     expect(spawnSpy).toHaveBeenCalledWith(
-      [bunExecutable, "add", "@bastani/atomic-workflows@1.2.3"],
+      ["/usr/local/bin/npm", "install", "@bastani/atomic-workflows@1.2.3"],
       expect.objectContaining({ cwd: workflowsDir }),
     );
 
@@ -91,18 +40,15 @@ describe("workflow package bun resolution", () => {
       await readFile(join(workflowsDir, "package.json"), "utf8"),
     ) as { name: string };
     expect(packageJson.name).toBe("atomic-workflows");
-    expect(whichSpy).toHaveBeenCalledWith("bun");
+    expect(whichSpy).toHaveBeenCalledWith("npm");
   });
 
-  test("installWorkflowSdkFromLocal also uses the resolved bun executable", async () => {
-    const bunExecutable = await createFallbackBunExecutable(tempDir);
+  test("installWorkflowSdkFromLocal calls npm install after writing dependency", async () => {
     const workflowsDir = join(tempDir, "local-workflows");
     const localSdkDir = join(tempDir, "workflow-sdk");
     await mkdir(localSdkDir, { recursive: true });
 
-    using whichSpy = spyOn(Bun, "which").mockReturnValue(
-      null as ReturnType<typeof Bun.which>,
-    );
+    using whichSpy = spyOn(Bun, "which").mockReturnValue("/usr/local/bin/npm");
     using spawnSpy = spyOn(Bun, "spawnSync").mockReturnValue({
       exitCode: 0,
     } as ReturnType<typeof Bun.spawnSync>);
@@ -111,7 +57,7 @@ describe("workflow package bun resolution", () => {
 
     expect(installed).toBe(true);
     expect(spawnSpy).toHaveBeenCalledWith(
-      [bunExecutable, "install"],
+      ["/usr/local/bin/npm", "install"],
       expect.objectContaining({ cwd: workflowsDir }),
     );
 
@@ -119,14 +65,11 @@ describe("workflow package bun resolution", () => {
       await readFile(join(workflowsDir, "package.json"), "utf8"),
     ) as { dependencies?: Record<string, string> };
     expect(packageJson.dependencies?.["@bastani/atomic-workflows"]).toBe(localSdkDir);
-    expect(whichSpy).toHaveBeenCalledWith("bun");
+    expect(whichSpy).toHaveBeenCalledWith("npm");
   });
 
-  test("installWorkflowSdk warns when bun cannot be resolved", async () => {
-    const workflowsDir = join(tempDir, "missing-bun-workflows");
-    delete process.env.BUN_INSTALL;
-    delete process.env.HOME;
-    delete process.env.USERPROFILE;
+  test("installWorkflowSdk warns when npm cannot be resolved", async () => {
+    const workflowsDir = join(tempDir, "missing-npm-workflows");
 
     using whichSpy = spyOn(Bun, "which").mockReturnValue(
       null as ReturnType<typeof Bun.which>,
@@ -136,11 +79,11 @@ describe("workflow package bun resolution", () => {
     const installed = await installWorkflowSdk(workflowsDir, "1.2.3");
 
     expect(installed).toBe(false);
-    expect(whichSpy).toHaveBeenCalledWith("bun");
+    expect(whichSpy).toHaveBeenCalledWith("npm");
     expect(warnSpy).toHaveBeenCalledTimes(1);
-    expect(warnSpy.mock.calls[0]?.[0]).toContain("Could not resolve Bun executable");
+    expect(warnSpy.mock.calls[0]?.[0]).toContain("Could not resolve npm");
     expect(warnSpy.mock.calls[0]?.[0]).toContain(workflowsDir);
-    expect(warnSpy.mock.calls[0]?.[0]).toContain("Check PATH or BUN_INSTALL");
+    expect(warnSpy.mock.calls[0]?.[0]).toContain("Ensure Node.js is installed");
   });
 
   test("installWorkflowSdk preserves existing workflow files", async () => {
@@ -182,13 +125,10 @@ describe("workflow package bun resolution", () => {
     expect(await readFile(helperFile, "utf8")).toBe("export const helper = () => 'still here';\n");
   });
 
-  test("removeWorkflowSdk warns when bun cannot be resolved", async () => {
-    const workflowsDir = join(tempDir, "remove-missing-bun-workflows");
+  test("removeWorkflowSdk warns when npm cannot be resolved", async () => {
+    const workflowsDir = join(tempDir, "remove-missing-npm-workflows");
     await mkdir(workflowsDir, { recursive: true });
     await writeFile(join(workflowsDir, "package.json"), "{}\n");
-    delete process.env.BUN_INSTALL;
-    delete process.env.HOME;
-    delete process.env.USERPROFILE;
 
     using whichSpy = spyOn(Bun, "which").mockReturnValue(
       null as ReturnType<typeof Bun.which>,
@@ -198,10 +138,10 @@ describe("workflow package bun resolution", () => {
     const removed = await removeWorkflowSdk(workflowsDir);
 
     expect(removed).toBe(false);
-    expect(whichSpy).toHaveBeenCalledWith("bun");
+    expect(whichSpy).toHaveBeenCalledWith("npm");
     expect(warnSpy).toHaveBeenCalledTimes(1);
-    expect(warnSpy.mock.calls[0]?.[0]).toContain("Could not resolve Bun executable");
+    expect(warnSpy.mock.calls[0]?.[0]).toContain("Could not resolve npm");
     expect(warnSpy.mock.calls[0]?.[0]).toContain(workflowsDir);
-    expect(warnSpy.mock.calls[0]?.[0]).toContain("Check PATH or BUN_INSTALL");
+    expect(warnSpy.mock.calls[0]?.[0]).toContain("Ensure Node.js is installed");
   });
 });

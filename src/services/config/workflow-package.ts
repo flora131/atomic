@@ -11,7 +11,6 @@ import { rm, unlink } from "fs/promises";
 import { join, relative } from "path";
 import { existsSync } from "fs";
 import { homedir } from "os";
-import { resolveBunExecutable } from "@/lib/spawn.ts";
 import { ensureDir } from "@/services/system/copy.ts";
 
 const WORKFLOW_PACKAGE_JSON = {
@@ -37,9 +36,9 @@ const WORKFLOW_TSCONFIG = {
   include: ["*.ts"],
 };
 
-function warnBunResolutionFailure(action: string, workflowsDir: string): void {
+function warnNpmResolutionFailure(action: string, workflowsDir: string): void {
   console.warn(
-    `[workflow-package] Could not resolve Bun executable; skipped ${action} in ${workflowsDir}. Check PATH or BUN_INSTALL.`,
+    `[workflow-package] Could not resolve npm; skipped ${action} in ${workflowsDir}. Ensure Node.js is installed.`,
   );
 }
 
@@ -64,7 +63,7 @@ export async function getInstalledWorkflowSdkVersion(workflowsDir: string): Prom
  * - tsconfig.json  (created if missing)
  * - .gitignore     (created if missing)
  *
- * Does NOT run `bun add` — call {@link installWorkflowSdk} for that.
+ * Does NOT run `npm install` — call {@link installWorkflowSdk} for that.
  */
 export async function ensureWorkflowPackageScaffold(workflowsDir: string): Promise<void> {
   await ensureDir(workflowsDir);
@@ -98,14 +97,14 @@ export async function installWorkflowSdk(
   version: string,
 ): Promise<boolean> {
   await ensureWorkflowPackageScaffold(workflowsDir);
-  const bunPath = resolveBunExecutable();
-  if (!bunPath) {
-    warnBunResolutionFailure("installing @bastani/atomic-workflows", workflowsDir);
+  const npmPath = Bun.which("npm");
+  if (!npmPath) {
+    warnNpmResolutionFailure("installing @bastani/atomic-workflows", workflowsDir);
     return false;
   }
 
   const sdkSpec = `@bastani/atomic-workflows@${version}`;
-  const result = Bun.spawnSync([bunPath, "add", sdkSpec], {
+  const result = Bun.spawnSync([npmPath, "install", sdkSpec], {
     cwd: workflowsDir,
     stdout: "ignore",
     stderr: "pipe",
@@ -127,13 +126,13 @@ export async function removeWorkflowSdk(workflowsDir: string): Promise<boolean> 
 
   const pkgPath = join(workflowsDir, "package.json");
   if (!existsSync(pkgPath)) return true;
-  const bunPath = resolveBunExecutable();
-  if (!bunPath) {
-    warnBunResolutionFailure("removing @bastani/atomic-workflows", workflowsDir);
+  const npmPath = Bun.which("npm");
+  if (!npmPath) {
+    warnNpmResolutionFailure("removing @bastani/atomic-workflows", workflowsDir);
     return false;
   }
 
-  const result = Bun.spawnSync([bunPath, "remove", "@bastani/atomic-workflows"], {
+  const result = Bun.spawnSync([npmPath, "uninstall", "@bastani/atomic-workflows"], {
     cwd: workflowsDir,
     stdout: "ignore",
     stderr: "ignore",
@@ -173,16 +172,16 @@ export async function installWorkflowSdkFromLocal(
   localPackagePath: string,
 ): Promise<boolean> {
   await ensureWorkflowPackageScaffold(workflowsDir);
-  const bunPath = resolveBunExecutable();
-  if (!bunPath) {
-    warnBunResolutionFailure(
+  const npmPath = Bun.which("npm");
+  if (!npmPath) {
+    warnNpmResolutionFailure(
       "installing the local @bastani/atomic-workflows dependency",
       workflowsDir,
     );
     return false;
   }
 
-  // Write the dependency directly into package.json instead of using `bun add`,
+  // Write the dependency directly into package.json instead of using `npm install`,
   // which can create duplicate JSON keys when run repeatedly with local paths.
   const pkgPath = join(workflowsDir, "package.json");
   try {
@@ -194,16 +193,18 @@ export async function installWorkflowSdkFromLocal(
     await Bun.write(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
   }
 
-  // Remove stale lockfile and node_modules to avoid "symlink … file exists" errors
-  // when bun install tries to recreate .bin/ symlinks from a prior run.
-  const lockPath = join(workflowsDir, "bun.lock");
+  // Remove stale lockfile and node_modules to avoid symlink errors
+  // when npm install tries to recreate .bin/ symlinks from a prior run.
+  const lockPath = join(workflowsDir, "package-lock.json");
+  const bunLockPath = join(workflowsDir, "bun.lock");
   const nodeModulesPath = join(workflowsDir, "node_modules");
   await Promise.all([
     unlink(lockPath).catch(() => {}),
+    unlink(bunLockPath).catch(() => {}),
     rm(nodeModulesPath, { recursive: true, force: true }).catch(() => {}),
   ]);
 
-  const result = Bun.spawnSync([bunPath, "install"], {
+  const result = Bun.spawnSync([npmPath, "install"], {
     cwd: workflowsDir,
     stdout: "ignore",
     stderr: "pipe",

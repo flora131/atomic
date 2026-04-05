@@ -1,12 +1,13 @@
 FROM mcr.microsoft.com/devcontainers/base:ubuntu
 
 # Install nono sandbox
-RUN VERSION=$(curl -sI https://github.com/always-further/nono/releases/latest | grep -i location | grep -oP 'v\K[0-9.]+') \
+RUN apt-get update \
+    && VERSION=$(curl -sI https://github.com/always-further/nono/releases/latest | grep -i location | grep -oP 'v\K[0-9.]+') \
     && ARCH=$(dpkg --print-architecture) \
     && wget https://github.com/always-further/nono/releases/download/v${VERSION}/nono-cli_${VERSION}_${ARCH}.deb \
-    && dpkg -i nono-cli_${VERSION}_${ARCH}.deb \
-    && apt-get install -f -y \
-    && rm nono-cli_${VERSION}_${ARCH}.deb
+    && apt-get install -y ./nono-cli_${VERSION}_${ARCH}.deb \
+    && rm nono-cli_${VERSION}_${ARCH}.deb \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy aggregated nono profile (covers all agents)
 RUN mkdir -p /etc/nono/profiles

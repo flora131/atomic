@@ -1,7 +1,7 @@
 ---
 name: reviewer
 description: Code reviewer for proposed code changes.
-tools: ["execute", "agent", "search", "read", "deepwiki/ask_question", "web_fetch", "task_list"]
+tools: ["execute", "agent", "search", "read", "deepwiki/ask_question", "web_fetch", "sql"]
 mcp-servers:
     deepwiki:
         type: http

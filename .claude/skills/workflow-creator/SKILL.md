@@ -336,41 +336,36 @@ atomic list agents
 
 Always run `atomic list agents` first to see what's available before creating new agent definitions.
 
-## The `task_list` Tool
+## Built-in Task Tools
 
-The `task_list` tool provides SQLite-backed CRUD operations for managing tasks within a workflow session. It is the primary mechanism for tracking work items across stages and is automatically available to agent stages that declare it in their `tools` frontmatter.
+The built-in Task tools (`TaskCreate`, `TaskList`, `TaskGet`, `TaskUpdate`) provide task management within a workflow session. They are the primary mechanism for tracking work items across stages and are automatically available to agent stages that declare them in their `tools` frontmatter.
 
-### When to use `task_list` in workflows
+### When to use Task tools in workflows
 
-Use `task_list` when your workflow needs to:
-- **Plan work** — a planner stage creates tasks with `create_tasks`, then worker stages consume them
-- **Track progress** — worker stages update task status with `update_task_status` and log progress with `update_task_progress`
+Use the Task tools when your workflow needs to:
+- **Plan work** — a planner stage creates tasks with `TaskCreate`, then worker stages consume them via `TaskList`
+- **Track progress** — worker stages update task status and descriptions with `TaskUpdate`, and read details with `TaskGet`
 - **Coordinate parallel work** — tasks have `blockedBy` arrays for dependency management, enabling the orchestrator to maximize parallel execution
 
-### Available actions
+### Available tools
 
-| Action | Required Fields | Description |
-|--------|----------------|-------------|
-| `create_tasks` | `tasks[]` | Bulk-create tasks (INSERT OR REPLACE) |
-| `list_tasks` | — | Return all tasks |
-| `add_task` | `task` | Add a single task |
-| `update_task_status` | `taskId`, `status` | Update a task's status (`pending`, `in_progress`, `completed`, `error`) |
-| `update_task_blockedBy` | `taskId`, `blockedBy[]` | Update a task's dependency list |
-| `update_task_progress` | `taskId`, `progress` | Append a progress log entry |
-| `get_task_progress` | `taskId` | Retrieve progress entries for a task |
-| `delete_task` | `taskId` | Delete a task and clean up dependencies |
-| `clear_progress` | `taskId` | Clear all progress entries for a task |
+| Tool | Parameters | Description |
+|------|-----------|-------------|
+| `TaskCreate` | `subject`, `description`, `status`, `blockedBy` | Create a single task |
+| `TaskList` | — | Return all tasks with current statuses |
+| `TaskGet` | `id` | Retrieve full details for a specific task |
+| `TaskUpdate` | `id`, `status?`, `description?`, `blockedBy?`, `blocks?`, `delete?` | Update a task's status, description, dependencies, or delete it |
 
-### Referencing `task_list` in agent definitions
+### Referencing Task tools in agent definitions
 
-Agent definitions declare tool access in their frontmatter. The `task_list` tool must be listed for any agent that needs to read or write tasks:
+Agent definitions declare tool access in their frontmatter. The Task tools must be listed for any agent that needs to read or write tasks:
 
 ```yaml
-# .github/agents/planner.md
+# .claude/agents/planner.md
 ---
 name: planner
 description: Decomposes user prompts into structured task lists.
-tools: ["search", "read", "execute", "task_list"]
+tools: Grep, Glob, Read, Bash, TaskCreate, TaskList
 ---
 ```
 
@@ -397,11 +392,12 @@ Each task item has these fields:
 
 ```ts
 interface TaskItem {
-  id: string;              // Unique task identifier (kebab-case recommended)
+  id: string;              // Unique task identifier
+  subject: string;         // Short gerund phrase (e.g., "Fixing bug")
   description: string;     // Human-readable task description
-  status: string;          // "pending" | "in_progress" | "completed" | "error"
-  summary: string;         // Present-participle phrase (e.g., "Fixing bug")
+  status: string;          // "pending" | "in_progress" | "completed"
   blockedBy?: string[];    // Task IDs this task depends on
+  blocks?: string[];       // Task IDs that depend on this task
 }
 ```
 

@@ -11,7 +11,7 @@ tools:
         "deepwiki/ask_question",
         "lsp",
         "web_fetch",
-        "task_list"
+        "sql"
     ]
 mcp-servers:
     deepwiki:

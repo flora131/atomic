@@ -1,104 +1,114 @@
 /**
- * Workflow CLI Commands
+ * Workflow CLI command
  *
- * Handlers for `atomic workflow verify [path]`.
+ * Usage:
+ *   atomic workflow -n <name> -a <agent> <prompt>
+ *   atomic workflow --list
  */
 
-import { resolve } from "path";
+import { AGENT_CONFIG, type AgentKey } from "@/services/config/index.ts";
 import { COLORS } from "@/theme/colors.ts";
+import { isCommandInstalled } from "@/services/system/detect.ts";
 import {
-  importWorkflowModule,
-  cleanupTempWorkflowFiles,
-} from "@/commands/tui/workflow-commands/workflow-files.ts";
+  isTmuxInstalled,
+  discoverWorkflows,
+  findWorkflow,
+  loadWorkflowDefinition,
+  executeWorkflow,
+} from "@bastani/atomic-workflows";
+import type { AgentType } from "@bastani/atomic-workflows";
 
-/**
- * Entry point for `atomic workflow verify [path]`.
- *
- * - No path: verify all discoverable workflows (built-in + custom)
- * - With path: verify a single workflow .ts file
- */
-export async function workflowVerifyCommand(path?: string): Promise<void> {
-  if (path) {
-    await verifySingleFile(path);
-  } else {
-    await verifyAll();
-  }
-}
+export async function workflowCommand(options: {
+  name?: string;
+  agent?: string;
+  prompt?: string;
+  list?: boolean;
+}): Promise<number> {
+  // List mode
+  if (options.list) {
+    const workflows = await discoverWorkflows(undefined, options.agent as AgentType | undefined);
 
-async function verifyAll(): Promise<void> {
-  const { runVerification } = await import("@/scripts/verify-workflows.ts");
-  const allPassed = await runVerification();
-  process.exit(allPassed ? 0 : 1);
-}
-
-async function verifySingleFile(filePath: string): Promise<void> {
-  const resolved = resolve(filePath);
-
-  const file = Bun.file(resolved);
-  if (!(await file.exists())) {
-    console.error(`${COLORS.red}Error: File not found: ${resolved}${COLORS.reset}`);
-    process.exit(1);
-  }
-
-  let mod: Record<string, unknown>;
-  try {
-    mod = await importWorkflowModule(resolved);
-  } catch (error) {
-    cleanupTempWorkflowFiles();
-    console.error(
-      `${COLORS.red}Error: Failed to import ${resolved}: ${error instanceof Error ? error.message : String(error)}${COLORS.reset}`,
-    );
-    process.exit(1);
-  }
-
-  const { extractWorkflowDefinition } = await import(
-    "@/commands/tui/workflow-commands/workflow-files.ts"
-  );
-
-  let definition = extractWorkflowDefinition(mod);
-
-  if (!definition) {
-    // Fall back: check for any named export that looks like a definition
-    const candidate = mod.default ?? Object.values(mod).find(
-      (v) => v && typeof v === "object" && "name" in v,
-    );
-    if (candidate && typeof candidate === "object" && "name" in candidate) {
-      definition = candidate as unknown as NonNullable<typeof definition>;
+    if (workflows.length === 0) {
+      console.log("No workflows found.");
+      console.log("Create a workflow in .atomic/workflows/<agent>/<name>/index.ts");
+      return 0;
     }
+
+    console.log("Available workflows:\n");
+    for (const wf of workflows) {
+      const badge = wf.source === "local" ? "(local)" : "(global)";
+      console.log(`  ${wf.agent}/${wf.name} ${COLORS.dim}${badge}${COLORS.reset}`);
+      console.log(`    ${COLORS.dim}${wf.path}${COLORS.reset}`);
+    }
+    return 0;
   }
 
-  if (!definition) {
-    console.error(
-      `${COLORS.red}Error: No workflow definition found in ${filePath}${COLORS.reset}`,
-    );
-    console.error(
-      "The file must export a defineWorkflow().compile() result or a WorkflowDefinition.",
-    );
-    process.exit(1);
+  // Run mode — validate inputs
+  if (!options.name) {
+    console.error(`${COLORS.red}Error: Missing workflow name. Use -n <name>.${COLORS.reset}`);
+    return 1;
   }
 
-  const { verifySingleWorkflow } = await import("@/scripts/verify-workflows.ts");
+  if (!options.agent) {
+    console.error(`${COLORS.red}Error: Missing agent. Use -a <agent>.${COLORS.reset}`);
+    return 1;
+  }
 
+  const validAgents = Object.keys(AGENT_CONFIG);
+  if (!validAgents.includes(options.agent)) {
+    console.error(`${COLORS.red}Error: Unknown agent '${options.agent}'.${COLORS.reset}`);
+    console.error(`Valid agents: ${validAgents.join(", ")}`);
+    return 1;
+  }
+
+  const agent = options.agent as AgentKey;
+
+  // Check agent CLI is installed
+  if (!isCommandInstalled(AGENT_CONFIG[agent].cmd)) {
+    console.error(`${COLORS.red}Error: '${AGENT_CONFIG[agent].cmd}' is not installed.${COLORS.reset}`);
+    console.error(`Install it from: ${AGENT_CONFIG[agent].install_url}`);
+    return 1;
+  }
+
+  // Check tmux is installed
+  if (!isTmuxInstalled()) {
+    console.error(`${COLORS.red}Error: tmux is not installed.${COLORS.reset}`);
+    console.error("Install tmux: https://github.com/tmux/tmux/wiki/Installing");
+    return 1;
+  }
+
+  // Find the workflow
+  const discovered = await findWorkflow(options.name, agent);
+
+  if (!discovered) {
+    console.error(`${COLORS.red}Error: Workflow '${options.name}' not found for agent '${agent}'.${COLORS.reset}`);
+    console.error("Search paths:");
+    console.error(`  .atomic/workflows/${agent}/<name>/index.ts (local)`);
+    console.error(`  ~/.atomic/workflows/${agent}/<name>/index.ts (global)`);
+    return 1;
+  }
+
+  // Load and validate
+  let definition;
   try {
-    const { report, passed } = await verifySingleWorkflow({
-      id: definition.name ?? filePath,
+    definition = await loadWorkflowDefinition(discovered.path, agent);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`${COLORS.red}Error loading workflow: ${message}${COLORS.reset}`);
+    return 1;
+  }
+
+  // Execute
+  try {
+    await executeWorkflow({
       definition,
-      sourcePath: resolved,
+      agent,
+      prompt: options.prompt ?? "",
     });
-    cleanupTempWorkflowFiles();
-    console.log(report);
-
-    if (!passed) {
-      console.log(`\n${COLORS.red}Verification failed.${COLORS.reset}`);
-      process.exit(1);
-    } else {
-      console.log(`\n${COLORS.green}Verification passed.${COLORS.reset}`);
-    }
+    return 0;
   } catch (error) {
-    cleanupTempWorkflowFiles();
-    console.error(
-      `${COLORS.red}Verification error: ${error instanceof Error ? error.message : String(error)}${COLORS.reset}`,
-    );
-    process.exit(1);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`${COLORS.red}Workflow failed: ${message}${COLORS.reset}`);
+    return 1;
   }
 }

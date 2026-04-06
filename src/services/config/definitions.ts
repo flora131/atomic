@@ -9,6 +9,8 @@ export interface AgentConfig {
   cmd: string;
   /** Additional flags to pass when spawning the agent */
   additional_flags: string[];
+  /** Flags used when spawning the agent in interactive chat mode */
+  chat_flags: string[];
   /** Config folder relative to repo root */
   folder: string;
   /** URL for installation instructions */
@@ -31,6 +33,7 @@ export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
     name: "Claude Code",
     cmd: "claude",
     additional_flags: [],
+    chat_flags: ["--allow-dangerously-skip-permissions", "--dangerously-skip-permissions"],
     folder: ".claude",
     install_url: "https://code.claude.com/docs/en/setup",
     exclude: [".DS_Store", "settings.json"],
@@ -51,6 +54,7 @@ export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
     name: "OpenCode",
     cmd: "opencode",
     additional_flags: [],
+    chat_flags: [],
     folder: ".opencode",
     install_url: "https://opencode.ai",
     exclude: [
@@ -73,6 +77,7 @@ export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
     name: "GitHub Copilot CLI",
     cmd: "copilot",
     additional_flags: ["--add-dir", ".", "--yolo", "--disable-builtin-mcps", "--no-auto-update"],
+    chat_flags: ["--add-dir", ".", "--yolo"],
     folder: ".github",
     install_url:
       "https://github.com/github/copilot-cli?tab=readme-ov-file#installation",

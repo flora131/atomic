@@ -46,7 +46,6 @@ export {
   sendLiteralText,
   sendSpecialKey,
   sendKeysAndSubmit,
-  sendKeys,
   capturePane,
   capturePaneVisible,
   capturePaneScrollback,

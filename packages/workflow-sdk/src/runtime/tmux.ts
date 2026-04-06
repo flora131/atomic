@@ -205,18 +205,6 @@ export function sendKeysAndSubmit(
   }
 }
 
-/**
- * @deprecated Use sendLiteralText + sendSpecialKey instead.
- * Legacy send-keys — kept for backward compatibility.
- */
-export function sendKeys(paneId: string, keys: string, pressEnter = true): void {
-  const args = ["send-keys", "-t", paneId, keys];
-  if (pressEnter) {
-    args.push("Enter");
-  }
-  tmuxExec(args);
-}
-
 // ---------------------------------------------------------------------------
 // Pane capture
 // ---------------------------------------------------------------------------

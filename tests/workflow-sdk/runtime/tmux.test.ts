@@ -11,7 +11,6 @@ import {
   sendLiteralText,
   sendSpecialKey,
   sendKeysAndSubmit,
-  sendKeys,
   capturePane,
   capturePaneVisible,
   capturePaneScrollback,
@@ -516,28 +515,6 @@ describe.if(tmuxAvailable)("tmux integration: send keys and capture", () => {
 
     const captured = capturePane(paneId);
     expect(captured).toContain("SUBMIT_TEST");
-  });
-
-  test("sendKeys (deprecated) sends keys with enter", async () => {
-    sendKeys(paneId, "echo LEGACY_SEND", true);
-    await Bun.sleep(300);
-
-    const captured = capturePane(paneId);
-    expect(captured).toContain("LEGACY_SEND");
-  });
-
-  test("sendKeys without enter does not submit", async () => {
-    // Clear the line first
-    sendSpecialKey(paneId, "C-u");
-    sendKeys(paneId, "NOSEND_TEXT", false);
-    await Bun.sleep(200);
-
-    // The text should be on the command line but not executed
-    const visible = capturePaneVisible(paneId);
-    expect(visible).toContain("NOSEND_TEXT");
-
-    // Clean up
-    sendSpecialKey(paneId, "C-u");
   });
 
   test("capturePane returns visible content", () => {

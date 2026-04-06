@@ -137,11 +137,104 @@ function Install-GlobalNpmPackage {
     Write-Warn "Could not install ${Package}"
 }
 
-function Install-Tooling {
-    Write-Info "Installing required tooling (npm, playwright-cli, liteparse)..."
+function Install-Psmux {
+    # Skip if psmux or tmux is already installed
+    $Existing = Get-Command psmux -ErrorAction SilentlyContinue
+    if (-not $Existing) { $Existing = Get-Command tmux -ErrorAction SilentlyContinue }
+    if ($Existing) {
+        Write-Info "psmux/tmux is already installed"
+        return
+    }
 
-    # Phase 1: package manager
+    Write-Info "Installing psmux (Windows terminal multiplexer)..."
+
+    # WinGet (preferred)
+    $Winget = Get-Command winget -ErrorAction SilentlyContinue
+    if ($Winget) {
+        try {
+            & $Winget.Source install psmux --accept-source-agreements --accept-package-agreements
+            if ($LASTEXITCODE -eq 0) { return }
+        } catch { Write-Debug "winget install psmux failed: $_" }
+    }
+
+    # Scoop
+    $Scoop = Get-Command scoop -ErrorAction SilentlyContinue
+    if ($Scoop) {
+        try {
+            & $Scoop.Source bucket add psmux https://github.com/psmux/scoop-psmux 2>$null
+            & $Scoop.Source install psmux
+            if ($LASTEXITCODE -eq 0) { return }
+        } catch { Write-Debug "scoop install psmux failed: $_" }
+    }
+
+    # Chocolatey
+    $Choco = Get-Command choco -ErrorAction SilentlyContinue
+    if ($Choco) {
+        try {
+            & $Choco.Source install psmux -y --no-progress
+            if ($LASTEXITCODE -eq 0) { return }
+        } catch { Write-Debug "choco install psmux failed: $_" }
+    }
+
+    # Cargo (last resort)
+    $Cargo = Get-Command cargo -ErrorAction SilentlyContinue
+    if ($Cargo) {
+        try {
+            & $Cargo.Source install psmux
+            if ($LASTEXITCODE -eq 0) { return }
+        } catch { Write-Debug "cargo install psmux failed: $_" }
+    }
+
+    Write-Warn "Could not install psmux — install it manually from https://github.com/psmux/psmux"
+}
+
+function Install-Bun {
+    # Skip if bun is already installed
+    $Existing = Get-Command bun -ErrorAction SilentlyContinue
+    if ($Existing) {
+        Write-Info "bun is already installed"
+        return
+    }
+
+    Write-Info "Installing bun..."
+
+    # WinGet (preferred)
+    $Winget = Get-Command winget -ErrorAction SilentlyContinue
+    if ($Winget) {
+        try {
+            & $Winget.Source install Oven-sh.Bun --accept-source-agreements --accept-package-agreements
+            if ($LASTEXITCODE -eq 0) { return }
+        } catch { Write-Debug "winget install bun failed: $_" }
+    }
+
+    # Scoop
+    $Scoop = Get-Command scoop -ErrorAction SilentlyContinue
+    if ($Scoop) {
+        try {
+            & $Scoop.Source install bun
+            if ($LASTEXITCODE -eq 0) { return }
+        } catch { Write-Debug "scoop install bun failed: $_" }
+    }
+
+    # npm (last resort)
+    $NpmCmd = Get-Command npm -ErrorAction SilentlyContinue
+    if ($NpmCmd) {
+        try {
+            & $NpmCmd.Source install -g bun
+            if ($LASTEXITCODE -eq 0) { return }
+        } catch { Write-Debug "npm install bun failed: $_" }
+    }
+
+    Write-Warn "Could not install bun — install it manually from https://bun.sh"
+}
+
+function Install-Tooling {
+    Write-Info "Installing required tooling (npm, psmux, bun, playwright-cli, liteparse)..."
+
+    # Phase 1: core tools
     Install-Npm
+    Install-Psmux
+    Install-Bun
 
     # Phase 2: global CLI tools
     Install-GlobalNpmPackage "@playwright/cli@latest"

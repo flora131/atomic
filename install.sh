@@ -398,12 +398,75 @@ install_global_npm_package() {
     return 1
 }
 
+install_tmux() {
+    # Skip if tmux is already installed
+    if command -v tmux >/dev/null 2>&1; then
+        info "tmux is already installed: $(tmux -V 2>/dev/null || echo 'version unknown')"
+        return 0
+    fi
+
+    info "Installing tmux..."
+
+    # macOS: Homebrew
+    if [[ "$OSTYPE" == darwin* ]] && command -v brew >/dev/null 2>&1; then
+        brew install tmux && return 0
+    fi
+
+    # Linux: try package managers in order
+    if command -v apt-get >/dev/null 2>&1; then
+        sudo apt-get update -qq && sudo apt-get install -y tmux && return 0
+    fi
+    if command -v dnf >/dev/null 2>&1; then
+        sudo dnf install -y tmux && return 0
+    fi
+    if command -v yum >/dev/null 2>&1; then
+        sudo yum install -y tmux && return 0
+    fi
+    if command -v pacman >/dev/null 2>&1; then
+        sudo pacman -Sy --noconfirm tmux && return 0
+    fi
+    if command -v zypper >/dev/null 2>&1; then
+        sudo zypper --non-interactive install tmux && return 0
+    fi
+    if command -v apk >/dev/null 2>&1; then
+        sudo apk add --no-cache tmux && return 0
+    fi
+
+    warn "Could not install tmux — install it manually"
+    return 1
+}
+
+install_bun() {
+    # Skip if bun is already installed
+    if command -v bun >/dev/null 2>&1; then
+        info "bun is already installed: $(bun --version 2>/dev/null || echo 'version unknown')"
+        return 0
+    fi
+
+    info "Installing bun..."
+
+    # Preferred: official installer script
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL https://bun.sh/install | bash && return 0
+    fi
+
+    # macOS: Homebrew fallback
+    if [[ "$OSTYPE" == darwin* ]] && command -v brew >/dev/null 2>&1; then
+        brew install oven-sh/bun/bun && return 0
+    fi
+
+    warn "Could not install bun — install it manually from https://bun.sh"
+    return 1
+}
+
 install_tooling() {
-    info "Installing required tooling (npm, playwright-cli, liteparse)..."
+    info "Installing required tooling (npm, tmux, bun, playwright-cli, liteparse)..."
     local failed_tools=()
 
-    # Phase 1: package manager
+    # Phase 1: core tools
     install_npm || { warn "npm installation skipped or failed — install Node.js manually from https://nodejs.org"; failed_tools+=("npm"); }
+    install_tmux || { warn "tmux installation skipped or failed — install tmux manually"; failed_tools+=("tmux"); }
+    install_bun || { warn "bun installation skipped or failed — install bun manually from https://bun.sh"; failed_tools+=("bun"); }
 
     # Phase 2: global CLI tools
     install_global_npm_package "@playwright/cli@latest"        || { warn "@playwright/cli installation skipped or failed"; failed_tools+=("@playwright/cli"); }

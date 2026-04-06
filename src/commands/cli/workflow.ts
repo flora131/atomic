@@ -9,12 +9,14 @@
 import { AGENT_CONFIG, type AgentKey } from "@/services/config/index.ts";
 import { COLORS } from "@/theme/colors.ts";
 import { isCommandInstalled } from "@/services/system/detect.ts";
+import { ensureTmuxInstalled, ensureBunInstalled } from "../../lib/spawn.ts";
 import {
   isTmuxInstalled,
   discoverWorkflows,
   findWorkflow,
   loadWorkflowDefinition,
   executeWorkflow,
+  resetMuxBinaryCache,
 } from "@bastani/atomic-workflows";
 import type { AgentType } from "@bastani/atomic-workflows";
 
@@ -70,11 +72,40 @@ export async function workflowCommand(options: {
     return 1;
   }
 
-  // Check tmux is installed
+  // Ensure tmux/psmux is installed
   if (!isTmuxInstalled()) {
-    console.error(`${COLORS.red}Error: tmux is not installed.${COLORS.reset}`);
-    console.error("Install tmux: https://github.com/tmux/tmux/wiki/Installing");
-    return 1;
+    console.log("Terminal multiplexer not found. Installing...");
+    try {
+      await ensureTmuxInstalled();
+      resetMuxBinaryCache();
+    } catch {
+      // Installation attempt failed — fall through to check below
+    }
+    if (!isTmuxInstalled()) {
+      const isWin = process.platform === "win32";
+      console.error(`${COLORS.red}Error: ${isWin ? "psmux" : "tmux"} is not installed.${COLORS.reset}`);
+      console.error(
+        isWin
+          ? "Install psmux: https://github.com/psmux/psmux#installation"
+          : "Install tmux: https://github.com/tmux/tmux/wiki/Installing",
+      );
+      return 1;
+    }
+  }
+
+  // Ensure bun is installed (required for workflow execution)
+  if (!Bun.which("bun")) {
+    console.log("Bun runtime not found. Installing...");
+    try {
+      await ensureBunInstalled();
+    } catch {
+      // Installation attempt failed — fall through to check below
+    }
+    if (!Bun.which("bun")) {
+      console.error(`${COLORS.red}Error: bun is not installed.${COLORS.reset}`);
+      console.error("Install bun: https://bun.sh");
+      return 1;
+    }
   }
 
   // Find the workflow

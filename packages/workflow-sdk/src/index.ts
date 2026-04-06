@@ -37,6 +37,8 @@ export type { OpenCodeValidationWarning } from "./providers/opencode.ts";
 // Runtime — tmux utilities
 export {
   isTmuxInstalled,
+  getMuxBinary,
+  resetMuxBinaryCache,
   isInsideTmux,
   createSession,
   createWindow,

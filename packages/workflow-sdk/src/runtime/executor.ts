@@ -20,6 +20,7 @@ import type { SessionEvent } from "@github/copilot-sdk";
 import type { SessionPromptResponse } from "@opencode-ai/sdk/v2";
 import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import * as tmux from "./tmux.ts";
+import { getMuxBinary } from "./tmux.ts";
 import { OrchestratorPanel } from "./panel.ts";
 
 /** Agent CLI configuration for spawning in tmux panes. */
@@ -138,27 +139,45 @@ export async function executeWorkflow(options: WorkflowRunOptions): Promise<void
 
   // Write a launcher script for the orchestrator pane
   const thisFile = resolve(import.meta.dir, "executor.ts");
-  const launcherPath = join(sessionsBaseDir, "orchestrator.sh");
+  const isWin = process.platform === "win32";
+  const launcherExt = isWin ? "ps1" : "sh";
+  const launcherPath = join(sessionsBaseDir, `orchestrator.${launcherExt}`);
   const logPath = join(sessionsBaseDir, "orchestrator.log");
-  const launcherScript = [
-    "#!/bin/bash",
-    `cd "${projectRoot}"`,
-    `export ATOMIC_WF_ID="${workflowRunId}"`,
-    `export ATOMIC_WF_TMUX="${tmuxSessionName}"`,
-    `export ATOMIC_WF_AGENT="${agent}"`,
-    `export ATOMIC_WF_PROMPT="${Buffer.from(prompt).toString("base64")}"`,
-    `export ATOMIC_WF_FILE="${resolve(projectRoot, ".atomic", "workflows", agent, definition.name, "index.ts")}"`,
-    `export ATOMIC_WF_CWD="${projectRoot}"`,
-    `bun run "${thisFile}" --run 2>"${logPath}"`,
-  ].join("\n");
+
+  const launcherScript = isWin
+    ? [
+        `Set-Location "${projectRoot}"`,
+        `$env:ATOMIC_WF_ID = "${workflowRunId}"`,
+        `$env:ATOMIC_WF_TMUX = "${tmuxSessionName}"`,
+        `$env:ATOMIC_WF_AGENT = "${agent}"`,
+        `$env:ATOMIC_WF_PROMPT = "${Buffer.from(prompt).toString("base64")}"`,
+        `$env:ATOMIC_WF_FILE = "${resolve(projectRoot, ".atomic", "workflows", agent, definition.name, "index.ts")}"`,
+        `$env:ATOMIC_WF_CWD = "${projectRoot}"`,
+        `bun run "${thisFile}" --run 2>"${logPath}"`,
+      ].join("\n")
+    : [
+        "#!/bin/bash",
+        `cd "${projectRoot}"`,
+        `export ATOMIC_WF_ID="${workflowRunId}"`,
+        `export ATOMIC_WF_TMUX="${tmuxSessionName}"`,
+        `export ATOMIC_WF_AGENT="${agent}"`,
+        `export ATOMIC_WF_PROMPT="${Buffer.from(prompt).toString("base64")}"`,
+        `export ATOMIC_WF_FILE="${resolve(projectRoot, ".atomic", "workflows", agent, definition.name, "index.ts")}"`,
+        `export ATOMIC_WF_CWD="${projectRoot}"`,
+        `bun run "${thisFile}" --run 2>"${logPath}"`,
+      ].join("\n");
 
   await writeFile(launcherPath, launcherScript, { mode: 0o755 });
 
   // Create tmux session with orchestrator as the initial window
-  tmux.createSession(tmuxSessionName, `bash "${launcherPath}"`, "orchestrator");
+  const shellCmd = isWin
+    ? `pwsh -NoProfile -File "${launcherPath}"`
+    : `bash "${launcherPath}"`;
+  tmux.createSession(tmuxSessionName, shellCmd, "orchestrator");
 
   // Attach — user sees the orchestrator output + agent panes as they spawn
-  const attachProc = Bun.spawn(["tmux", "attach-session", "-t", tmuxSessionName], {
+  const muxBinary = getMuxBinary() ?? "tmux";
+  const attachProc = Bun.spawn([muxBinary, "attach-session", "-t", tmuxSessionName], {
     stdio: ["inherit", "inherit", "inherit"],
   });
   await attachProc.exited;

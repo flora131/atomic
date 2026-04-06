@@ -10,18 +10,57 @@
 // Core tmux primitives
 // ---------------------------------------------------------------------------
 
+/** Cached resolved multiplexer binary path. Resolved once on first use. */
+let resolvedMuxBinary: string | null | undefined; // undefined = not yet resolved
+
+/**
+ * Resolve the terminal multiplexer binary for the current platform.
+ *
+ * On Windows, tries psmux → pmux → tmux (psmux ships all three as aliases).
+ * On Unix/macOS, uses tmux directly.
+ *
+ * Returns the binary name (not the full path) or null if none is found.
+ * The result is cached after the first call.
+ */
+export function getMuxBinary(): string | null {
+  if (resolvedMuxBinary !== undefined) return resolvedMuxBinary;
+
+  if (process.platform === "win32") {
+    for (const candidate of ["psmux", "pmux", "tmux"]) {
+      if (Bun.which(candidate)) {
+        resolvedMuxBinary = candidate;
+        return resolvedMuxBinary;
+      }
+    }
+    resolvedMuxBinary = null;
+    return null;
+  }
+
+  // Unix / macOS
+  resolvedMuxBinary = Bun.which("tmux") ? "tmux" : null;
+  return resolvedMuxBinary;
+}
+
+/**
+ * Reset the cached multiplexer binary resolution.
+ * Call after installing tmux/psmux to force re-detection.
+ */
+export function resetMuxBinaryCache(): void {
+  resolvedMuxBinary = undefined;
+}
+
 /**
  * Check if tmux is installed and available.
  */
 export function isTmuxInstalled(): boolean {
-  return Bun.which("tmux") !== null;
+  return getMuxBinary() !== null;
 }
 
 /**
  * Check if we're currently inside a tmux session.
  */
 export function isInsideTmux(): boolean {
-  return process.env.TMUX !== undefined;
+  return process.env.TMUX !== undefined || process.env.PSMUX !== undefined;
 }
 
 /**
@@ -30,8 +69,12 @@ export function isInsideTmux(): boolean {
  * need to handle failure gracefully.
  */
 export function tmuxRun(args: string[]): { ok: true; stdout: string } | { ok: false; stderr: string } {
+  const binary = getMuxBinary();
+  if (!binary) {
+    return { ok: false, stderr: "No terminal multiplexer (tmux/psmux) found on PATH" };
+  }
   const result = Bun.spawnSync({
-    cmd: ["tmux", ...args],
+    cmd: [binary, ...args],
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -234,8 +277,10 @@ export function killSession(sessionName: string): void {
  * Check if a tmux session exists.
  */
 export function sessionExists(sessionName: string): boolean {
+  const binary = getMuxBinary();
+  if (!binary) return false;
   const result = Bun.spawnSync({
-    cmd: ["tmux", "has-session", "-t", sessionName],
+    cmd: [binary, "has-session", "-t", sessionName],
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -246,12 +291,16 @@ export function sessionExists(sessionName: string): boolean {
  * Attach to an existing tmux session (takes over the current terminal).
  */
 export function attachSession(sessionName: string): void {
+  const binary = getMuxBinary();
+  if (!binary) {
+    throw new Error("No terminal multiplexer (tmux/psmux) found on PATH");
+  }
   const proc = Bun.spawnSync({
-    cmd: ["tmux", "attach-session", "-t", sessionName],
+    cmd: [binary, "attach-session", "-t", sessionName],
     stdio: ["inherit", "inherit", "inherit"],
   });
   if (!proc.success) {
-    throw new Error(`Failed to attach to tmux session: ${sessionName}`);
+    throw new Error(`Failed to attach to session: ${sessionName}`);
   }
 }
 

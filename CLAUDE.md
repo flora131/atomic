@@ -86,9 +86,12 @@ Relevant resources (use the deepwiki mcp `ask_question` tool for the repos if th
 1. Bun (runtime) repo: `oven-sh/bun`
 2. OpenCode:
    1. SDK repo: `anomalyco/opencode`
+        1. [Docs](docs/opencode/sdk.md)
+        2. [Server](docs/opencode/server.md)
    2. CLI repo: `anomalyco/opencode`
 3. Copilot:
     1. SDK repo: `github/copilot-sdk`
+        1. [Docs](docs/copilot-cli/sdk.md)
     2. CLI repo: `github/copilot-cli`
         1. [Usage](docs/copilot-cli/usage.md)
         2. [Hooks](docs/copilot-cli/hooks.md)
@@ -96,7 +99,7 @@ Relevant resources (use the deepwiki mcp `ask_question` tool for the repos if th
         4. [Subagents](docs/copilot-cli/subagents.md)
 4. Claude Code:
    1. SDK repo: `anthropics/claude-agent-sdk-typescript`
-      1. [Docs](docs/claude-code/agent-sdk.md), v1 preferred (v2 is unstable and has many bugs)
+      1. [Docs](docs/claude-code/agent-sdk)
    2. CLI repo: `anthropics/claude-code`
       1. [Hooks](docs/claude-code/cli/hooks.md)
       2. [Permissions](docs/claude-code/cli/permissions.md)

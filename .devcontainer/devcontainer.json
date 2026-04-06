@@ -16,11 +16,7 @@
     "GH_TOKEN": "${localEnv:GH_TOKEN}",
     "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}"
   },
-  "postCreateCommand": {
-    "install-deps": "bun install",
-    "install-atomic": "curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash"
-    // "install-pre-atomic": "curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash -s -- --prerelease"
-  },
+  "postCreateCommand": "bun install && curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash",
   "mounts": [
     {
       "source": "${localEnv:HOME}${localEnv:USERPROFILE}/.ssh",

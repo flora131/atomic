@@ -37,6 +37,8 @@ import {
   upgradeNpm,
   upgradePlaywrightCli,
   upgradeLiteparse,
+  upgradeTmux,
+  upgradeBun,
   collectFailures,
   type ToolingStep,
 } from "@/lib/spawn.ts";
@@ -315,12 +317,14 @@ export async function updateCommand(): Promise<void> {
       ]);
       s.stop("Config files updated");
 
-      // Update tooling: npm, playwright-cli, liteparse
+      // Update tooling: npm, playwright-cli, liteparse, tmux/psmux, bun
       s.start("Updating tools...");
       const toolingSteps: ToolingStep[] = [
         { label: "npm", fn: upgradeNpm },
         { label: "@playwright/cli", fn: upgradePlaywrightCli },
         { label: "@llamaindex/liteparse", fn: upgradeLiteparse },
+        { label: "tmux/psmux", fn: upgradeTmux },
+        { label: "bun", fn: upgradeBun },
       ];
       const toolingResults = await Promise.allSettled(toolingSteps.map((step) => step.fn()));
       const toolingFailures = collectFailures(toolingSteps, toolingResults);

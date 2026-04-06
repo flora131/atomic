@@ -25,7 +25,7 @@ import {
   waitForOutput,
   attemptSubmitRounds,
   attachSession,
-} from "../../../packages/workflow-sdk/src/runtime/tmux.ts";
+} from "@bastani/atomic-workflows";
 
 // ---------------------------------------------------------------------------
 // getMuxBinary

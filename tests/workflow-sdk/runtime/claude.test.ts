@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { paneLooksReady, paneHasActiveTask } from "../../../packages/workflow-sdk/src/runtime/tmux.ts";
+import { paneLooksReady, paneHasActiveTask } from "@bastani/atomic-workflows";
 
 // ---------------------------------------------------------------------------
 // paneLooksReady

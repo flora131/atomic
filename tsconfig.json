@@ -31,6 +31,6 @@
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false
   },
-  "include": ["src", "packages", ".atomic/workflows"],
+  "include": ["src", "packages", "tests", ".atomic/workflows"],
   "exclude": ["docs"]
 }

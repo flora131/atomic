@@ -537,7 +537,8 @@ type PermissionMode =
   | "acceptEdits" // Auto-accept file edits
   | "bypassPermissions" // Bypass all permission checks
   | "plan" // Planning mode - no execution
-  | "dontAsk"; // Don't prompt for permissions, deny if not pre-approved
+  | "dontAsk" // Don't prompt for permissions, deny if not pre-approved
+  | "auto"; // Use a model classifier to approve or deny each tool call
 ```
 
 ### `CanUseTool`

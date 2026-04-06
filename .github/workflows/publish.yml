@@ -94,6 +94,33 @@ jobs:
           # Remove node_modules from .opencode if present
           rm -rf config-staging/.opencode/node_modules
 
+          # Copy workflow templates for global installation
+          mkdir -p config-staging/.atomic
+          cp -r .atomic/workflows config-staging/.atomic/workflows
+          rm -rf config-staging/.atomic/workflows/node_modules
+          rm -f config-staging/.atomic/workflows/package-lock.json
+          # Strip dev-only tsconfig paths alias (points to monorepo packages/ dir)
+          cat > config-staging/.atomic/workflows/tsconfig.json << 'TSEOF'
+          {
+            "compilerOptions": {
+              "target": "ESNext",
+              "module": "ESNext",
+              "moduleResolution": "bundler",
+              "allowImportingTsExtensions": true,
+              "noEmit": true,
+              "verbatimModuleSyntax": true,
+              "strict": true,
+              "skipLibCheck": true,
+              "types": ["bun"]
+            },
+            "include": [
+              "copilot/**/*.ts",
+              "opencode/**/*.ts",
+              "claude/**/*.ts"
+            ]
+          }
+          TSEOF
+
           # Create tarball for Unix systems (preserves permissions)
           tar -czvf dist/atomic-config.tar.gz -C config-staging .
 
@@ -203,6 +230,9 @@ jobs:
           test -d config-test/.github/agents || (echo "::error::Missing .github/agents" && exit 1)
           test -f config-test/.github/lsp.json || (echo "::error::Missing .github/lsp.json" && exit 1)
           test -f config-test/.vscode/mcp.json || (echo "::error::Missing .vscode/mcp.json" && exit 1)
+          test -d config-test/.atomic/workflows/claude || (echo "::error::Missing .atomic/workflows/claude" && exit 1)
+          test -d config-test/.atomic/workflows/copilot || (echo "::error::Missing .atomic/workflows/copilot" && exit 1)
+          test -d config-test/.atomic/workflows/opencode || (echo "::error::Missing .atomic/workflows/opencode" && exit 1)
           echo "Config archive validation passed"
 
       - name: Validate config archive (Windows)
@@ -221,6 +251,9 @@ jobs:
           if (-not (Test-Path "config-test/.github/agents")) { Write-Error "Missing .github/agents"; exit 1 }
           if (-not (Test-Path "config-test/.github/lsp.json")) { Write-Error "Missing .github/lsp.json"; exit 1 }
           if (-not (Test-Path "config-test/.vscode/mcp.json")) { Write-Error "Missing .vscode/mcp.json"; exit 1 }
+          if (-not (Test-Path "config-test/.atomic/workflows/claude")) { Write-Error "Missing .atomic/workflows/claude"; exit 1 }
+          if (-not (Test-Path "config-test/.atomic/workflows/copilot")) { Write-Error "Missing .atomic/workflows/copilot"; exit 1 }
+          if (-not (Test-Path "config-test/.atomic/workflows/opencode")) { Write-Error "Missing .atomic/workflows/opencode"; exit 1 }
           Write-Host "Config archive validation passed"
 
   release:

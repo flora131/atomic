@@ -171,6 +171,17 @@ export async function ensureConfigDataDir(
       await ensureDir(dataDir);
       await extractConfig(configPath, dataDir);
       log.success("Config data installed");
+
+      // Install bundled workflow templates to ~/.atomic/workflows/
+      try {
+        const { installGlobalWorkflows } = await import("@/services/system/install-workflows.ts");
+        const copied = await installGlobalWorkflows(dataDir);
+        if (copied > 0) {
+          log.info(`Installed ${copied} workflow template(s)`);
+        }
+      } catch {
+        // Workflow installation is best-effort — don't block first run
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(

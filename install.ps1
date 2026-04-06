@@ -243,6 +243,75 @@ function Install-Tooling {
     Write-Success "Tooling installed"
 }
 
+# Install bundled workflow templates to ~/.atomic/workflows/
+# Copies from the config data dir, skipping existing workflow directories
+# to preserve user customizations.
+function Install-Workflows {
+    $SrcDir = Join-Path $DataDir ".atomic" "workflows"
+    $DestDir = Join-Path $AtomicHome "workflows"
+
+    if (-not (Test-Path $SrcDir)) {
+        return
+    }
+
+    Write-Info "Installing workflow templates to ${DestDir}..."
+    $null = New-Item -ItemType Directory -Force -Path $DestDir
+
+    # Enumerate source: copy root files and non-agent directories (always update),
+    # then handle agent directories with per-workflow skip-if-exists logic.
+    $AgentNames = @("copilot", "opencode", "claude")
+    foreach ($Item in (Get-ChildItem -Path $SrcDir -Force -ErrorAction SilentlyContinue)) {
+        if ($Item.Name -eq "node_modules") { continue }
+        # Skip dotfiles except .gitignore (match TS behavior)
+        if ($Item.Name.StartsWith(".") -and $Item.Name -ne ".gitignore") { continue }
+
+        $DestItem = Join-Path $DestDir $Item.Name
+        if (-not $Item.PSIsContainer) {
+            Copy-Item -Path $Item.FullName -Destination $DestItem -Force
+        } elseif ($Item.Name -notin $AgentNames) {
+            $null = New-Item -ItemType Directory -Force -Path $DestItem
+            Copy-Item -Path "$($Item.FullName)\*" -Destination $DestItem -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    # Copy per-agent workflow directories (skip existing)
+    $Copied = 0
+    foreach ($Agent in $AgentNames) {
+        $AgentSrc = Join-Path $SrcDir $Agent
+        if (-not (Test-Path $AgentSrc)) { continue }
+        $AgentDest = Join-Path $DestDir $Agent
+        $null = New-Item -ItemType Directory -Force -Path $AgentDest
+
+        foreach ($WorkflowDir in (Get-ChildItem -Path $AgentSrc -Directory)) {
+            $DestWorkflow = Join-Path $AgentDest $WorkflowDir.Name
+            if (-not (Test-Path $DestWorkflow)) {
+                Copy-Item -Path $WorkflowDir.FullName -Destination $DestWorkflow -Recurse
+                $Copied++
+            }
+        }
+    }
+
+    # Install SDK dependency
+    $SavedLocation = Get-Location
+    try {
+        if (Get-Command bun -ErrorAction SilentlyContinue) {
+            Set-Location $DestDir
+            & bun install 2>$null
+            if ($LASTEXITCODE -ne 0) { throw "bun install failed" }
+        } elseif (Get-Command npm -ErrorAction SilentlyContinue) {
+            Set-Location $DestDir
+            & npm install 2>$null
+            if ($LASTEXITCODE -ne 0) { throw "npm install failed" }
+        }
+    } catch {
+        Write-Warn "Workflow dependency install failed (non-fatal)"
+    } finally {
+        Set-Location $SavedLocation
+    }
+
+    Write-Success "Workflow templates installed (${Copied} new workflow(s))"
+}
+
 # -----------------------------------------------------------------------------
 
 # Detect architecture
@@ -416,6 +485,9 @@ try {
 
     # Install required tooling
     Install-Tooling
+
+    # Install bundled workflow templates to ~/.atomic/workflows/
+    Install-Workflows
 
     # Persist prerelease channel preference in settings
     $SettingsFile = Join-Path $AtomicHome "settings.json"

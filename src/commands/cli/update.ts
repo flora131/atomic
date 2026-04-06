@@ -313,6 +313,13 @@ export async function updateCommand(): Promise<void> {
         (async () => {
           await extractConfig(configPath, dataDir);
           await syncAtomicGlobalAgentConfigs(dataDir);
+          // Install/update bundled workflow templates
+          try {
+            const { installGlobalWorkflows } = await import("@/services/system/install-workflows.ts");
+            await installGlobalWorkflows(dataDir);
+          } catch {
+            // Workflow installation is best-effort — don't block updates
+          }
         })(),
       ]);
       s.stop("Config files updated");

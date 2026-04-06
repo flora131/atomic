@@ -488,6 +488,73 @@ install_tooling() {
     success "Tooling setup complete"
 }
 
+# Install bundled workflow templates to ~/.atomic/workflows/
+# Copies from the config data dir, skipping existing workflow directories
+# to preserve user customizations. Shared files (package.json, tsconfig,
+# helpers) are always updated to ensure SDK compatibility.
+install_workflows() {
+    local src_dir="${DATA_DIR}/.atomic/workflows"
+    local dest_dir="${ATOMIC_HOME}/workflows"
+
+    if [[ ! -d "$src_dir" ]]; then
+        return 0
+    fi
+
+    info "Installing workflow templates to ${dest_dir}..."
+    mkdir -p "$dest_dir"
+
+    # Enumerate source: copy root files and non-agent directories (always update),
+    # then handle agent directories with per-workflow skip-if-exists logic.
+    for entry in "$src_dir"/*; do
+        [[ -e "$entry" ]] || continue
+        local name
+        name=$(basename "$entry")
+        [[ "$name" == "node_modules" ]] && continue
+
+        if [[ -f "$entry" ]]; then
+            cp "$entry" "$dest_dir/$name"
+        elif [[ -d "$entry" ]]; then
+            case "$name" in
+                copilot|opencode|claude) ;; # handled below
+                *) mkdir -p "$dest_dir/$name" && cp -r "$entry/." "$dest_dir/$name/" ;;
+            esac
+        fi
+    done
+    # Copy dotfiles (only .gitignore — skip other hidden files to match TS behavior)
+    if [[ -f "$src_dir/.gitignore" ]]; then
+        cp "$src_dir/.gitignore" "$dest_dir/.gitignore"
+    fi
+
+    # Copy per-agent workflow directories (skip existing to preserve user customizations)
+    local copied=0
+    for agent in copilot opencode claude; do
+        local agent_src="$src_dir/$agent"
+        if [[ ! -d "$agent_src" ]]; then
+            continue
+        fi
+        mkdir -p "$dest_dir/$agent"
+        for workflow_dir in "$agent_src"/*/; do
+            [[ -d "$workflow_dir" ]] || continue
+            local workflow_name
+            workflow_name=$(basename "$workflow_dir")
+            local dest_workflow="$dest_dir/$agent/$workflow_name"
+            if [[ ! -d "$dest_workflow" ]]; then
+                cp -r "$workflow_dir" "$dest_workflow"
+                copied=$((copied + 1))
+            fi
+        done
+    done
+
+    # Install SDK dependency
+    if command -v bun >/dev/null 2>&1; then
+        (cd "$dest_dir" && bun install 2>/dev/null) || warn "Workflow dependency install failed (non-fatal)"
+    elif command -v npm >/dev/null 2>&1; then
+        (cd "$dest_dir" && npm install 2>/dev/null) || warn "Workflow dependency install failed (non-fatal)"
+    fi
+
+    success "Workflow templates installed (${copied} new workflow(s))"
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Main installation
@@ -625,6 +692,9 @@ main() {
 
     # Install required tooling
     install_tooling
+
+    # Install bundled workflow templates to ~/.atomic/workflows/
+    install_workflows
 
     # Persist prerelease channel preference in settings (atomic write via temp + mv)
     local settings_file="${ATOMIC_HOME}/settings.json"

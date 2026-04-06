@@ -1,78 +1,261 @@
 # Control Flow
 
+Control flow in workflows is plain TypeScript inside `run()`. Use `if`/`else` for conditionals, `for`/`while` for loops, and `break`/`continue` for early termination.
+
 ## Conditional branching
 
-Use `.if()` / `.elseIf()` / `.else()` / `.endIf()` for conditional execution. Conditions receive a `StageContext` and return a boolean:
+Use standard `if`/`else` to branch execution:
 
 ```ts
-defineWorkflow({ name: "conditional-pipeline", description: "Branch based on analysis" })
-  .stage({ name: "analyze", agent: "analyzer", ... })
-  .if((ctx) => ctx.stageOutputs.get("analyze")?.parsedOutput?.needsFix)
-    .stage({ name: "fix", agent: "fixer", ... })
-  .elseIf((ctx) => ctx.stageOutputs.get("analyze")?.parsedOutput?.needsReview)
-    .stage({ name: "review", agent: "reviewer", ... })
-  .else()
-    .stage({ name: "report", agent: "reporter", ... })
-  .endIf()
-  .stage({ name: "finalize", agent: "finalizer", ... })
-  .compile();
+.session({
+  name: "triage-and-act",
+  run: async (ctx) => {
+    // Step 1: Classify the request
+    const triageResult = await claudeQuery({
+      paneId: ctx.paneId,
+      prompt: `Classify this as "bug", "feature", or "question": ${ctx.userPrompt}`,
+    });
+
+    const classification = triageResult.output.toLowerCase();
+
+    // Step 2: Branch based on classification
+    if (classification.includes("bug")) {
+      await claudeQuery({
+        paneId: ctx.paneId,
+        prompt: "Diagnose and fix the bug described above.",
+      });
+    } else if (classification.includes("feature")) {
+      await claudeQuery({
+        paneId: ctx.paneId,
+        prompt: "Design and implement the feature described above.",
+      });
+    } else {
+      await claudeQuery({
+        paneId: ctx.paneId,
+        prompt: "Research and answer the question above.",
+      });
+    }
+
+    ctx.save(ctx.sessionId);
+  },
+})
 ```
-
-Reading top-to-bottom: `analyze → (if needsFix: fix | elif needsReview: review | else: report) → finalize`.
-
-### Rules
-
-- Every `.if()` must have a matching `.endIf()`. The compiler rejects unbalanced blocks.
-- Every branch (if, elseIf, else) must contain at least one `.stage()` or `.tool()`.
-- `.elseIf()` and `.else()` are optional — a bare `.if()` / `.endIf()` is valid.
-- Conditionals can be nested inside other conditionals or loops.
 
 ## Bounded loops
 
-Use `.loop()` / `.endLoop()` for iterative workflows with a maximum iteration bound. Use `.break()` inside the loop body for conditional early termination:
+Use `for` or `while` loops with explicit bounds:
 
 ```ts
-defineWorkflow({ name: "iterative-review", description: "Review loop" })
-  .stage({ name: "execute", agent: "executor", ... })
-  .loop({ maxCycles: 5 })
-    .stage({ name: "review", agent: "reviewer", ... })
-    .break(() => {
-      // Factory: returns a fresh predicate per execution
-      return (state) => state.reviewResult?.allPassing === true;
-    })
-    .stage({ name: "fix", agent: "fixer", ... })
-  .endLoop()
-  .stage({ name: "deploy", agent: "deployer", ... })
-  .compile();
+.session({
+  name: "iterative-refinement",
+  run: async (ctx) => {
+    const MAX_ITERATIONS = 5;
+
+    for (let i = 0; i < MAX_ITERATIONS; i++) {
+      const result = await claudeQuery({
+        paneId: ctx.paneId,
+        prompt: `Iteration ${i + 1}: Improve the implementation.`,
+      });
+
+      // Check if we're done
+      if (result.output.includes("LGTM") || result.output.includes("no issues")) {
+        break;
+      }
+    }
+
+    ctx.save(ctx.sessionId);
+  },
+})
 ```
 
-Reading top-to-bottom: `execute → [review → break? → fix] (repeat up to 5x) → deploy`.
+## Review/fix loop pattern
 
-### `.break()`
-
-The `.break()` method accepts an optional factory function that creates a fresh predicate per execution. The loop exits when the predicate returns `true`. Omit the argument for an unconditional break (useful inside `.if()` blocks).
+The Ralph workflow demonstrates a production-grade review/fix loop with consecutive clean-pass detection:
 
 ```ts
-// Conditional break — exits loop when predicate returns true
-.break(() => (state) => state.reviewResult?.allPassing === true)
+.session({
+  name: "review-fix",
+  description: "Iterative review and fix until clean",
+  run: async (ctx) => {
+    const MAX_CYCLES = 10;
+    const CLEAN_THRESHOLD = 2;
+    let consecutiveClean = 0;
+    let priorDebuggerOutput = "";
 
-// Unconditional break — always exits (use inside .if() to make it conditional)
-.if((ctx) => ctx.stageOutputs.get("review")?.parsedOutput?.allPassing)
-  .break()
-.endIf()
+    for (let cycle = 0; cycle < MAX_CYCLES; cycle++) {
+      // Step 1: Review
+      const reviewResult = await claudeQuery({
+        paneId: ctx.paneId,
+        prompt: buildReviewPrompt(ctx.userPrompt, priorDebuggerOutput),
+      });
+      const reviewRaw = reviewResult.output;
+
+      // Step 2: Parse findings (deterministic computation)
+      const review = parseReviewResult(reviewRaw);
+
+      // Step 3: Check if clean
+      if (!hasActionableFindings(review, reviewRaw)) {
+        consecutiveClean++;
+        if (consecutiveClean >= CLEAN_THRESHOLD) {
+          break; // Two clean passes → done
+        }
+        continue; // One clean pass → verify again
+      }
+
+      // Findings found — reset clean streak
+      consecutiveClean = 0;
+
+      // Step 4: Build fix prompt
+      const fixPrompt = review
+        ? buildFixSpecFromReview(review, ctx.userPrompt)
+        : buildFixSpecFromRawReview(reviewRaw, ctx.userPrompt);
+
+      // Step 5: Apply fix
+      const fixResult = await claudeQuery({
+        paneId: ctx.paneId,
+        prompt: fixPrompt || "Fix any remaining issues.",
+      });
+      priorDebuggerOutput = fixResult.output;
+    }
+
+    ctx.save(ctx.sessionId);
+  },
+})
 ```
 
-### `LoopOptions` reference
+### Same pattern with Copilot
 
-| Field       | Type                             | Required | Default | Description                                  |
-| ----------- | -------------------------------- | -------- | ------- | -------------------------------------------- |
-| `maxCycles` | `number`                         | no       | `100`   | Hard upper bound on iterations               |
-| `loopState` | `Record<string, StateFieldOptions>` | no    |         | State fields scoped to this loop (see `state-and-reducers.md`) |
+```ts
+.session({
+  name: "review-fix",
+  run: async (ctx) => {
+    const client = new CopilotClient({ cliUrl: ctx.serverUrl });
+    await client.start();
+    const session = await client.createSession({ onPermissionRequest: approveAll });
+    await client.setForegroundSessionId(session.sessionId);
 
-### Rules
+    const MAX_CYCLES = 10;
+    let consecutiveClean = 0;
 
-- Every `.loop()` must have a matching `.endLoop()`. The compiler rejects unbalanced blocks.
-- `.break()` can only appear inside a `.loop()` / `.endLoop()` block. The builder throws immediately if misplaced.
-- Loops can be nested. Each loop has its own independent iteration counter.
-- `.break()` inside a nested loop exits the innermost enclosing loop only.
-- `maxCycles` and `.break()` are independent termination mechanisms — either can end the loop.
+    for (let cycle = 0; cycle < MAX_CYCLES; cycle++) {
+      await session.sendAndWait({ prompt: buildReviewPrompt(ctx.userPrompt) });
+      const reviewRaw = getLastAssistantText(await session.getMessages());
+      const review = parseReviewResult(reviewRaw);
+
+      if (!hasActionableFindings(review, reviewRaw)) {
+        consecutiveClean++;
+        if (consecutiveClean >= 2) break;
+        continue;
+      }
+      consecutiveClean = 0;
+
+      const fixPrompt = review
+        ? buildFixSpecFromReview(review, ctx.userPrompt)
+        : buildFixSpecFromRawReview(reviewRaw, ctx.userPrompt);
+
+      await session.sendAndWait({ prompt: fixPrompt || "Fix remaining issues." });
+    }
+
+    ctx.save(await session.getMessages());
+    await session.disconnect();
+    await client.stop();
+  },
+})
+```
+
+## Multi-turn conversations
+
+Within a single session, each SDK call adds to the conversation context:
+
+```ts
+.session({
+  name: "guided-implementation",
+  run: async (ctx) => {
+    // Claude remembers all prior turns within the same pane
+    await claudeQuery({ paneId: ctx.paneId, prompt: "Step 1: Set up the project structure." });
+    await claudeQuery({ paneId: ctx.paneId, prompt: "Step 2: Implement the core logic." });
+    await claudeQuery({ paneId: ctx.paneId, prompt: "Step 3: Add error handling." });
+    await claudeQuery({ paneId: ctx.paneId, prompt: "Step 4: Write tests." });
+    ctx.save(ctx.sessionId);
+  },
+})
+```
+
+## Error handling and retry patterns
+
+### Try/catch with fallback
+
+```ts
+run: async (ctx) => {
+  try {
+    await claudeQuery({ paneId: ctx.paneId, prompt: ctx.userPrompt });
+  } catch (error) {
+    // Retry with simpler prompt
+    await claudeQuery({
+      paneId: ctx.paneId,
+      prompt: `The previous attempt failed. Please try a simpler approach: ${ctx.userPrompt}`,
+    });
+  }
+  ctx.save(ctx.sessionId);
+},
+```
+
+### Retry with exponential backoff
+
+```ts
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  maxRetries: number = 3,
+  baseDelay: number = 1000,
+): Promise<T> {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (attempt === maxRetries - 1) throw error;
+      await new Promise(r => setTimeout(r, baseDelay * Math.pow(2, attempt)));
+    }
+  }
+  throw new Error("Unreachable");
+}
+
+run: async (ctx) => {
+  await retryWithBackoff(() =>
+    claudeQuery({ paneId: ctx.paneId, prompt: ctx.userPrompt })
+  );
+  ctx.save(ctx.sessionId);
+},
+```
+
+## Combining patterns
+
+Combine loops, conditionals, and data passing:
+
+```ts
+.session({
+  name: "adaptive-implementation",
+  run: async (ctx) => {
+    const analysis = await ctx.transcript("analyze");
+
+    // Determine strategy based on analysis
+    const isComplex = analysis.content.includes("complex");
+    const maxIterations = isComplex ? 10 : 3;
+
+    for (let i = 0; i < maxIterations; i++) {
+      const result = await claudeQuery({
+        paneId: ctx.paneId,
+        prompt: i === 0
+          ? `Implement based on:\n${analysis.content}`
+          : "Continue improving the implementation.",
+      });
+
+      // Check completion criteria
+      if (result.output.includes("all tests pass")) {
+        break;
+      }
+    }
+
+    ctx.save(ctx.sessionId);
+  },
+})
+```

@@ -1,67 +1,135 @@
 # Workflow Authors: Getting Started
 
-This guide is for authors creating custom workflows using the `defineWorkflow()` chainable DSL.
+This guide covers the basics of creating workflows with the `defineWorkflow()` session-based API.
 
 ## Quick-start example
 
-Use the chainable builder to declare your workflow's metadata, stages, and execution flow in a single file. The chain of method calls **is** the graph — reading top-to-bottom shows the execution order.
+Use the chainable builder to declare your workflow's metadata and sessions. Each session's `run()` callback contains raw SDK code for your target agent.
+
+### Claude
 
 ```ts
-// .atomic/workflows/my-workflow.ts
-import { defineWorkflow } from "@bastani/atomic-workflows";
+// .atomic/workflows/claude/my-workflow/index.ts
+import { defineWorkflow, claudeQuery } from "@bastani/atomic-workflows";
 
 export default defineWorkflow({
     name: "my-workflow",
-    description: "A three-stage pipeline",
+    description: "A two-session pipeline",
   })
-  .version("1.0.0")
-  .stage({
-    name: "plan",
-    agent: "planner",
-    description: "PLANNER",
-    prompt: (ctx) => `Decompose this into tasks:\n${ctx.userPrompt}`,
-    outputMapper: (response) => ({ tasks: JSON.parse(response) }),
+  .session({
+    name: "describe",
+    description: "Ask Claude to describe the project",
+    run: async (ctx) => {
+      await claudeQuery({ paneId: ctx.paneId, prompt: ctx.userPrompt });
+      ctx.save(ctx.sessionId);
+    },
   })
-  .stage({
-    name: "execute",
-    agent: null,
-    description: "EXECUTOR",
-    prompt: (ctx) => `Execute these tasks:\n${JSON.stringify(ctx.stageOutputs.get("plan")?.parsedOutput)}`,
-    outputMapper: () => ({}),
-  })
-  .stage({
-    name: "review",
-    agent: "reviewer",
-    description: "REVIEWER",
-    prompt: (ctx) => `Review the implementation against: ${ctx.userPrompt}`,
-    outputMapper: (response) => ({ reviewResult: JSON.parse(response) }),
+  .session({
+    name: "summarize",
+    description: "Summarize the previous session's output",
+    run: async (ctx) => {
+      const research = await ctx.transcript("describe");
+      await claudeQuery({
+        paneId: ctx.paneId,
+        prompt: `Read ${research.path} and summarize it in 2-3 bullet points.`,
+      });
+      ctx.save(ctx.sessionId);
+    },
   })
   .compile();
 ```
 
-Reading top-to-bottom: `plan → execute → review`. No separate flow config needed.
+### Copilot
 
-Note that the `execute` stage sets `agent: null` — it runs with the SDK's default session instructions instead of a custom agent definition. Both `name` and `agent` are required on every stage. See `nodes/stage.md` for details.
+```ts
+// .atomic/workflows/copilot/my-workflow/index.ts
+import { defineWorkflow } from "@bastani/atomic-workflows";
+import { CopilotClient, approveAll } from "@github/copilot-sdk";
 
-## Reference files
+export default defineWorkflow({
+    name: "my-workflow",
+    description: "A two-session pipeline",
+  })
+  .session({
+    name: "describe",
+    description: "Ask the agent to describe the project",
+    run: async (ctx) => {
+      const client = new CopilotClient({ cliUrl: ctx.serverUrl });
+      await client.start();
+      const session = await client.createSession({ onPermissionRequest: approveAll });
+      await client.setForegroundSessionId(session.sessionId);
+      await session.sendAndWait({ prompt: ctx.userPrompt });
+      ctx.save(await session.getMessages());
+      await session.disconnect();
+      await client.stop();
+    },
+  })
+  .session({
+    name: "summarize",
+    description: "Summarize the previous session's output",
+    run: async (ctx) => {
+      const research = await ctx.transcript("describe");
+      const client = new CopilotClient({ cliUrl: ctx.serverUrl });
+      await client.start();
+      const session = await client.createSession({ onPermissionRequest: approveAll });
+      await client.setForegroundSessionId(session.sessionId);
+      await session.sendAndWait({
+        prompt: `Summarize the following in 2-3 bullet points:\n\n${research.content}`,
+      });
+      ctx.save(await session.getMessages());
+      await session.disconnect();
+      await client.stop();
+    },
+  })
+  .compile();
+```
 
-| File | Topic |
-|---|---|
-| `nodes/stage.md` | `.stage()` API, `name` vs `agent`, null agent behavior, `StageOptions` reference |
-| `nodes/tool.md` | `.tool()` API, common use cases, `ToolOptions` reference |
-| `nodes/ask-user-question.md` | `.askUserQuestion()` API, static/dynamic questions, multi-select, `outputMapper` mapping |
-| `control-flow.md` | `.if()` / `.elseIf()` / `.else()` / `.endIf()` conditionals, `.loop()` / `.break()` / `.endLoop()` bounded loops |
-| `state-and-reducers.md` | `globalState`, `loopState`, `StateFieldOptions`, built-in reducers, data flow declarations |
-| `session-config.md` | Per-stage `sessionConfig` overrides, system prompt resolution order |
-| `discovery-and-verification.md` | Workflow file discovery paths, `export default`, verifier checks and CLI |
+### OpenCode
 
-## Type safety
+```ts
+// .atomic/workflows/opencode/my-workflow/index.ts
+import { defineWorkflow } from "@bastani/atomic-workflows";
+import { createOpencodeClient } from "@opencode-ai/sdk/v2";
 
-The SDK is fully typed with **zero `unknown` or `any`** annotations. All data flowing between stages uses the `JsonValue` type — a recursive type covering all JSON-serializable values. `outputMapper` functions return `Record<string, JsonValue>`, and the compiler validates data flow statically.
+export default defineWorkflow({
+    name: "my-workflow",
+    description: "A two-session pipeline",
+  })
+  .session({
+    name: "describe",
+    description: "Ask the agent to describe the project",
+    run: async (ctx) => {
+      const client = createOpencodeClient({ baseUrl: ctx.serverUrl });
+      const session = await client.session.create({ title: "describe" });
+      await client.tui.selectSession({ sessionID: session.data!.id });
+      const result = await client.session.prompt({
+        sessionID: session.data!.id,
+        parts: [{ type: "text", text: ctx.userPrompt }],
+      });
+      ctx.save(result.data!);
+    },
+  })
+  .session({
+    name: "summarize",
+    description: "Summarize the previous session's output",
+    run: async (ctx) => {
+      const research = await ctx.transcript("describe");
+      const client = createOpencodeClient({ baseUrl: ctx.serverUrl });
+      const session = await client.session.create({ title: "summarize" });
+      await client.tui.selectSession({ sessionID: session.data!.id });
+      const result = await client.session.prompt({
+        sessionID: session.data!.id,
+        parts: [{ type: "text", text: `Summarize the following in 2-3 bullet points:\n\n${research.content}` }],
+      });
+      ctx.save(result.data!);
+    },
+  })
+  .compile();
+```
 
-When you declare `globalState`, the SDK infers concrete types automatically via `InferState` — so `ctx.state.count` is `number` (not `JsonValue`) when you write `count: { default: 0 }`. This gives full IDE autocomplete and type checking in prompt functions and `.if()` conditions.
+Reading top-to-bottom: `describe → summarize`. Each session runs raw SDK code.
 
-## SDK Exports
+## SDK exports
 
 The SDK (`@bastani/atomic-workflows`) exports everything you need for workflow authoring:
 
@@ -69,34 +137,57 @@ The SDK (`@bastani/atomic-workflows`) exports everything you need for workflow a
 - `defineWorkflow` — entry point, returns a chainable `WorkflowBuilder`
 - `WorkflowBuilder` — the builder class (rarely needed directly)
 
-**Zod schemas** (for runtime validation in `.tool()` nodes):
-- `TaskItemSchema` — validates task items (`{ id, description, status, summary, blockedBy? }`)
-- `StageOutputSchema` — validates stage outputs
-- `SessionConfigSchema` — validates session config objects
-- `AgentTypeSchema` — validates agent type strings (`"claude" | "opencode" | "copilot"`)
-- `AskUserQuestionConfigSchema` — validates question config objects
-- `JsonValueSchema` — recursive schema matching `JsonValue`
-
-```ts
-import { defineWorkflow, TaskItemSchema } from "@bastani/atomic-workflows";
-
-// Use in .tool() nodes for runtime validation:
-.tool({
-  name: "validate-tasks",
-  execute: async (ctx) => {
-    const result = TaskItemSchema.array().safeParse(ctx.state.tasks);
-    return { tasksValid: result.success };
-  },
-})
-```
-
 **Types** (import with `import type`):
-- `BaseState`, `InferState`, `StageContext`, `ExecutionContext` — context types for callbacks
-- `StageOptions`, `ToolOptions`, `AskUserQuestionOptions`, `LoopOptions` — node config types
-- `StateFieldOptions`, `BuiltinReducer` — state declaration types
-- `SessionConfig`, `AgentType` — session config types
-- `StageOutput`, `TaskItem`, `JsonValue` — data types
-- `CompiledWorkflow`, `WorkflowOptions` — workflow-level types
+- `AgentType` — `"copilot" | "opencode" | "claude"`
+- `Transcript` — `{ path: string, content: string }` from `ctx.transcript()`
+- `SavedMessage` — union of provider-specific message types
+- `SaveTranscript` — overloaded save function type
+- `SessionContext` — the context object passed to `run()`
+- `SessionOptions` — `{ name, description?, run }` session definition
+- `WorkflowOptions` — `{ name, description? }` workflow metadata
+- `WorkflowDefinition` — sealed output of `.compile()`
 
-**Constants:**
-- `BUILTIN_REDUCERS` — tuple of all 9 built-in reducer names (`["replace", "concat", "merge", ...]`)
+**Re-exported native SDK types** (for type annotations):
+- `CopilotSessionEvent` — from `@github/copilot-sdk`
+- `OpenCodePromptResponse` — from `@opencode-ai/sdk/v2`
+- `ClaudeSessionMessage` — from `@anthropic-ai/claude-agent-sdk`
+
+**Provider helpers:**
+- `claudeQuery` — automates Claude TUI via tmux send-keys
+- `validateCopilotWorkflow` — regex-based Copilot usage checks
+- `validateOpenCodeWorkflow` — regex-based OpenCode usage checks
+
+**Runtime utilities:**
+- tmux helpers: `createSession`, `createWindow`, `createPane`, `sendKeysAndSubmit`, `capturePane`, etc.
+- Discovery: `discoverWorkflows`, `findWorkflow`, `loadWorkflowDefinition`
+- Executor: `executeWorkflow`
+
+## `SessionContext` reference
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `serverUrl` | `string` | Agent's server URL (Copilot / OpenCode) |
+| `userPrompt` | `string` | Original user prompt from CLI invocation |
+| `agent` | `AgentType` | Which agent is running |
+| `transcript(name)` | `(name: string) => Promise<Transcript>` | Get prior session's transcript as `{ path, content }` |
+| `getMessages(name)` | `(name: string) => Promise<SavedMessage[]>` | Get prior session's raw native messages |
+| `save` | `SaveTranscript` | Save this session's output for downstream sessions |
+| `sessionDir` | `string` | Path to session storage directory |
+| `paneId` | `string` | tmux pane ID |
+| `sessionId` | `string` | Session UUID |
+
+## Reference files
+
+| File | Topic |
+|---|---|
+| `agent-sessions.md` | Creating agent sessions with SDK calls per provider |
+| `computation-and-validation.md` | Deterministic computation, parsing, validation inside `run()` |
+| `user-input.md` | Collecting user input with per-SDK APIs |
+| `control-flow.md` | Loops, conditionals, early termination in plain TypeScript |
+| `state-and-data-flow.md` | Data flow between sessions, transcripts, persistence |
+| `session-config.md` | Per-SDK session configuration: model, tools, permissions, hooks |
+| `discovery-and-verification.md` | Workflow file discovery, validation, TypeScript config |
+
+## Type safety
+
+The SDK is typed with **no `unknown` or `any`**. `SessionContext` fields are precisely typed, and native SDK types are re-exported for convenience. Use `import type` for type-only imports.

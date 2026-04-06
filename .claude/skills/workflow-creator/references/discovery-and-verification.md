@@ -1,143 +1,142 @@
 # Discovery and Verification
 
-## Discovery and registration
+## Workflow file structure
 
-Custom workflow files are discovered from:
+Workflows are organized per agent SDK under `.atomic/workflows/`:
 
-- `.atomic/workflows/*.ts` (local, highest priority)
-- `~/.atomic/workflows/*.ts` (global)
+```
+.atomic/workflows/
+├── package.json                    # Depends on @bastani/atomic-workflows
+├── tsconfig.json                   # TypeScript config with path alias
+├── claude/<workflow-name>/
+│   └── index.ts                    # Claude-specific workflow
+├── copilot/<workflow-name>/
+│   └── index.ts                    # Copilot-specific workflow
+├── opencode/<workflow-name>/
+│   └── index.ts                    # OpenCode-specific workflow
+└── <workflow-name>/helpers/
+    ├── prompts.ts                  # Shared prompt builders
+    └── parsers.ts                  # Shared response parsers
+```
 
-Export your compiled workflow as the default export:
+## Discovery paths
+
+Workflows are discovered from:
+
+| Scope | Path |
+|-------|------|
+| **Local** | `.atomic/workflows/<agent>/<name>/index.ts` |
+| **Global** | `~/.atomic/workflows/<agent>/<name>/index.ts` |
+
+Local workflows override global ones with the same name. The `<agent>` directory determines which SDK the workflow targets: `claude/`, `copilot/`, or `opencode/`.
+
+## Export format
+
+Every workflow file must use `export default` with a compiled workflow:
 
 ```ts
-// .atomic/workflows/my-workflow.ts
 import { defineWorkflow } from "@bastani/atomic-workflows";
 
-export default defineWorkflow({ name: "my-workflow", description: "My custom workflow" })
-  .stage({ name: "step1", agent: null, description: "Step 1", ... })
-  .stage({ name: "step2", agent: "worker", description: "Step 2", ... })
+export default defineWorkflow({
+    name: "my-workflow",
+    description: "What this workflow does",
+  })
+  .session({ name: "step-1", run: async (ctx) => { /* ... */ } })
+  .session({ name: "step-2", run: async (ctx) => { /* ... */ } })
   .compile();
 ```
 
-The `.compile()` result is a `WorkflowDefinition` that can be used directly — no unwrapping needed.
+The `.compile()` method returns a `WorkflowDefinition` with `__brand: "WorkflowDefinition"`. The runtime checks this brand at load time.
 
-## Verification
+## Validation
 
-All workflows are verified at load time for structural correctness.
+### Compile-time checks
 
-### Structural checks (6 properties)
+The `WorkflowBuilder` enforces these rules at definition time:
 
-1. **Reachability** — all nodes reachable from start
-2. **Termination** — all paths reach an end node
-3. **Deadlock-freedom** — no node can get stuck
-4. **Loop bounds** — all loops have bounded iterations
-5. **State data-flow** — all reads have preceding writes on all paths
-6. **Model validation** — models and reasoning efforts declared in `sessionConfig` are valid for each agent type (includes both explicit DSL overrides and models merged from agent frontmatter `model` fields)
+1. **Non-empty workflow** — `.compile()` throws if no `.session()` calls were made
+2. **Unique session names** — `.session()` throws if a duplicate `name` is detected
+3. **Required workflow name** — `defineWorkflow()` throws if `name` is empty
 
-### Node validation
+### Provider validation warnings
 
-In addition to the 6 structural checks, the verifier validates every graph node:
+The SDK includes regex-based validation for Copilot and OpenCode workflows:
 
-- **Required `name`** — every node (stage, tool, ask-user) must have a `name` field
-- **Required `agent` on stages** — every agent-type node must have `agent` explicitly set (to a string or `null`)
-- **Unique names** — no two nodes may share the same `name`, regardless of node type
-- **Agent definition matching** — when `agent` is a non-null string, the verifier checks it against discovered agent definition files and errors if no match is found
+- **Copilot** (`validateCopilotWorkflow`): Warns if the workflow doesn't use `ctx.serverUrl` for `CopilotClient` or doesn't call `setForegroundSessionId()`
+- **OpenCode** (`validateOpenCodeWorkflow`): Warns if the workflow doesn't use `ctx.serverUrl` for `createOpencodeClient` or doesn't call `tui.selectSession()`
 
-### Running the verifier
+These are non-blocking warnings — the workflow will still load.
 
-Verify all discoverable workflows (built-in + custom):
+### Runtime brand check
 
-```bash
-atomic workflow verify
+At load time, the runtime verifies:
+- The file has a `default` export
+- The export has `__brand === "WorkflowDefinition"`
+- The definition has a `name` and at least one session
+
+## TypeScript configuration
+
+### `tsconfig.json`
+
+The workflow directory needs a `tsconfig.json` that maps the SDK import:
+
+```json
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": ["bun"],
+    "paths": {
+      "@bastani/atomic-workflows": ["../../packages/workflow-sdk/src/index.ts"]
+    }
+  },
+  "include": ["./**/*.ts"]
+}
 ```
 
-Verify a specific workflow file:
+### `package.json`
 
-```bash
-atomic workflow verify .atomic/workflows/my-workflow.ts
+```json
+{
+  "name": "atomic-workflows",
+  "private": true,
+  "dependencies": {
+    "@bastani/atomic-workflows": "*"
+  }
+}
 ```
 
-### Example output
+The path alias in `tsconfig.json` maps `@bastani/atomic-workflows` to the local SDK source for type checking. At runtime, Bun resolves the import via the package.json dependency.
 
-```
-Verifying workflows...
+## Type checking
 
-Workflow "my-workflow" passed all verification checks
-
-  PASS  Reachability
-  PASS  Termination
-  PASS  Deadlock-Freedom
-  PASS  Loop Bounds
-  PASS  State Data-Flow
-  PASS  Model Validation
-
-All workflows passed verification.
-```
-
-When verification fails, the report identifies the offending node/edge:
-
-```
-Workflow "broken-workflow" failed verification
-
-  FAIL  Reachability: Node(s) "orphan" unreachable from start node "planner"
-  PASS  Termination
-  FAIL  Deadlock-Freedom: Node(s) "brancher" may deadlock
-  PASS  Loop Bounds
-  PASS  State Data-Flow
-  PASS  Model Validation
-  Errors:
-    ✗ Stage "deploy" is missing required "agent" field. Set to an agent name or null.
-  Errors:
-    ✗ Stage "custom-agent" has no matching agent definition file. Available agents: planner, reviewer, worker
-```
-
-Workflows that fail verification at startup are rejected with a warning:
-
-```
-● Warning: Failed to load workflow: broken-workflow
-```
-
-The verifier exits with code 1 on any failure, making it suitable for CI pipelines.
-
-## Type checking with tsc
-
-TypeScript type-checking is **not** part of the built-in verifier. Instead, run `tsc` directly against your workflow files to catch type errors (invalid fields, wrong function signatures, missing required properties, incorrect `sessionConfig` shapes).
-
-### Running tsc
-
-From the workflow directory (where `tsconfig.json` is located):
+Run `tsc` to catch TypeScript errors before testing:
 
 ```bash
 bunx tsc --noEmit --pretty false
 ```
 
-Or to check a specific file:
+This catches:
+- Invalid `SessionContext` field access
+- Wrong `run()` callback signatures
+- Missing required fields (`name`, `run`)
+- SDK type mismatches (e.g., passing wrong types to `ctx.save()`)
+
+## Testing
+
+Test a workflow by running it:
 
 ```bash
-bunx tsc --noEmit --pretty false .atomic/workflows/my-workflow.ts
+atomic workflow -n <workflow-name> -a <agent> "<your prompt>"
 ```
 
-### What tsc catches
-
-The SDK uses precise TypeScript types — `tsc` will flag:
-
-- **Unknown fields** on `StageOptions` (e.g., `reads`, `outputs`, `onAnswer`)
-- **Wrong function signatures** for `prompt`, `outputMapper`, or `execute`
-- **Missing required fields** (e.g., `name`, `description`, `prompt`)
-- **Invalid `sessionConfig`** field names or value types
-- **Wrong `outputMapper` return type** (must be `Record<string, JsonValue>`)
-
-### Example tsc errors
-
-```
-my-workflow.ts(12,5): error TS2353: Object literal may only specify known properties, and 'reads' does not exist in type 'StageOptions'.
-my-workflow.ts(18,5): error TS2741: Property 'outputMapper' is missing in type '{ name: string; agent: null; description: string; prompt: (ctx: StageContext) => string; }'.
-```
-
-### Recommended workflow
-
-1. Write the workflow file
-2. Run `bunx tsc --noEmit` to check for type errors
-3. Fix any errors
-4. Run `atomic workflow verify` for structural checks
-5. Test the workflow with `atomic workflow run <name>`
+Where:
+- `-n` / `--name` — workflow name (matches directory name)
+- `-a` / `--agent` — target agent (`claude`, `copilot`, or `opencode`)
+- The quoted string is the user prompt passed as `ctx.userPrompt`

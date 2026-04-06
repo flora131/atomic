@@ -135,6 +135,7 @@ export async function workflowCommand(options: {
       definition,
       agent,
       prompt: options.prompt ?? "",
+      workflowFile: discovered.path,
     });
     return 0;
   } catch (error) {

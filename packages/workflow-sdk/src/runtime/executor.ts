@@ -25,7 +25,7 @@ import { OrchestratorPanel } from "./panel.ts";
 
 /** Agent CLI configuration for spawning in tmux panes. */
 const AGENT_CLI: Record<AgentType, { cmd: string; chatFlags: string[] }> = {
-  copilot: { cmd: "copilot", chatFlags: ["--add-dir", ".", "--yolo"] },
+  copilot: { cmd: "copilot", chatFlags: ["--add-dir", ".", "--yolo", "--experimental"] },
   opencode: { cmd: "opencode", chatFlags: [] },
   claude: { cmd: "claude", chatFlags: ["--allow-dangerously-skip-permissions", "--dangerously-skip-permissions"] },
 };
@@ -37,6 +37,8 @@ export interface WorkflowRunOptions {
   agent: AgentType;
   /** The user's prompt */
   prompt: string;
+  /** Absolute path to the workflow's index.ts file (from discovery) */
+  workflowFile: string;
   /** Project root (defaults to cwd) */
   projectRoot?: string;
 }
@@ -119,6 +121,16 @@ async function ensureDir(dir: string): Promise<void> {
   await mkdir(dir, { recursive: true });
 }
 
+/** Escape a string for safe interpolation inside a bash double-quoted string. */
+function escBash(s: string): string {
+  return s.replace(/[\\"$`!]/g, "\\$&");
+}
+
+/** Escape a string for safe interpolation inside a PowerShell double-quoted string. */
+function escPwsh(s: string): string {
+  return s.replace(/[`"$]/g, "`$&");
+}
+
 // ============================================================================
 // Entry point called by the CLI command
 // ============================================================================
@@ -130,7 +142,7 @@ async function ensureDir(dir: string): Promise<void> {
  * then attaches so the user sees everything live.
  */
 export async function executeWorkflow(options: WorkflowRunOptions): Promise<void> {
-  const { definition, agent, prompt, projectRoot = process.cwd() } = options;
+  const { definition, agent, prompt, workflowFile, projectRoot = process.cwd() } = options;
 
   const workflowRunId = generateId();
   const tmuxSessionName = `atomic-wf-${definition.name}-${workflowRunId}`;
@@ -146,25 +158,25 @@ export async function executeWorkflow(options: WorkflowRunOptions): Promise<void
 
   const launcherScript = isWin
     ? [
-        `Set-Location "${projectRoot}"`,
-        `$env:ATOMIC_WF_ID = "${workflowRunId}"`,
-        `$env:ATOMIC_WF_TMUX = "${tmuxSessionName}"`,
-        `$env:ATOMIC_WF_AGENT = "${agent}"`,
-        `$env:ATOMIC_WF_PROMPT = "${Buffer.from(prompt).toString("base64")}"`,
-        `$env:ATOMIC_WF_FILE = "${resolve(projectRoot, ".atomic", "workflows", agent, definition.name, "index.ts")}"`,
-        `$env:ATOMIC_WF_CWD = "${projectRoot}"`,
-        `bun run "${thisFile}" --run 2>"${logPath}"`,
+        `Set-Location "${escPwsh(projectRoot)}"`,
+        `$env:ATOMIC_WF_ID = "${escPwsh(workflowRunId)}"`,
+        `$env:ATOMIC_WF_TMUX = "${escPwsh(tmuxSessionName)}"`,
+        `$env:ATOMIC_WF_AGENT = "${escPwsh(agent)}"`,
+        `$env:ATOMIC_WF_PROMPT = "${escPwsh(Buffer.from(prompt).toString("base64"))}"`,
+        `$env:ATOMIC_WF_FILE = "${escPwsh(workflowFile)}"`,
+        `$env:ATOMIC_WF_CWD = "${escPwsh(projectRoot)}"`,
+        `bun run "${escPwsh(thisFile)}" --run 2>"${escPwsh(logPath)}"`,
       ].join("\n")
     : [
         "#!/bin/bash",
-        `cd "${projectRoot}"`,
-        `export ATOMIC_WF_ID="${workflowRunId}"`,
-        `export ATOMIC_WF_TMUX="${tmuxSessionName}"`,
-        `export ATOMIC_WF_AGENT="${agent}"`,
-        `export ATOMIC_WF_PROMPT="${Buffer.from(prompt).toString("base64")}"`,
-        `export ATOMIC_WF_FILE="${resolve(projectRoot, ".atomic", "workflows", agent, definition.name, "index.ts")}"`,
-        `export ATOMIC_WF_CWD="${projectRoot}"`,
-        `bun run "${thisFile}" --run 2>"${logPath}"`,
+        `cd "${escBash(projectRoot)}"`,
+        `export ATOMIC_WF_ID="${escBash(workflowRunId)}"`,
+        `export ATOMIC_WF_TMUX="${escBash(tmuxSessionName)}"`,
+        `export ATOMIC_WF_AGENT="${escBash(agent)}"`,
+        `export ATOMIC_WF_PROMPT="${escBash(Buffer.from(prompt).toString("base64"))}"`,
+        `export ATOMIC_WF_FILE="${escBash(workflowFile)}"`,
+        `export ATOMIC_WF_CWD="${escBash(projectRoot)}"`,
+        `bun run "${escBash(thisFile)}" --run 2>"${escBash(logPath)}"`,
       ].join("\n");
 
   await writeFile(launcherPath, launcherScript, { mode: 0o755 });

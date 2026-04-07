@@ -6,10 +6,14 @@
  *   atomic workflow --list
  */
 
+import { join, resolve, relative } from "path";
+import { existsSync } from "fs";
 import { AGENT_CONFIG, type AgentKey } from "@/services/config/index.ts";
 import { COLORS } from "@/theme/colors.ts";
 import { isCommandInstalled } from "@/services/system/detect.ts";
 import { ensureTmuxInstalled, ensureBunInstalled } from "../../lib/spawn.ts";
+import { VERSION } from "@/version.ts";
+import { detectInstallationType } from "@/services/config/config-path.ts";
 import {
   isTmuxInstalled,
   discoverWorkflows,
@@ -19,6 +23,71 @@ import {
   resetMuxBinaryCache,
 } from "@bastani/atomic-workflows";
 import type { AgentType } from "@bastani/atomic-workflows";
+
+/**
+ * Ensure the workflow-sdk (and its transitive SDK deps) is installed at the
+ * correct spec in the workflow directory that contains the discovered
+ * workflow file. Writes the pinned version (or file: reference for dev
+ * installs) into `package.json` and runs `bun install` so that
+ * `@github/copilot-sdk`, `@opencode-ai/sdk`, etc. are available as
+ * hoisted transitive dependencies.
+ *
+ * For source/dev installations:
+ *   - local (.atomic/workflows): uses a file: reference to the workspace SDK
+ *   - global (~/.atomic/workflows): skipped entirely
+ * For binary/npm installations:
+ *   - both local and global: pinned to the exact running CLI version
+ */
+async function ensureWorkflowDeps(
+  workflowDir: string,
+  source: "local" | "global",
+): Promise<void> {
+  const pkgPath = join(workflowDir, "package.json");
+  const pkgFile = Bun.file(pkgPath);
+
+  if (!(await pkgFile.exists())) return;
+
+  const installType = detectInstallationType();
+
+  // For source/dev installations, never touch global workflows
+  if (installType === "source" && source === "global") return;
+
+  // Determine the desired dependency spec
+  let desiredSpec: string;
+  if (installType === "source") {
+    // Use a file: reference to the workspace workflow-sdk package
+    const sdkPath = resolve(workflowDir, "..", "..", "packages", "workflow-sdk");
+    if (!existsSync(sdkPath)) return;
+    desiredSpec = `file:${relative(workflowDir, sdkPath)}`;
+  } else {
+    desiredSpec = VERSION;
+  }
+
+  const pkg = await pkgFile.json();
+  const currentSpec = pkg.dependencies?.["@bastani/atomic-workflows"];
+
+  // Already set to the desired spec — skip install
+  if (currentSpec === desiredSpec) return;
+
+  pkg.dependencies = pkg.dependencies ?? {};
+  pkg.dependencies["@bastani/atomic-workflows"] = desiredSpec;
+  await Bun.write(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+
+  const bunPath = Bun.which("bun");
+  if (!bunPath) return;
+
+  const proc = Bun.spawn([bunPath, "install"], {
+    cwd: workflowDir,
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  const exitCode = await proc.exited;
+  if (exitCode !== 0) {
+    const stderr = await new Response(proc.stderr).text();
+    throw new Error(
+      `Failed to install workflow dependencies (exit ${exitCode}):\n${stderr.trim()}`,
+    );
+  }
+}
 
 export async function workflowCommand(options: {
   name?: string;
@@ -126,6 +195,27 @@ export async function workflowCommand(options: {
     }
 
     return 1;
+  }
+
+  // Ensure workflow SDK deps are installed at the correct version in both
+  // local (.atomic/workflows) and global (~/.atomic/workflows) directories.
+  // For dev installs, only the local dir is updated (with a file: reference);
+  // the global dir is left untouched.
+  const { homedir } = await import("os");
+  const localWorkflowDir = join(process.cwd(), ".atomic", "workflows");
+  const globalWorkflowDir = join(homedir(), ".atomic", "workflows");
+  const workflowDirs: Array<[string, "local" | "global"]> = [
+    [localWorkflowDir, "local"],
+    [globalWorkflowDir, "global"],
+  ];
+  for (const [dir, source] of workflowDirs) {
+    try {
+      await ensureWorkflowDeps(dir, source);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`${COLORS.red}Error installing workflow dependencies in ${dir}: ${message}${COLORS.reset}`);
+      return 1;
+    }
   }
 
   // Load and validate

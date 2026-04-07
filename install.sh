@@ -9,16 +9,16 @@
 # Set GITHUB_TOKEN for authenticated downloads (avoids API rate limits)
 #
 # Installs the Atomic CLI binary, config data, and all required tooling
-# (npm, @playwright/cli, @llamaindex/liteparse, apm).
+# (npm, @playwright/cli, @llamaindex/liteparse).
 
 set -euo pipefail
 
 # Configuration
 GITHUB_REPO="flora131/atomic"
 BINARY_NAME="atomic"
-BIN_DIR="$HOME/.local/bin"
-DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/atomic"
-ATOMIC_HOME="$HOME/.atomic"
+BIN_DIR="${BIN_DIR:-$HOME/.local/bin}"
+DATA_DIR="${DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/atomic}"
+ATOMIC_HOME="${ATOMIC_HOME:-$HOME/.atomic}"
 
 # Colors
 RED='\033[0;31m'
@@ -469,81 +469,6 @@ install_bun() {
     return 1
 }
 
-install_apm() {
-    if command -v apm >/dev/null 2>&1; then
-        info "apm is already installed: $(apm --version 2>/dev/null || echo 'version unknown')"
-        return 0
-    fi
-
-    info "Installing apm (Agent Package Manager)..."
-
-    # Preferred: official installer script
-    if command -v curl >/dev/null 2>&1; then
-        if curl -sSL https://aka.ms/apm-unix | sh; then
-            # The installer may place apm in ~/.local/bin or similar; ensure it's on PATH
-            for apm_candidate in "$HOME/.local/bin/apm" "$HOME/bin/apm" "/usr/local/bin/apm"; do
-                if [[ -x "$apm_candidate" ]]; then
-                    export PATH="$(dirname "$apm_candidate"):$PATH"
-                    break
-                fi
-            done
-            if command -v apm >/dev/null 2>&1; then
-                return 0
-            fi
-        fi
-        warn "apm official installer failed, trying fallbacks..."
-    fi
-
-    # Fallback: Homebrew (macOS/Linux)
-    if command -v brew >/dev/null 2>&1; then
-        if brew install microsoft/apm/apm; then
-            return 0
-        fi
-        warn "brew install apm failed, trying other methods..."
-    fi
-
-    # Fallback: pip
-    if command -v pip3 >/dev/null 2>&1; then
-        if pip3 install apm-cli; then
-            # pip installs to a scripts dir that may not be on PATH yet
-            local pip_bin
-            pip_bin=$(python3 -m site --user-base 2>/dev/null)/bin
-            [[ -d "$pip_bin" ]] && export PATH="$pip_bin:$PATH"
-            command -v apm >/dev/null 2>&1 && return 0
-        fi
-    elif command -v pip >/dev/null 2>&1; then
-        if pip install apm-cli; then
-            local pip_bin
-            pip_bin=$(python -m site --user-base 2>/dev/null)/bin
-            [[ -d "$pip_bin" ]] && export PATH="$pip_bin:$PATH"
-            command -v apm >/dev/null 2>&1 && return 0
-        fi
-    fi
-
-    warn "Could not install apm — install it manually from https://microsoft.github.io/apm/"
-    return 1
-}
-
-install_apm_global_config() {
-    local config_dir="$1"
-
-    if ! command -v apm >/dev/null 2>&1; then
-        warn "apm not found — skipping global config install"
-        return 0
-    fi
-
-    if [[ ! -f "${config_dir}/apm.yml" ]]; then
-        return 0
-    fi
-
-    info "Installing APM dependencies globally..."
-    if (cd "$config_dir" && apm install -g 2>&1); then
-        success "APM global config installed"
-    else
-        warn "APM global config install failed (non-fatal)"
-    fi
-}
-
 # Merge-copy the bundled Atomic agents from the extracted config data dir
 # into the provider-native global roots (~/.claude/agents, ~/.opencode/agents,
 # ~/.copilot/agents). Uses `cp -R src/. dest/` which overwrites files sharing
@@ -623,7 +548,7 @@ install_global_skills() {
 }
 
 install_tooling() {
-    info "Installing required tooling (npm, tmux, bun, playwright-cli, liteparse, apm)..."
+    info "Installing required tooling (npm, tmux, bun, playwright-cli, liteparse)..."
     local failed_tools=()
 
     # Phase 1: core tools
@@ -634,7 +559,6 @@ install_tooling() {
     # Phase 2: global CLI tools
     install_global_npm_package "@playwright/cli@latest"        || { warn "@playwright/cli installation skipped or failed"; failed_tools+=("@playwright/cli"); }
     install_global_npm_package "@llamaindex/liteparse@latest"  || { warn "@llamaindex/liteparse installation skipped or failed"; failed_tools+=("@llamaindex/liteparse"); }
-    install_apm                                                || { warn "apm installation skipped or failed"; failed_tools+=("apm"); }
 
     # Summary
     if [[ ${#failed_tools[@]} -gt 0 ]]; then
@@ -859,9 +783,6 @@ main() {
 
     # Install bundled workflow templates to ~/.atomic/workflows/
     install_workflows
-
-    # Install APM dependencies globally (deploys to ~/.copilot/, ~/.claude/, etc.)
-    install_apm_global_config "$DATA_DIR"
 
     # Merge-copy the bundled agent definitions into ~/.claude/agents,
     # ~/.opencode/agents, ~/.copilot/agents (+ ~/.copilot/lsp-config.json).

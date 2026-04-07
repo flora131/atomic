@@ -5,7 +5,6 @@
     "target": "ESNext",
     "module": "ESNext",
     "jsx": "react-jsx",
-    "jsxImportSource": "@opentui/react",
 
     // Bundler mode
     "paths": {
@@ -31,6 +30,6 @@
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false
   },
-  "include": ["src", "packages", "tests", ".atomic/workflows"],
+  "include": ["src", "packages", "tests"],
   "exclude": ["docs"]
 }

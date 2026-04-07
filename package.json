@@ -4,6 +4,9 @@
   "description": "Configuration management CLI for coding agents",
   "type": "module",
   "license": "MIT",
+  "workspaces": [
+    "packages/*"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/flora131/atomic.git"

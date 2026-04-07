@@ -5,11 +5,11 @@
 </p>
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/flora131/atomic)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)](./package.json)
+[![TypeScript](https://img.shields.io/badge/TypeScript-6.x-3178C6?logo=typescript&logoColor=white)](./package.json)
 [![Bun](https://img.shields.io/badge/Bun-Runtime-f9f1e1?logo=bun&logoColor=black)](./package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-Atomic is an open-source **multi-agent harness** that orchestrates **Claude Code**, **OpenCode**, and **GitHub Copilot CLI** through a unified interface — with a **workflow sdk**, **containerized execution**, **DAG-based workflows**, **deep codebase research**, and **autonomous multi-hour coding sessions**.
+Atomic is an open-source **multi-agent harness** that orchestrates **Claude Code**, **OpenCode**, and **GitHub Copilot CLI** through a unified interface — with a **workflow SDK**, **containerized execution**, **deep codebase research**, and **autonomous multi-hour coding sessions**.
 
 > One CLI. Three agent SDKs. Research it, spec it, ship it — then wake up to completed code ready for review.
 
@@ -26,7 +26,7 @@ Atomic is an open-source **multi-agent harness** that orchestrates **Claude Code
   - [Autonomous Execution (Ralph)](#autonomous-execution-ralph)
   - [Containerized Execution](#containerized-execution)
   - [Specialized Sub-Agents](#specialized-sub-agents)
-  - [19 Built-in Skills](#19-built-in-skills)
+  - [Built-in Skills](#built-in-skills)
   - [Interactive TUI](#interactive-tui)
 - [Architecture](#architecture)
 - [Commands Reference](#commands-reference)
@@ -139,8 +139,8 @@ Research  →  Spec  →  Implement, Verify & Review  →  PR
 /create-spec research-path
 /clear
 
-# Implement autonomously
-/ralph "<prompt-or-spec-path>"
+# Implement autonomously (run from a separate terminal)
+atomic workflow -n ralph -a <claude|opencode|copilot> "<prompt-or-spec-path>"
 
 # Review the implementation
 # Ralph runs tests, reviews correctness, and fixes issues automatically —
@@ -184,52 +184,51 @@ Each agent gets its own configuration directory (`.claude/`, `.opencode/`, `.git
 
 ### Workflow SDK — Build Your Own Harness
 
-Every team has a process — triage bugs this way, ship features that way, review PRs with these checks. Most of it lives in a wiki nobody reads or in one senior engineer's head. The **Workflow SDK** (`@bastani/atomic-workflows`) lets you encode that process as a type-safe DAG with conditional branching, human approval gates, and bounded review loops — then run it as a slash command.
+Every team has a process — triage bugs this way, ship features that way, review PRs with these checks. Most of it lives in a wiki nobody reads or in one senior engineer's head. The **Workflow SDK** (`@bastani/atomic-workflows`) lets you encode that process as a chain of named sessions with raw provider SDK code — then run it from the CLI.
 
-Drop a `.ts` file in `.atomic/workflows/` and it becomes available to anyone on the team:
+Drop a `.ts` file in `.atomic/workflows/<agent>/<name>/index.ts` and run it:
 
+```bash
+atomic workflow -n hello -a claude "describe this project"
 ```
-/fix-bug "Users get 403 after password reset — see JIRA-4821"
-```
-
-Triage → human approval gate → regression test first → fix → review loop (max 3 rounds). Your process, enforced by the workflow — not by hope.
 
 <details>
 <summary>See an example of the workflow definition</summary>
 
 ```ts
-// .atomic/workflows/fix-bug.ts
-import { defineWorkflow } from "@bastani/atomic-workflows";
+// .atomic/workflows/claude/hello/index.ts
+import { defineWorkflow, createClaudeSession, claudeQuery } from "@bastani/atomic-workflows";
 
 export default defineWorkflow({
-  name: "fix-bug",
-  description: "Triage → reproduce → fix → verify",
+  name: "hello",
+  description: "Two-session Claude demo: describe → summarize",
 })
-  .version("1.0.0")
-  .argumentHint("<bug-description-or-ticket-url>")
-  .stage({ name: "triage", agent: "codebase-analyzer", description: "TRIAGE",
-    prompt: (ctx) => `Identify root cause, affected code paths, and blast radius:\n${ctx.userPrompt}`,
-    outputMapper: (r) => ({ triage: JSON.parse(r) }) })
-  .askUserQuestion({ name: "approve",
-    question: { question: "Diagnosis correct?", options: [{ label: "Yes" }, { label: "No" }] },
-    outputMapper: (answer) => ({ approved: answer === "Yes" }) })
-  .if((ctx) => !ctx.state.approved)
-    .stage({ name: "re-triage", agent: "codebase-analyzer", description: "RE-TRIAGE",
-      prompt: () => `Initial diagnosis was rejected. Dig deeper.`,
-      outputMapper: (r) => ({ triage: JSON.parse(r) }) })
-  .endIf()
-  .stage({ name: "fix", agent: null, description: "FIX",
-    prompt: (ctx) => `Write a regression test FIRST, then fix:\n${JSON.stringify(ctx.state.triage)}`,
-    outputMapper: () => ({}) })
-  .loop({ maxCycles: 3 })
-    .stage({ name: "review", agent: "reviewer", description: "REVIEW",
-      prompt: () => `Verify: regression test fails without fix, passes with it. No unrelated changes.`,
-      outputMapper: (r) => ({ review: JSON.parse(r) }) })
-    .break(() => (state) => state.review?.allPassing === true)
-    .stage({ name: "iterate", agent: null, description: "ITERATE",
-      prompt: (ctx) => `Fix review issues:\n${JSON.stringify(ctx.state.review)}`,
-      outputMapper: () => ({}) })
-  .endLoop()
+  .session({
+    name: "describe",
+    description: "Ask Claude to describe the project",
+    run: async (ctx) => {
+      await createClaudeSession({ paneId: ctx.paneId });
+      await claudeQuery({
+        paneId: ctx.paneId,
+        prompt: ctx.userPrompt,
+      });
+      ctx.save(ctx.sessionId);
+    },
+  })
+  .session({
+    name: "summarize",
+    description: "Summarize the previous session's output",
+    run: async (ctx) => {
+      await createClaudeSession({ paneId: ctx.paneId });
+      const research = await ctx.transcript("describe");
+
+      await claudeQuery({
+        paneId: ctx.paneId,
+        prompt: `Read ${research.path} and summarize it in 2-3 bullet points.`,
+      });
+      ctx.save(ctx.sessionId);
+    },
+  })
   .compile();
 ```
 
@@ -239,15 +238,13 @@ export default defineWorkflow({
 
 | Capability | Description |
 | --- | --- |
-| **Stages** | LLM-powered agent sessions with per-stage model and reasoning effort overrides |
-| **Tools** | Deterministic functions (no LLM) for data transformation |
-| **Human-in-the-loop** | Pause execution for user approval or input |
-| **Conditional branching** | `.if()` / `.elseIf()` / `.else()` / `.endIf()` |
-| **Bounded loops** | `.loop({ maxCycles })` / `.endLoop()` with `.break()` for early exit |
-| **Custom state** | Shared state with built-in reducers (`concat`, `merge`, `mergeById`, `max`, `min`, `sum`, custom) |
-| **Verification** | `atomic workflow verify` checks reachability, deadlocks, bounded loops, and valid references |
+| **Sequential sessions** | Chain `.session()` calls that execute in order, each in its own tmux pane |
+| **Transcript passing** | Access previous session output via `ctx.transcript(name)` or `ctx.getMessages(name)` |
+| **Provider-agnostic** | Write raw SDK code for Claude, Copilot, or OpenCode inside each session's `run()` |
+| **tmux-based execution** | Each session runs in its own tmux pane for isolation and observability |
+| **Native SDK access** | Use `createClaudeSession`, `claudeQuery`, Copilot SDK, or OpenCode SDK directly |
 
-Drop a `.ts` file in `.atomic/workflows/` (project-local) or `~/.atomic/workflows/` (global) and it becomes a slash command automatically. You can also ask Atomic to create workflows for you:
+Drop a `.ts` file in `.atomic/workflows/<agent>/<name>/` (project-local) or `~/.atomic/workflows/` (global). You can also ask Atomic to create workflows for you:
 
 ```
 Use your workflow-creator skill to create a workflow that plans, implements, and reviews a feature.
@@ -256,159 +253,53 @@ Use your workflow-creator skill to create a workflow that plans, implements, and
 <details>
 <summary>Full Workflow SDK Reference</summary>
 
-#### Node Types
+#### Builder API
 
 | Method | Purpose |
 | --- | --- |
-| `.stage({ ... })` | Run an agent session (LLM-powered) |
-| `.tool({ ... })` | Run a deterministic function (no LLM) |
-| `.askUserQuestion({ ... })` | Pause for user input |
+| `defineWorkflow({ name, description })` | Entry point — returns a `WorkflowBuilder` |
+| `.session({ name, description?, run })` | Add a named session with a `run(ctx)` callback |
+| `.compile()` | **Required** — terminal method that seals the workflow definition |
 
-#### Control Flow
-
-| Method | Purpose |
-| --- | --- |
-| `.if(condition)` / `.elseIf()` / `.else()` / `.endIf()` | Conditional branching |
-| `.loop({ maxCycles })` / `.endLoop()` | Bounded loops |
-| `.break(condition)` | Early exit from a loop |
-
-#### Metadata
-
-| Method | Purpose |
-| --- | --- |
-| `.version("1.0.0")` | Set SemVer version |
-| `.argumentHint("<file-path>")` | CLI usage hint |
-| `.compile()` | **Required** — terminal method that produces the compiled workflow |
-
-#### Stage Configuration
-
-```ts
-.stage({
-  name: "analyze",              // Unique identifier
-  agent: "planner",             // Agent definition name (or null for defaults)
-  description: "⌕ ANALYZE",    // Display label
-  prompt: (ctx) => "...",       // Build the prompt from context
-  outputMapper: (response) =>   // Extract structured data from response
-    ({ key: JSON.parse(response) }),
-  sessionConfig: {              // Optional: per-stage model overrides
-    model: { claude: "claude-opus-4-20250514" },
-    reasoningEffort: { claude: "high" },
-  },
-  disallowedTools: {            // Optional: per-provider tool exclusions
-    claude: ["AskUserQuestion"],
-    opencode: ["question"],
-    copilot: ["ask_user"],
-  },
-})
-```
-
-#### Custom State
-
-Define shared state with built-in reducers that control how updates merge across stages:
-
-```ts
-export default defineWorkflow({
-  name: "stateful-workflow",
-  description: "Workflow with shared state",
-  globalState: {
-    findings: { default: () => [], reducer: "concat" },
-    score: { default: 0, reducer: "max" },
-    tasks: { default: () => [], reducer: "mergeById", key: "id" },
-  },
-})
-  // ... stages ...
-  .compile();
-```
-
-**Available reducers:** `replace` (default), `concat`, `merge`, `mergeById`, `max`, `min`, `sum`, `or`, `and`, or a custom `(current, update) => result` function.
-
-#### Common Patterns
-
-<details>
-<summary>Review loop with early exit</summary>
-
-```ts
-defineWorkflow({ name: "review-loop", description: "Iterative review" })
-  .stage({ name: "implement", agent: null, description: "⚡ IMPLEMENT",
-    prompt: (ctx) => ctx.userPrompt, outputMapper: () => ({}) })
-  .loop({ maxCycles: 5 })
-    .stage({ name: "review", agent: "reviewer", description: "🔍 REVIEW",
-      prompt: (ctx) => `Review against: ${ctx.userPrompt}`,
-      outputMapper: (r) => ({ reviewResult: JSON.parse(r) }) })
-    .break(() => (state) => state.reviewResult?.allPassing === true)
-    .stage({ name: "fix", agent: null, description: "🔧 FIX",
-      prompt: (ctx) => `Fix issues from review`, outputMapper: () => ({}) })
-  .endLoop()
-  .compile();
-```
-
-</details>
-
-<details>
-<summary>Human-in-the-loop approval</summary>
-
-```ts
-.askUserQuestion({
-  name: "approve",
-  question: {
-    question: "Approve this plan?",
-    options: [{ label: "Yes" }, { label: "No" }],
-  },
-  outputMapper: (answer) => ({ approved: answer === "Yes" }),
-})
-.if((ctx) => ctx.state.approved)
-  .stage({ name: "implement", agent: null, description: "⚡ IMPLEMENT",
-    prompt: (ctx) => ctx.userPrompt, outputMapper: () => ({}) })
-.else()
-  .stage({ name: "re-plan", agent: "planner", description: "⌕ RE-PLAN",
-    prompt: (ctx) => `Re-plan: ${ctx.userPrompt}`,
-    outputMapper: (r) => ({ plan: JSON.parse(r) }) })
-.endIf()
-```
-
-</details>
-
-<details>
-<summary>Conditional branching</summary>
-
-```ts
-defineWorkflow({ name: "triage", description: "Route by type" })
-  .stage({ name: "classify", agent: "planner", description: "⌕ CLASSIFY",
-    prompt: (ctx) => `Classify: ${ctx.userPrompt}`,
-    outputMapper: (r) => ({ type: JSON.parse(r).type }) })
-  .if((ctx) => ctx.stageOutputs.get("classify")?.parsedOutput?.type === "bug")
-    .stage({ name: "fix-bug", agent: null, description: "🔧 FIX",
-      prompt: (ctx) => `Fix the bug`, outputMapper: () => ({}) })
-  .elseIf((ctx) => ctx.stageOutputs.get("classify")?.parsedOutput?.type === "feature")
-    .stage({ name: "build", agent: null, description: "⚡ BUILD",
-      prompt: (ctx) => `Build the feature`, outputMapper: () => ({}) })
-  .else()
-    .stage({ name: "research", agent: "researcher", description: "🔍 RESEARCH",
-      prompt: (ctx) => `Research: ${ctx.userPrompt}`,
-      outputMapper: (r) => ({ findings: r }) })
-  .endIf()
-  .compile();
-```
-
-</details>
-
-#### Context Available in Stages
+#### Session Context (`ctx`)
 
 | Property | Type | Description |
 | --- | --- | --- |
-| `ctx.userPrompt` | `string` | Original user input |
-| `ctx.stageOutputs` | `ReadonlyMap<string, StageOutput>` | Prior stage outputs |
-| `ctx.tasks` | `readonly TaskItem[]` | Current task list |
-| `ctx.state` | `TState` | Typed workflow state |
-| `ctx.abortSignal` | `AbortSignal` | Cancellation signal |
+| `ctx.userPrompt` | `string` | Original user prompt from the CLI invocation |
+| `ctx.agent` | `AgentType` | Which agent is running (`"claude"`, `"copilot"`, `"opencode"`) |
+| `ctx.serverUrl` | `string` | The agent's server URL |
+| `ctx.paneId` | `string` | tmux pane ID for this session |
+| `ctx.sessionId` | `string` | Session UUID |
+| `ctx.sessionDir` | `string` | Path to this session's storage directory on disk |
+| `ctx.transcript(name)` | `Promise<Transcript>` | Get a previous session's transcript (`{ path, content }`) |
+| `ctx.getMessages(name)` | `Promise<SavedMessage[]>` | Get a previous session's raw native messages |
+| `ctx.save(messages)` | `SaveTranscript` | Save this session's output for subsequent sessions |
+
+#### Saving Transcripts
+
+Each provider saves transcripts differently:
+
+| Provider | How to Save |
+| --- | --- |
+| **Claude** | `ctx.save(ctx.sessionId)` — auto-reads via `getSessionMessages()` |
+| **Copilot** | `ctx.save(await session.getMessages())` — pass `SessionEvent[]` |
+| **OpenCode** | `ctx.save(result.data)` — pass the full `{ info, parts }` response |
+
+#### Provider Helpers
+
+| Export | Purpose |
+| --- | --- |
+| `createClaudeSession({ paneId })` | Start a Claude TUI in a tmux pane |
+| `claudeQuery({ paneId, prompt })` | Send a prompt to Claude and wait for the response |
+| `clearClaudeSession({ paneId })` | Clear the current Claude session |
 
 #### Key Rules
 
 1. Every workflow file must use `export default` with `.compile()` at the end
-2. Node names must be unique across all node types
-3. Every `.if()` needs `.endIf()`, every `.loop()` needs `.endLoop()`
-4. `.break()` can only appear inside loops
-5. Agents reference markdown definition files in your agent config directory
+2. Session names must be unique within a workflow
+3. Sessions execute sequentially in the order they are defined
+4. Each session runs in its own tmux pane with the chosen agent
+5. Workflows are organized per-agent: `.atomic/workflows/<agent>/<name>/index.ts`
 
 For complete documentation, see the [Workflow SDK package](packages/workflow-sdk/).
 
@@ -461,7 +352,7 @@ atomic chat -a claude "/research-codebase Research implementing GraphRAG using \
   LlamaIndex's property graph index. Look up run-llama/llama_index."
 ```
 
-Each agent spawns sub-agents that query DeepWiki, pull external documentation, and cross-reference with your codebase. Then run `/create-spec` on each research doc, spin up git worktrees, and run `/ralph` in each — wake up to three complete implementations on separate branches.
+Each agent spawns sub-agents that query DeepWiki, pull external documentation, and cross-reference with your codebase. Then run `/create-spec` on each research doc, spin up git worktrees, and run `atomic workflow -n ralph` in each — wake up to three complete implementations on separate branches.
 
 > Works identically with `atomic chat -a opencode` and `atomic chat -a copilot`.
 
@@ -479,18 +370,14 @@ The [Ralph Wiggum Method](https://ghuntley.com/ralph/) enables **multi-hour auto
 
 1. **Task Decomposition** — A `planner` sub-agent breaks your spec into a structured task list with dependency tracking, stored in a SQLite database with WAL mode for parallel access
 2. **Worker Loop** — Dispatches `worker` sub-agents for ready tasks, executing up to 100 iterations with concurrent execution of independent tasks
-3. **Review & Fix** — A `reviewer` sub-agent audits the implementation; if issues are found, a `fixer` sub-agent generates corrective tasks that re-enter the worker loop
+3. **Review & Debug** — A `reviewer` sub-agent audits the implementation; if issues are found, a `debugger` sub-agent generates a report that feeds back to the planner on the next iteration
 
 ```bash
-atomic chat -a <claude|opencode|copilot>
-```
-
-```
 # From a prompt
-/ralph "Build a REST API for user management"
+atomic workflow -n ralph -a <claude|opencode|copilot> "Build a REST API for user management"
 
 # From a spec file
-/ralph "specs/YYYY-MM-DD-my-feature.md"
+atomic workflow -n ralph -a claude "specs/YYYY-MM-DD-my-feature.md"
 ```
 
 **Best practice:** Run Ralph in a separate [git worktree](https://git-scm.com/docs/git-worktree) to isolate autonomous execution:
@@ -498,8 +385,7 @@ atomic chat -a <claude|opencode|copilot>
 ```bash
 git worktree add ../my-project-ralph feature-branch
 cd ../my-project-ralph
-atomic chat -a claude
-# /ralph "Build the auth module"
+atomic workflow -n ralph -a claude "Build the auth module"
 ```
 
 ### Containerized Execution
@@ -544,7 +430,7 @@ Atomic doesn't use one general-purpose agent for everything. It dispatches **pur
 | `planner` | Decompose specs into structured task lists with dependency tracking |
 | `worker` | Implement single focused tasks (multiple workers run in parallel) |
 | `reviewer` | Audit implementations against specs and best practices |
-| `fixer` | Generate corrective tasks from review feedback |
+| `code-simplifier` | Simplify and refine code for clarity, consistency, and maintainability |
 | `orchestrator` | Coordinate complex multi-step workflows |
 | `codebase-analyzer` | Analyze implementation details of specific components |
 | `codebase-locator` | Locate files, directories, and components |
@@ -563,13 +449,13 @@ Specialized sub-agents turn this limitation into an advantage:
 - **Context isolation** — Each sub-agent gets a fresh, minimal context window scoped to exactly one job. A `codebase-locator` doesn't carry file contents; a `worker` doesn't carry the full spec. This keeps each agent reasoning over a small, high-signal context.
 - **Tool scoping** — Agents only see tools relevant to their role. A `reviewer` has read-only analysis tools and cannot edit files. A `worker` has edit tools but cannot spawn other workers. This eliminates entire categories of mistakes.
 - **Parallel execution** — Independent sub-agents run concurrently. While one worker implements a database migration, another writes the API handler, and a third generates tests — all in separate context windows, all at the same time.
-- **Composability** — Sub-agents can be combined into workflows, chained in DAGs, or dispatched ad-hoc. The same `reviewer` agent used by Ralph is the one invoked when you ask for a code review in chat.
+- **Composability** — Sub-agents can be combined into workflows or dispatched ad-hoc. The same `reviewer` agent used by Ralph is the one invoked when you ask for a code review in chat.
 
 The difference is measurable: a specialized `codebase-analyzer` reading three files produces more accurate analysis than a generalist agent that has already consumed 50,000 tokens of search results, tool calls, and prior reasoning. Specialization isn't a nice-to-have — it's how you get reliable output from LLMs on real-world codebases.
 
 Use `/agents` in any chat session to see all available sub-agents.
 
-### 19 Built-in Skills
+### Built-in Skills
 
 Skills are structured capability modules that give agents best practices and workflows for specific tasks. Atomic ships with the following skills:
 
@@ -578,9 +464,10 @@ Skills are structured capability modules that give agents best practices and wor
 | **Development** | `create-spec` | Create detailed execution plans from research documents |
 | | `research-codebase` | Analyze codebase with parallel sub-agents and document findings |
 | | `explain-code` | Explain code functionality in detail using DeepWiki |
-| | `workflow-creator` | Create multi-agent workflows using the `defineWorkflow()` DSL |
+| | `workflow-creator` | Create multi-agent workflows using the session-based `defineWorkflow()` API |
 | | `init` | Generate `CLAUDE.md` and `AGENTS.md` by exploring the codebase |
-| **Code Quality** | `testing-anti-patterns` | Identify and prevent testing anti-patterns when writing tests |
+| | `find-skills` | Discover and install agent skills from the community |
+| **Code Quality** | `test-driven-development` | Write tests first, then implement — includes testing anti-patterns guide |
 | | `prompt-engineer` | Create, improve, and optimize prompts using best practices |
 | | `frontend-design` | Create distinctive, production-grade frontend interfaces |
 | **Documents** | `pdf` | Read, create, edit, split, merge, and OCR PDF files |
@@ -595,7 +482,7 @@ Skills are structured capability modules that give agents best practices and wor
 | **Automation** | `playwright-cli` | Automate browser interactions for testing, screenshots, and data extraction |
 | **Meta** | `skill-creator` | Create, modify, evaluate, and benchmark your own skills |
 
-Skills are auto-invoked when relevant — `testing-anti-patterns` activates before any test is written, `playwright-cli` activates for browser automation tasks.
+Skills are auto-invoked when relevant — `test-driven-development` activates before any test is written, `playwright-cli` activates for browser automation tasks.
 
 ### Interactive TUI
 
@@ -641,7 +528,7 @@ Atomic's architecture is built around a four-phase cycle that plays to how LLMs 
 
 **3. Implement** — With a validated spec, the planner decomposes work into discrete tasks with dependency tracking. Worker sub-agents execute tasks in parallel, each in its own context window, each focused on a single unit of work. This is where specialization pays off — a worker implementing a database migration doesn't need to hold the full API spec in context. It just needs its task, the relevant files, and the tools to edit them.
 
-**4. Verify** — A reviewer sub-agent audits the implementation against the original spec. If issues are found, a fixer generates corrective tasks that re-enter the worker loop. This catches errors before they compound — a misnamed field caught during review is a one-line fix; the same error caught by a user in production is a multi-file cascade.
+**4. Verify** — A reviewer sub-agent audits the implementation against the original spec. If issues are found, a debugger generates a report that feeds back to the planner on the next iteration. This catches errors before they compound — a misnamed field caught during review is a one-line fix; the same error caught by a user in production is a multi-file cascade.
 
 **Why this matters for LLMs specifically:**
 
@@ -661,19 +548,33 @@ This is also why the cycle is iterative. Research and specs become persistent co
 | --- | --- |
 | `atomic init` | Interactive project setup |
 | `atomic chat` | Start TUI chat with a coding agent |
+| `atomic workflow` | Run a multi-session agent workflow |
 | `atomic config set <k> <v>` | Set configuration values |
-| `atomic workflow verify` | Validate workflow DAG structure |
 | `atomic update` | Self-update (binary installs only) |
 | `atomic uninstall` | Remove installation (binary installs only) |
 
 #### `atomic chat` Flags
 
-| Flag | Default | Description |
-| --- | --- | --- |
-| `-a, --agent <name>` | (required) | Agent: `claude`, `opencode`, `copilot` |
-| `-t, --theme <name>` | `"dark"` | UI theme: `dark`, `light` |
-| `-m, --model <name>` | (none) | Model override |
-| `[prompt...]` | (none) | Initial prompt |
+| Flag | Description |
+| --- | --- |
+| `-a, --agent <name>` | Agent: `claude`, `opencode`, `copilot` |
+
+All other arguments are forwarded directly to the native agent CLI. For example:
+
+```bash
+atomic chat -a claude "fix the bug"          # Initial prompt
+atomic chat -a copilot --model gpt-4o        # Custom model
+atomic chat -a claude --verbose              # Forward --verbose to claude
+```
+
+#### `atomic workflow` Flags
+
+| Flag | Description |
+| --- | --- |
+| `-n, --name <name>` | Workflow name (matches directory under `.atomic/workflows/<agent>/`) |
+| `-a, --agent <name>` | Agent: `claude`, `opencode`, `copilot` |
+| `-l, --list` | List available workflows |
+| `[prompt...]` | Prompt for the workflow |
 
 ### Slash Commands
 
@@ -695,7 +596,6 @@ This is also why the cycle is iterative. Research and specs become persistent co
 | `/gh-create-pr` | | Commit, push, and open a PR |
 | `/sl-commit` | | Create a Sapling commit |
 | `/sl-submit-diff` | | Submit to Phabricator |
-| `/ralph` | `"<prompt>"` | Run autonomous implementation |
 
 ---
 
@@ -748,8 +648,10 @@ The `/model select` command opens an interactive picker that also lets you set r
 | Agent | Folder | Skills | Context File |
 | --- | --- | --- | --- |
 | Claude Code | `.claude/` | `.claude/skills/` | `CLAUDE.md` |
-| OpenCode | `.opencode/` | `.opencode/skills/` | `AGENTS.md` |
-| GitHub Copilot | `.github/` | `.github/skills/` | `AGENTS.md` |
+| OpenCode | `.opencode/` | `.agents/skills/` (shared) | `AGENTS.md` |
+| GitHub Copilot | `.github/` | `.agents/skills/` (shared) | `AGENTS.md` |
+
+> **Note:** OpenCode and Copilot CLI share skills via the `.agents/skills/` directory to avoid duplication. Claude Code uses its own `.claude/skills/` directory.
 
 ---
 
@@ -1072,7 +974,7 @@ If agents fail to spawn on Windows, ensure the agent CLI is in your PATH. Atomic
 | **First Step** | Define project principles | Analyze existing architecture |
 | **Context** | Per-feature specs | Research → Specs → Execution → Outcomes |
 | **Agents** | Single agent with shell scripts | 12+ specialized sub-agents across 3 SDKs |
-| **Workflows** | Not available | DAG-based pipelines with branching, loops, HITL |
+| **Workflows** | Not available | Session-based pipelines with transcript passing |
 | **Human Review** | Implicit | Explicit checkpoints |
 | **Debugging** | Not addressed | Dedicated debugging workflow |
 | **Autonomous** | Not available | Ralph for multi-hour execution |
@@ -1090,7 +992,7 @@ If agents fail to spawn on Windows, ensure the agent CLI is in your PATH. Atomic
 | **Runtime** | Python (LangGraph) | TypeScript (Bun) |
 | **Agent SDKs** | OpenAI-compatible API | Claude Code + OpenCode + Copilot CLI SDKs natively |
 | **Focus** | General-purpose agent tasks | Coding-specific: research, spec, implement, review |
-| **Workflows** | LangGraph state machines | Type-safe chainable DSL with `.compile()` verification |
+| **Workflows** | LangGraph state machines | Session-based chainable API with `.compile()` |
 | **Execution** | Sandbox containers | Devcontainer features + git worktrees |
 | **Interface** | Web UI | Terminal TUI with agent activity tree |
 | **Autonomous** | Not available | Ralph for multi-hour coding sessions |

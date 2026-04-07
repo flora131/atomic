@@ -151,7 +151,7 @@ export async function ensureConfigDataDir(
     const { downloadFile, getDownloadUrl, getConfigArchiveFilename } = await import(
       "@/services/system/download.ts"
     );
-    const { extractConfig } = await import("@/commands/cli/update.ts");
+    const { extractConfig } = await import("@/services/system/extract.ts");
     const { tmpdir } = await import("os");
     const { rm } = await import("fs/promises");
     const { ensureDir } = await import("@/services/system/copy.ts");

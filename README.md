@@ -852,7 +852,7 @@ Remove-Item -Path ".github\copilot-instructions.md" -Force
 
 ## Telemetry
 
-Atomic collects anonymous usage telemetry to improve the product. Telemtry is opt-in.
+Atomic collects anonymous usage telemetry to improve the product. Telemetry is opt-in.
 
 **Collected:** Command names, agent type, success/failure status, session metrics.
 **Never collected:** Prompts, file paths, code, IP addresses, PII.

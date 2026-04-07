@@ -7,7 +7,7 @@
 # Set $env:GITHUB_TOKEN for authenticated downloads (avoids API rate limits)
 #
 # Installs the Atomic CLI binary, config data, and all required tooling
-# (npm, @playwright/cli, @llamaindex/liteparse, apm).
+# (npm, @playwright/cli, @llamaindex/liteparse).
 
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '')]
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingInvokeExpression', '')]
@@ -29,9 +29,9 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 # Configuration
 $GithubRepo = "flora131/atomic"
 $BinaryName = "atomic"
-$BinDir = "${Home}\.local\bin"
-$DataDir = $(if ($env:LOCALAPPDATA) { "${env:LOCALAPPDATA}\atomic" } else { "${Home}\AppData\Local\atomic" })
-$AtomicHome = "${Home}\.atomic"
+$BinDir = $(if ($env:BIN_DIR) { $env:BIN_DIR } else { "${Home}\.local\bin" })
+$DataDir = $(if ($env:DATA_DIR) { $env:DATA_DIR } elseif ($env:LOCALAPPDATA) { "${env:LOCALAPPDATA}\atomic" } else { "${Home}\AppData\Local\atomic" })
+$AtomicHome = $(if ($env:ATOMIC_HOME) { $env:ATOMIC_HOME } else { "${Home}\.atomic" })
 
 # Colors for output
 $C_RESET = [char]27 + "[0m"
@@ -227,88 +227,6 @@ function Install-Bun {
     Write-Warn "Could not install bun — install it manually from https://bun.sh"
 }
 
-function Install-Apm {
-    $Existing = Get-Command apm -ErrorAction SilentlyContinue
-    if ($Existing) {
-        Write-Info "apm is already installed"
-        return
-    }
-
-    Write-Info "Installing apm (Agent Package Manager)..."
-
-    # Preferred: official installer script
-    try {
-        Invoke-Expression (Invoke-RestMethod https://aka.ms/apm-windows)
-        # Refresh PATH to pick up newly installed apm
-        $UserPath = [System.Environment]::GetEnvironmentVariable('Path', 'User')
-        $env:Path = "${UserPath};${env:Path}"
-        if (Get-Command apm -ErrorAction SilentlyContinue) { return }
-    } catch { Write-Warn "apm official installer failed: $_" }
-
-    # Fallback: Scoop
-    $Scoop = Get-Command scoop -ErrorAction SilentlyContinue
-    if ($Scoop) {
-        try {
-            & $Scoop.Source bucket add apm https://github.com/microsoft/scoop-apm 2>$null
-            & $Scoop.Source install apm
-            if ($LASTEXITCODE -eq 0) {
-                # Refresh PATH to pick up scoop shims
-                $UserPath = [System.Environment]::GetEnvironmentVariable('Path', 'User')
-                $env:Path = "${UserPath};${env:Path}"
-                if (Get-Command apm -ErrorAction SilentlyContinue) { return }
-            }
-        } catch { Write-Debug "scoop install apm failed: $_" }
-    }
-
-    # Fallback: pip
-    $Pip = Get-Command pip3 -ErrorAction SilentlyContinue
-    if (-not $Pip) { $Pip = Get-Command pip -ErrorAction SilentlyContinue }
-    if ($Pip) {
-        try {
-            & $Pip.Source install apm-cli
-            if ($LASTEXITCODE -eq 0) {
-                # Refresh PATH to pick up pip scripts directory
-                $UserPath = [System.Environment]::GetEnvironmentVariable('Path', 'User')
-                $env:Path = "${UserPath};${env:Path}"
-                if (Get-Command apm -ErrorAction SilentlyContinue) { return }
-            }
-        } catch { Write-Debug "pip install apm-cli failed: $_" }
-    }
-
-    Write-Warn "Could not install apm — install it manually from https://microsoft.github.io/apm/"
-}
-
-function Install-ApmGlobalConfig {
-    param([string]$ConfigDir)
-
-    $ApmCmd = Get-Command apm -ErrorAction SilentlyContinue
-    if (-not $ApmCmd) {
-        Write-Warn "apm not found — skipping global config install"
-        return
-    }
-
-    $ApmYml = Join-Path $ConfigDir "apm.yml"
-    if (-not (Test-Path $ApmYml)) {
-        return
-    }
-
-    Write-Info "Installing APM dependencies globally..."
-    $SavedLocation = Get-Location
-    try {
-        Set-Location $ConfigDir
-        & $ApmCmd.Source install -g
-        if ($LASTEXITCODE -eq 0) {
-            Write-Success "APM global config installed"
-        } else {
-            throw "apm install -g exited with code $LASTEXITCODE"
-        }
-    } catch {
-        Write-Warn "APM global config install failed (non-fatal): $_"
-    } finally {
-        Set-Location $SavedLocation
-    }
-}
-
 # Merge-copy the bundled Atomic agents from the extracted config data dir
 # into the provider-native global roots (~/.claude/agents, ~/.opencode/agents,
 # ~/.copilot/agents). `Copy-Item -Recurse -Force` overwrites files sharing a
@@ -409,13 +327,12 @@ function Install-GlobalSkills {
 }
 
 function Install-Tooling {
-    Write-Info "Installing required tooling (npm, psmux, bun, playwright-cli, liteparse, apm)..."
+    Write-Info "Installing required tooling (npm, psmux, bun, playwright-cli, liteparse)..."
 
     # Phase 1: core tools
     Install-Npm
     Install-Psmux
     Install-Bun
-    Install-Apm
 
     # Phase 2: global CLI tools
     Install-GlobalNpmPackage "@playwright/cli@latest"
@@ -669,9 +586,6 @@ try {
 
     # Install bundled workflow templates to ~/.atomic/workflows/
     Install-Workflows
-
-    # Install APM dependencies globally (deploys to ~/.copilot/, ~/.claude/, etc.)
-    Install-ApmGlobalConfig -ConfigDir $DataDir
 
     # Merge-copy the bundled agent definitions into ~/.claude/agents,
     # ~/.opencode/agents, ~/.copilot/agents (+ ~/.copilot/lsp-config.json).

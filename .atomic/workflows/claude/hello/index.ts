@@ -8,7 +8,7 @@
  * Run: atomic workflow -n hello -a claude "describe this project"
  */
 
-import { defineWorkflow, claudeQuery } from "@bastani/atomic-workflows";
+import { defineWorkflow, createClaudeSession, claudeQuery } from "@bastani/atomic-workflows";
 
 export default defineWorkflow({
   name: "hello",
@@ -18,6 +18,7 @@ export default defineWorkflow({
     name: "describe",
     description: "Ask Claude to describe the project",
     run: async (ctx) => {
+      await createClaudeSession({ paneId: ctx.paneId });
       await claudeQuery({
         paneId: ctx.paneId,
         prompt: ctx.userPrompt,
@@ -30,6 +31,7 @@ export default defineWorkflow({
     name: "summarize",
     description: "Summarize the previous session's output",
     run: async (ctx) => {
+      await createClaudeSession({ paneId: ctx.paneId });
       const research = await ctx.transcript("describe");
 
       await claudeQuery({

@@ -412,24 +412,34 @@ install_tmux() {
         brew install tmux && return 0
     fi
 
+    # Determine privilege escalation command
+    local sudo_cmd=""
+    if [[ "$(id -u)" -ne 0 ]]; then
+        if command -v sudo >/dev/null 2>&1; then
+            sudo_cmd="sudo"
+        else
+            warn "Not running as root and sudo is not available — tmux install may fail"
+        fi
+    fi
+
     # Linux: try package managers in order
     if command -v apt-get >/dev/null 2>&1; then
-        sudo apt-get update -qq && sudo apt-get install -y tmux && return 0
+        $sudo_cmd apt-get update -qq && $sudo_cmd apt-get install -y tmux && return 0
     fi
     if command -v dnf >/dev/null 2>&1; then
-        sudo dnf install -y tmux && return 0
+        $sudo_cmd dnf install -y tmux && return 0
     fi
     if command -v yum >/dev/null 2>&1; then
-        sudo yum install -y tmux && return 0
+        $sudo_cmd yum install -y tmux && return 0
     fi
     if command -v pacman >/dev/null 2>&1; then
-        sudo pacman -Sy --noconfirm tmux && return 0
+        $sudo_cmd pacman -Sy --noconfirm tmux && return 0
     fi
     if command -v zypper >/dev/null 2>&1; then
-        sudo zypper --non-interactive install tmux && return 0
+        $sudo_cmd zypper --non-interactive install tmux && return 0
     fi
     if command -v apk >/dev/null 2>&1; then
-        sudo apk add --no-cache tmux && return 0
+        $sudo_cmd apk add --no-cache tmux && return 0
     fi
 
     warn "Could not install tmux — install it manually"

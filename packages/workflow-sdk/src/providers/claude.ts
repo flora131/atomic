@@ -37,6 +37,14 @@ import {
 
 const initializedPanes = new Set<string>();
 
+/**
+ * Remove a pane from the initialized set, freeing memory.
+ * Call when a Claude session is killed or no longer needed.
+ */
+export function clearClaudeSession(paneId: string): void {
+  initializedPanes.delete(paneId);
+}
+
 /** Default CLI flags passed to the `claude` command. */
 const DEFAULT_CHAT_FLAGS = [
   "--allow-dangerously-skip-permissions",
@@ -181,6 +189,13 @@ export async function claudeQuery(options: ClaudeQueryOptions): Promise<ClaudeQu
   // Step 1: Wait for pane readiness before sending (deducted from response timeout)
   const waitElapsed = await waitForPaneReady(paneId, readyTimeoutMs);
   const responseTimeoutMs = Math.max(0, timeoutMs - waitElapsed);
+
+  if (waitElapsed > timeoutMs * 0.5) {
+    console.warn(
+      `claudeQuery: readiness wait consumed ${Math.round(waitElapsed / 1000)}s ` +
+      `of ${Math.round(timeoutMs / 1000)}s total timeout budget`,
+    );
+  }
 
   const beforeContent = normalizeTmuxLines(capturePaneScrollback(paneId));
 

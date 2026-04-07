@@ -22,6 +22,7 @@ import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import * as tmux from "./tmux.ts";
 import { getMuxBinary } from "./tmux.ts";
 import { loadWorkflowDefinition } from "./discovery.ts";
+import { clearClaudeSession } from "../providers/claude.ts";
 import { OrchestratorPanel } from "./panel.ts";
 
 /** Agent CLI configuration for spawning in tmux panes. */
@@ -59,13 +60,29 @@ function getSessionsBaseDir(): string {
   return join(homedir(), ".atomic", "sessions");
 }
 
-function getRandomPort(): number {
-  const net = require("node:net");
-  const server = net.createServer();
-  server.listen(0);
-  const port = server.address().port as number;
-  server.close();
-  return port;
+async function getRandomPort(): Promise<number> {
+  const net = await import("node:net");
+
+  const MAX_RETRIES = 3;
+  let lastPort = 0;
+
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const port = await new Promise<number>((resolve, reject) => {
+      const server = net.createServer();
+      server.listen(0, () => {
+        const addr = server.address();
+        const p = typeof addr === "object" && addr ? addr.port : 0;
+        server.close(() => resolve(p));
+      });
+      server.on("error", reject);
+    });
+
+    if (port > 0) return port;
+    lastPort = port;
+    await Bun.sleep(50);
+  }
+
+  throw new Error(`Failed to acquire a random port after ${MAX_RETRIES} attempts (last: ${lastPort})`);
 }
 
 function buildPaneCommand(agent: AgentType, port: number): string {
@@ -125,12 +142,15 @@ async function ensureDir(dir: string): Promise<void> {
 
 /** Escape a string for safe interpolation inside a bash double-quoted string. */
 function escBash(s: string): string {
+  if (/[\n\r]/.test(s)) {
+    throw new Error("escBash: input contains newline characters which cannot be safely escaped in bash double-quoted strings");
+  }
   return s.replace(/[\\"$`!]/g, "\\$&");
 }
 
 /** Escape a string for safe interpolation inside a PowerShell double-quoted string. */
 function escPwsh(s: string): string {
-  return s.replace(/[`"$]/g, "`$&");
+  return s.replace(/[`"$]/g, "`$&").replace(/\n/g, "`n").replace(/\r/g, "`r");
 }
 
 // ============================================================================
@@ -185,16 +205,23 @@ export async function executeWorkflow(options: WorkflowRunOptions): Promise<void
 
   // Create tmux session with orchestrator as the initial window
   const shellCmd = isWin
-    ? `pwsh -NoProfile -File "${launcherPath}"`
-    : `bash "${launcherPath}"`;
+    ? `pwsh -NoProfile -File "${escPwsh(launcherPath)}"`
+    : `bash "${escBash(launcherPath)}"`;
   tmux.createSession(tmuxSessionName, shellCmd, "orchestrator");
 
-  // Attach — user sees the orchestrator output + agent panes as they spawn
-  const muxBinary = getMuxBinary() ?? "tmux";
-  const attachProc = Bun.spawn([muxBinary, "attach-session", "-t", tmuxSessionName], {
-    stdio: ["inherit", "inherit", "inherit"],
-  });
-  await attachProc.exited;
+  // Attach or switch depending on whether we're already inside tmux
+  if (tmux.isInsideTmux()) {
+    // Inside tmux: switch the current client to the workflow session
+    // to avoid creating a nested tmux client
+    tmux.switchClient(tmuxSessionName);
+  } else {
+    // Outside tmux: attach normally (blocks until session ends)
+    const muxBinary = getMuxBinary() ?? "tmux";
+    const attachProc = Bun.spawn([muxBinary, "attach-session", "-t", tmuxSessionName], {
+      stdio: ["inherit", "inherit", "inherit"],
+    });
+    await attachProc.exited;
+  }
 }
 
 // ============================================================================
@@ -202,6 +229,16 @@ export async function executeWorkflow(options: WorkflowRunOptions): Promise<void
 // ============================================================================
 
 async function runOrchestrator(): Promise<void> {
+  const requiredEnvVars = [
+    "ATOMIC_WF_ID", "ATOMIC_WF_TMUX", "ATOMIC_WF_AGENT",
+    "ATOMIC_WF_PROMPT", "ATOMIC_WF_FILE", "ATOMIC_WF_CWD",
+  ] as const;
+  for (const key of requiredEnvVars) {
+    if (!process.env[key]) {
+      throw new Error(`Missing required environment variable: ${key}`);
+    }
+  }
+
   const workflowRunId = process.env.ATOMIC_WF_ID!;
   const tmuxSessionName = process.env.ATOMIC_WF_TMUX!;
   const agent = process.env.ATOMIC_WF_AGENT! as AgentType;
@@ -257,7 +294,7 @@ async function runOrchestrator(): Promise<void> {
     for (const sessionDef of definition.sessions) {
       panel.sessionStart(sessionDef.name, sessionDef.description);
 
-      const port = getRandomPort();
+      const port = await getRandomPort();
       const paneCmd = buildPaneCommand(agent, port);
 
       const paneId = tmux.createWindow(tmuxSessionName, sessionDef.name, paneCmd);
@@ -275,11 +312,11 @@ async function runOrchestrator(): Promise<void> {
       const messagesPath = join(sessionDir, "messages.json");
       const inboxPath = join(sessionDir, "inbox.md");
 
-      function wrapMessages(arg: SessionEvent[] | SessionPromptResponse | string): SavedMessage[] {
+      async function wrapMessages(arg: SessionEvent[] | SessionPromptResponse | string): Promise<SavedMessage[]> {
         if (typeof arg === "string") {
           try {
-            const { getSessionMessages } = require("@anthropic-ai/claude-agent-sdk");
-            const msgs: SessionMessage[] = getSessionMessages(arg, { dir: process.cwd() });
+            const { getSessionMessages } = await import("@anthropic-ai/claude-agent-sdk");
+            const msgs: SessionMessage[] = await getSessionMessages(arg, { dir: process.cwd() });
             return msgs.map((m) => ({ provider: "claude" as const, data: m }));
           } catch {
             return [];
@@ -335,11 +372,16 @@ async function runOrchestrator(): Promise<void> {
           .join("\n\n");
       }
 
+      let pendingSave: Promise<void> | null = null;
+
       const save: SaveTranscript = ((arg: SessionEvent[] | SessionPromptResponse | string) => {
-        const wrapped = wrapMessages(arg);
-        Bun.write(messagesPath, JSON.stringify(wrapped, null, 2));
-        const text = renderMessagesToText(wrapped);
-        Bun.write(inboxPath, text);
+        pendingSave = (async () => {
+          const wrapped = await wrapMessages(arg);
+          await Bun.write(messagesPath, JSON.stringify(wrapped, null, 2));
+          const text = renderMessagesToText(wrapped);
+          await Bun.write(inboxPath, text);
+        })();
+        return pendingSave;
       }) as SaveTranscript;
 
       const ctx: SessionContext = {
@@ -387,6 +429,8 @@ async function runOrchestrator(): Promise<void> {
       panel.sessionRunning();
       try {
         await sessionDef.run(ctx);
+        // Ensure any pending save() writes complete before the next session reads them
+        if (pendingSave) await pendingSave;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         await writeFile(join(sessionDir, "error.txt"), message);
@@ -398,6 +442,7 @@ async function runOrchestrator(): Promise<void> {
       }
 
       completedSessions.push({ name: sessionDef.name, sessionId, sessionDir, paneId });
+      if (agent === "claude") clearClaudeSession(paneId);
       panel.sessionSuccess("Complete");
     }
 

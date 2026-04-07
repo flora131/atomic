@@ -25,7 +25,7 @@ export type { SessionPromptResponse as OpenCodePromptResponse } from "@opencode-
 export type { SessionMessage as ClaudeSessionMessage } from "@anthropic-ai/claude-agent-sdk";
 
 // Providers
-export { createClaudeSession, claudeQuery, validateClaudeWorkflow } from "./providers/claude.ts";
+export { createClaudeSession, claudeQuery, clearClaudeSession, validateClaudeWorkflow } from "./providers/claude.ts";
 export type { ClaudeSessionOptions, ClaudeQueryOptions, ClaudeQueryResult, ClaudeValidationWarning } from "./providers/claude.ts";
 
 export { validateCopilotWorkflow } from "./providers/copilot.ts";

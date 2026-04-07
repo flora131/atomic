@@ -40,11 +40,11 @@ export type SavedMessage =
  */
 export interface SaveTranscript {
   /** Save Copilot SessionEvent[] from session.getMessages() */
-  (messages: SessionEvent[]): void;
+  (messages: SessionEvent[]): Promise<void>;
   /** Save OpenCode prompt response `{ info, parts }` from session.prompt().data */
-  (response: SessionPromptResponse): void;
+  (response: SessionPromptResponse): Promise<void>;
   /** Save Claude messages — pass the session ID to auto-read transcript */
-  (claudeSessionId: string): void;
+  (claudeSessionId: string): Promise<void>;
 }
 
 /**

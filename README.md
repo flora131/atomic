@@ -819,23 +819,6 @@ $env:GITHUB_TOKEN='ghp_...'; irm https://raw.githubusercontent.com/flora131/atom
 </details>
 
 <details>
-<summary>Custom install directory</summary>
-
-**macOS / Linux:**
-
-```bash
-ATOMIC_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
-```
-
-**Windows PowerShell:**
-
-```powershell
-$env:ATOMIC_INSTALL_DIR = "C:\tools"; irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1 | iex
-```
-
-</details>
-
-<details>
 <summary>Devcontainer examples</summary>
 
 **Atomic + Claude in a Rust project:**

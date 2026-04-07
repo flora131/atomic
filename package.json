@@ -10,11 +10,13 @@
   },
   "keywords": [
     "cli",
-    "config",
     "coding-agents",
-    "claude",
-    "copilot",
-    "bun"
+    "agents",
+    "ai-engineering",
+    "harness-engineering",
+    "claude-code",
+    "copilot-cli",
+    "opencode"
   ],
   "engines": {
     "node": ">=22"
@@ -24,14 +26,7 @@
   },
   "files": [
     "src",
-    "assets/settings.schema.json",
-    ".claude",
-    ".opencode",
-    ".mcp.json",
-    ".github/skills",
-    ".github/agents",
-    ".github/lsp.json",
-    ".vscode/mcp.json"
+    "assets/settings.schema.json"
   ],
   "scripts": {
     "dev": "bun run src/cli.ts",
@@ -41,7 +36,7 @@
     "typecheck": "bunx tsc --noEmit",
     "lint": "oxlint --config=oxlint.json src tests",
     "lint:fix": "oxlint --config=oxlint.json --fix src tests",
-    "postinstall": "lefthook install"
+    "postinstall": "lefthook install && bun run src/scripts/postinstall.ts"
   },
   "devDependencies": {
     "@types/bun": "^1.3.11",

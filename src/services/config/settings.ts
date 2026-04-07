@@ -245,3 +245,17 @@ export function upsertTrustedWorkspacePath(
     // Silently fail
   }
 }
+
+/**
+ * Set telemetry enabled/disabled in global settings.
+ */
+export function setTelemetryEnabled(enabled: boolean): void {
+  try {
+    const settings = loadSettingsFileSync(globalSettingsPath());
+    settings.$schema = SETTINGS_SCHEMA_URL;
+    (settings as Record<string, unknown>).telemetryEnabled = enabled;
+    writeGlobalSettingsSync(settings);
+  } catch {
+    // Silently fail
+  }
+}

@@ -81,7 +81,7 @@ Rely on the `tmux-cli` tool (e.g. run `claude` in a `tmux` session using the `tm
 
 ## Docs
 
-Relevant resources (use the deepwiki mcp `ask_question` tool for the repos if the information is not available in the local docs):
+Relevant resources (use your `playwright-cli` skill if the information is not available in the local docs):
 
 1. Bun (runtime) repo: `oven-sh/bun`
 2. OpenCode:

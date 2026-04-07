@@ -2,7 +2,7 @@ import { join } from "path";
 import { readdir } from "fs/promises";
 import { copyFile, pathExists, ensureDir } from "@/services/system/copy.ts";
 import { getOppositeScriptExtension } from "@/services/system/detect.ts";
-import type { SourceControlType } from "@/services/config/index.ts";
+import type { AgentKey, SourceControlType } from "@/services/config/index.ts";
 
 export const SCM_PREFIX_BY_TYPE: Record<SourceControlType, "gh-" | "sl-"> = {
   github: "gh-",
@@ -107,4 +107,84 @@ export async function syncProjectScmSkills(options: SyncProjectScmSkillsOptions)
   }
 
   return copiedCount;
+}
+
+/** Skills-CLI agent identifiers (match `npx skills -a <value>`). */
+const SKILLS_AGENT_BY_KEY: Record<AgentKey, string> = {
+  claude: "claude-code",
+  opencode: "opencode",
+  copilot: "github-copilot",
+};
+
+const SKILLS_REPO = "https://github.com/flora131/atomic.git";
+
+export interface InstallLocalScmSkillsOptions {
+  scmType: SourceControlType;
+  agentKey: AgentKey;
+  /** The directory to run `npx skills add` in (the project root). */
+  cwd: string;
+}
+
+export interface InstallLocalScmSkillsResult {
+  success: boolean;
+  /** Non-empty when `success` is false. */
+  details: string;
+}
+
+/**
+ * Install the SCM skill variants (gh-* or sl-*) locally into the current
+ * project via `npx skills add`. The `-g` flag is intentionally omitted so
+ * the skills are installed per-project (in the given `cwd`).
+ *
+ * This is best-effort: callers should treat a failed result as a warning,
+ * not as a fatal error.
+ */
+export async function installLocalScmSkills(
+  options: InstallLocalScmSkillsOptions,
+): Promise<InstallLocalScmSkillsResult> {
+  const { scmType, agentKey, cwd } = options;
+
+  const npxPath = Bun.which("npx");
+  if (!npxPath) {
+    return { success: false, details: "npx not found on PATH" };
+  }
+
+  const pattern = `${getScmPrefix(scmType)}*`;
+  const agentFlag = SKILLS_AGENT_BY_KEY[agentKey];
+
+  try {
+    const proc = Bun.spawn({
+      cmd: [
+        npxPath,
+        "--yes",
+        "skills",
+        "add",
+        SKILLS_REPO,
+        "--skill",
+        pattern,
+        "-a",
+        agentFlag,
+        "-y",
+      ],
+      cwd,
+      stdout: "pipe",
+      stderr: "pipe",
+      env: process.env,
+    });
+    const [stderr, stdout, exitCode] = await Promise.all([
+      new Response(proc.stderr).text(),
+      new Response(proc.stdout).text(),
+      proc.exited,
+    ]);
+    if (exitCode === 0) {
+      return { success: true, details: "" };
+    }
+    const details = stderr.trim().length > 0 ? stderr.trim() : stdout.trim();
+    return { success: false, details: details || `exit code ${exitCode}` };
+  } catch (error) {
+    return {
+      success: false,
+      details: error instanceof Error ? error.message : String(error),
+    };
+  }
 }

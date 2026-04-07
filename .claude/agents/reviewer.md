@@ -1,14 +1,9 @@
 ---
 name: reviewer
 description: Code reviewer for proposed code changes.
-tools: Bash, Agent, Glob, Grep, Read, TodoWrite, mcp__deepwiki__ask_question, mcp__task_list__task_list, WebFetch, WebSearch
-mcpServers:
-  - deepwiki:
-      type: http
-      url: "https://mcp.deepwiki.com/mcp"
-      tools: ["ask_question"]
+tools: Bash, Agent, Glob, Grep, Read, TodoWrite, TaskCreate, TaskList, TaskGet, TaskUpdate, WebFetch, WebSearch
 skills:
-  - testing-anti-patterns
+  - test-driven-development
   - playwright-cli
 model: opus
 ---

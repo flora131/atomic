@@ -33,12 +33,12 @@ import {
   checkNpmPackageExists,
 } from "@/services/system/download.ts";
 import { cleanupBunTempNativeAddons } from "@/services/system/cleanup.ts";
-import { trackAtomicCommand } from "@/services/telemetry/index.ts";
-import { installWorkflowSdk, getGlobalWorkflowsDir } from "@/services/config/workflow-package.ts";
 import {
   upgradeNpm,
   upgradePlaywrightCli,
   upgradeLiteparse,
+  upgradeTmux,
+  upgradeBun,
   collectFailures,
   type ToolingStep,
 } from "@/lib/spawn.ts";
@@ -304,41 +304,34 @@ export async function updateCommand(): Promise<void> {
       }
       s.stop("Binary installed");
 
-      // Run cleanup, config update, and SDK update in parallel (all independent)
-      s.start("Updating config files and SDK...");
+      // Run cleanup and config update in parallel
+      s.start("Updating config files...");
       const dataDir = getBinaryDataDir();
-      const sdkTag = usePrerelease ? "next" : "latest";
-      const globalWorkflowsDir = getGlobalWorkflowsDir();
 
-      const [, , sdkResult] = await Promise.all([
-        // Clean up stale native addon DLLs from temp directory
+      await Promise.all([
         cleanupBunTempNativeAddons(),
-        // Update bundled config files without deleting unrelated user-owned data.
         (async () => {
           await extractConfig(configPath, dataDir);
           await syncAtomicGlobalAgentConfigs(dataDir);
-        })(),
-        // Update @bastani/atomic-workflows SDK in global workflows directory
-        (async () => {
-          const installed = await installWorkflowSdk(globalWorkflowsDir, targetVersionNum);
-          if (installed) return { ok: true, version: targetVersionNum };
-          // Fallback to tag-based install if exact version not yet published
-          const fallback = await installWorkflowSdk(globalWorkflowsDir, sdkTag);
-          return fallback ? { ok: true, version: sdkTag } : { ok: false, version: targetVersionNum };
+          // Install/update bundled workflow templates
+          try {
+            const { installGlobalWorkflows } = await import("@/services/system/install-workflows.ts");
+            await installGlobalWorkflows(dataDir);
+          } catch {
+            // Workflow installation is best-effort — don't block updates
+          }
         })(),
       ]);
-      s.stop("Config files and SDK updated");
+      s.stop("Config files updated");
 
-      if (!sdkResult.ok) {
-        log.warn(`Could not update @bastani/atomic-workflows SDK. Run manually: cd ${globalWorkflowsDir} && bun add @bastani/atomic-workflows@${sdkResult.version}`);
-      }
-
-      // Update tooling: npm, playwright-cli, liteparse
+      // Update tooling: npm, playwright-cli, liteparse, tmux/psmux, bun
       s.start("Updating tools...");
       const toolingSteps: ToolingStep[] = [
         { label: "npm", fn: upgradeNpm },
         { label: "@playwright/cli", fn: upgradePlaywrightCli },
         { label: "@llamaindex/liteparse", fn: upgradeLiteparse },
+        { label: "tmux/psmux", fn: upgradeTmux },
+        { label: "bun", fn: upgradeBun },
       ];
       const toolingResults = await Promise.allSettled(toolingSteps.map((step) => step.fn()));
       const toolingFailures = collectFailures(toolingSteps, toolingResults);
@@ -360,9 +353,6 @@ export async function updateCommand(): Promise<void> {
       }
       s.stop("Installation verified");
 
-      // Track successful update command
-      trackAtomicCommand("update", null, true);
-
       log.success(`Successfully updated to ${targetVersion}!`);
       log.info("");
       log.info("Run 'atomic --help' to see what's new.");
@@ -371,9 +361,6 @@ export async function updateCommand(): Promise<void> {
       await rm(tempDir, { recursive: true, force: true });
     }
   } catch (error) {
-    // Track failed update command
-    trackAtomicCommand("update", null, false);
-
     s.stop("Update failed");
     const message = error instanceof Error ? error.message : String(error);
     log.error(`Update failed: ${message}`);

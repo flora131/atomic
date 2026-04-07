@@ -25,21 +25,18 @@ import {
   getScmKeys,
   isValidScm,
 } from "@/services/config/index.ts";
-import { displayBanner } from "@/theme/banner/index.ts";
 import { pathExists } from "@/services/system/copy.ts";
 import { detectInstallationType, getConfigRoot } from "@/services/config/config-path.ts";
 import { isWindows, isWslInstalled, WSL_INSTALL_URL } from "@/services/system/detect.ts";
-import { trackAtomicCommand, type AgentType } from "@/services/telemetry/index.ts";
 import { saveAtomicConfig } from "@/services/config/atomic-config.ts";
 import { upsertTrustedWorkspacePath } from "@/services/config/settings.ts";
 import {
   ensureAtomicGlobalAgentConfigsForInstallType,
   getTemplateAgentFolder,
 } from "@/services/config/atomic-global-config.ts";
-import { installWorkflowSdk, installWorkflowSdkFromLocal, getLocalWorkflowsDir, getGlobalWorkflowsDir, getLocalSdkPackagePath, getRelativeSdkPath } from "@/services/config/workflow-package.ts";
-import { VERSION } from "@/version.ts";
 import {
   getScmPrefix,
+  installLocalScmSkills,
   reconcileScmVariants,
   syncProjectScmSkills,
 } from "./scm.ts";
@@ -47,6 +44,107 @@ import {
   applyManagedOnboardingFiles,
   hasProjectOnboardingFiles,
 } from "./onboarding.ts";
+import { supportsTrueColor, supports256Color, supportsColor } from "@/services/system/detect.ts";
+
+const ATOMIC_BLOCK_LOGO = [
+  "█▀▀█ ▀▀█▀▀ █▀▀█ █▀▄▀█ ▀█▀ █▀▀",
+  "█▄▄█   █   █  █ █ ▀ █  █  █  ",
+  "▀  ▀   ▀   ▀▀▀▀ ▀   ▀ ▀▀▀ ▀▀▀",
+];
+
+// Catppuccin-inspired gradient (dark terminal)
+const GRADIENT_DARK = [
+  "#f5e0dc", "#f2cdcd", "#f5c2e7", "#cba6f7",
+  "#b4befe", "#89b4fa", "#74c7ec", "#89dceb", "#94e2d5",
+];
+
+// Catppuccin-inspired gradient (light terminal)
+const GRADIENT_LIGHT = [
+  "#dc8a78", "#dd7878", "#ea76cb", "#8839ef",
+  "#7287fd", "#1e66f5", "#209fb5", "#04a5e5", "#179299",
+];
+
+// 256-color approximation of the gradient
+const GRADIENT_256 = [224, 218, 219, 183, 147, 111, 117, 159, 115];
+
+function hexToRgb(hex: string): [number, number, number] {
+  const h = hex.replace("#", "");
+  return [
+    parseInt(h.substring(0, 2), 16),
+    parseInt(h.substring(2, 4), 16),
+    parseInt(h.substring(4, 6), 16),
+  ];
+}
+
+function interpolateHex(gradient: string[], t: number): [number, number, number] {
+  const pos = Math.max(0, Math.min(1, t)) * (gradient.length - 1);
+  const lo = Math.floor(pos);
+  const hi = Math.min(lo + 1, gradient.length - 1);
+  const frac = pos - lo;
+  const [r1, g1, b1] = hexToRgb(gradient[lo]!);
+  const [r2, g2, b2] = hexToRgb(gradient[hi]!);
+  return [
+    Math.round(r1 + (r2 - r1) * frac),
+    Math.round(g1 + (g2 - g1) * frac),
+    Math.round(b1 + (b2 - b1) * frac),
+  ];
+}
+
+function interpolate256(gradient: number[], t: number): number {
+  const pos = Math.max(0, Math.min(1, t)) * (gradient.length - 1);
+  const lo = Math.floor(pos);
+  return gradient[lo]!;
+}
+
+function colorizeLineTrueColor(line: string, gradient: string[]): string {
+  let out = "";
+  const len = line.length;
+  for (let i = 0; i < len; i++) {
+    const ch = line[i]!;
+    if (ch === " ") {
+      out += ch;
+      continue;
+    }
+    const [r, g, b] = interpolateHex(gradient, len > 1 ? i / (len - 1) : 0);
+    out += `\x1b[38;2;${r};${g};${b}m${ch}`;
+  }
+  return out + "\x1b[0m";
+}
+
+function colorizeLine256(line: string, gradient: number[]): string {
+  let out = "";
+  const len = line.length;
+  for (let i = 0; i < len; i++) {
+    const ch = line[i]!;
+    if (ch === " ") {
+      out += ch;
+      continue;
+    }
+    const code = interpolate256(gradient, len > 1 ? i / (len - 1) : 0);
+    out += `\x1b[38;5;${code}m${ch}`;
+  }
+  return out + "\x1b[0m";
+}
+
+function displayBlockBanner(): void {
+  const isDark = !(process.env.COLORFGBG ?? "").startsWith("0;");
+  const truecolor = supportsTrueColor();
+  const color256 = supports256Color();
+  const hasColor = supportsColor();
+
+  console.log();
+  for (const line of ATOMIC_BLOCK_LOGO) {
+    if (truecolor) {
+      const gradient = isDark ? GRADIENT_DARK : GRADIENT_LIGHT;
+      console.log(`  ${colorizeLineTrueColor(line, gradient)}`);
+    } else if (color256 && hasColor) {
+      console.log(`  ${colorizeLine256(line, GRADIENT_256)}`);
+    } else {
+      console.log(`  ${line}`);
+    }
+  }
+  console.log();
+}
 
 /**
  * Thrown when the user cancels an interactive prompt during init.
@@ -90,35 +188,6 @@ export {
   reconcileScmVariants,
 } from "./scm.ts";
 
-function decodeSpawnOutput(output: Uint8Array): string {
-  return new TextDecoder().decode(output).trim();
-}
-
-function runPlaywrightCliInstall(): void {
-  const playwrightCliPath = Bun.which("playwright-cli");
-  const bunxPath = Bun.which("bunx");
-  const command = playwrightCliPath
-    ? [playwrightCliPath, "install"]
-    : bunxPath
-      ? [bunxPath, "@playwright/cli", "install"]
-      : ["bun", "x", "@playwright/cli", "install"];
-
-  const result = Bun.spawnSync({
-    cmd: command,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  if (result.success) {
-    return;
-  }
-
-  const stderr = decodeSpawnOutput(result.stderr);
-  const stdout = decodeSpawnOutput(result.stdout);
-  const details = stderr || stdout || "No command output captured.";
-  throw new Error(`Failed to run '${command.join(" ")}': ${details}`);
-}
-
 /**
  * Run the interactive init command
  */
@@ -137,8 +206,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
 
   // Display banner
   if (showBanner) {
-    displayBanner();
-    console.log(); // Add spacing after banner
+    displayBlockBanner();
   }
 
   // Show intro
@@ -300,17 +368,17 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     const sourceSkillsDir = join(configRoot, templateAgentFolder, "skills");
     const targetSkillsDir = join(targetFolder, "skills");
 
-    const copiedCount = await syncProjectScmSkills({
+    // Best-effort template copy: source checkouts still carry the bundled
+    // gh-*/sl-* skill templates, but binary and npm installs no longer do
+    // (they live in the skills CLI repo). `installLocalScmSkills` below
+    // handles the binary/npm case by invoking `npx skills add` — so a zero
+    // copy here is not an error, just a signal that the template isn't
+    // bundled for this install type.
+    await syncProjectScmSkills({
       scmType,
       sourceSkillsDir,
       targetSkillsDir,
     });
-
-    if (copiedCount === 0) {
-      throw new Error(
-        `No ${getScmPrefix(scmType)}* skills found in ${sourceSkillsDir}`
-      );
-    }
 
     // Keep SCM-specific managed command/skill variants aligned with selected SCM
     await reconcileScmVariants({
@@ -331,78 +399,39 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
 
     s.stop("Source control skills configured successfully!");
 
-    // Track successful init command
-    trackAtomicCommand("init", agentKey as AgentType, true);
+    // Install SCM-specific skill variants locally for the active agent via
+    // `npx skills add` (best-effort: a failure is surfaced as a warning).
+    //
+    // Source checkouts already have the bundled skills on disk and the
+    // template-copy above has placed the selected variants into `targetDir`;
+    // skip the network-backed skills CLI in that case to keep dev iteration
+    // fast and offline-friendly.
+    if (detectInstallationType() !== "source") {
+      const skillsSpinner = spinner();
+      skillsSpinner.start(
+        `Installing ${getScmPrefix(scmType)}* skills locally for ${agent.name}...`,
+      );
+      const skillsResult = await installLocalScmSkills({
+        scmType,
+        agentKey,
+        cwd: targetDir,
+      });
+      if (skillsResult.success) {
+        skillsSpinner.stop(
+          `Installed ${getScmPrefix(scmType)}* skills locally for ${agent.name}`,
+        );
+      } else {
+        skillsSpinner.stop(
+          `Skipped local ${getScmPrefix(scmType)}* skills install (${skillsResult.details})`,
+        );
+      }
+    }
   } catch (error) {
-    // Track failed init command before exiting
-    trackAtomicCommand("init", agentKey as AgentType, false);
-
     s.stop("Failed to configure source control skills");
     console.error(
       error instanceof Error ? error.message : "Unknown error occurred"
     );
     exitOrThrow(1, error instanceof Error ? error.message : "Unknown error occurred");
-  }
-
-  // Install Playwright browser runtime and workflow SDK in parallel (independent)
-  const postInitSpinner = spinner();
-  postInitSpinner.start("Installing Playwright browser runtime and workflow SDK...");
-
-  const [playwrightResult, sdkResult] = await Promise.allSettled([
-    // Playwright install (sync call wrapped in async)
-    (async () => { runPlaywrightCliInstall(); })(),
-    // Workflow SDK install — branch on installation type
-    (async () => {
-      const installType = detectInstallationType();
-      const localWorkflowsDir = getLocalWorkflowsDir(targetDir);
-      const globalWorkflowsDir = getGlobalWorkflowsDir();
-
-      if (installType === "source") {
-        // Dev mode: use local packages/workflow-sdk from the repo
-        const configRoot = getConfigRoot();
-        const localSdkPath = getLocalSdkPackagePath(configRoot);
-
-        // Local .atomic/workflows/ — relative path (portable within repo)
-        const relativeSdkPath = getRelativeSdkPath(localWorkflowsDir, localSdkPath);
-        const localInstalled = await installWorkflowSdkFromLocal(localWorkflowsDir, relativeSdkPath);
-        if (!localInstalled) {
-          throw new Error("SDK local install returned false");
-        }
-
-        // Global ~/.atomic/workflows/ — absolute path
-        const globalInstalled = await installWorkflowSdkFromLocal(globalWorkflowsDir, localSdkPath);
-        if (!globalInstalled) {
-          throw new Error("SDK global install returned false");
-        }
-      } else {
-        // Binary/npm mode: use published npm package with matching version
-        const localInstalled = await installWorkflowSdk(localWorkflowsDir, VERSION);
-        if (!localInstalled) {
-          throw new Error("SDK local install returned false");
-        }
-
-        const globalInstalled = await installWorkflowSdk(globalWorkflowsDir, VERSION);
-        if (!globalInstalled) {
-          throw new Error("SDK global install returned false");
-        }
-      }
-    })(),
-  ]);
-
-  postInitSpinner.stop("Post-init setup complete");
-
-  if (playwrightResult.status === "rejected") {
-    const message = playwrightResult.reason instanceof Error ? playwrightResult.reason.message : String(playwrightResult.reason);
-    log.warn(`Could not run 'playwright-cli install': ${message}`);
-  } else {
-    log.success("Playwright browser runtime installed");
-  }
-
-  if (sdkResult.status === "rejected") {
-    const message = sdkResult.reason instanceof Error ? sdkResult.reason.message : String(sdkResult.reason);
-    log.warn(`Could not set up workflow SDK: ${message}`);
-  } else {
-    log.success("Workflow SDK installed in .atomic/workflows/ and ~/.atomic/workflows/");
   }
 
   // Check for WSL on Windows

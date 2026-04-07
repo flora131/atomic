@@ -80,19 +80,45 @@ jobs:
           # Create a staging directory for config files
           mkdir -p config-staging
 
-          # Copy config directories (same as package.json "files" for binary distribution)
-          cp -r .claude config-staging/
-          cp -r .opencode config-staging/
-          cp .mcp.json config-staging/
+          # The slim config archive ships only the per-agent subagent
+          # definitions and the Copilot LSP config. Skills are no longer
+          # bundled — `install.sh` / `install.ps1` pull them at install
+          # time via `npx skills add` from the git repo, and `atomic init`
+          # installs the per-project SCM variants the same way.
+          mkdir -p config-staging/.claude
+          mkdir -p config-staging/.opencode
           mkdir -p config-staging/.github
-          cp -r .github/skills config-staging/.github/
-          cp -r .github/agents config-staging/.github/
-          cp .github/lsp.json config-staging/.github/
-          mkdir -p config-staging/.vscode
-          cp .vscode/mcp.json config-staging/.vscode/
+          cp -r .claude/agents config-staging/.claude/agents
+          cp -r .opencode/agents config-staging/.opencode/agents
+          cp -r .github/agents config-staging/.github/agents
+          cp .github/lsp.json config-staging/.github/lsp.json
 
-          # Remove node_modules from .opencode if present
-          rm -rf config-staging/.opencode/node_modules
+          # Copy workflow templates for global installation
+          mkdir -p config-staging/.atomic
+          cp -r .atomic/workflows config-staging/.atomic/workflows
+          rm -rf config-staging/.atomic/workflows/node_modules
+          rm -f config-staging/.atomic/workflows/package-lock.json
+          # Strip dev-only tsconfig paths alias (points to monorepo packages/ dir)
+          cat > config-staging/.atomic/workflows/tsconfig.json << 'TSEOF'
+          {
+            "compilerOptions": {
+              "target": "ESNext",
+              "module": "ESNext",
+              "moduleResolution": "bundler",
+              "allowImportingTsExtensions": true,
+              "noEmit": true,
+              "verbatimModuleSyntax": true,
+              "strict": true,
+              "skipLibCheck": true,
+              "types": ["bun"]
+            },
+            "include": [
+              "copilot/**/*.ts",
+              "opencode/**/*.ts",
+              "claude/**/*.ts"
+            ]
+          }
+          TSEOF
 
           # Create tarball for Unix systems (preserves permissions)
           tar -czvf dist/atomic-config.tar.gz -C config-staging .
@@ -195,14 +221,18 @@ jobs:
         run: |
           mkdir -p config-test
           tar -xzf "dist/$CONFIG_ARCHIVE" -C config-test
-          # Verify all archived config entries exist
-          test -d config-test/.claude || (echo "::error::Missing .claude config" && exit 1)
-          test -d config-test/.opencode || (echo "::error::Missing .opencode config" && exit 1)
-          test -f config-test/.mcp.json || (echo "::error::Missing .mcp.json" && exit 1)
-          test -d config-test/.github/skills || (echo "::error::Missing .github/skills" && exit 1)
+          # Verify every entry that should be in the slim archive exists…
+          test -d config-test/.claude/agents || (echo "::error::Missing .claude/agents" && exit 1)
+          test -d config-test/.opencode/agents || (echo "::error::Missing .opencode/agents" && exit 1)
           test -d config-test/.github/agents || (echo "::error::Missing .github/agents" && exit 1)
           test -f config-test/.github/lsp.json || (echo "::error::Missing .github/lsp.json" && exit 1)
-          test -f config-test/.vscode/mcp.json || (echo "::error::Missing .vscode/mcp.json" && exit 1)
+          test -d config-test/.atomic/workflows/claude || (echo "::error::Missing .atomic/workflows/claude" && exit 1)
+          test -d config-test/.atomic/workflows/copilot || (echo "::error::Missing .atomic/workflows/copilot" && exit 1)
+          test -d config-test/.atomic/workflows/opencode || (echo "::error::Missing .atomic/workflows/opencode" && exit 1)
+          # …and that the entries that moved to skills CLI are absent.
+          test ! -e config-test/.claude/skills || (echo "::error::Unexpected .claude/skills in archive" && exit 1)
+          test ! -e config-test/.opencode/skills || (echo "::error::Unexpected .opencode/skills in archive" && exit 1)
+          test ! -e config-test/.github/skills || (echo "::error::Unexpected .github/skills in archive" && exit 1)
           echo "Config archive validation passed"
 
       - name: Validate config archive (Windows)
@@ -213,14 +243,18 @@ jobs:
         run: |
           New-Item -ItemType Directory -Path config-test -Force
           Expand-Archive -Path "dist/$env:CONFIG_ARCHIVE" -DestinationPath config-test
-          # Verify all archived config entries exist
-          if (-not (Test-Path "config-test/.claude")) { Write-Error "Missing .claude config"; exit 1 }
-          if (-not (Test-Path "config-test/.opencode")) { Write-Error "Missing .opencode config"; exit 1 }
-          if (-not (Test-Path "config-test/.mcp.json")) { Write-Error "Missing .mcp.json"; exit 1 }
-          if (-not (Test-Path "config-test/.github/skills")) { Write-Error "Missing .github/skills"; exit 1 }
+          # Verify every entry that should be in the slim archive exists…
+          if (-not (Test-Path "config-test/.claude/agents")) { Write-Error "Missing .claude/agents"; exit 1 }
+          if (-not (Test-Path "config-test/.opencode/agents")) { Write-Error "Missing .opencode/agents"; exit 1 }
           if (-not (Test-Path "config-test/.github/agents")) { Write-Error "Missing .github/agents"; exit 1 }
           if (-not (Test-Path "config-test/.github/lsp.json")) { Write-Error "Missing .github/lsp.json"; exit 1 }
-          if (-not (Test-Path "config-test/.vscode/mcp.json")) { Write-Error "Missing .vscode/mcp.json"; exit 1 }
+          if (-not (Test-Path "config-test/.atomic/workflows/claude")) { Write-Error "Missing .atomic/workflows/claude"; exit 1 }
+          if (-not (Test-Path "config-test/.atomic/workflows/copilot")) { Write-Error "Missing .atomic/workflows/copilot"; exit 1 }
+          if (-not (Test-Path "config-test/.atomic/workflows/opencode")) { Write-Error "Missing .atomic/workflows/opencode"; exit 1 }
+          # …and that the entries that moved to skills CLI are absent.
+          if (Test-Path "config-test/.claude/skills") { Write-Error "Unexpected .claude/skills in archive"; exit 1 }
+          if (Test-Path "config-test/.opencode/skills") { Write-Error "Unexpected .opencode/skills in archive"; exit 1 }
+          if (Test-Path "config-test/.github/skills") { Write-Error "Unexpected .github/skills in archive"; exit 1 }
           Write-Host "Config archive validation passed"
 
   release:

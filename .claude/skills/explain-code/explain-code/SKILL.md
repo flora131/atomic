@@ -7,16 +7,23 @@ description: Explain code functionality in detail.
 
 ## Available Tools
 
-The following MCP tools are available and SHOULD be used when relevant:
-
-- **DeepWiki** (`ask_question`): Use to look up documentation for external libraries, frameworks, and GitHub repositories. Particularly useful for understanding third-party dependencies and their APIs.
-- **Playwright CLI** (`playwright-cli`): Use to retrieve web content, browse documentation, and extract data from web pages if information is not found in DeepWiki. Invoke via the `/playwright-cli` skill or run `bunx playwright-cli` commands directly.
+- **Playwright CLI** (`playwright-cli`): Use to retrieve external documentation, browse web content, and extract data from documentation sites, forums, and GitHub repositories — especially useful for understanding third-party dependencies and their APIs. Invoke via the `/playwright-cli` skill or run `npx playwright-cli` commands directly.
 
 <EXTREMELY_IMPORTANT>
 - PREFER to use the playwright-cli (refer to playwright-cli skill) OVER web fetch/search tools
   - ALWAYS load the playwright-cli skill before usage with the Skill tool.
-  - ALWAYS ASSUME you have the playwright-cli tool installed (if the `playwright-cli` command fails, fallback to `bunx playwright-cli`).
+  - ALWAYS ASSUME you have the playwright-cli tool installed (if the `playwright-cli` command fails, fallback to `npx playwright-cli`).
 </EXTREMELY_IMPORTANT>
+
+### Web Fetch Strategy (token-efficient order)
+
+When you need external documentation about a library, framework, or API, use the **playwright-cli** skill (or `curl`) and apply these techniques in order — stop as soon as you have what you need:
+
+1. **Check `/llms.txt` first** — Many modern docs sites publish an AI-friendly index at `/llms.txt` (spec: [llmstxt.org](https://llmstxt.org/llms.txt)). Try `curl https://<site>/llms.txt` before anything else; it often links directly to the most relevant pages in plain text.
+2. **Request Markdown via `Accept: text/markdown`** — For any HTML page, try `curl <url> -H "Accept: text/markdown"` first. Sites behind Cloudflare with [Markdown for Agents](https://developers.cloudflare.com/fundamentals/reference/markdown-for-agents/) will return pre-converted Markdown (look for `content-type: text/markdown` and the `x-markdown-tokens` header), which is far cheaper than raw HTML.
+3. **Fall back to HTML parsing** — If neither above yields usable content, navigate the page with `playwright-cli` to extract the rendered DOM, or `curl` the raw HTML and parse locally.
+
+**Persist useful findings to `research/web/`:** When you fetch a document worth keeping for future sessions (API references, SDK guides, troubleshooting docs), save it to `research/web/<YYYY-MM-DD>-<kebab-case-topic>.md` with a short header noting the source URL and fetch date. Check this directory first before re-fetching.
 
 ## Instructions
 
@@ -63,7 +70,7 @@ Follow this systematic approach to explain code: **$ARGUMENTS**
     - Describe library functions and their purposes
     - Explain API calls and their expected responses
     - Clarify configuration and setup code
-    - Use the DeepWiki MCP tool (`deepwiki_ask_question`) to look up documentation for external libraries when needed
+    - Use the **playwright-cli** skill (following the Web Fetch Strategy above) to look up external library documentation when needed
 
 8. **Error Handling and Edge Cases**
     - Explain error handling mechanisms
@@ -220,5 +227,4 @@ Remember to:
 - Structure explanations logically from high-level to detailed
 - Include visual diagrams or flowcharts when helpful
 - Tailor the explanation level to the intended audience
-- Use DeepWiki to look up external library documentation when encountering unfamiliar dependencies
-- Use `playwright-cli` for live browser inspection when static code analysis is not enough
+- Use the **playwright-cli** skill (following the Web Fetch Strategy above) to look up external library documentation when encountering unfamiliar dependencies, and for live browser inspection when static code analysis is not enough

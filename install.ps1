@@ -7,13 +7,12 @@
 # Set $env:GITHUB_TOKEN for authenticated downloads (avoids API rate limits)
 #
 # Installs the Atomic CLI binary, config data, and all required tooling
-# (npm, @playwright/cli, @llamaindex/liteparse).
+# (npm, @playwright/cli, @llamaindex/liteparse, apm).
 
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '')]
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingInvokeExpression', '')]
 param(
     [String]$Version = "latest",
-    [String]$InstallDir = "",
     [Switch]$NoPathUpdate = $false,
     [Switch]$Prerelease = $false
 )
@@ -30,7 +29,7 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 # Configuration
 $GithubRepo = "flora131/atomic"
 $BinaryName = "atomic"
-$BinDir = $(if ($env:ATOMIC_INSTALL_DIR) { $env:ATOMIC_INSTALL_DIR } elseif ($InstallDir) { $InstallDir } else { "${Home}\.local\bin" })
+$BinDir = "${Home}\.local\bin"
 $DataDir = $(if ($env:LOCALAPPDATA) { "${env:LOCALAPPDATA}\atomic" } else { "${Home}\AppData\Local\atomic" })
 $AtomicHome = "${Home}\.atomic"
 
@@ -137,17 +136,361 @@ function Install-GlobalNpmPackage {
     Write-Warn "Could not install ${Package}"
 }
 
-function Install-Tooling {
-    Write-Info "Installing required tooling (npm, playwright-cli, liteparse)..."
+function Install-Psmux {
+    # Skip if psmux or tmux is already installed
+    $Existing = Get-Command psmux -ErrorAction SilentlyContinue
+    if (-not $Existing) { $Existing = Get-Command tmux -ErrorAction SilentlyContinue }
+    if ($Existing) {
+        Write-Info "psmux/tmux is already installed"
+        return
+    }
 
-    # Phase 1: package manager
+    Write-Info "Installing psmux (Windows terminal multiplexer)..."
+
+    # WinGet (preferred)
+    $Winget = Get-Command winget -ErrorAction SilentlyContinue
+    if ($Winget) {
+        try {
+            & $Winget.Source install psmux --accept-source-agreements --accept-package-agreements
+            if ($LASTEXITCODE -eq 0) { return }
+        } catch { Write-Debug "winget install psmux failed: $_" }
+    }
+
+    # Scoop
+    $Scoop = Get-Command scoop -ErrorAction SilentlyContinue
+    if ($Scoop) {
+        try {
+            & $Scoop.Source bucket add psmux https://github.com/psmux/scoop-psmux 2>$null
+            & $Scoop.Source install psmux
+            if ($LASTEXITCODE -eq 0) { return }
+        } catch { Write-Debug "scoop install psmux failed: $_" }
+    }
+
+    # Chocolatey
+    $Choco = Get-Command choco -ErrorAction SilentlyContinue
+    if ($Choco) {
+        try {
+            & $Choco.Source install psmux -y --no-progress
+            if ($LASTEXITCODE -eq 0) { return }
+        } catch { Write-Debug "choco install psmux failed: $_" }
+    }
+
+    # Cargo (last resort)
+    $Cargo = Get-Command cargo -ErrorAction SilentlyContinue
+    if ($Cargo) {
+        try {
+            & $Cargo.Source install psmux
+            if ($LASTEXITCODE -eq 0) { return }
+        } catch { Write-Debug "cargo install psmux failed: $_" }
+    }
+
+    Write-Warn "Could not install psmux — install it manually from https://github.com/psmux/psmux"
+}
+
+function Install-Bun {
+    # Skip if bun is already installed
+    $Existing = Get-Command bun -ErrorAction SilentlyContinue
+    if ($Existing) {
+        Write-Info "bun is already installed"
+        return
+    }
+
+    Write-Info "Installing bun..."
+
+    # WinGet (preferred)
+    $Winget = Get-Command winget -ErrorAction SilentlyContinue
+    if ($Winget) {
+        try {
+            & $Winget.Source install Oven-sh.Bun --accept-source-agreements --accept-package-agreements
+            if ($LASTEXITCODE -eq 0) { return }
+        } catch { Write-Debug "winget install bun failed: $_" }
+    }
+
+    # Scoop
+    $Scoop = Get-Command scoop -ErrorAction SilentlyContinue
+    if ($Scoop) {
+        try {
+            & $Scoop.Source install bun
+            if ($LASTEXITCODE -eq 0) { return }
+        } catch { Write-Debug "scoop install bun failed: $_" }
+    }
+
+    # npm (last resort)
+    $NpmCmd = Get-Command npm -ErrorAction SilentlyContinue
+    if ($NpmCmd) {
+        try {
+            & $NpmCmd.Source install -g bun
+            if ($LASTEXITCODE -eq 0) { return }
+        } catch { Write-Debug "npm install bun failed: $_" }
+    }
+
+    Write-Warn "Could not install bun — install it manually from https://bun.sh"
+}
+
+function Install-Apm {
+    $Existing = Get-Command apm -ErrorAction SilentlyContinue
+    if ($Existing) {
+        Write-Info "apm is already installed"
+        return
+    }
+
+    Write-Info "Installing apm (Agent Package Manager)..."
+
+    # Preferred: official installer script
+    try {
+        Invoke-Expression (Invoke-RestMethod https://aka.ms/apm-windows)
+        # Refresh PATH to pick up newly installed apm
+        $UserPath = [System.Environment]::GetEnvironmentVariable('Path', 'User')
+        $env:Path = "${UserPath};${env:Path}"
+        if (Get-Command apm -ErrorAction SilentlyContinue) { return }
+    } catch { Write-Warn "apm official installer failed: $_" }
+
+    # Fallback: Scoop
+    $Scoop = Get-Command scoop -ErrorAction SilentlyContinue
+    if ($Scoop) {
+        try {
+            & $Scoop.Source bucket add apm https://github.com/microsoft/scoop-apm 2>$null
+            & $Scoop.Source install apm
+            if ($LASTEXITCODE -eq 0) {
+                # Refresh PATH to pick up scoop shims
+                $UserPath = [System.Environment]::GetEnvironmentVariable('Path', 'User')
+                $env:Path = "${UserPath};${env:Path}"
+                if (Get-Command apm -ErrorAction SilentlyContinue) { return }
+            }
+        } catch { Write-Debug "scoop install apm failed: $_" }
+    }
+
+    # Fallback: pip
+    $Pip = Get-Command pip3 -ErrorAction SilentlyContinue
+    if (-not $Pip) { $Pip = Get-Command pip -ErrorAction SilentlyContinue }
+    if ($Pip) {
+        try {
+            & $Pip.Source install apm-cli
+            if ($LASTEXITCODE -eq 0) {
+                # Refresh PATH to pick up pip scripts directory
+                $UserPath = [System.Environment]::GetEnvironmentVariable('Path', 'User')
+                $env:Path = "${UserPath};${env:Path}"
+                if (Get-Command apm -ErrorAction SilentlyContinue) { return }
+            }
+        } catch { Write-Debug "pip install apm-cli failed: $_" }
+    }
+
+    Write-Warn "Could not install apm — install it manually from https://microsoft.github.io/apm/"
+}
+
+function Install-ApmGlobalConfig {
+    param([string]$ConfigDir)
+
+    $ApmCmd = Get-Command apm -ErrorAction SilentlyContinue
+    if (-not $ApmCmd) {
+        Write-Warn "apm not found — skipping global config install"
+        return
+    }
+
+    $ApmYml = Join-Path $ConfigDir "apm.yml"
+    if (-not (Test-Path $ApmYml)) {
+        return
+    }
+
+    Write-Info "Installing APM dependencies globally..."
+    $SavedLocation = Get-Location
+    try {
+        Set-Location $ConfigDir
+        & $ApmCmd.Source install -g
+        if ($LASTEXITCODE -eq 0) {
+            Write-Success "APM global config installed"
+        } else {
+            throw "apm install -g exited with code $LASTEXITCODE"
+        }
+    } catch {
+        Write-Warn "APM global config install failed (non-fatal): $_"
+    } finally {
+        Set-Location $SavedLocation
+    }
+}
+
+# Merge-copy the bundled Atomic agents from the extracted config data dir
+# into the provider-native global roots (~/.claude/agents, ~/.opencode/agents,
+# ~/.copilot/agents). `Copy-Item -Recurse -Force` overwrites files sharing a
+# name with a bundled file and leaves any extra user-added files alone.
+#
+# Copilot's lsp.json is written to ~/.copilot/lsp-config.json per the
+# in-binary rename in atomic-global-config.ts.
+function Install-GlobalAgents {
+    param([string]$ConfigDir)
+
+    Write-Info "Installing bundled Atomic agents into provider global roots..."
+
+    $Pairs = @(
+        @{ Src = ".claude/agents";   Dest = "$Home/.claude/agents"   },
+        @{ Src = ".opencode/agents"; Dest = "$Home/.opencode/agents" },
+        @{ Src = ".github/agents";   Dest = "$Home/.copilot/agents"  }
+    )
+
+    foreach ($Pair in $Pairs) {
+        $SrcPath = Join-Path $ConfigDir $Pair.Src
+        $DestPath = $Pair.Dest
+        if (-not (Test-Path $SrcPath)) {
+            Write-Warn "Bundled agents missing at ${SrcPath} — skipping ${DestPath}"
+            continue
+        }
+        $null = New-Item -ItemType Directory -Force -Path $DestPath
+        try {
+            Copy-Item -Recurse -Force -Path (Join-Path $SrcPath "*") -Destination $DestPath
+            Write-Info "Synced ${DestPath}"
+        } catch {
+            Write-Warn "Failed to sync ${DestPath} (non-fatal): $_"
+        }
+    }
+
+    $LspSrc = Join-Path $ConfigDir ".github/lsp.json"
+    $LspDest = "$Home/.copilot/lsp-config.json"
+    if (Test-Path $LspSrc) {
+        $null = New-Item -ItemType Directory -Force -Path (Split-Path -Parent $LspDest)
+        try {
+            Copy-Item -Force -Path $LspSrc -Destination $LspDest
+            Write-Info "Synced ${LspDest}"
+        } catch {
+            Write-Warn "Failed to sync ${LspDest} (non-fatal): $_"
+        }
+    }
+
+    Write-Success "Global agent configs installed"
+}
+
+# Install all bundled skills globally via `npx skills`, then remove the
+# source-control variants (gh-*/sl-*) so `atomic init` can install them
+# locally per-project based on the user's selected SCM + active agent.
+function Install-GlobalSkills {
+    $NpxCmd = Get-Command npx -ErrorAction SilentlyContinue
+    if (-not $NpxCmd) { $NpxCmd = Get-Command npx.cmd -ErrorAction SilentlyContinue }
+    if (-not $NpxCmd) {
+        Write-Warn "npx not found — skipping global skills install"
+        return
+    }
+
+    $SkillsRepo = "https://github.com/flora131/atomic.git"
+    $AgentFlags = @("-a", "claude-code", "-a", "opencode", "-a", "github-copilot")
+
+    Write-Info "Installing all bundled skills globally via npx skills..."
+    $AddArgs = @("--yes", "skills", "add", $SkillsRepo, "--skill", "*", "-g") + $AgentFlags + @("-y")
+    try {
+        & $NpxCmd.Source @AddArgs
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "'npx skills add' exited with code $LASTEXITCODE (non-fatal)"
+            return
+        }
+    } catch {
+        Write-Warn "'npx skills add' failed (non-fatal): $_"
+        return
+    }
+
+    Write-Info "Removing source-control skill variants globally (installed per-project by 'atomic init')..."
+    $RemoveArgs = @(
+        "--yes", "skills", "remove",
+        "--skill", "gh-commit",
+        "--skill", "gh-create-pr",
+        "--skill", "sl-commit",
+        "--skill", "sl-submit-diff",
+        "-g"
+    ) + $AgentFlags + @("-y")
+    try {
+        & $NpxCmd.Source @RemoveArgs
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "'npx skills remove' exited with code $LASTEXITCODE (non-fatal)"
+            return
+        }
+    } catch {
+        Write-Warn "'npx skills remove' failed (non-fatal): $_"
+        return
+    }
+
+    Write-Success "Global skills installed"
+}
+
+function Install-Tooling {
+    Write-Info "Installing required tooling (npm, psmux, bun, playwright-cli, liteparse, apm)..."
+
+    # Phase 1: core tools
     Install-Npm
+    Install-Psmux
+    Install-Bun
+    Install-Apm
 
     # Phase 2: global CLI tools
     Install-GlobalNpmPackage "@playwright/cli@latest"
     Install-GlobalNpmPackage "@llamaindex/liteparse@latest"
 
     Write-Success "Tooling installed"
+}
+
+# Install bundled workflow templates to ~/.atomic/workflows/
+# Copies from the config data dir, skipping existing workflow directories
+# to preserve user customizations.
+function Install-Workflows {
+    $SrcDir = Join-Path $DataDir ".atomic" "workflows"
+    $DestDir = Join-Path $AtomicHome "workflows"
+
+    if (-not (Test-Path $SrcDir)) {
+        return
+    }
+
+    Write-Info "Installing workflow templates to ${DestDir}..."
+    $null = New-Item -ItemType Directory -Force -Path $DestDir
+
+    # Enumerate source: copy root files and non-agent directories (always update),
+    # then handle agent directories with per-workflow skip-if-exists logic.
+    $AgentNames = @("copilot", "opencode", "claude")
+    foreach ($Item in (Get-ChildItem -Path $SrcDir -Force -ErrorAction SilentlyContinue)) {
+        if ($Item.Name -eq "node_modules") { continue }
+        # Skip dotfiles except .gitignore (match TS behavior)
+        if ($Item.Name.StartsWith(".") -and $Item.Name -ne ".gitignore") { continue }
+
+        $DestItem = Join-Path $DestDir $Item.Name
+        if (-not $Item.PSIsContainer) {
+            Copy-Item -Path $Item.FullName -Destination $DestItem -Force
+        } elseif ($Item.Name -notin $AgentNames) {
+            $null = New-Item -ItemType Directory -Force -Path $DestItem
+            Copy-Item -Path "$($Item.FullName)\*" -Destination $DestItem -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    # Copy per-agent workflow directories (skip existing)
+    $Copied = 0
+    foreach ($Agent in $AgentNames) {
+        $AgentSrc = Join-Path $SrcDir $Agent
+        if (-not (Test-Path $AgentSrc)) { continue }
+        $AgentDest = Join-Path $DestDir $Agent
+        $null = New-Item -ItemType Directory -Force -Path $AgentDest
+
+        foreach ($WorkflowDir in (Get-ChildItem -Path $AgentSrc -Directory)) {
+            $DestWorkflow = Join-Path $AgentDest $WorkflowDir.Name
+            if (-not (Test-Path $DestWorkflow)) {
+                Copy-Item -Path $WorkflowDir.FullName -Destination $DestWorkflow -Recurse
+                $Copied++
+            }
+        }
+    }
+
+    # Install SDK dependency
+    $SavedLocation = Get-Location
+    try {
+        if (Get-Command bun -ErrorAction SilentlyContinue) {
+            Set-Location $DestDir
+            & bun install 2>$null
+            if ($LASTEXITCODE -ne 0) { throw "bun install failed" }
+        } elseif (Get-Command npm -ErrorAction SilentlyContinue) {
+            Set-Location $DestDir
+            & npm install 2>$null
+            if ($LASTEXITCODE -ne 0) { throw "npm install failed" }
+        }
+    } catch {
+        Write-Warn "Workflow dependency install failed (non-fatal)"
+    } finally {
+        Set-Location $SavedLocation
+    }
+
+    Write-Success "Workflow templates installed (${Copied} new workflow(s))"
 }
 
 # -----------------------------------------------------------------------------
@@ -323,6 +666,21 @@ try {
 
     # Install required tooling
     Install-Tooling
+
+    # Install bundled workflow templates to ~/.atomic/workflows/
+    Install-Workflows
+
+    # Install APM dependencies globally (deploys to ~/.copilot/, ~/.claude/, etc.)
+    Install-ApmGlobalConfig -ConfigDir $DataDir
+
+    # Merge-copy the bundled agent definitions into ~/.claude/agents,
+    # ~/.opencode/agents, ~/.copilot/agents (+ ~/.copilot/lsp-config.json).
+    # User-added files in those dirs are preserved.
+    Install-GlobalAgents -ConfigDir $DataDir
+
+    # Install bundled skills globally, minus the source-control variants
+    # (those are installed per-project by `atomic init`).
+    Install-GlobalSkills
 
     # Persist prerelease channel preference in settings
     $SettingsFile = Join-Path $AtomicHome "settings.json"

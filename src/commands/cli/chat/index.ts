@@ -2,55 +2,41 @@
 /**
  * Chat CLI command for atomic
  *
- * Provides a simple chat interface with SDK clients.
+ * Spawns the native agent CLI as an interactive subprocess.
+ * When already inside a tmux/psmux session, the agent spawns inline
+ * in the current pane. When outside tmux, it creates a new tmux
+ * session and attaches to it.
+ *
+ * All extra arguments after `-a <agent>` are forwarded to the native CLI.
  *
  * Usage:
- *   atomic chat -a <agent>           Start chat with specified agent
- *   atomic chat --theme <name>       Use specified theme (dark/light)
- *
- * Reference: Feature 30 - Chat interface with SDK clients
+ *   atomic chat -a <agent> [native-args...]
  */
 
-import type { AgentType } from "@/services/telemetry/types.ts";
-import type { ChatUIConfig } from "@/app.tsx";
-import { getModelPreference, getReasoningEffortPreference } from "@/services/config/settings.ts";
-import { ADDITIONAL_ENHANCED_INSTRUCTIONS } from "@/services/agents/additional-enhanced-instructions.ts";
-// initCommand is lazy-loaded only when auto-init is needed
+import { join } from "path";
+import { homedir } from "os";
+import { mkdir, writeFile, rm } from "fs/promises";
+import { AGENT_CONFIG, type AgentKey } from "@/services/config/index.ts";
+import { COLORS } from "@/theme/colors.ts";
+import { isCommandInstalled } from "@/services/system/detect.ts";
 import {
   ensureAtomicGlobalAgentConfigsForInstallType,
 } from "@/services/config/atomic-global-config.ts";
-import {
-  clearProviderDiscoverySessionCache,
-  startProviderDiscoverySessionCache,
-} from "@/services/config/provider-discovery-cache.ts";
-import { emitDiscoveryEvent } from "@/services/config/discovery-events.ts";
 import { detectInstallationType, getConfigRoot } from "@/services/config/config-path.ts";
-import { getSelectedScm } from "@/services/config/atomic-config.ts";
-import { VERSION } from "@/version.ts";
 import {
-  createClientForAgentType,
-  getAgentDisplayName,
-  getTheme,
-} from "./client.ts";
-import {
-  buildChatStartupDiscoveryPlan,
-  buildProviderDiscoveryPlanDebugOutput,
-  logActiveProviderDiscoveryPlan,
-} from "./discovery-debug.ts";
-import {
-  hasProjectScmSkills,
-  hasProjectScmSkillsInSync,
-  shouldAutoInitChat,
-} from "./auto-init.ts";
-import {
-  handleThemeCommand,
-  isSlashCommand,
-  parseSlashCommand,
-} from "./slash-commands.ts";
+  isInsideTmux,
+  isTmuxInstalled,
+  createSession,
+  getMuxBinary,
+  resetMuxBinaryCache,
+} from "@bastani/atomic-workflows";
+import { ensureTmuxInstalled } from "@/lib/spawn.ts";
 
 // ============================================================================
 // Types
 // ============================================================================
+
+export type AgentType = AgentKey;
 
 /**
  * Options for the chat command.
@@ -58,36 +44,76 @@ import {
 export interface ChatCommandOptions {
   /** Agent type to use (claude, opencode, copilot) */
   agentType?: AgentType;
-  /** Theme to use (dark/light) */
-  theme?: "dark" | "light";
-  /** Session configuration options */
-  model?: string;
-  /** Initial prompt to send on session start */
-  initialPrompt?: string;
-  /** Extra instructions appended to the enhanced system prompt for the session */
-  additionalInstructions?: string;
+  /** Extra args/options forwarded verbatim to the native agent CLI */
+  passthroughArgs?: string[];
 }
 
-export {
-  buildChatStartupDiscoveryPlan,
-  buildProviderDiscoveryPlanDebugOutput,
-  logActiveProviderDiscoveryPlan,
-} from "./discovery-debug.ts";
-export {
-  hasProjectScmSkills,
-  hasProjectScmSkillsInSync,
-  shouldAutoInitChat,
-} from "./auto-init.ts";
+// ============================================================================
+// Helpers
+// ============================================================================
 
-export function resolveChatAdditionalInstructions(
-  options: Pick<ChatCommandOptions, "additionalInstructions">
-): string {
-  const trimmedAdditionalInstructions = options.additionalInstructions?.trim();
-  if (!trimmedAdditionalInstructions) {
-    return ADDITIONAL_ENHANCED_INSTRUCTIONS;
+export function getAgentDisplayName(agentType: AgentType): string {
+  return AGENT_CONFIG[agentType].name;
+}
+
+/**
+ * Build the argv array for spawning the agent CLI.
+ *
+ * Starts with the agent's default chat_flags, then appends any
+ * extra args the user passed after `-a <agent>`.
+ */
+export function buildAgentArgs(agentType: AgentType, passthroughArgs: string[] = []): string[] {
+  const config = AGENT_CONFIG[agentType];
+  return [...config.chat_flags, ...passthroughArgs];
+}
+
+function generateChatId(): string {
+  return crypto.randomUUID().slice(0, 8);
+}
+
+/** Escape a string for safe interpolation inside a bash double-quoted string. */
+function escBash(s: string): string {
+  return s.replace(/[\\"$`!]/g, "\\$&");
+}
+
+/** Escape a string for safe interpolation inside a PowerShell double-quoted string. */
+function escPwsh(s: string): string {
+  return s.replace(/[`"$]/g, "`$&");
+}
+
+/**
+ * Build a launcher script that preserves cwd and properly quotes args.
+ * This avoids shell-injection risks from passthrough args.
+ */
+function buildLauncherScript(
+  cmd: string,
+  args: string[],
+  projectRoot: string,
+): { script: string; ext: string } {
+  const isWin = process.platform === "win32";
+
+  if (isWin) {
+    // PowerShell: use array splatting for safe arg passing
+    const argList = args.map((a) => `"${escPwsh(a)}"`).join(", ");
+    const script = [
+      `Set-Location "${escPwsh(projectRoot)}"`,
+      argList.length > 0
+        ? `& "${escPwsh(cmd)}" @(${argList})`
+        : `& "${escPwsh(cmd)}"`,
+    ].join("\n");
+    return { script, ext: "ps1" };
   }
 
-  return `${ADDITIONAL_ENHANCED_INSTRUCTIONS}\n\n${trimmedAdditionalInstructions}`;
+  // Bash: use proper quoting for each arg
+  const quotedArgs = args
+    .map((a) => `"${escBash(a)}"`)
+    .join(" ");
+  const script = [
+    "#!/bin/bash",
+    `cd "${escBash(projectRoot)}"`,
+    `exec "${escBash(cmd)}" ${quotedArgs}`,
+  ].join("\n");
+  return { script, ext: "sh" };
 }
 
 // ============================================================================
@@ -95,273 +121,113 @@ export function resolveChatAdditionalInstructions(
 // ============================================================================
 
 /**
- * Start the chat interface with the specified options.
+ * Spawn the native agent CLI as an interactive subprocess.
+ *
+ * When running inside a tmux/psmux session, the agent spawns inline
+ * in the current pane with inherited stdio.
+ *
+ * When running outside tmux, a new tmux session is created and
+ * attached so the agent benefits from multiplexer features.
  *
  * @param options - Chat command configuration options
- * @returns Exit code (0 for success)
+ * @returns Exit code from the agent process
  */
 export async function chatCommand(options: ChatCommandOptions = {}): Promise<number> {
-  const {
-    agentType,
-    theme = "dark",
-    model,
-    initialPrompt,
-    additionalInstructions,
-  } = options;
+  const { agentType, passthroughArgs } = options;
 
   if (!agentType) {
     throw new Error("agentType is required. Start chat with `atomic chat -a <agent>`.");
   }
 
-  // Kick off the heavy app.tsx import early — it takes ~90ms (OpenTUI dlopen,
-  // React, yoga-layout WASM) and doesn't depend on any config/SDK work below.
-  // We await the result only when startChatUI() is needed.
-  const appModulePromise = import("@/app.tsx");
+  const config = AGENT_CONFIG[agentType];
 
-  const agentName = getAgentDisplayName(agentType);
+  // Check the agent CLI is installed
+  if (!isCommandInstalled(config.cmd)) {
+    console.error(
+      `${COLORS.red}Error: '${config.cmd}' is not installed or not in PATH.${COLORS.reset}`
+    );
+    console.error(`Install it from: ${config.install_url}`);
+    return 1;
+  }
+
+  // ── Preflight: global config sync ──
   const projectRoot = process.cwd();
   const configRoot = getConfigRoot();
   const installType = detectInstallationType();
 
-  const providerDiscoveryPlan = buildChatStartupDiscoveryPlan(agentType, {
-    projectRoot,
-    homeDir: process.env.HOME,
-    xdgConfigHome: process.env.XDG_CONFIG_HOME,
-  });
-  startProviderDiscoverySessionCache({
-    projectRoot,
-    startupPlan: providerDiscoveryPlan,
-  });
-  const highestPrecedenceRoot =
-    providerDiscoveryPlan.rootsInPrecedenceOrder[
-    providerDiscoveryPlan.rootsInPrecedenceOrder.length - 1
-    ];
-  emitDiscoveryEvent("discovery.plan.generated", {
-    tags: {
-      provider: providerDiscoveryPlan.provider,
-      installType,
-      path: highestPrecedenceRoot?.resolvedPath ?? projectRoot,
-      rootId: highestPrecedenceRoot?.id,
-      rootTier: highestPrecedenceRoot?.tier,
-      rootCompatibility: highestPrecedenceRoot?.compatibility,
-    },
-    data: {
-      runtimeMode: providerDiscoveryPlan.runtime.mode,
-      rootCount: providerDiscoveryPlan.rootsInPrecedenceOrder.length,
-      existingRootCount: providerDiscoveryPlan.existingRoots.length,
-      projectRoot,
-    },
-  });
-  logActiveProviderDiscoveryPlan(providerDiscoveryPlan, { projectRoot });
+  await ensureAtomicGlobalAgentConfigsForInstallType(installType, configRoot);
 
-  // Run all async config reads and global config sync in parallel
-  const [resolvedModel, effectiveReasoningEffort, selectedScm] = await Promise.all([
-    getModelPreference(agentType),
-    getReasoningEffortPreference(agentType),
-    getSelectedScm(projectRoot),
-    ensureAtomicGlobalAgentConfigsForInstallType(installType, configRoot),
-  ]);
-  const effectiveModel = model ?? resolvedModel;
-  const resolvedAdditionalInstructions = resolveChatAdditionalInstructions({ additionalInstructions });
+  // ── Build argv ──
+  const args = buildAgentArgs(agentType, passthroughArgs);
+  const cmd = [config.cmd, ...args];
 
-  // Auto-init when project SCM skills are missing or out of sync
-  if (await shouldAutoInitChat(agentType, projectRoot, { selectedScm, configRoot })) {
-    const configNotFoundMessage =
-      `Source control skills are missing or out of sync for ${agentName}. Starting setup...`;
+  // ── Inside tmux: spawn inline in the current pane ──
+  if (isInsideTmux()) {
+    return spawnDirect(cmd, projectRoot);
+  }
 
-    const { initCommand, InitCancelledError } = await import("@/commands/cli/init.ts");
+  // ── Ensure tmux is available ──
+  if (!isTmuxInstalled()) {
+    console.log("Terminal multiplexer not found. Installing...");
     try {
-      await initCommand({
-        showBanner: false,
-        preSelectedAgent: agentType,
-        preSelectedScm: selectedScm ?? undefined,
-        configNotFoundMessage,
-        callerHandlesExit: true,
-      });
-    } catch (error) {
-      if (error instanceof InitCancelledError) {
-        // User cancelled auto-init — exit gracefully without starting chat
-        return 0;
-      }
-      throw error;
+      await ensureTmuxInstalled();
+      resetMuxBinaryCache();
+    } catch {
+      // Fall through to check below
+    }
+    if (!isTmuxInstalled()) {
+      // No tmux available — fall back to direct spawn
+      return spawnDirect(cmd, projectRoot);
     }
   }
 
-  console.log(`Starting ${agentName} chat interface...`);
-  console.log("");
+  // ── Build launcher script for safe arg/cwd handling ──
+  const chatId = generateChatId();
+  const windowName = `atomic-chat-${chatId}`;
 
-  // Lazy-load SDK tools and create client in parallel — the tools import
-  // and SDK client creation are independent of each other.
-  const [{ createTodoWriteTool }, { registerCustomTools, cleanupTempToolFiles }, { createTaskListTool }, client] = await Promise.all([
-    import("@/services/agents/tools/todo-write.ts"),
-    import("@/services/agents/tools/index.ts"),
-    import("@/services/agents/tools/task-list.ts"),
-    createClientForAgentType(agentType),
-  ]);
+  const sessionsDir = join(homedir(), ".atomic", "sessions", "chat");
+  await mkdir(sessionsDir, { recursive: true });
+  const { script, ext } = buildLauncherScript(config.cmd, args, projectRoot);
+  const launcherPath = join(sessionsDir, `${windowName}.${ext}`);
+  await writeFile(launcherPath, script, { mode: 0o755 });
 
-  // Register TodoWrite tool for agents that don't have it built-in
-  if (agentType === "copilot") {
-    client.registerTool(createTodoWriteTool());
-  }
+  const shellCmd = process.platform === "win32"
+    ? `pwsh -NoProfile -File "${launcherPath}"`
+    : `bash "${launcherPath}"`;
 
-  // Register task_list tool for all agents — provides persistent CRUD task
-  // management backed by SQLite, available in main chat sessions (not just
-  // workflow sessions).
-  const { join } = await import("path");
-  const { homedir } = await import("os");
-  const { ensureDirSync } = await import("@/services/system/copy.ts");
-  const chatSessionId = crypto.randomUUID();
-  const chatSessionDir = join(homedir(), ".atomic", "sessions", "chat", chatSessionId);
-  ensureDirSync(chatSessionDir);
-  const taskListTool = createTaskListTool({
-    workflowName: "chat",
-    sessionId: chatSessionId,
-    sessionDir: chatSessionDir,
-  });
-  client.registerTool(taskListTool);
-
-  // Discover and register custom tools before starting the client
-  await registerCustomTools(client);
-
-  // Pre-initialize the session log directory before client.start() so that
-  // SDK options builders (e.g. Copilot OTel trace file config) can read it
-  // via getActiveSessionLogDir(). The full debug subscriber is attached
-  // later in startChatUI → createChatUIRuntimeState and reuses this dir.
+  // ── Outside tmux: create a new session and attach ──
   try {
-    const { isPipelineDebug } = await import("@/services/events/pipeline-logger.ts");
-    if (isPipelineDebug()) {
-      const {
-        resolveStreamDebugLogConfig,
-        setActiveSessionLogDir,
-        DEFAULT_LOG_DIR,
-        buildLogSessionName,
-      } = await import("@/services/events/debug-subscriber/config.ts");
-      const debugConfig = resolveStreamDebugLogConfig();
-      if (debugConfig.enabled) {
-        const { join } = await import("path");
-        const { ensureDir } = await import("@/services/system/copy.ts");
-        const logDir = debugConfig.logDir ?? DEFAULT_LOG_DIR;
-        await ensureDir(logDir);
-        const sessionName = buildLogSessionName();
-        const logDirPath = join(logDir, sessionName);
-        await ensureDir(logDirPath);
-        setActiveSessionLogDir(logDirPath);
-      }
-    }
-  } catch {
-    // Debug session-dir pre-init is non-critical; if it fails (e.g.
-    // permissions, disk full), skip it and let the chat session proceed.
-    // attachDebugSubscriber will attempt its own initialization later.
-  }
+    createSession(windowName, shellCmd, undefined, projectRoot);
 
-  try {
-    // Start client and discover MCP configs in parallel.
-    // app.tsx import was kicked off at the top of chatCommand() — await it here.
-    const [{ discoverMcpConfigs }, { trackAtomicCommand }, { startChatUI }] = await Promise.all([
-      import("@/services/config/mcp-config.ts"),
-      import("@/services/telemetry/index.ts"),
-      appModulePromise,
-    ]);
-
-    // Start client and run MCP discovery concurrently
-    const clientStartPromise = client.start();
-    const mcpDiscoveryPromise = discoverMcpConfigs();
-
-    await clientStartPromise;
-
-    const [modelDisplayInfo, mcpServers] = await Promise.all([
-      client.getModelDisplayInfo(effectiveModel),
-      mcpDiscoveryPromise,
-    ]);
-
-    // For providers with explicit reasoning effort selection, prefer the
-    // persisted user choice and fall back to the SDK-reported default.
-    const resolvedReasoningEffort =
-      agentType === "copilot" || agentType === "claude"
-        ? (
-          modelDisplayInfo.supportsReasoning
-            ? (effectiveReasoningEffort ?? modelDisplayInfo.defaultReasoningEffort)
-            : undefined
-        )
-        : agentType === "opencode"
-          ? (
-            effectiveReasoningEffort
-              && modelDisplayInfo.supportedReasoningEfforts?.includes(effectiveReasoningEffort)
-              ? effectiveReasoningEffort
-              : undefined
-          )
-          : effectiveReasoningEffort;
-
-    // For providers with explicit reasoning effort selection, append the selected level.
-    let displayModelName = modelDisplayInfo.model;
-    if (
-      (agentType === "copilot" || agentType === "opencode" || agentType === "claude")
-      && resolvedReasoningEffort
-      && modelDisplayInfo.supportsReasoning
-    ) {
-      displayModelName += ` (${resolvedReasoningEffort})`;
-    }
-
-    // Build chat UI configuration
-    const chatConfig: ChatUIConfig = {
-      sessionConfig: {
-        model: effectiveModel,
-        reasoningEffort: resolvedReasoningEffort,
-        mcpServers,
-        additionalInstructions: resolvedAdditionalInstructions,
-        excludedTools: ["report_intent"],
-      },
-      theme: await getTheme(theme),
-      version: VERSION,
-      model: displayModelName,
-      tier: modelDisplayInfo.tier,
-      workingDir: projectRoot,
-      agentType,
-      initialPrompt,
-      clientStartPromise,
-      providerDiscoveryPlan,
-    };
-
-    // Start standard chat
-    await startChatUI(client, chatConfig);
-    trackAtomicCommand("chat", agentType, true);
-    return 0;
-  } catch (error) {
-    const { trackAtomicCommand } = await import("@/services/telemetry/index.ts");
-    trackAtomicCommand("chat", agentType, false);
-    const message = error instanceof Error ? error.message : String(error);
-    emitDiscoveryEvent("discovery.runtime.startup_error", {
-      level: "error",
-      tags: {
-        provider: providerDiscoveryPlan.provider,
-        installType,
-        path: projectRoot,
-      },
-      data: {
-        stage: "chatCommand",
-        reason: "chat_startup_failed",
-        message,
-      },
+    const muxBinary = getMuxBinary() ?? "tmux";
+    const attachProc = Bun.spawn([muxBinary, "attach-session", "-t", windowName], {
+      stdio: ["inherit", "inherit", "inherit"],
     });
-    console.error("Chat error:", error instanceof Error ? error.message : String(error));
-    return 1;
-  } finally {
-    taskListTool.close();
-    await client.stop();
-    cleanupTempToolFiles();
-    clearProviderDiscoverySessionCache();
+    const exitCode = await attachProc.exited;
+
+    // Clean up launcher
+    try { await rm(launcherPath, { force: true }); } catch {}
+    return exitCode;
+  } catch (error) {
+    try { await rm(launcherPath, { force: true }); } catch {}
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(
+      `${COLORS.yellow}Warning: Failed to create tmux session (${message}). Falling back to direct spawn.${COLORS.reset}`
+    );
+    return spawnDirect(cmd, projectRoot);
   }
 }
 
-// ============================================================================
-// Exports
-// ============================================================================
+/**
+ * Spawn the agent CLI directly with inherited stdio.
+ * Used when not inside tmux.
+ */
+async function spawnDirect(cmd: string[], projectRoot: string): Promise<number> {
+  const proc = Bun.spawn(cmd, {
+    stdio: ["inherit", "inherit", "inherit"],
+    cwd: projectRoot,
+    env: { ...process.env },
+  });
 
-export {
-  createClientForAgentType,
-  getAgentDisplayName,
-  getTheme,
-  isSlashCommand,
-  parseSlashCommand,
-  handleThemeCommand,
-};
+  return await proc.exited;
+}

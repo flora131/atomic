@@ -1,260 +1,82 @@
 /**
- * Chainable Workflow Builder (SDK)
- *
- * Lightweight version of the workflow builder for end-user workflow files.
- * Records an ordered instruction list and returns a branded "blueprint"
- * from `.compile()` that the Atomic CLI binary compiles at load time.
+ * Workflow Builder — chainable DSL for defining multi-session workflows.
  *
  * Usage:
- * ```ts
+ *   defineWorkflow({ name: "ralph", description: "..." })
+ *     .session({ name: "research", run: async (ctx) => { ... } })
+ *     .session({ name: "plan", run: async (ctx) => { ... } })
+ *     .compile()
+ */
+
+import type { WorkflowOptions, SessionOptions, WorkflowDefinition } from "./types.ts";
+
+/**
+ * Chainable workflow builder. Records session definitions in order,
+ * then .compile() seals them into a WorkflowDefinition.
+ */
+export class WorkflowBuilder {
+  /** @internal Brand for detection across package boundaries */
+  readonly __brand = "WorkflowBuilder" as const;
+  private readonly options: WorkflowOptions;
+  private readonly sessionDefs: SessionOptions[] = [];
+
+  constructor(options: WorkflowOptions) {
+    this.options = options;
+  }
+
+  /**
+   * Add a session to the workflow.
+   *
+   * Sessions execute sequentially in the order they are defined.
+   * Each session runs in its own tmux pane with the chosen agent.
+   */
+  session(opts: SessionOptions): this {
+    if (this.sessionDefs.some((s) => s.name === opts.name)) {
+      throw new Error(`Duplicate session name: "${opts.name}"`);
+    }
+    this.sessionDefs.push(opts);
+    return this;
+  }
+
+  /**
+   * Compile the workflow into a sealed WorkflowDefinition.
+   *
+   * After calling compile(), no more sessions can be added.
+   * The returned object is consumed by the Atomic CLI runtime.
+   */
+  compile(): WorkflowDefinition {
+    if (this.sessionDefs.length === 0) {
+      throw new Error(`Workflow "${this.options.name}" has no sessions. Add at least one .session() call.`);
+    }
+
+    return {
+      __brand: "WorkflowDefinition" as const,
+      name: this.options.name,
+      description: this.options.description ?? "",
+      sessions: Object.freeze([...this.sessionDefs]),
+    };
+  }
+}
+
+/**
+ * Entry point for defining a workflow.
+ *
+ * @example
+ * ```typescript
  * import { defineWorkflow } from "@bastani/atomic-workflows";
  *
  * export default defineWorkflow({
- *     name: "my-workflow",
- *     description: "A workflow that does X",
- *     globalState: {
- *       count: { default: 0, reducer: "sum" },
- *       items: { default: () => [], reducer: "concat" },
- *     },
- *   })
- *   .version("1.0.0")
- *   .argumentHint("<file-path>")
- *   .stage({ name: "planner", agent: "planner", ... })
- *   .if(ctx => ctx.stageOutputs.has("planner"))
- *     .stage({ name: "executor", agent: "executor", ... })
- *   .else()
- *     .stage({ name: "fallback", agent: "fallback", ... })
- *   .endIf()
+ *   name: "ralph",
+ *   description: "Research, plan, implement",
+ * })
+ *   .session({ name: "research", run: async (ctx) => { ... } })
+ *   .session({ name: "plan", run: async (ctx) => { ... } })
  *   .compile();
  * ```
  */
-
-import type {
-  BaseState,
-  InferState,
-  JsonValue,
-  StageContext,
-  StageOptions,
-  ToolOptions,
-  AskUserQuestionOptions,
-  LoopOptions,
-  StateFieldOptions,
-  StateFieldOptionsBase,
-  WorkflowOptions,
-  CompiledWorkflow,
-} from "./types.ts";
-
-// ---------------------------------------------------------------------------
-// Instruction — internal discriminated union recorded by the builder
-// ---------------------------------------------------------------------------
-
-type Instruction =
-  | { readonly type: "stage"; readonly id: string; readonly config: StageOptions<BaseState> }
-  | { readonly type: "tool"; readonly id: string; readonly config: ToolOptions<BaseState> }
-  | { readonly type: "askUserQuestion"; readonly id: string; readonly config: AskUserQuestionOptions<BaseState> }
-  | { readonly type: "if"; readonly condition: (ctx: StageContext<BaseState>) => boolean }
-  | { readonly type: "elseIf"; readonly condition: (ctx: StageContext<BaseState>) => boolean }
-  | { readonly type: "else" }
-  | { readonly type: "endIf" }
-  | { readonly type: "loop"; readonly config: LoopOptions }
-  | { readonly type: "endLoop" }
-  | { readonly type: "break"; readonly condition?: () => (state: BaseState) => boolean };
-
-// ---------------------------------------------------------------------------
-// Blueprint — the data structure carried by the branded CompiledWorkflow
-// ---------------------------------------------------------------------------
-
-/**
- * Internal blueprint data attached to the branded CompiledWorkflow.
- * The Atomic CLI binary extracts this to compile the workflow at load time.
- */
-export interface WorkflowBlueprint {
-  readonly name: string;
-  readonly description: string;
-  readonly instructions: readonly Instruction[];
-  readonly version?: string;
-  readonly argumentHint?: string;
-  readonly stateSchema?: Record<string, StateFieldOptions>;
-}
-
-// ---------------------------------------------------------------------------
-// Entry Point
-// ---------------------------------------------------------------------------
-
-export function defineWorkflow<
-  TGlobalState extends Record<string, StateFieldOptionsBase> = Record<string, StateFieldOptions>,
->(
-  options: WorkflowOptions<TGlobalState>,
-): WorkflowBuilder<InferState<TGlobalState>> {
+export function defineWorkflow(options: WorkflowOptions): WorkflowBuilder {
+  if (!options.name || options.name.trim() === "") {
+    throw new Error("Workflow name is required.");
+  }
   return new WorkflowBuilder(options);
-}
-
-// ---------------------------------------------------------------------------
-// WorkflowBuilder
-// ---------------------------------------------------------------------------
-
-export class WorkflowBuilder<TState extends BaseState = BaseState> {
-  readonly name: string;
-  readonly description: string;
-  readonly instructions: Instruction[] = [];
-
-  private _version: string | undefined;
-  private _argumentHint: string | undefined;
-  private readonly _globalState: Record<string, StateFieldOptionsBase> | undefined;
-  private loopDepth: number = 0;
-  private nodeNames: Set<string> = new Set();
-
-  constructor(options: WorkflowOptions<Record<string, StateFieldOptionsBase>>) {
-    this.name = options.name;
-    this.description = options.description;
-    this._globalState = options.globalState;
-  }
-
-  // -- Metadata -------------------------------------------------------------
-
-  version(v: string): this {
-    this._version = v;
-    return this;
-  }
-
-  argumentHint(hint: string): this {
-    this._argumentHint = hint;
-    return this;
-  }
-
-  // -- Linear flow ----------------------------------------------------------
-
-  stage(options: StageOptions<TState>): this {
-    if (this.nodeNames.has(options.name)) {
-      throw new Error(
-        `Duplicate node name: "${options.name}". Each node must have a unique name within the workflow.`,
-      );
-    }
-    this.nodeNames.add(options.name);
-    // Cast: instruction tape erases the generic state type to BaseState.
-    // Safe because the compiler accesses instruction configs structurally.
-    this.instructions.push({ type: "stage", id: options.name, config: options as StageOptions<BaseState> });
-    return this;
-  }
-
-  tool(options: ToolOptions<TState>): this {
-    if (this.nodeNames.has(options.name)) {
-      throw new Error(
-        `Duplicate node name: "${options.name}". Each node must have a unique name within the workflow.`,
-      );
-    }
-    this.nodeNames.add(options.name);
-    this.instructions.push({ type: "tool", id: options.name, config: options as ToolOptions<BaseState> });
-    return this;
-  }
-
-  askUserQuestion(options: AskUserQuestionOptions<TState>): this {
-    if (this.nodeNames.has(options.name)) {
-      throw new Error(
-        `Duplicate node name: "${options.name}". Each node must have a unique name within the workflow.`,
-      );
-    }
-    this.nodeNames.add(options.name);
-    this.instructions.push({ type: "askUserQuestion", id: options.name, config: options as AskUserQuestionOptions<BaseState> });
-    return this;
-  }
-
-  // -- Conditional branching ------------------------------------------------
-
-  if(condition: (ctx: StageContext<TState>) => boolean): this {
-    this.instructions.push({ type: "if", condition: condition as (ctx: StageContext<BaseState>) => boolean });
-    return this;
-  }
-
-  elseIf(condition: (ctx: StageContext<TState>) => boolean): this {
-    this.instructions.push({ type: "elseIf", condition: condition as (ctx: StageContext<BaseState>) => boolean });
-    return this;
-  }
-
-  else(): this {
-    this.instructions.push({ type: "else" });
-    return this;
-  }
-
-  endIf(): this {
-    this.instructions.push({ type: "endIf" });
-    return this;
-  }
-
-  // -- Bounded loops --------------------------------------------------------
-
-  loop(options?: LoopOptions): this {
-    this.loopDepth++;
-    this.instructions.push({ type: "loop", config: options ?? {} });
-    return this;
-  }
-
-  endLoop(): this {
-    if (this.loopDepth === 0) {
-      throw new Error("endLoop() called without a matching loop()");
-    }
-    this.loopDepth--;
-    this.instructions.push({ type: "endLoop" });
-    return this;
-  }
-
-  break(condition?: () => (state: TState) => boolean): this {
-    if (this.loopDepth === 0) {
-      throw new Error("break() can only be used inside a loop() block");
-    }
-    this.instructions.push({ type: "break", condition: condition as (() => (state: BaseState) => boolean) | undefined });
-    return this;
-  }
-
-  // -- Terminal -------------------------------------------------------------
-
-  /**
-   * Compile the recorded instructions into a `CompiledWorkflow`.
-   *
-   * Returns a branded "blueprint" object that the Atomic CLI binary
-   * detects and compiles at load time. The blueprint carries the
-   * recorded instructions and metadata — no heavy compilation runs
-   * in the SDK.
-   */
-  compile(): CompiledWorkflow {
-    return {
-      __compiledWorkflow: true,
-      name: this.name,
-      description: this.description,
-      __blueprint: {
-        name: this.name,
-        description: this.description,
-        instructions: this.instructions,
-        version: this._version,
-        argumentHint: this._argumentHint,
-        stateSchema: this.getStateSchema(),
-      },
-    } as CompiledWorkflow;
-  }
-
-  // -- Accessors (used by the binary's compiler via blueprint) ---------------
-
-  getVersion(): string | undefined {
-    return this._version;
-  }
-
-  getArgumentHint(): string | undefined {
-    return this._argumentHint;
-  }
-
-  getStateSchema(): Record<string, StateFieldOptions> | undefined {
-    const loopStates = this.instructions
-      .filter((i): i is Extract<Instruction, { type: "loop" }> => i.type === "loop")
-      .map((i) => i.config.loopState)
-      .filter((s): s is Record<string, StateFieldOptions> => s !== undefined);
-
-    if (!this._globalState && loopStates.length === 0) {
-      return undefined;
-    }
-
-    return {
-      ...this._globalState,
-      ...Object.assign({}, ...loopStates),
-    };
-  }
 }

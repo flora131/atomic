@@ -87,12 +87,10 @@ export function getConfigRoot(): string {
 }
 
 const REQUIRED_BINARY_CONFIG_PATHS = [
-  ".claude",
-  ".opencode",
-  join(".github", "skills"),
+  join(".claude", "agents"),
+  join(".opencode", "agents"),
   join(".github", "agents"),
   join(".github", "lsp.json"),
-  join(".vscode", "mcp.json"),
 ];
 
 function hasRequiredBinaryConfigData(dataDir: string = getBinaryDataDir()): boolean {
@@ -200,14 +198,11 @@ export async function ensureConfigDataDir(
  *
  * For binary installs, derives from the actual running executable path
  * via process.execPath — this is correct regardless of where the binary
- * was installed (/usr/local/bin, ~/.local/bin, or any custom location).
+ * was installed (e.g., a legacy path left over from a previous version).
  *
- * For non-binary installs, returns the default install directory:
+ * For source/npm installs, returns the platform-standard user bin dir:
  * - Unix: ~/.local/bin
  * - Windows: %USERPROFILE%\.local\bin
- *
- * Can be overridden via ATOMIC_INSTALL_DIR environment variable
- * (only applies to non-binary installs, e.g., during initial installation).
  *
  * @returns The path to the binary installation directory
  */
@@ -217,11 +212,6 @@ export function getBinaryInstallDir(): string {
   // For compiled binary installs, derive from the actual binary location
   if (installType === "binary") {
     return dirname(process.execPath);
-  }
-
-  // Allow override via environment variable
-  if (process.env.ATOMIC_INSTALL_DIR) {
-    return process.env.ATOMIC_INSTALL_DIR;
   }
 
   if (isWindows()) {

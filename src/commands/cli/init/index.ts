@@ -36,6 +36,7 @@ import {
 } from "@/services/config/atomic-global-config.ts";
 import {
   getScmPrefix,
+  installLocalScmSkills,
   reconcileScmVariants,
   syncProjectScmSkills,
 } from "./scm.ts";
@@ -367,17 +368,17 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     const sourceSkillsDir = join(configRoot, templateAgentFolder, "skills");
     const targetSkillsDir = join(targetFolder, "skills");
 
-    const copiedCount = await syncProjectScmSkills({
+    // Best-effort template copy: source checkouts still carry the bundled
+    // gh-*/sl-* skill templates, but binary and npm installs no longer do
+    // (they live in the skills CLI repo). `installLocalScmSkills` below
+    // handles the binary/npm case by invoking `npx skills add` — so a zero
+    // copy here is not an error, just a signal that the template isn't
+    // bundled for this install type.
+    await syncProjectScmSkills({
       scmType,
       sourceSkillsDir,
       targetSkillsDir,
     });
-
-    if (copiedCount === 0) {
-      throw new Error(
-        `No ${getScmPrefix(scmType)}* skills found in ${sourceSkillsDir}`
-      );
-    }
 
     // Keep SCM-specific managed command/skill variants aligned with selected SCM
     await reconcileScmVariants({
@@ -397,6 +398,34 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     upsertTrustedWorkspacePath(resolve(targetDir), agentKey);
 
     s.stop("Source control skills configured successfully!");
+
+    // Install SCM-specific skill variants locally for the active agent via
+    // `npx skills add` (best-effort: a failure is surfaced as a warning).
+    //
+    // Source checkouts already have the bundled skills on disk and the
+    // template-copy above has placed the selected variants into `targetDir`;
+    // skip the network-backed skills CLI in that case to keep dev iteration
+    // fast and offline-friendly.
+    if (detectInstallationType() !== "source") {
+      const skillsSpinner = spinner();
+      skillsSpinner.start(
+        `Installing ${getScmPrefix(scmType)}* skills locally for ${agent.name}...`,
+      );
+      const skillsResult = await installLocalScmSkills({
+        scmType,
+        agentKey,
+        cwd: targetDir,
+      });
+      if (skillsResult.success) {
+        skillsSpinner.stop(
+          `Installed ${getScmPrefix(scmType)}* skills locally for ${agent.name}`,
+        );
+      } else {
+        skillsSpinner.stop(
+          `Skipped local ${getScmPrefix(scmType)}* skills install (${skillsResult.details})`,
+        );
+      }
+    }
   } catch (error) {
     s.stop("Failed to configure source control skills");
     console.error(

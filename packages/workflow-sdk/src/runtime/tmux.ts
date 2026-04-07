@@ -114,9 +114,13 @@ function tmuxExec(args: string[]): void {
  * Create a new tmux session with the given name.
  * The session starts detached with an initial command in the first pane.
  *
+ * @param sessionName - Unique session name
+ * @param initialCommand - Shell command to run in the initial pane
+ * @param windowName - Optional name for the initial window
+ * @param cwd - Optional working directory for the initial pane
  * @returns The pane ID of the initial pane (e.g., "%0")
  */
-export function createSession(sessionName: string, initialCommand: string, windowName?: string): string {
+export function createSession(sessionName: string, initialCommand: string, windowName?: string, cwd?: string): string {
   const args = [
     "new-session",
     "-d",
@@ -126,6 +130,9 @@ export function createSession(sessionName: string, initialCommand: string, windo
   if (windowName) {
     args.push("-n", windowName);
   }
+  if (cwd) {
+    args.push("-c", cwd);
+  }
   args.push(initialCommand);
   const paneId = tmux(args);
   return paneId || tmux(["list-panes", "-t", sessionName, "-F", "#{pane_id}"]).split("\n")[0]!;
@@ -134,17 +141,25 @@ export function createSession(sessionName: string, initialCommand: string, windo
 /**
  * Create a new window in an existing session without switching focus.
  *
+ * @param sessionName - Target session name
+ * @param windowName - Name for the new window
+ * @param command - Shell command to run in the new window
+ * @param cwd - Optional working directory for the new window
  * @returns The pane ID of the new window's pane
  */
-export function createWindow(sessionName: string, windowName: string, command: string): string {
-  return tmux([
+export function createWindow(sessionName: string, windowName: string, command: string, cwd?: string): string {
+  const args = [
     "new-window",
     "-d",
     "-t", sessionName,
     "-n", windowName,
     "-P", "-F", "#{pane_id}",
-    command,
-  ]);
+  ];
+  if (cwd) {
+    args.push("-c", cwd);
+  }
+  args.push(command);
+  return tmux(args);
 }
 
 /**
@@ -290,6 +305,48 @@ export function attachSession(sessionName: string): void {
   if (!proc.success) {
     throw new Error(`Failed to attach to session: ${sessionName}`);
   }
+}
+
+/**
+ * Switch the current tmux client to a different session.
+ * Use this instead of `attachSession` when already inside tmux to avoid
+ * creating a nested tmux client.
+ */
+export function switchClient(sessionName: string): void {
+  tmuxExec(["switch-client", "-t", sessionName]);
+}
+
+/**
+ * Get the name of the current tmux session (when running inside tmux).
+ * Returns null if not inside tmux or if the query fails.
+ */
+export function getCurrentSession(): string | null {
+  if (!isInsideTmux()) return null;
+  const result = tmuxRun(["display-message", "-p", "#{session_name}"]);
+  if (!result.ok) return null;
+  return result.stdout || null;
+}
+
+/**
+ * Attach or switch to a tmux session depending on whether we're already
+ * inside tmux. Avoids nested tmux clients.
+ *
+ * - Outside tmux: spawns `attach-session` (blocks until session ends).
+ * - Inside tmux: runs `switch-client` (returns immediately).
+ */
+export function attachOrSwitch(sessionName: string): void {
+  if (isInsideTmux()) {
+    switchClient(sessionName);
+  } else {
+    attachSession(sessionName);
+  }
+}
+
+/**
+ * Select (switch to) a window within the current tmux session.
+ */
+export function selectWindow(target: string): void {
+  tmuxExec(["select-window", "-t", target]);
 }
 
 // ---------------------------------------------------------------------------

@@ -53,11 +53,12 @@ The user's research question/request is: **$ARGUMENTS**
 
     **For online search:**
     - VERY IMPORTANT: In case you discover external libraries as dependencies, use the **codebase-online-researcher** agent for external documentation and resources
-        - If you use DeepWiki tools, instruct the agent to return references to code snippets or documentation, PLEASE INCLUDE those references (e.g. source file names, line numbers, etc.)
-        - If you perform external web research, use the **playwright-cli** skill (or `bunx @playwright/cli`) to inspect pages, then instruct the agent to return LINKS with their findings and INCLUDE those links in the research document
-        - Output directory: `research/docs/`
+        - The agent fetches live web content using the **playwright-cli** skill (or `bunx @playwright/cli` / `curl`). Instruct it to apply the token-efficient fetch order: (1) try `curl https://<site>/llms.txt` for an AI-friendly index (see [llmstxt.org](https://llmstxt.org/llms.txt)), (2) try `curl <url> -H "Accept: text/markdown"` to get pre-converted Markdown (supported on Cloudflare-hosted docs via [Markdown for Agents](https://developers.cloudflare.com/fundamentals/reference/markdown-for-agents/)), (3) fall back to HTML parsing via `playwright-cli`
+        - Instruct the agent to return LINKS with their findings and INCLUDE those links in the research document
+        - The agent should persist reusable source documents under `research/web/<YYYY-MM-DD>-<kebab-case-topic>.md` (with frontmatter noting `source_url`, `fetched_at`, and `fetch_method`) so future research can reuse them without re-fetching
+        - Output directory for the synthesized research artifact: `research/docs/`
         - Examples:
-            - If researching `Redis` locks usage, the agent might find relevant usage and create a document `research/docs/2024-01-15-redis-locks-usage.md` with internal links to Redis docs and code references
+            - If researching `Redis` locks usage, the agent might find relevant usage and create a document `research/docs/2024-01-15-redis-locks-usage.md` with internal links to Redis docs and code references (and cache the fetched Redis docs under `research/web/`)
             - If researching `OAuth` flows, the agent might find relevant external articles and create a document `research/docs/2024-01-16-oauth-flows.md` with links to those articles
 
     The key is to use these agents intelligently:

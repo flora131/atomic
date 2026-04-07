@@ -83,7 +83,7 @@ Frequently use unit tests, integration tests, and end-to-end tests to verify you
 
 ### Testing Anti-Patterns
 
-Use your testing-anti-patterns skill to avoid common pitfalls when writing tests.
+Use your test-driven-development skill to avoid common pitfalls when writing tests.
 
 ## Design Principles
 

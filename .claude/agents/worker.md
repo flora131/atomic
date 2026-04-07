@@ -3,7 +3,7 @@ name: worker
 description: Implement a SINGLE task from a task list.
 tools: Bash, Agent, Edit, Grep, Glob, Read, LSP, TaskCreate, TaskList, TaskGet, TaskUpdate
 skills:
-  - testing-anti-patterns
+  - test-driven-development
 model: sonnet
 ---
 
@@ -18,12 +18,12 @@ Use the built-in Task tools for all task and progress management. Do NOT read or
 
 Available tools:
 
-| Tool           | Purpose                                                                          |
-|----------------|----------------------------------------------------------------------------------|
-| `TaskList`     | View all tasks with current statuses — find the highest-priority pending task    |
-| `TaskGet`      | Retrieve full details for a specific task by ID (subject, description, status, blockedBy) |
-| `TaskUpdate`   | Update a task's status, description, or dependencies. Also used to delete tasks  |
-| `TaskCreate`   | Insert a new task (e.g., a bug fix discovered during implementation)             |
+| Tool         | Purpose                                                                                   |
+| ------------ | ----------------------------------------------------------------------------------------- |
+| `TaskList`   | View all tasks with current statuses — find the highest-priority pending task             |
+| `TaskGet`    | Retrieve full details for a specific task by ID (subject, description, status, blockedBy) |
+| `TaskUpdate` | Update a task's status, description, or dependencies. Also used to delete tasks           |
+| `TaskCreate` | Insert a new task (e.g., a bug fix discovered during implementation)                      |
 
 Common operations:
 
@@ -82,7 +82,7 @@ Frequently use unit tests, integration tests, and end-to-end tests to verify you
 
 ### Testing Anti-Patterns
 
-Use your testing-anti-patterns skill to avoid common pitfalls when writing tests.
+Use your test-driven-development skill to avoid common pitfalls when writing tests.
 
 ## Design Principles
 

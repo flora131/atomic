@@ -1,9 +1,17 @@
 /**
- * Ralph workflow for Copilot — three-session planner → orchestrator → review-fix.
+ * Ralph workflow for Copilot — plan → orchestrate → review → debug loop.
  *
- * Session 1 (planner):     Decompose the user prompt into a structured task list.
- * Session 2 (orchestrator): Drive sub-agents to implement the tasks.
- * Session 3 (review-fix):  Iteratively review and fix until clean (max 10 cycles).
+ * One CopilotClient backs every iteration; each loop step creates a fresh
+ * sub-session bound to the appropriate sub-agent (planner, orchestrator,
+ * reviewer, debugger). The loop terminates when:
+ *   - {@link MAX_LOOPS} iterations have completed, OR
+ *   - Two consecutive reviewer passes return zero findings.
+ *
+ * A loop is one cycle of plan → orchestrate → review. When a review returns
+ * zero findings on the FIRST pass we re-run only the reviewer (still inside
+ * the same loop iteration) to confirm; if that confirmation pass is also
+ * clean we stop. The debugger only runs when findings remain, and its
+ * markdown report is fed back into the next iteration's planner.
  *
  * Run: atomic workflow -n ralph -a copilot "<your spec>"
  */
@@ -13,158 +21,142 @@ import { CopilotClient, approveAll } from "@github/copilot-sdk";
 import type { SessionEvent } from "@github/copilot-sdk";
 
 import {
-  buildSpecToTasksPrompt,
+  buildPlannerPrompt,
   buildOrchestratorPrompt,
   buildReviewPrompt,
-  buildFixSpecFromReview,
-  buildFixSpecFromRawReview,
+  buildDebuggerReportPrompt,
   parseReviewResult,
+  extractMarkdownBlock,
 } from "../../ralph/helpers/prompts.ts";
 import { hasActionableFindings } from "../../ralph/helpers/review.ts";
+import { safeGitStatusS } from "../../ralph/helpers/git.ts";
 
-// ---------------------------------------------------------------------------
-// Local helper
-// ---------------------------------------------------------------------------
+const MAX_LOOPS = 10;
+const CONSECUTIVE_CLEAN_THRESHOLD = 2;
 
-/**
- * Extract the text content of the last assistant message from a Copilot
- * session's event stream.  Returns an empty string when no assistant message
- * is present.
- */
+/** Concatenate the text content of every assistant message in an event stream. */
 function getLastAssistantText(messages: SessionEvent[]): string {
   const assistantMessages = messages.filter(
     (m): m is Extract<SessionEvent, { type: "assistant.message" }> =>
       m.type === "assistant.message",
   );
-
   const last = assistantMessages.at(-1);
-  if (!last) {
-    return "";
-  }
-
+  if (!last) return "";
   return last.data.content;
 }
-
-// ---------------------------------------------------------------------------
-// Workflow definition
-// ---------------------------------------------------------------------------
 
 export default defineWorkflow({
   name: "ralph",
   description:
-    "Ralph: planner → orchestrator → review-fix loop for autonomous task execution",
+    "Plan → orchestrate → review → debug loop with bounded iteration",
 })
-  // -------------------------------------------------------------------------
-  // Session 1: planner
-  // -------------------------------------------------------------------------
   .session({
-    name: "planner",
-    description: "Decompose the user prompt into an actionable task list",
-    run: async (ctx) => {
-      const client = new CopilotClient({ cliUrl: ctx.serverUrl });
-      await client.start();
-
-      const session = await client.createSession({ onPermissionRequest: approveAll });
-      await client.setForegroundSessionId(session.sessionId);
-
-      await session.sendAndWait({ prompt: buildSpecToTasksPrompt(ctx.userPrompt) });
-
-      ctx.save(await session.getMessages());
-
-      await session.disconnect();
-      await client.stop();
-    },
-  })
-
-  // -------------------------------------------------------------------------
-  // Session 2: orchestrator
-  // -------------------------------------------------------------------------
-  .session({
-    name: "orchestrator",
-    description: "Drive sub-agents to implement the planned tasks",
-    run: async (ctx) => {
-      const client = new CopilotClient({ cliUrl: ctx.serverUrl });
-      await client.start();
-
-      const session = await client.createSession({ onPermissionRequest: approveAll });
-      await client.setForegroundSessionId(session.sessionId);
-
-      await session.sendAndWait({ prompt: buildOrchestratorPrompt() });
-
-      ctx.save(await session.getMessages());
-
-      await session.disconnect();
-      await client.stop();
-    },
-  })
-
-  // -------------------------------------------------------------------------
-  // Session 3: review-fix loop
-  // -------------------------------------------------------------------------
-  .session({
-    name: "review-fix",
+    name: "ralph-loop",
     description:
-      "Iteratively review the implementation and apply fixes until clean",
+      "Drive plan/orchestrate/review/debug iterations until clean or capped",
     run: async (ctx) => {
       const client = new CopilotClient({ cliUrl: ctx.serverUrl });
       await client.start();
 
-      const session = await client.createSession({ onPermissionRequest: approveAll });
-      await client.setForegroundSessionId(session.sessionId);
+      let lastMessages: SessionEvent[] = [];
 
-      const MAX_CYCLES = 10;
-      let consecutiveClean = 0;
-      let priorDebuggerOutput = "";
-
-      for (let cycle = 0; cycle < MAX_CYCLES; cycle++) {
-        // Step 1 — review
-        await session.sendAndWait({
-          prompt: buildReviewPrompt(ctx.userPrompt, priorDebuggerOutput),
+      /**
+       * Spin up a fresh sub-session bound to the named agent, send the
+       * prompt, await the response, then disconnect. Returns the text of the
+       * last assistant message so the caller can parse it.
+       */
+      async function runAgent(agent: string, prompt: string): Promise<string> {
+        const session = await client.createSession({
+          agent,
+          onPermissionRequest: approveAll,
         });
+        await client.setForegroundSessionId(session.sessionId);
 
-        // Step 2 — extract review text
-        const reviewRaw = getLastAssistantText(await session.getMessages());
+        await session.sendAndWait({ prompt });
 
-        // Step 3 — parse structured review
-        const review = parseReviewResult(reviewRaw);
+        const messages = await session.getMessages();
+        lastMessages = messages;
 
-        // Step 4 — check for actionable findings
-        if (!hasActionableFindings(review, reviewRaw)) {
-          consecutiveClean++;
-          if (consecutiveClean >= 2) {
-            break;
-          }
-          continue;
-        }
-
-        // Reset clean streak
-        consecutiveClean = 0;
-
-        // Step 6 — build fix prompt
-        let fixPrompt =
-          review != null ? buildFixSpecFromReview(review, ctx.userPrompt) : "";
-
-        if (!fixPrompt) {
-          fixPrompt = buildFixSpecFromRawReview(reviewRaw, ctx.userPrompt);
-        }
-
-        if (!fixPrompt) {
-          fixPrompt =
-            "The previous review identified issues. Please fix all identified problems and ensure the implementation is correct and complete.";
-        }
-
-        // Step 7 — apply fix
-        await session.sendAndWait({ prompt: fixPrompt });
-
-        // Step 8 — capture fix output for the next review pass
-        priorDebuggerOutput = getLastAssistantText(await session.getMessages());
+        await session.disconnect();
+        return getLastAssistantText(messages);
       }
 
-      ctx.save(await session.getMessages());
+      try {
+        let consecutiveClean = 0;
+        let debuggerReport = "";
 
-      await session.disconnect();
-      await client.stop();
+        for (let iteration = 1; iteration <= MAX_LOOPS; iteration++) {
+          // ── Plan ──────────────────────────────────────────────────────────
+          await runAgent(
+            "planner",
+            buildPlannerPrompt(ctx.userPrompt, {
+              iteration,
+              debuggerReport: debuggerReport || undefined,
+            }),
+          );
+
+          // ── Orchestrate ───────────────────────────────────────────────────
+          await runAgent("orchestrator", buildOrchestratorPrompt());
+
+          // ── Review (first pass) ───────────────────────────────────────────
+          let gitStatus = await safeGitStatusS();
+          let reviewRaw = await runAgent(
+            "reviewer",
+            buildReviewPrompt(ctx.userPrompt, { gitStatus, iteration }),
+          );
+          let parsed = parseReviewResult(reviewRaw);
+
+          if (!hasActionableFindings(parsed, reviewRaw)) {
+            consecutiveClean += 1;
+            if (consecutiveClean >= CONSECUTIVE_CLEAN_THRESHOLD) {
+              break;
+            }
+
+            // Confirmation pass — re-run reviewer only, NOT plan/orchestrate.
+            gitStatus = await safeGitStatusS();
+            reviewRaw = await runAgent(
+              "reviewer",
+              buildReviewPrompt(ctx.userPrompt, {
+                gitStatus,
+                iteration,
+                isConfirmationPass: true,
+              }),
+            );
+            parsed = parseReviewResult(reviewRaw);
+
+            if (!hasActionableFindings(parsed, reviewRaw)) {
+              consecutiveClean += 1;
+              if (consecutiveClean >= CONSECUTIVE_CLEAN_THRESHOLD) {
+                break;
+              }
+            } else {
+              consecutiveClean = 0;
+              // fall through to debugger
+            }
+          } else {
+            consecutiveClean = 0;
+          }
+
+          // ── Debug (only if findings remain AND another iteration is allowed) ─
+          if (
+            hasActionableFindings(parsed, reviewRaw) &&
+            iteration < MAX_LOOPS
+          ) {
+            const debuggerRaw = await runAgent(
+              "debugger",
+              buildDebuggerReportPrompt(parsed, reviewRaw, {
+                iteration,
+                gitStatus,
+              }),
+            );
+            debuggerReport = extractMarkdownBlock(debuggerRaw);
+          }
+        }
+
+        ctx.save(lastMessages);
+      } finally {
+        await client.stop();
+      }
     },
   })
-
   .compile();

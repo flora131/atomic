@@ -1,26 +1,42 @@
 /**
- * Ralph workflow for OpenCode — three-session planning + execution + review loop.
+ * Ralph workflow for OpenCode — plan → orchestrate → review → debug loop.
  *
- * Session 1 (planner):      Decompose the user prompt into a task list.
- * Session 2 (orchestrator): Execute the task list via sub-agent management.
- * Session 3 (review-fix):   Iteratively review and fix until clean (≥2 consecutive clean cycles).
+ * One OpenCode client backs every iteration; each loop step creates a fresh
+ * sub-session bound to the appropriate sub-agent (planner, orchestrator,
+ * reviewer, debugger). The loop terminates when:
+ *   - {@link MAX_LOOPS} iterations have completed, OR
+ *   - Two consecutive reviewer passes return zero findings.
  *
- * Run: atomic workflow -n ralph -a opencode "<your feature spec>"
+ * A loop is one cycle of plan → orchestrate → review. When a review returns
+ * zero findings on the FIRST pass we re-run only the reviewer (still inside
+ * the same loop iteration) to confirm; if that confirmation pass is also
+ * clean we stop. The debugger only runs when findings remain, and its
+ * markdown report is fed back into the next iteration's planner.
+ *
+ * Run: atomic workflow -n ralph -a opencode "<your spec>"
  */
 
 import { defineWorkflow } from "@bastani/atomic-workflows";
-import { createOpencodeClient } from "@opencode-ai/sdk/v2";
 import {
-  buildSpecToTasksPrompt,
+  createOpencodeClient,
+  type SessionPromptResponse,
+} from "@opencode-ai/sdk/v2";
+
+import {
+  buildPlannerPrompt,
   buildOrchestratorPrompt,
   buildReviewPrompt,
-  buildFixSpecFromReview,
-  buildFixSpecFromRawReview,
+  buildDebuggerReportPrompt,
   parseReviewResult,
+  extractMarkdownBlock,
 } from "../../ralph/helpers/prompts.ts";
 import { hasActionableFindings } from "../../ralph/helpers/review.ts";
+import { safeGitStatusS } from "../../ralph/helpers/git.ts";
 
-/** Extract concatenated text from an OpenCode response parts array. */
+const MAX_LOOPS = 10;
+const CONSECUTIVE_CLEAN_THRESHOLD = 2;
+
+/** Concatenate the text-typed parts of an OpenCode response. */
 function extractResponseText(
   parts: Array<{ type: string; [key: string]: unknown }>,
 ): string {
@@ -33,118 +49,116 @@ function extractResponseText(
 export default defineWorkflow({
   name: "ralph",
   description:
-    "Full Ralph workflow: task decomposition → orchestration → iterative review/fix",
+    "Plan → orchestrate → review → debug loop with bounded iteration",
 })
-  // ─────────────────────────────────────────────────────────────────────────
-  // Session 1: Planner — break the spec into an actionable task list
-  // ─────────────────────────────────────────────────────────────────────────
   .session({
-    name: "planner",
-    description: "Decompose the user prompt into an ordered task list",
-    run: async (ctx) => {
-      const client = createOpencodeClient({ baseUrl: ctx.serverUrl });
-
-      const session = await client.session.create({ title: "planner" });
-      await client.tui.selectSession({ sessionID: session.data!.id });
-
-      const result = await client.session.prompt({
-        sessionID: session.data!.id,
-        parts: [{ type: "text", text: buildSpecToTasksPrompt(ctx.userPrompt) }],
-      });
-
-      ctx.save(result.data!);
-    },
-  })
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Session 2: Orchestrator — drive sub-agents to complete the task list
-  // ─────────────────────────────────────────────────────────────────────────
-  .session({
-    name: "orchestrator",
-    description: "Coordinate sub-agents to implement the planned tasks",
-    run: async (ctx) => {
-      const client = createOpencodeClient({ baseUrl: ctx.serverUrl });
-
-      const session = await client.session.create({ title: "orchestrator" });
-      await client.tui.selectSession({ sessionID: session.data!.id });
-
-      const result = await client.session.prompt({
-        sessionID: session.data!.id,
-        parts: [{ type: "text", text: buildOrchestratorPrompt() }],
-      });
-
-      ctx.save(result.data!);
-    },
-  })
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Session 3: Review-Fix loop — review output, fix issues, repeat until clean
-  // ─────────────────────────────────────────────────────────────────────────
-  .session({
-    name: "review-fix",
+    name: "ralph-loop",
     description:
-      "Iteratively review and fix until ≥2 consecutive clean review cycles",
+      "Drive plan/orchestrate/review/debug iterations until clean or capped",
     run: async (ctx) => {
       const client = createOpencodeClient({ baseUrl: ctx.serverUrl });
 
-      const session = await client.session.create({ title: "review-fix" });
-      await client.tui.selectSession({ sessionID: session.data!.id });
+      let lastResultData: SessionPromptResponse | null = null;
 
-      const MAX_CYCLES = 10;
-      let consecutiveClean = 0;
-      let priorDebuggerOutput = "";
-      let result: Awaited<ReturnType<typeof client.session.prompt>>;
-
-      for (let cycle = 0; cycle < MAX_CYCLES; cycle++) {
-        // ── Step A: Review ─────────────────────────────────────────────────
-        result = await client.session.prompt({
+      /** Run a sub-agent in a fresh session and return its concatenated text. */
+      async function runAgent(
+        title: string,
+        agent: string,
+        text: string,
+      ): Promise<string> {
+        const session = await client.session.create({ title });
+        await client.tui.selectSession({ sessionID: session.data!.id });
+        const result = await client.session.prompt({
           sessionID: session.data!.id,
-          parts: [
-            {
-              type: "text",
-              text: buildReviewPrompt(ctx.userPrompt, priorDebuggerOutput),
-            },
-          ],
+          parts: [{ type: "text", text }],
+          agent,
         });
-
-        const reviewRaw = extractResponseText(result.data!.parts);
-        const review = parseReviewResult(reviewRaw);
-
-        // ── Step B: Check if we can stop ───────────────────────────────────
-        if (!hasActionableFindings(review, reviewRaw)) {
-          consecutiveClean++;
-          if (consecutiveClean >= 2) {
-            break;
-          }
-          // Still clean but haven't hit the threshold — continue to confirm
-          continue;
-        }
-
-        // There were findings — reset the clean streak
-        consecutiveClean = 0;
-
-        // ── Step C: Build a fix prompt ────────────────────────────────────
-        let fixPrompt: string;
-        if (review !== null) {
-          fixPrompt = buildFixSpecFromReview(review, ctx.userPrompt);
-        } else if (reviewRaw.trim().length > 0) {
-          fixPrompt = buildFixSpecFromRawReview(reviewRaw, ctx.userPrompt);
-        } else {
-          fixPrompt =
-            "Please review the implementation once more and address any remaining issues.";
-        }
-
-        // ── Step D: Apply the fix ─────────────────────────────────────────
-        result = await client.session.prompt({
-          sessionID: session.data!.id,
-          parts: [{ type: "text", text: fixPrompt }],
-        });
-
-        priorDebuggerOutput = extractResponseText(result.data!.parts);
+        lastResultData = result.data ?? null;
+        return extractResponseText(result.data!.parts);
       }
 
-      ctx.save(result!.data!);
+      let consecutiveClean = 0;
+      let debuggerReport = "";
+
+      for (let iteration = 1; iteration <= MAX_LOOPS; iteration++) {
+        // ── Plan ────────────────────────────────────────────────────────────
+        await runAgent(
+          `planner-${iteration}`,
+          "planner",
+          buildPlannerPrompt(ctx.userPrompt, {
+            iteration,
+            debuggerReport: debuggerReport || undefined,
+          }),
+        );
+
+        // ── Orchestrate ─────────────────────────────────────────────────────
+        await runAgent(
+          `orchestrator-${iteration}`,
+          "orchestrator",
+          buildOrchestratorPrompt(),
+        );
+
+        // ── Review (first pass) ─────────────────────────────────────────────
+        let gitStatus = await safeGitStatusS();
+        let reviewRaw = await runAgent(
+          `reviewer-${iteration}-1`,
+          "reviewer",
+          buildReviewPrompt(ctx.userPrompt, { gitStatus, iteration }),
+        );
+        let parsed = parseReviewResult(reviewRaw);
+
+        if (!hasActionableFindings(parsed, reviewRaw)) {
+          consecutiveClean += 1;
+          if (consecutiveClean >= CONSECUTIVE_CLEAN_THRESHOLD) {
+            break;
+          }
+
+          // Confirmation pass — re-run reviewer only, NOT plan/orchestrate.
+          gitStatus = await safeGitStatusS();
+          reviewRaw = await runAgent(
+            `reviewer-${iteration}-2`,
+            "reviewer",
+            buildReviewPrompt(ctx.userPrompt, {
+              gitStatus,
+              iteration,
+              isConfirmationPass: true,
+            }),
+          );
+          parsed = parseReviewResult(reviewRaw);
+
+          if (!hasActionableFindings(parsed, reviewRaw)) {
+            consecutiveClean += 1;
+            if (consecutiveClean >= CONSECUTIVE_CLEAN_THRESHOLD) {
+              break;
+            }
+          } else {
+            consecutiveClean = 0;
+            // fall through to debugger
+          }
+        } else {
+          consecutiveClean = 0;
+        }
+
+        // ── Debug (only if findings remain AND another iteration is allowed) ─
+        if (
+          hasActionableFindings(parsed, reviewRaw) &&
+          iteration < MAX_LOOPS
+        ) {
+          const debuggerRaw = await runAgent(
+            `debugger-${iteration}`,
+            "debugger",
+            buildDebuggerReportPrompt(parsed, reviewRaw, {
+              iteration,
+              gitStatus,
+            }),
+          );
+          debuggerReport = extractMarkdownBlock(debuggerRaw);
+        }
+      }
+
+      if (lastResultData !== null) {
+        ctx.save(lastResultData);
+      }
     },
   })
-
   .compile();

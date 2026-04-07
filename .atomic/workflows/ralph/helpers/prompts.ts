@@ -1,251 +1,311 @@
 /**
  * Ralph Prompt Utilities
  *
- * Provides the prompts used by the /ralph two-step workflow:
- *   Step 1: Task decomposition (buildSpecToTasksPrompt)
- *   Step 2: Orchestrator sub-agent management (buildOrchestratorPrompt)
- *   Step 3: Review & Fix (buildReviewPrompt, buildFixSpecFromReview)
+ * Prompts used by the Ralph plan → orchestrate → review → debug loop:
+ *   - buildPlannerPrompt:        initial planning OR re-planning from a debugger report
+ *   - buildOrchestratorPrompt:   spawn workers to execute the task list
+ *   - buildReviewPrompt:         structured code review with injected git status
+ *   - buildDebuggerReportPrompt: diagnose review findings, produce a re-plan brief
  *
- * Zero-dependency: no imports from the internal system.
+ * Plus parsing helpers for the reviewer JSON output and the debugger markdown
+ * report.
+ *
+ * Zero-dependency: no imports from the Atomic runtime.
  */
 
 // ============================================================================
-// STEP 1: TASK DECOMPOSITION
+// PLANNER
 // ============================================================================
 
-/** Build the spec-to-tasks prompt for decomposing a spec into tasks */
-export function buildSpecToTasksPrompt(specContent: string): string {
-    return `You are a task decomposition engine.
+export interface PlannerContext {
+  /** 1-indexed loop iteration. Iteration 1 = initial plan; >1 = re-plan. */
+  iteration: number;
+  /** Markdown report from the previous iteration's debugger sub-agent. */
+  debuggerReport?: string;
+}
+
+/**
+ * Build the planner prompt. The first iteration decomposes the original spec;
+ * subsequent iterations decompose the work needed to resolve the debugger
+ * report from the previous loop iteration.
+ */
+export function buildPlannerPrompt(
+  spec: string,
+  context: PlannerContext = { iteration: 1 },
+): string {
+  const debuggerReport = context.debuggerReport?.trim() ?? "";
+  const isReplan = context.iteration > 1 && debuggerReport.length > 0;
+
+  if (isReplan) {
+    return `# Re-Planning (Iteration ${context.iteration})
+
+The previous Ralph iteration produced an implementation that the reviewer
+flagged as incomplete or incorrect. The debugger investigated and produced
+the report below. Use it to re-plan.
+
+## Original Specification
 
 <specification>
-${specContent}
+${spec}
+</specification>
+
+## Debugger Report (authoritative)
+
+<debugger_report>
+${debuggerReport}
+</debugger_report>
+
+## Your Task
+
+Decompose the work needed to resolve every issue in the debugger report into
+an ordered task list, then persist them via TaskCreate.
+
+<instructions>
+1. Treat the debugger report as authoritative. Every "Issue Identified" must
+   map to at least one task. Every "Suggested Plan Adjustment" must appear as
+   (or be subsumed by) a task.
+2. Drop any work from the original specification that is already complete and
+   unaffected by the report.
+3. Order tasks by priority: P0 fixes first, then dependent work, then
+   validation/tests.
+4. Optimize for parallel execution — minimize blockedBy dependencies.
+5. After creating all tasks via TaskCreate, call TaskList to verify.
+</instructions>
+
+<constraints>
+- All tasks start as "pending".
+- blockedBy must reference IDs that exist in the task list.
+- Do not split fixes that touch the same file across multiple tasks unless they are truly independent.
+</constraints>`;
+  }
+
+  // Initial iteration
+  return `# Planning (Iteration 1)
+
+You are a task decomposition engine.
+
+<specification>
+${spec}
 </specification>
 
 <instructions>
-Decompose the specification above into an ordered list of implementation tasks,
-then persist them using your available task management tools (e.g. your todo tool,
-tasklist tool, or sql tool with the todos/todo_deps tables — use whichever is
-available in your environment).
+Decompose the specification above into an ordered list of implementation tasks
+and persist them via TaskCreate.
 
 1. Read the specification and identify every distinct deliverable.
-2. Order tasks by priority: foundational/infrastructure first, then features, then tests, then polish.
+2. Order tasks by priority: foundational/infrastructure first, then features,
+   then tests, then polish.
 3. Analyze technical dependencies between tasks.
-4. Persist all tasks and their dependencies using your task management tool.
+4. After creating all tasks via TaskCreate, call TaskList to verify.
 </instructions>
 
-<task_structure>
-Each task should capture these fields:
-
-| Field       | Type     | Constraint                                                                 |
-|-------------|----------|----------------------------------------------------------------------------|
-| id          | string   | Sequential starting at "1". Values: "1", "2", "3", …                      |
-| description | string   | Concise imperative task description, under 80 characters.                  |
-| status      | string   | Always "pending" at creation time.                                         |
-| summary     | string   | Present-participle phrase (e.g. "Implementing auth endpoint"). Under 60 characters. |
-| blockedBy   | string[] | IDs of tasks this one depends on. Empty when there are no dependencies.    |
-</task_structure>
-
 <constraints>
-- id values are strings: "1", "2", "3", etc.
-- blockedBy values are strings referencing other task IDs.
-- blockedBy must only reference IDs that exist in the task list.
 - All tasks start as "pending".
+- blockedBy must only reference IDs that exist in the task list.
 - Optimize for parallel execution — minimize unnecessary dependencies.
 </constraints>`;
 }
 
 // ============================================================================
-// STEP 2b: ORCHESTRATOR
+// ORCHESTRATOR
 // ============================================================================
 
 /**
- * Build the orchestrator prompt that instructs the main agent to manage
- * parallel task execution using its native sub-agent capabilities.
- *
- * The orchestrator retrieves the current task list from whatever task
- * management tool is available (todo tool, tasklist tool, or sql tool),
- * then dispatches sub-agents to execute tasks in parallel.
+ * Build the orchestrator prompt. The orchestrator retrieves the planner's
+ * task list, validates the dependency graph, and spawns parallel workers.
  */
 export function buildOrchestratorPrompt(): string {
-
-    return `You are an orchestrator managing a set of implementation tasks.
+  return `You are an orchestrator managing a set of implementation tasks.
 
 ## Retrieve Task List
 
-Start by retrieving the current task list using your available task management
-tools (e.g. your todo tool, tasklist tool, or sql tool — use whichever is
-available). The planner has already created all tasks. You MUST retrieve them
-before proceeding with any execution.
+Start by retrieving the current task list using your TaskList tool. The
+planner has already created all tasks; you MUST retrieve them before any
+execution.
 
 ## Dependency Graph Integrity Check
 
 BEFORE executing any tasks, validate the dependency graph:
 
-1. For each task, check that every ID in its "blockedBy" array corresponds to an actual task ID in the task list.
-2. If a blockedBy reference points to a task ID that does NOT exist in the list, that reference is a **dangling dependency** caused by data corruption during planning.
-3. **Remove dangling dependencies**: Drop any blockedBy entry that references a non-existent task ID. The task is still valid — only the corrupted reference should be removed.
+1. For each task, check that every ID in its "blockedBy" array corresponds to
+   an actual task ID in the list.
+2. If a blockedBy reference points to a task ID that does NOT exist, that
+   reference is a **dangling dependency** caused by data corruption during
+   planning.
+3. **Remove dangling dependencies**: Drop any blockedBy entry that references
+   a non-existent task ID. The task is still valid — only the corrupted
+   reference should be removed.
 4. After cleanup, re-evaluate which tasks are ready.
 
-This step is critical. Dangling dependencies will permanently block tasks if not removed.
+This step is critical. Dangling dependencies will permanently block tasks.
 
 ## Dependency Rules
 
-A task is READY to execute only when:
+A task is READY only when:
 1. Its status is "pending"
-2. ALL tasks listed in its "blockedBy" array have status "completed"
+2. ALL tasks in its "blockedBy" array are "completed"
 
-Do NOT spawn a sub-agent for a task whose dependencies are not yet completed.
+Do NOT spawn a worker for a task whose dependencies are not yet completed.
 
 ## Instructions
 
-1. **Retrieve the task list** using your task management tool. This is your source of truth for all task data.
-
-2. **Validate the dependency graph** using the integrity check above. Remove any dangling dependencies.
-
-3. **Identify ready tasks**: Find all tasks with status "pending" whose blockedBy
-   dependencies are all "completed". These are ready to execute.
-
-4. **Spawn parallel sub-agents**: For each ready task, spawn a sub-agent using
-   the Task tool. Give each sub-agent a focused prompt with:
-   - The task description
-   - Context about completed dependency tasks
-   - Instructions to implement the task fully and test it
-
-5. **Monitor completions**: As sub-agents complete, check if any blocked tasks
-   are now unblocked. Spawn new sub-agents for newly-unblocked tasks immediately.
-
+1. **Retrieve the task list** via TaskList. This is your source of truth.
+2. **Validate the dependency graph** as above. Remove dangling dependencies.
+3. **Identify ready tasks**: pending tasks whose blockedBy is fully completed.
+4. **Spawn parallel workers**: for each ready task, spawn a worker via the
+   Task tool with a focused prompt containing the task description, context
+   from completed dependencies, and instructions to implement and test.
+5. **Monitor completions**: as workers finish, mark tasks completed and spawn
+   the newly-unblocked tasks immediately.
 6. **Continue until ALL tasks are complete.** Do NOT stop early.
-
 7. **Report a summary** when finished, listing each task and its final status.
 
 ## IMPORTANT
 
-Spawn ALL ready tasks in parallel — do not wait for one to finish
-before starting another unblocked task. Do NOT serialize task execution
-when multiple tasks are ready simultaneously.
+Spawn ALL ready tasks in parallel — do not serialize when multiple tasks are
+ready simultaneously.
 
 ## Error Handling
 
-When a sub-agent task FAILS:
+When a worker task FAILS:
 
-1. **Diagnose**: Read the error output to understand the root cause.
-2. **Retry with fix**: Spawn a NEW sub-agent for the same task with the error context included in its prompt. Instruct it to fix the issue and complete the task.
-3. **Retry limit**: Retry each failed task up to 3 times. If it still fails after retries, mark it as "error".
-4. **Continue regardless**: After marking a task as "error", do NOT stop. Continue executing all other tasks that are not blocked by the errored task.
-5. **Unblocked tasks proceed**: Tasks whose dependencies are all "completed" are still ready — execute them even if sibling tasks have errors.
+1. **Diagnose** the error.
+2. **Retry with fix**: spawn a new worker with the error context included.
+3. **Retry limit**: up to 3 retries per task. After that, mark it as "error".
+4. **Continue regardless**: do NOT stop. Execute all other unblocked tasks.
+5. **Unblocked tasks proceed**: only direct dependents of an "error" task
+   should be skipped.
 
-NEVER mark tasks as "blocked-by-failure" and stop. The goal is to complete as much work as possible. Only the specific tasks whose direct dependencies are in "error" status should be skipped — all other tasks must still be attempted.
+NEVER mark tasks as "blocked-by-failure" and stop. Complete as much work as
+possible.
 
 ## Task Status Protocol
 
-You MUST update task statuses **immediately** at every transition using your
-task management tool — not in batches, not later.
+Update task statuses **immediately** at every transition via TaskUpdate.
 
-### Required update sequence for EACH task
+### Required update sequence per task
 
-1. **IMMEDIATELY BEFORE spawning** a sub-agent for a task, update that task's
-   status to "in_progress".
-2. **IMMEDIATELY AFTER a sub-agent returns** (success or failure), update that
-   task's status to "completed" or "error".
+1. **IMMEDIATELY BEFORE spawning** a worker for a task → mark "in_progress".
+2. **IMMEDIATELY AFTER** the worker returns → mark "completed" or "error".
 
 ### Timing rules
 
-- Update status in the same turn as the event that triggered the change.
-  Do NOT wait to combine it with other updates.
-- When multiple sub-agents complete in parallel, issue a SEPARATE status
-  update for each completion — do not batch them.
-- When spawning the next wave of tasks, first mark the previous task(s) as
-  "completed", then mark the new task(s) as "in_progress" BEFORE spawning.`;
+- Update status in the same turn as the event that triggered it. Never batch.
+- When multiple workers complete in parallel, issue a SEPARATE update for
+  each.
+- Mark previous tasks "completed" before marking new ones "in_progress".`;
 }
 
 // ============================================================================
-// STEP 3: REVIEW & FIX
+// REVIEWER
 // ============================================================================
 
-/** Represents a single finding from the code review */
+/** A single finding from the reviewer sub-agent. */
 export interface ReviewFinding {
-    title: string;
-    body: string;
-    confidence_score?: number;
-    priority?: number;
-    code_location?: {
-        absolute_file_path: string;
-        line_range: { start: number; end: number };
-    };
+  title: string;
+  body: string;
+  confidence_score?: number;
+  priority?: number;
+  code_location?: {
+    absolute_file_path: string;
+    line_range: { start: number; end: number };
+  };
 }
 
-/** Represents the complete review result from the reviewer sub-agent */
+/** Parsed reviewer JSON output. */
 export interface ReviewResult {
-    findings: ReviewFinding[];
-    overall_correctness: string;
-    overall_explanation: string;
-    overall_confidence_score?: number;
+  findings: ReviewFinding[];
+  overall_correctness: string;
+  overall_explanation: string;
+  overall_confidence_score?: number;
 }
 
-/** Build a prompt for the reviewer sub-agent to review completed implementation */
-export function buildReviewPrompt(
-    userPrompt: string,
-    priorDebuggerOutput?: string,
-): string {
+export interface ReviewContext {
+  /** Output of `git status -s` captured immediately before the review. */
+  gitStatus: string;
+  /** 1-indexed loop iteration, used in the prompt header. */
+  iteration?: number;
+  /**
+   * Whether this is the second consecutive review pass within the same loop
+   * iteration (i.e. the previous pass had zero findings and we are
+   * confirming before counting two clean reviews in a row).
+   */
+  isConfirmationPass?: boolean;
+}
 
-    return `# Code Review Request
+/**
+ * Build the reviewer prompt. Injects deterministic `git status -s` so the
+ * reviewer doesn't have to re-discover what changed.
+ */
+export function buildReviewPrompt(
+  spec: string,
+  context: ReviewContext,
+): string {
+  const gitStatus = context.gitStatus.trim();
+  const gitSection =
+    gitStatus.length > 0
+      ? `## Working Tree (\`git status -s\`)
+
+These files have uncommitted changes — they are the files actually touched in
+this iteration. Use them to focus your review:
+
+\`\`\`
+${gitStatus}
+\`\`\``
+      : `## Working Tree (\`git status -s\`)
+
+The working tree is clean. Either nothing was implemented this iteration or
+all changes were already committed. Cross-check the task list to verify
+whether the implementation actually ran.`;
+
+  const header = context.iteration
+    ? `# Code Review Request (Iteration ${context.iteration}${context.isConfirmationPass ? ", confirmation pass" : ""})`
+    : "# Code Review Request";
+
+  const confirmationNote = context.isConfirmationPass
+    ? `\n\n**Note**: This is a confirmation pass. The previous review of this same iteration produced zero findings. Re-verify with fresh eyes; do not assume the prior pass was correct.`
+    : "";
+
+  return `${header}${confirmationNote}
 
 ## Original Specification
 
-The implementation was requested to fulfill the following specification:
-
 <user_request>
-${userPrompt}
+${spec}
 </user_request>
+
+${gitSection}
 
 ## Retrieve Task List
 
-Start by retrieving the current task list and progress using your available task
-management tools (e.g. your todo tool, tasklist tool, or sql tool — use whichever
-is available).
+Call \`TaskList\` to fetch the current task plan and statuses. Use it to:
+1. Identify completed vs incomplete tasks.
+2. Cross-reference the plan against the specification.
+3. Calculate completion metrics.
 
-Use the task data to:
-1. Build the task plan (all tasks with their statuses)
-2. Identify completed vs incomplete tasks
-3. Calculate completion metrics
+## Review Focus Areas (priority order)
 
-## Review Instructions
+1. **Task Completion & Specification Gap Analysis** — HIGHEST priority. Every
+   task in PENDING / IN_PROGRESS / ERROR status MUST become a P0 finding.
+   Every spec requirement not covered by any task is a P0 finding. Do NOT
+   mark the patch correct if any task is incomplete.
+2. **Correctness of Logic** — does the code implement the requirements?
+3. **Error Handling & Edge Cases** — boundary, empty/null, error paths.
+4. **Security** — injection, secret leakage, auth bypasses.
+5. **Performance** — obvious resource leaks, N+1, hot loops.
+6. **Test Coverage** — critical paths and edge cases tested.
 
-Your task is to conduct a thorough code review of the changes made during this implementation. Use the task list to understand the scope and status of all tasks.
+## Output Format
 
-### Review Focus Areas
-
-Examine the implementation for:
-
-1. **Task Completion & Specification Gap Analysis**: This is the MOST IMPORTANT review step. You MUST:
-   a. Check the task list for completion status. If any tasks are not completed, the implementation is incomplete and MUST be flagged.
-   b. For each task in ERROR, PENDING, or BLOCKED status, create a separate P0 finding describing what specification requirement is missing from the implementation.
-   c. Cross-reference the task plan against the original specification. Identify any specification requirements NOT covered by any task (missing tasks).
-   d. Identify completed tasks that only partially fulfill their corresponding specification requirement.
-   Do NOT approve an incomplete implementation. If tasks are incomplete, overall_correctness MUST be "patch is incorrect".
-
-2. **Correctness of Logic**: Does the code correctly implement the specified requirements? Are there any logical errors or incorrect assumptions?
-
-3. **Error Handling**: Are errors properly caught and handled? Are edge cases considered? Are error messages clear and actionable?
-
-4. **Edge Cases**: Does the code handle boundary conditions, empty inputs, null/undefined values, and other edge cases appropriately?
-
-5. **Security Concerns**: Are there any security vulnerabilities such as injection attacks, exposure of sensitive data, or improper authentication/authorization?
-
-6. **Performance Implications**: Are there any obvious performance issues like unnecessary loops, inefficient algorithms, or resource leaks?
-
-7. **Test Coverage**: Are the changes adequately tested? Are there missing test cases for critical paths or edge cases?
-
-### Output Format
-
-Produce your review findings in the following JSON format:
+Output ONLY a JSON object inside a single fenced \`\`\`json block. No prose
+before or after. Use this schema exactly:
 
 \`\`\`json
 {
   "findings": [
     {
-      "title": "[P0] Brief title of the finding (prefix with priority: P0=critical, P1=important, P2=moderate, P3=minor)",
-      "body": "Detailed explanation of the issue, why it matters, and suggested fix",
+      "title": "[P0] Brief title (P0=critical, P1=important, P2=moderate, P3=minor)",
+      "body": "Detailed explanation, why it matters, and a suggested fix",
       "confidence_score": 0.95,
       "priority": 0,
       "code_location": {
@@ -254,205 +314,225 @@ Produce your review findings in the following JSON format:
       }
     }
   ],
-  "overall_correctness": "patch is correct" OR "patch is incorrect",
-  "overall_explanation": "Summary of the overall quality and correctness of the implementation",
+  "overall_correctness": "patch is correct",
+  "overall_explanation": "Summary of overall quality and correctness",
   "overall_confidence_score": 0.85
 }
 \`\`\`
 
-### Priority Definitions
+Set \`overall_correctness\` to \`"patch is incorrect"\` whenever there is at
+least one P0 or P1 finding (including incomplete tasks). Use
+\`"patch is correct"\` only when findings are empty or strictly P3.
 
-- **P0 (Critical)**: Bugs, security issues, correctness problems, or specification gaps that must be fixed immediately
-- **P1 (Important)**: Significant issues affecting functionality, performance, or maintainability
-- **P2 (Moderate)**: Issues that should be addressed but don't block functionality
-- **P3 (Minor)**: Style suggestions, minor improvements, or low-impact optimizations
-
-### Guidelines
-
-- Begin by retrieving the task list using your task management tool, then perform the specification gap analysis — this is the highest-priority review step
-- Focus on substantive issues that affect correctness, security, or functionality
-- Provide specific, actionable feedback with clear explanations
-- Include exact file paths and line ranges when referencing code
-- Use confidence scores to indicate how certain you are about each finding
-- Set overall_correctness to "patch is incorrect" if there are P0 or P1 issues that prevent the feature from working correctly, including specification gaps
-${priorDebuggerOutput
-            ? `
-## Prior Debugging Context
-
-The following fixes were applied by the debugger in the previous iteration. Pay special attention to whether these fixes actually resolved the issues they targeted, and whether they introduced any regressions:
-
-<prior_debugger_output>
-${priorDebuggerOutput}
-</prior_debugger_output>
-`
-            : ""
-        }
 Begin your review now.`;
 }
 
-/** Build a fix specification document from review findings */
-export function buildFixSpecFromReview(
-    review: ReviewResult,
-    userPrompt: string,
-): string {
-    // If no actionable findings or patch is correct, return empty string
-    if (
-        review.findings.length === 0 ||
-        (review.overall_correctness === "patch is correct" &&
-            review.findings.length === 0)
-    ) {
-        return "";
-    }
+// ============================================================================
+// DEBUGGER
+// ============================================================================
 
-    // Build the fix specification
-    let fixSpec = `# Review Fix Specification
-
-## Original Implementation
-
-${userPrompt}
-
-## Review Verdict
-
-**Overall Correctness:** ${review.overall_correctness}
-
-${review.overall_explanation}
-
-## Findings Requiring Fixes
-
-`;
-
-    // Sort findings by priority (P0 first, then P1, then P2)
-    const sortedFindings = [...review.findings].sort((a, b) => {
-        const priorityA = a.priority ?? 3;
-        const priorityB = b.priority ?? 3;
-        return priorityA - priorityB;
-    });
-
-    // Add each finding as a section
-    sortedFindings.forEach((finding, index) => {
-        const priorityLabel =
-            finding.priority !== undefined ? `P${finding.priority}` : "P2";
-        const location = finding.code_location
-            ? `${finding.code_location.absolute_file_path}:${finding.code_location.line_range.start}-${finding.code_location.line_range.end}`
-            : "Location not specified";
-
-        fixSpec += `### Finding ${index + 1}: ${finding.title}
-
-- **Priority:** ${priorityLabel}
-- **Location:** ${location}
-- **Issue:** ${finding.body}
-- **Rubric:** The fix is complete when the issue described above is resolved, the code correctly handles this case, and existing tests continue to pass.
-
-`;
-    });
-
-    // Add fix guidelines
-    fixSpec += `## Fix Guidelines
-
-- Address each finding in priority order (P0 first, then P1, then P2).
-- Run existing tests after each fix to verify no regressions.
-- Focus on correctness and minimal changes — do not refactor unrelated code.
-- If a finding cannot be addressed, document why and mark the task as blocked.
-`;
-
-    return fixSpec;
+export interface DebuggerContext {
+  /** 1-indexed loop iteration the debugger is investigating. */
+  iteration: number;
+  /** Output of `git status -s` from immediately before the review. */
+  gitStatus: string;
 }
 
-/** Build a fallback fix specification using raw reviewer output */
-export function buildFixSpecFromRawReview(
-    rawReviewResult: string,
-    userPrompt: string,
+/**
+ * Build a prompt asking the debugger sub-agent to investigate a set of review
+ * findings and produce a structured report. The debugger MUST NOT apply
+ * fixes — its only deliverable is the report, which the next iteration's
+ * planner consumes.
+ */
+export function buildDebuggerReportPrompt(
+  review: ReviewResult | null,
+  rawReview: string,
+  context: DebuggerContext,
 ): string {
-    const trimmed = rawReviewResult.trim();
-    if (trimmed.length === 0) {
-        return "";
-    }
-
-    return `# Review Fix Specification
-
-## Original Implementation
-
-${userPrompt}
-
-## Reviewer Output (Unparsed)
-
-The reviewer response could not be parsed as structured JSON. Treat the raw output below as authoritative review feedback and apply any actionable fixes.
+  let findingsSection: string;
+  if (review !== null && review.findings.length > 0) {
+    const sorted = [...review.findings].sort(
+      (a, b) => (a.priority ?? 3) - (b.priority ?? 3),
+    );
+    findingsSection = sorted
+      .map((f, i) => {
+        const pri = f.priority !== undefined ? `P${f.priority}` : "P2";
+        const loc = f.code_location
+          ? `${f.code_location.absolute_file_path}:${f.code_location.line_range.start}-${f.code_location.line_range.end}`
+          : "unspecified";
+        return `### Finding ${i + 1}: [${pri}] ${f.title}
+- **Location:** ${loc}
+- **Issue:** ${f.body}`;
+      })
+      .join("\n\n");
+  } else {
+    const trimmed = rawReview.trim();
+    findingsSection =
+      trimmed.length > 0
+        ? `Reviewer output (could not parse as JSON):
 
 \`\`\`
 ${trimmed}
+\`\`\``
+        : `(no reviewer output captured)`;
+  }
+
+  const gitStatus = context.gitStatus.trim();
+  const gitSection =
+    gitStatus.length > 0
+      ? `\`\`\`
+${gitStatus}
+\`\`\``
+      : `(working tree clean)`;
+
+  return `# Debugging Report Request (Iteration ${context.iteration})
+
+The reviewer flagged the issues below. Investigate them as a debugger and
+produce a structured report that the planner will consume on the next loop
+iteration.
+
+**You are NOT applying fixes.** Your only deliverable is the report. Do not
+edit files. Investigation tool calls (Read, grep, LSP, running tests in
+read-only mode) are fine; mutations are not.
+
+## Reviewer Findings
+
+${findingsSection}
+
+## Working Tree (\`git status -s\`)
+
+${gitSection}
+
+## Investigation Steps
+
+For each finding:
+1. Locate the relevant code (LSP / grep / Read).
+2. Identify the **root cause**, not just the symptom.
+3. List the absolute file paths that must change.
+4. Note constraints, pitfalls, or invariants the next planner must respect.
+
+## Output Format
+
+Respond with EXACTLY one fenced \`\`\`markdown block containing the report.
+No prose before or after the block. Use this exact section structure:
+
+\`\`\`markdown
+# Debugger Report
+
+## Issues Identified
+- [P<priority>] <one-line issue summary>
+  - **Root cause:** <one or two sentences>
+  - **Files:** <abs/path/file.ext, abs/path/other.ext>
+  - **Fix approach:** <imperative description>
+
+## Suggested Plan Adjustments
+1. <imperative task description, suitable as a planner task>
+2. <...>
+
+## Pitfalls
+- <invariant or gotcha the planner/workers must respect>
+- <...>
 \`\`\`
 
-## Fix Guidelines
-
-- Extract concrete issues from the reviewer output and fix them.
-- Focus on correctness and minimal changes.
-- Run relevant tests after each fix to prevent regressions.
-- If any feedback is unclear or non-actionable, document the interpretation used.
-`;
+Keep the report tight — every line must be load-bearing for re-planning. Omit
+the "Pitfalls" section entirely if there are none. Begin now.`;
 }
 
 // ============================================================================
-// REVIEW RESULT PARSING
+// PARSING HELPERS
 // ============================================================================
 
-/** Parse the reviewer's JSON output, handling various formats */
+/**
+ * Parse the reviewer's JSON output. Tries, in order:
+ *   1. Direct JSON.parse on the entire content.
+ *   2. The LAST fenced ```json (or unlabelled) code block.
+ *   3. The LAST balanced object containing a "findings" key in surrounding prose.
+ *
+ * Filters out P3 (minor/style) findings — only P0/P1/P2 count as actionable.
+ * Returns null when no parse strategy succeeds.
+ */
 export function parseReviewResult(content: string): ReviewResult | null {
-    try {
-        // First try: direct JSON parsing
-        const parsed = JSON.parse(content);
-        if (parsed.findings && parsed.overall_correctness) {
-            // Filter out low-priority findings (P3)
-            const actionableFindings = (
-                parsed.findings as ReviewFinding[]
-            ).filter((f) => f.priority === undefined || f.priority <= 2);
-            return {
-                ...parsed,
-                findings: actionableFindings,
-            };
-        }
-    } catch {
-        // Continue to next attempt
+  // Strategy 1: direct JSON
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed && parsed.findings && parsed.overall_correctness) {
+      return filterActionable(parsed);
     }
+  } catch {
+    /* fall through */
+  }
 
+  // Strategy 2: last fenced code block
+  const blockRe = /```(?:json)?\s*\n([\s\S]*?)\n```/g;
+  let lastBlock: string | null = null;
+  let blockMatch: RegExpExecArray | null;
+  while ((blockMatch = blockRe.exec(content)) !== null) {
+    if (blockMatch[1]) lastBlock = blockMatch[1];
+  }
+  if (lastBlock !== null) {
     try {
-        // Second try: extract from markdown code fence
-        const codeBlockMatch = content.match(
-            /```(?:json)?\s*\n([\s\S]*?)\n```/,
-        );
-        if (codeBlockMatch?.[1]) {
-            const parsed = JSON.parse(codeBlockMatch[1]);
-            if (parsed.findings && parsed.overall_correctness) {
-                const actionableFindings = (
-                    parsed.findings as ReviewFinding[]
-                ).filter((f) => f.priority === undefined || f.priority <= 2);
-                return {
-                    ...parsed,
-                    findings: actionableFindings,
-                };
-            }
-        }
+      const parsed = JSON.parse(lastBlock);
+      if (parsed && parsed.findings && parsed.overall_correctness) {
+        return filterActionable(parsed);
+      }
     } catch {
-        // Continue to next attempt
+      /* fall through */
     }
+  }
 
+  // Strategy 3: last "{...findings...}" object in surrounding prose
+  const objRe = /\{[\s\S]*?"findings"[\s\S]*?\}/g;
+  let lastObj: string | null = null;
+  let objMatch: RegExpExecArray | null;
+  while ((objMatch = objRe.exec(content)) !== null) {
+    lastObj = objMatch[0];
+  }
+  if (lastObj !== null) {
     try {
-        // Third try: extract JSON object from surrounding prose
-        const jsonObjectMatch = content.match(/\{[\s\S]*"findings"[\s\S]*\}/);
-        if (jsonObjectMatch) {
-            const parsed = JSON.parse(jsonObjectMatch[0]);
-            if (parsed.findings && parsed.overall_correctness) {
-                const actionableFindings = (
-                    parsed.findings as ReviewFinding[]
-                ).filter((f) => f.priority === undefined || f.priority <= 2);
-                return {
-                    ...parsed,
-                    findings: actionableFindings,
-                };
-            }
-        }
+      const parsed = JSON.parse(lastObj);
+      if (parsed && parsed.findings && parsed.overall_correctness) {
+        return filterActionable(parsed);
+      }
     } catch {
-        // All attempts failed
+      /* nothing more to try */
     }
+  }
 
-    return null;
+  return null;
+}
+
+function filterActionable(parsed: {
+  findings: ReviewFinding[];
+  overall_correctness: string;
+  overall_explanation?: string;
+  overall_confidence_score?: number;
+}): ReviewResult {
+  const actionable = parsed.findings.filter(
+    (f) => f.priority === undefined || f.priority <= 2,
+  );
+  return {
+    findings: actionable,
+    overall_correctness: parsed.overall_correctness,
+    overall_explanation: parsed.overall_explanation ?? "",
+    overall_confidence_score: parsed.overall_confidence_score,
+  };
+}
+
+/**
+ * Extract the LAST fenced ```markdown block from a piece of text. Used for
+ * parsing the debugger's structured report out of a long Claude pane
+ * scrollback or any other output that may include extra prose.
+ *
+ * Falls back to the trimmed full input when no fenced block is present, so
+ * the planner still receives the debugger's content even if formatting drifts.
+ */
+export function extractMarkdownBlock(content: string): string {
+  const blockRe = /```markdown\s*\n([\s\S]*?)\n```/g;
+  let last: string | null = null;
+  let match: RegExpExecArray | null;
+  while ((match = blockRe.exec(content)) !== null) {
+    if (match[1]) last = match[1];
+  }
+  if (last !== null) return last.trim();
+  return content.trim();
 }

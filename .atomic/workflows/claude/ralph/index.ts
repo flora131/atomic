@@ -1,134 +1,149 @@
 /**
- * Ralph workflow for Claude Code — three-session plan → orchestrate → review/fix loop.
+ * Ralph workflow for Claude Code — plan → orchestrate → review → debug loop.
  *
- * Claude runs as a full interactive TUI in a tmux pane.
- * We automate it via tmux send-keys using the claudeQuery() helper.
- * Each session sends prompts to the same pane; Claude maintains conversation
- * context automatically across all calls within a session.
+ * One Claude TUI runs in a tmux pane for the duration of the workflow. Each
+ * loop iteration invokes sub-agents via @-mention syntax (planner,
+ * orchestrator, reviewer, and — when findings remain — debugger). The loop
+ * terminates when:
+ *   - {@link MAX_LOOPS} iterations have completed, OR
+ *   - Two consecutive reviewer passes return zero findings.
  *
- * Run: atomic workflow -n ralph -a claude "<your feature prompt>"
+ * A loop is one cycle of plan → orchestrate → review. When a review returns
+ * zero findings on the FIRST pass we re-run only the reviewer (still inside
+ * the same loop iteration) to confirm; if that confirmation pass is also
+ * clean we stop. The debugger only runs when findings remain after the
+ * reviewer pass(es), and its markdown report is fed back to the planner on
+ * the next iteration.
+ *
+ * Run: atomic workflow -n ralph -a claude "<your spec>"
  */
 
-import { defineWorkflow, claudeQuery } from "@bastani/atomic-workflows";
+import {
+  defineWorkflow,
+  createClaudeSession,
+  claudeQuery,
+} from "@bastani/atomic-workflows";
 
 import {
-  buildSpecToTasksPrompt,
+  buildPlannerPrompt,
   buildOrchestratorPrompt,
   buildReviewPrompt,
-  buildFixSpecFromReview,
-  buildFixSpecFromRawReview,
+  buildDebuggerReportPrompt,
   parseReviewResult,
+  extractMarkdownBlock,
 } from "../../ralph/helpers/prompts.ts";
 import { hasActionableFindings } from "../../ralph/helpers/review.ts";
+import { safeGitStatusS } from "../../ralph/helpers/git.ts";
 
-const MAX_REVIEW_CYCLES = 10;
+const MAX_LOOPS = 10;
 const CONSECUTIVE_CLEAN_THRESHOLD = 2;
+
+/** Wrap a prompt with a Claude Code @-mention so the named sub-agent runs it. */
+function asAgentCall(agentName: string, prompt: string): string {
+  return `@"${agentName} (agent)" ${prompt}`;
+}
 
 export default defineWorkflow({
   name: "ralph",
   description:
-    "Full Ralph workflow: decompose spec into tasks → orchestrate workers → review & fix until clean",
+    "Plan → orchestrate → review → debug loop with bounded iteration",
 })
-  // ─────────────────────────────────────────────────────────────────────────────
-  // Session 1 — Planner
-  // Break the user's prompt / spec into a structured task list.
-  // ─────────────────────────────────────────────────────────────────────────────
   .session({
-    name: "planner",
-    description: "Decompose the user prompt into a structured task list",
-    run: async (ctx) => {
-      await claudeQuery({
-        paneId: ctx.paneId,
-        prompt: buildSpecToTasksPrompt(ctx.userPrompt),
-      });
-
-      ctx.save(ctx.sessionId);
-    },
-  })
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // Session 2 — Orchestrator
-  // Spin up worker sub-agents and drive them through the task list.
-  // ─────────────────────────────────────────────────────────────────────────────
-  .session({
-    name: "orchestrator",
-    description: "Orchestrate worker sub-agents to implement each task",
-    run: async (ctx) => {
-      await claudeQuery({
-        paneId: ctx.paneId,
-        prompt: buildOrchestratorPrompt(),
-      });
-
-      ctx.save(ctx.sessionId);
-    },
-  })
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // Session 3 — Review & Fix loop
-  // Repeatedly review the implementation and apply fixes until the output is
-  // clean for two consecutive cycles (or the cycle cap is reached).
-  // ─────────────────────────────────────────────────────────────────────────────
-  .session({
-    name: "review-fix",
+    name: "ralph-loop",
     description:
-      "Review the implementation and iteratively fix findings until clean",
+      "Drive plan/orchestrate/review/debug iterations until clean or capped",
     run: async (ctx) => {
-      let consecutiveClean = 0;
-      let priorDebuggerOutput = "";
+      await createClaudeSession({ paneId: ctx.paneId });
 
-      for (let cycle = 0; cycle < MAX_REVIEW_CYCLES; cycle++) {
-        // ── Step A: ask Claude to review the current state ──────────────────
-        const reviewResult = await claudeQuery({
+      let consecutiveClean = 0;
+      let debuggerReport = "";
+
+      for (let iteration = 1; iteration <= MAX_LOOPS; iteration++) {
+        // ── Plan ────────────────────────────────────────────────────────────
+        await claudeQuery({
           paneId: ctx.paneId,
-          prompt: buildReviewPrompt(ctx.userPrompt, priorDebuggerOutput),
+          prompt: asAgentCall(
+            "planner",
+            buildPlannerPrompt(ctx.userPrompt, {
+              iteration,
+              debuggerReport: debuggerReport || undefined,
+            }),
+          ),
         });
 
-        const reviewRaw = reviewResult.output;
+        // ── Orchestrate ─────────────────────────────────────────────────────
+        await claudeQuery({
+          paneId: ctx.paneId,
+          prompt: asAgentCall("orchestrator", buildOrchestratorPrompt()),
+        });
 
-        // ── Step B: parse the structured review ─────────────────────────────
-        const review = parseReviewResult(reviewRaw);
+        // ── Review (first pass) ─────────────────────────────────────────────
+        let gitStatus = await safeGitStatusS();
+        let reviewQuery = await claudeQuery({
+          paneId: ctx.paneId,
+          prompt: asAgentCall(
+            "reviewer",
+            buildReviewPrompt(ctx.userPrompt, { gitStatus, iteration }),
+          ),
+        });
+        let reviewRaw = reviewQuery.output;
+        let parsed = parseReviewResult(reviewRaw);
 
-        // ── Step C: decide whether to keep going ────────────────────────────
-        if (!hasActionableFindings(review, reviewRaw)) {
+        if (!hasActionableFindings(parsed, reviewRaw)) {
           consecutiveClean += 1;
           if (consecutiveClean >= CONSECUTIVE_CLEAN_THRESHOLD) {
-            // Two clean passes in a row — we're done.
             break;
           }
-          // Only one clean pass so far; keep iterating.
-          continue;
-        }
 
-        // Findings found — reset the clean counter.
-        consecutiveClean = 0;
+          // Confirmation pass — re-run reviewer only, NOT plan/orchestrate.
+          gitStatus = await safeGitStatusS();
+          reviewQuery = await claudeQuery({
+            paneId: ctx.paneId,
+            prompt: asAgentCall(
+              "reviewer",
+              buildReviewPrompt(ctx.userPrompt, {
+                gitStatus,
+                iteration,
+                isConfirmationPass: true,
+              }),
+            ),
+          });
+          reviewRaw = reviewQuery.output;
+          parsed = parseReviewResult(reviewRaw);
 
-        // ── Step D: build a targeted fix prompt ─────────────────────────────
-        let fixPrompt: string;
-
-        if (review !== null) {
-          fixPrompt = buildFixSpecFromReview(review, ctx.userPrompt);
+          if (!hasActionableFindings(parsed, reviewRaw)) {
+            consecutiveClean += 1;
+            if (consecutiveClean >= CONSECUTIVE_CLEAN_THRESHOLD) {
+              break;
+            }
+          } else {
+            consecutiveClean = 0;
+            // fall through to debugger
+          }
         } else {
-          fixPrompt = buildFixSpecFromRawReview(reviewRaw, ctx.userPrompt);
+          consecutiveClean = 0;
         }
 
-        if (!fixPrompt.trim()) {
-          // Nothing actionable to send — treat as a clean cycle to avoid
-          // spinning endlessly on an unparseable response.
-          fixPrompt =
-            "Please address any remaining issues found in the previous review and ensure all tests pass.";
+        // ── Debug (only if findings remain AND another iteration is allowed) ─
+        if (
+          hasActionableFindings(parsed, reviewRaw) &&
+          iteration < MAX_LOOPS
+        ) {
+          const debuggerQuery = await claudeQuery({
+            paneId: ctx.paneId,
+            prompt: asAgentCall(
+              "debugger",
+              buildDebuggerReportPrompt(parsed, reviewRaw, {
+                iteration,
+                gitStatus,
+              }),
+            ),
+          });
+          debuggerReport = extractMarkdownBlock(debuggerQuery.output);
         }
-
-        // ── Step E: apply the fix ────────────────────────────────────────────
-        const fixResult = await claudeQuery({
-          paneId: ctx.paneId,
-          prompt: fixPrompt,
-        });
-
-        priorDebuggerOutput = fixResult.output;
       }
 
       ctx.save(ctx.sessionId);
     },
   })
-
   .compile();

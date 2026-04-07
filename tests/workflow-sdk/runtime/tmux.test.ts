@@ -596,8 +596,11 @@ describe.if(tmuxAvailable)("tmux integration: waitForPaneReady", () => {
   let paneId: string;
 
   beforeAll(async () => {
-    // Start a shell that will display a prompt
-    paneId = createSession(READY_SESSION, "bash", "ready-test");
+    // Start a process that prints a `> ` prompt and then blocks, so
+    // paneLooksReady's `[›>❯]` regex matches a real captured pane.
+    // (A bare `bash` shows `$`, which never matches and forces the function
+    // to time out — racing bun:test's own 5s per-test timeout.)
+    paneId = createSession(READY_SESSION, 'printf "> "; sleep 30', "ready-test");
     await Bun.sleep(300);
   });
 
@@ -605,16 +608,19 @@ describe.if(tmuxAvailable)("tmux integration: waitForPaneReady", () => {
     killSession(READY_SESSION);
   });
 
-  test("waitForPaneReady resolves and returns elapsed time", async () => {
+  test("waitForPaneReady resolves quickly when prompt is visible", async () => {
     const elapsed = await waitForPaneReady(paneId, 5_000);
     expect(typeof elapsed).toBe("number");
-    expect(elapsed).toBeGreaterThanOrEqual(0);
+    // The prompt is already on screen — the first poll should detect it.
+    // Anything close to the 5s timeout means the success path is broken.
+    expect(elapsed).toBeLessThan(1_000);
   });
 
   test("waitForPaneReady respects timeout", async () => {
-    // Use a very short timeout — function should return (not hang)
+    // Use a very short timeout — function should return (not hang).
+    // With the prompt already visible, it should return well under the cap.
     const elapsed = await waitForPaneReady(paneId, 100);
-    expect(elapsed).toBeLessThan(5_000);
+    expect(elapsed).toBeLessThan(100);
   });
 });
 

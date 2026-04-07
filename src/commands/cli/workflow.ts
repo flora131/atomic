@@ -113,9 +113,18 @@ export async function workflowCommand(options: {
 
   if (!discovered) {
     console.error(`${COLORS.red}Error: Workflow '${options.name}' not found for agent '${agent}'.${COLORS.reset}`);
-    console.error("Search paths:");
-    console.error(`  .atomic/workflows/${agent}/<name>/index.ts (local)`);
-    console.error(`  ~/.atomic/workflows/${agent}/<name>/index.ts (global)`);
+    console.error(`\nExpected location:`);
+    console.error(`  .atomic/workflows/${agent}/${options.name}/index.ts  ${COLORS.dim}(local)${COLORS.reset}`);
+    console.error(`  ~/.atomic/workflows/${agent}/${options.name}/index.ts ${COLORS.dim}(global)${COLORS.reset}`);
+
+    const available = await discoverWorkflows(undefined, agent);
+    if (available.length > 0) {
+      console.error(`\nAvailable ${agent} workflows:`);
+      for (const wf of available) {
+        console.error(`  ${COLORS.dim}•${COLORS.reset} ${wf.name} ${COLORS.dim}(${wf.source})${COLORS.reset}`);
+      }
+    }
+
     return 1;
   }
 

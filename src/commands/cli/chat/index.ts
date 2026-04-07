@@ -3,12 +3,19 @@
  * Chat CLI command for atomic
  *
  * Spawns the native agent CLI as an interactive subprocess.
+ * When already inside a tmux/psmux session, the agent spawns inline
+ * in the current pane. When outside tmux, it creates a new tmux
+ * session and attaches to it.
+ *
  * All extra arguments after `-a <agent>` are forwarded to the native CLI.
  *
  * Usage:
  *   atomic chat -a <agent> [native-args...]
  */
 
+import { join } from "path";
+import { homedir } from "os";
+import { mkdir, writeFile, rm } from "fs/promises";
 import { AGENT_CONFIG, type AgentKey } from "@/services/config/index.ts";
 import { COLORS } from "@/theme/colors.ts";
 import { isCommandInstalled } from "@/services/system/detect.ts";
@@ -16,6 +23,14 @@ import {
   ensureAtomicGlobalAgentConfigsForInstallType,
 } from "@/services/config/atomic-global-config.ts";
 import { detectInstallationType, getConfigRoot } from "@/services/config/config-path.ts";
+import {
+  isInsideTmux,
+  isTmuxInstalled,
+  createSession,
+  getMuxBinary,
+  resetMuxBinaryCache,
+} from "@bastani/atomic-workflows";
+import { ensureTmuxInstalled } from "@/lib/spawn.ts";
 
 // ============================================================================
 // Types
@@ -52,6 +67,55 @@ export function buildAgentArgs(agentType: AgentType, passthroughArgs: string[] =
   return [...config.chat_flags, ...passthroughArgs];
 }
 
+function generateChatId(): string {
+  return crypto.randomUUID().slice(0, 8);
+}
+
+/** Escape a string for safe interpolation inside a bash double-quoted string. */
+function escBash(s: string): string {
+  return s.replace(/[\\"$`!]/g, "\\$&");
+}
+
+/** Escape a string for safe interpolation inside a PowerShell double-quoted string. */
+function escPwsh(s: string): string {
+  return s.replace(/[`"$]/g, "`$&");
+}
+
+/**
+ * Build a launcher script that preserves cwd and properly quotes args.
+ * This avoids shell-injection risks from passthrough args.
+ */
+function buildLauncherScript(
+  cmd: string,
+  args: string[],
+  projectRoot: string,
+): { script: string; ext: string } {
+  const isWin = process.platform === "win32";
+
+  if (isWin) {
+    // PowerShell: use array splatting for safe arg passing
+    const argList = args.map((a) => `"${escPwsh(a)}"`).join(", ");
+    const script = [
+      `Set-Location "${escPwsh(projectRoot)}"`,
+      argList.length > 0
+        ? `& "${escPwsh(cmd)}" @(${argList})`
+        : `& "${escPwsh(cmd)}"`,
+    ].join("\n");
+    return { script, ext: "ps1" };
+  }
+
+  // Bash: use proper quoting for each arg
+  const quotedArgs = args
+    .map((a) => `"${escBash(a)}"`)
+    .join(" ");
+  const script = [
+    "#!/bin/bash",
+    `cd "${escBash(projectRoot)}"`,
+    `exec "${escBash(cmd)}" ${quotedArgs}`,
+  ].join("\n");
+  return { script, ext: "sh" };
+}
+
 // ============================================================================
 // Chat Command Implementation
 // ============================================================================
@@ -59,8 +123,11 @@ export function buildAgentArgs(agentType: AgentType, passthroughArgs: string[] =
 /**
  * Spawn the native agent CLI as an interactive subprocess.
  *
- * Runs a small preflight (global config sync) before launching
- * the agent to ensure managed config files are in place.
+ * When running inside a tmux/psmux session, the agent spawns inline
+ * in the current pane with inherited stdio.
+ *
+ * When running outside tmux, a new tmux session is created and
+ * attached so the agent benefits from multiplexer features.
  *
  * @param options - Chat command configuration options
  * @returns Exit code from the agent process
@@ -90,10 +157,72 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
 
   await ensureAtomicGlobalAgentConfigsForInstallType(installType, configRoot);
 
-  // ── Spawn the native agent CLI ──
+  // ── Build argv ──
   const args = buildAgentArgs(agentType, passthroughArgs);
   const cmd = [config.cmd, ...args];
 
+  // ── Inside tmux: spawn inline in the current pane ──
+  if (isInsideTmux()) {
+    return spawnDirect(cmd, projectRoot);
+  }
+
+  // ── Ensure tmux is available ──
+  if (!isTmuxInstalled()) {
+    console.log("Terminal multiplexer not found. Installing...");
+    try {
+      await ensureTmuxInstalled();
+      resetMuxBinaryCache();
+    } catch {
+      // Fall through to check below
+    }
+    if (!isTmuxInstalled()) {
+      // No tmux available — fall back to direct spawn
+      return spawnDirect(cmd, projectRoot);
+    }
+  }
+
+  // ── Build launcher script for safe arg/cwd handling ──
+  const chatId = generateChatId();
+  const windowName = `atomic-chat-${chatId}`;
+
+  const sessionsDir = join(homedir(), ".atomic", "sessions", "chat");
+  await mkdir(sessionsDir, { recursive: true });
+  const { script, ext } = buildLauncherScript(config.cmd, args, projectRoot);
+  const launcherPath = join(sessionsDir, `${windowName}.${ext}`);
+  await writeFile(launcherPath, script, { mode: 0o755 });
+
+  const shellCmd = process.platform === "win32"
+    ? `pwsh -NoProfile -File "${launcherPath}"`
+    : `bash "${launcherPath}"`;
+
+  // ── Outside tmux: create a new session and attach ──
+  try {
+    createSession(windowName, shellCmd, undefined, projectRoot);
+
+    const muxBinary = getMuxBinary() ?? "tmux";
+    const attachProc = Bun.spawn([muxBinary, "attach-session", "-t", windowName], {
+      stdio: ["inherit", "inherit", "inherit"],
+    });
+    const exitCode = await attachProc.exited;
+
+    // Clean up launcher
+    try { await rm(launcherPath, { force: true }); } catch {}
+    return exitCode;
+  } catch (error) {
+    try { await rm(launcherPath, { force: true }); } catch {}
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(
+      `${COLORS.yellow}Warning: Failed to create tmux session (${message}). Falling back to direct spawn.${COLORS.reset}`
+    );
+    return spawnDirect(cmd, projectRoot);
+  }
+}
+
+/**
+ * Spawn the agent CLI directly with inherited stdio.
+ * Used when not inside tmux.
+ */
+async function spawnDirect(cmd: string[], projectRoot: string): Promise<number> {
   const proc = Bun.spawn(cmd, {
     stdio: ["inherit", "inherit", "inherit"],
     cwd: projectRoot,

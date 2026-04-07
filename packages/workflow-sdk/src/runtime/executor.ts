@@ -21,6 +21,7 @@ import type { SessionPromptResponse } from "@opencode-ai/sdk/v2";
 import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import * as tmux from "./tmux.ts";
 import { getMuxBinary } from "./tmux.ts";
+import { loadWorkflowDefinition } from "./discovery.ts";
 import { OrchestratorPanel } from "./panel.ts";
 
 /** Agent CLI configuration for spawning in tmux panes. */
@@ -231,12 +232,7 @@ async function runOrchestrator(): Promise<void> {
   process.on("SIGINT", signalHandler);
 
   try {
-    const mod = await import(workflowFile);
-    const definition = (mod.default ?? mod) as WorkflowDefinition;
-
-    if (!definition || definition.__brand !== "WorkflowDefinition") {
-      throw new Error("Invalid workflow definition");
-    }
+    const definition = await loadWorkflowDefinition(workflowFile);
 
     await writeFile(
       join(sessionsBaseDir, "metadata.json"),

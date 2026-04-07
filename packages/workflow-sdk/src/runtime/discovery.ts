@@ -12,7 +12,6 @@ import { join } from "path";
 import { readdir } from "fs/promises";
 import { homedir } from "os";
 import type { WorkflowDefinition, AgentType } from "../types.ts";
-import { WorkflowBuilder } from "../define-workflow.ts";
 import { validateCopilotWorkflow } from "../providers/copilot.ts";
 import { validateOpenCodeWorkflow } from "../providers/opencode.ts";
 import { validateClaudeWorkflow } from "../providers/claude.ts";
@@ -130,7 +129,7 @@ export async function loadWorkflowDefinition(
   const definition = mod.default ?? mod;
 
   if (!definition || definition.__brand !== "WorkflowDefinition") {
-    if (definition instanceof WorkflowBuilder) {
+    if (definition && definition.__brand === "WorkflowBuilder") {
       throw new Error(
         `Workflow at ${path} was defined but not compiled.\n` +
         `  Add .compile() at the end of your defineWorkflow() chain:\n\n` +

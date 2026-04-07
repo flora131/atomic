@@ -15,6 +15,8 @@ import type { WorkflowOptions, SessionOptions, WorkflowDefinition } from "./type
  * then .compile() seals them into a WorkflowDefinition.
  */
 export class WorkflowBuilder {
+  /** @internal Brand for detection across package boundaries */
+  readonly __brand = "WorkflowBuilder" as const;
   private readonly options: WorkflowOptions;
   private readonly sessionDefs: SessionOptions[] = [];
 

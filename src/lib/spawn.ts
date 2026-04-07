@@ -279,6 +279,155 @@ export async function upgradeLiteparse(): Promise<void> {
   return upgradeGlobalPackage("@llamaindex/liteparse");
 }
 
+/**
+ * Ensure a terminal multiplexer (tmux on Unix, psmux on Windows) is installed.
+ * No-op when already present on PATH.
+ */
+export async function ensureTmuxInstalled(): Promise<void> {
+  // Check for any multiplexer binary
+  if (Bun.which("tmux") || Bun.which("psmux") || Bun.which("pmux")) return;
+
+  if (process.platform === "win32") {
+    // Windows: install psmux
+    const winget = Bun.which("winget");
+    if (winget) {
+      const result = await runCommand([winget, "install", "psmux", "--accept-source-agreements", "--accept-package-agreements"], { inherit: true });
+      if (result.success && (Bun.which("psmux") || Bun.which("tmux"))) return;
+    }
+
+    const scoop = Bun.which("scoop");
+    if (scoop) {
+      await runCommand([scoop, "bucket", "add", "psmux", "https://github.com/psmux/scoop-psmux"], { inherit: true });
+      const result = await runCommand([scoop, "install", "psmux"], { inherit: true });
+      if (result.success && (Bun.which("psmux") || Bun.which("tmux"))) return;
+    }
+
+    const choco = Bun.which("choco");
+    if (choco) {
+      const result = await runCommand([choco, "install", "psmux", "-y", "--no-progress"], { inherit: true });
+      if (result.success && (Bun.which("psmux") || Bun.which("tmux"))) return;
+    }
+
+    const cargo = Bun.which("cargo");
+    if (cargo) {
+      const result = await runCommand([cargo, "install", "psmux"], { inherit: true });
+      if (result.success) {
+        const home = getHomeDir();
+        if (home) prependPath(join(home, ".cargo", "bin"));
+        if (Bun.which("psmux") || Bun.which("tmux")) return;
+      }
+    }
+    return;
+  }
+
+  // Unix / macOS
+  if (process.platform === "darwin") {
+    const brew = Bun.which("brew");
+    if (brew) {
+      const result = await runCommand([brew, "install", "tmux"], { inherit: true });
+      if (result.success && Bun.which("tmux")) return;
+    }
+  }
+
+  // Linux package managers
+  const shell = Bun.which("bash") ?? Bun.which("sh");
+  if (!shell) return;
+
+  const managers: string[] = [
+    "command -v apt-get >/dev/null 2>&1 && sudo apt-get update -qq && sudo apt-get install -y tmux",
+    "command -v dnf >/dev/null 2>&1 && sudo dnf install -y tmux",
+    "command -v yum >/dev/null 2>&1 && sudo yum install -y tmux",
+    "command -v pacman >/dev/null 2>&1 && sudo pacman -Sy --noconfirm tmux",
+    "command -v zypper >/dev/null 2>&1 && sudo zypper --non-interactive install tmux",
+    "command -v apk >/dev/null 2>&1 && sudo apk add --no-cache tmux",
+  ];
+
+  for (const script of managers) {
+    await runCommand([shell, "-lc", script], { inherit: true });
+    if (Bun.which("tmux")) return;
+  }
+}
+
+/**
+ * Ensure bun is installed and available on PATH.
+ * No-op when already present.
+ */
+export async function ensureBunInstalled(): Promise<void> {
+  if (Bun.which("bun")) return;
+
+  const home = getHomeDir();
+
+  if (process.platform === "win32") {
+    // Windows
+    const winget = Bun.which("winget");
+    if (winget) {
+      const result = await runCommand([winget, "install", "Oven-sh.Bun", "--accept-source-agreements", "--accept-package-agreements"], { inherit: true });
+      if (result.success) {
+        if (home) prependPath(join(home, ".bun", "bin"));
+        if (Bun.which("bun")) return;
+      }
+    }
+
+    const scoop = Bun.which("scoop");
+    if (scoop) {
+      const result = await runCommand([scoop, "install", "bun"], { inherit: true });
+      if (result.success && Bun.which("bun")) return;
+    }
+
+    const npmPath = Bun.which("npm");
+    if (npmPath) {
+      const result = await runCommand([npmPath, "install", "-g", "bun"], { inherit: true });
+      if (result.success && Bun.which("bun")) return;
+    }
+    return;
+  }
+
+  // Unix / macOS
+  const shell = Bun.which("bash") ?? Bun.which("sh");
+  if (shell) {
+    const result = await runCommand(
+      [shell, "-lc", "curl -fsSL https://bun.sh/install | bash"],
+      { inherit: true },
+    );
+    if (result.success) {
+      if (home) prependPath(join(home, ".bun", "bin"));
+      if (Bun.which("bun")) return;
+    }
+  }
+
+  // macOS Homebrew fallback
+  if (process.platform === "darwin") {
+    const brew = Bun.which("brew");
+    if (brew) {
+      const result = await runCommand([brew, "install", "oven-sh/bun/bun"], { inherit: true });
+      if (result.success && Bun.which("bun")) return;
+    }
+  }
+}
+
+/**
+ * Ensure tmux/psmux is installed. Used as a ToolingStep in the update pipeline.
+ * Does not attempt version upgrades — just ensures the tool exists.
+ */
+export async function upgradeTmux(): Promise<void> {
+  await ensureTmuxInstalled();
+}
+
+/**
+ * Upgrade bun to the latest version, or install if missing.
+ */
+export async function upgradeBun(): Promise<void> {
+  const bunPath = Bun.which("bun");
+  if (!bunPath) {
+    await ensureBunInstalled();
+    return;
+  }
+  const result = await runCommand([bunPath, "upgrade"]);
+  if (!result.success) {
+    throw new Error(`bun upgrade failed: ${result.details}`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Shared tooling-setup helpers (used by postinstall and update commands)
 // ---------------------------------------------------------------------------

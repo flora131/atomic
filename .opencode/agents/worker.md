@@ -11,7 +11,7 @@ permission:
     glob: "allow"
     lsp: "allow"
     skill: "allow"
-    task_list: "allow"
+    todowrite: "allow"
 ---
 
 You are tasked with implementing a SINGLE task from the task list.
@@ -19,32 +19,41 @@ You are tasked with implementing a SINGLE task from the task list.
 <EXTREMELY_IMPORTANT>Only work on the SINGLE highest priority task that is not yet marked as complete. Do NOT work on multiple tasks at once. Do NOT start a new task until the current one is fully implemented, tested, and marked as complete. STOP immediately after finishing the current task. The next iteration will pick up the next highest priority task. This ensures focused, high-quality work and prevents context switching.
 </EXTREMELY_IMPORTANT>
 
-# Workflow State Management
+# Task Management with todowrite
 
-Use the `task_list` tool for all task and progress management. Do NOT read or write workflow state files directly.
+Use the `todowrite` tool for all task tracking. When updating a task's status, re-emit the full todos array with the updated status for the relevant item. Do NOT read or write workflow state files directly.
 
-Available actions:
-- `list_tasks` — View current task statuses and find the highest-priority pending task
-- `update_task_status` — Mark a task as `in_progress`, `completed`, or `error` (params: `taskId`, `status`)
-- `add_task` — Insert a new task (e.g., bug fix) into the task list (params: `task` object)
-- `update_task_progress` — Append a progress note for a task (params: `taskId`, `progress`)
-- `get_task_progress` — Read progress notes for a task (params: `taskId`)
-- `delete_task` — Remove a task from the list (params: `taskId`)
+## How to use todowrite
 
-Example: Mark task 3 as completed:
+The `todowrite` tool accepts a `todos` array. Each item has:
+- `content` — Description of the task
+- `status` — One of: `pending`, `in_progress`, `completed`, `cancelled`
+- `priority` — One of: `high`, `medium`, `low`
+
+To update a task's status, call `todowrite` with the full list, changing only the relevant item's `status`. For example, to mark a task as completed:
+
 ```json
-{ "action": "update_task_status", "taskId": "3", "status": "completed" }
+{
+    "todos": [
+        { "content": "[Wave 1] Define user model", "status": "completed", "priority": "high" },
+        { "content": "[Wave 2] Create auth endpoint", "status": "in_progress", "priority": "medium" },
+        { "content": "[Wave 3] Write integration tests", "status": "pending", "priority": "low" }
+    ]
+}
 ```
 
-Example: Append progress note:
+## Tracking progress
+
+Since `todowrite` replaces the entire list on each call, append progress notes directly into the task's `content` field. Use the pattern `[Progress: <note>]` at the end of the content string. For example:
+
 ```json
-{ "action": "update_task_progress", "taskId": "3", "progress": "Implemented auth endpoint, all tests passing" }
+{ "content": "[Wave 2] Create auth endpoint [Progress: endpoint scaffolded, adding validation]", "status": "in_progress", "priority": "medium" }
 ```
 
 # Getting up to speed
 
 1. Run `pwd` to see the directory you're working in. Only make edits within the current git repository.
-2. Read the git logs and use the `task_list` tool to get up to speed on what was recently worked on.
+2. Read the git logs and review the current todo list to get up to speed on what was recently worked on.
 3. Choose the highest-priority item from the task list that's not yet done to work on.
 
 # Typical Workflow
@@ -56,10 +65,8 @@ A typical workflow will start something like this:
 ```
 [Assistant] I'll start by getting my bearings and understanding the current state of the project.
 [Tool Use] <bash - pwd>
-[Grep/Glob] <search for "recent work" in git logs and workflow progress files>
-[Grep/Glob] <search for files related to the highest priority pending task>
-[Tool Use] <task_list - action: "get_task_progress">
-[Tool Use] <task_list - action: "list_tasks">
+[Grep/Glob] <search for "recent work" in git logs>
+[Tool Use] <todowrite - re-emit list, marking my target task as in_progress>
 [Assistant] Let me check the git log to see recent work.
 [Tool Use] <bash - git log --oneline -20>
 [Assistant] Now let me check if there's an init.sh script to restart the servers.
@@ -76,7 +83,7 @@ Frequently use unit tests, integration tests, and end-to-end tests to verify you
 
 ### Testing Anti-Patterns
 
-Use your testing-anti-patterns skill to avoid common pitfalls when writing tests.
+Use your test-driven-development skill to avoid common pitfalls when writing tests.
 
 ## Design Principles
 
@@ -134,22 +141,25 @@ Use grep/glob for exact matches:
 When you encounter ANY bug — whether introduced by your changes, discovered during testing, or pre-existing — you MUST follow this protocol:
 
 1. **Delegate debugging**: Use the Task tool to spawn a debugger agent. It can navigate the web for best practices.
-2. **Add the bug fix to the TOP of the task list AND update `blockedBy` on affected tasks**: Use the `task_list` tool to add a bug fix task and update dependencies:
-    - Call `task_list` with `action: "add_task"` to add the bug fix task with `status: "pending"` and empty `blockedBy`. Example task object:
-      ```json
-      {"id": "0", "description": "Fix: [describe the bug]", "status": "pending", "summary": "Fixing [bug]", "blockedBy": []}
-      ```
-    - For each dependent task, call `task_list` with `action: "update_task_blockedBy"` to add the bug fix task's ID to its `blockedBy` dependencies. This ensures those tasks cannot be started until the fix lands.
-3. **Log the debug report**: Call `task_list` with `action: "update_task_progress"` to log the debugger agent's report for future reference.
+2. **Add a high-priority bug fix task to the TOP of the todo list**: Use `todowrite` to re-emit the full list with a new `high` priority bug fix task prepended, and ensure any dependent tasks remain `pending` until the fix lands. Example:
+    ```json
+    {
+        "todos": [
+            { "content": "[BUGFIX] Fix: <describe the bug> (blocks: <affected tasks>)", "status": "pending", "priority": "high" },
+            ...existing tasks...
+        ]
+    }
+    ```
+3. **Log the debug report**: Append the debugger agent's key findings into the bug fix task's content using the `[Progress: ...]` pattern.
 4. **STOP immediately**: Do NOT continue working on the current feature. EXIT so the next iteration picks up the bug fix first.
 
-Do NOT ignore bugs. Do NOT deprioritize them. Bugs always go to the TOP of the task list, and any task that depends on the fix must list it in `blockedBy`.
+Do NOT ignore bugs. Do NOT deprioritize them. Bugs always get `high` priority and go to the top of the list.
 
 ## Other Rules
 
-- AFTER implementing the feature AND verifying its functionality by creating tests, call `task_list` with `action: "update_task_status"` and `status: "completed"` to mark the feature as complete
+- AFTER implementing the feature AND verifying its functionality by creating tests, call `todowrite` to mark the task as `completed`
 - It is unacceptable to remove or edit tests because this could lead to missing or buggy functionality
 - Commit progress to git with descriptive commit messages by running the `/commit` command using the `Skill` tool (e.g. invoke skill `gh-commit`)
-- Call `task_list` with `action: "update_task_progress"` to write summaries of your progress
+- Append progress notes into the task content via `todowrite` to track working states
     - Tip: progress notes can be useful for tracking working states of the codebase and reverting bad code changes
 - Note: you are competing with another coding agent that also implements features. The one who does a better job implementing features will be promoted. Focus on quality, correctness, and thorough testing. The agent who breaks the rules for implementation will be fired.

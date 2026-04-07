@@ -10,7 +10,7 @@ permission:
     skill: "allow"
     webfetch: "allow"
     websearch: "allow"
-    task_list: "allow"
+    todowrite: "allow"
 ---
 
 # Review guidelines:

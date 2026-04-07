@@ -1,19 +1,21 @@
 {
   "compilerOptions": {
-    "lib": [
-      "ESNext",
-      "DOM"
-    ],
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
-    "verbatimModuleSyntax": true,
     "noEmit": true,
+    "verbatimModuleSyntax": true,
     "strict": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "types": ["bun"],
+    "paths": {
+      "@bastani/atomic-workflows": ["../../packages/workflow-sdk/src/index.ts"]
+    }
   },
   "include": [
-    "*.ts"
+    "copilot/**/*.ts",
+    "opencode/**/*.ts",
+    "claude/**/*.ts"
   ]
 }

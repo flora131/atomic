@@ -27,8 +27,6 @@ import {
 } from "@/services/config/atomic-global-config.ts";
 import { isWindows } from "@/services/system/detect.ts";
 import { cleanupBunTempNativeAddons } from "@/services/system/cleanup.ts";
-import { trackAtomicCommand } from "@/services/telemetry/index.ts";
-import { removeWorkflowSdk, getGlobalWorkflowsDir } from "@/services/config/workflow-package.ts";
 import { getElevatedPrivilegesHint, isPermissionError } from "@/commands/cli/permission-guidance.ts";
 
 /** Options for the uninstall command */
@@ -181,25 +179,7 @@ export async function uninstallCommand(options: UninstallOptions = {}): Promise<
       log.warn("Skipped native provider-root cleanup because the Atomic data directory is missing.");
     }
 
-    // 2. Remove @bastani/atomic-workflows SDK
-    parallelTasks.push(
-      (async () => {
-        try {
-          const globalWorkflowsDir = getGlobalWorkflowsDir();
-          const removed = await removeWorkflowSdk(globalWorkflowsDir);
-          if (removed) {
-            log.success("Removed @bastani/atomic-workflows SDK");
-          } else {
-            log.warn("Could not remove @bastani/atomic-workflows SDK");
-          }
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          log.warn(`Could not remove @bastani/atomic-workflows SDK: ${message}`);
-        }
-      })()
-    );
-
-    // 3. Remove data directory (unless --keep-config)
+    // 2. Remove data directory (unless --keep-config)
     if (dataDirExists && !options.keepConfig) {
       parallelTasks.push(
         rm(dataDir, { recursive: true, force: true }).then(
@@ -246,18 +226,12 @@ export async function uninstallCommand(options: UninstallOptions = {}): Promise<
       }
     }
 
-    // Track successful uninstall command
-    trackAtomicCommand("uninstall", null, true);
-
     log.success("");
     log.success("Atomic has been uninstalled.");
 
     // Show PATH cleanup instructions
     note(getPathCleanupInstructions(), "PATH Cleanup (Manual)");
   } catch (error) {
-    // Track failed uninstall command
-    trackAtomicCommand("uninstall", null, false);
-
     const message = error instanceof Error ? error.message : String(error);
     log.error(`Uninstall failed: ${message}`);
 

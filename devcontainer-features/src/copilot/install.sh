@@ -73,12 +73,45 @@ case "$ATOMIC_VERSION" in v*) ;; *) ATOMIC_VERSION="v${ATOMIC_VERSION}" ;; esac
 
 echo "Installing Atomic CLI ${ATOMIC_VERSION} (linux-${arch})..."
 
-# ─── Download and install binary ────────────────────────────────────────────
-curl -fL# ${CURL_AUTH_ARGS[@]+"${CURL_AUTH_ARGS[@]}"} -o /usr/local/bin/atomic \
-    "https://github.com/${GITHUB_REPO}/releases/download/${ATOMIC_VERSION}/atomic-linux-${arch}"
-chmod +x /usr/local/bin/atomic
+# ─── Resolve remote user install dir ────────────────────────────────────────
+# Devcontainer CLI exposes _REMOTE_USER and _REMOTE_USER_HOME at feature-install
+# time. Fall back gracefully if the feature is invoked outside the devcontainer
+# CLI (e.g. local testing).
+REMOTE_USER="${_REMOTE_USER:-${USERNAME:-vscode}}"
+REMOTE_HOME="${_REMOTE_USER_HOME:-/home/${REMOTE_USER}}"
+if [ ! -d "${REMOTE_HOME}" ]; then
+    echo "Error: remote user home directory '${REMOTE_HOME}' does not exist" >&2
+    exit 1
+fi
+INSTALL_DIR="${REMOTE_HOME}/.local/bin"
 
-echo "✓ Atomic CLI installed to /usr/local/bin/atomic"
+# ─── Download and install binary ────────────────────────────────────────────
+mkdir -p "${INSTALL_DIR}"
+curl -fL# ${CURL_AUTH_ARGS[@]+"${CURL_AUTH_ARGS[@]}"} -o "${INSTALL_DIR}/atomic" \
+    "https://github.com/${GITHUB_REPO}/releases/download/${ATOMIC_VERSION}/atomic-linux-${arch}"
+chmod +x "${INSTALL_DIR}/atomic"
+
+# Hand ownership of ~/.local (bin + sibling state dirs created later by the
+# binary) to the remote user so `atomic update` / `atomic uninstall` work
+# without sudo. Fall back to single-arg chown when user:group form fails.
+chown -R "${REMOTE_USER}:${REMOTE_USER}" "${REMOTE_HOME}/.local" 2>/dev/null || \
+    chown -R "${REMOTE_USER}" "${REMOTE_HOME}/.local" 2>/dev/null || true
+
+# Ensure ~/.local/bin is on PATH for login shells in every base image
+# (Ubuntu/Debian default .profile already does this, but Alpine/Fedora/etc.
+# may not). /etc/profile.d is sourced by login shells — VSCode devcontainer
+# terminals default to login shells, so this covers the common case.
+cat > /etc/profile.d/atomic-path.sh <<'PROFILE_EOF'
+if [ -d "$HOME/.local/bin" ]; then
+    case ":$PATH:" in
+        *":$HOME/.local/bin:"*) ;;
+        *) export PATH="$HOME/.local/bin:$PATH" ;;
+    esac
+fi
+PROFILE_EOF
+chmod 644 /etc/profile.d/atomic-path.sh
+
+echo "✓ Atomic CLI installed to ${INSTALL_DIR}/atomic"
 
 # ─── Install global npm CLI tools ───────────────────────────────────────────
 # Source NVM (installed by the dependent node feature) so npm resolves to the

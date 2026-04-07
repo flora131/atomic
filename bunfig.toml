@@ -111,5 +111,12 @@ coveragePathIgnorePatterns = [
   "research/**",
   "devcontainer-features/**",
   "docs/**",
+  # Workflow SDK — non-testable runtime modules (require running agent CLIs, terminals, filesystems)
+  "packages/workflow-sdk/src/define-workflow.ts",
+  "packages/workflow-sdk/src/providers/**",
+  "packages/workflow-sdk/src/runtime/discovery.ts",
+  "packages/workflow-sdk/src/runtime/executor.ts",
+  "packages/workflow-sdk/src/runtime/panel.ts",
+  "packages/workflow-sdk/src/runtime/theme.ts",
 ]
 

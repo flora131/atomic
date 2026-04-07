@@ -14,6 +14,7 @@ import { homedir } from "os";
 import type { WorkflowDefinition, AgentType } from "../types.ts";
 import { validateCopilotWorkflow } from "../providers/copilot.ts";
 import { validateOpenCodeWorkflow } from "../providers/opencode.ts";
+import { validateClaudeWorkflow } from "../providers/claude.ts";
 
 export interface DiscoveredWorkflow {
   name: string;
@@ -143,6 +144,8 @@ function validateWorkflowSource(source: string, agent: AgentType) {
       return validateCopilotWorkflow(source);
     case "opencode":
       return validateOpenCodeWorkflow(source);
+    case "claude":
+      return validateClaudeWorkflow(source);
     default:
       return [];
   }

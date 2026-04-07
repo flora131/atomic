@@ -76,7 +76,8 @@ function buildPaneCommand(agent: AgentType, port: number): string {
     case "opencode":
       return [cmd, "--port", String(port), ...chatFlags].join(" ");
     case "claude":
-      return [cmd, ...chatFlags].join(" ");
+      // Claude is started via createClaudeSession() in the workflow's run()
+      return process.env.SHELL || (process.platform === "win32" ? "pwsh" : "sh");
     default:
       return [cmd, ...chatFlags].join(" ");
   }

@@ -11,10 +11,6 @@ on:
             - "**/*.tsx"
             - "**/*.js"
             - "**/*.jsx"
-            - ".claude/agents/*.md"
-            - ".opencode/agents/*.md"
-            - ".github/agents/*.md"
-            - ".atomic/workflows/*.ts"
 
 jobs:
     typescript-tests:
@@ -32,12 +28,6 @@ jobs:
 
             - name: Install dependencies
               run: bun ci
-
-            - name: Validate agent schemas
-              run: bun run validate:agents
-
-            - name: Validate workflows
-              run: bun run typecheck:workflows && bun run validate:workflows
 
             - name: Run type checking
               run: bun run typecheck

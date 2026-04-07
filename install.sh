@@ -9,14 +9,14 @@
 # Set GITHUB_TOKEN for authenticated downloads (avoids API rate limits)
 #
 # Installs the Atomic CLI binary, config data, and all required tooling
-# (npm, @playwright/cli, @llamaindex/liteparse).
+# (npm, @playwright/cli, @llamaindex/liteparse, apm).
 
 set -euo pipefail
 
 # Configuration
 GITHUB_REPO="flora131/atomic"
 BINARY_NAME="atomic"
-BIN_DIR="${ATOMIC_INSTALL_DIR:-$HOME/.local/bin}"
+BIN_DIR="$HOME/.local/bin"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/atomic"
 ATOMIC_HOME="$HOME/.atomic"
 
@@ -398,16 +398,243 @@ install_global_npm_package() {
     return 1
 }
 
+install_tmux() {
+    # Skip if tmux is already installed
+    if command -v tmux >/dev/null 2>&1; then
+        info "tmux is already installed: $(tmux -V 2>/dev/null || echo 'version unknown')"
+        return 0
+    fi
+
+    info "Installing tmux..."
+
+    # macOS: Homebrew
+    if [[ "$OSTYPE" == darwin* ]] && command -v brew >/dev/null 2>&1; then
+        brew install tmux && return 0
+    fi
+
+    # Determine privilege escalation command
+    local sudo_cmd=""
+    if [[ "$(id -u)" -ne 0 ]]; then
+        if command -v sudo >/dev/null 2>&1; then
+            sudo_cmd="sudo"
+        else
+            warn "Not running as root and sudo is not available — tmux install may fail"
+        fi
+    fi
+
+    # Linux: try package managers in order
+    if command -v apt-get >/dev/null 2>&1; then
+        $sudo_cmd apt-get update -qq && $sudo_cmd apt-get install -y tmux && return 0
+    fi
+    if command -v dnf >/dev/null 2>&1; then
+        $sudo_cmd dnf install -y tmux && return 0
+    fi
+    if command -v yum >/dev/null 2>&1; then
+        $sudo_cmd yum install -y tmux && return 0
+    fi
+    if command -v pacman >/dev/null 2>&1; then
+        $sudo_cmd pacman -Sy --noconfirm tmux && return 0
+    fi
+    if command -v zypper >/dev/null 2>&1; then
+        $sudo_cmd zypper --non-interactive install tmux && return 0
+    fi
+    if command -v apk >/dev/null 2>&1; then
+        $sudo_cmd apk add --no-cache tmux && return 0
+    fi
+
+    warn "Could not install tmux — install it manually"
+    return 1
+}
+
+install_bun() {
+    # Skip if bun is already installed
+    if command -v bun >/dev/null 2>&1; then
+        info "bun is already installed: $(bun --version 2>/dev/null || echo 'version unknown')"
+        return 0
+    fi
+
+    info "Installing bun..."
+
+    # Preferred: official installer script
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL https://bun.sh/install | bash && return 0
+    fi
+
+    # macOS: Homebrew fallback
+    if [[ "$OSTYPE" == darwin* ]] && command -v brew >/dev/null 2>&1; then
+        brew install oven-sh/bun/bun && return 0
+    fi
+
+    warn "Could not install bun — install it manually from https://bun.sh"
+    return 1
+}
+
+install_apm() {
+    if command -v apm >/dev/null 2>&1; then
+        info "apm is already installed: $(apm --version 2>/dev/null || echo 'version unknown')"
+        return 0
+    fi
+
+    info "Installing apm (Agent Package Manager)..."
+
+    # Preferred: official installer script
+    if command -v curl >/dev/null 2>&1; then
+        if curl -sSL https://aka.ms/apm-unix | sh; then
+            # The installer may place apm in ~/.local/bin or similar; ensure it's on PATH
+            for apm_candidate in "$HOME/.local/bin/apm" "$HOME/bin/apm" "/usr/local/bin/apm"; do
+                if [[ -x "$apm_candidate" ]]; then
+                    export PATH="$(dirname "$apm_candidate"):$PATH"
+                    break
+                fi
+            done
+            if command -v apm >/dev/null 2>&1; then
+                return 0
+            fi
+        fi
+        warn "apm official installer failed, trying fallbacks..."
+    fi
+
+    # Fallback: Homebrew (macOS/Linux)
+    if command -v brew >/dev/null 2>&1; then
+        if brew install microsoft/apm/apm; then
+            return 0
+        fi
+        warn "brew install apm failed, trying other methods..."
+    fi
+
+    # Fallback: pip
+    if command -v pip3 >/dev/null 2>&1; then
+        if pip3 install apm-cli; then
+            # pip installs to a scripts dir that may not be on PATH yet
+            local pip_bin
+            pip_bin=$(python3 -m site --user-base 2>/dev/null)/bin
+            [[ -d "$pip_bin" ]] && export PATH="$pip_bin:$PATH"
+            command -v apm >/dev/null 2>&1 && return 0
+        fi
+    elif command -v pip >/dev/null 2>&1; then
+        if pip install apm-cli; then
+            local pip_bin
+            pip_bin=$(python -m site --user-base 2>/dev/null)/bin
+            [[ -d "$pip_bin" ]] && export PATH="$pip_bin:$PATH"
+            command -v apm >/dev/null 2>&1 && return 0
+        fi
+    fi
+
+    warn "Could not install apm — install it manually from https://microsoft.github.io/apm/"
+    return 1
+}
+
+install_apm_global_config() {
+    local config_dir="$1"
+
+    if ! command -v apm >/dev/null 2>&1; then
+        warn "apm not found — skipping global config install"
+        return 0
+    fi
+
+    if [[ ! -f "${config_dir}/apm.yml" ]]; then
+        return 0
+    fi
+
+    info "Installing APM dependencies globally..."
+    if (cd "$config_dir" && apm install -g 2>&1); then
+        success "APM global config installed"
+    else
+        warn "APM global config install failed (non-fatal)"
+    fi
+}
+
+# Merge-copy the bundled Atomic agents from the extracted config data dir
+# into the provider-native global roots (~/.claude/agents, ~/.opencode/agents,
+# ~/.copilot/agents). Uses `cp -R src/. dest/` which overwrites files sharing
+# a name with a bundled file and preserves any extra user-added files.
+#
+# Copilot's lsp.json is written to ~/.copilot/lsp-config.json per the
+# in-binary rename in atomic-global-config.ts.
+install_global_agents() {
+    local config_dir="$1"
+
+    info "Installing bundled Atomic agents into provider global roots..."
+
+    local pair src dest
+    for pair in \
+        ".claude/agents:${HOME}/.claude/agents" \
+        ".opencode/agents:${HOME}/.opencode/agents" \
+        ".github/agents:${HOME}/.copilot/agents"
+    do
+        src="${config_dir}/${pair%%:*}"
+        dest="${pair#*:}"
+        if [[ ! -d "$src" ]]; then
+            warn "Bundled agents missing at ${src} — skipping ${dest}"
+            continue
+        fi
+        mkdir -p "$dest"
+        if cp -R "$src/." "$dest/"; then
+            info "Synced ${dest}"
+        else
+            warn "Failed to sync ${dest} (non-fatal)"
+        fi
+    done
+
+    local lsp_src="${config_dir}/.github/lsp.json"
+    local lsp_dest="${HOME}/.copilot/lsp-config.json"
+    if [[ -f "$lsp_src" ]]; then
+        mkdir -p "$(dirname "$lsp_dest")"
+        if cp "$lsp_src" "$lsp_dest"; then
+            info "Synced ${lsp_dest}"
+        else
+            warn "Failed to sync ${lsp_dest} (non-fatal)"
+        fi
+    fi
+
+    success "Global agent configs installed"
+}
+
+# Install all bundled skills globally via `npx skills`, then remove the
+# source-control variants (gh-*/sl-*) so `atomic init` can install them
+# locally per-project based on the user's selected SCM + active agent.
+install_global_skills() {
+    if ! command -v npx >/dev/null 2>&1; then
+        warn "npx not found — skipping global skills install"
+        return 0
+    fi
+
+    local skills_repo="https://github.com/flora131/atomic.git"
+    local -a agent_flags=(-a claude-code -a opencode -a github-copilot)
+
+    info "Installing all bundled skills globally via npx skills..."
+    if ! npx --yes skills add "$skills_repo" --skill '*' -g "${agent_flags[@]}" -y; then
+        warn "'npx skills add' failed (non-fatal)"
+        return 0
+    fi
+
+    info "Removing source-control skill variants globally (installed per-project by 'atomic init')..."
+    if ! npx --yes skills remove \
+        --skill 'gh-commit' \
+        --skill 'gh-create-pr' \
+        --skill 'sl-commit' \
+        --skill 'sl-submit-diff' \
+        -g "${agent_flags[@]}" -y; then
+        warn "'npx skills remove' failed (non-fatal)"
+        return 0
+    fi
+
+    success "Global skills installed"
+}
+
 install_tooling() {
-    info "Installing required tooling (npm, playwright-cli, liteparse)..."
+    info "Installing required tooling (npm, tmux, bun, playwright-cli, liteparse, apm)..."
     local failed_tools=()
 
-    # Phase 1: package manager
+    # Phase 1: core tools
     install_npm || { warn "npm installation skipped or failed — install Node.js manually from https://nodejs.org"; failed_tools+=("npm"); }
+    install_tmux || { warn "tmux installation skipped or failed — install tmux manually"; failed_tools+=("tmux"); }
+    install_bun || { warn "bun installation skipped or failed — install bun manually from https://bun.sh"; failed_tools+=("bun"); }
 
     # Phase 2: global CLI tools
     install_global_npm_package "@playwright/cli@latest"        || { warn "@playwright/cli installation skipped or failed"; failed_tools+=("@playwright/cli"); }
     install_global_npm_package "@llamaindex/liteparse@latest"  || { warn "@llamaindex/liteparse installation skipped or failed"; failed_tools+=("@llamaindex/liteparse"); }
+    install_apm                                                || { warn "apm installation skipped or failed"; failed_tools+=("apm"); }
 
     # Summary
     if [[ ${#failed_tools[@]} -gt 0 ]]; then
@@ -423,6 +650,73 @@ install_tooling() {
     fi
 
     success "Tooling setup complete"
+}
+
+# Install bundled workflow templates to ~/.atomic/workflows/
+# Copies from the config data dir, skipping existing workflow directories
+# to preserve user customizations. Shared files (package.json, tsconfig,
+# helpers) are always updated to ensure SDK compatibility.
+install_workflows() {
+    local src_dir="${DATA_DIR}/.atomic/workflows"
+    local dest_dir="${ATOMIC_HOME}/workflows"
+
+    if [[ ! -d "$src_dir" ]]; then
+        return 0
+    fi
+
+    info "Installing workflow templates to ${dest_dir}..."
+    mkdir -p "$dest_dir"
+
+    # Enumerate source: copy root files and non-agent directories (always update),
+    # then handle agent directories with per-workflow skip-if-exists logic.
+    for entry in "$src_dir"/*; do
+        [[ -e "$entry" ]] || continue
+        local name
+        name=$(basename "$entry")
+        [[ "$name" == "node_modules" ]] && continue
+
+        if [[ -f "$entry" ]]; then
+            cp "$entry" "$dest_dir/$name"
+        elif [[ -d "$entry" ]]; then
+            case "$name" in
+                copilot|opencode|claude) ;; # handled below
+                *) mkdir -p "$dest_dir/$name" && cp -r "$entry/." "$dest_dir/$name/" ;;
+            esac
+        fi
+    done
+    # Copy dotfiles (only .gitignore — skip other hidden files to match TS behavior)
+    if [[ -f "$src_dir/.gitignore" ]]; then
+        cp "$src_dir/.gitignore" "$dest_dir/.gitignore"
+    fi
+
+    # Copy per-agent workflow directories (skip existing to preserve user customizations)
+    local copied=0
+    for agent in copilot opencode claude; do
+        local agent_src="$src_dir/$agent"
+        if [[ ! -d "$agent_src" ]]; then
+            continue
+        fi
+        mkdir -p "$dest_dir/$agent"
+        for workflow_dir in "$agent_src"/*/; do
+            [[ -d "$workflow_dir" ]] || continue
+            local workflow_name
+            workflow_name=$(basename "$workflow_dir")
+            local dest_workflow="$dest_dir/$agent/$workflow_name"
+            if [[ ! -d "$dest_workflow" ]]; then
+                cp -r "$workflow_dir" "$dest_workflow"
+                copied=$((copied + 1))
+            fi
+        done
+    done
+
+    # Install SDK dependency
+    if command -v bun >/dev/null 2>&1; then
+        (cd "$dest_dir" && bun install 2>/dev/null) || warn "Workflow dependency install failed (non-fatal)"
+    elif command -v npm >/dev/null 2>&1; then
+        (cd "$dest_dir" && npm install 2>/dev/null) || warn "Workflow dependency install failed (non-fatal)"
+    fi
+
+    success "Workflow templates installed (${copied} new workflow(s))"
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -562,6 +856,21 @@ main() {
 
     # Install required tooling
     install_tooling
+
+    # Install bundled workflow templates to ~/.atomic/workflows/
+    install_workflows
+
+    # Install APM dependencies globally (deploys to ~/.copilot/, ~/.claude/, etc.)
+    install_apm_global_config "$DATA_DIR"
+
+    # Merge-copy the bundled agent definitions into ~/.claude/agents,
+    # ~/.opencode/agents, ~/.copilot/agents (+ ~/.copilot/lsp-config.json).
+    # User-added files in those dirs are preserved.
+    install_global_agents "$DATA_DIR"
+
+    # Install bundled skills globally, minus the source-control variants
+    # (those are installed per-project by `atomic init`).
+    install_global_skills
 
     # Persist prerelease channel preference in settings (atomic write via temp + mv)
     local settings_file="${ATOMIC_HOME}/settings.json"

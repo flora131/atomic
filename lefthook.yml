@@ -8,12 +8,6 @@ pre-commit:
             run: bun run lint
         test:
             run: bun run test </dev/null
-        validate-agents:
-            glob: ".{claude,opencode,github}/agents/*.md"
-            run: bun run validate:agents
-        validate-workflows:
-            glob: ".atomic/workflows/*.ts"
-            run: bun run typecheck:workflows && bun run validate:workflows
 
 pre-push:
     commands:

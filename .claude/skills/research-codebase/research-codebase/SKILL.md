@@ -14,7 +14,7 @@ The user's research question/request is: **$ARGUMENTS**
 
 <EXTREMELY_IMPORTANT>
 
-- OPTIMIZE the user's research question request using your prompt-engineer skill and confirm that the your refined question captures the user's intent BEFORE proceeding using the `AskUserQuestion` tool.
+- OPTIMIZE the research question using your prompt-engineer skill to refine phrasing and structure for maximum clarity and precision.
 - After research is complete and the research artifact(s) are generated, provide an executive summary of the research and path to the research document(s) to the user, and ask if they have any follow-up questions or need clarification.
 
 </EXTREMELY_IMPORTANT>
@@ -26,13 +26,13 @@ The user's research question/request is: **$ARGUMENTS**
     - This ensures you have full context before decomposing the research
 
 2. **Analyze and decompose the research question:**
-    - Break down the user's query into composable research areas
+    - Break the research question down into composable research areas
     - Take time to ultrathink about the underlying patterns, connections, and architectural implications the user might be seeking
     - Identify specific components, patterns, or concepts to investigate
     - Create a research plan using TodoWrite to track all subtasks
     - Consider which directories, files, or architectural patterns are relevant
 
-3. **Spawn parallel sub-agent tasks for comprehensive research:**
+3. **Spawn parallel sub-agent tasks:**
     - Create multiple Task agents to research different aspects concurrently
     - We now have specialized agents that know how to do specific research tasks:
 
@@ -53,11 +53,12 @@ The user's research question/request is: **$ARGUMENTS**
 
     **For online search:**
     - VERY IMPORTANT: In case you discover external libraries as dependencies, use the **codebase-online-researcher** agent for external documentation and resources
-        - If you use DeepWiki tools, instruct the agent to return references to code snippets or documentation, PLEASE INCLUDE those references (e.g. source file names, line numbers, etc.)
-        - If you perform external web research, use the **playwright-cli** skill (or `bunx @playwright/cli`) to inspect pages, then instruct the agent to return LINKS with their findings and INCLUDE those links in the research document
-        - Output directory: `research/docs/`
+        - The agent fetches live web content using the **playwright-cli** skill (or `bunx @playwright/cli` / `curl`). Instruct it to apply the token-efficient fetch order: (1) try `curl https://<site>/llms.txt` for an AI-friendly index (see [llmstxt.org](https://llmstxt.org/llms.txt)), (2) try `curl <url> -H "Accept: text/markdown"` to get pre-converted Markdown (supported on Cloudflare-hosted docs via [Markdown for Agents](https://developers.cloudflare.com/fundamentals/reference/markdown-for-agents/)), (3) fall back to HTML parsing via `playwright-cli`
+        - Instruct the agent to return LINKS with their findings and INCLUDE those links in the research document
+        - The agent should persist reusable source documents under `research/web/<YYYY-MM-DD>-<kebab-case-topic>.md` (with frontmatter noting `source_url`, `fetched_at`, and `fetch_method`) so future research can reuse them without re-fetching
+        - Output directory for the synthesized research artifact: `research/docs/`
         - Examples:
-            - If researching `Redis` locks usage, the agent might find relevant usage and create a document `research/docs/2024-01-15-redis-locks-usage.md` with internal links to Redis docs and code references
+            - If researching `Redis` locks usage, the agent might find relevant usage and create a document `research/docs/2024-01-15-redis-locks-usage.md` with internal links to Redis docs and code references (and cache the fetched Redis docs under `research/web/`)
             - If researching `OAuth` flows, the agent might find relevant external articles and create a document `research/docs/2024-01-16-oauth-flows.md` with links to those articles
 
     The key is to use these agents intelligently:
@@ -68,7 +69,7 @@ The user's research question/request is: **$ARGUMENTS**
     - Don't write detailed prompts about HOW to search - the agents already know
     - Remind agents they are documenting, not evaluating or improving
 
-4. **Wait for all sub-agents to complete and synthesize findings:**
+4. **Wait for all sub-agents to complete and synthesize:**
     - IMPORTANT: Wait for ALL sub-agent tasks to complete before proceeding
     - Compile all sub-agent results (both codebase and research findings)
     - Prioritize live codebase findings as primary source of truth
@@ -76,7 +77,8 @@ The user's research question/request is: **$ARGUMENTS**
     - Connect findings across different components
     - Include specific file paths and line numbers for reference
     - Highlight patterns, connections, and architectural decisions
-    - Answer the user's specific questions with concrete evidence
+    - Answer the user's research question with concrete evidence
+    - **If findings reveal the original question was misframed** (e.g., the system works differently than assumed, or the components don't exist where expected), flag this to the user before finalizing the document. This is valuable signal — don't bury it.
 
 5. **Generate research document:**
     - Follow the directory structure for research documents:

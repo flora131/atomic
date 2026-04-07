@@ -1,79 +1,80 @@
 /**
- * @bastani/atomic-workflows — Workflow SDK
+ * @bastani/atomic-workflows
  *
- * Lightweight SDK for defining multi-agent workflows that run in the
- * Atomic CLI. Install this package in your project and create workflow
- * files in `.atomic/workflows/`.
- *
- * @example
- * ```ts
- * import { defineWorkflow } from "@bastani/atomic-workflows";
- *
- * export default defineWorkflow({
- *     name: "my-workflow",
- *     description: "A workflow that does X",
- *   })
- *   .stage({
- *     name: "planner",
- *     agent: "planner",
- *     description: "Plans the work",
- *     prompt: (ctx) => `Plan this: ${ctx.userPrompt}`,
- *     outputMapper: (response) => ({ plan: response }),
- *   })
- *   .compile();
- * ```
+ * Workflow SDK for defining multi-session agent workflows.
+ * Workflows are defined as a chain of .session() calls and compiled
+ * into a WorkflowDefinition consumed by the Atomic CLI runtime.
  */
 
 export { defineWorkflow, WorkflowBuilder } from "./define-workflow.ts";
-export type { WorkflowBlueprint } from "./define-workflow.ts";
 
-// Zod schemas — runtime-validated, single source of truth
-export {
-  JsonValueSchema,
-  TaskItemSchema,
-  StageOutputSchema,
-  StageOutputStatusSchema,
-  SignalTypeSchema,
-  SignalDataSchema,
-  AgentTypeSchema,
-  SessionConfigSchema,
-  AskUserQuestionConfigSchema,
-} from "./schemas.ts";
-
-// Types — inferred from schemas + structural interfaces
 export type {
-  BaseState,
-  InferState,
-  JsonValue,
-  ExecutionContext,
-  ExecutionError,
-  ErrorAction,
-  GraphConfig,
-  ModelSpec,
-  NodeExecuteFn,
-  NodeId,
-  NodeResult,
-  RetryConfig,
-  StageContext,
-  StageOptions,
-  ToolOptions,
-  AskUserQuestionOptions,
-  LoopOptions,
-  StateFieldOptions,
-  StateFieldOptionsBase,
-  BuiltinReducer,
-  WorkflowOptions,
-  CompiledWorkflow,
-  // Schema-derived types (re-exported from schemas.ts via types.ts)
-  TaskItem,
-  StageOutput,
-  StageOutputStatus,
-  Signal,
-  SignalData,
   AgentType,
-  SessionConfig,
-  AskUserQuestionConfig,
+  Transcript,
+  SavedMessage,
+  SaveTranscript,
+  SessionContext,
+  SessionOptions,
+  WorkflowOptions,
+  WorkflowDefinition,
 } from "./types.ts";
 
-// Runtime constants
-export { BUILTIN_REDUCERS, USER_DECLINED_ANSWER } from "./types.ts";
+// Re-export native SDK types for convenience
+export type { SessionEvent as CopilotSessionEvent } from "@github/copilot-sdk";
+export type { SessionPromptResponse as OpenCodePromptResponse } from "@opencode-ai/sdk/v2";
+export type { SessionMessage as ClaudeSessionMessage } from "@anthropic-ai/claude-agent-sdk";
+
+// Providers
+export { createClaudeSession, claudeQuery, clearClaudeSession, validateClaudeWorkflow } from "./providers/claude.ts";
+export type { ClaudeSessionOptions, ClaudeQueryOptions, ClaudeQueryResult, ClaudeValidationWarning } from "./providers/claude.ts";
+
+export { validateCopilotWorkflow } from "./providers/copilot.ts";
+export type { CopilotValidationWarning } from "./providers/copilot.ts";
+
+export { validateOpenCodeWorkflow } from "./providers/opencode.ts";
+export type { OpenCodeValidationWarning } from "./providers/opencode.ts";
+
+// Runtime — tmux utilities
+export {
+  isTmuxInstalled,
+  getMuxBinary,
+  resetMuxBinaryCache,
+  isInsideTmux,
+  createSession,
+  createWindow,
+  createPane,
+  sendLiteralText,
+  sendSpecialKey,
+  sendKeysAndSubmit,
+  capturePane,
+  capturePaneVisible,
+  capturePaneScrollback,
+  killSession,
+  sessionExists,
+  attachSession,
+  switchClient,
+  getCurrentSession,
+  attachOrSwitch,
+  selectWindow,
+  waitForOutput,
+  tmuxRun,
+  normalizeTmuxCapture,
+  normalizeTmuxLines,
+  paneLooksReady,
+  paneHasActiveTask,
+  paneIsIdle,
+  waitForPaneReady,
+  attemptSubmitRounds,
+} from "./runtime/tmux.ts";
+
+// Runtime — workflow discovery
+export {
+  discoverWorkflows,
+  findWorkflow,
+  loadWorkflowDefinition,
+} from "./runtime/discovery.ts";
+export type { DiscoveredWorkflow } from "./runtime/discovery.ts";
+
+// Runtime — workflow executor
+export { executeWorkflow } from "./runtime/executor.ts";
+export type { WorkflowRunOptions } from "./runtime/executor.ts";

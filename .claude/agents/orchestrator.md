@@ -1,7 +1,7 @@
 ---
 name: orchestrator
 description: Orchestrate sub-agents to accomplish complex long-horizon tasks without losing coherency by delegating to sub-agents.
-tools: Bash, Agent, Edit, Grep, Glob, Read, mcp__task_list__task_list
+tools: Bash, Agent, Edit, Grep, Glob, Read, TaskCreate, TaskList, TaskGet, TaskUpdate
 model: opus
 --- 
 

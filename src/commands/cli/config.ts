@@ -8,30 +8,16 @@
  */
 
 import { log } from "@clack/prompts";
-import { setTelemetryEnabled } from "@/services/telemetry/index.ts";
+import { setTelemetryEnabled } from "@/services/config/settings.ts";
 
 /**
  * Execute the config command
- *
- * @param subcommand - The config subcommand (currently only 'set' is supported)
- * @param key - The configuration key (currently only 'telemetry' is supported)
- * @param value - The value to set
- *
- * @example
- * ```ts
- * // Enable telemetry
- * await configCommand('set', 'telemetry', 'true');
- *
- * // Disable telemetry
- * await configCommand('set', 'telemetry', 'false');
- * ```
  */
 export async function configCommand(
   subcommand: string | undefined,
   key: string | undefined,
   value: string | undefined
 ): Promise<void> {
-  // Validate subcommand
   if (!subcommand) {
     log.error("Missing subcommand. Usage: atomic config set <key> <value>");
     process.exit(1);
@@ -42,7 +28,6 @@ export async function configCommand(
     process.exit(1);
   }
 
-  // Validate key
   if (!key) {
     log.error("Missing key. Usage: atomic config set <key> <value>");
     process.exit(1);
@@ -53,7 +38,6 @@ export async function configCommand(
     process.exit(1);
   }
 
-  // Validate value
   if (!value) {
     log.error("Missing value. Usage: atomic config set telemetry <true|false>");
     process.exit(1);
@@ -64,7 +48,6 @@ export async function configCommand(
     process.exit(1);
   }
 
-  // Set telemetry enabled/disabled
   const enabled = value === "true";
   setTelemetryEnabled(enabled);
 

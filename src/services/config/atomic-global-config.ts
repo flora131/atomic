@@ -9,8 +9,6 @@ import type { InstallationType } from "@/services/config/config-path.ts";
 
 const ATOMIC_HOME_DIR = join(homedir(), ".atomic");
 
-export const MANAGED_SCM_SKILL_PREFIXES = ["gh-", "sl-"] as const;
-
 const GLOBAL_AGENT_FOLDER_BY_KEY: Record<AgentKey, string> = {
   claude: ".claude",
   opencode: ".opencode",
@@ -23,24 +21,17 @@ const TEMPLATE_AGENT_FOLDER_BY_KEY: Record<AgentKey, string> = {
   copilot: AGENT_CONFIG.copilot.folder,
 };
 
-const REQUIRED_GLOBAL_CONFIG_ENTRIES: Record<AgentKey, string[]> = {
-  claude: ["agents", "skills"],
-  opencode: ["agents", "skills", "tools"],
-  copilot: ["agents", "skills", "lsp-config.json"],
-};
-
-const GLOBAL_SYNC_SUBDIRECTORIES = ["agents", "skills"] as const;
+/**
+ * Per-agent subdirectories copied from the bundled template into the
+ * provider home. Only `agents/` now — skills ship via the skills CLI.
+ */
+const GLOBAL_SYNC_SUBDIRECTORIES = ["agents"] as const;
 
 /**
- * Additional subdirectories to sync per agent beyond the shared ones.
- * OpenCode custom tools live in .opencode/tools/ and must be synced globally.
+ * Top-level files copied per agent. Copilot's lsp.json is renamed to
+ * lsp-config.json in the destination (see `GLOBAL_SYNC_DESTINATION_FILE_NAMES`).
  */
-const AGENT_EXTRA_SYNC_SUBDIRECTORIES: Partial<Record<AgentKey, readonly string[]>> = {
-  opencode: ["tools"],
-};
-
 const GLOBAL_SYNC_FILES: Partial<Record<AgentKey, readonly string[]>> = {
-  opencode: ["package.json"],
   copilot: ["lsp.json"],
 };
 
@@ -98,41 +89,6 @@ export function getAtomicManagedAgentDir(
  */
 export function getTemplateAgentFolder(agentKey: AgentKey): string {
   return TEMPLATE_AGENT_FOLDER_BY_KEY[agentKey];
-}
-
-/**
- * Return true when a skill name is one of Atomic's SCM-managed variants.
- */
-export function isManagedScmSkillName(name: string): boolean {
-  return MANAGED_SCM_SKILL_PREFIXES.some((prefix) => name.startsWith(prefix));
-}
-
-/**
- * Remove all managed SCM skill variants (gh-*, sl-*) from a destination agent folder.
- */
-async function pruneManagedScmSkills(agentDir: string): Promise<void> {
-  const skillsDir = join(agentDir, "skills");
-  if (!(await pathExists(skillsDir))) return;
-
-  const entries = await readdir(skillsDir, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    if (!isManagedScmSkillName(entry.name)) continue;
-    await rm(join(skillsDir, entry.name), { recursive: true, force: true });
-  }
-}
-
-/**
- * Build exclude names for managed SCM skill directories under a skills root.
- */
-async function getManagedScmSkillExcludes(sourceDir: string): Promise<string[]> {
-  const skillsDir = join(sourceDir, "skills");
-  if (!(await pathExists(skillsDir))) return [];
-
-  const entries = await readdir(skillsDir, { withFileTypes: true });
-  return entries
-    .filter((entry) => entry.isDirectory() && isManagedScmSkillName(entry.name))
-    .map((entry) => entry.name);
 }
 
 interface ManagedTreeEntries {
@@ -230,6 +186,11 @@ async function syncManagedGlobalFile(
 
 /**
  * Remove only the Atomic-managed entries from provider-native global roots.
+ *
+ * Mirrors `syncAtomicGlobalAgentConfigs`: walks the bundled template for
+ * each agent and removes every file/directory it would have installed. Any
+ * legacy skills or tools left behind from previous Atomic versions are
+ * intentionally untouched — those are owned by the skills CLI now.
  */
 export async function removeAtomicManagedGlobalAgentConfigs(
   configRoot: string,
@@ -246,10 +207,7 @@ export async function removeAtomicManagedGlobalAgentConfigs(
         continue;
       }
 
-      const scmSkillExcludes = subdirectory === "skills"
-        ? await getManagedScmSkillExcludes(sourceFolder)
-        : [];
-      const managedTree = await collectManagedTreeEntries(sourceSubdirectory, scmSkillExcludes);
+      const managedTree = await collectManagedTreeEntries(sourceSubdirectory, []);
       const destinationSubdirectory = join(destinationFolder, subdirectory);
 
       for (const relativeFile of managedTree.files) {
@@ -263,27 +221,6 @@ export async function removeAtomicManagedGlobalAgentConfigs(
         await removeEmptyDirectoryIfPresent(join(destinationSubdirectory, relativeDirectory));
       }
       await removeEmptyDirectoryIfPresent(destinationSubdirectory);
-    }
-
-    // Remove entries from agent-specific extra subdirectories (e.g. OpenCode tools/)
-    const extraSubdirs = AGENT_EXTRA_SYNC_SUBDIRECTORIES[agentKey] ?? [];
-    for (const extraSubdir of extraSubdirs) {
-      const sourceExtraSubdir = join(sourceFolder, extraSubdir);
-      if (!(await pathExists(sourceExtraSubdir))) continue;
-
-      const managedTree = await collectManagedTreeEntries(sourceExtraSubdir, []);
-      const destExtraSubdir = join(destinationFolder, extraSubdir);
-
-      for (const relativeFile of managedTree.files) {
-        await rm(join(destExtraSubdir, relativeFile), { force: true });
-      }
-      const sortedDirs = [...managedTree.directories].sort(
-        (left, right) => right.length - left.length,
-      );
-      for (const relativeDirectory of sortedDirs) {
-        await removeEmptyDirectoryIfPresent(join(destExtraSubdir, relativeDirectory));
-      }
-      await removeEmptyDirectoryIfPresent(destExtraSubdir);
     }
 
     const managedFiles = GLOBAL_SYNC_FILES[agentKey] ?? [];
@@ -308,9 +245,10 @@ export async function removeAtomicManagedGlobalAgentConfigs(
 /**
  * Sync bundled agent templates into provider-native global roots.
  *
- * This installs baseline agent/skill configs globally while intentionally
- * excluding SCM-specific skills (gh-*, sl-*), which are configured per-project
- * by `atomic init`.
+ * Copies each agent's `agents/` directory plus a small set of top-level
+ * files (currently just Copilot's `lsp.json` → `lsp-config.json`). Skills
+ * are NOT synced from here — they are installed globally at install time
+ * via `npx skills add` from the git repo.
  */
 export async function syncAtomicGlobalAgentConfigs(
   configRoot: string,
@@ -326,25 +264,10 @@ export async function syncAtomicGlobalAgentConfigs(
     const destinationFolder = getAtomicManagedAgentDir(agentKey, baseDir);
     await ensureDir(destinationFolder);
 
-    const sourceAgentsDir = join(sourceFolder, "agents");
-    if (await pathExists(sourceAgentsDir)) {
-      await copyDir(sourceAgentsDir, join(destinationFolder, "agents"));
-    }
-
-    const sourceSkillsDir = join(sourceFolder, "skills");
-    if (await pathExists(sourceSkillsDir)) {
-      const scmSkillExcludes = await getManagedScmSkillExcludes(sourceFolder);
-      await copyDir(sourceSkillsDir, join(destinationFolder, "skills"), {
-        exclude: scmSkillExcludes,
-      });
-    }
-
-    // Sync agent-specific extra subdirectories (e.g. OpenCode tools/)
-    const extraSubdirs = AGENT_EXTRA_SYNC_SUBDIRECTORIES[agentKey] ?? [];
-    for (const subdir of extraSubdirs) {
-      const sourceSubdir = join(sourceFolder, subdir);
+    for (const subdirectory of GLOBAL_SYNC_SUBDIRECTORIES) {
+      const sourceSubdir = join(sourceFolder, subdirectory);
       if (await pathExists(sourceSubdir)) {
-        await copyDir(sourceSubdir, join(destinationFolder, subdir));
+        await copyDir(sourceSubdir, join(destinationFolder, subdirectory));
       }
     }
 
@@ -359,30 +282,60 @@ export async function syncAtomicGlobalAgentConfigs(
       );
       await syncManagedGlobalFile(sourceFilePath, destinationFilePath);
     }
-
-    await pruneManagedScmSkills(destinationFolder);
   }
 }
 
 /**
- * Return true when Atomic-managed provider config roots already exist.
+ * Return true when every Atomic-bundled agent file is present at its
+ * destination in the provider-native global roots.
+ *
+ * This walks the bundled template for each agent and checks that every
+ * file (and the top-level files in `GLOBAL_SYNC_FILES`) has a matching
+ * entry under `~/.<agent>/`. A single missing file returns false so the
+ * caller can run a merge re-sync. User-added files in the destination
+ * that don't exist in the template are ignored — they never trigger a
+ * false-negative and they are never removed.
  */
 export async function hasAtomicGlobalAgentConfigs(
+  configRoot: string,
   baseDir: string = ATOMIC_HOME_DIR,
 ): Promise<boolean> {
   const agentKeys = Object.keys(AGENT_CONFIG) as AgentKey[];
 
   for (const agentKey of agentKeys) {
-    const agentDir = getAtomicManagedAgentDir(agentKey, baseDir);
-    if (!(await pathExists(agentDir))) return false;
+    const sourceFolder = join(configRoot, getTemplateAgentFolder(agentKey));
+    if (!(await pathExists(sourceFolder))) {
+      // No template for this agent in the config root — nothing to verify.
+      continue;
+    }
 
-    const requiredEntries = REQUIRED_GLOBAL_CONFIG_ENTRIES[agentKey];
-    const entryChecks = await Promise.all(
-      requiredEntries.map((entryName) => pathExists(join(agentDir, entryName))),
-    );
+    const destinationFolder = getAtomicManagedAgentDir(agentKey, baseDir);
+    if (!(await pathExists(destinationFolder))) return false;
 
-    if (entryChecks.some((exists) => !exists)) {
-      return false;
+    for (const subdirectory of GLOBAL_SYNC_SUBDIRECTORIES) {
+      const sourceSubdir = join(sourceFolder, subdirectory);
+      if (!(await pathExists(sourceSubdir))) continue;
+
+      const managedTree = await collectManagedTreeEntries(sourceSubdir, []);
+      const destinationSubdir = join(destinationFolder, subdirectory);
+
+      for (const relativeFile of managedTree.files) {
+        if (!(await pathExists(join(destinationSubdir, relativeFile)))) {
+          return false;
+        }
+      }
+    }
+
+    const managedFiles = GLOBAL_SYNC_FILES[agentKey] ?? [];
+    for (const fileName of managedFiles) {
+      const sourceFilePath = join(sourceFolder, fileName);
+      if (!(await pathExists(sourceFilePath))) continue;
+
+      const destinationFilePath = join(
+        destinationFolder,
+        getGlobalSyncDestinationFileName(agentKey, fileName),
+      );
+      if (!(await pathExists(destinationFilePath))) return false;
     }
   }
 
@@ -390,19 +343,26 @@ export async function hasAtomicGlobalAgentConfigs(
 }
 
 /**
- * Ensure provider-native roots contain Atomic-managed global agent configs.
+ * Verify-and-repair entrypoint for user-facing commands (`atomic init`,
+ * `atomic chat`). If every bundled agent file is present at its
+ * destination, returns immediately without touching disk. Otherwise
+ * runs a merge re-sync, which fills the missing files from the local
+ * config data dir while leaving user-added files alone.
+ *
+ * The authoritative "install all bundled agents" step happens in
+ * `install.sh` / `install.ps1` and `atomic update`; this helper only
+ * heals drift (e.g. a user deleted `~/.claude/agents/<foo>.md`).
  */
 export async function ensureAtomicGlobalAgentConfigs(
   configRoot: string,
   baseDir: string = ATOMIC_HOME_DIR,
 ): Promise<void> {
-  if (await hasAtomicGlobalAgentConfigs(baseDir)) return;
+  if (await hasAtomicGlobalAgentConfigs(configRoot, baseDir)) return;
   await syncAtomicGlobalAgentConfigs(configRoot, baseDir);
 }
 
 /**
- * Ensure provider-native roots contain Atomic-managed global agent configs
- * for all install types.
+ * Verify-and-repair across all install types.
  */
 export async function ensureAtomicGlobalAgentConfigsForInstallType(
   installType: InstallationType,

@@ -1,117 +1,138 @@
 #!/usr/bin/env bun
+/**
+ * Postinstall hook for the Atomic source repo.
+ *
+ * Mirrors the `install_workflows` step in install.sh / install.ps1: copies
+ * bundled workflow templates and shared helpers from `<repo>/.atomic/workflows`
+ * into the user's global `~/.atomic/workflows/` directory and installs the
+ * workflow SDK dependency there. This is what makes `bun run dev` see the same
+ * workflow templates that a binary install would provide.
+ *
+ * When running from an installed package (i.e. somewhere inside
+ * `node_modules/`) we also install all bundled skills globally via
+ * `npx skills add` and then remove the source-control skill variants
+ * (`gh-*` / `sl-*`) globally so `atomic init` can install them locally
+ * per-project based on the user's selected SCM + active agent.
+ *
+ * Source-repo installs (`bun install` on a cloned checkout) skip the global
+ * skills step entirely — dev environments already have the bundled configs
+ * on disk and don't need the network round-trip through the skills CLI.
+ *
+ * Best-effort: any failure is logged as a warning and never fails the install.
+ */
 
 import { resolve } from "path";
-import {
-  hasAtomicGlobalAgentConfigs,
-  syncAtomicGlobalAgentConfigs,
-} from "@/services/config/atomic-global-config.ts";
-import { getConfigRoot } from "@/services/config/config-path.ts";
-import {
-  ensureNpmInstalled,
-  ToolingSetupError,
-  collectFailures,
-  type ToolingStep,
-} from "@/lib/spawn.ts";
-import {
-  installWorkflowSdkFromLocal,
-  getGlobalWorkflowsDir,
-  getLocalWorkflowsDir,
-  getLocalSdkPackagePath,
-  getRelativeSdkPath,
-} from "@/services/config/workflow-package.ts";
+import { installGlobalWorkflows } from "@/services/system/install-workflows.ts";
 
-function warnPostinstallStep(step: string, error: unknown): void {
-  const message = error instanceof Error ? error.message : String(error);
-  console.warn(`[atomic] Warning: ${step}: ${message}`);
+/**
+ * True when this script is running against a cloned source checkout (a
+ * developer ran `bun install` in the repo), false when running from an
+ * installed package copy (under `node_modules/`).
+ *
+ * Detected from the file location: `import.meta.dir` lands under
+ * `node_modules/…/src/scripts` for installed packages and under the repo's
+ * own `src/scripts` otherwise.
+ */
+function isSourceInstall(): boolean {
+  return !import.meta.dir.includes("node_modules");
 }
 
-// Install npm and CLI tools (playwright-cli, liteparse).
-// Throws ToolingSetupError listing every failure.
-async function installTooling(): Promise<void> {
-  const failures: string[] = [];
+const SKILLS_REPO = "https://github.com/flora131/atomic.git";
+const SKILLS_AGENTS = ["claude-code", "opencode", "github-copilot"] as const;
+const SCM_SKILLS_TO_REMOVE_GLOBALLY = [
+  "gh-commit",
+  "gh-create-pr",
+  "sl-commit",
+  "sl-submit-diff",
+] as const;
 
-  // Phase 1: package manager
-  const pmSteps: ToolingStep[] = [
-    { label: "npm", fn: ensureNpmInstalled },
-  ];
-  const pmResults = await Promise.allSettled(pmSteps.map((s) => s.fn()));
-  failures.push(...collectFailures(pmSteps, pmResults));
-
-  // Phase 2: CLI tools in parallel (requires npm from Phase 1)
-  const { installPlaywrightCli } = await import("@/scripts/postinstall-playwright.ts");
-  const { installLiteparseCli } = await import("@/scripts/postinstall-liteparse.ts");
-
-  const toolSteps: ToolingStep[] = [
-    { label: "@playwright/cli", fn: installPlaywrightCli },
-    { label: "@llamaindex/liteparse", fn: installLiteparseCli },
-  ];
-  const toolResults = await Promise.allSettled(toolSteps.map((s) => s.fn()));
-  failures.push(...collectFailures(toolSteps, toolResults));
-
-  if (failures.length > 0) {
-    throw new ToolingSetupError(failures);
+async function runNpxSkills(args: string[]): Promise<boolean> {
+  const npxPath = Bun.which("npx");
+  if (!npxPath) {
+    console.warn(
+      "[atomic] Warning: npx not found on PATH — skipping skills install",
+    );
+    return false;
   }
+
+  const proc = Bun.spawn([npxPath, "--yes", "skills", ...args], {
+    stdio: ["ignore", "inherit", "inherit"],
+  });
+  const exitCode = await proc.exited;
+  return exitCode === 0;
 }
 
-async function syncAndVerifyConfigs(configRoot: string): Promise<void> {
-  await syncAtomicGlobalAgentConfigs(configRoot);
-  if (!(await hasAtomicGlobalAgentConfigs())) {
-    throw new Error("Missing synced global config entries in provider home roots");
+async function installGlobalSkills(): Promise<void> {
+  const agentFlags = SKILLS_AGENTS.flatMap((agent) => ["-a", agent]);
+
+  console.log("[atomic] Installing all bundled skills globally...");
+  const addOk = await runNpxSkills([
+    "add",
+    SKILLS_REPO,
+    "--skill",
+    "*",
+    "-g",
+    ...agentFlags,
+    "-y",
+  ]);
+  if (!addOk) {
+    console.warn(
+      "[atomic] Warning: 'npx skills add' exited non-zero (non-fatal)",
+    );
+    return;
   }
-}
 
-async function installLocalWorkflowSdk(): Promise<void> {
-  const repoRoot = resolve(import.meta.dir, "..", "..");
-  const localSdkPath = getLocalSdkPackagePath(repoRoot);
-
-  // Global ~/.atomic/workflows/ — use absolute path
-  const globalWorkflowsDir = getGlobalWorkflowsDir();
-  const globalInstalled = await installWorkflowSdkFromLocal(globalWorkflowsDir, localSdkPath);
-  if (!globalInstalled) {
-    throw new Error("failed to install workflow SDK from local package into global dir");
-  }
-
-  // Local .atomic/workflows/ — use relative path so it stays portable within the repo
-  const localWorkflowsDir = getLocalWorkflowsDir(repoRoot);
-  const relativeSdkPath = getRelativeSdkPath(localWorkflowsDir, localSdkPath);
-  const localInstalled = await installWorkflowSdkFromLocal(localWorkflowsDir, relativeSdkPath);
-  if (!localInstalled) {
-    throw new Error("failed to install workflow SDK from local package into local dir");
+  const removeSkillFlags = SCM_SKILLS_TO_REMOVE_GLOBALLY.flatMap((skill) => [
+    "--skill",
+    skill,
+  ]);
+  console.log(
+    "[atomic] Removing source-control skill variants globally (added per-project by `atomic init`)...",
+  );
+  const removeOk = await runNpxSkills([
+    "remove",
+    ...removeSkillFlags,
+    "-g",
+    ...agentFlags,
+    "-y",
+  ]);
+  if (!removeOk) {
+    console.warn(
+      "[atomic] Warning: 'npx skills remove' exited non-zero (non-fatal)",
+    );
   }
 }
 
 async function main(): Promise<void> {
-  const configRoot = getConfigRoot();
+  // src/scripts/postinstall.ts → repo root is two levels up
+  const repoRoot = resolve(import.meta.dir, "..", "..");
 
-  // Install tooling; warn on failures so devs can fix manually.
   try {
-    await installTooling();
-  } catch (error) {
-    if (error instanceof ToolingSetupError) {
-      for (const failure of error.failures) {
-        warnPostinstallStep("tooling setup", new Error(failure));
-      }
-    } else {
-      warnPostinstallStep("tooling setup", error);
+    const copied = await installGlobalWorkflows(repoRoot);
+    if (copied > 0) {
+      console.log(
+        `[atomic] Installed ${copied} workflow template(s) to ~/.atomic/workflows/`,
+      );
     }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(
+      `[atomic] Warning: failed to install workflow templates: ${message}`,
+    );
   }
 
-  // Sync configs and install local workflow SDK
-  const results = await Promise.allSettled([
-    syncAndVerifyConfigs(configRoot),
-    installLocalWorkflowSdk(),
-  ]);
+  if (isSourceInstall()) {
+    // Dev environment already has every bundled skill on disk under
+    // `.claude/`, `.opencode/`, `.agents/`, etc. — skip the network-backed
+    // `npx skills` step entirely.
+    return;
+  }
 
-  const labels = [
-    "failed to sync/verify provider home-root configs",
-    "failed to install workflow SDK",
-  ];
-
-  for (let i = 0; i < results.length; i++) {
-    const result = results[i];
-    if (result && result.status === "rejected") {
-      warnPostinstallStep(labels[i] ?? `step ${i}`, result.reason);
-    }
+  try {
+    await installGlobalSkills();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[atomic] Warning: failed to install global skills: ${message}`);
   }
 }
 

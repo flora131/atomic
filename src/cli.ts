@@ -9,11 +9,8 @@
  *   atomic init                     Interactive setup with agent selection
  *   atomic init -a <agent>          Setup specific agent (skip selection)
  *   atomic init -s <scm>             Setup specific SCM (github, sapling)
+ *   atomic chat -a <agent>          Start interactive chat with an agent
  *   atomic config set <key> <value> Set configuration value
- *   atomic workflow verify          Verify all workflows
- *   atomic workflow verify <path>   Verify a specific workflow file
- *   atomic list agents              List discovered agent definitions
- *   atomic ls agents                Alias for list agents
  *   atomic update                   Self-update to latest version
  *   atomic uninstall                Remove atomic installation
  *   atomic --version                Show version
@@ -27,13 +24,6 @@ import { AGENT_CONFIG, type AgentKey, SCM_CONFIG, type SourceControlType } from 
 
 /**
  * Create and configure the main CLI program
- *
- * This function sets up the Commander.js program with:
- * - Program metadata (name, description, version)
- * - Global options available to all commands
- * - Custom error output with colored messages
- *
- * Commands are added separately in subsequent features.
  */
 export function createProgram() {
     const program = new Command()
@@ -49,11 +39,9 @@ export function createProgram() {
         // Configure error output with colors
         .configureOutput({
             writeErr: (str) => {
-                // Use colored output for errors
                 process.stderr.write(`${COLORS.red}${str}${COLORS.reset}`);
             },
             outputError: (str, write) => {
-                // Format error messages with color
                 write(`${COLORS.red}${str}${COLORS.reset}`);
             },
         });
@@ -92,29 +80,22 @@ export function createProgram() {
         .command("chat", { isDefault: true })
         .description("Start an interactive chat session with a coding agent")
         .option("-a, --agent <name>", `Agent to chat with (${agentChoices})`)
-        .option("-p, --prompt <text>", "Initial prompt to send")
-        .option("-t, --theme <name>", "UI theme (dark, light)", "dark")
-        .option("-m, --model <name>", "Model to use for the chat session")
-        .option(
-            "--additional-instructions <text>",
-            "Append extra instructions to the enhanced system prompt",
-        )
+        .allowUnknownOption()
+        .allowExcessArguments(true)
         .addHelpText(
             "after",
             `
-Examples:
-  $ atomic chat -a claude                   Start chat with Claude
-  $ atomic chat -a opencode                  Start chat with OpenCode
-  $ atomic chat -a copilot                   Start chat with Copilot
-  $ atomic chat -a claude --theme light      Start chat with light theme
-  $ atomic chat -a claude -p "fix the typecheck errors"
-  $ atomic chat -a claude --additional-instructions "Be concise" -p "review this patch"
+All arguments after -a <agent> are forwarded to the native agent CLI.
 
-Slash Commands:
-  /theme    - Switch theme (dark/light)
-  /help     - Show available commands`,
+Examples:
+  $ atomic chat -a claude                           Start Claude interactively
+  $ atomic chat -a copilot                          Start Copilot interactively
+  $ atomic chat -a opencode                         Start OpenCode interactively
+  $ atomic chat -a claude "fix the bug"             Claude with initial prompt
+  $ atomic chat -a copilot --model gpt-4o           Copilot with custom model
+  $ atomic chat -a claude --verbose                 Forward --verbose to claude`,
         )
-        .action(async (localOpts) => {
+        .action(async (localOpts, cmd) => {
             const validAgents = Object.keys(AGENT_CONFIG);
             const agentType = localOpts.agent;
 
@@ -137,25 +118,34 @@ Slash Commands:
                 process.exit(1);
             }
 
-            // Validate theme choice
-            if (localOpts.theme !== "dark" && localOpts.theme !== "light") {
-                console.error(
-                    `${COLORS.red}Error: Invalid theme '${localOpts.theme}'${COLORS.reset}`,
-                );
-                console.error("Valid themes: dark, light");
-                process.exit(1);
-            }
+            // Collect extra args/options to forward to the native CLI
+            const passthroughArgs = cmd.args;
 
-            const prompt = localOpts.prompt || undefined;
             const { chatCommand } = await import("@/commands/cli/chat.ts");
             const exitCode = await chatCommand({
                 agentType: agentType as "claude" | "opencode" | "copilot",
-                theme: localOpts.theme as "dark" | "light",
-                model: localOpts.model,
-                initialPrompt: prompt,
-                additionalInstructions: localOpts.additionalInstructions,
+                passthroughArgs,
             });
 
+            process.exit(exitCode);
+        });
+
+    // Add workflow command
+    program
+        .command("workflow")
+        .description("Run a multi-session agent workflow")
+        .option("-n, --name <name>", "Workflow name (matches directory under .atomic/workflows/<agent>/)")
+        .option("-a, --agent <name>", `Agent to use (${agentChoices})`)
+        .option("-l, --list", "List available workflows")
+        .argument("[prompt...]", "Prompt for the workflow")
+        .action(async (promptParts, localOpts) => {
+            const { workflowCommand } = await import("@/commands/cli/workflow.ts");
+            const exitCode = await workflowCommand({
+                name: localOpts.name,
+                agent: localOpts.agent,
+                prompt: promptParts.length > 0 ? promptParts.join(" ") : undefined,
+                list: localOpts.list,
+            });
             process.exit(exitCode);
         });
 
@@ -201,34 +191,6 @@ Slash Commands:
             });
         });
 
-    // Add list command for inspecting project resources
-    const listCmd = program
-        .command("list")
-        .alias("ls")
-        .description("List project resources (agents, workflows)");
-
-    listCmd
-        .command("agents")
-        .description("List all discovered agent definitions (project + global)")
-        .action(async () => {
-            const { listAgentsCommand } = await import("@/commands/cli/list.ts");
-            await listAgentsCommand();
-        });
-
-    // Add workflow command for verification and management
-    const workflowCmd = program
-        .command("workflow")
-        .description("Manage and verify workflows");
-
-    workflowCmd
-        .command("verify")
-        .description("Run structural verification on workflows")
-        .argument("[path]", "Path to a specific workflow .ts file to verify")
-        .action(async (path?: string) => {
-            const { workflowVerifyCommand } = await import("@/commands/cli/workflow.ts");
-            await workflowVerifyCommand(path);
-        });
-
     return program;
 }
 
@@ -237,25 +199,15 @@ export const program = createProgram();
 
 /**
  * Main entry point for the CLI
- *
- * Handles:
- * - Windows leftover file cleanup
- * - Error handling with colored output
  */
 async function main(): Promise<void> {
     try {
-        // Clean up leftover Windows files from previous uninstall/update operations
-        // This is a no-op on non-Windows platforms.
-        // Runs inside try/catch so a failure in the dynamic import or cleanup
-        // never surfaces as an unhandled rejection.
         if (process.platform === "win32") {
             const { cleanupWindowsLeftoverFiles } = await import("@/services/system/cleanup.ts");
             await cleanupWindowsLeftoverFiles();
         }
 
         // Ensure config data directory exists for binary installs.
-        // Downloads config on first run if the binary was installed without it
-        // (e.g., via a devcontainer feature that only copies the binary).
         const skipConfigCommands = new Set(["--version", "-v", "--help", "-h"]);
         const needsConfig = !process.argv.slice(2).some((arg) => skipConfigCommands.has(arg));
         if (needsConfig) {
@@ -263,33 +215,16 @@ async function main(): Promise<void> {
             await ensureConfigDataDir(VERSION);
         }
 
-        // Ensure the workflow SDK version matches the CLI version.
-        // Skip for lightweight commands that don't need this.
-        const skipToolingCommands = new Set(["--version", "-v", "--help", "-h", "uninstall", "config"]);
-        const needsTooling = !process.argv.slice(2).some((arg) => skipToolingCommands.has(arg));
-        if (needsTooling) {
-            const { detectInstallationType, getConfigRoot } = await import("@/services/config/config-path.ts");
-            const installType = detectInstallationType();
-            const { ensureWorkflowSdkVersion } = await import("@/services/config/workflow-package.ts");
-            const configRoot = getConfigRoot();
-            await ensureWorkflowSdkVersion(VERSION, installType, configRoot);
-        }
-
         // Parse and execute the command
         await program.parseAsync();
     } catch (error) {
-        // Handle errors with colored output
         const message = error instanceof Error ? error.message : String(error);
         console.error(`${COLORS.red}Error: ${message}${COLORS.reset}`);
-
         process.exit(1);
     }
 }
 
 // Run the CLI
-// Bun compiled binaries (as of Bun ≤ 1.3.x) incorrectly set import.meta.main
-// to false even for the primary entrypoint.  Detect compiled-binary mode via the
-// $bunfs virtual-filesystem prefix that Bun injects into import.meta.path.
 const _isCompiledBinary = /[\\/]\$bunfs[\\/]|^[Bb]:[\\/]~BUN[\\/]/.test(import.meta.path);
 if (import.meta.main || _isCompiledBinary) {
     await main();

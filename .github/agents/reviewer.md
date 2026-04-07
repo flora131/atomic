@@ -1,12 +1,7 @@
 ---
 name: reviewer
 description: Code reviewer for proposed code changes.
-tools: ["execute", "agent", "search", "read", "deepwiki/ask_question", "web_fetch", "task_list"]
-mcp-servers:
-    deepwiki:
-        type: http
-        url: "https://mcp.deepwiki.com/mcp"
-        tools: ["ask_question"]
+tools: ["execute", "agent", "search", "read", "web_fetch", "sql"]
 model: gpt-5.4
 ---
 

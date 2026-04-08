@@ -49,17 +49,19 @@ const TARGETS: Target[] = [
 async function main(): Promise<void> {
   await mkdir(DIST, { recursive: true });
 
-  for (const target of TARGETS) {
-    const outfile = resolve(DIST, target.outfile);
-    const defineFlags = target.defines
-      ? Object.entries(target.defines).flatMap(
-          ([k, v]) => [`--define`, `${k}=${v}`],
-        )
-      : [];
+  await Promise.all(
+    TARGETS.map(async (target) => {
+      const outfile = resolve(DIST, target.outfile);
+      const defineFlags = target.defines
+        ? Object.entries(target.defines).flatMap(
+            ([k, v]) => [`--define`, `${k}=${v}`],
+          )
+        : [];
 
-    console.log(`Building ${target.outfile} (${target.bun})…`);
-    await $`bun build ${BUILD_FLAGS} ${defineFlags} --target=${target.bun} --outfile ${outfile} ${ENTRY}`;
-  }
+      console.log(`Building ${target.outfile} (${target.bun})…`);
+      await $`bun build ${BUILD_FLAGS} ${defineFlags} --target=${target.bun} --outfile ${outfile} ${ENTRY}`;
+    }),
+  );
 
   console.log("\nAll binaries built in dist/.");
 }

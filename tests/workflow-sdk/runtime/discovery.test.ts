@@ -30,7 +30,7 @@ describe("findWorkflow", () => {
   });
 
   test("discovers workflow when index.ts exists", async () => {
-    const workflowDir = join(tempDir, ".atomic", "workflows", "copilot", "my-unique-test-wf");
+    const workflowDir = join(tempDir, ".atomic", "workflows", "my-unique-test-wf", "copilot");
     await mkdir(workflowDir, { recursive: true });
     await writeFile(join(workflowDir, "index.ts"), "export default {};");
 
@@ -45,7 +45,7 @@ describe("findWorkflow", () => {
 describe("discoverWorkflows", () => {
   test("discovers local workflows", async () => {
     const uniqueName = `test-wf-${Date.now()}`;
-    const dir = join(tempDir, ".atomic", "workflows", "copilot", uniqueName);
+    const dir = join(tempDir, ".atomic", "workflows", uniqueName, "copilot");
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, "index.ts"), "export default {};");
 
@@ -56,7 +56,7 @@ describe("discoverWorkflows", () => {
   });
 
   test("local workflows override global with same name", async () => {
-    const dir = join(tempDir, ".atomic", "workflows", "copilot", "hello");
+    const dir = join(tempDir, ".atomic", "workflows", "hello", "copilot");
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, "index.ts"), "export default {};");
 

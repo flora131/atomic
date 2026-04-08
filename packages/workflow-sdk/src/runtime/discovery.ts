@@ -2,8 +2,8 @@
  * Workflow discovery — finds workflow definitions from disk.
  *
  * Workflows are discovered from:
- *   1. .atomic/workflows/<agent>/<name>/index.ts (project-local)
- *   2. ~/.atomic/workflows/<agent>/<name>/index.ts (global)
+ *   1. .atomic/workflows/<name>/<agent>/index.ts (project-local)
+ *   2. ~/.atomic/workflows/<name>/<agent>/index.ts (global)
  *
  * Project-local workflows take precedence over global ones with the same name.
  */
@@ -31,39 +31,65 @@ function getGlobalWorkflowsDir(): string {
   return join(homedir(), ".atomic", "workflows");
 }
 
-async function discoverFromAgentDir(
+const AGENTS: AgentType[] = ["copilot", "opencode", "claude"];
+const AGENT_SET = new Set<string>(AGENTS);
+
+/**
+ * Discover workflows from a base directory by scanning workflow-name
+ * directories first, then agent subdirectories within each.
+ *
+ * Layout: baseDir/<workflow_name>/<agent>/index.ts
+ */
+async function discoverFromBaseDir(
   baseDir: string,
-  agent: AgentType,
-  source: "local" | "global"
+  source: "local" | "global",
+  agentFilter?: AgentType
 ): Promise<DiscoveredWorkflow[]> {
-  const agentDir = join(baseDir, agent);
   const workflows: DiscoveredWorkflow[] = [];
+  const agents = agentFilter ? [agentFilter] : AGENTS;
+  const agentNames = new Set<string>(agents);
 
+  let workflowEntries;
   try {
-    const entries = await readdir(agentDir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+    workflowEntries = await readdir(baseDir, { withFileTypes: true });
+  } catch {
+    return workflows;
+  }
 
-      const indexPath = join(agentDir, entry.name, "index.ts");
+  for (const wfEntry of workflowEntries) {
+    if (!wfEntry.isDirectory()) continue;
+    if (wfEntry.name.startsWith(".") || wfEntry.name === "node_modules") continue;
+    // Skip agent-named directories at root (they are not workflow names)
+    if (AGENT_SET.has(wfEntry.name)) continue;
+
+    const workflowDir = join(baseDir, wfEntry.name);
+
+    let agentEntries;
+    try {
+      agentEntries = await readdir(workflowDir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const agentEntry of agentEntries) {
+      if (!agentEntry.isDirectory()) continue;
+      if (!agentNames.has(agentEntry.name)) continue;
+
+      const indexPath = join(workflowDir, agentEntry.name, "index.ts");
       const file = Bun.file(indexPath);
       if (await file.exists()) {
         workflows.push({
-          name: entry.name,
-          agent,
+          name: wfEntry.name,
+          agent: agentEntry.name as AgentType,
           path: indexPath,
           source,
         });
       }
     }
-  } catch {
-    // Directory doesn't exist
   }
 
   return workflows;
 }
-
-const AGENTS: AgentType[] = ["copilot", "opencode", "claude"];
 
 /**
  * Discover all available workflows from local and global directories.
@@ -73,25 +99,20 @@ export async function discoverWorkflows(
   projectRoot: string = process.cwd(),
   agentFilter?: AgentType
 ): Promise<DiscoveredWorkflow[]> {
-  const agents = agentFilter ? [agentFilter] : AGENTS;
   const localDir = getLocalWorkflowsDir(projectRoot);
   const globalDir = getGlobalWorkflowsDir();
 
-  const results = await Promise.all(
-    agents.flatMap((agent) => [
-      discoverFromAgentDir(globalDir, agent, "global"),
-      discoverFromAgentDir(localDir, agent, "local"),
-    ])
-  );
+  const [globalResults, localResults] = await Promise.all([
+    discoverFromBaseDir(globalDir, "global", agentFilter),
+    discoverFromBaseDir(localDir, "local", agentFilter),
+  ]);
 
   const byKey = new Map<string, DiscoveredWorkflow>();
-  for (const batch of results) {
-    for (const wf of batch) {
-      const key = `${wf.agent}/${wf.name}`;
-      if (!byKey.has(key) || wf.source === "local") {
-        byKey.set(key, wf);
-      }
-    }
+  for (const wf of globalResults) {
+    byKey.set(`${wf.agent}/${wf.name}`, wf);
+  }
+  for (const wf of localResults) {
+    byKey.set(`${wf.agent}/${wf.name}`, wf);
   }
 
   return Array.from(byKey.values());

@@ -14,8 +14,9 @@
     }
   },
   "include": [
-    "copilot/**/*.ts",
-    "opencode/**/*.ts",
-    "claude/**/*.ts"
+    "**/claude/**/*.ts",
+    "**/copilot/**/*.ts",
+    "**/opencode/**/*.ts",
+    "**/helpers/**/*.ts"
   ]
 }

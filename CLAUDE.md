@@ -114,9 +114,6 @@ Note: There are three main coding agents used in this repository: OpenCode, Clau
     - global:
         - Linux/MacOS: `$XDG_CONFIG_HOME/.opencode` AND `~/.opencode`
         - Windows: `%HOMEPATH%\\.opencode`
-        - `~/.agents/skills` is also accepted for Agent Skills ONLY
-    - local: `.opencode` in the project directory
-        - `.agents/skills` is also accepted for Agent Skills ONLY
 
 2. Claude Code:
     - global:
@@ -128,9 +125,14 @@ Note: There are three main coding agents used in this repository: OpenCode, Clau
     - global:
         - Linux/MacOS: `$XDG_CONFIG_HOME/.copilot` AND `~/.copilot`
         - Windows: `%HOMEPATH%\\.copilot`
-        - `~/.agents/skills` is also accepted for Agent Skills ONLY
     - local: `.github` in the project directory
-        - `.agents/skills` is also accepted for Agent Skills ONLY
+
+**Agent Skill Locations**
+    - local:
+        - `.agents/skills` (`.claude/skills` is a symlink to `.agents/skills`)
+    - global:
+      - `~/.agents/skills` for OpenCode and Copilot CLI
+      - `~/.claude/skills` for Claude Code
 
 ## Releasing
 

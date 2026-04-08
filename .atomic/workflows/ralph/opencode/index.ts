@@ -29,9 +29,9 @@ import {
   buildDebuggerReportPrompt,
   parseReviewResult,
   extractMarkdownBlock,
-} from "../../ralph/helpers/prompts.ts";
-import { hasActionableFindings } from "../../ralph/helpers/review.ts";
-import { safeGitStatusS } from "../../ralph/helpers/git.ts";
+} from "../helpers/prompts.ts";
+import { hasActionableFindings } from "../helpers/review.ts";
+import { safeGitStatusS } from "../helpers/git.ts";
 
 const MAX_LOOPS = 10;
 const CONSECUTIVE_CLEAN_THRESHOLD = 2;

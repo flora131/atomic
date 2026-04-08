@@ -81,11 +81,11 @@ async function main(): Promise<void> {
   const ig = ignore().add(await Bun.file(gitignorePath).text());
 
   const entries = await readdir(workflowsSrc, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
-    if (ig.ignores(entry.name + "/")) continue;
-    await cp(join(workflowsSrc, entry.name), join(workflowsDest, entry.name), { recursive: true });
-  }
+  await Promise.all(
+    entries
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith(".") && !ig.ignores(entry.name + "/"))
+      .map((entry) => cp(join(workflowsSrc, entry.name), join(workflowsDest, entry.name), { recursive: true })),
+  );
 
   // Write a release package.json referencing the published SDK version
   const sdkPkgPath = join(ROOT, WORKFLOW_SDK_DIR, "package.json");

@@ -13,8 +13,8 @@ on:
             - "**/*.jsx"
 
 jobs:
-    typescript-tests:
-        name: TypeScript Tests
+    typescript-checks:
+        name: TypeScript Checks
         runs-on: ubuntu-latest
 
         steps:

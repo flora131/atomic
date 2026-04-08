@@ -14,8 +14,8 @@ This document describes the GitHub Actions workflows that power Atomic CLI's con
   ├──────────────────────────────┤     ├────────────────────────────────┤
   │                              │     │                                │
   │  CI ..................... ✓  │     │  Publish .................. ✓  │
-  │    · TypeScript Tests        │     │    Build → Validate Binaries   │
-  │    · Workflow SDK Tests      │     │    → Release                   │
+  │    · TypeScript Checks       │     │    Build → Validate Binaries   │
+  │    · Workflow SDK            │     │    → Release                   │
   │  Code Review ........... ✓   │     │    → Publish Workflow SDK      │
   │  PR Description ........ ✓   │     │      (npm)                    │
   │  Bump Version .......... ✓   │     │                                │
@@ -42,15 +42,16 @@ Runs on all PRs to `main` that touch source code, config, or agent definitions. 
          ├──────────────────────────────────────┐
          ▼                                      ▼
   ┌──────────────────────────┐   ┌──────────────────────────────┐
-  │    TypeScript Tests      │   │    Workflow SDK Tests         │
+  │   TypeScript Checks      │   │    Workflow SDK              │
   │  ┌────────────────────┐  │   │  ┌────────────────────────┐  │
-  │  │ bun ci             │  │   │  │ bun install            │  │
+  │  │ bun ci             │  │   │  │ bun ci                 │  │
   │  │ typecheck          │  │   │  │ typecheck              │  │
   │  │ lint               │  │   │  │ lint                   │  │
-  │  │ test:coverage      │  │   │  │ test:coverage          │  │
-  │  │ upload coverage    │  │   │  └────────────────────────┘  │
-  │  └────────────────────┘  │   │  (runs in packages/          │
-  └──────────────────────────┘   │   workflow-sdk/)             │
+  │  └────────────────────┘  │   │  │ test:coverage          │  │
+  └──────────────────────────┘   │  │ upload coverage        │  │
+                                 │  └────────────────────────┘  │
+                                 │  (runs in packages/          │
+                                 │   workflow-sdk/)             │
                                  └──────────────────────────────┘
 ```
 

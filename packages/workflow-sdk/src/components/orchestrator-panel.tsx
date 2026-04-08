@@ -39,6 +39,12 @@ export class OrchestratorPanel {
     );
   }
 
+  /**
+   * Create a new OrchestratorPanel with the default CLI renderer.
+   *
+   * This is the primary entry point — it initialises the terminal renderer
+   * and mounts the React-based session graph TUI.
+   */
   static async create(options: PanelOptions): Promise<OrchestratorPanel> {
     const renderer = await createCliRenderer({
       exitOnCtrlC: false,
@@ -58,6 +64,10 @@ export class OrchestratorPanel {
     return new OrchestratorPanel(renderer, store, graphTheme, options.tmuxSession);
   }
 
+  /**
+   * Display the workflow overview in the TUI — name, agent, session graph,
+   * and the user prompt. Call once after construction before sessions start.
+   */
   showWorkflowInfo(
     name: string,
     agent: string,
@@ -67,26 +77,35 @@ export class OrchestratorPanel {
     this.store.setWorkflowInfo(name, agent, sessions, prompt);
   }
 
+  /** Mark a session as running in the graph UI. */
   sessionStart(name: string): void {
     this.store.startSession(name);
   }
 
+  /** Mark a session as successfully completed in the graph UI. */
   sessionSuccess(name: string): void {
     this.store.completeSession(name);
   }
 
+  /** Mark a session as failed in the graph UI and display the error message. */
   sessionError(name: string, message: string): void {
     this.store.failSession(name, message);
   }
 
+  /** Show the workflow-complete banner with a link to saved transcripts. */
   showCompletion(workflowName: string, transcriptsPath: string): void {
     this.store.setCompletion(workflowName, transcriptsPath);
   }
 
+  /** Display a fatal error banner in the TUI. */
   showFatalError(message: string): void {
     this.store.setFatalError(message);
   }
 
+  /**
+   * Block until the user presses `q` or `Ctrl+C` in the TUI.
+   * Call after {@link showCompletion} or {@link showFatalError}.
+   */
   waitForExit(): Promise<void> {
     this.store.markCompletionReached();
     return new Promise<void>((resolve) => {
@@ -94,6 +113,7 @@ export class OrchestratorPanel {
     });
   }
 
+  /** Tear down the terminal renderer and release resources. Idempotent. */
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;

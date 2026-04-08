@@ -319,26 +319,20 @@ async function runSingleSession(opts: RunSessionOptions): Promise<SessionResult>
 
   async function wrapMessages(arg: SessionEvent[] | SessionPromptResponse | string): Promise<SavedMessage[]> {
     if (typeof arg === "string") {
-      try {
-        const { getSessionMessages, listSessions } = await import("@anthropic-ai/claude-agent-sdk");
-        const dir = process.cwd();
-        const sessions = await listSessions({ dir });
+      const { getSessionMessages, listSessions } = await import("@anthropic-ai/claude-agent-sdk");
+      const dir = process.cwd();
+      const sessions = await listSessions({ dir });
 
-        const candidate = sessions.find(
-          (s) => knownClaudeSessionIds != null && !knownClaudeSessionIds.has(s.sessionId),
-        );
+      const candidate = sessions.find(
+        (s) => knownClaudeSessionIds != null && !knownClaudeSessionIds.has(s.sessionId),
+      );
 
-        if (!candidate) {
-          console.warn("wrapMessages: no new Claude session found for", dir);
-          return [];
-        }
-
-        const msgs: SessionMessage[] = await getSessionMessages(candidate.sessionId, { dir });
-        return msgs.map((m) => ({ provider: "claude" as const, data: m }));
-      } catch (err) {
-        console.warn("wrapMessages: failed to read Claude session messages:", err);
-        return [];
+      if (!candidate) {
+        throw new Error(`wrapMessages: no new Claude session found for ${dir}`);
       }
+
+      const msgs: SessionMessage[] = await getSessionMessages(candidate.sessionId, { dir });
+      return msgs.map((m) => ({ provider: "claude" as const, data: m }));
     }
 
     if (!Array.isArray(arg) && "info" in arg && "parts" in arg) {
@@ -355,16 +349,17 @@ async function runSingleSession(opts: RunSessionOptions): Promise<SessionResult>
     return [];
   }
 
-  let pendingSave: Promise<void> | null = null;
+  const pendingSaves: Promise<void>[] = [];
 
   const save: SaveTranscript = ((arg: SessionEvent[] | SessionPromptResponse | string) => {
-    pendingSave = (async () => {
+    const p = (async () => {
       const wrapped = await wrapMessages(arg);
       await Bun.write(messagesPath, JSON.stringify(wrapped, null, 2));
       const text = renderMessagesToText(wrapped);
       await Bun.write(inboxPath, text);
     })();
-    return pendingSave;
+    pendingSaves.push(p);
+    return p;
   }) as SaveTranscript;
 
   const ctx: SessionContext = {
@@ -423,7 +418,7 @@ async function runSingleSession(opts: RunSessionOptions): Promise<SessionResult>
 
   try {
     await sessionDef.run(ctx);
-    if (pendingSave) await pendingSave;
+    if (pendingSaves.length > 0) await Promise.all(pendingSaves);
   } catch (error) {
     const isCancelled = signal?.aborted;
     const message = isCancelled

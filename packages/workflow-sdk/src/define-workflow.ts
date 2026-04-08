@@ -42,6 +42,9 @@ export class WorkflowBuilder {
       if (!s.name || s.name.trim() === "") {
         throw new Error("Session name is required.");
       }
+      if (typeof s.run !== "function") {
+        throw new Error(`Session "${s.name}": run must be a function, got ${typeof s.run}.`);
+      }
       if (this.namesSeen.has(s.name)) {
         throw new Error(`Duplicate session name: "${s.name}"`);
       }

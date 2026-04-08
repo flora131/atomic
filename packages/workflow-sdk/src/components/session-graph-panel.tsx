@@ -64,7 +64,7 @@ export function SessionGraphPanel() {
   }, [nodeList, layout.rowH, theme]);
 
   // Focus tracking
-  const [focusedId, setFocusedId] = useState(() => store.sessions[0]?.name ?? "");
+  const [focusedId, setFocusedId] = useState("");
   const focusedIdRef = useRef(focusedId);
   focusedIdRef.current = focusedId;
 

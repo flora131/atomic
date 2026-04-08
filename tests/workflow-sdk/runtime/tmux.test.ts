@@ -821,8 +821,8 @@ describe.if(tmuxAvailable)("tmux integration: attemptSubmitRounds", () => {
 // ---------------------------------------------------------------------------
 
 describe.if(tmuxAvailable)("attachSession error path", () => {
-  test("attachSession throws for non-existent session", () => {
-    expect(() => attachSession("nonexistent-session-xyz-99999")).toThrow(/Failed to attach/);
+  test("attachSession throws for non-existent session with stderr detail", () => {
+    expect(() => attachSession("nonexistent-session-xyz-99999")).toThrow(/Failed to attach.*nonexistent-session-xyz-99999/);
   });
 });
 

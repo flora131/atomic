@@ -188,14 +188,17 @@ export class OrchestratorPanel {
     this.completionLine = new TextRenderable(renderer, {
       id: "orch-completion-line",
       content: "",
+      height: 1,
     });
     this.transcriptsLine = new TextRenderable(renderer, {
       id: "orch-transcripts-line",
       content: "",
+      height: 1,
     });
     this.footerHintsLine = new TextRenderable(renderer, {
       id: "orch-hints-line",
       content: "",
+      height: 1,
     });
 
     this.footerBox.add(this.completionLine);

@@ -312,13 +312,41 @@ async function runOrchestrator(): Promise<void> {
       const messagesPath = join(sessionDir, "messages.json");
       const inboxPath = join(sessionDir, "inbox.md");
 
+      // Snapshot existing Claude session IDs before the session runs so we
+      // can diff after to find the new one. This is safe for concurrent
+      // workflows — each loop iteration tracks its own baseline.
+      let knownClaudeSessionIds: Set<string> | null = null;
+      if (agent === "claude") {
+        try {
+          const { listSessions } = await import("@anthropic-ai/claude-agent-sdk");
+          const existing = await listSessions({ dir: process.cwd() });
+          knownClaudeSessionIds = new Set(existing.map((s) => s.sessionId));
+        } catch {}
+      }
+
       async function wrapMessages(arg: SessionEvent[] | SessionPromptResponse | string): Promise<SavedMessage[]> {
         if (typeof arg === "string") {
           try {
-            const { getSessionMessages } = await import("@anthropic-ai/claude-agent-sdk");
-            const msgs: SessionMessage[] = await getSessionMessages(arg, { dir: process.cwd() });
+            const { getSessionMessages, listSessions } = await import("@anthropic-ai/claude-agent-sdk");
+            const dir = process.cwd();
+            const sessions = await listSessions({ dir });
+
+            // Find the session that appeared after our pre-run snapshot.
+            // listSessions returns sorted by lastModified desc, so the
+            // first match is the most recently active new session.
+            const candidate = sessions.find(
+              (s) => knownClaudeSessionIds != null && !knownClaudeSessionIds.has(s.sessionId),
+            );
+
+            if (!candidate) {
+              console.warn("wrapMessages: no new Claude session found for", dir);
+              return [];
+            }
+
+            const msgs: SessionMessage[] = await getSessionMessages(candidate.sessionId, { dir });
             return msgs.map((m) => ({ provider: "claude" as const, data: m }));
-          } catch {
+          } catch (err) {
+            console.warn("wrapMessages: failed to read Claude session messages:", err);
             return [];
           }
         }

@@ -4,17 +4,18 @@ import { copyFile, pathExists, ensureDir } from "@/services/system/copy.ts";
 import { getOppositeScriptExtension } from "@/services/system/detect.ts";
 import type { AgentKey, SourceControlType } from "@/services/config/index.ts";
 
-export const SCM_PREFIX_BY_TYPE: Record<SourceControlType, "gh-" | "sl-"> = {
+export const SCM_PREFIX_BY_TYPE: Record<SourceControlType, "gh-" | "sl-" | "az-"> = {
   github: "gh-",
   sapling: "sl-",
+  "azure-devops": "az-",
 };
 
-export function getScmPrefix(scmType: SourceControlType): "gh-" | "sl-" {
+export function getScmPrefix(scmType: SourceControlType): "gh-" | "sl-" | "az-" {
   return SCM_PREFIX_BY_TYPE[scmType];
 }
 
 export function isManagedScmEntry(name: string): boolean {
-  return name.startsWith("gh-") || name.startsWith("sl-");
+  return name.startsWith("gh-") || name.startsWith("sl-") || name.startsWith("az-");
 }
 
 export interface ReconcileScmVariantsOptions {
@@ -132,7 +133,7 @@ export interface InstallLocalScmSkillsResult {
 }
 
 /**
- * Install the SCM skill variants (gh-* or sl-*) locally into the current
+ * Install the SCM skill variants (gh-*, sl-*, or az-*) locally into the current
  * project via `npx skills add`. The `-g` flag is intentionally omitted so
  * the skills are installed per-project (in the given `cwd`).
  *

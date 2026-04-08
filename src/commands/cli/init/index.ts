@@ -302,7 +302,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     if (!hasArcconfig) {
       log.warn(
         "Note: Sapling + Phabricator requires .arcconfig in your repository root.\n" +
-          "See: https://www.phacility.com/phabricator/ for Phabricator setup."
+        "See: https://www.phacility.com/phabricator/ for Phabricator setup."
       );
     }
   }
@@ -369,7 +369,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     const targetSkillsDir = join(targetFolder, "skills");
 
     // Best-effort template copy: source checkouts still carry the bundled
-    // gh-*/sl-* skill templates, but binary and npm installs no longer do
+    // gh-*/sl-*/az-* skill templates, but binary and npm installs no longer do
     // (they live in the skills CLI repo). `installLocalScmSkills` below
     // handles the binary/npm case by invoking `npx skills add` — so a zero
     // copy here is not an error, just a signal that the template isn't
@@ -438,7 +438,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
   if (isWindows() && !isWslInstalled()) {
     note(
       `WSL is not installed. Some scripts may require WSL.\n` +
-        `Install WSL: ${WSL_INSTALL_URL}`,
+      `Install WSL: ${WSL_INSTALL_URL}`,
       "Warning"
     );
   }
@@ -446,8 +446,8 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
   // Success message
   note(
     `${agent.name} source control skills configured in ${agent.folder}/skills\n\n` +
-      `Selected workflow: ${SCM_CONFIG[scmType].displayName}\n\n` +
-      `Run '${agent.cmd}' to start the agent.`,
+    `Selected workflow: ${SCM_CONFIG[scmType].displayName}\n\n` +
+    `Run '${agent.cmd}' to start the agent.`,
     "Success"
   );
 

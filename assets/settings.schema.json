@@ -14,7 +14,11 @@
     },
     "scm": {
       "type": "string",
-      "enum": ["github", "sapling"],
+      "enum": [
+        "github",
+        "sapling",
+        "azure-devops"
+      ],
       "description": "Selected source control management system."
     },
     "lastUpdated": {
@@ -26,21 +30,43 @@
       "type": "object",
       "description": "Model preferences keyed by agent type.",
       "properties": {
-        "claude": { "type": "string", "description": "Model ID for Claude Code." },
-        "opencode": { "type": "string", "description": "Model ID for OpenCode." },
-        "copilot": { "type": "string", "description": "Model ID for GitHub Copilot." }
+        "claude": {
+          "type": "string",
+          "description": "Model ID for Claude Code."
+        },
+        "opencode": {
+          "type": "string",
+          "description": "Model ID for OpenCode."
+        },
+        "copilot": {
+          "type": "string",
+          "description": "Model ID for GitHub Copilot."
+        }
       },
-      "additionalProperties": { "type": "string" }
+      "additionalProperties": {
+        "type": "string"
+      }
     },
     "reasoningEffort": {
       "type": "object",
       "description": "Reasoning effort level keyed by agent type.",
       "properties": {
-        "claude": { "type": "string", "description": "Reasoning effort for Claude Code." },
-        "opencode": { "type": "string", "description": "Reasoning effort for OpenCode." },
-        "copilot": { "type": "string", "description": "Reasoning effort for GitHub Copilot." }
+        "claude": {
+          "type": "string",
+          "description": "Reasoning effort for Claude Code."
+        },
+        "opencode": {
+          "type": "string",
+          "description": "Reasoning effort for OpenCode."
+        },
+        "copilot": {
+          "type": "string",
+          "description": "Reasoning effort for GitHub Copilot."
+        }
       },
-      "additionalProperties": { "type": "string" }
+      "additionalProperties": {
+        "type": "string"
+      }
     },
     "prerelease": {
       "type": "boolean",
@@ -52,7 +78,10 @@
       "description": "Globally trusted workspaces that have completed provider onboarding through 'atomic init'.",
       "items": {
         "type": "object",
-        "required": ["workspacePath", "provider"],
+        "required": [
+          "workspacePath",
+          "provider"
+        ],
         "properties": {
           "workspacePath": {
             "type": "string",
@@ -60,7 +89,11 @@
           },
           "provider": {
             "type": "string",
-            "enum": ["claude", "opencode", "copilot"],
+            "enum": [
+              "claude",
+              "opencode",
+              "copilot"
+            ],
             "description": "Provider initialized for the trusted workspace."
           }
         },

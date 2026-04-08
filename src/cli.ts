@@ -8,7 +8,7 @@
  *   atomic                          Interactive setup (same as 'atomic init')
  *   atomic init                     Interactive setup with agent selection
  *   atomic init -a <agent>          Setup specific agent (skip selection)
- *   atomic init -s <scm>             Setup specific SCM (github, sapling)
+ *   atomic init -s <scm>             Setup specific SCM (github, sapling, azure-devops)
  *   atomic chat -a <agent>          Start interactive chat with an agent
  *   atomic config set <key> <value> Set configuration value
  *   atomic update                   Self-update to latest version

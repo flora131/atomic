@@ -14,7 +14,7 @@ import { join, dirname, resolve } from "node:path";
 import { homedir } from "node:os";
 import { SETTINGS_SCHEMA_URL } from "@/services/config/settings-schema.ts";
 import { ensureDirSync } from "@/services/system/copy.ts";
-import type { AgentKey } from "@/services/config/definitions.ts";
+import type { AgentKey, SourceControlType } from "@/services/config/definitions.ts";
 
 export interface TrustedPathEntry {
   workspacePath: string;
@@ -23,7 +23,7 @@ export interface TrustedPathEntry {
 
 interface AtomicSettings {
   $schema?: string;
-  scm?: "github" | "sapling";
+  scm?: SourceControlType;
   version?: number;
   lastUpdated?: string;
   model?: Record<string, string>; // agentType -> modelId

@@ -11,7 +11,7 @@
  * When running from an installed package (i.e. somewhere inside
  * `node_modules/`) we also install all bundled skills globally via
  * `npx skills add` and then remove the source-control skill variants
- * (`gh-*` / `sl-*`) globally so `atomic init` can install them locally
+ * (`gh-*` / `sl-*` / `az-*`) globally so `atomic init` can install them locally
  * per-project based on the user's selected SCM + active agent.
  *
  * Source-repo installs (`bun install` on a cloned checkout) skip the global
@@ -44,6 +44,8 @@ const SCM_SKILLS_TO_REMOVE_GLOBALLY = [
   "gh-create-pr",
   "sl-commit",
   "sl-submit-diff",
+  "az-commit",
+  "az-create-pr",
 ] as const;
 
 async function runNpxSkills(args: string[]): Promise<boolean> {

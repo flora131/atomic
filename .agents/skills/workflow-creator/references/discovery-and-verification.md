@@ -2,21 +2,26 @@
 
 ## Workflow file structure
 
-Workflows are organized per agent SDK under `.atomic/workflows/`:
+Workflows are organized per workflow name, with agent-specific implementations as subdirectories:
 
 ```
 .atomic/workflows/
 ├── package.json                    # Depends on @bastani/atomic-workflows
 ├── tsconfig.json                   # TypeScript config with path alias
-├── claude/<workflow-name>/
-│   └── index.ts                    # Claude-specific workflow
-├── copilot/<workflow-name>/
-│   └── index.ts                    # Copilot-specific workflow
-├── opencode/<workflow-name>/
-│   └── index.ts                    # OpenCode-specific workflow
-└── <workflow-name>/helpers/
-    ├── prompts.ts                  # Shared prompt builders
-    └── parsers.ts                  # Shared response parsers
+├── hello/
+│   ├── claude/index.ts             # Claude-specific workflow
+│   ├── copilot/index.ts            # Copilot-specific workflow
+│   └── opencode/index.ts           # OpenCode-specific workflow
+├── ralph/
+│   ├── claude/index.ts             # Claude-specific workflow
+│   ├── copilot/index.ts            # Copilot-specific workflow
+│   ├── opencode/index.ts           # OpenCode-specific workflow
+│   └── helpers/                    # Self-contained shared helpers
+│       ├── prompts.ts
+│       └── parsers.ts
+└── <workflow-name>/
+    ├── <agent>/index.ts
+    └── helpers/                    # Optional shared helpers
 ```
 
 ## Discovery paths
@@ -25,10 +30,10 @@ Workflows are discovered from:
 
 | Scope | Path |
 |-------|------|
-| **Local** | `.atomic/workflows/<agent>/<name>/index.ts` |
-| **Global** | `~/.atomic/workflows/<agent>/<name>/index.ts` |
+| **Local** | `.atomic/workflows/<name>/<agent>/index.ts` |
+| **Global** | `~/.atomic/workflows/<name>/<agent>/index.ts` |
 
-Local workflows override global ones with the same name. The `<agent>` directory determines which SDK the workflow targets: `claude/`, `copilot/`, or `opencode/`.
+Local workflows override global ones with the same name. The `<agent>` subdirectory determines which SDK the workflow targets: `claude/`, `copilot/`, or `opencode/`.
 
 ## Export format
 

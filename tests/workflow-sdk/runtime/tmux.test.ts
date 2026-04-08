@@ -25,6 +25,10 @@ import {
   waitForOutput,
   attemptSubmitRounds,
   attachSession,
+  killWindow,
+  switchClient,
+  getCurrentSession,
+  attachOrSwitch,
 } from "@bastani/atomic-workflows";
 
 // ---------------------------------------------------------------------------
@@ -817,7 +821,130 @@ describe.if(tmuxAvailable)("tmux integration: attemptSubmitRounds", () => {
 // ---------------------------------------------------------------------------
 
 describe.if(tmuxAvailable)("attachSession error path", () => {
-  test("attachSession throws for non-existent session", () => {
-    expect(() => attachSession("nonexistent-session-xyz-99999")).toThrow(/Failed to attach/);
+  test("attachSession throws for non-existent session with stderr detail", () => {
+    expect(() => attachSession("nonexistent-session-xyz-99999")).toThrow(/Failed to attach.*nonexistent-session-xyz-99999/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// killWindow
+// ---------------------------------------------------------------------------
+
+const KILLWIN_SESSION = `atomic-kw-${crypto.randomUUID().slice(0, 8)}`;
+
+describe.if(tmuxAvailable)("killWindow", () => {
+  afterAll(() => {
+    killSession(KILLWIN_SESSION);
+  });
+
+  test("killWindow removes a window and does not throw", () => {
+    createSession(KILLWIN_SESSION, "bash", "main");
+    createWindow(KILLWIN_SESSION, "to-kill", "bash");
+    expect(() => killWindow(KILLWIN_SESSION, "to-kill")).not.toThrow();
+  });
+
+  test("killWindow does not throw for non-existent window", () => {
+    expect(() => killWindow(KILLWIN_SESSION, "nonexistent-window-xyz")).not.toThrow();
+  });
+
+  test("killWindow does not throw for non-existent session", () => {
+    expect(() => killWindow("nonexistent-session-xyz-99999", "whatever")).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createSession / createWindow with cwd parameter
+// ---------------------------------------------------------------------------
+
+const CWD_SESSION = `atomic-cwd-${crypto.randomUUID().slice(0, 8)}`;
+
+describe.if(tmuxAvailable)("createSession and createWindow with cwd", () => {
+  afterAll(() => {
+    killSession(CWD_SESSION);
+  });
+
+  test("createSession with cwd creates a session in the given directory", async () => {
+    const paneId = createSession(CWD_SESSION, "bash", "cwd-test", "/tmp");
+    expect(paneId).toMatch(/^%\d+$/);
+    await Bun.sleep(300);
+    const captured = capturePane(paneId);
+    expect(typeof captured).toBe("string");
+  });
+
+  test("createWindow with cwd creates a window in the given directory", () => {
+    const paneId = createWindow(CWD_SESSION, "cwd-win", "bash", "/tmp");
+    expect(paneId).toMatch(/^%\d+$/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getCurrentSession
+// ---------------------------------------------------------------------------
+
+describe("getCurrentSession", () => {
+  const origTmux = process.env.TMUX;
+  const origPsmux = process.env.PSMUX;
+
+  afterEach(() => {
+    if (origTmux !== undefined) {
+      process.env.TMUX = origTmux;
+    } else {
+      delete process.env.TMUX;
+    }
+    if (origPsmux !== undefined) {
+      process.env.PSMUX = origPsmux;
+    } else {
+      delete process.env.PSMUX;
+    }
+  });
+
+  test("returns null when not inside tmux", () => {
+    delete process.env.TMUX;
+    delete process.env.PSMUX;
+    expect(getCurrentSession()).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// switchClient — error path (not inside tmux)
+// ---------------------------------------------------------------------------
+
+describe.if(tmuxAvailable)("switchClient", () => {
+  test("throws when called with non-existent session", () => {
+    expect(() => switchClient("nonexistent-session-xyz-99999")).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// attachOrSwitch
+// ---------------------------------------------------------------------------
+
+describe.if(tmuxAvailable)("attachOrSwitch", () => {
+  const origTmux = process.env.TMUX;
+  const origPsmux = process.env.PSMUX;
+
+  afterEach(() => {
+    if (origTmux !== undefined) {
+      process.env.TMUX = origTmux;
+    } else {
+      delete process.env.TMUX;
+    }
+    if (origPsmux !== undefined) {
+      process.env.PSMUX = origPsmux;
+    } else {
+      delete process.env.PSMUX;
+    }
+  });
+
+  test("outside tmux: calls attachSession (throws for non-existent session)", () => {
+    delete process.env.TMUX;
+    delete process.env.PSMUX;
+    expect(() => attachOrSwitch("nonexistent-session-xyz-99999")).toThrow(/Failed to attach/);
+  });
+
+  test("inside tmux: calls switchClient (throws for non-existent session)", () => {
+    process.env.TMUX = "/tmp/tmux-fake/default,12345,0";
+    delete process.env.PSMUX;
+    expect(() => attachOrSwitch("nonexistent-session-xyz-99999")).toThrow();
   });
 });

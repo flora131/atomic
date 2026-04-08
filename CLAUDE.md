@@ -38,6 +38,10 @@ Default to using Bun instead of Node.js.
 
 - Avoid ambiguous types like `any` and `unknown`. Use specific types instead.
 
+## Design Context
+
+Refer to `.impeccable.md`
+
 ## Testing
 
 Use `bun test` to run tests and make use of your testing-anti-patterns skill to write high quality tests. Here's an example of a simple test file:
@@ -67,17 +71,9 @@ Set any of the following environment variables to enable AI-friendly output:
 - Avoid Any and Unknown types.
 - Modularize code and avoid re-inventing the wheel. Use functionality of libraries and SDKs whenever possible.
 
-### E2E Tests
-
-Strictly follow the guidelines in the [E2E Testing](docs/e2e-testing.md) doc.
-
 ## Debugging
 
 You are bound to run into errors when testing. As you test and run into issues/edges cases, address issues in a file you create called `issues.md` to track progress and support future iterations. Delegate to the debugging sub-agent for support. Delete the file when all issues are resolved to keep the repository clean.
-
-### Interactive Debugging
-
-Rely on the `tmux-cli` tool (e.g. run `claude` in a `tmux` session using the `tmux-cli` tool) to debug the application E2E.
 
 ## Docs
 
@@ -107,26 +103,36 @@ Relevant resources (use your `playwright-cli` skill if the information is not av
       4. [Subagents](docs/claude-code/cli/subagents.md)
       5. [Tools](docs/claude-code/cli/tools.md)
 5. OpenTUI repo: `anomalyco/opentui`
+   1. [Docs](https://opentui.com/docs/getting-started/)
+   2. Agent Skill: `opentui` skill for usage patterns and avoiding anti-patterns
 
 ### Coding Agent Configuration Locations
 
-Note: There are three main coding agents used in this repository: OpenCode, Claude Code, and GitHub Copilot CLI. Each has specific configuration file locations. Their configurations may also differ in sytax and structure, so be sure to refer to the respective documentation for each agent when making changes:
+Note: There are three main coding agents used in this repository: OpenCode, Claude Code, and GitHub Copilot CLI. Each has specific configuration file locations. Their configurations may also differ in syntax and structure, so be sure to refer to the respective documentation for each agent when making changes:
 
 1. OpenCode:
     - global:
         - Linux/MacOS: `$XDG_CONFIG_HOME/.opencode` AND `~/.opencode`
         - Windows: `%HOMEPATH%\\.opencode`
-    - local: `.opencode` in the project directory
+
 2. Claude Code:
     - global:
         - Linux/MacOS: `~/.claude`
         - Windows: `%HOMEPATH%\\.claude`
     - local: `.claude` in the project directory
+
 3. Copilot CLI:
     - global:
         - Linux/MacOS: `$XDG_CONFIG_HOME/.copilot` AND `~/.copilot`
         - Windows: `%HOMEPATH%\\.copilot`
     - local: `.github` in the project directory
+
+**Agent Skill Locations**
+    - local:
+        - `.agents/skills` (`.claude/skills` is a symlink to `.agents/skills`)
+    - global:
+      - `~/.agents/skills` for OpenCode and Copilot CLI
+      - `~/.claude/skills` for Claude Code
 
 ## Releasing
 
@@ -157,12 +163,22 @@ The `--from-branch` flag extracts the version from the current branch name, so c
 3. Commit with the message `chore(release): bump version to v<version>`.
 4. Open a PR to `main`.
 
+## CI
+
+An overview of CI is described here: [CI Docs](docs/ci.md).
+
 ## Tips
 
 1. Note: for the `.github` config for GitHub Copilot CLI, ignore the `.github/workflows` and `.github/dependabot.yml` files as they are NOT for Copilot CLI.
-2. Use many research sub-agents in parallel for documentation overview to avoid populating your entire
-   context window. Spawn as many sub-agents as you need. You are an agent and can execute tasks until you
-   believe you are finished with the task even if it takes hundreds of iterations.
+2. Rely on agent skills to provide information on best practices during implementation. Here is a short list of Agent Skills that are incredibly relevant to this project that you should try to use when applicable:
+   - bun
+   - typescript-advanced-types
+   - typescript-expert
+   - typescript-react-reviewer
+   - opentui
+   - frontend-design
+   - test-driven-development
+3. Ask for clarity if you unsure about a change. The developer is your best friend and oftentimes can clarify intent.
 
 <EXTREMELY_IMPORTANT>
 This is a `bun` project. Do NOT use `node`, `npm`, `npx`, `yarn`, or `pnpm` commands. Always use `bun` commands.

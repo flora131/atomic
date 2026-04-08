@@ -157,13 +157,14 @@ Extract SDK-agnostic logic into shared helpers. This is the key pattern for buil
 
 ```
 .atomic/workflows/
-├── claude/my-workflow/index.ts     # Claude SDK code
-├── copilot/my-workflow/index.ts    # Copilot SDK code
-├── opencode/my-workflow/index.ts   # OpenCode SDK code
-└── my-workflow/helpers/
-    ├── prompts.ts                  # Prompt builders
-    ├── parsers.ts                  # Response parsers
-    └── validation.ts              # Validation logic
+└── my-workflow/
+    ├── claude/index.ts             # Claude SDK code
+    ├── copilot/index.ts            # Copilot SDK code
+    ├── opencode/index.ts           # OpenCode SDK code
+    └── helpers/
+        ├── prompts.ts              # Prompt builders
+        ├── parsers.ts              # Response parsers
+        └── validation.ts           # Validation logic
 ```
 
 ### Prompt builders
@@ -206,9 +207,9 @@ export function parseReviewResult(text: string): ReviewResult | null {
 ### Usage in workflows
 
 ```ts
-// .atomic/workflows/claude/my-workflow/index.ts
-import { buildPlanPrompt, buildReviewPrompt } from "../../my-workflow/helpers/prompts.ts";
-import { parseReviewResult } from "../../my-workflow/helpers/parsers.ts";
+// .atomic/workflows/my-workflow/claude/index.ts
+import { buildPlanPrompt, buildReviewPrompt } from "../helpers/prompts.ts";
+import { parseReviewResult } from "../helpers/parsers.ts";
 
 // ... use in run() callbacks
 ```

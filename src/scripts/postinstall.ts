@@ -109,22 +109,28 @@ async function installGlobalSkills(): Promise<void> {
  * deps (copilot-sdk, opencode-sdk, claude-agent-sdk) resolve correctly.
  */
 async function linkLocalWorkflowSdk(repoRoot: string): Promise<void> {
-  const pkgPath = resolve(repoRoot, ".atomic", "workflows", "package.json");
+  const workflowsDir = resolve(repoRoot, ".atomic", "workflows");
+  const pkgPath = resolve(workflowsDir, "package.json");
   const pkgFile = Bun.file(pkgPath);
   if (!(await pkgFile.exists())) return;
 
   const pkg = await pkgFile.json();
   const localRef = "file:../../packages/workflow-sdk";
-  if (pkg.dependencies?.["@bastani/atomic-workflows"] === localRef) return;
+  const needsRewrite =
+    pkg.dependencies?.["@bastani/atomic-workflows"] !== localRef;
 
-  pkg.dependencies = pkg.dependencies ?? {};
-  pkg.dependencies["@bastani/atomic-workflows"] = localRef;
-  await Bun.write(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+  if (needsRewrite) {
+    pkg.dependencies = pkg.dependencies ?? {};
+    pkg.dependencies["@bastani/atomic-workflows"] = localRef;
+    await Bun.write(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+  }
 
+  // Always run bun install — even if the package.json was already correct,
+  // node_modules may not exist yet (fresh clone).
   const bunPath = Bun.which("bun");
   if (bunPath) {
     const proc = Bun.spawn([bunPath, "install"], {
-      cwd: resolve(repoRoot, ".atomic", "workflows"),
+      cwd: workflowsDir,
       stdio: ["ignore", "ignore", "ignore"],
     });
     await proc.exited;
@@ -135,6 +141,21 @@ async function main(): Promise<void> {
   // src/scripts/postinstall.ts → repo root is two levels up
   const repoRoot = resolve(import.meta.dir, "..", "..");
 
+  if (isSourceInstall()) {
+    // Dev: only install workflow SDK deps in the local .atomic/workflows
+    // directory. The global ~/.atomic/workflows is left untouched.
+    try {
+      await linkLocalWorkflowSdk(repoRoot);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(
+        `[atomic] Warning: failed to link local workflow SDK: ${message}`,
+      );
+    }
+    return;
+  }
+
+  // Binary install: copy workflow templates to ~/.atomic/workflows and install deps there.
   try {
     const copied = await installGlobalWorkflows(repoRoot);
     if (copied > 0) {
@@ -147,24 +168,6 @@ async function main(): Promise<void> {
     console.warn(
       `[atomic] Warning: failed to install workflow templates: ${message}`,
     );
-  }
-
-  if (isSourceInstall()) {
-    // Link local .atomic/workflows to the workspace workflow-sdk so
-    // transitive SDK deps resolve correctly during development.
-    try {
-      await linkLocalWorkflowSdk(repoRoot);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.warn(
-        `[atomic] Warning: failed to link local workflow SDK: ${message}`,
-      );
-    }
-
-    // Dev environment already has every bundled skill on disk under
-    // `.claude/`, `.opencode/`, `.agents/`, etc. — skip the network-backed
-    // `npx skills` step entirely.
-    return;
   }
 
   try {

@@ -35,14 +35,13 @@ Runs on all PRs that touch source code, config, or agent definitions.
 
 ```
   PR opened/updated
-  (paths: *.ts, *.tsx, *.js, *.jsx, package.json, tsconfig.json, agents/*.md)
+  (paths: *.ts, *.tsx, *.js, *.jsx, package.json, bun.lock, tsconfig.json)
          │
          ▼
   ┌──────────────────────────┐
   │    TypeScript Tests      │
   │  ┌────────────────────┐  │
   │  │ bun ci             │  │
-  │  │ validate:agents    │  │
   │  │ typecheck          │  │
   │  │ lint               │  │
   │  │ test:coverage      │  │

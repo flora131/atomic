@@ -101,7 +101,7 @@ export async function workflowCommand(options: {
 
     if (workflows.length === 0) {
       console.log("No workflows found.");
-      console.log("Create a workflow in .atomic/workflows/<agent>/<name>/index.ts");
+      console.log("Create a workflow in .atomic/workflows/<name>/<agent>/index.ts");
       return 0;
     }
 
@@ -183,8 +183,8 @@ export async function workflowCommand(options: {
   if (!discovered) {
     console.error(`${COLORS.red}Error: Workflow '${options.name}' not found for agent '${agent}'.${COLORS.reset}`);
     console.error(`\nExpected location:`);
-    console.error(`  .atomic/workflows/${agent}/${options.name}/index.ts  ${COLORS.dim}(local)${COLORS.reset}`);
-    console.error(`  ~/.atomic/workflows/${agent}/${options.name}/index.ts ${COLORS.dim}(global)${COLORS.reset}`);
+    console.error(`  .atomic/workflows/${options.name}/${agent}/index.ts  ${COLORS.dim}(local)${COLORS.reset}`);
+    console.error(`  ~/.atomic/workflows/${options.name}/${agent}/index.ts ${COLORS.dim}(global)${COLORS.reset}`);
 
     const available = await discoverWorkflows(undefined, agent);
     if (available.length > 0) {

@@ -109,6 +109,15 @@ plugins/**/run.cmd text eol=lf
 # Text files where line endings should be preserved
 *.patch    -text
 
+# Symlinks
+# .claude/skills is a symlink to ../.agents/skills so Claude Code discovers
+# shared agent skills.  On Windows without Developer Mode, Git checks out
+# symlinks as plain text files containing the target path.  This does not
+# affect runtime — the codebase resolves skill paths dynamically — but
+# `git clone` with core.symlinks=true (requires Developer Mode or admin
+# privileges) is recommended for full parity.
+.claude/skills  symlink
+
 #
 # Exclude files from exporting
 #

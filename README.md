@@ -33,7 +33,6 @@ Atomic is an open-source **multi-agent harness** that orchestrates **Claude Code
 - [Configuration](#configuration)
 - [Installation Options](#installation-options)
 - [Updating & Uninstalling](#updating--uninstalling)
-- [Telemetry](#telemetry)
 - [Troubleshooting](#troubleshooting)
 - [FAQ](#faq)
 - [Contributing](#contributing)
@@ -186,7 +185,7 @@ Each agent gets its own configuration directory (`.claude/`, `.opencode/`, `.git
 
 Every team has a process — triage bugs this way, ship features that way, review PRs with these checks. Most of it lives in a wiki nobody reads or in one senior engineer's head. The **Workflow SDK** (`@bastani/atomic-workflows`) lets you encode that process as a chain of named sessions with raw provider SDK code — then run it from the CLI.
 
-Drop a `.ts` file in `.atomic/workflows/<agent>/<name>/index.ts` and run it:
+Drop a `.ts` file in `.atomic/workflows/<name>/<agent>/index.ts` and run it:
 
 ```bash
 atomic workflow -n hello -a claude "describe this project"
@@ -196,7 +195,7 @@ atomic workflow -n hello -a claude "describe this project"
 <summary>See an example of the workflow definition</summary>
 
 ```ts
-// .atomic/workflows/claude/hello/index.ts
+// .atomic/workflows/hello/claude/index.ts
 import { defineWorkflow, createClaudeSession, claudeQuery } from "@bastani/atomic-workflows";
 
 export default defineWorkflow({
@@ -244,7 +243,7 @@ export default defineWorkflow({
 | **tmux-based execution** | Each session runs in its own tmux pane for isolation and observability |
 | **Native SDK access** | Use `createClaudeSession`, `claudeQuery`, Copilot SDK, or OpenCode SDK directly |
 
-Drop a `.ts` file in `.atomic/workflows/<agent>/<name>/` (project-local) or `~/.atomic/workflows/` (global). You can also ask Atomic to create workflows for you:
+Drop a `.ts` file in `.atomic/workflows/<name>/<agent>/` (project-local) or `~/.atomic/workflows/` (global). You can also ask Atomic to create workflows for you:
 
 ```
 Use your workflow-creator skill to create a workflow that plans, implements, and reviews a feature.
@@ -258,7 +257,7 @@ Use your workflow-creator skill to create a workflow that plans, implements, and
 | Method | Purpose |
 | --- | --- |
 | `defineWorkflow({ name, description })` | Entry point — returns a `WorkflowBuilder` |
-| `.session({ name, description?, run })` | Add a named session with a `run(ctx)` callback |
+| `.session({ name, description?, run })` | Add a named session (or pass an array for parallel execution) |
 | `.compile()` | **Required** — terminal method that seals the workflow definition |
 
 #### Session Context (`ctx`)
@@ -299,7 +298,7 @@ Each provider saves transcripts differently:
 2. Session names must be unique within a workflow
 3. Sessions execute sequentially in the order they are defined
 4. Each session runs in its own tmux pane with the chosen agent
-5. Workflows are organized per-agent: `.atomic/workflows/<agent>/<name>/index.ts`
+5. Workflows are organized per-workflow: `.atomic/workflows/<name>/<agent>/index.ts`
 
 For complete documentation, see the [Workflow SDK package](packages/workflow-sdk/).
 
@@ -571,7 +570,7 @@ atomic chat -a claude --verbose              # Forward --verbose to claude
 
 | Flag | Description |
 | --- | --- |
-| `-n, --name <name>` | Workflow name (matches directory under `.atomic/workflows/<agent>/`) |
+| `-n, --name <name>` | Workflow name (matches directory under `.atomic/workflows/<name>/`) |
 | `-a, --agent <name>` | Agent: `claude`, `opencode`, `copilot` |
 | `-l, --list` | List available workflows |
 | `[prompt...]` | Prompt for the workflow |
@@ -844,69 +843,6 @@ rm -f .github/copilot-instructions.md  # Copilot
 Remove-Item -Path ".claude" -Recurse -Force; Remove-Item "CLAUDE.md" -Force
 Remove-Item -Path ".opencode" -Recurse -Force; Remove-Item "AGENTS.md" -Force
 Remove-Item -Path ".github\copilot-instructions.md" -Force
-```
-
-</details>
-
----
-
-## Telemetry
-
-Atomic collects anonymous usage telemetry to improve the product. Telemtry is opt-in.
-
-**Collected:** Command names, agent type, success/failure status, session metrics.
-**Never collected:** Prompts, file paths, code, IP addresses, PII.
-
-### Opt Out After
-
-```bash
-atomic config set telemetry false
-# or
-export ATOMIC_DISABLE_TELEMETRY=1
-```
-
-<details>
-<summary>More telemetry details</summary>
-
-**Privacy features:**
-
-- Anonymous machine-derived ID
-- Local JSONL logging before any remote transmission
-- Auto-disabled in CI environments (`CI=true`)
-- First-run consent during `atomic init`
-
-**Local log paths:**
-
-| Platform | Path |
-| --- | --- |
-| Windows | `%APPDATA%\atomic\telemetry\` |
-| macOS | `~/Library/Application Support/atomic/telemetry/` |
-| Linux | `~/.local/share/atomic/telemetry/` |
-
-**Re-enable:**
-
-```bash
-atomic config set telemetry true
-unset ATOMIC_DISABLE_TELEMETRY
-```
-
-**Windows PowerShell opt-out:**
-
-```powershell
-$env:ATOMIC_DISABLE_TELEMETRY = "1"
-# Or permanently:
-[Environment]::SetEnvironmentVariable("ATOMIC_DISABLE_TELEMETRY", "1", "User")
-```
-
-**Programmatic:**
-
-```typescript
-import { loadTelemetryConfig, isTelemetryEnabled } from "@bastani/atomic";
-
-if (isTelemetryEnabled()) {
-  const config = loadTelemetryConfig();
-  console.log(config.enabled, config.localLogPath);
-}
 ```
 
 </details>

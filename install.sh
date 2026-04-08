@@ -577,9 +577,11 @@ install_tooling() {
 }
 
 # Install bundled workflow templates to ~/.atomic/workflows/
-# Copies from the config data dir, skipping existing workflow directories
+# Copies from the config data dir, skipping existing agent directories
 # to preserve user customizations. Shared files (package.json, tsconfig,
 # helpers) are always updated to ensure SDK compatibility.
+#
+# Layout: .atomic/workflows/<workflow_name>/<agent>/index.ts
 install_workflows() {
     local src_dir="${DATA_DIR}/.atomic/workflows"
     local dest_dir="${ATOMIC_HOME}/workflows"
@@ -591,44 +593,55 @@ install_workflows() {
     info "Installing workflow templates to ${dest_dir}..."
     mkdir -p "$dest_dir"
 
-    # Enumerate source: copy root files and non-agent directories (always update),
-    # then handle agent directories with per-workflow skip-if-exists logic.
+    # Copy root files (package.json, tsconfig.json, etc.) — always overwrite
     for entry in "$src_dir"/*; do
         [[ -e "$entry" ]] || continue
         local name
         name=$(basename "$entry")
         [[ "$name" == "node_modules" ]] && continue
-
-        if [[ -f "$entry" ]]; then
-            cp "$entry" "$dest_dir/$name"
-        elif [[ -d "$entry" ]]; then
-            case "$name" in
-                copilot|opencode|claude) ;; # handled below
-                *) mkdir -p "$dest_dir/$name" && cp -r "$entry/." "$dest_dir/$name/" ;;
-            esac
-        fi
+        [[ -f "$entry" ]] && cp "$entry" "$dest_dir/$name"
     done
     # Copy dotfiles (only .gitignore — skip other hidden files to match TS behavior)
     if [[ -f "$src_dir/.gitignore" ]]; then
         cp "$src_dir/.gitignore" "$dest_dir/.gitignore"
     fi
 
-    # Copy per-agent workflow directories (skip existing to preserve user customizations)
+    # Copy per-workflow directories, preserving existing agent implementations
     local copied=0
-    for agent in copilot opencode claude; do
-        local agent_src="$src_dir/$agent"
-        if [[ ! -d "$agent_src" ]]; then
-            continue
-        fi
-        mkdir -p "$dest_dir/$agent"
-        for workflow_dir in "$agent_src"/*/; do
-            [[ -d "$workflow_dir" ]] || continue
-            local workflow_name
-            workflow_name=$(basename "$workflow_dir")
-            local dest_workflow="$dest_dir/$agent/$workflow_name"
-            if [[ ! -d "$dest_workflow" ]]; then
-                cp -r "$workflow_dir" "$dest_workflow"
-                copied=$((copied + 1))
+    local agent_names="copilot opencode claude"
+    for workflow_entry in "$src_dir"/*/; do
+        [[ -d "$workflow_entry" ]] || continue
+        local wf_name
+        wf_name=$(basename "$workflow_entry")
+        [[ "$wf_name" == "node_modules" ]] && continue
+
+        local dest_wf="$dest_dir/$wf_name"
+        mkdir -p "$dest_wf"
+
+        for sub_entry in "$workflow_entry"/*; do
+            [[ -e "$sub_entry" ]] || continue
+            local sub_name
+            sub_name=$(basename "$sub_entry")
+
+            if [[ -f "$sub_entry" ]]; then
+                # Files within a workflow dir — always overwrite
+                cp "$sub_entry" "$dest_wf/$sub_name"
+            elif [[ -d "$sub_entry" ]]; then
+                local dest_sub="$dest_wf/$sub_name"
+                case " $agent_names " in
+                    *" $sub_name "*)
+                        # Agent directories — skip if already exists
+                        if [[ ! -d "$dest_sub" ]]; then
+                            cp -r "$sub_entry" "$dest_sub"
+                            copied=$((copied + 1))
+                        fi
+                        ;;
+                    *)
+                        # Non-agent directories (e.g., helpers/) — always update
+                        mkdir -p "$dest_sub"
+                        cp -r "$sub_entry/." "$dest_sub/"
+                        ;;
+                esac
             fi
         done
     done

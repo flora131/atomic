@@ -33,7 +33,6 @@ Atomic is an open-source **multi-agent harness** that orchestrates **Claude Code
 - [Configuration](#configuration)
 - [Installation Options](#installation-options)
 - [Updating & Uninstalling](#updating--uninstalling)
-- [Telemetry](#telemetry)
 - [Troubleshooting](#troubleshooting)
 - [FAQ](#faq)
 - [Contributing](#contributing)
@@ -844,69 +843,6 @@ rm -f .github/copilot-instructions.md  # Copilot
 Remove-Item -Path ".claude" -Recurse -Force; Remove-Item "CLAUDE.md" -Force
 Remove-Item -Path ".opencode" -Recurse -Force; Remove-Item "AGENTS.md" -Force
 Remove-Item -Path ".github\copilot-instructions.md" -Force
-```
-
-</details>
-
----
-
-## Telemetry
-
-Atomic collects anonymous usage telemetry to improve the product. Telemetry is opt-in.
-
-**Collected:** Command names, agent type, success/failure status, session metrics.
-**Never collected:** Prompts, file paths, code, IP addresses, PII.
-
-### Opt Out After
-
-```bash
-atomic config set telemetry false
-# or
-export ATOMIC_DISABLE_TELEMETRY=1
-```
-
-<details>
-<summary>More telemetry details</summary>
-
-**Privacy features:**
-
-- Anonymous machine-derived ID
-- Local JSONL logging before any remote transmission
-- Auto-disabled in CI environments (`CI=true`)
-- First-run consent during `atomic init`
-
-**Local log paths:**
-
-| Platform | Path |
-| --- | --- |
-| Windows | `%APPDATA%\atomic\telemetry\` |
-| macOS | `~/Library/Application Support/atomic/telemetry/` |
-| Linux | `~/.local/share/atomic/telemetry/` |
-
-**Re-enable:**
-
-```bash
-atomic config set telemetry true
-unset ATOMIC_DISABLE_TELEMETRY
-```
-
-**Windows PowerShell opt-out:**
-
-```powershell
-$env:ATOMIC_DISABLE_TELEMETRY = "1"
-# Or permanently:
-[Environment]::SetEnvironmentVariable("ATOMIC_DISABLE_TELEMETRY", "1", "User")
-```
-
-**Programmatic:**
-
-```typescript
-import { loadTelemetryConfig, isTelemetryEnabled } from "@bastani/atomic";
-
-if (isTelemetryEnabled()) {
-  const config = loadTelemetryConfig();
-  console.log(config.enabled, config.localLogPath);
-}
 ```
 
 </details>

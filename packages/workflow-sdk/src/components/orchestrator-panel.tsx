@@ -13,6 +13,7 @@ import { PanelStore } from "./orchestrator-panel-store.ts";
 import { StoreContext, ThemeContext, TmuxSessionContext } from "./orchestrator-panel-contexts.ts";
 import type { PanelSession, PanelOptions } from "./orchestrator-panel-types.ts";
 import { SessionGraphPanel } from "./session-graph-panel.tsx";
+import { ErrorBoundary } from "./error-boundary.tsx";
 
 export class OrchestratorPanel {
   private store: PanelStore;
@@ -32,7 +33,25 @@ export class OrchestratorPanel {
       <StoreContext.Provider value={store}>
         <ThemeContext.Provider value={graphTheme}>
           <TmuxSessionContext.Provider value={tmuxSession}>
-            <SessionGraphPanel />
+            <ErrorBoundary
+              fallback={(err) => (
+                <box
+                  width="100%"
+                  height="100%"
+                  justifyContent="center"
+                  alignItems="center"
+                  backgroundColor={graphTheme.background}
+                >
+                  <text>
+                    <span fg={graphTheme.error}>
+                      {`Fatal render error: ${err.message}`}
+                    </span>
+                  </text>
+                </box>
+              )}
+            >
+              <SessionGraphPanel />
+            </ErrorBoundary>
           </TmuxSessionContext.Provider>
         </ThemeContext.Provider>
       </StoreContext.Provider>,

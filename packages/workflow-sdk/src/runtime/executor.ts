@@ -25,6 +25,9 @@ import { loadWorkflowDefinition } from "./discovery.ts";
 import { clearClaudeSession } from "../providers/claude.ts";
 import { OrchestratorPanel, type PanelSession } from "./panel.tsx";
 
+/** Maximum time (ms) to wait for an agent's server to become reachable. */
+const SERVER_WAIT_TIMEOUT_MS = 60_000;
+
 /** Agent CLI configuration for spawning in tmux panes. */
 const AGENT_CLI: Record<AgentType, { cmd: string; chatFlags: string[] }> = {
   copilot: { cmd: "copilot", chatFlags: ["--add-dir", ".", "--yolo", "--experimental"] },
@@ -105,7 +108,7 @@ async function waitForServer(agent: AgentType, port: number, paneId: string): Pr
   if (agent === "claude") return "";
 
   const serverUrl = `localhost:${port}`;
-  const deadline = Date.now() + 60_000;
+  const deadline = Date.now() + SERVER_WAIT_TIMEOUT_MS;
 
   // Wait for the TUI to render first
   while (Date.now() < deadline) {
@@ -227,38 +230,50 @@ export async function executeWorkflow(options: WorkflowRunOptions): Promise<void
 // Session execution helpers
 // ============================================================================
 
-function renderMessagesToText(messages: SavedMessage[]): string {
+/** Type guard for objects with a string `content` property (Copilot assistant.message data). */
+export function hasContent(value: unknown): value is { content: string } {
+  return typeof value === "object" && value !== null && "content" in value && typeof (value as { content: unknown }).content === "string";
+}
+
+/** Type guard for Claude message objects whose `content` is an array of text blocks. */
+export function isTextBlockArray(value: unknown): value is Array<{ type: "text"; text: string }> {
+  return Array.isArray(value) && value.every(
+    (b) => typeof b === "object" && b !== null && b.type === "text" && typeof b.text === "string",
+  );
+}
+
+export function renderMessagesToText(messages: SavedMessage[]): string {
   return messages
     .map((m) => {
-      if (m.provider === "copilot") {
-        if (m.data.type !== "assistant.message") return "";
-        return String((m.data.data as Record<string, unknown>).content ?? "");
-      }
-      if (m.provider === "opencode") {
-        return m.data.parts
-          .filter((p) => p.type === "text" && "text" in p)
-          .map((p) => String((p as { text: string }).text))
-          .join("\n");
-      }
-      if (m.provider === "claude") {
-        if (m.data.type !== "assistant") return "";
-        const msg = m.data.message;
-        if (typeof msg === "string") return msg;
-        if (msg && typeof msg === "object" && "content" in msg) {
-          const content = (msg as Record<string, unknown>).content;
-          if (typeof content === "string") return content;
-          if (Array.isArray(content)) {
-            return content
-              .filter((b: Record<string, unknown>) => b.type === "text")
-              .map((b: Record<string, unknown>) => String(b.text ?? ""))
-              .join("\n");
-          }
+      switch (m.provider) {
+        case "copilot": {
+          if (m.data.type !== "assistant.message") return "";
+          // SessionEvent["data"] for assistant.message has a typed `content: string`
+          return hasContent(m.data.data) ? m.data.data.content : "";
         }
-        return JSON.stringify(msg);
+        case "opencode": {
+          // Part is a discriminated union; filter to TextPart which has { type: "text", text: string }
+          return m.data.parts
+            .filter((p): p is Extract<typeof p, { type: "text" }> => p.type === "text")
+            .map((p) => p.text)
+            .join("\n");
+        }
+        case "claude": {
+          if (m.data.type !== "assistant") return "";
+          const msg = m.data.message;
+          if (typeof msg === "string") return msg;
+          if (msg && typeof msg === "object" && "content" in msg) {
+            const { content } = msg as { content: unknown };
+            if (typeof content === "string") return content;
+            if (isTextBlockArray(content)) {
+              return content.map((b) => b.text).join("\n");
+            }
+          }
+          return JSON.stringify(msg);
+        }
       }
-      return "";
     })
-    .filter((txt) => txt.length > 0)
+    .filter((txt): txt is string => typeof txt === "string" && txt.length > 0)
     .join("\n\n");
 }
 
@@ -307,16 +322,9 @@ async function runSingleSession(opts: RunSessionOptions): Promise<SessionResult>
   const messagesPath = join(sessionDir, "messages.json");
   const inboxPath = join(sessionDir, "inbox.md");
 
-  // Snapshot existing Claude session IDs before the session runs so we
-  // can diff after to find the new one.
-  let knownClaudeSessionIds: Set<string> | null = null;
-  if (agent === "claude") {
-    try {
-      const { listSessions } = await import("@anthropic-ai/claude-agent-sdk");
-      const existing = await listSessions({ dir: process.cwd() });
-      knownClaudeSessionIds = new Set(existing.map((s) => s.sessionId));
-    } catch {}
-  }
+  // Record a timestamp before the session runs so we can find the Claude
+  // session created during this run (immune to concurrent session creation).
+  const claudeSessionStartedAfter = agent === "claude" ? Date.now() : 0;
 
   async function wrapMessages(arg: SessionEvent[] | SessionPromptResponse | string): Promise<SavedMessage[]> {
     if (typeof arg === "string") {
@@ -324,10 +332,14 @@ async function runSingleSession(opts: RunSessionOptions): Promise<SessionResult>
       const dir = process.cwd();
       const sessions = await listSessions({ dir });
 
-      const candidate = sessions.find(
-        (s) => knownClaudeSessionIds != null && !knownClaudeSessionIds.has(s.sessionId),
-      );
+      // Find the most-recently-modified session created after our start timestamp.
+      // This is race-safe: even if concurrent processes create sessions, we pick
+      // the one whose lastModified falls within our execution window.
+      const candidates = sessions
+        .filter((s) => s.lastModified >= claudeSessionStartedAfter)
+        .sort((a, b) => b.lastModified - a.lastModified);
 
+      const candidate = candidates[0];
       if (!candidate) {
         throw new Error(`wrapMessages: no new Claude session found for ${dir}`);
       }

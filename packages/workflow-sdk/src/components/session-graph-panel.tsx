@@ -39,6 +39,10 @@ import { Statusline } from "./statusline.tsx";
 const PULSE_INTERVAL_MS = 60;
 /** Total frames in one pulse cycle (~2s at 60ms/frame). */
 const PULSE_FRAME_COUNT = 32;
+/** Timeout (ms) for "gg" double-tap to jump to root node. */
+const GG_DOUBLE_TAP_MS = 300;
+/** Duration (ms) to display the attach flash message in the statusline. */
+const ATTACH_MSG_DISPLAY_MS = 2400;
 
 export function SessionGraphPanel() {
   const store = useStore();
@@ -105,6 +109,13 @@ export function SessionGraphPanel() {
   const [attachMsg, setAttachMsg] = useState("");
   const attachTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Clear attach timer on unmount to prevent state updates after teardown
+  useEffect(() => {
+    return () => {
+      if (attachTimerRef.current) clearTimeout(attachTimerRef.current);
+    };
+  }, []);
+
   const doAttach = useCallback(
     (id: string) => {
       const n = layout.map[id];
@@ -115,7 +126,7 @@ export function SessionGraphPanel() {
 
       if (attachTimerRef.current) clearTimeout(attachTimerRef.current);
       setAttachMsg(`\u2192 ${n.name}`);
-      attachTimerRef.current = setTimeout(() => setAttachMsg(""), 2400);
+      attachTimerRef.current = setTimeout(() => setAttachMsg(""), ATTACH_MSG_DISPLAY_MS);
 
       try {
         tmuxRun(["select-window", "-t", `${tmuxSession}:${n.name}`]);
@@ -228,7 +239,7 @@ export function SessionGraphPanel() {
     // gg: focus root (double-tap within 300ms)
     if (key.name === "g" && !key.shift) {
       const now = Date.now();
-      if (lastKeyRef.current.key === "g" && now - lastKeyRef.current.time < 300) {
+      if (lastKeyRef.current.key === "g" && now - lastKeyRef.current.time < GG_DOUBLE_TAP_MS) {
         setFocusedId(store.sessions[0]?.name ?? "");
         lastKeyRef.current.key = "";
       } else {

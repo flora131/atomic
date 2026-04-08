@@ -98,6 +98,12 @@ jobs:
           cp -r .atomic/workflows config-staging/.atomic/workflows
           rm -rf config-staging/.atomic/workflows/node_modules
           rm -f config-staging/.atomic/workflows/package-lock.json
+          rm -f config-staging/.atomic/workflows/bun.lock
+          # Rewrite the dev file: reference to the published npm version
+          SDK_VERSION=$(jq -r .version packages/workflow-sdk/package.json)
+          jq --arg v "^${SDK_VERSION}" '.dependencies["@bastani/atomic-workflows"] = $v' \
+            config-staging/.atomic/workflows/package.json > config-staging/.atomic/workflows/package.json.tmp
+          mv config-staging/.atomic/workflows/package.json.tmp config-staging/.atomic/workflows/package.json
           # Strip dev-only tsconfig paths alias (points to monorepo packages/ dir)
           cat > config-staging/.atomic/workflows/tsconfig.json << 'TSEOF'
           {

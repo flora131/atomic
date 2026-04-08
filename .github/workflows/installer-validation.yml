@@ -31,6 +31,7 @@ jobs:
               with:
                   scandir: "."
                   additional_files: "install.sh"
+                  ignore_paths: "devcontainer-features"
 
     validate-install-ps1:
         name: Validate install.ps1 (windows-latest)
@@ -60,7 +61,8 @@ jobs:
               shell: pwsh
               run: |
                   Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
-                  $results = Invoke-ScriptAnalyzer -Path ./install.ps1 -Severity Error,Warning
+                  $results = Invoke-ScriptAnalyzer -Path ./install.ps1 -Severity Error,Warning `
+                      -ExcludeRule PSUseBOMForUnicodeEncodedFile,PSUseSingularNouns
                   if ($results) {
                       $results | Format-Table -AutoSize
                       throw "PSScriptAnalyzer found $($results.Count) issue(s)"

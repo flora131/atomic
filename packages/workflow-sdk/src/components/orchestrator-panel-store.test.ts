@@ -158,10 +158,10 @@ describe("PanelStore", () => {
       store.setWorkflowInfo("wf", "claude", [{ name: "worker", parents: [] }], "prompt");
     });
 
-    test("still emits (version bumps) even when session not found", () => {
+    test("does not emit (version unchanged) when session not found", () => {
       const before = store.version;
       store.startSession("nonexistent");
-      expect(store.version).toBe(before + 1);
+      expect(store.version).toBe(before);
     });
 
     test("does not mutate existing sessions", () => {
@@ -171,6 +171,13 @@ describe("PanelStore", () => {
         expect(s.name).toBe(before[i]!.name);
         expect(s.status).toBe(before[i]!.status);
       });
+    });
+
+    test("does not notify listeners when session not found", () => {
+      const listener = mock(() => {});
+      store.subscribe(listener);
+      store.startSession("nonexistent");
+      expect(listener).toHaveBeenCalledTimes(0);
     });
   });
 
@@ -200,10 +207,10 @@ describe("PanelStore", () => {
       expect(store.version).toBe(before + 1);
     });
 
-    test("still emits when session not found", () => {
+    test("does not emit when session not found", () => {
       const before = store.version;
       store.completeSession("nonexistent");
-      expect(store.version).toBe(before + 1);
+      expect(store.version).toBe(before);
     });
   });
 

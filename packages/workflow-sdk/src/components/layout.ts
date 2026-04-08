@@ -33,6 +33,43 @@ export interface LayoutResult {
   height: number;
 }
 
+// ─── Layout Helpers ──────────────────────────────
+
+/** Shift a node and all its tree descendants by `dx` pixels horizontally. */
+function shiftSubtree(n: LayoutNode, dx: number): void {
+  n.x += dx;
+  for (const c of n.children) shiftSubtree(c, dx);
+}
+
+/**
+ * Walk every depth level and push overlapping nodes apart.
+ * Merge-node shifts can cause a sub-tree to land on top of nodes that
+ * were already placed by the root-tree pass.  This resolves those
+ * collisions by nudging the rightmost overlapping node (and its
+ * descendants) to the right.
+ */
+function resolveOverlaps(map: Record<string, LayoutNode>): void {
+  const byDepth: Record<number, LayoutNode[]> = {};
+  for (const n of Object.values(map)) {
+    (byDepth[n.depth] ??= []).push(n);
+  }
+
+  const depths = Object.keys(byDepth).map(Number).sort((a, b) => a - b);
+  for (const d of depths) {
+    const nodes = byDepth[d]!;
+    if (nodes.length < 2) continue;
+    nodes.sort((a, b) => a.x - b.x);
+    for (let i = 1; i < nodes.length; i++) {
+      const prev = nodes[i - 1]!;
+      const curr = nodes[i]!;
+      const minX = prev.x + NODE_W + H_GAP;
+      if (curr.x < minX) {
+        shiftSubtree(curr, minX - curr.x);
+      }
+    }
+  }
+}
+
 // ─── Layout Computation ───────────────────────────
 
 export function computeLayout(sessions: SessionData[]): LayoutResult {
@@ -122,16 +159,16 @@ export function computeLayout(sessions: SessionData[]): LayoutResult {
       place(m);
       const currentCenter = m.x + Math.floor(NODE_W / 2);
       const dx = avgCenter - currentCenter;
-      function shift(n: LayoutNode) {
-        n.x += dx;
-        for (const c of n.children) shift(c);
-      }
-      shift(m);
+      shiftSubtree(m, dx);
     } else {
       m.x = avgCenter - Math.floor(NODE_W / 2);
       m.y = yAt(m.depth);
     }
   }
+
+  // Resolve horizontal overlaps that merge-node shifts may have introduced.
+  // Process depths in ascending order so child shifts cascade correctly.
+  resolveOverlaps(map);
 
   for (const n of Object.values(map)) {
     n.x += PAD;

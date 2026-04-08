@@ -3,6 +3,8 @@ import {
   renderMessagesToText,
   hasContent,
   isTextBlockArray,
+  escBash,
+  escPwsh,
 } from "./executor.ts";
 import type { SavedMessage } from "../types.ts";
 import type { SessionEvent } from "@github/copilot-sdk";
@@ -292,5 +294,122 @@ describe("isTextBlockArray", () => {
 
   test("returns false when array elements are not objects", () => {
     expect(isTextBlockArray(["text"])).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// escBash — shell escaping for bash double-quoted strings
+// ---------------------------------------------------------------------------
+
+describe("escBash", () => {
+  test("returns empty string unchanged", () => {
+    expect(escBash("")).toBe("");
+  });
+
+  test("passes through plain alphanumeric text", () => {
+    expect(escBash("hello world 123")).toBe("hello world 123");
+  });
+
+  test("escapes double quotes", () => {
+    expect(escBash('say "hello"')).toBe('say \\"hello\\"');
+  });
+
+  test("escapes backslashes", () => {
+    expect(escBash("a\\b")).toBe("a\\\\b");
+  });
+
+  test("escapes dollar signs", () => {
+    expect(escBash("$HOME")).toBe("\\$HOME");
+  });
+
+  test("escapes backticks", () => {
+    expect(escBash("`whoami`")).toBe("\\`whoami\\`");
+  });
+
+  test("escapes exclamation marks (history expansion)", () => {
+    expect(escBash("hello!")).toBe("hello\\!");
+  });
+
+  test("replaces newlines with spaces", () => {
+    expect(escBash("line1\nline2\nline3")).toBe("line1 line2 line3");
+  });
+
+  test("replaces carriage returns with spaces", () => {
+    expect(escBash("line1\r\nline2")).toBe("line1 line2");
+  });
+
+  test("collapses consecutive newlines into a single space", () => {
+    expect(escBash("a\n\n\nb")).toBe("a b");
+  });
+
+  test("strips null bytes", () => {
+    expect(escBash("ab\0cd")).toBe("abcd");
+  });
+
+  test("preserves single quotes (literal in double-quoted bash strings)", () => {
+    expect(escBash("it's fine")).toBe("it's fine");
+  });
+
+  test("preserves parentheses, braces, and brackets (safe in double quotes)", () => {
+    expect(escBash("(a) {b} [c]")).toBe("(a) {b} [c]");
+  });
+
+  test("preserves pipe, ampersand, and semicolon (safe in double quotes)", () => {
+    expect(escBash("a | b & c ; d")).toBe("a | b & c ; d");
+  });
+
+  test("handles a string with all special characters combined", () => {
+    expect(escBash('$`"\\!\0')).toBe('\\$\\`\\"\\\\\\!');
+  });
+
+  test("handles unicode characters", () => {
+    expect(escBash("héllo wörld 日本語")).toBe("héllo wörld 日本語");
+  });
+
+  test("handles very long strings without error", () => {
+    const long = "a".repeat(10_000);
+    expect(escBash(long)).toBe(long);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// escPwsh — shell escaping for PowerShell double-quoted strings
+// ---------------------------------------------------------------------------
+
+describe("escPwsh", () => {
+  test("returns empty string unchanged", () => {
+    expect(escPwsh("")).toBe("");
+  });
+
+  test("passes through plain text", () => {
+    expect(escPwsh("hello world")).toBe("hello world");
+  });
+
+  test("escapes backticks (PowerShell escape character)", () => {
+    expect(escPwsh("a`b")).toBe("a``b");
+  });
+
+  test("escapes double quotes", () => {
+    expect(escPwsh('say "hi"')).toBe('say `"hi`"');
+  });
+
+  test("escapes dollar signs", () => {
+    expect(escPwsh("$env:HOME")).toBe("`$env:HOME");
+  });
+
+  test("converts newlines to backtick-n", () => {
+    expect(escPwsh("line1\nline2")).toBe("line1`nline2");
+  });
+
+  test("converts carriage returns to backtick-r", () => {
+    expect(escPwsh("line1\rline2")).toBe("line1`rline2");
+  });
+
+  test("strips null bytes", () => {
+    expect(escPwsh("ab\0cd")).toBe("abcd");
+  });
+
+  test("handles combined special characters", () => {
+    expect(escPwsh('$`"\0')).toBe('`$```"');
   });
 });

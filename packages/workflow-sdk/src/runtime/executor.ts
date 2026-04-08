@@ -143,16 +143,32 @@ async function ensureDir(dir: string): Promise<void> {
   await mkdir(dir, { recursive: true });
 }
 
-/** Escape a string for safe interpolation inside a bash double-quoted string. */
-function escBash(s: string): string {
-  // Replace newlines/carriage returns with spaces so user prompts with
-  // line breaks don't cause unexpected failures.
-  return s.replace(/[\n\r]+/g, " ").replace(/[\\"$`!]/g, "\\$&");
+/**
+ * Escape a string for safe interpolation inside a bash double-quoted string.
+ *
+ * In bash `"..."` strings only `$`, `` ` ``, `\`, `"`, and `!` are special.
+ * Single quotes are literal inside double quotes and need no escaping.
+ * Null bytes are stripped because bash strings cannot contain them.
+ */
+export function escBash(s: string): string {
+  return s
+    .replace(/\0/g, "")
+    .replace(/[\n\r]+/g, " ")
+    .replace(/[\\"$`!]/g, "\\$&");
 }
 
-/** Escape a string for safe interpolation inside a PowerShell double-quoted string. */
-function escPwsh(s: string): string {
-  return s.replace(/[`"$]/g, "`$&").replace(/\n/g, "`n").replace(/\r/g, "`r");
+/**
+ * Escape a string for safe interpolation inside a PowerShell double-quoted string.
+ *
+ * In PowerShell `"..."` strings, backtick is the escape character and `$` triggers
+ * variable expansion.  Null bytes are stripped for safety.
+ */
+export function escPwsh(s: string): string {
+  return s
+    .replace(/\0/g, "")
+    .replace(/[`"$]/g, "`$&")
+    .replace(/\n/g, "`n")
+    .replace(/\r/g, "`r");
 }
 
 // ============================================================================
@@ -225,6 +241,22 @@ export async function executeWorkflow(options: WorkflowRunOptions): Promise<void
     await attachProc.exited;
   }
 }
+
+/**
+ * Throw immediately if the abort signal has already been triggered.
+ * Consolidates the repeated abort-check pattern used throughout session execution.
+ */
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new Error("Cancelled: a sibling session failed");
+}
+
+/**
+ * Small buffer (ms) subtracted from `Date.now()` when recording the Claude
+ * session start timestamp.  Protects against fast sequential runs where
+ * the system clock granularity could cause a just-created session's
+ * `lastModified` to fall slightly before our recorded timestamp.
+ */
+const CLAUDE_SESSION_TIMESTAMP_BUFFER_MS = 100;
 
 // ============================================================================
 // Session execution helpers
@@ -302,17 +334,17 @@ async function runSingleSession(opts: RunSessionOptions): Promise<SessionResult>
 
   panel.sessionStart(sessionDef.name);
 
-  if (signal?.aborted) throw new Error("Cancelled: a sibling session failed");
+  throwIfAborted(signal);
 
   const port = await getRandomPort();
   const paneCmd = buildPaneCommand(agent, port);
   const paneId = tmux.createWindow(tmuxSessionName, sessionDef.name, paneCmd);
 
-  if (signal?.aborted) throw new Error("Cancelled: a sibling session failed");
+  throwIfAborted(signal);
 
   const serverUrl = await waitForServer(agent, port, paneId);
 
-  if (signal?.aborted) throw new Error("Cancelled: a sibling session failed");
+  throwIfAborted(signal);
 
   const sessionId = generateId();
   const sessionDirName = `${sessionDef.name}-${sessionId}`;
@@ -324,7 +356,10 @@ async function runSingleSession(opts: RunSessionOptions): Promise<SessionResult>
 
   // Record a timestamp before the session runs so we can find the Claude
   // session created during this run (immune to concurrent session creation).
-  const claudeSessionStartedAfter = agent === "claude" ? Date.now() : 0;
+  // A small buffer is subtracted to handle clock granularity in fast sequential runs.
+  const claudeSessionStartedAfter = agent === "claude"
+    ? Date.now() - CLAUDE_SESSION_TIMESTAMP_BUFFER_MS
+    : 0;
 
   async function wrapMessages(arg: SessionEvent[] | SessionPromptResponse | string): Promise<SavedMessage[]> {
     if (typeof arg === "string") {

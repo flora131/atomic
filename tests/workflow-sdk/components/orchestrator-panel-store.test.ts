@@ -109,11 +109,11 @@ describe("PanelStore", () => {
       expect(store.version).toBe(before + 1);
     });
 
-    test("emits even when session not found", () => {
+    test("does not emit when session not found", () => {
       let called = 0;
       store.subscribe(() => { called++; });
       store.startSession("nonexistent");
-      expect(called).toBe(1);
+      expect(called).toBe(0);
     });
   });
 
@@ -130,11 +130,11 @@ describe("PanelStore", () => {
       expect(s.endedAt).toBeGreaterThan(0);
     });
 
-    test("emits even when session not found", () => {
+    test("does not emit when session not found", () => {
       let called = 0;
       store.subscribe(() => { called++; });
       store.completeSession("nonexistent");
-      expect(called).toBe(1);
+      expect(called).toBe(0);
     });
   });
 
@@ -152,11 +152,11 @@ describe("PanelStore", () => {
       expect(s.endedAt).toBeGreaterThan(0);
     });
 
-    test("emits even when session not found", () => {
+    test("does not emit when session not found", () => {
       let called = 0;
       store.subscribe(() => { called++; });
       store.failSession("nonexistent", "err");
-      expect(called).toBe(1);
+      expect(called).toBe(0);
     });
   });
 

@@ -58,29 +58,26 @@ export class PanelStore {
 
   startSession(name: string): void {
     const session = this.sessions.find((s) => s.name === name);
-    if (session) {
-      session.status = "running";
-      session.startedAt = Date.now();
-    }
+    if (!session) return;
+    session.status = "running";
+    session.startedAt = Date.now();
     this.emit();
   }
 
   completeSession(name: string): void {
     const session = this.sessions.find((s) => s.name === name);
-    if (session) {
-      session.status = "complete";
-      session.endedAt = Date.now();
-    }
+    if (!session) return;
+    session.status = "complete";
+    session.endedAt = Date.now();
     this.emit();
   }
 
   failSession(name: string, error: string): void {
     const session = this.sessions.find((s) => s.name === name);
-    if (session) {
-      session.status = "error";
-      session.error = error;
-      session.endedAt = Date.now();
-    }
+    if (!session) return;
+    session.status = "error";
+    session.error = error;
+    session.endedAt = Date.now();
     this.emit();
   }
 

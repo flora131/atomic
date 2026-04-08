@@ -667,7 +667,62 @@ describe("computeLayout", () => {
     });
   });
 
-  // ─── 11. Status and error propagation ─────────
+  // ─── 11. Collision detection: merge-node shift causes overlap ─
+
+  describe("collision detection: A→B, C, [A,C]→M→M1", () => {
+    // A has child B; C is a standalone root; M is a merge node (parents=[A,C])
+    // with child M1.  Without collision detection, shifting M to center under
+    // A and C would cause M to overlap with B at depth 1.
+    function makeOverlap() {
+      return computeLayout([
+        session("A"),
+        session("B", ["A"]),
+        session("C"),
+        session("M", ["A", "C"]),
+        session("M1", ["M"]),
+      ]);
+    }
+
+    test("no nodes at the same depth overlap horizontally", () => {
+      const r = makeOverlap();
+      const byDepth: Record<number, Array<{ name: string; x: number }>> = {};
+      for (const n of Object.values(r.map)) {
+        (byDepth[n.depth] ??= []).push({ name: n.name, x: n.x });
+      }
+      for (const nodes of Object.values(byDepth)) {
+        nodes.sort((a, b) => a.x - b.x);
+        for (let i = 1; i < nodes.length; i++) {
+          const prev = nodes[i - 1]!;
+          const curr = nodes[i]!;
+          expect(curr.x).toBeGreaterThanOrEqual(
+            prev.x + NODE_W + H_GAP,
+          );
+        }
+      }
+    });
+
+    test("M and B are both at depth 1 but do not overlap", () => {
+      const r = makeOverlap();
+      expect(r.map["B"]!.depth).toBe(1);
+      expect(r.map["M"]!.depth).toBe(1);
+      const gap = Math.abs(r.map["M"]!.x - r.map["B"]!.x);
+      expect(gap).toBeGreaterThanOrEqual(NODE_W + H_GAP);
+    });
+
+    test("M1 is a child of M (depth 2)", () => {
+      const r = makeOverlap();
+      expect(r.map["M1"]!.depth).toBe(2);
+    });
+
+    test("all x values are >= PAD after collision resolution", () => {
+      const r = makeOverlap();
+      for (const node of Object.values(r.map)) {
+        expect(node.x).toBeGreaterThanOrEqual(PAD);
+      }
+    });
+  });
+
+  // ─── 12. Status and error propagation ─────────
 
   describe("status and error propagation", () => {
     test("preserves 'pending' status", () => {
@@ -793,6 +848,16 @@ describe("computeLayout", () => {
         name: "multiple roots",
         sessions: () => [session("X"), session("Y"), session("Z")],
       },
+      {
+        name: "merge-node overlap (A→B, C, [A,C]→M→M1)",
+        sessions: () => [
+          session("A"),
+          session("B", ["A"]),
+          session("C"),
+          session("M", ["A", "C"]),
+          session("M1", ["M"]),
+        ],
+      },
     ];
 
     for (const topo of TOPOLOGIES) {
@@ -838,6 +903,20 @@ describe("computeLayout", () => {
         const r = computeLayout(topo.sessions());
         for (const d of Object.keys(r.rowH)) {
           expect(r.rowH[Number(d)]).toBe(NODE_H);
+        }
+      });
+
+      test(`[${topo.name}] no horizontal overlap between nodes at same depth`, () => {
+        const r = computeLayout(topo.sessions());
+        const byDepth: Record<number, number[]> = {};
+        for (const node of Object.values(r.map)) {
+          (byDepth[node.depth] ??= []).push(node.x);
+        }
+        for (const xs of Object.values(byDepth)) {
+          xs.sort((a, b) => a - b);
+          for (let i = 1; i < xs.length; i++) {
+            expect(xs[i]! - xs[i - 1]!).toBeGreaterThanOrEqual(NODE_W + H_GAP);
+          }
         }
       });
     }

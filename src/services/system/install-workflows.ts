@@ -11,9 +11,10 @@
  */
 
 import { join } from "path";
-import { readdir } from "fs/promises";
+import { readdir, writeFile } from "fs/promises";
 import { homedir } from "os";
 import { ensureDir, copyFile, copyDir, pathExists } from "@/services/system/copy.ts";
+import { WORKFLOWS_GITIGNORE } from "@bastani/atomic-workflows";
 
 const AGENT_DIRS = new Set(["copilot", "opencode", "claude"]);
 
@@ -34,13 +35,16 @@ export async function installGlobalWorkflows(configDataDir: string): Promise<num
 
   await ensureDir(destDir);
 
+  // Always write the canonical .gitignore to the destination
+  await writeFile(join(destDir, ".gitignore"), WORKFLOWS_GITIGNORE);
+
   // Enumerate the source directory and classify each entry:
   //  - Files at the root (package.json, tsconfig.json, etc.) → always overwrite
   //  - Workflow directories (hello, ralph, etc.) → per-agent skip-if-exists
   const entries = await readdir(srcDir, { withFileTypes: true });
 
   for (const entry of entries) {
-    if (entry.name.startsWith(".") && entry.name !== ".gitignore") continue;
+    if (entry.name.startsWith(".")) continue;
     if (entry.name === "node_modules") continue;
 
     const srcPath = join(srcDir, entry.name);

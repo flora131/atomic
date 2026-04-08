@@ -140,6 +140,36 @@ describe("buildConnector", () => {
     expect(hasJunctions).toBe(true);
   });
 
+  test("parent at right edge with child at same column produces ┤ junction", () => {
+    // parent at rightmost position, one child aligned at parent center (same col)
+    // and another child to the left
+    const leftX = 0;
+    const parentX = NODE_W + 6;
+    const childY = NODE_H + V_GAP;
+
+    const left = makeNode({ name: "left", depth: 1, x: leftX, y: childY });
+    // right child at same x as parent → same center
+    const right = makeNode({ name: "right", depth: 1, x: parentX, y: childY });
+    const parent = makeNode({
+      name: "parent",
+      depth: 0,
+      x: parentX,
+      y: 0,
+      children: [left, right],
+    });
+
+    const result = buildConnector(parent, { 0: NODE_H }, theme);
+    expect(result).not.toBeNull();
+    const lines = result!.text.split("\n");
+    const barLine = lines[lines.length - 1]!;
+    // Parent center = right child center = parentX + NODE_W/2 (maxCol)
+    // childAtParent=true, pcx===maxCol → '┤'
+    const pcx = parentX + Math.floor(NODE_W / 2);
+    const leftCx = leftX + Math.floor(NODE_W / 2);
+    const localParent = pcx - leftCx;
+    expect(barLine[localParent]).toBe("┤");
+  });
+
   test("connector with child at same column as parent uses combined junction", () => {
     // Single child directly under parent, but with V_GAP > 1 creating a bar scenario
     // Actually for this we need parent and child at same center with multiple children

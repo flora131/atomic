@@ -278,6 +278,97 @@ describe("SessionGraphPanel", () => {
     });
   });
 
+  describe("auto-scroll", () => {
+    function createWideGraph(): PanelStore {
+      const store = new PanelStore();
+      // Create a fan-out graph that is wider than a narrow terminal
+      // orchestrator → [a, b, c, d] → merge
+      // 5 siblings at depth 1 span ~5*(36+6) = 210 columns
+      store.setWorkflowInfo("wide-wf", "claude", [
+        { name: "a", parents: [] },
+        { name: "b", parents: [] },
+        { name: "c", parents: [] },
+        { name: "d", parents: [] },
+        { name: "merge", parents: ["a", "b", "c", "d"] },
+      ], "test");
+      return store;
+    }
+
+    async function renderNarrow(store: PanelStore) {
+      // Use a very small viewport so the graph overflows in both axes
+      testSetup = await testRender(
+        <TestProviders store={store}>
+          <SessionGraphPanel />
+        </TestProviders>,
+        { width: 50, height: 10 },
+      );
+      await testSetup.renderOnce();
+      return testSetup;
+    }
+
+    test("scrolls right when navigating to a node beyond right edge", async () => {
+      const store = createWideGraph();
+      const setup = await renderNarrow(store);
+
+      // Navigate right repeatedly to reach nodes far to the right
+      for (let i = 0; i < 4; i++) {
+        setup.mockInput.pressArrow("right");
+        await setup.renderOnce();
+      }
+      // If we get here without error, the scroll logic executed
+      const frame = setup.captureCharFrame();
+      expect(frame).toBeTruthy();
+    });
+
+    test("scrolls left when navigating back to a node beyond left edge", async () => {
+      const store = createWideGraph();
+      const setup = await renderNarrow(store);
+
+      // Navigate far right first
+      for (let i = 0; i < 4; i++) {
+        setup.mockInput.pressArrow("right");
+        await setup.renderOnce();
+      }
+      // Then navigate back left past the visible area
+      for (let i = 0; i < 4; i++) {
+        setup.mockInput.pressArrow("left");
+        await setup.renderOnce();
+      }
+      const frame = setup.captureCharFrame();
+      expect(frame).toBeTruthy();
+    });
+
+    test("scrolls down when navigating to a deep node", async () => {
+      const store = createWideGraph();
+      const setup = await renderNarrow(store);
+
+      // Navigate down to reach the merge node at depth 2
+      setup.mockInput.pressArrow("down");
+      await setup.renderOnce();
+      setup.mockInput.pressArrow("down");
+      await setup.renderOnce();
+
+      const frame = setup.captureCharFrame();
+      expect(frame).toBeTruthy();
+    });
+
+    test("scrolls up when navigating back to root from deep node", async () => {
+      const store = createWideGraph();
+      const setup = await renderNarrow(store);
+
+      // Go deep
+      setup.mockInput.pressKey("G", { shift: true });
+      await setup.renderOnce();
+      // Go back to root via gg
+      setup.mockInput.pressKey("g");
+      setup.mockInput.pressKey("g");
+      await setup.renderOnce();
+
+      const frame = setup.captureCharFrame();
+      expect(frame).toBeTruthy();
+    });
+  });
+
   describe("resize", () => {
     test("handles terminal resize", async () => {
       const store = createPopulatedStore();

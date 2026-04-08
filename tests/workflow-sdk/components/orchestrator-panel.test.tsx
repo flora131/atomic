@@ -2,7 +2,10 @@
 
 import { test, expect, describe, afterEach } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
+import { testRender } from "@opentui/react/test-utils";
 import { OrchestratorPanel } from "../../../packages/workflow-sdk/src/components/orchestrator-panel.tsx";
+import { ErrorBoundary } from "../../../packages/workflow-sdk/src/components/error-boundary.tsx";
+import { TEST_THEME } from "./test-helpers.tsx";
 
 let panel: OrchestratorPanel | null = null;
 let testSetup: Awaited<ReturnType<typeof createTestRenderer>> | null = null;
@@ -123,5 +126,45 @@ describe("OrchestratorPanel", () => {
 
     // If we get here without throwing, the full lifecycle works
     expect(true).toBe(true);
+  });
+
+  describe("ErrorBoundary fallback", () => {
+    function ThrowingChild(): never {
+      throw new Error("component exploded");
+    }
+
+    test("renders fallback with error message when child throws", async () => {
+      const originalError = console.error;
+      console.error = () => {};
+
+      const setup = await testRender(
+        <ErrorBoundary
+          fallback={(err) => (
+            <box
+              width="100%"
+              height="100%"
+              justifyContent="center"
+              alignItems="center"
+              backgroundColor={TEST_THEME.background}
+            >
+              <text>
+                <span fg={TEST_THEME.error}>
+                  {`Fatal render error: ${err.message}`}
+                </span>
+              </text>
+            </box>
+          )}
+        >
+          <ThrowingChild />
+        </ErrorBoundary>,
+        { width: 80, height: 10 },
+      );
+      await setup.renderOnce();
+      const frame = setup.captureCharFrame();
+      expect(frame).toContain("Fatal render error: component exploded");
+      setup.renderer.destroy();
+
+      console.error = originalError;
+    });
   });
 });

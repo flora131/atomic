@@ -35,6 +35,11 @@ import { Edge } from "./edge.tsx";
 import { Header } from "./header.tsx";
 import { Statusline } from "./statusline.tsx";
 
+/** Interval (ms) between pulse animation frames — ~60fps feel. */
+const PULSE_INTERVAL_MS = 60;
+/** Total frames in one pulse cycle (~2s at 60ms/frame). */
+const PULSE_FRAME_COUNT = 32;
+
 export function SessionGraphPanel() {
   const store = useStore();
   const theme = useGraphTheme();
@@ -75,12 +80,17 @@ export function SessionGraphPanel() {
     }
   }, [store.version]);
 
-  // Pulse animation for running nodes (60ms interval, 32 frames ~ 2s cycle)
+  // Pulse animation for running nodes — paused when nothing is running
+  const hasRunning = store.sessions.some((s) => s.status === "running");
   const [pulsePhase, setPulsePhase] = useState(0);
   useEffect(() => {
-    const id = setInterval(() => setPulsePhase((p: number) => (p + 1) % 32), 60);
+    if (!hasRunning) return;
+    const id = setInterval(
+      () => setPulsePhase((p: number) => (p + 1) % PULSE_FRAME_COUNT),
+      PULSE_INTERVAL_MS,
+    );
     return () => clearInterval(id);
-  }, []);
+  }, [hasRunning]);
 
   // Live timer refresh — re-render every second while any session is running
   const [, setTick] = useState(0);
@@ -161,13 +171,13 @@ export function SessionGraphPanel() {
   useKeyboard((key) => {
     // Ctrl+C always exits
     if (key.ctrl && key.name === "c") {
-      store.exitResolve?.();
+      store.resolveExit();
       return;
     }
 
     // After completion: only q exits (Enter is for attach, Escape is too easy to hit)
     if (store.completionReached && key.name === "q") {
-      store.exitResolve?.();
+      store.resolveExit();
       return;
     }
 

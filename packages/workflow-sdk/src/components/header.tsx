@@ -1,12 +1,13 @@
 /** @jsxImportSource @opentui/react */
 
+import type { SessionStatus } from "./orchestrator-panel-types.ts";
 import { useStore, useGraphTheme } from "./orchestrator-panel-contexts.ts";
 
 export function Header() {
   const store = useStore();
   const theme = useGraphTheme();
 
-  const counts = { complete: 0, running: 0, pending: 0, error: 0 };
+  const counts: Record<SessionStatus, number> = { complete: 0, running: 0, pending: 0, error: 0 };
   for (const s of store.sessions) counts[s.status]++;
 
   const isFailed = store.fatalError !== null;

@@ -142,10 +142,9 @@ async function ensureDir(dir: string): Promise<void> {
 
 /** Escape a string for safe interpolation inside a bash double-quoted string. */
 function escBash(s: string): string {
-  if (/[\n\r]/.test(s)) {
-    throw new Error("escBash: input contains newline characters which cannot be safely escaped in bash double-quoted strings");
-  }
-  return s.replace(/[\\"$`!]/g, "\\$&");
+  // Replace newlines/carriage returns with spaces so user prompts with
+  // line breaks don't cause unexpected failures.
+  return s.replace(/[\n\r]+/g, " ").replace(/[\\"$`!]/g, "\\$&");
 }
 
 /** Escape a string for safe interpolation inside a PowerShell double-quoted string. */
@@ -287,6 +286,8 @@ async function runSingleSession(opts: RunSessionOptions): Promise<SessionResult>
   } = opts;
 
   panel.sessionStart(sessionDef.name);
+
+  if (signal?.aborted) throw new Error("Cancelled: a sibling session failed");
 
   const port = await getRandomPort();
   const paneCmd = buildPaneCommand(agent, port);

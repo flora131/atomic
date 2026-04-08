@@ -105,6 +105,15 @@ export class PanelStore {
     this.emit();
   }
 
+  /** Safely invoke exitResolve at most once, guarding against rapid repeated calls. */
+  resolveExit(): void {
+    if (this.exitResolve) {
+      const resolve = this.exitResolve;
+      this.exitResolve = null;
+      resolve();
+    }
+  }
+
   markCompletionReached(): void {
     this.completionReached = true;
     this.emit();

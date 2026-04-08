@@ -1,6 +1,6 @@
 import { test, expect, describe } from "bun:test";
-import { deriveGraphTheme } from "../../../packages/workflow-sdk/src/components/graph-theme.ts";
-import type { TerminalTheme } from "../../../packages/workflow-sdk/src/runtime/theme.ts";
+import { deriveGraphTheme } from "../../src/components/graph-theme.ts";
+import type { TerminalTheme } from "../../src/runtime/theme.ts";
 
 const fakeTheme: TerminalTheme = {
   bg: "#1e1e2e",

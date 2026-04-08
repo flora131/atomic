@@ -14,9 +14,9 @@ import { join } from "path";
 import { readdir, writeFile } from "fs/promises";
 import { homedir } from "os";
 import { ensureDir, copyFile, copyDir, pathExists } from "@/services/system/copy.ts";
-import { WORKFLOWS_GITIGNORE } from "@bastani/atomic-workflows";
+import { AGENTS, WORKFLOWS_GITIGNORE } from "@bastani/atomic-workflows";
 
-const AGENT_DIRS = new Set(["copilot", "opencode", "claude"]);
+const AGENT_DIRS = new Set<string>(AGENTS);
 
 /**
  * Install global workflow templates from a config data directory.

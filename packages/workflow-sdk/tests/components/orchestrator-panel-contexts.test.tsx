@@ -2,14 +2,14 @@
 
 import { test, expect, describe, afterEach } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
-import { PanelStore } from "../../../packages/workflow-sdk/src/components/orchestrator-panel-store.ts";
+import { PanelStore } from "../../src/components/orchestrator-panel-store.ts";
 import {
   StoreContext,
   ThemeContext,
   useStore,
   useGraphTheme,
   useStoreSubscription,
-} from "../../../packages/workflow-sdk/src/components/orchestrator-panel-contexts.ts";
+} from "../../src/components/orchestrator-panel-contexts.ts";
 import { TEST_THEME } from "./test-helpers.tsx";
 
 let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;

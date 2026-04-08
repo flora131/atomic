@@ -152,7 +152,7 @@ async function ensureDir(dir: string): Promise<void> {
  */
 export function escBash(s: string): string {
   return s
-    .replace(/\0/g, "")
+    .replace(/\x00/g, "")
     .replace(/[\n\r]+/g, " ")
     .replace(/[\\"$`!]/g, "\\$&");
 }
@@ -165,7 +165,7 @@ export function escBash(s: string): string {
  */
 export function escPwsh(s: string): string {
   return s
-    .replace(/\0/g, "")
+    .replace(/\x00/g, "")
     .replace(/[`"$]/g, "`$&")
     .replace(/\n/g, "`n")
     .replace(/\r/g, "`r");
@@ -500,7 +500,7 @@ async function promiseAllFailFast<T>(
   if (promises.length === 0) return Promise.resolve([]);
 
   return new Promise<T[]>((resolve, reject) => {
-    const results = new Array<T>(promises.length);
+    const results = Array.from<T>({ length: promises.length });
     let remaining = promises.length;
     let rejected = false;
 

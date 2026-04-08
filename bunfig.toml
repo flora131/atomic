@@ -1,8 +1,6 @@
 [test]
-# Limit test discovery to tests/ so vendored docs are not scanned
-root = "tests"
-
 # Coverage (opt-in via `bun run test:coverage`, not on every run)
+# Note: root-level test/test:coverage scripts delegate to packages/workflow-sdk
 coverageThreshold = 0.85
 coverageReporter = ["text", "lcov"]
 coverageDir = "coverage"
@@ -111,16 +109,5 @@ coveragePathIgnorePatterns = [
   "research/**",
   "devcontainer-features/**",
   "docs/**",
-  # Workflow SDK — non-testable runtime modules (require running agent CLIs, terminals, filesystems)
-  "packages/workflow-sdk/src/define-workflow.ts",
-  "packages/workflow-sdk/src/providers/**",
-  "packages/workflow-sdk/src/runtime/discovery.ts",
-  "packages/workflow-sdk/src/runtime/executor.ts",
-  "packages/workflow-sdk/src/runtime/panel.ts",
-  "packages/workflow-sdk/src/runtime/theme.ts",
-  # Workflow SDK — components whose uncovered lines are type declarations or inline JSX
-  # lambdas requiring internal error injection (ErrorBoundary fallback path)
-  "packages/workflow-sdk/src/components/error-boundary.tsx",
-  "packages/workflow-sdk/src/components/orchestrator-panel.tsx",
 ]
 

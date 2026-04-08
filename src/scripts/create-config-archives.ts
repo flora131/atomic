@@ -21,7 +21,7 @@
 
 import { $ } from "bun";
 import { resolve, join } from "path";
-import { mkdir, cp, rm, writeFile } from "fs/promises";
+import { mkdir, cp, readdir, rm, writeFile } from "fs/promises";
 
 const ROOT = resolve(import.meta.dir, "../..");
 const DIST = resolve(ROOT, "dist");
@@ -65,25 +65,33 @@ async function main(): Promise<void> {
   await cp(join(ROOT, ".github/lsp.json"), join(STAGING, ".github/lsp.json"));
 
   // ── Workflow templates ─────────────────────────────────────────────
+  // Include-based: copy only the workflow subdirectories, then generate
+  // a clean package.json and tsconfig rather than copying and patching.
   const workflowsSrc = join(ROOT, ".atomic/workflows");
   const workflowsDest = join(STAGING, ".atomic/workflows");
-  await cp(workflowsSrc, workflowsDest, { recursive: true });
+  await mkdir(workflowsDest, { recursive: true });
 
-  // Remove dev-only artifacts
-  await rm(join(workflowsDest, "node_modules"), { recursive: true, force: true });
-  await rm(join(workflowsDest, "package-lock.json"), { force: true });
-  await rm(join(workflowsDest, "bun.lock"), { force: true });
+  // Copy each workflow directory (skip files and hidden/infra dirs at the root level)
+  const entries = await readdir(workflowsSrc, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name.startsWith(".") || entry.name === "node_modules") continue;
+    await cp(join(workflowsSrc, entry.name), join(workflowsDest, entry.name), { recursive: true });
+  }
 
-  // Rewrite the dev file: reference to the published npm version
+  // Write a release package.json referencing the published SDK version
   const sdkPkgPath = join(ROOT, "packages/workflow-sdk/package.json");
   const sdkVersion: string = (await Bun.file(sdkPkgPath).json()).version;
+  const workflowsPkg = {
+    name: "atomic-workflows",
+    private: true,
+    type: "module",
+    dependencies: {
+      "@bastani/atomic-workflows": `^${sdkVersion}`,
+    },
+  };
+  await writeFile(join(workflowsDest, "package.json"), JSON.stringify(workflowsPkg, null, 2) + "\n");
 
-  const workflowsPkgPath = join(workflowsDest, "package.json");
-  const workflowsPkg = await Bun.file(workflowsPkgPath).json();
-  workflowsPkg.dependencies["@bastani/atomic-workflows"] = `^${sdkVersion}`;
-  await writeFile(workflowsPkgPath, JSON.stringify(workflowsPkg, null, 2) + "\n");
-
-  // Strip dev-only tsconfig paths alias (points to monorepo packages/ dir)
+  // Write a minimal tsconfig (no monorepo path aliases)
   await writeFile(join(workflowsDest, "tsconfig.json"), WORKFLOWS_TSCONFIG + "\n");
 
   // ── Create archives ────────────────────────────────────────────────

@@ -115,9 +115,8 @@ async function main(): Promise<void> {
   console.log("\nConfig archives created in dist/.");
 }
 
-main()
-  .catch((err) => {
-    console.error(err);
-    process.exit(1);
-  })
-  .finally(() => rm(STAGING, { recursive: true, force: true }).catch(() => {}));
+main().catch(async (err) => {
+  console.error(err);
+  await rm(STAGING, { recursive: true, force: true }).catch(() => {});
+  process.exit(1);
+});

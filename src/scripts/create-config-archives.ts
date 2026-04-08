@@ -112,6 +112,9 @@ async function main(): Promise<void> {
   console.log("Creating atomic-config.zip…");
   await $`zip -r ${join(DIST, "atomic-config.zip")} .`.cwd(STAGING);
 
+  // Clean up staging directory
+  await rm(STAGING, { recursive: true, force: true });
+
   console.log("\nConfig archives created in dist/.");
 }
 

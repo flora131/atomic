@@ -112,12 +112,6 @@ export function buildMergeConnector(
   const numRows = childTop - parentBottom;
   if (numRows < 1) return null;
 
-  // Straight drop: single effective parent directly above
-  if (parentCxs.length === 1 && parentCxs[0] === childCx) {
-    const text = Array(numRows).fill("│").join("\n");
-    return { text, col: childCx, row: parentBottom, width: 1, height: numRows, color: theme.borderActive };
-  }
-
   const allCols = [...parentCxs, childCx];
   const minCol = Math.min(...allCols);
   const maxCol = Math.max(...allCols);

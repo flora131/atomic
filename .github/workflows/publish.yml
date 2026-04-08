@@ -119,9 +119,10 @@ jobs:
               "types": ["bun"]
             },
             "include": [
-              "copilot/**/*.ts",
-              "opencode/**/*.ts",
-              "claude/**/*.ts"
+              "**/claude/**/*.ts",
+              "**/copilot/**/*.ts",
+              "**/opencode/**/*.ts",
+              "**/helpers/**/*.ts"
             ]
           }
           TSEOF
@@ -232,9 +233,9 @@ jobs:
           test -d config-test/.opencode/agents || (echo "::error::Missing .opencode/agents" && exit 1)
           test -d config-test/.github/agents || (echo "::error::Missing .github/agents" && exit 1)
           test -f config-test/.github/lsp.json || (echo "::error::Missing .github/lsp.json" && exit 1)
-          test -d config-test/.atomic/workflows/claude || (echo "::error::Missing .atomic/workflows/claude" && exit 1)
-          test -d config-test/.atomic/workflows/copilot || (echo "::error::Missing .atomic/workflows/copilot" && exit 1)
-          test -d config-test/.atomic/workflows/opencode || (echo "::error::Missing .atomic/workflows/opencode" && exit 1)
+          test -d config-test/.atomic/workflows/hello/claude || (echo "::error::Missing .atomic/workflows/hello/claude" && exit 1)
+          test -d config-test/.atomic/workflows/hello/copilot || (echo "::error::Missing .atomic/workflows/hello/copilot" && exit 1)
+          test -d config-test/.atomic/workflows/hello/opencode || (echo "::error::Missing .atomic/workflows/hello/opencode" && exit 1)
           # …and that the entries that moved to skills CLI are absent.
           test ! -e config-test/.claude/skills || (echo "::error::Unexpected .claude/skills in archive" && exit 1)
           test ! -e config-test/.opencode/skills || (echo "::error::Unexpected .opencode/skills in archive" && exit 1)
@@ -254,9 +255,9 @@ jobs:
           if (-not (Test-Path "config-test/.opencode/agents")) { Write-Error "Missing .opencode/agents"; exit 1 }
           if (-not (Test-Path "config-test/.github/agents")) { Write-Error "Missing .github/agents"; exit 1 }
           if (-not (Test-Path "config-test/.github/lsp.json")) { Write-Error "Missing .github/lsp.json"; exit 1 }
-          if (-not (Test-Path "config-test/.atomic/workflows/claude")) { Write-Error "Missing .atomic/workflows/claude"; exit 1 }
-          if (-not (Test-Path "config-test/.atomic/workflows/copilot")) { Write-Error "Missing .atomic/workflows/copilot"; exit 1 }
-          if (-not (Test-Path "config-test/.atomic/workflows/opencode")) { Write-Error "Missing .atomic/workflows/opencode"; exit 1 }
+          if (-not (Test-Path "config-test/.atomic/workflows/hello/claude")) { Write-Error "Missing .atomic/workflows/hello/claude"; exit 1 }
+          if (-not (Test-Path "config-test/.atomic/workflows/hello/copilot")) { Write-Error "Missing .atomic/workflows/hello/copilot"; exit 1 }
+          if (-not (Test-Path "config-test/.atomic/workflows/hello/opencode")) { Write-Error "Missing .atomic/workflows/hello/opencode"; exit 1 }
           # …and that the entries that moved to skills CLI are absent.
           if (Test-Path "config-test/.claude/skills") { Write-Error "Unexpected .claude/skills in archive"; exit 1 }
           if (Test-Path "config-test/.opencode/skills") { Write-Error "Unexpected .opencode/skills in archive"; exit 1 }

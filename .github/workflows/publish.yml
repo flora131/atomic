@@ -54,7 +54,7 @@ jobs:
           bun install --os="*" --cpu="*" @opentui/core@$OTUI_VERSION
 
       - name: Run tests
-        run: bun test 2>&1 | cat
+        run: bun run test 2>&1 | cat
 
       - name: Run typecheck
         run: bun run typecheck

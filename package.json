@@ -37,8 +37,8 @@
     "test": "bun run --cwd packages/workflow-sdk test",
     "test:coverage": "bun run --cwd packages/workflow-sdk test:coverage",
     "typecheck": "bunx tsc --noEmit",
-    "lint": "oxlint --config=oxlint.json src tests",
-    "lint:fix": "oxlint --config=oxlint.json --fix src tests",
+    "lint": "oxlint --config=oxlint.json src",
+    "lint:fix": "oxlint --config=oxlint.json --fix src",
     "postinstall": "lefthook install && bun run src/scripts/postinstall.ts"
   },
   "devDependencies": {

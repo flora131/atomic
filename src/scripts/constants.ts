@@ -8,17 +8,11 @@
 import { AGENTS } from "@bastani/atomic-workflows";
 import type { AgentType } from "@bastani/atomic-workflows";
 
-/** npm package name of the workflow SDK. */
-export const SDK_PACKAGE_NAME = "@bastani/atomic-workflows";
-
-/** Repo-relative path to the workflow SDK package directory. */
-export const WORKFLOW_SDK_DIR = "packages/workflow-sdk";
-
-/** package.json files whose `version` field is bumped together. */
-export const VERSION_FILES = [
-  "package.json",
-  `${WORKFLOW_SDK_DIR}/package.json`,
-];
+export {
+  SDK_PACKAGE_NAME,
+  WORKFLOW_SDK_DIR,
+  VERSION_FILES,
+} from "./constants-base.ts";
 
 /**
  * Maps each agent to its config directory (relative to the repo root).

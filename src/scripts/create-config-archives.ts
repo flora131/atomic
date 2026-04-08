@@ -110,12 +110,14 @@ async function main(): Promise<void> {
   await $`tar -czvf ${join(DIST, "atomic-config.tar.gz")} -C ${STAGING} .`;
 
   console.log("Creating atomic-config.zip…");
-  await $`cd ${STAGING} && zip -r ${join(DIST, "atomic-config.zip")} .`;
-
-  // Clean up staging
-  await rm(STAGING, { recursive: true, force: true });
+  await $`zip -r ${join(DIST, "atomic-config.zip")} .`.cwd(STAGING);
 
   console.log("\nConfig archives created in dist/.");
 }
 
-main();
+main()
+  .finally(() => rm(STAGING, { recursive: true, force: true }))
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });

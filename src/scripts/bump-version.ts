@@ -19,7 +19,7 @@
 
 import { $ } from "bun";
 import { resolve } from "path";
-import { VERSION_FILES } from "./constants.ts";
+import { VERSION_FILES } from "./constants-base.ts";
 
 const ROOT = resolve(import.meta.dir, "../..");
 

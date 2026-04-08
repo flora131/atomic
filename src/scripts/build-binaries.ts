@@ -52,8 +52,8 @@ async function main(): Promise<void> {
   for (const target of TARGETS) {
     const outfile = resolve(DIST, target.outfile);
     const defineFlags = target.defines
-      ? Object.entries(target.defines).map(
-          ([k, v]) => `--define '${k}=${v}'`,
+      ? Object.entries(target.defines).flatMap(
+          ([k, v]) => [`--define`, `${k}=${v}`],
         )
       : [];
 
@@ -64,4 +64,7 @@ async function main(): Promise<void> {
   console.log("\nAll binaries built in dist/.");
 }
 
-main();
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

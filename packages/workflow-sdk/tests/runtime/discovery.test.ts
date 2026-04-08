@@ -158,7 +158,7 @@ describe("loadWorkflowDefinition", () => {
     await writeFile(
       filePath,
       `
-import { defineWorkflow } from "${join(process.cwd(), "packages/workflow-sdk/src/index.ts")}";
+import { defineWorkflow } from "${join(process.cwd(), "src/index.ts")}";
 
 export default defineWorkflow({ name: "test" })
   .session({ name: "s1", run: async () => {} });
@@ -194,7 +194,7 @@ export default defineWorkflow({ name: "test" })
     await writeFile(
       filePath,
       `
-import { defineWorkflow } from "${join(process.cwd(), "packages/workflow-sdk/src/index.ts")}";
+import { defineWorkflow } from "${join(process.cwd(), "src/index.ts")}";
 
 export default defineWorkflow({ name: "valid-test" })
   .session({ name: "s1", run: async () => {} })

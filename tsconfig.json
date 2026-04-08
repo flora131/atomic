@@ -30,6 +30,6 @@
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false
   },
-  "include": ["src", "packages", "tests"],
+  "include": ["src", "packages"],
   "exclude": ["docs"]
 }

@@ -6,8 +6,8 @@ import {
   H_GAP,
   V_GAP,
   PAD,
-} from "../../../packages/workflow-sdk/src/components/layout.ts";
-import type { SessionData } from "../../../packages/workflow-sdk/src/components/orchestrator-panel-types.ts";
+} from "../../src/components/layout.ts";
+import type { SessionData } from "../../src/components/orchestrator-panel-types.ts";
 
 function makeSession(
   name: string,

@@ -27,6 +27,7 @@ import {
   isInsideTmux,
   isTmuxInstalled,
   createSession,
+  killSession,
   getMuxBinary,
   resetMuxBinaryCache,
 } from "@bastani/atomic-workflows";
@@ -166,6 +167,11 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     return spawnDirect(cmd, projectRoot);
   }
 
+  // ── No TTY: tmux attach requires a real terminal ──
+  if (!process.stdin.isTTY) {
+    return spawnDirect(cmd, projectRoot);
+  }
+
   // ── Ensure tmux is available ──
   if (!isTmuxInstalled()) {
     console.log("Terminal multiplexer not found. Installing...");
@@ -207,6 +213,13 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
 
     // Clean up launcher
     try { await rm(launcherPath, { force: true }); } catch {}
+
+    // If tmux attach itself failed (e.g. lost TTY), clean up and fall back
+    if (exitCode !== 0) {
+      try { killSession(windowName); } catch {}
+      return spawnDirect(cmd, projectRoot);
+    }
+
     return exitCode;
   } catch (error) {
     try { await rm(launcherPath, { force: true }); } catch {}

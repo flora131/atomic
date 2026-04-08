@@ -4,8 +4,8 @@ import {
   statusLabel,
   statusIcon,
   fmtDuration,
-} from "../../../packages/workflow-sdk/src/components/status-helpers.ts";
-import type { GraphTheme } from "../../../packages/workflow-sdk/src/components/graph-theme.ts";
+} from "../../src/components/status-helpers.ts";
+import type { GraphTheme } from "../../src/components/graph-theme.ts";
 
 const mockTheme: GraphTheme = {
   background: "#1e1e2e",

@@ -2,6 +2,9 @@
   "compilerOptions": {
     "target": "ESNext",
     "module": "ESNext",
+    "paths": {
+      "@bastani/atomic-workflows": ["./src/index.ts"]
+    },
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "noEmit": true,
@@ -13,5 +16,5 @@
     "skipLibCheck": true,
     "types": ["bun"]
   },
-  "include": ["src"]
+  "include": ["src", "tests"]
 }

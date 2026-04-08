@@ -28,6 +28,18 @@ const ROOT = resolve(import.meta.dir, "../..");
 const DIST = resolve(ROOT, "dist");
 const STAGING = resolve(ROOT, "config-staging");
 
+/** Directories copied recursively into the archive. */
+const CONFIG_DIRS = [
+  ".claude/agents",
+  ".opencode/agents",
+  ".github/agents",
+];
+
+/** Individual files copied into the archive. */
+const CONFIG_FILES = [
+  ".github/lsp.json",
+];
+
 /** Minimal tsconfig shipped with workflow templates (no monorepo path aliases). */
 const WORKFLOWS_TSCONFIG = JSON.stringify(
   {
@@ -58,12 +70,16 @@ async function main(): Promise<void> {
   await rm(STAGING, { recursive: true, force: true });
 
   // ── Agent configs ──────────────────────────────────────────────────
-  for (const dir of [".claude/agents", ".opencode/agents", ".github/agents"]) {
+  for (const dir of CONFIG_DIRS) {
     const dest = join(STAGING, dir);
     await mkdir(dest, { recursive: true });
     await cp(join(ROOT, dir), dest, { recursive: true });
   }
-  await cp(join(ROOT, ".github/lsp.json"), join(STAGING, ".github/lsp.json"));
+  for (const file of CONFIG_FILES) {
+    const dest = join(STAGING, file);
+    await mkdir(resolve(dest, ".."), { recursive: true });
+    await cp(join(ROOT, file), dest);
+  }
 
   // ── Workflow templates ─────────────────────────────────────────────
   // Include-based: copy only the workflow subdirectories, then generate

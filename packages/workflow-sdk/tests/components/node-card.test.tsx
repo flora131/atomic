@@ -2,10 +2,10 @@
 
 import { test, expect, describe, afterEach } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
-import { PanelStore } from "../../../packages/workflow-sdk/src/components/orchestrator-panel-store.ts";
-import { NodeCard } from "../../../packages/workflow-sdk/src/components/node-card.tsx";
-import type { LayoutNode } from "../../../packages/workflow-sdk/src/components/layout.ts";
-import { NODE_H } from "../../../packages/workflow-sdk/src/components/layout.ts";
+import { PanelStore } from "../../src/components/orchestrator-panel-store.ts";
+import { NodeCard } from "../../src/components/node-card.tsx";
+import type { LayoutNode } from "../../src/components/layout.ts";
+import { NODE_H } from "../../src/components/layout.ts";
 import { TestProviders } from "./test-helpers.tsx";
 
 let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;

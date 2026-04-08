@@ -1,0 +1,27 @@
+[test]
+root = "tests"
+
+# Coverage (opt-in via `bun run test:coverage`, not on every run)
+coverageThreshold = 0.85
+coverageReporter = ["text", "lcov"]
+coverageDir = "coverage"
+coverageSkipTestFiles = true
+coveragePathIgnorePatterns = [
+  # Test infrastructure
+  "tests/**",
+  # Temp files
+  "**/tmp/**",
+  "**/var/folders/**",
+  # Non-testable runtime modules (require running agent CLIs, terminals, filesystems)
+  "packages/workflow-sdk/src/define-workflow.ts",
+  "packages/workflow-sdk/src/providers/**",
+  "packages/workflow-sdk/src/runtime/discovery.ts",
+  "packages/workflow-sdk/src/runtime/executor.ts",
+  "packages/workflow-sdk/src/runtime/panel.ts",
+  "packages/workflow-sdk/src/runtime/theme.ts",
+  # Components whose uncovered lines are type declarations or inline JSX
+  # lambdas requiring internal error injection (ErrorBoundary fallback path)
+  "packages/workflow-sdk/src/components/error-boundary.tsx",
+  "packages/workflow-sdk/src/components/orchestrator-panel.tsx",
+  "node_modules/**",
+]

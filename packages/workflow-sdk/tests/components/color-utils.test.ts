@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { hexToRgb, rgbToHex, lerpColor } from "../../../packages/workflow-sdk/src/components/color-utils.ts";
+import { hexToRgb, rgbToHex, lerpColor } from "../../src/components/color-utils.ts";
 
 describe("hexToRgb", () => {
   test("converts black", () => {

@@ -352,7 +352,7 @@ jobs:
         working-directory: packages/workflow-sdk
 
       - name: Run tests
-        run: bun test 2>&1 | cat
+        run: bun run test 2>&1 | cat
         working-directory: packages/workflow-sdk
 
       - name: Run typecheck

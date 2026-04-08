@@ -1,13 +1,13 @@
 /** @jsxImportSource @opentui/react */
 
 import type { ReactNode } from "react";
-import { PanelStore } from "../../../packages/workflow-sdk/src/components/orchestrator-panel-store.ts";
+import { PanelStore } from "../../src/components/orchestrator-panel-store.ts";
 import {
   StoreContext,
   ThemeContext,
   TmuxSessionContext,
-} from "../../../packages/workflow-sdk/src/components/orchestrator-panel-contexts.ts";
-import type { GraphTheme } from "../../../packages/workflow-sdk/src/components/graph-theme.ts";
+} from "../../src/components/orchestrator-panel-contexts.ts";
+import type { GraphTheme } from "../../src/components/graph-theme.ts";
 
 export const TEST_THEME: GraphTheme = {
   background: "#1e1e2e",

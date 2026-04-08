@@ -34,8 +34,8 @@
   "scripts": {
     "dev": "bun run src/cli.ts",
     "build": "bun build --compile --no-compile-autoload-dotenv --no-compile-autoload-bunfig --outfile atomic src/cli.ts",
-    "test": "bun test",
-    "test:coverage": "bun test --coverage",
+    "test": "bun run --cwd packages/workflow-sdk test",
+    "test:coverage": "bun run --cwd packages/workflow-sdk test:coverage",
     "typecheck": "bunx tsc --noEmit",
     "lint": "oxlint --config=oxlint.json src tests",
     "lint:fix": "oxlint --config=oxlint.json --fix src tests",

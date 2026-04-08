@@ -11,8 +11,11 @@
   "types": "src/index.ts",
   "license": "MIT",
   "scripts": {
+    "test": "bun test",
+    "test:coverage": "bun test --coverage",
     "typecheck": "bunx tsc --noEmit",
-    "lint": "bunx oxlint --config=../../oxlint.json src"
+    "lint": "oxlint --config=../../oxlint.json src tests",
+    "lint:fix": "oxlint --config=../../oxlint.json --fix src tests"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.92",

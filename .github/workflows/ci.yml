@@ -35,14 +35,6 @@ jobs:
             - name: Run linting
               run: bun run lint
 
-            - name: Run tests with coverage
-              run: bun run test:coverage 2>&1 | cat
-
-            - name: Upload coverage
-              uses: codecov/codecov-action@v6
-              with:
-                  files: ./coverage/lcov.info
-
     workflow-sdk:
         name: Workflow SDK
         runs-on: ubuntu-latest
@@ -71,3 +63,8 @@ jobs:
             - name: Run tests with coverage
               run: bun run test:coverage 2>&1 | cat
               working-directory: packages/workflow-sdk
+
+            - name: Upload coverage
+              uses: codecov/codecov-action@v6
+              with:
+                  files: ./packages/workflow-sdk/coverage/lcov.info

@@ -116,8 +116,8 @@ async function main(): Promise<void> {
 }
 
 main()
-  .finally(() => rm(STAGING, { recursive: true, force: true }))
   .catch((err) => {
     console.error(err);
     process.exit(1);
-  });
+  })
+  .finally(() => rm(STAGING, { recursive: true, force: true }).catch(() => {}));

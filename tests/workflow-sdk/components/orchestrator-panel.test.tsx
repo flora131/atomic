@@ -95,6 +95,16 @@ describe("OrchestratorPanel", () => {
     panel = null;
   });
 
+  test("create() produces a working panel with a real renderer", async () => {
+    // create() uses createCliRenderer internally (outputs terminal escape
+    // codes in non-TTY environments but is otherwise harmless).
+    panel = await OrchestratorPanel.create({ tmuxSession: "test-create" });
+    expect(panel).toBeInstanceOf(OrchestratorPanel);
+    panel.showWorkflowInfo("wf", "claude", [{ name: "s1", parents: [] }], "p");
+    panel.destroy();
+    panel = null;
+  });
+
   test("full lifecycle: create → workflow → start → complete → destroy", async () => {
     const { panel: p } = await createPanel();
     p.showWorkflowInfo("lifecycle-test", "copilot", [

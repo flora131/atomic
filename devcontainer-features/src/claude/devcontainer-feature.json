@@ -14,6 +14,8 @@
   },
   "dependsOn": {
     "ghcr.io/devcontainers/features/node:1": { "version": "lts" },
+    "ghcr.io/devcontainers-extra/features/tmux-apt-get:1": {},
+    "ghcr.io/devcontainers-extra/features/bun:1": {},
     "ghcr.io/anthropics/devcontainer-features/claude-code:1": {}
   },
   "installsAfter": [

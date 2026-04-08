@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #-------------------------------------------------------------------------------------------------------------
 # Installs the Atomic CLI binary only. Config data, agent config syncing,
-# tooling (cocoindex, playwright, liteparse), and SDK installation
+# tooling and SDK installation
 # are all handled on first `atomic init` / `atomic chat` run via auto-init.
 #
 # NOTE: This script is duplicated across claude, copilot, and opencode features.

@@ -44,6 +44,14 @@ export class OrchestratorPanel {
       exitOnCtrlC: false,
       exitSignals: ["SIGTERM", "SIGQUIT", "SIGABRT", "SIGHUP", "SIGPIPE", "SIGBUS", "SIGFPE"],
     });
+    return OrchestratorPanel.createWithRenderer(renderer, options);
+  }
+
+  /** Create with an externally-provided renderer (e.g. a test renderer). */
+  static createWithRenderer(
+    renderer: CliRenderer,
+    options: PanelOptions,
+  ): OrchestratorPanel {
     const termTheme = resolveTheme(renderer.themeMode);
     const graphTheme = deriveGraphTheme(termTheme);
     const store = new PanelStore();

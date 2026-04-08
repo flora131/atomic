@@ -1,0 +1,117 @@
+/** @jsxImportSource @opentui/react */
+
+import { test, expect, describe, afterEach } from "bun:test";
+import { createTestRenderer } from "@opentui/core/testing";
+import { OrchestratorPanel } from "../../../packages/workflow-sdk/src/components/orchestrator-panel.tsx";
+
+let panel: OrchestratorPanel | null = null;
+let testSetup: Awaited<ReturnType<typeof createTestRenderer>> | null = null;
+
+afterEach(() => {
+  panel?.destroy();
+  panel = null;
+  testSetup?.renderer.destroy();
+  testSetup = null;
+});
+
+async function createPanel() {
+  testSetup = await createTestRenderer({ width: 80, height: 24 });
+  panel = OrchestratorPanel.createWithRenderer(testSetup.renderer, {
+    tmuxSession: "test-session",
+  });
+  return { panel, testSetup };
+}
+
+describe("OrchestratorPanel", () => {
+  test("createWithRenderer creates an instance without throwing", async () => {
+    const { panel: p } = await createPanel();
+    expect(p).toBeInstanceOf(OrchestratorPanel);
+  });
+
+  test("showWorkflowInfo does not throw", async () => {
+    const { panel: p } = await createPanel();
+    expect(() =>
+      p.showWorkflowInfo("wf", "claude", [
+        { name: "s1", parents: [] },
+        { name: "s2", parents: ["s1"] },
+      ], "do stuff"),
+    ).not.toThrow();
+  });
+
+  test("sessionStart does not throw", async () => {
+    const { panel: p } = await createPanel();
+    p.showWorkflowInfo("wf", "claude", [{ name: "s1", parents: [] }], "p");
+    expect(() => p.sessionStart("s1")).not.toThrow();
+  });
+
+  test("sessionSuccess does not throw", async () => {
+    const { panel: p } = await createPanel();
+    p.showWorkflowInfo("wf", "claude", [{ name: "s1", parents: [] }], "p");
+    p.sessionStart("s1");
+    expect(() => p.sessionSuccess("s1")).not.toThrow();
+  });
+
+  test("sessionError does not throw", async () => {
+    const { panel: p } = await createPanel();
+    p.showWorkflowInfo("wf", "claude", [{ name: "s1", parents: [] }], "p");
+    p.sessionStart("s1");
+    expect(() => p.sessionError("s1", "timeout")).not.toThrow();
+  });
+
+  test("showCompletion does not throw", async () => {
+    const { panel: p } = await createPanel();
+    p.showWorkflowInfo("wf", "claude", [{ name: "s1", parents: [] }], "p");
+    expect(() => p.showCompletion("wf", "/tmp/t")).not.toThrow();
+  });
+
+  test("showFatalError does not throw", async () => {
+    const { panel: p } = await createPanel();
+    p.showWorkflowInfo("wf", "claude", [], "p");
+    expect(() => p.showFatalError("catastrophic")).not.toThrow();
+  });
+
+  test("waitForExit marks completion and returns a promise", async () => {
+    const { panel: p } = await createPanel();
+    p.showWorkflowInfo("wf", "claude", [], "p");
+
+    const exitPromise = p.waitForExit();
+    expect(exitPromise).toBeInstanceOf(Promise);
+
+    // The promise should be pending until externally resolved
+    // Simulate external resolution (e.g. from Ctrl+C handler)
+    let resolved = false;
+    exitPromise.then(() => { resolved = true; });
+
+    // Not yet resolved
+    await Bun.sleep(10);
+    expect(resolved).toBe(false);
+  });
+
+  test("destroy is idempotent", async () => {
+    const { panel: p } = await createPanel();
+    p.destroy();
+    expect(() => p.destroy()).not.toThrow();
+    // Prevent afterEach from double-destroying
+    panel = null;
+  });
+
+  test("full lifecycle: create → workflow → start → complete → destroy", async () => {
+    const { panel: p } = await createPanel();
+    p.showWorkflowInfo("lifecycle-test", "copilot", [
+      { name: "a", parents: [] },
+      { name: "b", parents: [] },
+      { name: "c", parents: ["a", "b"] },
+    ], "test prompt");
+
+    p.sessionStart("a");
+    p.sessionSuccess("a");
+    p.sessionStart("b");
+    p.sessionError("b", "failed");
+    p.showFatalError("b failed");
+    p.destroy();
+    panel = null;
+
+    // If we get here without throwing, the full lifecycle works
+    expect(true).toBe(true);
+  });
+});

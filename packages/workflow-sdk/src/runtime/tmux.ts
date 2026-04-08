@@ -276,6 +276,15 @@ export function killSession(sessionName: string): void {
   }
 }
 
+/** Kill a specific tmux window within a session. Silences errors if already dead. */
+export function killWindow(sessionName: string, windowName: string): void {
+  try {
+    tmuxExec(["kill-window", "-t", `${sessionName}:${windowName}`]);
+  } catch {
+    // Window may already be dead
+  }
+}
+
 /**
  * Check if a tmux session exists.
  */
@@ -300,10 +309,13 @@ export function attachSession(sessionName: string): void {
   }
   const proc = Bun.spawnSync({
     cmd: [binary, "attach-session", "-t", sessionName],
-    stdio: ["inherit", "inherit", "inherit"],
+    stdin: "inherit",
+    stdout: "inherit",
+    stderr: "pipe",
   });
   if (!proc.success) {
-    throw new Error(`Failed to attach to session: ${sessionName}`);
+    const stderr = new TextDecoder().decode(proc.stderr).trim();
+    throw new Error(`Failed to attach to session: ${sessionName}${stderr ? ` (${stderr})` : ""}`);
   }
 }
 

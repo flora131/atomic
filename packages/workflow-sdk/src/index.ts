@@ -50,6 +50,7 @@ export {
   capturePaneVisible,
   capturePaneScrollback,
   killSession,
+  killWindow,
   sessionExists,
   attachSession,
   switchClient,
@@ -72,6 +73,7 @@ export {
   discoverWorkflows,
   findWorkflow,
   loadWorkflowDefinition,
+  WORKFLOWS_GITIGNORE,
 } from "./runtime/discovery.ts";
 export type { DiscoveredWorkflow } from "./runtime/discovery.ts";
 

@@ -354,8 +354,17 @@ async function runSingleSession(opts: RunSessionOptions): Promise<SessionResult>
   const messagesPath = join(sessionDir, "messages.json");
   const inboxPath = join(sessionDir, "inbox.md");
 
-  // Record a timestamp before the session runs so we can find the Claude
-  // session created during this run (immune to concurrent session creation).
+  // Snapshot existing Claude session IDs before the run so we can identify
+  // which session was created during this execution — robust against concurrent
+  // workflows creating sessions in the same working directory.
+  let knownClaudeSessionIds: Set<string> | undefined;
+  if (agent === "claude") {
+    const { listSessions } = await import("@anthropic-ai/claude-agent-sdk");
+    const existing = await listSessions({ dir: process.cwd() });
+    knownClaudeSessionIds = new Set(existing.map((s) => s.sessionId));
+  }
+
+  // Timestamp fallback for when the snapshot is unavailable.
   // A small buffer is subtracted to handle clock granularity in fast sequential runs.
   const claudeSessionStartedAfter = agent === "claude"
     ? Date.now() - CLAUDE_SESSION_TIMESTAMP_BUFFER_MS
@@ -367,12 +376,13 @@ async function runSingleSession(opts: RunSessionOptions): Promise<SessionResult>
       const dir = process.cwd();
       const sessions = await listSessions({ dir });
 
-      // Find the most-recently-modified session created after our start timestamp.
-      // This is race-safe: even if concurrent processes create sessions, we pick
-      // the one whose lastModified falls within our execution window.
-      const candidates = sessions
-        .filter((s) => s.lastModified >= claudeSessionStartedAfter)
-        .sort((a, b) => b.lastModified - a.lastModified);
+      // Primary: filter to sessions not in the pre-run snapshot (new sessions only).
+      // Fallback: use timestamp if snapshot is unavailable.
+      const newSessions = knownClaudeSessionIds
+        ? sessions.filter((s) => !knownClaudeSessionIds!.has(s.sessionId))
+        : sessions.filter((s) => s.lastModified >= claudeSessionStartedAfter);
+
+      const candidates = newSessions.sort((a, b) => b.lastModified - a.lastModified);
 
       const candidate = candidates[0];
       if (!candidate) {
@@ -487,6 +497,8 @@ async function promiseAllFailFast<T>(
   controller: AbortController,
   onFirstFailure: () => void,
 ): Promise<T[]> {
+  if (promises.length === 0) return Promise.resolve([]);
+
   return new Promise<T[]>((resolve, reject) => {
     const results = new Array<T>(promises.length);
     let remaining = promises.length;

@@ -2,8 +2,8 @@
 
 import { test, expect, describe, afterEach } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
-import { PanelStore } from "../../../packages/workflow-sdk/src/components/orchestrator-panel-store.ts";
-import { SessionGraphPanel } from "../../../packages/workflow-sdk/src/components/session-graph-panel.tsx";
+import { PanelStore } from "../../src/components/orchestrator-panel-store.ts";
+import { SessionGraphPanel } from "../../src/components/session-graph-panel.tsx";
 import { TestProviders } from "./test-helpers.tsx";
 
 let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;

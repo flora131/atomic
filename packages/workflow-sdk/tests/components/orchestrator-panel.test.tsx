@@ -3,8 +3,8 @@
 import { test, expect, describe, afterEach } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
 import { testRender } from "@opentui/react/test-utils";
-import { OrchestratorPanel } from "../../../packages/workflow-sdk/src/components/orchestrator-panel.tsx";
-import { ErrorBoundary } from "../../../packages/workflow-sdk/src/components/error-boundary.tsx";
+import { OrchestratorPanel } from "../../src/components/orchestrator-panel.tsx";
+import { ErrorBoundary } from "../../src/components/error-boundary.tsx";
 import { TEST_THEME } from "./test-helpers.tsx";
 
 let panel: OrchestratorPanel | null = null;

@@ -2,7 +2,7 @@
 
 import { test, expect, describe, afterEach } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
-import { Edge } from "../../../packages/workflow-sdk/src/components/edge.tsx";
+import { Edge } from "../../src/components/edge.tsx";
 
 let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;
 

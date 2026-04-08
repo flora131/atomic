@@ -54,84 +54,16 @@ jobs:
           bun install --os="*" --cpu="*" @opentui/core@$OTUI_VERSION
 
       - name: Run tests
-        run: bun test 2>&1 | cat
+        run: bun run test 2>&1 | cat
 
       - name: Run typecheck
         run: bun run typecheck
 
       - name: Build binaries for all platforms
-        run: |
-          mkdir -p dist
-          BUILD_FLAGS="--compile --minify --no-compile-autoload-dotenv --no-compile-autoload-bunfig"
-
-          for target in bun-linux-x64 bun-linux-arm64 bun-darwin-x64 bun-darwin-arm64 bun-windows-x64; do
-            outfile="dist/atomic-${target#bun-}"
-            [[ "$target" == *windows* ]] && outfile="${outfile}.exe"
-            bun build $BUILD_FLAGS --target=$target --outfile "$outfile" src/cli.ts
-          done
-
-          # Windows arm64: baseline x64 binary that runs under emulation
-          bun build $BUILD_FLAGS --target=bun-windows-x64-baseline \
-            --define '__ATOMIC_BASELINE__="true"' \
-            --outfile dist/atomic-windows-arm64.exe src/cli.ts
+        run: bun run src/scripts/build-binaries.ts
 
       - name: Create config archives
-        run: |
-          # Create a staging directory for config files
-          mkdir -p config-staging
-
-          # The slim config archive ships only the per-agent subagent
-          # definitions and the Copilot LSP config. Skills are no longer
-          # bundled — `install.sh` / `install.ps1` pull them at install
-          # time via `npx skills add` from the git repo, and `atomic init`
-          # installs the per-project SCM variants the same way.
-          mkdir -p config-staging/.claude
-          mkdir -p config-staging/.opencode
-          mkdir -p config-staging/.github
-          cp -r .claude/agents config-staging/.claude/agents
-          cp -r .opencode/agents config-staging/.opencode/agents
-          cp -r .github/agents config-staging/.github/agents
-          cp .github/lsp.json config-staging/.github/lsp.json
-
-          # Copy workflow templates for global installation
-          mkdir -p config-staging/.atomic
-          cp -r .atomic/workflows config-staging/.atomic/workflows
-          rm -rf config-staging/.atomic/workflows/node_modules
-          rm -f config-staging/.atomic/workflows/package-lock.json
-          rm -f config-staging/.atomic/workflows/bun.lock
-          # Rewrite the dev file: reference to the published npm version
-          SDK_VERSION=$(jq -r .version packages/workflow-sdk/package.json)
-          jq --arg v "^${SDK_VERSION}" '.dependencies["@bastani/atomic-workflows"] = $v' \
-            config-staging/.atomic/workflows/package.json > config-staging/.atomic/workflows/package.json.tmp
-          mv config-staging/.atomic/workflows/package.json.tmp config-staging/.atomic/workflows/package.json
-          # Strip dev-only tsconfig paths alias (points to monorepo packages/ dir)
-          cat > config-staging/.atomic/workflows/tsconfig.json << 'TSEOF'
-          {
-            "compilerOptions": {
-              "target": "ESNext",
-              "module": "ESNext",
-              "moduleResolution": "bundler",
-              "allowImportingTsExtensions": true,
-              "noEmit": true,
-              "verbatimModuleSyntax": true,
-              "strict": true,
-              "skipLibCheck": true,
-              "types": ["bun"]
-            },
-            "include": [
-              "**/claude/**/*.ts",
-              "**/copilot/**/*.ts",
-              "**/opencode/**/*.ts",
-              "**/helpers/**/*.ts"
-            ]
-          }
-          TSEOF
-
-          # Create tarball for Unix systems (preserves permissions)
-          tar -czvf dist/atomic-config.tar.gz -C config-staging .
-
-          # Create zip for Windows
-          cd config-staging && zip -r ../dist/atomic-config.zip . && cd ..
+        run: bun run src/scripts/create-config-archives.ts
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
@@ -352,7 +284,7 @@ jobs:
         working-directory: packages/workflow-sdk
 
       - name: Run tests
-        run: bun test 2>&1 | cat
+        run: bun run test 2>&1 | cat
         working-directory: packages/workflow-sdk
 
       - name: Run typecheck

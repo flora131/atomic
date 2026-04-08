@@ -70,6 +70,7 @@ export {
 
 // Runtime — workflow discovery
 export {
+  AGENTS,
   discoverWorkflows,
   findWorkflow,
   loadWorkflowDefinition,

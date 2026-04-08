@@ -13,8 +13,8 @@ on:
             - "**/*.jsx"
 
 jobs:
-    typescript-tests:
-        name: TypeScript Tests
+    typescript-checks:
+        name: TypeScript Checks
         runs-on: ubuntu-latest
 
         steps:
@@ -35,10 +35,35 @@ jobs:
             - name: Run linting
               run: bun run lint
 
+    workflow-sdk:
+        name: Workflow SDK
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v6
+
+            - name: Setup Bun
+              uses: oven-sh/setup-bun@v2
+              with:
+                  bun-version: latest
+
+            - name: Install dependencies
+              run: bun ci
+
+            - name: Run type checking
+              run: bun run typecheck
+              working-directory: packages/workflow-sdk
+
+            - name: Run linting
+              run: bun run lint
+              working-directory: packages/workflow-sdk
+
             - name: Run tests with coverage
               run: bun run test:coverage 2>&1 | cat
+              working-directory: packages/workflow-sdk
 
             - name: Upload coverage
               uses: codecov/codecov-action@v6
               with:
-                  files: ./coverage/lcov.info
+                  files: ./packages/workflow-sdk/coverage/lcov.info

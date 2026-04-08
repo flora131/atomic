@@ -19,13 +19,9 @@
 
 import { $ } from "bun";
 import { resolve } from "path";
+import { VERSION_FILES } from "./constants-base.ts";
 
 const ROOT = resolve(import.meta.dir, "../..");
-
-const VERSION_FILES = [
-  "package.json",
-  "packages/workflow-sdk/package.json",
-];
 
 function parseVersionFromBranch(branch: string): string {
   const match = branch.match(/^(?:release|prerelease)\/v(.+)$/);

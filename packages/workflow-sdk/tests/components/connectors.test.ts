@@ -2,11 +2,11 @@ import { test, expect, describe } from "bun:test";
 import {
   buildConnector,
   buildMergeConnector,
-} from "../../../packages/workflow-sdk/src/components/connectors.ts";
-import { NODE_W, NODE_H, V_GAP } from "../../../packages/workflow-sdk/src/components/layout.ts";
-import type { LayoutNode } from "../../../packages/workflow-sdk/src/components/layout.ts";
-import type { GraphTheme } from "../../../packages/workflow-sdk/src/components/graph-theme.ts";
-import type { SessionStatus } from "../../../packages/workflow-sdk/src/components/orchestrator-panel-types.ts";
+} from "../../src/components/connectors.ts";
+import { NODE_W, NODE_H, V_GAP } from "../../src/components/layout.ts";
+import type { LayoutNode } from "../../src/components/layout.ts";
+import type { GraphTheme } from "../../src/components/graph-theme.ts";
+import type { SessionStatus } from "../../src/components/orchestrator-panel-types.ts";
 
 const theme: GraphTheme = {
   background: "#1e1e2e",

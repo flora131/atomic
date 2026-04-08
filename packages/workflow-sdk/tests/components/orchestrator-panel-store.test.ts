@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeEach } from "bun:test";
-import { PanelStore } from "../../../packages/workflow-sdk/src/components/orchestrator-panel-store.ts";
+import { PanelStore } from "../../src/components/orchestrator-panel-store.ts";
 
 describe("PanelStore", () => {
   let store: PanelStore;

@@ -32,7 +32,7 @@ function getGlobalWorkflowsDir(): string {
   return join(homedir(), ".atomic", "workflows");
 }
 
-const AGENTS: AgentType[] = ["copilot", "opencode", "claude"];
+export const AGENTS: AgentType[] = ["copilot", "opencode", "claude"];
 const AGENT_SET = new Set<string>(AGENTS);
 
 /**

@@ -34,21 +34,17 @@
   "scripts": {
     "dev": "bun run src/cli.ts",
     "build": "bun build --compile --no-compile-autoload-dotenv --no-compile-autoload-bunfig --outfile atomic src/cli.ts",
-    "test": "bun test",
-    "test:coverage": "bun test --coverage",
+    "test": "bun run --cwd packages/workflow-sdk test",
+    "test:coverage": "bun run --cwd packages/workflow-sdk test:coverage",
     "typecheck": "bunx tsc --noEmit",
-    "lint": "oxlint --config=oxlint.json src tests",
-    "lint:fix": "oxlint --config=oxlint.json --fix src tests",
+    "lint": "oxlint --config=oxlint.json src",
+    "lint:fix": "oxlint --config=oxlint.json --fix src",
     "postinstall": "lefthook install && bun run src/scripts/postinstall.ts"
   },
   "devDependencies": {
-    "@opentui/core": "^0.1.97",
-    "@opentui/react": "^0.1.97",
     "@types/bun": "^1.3.11",
-    "@types/react": "^19.2.14",
     "lefthook": "^2.1.4",
-    "oxlint": "^1.58.0",
-    "react": "^19.2.4",
+    "oxlint": "^1.59.0",
     "typescript": "^6.0.2",
     "typescript-language-server": "^5.1.3"
   },

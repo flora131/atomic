@@ -38,6 +38,10 @@ Default to using Bun instead of Node.js.
 
 - Avoid ambiguous types like `any` and `unknown`. Use specific types instead.
 
+## Design Context
+
+Refer to `.impeccable.md`
+
 ## Testing
 
 Use `bun test` to run tests and make use of your testing-anti-patterns skill to write high quality tests. Here's an example of a simple test file:
@@ -110,9 +114,6 @@ Note: There are three main coding agents used in this repository: OpenCode, Clau
     - global:
         - Linux/MacOS: `$XDG_CONFIG_HOME/.opencode` AND `~/.opencode`
         - Windows: `%HOMEPATH%\\.opencode`
-        - `~/.agents/skills` is also accepted for Agent Skills ONLY
-    - local: `.opencode` in the project directory
-        - `.agents/skills` is also accepted for Agent Skills ONLY
 
 2. Claude Code:
     - global:
@@ -124,9 +125,14 @@ Note: There are three main coding agents used in this repository: OpenCode, Clau
     - global:
         - Linux/MacOS: `$XDG_CONFIG_HOME/.copilot` AND `~/.copilot`
         - Windows: `%HOMEPATH%\\.copilot`
-        - `~/.agents/skills` is also accepted for Agent Skills ONLY
     - local: `.github` in the project directory
-        - `.agents/skills` is also accepted for Agent Skills ONLY
+
+**Agent Skill Locations**
+    - local:
+        - `.agents/skills` (`.claude/skills` is a symlink to `.agents/skills`)
+    - global:
+      - `~/.agents/skills` for OpenCode and Copilot CLI
+      - `~/.claude/skills` for Claude Code
 
 ## Releasing
 
@@ -164,6 +170,15 @@ An overview of CI is described here: [CI Docs](docs/ci.md).
 ## Tips
 
 1. Note: for the `.github` config for GitHub Copilot CLI, ignore the `.github/workflows` and `.github/dependabot.yml` files as they are NOT for Copilot CLI.
+2. Rely on agent skills to provide information on best practices during implementation. Here is a short list of Agent Skills that are incredibly relevant to this project that you should try to use when applicable:
+   - bun
+   - typescript-advanced-types
+   - typescript-expert
+   - typescript-react-reviewer
+   - opentui
+   - frontend-design
+   - test-driven-development
+3. Ask for clarity if you unsure about a change. The developer is your best friend and oftentimes can clarify intent.
 
 <EXTREMELY_IMPORTANT>
 This is a `bun` project. Do NOT use `node`, `npm`, `npx`, `yarn`, or `pnpm` commands. Always use `bun` commands.

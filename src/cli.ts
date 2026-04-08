@@ -134,7 +134,7 @@ Examples:
     program
         .command("workflow")
         .description("Run a multi-session agent workflow")
-        .option("-n, --name <name>", "Workflow name (matches directory under .atomic/workflows/<agent>/)")
+        .option("-n, --name <name>", "Workflow name (matches directory under .atomic/workflows/<name>/)")
         .option("-a, --agent <name>", `Agent to use (${agentChoices})`)
         .option("-l, --list", "List available workflows")
         .argument("[prompt...]", "Prompt for the workflow")

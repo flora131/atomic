@@ -109,5 +109,6 @@ export interface WorkflowDefinition {
   readonly __brand: "WorkflowDefinition";
   readonly name: string;
   readonly description: string;
-  readonly sessions: ReadonlyArray<SessionOptions>;
+  /** Ordered execution steps. Each step is an array of sessions — length 1 is sequential, length > 1 is parallel. */
+  readonly steps: ReadonlyArray<ReadonlyArray<SessionOptions>>;
 }

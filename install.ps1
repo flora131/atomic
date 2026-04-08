@@ -342,8 +342,10 @@ function Install-Tooling {
 }
 
 # Install bundled workflow templates to ~/.atomic/workflows/
-# Copies from the config data dir, skipping existing workflow directories
+# Copies from the config data dir, skipping existing agent directories
 # to preserve user customizations.
+#
+# Layout: .atomic/workflows/<workflow_name>/<agent>/index.ts
 function Install-Workflows {
     $SrcDir = Join-Path $DataDir ".atomic" "workflows"
     $DestDir = Join-Path $AtomicHome "workflows"
@@ -355,8 +357,7 @@ function Install-Workflows {
     Write-Info "Installing workflow templates to ${DestDir}..."
     $null = New-Item -ItemType Directory -Force -Path $DestDir
 
-    # Enumerate source: copy root files and non-agent directories (always update),
-    # then handle agent directories with per-workflow skip-if-exists logic.
+    # Copy root files (package.json, tsconfig.json, etc.) — always overwrite
     $AgentNames = @("copilot", "opencode", "claude")
     foreach ($Item in (Get-ChildItem -Path $SrcDir -Force -ErrorAction SilentlyContinue)) {
         if ($Item.Name -eq "node_modules") { continue }
@@ -366,25 +367,32 @@ function Install-Workflows {
         $DestItem = Join-Path $DestDir $Item.Name
         if (-not $Item.PSIsContainer) {
             Copy-Item -Path $Item.FullName -Destination $DestItem -Force
-        } elseif ($Item.Name -notin $AgentNames) {
-            $null = New-Item -ItemType Directory -Force -Path $DestItem
-            Copy-Item -Path "$($Item.FullName)\*" -Destination $DestItem -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
 
-    # Copy per-agent workflow directories (skip existing)
+    # Copy per-workflow directories, preserving existing agent implementations
     $Copied = 0
-    foreach ($Agent in $AgentNames) {
-        $AgentSrc = Join-Path $SrcDir $Agent
-        if (-not (Test-Path $AgentSrc)) { continue }
-        $AgentDest = Join-Path $DestDir $Agent
-        $null = New-Item -ItemType Directory -Force -Path $AgentDest
+    foreach ($WorkflowDir in (Get-ChildItem -Path $SrcDir -Directory -ErrorAction SilentlyContinue)) {
+        if ($WorkflowDir.Name -eq "node_modules") { continue }
 
-        foreach ($WorkflowDir in (Get-ChildItem -Path $AgentSrc -Directory)) {
-            $DestWorkflow = Join-Path $AgentDest $WorkflowDir.Name
-            if (-not (Test-Path $DestWorkflow)) {
-                Copy-Item -Path $WorkflowDir.FullName -Destination $DestWorkflow -Recurse
-                $Copied++
+        $DestWf = Join-Path $DestDir $WorkflowDir.Name
+        $null = New-Item -ItemType Directory -Force -Path $DestWf
+
+        foreach ($SubEntry in (Get-ChildItem -Path $WorkflowDir.FullName -ErrorAction SilentlyContinue)) {
+            $DestSub = Join-Path $DestWf $SubEntry.Name
+            if (-not $SubEntry.PSIsContainer) {
+                # Files within a workflow dir — always overwrite
+                Copy-Item -Path $SubEntry.FullName -Destination $DestSub -Force
+            } elseif ($SubEntry.Name -in $AgentNames) {
+                # Agent directories — skip if already exists
+                if (-not (Test-Path $DestSub)) {
+                    Copy-Item -Path $SubEntry.FullName -Destination $DestSub -Recurse
+                    $Copied++
+                }
+            } else {
+                # Non-agent directories (e.g., helpers/) — always update
+                $null = New-Item -ItemType Directory -Force -Path $DestSub
+                Copy-Item -Path "$($SubEntry.FullName)\*" -Destination $DestSub -Recurse -Force -ErrorAction SilentlyContinue
             }
         }
     }

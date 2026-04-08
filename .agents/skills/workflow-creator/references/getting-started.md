@@ -9,7 +9,7 @@ Use the chainable builder to declare your workflow's metadata and sessions. Each
 ### Claude
 
 ```ts
-// .atomic/workflows/claude/my-workflow/index.ts
+// .atomic/workflows/my-workflow/claude/index.ts
 import { defineWorkflow, claudeQuery } from "@bastani/atomic-workflows";
 
 export default defineWorkflow({
@@ -42,7 +42,7 @@ export default defineWorkflow({
 ### Copilot
 
 ```ts
-// .atomic/workflows/copilot/my-workflow/index.ts
+// .atomic/workflows/my-workflow/copilot/index.ts
 import { defineWorkflow } from "@bastani/atomic-workflows";
 import { CopilotClient, approveAll } from "@github/copilot-sdk";
 
@@ -87,7 +87,7 @@ export default defineWorkflow({
 ### OpenCode
 
 ```ts
-// .atomic/workflows/opencode/my-workflow/index.ts
+// .atomic/workflows/my-workflow/opencode/index.ts
 import { defineWorkflow } from "@bastani/atomic-workflows";
 import { createOpencodeClient } from "@opencode-ai/sdk/v2";
 

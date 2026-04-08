@@ -276,6 +276,15 @@ export function killSession(sessionName: string): void {
   }
 }
 
+/** Kill a specific tmux window within a session. Silences errors if already dead. */
+export function killWindow(sessionName: string, windowName: string): void {
+  try {
+    tmuxExec(["kill-window", "-t", `${sessionName}:${windowName}`]);
+  } catch {
+    // Window may already be dead
+  }
+}
+
 /**
  * Check if a tmux session exists.
  */

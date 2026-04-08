@@ -13,7 +13,7 @@ import { join, resolve } from "path";
 import { homedir } from "os";
 import { mkdir, writeFile, readFile } from "fs/promises";
 import type {
-  WorkflowDefinition, SessionContext, AgentType, Transcript,
+  WorkflowDefinition, SessionOptions, SessionContext, AgentType, Transcript,
   SavedMessage, SaveTranscript,
 } from "../types.ts";
 import type { SessionEvent } from "@github/copilot-sdk";
@@ -23,7 +23,7 @@ import * as tmux from "./tmux.ts";
 import { getMuxBinary } from "./tmux.ts";
 import { loadWorkflowDefinition } from "./discovery.ts";
 import { clearClaudeSession } from "../providers/claude.ts";
-import { OrchestratorPanel } from "./panel.ts";
+import { OrchestratorPanel, type PanelSession } from "./panel.tsx";
 
 /** Agent CLI configuration for spawning in tmux panes. */
 const AGENT_CLI: Record<AgentType, { cmd: string; chatFlags: string[] }> = {
@@ -225,6 +225,251 @@ export async function executeWorkflow(options: WorkflowRunOptions): Promise<void
 }
 
 // ============================================================================
+// Session execution helpers
+// ============================================================================
+
+function renderMessagesToText(messages: SavedMessage[]): string {
+  return messages
+    .map((m) => {
+      if (m.provider === "copilot") {
+        if (m.data.type !== "assistant.message") return "";
+        return String((m.data.data as Record<string, unknown>).content ?? "");
+      }
+      if (m.provider === "opencode") {
+        return m.data.parts
+          .filter((p) => p.type === "text" && "text" in p)
+          .map((p) => String((p as { text: string }).text))
+          .join("\n");
+      }
+      if (m.provider === "claude") {
+        if (m.data.type !== "assistant") return "";
+        const msg = m.data.message;
+        if (typeof msg === "string") return msg;
+        if (msg && typeof msg === "object" && "content" in msg) {
+          const content = (msg as Record<string, unknown>).content;
+          if (typeof content === "string") return content;
+          if (Array.isArray(content)) {
+            return content
+              .filter((b: Record<string, unknown>) => b.type === "text")
+              .map((b: Record<string, unknown>) => String(b.text ?? ""))
+              .join("\n");
+          }
+        }
+        return JSON.stringify(msg);
+      }
+      return "";
+    })
+    .filter((txt) => txt.length > 0)
+    .join("\n\n");
+}
+
+interface RunSessionOptions {
+  sessionDef: SessionOptions;
+  tmuxSessionName: string;
+  sessionsBaseDir: string;
+  agent: AgentType;
+  prompt: string;
+  completedSessions: SessionResult[];
+  panel: OrchestratorPanel;
+  signal?: AbortSignal;
+  siblingNames: Set<string>;
+}
+
+/**
+ * Run a single session from start to finish.
+ * On success: calls panel.sessionSuccess, returns SessionResult.
+ * On failure: writes error.txt, calls panel.sessionError, rethrows.
+ */
+async function runSingleSession(opts: RunSessionOptions): Promise<SessionResult> {
+  const {
+    sessionDef, tmuxSessionName, sessionsBaseDir, agent,
+    prompt, completedSessions, panel, signal, siblingNames,
+  } = opts;
+
+  panel.sessionStart(sessionDef.name);
+
+  const port = await getRandomPort();
+  const paneCmd = buildPaneCommand(agent, port);
+  const paneId = tmux.createWindow(tmuxSessionName, sessionDef.name, paneCmd);
+
+  if (signal?.aborted) throw new Error("Cancelled: a sibling session failed");
+
+  const serverUrl = await waitForServer(agent, port, paneId);
+
+  if (signal?.aborted) throw new Error("Cancelled: a sibling session failed");
+
+  const sessionId = generateId();
+  const sessionDirName = `${sessionDef.name}-${sessionId}`;
+  const sessionDir = join(sessionsBaseDir, sessionDirName);
+  await ensureDir(sessionDir);
+
+  const messagesPath = join(sessionDir, "messages.json");
+  const inboxPath = join(sessionDir, "inbox.md");
+
+  // Snapshot existing Claude session IDs before the session runs so we
+  // can diff after to find the new one.
+  let knownClaudeSessionIds: Set<string> | null = null;
+  if (agent === "claude") {
+    try {
+      const { listSessions } = await import("@anthropic-ai/claude-agent-sdk");
+      const existing = await listSessions({ dir: process.cwd() });
+      knownClaudeSessionIds = new Set(existing.map((s) => s.sessionId));
+    } catch {}
+  }
+
+  async function wrapMessages(arg: SessionEvent[] | SessionPromptResponse | string): Promise<SavedMessage[]> {
+    if (typeof arg === "string") {
+      try {
+        const { getSessionMessages, listSessions } = await import("@anthropic-ai/claude-agent-sdk");
+        const dir = process.cwd();
+        const sessions = await listSessions({ dir });
+
+        const candidate = sessions.find(
+          (s) => knownClaudeSessionIds != null && !knownClaudeSessionIds.has(s.sessionId),
+        );
+
+        if (!candidate) {
+          console.warn("wrapMessages: no new Claude session found for", dir);
+          return [];
+        }
+
+        const msgs: SessionMessage[] = await getSessionMessages(candidate.sessionId, { dir });
+        return msgs.map((m) => ({ provider: "claude" as const, data: m }));
+      } catch (err) {
+        console.warn("wrapMessages: failed to read Claude session messages:", err);
+        return [];
+      }
+    }
+
+    if (!Array.isArray(arg) && "info" in arg && "parts" in arg) {
+      return [{ provider: "opencode" as const, data: arg as SessionPromptResponse }];
+    }
+
+    if (Array.isArray(arg)) {
+      return (arg as SessionEvent[]).map((m) => ({
+        provider: "copilot" as const,
+        data: m,
+      }));
+    }
+
+    return [];
+  }
+
+  let pendingSave: Promise<void> | null = null;
+
+  const save: SaveTranscript = ((arg: SessionEvent[] | SessionPromptResponse | string) => {
+    pendingSave = (async () => {
+      const wrapped = await wrapMessages(arg);
+      await Bun.write(messagesPath, JSON.stringify(wrapped, null, 2));
+      const text = renderMessagesToText(wrapped);
+      await Bun.write(inboxPath, text);
+    })();
+    return pendingSave;
+  }) as SaveTranscript;
+
+  const ctx: SessionContext = {
+    serverUrl,
+    userPrompt: prompt,
+    agent,
+    sessionDir,
+    paneId,
+    sessionId,
+    save,
+    transcript: async (name: string): Promise<Transcript> => {
+      if (siblingNames.has(name)) {
+        throw new Error(
+          `Cannot read transcript for "${name}" \u2014 it is running in parallel. ` +
+          `Only sessions from prior steps are available.`
+        );
+      }
+      const prev = completedSessions.find((s) => s.name === name);
+      if (!prev) {
+        throw new Error(
+          `No transcript for "${name}". Available: ${completedSessions.map((s) => s.name).join(", ") || "(none)"}`
+        );
+      }
+      const filePath = join(prev.sessionDir, "inbox.md");
+      const content = await readFile(filePath, "utf-8");
+      return { path: filePath, content };
+    },
+    getMessages: async (name: string): Promise<SavedMessage[]> => {
+      if (siblingNames.has(name)) {
+        throw new Error(
+          `Cannot read messages for "${name}" \u2014 it is running in parallel. ` +
+          `Only sessions from prior steps are available.`
+        );
+      }
+      const prev = completedSessions.find((s) => s.name === name);
+      if (!prev) {
+        throw new Error(
+          `No messages for "${name}". Available: ${completedSessions.map((s) => s.name).join(", ") || "(none)"}`
+        );
+      }
+      const filePath = join(prev.sessionDir, "messages.json");
+      const raw = await readFile(filePath, "utf-8");
+      return JSON.parse(raw) as SavedMessage[];
+    },
+  };
+
+  await writeFile(
+    join(sessionDir, "metadata.json"),
+    JSON.stringify({
+      name: sessionDef.name,
+      description: sessionDef.description ?? "",
+      agent, paneId, serverUrl, port,
+      startedAt: new Date().toISOString(),
+    }, null, 2)
+  );
+
+  try {
+    await sessionDef.run(ctx);
+    if (pendingSave) await pendingSave;
+  } catch (error) {
+    const isCancelled = signal?.aborted;
+    const message = isCancelled
+      ? "Cancelled: a sibling session failed"
+      : (error instanceof Error ? error.message : String(error));
+    await writeFile(join(sessionDir, "error.txt"), message).catch(() => {});
+    panel.sessionError(sessionDef.name, message);
+    throw error;
+  }
+
+  panel.sessionSuccess(sessionDef.name);
+  return { name: sessionDef.name, sessionId, sessionDir, paneId };
+}
+
+/** Like Promise.all() but aborts on first rejection and calls a cleanup callback. */
+async function promiseAllFailFast<T>(
+  promises: Promise<T>[],
+  controller: AbortController,
+  onFirstFailure: () => void,
+): Promise<T[]> {
+  return new Promise<T[]>((resolve, reject) => {
+    const results = new Array<T>(promises.length);
+    let remaining = promises.length;
+    let rejected = false;
+
+    promises.forEach((promise, index) => {
+      promise.then(
+        (value) => {
+          if (rejected) return;
+          results[index] = value;
+          remaining--;
+          if (remaining === 0) resolve(results);
+        },
+        (error) => {
+          if (rejected) return;
+          rejected = true;
+          controller.abort();
+          onFirstFailure();
+          reject(error);
+        },
+      );
+    });
+  });
+}
+
+// ============================================================================
 // Orchestrator logic — runs inside a tmux pane
 // ============================================================================
 
@@ -282,196 +527,73 @@ async function runOrchestrator(): Promise<void> {
       }, null, 2)
     );
 
-    panel.showWorkflowInfo(
-      definition.name,
-      agent,
-      definition.sessions.map((s) => s.name),
-      prompt,
-    );
+    // Build panel sessions from steps — track all parent names for fan-in edges
+    const panelSessions: PanelSession[] = [];
+    let prevStepNames = ["orchestrator"];
+    for (const step of definition.steps) {
+      for (const s of step) {
+        panelSessions.push({ name: s.name, parents: prevStepNames });
+      }
+      prevStepNames = step.map((s) => s.name);
+    }
+
+    panel.showWorkflowInfo(definition.name, agent, panelSessions, prompt);
 
     const completedSessions: SessionResult[] = [];
 
-    for (const sessionDef of definition.sessions) {
-      panel.sessionStart(sessionDef.name, sessionDef.description);
-
-      const port = await getRandomPort();
-      const paneCmd = buildPaneCommand(agent, port);
-
-      const paneId = tmux.createWindow(tmuxSessionName, sessionDef.name, paneCmd);
-      panel.sessionStep(`Spawned ${agent} on port ${port} (window "${sessionDef.name}")`);
-
-      panel.sessionStep(`Waiting for ${agent}\u2026`);
-      const serverUrl = await waitForServer(agent, port, paneId);
-      panel.sessionStep(`Ready: ${serverUrl || "(tmux send-keys)"}`);
-
-      const sessionId = generateId();
-      const sessionDirName = `${sessionDef.name}-${sessionId}`;
-      const sessionDir = join(sessionsBaseDir, sessionDirName);
-      await ensureDir(sessionDir);
-
-      const messagesPath = join(sessionDir, "messages.json");
-      const inboxPath = join(sessionDir, "inbox.md");
-
-      // Snapshot existing Claude session IDs before the session runs so we
-      // can diff after to find the new one. This is safe for concurrent
-      // workflows — each loop iteration tracks its own baseline.
-      let knownClaudeSessionIds: Set<string> | null = null;
-      if (agent === "claude") {
+    for (const step of definition.steps) {
+      if (step.length === 1) {
+        // Sequential: single session in this step
         try {
-          const { listSessions } = await import("@anthropic-ai/claude-agent-sdk");
-          const existing = await listSessions({ dir: process.cwd() });
-          knownClaudeSessionIds = new Set(existing.map((s) => s.sessionId));
-        } catch {}
-      }
-
-      async function wrapMessages(arg: SessionEvent[] | SessionPromptResponse | string): Promise<SavedMessage[]> {
-        if (typeof arg === "string") {
-          try {
-            const { getSessionMessages, listSessions } = await import("@anthropic-ai/claude-agent-sdk");
-            const dir = process.cwd();
-            const sessions = await listSessions({ dir });
-
-            // Find the session that appeared after our pre-run snapshot.
-            // listSessions returns sorted by lastModified desc, so the
-            // first match is the most recently active new session.
-            const candidate = sessions.find(
-              (s) => knownClaudeSessionIds != null && !knownClaudeSessionIds.has(s.sessionId),
-            );
-
-            if (!candidate) {
-              console.warn("wrapMessages: no new Claude session found for", dir);
-              return [];
-            }
-
-            const msgs: SessionMessage[] = await getSessionMessages(candidate.sessionId, { dir });
-            return msgs.map((m) => ({ provider: "claude" as const, data: m }));
-          } catch (err) {
-            console.warn("wrapMessages: failed to read Claude session messages:", err);
-            return [];
-          }
+          const result = await runSingleSession({
+            sessionDef: step[0]!,
+            tmuxSessionName, sessionsBaseDir, agent, prompt,
+            completedSessions, panel, siblingNames: new Set(),
+          });
+          completedSessions.push(result);
+          if (agent === "claude") clearClaudeSession(result.paneId);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          panel.showFatalError(message);
+          await panel.waitForExit();
+          shutdown(1);
+          return;
         }
+      } else {
+        // Parallel: multiple sessions run concurrently with fail-fast
+        const controller = new AbortController();
+        const allNames = new Set(step.map((s) => s.name));
 
-        if (!Array.isArray(arg) && "info" in arg && "parts" in arg) {
-          return [{ provider: "opencode" as const, data: arg as SessionPromptResponse }];
-        }
+        const promises = step.map((sessionDef) => {
+          const mySiblings = new Set(allNames);
+          mySiblings.delete(sessionDef.name);
+          return runSingleSession({
+            sessionDef,
+            tmuxSessionName, sessionsBaseDir, agent, prompt,
+            completedSessions, panel,
+            signal: controller.signal,
+            siblingNames: mySiblings,
+          });
+        });
 
-        if (Array.isArray(arg)) {
-          return (arg as SessionEvent[]).map((m) => ({
-            provider: "copilot" as const,
-            data: m,
-          }));
-        }
-
-        return [];
-      }
-
-      function renderMessagesToText(messages: SavedMessage[]): string {
-        return messages
-          .map((m) => {
-            if (m.provider === "copilot") {
-              if (m.data.type !== "assistant.message") return "";
-              return String((m.data.data as Record<string, unknown>).content ?? "");
-            }
-            if (m.provider === "opencode") {
-              return m.data.parts
-                .filter((p) => p.type === "text" && "text" in p)
-                .map((p) => String((p as { text: string }).text))
-                .join("\n");
-            }
-            if (m.provider === "claude") {
-              if (m.data.type !== "assistant") return "";
-              const msg = m.data.message;
-              if (typeof msg === "string") return msg;
-              if (msg && typeof msg === "object" && "content" in msg) {
-                const content = (msg as Record<string, unknown>).content;
-                if (typeof content === "string") return content;
-                if (Array.isArray(content)) {
-                  return content
-                    .filter((b: Record<string, unknown>) => b.type === "text")
-                    .map((b: Record<string, unknown>) => String(b.text ?? ""))
-                    .join("\n");
-                }
-              }
-              return JSON.stringify(msg);
-            }
-            return "";
-          })
-          .filter((txt) => txt.length > 0)
-          .join("\n\n");
-      }
-
-      let pendingSave: Promise<void> | null = null;
-
-      const save: SaveTranscript = ((arg: SessionEvent[] | SessionPromptResponse | string) => {
-        pendingSave = (async () => {
-          const wrapped = await wrapMessages(arg);
-          await Bun.write(messagesPath, JSON.stringify(wrapped, null, 2));
-          const text = renderMessagesToText(wrapped);
-          await Bun.write(inboxPath, text);
-        })();
-        return pendingSave;
-      }) as SaveTranscript;
-
-      const ctx: SessionContext = {
-        serverUrl,
-        userPrompt: prompt,
-        agent,
-        sessionDir,
-        paneId,
-        sessionId,
-        save,
-        transcript: async (name: string): Promise<Transcript> => {
-          const prev = completedSessions.find((s) => s.name === name);
-          if (!prev) {
-            throw new Error(
-              `No transcript for "${name}". Available: ${completedSessions.map((s) => s.name).join(", ") || "(none)"}`
-            );
+        try {
+          const results = await promiseAllFailFast(promises, controller, () => {
+            for (const s of step) tmux.killWindow(tmuxSessionName, s.name);
+          });
+          completedSessions.push(...results);
+          if (agent === "claude") {
+            for (const r of results) clearClaudeSession(r.paneId);
           }
-          const filePath = join(prev.sessionDir, "inbox.md");
-          const content = await readFile(filePath, "utf-8");
-          return { path: filePath, content };
-        },
-        getMessages: async (name: string): Promise<SavedMessage[]> => {
-          const prev = completedSessions.find((s) => s.name === name);
-          if (!prev) {
-            throw new Error(
-              `No messages for "${name}". Available: ${completedSessions.map((s) => s.name).join(", ") || "(none)"}`
-            );
-          }
-          const filePath = join(prev.sessionDir, "messages.json");
-          const raw = await readFile(filePath, "utf-8");
-          return JSON.parse(raw) as SavedMessage[];
-        },
-      };
-
-      await writeFile(
-        join(sessionDir, "metadata.json"),
-        JSON.stringify({
-          name: sessionDef.name,
-          description: sessionDef.description ?? "",
-          agent, paneId, serverUrl, port,
-          startedAt: new Date().toISOString(),
-        }, null, 2)
-      );
-
-      panel.sessionRunning();
-      try {
-        await sessionDef.run(ctx);
-        // Ensure any pending save() writes complete before the next session reads them
-        if (pendingSave) await pendingSave;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        await writeFile(join(sessionDir, "error.txt"), message);
-        panel.sessionError(`Failed: ${message}`);
-        panel.showFatalError(message);
-        await panel.waitForExit();
-        shutdown(1);
-        return;
+        } catch (error) {
+          // Wait for all cancelled siblings to settle
+          await Promise.allSettled(promises);
+          const message = error instanceof Error ? error.message : String(error);
+          panel.showFatalError(message);
+          await panel.waitForExit();
+          shutdown(1);
+          return;
+        }
       }
-
-      completedSessions.push({ name: sessionDef.name, sessionId, sessionDir, paneId });
-      if (agent === "claude") clearClaudeSession(paneId);
-      panel.sessionSuccess("Complete");
     }
 
     panel.showCompletion(definition.name, sessionsBaseDir);

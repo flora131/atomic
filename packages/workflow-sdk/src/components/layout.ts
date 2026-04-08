@@ -1,0 +1,149 @@
+// ─── Layout ───────────────────────────────────────
+
+import type { SessionData, SessionStatus } from "./orchestrator-panel-types.ts";
+
+// ─── Layout Constants ─────────────────────────────
+
+export const NODE_W = 36;
+export const NODE_H = 4;
+export const H_GAP = 6;
+export const V_GAP = 3;
+export const PAD = 3;
+
+// ─── Layout Types ─────────────────────────────────
+
+export interface LayoutNode {
+  name: string;
+  status: SessionStatus;
+  parents: string[];
+  error?: string;
+  startedAt: number | null;
+  endedAt: number | null;
+  children: LayoutNode[];
+  depth: number;
+  x: number;
+  y: number;
+}
+
+export interface LayoutResult {
+  roots: LayoutNode[];
+  map: Record<string, LayoutNode>;
+  rowH: Record<number, number>;
+  width: number;
+  height: number;
+}
+
+// ─── Layout Computation ───────────────────────────
+
+export function computeLayout(sessions: SessionData[]): LayoutResult {
+  const map: Record<string, LayoutNode> = {};
+  const roots: LayoutNode[] = [];
+  const mergeNodes: LayoutNode[] = [];
+
+  for (const s of sessions) {
+    map[s.name] = {
+      name: s.name,
+      status: s.status,
+      parents: s.parents,
+      error: s.error,
+      startedAt: s.startedAt,
+      endedAt: s.endedAt,
+      children: [],
+      depth: 0,
+      x: 0,
+      y: 0,
+    };
+  }
+
+  // Classify: single-parent → tree child, multi-parent → merge node, no parent → root
+  for (const s of sessions) {
+    if (s.parents.length > 1) {
+      mergeNodes.push(map[s.name]!);
+    } else if (s.parents.length === 1 && map[s.parents[0]!]) {
+      map[s.parents[0]!]!.children.push(map[s.name]!);
+    } else {
+      roots.push(map[s.name]!);
+    }
+  }
+
+  function setDepth(n: LayoutNode, d: number) {
+    n.depth = d;
+    for (const c of n.children) setDepth(c, d + 1);
+  }
+  for (const r of roots) setDepth(r, 0);
+
+  // Merge nodes: depth = max(parent depths) + 1, then recurse into children
+  for (const m of mergeNodes) {
+    const maxParentDepth = Math.max(...m.parents.map((p) => map[p]?.depth ?? 0));
+    setDepth(m, maxParentDepth + 1);
+  }
+
+  const rowH: Record<number, number> = {};
+  for (const n of Object.values(map)) {
+    rowH[n.depth] = Math.max(rowH[n.depth] ?? 0, NODE_H);
+  }
+
+  function yAt(d: number): number {
+    let y = 0;
+    for (let i = 0; i < d; i++) y += (rowH[i] ?? NODE_H) + V_GAP;
+    return y;
+  }
+
+  let cursor = 0;
+
+  function place(n: LayoutNode) {
+    if (n.children.length === 0) {
+      n.x = cursor;
+      n.y = yAt(n.depth);
+      cursor += NODE_W + H_GAP;
+    } else {
+      for (const c of n.children) place(c);
+      const first = n.children[0]!;
+      const last = n.children[n.children.length - 1]!;
+      n.x = Math.round((first.x + last.x) / 2);
+      n.y = yAt(n.depth);
+    }
+  }
+
+  let firstRoot = true;
+  for (const r of roots) {
+    if (!firstRoot) cursor += H_GAP;
+    place(r);
+    firstRoot = false;
+  }
+
+  // Place merge nodes centered under all parents (and their sub-trees)
+  for (const m of mergeNodes) {
+    const parentCenters = m.parents.map((p) => (map[p]?.x ?? 0) + Math.floor(NODE_W / 2));
+    const avgCenter = Math.round(parentCenters.reduce((a, b) => a + b, 0) / parentCenters.length);
+
+    if (m.children.length > 0) {
+      // Place sub-tree first, then shift to center under parents
+      place(m);
+      const currentCenter = m.x + Math.floor(NODE_W / 2);
+      const dx = avgCenter - currentCenter;
+      function shift(n: LayoutNode) {
+        n.x += dx;
+        for (const c of n.children) shift(c);
+      }
+      shift(m);
+    } else {
+      m.x = avgCenter - Math.floor(NODE_W / 2);
+      m.y = yAt(m.depth);
+    }
+  }
+
+  for (const n of Object.values(map)) {
+    n.x += PAD;
+    n.y += PAD;
+  }
+
+  let maxX = 0;
+  let maxY = 0;
+  for (const n of Object.values(map)) {
+    maxX = Math.max(maxX, n.x + NODE_W);
+    maxY = Math.max(maxY, n.y + NODE_H);
+  }
+
+  return { roots, map, rowH, width: maxX + PAD, height: maxY + PAD };
+}

@@ -50,6 +50,7 @@ export {
   capturePaneVisible,
   capturePaneScrollback,
   killSession,
+  killWindow,
   sessionExists,
   attachSession,
   switchClient,

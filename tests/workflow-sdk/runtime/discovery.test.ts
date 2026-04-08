@@ -123,6 +123,7 @@ export default defineWorkflow({ name: "valid-test" })
     const def = await loadWorkflowDefinition(filePath);
     expect(def.__brand).toBe("WorkflowDefinition");
     expect(def.name).toBe("valid-test");
-    expect(def.sessions).toHaveLength(1);
+    expect(def.steps).toHaveLength(1);
+    expect(def.steps[0]).toHaveLength(1);
   });
 });

@@ -50,7 +50,6 @@ jobs:
 
             - name: Install dependencies
               run: bun ci
-              working-directory: packages/workflow-sdk
 
             - name: Run type checking
               run: bun run typecheck

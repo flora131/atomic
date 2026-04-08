@@ -22,6 +22,7 @@
 import { $ } from "bun";
 import { resolve, join } from "path";
 import { mkdir, cp, readdir, rm, writeFile } from "fs/promises";
+import ignore from "ignore";
 
 const ROOT = resolve(import.meta.dir, "../..");
 const DIST = resolve(ROOT, "dist");
@@ -71,10 +72,14 @@ async function main(): Promise<void> {
   const workflowsDest = join(STAGING, ".atomic/workflows");
   await mkdir(workflowsDest, { recursive: true });
 
-  // Copy each workflow directory (skip files and hidden/infra dirs at the root level)
+  // Filter workflow entries using the same .gitignore the runtime uses for discovery
+  const gitignorePath = join(workflowsSrc, ".gitignore");
+  const ig = ignore().add(await Bun.file(gitignorePath).text());
+
   const entries = await readdir(workflowsSrc, { withFileTypes: true });
   for (const entry of entries) {
-    if (!entry.isDirectory() || entry.name.startsWith(".") || entry.name === "node_modules") continue;
+    if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+    if (ig.ignores(entry.name + "/")) continue;
     await cp(join(workflowsSrc, entry.name), join(workflowsDest, entry.name), { recursive: true });
   }
 

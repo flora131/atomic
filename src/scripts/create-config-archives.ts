@@ -23,22 +23,12 @@ import { $ } from "bun";
 import { resolve, join } from "path";
 import { mkdir, cp, readdir, rm, writeFile } from "fs/promises";
 import ignore from "ignore";
+import { AGENTS } from "@bastani/atomic-workflows";
+import { SDK_PACKAGE_NAME, WORKFLOW_SDK_DIR, CONFIG_DIRS, CONFIG_FILES } from "./constants.ts";
 
 const ROOT = resolve(import.meta.dir, "../..");
 const DIST = resolve(ROOT, "dist");
 const STAGING = resolve(ROOT, "config-staging");
-
-/** Directories copied recursively into the archive. */
-const CONFIG_DIRS = [
-  ".claude/agents",
-  ".opencode/agents",
-  ".github/agents",
-];
-
-/** Individual files copied into the archive. */
-const CONFIG_FILES = [
-  ".github/lsp.json",
-];
 
 /** Minimal tsconfig shipped with workflow templates (no monorepo path aliases). */
 const WORKFLOWS_TSCONFIG = JSON.stringify(
@@ -55,9 +45,7 @@ const WORKFLOWS_TSCONFIG = JSON.stringify(
       types: ["bun"],
     },
     include: [
-      "**/claude/**/*.ts",
-      "**/copilot/**/*.ts",
-      "**/opencode/**/*.ts",
+      ...AGENTS.map((agent) => `**/${agent}/**/*.ts`),
       "**/helpers/**/*.ts",
     ],
   },
@@ -100,14 +88,14 @@ async function main(): Promise<void> {
   }
 
   // Write a release package.json referencing the published SDK version
-  const sdkPkgPath = join(ROOT, "packages/workflow-sdk/package.json");
+  const sdkPkgPath = join(ROOT, WORKFLOW_SDK_DIR, "package.json");
   const sdkVersion: string = (await Bun.file(sdkPkgPath).json()).version;
   const workflowsPkg = {
     name: "atomic-workflows",
     private: true,
     type: "module",
     dependencies: {
-      "@bastani/atomic-workflows": `^${sdkVersion}`,
+      [SDK_PACKAGE_NAME]: `^${sdkVersion}`,
     },
   };
   await writeFile(join(workflowsDest, "package.json"), JSON.stringify(workflowsPkg, null, 2) + "\n");

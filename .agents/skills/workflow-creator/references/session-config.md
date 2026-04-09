@@ -1,6 +1,6 @@
 # Session Configuration
 
-Each SDK has its own configuration options for controlling model selection, tools, permissions, hooks, and structured output. Configure these within each session's `run()` callback.
+Each SDK has its own configuration options for controlling model selection, tools, permissions, hooks, and structured output. Configure these within each session callback.
 
 ## Claude Agent SDK
 
@@ -12,11 +12,11 @@ Start the Claude TUI in a tmux pane. Must be called before any `claudeQuery()` o
 import { createClaudeSession } from "@bastani/atomic/workflows";
 
 // Default flags (skip all permissions)
-await createClaudeSession({ paneId: ctx.paneId });
+await createClaudeSession({ paneId: s.paneId });
 
 // Custom CLI flags
 await createClaudeSession({
-  paneId: ctx.paneId,
+  paneId: s.paneId,
   chatFlags: ["--model", "opus", "--dangerously-skip-permissions"],
   readyTimeoutMs: 60_000,  // Wait up to 60s for TUI (default: 30s)
 });
@@ -82,9 +82,9 @@ The `claudeQuery()` helper sends text to a tmux pane. Requires `createClaudeSess
 ```ts
 import { createClaudeSession, claudeQuery } from "@bastani/atomic/workflows";
 
-await createClaudeSession({ paneId: ctx.paneId });
+await createClaudeSession({ paneId: s.paneId });
 const result = await claudeQuery({
-  paneId: ctx.paneId,     // tmux pane ID (from SessionContext)
+  paneId: s.paneId,       // tmux pane ID (from SessionContext)
   prompt: "Your prompt",  // Text to send
 });
 // result.output — captured response text
@@ -223,7 +223,7 @@ const opencode = await createOpencode({
 
 // Option 2: Client-only (connect to existing server — typical for workflows)
 const client = createOpencodeClient({
-  baseUrl: ctx.serverUrl,   // From SessionContext
+  baseUrl: s.serverUrl,   // From SessionContext
 });
 ```
 

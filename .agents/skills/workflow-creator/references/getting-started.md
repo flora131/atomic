@@ -1,10 +1,10 @@
 # Workflow Authors: Getting Started
 
-This guide covers the basics of creating workflows with the `defineWorkflow()` session-based API.
+This guide covers the basics of creating workflows with the `defineWorkflow().run().compile()` API.
 
 ## Quick-start example
 
-Use the chainable builder to declare your workflow's metadata and sessions. Each session's `run()` callback contains raw SDK code for your target agent.
+Use `defineWorkflow().run(callback).compile()` to define your workflow. Inside the `.run()` callback, use `ctx.session()` to spawn agent sessions dynamically. Each session gets its own tmux window and graph node. Use native TypeScript control flow (`for`, `if`, `Promise.all()`) for orchestration.
 
 ### Claude
 
@@ -16,27 +16,28 @@ export default defineWorkflow({
     name: "my-workflow",
     description: "A two-session pipeline",
   })
-  .session({
-    name: "describe",
-    description: "Ask Claude to describe the project",
-    run: async (ctx) => {
-      await createClaudeSession({ paneId: ctx.paneId });
-      await claudeQuery({ paneId: ctx.paneId, prompt: ctx.userPrompt });
-      ctx.save(ctx.sessionId);
-    },
-  })
-  .session({
-    name: "summarize",
-    description: "Summarize the previous session's output",
-    run: async (ctx) => {
-      const research = await ctx.transcript("describe");
-      await createClaudeSession({ paneId: ctx.paneId });
-      await claudeQuery({
-        paneId: ctx.paneId,
-        prompt: `Read ${research.path} and summarize it in 2-3 bullet points.`,
-      });
-      ctx.save(ctx.sessionId);
-    },
+  .run(async (ctx) => {
+    const describe = await ctx.session(
+      { name: "describe", description: "Ask Claude to describe the project" },
+      async (s) => {
+        await createClaudeSession({ paneId: s.paneId });
+        await claudeQuery({ paneId: s.paneId, prompt: ctx.userPrompt });
+        s.save(s.sessionId);
+      },
+    );
+
+    await ctx.session(
+      { name: "summarize", description: "Summarize the previous session's output" },
+      async (s) => {
+        const research = await s.transcript(describe);
+        await createClaudeSession({ paneId: s.paneId });
+        await claudeQuery({
+          paneId: s.paneId,
+          prompt: `Read ${research.path} and summarize it in 2-3 bullet points.`,
+        });
+        s.save(s.sessionId);
+      },
+    );
   })
   .compile();
 ```
@@ -45,10 +46,9 @@ export default defineWorkflow({
 
 Note the `SEND_TIMEOUT_MS` constant passed as the second argument to every
 `sendAndWait` call. The Copilot SDK's default timeout is **60 seconds**, and
-when it fires it throws — which aborts the current stage and silently
-prevents the next `.session()` from running. Always pass an explicit,
-generous timeout. See the "Critical pitfall" section in `agent-sessions.md`
-for the full explanation.
+when it fires it throws — which aborts the current session. Always pass an
+explicit, generous timeout. See the "Critical pitfall" section in
+`agent-sessions.md` for the full explanation.
 
 ```ts
 // .atomic/workflows/my-workflow/copilot/index.ts
@@ -62,39 +62,40 @@ export default defineWorkflow({
     name: "my-workflow",
     description: "A two-session pipeline",
   })
-  .session({
-    name: "describe",
-    description: "Ask the agent to describe the project",
-    run: async (ctx) => {
-      const client = new CopilotClient({ cliUrl: ctx.serverUrl });
-      await client.start();
-      const session = await client.createSession({ onPermissionRequest: approveAll });
-      await client.setForegroundSessionId(session.sessionId);
-      await session.sendAndWait({ prompt: ctx.userPrompt }, SEND_TIMEOUT_MS);
-      ctx.save(await session.getMessages());
-      await session.disconnect();
-      await client.stop();
-    },
-  })
-  .session({
-    name: "summarize",
-    description: "Summarize the previous session's output",
-    run: async (ctx) => {
-      const research = await ctx.transcript("describe");
-      const client = new CopilotClient({ cliUrl: ctx.serverUrl });
-      await client.start();
-      const session = await client.createSession({ onPermissionRequest: approveAll });
-      await client.setForegroundSessionId(session.sessionId);
-      await session.sendAndWait(
-        {
-          prompt: `Summarize the following in 2-3 bullet points:\n\n${research.content}`,
-        },
-        SEND_TIMEOUT_MS,
-      );
-      ctx.save(await session.getMessages());
-      await session.disconnect();
-      await client.stop();
-    },
+  .run(async (ctx) => {
+    const describe = await ctx.session(
+      { name: "describe", description: "Ask the agent to describe the project" },
+      async (s) => {
+        const client = new CopilotClient({ cliUrl: s.serverUrl });
+        await client.start();
+        const session = await client.createSession({ onPermissionRequest: approveAll });
+        await client.setForegroundSessionId(session.sessionId);
+        await session.sendAndWait({ prompt: ctx.userPrompt }, SEND_TIMEOUT_MS);
+        s.save(await session.getMessages());
+        await session.disconnect();
+        await client.stop();
+      },
+    );
+
+    await ctx.session(
+      { name: "summarize", description: "Summarize the previous session's output" },
+      async (s) => {
+        const research = await s.transcript(describe);
+        const client = new CopilotClient({ cliUrl: s.serverUrl });
+        await client.start();
+        const session = await client.createSession({ onPermissionRequest: approveAll });
+        await client.setForegroundSessionId(session.sessionId);
+        await session.sendAndWait(
+          {
+            prompt: `Summarize the following in 2-3 bullet points:\n\n${research.content}`,
+          },
+          SEND_TIMEOUT_MS,
+        );
+        s.save(await session.getMessages());
+        await session.disconnect();
+        await client.stop();
+      },
+    );
   })
   .compile();
 ```
@@ -110,39 +111,66 @@ export default defineWorkflow({
     name: "my-workflow",
     description: "A two-session pipeline",
   })
-  .session({
-    name: "describe",
-    description: "Ask the agent to describe the project",
-    run: async (ctx) => {
-      const client = createOpencodeClient({ baseUrl: ctx.serverUrl });
-      const session = await client.session.create({ title: "describe" });
-      await client.tui.selectSession({ sessionID: session.data!.id });
-      const result = await client.session.prompt({
-        sessionID: session.data!.id,
-        parts: [{ type: "text", text: ctx.userPrompt }],
-      });
-      ctx.save(result.data!);
-    },
-  })
-  .session({
-    name: "summarize",
-    description: "Summarize the previous session's output",
-    run: async (ctx) => {
-      const research = await ctx.transcript("describe");
-      const client = createOpencodeClient({ baseUrl: ctx.serverUrl });
-      const session = await client.session.create({ title: "summarize" });
-      await client.tui.selectSession({ sessionID: session.data!.id });
-      const result = await client.session.prompt({
-        sessionID: session.data!.id,
-        parts: [{ type: "text", text: `Summarize the following in 2-3 bullet points:\n\n${research.content}` }],
-      });
-      ctx.save(result.data!);
-    },
+  .run(async (ctx) => {
+    const describe = await ctx.session(
+      { name: "describe", description: "Ask the agent to describe the project" },
+      async (s) => {
+        const client = createOpencodeClient({ baseUrl: s.serverUrl });
+        const session = await client.session.create({ title: "describe" });
+        await client.tui.selectSession({ sessionID: session.data!.id });
+        const result = await client.session.prompt({
+          sessionID: session.data!.id,
+          parts: [{ type: "text", text: ctx.userPrompt }],
+        });
+        s.save(result.data!);
+      },
+    );
+
+    await ctx.session(
+      { name: "summarize", description: "Summarize the previous session's output" },
+      async (s) => {
+        const research = await s.transcript(describe);
+        const client = createOpencodeClient({ baseUrl: s.serverUrl });
+        const session = await client.session.create({ title: "summarize" });
+        await client.tui.selectSession({ sessionID: session.data!.id });
+        const result = await client.session.prompt({
+          sessionID: session.data!.id,
+          parts: [{ type: "text", text: `Summarize the following in 2-3 bullet points:\n\n${research.content}` }],
+        });
+        s.save(result.data!);
+      },
+    );
   })
   .compile();
 ```
 
-Reading top-to-bottom: `describe → summarize`. Each session runs raw SDK code.
+Reading top-to-bottom: `describe → summarize`. Each session spawns a graph node and tmux window.
+
+## Native TypeScript control flow
+
+Sessions are spawned dynamically, so you can use loops, conditionals, and `Promise.all()`:
+
+```ts
+// Parallel sessions
+const [a, b] = await Promise.all([
+  ctx.session({ name: "task-a" }, async (s) => { /* ... */ }),
+  ctx.session({ name: "task-b" }, async (s) => { /* ... */ }),
+]);
+
+// Loop with dynamic sessions
+for (let i = 1; i <= maxIterations; i++) {
+  const result = await ctx.session({ name: `step-${i}` }, async (s) => {
+    // ... do work ...
+    return someValue; // available as result.result
+  });
+  if (result.result === "done") break;
+}
+
+// Conditional sessions
+if (needsReview) {
+  await ctx.session({ name: "review" }, async (s) => { /* ... */ });
+}
+```
 
 ## SDK exports
 
@@ -157,8 +185,11 @@ The SDK (`@bastani/atomic/workflows`) exports everything you need for workflow a
 - `Transcript` — `{ path: string, content: string }` from `ctx.transcript()`
 - `SavedMessage` — union of provider-specific message types
 - `SaveTranscript` — overloaded save function type
-- `SessionContext` — the context object passed to `run()`
-- `SessionOptions` — `{ name, description?, run }` session definition
+- `SessionContext` — the context object passed to `ctx.session()` callbacks
+- `SessionHandle<T>` — returned by `ctx.session()`, carries `{ name, id, result }`
+- `SessionRunOptions` — `{ name, description? }` for `ctx.session()` first argument
+- `SessionRef` — `string | SessionHandle<unknown>` for transcript/message lookups
+- `WorkflowContext` — top-level context passed to `.run()` callback
 - `WorkflowOptions` — `{ name, description? }` workflow metadata
 - `WorkflowDefinition` — sealed output of `.compile()`
 

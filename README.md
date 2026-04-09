@@ -220,7 +220,7 @@ Each agent gets its own configuration directory (`.claude/`, `.opencode/`, `.git
 
 ### Workflow SDK — Build Your Own Harness
 
-Every team has a process — triage bugs this way, ship features that way, review PRs with these checks. Most of it lives in a wiki nobody reads or in one senior engineer's head. The **Workflow SDK** (`@bastani/atomic/workflows`) lets you encode that process as a chain of named sessions with raw provider SDK code — then run it from the CLI.
+Every team has a process — triage bugs this way, ship features that way, review PRs with these checks. Most of it lives in a wiki nobody reads or in one senior engineer's head. The **Workflow SDK** (`@bastani/atomic/workflows`) lets you encode that process as TypeScript — spawn agent sessions dynamically with native control flow (`for`, `if`, `Promise.all()`), and watch them appear in a live graph as they execute.
 
 Drop a `.ts` file in `.atomic/workflows/<name>/<agent>/index.ts` and run it:
 
@@ -239,31 +239,28 @@ export default defineWorkflow({
   name: "hello",
   description: "Two-session Claude demo: describe → summarize",
 })
-  .session({
-    name: "describe",
-    description: "Ask Claude to describe the project",
-    run: async (ctx) => {
-      await createClaudeSession({ paneId: ctx.paneId });
-      await claudeQuery({
-        paneId: ctx.paneId,
-        prompt: ctx.userPrompt,
-      });
-      ctx.save(ctx.sessionId);
-    },
-  })
-  .session({
-    name: "summarize",
-    description: "Summarize the previous session's output",
-    run: async (ctx) => {
-      await createClaudeSession({ paneId: ctx.paneId });
-      const research = await ctx.transcript("describe");
+  .run(async (ctx) => {
+    const describe = await ctx.session(
+      { name: "describe", description: "Ask Claude to describe the project" },
+      async (s) => {
+        await createClaudeSession({ paneId: s.paneId });
+        await claudeQuery({ paneId: s.paneId, prompt: s.userPrompt });
+        s.save(s.sessionId);
+      },
+    );
 
-      await claudeQuery({
-        paneId: ctx.paneId,
-        prompt: `Read ${research.path} and summarize it in 2-3 bullet points.`,
-      });
-      ctx.save(ctx.sessionId);
-    },
+    await ctx.session(
+      { name: "summarize", description: "Summarize the previous session's output" },
+      async (s) => {
+        const research = await s.transcript(describe);
+        await createClaudeSession({ paneId: s.paneId });
+        await claudeQuery({
+          paneId: s.paneId,
+          prompt: `Read ${research.path} and summarize it in 2-3 bullet points.`,
+        });
+        s.save(s.sessionId);
+      },
+    );
   })
   .compile();
 ```
@@ -272,13 +269,14 @@ export default defineWorkflow({
 
 **Key capabilities:**
 
-| Capability               | Description                                                                          |
-| ------------------------ | ------------------------------------------------------------------------------------ |
-| **Sequential sessions**  | Chain `.session()` calls that execute in order, each in its own tmux pane            |
-| **Transcript passing**   | Access previous session output via `ctx.transcript(name)` or `ctx.getMessages(name)` |
-| **Provider-agnostic**    | Write raw SDK code for Claude, Copilot, or OpenCode inside each session's `run()`    |
-| **tmux-based execution** | Each session runs in its own tmux pane for isolation and observability               |
-| **Native SDK access**    | Use `createClaudeSession`, `claudeQuery`, Copilot SDK, or OpenCode SDK directly      |
+| Capability                   | Description                                                                          |
+| ---------------------------- | ------------------------------------------------------------------------------------ |
+| **Dynamic session spawning** | Call `ctx.session()` to spawn sessions at runtime — each gets its own tmux window and graph node |
+| **Native TypeScript control flow** | Use `for`, `if/else`, `Promise.all()`, `try/catch` — no framework DSL needed |
+| **Session return values**    | Session callbacks can return data: `const h = await ctx.session(...); h.result`      |
+| **Transcript passing**       | Access prior session output via handle (`s.transcript(handle)`) or name (`s.transcript("name")`) |
+| **Provider-agnostic**        | Write raw SDK code for Claude, Copilot, or OpenCode inside each session callback     |
+| **Live graph visualization** | Sessions appear in the TUI graph as they're spawned — loops and conditionals are visible in real time |
 
 Drop a `.ts` file in `.atomic/workflows/<name>/<agent>/` (project-local) or `~/.atomic/workflows/` (global). You can also ask Atomic to create workflows for you:
 
@@ -294,22 +292,33 @@ Use your workflow-creator skill to create a workflow that plans, implements, and
 | Method                                  | Purpose                                                           |
 | --------------------------------------- | ----------------------------------------------------------------- |
 | `defineWorkflow({ name, description })` | Entry point — returns a `WorkflowBuilder`                         |
-| `.session({ name, description?, run })` | Add a named session (or pass an array for parallel execution)     |
+| `.run(async (ctx) => { ... })`          | Set the workflow's entry point — `ctx` is a `WorkflowContext`     |
 | `.compile()`                            | **Required** — terminal method that seals the workflow definition |
 
-#### Session Context (`ctx`)
+#### WorkflowContext (`ctx`) — top-level orchestrator
 
 | Property                | Type                      | Description                                                    |
 | ----------------------- | ------------------------- | -------------------------------------------------------------- |
 | `ctx.userPrompt`        | `string`                  | Original user prompt from the CLI invocation                   |
 | `ctx.agent`             | `AgentType`               | Which agent is running (`"claude"`, `"copilot"`, `"opencode"`) |
-| `ctx.serverUrl`         | `string`                  | The agent's server URL                                         |
-| `ctx.paneId`            | `string`                  | tmux pane ID for this session                                  |
-| `ctx.sessionId`         | `string`                  | Session UUID                                                   |
-| `ctx.sessionDir`        | `string`                  | Path to this session's storage directory on disk               |
-| `ctx.transcript(name)`  | `Promise<Transcript>`     | Get a previous session's transcript (`{ path, content }`)      |
-| `ctx.getMessages(name)` | `Promise<SavedMessage[]>` | Get a previous session's raw native messages                   |
-| `ctx.save(messages)`    | `SaveTranscript`          | Save this session's output for subsequent sessions             |
+| `ctx.session(opts, fn)` | `Promise<SessionHandle<T>>` | Spawn a session — returns handle with `name`, `id`, `result` |
+| `ctx.transcript(ref)`   | `Promise<Transcript>`     | Get a completed session's transcript (`{ path, content }`)     |
+| `ctx.getMessages(ref)`  | `Promise<SavedMessage[]>` | Get a completed session's raw native messages                  |
+
+#### SessionContext (`s`) — inside each session callback
+
+| Property                | Type                      | Description                                                    |
+| ----------------------- | ------------------------- | -------------------------------------------------------------- |
+| `s.serverUrl`           | `string`                  | The agent's server URL                                         |
+| `s.userPrompt`          | `string`                  | Original user prompt from the CLI invocation                   |
+| `s.agent`               | `AgentType`               | Which agent is running                                         |
+| `s.paneId`              | `string`                  | tmux pane ID for this session                                  |
+| `s.sessionId`           | `string`                  | Session UUID                                                   |
+| `s.sessionDir`          | `string`                  | Path to this session's storage directory on disk               |
+| `s.save(messages)`      | `SaveTranscript`          | Save this session's output for subsequent sessions             |
+| `s.transcript(ref)`     | `Promise<Transcript>`     | Get a completed session's transcript                           |
+| `s.getMessages(ref)`    | `Promise<SavedMessage[]>` | Get a completed session's raw native messages                  |
+| `s.session(opts, fn)`   | `Promise<SessionHandle<T>>` | Spawn a nested sub-session (child in the graph)              |
 
 #### Saving Transcripts
 
@@ -317,9 +326,9 @@ Each provider saves transcripts differently:
 
 | Provider     | How to Save                                                        |
 | ------------ | ------------------------------------------------------------------ |
-| **Claude**   | `ctx.save(ctx.sessionId)` — auto-reads via `getSessionMessages()`  |
-| **Copilot**  | `ctx.save(await session.getMessages())` — pass `SessionEvent[]`    |
-| **OpenCode** | `ctx.save(result.data)` — pass the full `{ info, parts }` response |
+| **Claude**   | `s.save(s.sessionId)` — auto-reads via `getSessionMessages()`     |
+| **Copilot**  | `s.save(await session.getMessages())` — pass `SessionEvent[]`     |
+| **OpenCode** | `s.save(result.data!)` — pass the full `{ info, parts }` response |
 
 #### Provider Helpers
 
@@ -327,17 +336,17 @@ Each provider saves transcripts differently:
 | --------------------------------- | --------------------------------------------------- |
 | `createClaudeSession({ paneId })` | Start a Claude TUI in a tmux pane                   |
 | `claudeQuery({ paneId, prompt })` | Send a prompt to Claude and wait for the response   |
-| `clearClaudeSession({ paneId })`  | Clear the current Claude session                    |
-| `validateClaudeWorkflow()`        | Validate a Claude workflow definition before run    |
-| `validateCopilotWorkflow()`       | Validate a Copilot workflow definition before run   |
-| `validateOpenCodeWorkflow()`      | Validate an OpenCode workflow definition before run |
+| `clearClaudeSession(paneId)`      | Clear the current Claude session                    |
+| `validateClaudeWorkflow()`        | Validate a Claude workflow source before run        |
+| `validateCopilotWorkflow()`       | Validate a Copilot workflow source before run       |
+| `validateOpenCodeWorkflow()`      | Validate an OpenCode workflow source before run     |
 
 #### Key Rules
 
-1. Every workflow file must use `export default` with `.compile()` at the end
-2. Session names must be unique within a workflow
-3. Sessions execute sequentially in the order they are defined
-4. Each session runs in its own tmux pane with the chosen agent
+1. Every workflow file must use `export default` with `.run()` and `.compile()`
+2. Session names must be unique within a workflow run
+3. `transcript()` / `getMessages()` only access completed sessions (callback returned + saves flushed)
+4. Each session runs in its own tmux window with the chosen agent
 5. Workflows are organized per-workflow: `.atomic/workflows/<name>/<agent>/index.ts`
 
 Workflow files need no `package.json` or `node_modules` of their own — the Atomic loader rewrites `@bastani/atomic/*` and atomic's transitive deps (`@github/copilot-sdk`, `@opencode-ai/sdk`, `@anthropic-ai/claude-agent-sdk`, `zod`, etc.) to absolute paths inside the installed atomic package at load time. Drop a `.ts` file and it runs.

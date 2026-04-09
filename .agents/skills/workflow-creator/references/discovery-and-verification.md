@@ -45,8 +45,10 @@ export default defineWorkflow({
     name: "my-workflow",
     description: "What this workflow does",
   })
-  .session({ name: "step-1", run: async (ctx) => { /* ... */ } })
-  .session({ name: "step-2", run: async (ctx) => { /* ... */ } })
+  .run(async (ctx) => {
+    await ctx.session({ name: "step-1" }, async (s) => { /* ... */ });
+    await ctx.session({ name: "step-2" }, async (s) => { /* ... */ });
+  })
   .compile();
 ```
 
@@ -58,17 +60,18 @@ The `.compile()` method returns a `WorkflowDefinition` with `__brand: "WorkflowD
 
 The `WorkflowBuilder` enforces these rules at definition time:
 
-1. **Non-empty workflow** — `.compile()` throws if no `.session()` calls were made
-2. **Unique session names** — `.session()` throws if a duplicate `name` is detected
-3. **Required workflow name** — `defineWorkflow()` throws if `name` is empty
+1. **Non-empty workflow** — `.compile()` throws if no `.run()` call was made
+2. **Required workflow name** — `defineWorkflow()` throws if `name` is empty
+
+Session name uniqueness is enforced at runtime when `ctx.session()` is called — duplicate names within the same workflow run will throw.
 
 ### Provider validation warnings
 
 The SDK includes regex-based validation for all three providers:
 
 - **Claude** (`validateClaudeWorkflow`): Warns if the workflow uses `claudeQuery` without a corresponding `createClaudeSession` call
-- **Copilot** (`validateCopilotWorkflow`): Warns if the workflow doesn't use `ctx.serverUrl` for `CopilotClient` or doesn't call `setForegroundSessionId()`
-- **OpenCode** (`validateOpenCodeWorkflow`): Warns if the workflow doesn't use `ctx.serverUrl` for `createOpencodeClient` or doesn't call `tui.selectSession()`
+- **Copilot** (`validateCopilotWorkflow`): Warns if the workflow doesn't use `s.serverUrl` for `CopilotClient` or doesn't call `setForegroundSessionId()`
+- **OpenCode** (`validateOpenCodeWorkflow`): Warns if the workflow doesn't use `s.serverUrl` for `createOpencodeClient` or doesn't call `tui.selectSession()`
 
 These are non-blocking warnings — the workflow will still load.
 
@@ -77,7 +80,7 @@ These are non-blocking warnings — the workflow will still load.
 At load time, the runtime verifies:
 - The file has a `default` export
 - The export has `__brand === "WorkflowDefinition"`
-- The definition has a `name` and at least one session
+- The definition has a `name` and a `run` callback
 
 ## TypeScript configuration
 
@@ -122,10 +125,10 @@ bunx tsc --noEmit --pretty false
 ```
 
 This catches:
-- Invalid `SessionContext` field access
-- Wrong `run()` callback signatures
-- Missing required fields (`name`, `run`)
-- SDK type mismatches (e.g., passing wrong types to `ctx.save()`)
+- Invalid `SessionContext` / `WorkflowContext` field access
+- Wrong session callback signatures
+- Missing required fields (`name`)
+- SDK type mismatches (e.g., passing wrong types to `s.save()`)
 
 ## Testing
 

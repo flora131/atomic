@@ -4,18 +4,54 @@ Each `.session()` in a workflow creates an isolated agent session. The `run(ctx)
 
 ## Claude Agent SDK
 
-Claude runs as a full interactive TUI in a tmux pane. The `claudeQuery()` helper automates it via tmux send-keys.
+Claude runs as a full interactive TUI in a tmux pane. You must call `createClaudeSession()` to start the TUI before sending queries with `claudeQuery()`.
 
-### Basic usage with `claudeQuery()`
+### Session lifecycle
 
 ```ts
-import { defineWorkflow, claudeQuery } from "@bastani/atomic/workflows";
+import { defineWorkflow, createClaudeSession, claudeQuery, clearClaudeSession } from "@bastani/atomic/workflows";
 
 // ...
 .session({
   name: "implement",
   description: "Implement the feature",
   run: async (ctx) => {
+    // 1. Start Claude TUI in the pane (required before claudeQuery)
+    await createClaudeSession({ paneId: ctx.paneId });
+
+    // 2. Send queries — Claude maintains conversation context across calls
+    const result = await claudeQuery({
+      paneId: ctx.paneId,
+      prompt: ctx.userPrompt,
+    });
+    // result.output contains the captured response text
+
+    // 3. Save transcript
+    ctx.save(ctx.sessionId);
+  },
+})
+```
+
+`createClaudeSession()` sends the `claude` command with permission flags, waits for the TUI to render, and registers the pane. If `claudeQuery()` is called without a prior `createClaudeSession()` on the same pane, it throws an error.
+
+Options:
+- `paneId` — tmux pane ID (from `ctx.paneId`)
+- `chatFlags` — CLI flags (default: `["--allow-dangerously-skip-permissions", "--dangerously-skip-permissions"]`)
+- `readyTimeoutMs` — timeout waiting for TUI readiness (default: 30s)
+
+`clearClaudeSession(paneId)` removes a pane from the initialized set. Call it when a Claude session is killed or no longer needed.
+
+### Basic usage with `claudeQuery()`
+
+```ts
+import { defineWorkflow, createClaudeSession, claudeQuery } from "@bastani/atomic/workflows";
+
+// ...
+.session({
+  name: "implement",
+  description: "Implement the feature",
+  run: async (ctx) => {
+    await createClaudeSession({ paneId: ctx.paneId });
     const result = await claudeQuery({
       paneId: ctx.paneId,
       prompt: ctx.userPrompt,
@@ -34,6 +70,7 @@ Claude maintains conversation context across calls within the same pane. Send mu
 
 ```ts
 run: async (ctx) => {
+  await createClaudeSession({ paneId: ctx.paneId });
   // Turn 1: Plan
   await claudeQuery({ paneId: ctx.paneId, prompt: "Plan the implementation." });
   // Turn 2: Execute (Claude remembers the plan)
@@ -122,6 +159,30 @@ const result = query({ prompt: "Continue...", options: { resume: sessionId } });
 const result = query({ prompt: "Try a different approach", options: { forkSession: sessionId } });
 ```
 
+### Sub-agent delegation via `claudeQuery()`
+
+When using `claudeQuery()`, invoke named sub-agents by prefixing the prompt with `@"agent-name (agent)"`. The agent must be defined in `.claude/agents/`:
+
+```ts
+run: async (ctx) => {
+  await createClaudeSession({ paneId: ctx.paneId });
+
+  // Delegate to the "planner" agent
+  await claudeQuery({
+    paneId: ctx.paneId,
+    prompt: `@"planner (agent)" Create a plan for: ${ctx.userPrompt}`,
+  });
+
+  // Delegate to the "orchestrator" agent
+  await claudeQuery({
+    paneId: ctx.paneId,
+    prompt: `@"orchestrator (agent)" Execute the plan above.`,
+  });
+
+  ctx.save(ctx.sessionId);
+},
+```
+
 ## Copilot SDK
 
 Copilot uses a client-server architecture. `CopilotClient` manages the CLI server, and `CopilotSession` handles individual conversations.
@@ -130,6 +191,9 @@ Copilot uses a client-server architecture. `CopilotClient` manages the CLI serve
 
 ```ts
 import { CopilotClient, approveAll } from "@github/copilot-sdk";
+
+// Always pass an explicit timeout to sendAndWait — see the pitfall note below.
+const SEND_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 run: async (ctx) => {
   const client = new CopilotClient({ cliUrl: ctx.serverUrl });
@@ -140,7 +204,7 @@ run: async (ctx) => {
   });
   await client.setForegroundSessionId(session.sessionId);
 
-  await session.sendAndWait({ prompt: ctx.userPrompt });
+  await session.sendAndWait({ prompt: ctx.userPrompt }, SEND_TIMEOUT_MS);
 
   ctx.save(await session.getMessages());
 
@@ -149,11 +213,179 @@ run: async (ctx) => {
 },
 ```
 
-### Multi-turn conversations
+### Critical pitfall: `sendAndWait` has a 60-second default timeout
 
-Send multiple prompts to the same session:
+`session.sendAndWait(options, timeout?)` accepts an optional second `timeout`
+parameter that **defaults to 60000 ms**. When the timeout elapses it **throws**
+`Timeout after 60000ms waiting for session.idle` — it does NOT abort the
+in-flight agent, and it does NOT silently return. The throw propagates out of
+the session's `run()` callback, so:
+
+1. The current stage fails.
+2. Every subsequent `.session()` step never executes (e.g. a `planner → orchestrator → reviewer` pipeline stops dead after the planner).
+3. The agent may still be churning in the background.
+
+This is deadly for real work — planner, reviewer, and orchestrator sub-agents
+routinely need more than 60 seconds of wall-clock time. Source:
+`@github/copilot-sdk/dist/session.js` — the `sendAndWait` implementation races
+the idle promise against `setTimeout(..., timeout ?? 6e4)`.
+
+**Always pass an explicit, generous timeout** when calling `sendAndWait` inside
+a workflow. Define it as a named constant so it's obvious and tunable:
 
 ```ts
+// Buggy — silently inherits the 60s default and crashes long stages
+await session.sendAndWait({ prompt });
+
+// Correct — explicit 30-minute budget
+const SEND_TIMEOUT_MS = 30 * 60 * 1000;
+await session.sendAndWait({ prompt }, SEND_TIMEOUT_MS);
+```
+
+Pick a timeout that fits the expected work:
+
+| Session type | Suggested timeout |
+|---|---|
+| Short, bounded prompts (summaries, classification) | 5-10 minutes |
+| Sub-agents doing file-wide analysis (planner, reviewer) | 30 minutes |
+| Long implementation or multi-file refactors | 60 minutes |
+
+The timeout controls how long the SDK waits for `session.idle`; it does not
+cap the agent itself. Err on the generous side — a truly hung session will
+still surface as a clear error message rather than silently breaking
+downstream stages.
+
+### Critical pitfall: session lifecycle controls what context is available
+
+A workflow is not just a sequence of agent calls — it is an **information
+flow problem**. The single most common failure mode in Copilot workflows is
+assuming context carries across session boundaries when it doesn't.
+Designing a workflow without thinking about information flow produces
+sub-agents that hallucinate, repeat work, or drop requirements silently.
+
+**Treat this section as load-bearing**, not decorative. If you skip it, your
+workflow will ship broken in subtle, non-deterministic ways.
+
+#### The three session lifecycle states
+
+Every Copilot session is always in exactly one of these states, and the
+state determines what context the model sees on its next turn:
+
+| State | How you get there | Context available | Action needed |
+|---|---|---|---|
+| **Fresh** | `client.createSession(...)` | **None** — empty conversation | You MUST inject everything the agent needs in the first prompt |
+| **Continued** | Same session, additional `sendAndWait` calls | All prior turns in this session | Nothing — but watch total token usage |
+| **Resumed** | `client.resumeSession(sessionId)` | All persisted turns from the prior session of the SAME agent | Nothing — full history is reattached |
+| **Closed** | `session.disconnect()` or `client.stop()` | **Gone** from the live client; persisted on disk if the host enables it | Either resume by ID (same agent) or start fresh and re-inject context |
+
+The failure mode: you close a session, create a new one, and assume the new
+one "remembers" the previous conversation. It doesn't. `client` is just the
+transport — each session is a fully independent conversation.
+
+```ts
+// Buggy — the orchestrator session is fresh and knows NOTHING about
+// what the planner just produced, because createSession() started a
+// brand-new conversation.
+await runAgent("planner", buildPlannerPrompt(ctx.userPrompt));
+await runAgent("orchestrator", buildOrchestratorPrompt());
+// ↑ orchestrator only sees buildOrchestratorPrompt() — no planner output,
+//   no original user spec, no context.
+```
+
+#### Three valid ways to carry context across a session boundary
+
+Pick the one that fits the data you need to hand off. These are not
+mutually exclusive — ralph uses (1) + (2) together as belt-and-braces.
+
+**1. Explicit prompt handoff** — capture the prior session's last assistant
+message and inject it (or a summary) into the next session's first prompt.
+Simplest and most common fix:
+
+```ts
+async function runAgent(agent: string, prompt: string): Promise<string> {
+  const session = await client.createSession({ agent, onPermissionRequest: approveAll });
+  await session.sendAndWait({ prompt }, SEND_TIMEOUT_MS);
+  const messages = await session.getMessages();
+  await session.disconnect();
+  return getLastAssistantText(messages); // return the final text
+}
+
+// Correct — forward the planner's output into the orchestrator prompt
+const plannerNotes = await runAgent("planner", buildPlannerPrompt(ctx.userPrompt));
+await runAgent(
+  "orchestrator",
+  buildOrchestratorPrompt(ctx.userPrompt, { plannerNotes }),
+);
+```
+
+**2. External shared state** — write results to a medium both sessions can
+read: the task list (`TaskCreate` / `TaskList`), files on disk, a git
+working tree, or a database. The planner writes; the orchestrator reads.
+Ralph uses `TaskCreate`/`TaskList` as its primary coordination medium.
+
+**3. Resume the same session** — if the next step uses the **same agent**,
+`client.resumeSession(sessionId)` reattaches and continues the same
+conversation with full history intact. Resume is **not** a way to swap
+agents: each session is bound to one agent at creation time, so this only
+helps for multi-turn work within the same role.
+
+```ts
+// Same agent, multi-turn — resume keeps full history
+const resumed = await client.resumeSession(savedSessionId);
+await resumed.sendAndWait({ prompt: "Follow up on that." }, SEND_TIMEOUT_MS);
+```
+
+#### When context grows too large: compaction and clearing
+
+Even within a single continued session, context can grow past the window.
+Symptoms include lost-in-middle failures, repeated questions, and the model
+"forgetting" earlier decisions. When that happens, you have two levers:
+
+- **Compaction** — summarize the prior transcript into a shorter form and
+  feed it forward (either into a new session, or by starting a follow-up
+  session seeded with the summary). Most SDKs expose this as a built-in
+  command (Claude Code's `/compact` slash command, or programmatic helpers
+  in the OpenCode SDK). If the SDK you're using doesn't, roll your own with
+  a summarization call and start a fresh session with the summary in the
+  first prompt.
+- **Clearing** — drop old turns entirely when they're no longer load-bearing
+  (e.g. one-shot tool outputs whose results were already captured to files).
+  Claude's `/clear`, per-SDK `clearHistory`-style APIs, or simply starting a
+  new session with only the essentials in prompt 1 all work.
+
+Neither is free: compaction loses detail, clearing loses provenance. The
+`context-compression` and `context-optimization` skills below cover the
+trade-offs in depth.
+
+#### Context engineering skills — consult these BEFORE writing code
+
+Information flow is a design problem, not an implementation detail. Before
+committing to a session layout, pull in the relevant skills:
+
+| When you're deciding... | Consult |
+|---|---|
+| What context each session actually needs (anatomy + token budget) | `context-fundamentals` |
+| How many sessions and how they hand off (orchestrator vs peers vs swarm) | `multi-agent-patterns` |
+| How to compress large planner/reviewer output before re-injecting | `context-compression` |
+| How to detect and prevent lost-in-middle, poisoning, and distraction | `context-degradation` |
+| How to use files as coordination medium across sessions | `filesystem-context` |
+| How to persist knowledge across whole workflow runs | `memory-systems` |
+| Which turns to drop, which to cache, when to compact | `context-optimization` |
+
+These aren't optional reading — they're the difference between a workflow
+that works on day one and a workflow that silently degrades as inputs grow.
+If you're about to write a multi-session workflow and you haven't consulted
+at least `context-fundamentals` and `multi-agent-patterns`, **stop and read
+them first.**
+
+### Multi-turn conversations
+
+Send multiple prompts to the same session. Remember: every `sendAndWait` call
+needs its own explicit timeout.
+
+```ts
+const SEND_TIMEOUT_MS = 30 * 60 * 1000;
+
 run: async (ctx) => {
   const client = new CopilotClient({ cliUrl: ctx.serverUrl });
   await client.start();
@@ -161,11 +393,11 @@ run: async (ctx) => {
   await client.setForegroundSessionId(session.sessionId);
 
   // Turn 1
-  await session.sendAndWait({ prompt: "Plan the implementation." });
+  await session.sendAndWait({ prompt: "Plan the implementation." }, SEND_TIMEOUT_MS);
   // Turn 2
-  await session.sendAndWait({ prompt: "Now implement the plan." });
+  await session.sendAndWait({ prompt: "Now implement the plan." }, SEND_TIMEOUT_MS);
   // Turn 3
-  await session.sendAndWait({ prompt: "Run the tests." });
+  await session.sendAndWait({ prompt: "Run the tests." }, SEND_TIMEOUT_MS);
 
   ctx.save(await session.getMessages());
   await session.disconnect();
@@ -237,6 +469,32 @@ session.on("assistant.reasoning_delta", (event) => {
 });
 ```
 
+### Sub-agent delegation
+
+Pass the `agent` parameter to `createSession()` to bind a session to a named sub-agent:
+
+```ts
+const SEND_TIMEOUT_MS = 30 * 60 * 1000; // planner can take a while
+
+run: async (ctx) => {
+  const client = new CopilotClient({ cliUrl: ctx.serverUrl });
+  await client.start();
+
+  // Create a session bound to the "planner" agent
+  const session = await client.createSession({
+    agent: "planner",
+    onPermissionRequest: approveAll,
+  });
+  await client.setForegroundSessionId(session.sessionId);
+
+  await session.sendAndWait({ prompt: ctx.userPrompt }, SEND_TIMEOUT_MS);
+
+  ctx.save(await session.getMessages());
+  await session.disconnect();
+  await client.stop();
+},
+```
+
 ## OpenCode SDK
 
 OpenCode uses a client-server model. `createOpencodeClient()` connects to a running server.
@@ -260,6 +518,61 @@ run: async (ctx) => {
   ctx.save(result.data!);
 },
 ```
+
+### Critical pitfall: session lifecycle controls what context is available
+
+OpenCode sessions have **exactly the same isolation semantics as Copilot
+sessions**. Every call to `client.session.create(...)` returns a fresh,
+empty conversation. Creating a new session for the next sub-agent wipes
+everything the prior session knew — conversation history, tool-call
+results, intermediate reasoning — unless you forward it explicitly.
+
+The full explanation, the three lifecycle states (Fresh / Continued /
+Resumed / Closed), the three valid ways to carry context across a session
+boundary, compaction & clearing guidance, and the context engineering
+skill-map live in the **Copilot** section above under
+["Critical pitfall: session lifecycle controls what context is
+available"](#critical-pitfall-session-lifecycle-controls-what-context-is-available).
+Every principle there applies to OpenCode without modification — just
+substitute the OpenCode API equivalents:
+
+| Concept | Copilot API | OpenCode API |
+|---|---|---|
+| Create fresh session | `client.createSession({ agent })` | `client.session.create({ title })` + `agent` on `session.prompt()` |
+| Send a turn | `session.sendAndWait({ prompt }, timeout)` | `client.session.prompt({ sessionID, parts })` |
+| Close / disconnect | `session.disconnect()` / `client.stop()` | session lifecycle managed via server; no explicit disconnect in typical flow |
+| Resume prior session | `client.resumeSession(sessionId)` | Reuse the same `sessionID` with `client.session.prompt()` — the server retains history |
+| Extract final text | `getLastAssistantText(messages)` | `extractResponseText(result.data!.parts)` |
+
+**Multi-agent handoff example (applies the same pattern as Copilot):**
+
+```ts
+// Buggy — orchestrator session is fresh; it has no idea what the planner
+// produced because we created a brand-new session for it.
+await runAgent("planner-1", "planner", buildPlannerPrompt(ctx.userPrompt));
+await runAgent("orchestrator-1", "orchestrator", buildOrchestratorPrompt());
+
+// Correct — capture planner output and forward it into orchestrator prompt
+const plannerNotes = await runAgent(
+  "planner-1",
+  "planner",
+  buildPlannerPrompt(ctx.userPrompt),
+);
+await runAgent(
+  "orchestrator-1",
+  "orchestrator",
+  buildOrchestratorPrompt(ctx.userPrompt, { plannerNotes }),
+);
+```
+
+When planner output is large enough to strain the orchestrator's context
+window, compress before forwarding — consult `context-compression`. When a
+single long-running OpenCode session starts showing lost-in-middle
+symptoms, consult `context-optimization` for compaction/masking strategies
+before reaching for "just start a new session", which loses all history.
+
+**Read the Copilot section for the full write-up.** The pitfall applies
+identically here; the only thing that changes is the method names.
 
 ### Multi-turn conversations
 
@@ -354,4 +667,25 @@ const unsubscribe = await client.event.subscribe((event) => {
     console.log("Session updated:", event.data);
   }
 });
+```
+
+### Sub-agent delegation
+
+Pass the `agent` parameter to `session.prompt()` to route a prompt to a named sub-agent:
+
+```ts
+run: async (ctx) => {
+  const client = createOpencodeClient({ baseUrl: ctx.serverUrl });
+  const session = await client.session.create({ title: "plan" });
+  await client.tui.selectSession({ sessionID: session.data!.id });
+
+  // Route the prompt to the "planner" agent
+  const result = await client.session.prompt({
+    sessionID: session.data!.id,
+    parts: [{ type: "text", text: ctx.userPrompt }],
+    agent: "planner",
+  });
+
+  ctx.save(result.data!);
+},
 ```

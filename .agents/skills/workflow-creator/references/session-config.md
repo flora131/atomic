@@ -4,6 +4,24 @@ Each SDK has its own configuration options for controlling model selection, tool
 
 ## Claude Agent SDK
 
+### `createClaudeSession()` options
+
+Start the Claude TUI in a tmux pane. Must be called before any `claudeQuery()` on the same pane:
+
+```ts
+import { createClaudeSession } from "@bastani/atomic/workflows";
+
+// Default flags (skip all permissions)
+await createClaudeSession({ paneId: ctx.paneId });
+
+// Custom CLI flags
+await createClaudeSession({
+  paneId: ctx.paneId,
+  chatFlags: ["--model", "opus", "--dangerously-skip-permissions"],
+  readyTimeoutMs: 60_000,  // Wait up to 60s for TUI (default: 30s)
+});
+```
+
 ### `query()` options
 
 ```ts
@@ -59,11 +77,12 @@ const result = query({
 
 ### `claudeQuery()` options
 
-The `claudeQuery()` helper is simpler — it sends text to a tmux pane:
+The `claudeQuery()` helper sends text to a tmux pane. Requires `createClaudeSession()` to have been called first on the same pane:
 
 ```ts
-import { claudeQuery } from "@bastani/atomic/workflows";
+import { createClaudeSession, claudeQuery } from "@bastani/atomic/workflows";
 
+await createClaudeSession({ paneId: ctx.paneId });
 const result = await claudeQuery({
   paneId: ctx.paneId,     // tmux pane ID (from SessionContext)
   prompt: "Your prompt",  // Text to send

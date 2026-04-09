@@ -64,8 +64,9 @@ The `WorkflowBuilder` enforces these rules at definition time:
 
 ### Provider validation warnings
 
-The SDK includes regex-based validation for Copilot and OpenCode workflows:
+The SDK includes regex-based validation for all three providers:
 
+- **Claude** (`validateClaudeWorkflow`): Warns if the workflow uses `claudeQuery` without a corresponding `createClaudeSession` call
 - **Copilot** (`validateCopilotWorkflow`): Warns if the workflow doesn't use `ctx.serverUrl` for `CopilotClient` or doesn't call `setForegroundSessionId()`
 - **OpenCode** (`validateOpenCodeWorkflow`): Warns if the workflow doesn't use `ctx.serverUrl` for `createOpencodeClient` or doesn't call `tui.selectSession()`
 

@@ -24,9 +24,87 @@ Load the topic-specific reference files from `references/` as needed. Start with
 | `session-config.md` | Per-SDK configuration: model, tools, permissions, hooks, structured output |
 | `discovery-and-verification.md` | File discovery, `export default`, provider validation, TypeScript config |
 
+## Information Flow Is a First-Class Design Concern
+
+**A workflow is an information flow problem, not a sequence of prompts.**
+Before you write a single `.session()` call, answer these three questions
+for every session boundary in your workflow:
+
+1. **What context does this session need to succeed?** The original user
+   spec? Prior stage output? File paths? Git state? A summary?
+2. **How will that context reach the session?** Built into the prompt?
+   Read from a file? Retrieved via a tool? Resumed from a prior session?
+3. **What happens if the context window fills up?** Compact? Clear? Spawn
+   a sub-session? Offload to files?
+
+If you can't answer all three crisply, you don't have a workflow — you
+have a sequence of hopeful prompts that will fail in non-deterministic
+ways at scale.
+
+### The golden rule: session lifecycle controls information flow
+
+Different SDKs have different session lifecycle models, and misunderstanding
+them is the #1 cause of broken multi-agent workflows:
+
+| Lifecycle state | Context visible to the model | When it happens |
+|---|---|---|
+| **Fresh** | **Nothing** — empty conversation | `createSession()` / `session.create()` |
+| **Continued** | Everything sent so far in this session | Additional turns on the same live session |
+| **Resumed** | Everything persisted from the prior session of the SAME agent | `resumeSession(id)` / reusing `sessionID` |
+| **Closed** | Gone from the live client; possibly persisted on disk | `disconnect()` / `client.stop()` |
+
+**Closing a session and creating a new one wipes all in-session context.**
+The new session knows *only* what you put in its first prompt. This is the
+Copilot/OpenCode multi-agent failure mode — planner → orchestrator → reviewer
+pipelines where the next stage runs in a fresh session and has no idea what
+the prior stage produced.
+
+Claude is different: the `claudeQuery`/`createClaudeSession` pattern uses a
+single persistent tmux pane, so every turn accumulates in the same
+conversation. Sub-agent dispatch via `@"agent-name (agent)"` still shares
+pane scrollback with the parent. But for Copilot and OpenCode, **every
+`createSession` is a fresh conversation** — you must explicitly forward
+context across the boundary.
+
+### Three ways to carry context across a session boundary
+
+Pick the one that fits the data. These compose — it's common to use (1)+(2).
+
+1. **Explicit prompt handoff** — capture the prior session's final text and
+   inject it into the next session's first prompt. Simple, always works.
+2. **External shared state** — write to task list / files / git / database;
+   the next session reads from there. Best when the data is already
+   structured (tasks, files, commits).
+3. **Resume the same session** — `resumeSession(id)` keeps full history.
+   Only works when the next step uses the **same agent**.
+
+### Context is finite: compact before it overflows
+
+Even within one continued session, context can grow past the window.
+Symptoms: lost-in-middle, repeated questions, forgotten decisions.
+
+- **Compaction** — summarize prior turns into a shorter form. Most SDKs
+  provide this (e.g. Claude Code's `/compact` slash command). If yours
+  doesn't, roll your own: summarize via a sidecar call and seed a new
+  session with the summary.
+- **Clearing** — drop turns whose output was already captured elsewhere
+  (e.g. tool outputs written to files). Per-SDK helpers like `/clear` or
+  programmatic history mutation.
+
+Neither is free. Consult `context-compression` and `context-optimization`
+for the trade-offs.
+
+**Load-bearing references for the pitfalls above:**
+- `references/agent-sessions.md` §"Critical pitfall: session lifecycle
+  controls what context is available" (Copilot section) — full explanation,
+  wrong-vs-right examples, skill-map
+- `references/agent-sessions.md` §"Critical pitfall: sendAndWait has a
+  60-second default timeout" — the other way Copilot workflows silently
+  break
+
 ## Design Advisory Skills
 
-When designing workflows, consult these skills to make informed architectural decisions. Each skill addresses a specific design concern — use them when the corresponding trigger applies.
+When designing workflows, consult these skills to make informed architectural decisions. Each skill addresses a specific design concern — use them when the corresponding trigger applies. **The first four skills below (context-fundamentals, context-degradation, context-compression, multi-agent-patterns) are not optional reading for multi-session workflows — they are the difference between a workflow that works and one that silently degrades.**
 
 ### When to Consult Each Skill
 
@@ -50,25 +128,30 @@ When designing workflows, consult these skills to make informed architectural de
 
 **Planning phase** (before writing code):
 - `project-development` — Is this task viable for agent automation? What's the expected cost?
-- `multi-agent-patterns` — Should this be one session or many? What coordination topology?
-- `context-fundamentals` — How much context does each session need? What's the token budget?
+- `multi-agent-patterns` — Should this be one session or many? What coordination topology? **Critical for Copilot/OpenCode** because every session boundary is a context boundary.
+- `context-fundamentals` — How much context does each session need? What's the token budget? Which parts are load-bearing?
 
-**Session design phase** (structuring `run()` callbacks):
-- `context-fundamentals` — Position critical information at start/end of prompts, not middle
-- `context-degradation` — Add compaction triggers for loops; isolate unrelated concerns into separate sessions
-- `context-compression` — Summarize prior transcripts before injecting; preserve file paths and key decisions
-- `tool-design` — Design clear tool contracts; consolidate overlapping tools
-- `filesystem-context` — Use file-based scratch pads for intermediate state; load context on demand
+**Session design phase** (structuring `run()` callbacks and prompts):
+- `context-fundamentals` — Position critical information at start/end of prompts, not middle. Understand what "context" actually means for each session.
+- `context-degradation` — Add compaction triggers for loops; isolate unrelated concerns into separate sessions; detect lost-in-middle and poisoning early.
+- `context-compression` — Summarize prior transcripts before injecting into the next session; preserve file paths and key decisions.
+- `tool-design` — Design clear tool contracts; consolidate overlapping tools.
+- `filesystem-context` — Use file-based scratch pads for intermediate state; load context on demand instead of pre-loading.
 
-**Data flow phase** (connecting sessions via `ctx.save()` / `ctx.transcript()`):
-- `context-compression` — Compress transcripts at session boundaries using structured summaries
-- `memory-systems` — Choose persistence layer: `ctx.save()` for intra-workflow, files for cross-workflow, vector stores for semantic retrieval
-- `filesystem-context` — Offload large outputs to files; use `ctx.transcript().path` for file references instead of inlining full content
+**Cross-session data flow phase** (the phase that breaks Copilot/OpenCode workflows silently):
+- `context-fundamentals` — Decide what **must** survive each session boundary before you write the handoff code.
+- `context-compression` — **Mandatory** when forwarding large prior-stage output into a fresh session; naive forwarding will blow the context window.
+- `filesystem-context` — Offload large outputs to files; pass `{ path }` references instead of inlining full content; let the next session read selectively.
+- `memory-systems` — Choose persistence layer: in-memory variables for intra-session, `ctx.save()` for intra-workflow, files/DB for cross-workflow, vector stores for semantic retrieval.
+- `multi-agent-patterns` — Choose the coordination topology: supervisor, peer-to-peer, swarm. Each has different handoff protocols and different context-loss characteristics.
+
+**Runtime context management phase** (once the workflow is running):
+- `context-optimization` — Apply compaction when context grows past safe thresholds; mask verbose tool outputs; use cache-friendly prompt ordering. Reach for SDK-level compaction (`/compact`, programmatic helpers) before resorting to "start a new session" — the latter loses all in-session reasoning.
+- `context-degradation` — Diagnose when a long-running session starts producing worse output; decide whether to compact, clear, or split.
 
 **Quality assurance phase** (adding review/validation):
-- `evaluation` — Define success rubrics; test outcomes not execution paths
-- `advanced-evaluation` — Use pairwise comparison for subjective quality; mitigate position and length bias in judge prompts
-- `context-optimization` — Measure and reduce token waste; apply observation masking for verbose tool outputs
+- `evaluation` — Define success rubrics; test outcomes not execution paths.
+- `advanced-evaluation` — Use pairwise comparison for subjective quality; mitigate position and length bias in judge prompts.
 
 ## How Workflows Work
 
@@ -83,7 +166,7 @@ export default defineWorkflow({ name: "my-workflow", description: "..." })
   .compile();
 ```
 
-The chain reads top-to-bottom as the execution order. At the end, `.compile()` produces a branded `WorkflowDefinition` that the CLI runtime executes sequentially. Each session runs in its own tmux pane with the chosen agent.
+The chain reads top-to-bottom as the execution order. At the end, `.compile()` produces a branded `WorkflowDefinition` consumed by the CLI runtime. Each `.session()` call defines a **step** — pass a single `SessionOptions` for sequential execution, or pass an array for parallel execution (all sessions in the array run concurrently, and the next step waits for the entire group). Each session runs in its own tmux pane with the chosen agent.
 
 Workflows are SDK-specific and saved to `.atomic/workflows/<workflow-name>/<agent>/index.ts`:
 - `.atomic/workflows/<name>/claude/index.ts` — Claude Agent SDK code
@@ -106,7 +189,7 @@ Every workflow pattern — agent sessions, deterministic tools, user input, cont
 | Data flow between sessions | `ctx.save()` to persist → `ctx.transcript()` or `ctx.getMessages()` to retrieve |
 | Per-session configuration | SDK-specific: Claude `query({ options })`, Copilot `createSession({ ... })`, OpenCode `createOpencode({ config })` |
 | Response data extraction | Parse SDK responses directly: Claude result messages, Copilot `SessionEvent[]`, OpenCode response parts |
-| Subagent orchestration | Claude: `agents` option with `AgentDefinition[]`; Copilot: delegate via prompting; OpenCode: fork sessions |
+| Subagent orchestration | Claude: `@"agent-name (agent)"` prefix in `claudeQuery` prompt; Copilot: `createSession({ agent })` parameter; OpenCode: `session.prompt({ agent })` parameter |
 | Runtime validation | Plain TypeScript or import Zod directly in `run()` |
 
 ## Authoring Process
@@ -148,8 +231,8 @@ Workflows are per-SDK. Decide which agent SDK to target:
 
 | Agent | SDK Import | Primary API |
 |-------|-----------|-------------|
-| Claude | `claudeQuery` from `atomic/workflows` | `claudeQuery({ paneId, prompt })` — automates Claude TUI via tmux |
-| Copilot | `CopilotClient` from `@github/copilot-sdk` | `client.createSession()` → `session.sendAndWait({ prompt })` |
+| Claude | `claudeQuery` from `@bastani/atomic/workflows` | `createClaudeSession()` → `claudeQuery({ paneId, prompt })` — automates Claude TUI via tmux |
+| Copilot | `CopilotClient` from `@github/copilot-sdk` | `client.createSession()` → `session.sendAndWait({ prompt }, SEND_TIMEOUT_MS)` (explicit timeout is mandatory — default is 60s and throws; see `references/agent-sessions.md`) |
 | OpenCode | `createOpencodeClient` from `@opencode-ai/sdk/v2` | `client.session.create()` → `client.session.prompt({ ... })` |
 
 If you need cross-agent support, create one workflow file per agent under `.atomic/workflows/<name>/<agent>/index.ts`. Use shared helper modules for SDK-agnostic logic (prompts, parsing, validation) in a sibling directory like `.atomic/workflows/<name>/helpers/`.
@@ -170,7 +253,7 @@ Each `.session()` call defines one step:
 
 ```ts
 // .atomic/workflows/my-workflow/claude/index.ts
-import { defineWorkflow, claudeQuery } from "@bastani/atomic/workflows";
+import { defineWorkflow, createClaudeSession, claudeQuery } from "@bastani/atomic/workflows";
 
 export default defineWorkflow({
     name: "my-workflow",
@@ -180,6 +263,7 @@ export default defineWorkflow({
     name: "analyze",
     description: "Analyze the codebase",
     run: async (ctx) => {
+      await createClaudeSession({ paneId: ctx.paneId });
       await claudeQuery({ paneId: ctx.paneId, prompt: ctx.userPrompt });
       ctx.save(ctx.sessionId);
     },
@@ -189,6 +273,7 @@ export default defineWorkflow({
     description: "Implement based on analysis",
     run: async (ctx) => {
       const analysis = await ctx.transcript("analyze");
+      await createClaudeSession({ paneId: ctx.paneId });
       await claudeQuery({
         paneId: ctx.paneId,
         prompt: `Based on this analysis:\n${analysis.content}\n\nImplement the changes.`,
@@ -201,10 +286,19 @@ export default defineWorkflow({
 
 **Copilot example:**
 
+> **Important:** Every `sendAndWait` call must pass an explicit timeout. The
+> SDK default is only 60 seconds and a timeout **throws** — it aborts the
+> stage, propagates out of `run()`, and silently prevents every subsequent
+> `.session()` from running. See the Copilot "Critical pitfall" section in
+> `references/agent-sessions.md` for the full explanation.
+
 ```ts
 // .atomic/workflows/my-workflow/copilot/index.ts
 import { defineWorkflow } from "@bastani/atomic/workflows";
 import { CopilotClient, approveAll } from "@github/copilot-sdk";
+
+// Explicit timeout per sendAndWait call — see Copilot pitfall in agent-sessions.md
+const SEND_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 export default defineWorkflow({
     name: "my-workflow",
@@ -219,7 +313,7 @@ export default defineWorkflow({
       const session = await client.createSession({ onPermissionRequest: approveAll });
       await client.setForegroundSessionId(session.sessionId);
 
-      await session.sendAndWait({ prompt: ctx.userPrompt });
+      await session.sendAndWait({ prompt: ctx.userPrompt }, SEND_TIMEOUT_MS);
       ctx.save(await session.getMessages());
 
       await session.disconnect();
@@ -236,9 +330,12 @@ export default defineWorkflow({
       const session = await client.createSession({ onPermissionRequest: approveAll });
       await client.setForegroundSessionId(session.sessionId);
 
-      await session.sendAndWait({
-        prompt: `Based on this analysis:\n${analysis.content}\n\nImplement the changes.`,
-      });
+      await session.sendAndWait(
+        {
+          prompt: `Based on this analysis:\n${analysis.content}\n\nImplement the changes.`,
+        },
+        SEND_TIMEOUT_MS,
+      );
       ctx.save(await session.getMessages());
 
       await session.disconnect();
@@ -329,6 +426,7 @@ Loops are plain TypeScript inside `run()`. The Ralph workflow demonstrates a rev
   name: "review-fix",
   description: "Iterative review and fix",
   run: async (ctx) => {
+    await createClaudeSession({ paneId: ctx.paneId });
     const MAX_CYCLES = 10;
     let consecutiveClean = 0;
 
@@ -365,6 +463,8 @@ Loops are plain TypeScript inside `run()`. The Ralph workflow demonstrates a rev
   name: "triage-and-act",
   description: "Triage, then branch based on result",
   run: async (ctx) => {
+    await createClaudeSession({ paneId: ctx.paneId });
+
     // Step 1: Triage
     const triageResult = await claudeQuery({
       paneId: ctx.paneId,
@@ -410,6 +510,139 @@ defineWorkflow({ name: "data-flow", description: "Pass data between sessions" })
     },
   })
   .compile();
+```
+
+### Parallel Sessions
+
+Pass an array of `SessionOptions` to `.session([...])` for concurrent execution. All sessions in the array run in parallel, and the next `.session()` waits for the entire group to complete before proceeding.
+
+**Constraints:**
+- Parallel siblings **cannot** read each other's transcripts — `ctx.transcript()` only accesses prior completed steps.
+- Parallel execution is **fail-fast**: if any session in the group fails, the remaining siblings are aborted.
+
+```ts
+import { defineWorkflow, createClaudeSession, claudeQuery } from "@bastani/atomic/workflows";
+
+export default defineWorkflow({
+    name: "parallel-demo",
+    description: "describe → [summarize-a, summarize-b] → merge",
+  })
+  .session({
+    name: "describe",
+    run: async (ctx) => {
+      await createClaudeSession({ paneId: ctx.paneId });
+      await claudeQuery({ paneId: ctx.paneId, prompt: ctx.userPrompt });
+      ctx.save(ctx.sessionId);
+    },
+  })
+  // Array → parallel: both sessions run concurrently
+  .session([
+    {
+      name: "summarize-a",
+      description: "Summarize as bullet points",
+      run: async (ctx) => {
+        const research = await ctx.transcript("describe");
+        await createClaudeSession({ paneId: ctx.paneId });
+        await claudeQuery({
+          paneId: ctx.paneId,
+          prompt: `Read ${research.path} and summarize it in 2-3 bullet points.`,
+        });
+        ctx.save(ctx.sessionId);
+      },
+    },
+    {
+      name: "summarize-b",
+      description: "Summarize as a one-liner",
+      run: async (ctx) => {
+        const research = await ctx.transcript("describe");
+        await createClaudeSession({ paneId: ctx.paneId });
+        await claudeQuery({
+          paneId: ctx.paneId,
+          prompt: `Read ${research.path} and summarize it in a single sentence.`,
+        });
+        ctx.save(ctx.sessionId);
+      },
+    },
+  ])
+  .session({
+    name: "merge",
+    description: "Merge both summaries",
+    run: async (ctx) => {
+      const bullets = await ctx.transcript("summarize-a");
+      const oneliner = await ctx.transcript("summarize-b");
+      await createClaudeSession({ paneId: ctx.paneId });
+      await claudeQuery({
+        paneId: ctx.paneId,
+        prompt: `Combine these two summaries into one concise paragraph:\n\n## Bullet points\n${bullets.content}\n\n## One-liner\n${oneliner.content}`,
+      });
+      ctx.save(ctx.sessionId);
+    },
+  })
+  .compile();
+```
+
+### Sub-Agent Orchestration (inside a single session)
+
+Delegate to named sub-agents within a session. Each SDK has its own mechanism:
+
+**Claude** — prefix the prompt with `@"agent-name (agent)"`:
+
+```ts
+run: async (ctx) => {
+  await createClaudeSession({ paneId: ctx.paneId });
+  await claudeQuery({
+    paneId: ctx.paneId,
+    prompt: `@"planner (agent)" Create a plan for: ${ctx.userPrompt}`,
+  });
+  await claudeQuery({
+    paneId: ctx.paneId,
+    prompt: `@"orchestrator (agent)" Execute the plan above.`,
+  });
+  ctx.save(ctx.sessionId);
+},
+```
+
+**Copilot** — pass `agent` to `createSession()`. Remember the explicit
+`sendAndWait` timeout — the planner sub-agent is a prime example of work
+that exceeds Copilot's 60s default and silently breaks downstream stages
+(see `references/agent-sessions.md`):
+
+```ts
+const SEND_TIMEOUT_MS = 30 * 60 * 1000;
+
+run: async (ctx) => {
+  const client = new CopilotClient({ cliUrl: ctx.serverUrl });
+  await client.start();
+
+  const plannerSession = await client.createSession({
+    agent: "planner",
+    onPermissionRequest: approveAll,
+  });
+  await client.setForegroundSessionId(plannerSession.sessionId);
+  await plannerSession.sendAndWait({ prompt: ctx.userPrompt }, SEND_TIMEOUT_MS);
+
+  ctx.save(await plannerSession.getMessages());
+  await plannerSession.disconnect();
+  await client.stop();
+},
+```
+
+**OpenCode** — pass `agent` to `session.prompt()`:
+
+```ts
+run: async (ctx) => {
+  const client = createOpencodeClient({ baseUrl: ctx.serverUrl });
+  const session = await client.session.create({ title: "plan" });
+  await client.tui.selectSession({ sessionID: session.data!.id });
+
+  const result = await client.session.prompt({
+    sessionID: session.data!.id,
+    parts: [{ type: "text", text: ctx.userPrompt }],
+    agent: "planner",
+  });
+
+  ctx.save(result.data!);
+},
 ```
 
 ### Shared Helper Functions
@@ -468,6 +701,7 @@ export function compressTranscript(content: string, maxTokenEstimate: number = 4
     const research = await ctx.transcript("research");
     // Compress before injecting into prompt to stay within token budget
     const compressed = compressTranscript(research.content, 4000);
+    await createClaudeSession({ paneId: ctx.paneId });
     await claudeQuery({
       paneId: ctx.paneId,
       prompt: `Synthesize this research:\n${compressed}`,
@@ -487,6 +721,7 @@ defineWorkflow({ name: "guarded-pipeline", description: "Pipeline with quality g
     name: "implement",
     description: "Implement the feature",
     run: async (ctx) => {
+      await createClaudeSession({ paneId: ctx.paneId });
       await claudeQuery({ paneId: ctx.paneId, prompt: ctx.userPrompt });
       ctx.save(ctx.sessionId);
     },
@@ -496,6 +731,7 @@ defineWorkflow({ name: "guarded-pipeline", description: "Pipeline with quality g
     description: "Judge implementation quality",
     run: async (ctx) => {
       const impl = await ctx.transcript("implement");
+      await createClaudeSession({ paneId: ctx.paneId });
       const result = await claudeQuery({
         paneId: ctx.paneId,
         prompt: `You are a code quality judge. Score this implementation on a 1-5 scale for each criterion.
@@ -543,6 +779,7 @@ defineWorkflow({ name: "file-coordinated", description: "File-based coordination
     name: "plan",
     description: "Generate a plan and write to scratch pad",
     run: async (ctx) => {
+      await createClaudeSession({ paneId: ctx.paneId });
       const result = await claudeQuery({
         paneId: ctx.paneId,
         prompt: `Create a detailed implementation plan for: ${ctx.userPrompt}\n\nWrite the plan to a file called plan.md in the current directory.`,
@@ -554,6 +791,7 @@ defineWorkflow({ name: "file-coordinated", description: "File-based coordination
     name: "execute",
     description: "Execute from plan file",
     run: async (ctx) => {
+      await createClaudeSession({ paneId: ctx.paneId });
       // Reference the file by path instead of inlining content
       // This avoids bloating the prompt and lets the agent read selectively
       await claudeQuery({
@@ -598,4 +836,6 @@ Returns `{ path: string, content: string }` — the file path on disk and the re
 2. **`.compile()` required** — the chain must end with `.compile()`.
 3. **At least one session** — `compile()` throws if no sessions are defined.
 4. **`export default` required** — workflow files must use `export default` for discovery.
-5. **Forward-only data flow** — `ctx.transcript("<name>")` only has data from already-completed sessions.
+5. **Forward-only data flow** — `ctx.transcript("<name>")` only has data from already-completed steps. Parallel siblings cannot read each other.
+6. **Parallel fail-fast** — if any session in a parallel group fails, the remaining siblings are aborted.
+7. **Claude lifecycle** — `createClaudeSession({ paneId: ctx.paneId })` must be called before any `claudeQuery()` in each session.

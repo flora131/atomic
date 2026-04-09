@@ -167,6 +167,7 @@ Use user input results in conditional logic:
 run: async (ctx) => {
   // Get the plan from the previous session
   const plan = await ctx.transcript("plan");
+  await createClaudeSession({ paneId: ctx.paneId });
 
   // Ask the user (implementation depends on which SDK you're using)
   const approved = await getUserApproval(`Approve this plan?\n${plan.content}`);

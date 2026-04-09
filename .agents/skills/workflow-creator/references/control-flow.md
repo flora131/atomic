@@ -10,6 +10,8 @@ Use standard `if`/`else` to branch execution:
 .session({
   name: "triage-and-act",
   run: async (ctx) => {
+    await createClaudeSession({ paneId: ctx.paneId });
+
     // Step 1: Classify the request
     const triageResult = await claudeQuery({
       paneId: ctx.paneId,
@@ -49,6 +51,7 @@ Use `for` or `while` loops with explicit bounds:
 .session({
   name: "iterative-refinement",
   run: async (ctx) => {
+    await createClaudeSession({ paneId: ctx.paneId });
     const MAX_ITERATIONS = 5;
 
     for (let i = 0; i < MAX_ITERATIONS; i++) {
@@ -77,6 +80,7 @@ The Ralph workflow demonstrates a production-grade review/fix loop with consecut
   name: "review-fix",
   description: "Iterative review and fix until clean",
   run: async (ctx) => {
+    await createClaudeSession({ paneId: ctx.paneId });
     const MAX_CYCLES = 10;
     const CLEAN_THRESHOLD = 2;
     let consecutiveClean = 0;
@@ -125,7 +129,16 @@ The Ralph workflow demonstrates a production-grade review/fix loop with consecut
 
 ### Same pattern with Copilot
 
+Loops amplify the `sendAndWait` 60-second timeout pitfall — any iteration
+whose agent response takes longer than the default throws and kills the
+entire surrounding session (and every subsequent `.session()`). Always pass
+an explicit timeout. See the "Critical pitfall" section in
+`agent-sessions.md`.
+
 ```ts
+// Explicit per-call timeout — see agent-sessions.md pitfall note.
+const SEND_TIMEOUT_MS = 30 * 60 * 1000;
+
 .session({
   name: "review-fix",
   run: async (ctx) => {
@@ -138,7 +151,10 @@ The Ralph workflow demonstrates a production-grade review/fix loop with consecut
     let consecutiveClean = 0;
 
     for (let cycle = 0; cycle < MAX_CYCLES; cycle++) {
-      await session.sendAndWait({ prompt: buildReviewPrompt(ctx.userPrompt) });
+      await session.sendAndWait(
+        { prompt: buildReviewPrompt(ctx.userPrompt) },
+        SEND_TIMEOUT_MS,
+      );
       const reviewRaw = getLastAssistantText(await session.getMessages());
       const review = parseReviewResult(reviewRaw);
 
@@ -153,7 +169,10 @@ The Ralph workflow demonstrates a production-grade review/fix loop with consecut
         ? buildFixSpecFromReview(review, ctx.userPrompt)
         : buildFixSpecFromRawReview(reviewRaw, ctx.userPrompt);
 
-      await session.sendAndWait({ prompt: fixPrompt || "Fix remaining issues." });
+      await session.sendAndWait(
+        { prompt: fixPrompt || "Fix remaining issues." },
+        SEND_TIMEOUT_MS,
+      );
     }
 
     ctx.save(await session.getMessages());
@@ -171,6 +190,7 @@ Within a single session, each SDK call adds to the conversation context:
 .session({
   name: "guided-implementation",
   run: async (ctx) => {
+    await createClaudeSession({ paneId: ctx.paneId });
     // Claude remembers all prior turns within the same pane
     await claudeQuery({ paneId: ctx.paneId, prompt: "Step 1: Set up the project structure." });
     await claudeQuery({ paneId: ctx.paneId, prompt: "Step 2: Implement the core logic." });
@@ -187,6 +207,7 @@ Within a single session, each SDK call adds to the conversation context:
 
 ```ts
 run: async (ctx) => {
+  await createClaudeSession({ paneId: ctx.paneId });
   try {
     await claudeQuery({ paneId: ctx.paneId, prompt: ctx.userPrompt });
   } catch (error) {
@@ -220,6 +241,7 @@ async function retryWithBackoff<T>(
 }
 
 run: async (ctx) => {
+  await createClaudeSession({ paneId: ctx.paneId });
   await retryWithBackoff(() =>
     claudeQuery({ paneId: ctx.paneId, prompt: ctx.userPrompt })
   );
@@ -236,6 +258,7 @@ Combine loops, conditionals, and data passing:
   name: "adaptive-implementation",
   run: async (ctx) => {
     const analysis = await ctx.transcript("analyze");
+    await createClaudeSession({ paneId: ctx.paneId });
 
     // Determine strategy based on analysis
     const isComplex = analysis.content.includes("complex");

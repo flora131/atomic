@@ -33,6 +33,14 @@ import { safeGitStatusS } from "../helpers/git.ts";
 
 const MAX_LOOPS = 10;
 const CONSECUTIVE_CLEAN_THRESHOLD = 2;
+/**
+ * Per-agent send timeout. `CopilotSession.sendAndWait` defaults to 60s, which
+ * is far too short for real planner/orchestrator/reviewer/debugger work — a
+ * timeout there throws and aborts the whole workflow before the next stage
+ * can run. 30 minutes gives each sub-agent ample headroom while still
+ * surfacing truly hung sessions.
+ */
+const AGENT_SEND_TIMEOUT_MS = 30 * 60 * 1000;
 
 /** Concatenate the text content of every assistant message in an event stream. */
 function getLastAssistantText(messages: SessionEvent[]): string {
@@ -72,7 +80,7 @@ export default defineWorkflow({
         });
         await client.setForegroundSessionId(session.sessionId);
 
-        await session.sendAndWait({ prompt });
+        await session.sendAndWait({ prompt }, AGENT_SEND_TIMEOUT_MS);
 
         const messages = await session.getMessages();
         lastMessages = messages;
@@ -87,7 +95,11 @@ export default defineWorkflow({
 
         for (let iteration = 1; iteration <= MAX_LOOPS; iteration++) {
           // ── Plan ──────────────────────────────────────────────────────────
-          await runAgent(
+          // Capture the planner's final text. The Copilot SDK creates a fresh
+          // session for each sub-agent and disconnects when we're done, so
+          // the orchestrator below will NOT see the planner's in-session
+          // context automatically — we must forward it explicitly.
+          const plannerNotes = await runAgent(
             "planner",
             buildPlannerPrompt(ctx.userPrompt, {
               iteration,
@@ -96,7 +108,14 @@ export default defineWorkflow({
           );
 
           // ── Orchestrate ───────────────────────────────────────────────────
-          await runAgent("orchestrator", buildOrchestratorPrompt());
+          // Pass the original user spec AND the planner's trailing commentary
+          // into the fresh orchestrator session. The task list (via
+          // TaskCreate/TaskList) is the primary handoff channel, but this
+          // covers ambiguity and any notes that didn't fit in task bodies.
+          await runAgent(
+            "orchestrator",
+            buildOrchestratorPrompt(ctx.userPrompt, { plannerNotes }),
+          );
 
           // ── Review (first pass) ───────────────────────────────────────────
           let gitStatus = await safeGitStatusS();

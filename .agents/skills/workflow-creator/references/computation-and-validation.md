@@ -2,6 +2,8 @@
 
 Deterministic computation — validation, data transforms, file I/O, API calls — is written as plain TypeScript inside `run()`. No LLM session is needed. This is the programmatic equivalent of a `.tool()` node.
 
+> **Note:** All Claude examples below assume `createClaudeSession({ paneId: ctx.paneId })` is called at the start of each session's `run()` callback before any `claudeQuery()` calls.
+
 ## Inline computation
 
 Any TypeScript code inside `run()` that doesn't call an SDK prompt function is deterministic computation:

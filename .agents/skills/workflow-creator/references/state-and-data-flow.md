@@ -2,7 +2,11 @@
 
 Data flows between sessions via `ctx.save()`, `ctx.transcript()`, and `ctx.getMessages()`. Within a session, use plain TypeScript variables. This is the programmatic equivalent of `globalState` and reducers.
 
+> **Note:** All Claude examples below assume `createClaudeSession({ paneId: ctx.paneId })` is called at the start of each session's `run()` callback before any `claudeQuery()` calls.
+
 ## Between sessions: `ctx.save()` → `ctx.transcript()` / `ctx.getMessages()`
+
+**Forward-only rule:** `ctx.transcript()` and `ctx.getMessages()` can only access data from **prior completed steps**. In a parallel group, sibling sessions cannot read each other's output — only sessions from earlier steps are available.
 
 ### Saving output
 
@@ -30,6 +34,7 @@ ctx.save(result.data!);
   name: "synthesize",
   run: async (ctx) => {
     const research = await ctx.transcript("research");
+    await createClaudeSession({ paneId: ctx.paneId });
 
     // Use rendered text in a prompt
     await claudeQuery({
@@ -82,6 +87,7 @@ Use closures and variables for state within a single session:
 .session({
   name: "review-fix",
   run: async (ctx) => {
+    await createClaudeSession({ paneId: ctx.paneId });
     // Local state — plain variables
     let consecutiveClean = 0;
     let priorOutput = "";
@@ -232,6 +238,7 @@ Session A → ctx.save() → Session B reads via ctx.transcript("A")
     const research = await ctx.transcript("research");
     const analysis = await ctx.transcript("analysis");
     const userFeedback = await ctx.transcript("feedback");
+    await createClaudeSession({ paneId: ctx.paneId });
 
     await claudeQuery({
       paneId: ctx.paneId,
@@ -247,7 +254,7 @@ Feedback: ${userFeedback.content}`,
 
 ### Accumulating state across sessions
 
-Since sessions run sequentially, each session can read all prior sessions:
+Each session can read all prior completed steps (but not parallel siblings):
 
 ```ts
 .session({

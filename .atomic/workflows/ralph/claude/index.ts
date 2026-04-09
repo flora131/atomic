@@ -72,9 +72,17 @@ export default defineWorkflow({
         });
 
         // ── Orchestrate ─────────────────────────────────────────────────────
+        // Claude shares context across turns in the same tmux pane, so the
+        // orchestrator sub-agent would see the planner's output via pane
+        // scrollback. We still pass the spec explicitly for consistency with
+        // the Copilot and OpenCode variants (where session context is
+        // isolated) and to keep the orchestrator's prompt self-contained.
         await claudeQuery({
           paneId: ctx.paneId,
-          prompt: asAgentCall("orchestrator", buildOrchestratorPrompt()),
+          prompt: asAgentCall(
+            "orchestrator",
+            buildOrchestratorPrompt(ctx.userPrompt),
+          ),
         });
 
         // ── Review (first pass) ─────────────────────────────────────────────

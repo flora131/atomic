@@ -10,7 +10,7 @@ Use the chainable builder to declare your workflow's metadata and sessions. Each
 
 ```ts
 // .atomic/workflows/my-workflow/claude/index.ts
-import { defineWorkflow, claudeQuery } from "@bastani/atomic/workflows";
+import { defineWorkflow, createClaudeSession, claudeQuery } from "@bastani/atomic/workflows";
 
 export default defineWorkflow({
     name: "my-workflow",
@@ -20,6 +20,7 @@ export default defineWorkflow({
     name: "describe",
     description: "Ask Claude to describe the project",
     run: async (ctx) => {
+      await createClaudeSession({ paneId: ctx.paneId });
       await claudeQuery({ paneId: ctx.paneId, prompt: ctx.userPrompt });
       ctx.save(ctx.sessionId);
     },
@@ -29,6 +30,7 @@ export default defineWorkflow({
     description: "Summarize the previous session's output",
     run: async (ctx) => {
       const research = await ctx.transcript("describe");
+      await createClaudeSession({ paneId: ctx.paneId });
       await claudeQuery({
         paneId: ctx.paneId,
         prompt: `Read ${research.path} and summarize it in 2-3 bullet points.`,
@@ -41,10 +43,20 @@ export default defineWorkflow({
 
 ### Copilot
 
+Note the `SEND_TIMEOUT_MS` constant passed as the second argument to every
+`sendAndWait` call. The Copilot SDK's default timeout is **60 seconds**, and
+when it fires it throws — which aborts the current stage and silently
+prevents the next `.session()` from running. Always pass an explicit,
+generous timeout. See the "Critical pitfall" section in `agent-sessions.md`
+for the full explanation.
+
 ```ts
 // .atomic/workflows/my-workflow/copilot/index.ts
 import { defineWorkflow } from "@bastani/atomic/workflows";
 import { CopilotClient, approveAll } from "@github/copilot-sdk";
+
+// Explicit 30-minute timeout — required; see agent-sessions.md pitfall note.
+const SEND_TIMEOUT_MS = 30 * 60 * 1000;
 
 export default defineWorkflow({
     name: "my-workflow",
@@ -58,7 +70,7 @@ export default defineWorkflow({
       await client.start();
       const session = await client.createSession({ onPermissionRequest: approveAll });
       await client.setForegroundSessionId(session.sessionId);
-      await session.sendAndWait({ prompt: ctx.userPrompt });
+      await session.sendAndWait({ prompt: ctx.userPrompt }, SEND_TIMEOUT_MS);
       ctx.save(await session.getMessages());
       await session.disconnect();
       await client.stop();
@@ -73,9 +85,12 @@ export default defineWorkflow({
       await client.start();
       const session = await client.createSession({ onPermissionRequest: approveAll });
       await client.setForegroundSessionId(session.sessionId);
-      await session.sendAndWait({
-        prompt: `Summarize the following in 2-3 bullet points:\n\n${research.content}`,
-      });
+      await session.sendAndWait(
+        {
+          prompt: `Summarize the following in 2-3 bullet points:\n\n${research.content}`,
+        },
+        SEND_TIMEOUT_MS,
+      );
       ctx.save(await session.getMessages());
       await session.disconnect();
       await client.stop();
@@ -131,7 +146,7 @@ Reading top-to-bottom: `describe → summarize`. Each session runs raw SDK code.
 
 ## SDK exports
 
-The SDK (`atomic/workflows`) exports everything you need for workflow authoring:
+The SDK (`@bastani/atomic/workflows`) exports everything you need for workflow authoring:
 
 **Builder:**
 - `defineWorkflow` — entry point, returns a chainable `WorkflowBuilder`
@@ -153,7 +168,10 @@ The SDK (`atomic/workflows`) exports everything you need for workflow authoring:
 - `ClaudeSessionMessage` — from `@anthropic-ai/claude-agent-sdk`
 
 **Provider helpers:**
-- `claudeQuery` — automates Claude TUI via tmux send-keys
+- `createClaudeSession` — start Claude TUI in a tmux pane; must be called before `claudeQuery()`
+- `claudeQuery` — send a prompt to Claude TUI via tmux send-keys
+- `clearClaudeSession` — remove a pane from the initialized set (cleanup)
+- `validateClaudeWorkflow` — static validation for Claude workflow source files
 - `validateCopilotWorkflow` — regex-based Copilot usage checks
 - `validateOpenCodeWorkflow` — regex-based OpenCode usage checks
 

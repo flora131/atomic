@@ -82,7 +82,10 @@ export default defineWorkflow({
 
       for (let iteration = 1; iteration <= MAX_LOOPS; iteration++) {
         // ── Plan ────────────────────────────────────────────────────────────
-        await runAgent(
+        // Capture the planner's final text. OpenCode creates a fresh session
+        // per sub-agent, so the orchestrator below will NOT see the planner's
+        // in-session context automatically — we must forward it explicitly.
+        const plannerNotes = await runAgent(
           `planner-${iteration}`,
           "planner",
           buildPlannerPrompt(ctx.userPrompt, {
@@ -92,10 +95,14 @@ export default defineWorkflow({
         );
 
         // ── Orchestrate ─────────────────────────────────────────────────────
+        // Pass the original user spec AND the planner's trailing commentary
+        // into the fresh orchestrator session. The task list (via
+        // TaskCreate/TaskList) is the primary handoff channel, but this
+        // covers ambiguity and any notes that didn't fit in task bodies.
         await runAgent(
           `orchestrator-${iteration}`,
           "orchestrator",
-          buildOrchestratorPrompt(),
+          buildOrchestratorPrompt(ctx.userPrompt, { plannerNotes }),
         );
 
         // ── Review (first pass) ─────────────────────────────────────────────

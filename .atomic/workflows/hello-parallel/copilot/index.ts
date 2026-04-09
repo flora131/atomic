@@ -11,6 +11,13 @@
 import { defineWorkflow } from "@bastani/atomic/workflows";
 import { CopilotClient, approveAll } from "@github/copilot-sdk";
 
+/**
+ * `CopilotSession.sendAndWait` defaults to a 60s timeout and THROWS on
+ * expiry, which crashes the workflow mid-stage. Override with a generous
+ * 30-minute budget so legitimate long-running agent work completes.
+ */
+const SEND_TIMEOUT_MS = 30 * 60 * 1000;
+
 export default defineWorkflow({
   name: "hello-parallel",
   description: "Parallel Copilot demo: describe → [summarize-a, summarize-b] → merge",
@@ -24,7 +31,7 @@ export default defineWorkflow({
 
       const session = await client.createSession({ onPermissionRequest: approveAll });
       await client.setForegroundSessionId(session.sessionId);
-      await session.sendAndWait({ prompt: ctx.userPrompt });
+      await session.sendAndWait({ prompt: ctx.userPrompt }, SEND_TIMEOUT_MS);
 
       ctx.save(await session.getMessages());
       await session.disconnect();
@@ -43,9 +50,12 @@ export default defineWorkflow({
 
         const session = await client.createSession({ onPermissionRequest: approveAll });
         await client.setForegroundSessionId(session.sessionId);
-        await session.sendAndWait({
-          prompt: `Summarize the following in 2-3 bullet points:\n\n${research.content}`,
-        });
+        await session.sendAndWait(
+          {
+            prompt: `Summarize the following in 2-3 bullet points:\n\n${research.content}`,
+          },
+          SEND_TIMEOUT_MS,
+        );
 
         ctx.save(await session.getMessages());
         await session.disconnect();
@@ -63,9 +73,12 @@ export default defineWorkflow({
 
         const session = await client.createSession({ onPermissionRequest: approveAll });
         await client.setForegroundSessionId(session.sessionId);
-        await session.sendAndWait({
-          prompt: `Summarize the following in a single sentence:\n\n${research.content}`,
-        });
+        await session.sendAndWait(
+          {
+            prompt: `Summarize the following in a single sentence:\n\n${research.content}`,
+          },
+          SEND_TIMEOUT_MS,
+        );
 
         ctx.save(await session.getMessages());
         await session.disconnect();
@@ -85,17 +98,20 @@ export default defineWorkflow({
 
       const session = await client.createSession({ onPermissionRequest: approveAll });
       await client.setForegroundSessionId(session.sessionId);
-      await session.sendAndWait({
-        prompt: [
-          "Combine the following two summaries into one concise paragraph:",
-          "",
-          "## Bullet points",
-          bullets.content,
-          "",
-          "## One-liner",
-          oneliner.content,
-        ].join("\n"),
-      });
+      await session.sendAndWait(
+        {
+          prompt: [
+            "Combine the following two summaries into one concise paragraph:",
+            "",
+            "## Bullet points",
+            bullets.content,
+            "",
+            "## One-liner",
+            oneliner.content,
+          ].join("\n"),
+        },
+        SEND_TIMEOUT_MS,
+      );
 
       ctx.save(await session.getMessages());
       await session.disconnect();

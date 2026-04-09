@@ -1,6 +1,6 @@
 {
   "name": "@bastani/atomic-workflows",
-  "version": "0.5.0-0",
+  "version": "0.5.0-1",
   "description": "Workflow SDK for defining multi-session agent workflows in Atomic CLI",
   "repository": {
     "type": "git",

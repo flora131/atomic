@@ -91,7 +91,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
     const result = query({
       prompt: ctx.userPrompt,
       options: {
-        model: "opus",
+        model: "claude-opus-4-6",
         effort: "high",
         maxTurns: 50,
         maxBudgetUsd: 5.0,
@@ -99,8 +99,13 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
         allowedTools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"],
         disallowedTools: ["AskUserQuestion"],
         systemPrompt: "You are a senior engineer...",
-        outputFormat: { type: "json", schema: { ... } },
-        agents: [{ name: "reviewer", ... }],  // Subagents
+        outputFormat: {
+          type: "json_schema",
+          schema: { type: "object", properties: { tasks: { type: "array", items: { type: "string" } } } },
+        },
+        agents: {
+          reviewer: { description: "Review code changes", prompt: "You are a code reviewer..." },
+        },
       },
     });
     for await (const message of result) {
@@ -111,35 +116,42 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 ```
 
 Key `query()` options:
-- `model` — model alias or ID (`"opus"`, `"sonnet"`, `"haiku"`)
-- `effort` — reasoning effort (`"low"`, `"medium"`, `"high"`)
+- `model` — model ID (`"claude-opus-4-6"`, `"claude-sonnet-4-6"`) or alias (`"opus"`, `"sonnet"`, `"haiku"`)
+- `effort` — reasoning effort (`"low"`, `"medium"`, `"high"`, `"max"` — `"max"` is Opus 4.6 only)
+- `thinking` — thinking/reasoning config: `{ type: "adaptive" }` (default for supported models), `{ type: "enabled", budgetTokens: N }`, or `{ type: "disabled" }`
 - `maxTurns` — maximum conversation turns
 - `maxBudgetUsd` — spending cap in USD
-- `permissionMode` — `"default"`, `"dontAsk"`, `"acceptEdits"`, `"bypassPermissions"`, `"auto"`
+- `permissionMode` — `"default"`, `"dontAsk"`, `"acceptEdits"`, `"bypassPermissions"`, `"plan"`
 - `allowedTools` / `disallowedTools` — tool access control
-- `systemPrompt` — custom system prompt
-- `outputFormat` — structured output (JSON Schema)
-- `agents` — `AgentDefinition[]` for subagent orchestration
-- `resume` / `forkSession` — session continuity
+- `tools` — base set of available built-in tools: `string[]` for specific tools, `[]` to disable all, or `{ type: "preset", preset: "claude_code" }` for defaults
+- `systemPrompt` — custom system prompt (`string`) or preset with additions (`{ type: "preset", preset: "claude_code", append: "..." }`)
+- `outputFormat` — structured output: `{ type: "json_schema", schema: { ... } }`
+- `agents` — `Record<string, AgentDefinition>` — named subagents for orchestration
+- `agent` — main thread agent name (must be defined in `agents` or settings)
+- `resume` — session ID to resume a prior session
+- `forkSession` — `boolean` — when `true` with `resume`, forks to a new session instead of continuing
 - `mcpServers` — MCP server configurations
+- `hooks` — `Partial<Record<HookEvent, HookCallbackMatcher[]>>` — event-driven callbacks (see `session-config.md`)
+- `sandbox` — sandboxed command execution settings
+- `betas` — enable beta features (e.g. `["context-1m-2025-08-07"]` for 1M context on Sonnet)
 
 ### Subagents
 
-Claude supports parallel subagents via the `agents` option:
+Claude supports parallel subagents via the `agents` option (a `Record<string, AgentDefinition>` keyed by agent name):
 
 ```ts
-const agents = [
-  {
-    name: "worker",
+const agents = {
+  worker: {
     description: "Implement a single task",
-    allowedTools: ["Read", "Write", "Edit", "Bash"],
+    prompt: "You are a task implementer...",
+    tools: ["Read", "Write", "Edit", "Bash"],
   },
-  {
-    name: "reviewer",
+  reviewer: {
     description: "Review code changes",
-    allowedTools: ["Read", "Grep", "Glob"],
+    prompt: "You are a code reviewer...",
+    tools: ["Read", "Grep", "Glob"],
   },
-];
+};
 
 const result = query({
   prompt: "Implement and review the feature",
@@ -152,11 +164,11 @@ const result = query({
 Resume or fork prior sessions:
 
 ```ts
-// Resume a session
+// Resume a session (continues the same conversation)
 const result = query({ prompt: "Continue...", options: { resume: sessionId } });
 
 // Fork a session (creates a new branch from the session's history)
-const result = query({ prompt: "Try a different approach", options: { forkSession: sessionId } });
+const result = query({ prompt: "Try a different approach", options: { resume: sessionId, forkSession: true } });
 ```
 
 ### Sub-agent delegation via `claudeQuery()`

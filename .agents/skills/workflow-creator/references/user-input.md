@@ -16,7 +16,7 @@ async (s) => {
   const result = query({
     prompt: "Implement the feature, but ask me before making any database changes.",
     options: {
-      canUseTool: async (toolName, toolInput) => {
+      canUseTool: async (toolName, toolInput, options) => {
         if (toolName === "Write" && toolInput.file_path?.includes("migration")) {
           // Prompt the user for approval
           const approved = await promptUser("Allow database migration?");

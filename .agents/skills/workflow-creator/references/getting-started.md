@@ -187,7 +187,7 @@ The SDK (`@bastani/atomic/workflows`) exports everything you need for workflow a
 - `SaveTranscript` — overloaded save function type
 - `SessionContext` — the context object passed to `ctx.session()` callbacks
 - `SessionHandle<T>` — returned by `ctx.session()`, carries `{ name, id, result }`
-- `SessionRunOptions` — `{ name, description? }` for `ctx.session()` first argument
+- `SessionRunOptions` — `{ name, description?, dependsOn? }` for `ctx.session()` first argument
 - `SessionRef` — `string | SessionHandle<unknown>` for transcript/message lookups
 - `WorkflowContext` — top-level context passed to `.run()` callback
 - `WorkflowOptions` — `{ name, description? }` workflow metadata
@@ -219,12 +219,13 @@ The SDK (`@bastani/atomic/workflows`) exports everything you need for workflow a
 | `serverUrl` | `string` | Agent's server URL (Copilot / OpenCode) |
 | `userPrompt` | `string` | Original user prompt from CLI invocation |
 | `agent` | `AgentType` | Which agent is running |
-| `transcript(name)` | `(name: string) => Promise<Transcript>` | Get prior session's transcript as `{ path, content }` |
-| `getMessages(name)` | `(name: string) => Promise<SavedMessage[]>` | Get prior session's raw native messages |
+| `transcript(ref)` | `(ref: SessionRef) => Promise<Transcript>` | Get prior session's transcript as `{ path, content }` |
+| `getMessages(ref)` | `(ref: SessionRef) => Promise<SavedMessage[]>` | Get prior session's raw native messages |
 | `save` | `SaveTranscript` | Save this session's output for downstream sessions |
 | `sessionDir` | `string` | Path to session storage directory |
 | `paneId` | `string` | tmux pane ID |
 | `sessionId` | `string` | Session UUID |
+| `session(opts, fn)` | `<T>(...) => Promise<SessionHandle<T>>` | Spawn a nested sub-session (child of this session in the graph) |
 
 ## Reference files
 

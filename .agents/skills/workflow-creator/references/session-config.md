@@ -31,24 +31,27 @@ const result = query({
   prompt: ctx.userPrompt,
   options: {
     // Model selection
-    model: "opus",                    // "opus", "sonnet", "haiku" or full model ID
-    effort: "high",                   // "low", "medium", "high"
+    model: "claude-opus-4-6",         // Full model ID or alias ("opus", "sonnet", "haiku")
+    effort: "high",                   // "low", "medium", "high", "max" (max is Opus 4.6 only)
+    thinking: { type: "adaptive" },   // Default for supported models; or { type: "enabled", budgetTokens: N }
     maxTurns: 50,                     // Maximum conversation turns
     maxBudgetUsd: 5.0,                // Spending cap in USD
 
     // Permissions
-    permissionMode: "acceptEdits",    // "default", "dontAsk", "acceptEdits", "bypassPermissions", "auto"
+    permissionMode: "acceptEdits",    // "default", "dontAsk", "acceptEdits", "bypassPermissions", "plan"
 
-    // Tools
-    allowedTools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"],
-    disallowedTools: ["AskUserQuestion"],
+    // Tools — base set of available built-in tools
+    tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"],  // or { type: "preset", preset: "claude_code" } for all defaults
+    allowedTools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"],  // auto-allowed without prompting
+    disallowedTools: ["AskUserQuestion"],  // removed from model's context
 
-    // System prompt
+    // System prompt — string or preset with additions
     systemPrompt: "You are a senior security auditor...",
+    // Or: { type: "preset", preset: "claude_code", append: "Always explain your reasoning." }
 
     // Structured output
     outputFormat: {
-      type: "json",
+      type: "json_schema",
       schema: {
         type: "object",
         properties: {
@@ -57,10 +60,11 @@ const result = query({
       },
     },
 
-    // Subagents
-    agents: [
-      { name: "worker", description: "Implement tasks", allowedTools: ["Read", "Write", "Edit", "Bash"] },
-    ],
+    // Subagents — Record<string, AgentDefinition> keyed by name
+    agents: {
+      worker: { description: "Implement tasks", prompt: "You are a task implementer...", tools: ["Read", "Write", "Edit", "Bash"] },
+    },
+    agent: "worker",                  // Main thread agent name (optional)
 
     // MCP servers
     mcpServers: {
@@ -69,8 +73,14 @@ const result = query({
 
     // Session continuity
     resume: previousSessionId,         // Resume a prior session
-    forkSession: previousSessionId,    // Fork from a prior session
-    persistSession: true,              // Persist session to disk
+    forkSession: true,                 // When true with resume, forks to new session
+    persistSession: true,              // Persist session to disk (default: true)
+
+    // Sandbox — isolated command execution
+    sandbox: { enabled: true, autoAllowBashIfSandboxed: true },
+
+    // Beta features
+    betas: ["context-1m-2025-08-07"], // 1M context window (Sonnet 4/4.5 only)
   },
 });
 ```
@@ -92,35 +102,47 @@ const result = await claudeQuery({
 
 ### Claude hooks
 
-Hooks intercept tool usage, session events, and context management:
+Hooks intercept tool usage, session events, and context management. The `hooks` option is `Partial<Record<HookEvent, HookCallbackMatcher[]>>` — each event maps to an array of matchers with callback arrays:
 
 ```ts
 const result = query({
   prompt: ctx.userPrompt,
   options: {
     hooks: {
-      PreToolUse: async (event) => {
-        // Inspect or modify before a tool runs
-        if (event.tool === "Bash" && event.input.command.includes("rm")) {
-          return { decision: "block", reason: "Dangerous command" };
-        }
-        return { decision: "approve" };
-      },
-      PostToolUse: async (event) => {
-        // React after a tool completes
-        console.log(`Tool ${event.tool} completed`);
-      },
-      Stop: async (event) => {
-        // Called when the agent wants to stop
-      },
-      PreCompact: async (event) => {
-        // Before context compaction — inject durable context
-        return { additionalContext: "Remember: always run tests after edits." };
-      },
+      PreToolUse: [{
+        matcher: (input) => input.tool_name === "Bash",  // Optional — filter which events trigger this hook
+        hooks: [async (input, toolUseID, { signal }) => {
+          // input.tool_name, input.tool_input available
+          if (input.tool_input?.command?.includes("rm -rf")) {
+            return { decision: "deny", reason: "Dangerous command" };
+          }
+          return { decision: "allow" };
+          // Return values: { decision: "allow" | "deny" | "ask" | "defer" }
+        }],
+      }],
+      PostToolUse: [{
+        hooks: [async (input) => {
+          // React after a tool completes
+          console.log(`Tool ${input.tool_name} completed`);
+        }],
+      }],
+      Stop: [{
+        hooks: [async (input) => {
+          // Called when the agent wants to stop
+        }],
+      }],
+      PreCompact: [{
+        hooks: [async (input) => {
+          // Before context compaction — inject durable context
+          return { additionalContext: "Remember: always run tests after edits." };
+        }],
+      }],
     },
   },
 });
 ```
+
+**Hook events** (most commonly used): `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Stop`, `SessionStart`, `SessionEnd`, `PreCompact`, `PostCompact`, `SubagentStart`, `SubagentStop`, `Notification`, `PermissionRequest`, `PermissionDenied`, `Elicitation`, `ElicitationResult`, `ConfigChange`, `FileChanged`, `CwdChanged`.
 
 ## Copilot SDK
 

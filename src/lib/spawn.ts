@@ -80,6 +80,22 @@ export function getHomeDir(): string | undefined {
 }
 
 /**
+ * Options for the user-facing ensure* installers.
+ *
+ * `quiet: true` captures subprocess output instead of streaming it to the
+ * terminal, so a higher-level spinner UI (see auto-sync's `runSteps`) can
+ * own the display. Failures collected in the captured buffer are thrown
+ * out of the ensure* function so the spinner can mark the step red and
+ * surface the captured tail in its summary.
+ *
+ * Default (`quiet: false`) preserves the historical inherit-stdout
+ * behavior used by the ad-hoc fallbacks in chat.ts / workflow.ts.
+ */
+export interface EnsureOptions {
+  quiet?: boolean;
+}
+
+/**
  * Ensure npm is installed, attempting to install Node.js via available system
  * package managers when missing.
  *
@@ -87,7 +103,8 @@ export function getHomeDir(): string | undefined {
  */
 
 
-async function installNodeViaFnm(): Promise<boolean> {
+async function installNodeViaFnm(quiet: boolean): Promise<boolean> {
+  const inherit = !quiet;
   // Install fnm if not present.
   if (!Bun.which("fnm")) {
     let installed = false;
@@ -95,7 +112,7 @@ async function installNodeViaFnm(): Promise<boolean> {
     if (process.platform === "darwin" && Bun.which("brew")) {
       const brew = await runCommand(
         [Bun.which("brew")!, "install", "fnm"],
-        { inherit: true },
+        { inherit },
       );
       installed = brew.success;
     }
@@ -103,7 +120,7 @@ async function installNodeViaFnm(): Promise<boolean> {
     if (!installed && process.platform === "win32" && Bun.which("winget")) {
       const winget = await runCommand(
         [Bun.which("winget")!, "install", "Schniz.fnm"],
-        { inherit: true },
+        { inherit },
       );
       if (winget.success) {
         // Refresh PATH — winget installs to a location on the user PATH.
@@ -121,7 +138,7 @@ async function installNodeViaFnm(): Promise<boolean> {
 
       const curl = await runCommand(
         [shell, "-lc", "curl -fsSL https://fnm.vercel.app/install | bash -s -- --skip-shell"],
-        { inherit: true },
+        { inherit },
       );
       if (!curl.success) return false;
 
@@ -140,7 +157,7 @@ async function installNodeViaFnm(): Promise<boolean> {
   // Install LTS Node.js via fnm.
   const fnmInstall = await runCommand(
     [fnmPath, "install", "--lts"],
-    { inherit: true },
+    { inherit },
   );
   if (!fnmInstall.success) return false;
 
@@ -172,40 +189,67 @@ async function installNodeViaFnm(): Promise<boolean> {
   return !!Bun.which("node");
 }
 
-export async function ensureNpmInstalled(): Promise<void> {
+export async function ensureNpmInstalled(options: EnsureOptions = {}): Promise<void> {
+  const quiet = options.quiet ?? false;
+  const inherit = !quiet;
+
   if (Bun.which("npm")) {
     return;
   }
 
+  // Buffer captured failure output so a thrown error can surface the tail
+  // through the spinner summary. Only populated when `quiet` is set.
+  let capturedDetails = "";
+  const record = (result: SpawnResult) => {
+    if (quiet && !result.success && result.details) {
+      capturedDetails = result.details;
+    }
+  };
+
   // Preferred: install via fnm (no root required, works on all platforms).
-  if (await installNodeViaFnm()) {
+  if (await installNodeViaFnm(quiet)) {
     return;
   }
 
   if (process.platform === "win32") {
     // Fallback: direct Node.js installation via Windows package managers.
     if (Bun.which("winget")) {
-      await runCommand([
-        "winget",
-        "install",
-        "--id",
-        "OpenJS.NodeJS.LTS",
-        "-e",
-        "--silent",
-        "--accept-source-agreements",
-        "--accept-package-agreements",
-      ], { inherit: true });
+      record(
+        await runCommand(
+          [
+            "winget",
+            "install",
+            "--id",
+            "OpenJS.NodeJS.LTS",
+            "-e",
+            "--silent",
+            "--accept-source-agreements",
+            "--accept-package-agreements",
+          ],
+          { inherit },
+        ),
+      );
     } else if (Bun.which("choco")) {
-      await runCommand(["choco", "install", "nodejs-lts", "-y", "--no-progress"], { inherit: true });
+      record(
+        await runCommand(
+          ["choco", "install", "nodejs-lts", "-y", "--no-progress"],
+          { inherit },
+        ),
+      );
     } else if (Bun.which("scoop")) {
-      await runCommand(["scoop", "install", "nodejs-lts"], { inherit: true });
+      record(
+        await runCommand(["scoop", "install", "nodejs-lts"], { inherit }),
+      );
     }
 
     const programFiles = process.env.ProgramFiles;
     if (programFiles) {
       prependPath(join(programFiles, "nodejs"));
     }
-    return;
+    if (Bun.which("npm")) return;
+    throw new Error(
+      capturedDetails || "Could not install Node.js on Windows (no supported package manager found).",
+    );
   }
 
   const shell = Bun.which("bash") ?? Bun.which("sh");
@@ -228,11 +272,15 @@ export async function ensureNpmInstalled(): Promise<void> {
     if (Bun.which("npm")) {
       return;
     }
-    await runCommand([shell, "-lc", script], { inherit: true });
+    record(await runCommand([shell, "-lc", script], { inherit }));
     if (Bun.which("npm")) {
       return;
     }
   }
+
+  throw new Error(
+    capturedDetails || "Could not install Node.js — no supported package manager succeeded.",
+  );
 }
 
 /**
@@ -282,56 +330,79 @@ export async function upgradeLiteparse(): Promise<void> {
 /**
  * Ensure a terminal multiplexer (tmux on Unix, psmux on Windows) is installed.
  * No-op when already present on PATH.
+ *
+ * When `quiet: true`, subprocess output is captured instead of inherited
+ * so an outer spinner UI owns the display. On failure the captured tail
+ * is re-thrown as the error message.
  */
-export async function ensureTmuxInstalled(): Promise<void> {
+export async function ensureTmuxInstalled(options: EnsureOptions = {}): Promise<void> {
+  const quiet = options.quiet ?? false;
+  const inherit = !quiet;
+
   // Check for any multiplexer binary
   if (Bun.which("tmux") || Bun.which("psmux") || Bun.which("pmux")) return;
+
+  let capturedDetails = "";
+  const record = (result: SpawnResult) => {
+    if (quiet && !result.success && result.details) {
+      capturedDetails = result.details;
+    }
+  };
 
   if (process.platform === "win32") {
     // Windows: install psmux
     const winget = Bun.which("winget");
     if (winget) {
-      const result = await runCommand([winget, "install", "psmux", "--accept-source-agreements", "--accept-package-agreements"], { inherit: true });
+      const result = await runCommand([winget, "install", "psmux", "--accept-source-agreements", "--accept-package-agreements"], { inherit });
+      record(result);
       if (result.success && (Bun.which("psmux") || Bun.which("tmux"))) return;
     }
 
     const scoop = Bun.which("scoop");
     if (scoop) {
-      await runCommand([scoop, "bucket", "add", "psmux", "https://github.com/psmux/scoop-psmux"], { inherit: true });
-      const result = await runCommand([scoop, "install", "psmux"], { inherit: true });
+      await runCommand([scoop, "bucket", "add", "psmux", "https://github.com/psmux/scoop-psmux"], { inherit });
+      const result = await runCommand([scoop, "install", "psmux"], { inherit });
+      record(result);
       if (result.success && (Bun.which("psmux") || Bun.which("tmux"))) return;
     }
 
     const choco = Bun.which("choco");
     if (choco) {
-      const result = await runCommand([choco, "install", "psmux", "-y", "--no-progress"], { inherit: true });
+      const result = await runCommand([choco, "install", "psmux", "-y", "--no-progress"], { inherit });
+      record(result);
       if (result.success && (Bun.which("psmux") || Bun.which("tmux"))) return;
     }
 
     const cargo = Bun.which("cargo");
     if (cargo) {
-      const result = await runCommand([cargo, "install", "psmux"], { inherit: true });
+      const result = await runCommand([cargo, "install", "psmux"], { inherit });
+      record(result);
       if (result.success) {
         const home = getHomeDir();
         if (home) prependPath(join(home, ".cargo", "bin"));
         if (Bun.which("psmux") || Bun.which("tmux")) return;
       }
     }
-    return;
+    throw new Error(
+      capturedDetails || "Could not install psmux — no supported Windows package manager succeeded.",
+    );
   }
 
   // Unix / macOS
   if (process.platform === "darwin") {
     const brew = Bun.which("brew");
     if (brew) {
-      const result = await runCommand([brew, "install", "tmux"], { inherit: true });
+      const result = await runCommand([brew, "install", "tmux"], { inherit });
+      record(result);
       if (result.success && Bun.which("tmux")) return;
     }
   }
 
   // Linux package managers
   const shell = Bun.which("bash") ?? Bun.which("sh");
-  if (!shell) return;
+  if (!shell) {
+    throw new Error("Neither bash nor sh is available to install tmux.");
+  }
 
   const managers: string[] = [
     "command -v apt-get >/dev/null 2>&1 && sudo apt-get update -qq && sudo apt-get install -y tmux",
@@ -343,9 +414,13 @@ export async function ensureTmuxInstalled(): Promise<void> {
   ];
 
   for (const script of managers) {
-    await runCommand([shell, "-lc", script], { inherit: true });
+    record(await runCommand([shell, "-lc", script], { inherit }));
     if (Bun.which("tmux")) return;
   }
+
+  throw new Error(
+    capturedDetails || "Could not install tmux — no supported package manager succeeded.",
+  );
 }
 
 /**

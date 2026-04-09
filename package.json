@@ -1,6 +1,6 @@
 {
   "name": "@bastani/atomic",
-  "version": "0.5.0-1",
+  "version": "0.5.0-3",
   "description": "Configuration management CLI and SDK for coding agents",
   "type": "module",
   "license": "MIT",
@@ -31,14 +31,20 @@
   },
   "files": [
     "src",
-    "assets/settings.schema.json"
+    "tsconfig.json",
+    "assets/settings.schema.json",
+    ".claude/agents",
+    ".opencode/agents",
+    ".github/agents",
+    ".github/lsp.json",
+    ".atomic/workflows"
   ],
   "scripts": {
     "dev": "bun run src/cli.ts",
     "build": "bun run build.ts",
     "test": "bun test ./src ./tests",
     "test:coverage": "bun test --coverage ./src ./tests",
-    "typecheck": "bunx tsc --noEmit",
+    "typecheck": "bunx tsc --noEmit && bunx tsc -p tests --noEmit",
     "lint": "oxlint --config=oxlint.json src",
     "lint:fix": "oxlint --config=oxlint.json --fix src",
     "prepare": "lefthook install || true"

@@ -26,7 +26,6 @@ interface AtomicSettings {
   scm?: "github" | "sapling";
   version?: number;
   lastUpdated?: string;
-  prerelease?: boolean;
   trustedPaths?: TrustedPathEntry[];
 }
 
@@ -34,12 +33,6 @@ interface AtomicSettings {
 function globalSettingsPath(): string {
   const home = process.env.ATOMIC_SETTINGS_HOME ?? homedir();
   return join(home, ".atomic", "settings.json");
-}
-
-/** Local settings path: {cwd}/.atomic/settings.json (CWD-scoped by design) */
-function localSettingsPath(): string {
-  const cwd = process.env.ATOMIC_SETTINGS_CWD ?? process.cwd();
-  return join(cwd, ".atomic", "settings.json");
 }
 
 function loadSettingsFileSync(path: string): AtomicSettings {
@@ -95,14 +88,6 @@ function normalizeTrustedPaths(entries: TrustedPathEntry[] | undefined): Trusted
   }
 
   return Array.from(deduped.values());
-}
-
-/**
- * Get the prerelease channel preference.
- * Only checks global settings (~/.atomic/settings.json) since this is an install-level setting.
- */
-export function getPrereleasePreference(): boolean {
-  return loadSettingsFileSync(globalSettingsPath()).prerelease === true;
 }
 
 export async function isTrustedWorkspacePath(

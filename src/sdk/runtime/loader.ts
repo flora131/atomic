@@ -25,7 +25,7 @@ import { validateClaudeWorkflow } from "../providers/claude.ts";
 // Absolute path to the currently-running atomic CLI's own SDK source tree
 // (i.e. `<install_root>/src/sdk`). Computed from this file's URL so it always
 // points at the actual installed atomic, regardless of how it was launched
-// (dev checkout, global `bun install -g atomic`, `bunx atomic`, etc).
+// (dev checkout, global `bun install -g @bastani/atomic`, `bunx atomic`, etc).
 const ATOMIC_SDK_DIR = Bun.fileURLToPath(new URL("..", import.meta.url));
 
 // Directory of this loader file. Used as the parent for `Bun.resolveSync`

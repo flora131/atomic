@@ -147,14 +147,6 @@ Examples:
             process.exit(exitCode);
         });
 
-    program
-        .command("update")
-        .description("Update atomic to the latest version and reinstall skills")
-        .action(async () => {
-            const { updateCommand } = await import("@/commands/cli/update.ts");
-            process.exit(await updateCommand());
-        });
-
     // Add config command for managing CLI settings
     const configCmd = program
         .command("config")
@@ -182,6 +174,22 @@ export const program = createProgram();
  */
 async function main(): Promise<void> {
     try {
+        // Sync tooling deps and global skills on first launch after install
+        // or upgrade. Runs at most once per version bump (gated on a marker
+        // file under ~/.atomic). Skipped for `--version` / `--help` so info
+        // paths stay instant.
+        const argv = process.argv.slice(2);
+        const isInfoCommand =
+            argv.includes("--version") ||
+            argv.includes("-v") ||
+            argv.includes("--help") ||
+            argv.includes("-h");
+
+        if (!isInfoCommand) {
+            const { autoSyncIfStale } = await import("@/services/system/auto-sync.ts");
+            await autoSyncIfStale();
+        }
+
         // Parse and execute the command
         await program.parseAsync();
     } catch (error) {

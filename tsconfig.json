@@ -30,6 +30,5 @@
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false
   },
-  "include": ["src", "tests"],
-  "exclude": ["docs"]
+  "include": ["src"]
 }

@@ -18,17 +18,17 @@ fi
 
 # ─── Resolve npm dist-tag / version ─────────────────────────────────────────
 # Option -> npm package spec:
-#   latest     → atomic@latest  (stable releases)
-#   prerelease → atomic@next    (prereleases — matches `npm publish --tag next` in publish.yml)
-#   <version>  → atomic@<version>
+#   latest     → @bastani/atomic@latest  (stable releases)
+#   prerelease → @bastani/atomic@next    (prereleases — matches `npm publish --tag next` in publish.yml)
+#   <version>  → @bastani/atomic@<version>
 ATOMIC_VERSION="${VERSION:-latest}"
 
 case "${ATOMIC_VERSION}" in
     latest)
-        ATOMIC_SPEC="atomic@latest"
+        ATOMIC_SPEC="@bastani/atomic@latest"
         ;;
     prerelease)
-        ATOMIC_SPEC="atomic@next"
+        ATOMIC_SPEC="@bastani/atomic@next"
         ;;
     *)
         # Validate semver (MAJOR.MINOR.PATCH with optional numeric prerelease suffix)
@@ -38,7 +38,7 @@ case "${ATOMIC_VERSION}" in
             exit 1
         fi
         # Strip leading v — npm specs don't use the v prefix
-        ATOMIC_SPEC="atomic@${ATOMIC_VERSION#v}"
+        ATOMIC_SPEC="@bastani/atomic@${ATOMIC_VERSION#v}"
         ;;
 esac
 

@@ -1,143 +1,179 @@
 #!/usr/bin/env bash
 # Atomic CLI Installer
 #
-# Installs npm (if needed), bun (if needed), atomic globally, and sets up skills.
+# Bootstrap installer for systems that don't already have bun. Installs
+# bun (if missing) and then installs atomic from npm via bun. The CLI
+# itself handles tooling deps (Node.js/npm) and global skills on first
+# launch — see src/services/system/auto-sync.ts.
+#
+# If you already have bun, you can skip this script entirely:
+#   bun install -g @bastani/atomic@latest
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
 
 set -euo pipefail
 
-REPO="https://github.com/flora131/atomic.git"
-SKILLS_AGENTS=("claude-code" "opencode" "github-copilot")
-SCM_SKILLS_TO_REMOVE=("gh-commit" "gh-create-pr" "sl-commit" "sl-submit-diff")
+PACKAGE="@bastani/atomic@latest"
 
-info()  { printf '\033[1;34minfo\033[0m: %s\n' "$*"; }
-ok()    { printf '\033[1;32msuccess\033[0m: %s\n' "$*"; }
-warn()  { printf '\033[1;33mwarn\033[0m: %s\n' "$*" >&2; }
-error() { printf '\033[1;31merror\033[0m: %s\n' "$*" >&2; }
+# ── Rendering helpers ───────────────────────────────────────────────────────
+#
+# Progress UI: a persistent line with a braille spinner + bracketed bar +
+# step counter, rendered in place via carriage returns. Subprocess output
+# is captured to a temp log and only surfaced on failure. Falls back to
+# plain "[n/N] label" lines when stdout isn't a TTY (CI, piped output).
 
-# ── npm / Node.js ────────────────────────────────────────────────────────────
+IS_TTY=0
+if [[ -t 1 ]]; then IS_TTY=1; fi
 
-install_fnm() {
-    if command -v fnm >/dev/null 2>&1; then
-        info "fnm is already installed"
-        return 0
-    fi
-    info "Installing fnm (Fast Node Manager)..."
-    # macOS: Homebrew (preferred)
-    if [[ "$OSTYPE" == darwin* ]] && command -v brew >/dev/null 2>&1; then
-        if brew install fnm; then return 0; fi
-        warn "brew install fnm failed, trying curl installer..."
-    fi
-    # Linux / macOS fallback
-    if curl -fsSL https://fnm.vercel.app/install | bash -s -- --skip-shell; then
-        export FNM_DIR="${FNM_DIR:-$HOME/.local/share/fnm}"
-        export PATH="$FNM_DIR:$HOME/.fnm:$PATH"
-        return 0
-    fi
-    warn "fnm installation failed"
-    return 1
+# Colours — disabled if NO_COLOR is set (https://no-color.org)
+#
+# Palette follows Catppuccin semantics (see .impeccable.md):
+#   blue   → in-flight "progress" (accent)
+#   green  → completed success
+#   red    → failed
+#   yellow → warning
+if [[ -z "${NO_COLOR:-}" ]] && [[ "$IS_TTY" == "1" ]]; then
+    C_RESET=$'\033[0m'
+    C_DIM=$'\033[2m'
+    C_BOLD=$'\033[1m'
+    C_RED=$'\033[31m'
+    C_GREEN=$'\033[32m'
+    C_YELLOW=$'\033[33m'
+    C_BLUE=$'\033[34m'
+    C_CYAN=$'\033[36m'
+else
+    C_RESET=""; C_DIM=""; C_BOLD=""; C_RED=""; C_GREEN=""; C_YELLOW=""; C_BLUE=""; C_CYAN=""
+fi
+
+STEP_TOTAL=0
+STEP_INDEX=0
+
+info()  { printf '  %sinfo%s %s\n' "$C_CYAN" "$C_RESET" "$*"; }
+warn()  { printf '  %swarn%s %s\n' "$C_YELLOW" "$C_RESET" "$*" >&2; }
+error() { printf '  %serror%s %s\n' "$C_RED" "$C_RESET" "$*" >&2; }
+
+# Render a bracketed progress bar at the given completion ratio.
+#
+# Args: $1 = completed, $2 = total, $3 = state (progress|success|error)
+#
+# The filled segment carries the state colour (blue/green/red). The
+# empty track stays dim so only the active portion telegraphs outcome.
+render_bar() {
+    local completed=$1 total=$2 state=${3:-progress}
+    local width=18
+    local filled=$(( completed * width / total ))
+    (( filled > width )) && filled=$width
+    local empty=$(( width - filled ))
+    local fill_color
+    case "$state" in
+        success) fill_color="$C_GREEN" ;;
+        error)   fill_color="$C_RED"   ;;
+        *)       fill_color="$C_BLUE"  ;;
+    esac
+    local bar="" i
+    for ((i=0; i<filled; i++)); do bar+="█"; done
+    local rest=""
+    for ((i=0; i<empty; i++)); do rest+="░"; done
+    printf '%s%s%s%s%s%s%s' "$C_BOLD" "$fill_color" "$bar" "$C_RESET" "$C_DIM" "$rest" "$C_RESET"
 }
 
-install_npm() {
-    local NODE_MAJOR=22
+# Render the full status line (no newline).
+#
+# Args: $1 = glyph, $2 = stepno (1-indexed), $3 = fill (completed count),
+#       $4 = state (progress|success|error), $5 = label
+#
+# `stepno` and `fill` are separate so we can show "step 2/3" in the
+# counter while the bar is still empty (fill=1) during the spinner, and
+# flip to fill=2 only once the step actually succeeds.
+render_line() {
+    local glyph=$1 stepno=$2 fill=$3 state=$4 label=$5
+    local bar
+    bar=$(render_bar "$fill" "$STEP_TOTAL" "$state")
+    printf '  %s  %s  %s%d/%d%s  %s' \
+        "$glyph" "$bar" "$C_DIM" "$stepno" "$STEP_TOTAL" "$C_RESET" "$label"
+}
 
-    if command -v node >/dev/null 2>&1; then
-        local current_major
-        current_major=$(node --version | sed 's/^v//' | cut -d. -f1)
-        if [[ "$current_major" -ge "$NODE_MAJOR" ]]; then
-            info "Node.js $(node --version) is already installed (>= $NODE_MAJOR)"
+# Run a command with a spinner; capture output; surface only on failure.
+# STEP_INDEX tracks *completed* steps — it only advances on success so
+# the progress bar tells the truth about how far we've actually gotten.
+# Args: $1 = label, $2... = command
+run_step() {
+    local label=$1; shift
+    local completed=$STEP_INDEX
+    local stepno=$((completed + 1))
+
+    if [[ "$IS_TTY" != "1" ]]; then
+        printf '  [%d/%d] %s ' "$stepno" "$STEP_TOTAL" "$label"
+        local log; log=$(mktemp)
+        if "$@" >"$log" 2>&1; then
+            printf '%sok%s\n' "$C_GREEN" "$C_RESET"
+            rm -f "$log"
+            STEP_INDEX=$((STEP_INDEX + 1))
             return 0
-        fi
-        warn "Node.js $(node --version) is too old (need >= $NODE_MAJOR), upgrading..."
-    fi
-
-    info "Installing Node.js $NODE_MAJOR LTS..."
-
-    # Preferred: fnm (no root required)
-    if install_fnm && command -v fnm >/dev/null 2>&1; then
-        if fnm install --lts && eval "$(fnm env)"; then
-            info "Node.js $(node --version) installed via fnm"
-            return 0
-        fi
-        warn "fnm install --lts failed, trying other methods..."
-    fi
-
-    # Homebrew (macOS)
-    if command -v brew >/dev/null 2>&1; then
-        if brew install "node@$NODE_MAJOR" && brew link --overwrite "node@$NODE_MAJOR" 2>/dev/null; then
-            return 0
-        fi
-        if brew install node; then return 0; fi
-        warn "brew install node failed, trying other methods..."
-    fi
-
-    local sudo_cmd=""
-    if [[ "$(id -u)" -ne 0 ]]; then
-        if command -v sudo >/dev/null 2>&1; then
-            sudo_cmd="sudo"
         else
-            warn "Cannot install Node.js: no sudo and not root"
+            printf '%sfailed%s\n' "$C_RED" "$C_RESET"
+            sed 's/^/      /' "$log" >&2
+            rm -f "$log"
             return 1
         fi
     fi
 
-    # Debian/Ubuntu
-    if command -v apt-get >/dev/null 2>&1; then
-        if curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | $sudo_cmd bash -; then
-            $sudo_cmd apt-get install -y nodejs && return 0
+    local log; log=$(mktemp)
+    "$@" >"$log" 2>&1 &
+    local pid=$!
+
+    local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+    local i=0
+    printf '\033[?25l'  # hide cursor
+    while kill -0 "$pid" 2>/dev/null; do
+        local f="${frames[i % 10]}"
+        printf '\r\033[2K'
+        render_line "${C_BLUE}${f}${C_RESET}" "$stepno" "$completed" "progress" "$label"
+        i=$((i + 1))
+        sleep 0.08
+    done
+    # Capture exit code of wait explicitly; `|| true` would clobber it.
+    local rc=0
+    wait "$pid" || rc=$?
+    printf '\r\033[2K'
+    if [[ "$rc" == "0" ]]; then
+        STEP_INDEX=$((STEP_INDEX + 1))
+        render_line "${C_GREEN}✓${C_RESET}" "$stepno" "$STEP_INDEX" "success" "${C_DIM}${label}${C_RESET}"
+        printf '\n\033[?25h'  # newline + show cursor
+        rm -f "$log"
+        return 0
+    else
+        render_line "${C_RED}✗${C_RESET}" "$stepno" "$completed" "error" "$label"
+        printf '\n\033[?25h'
+        if [[ -s "$log" ]]; then
+            # Indent and dim the final ~15 lines of captured output
+            tail -n 15 "$log" | sed "s/^/    ${C_DIM}/" | sed "s/$/${C_RESET}/" >&2
         fi
-        $sudo_cmd apt-get update && $sudo_cmd apt-get install -y nodejs npm && return 0
+        rm -f "$log"
+        return $rc
     fi
-
-    # RHEL/Fedora
-    if command -v dnf >/dev/null 2>&1; then
-        if curl -fsSL "https://rpm.nodesource.com/setup_${NODE_MAJOR}.x" | $sudo_cmd bash -; then
-            $sudo_cmd dnf install -y nodejs && return 0
-        fi
-        $sudo_cmd dnf install -y nodejs npm && return 0
-    fi
-
-    if command -v yum >/dev/null 2>&1; then
-        if curl -fsSL "https://rpm.nodesource.com/setup_${NODE_MAJOR}.x" | $sudo_cmd bash -; then
-            $sudo_cmd yum install -y nodejs && return 0
-        fi
-        $sudo_cmd yum install -y nodejs npm && return 0
-    fi
-
-    # Other Linux
-    if command -v pacman >/dev/null 2>&1; then
-        $sudo_cmd pacman -Sy --noconfirm nodejs npm && return 0
-    elif command -v zypper >/dev/null 2>&1; then
-        $sudo_cmd zypper --non-interactive install nodejs npm && return 0
-    elif command -v apk >/dev/null 2>&1; then
-        $sudo_cmd apk add --no-cache nodejs npm && return 0
-    fi
-
-    warn "No supported package manager found to install Node.js"
-    return 1
 }
 
-# ── bun ──────────────────────────────────────────────────────────────────────
+# ── Installers ──────────────────────────────────────────────────────────────
 
 install_bun() {
     if command -v bun >/dev/null 2>&1; then
-        info "bun is already installed: $(bun --version 2>/dev/null)"
+        info "bun already installed ($(bun --version 2>/dev/null))"
         return 0
     fi
 
-    info "Installing bun..."
-
     # macOS: Homebrew (preferred)
     if [[ "$OSTYPE" == darwin* ]] && command -v brew >/dev/null 2>&1; then
-        brew install oven-sh/bun/bun && return 0
-        warn "brew install bun failed, trying curl installer..."
+        if run_step "Installing bun (brew)" brew install oven-sh/bun/bun; then
+            return 0
+        fi
+        warn "brew install bun failed, trying curl installer"
     fi
 
     # Official installer (Linux / macOS fallback)
     if command -v curl >/dev/null 2>&1; then
-        if curl -fsSL https://bun.sh/install | bash; then
+        if run_step "Downloading bun" bash -c 'curl -fsSL https://bun.sh/install | bash'; then
             export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
             export PATH="$BUN_INSTALL/bin:$PATH"
             if command -v bun >/dev/null 2>&1; then return 0; fi
@@ -148,63 +184,38 @@ install_bun() {
     return 1
 }
 
-# ── Skills ───────────────────────────────────────────────────────────────────
-
-install_skills() {
-    if ! command -v npx >/dev/null 2>&1; then
-        warn "npx not found — skipping skills install"
-        return
-    fi
-
-    local agent_flags=()
-    for agent in "${SKILLS_AGENTS[@]}"; do
-        agent_flags+=("-a" "$agent")
-    done
-
-    info "Installing bundled skills globally..."
-    if ! npx --yes skills add "$REPO" --skill '*' -g "${agent_flags[@]}" -y 2>/dev/null; then
-        warn "skills install failed (non-fatal)"
-        return
-    fi
-
-    local remove_flags=()
-    for skill in "${SCM_SKILLS_TO_REMOVE[@]}"; do
-        remove_flags+=("--skill" "$skill")
-    done
-
-    info "Removing source-control skill variants globally..."
-    npx --yes skills remove "${remove_flags[@]}" -g "${agent_flags[@]}" -y 2>/dev/null || true
+install_atomic() {
+    run_step "Installing @bastani/atomic" bun install -g "$PACKAGE"
 }
 
-# ── Main ─────────────────────────────────────────────────────────────────────
+# ── Main ────────────────────────────────────────────────────────────────────
 
 main() {
-    local failed_tools=()
-
-    # Step 1: npm (needed for npx skills)
-    install_npm || { warn "npm installation failed — install Node.js manually from https://nodejs.org"; failed_tools+=("npm"); }
-
-    # Step 2: bun (required runtime)
-    install_bun || { error "bun installation failed — install manually from https://bun.sh"; exit 1; }
-
-    # Step 3: Install atomic
-    info "Installing atomic..."
-    bun add -g atomic@latest
-    ok "atomic installed"
-
-    # Step 4: Skills
-    install_skills
-
-    if [[ ${#failed_tools[@]} -gt 0 ]]; then
-        warn "Some optional tools failed to install: ${failed_tools[*]}"
+    # Count upcoming steps so the progress bar is honest.
+    STEP_TOTAL=1  # atomic install
+    if ! command -v bun >/dev/null 2>&1; then
+        STEP_TOTAL=$((STEP_TOTAL + 1))  # bun install
     fi
 
-    ok ""
-    ok "Atomic installed successfully!"
-    echo ""
-    echo "  Get started:  atomic init"
-    echo "  Update later: atomic update"
-    echo ""
+    printf '\n'
+
+    if ! install_bun; then
+        error "bun installation failed — install manually from https://bun.sh"
+        exit 1
+    fi
+
+    if ! install_atomic; then
+        error "atomic installation failed"
+        exit 1
+    fi
+
+    printf '\n  %s✓%s %sAtomic installed successfully%s\n\n' \
+        "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET"
+    printf '    Get started:  %satomic init%s\n\n' "$C_CYAN" "$C_RESET"
+    printf '    %sTooling deps and skills will be set up automatically on first launch.%s\n' \
+        "$C_DIM" "$C_RESET"
+    printf '    %sTo upgrade later: bun update -g @bastani/atomic%s\n\n' \
+        "$C_DIM" "$C_RESET"
 }
 
 main

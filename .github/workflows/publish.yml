@@ -75,8 +75,6 @@ jobs:
 
       - name: Publish to npm
         run: npm publish --provenance --access public --tag ${{ steps.npm-tag.outputs.tag }}
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   release:
     name: Create Release

@@ -162,10 +162,13 @@ The `--from-branch` flag extracts the version from the current branch name, so c
 2. Run the bump-version script (prefer `--from-branch`).
 3. Commit with the message `chore(release): bump version to v<version>`.
 4. Open a PR to `main`.
+5. Once the PR is approved and merged, a GitHub Release will automatically be created based on the branch name, and the version will be published to npm.
 
 ## CI
 
 An overview of CI is described here: [CI Docs](docs/ci.md).
+
+Note: Remember that npm publishing with provenance does NOT require a token. That's the whole point. So if you see any steps in the CI related to setting up npm tokens (e.g., NPM_TOKEN|NODE_AUTH_TOKEN) for publishing, those are likely mistakes and should be removed.
 
 ## Tips
 

@@ -11,6 +11,7 @@ const ANSI_CODES = {
   red: "\x1b[31m",
   green: "\x1b[32m",
   yellow: "\x1b[33m",
+  blue: "\x1b[34m",
 } as const;
 
 const NO_COLORS = {
@@ -20,6 +21,7 @@ const NO_COLORS = {
   red: "",
   green: "",
   yellow: "",
+  blue: "",
 } as const;
 
 export const COLORS = supportsColor() ? ANSI_CODES : NO_COLORS;

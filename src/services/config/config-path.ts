@@ -3,7 +3,7 @@
  *
  * Two installation modes:
  * 1. Source/Development: Running from source with `bun run src/cli.ts`
- * 2. npm/bun installed: Installed via `bun add -g atomic`
+ * 2. npm/bun installed: Installed via `bun add -g @bastani/atomic`
  */
 
 import { join } from "path";

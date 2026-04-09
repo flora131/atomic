@@ -15,7 +15,7 @@ This document describes the GitHub Actions workflows that power Atomic CLI's con
   │                              │     │                                │
   │  CI ..................... ✓  │     │  Publish .................. ✓  │
   │    · typecheck/lint/test     │     │    · typecheck + tests         │
-  │  Code Review ........... ✓   │     │    · npm publish (atomic)      │
+  │  Code Review ........... ✓   │     │    · publish @bastani/atomic   │
   │  PR Description ........ ✓   │     │    · Create GitHub Release     │
   │  Bump Version .......... ✓   │     │                                │
   │  Validate Features ..... ✓   │     │  Publish Features ........ ✓  │
@@ -24,10 +24,10 @@ This document describes the GitHub Actions workflows that power Atomic CLI's con
   └──────────────────────────────┘     └────────────────────────────────┘
 ```
 
-Atomic is distributed exclusively as a single npm package (`atomic`) that
-exposes both the CLI binary (`atomic`) and the workflow SDK (via the
-`atomic/workflows` package export). There are no platform-specific compiled
-binaries — installation happens through `bun add -g atomic`.
+Atomic is distributed exclusively as a single npm package (`@bastani/atomic`)
+that exposes both the CLI binary (`atomic`) and the workflow SDK (via the
+`@bastani/atomic/workflows` package export). There are no platform-specific
+compiled binaries — installation happens through `bun install -g @bastani/atomic`.
 
 ---
 
@@ -38,7 +38,7 @@ These workflows run when a PR is opened or updated, providing feedback before me
 ### CI (`ci.yml`)
 
 Runs on all PRs to `main` that touch source code or config. A single `Checks`
-job runs against the consolidated `atomic` package.
+job runs against the consolidated `@bastani/atomic` package.
 
 ```
   PR opened/updated
@@ -169,19 +169,19 @@ Features are validated via schema checks during PRs and published after merge.
 
 ### Why npm-Only?
 
-Atomic ships as a single npm package. The `atomic` bin points at
-`src/cli.ts` and is run by Bun at install time, so there are no
-platform-specific binaries to compile, validate, or attach to a release.
-This eliminates a large amount of CI complexity that used to live in this
-pipeline:
+Atomic ships as a single npm package. The `atomic` bin (keyed by command
+name in `package.json`'s `bin` field) points at `src/cli.ts` and is run by
+Bun at install time, so there are no platform-specific binaries to compile,
+validate, or attach to a release. This eliminates a large amount of CI
+complexity that used to live in this pipeline:
 
 - No `build-binaries` cross-compilation step (6 targets removed)
 - No 6-platform binary validation matrix (linux/darwin/windows × x64/arm64)
 - No config archive packaging or per-platform validation
 - No `installer-validation.yml` workflow (`install.sh` / `install.ps1` are
-  now thin wrappers around `bun add -g atomic`)
+  now thin wrappers around `bun install -g @bastani/atomic`)
 - No separate workflow SDK package or publish step — the SDK is exposed as
-  the `atomic/workflows` subpath export of the same package
+  the `@bastani/atomic/workflows` subpath export of the same package
 
 ### Why Publish Before Release?
 
@@ -194,13 +194,13 @@ pipeline:
 
 1. **npm publish first** — npm publishes are permanent (cannot be
    overwritten) and run with OIDC provenance. Publishing before the GitHub
-   release guarantees the `atomic` package is on npm before any consumer
-   reads the release notes or runs the install script.
+   release guarantees the `@bastani/atomic` package is on npm before any
+   consumer reads the release notes or runs the install script.
 2. **Release last** — The GitHub release is created after the npm publish
    succeeds. The release can be deleted and re-created if needed.
 3. **Features are independent** — Devcontainer features just install the
-   published `atomic` package, so they're validated during PRs (schema
-   checks) and published in their own workflow triggered by
+   published `@bastani/atomic` package, so they're validated during PRs
+   (schema checks) and published in their own workflow triggered by
    `devcontainer-features/**` changes merging to main.
 
 ### Publish Features (`publish-features.yml`)
@@ -277,7 +277,7 @@ runs locally is the version bumper:
 
 Values that appear across multiple scripts are centralised to reduce drift:
 
-- **`SDK_PACKAGE_NAME`** — the npm package name (`atomic`)
+- **`SDK_PACKAGE_NAME`** — the npm package name (`@bastani/atomic`)
 - **`VERSION_FILES`** — `package.json` files bumped together during releases (currently just the root `package.json`)
 - **`CONFIG_DIRS`** — agent config directories, derived from the canonical `AGENTS` list exported by the workflow SDK (`src/sdk/workflows.ts`)
 - **`CONFIG_FILES`** — individual config files (e.g. `.github/lsp.json`)

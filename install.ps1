@@ -1,197 +1,233 @@
 # Atomic CLI Installer for Windows
 #
-# Installs npm (if needed), bun (if needed), atomic globally, and sets up skills.
+# Bootstrap installer for systems that don't already have bun. Installs
+# bun (if missing) and then installs atomic from npm via bun. The CLI
+# itself handles tooling deps (Node.js/npm) and global skills on first
+# launch — see src/services/system/auto-sync.ts.
+#
+# If you already have bun, you can skip this script entirely:
+#   bun install -g @bastani/atomic@latest
 #
 # Usage:
 #   irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1 | iex
 
 $ErrorActionPreference = "Stop"
 
-$REPO = "https://github.com/flora131/atomic.git"
-$SKILLS_AGENTS = @("claude-code", "opencode", "github-copilot")
-$SCM_SKILLS_TO_REMOVE = @("gh-commit", "gh-create-pr", "sl-commit", "sl-submit-diff")
+$PACKAGE = "@bastani/atomic@latest"
 
-$C_BLUE = "`e[1;34m"; $C_GREEN = "`e[1;32m"; $C_YELLOW = "`e[1;33m"; $C_RED = "`e[1;31m"; $C_RESET = "`e[0m"
-function Write-Info { Write-Host "${C_BLUE}info${C_RESET}: $args" }
-function Write-Success { Write-Host "${C_GREEN}success${C_RESET}: $args" }
-function Write-Warn { Write-Host "${C_YELLOW}warn${C_RESET}: $args" }
-function Write-Err { Write-Host "${C_RED}error${C_RESET}: $args" }
+# ── Rendering helpers ───────────────────────────────────────────────────────
+#
+# Mirrors install.sh's spinner + bracketed progress bar UI. Commands run
+# as background PowerShell jobs so we can animate a braille spinner while
+# they execute. Output is captured and only surfaced on failure. Falls
+# back to plain line-at-a-time rendering when stdout isn't a TTY.
+
+$script:StepTotal = 0
+$script:StepIndex = 0
+
+# Colour codes — disabled when NO_COLOR is set (https://no-color.org)
+#
+# Palette follows Catppuccin semantics (see .impeccable.md):
+#   blue   → in-flight "progress" (accent)
+#   green  → completed success
+#   red    → failed
+#   yellow → warning
+if ($null -ne $env:NO_COLOR -and $env:NO_COLOR -ne "") {
+    $script:C_RESET = ""; $script:C_DIM = ""; $script:C_BOLD = ""
+    $script:C_RED = ""; $script:C_GREEN = ""; $script:C_YELLOW = ""
+    $script:C_BLUE = ""; $script:C_CYAN = ""
+} else {
+    $script:C_RESET  = "`e[0m"
+    $script:C_DIM    = "`e[2m"
+    $script:C_BOLD   = "`e[1m"
+    $script:C_RED    = "`e[31m"
+    $script:C_GREEN  = "`e[32m"
+    $script:C_YELLOW = "`e[33m"
+    $script:C_BLUE   = "`e[34m"
+    $script:C_CYAN   = "`e[36m"
+}
+
+function Write-Info { param($msg) Write-Host "  ${C_CYAN}info${C_RESET} $msg" }
+function Write-Warn { param($msg) Write-Host "  ${C_YELLOW}warn${C_RESET} $msg" }
+function Write-Err2 { param($msg) Write-Host "  ${C_RED}error${C_RESET} $msg" }
+
+function Get-Bar {
+    param(
+        [int]$Completed,
+        [int]$Total,
+        [ValidateSet("progress", "success", "error")][string]$State = "progress"
+    )
+    $width = 18
+    $filled = [Math]::Min($width, [int]($Completed * $width / [Math]::Max(1, $Total)))
+    $empty  = $width - $filled
+    $fill = switch ($State) {
+        "success" { $script:C_GREEN }
+        "error"   { $script:C_RED }
+        default   { $script:C_BLUE }
+    }
+    return "${C_BOLD}${fill}$('█' * $filled)${C_RESET}${C_DIM}$('░' * $empty)${C_RESET}"
+}
+
+function Format-Line {
+    param(
+        [string]$Glyph,
+        [int]$StepNo,
+        [int]$Fill,
+        [ValidateSet("progress", "success", "error")][string]$State = "progress",
+        [string]$Label
+    )
+    $bar = Get-Bar -Completed $Fill -Total $script:StepTotal -State $State
+    return "  $Glyph  $bar  ${C_DIM}$StepNo/$($script:StepTotal)${C_RESET}  $Label"
+}
+
+# Run a ScriptBlock with a spinner; capture output; surface only on failure.
+#
+# Returns $true on success, $false on failure. Advances $script:StepIndex
+# only on success so the progress bar tells the truth about where we are.
+function Invoke-Step {
+    param(
+        [string]$Label,
+        [ScriptBlock]$Action
+    )
+
+    $completed = $script:StepIndex
+    $stepNo = $completed + 1
+    $isTty = -not [Console]::IsOutputRedirected
+
+    # Non-TTY fallback: plain line output.
+    if (-not $isTty) {
+        Write-Host -NoNewline "  [$stepNo/$($script:StepTotal)] $Label "
+        $logFile = [System.IO.Path]::GetTempFileName()
+        try {
+            & $Action *>&1 | Out-File -FilePath $logFile -Encoding utf8
+            if ($LASTEXITCODE -ne $null -and $LASTEXITCODE -ne 0) {
+                Write-Host "${C_RED}failed${C_RESET}"
+                Get-Content $logFile | ForEach-Object { Write-Host "      $_" }
+                return $false
+            }
+            Write-Host "${C_GREEN}ok${C_RESET}"
+            $script:StepIndex++
+            return $true
+        } finally {
+            Remove-Item $logFile -ErrorAction SilentlyContinue
+        }
+    }
+
+    # TTY path: spin while the action runs as a background job.
+    $logFile = [System.IO.Path]::GetTempFileName()
+    $job = Start-Job -ScriptBlock {
+        param($actText, $log)
+        try {
+            & ([ScriptBlock]::Create($actText)) *>&1 | Out-File -FilePath $log -Encoding utf8
+            if ($LASTEXITCODE -ne $null -and $LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        } catch {
+            $_ | Out-File -FilePath $log -Encoding utf8 -Append
+            exit 1
+        }
+    } -ArgumentList $Action.ToString(), $logFile
+
+    $frames = @('⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏')
+    $i = 0
+    [Console]::Write("`e[?25l")  # hide cursor
+    try {
+        while ($job.State -eq 'Running') {
+            $f = $frames[$i % 10]
+            $line = Format-Line -Glyph "${C_BLUE}$f${C_RESET}" -StepNo $stepNo -Fill $completed -State "progress" -Label $Label
+            [Console]::Write("`r`e[2K$line")
+            Start-Sleep -Milliseconds 80
+            $i++
+        }
+        Receive-Job $job -ErrorAction SilentlyContinue | Out-Null
+        $succeeded = ($job.State -eq 'Completed')
+        [Console]::Write("`r`e[2K")
+        if ($succeeded) {
+            $script:StepIndex++
+            $line = Format-Line -Glyph "${C_GREEN}✓${C_RESET}" -StepNo $stepNo -Fill $script:StepIndex -State "success" -Label "${C_DIM}$Label${C_RESET}"
+            Write-Host $line
+            return $true
+        } else {
+            $line = Format-Line -Glyph "${C_RED}✗${C_RESET}" -StepNo $stepNo -Fill $completed -State "error" -Label $Label
+            Write-Host $line
+            if (Test-Path $logFile) {
+                Get-Content $logFile -Tail 15 | ForEach-Object {
+                    Write-Host "    ${C_DIM}$_${C_RESET}"
+                }
+            }
+            return $false
+        }
+    } finally {
+        [Console]::Write("`e[?25h")  # show cursor
+        Remove-Job $job -Force -ErrorAction SilentlyContinue
+        Remove-Item $logFile -ErrorAction SilentlyContinue
+    }
+}
 
 function Refresh-Path {
     $env:Path = [System.Environment]::GetEnvironmentVariable('Path', 'User') + ";" +
                 [System.Environment]::GetEnvironmentVariable('Path', 'Machine')
 }
 
-# ── npm / Node.js ────────────────────────────────────────────────────────────
-
-function Install-Fnm {
-    if (Get-Command fnm -ErrorAction SilentlyContinue) {
-        Write-Info "fnm is already installed"
-        return $true
-    }
-    Write-Info "Installing fnm (Fast Node Manager)..."
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
-        try {
-            winget install --id Schniz.fnm -e --silent --accept-source-agreements --accept-package-agreements
-            Refresh-Path
-            if (Get-Command fnm -ErrorAction SilentlyContinue) { return $true }
-        } catch { Write-Warn "winget install fnm failed: $_" }
-    }
-    return $false
-}
-
-function Install-Npm {
-    if (Get-Command node -ErrorAction SilentlyContinue) {
-        $CurrentMajor = [int]((node --version) -replace '^v' -split '\.')[0]
-        if ($CurrentMajor -ge 22 -and (Get-Command npm -ErrorAction SilentlyContinue)) {
-            Write-Info "Node.js $(node --version) is already installed (>= 22)"
-            return
-        }
-        Write-Warn "Node.js $(node --version) is too old (need >= 22), upgrading..."
-    }
-
-    Write-Info "Installing Node.js/npm..."
-
-    # Preferred: fnm (no admin required)
-    if (Install-Fnm) {
-        try {
-            fnm install --lts
-            fnm use --lts
-            $FnmEnv = fnm env --shell=powershell 2>$null
-            if ($FnmEnv) { $FnmEnv | Invoke-Expression }
-            if (Get-Command node -ErrorAction SilentlyContinue) {
-                Write-Info "Node.js $(node --version) installed via fnm"
-                return
-            }
-        } catch { Write-Warn "fnm install --lts failed: $_" }
-    }
-
-    # Fallback: winget
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
-        try {
-            winget install --id OpenJS.NodeJS.LTS -e --silent --accept-source-agreements --accept-package-agreements
-            if ($env:ProgramFiles) { $env:Path = "${env:ProgramFiles}\nodejs;${env:Path}" }
-            return
-        } catch { Write-Warn "winget install nodejs failed: $_" }
-    }
-
-    # Fallback: chocolatey
-    if (Get-Command choco -ErrorAction SilentlyContinue) {
-        try {
-            choco install nodejs-lts -y --no-progress
-            return
-        } catch { Write-Warn "choco install nodejs failed: $_" }
-    }
-
-    # Fallback: scoop
-    if (Get-Command scoop -ErrorAction SilentlyContinue) {
-        try {
-            scoop install nodejs-lts
-            return
-        } catch { Write-Warn "scoop install nodejs failed: $_" }
-    }
-
-    Write-Warn "No supported package manager found to install npm — install Node.js manually from https://nodejs.org"
-}
-
-# ── bun ──────────────────────────────────────────────────────────────────────
+# ── Installers ──────────────────────────────────────────────────────────────
 
 function Install-Bun {
     if (Get-Command bun -ErrorAction SilentlyContinue) {
-        Write-Info "bun is already installed"
-        return
+        Write-Info "bun already installed"
+        return $true
     }
-
-    Write-Info "Installing bun..."
 
     # WinGet (preferred)
     if (Get-Command winget -ErrorAction SilentlyContinue) {
-        try {
+        $ok = Invoke-Step -Label "Installing bun (winget)" -Action {
             winget install Oven-sh.Bun --accept-source-agreements --accept-package-agreements
-            Refresh-Path
-            if (Get-Command bun -ErrorAction SilentlyContinue) { return }
-        } catch { Write-Warn "winget install bun failed: $_" }
+        }
+        Refresh-Path
+        if ($ok -and (Get-Command bun -ErrorAction SilentlyContinue)) { return $true }
+        Write-Warn "winget install bun failed, trying scoop"
     }
 
     # Scoop
     if (Get-Command scoop -ErrorAction SilentlyContinue) {
-        try {
-            scoop install bun
-            if (Get-Command bun -ErrorAction SilentlyContinue) { return }
-        } catch { Write-Warn "scoop install bun failed: $_" }
+        $ok = Invoke-Step -Label "Installing bun (scoop)" -Action { scoop install bun }
+        if ($ok -and (Get-Command bun -ErrorAction SilentlyContinue)) { return $true }
+        Write-Warn "scoop install bun failed, trying bun.sh installer"
     }
 
     # Official installer
-    try {
-        powershell -c "irm bun.sh/install.ps1|iex"
-        Refresh-Path
-        if (Get-Command bun -ErrorAction SilentlyContinue) { return }
-    } catch { Write-Warn "bun.sh installer failed: $_" }
-
-    # npm (last resort)
-    if (Get-Command npm -ErrorAction SilentlyContinue) {
-        try {
-            npm install -g bun
-            if (Get-Command bun -ErrorAction SilentlyContinue) { return }
-        } catch { Write-Warn "npm install bun failed: $_" }
+    $ok = Invoke-Step -Label "Downloading bun" -Action {
+        powershell -c "irm bun.sh/install.ps1 | iex"
     }
+    Refresh-Path
+    if ($ok -and (Get-Command bun -ErrorAction SilentlyContinue)) { return $true }
 
-    Write-Err "Could not install bun — install it manually from https://bun.sh"
-    exit 1
+    Write-Err2 "Could not install bun — install it manually from https://bun.sh"
+    return $false
 }
 
-# ── Skills ───────────────────────────────────────────────────────────────────
+# ── Main ────────────────────────────────────────────────────────────────────
 
-function Install-Skills {
-    if (-not (Get-Command npx -ErrorAction SilentlyContinue)) {
-        Write-Warn "npx not found — skipping skills install"
-        return
-    }
-
-    $agentFlags = @()
-    foreach ($agent in $SKILLS_AGENTS) {
-        $agentFlags += @("-a", $agent)
-    }
-
-    Write-Info "Installing bundled skills globally..."
-    & npx --yes skills add $REPO --skill '*' -g @agentFlags -y 2>$null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warn "skills install failed (non-fatal)"
-        return
-    }
-
-    $removeFlags = @()
-    foreach ($skill in $SCM_SKILLS_TO_REMOVE) {
-        $removeFlags += @("--skill", $skill)
-    }
-
-    Write-Info "Removing source-control skill variants globally..."
-    & npx --yes skills remove @removeFlags -g @agentFlags -y 2>$null
+# Count upcoming steps so the progress bar is honest.
+$script:StepTotal = 1  # atomic install
+if (-not (Get-Command bun -ErrorAction SilentlyContinue)) {
+    $script:StepTotal++
 }
 
-# ── Main ─────────────────────────────────────────────────────────────────────
-
-# Step 1: npm (needed for npx skills)
-Install-Npm
-
-# Step 2: bun (required runtime)
-Install-Bun
-
-# Step 3: Install atomic
-Write-Info "Installing atomic..."
-bun add -g atomic@latest
-if ($LASTEXITCODE -ne 0) {
-    Write-Err "Failed to install atomic"
-    exit 1
-}
-Write-Success "atomic installed"
-
-# Step 4: Skills
-Install-Skills
-
-Write-Success ""
-Write-Success "Atomic installed successfully!"
 Write-Host ""
-Write-Host "  Get started:  atomic init"
-Write-Host "  Update later: atomic update"
+
+if (-not (Install-Bun)) { exit 1 }
+
+# Embed the package name as a literal so the scriptblock needs no closure.
+$atomicAction = [ScriptBlock]::Create("bun install -g '$PACKAGE'")
+$ok = Invoke-Step -Label "Installing @bastani/atomic" -Action $atomicAction
+if (-not $ok) {
+    Write-Err2 "Failed to install atomic"
+    exit 1
+}
+
+Write-Host ""
+Write-Host "  ${C_GREEN}✓${C_RESET} ${C_BOLD}Atomic installed successfully${C_RESET}"
+Write-Host ""
+Write-Host "    Get started:  ${C_CYAN}atomic init${C_RESET}"
+Write-Host ""
+Write-Host "    ${C_DIM}Tooling deps and skills will be set up automatically on first launch.${C_RESET}"
+Write-Host "    ${C_DIM}To upgrade later: bun update -g @bastani/atomic${C_RESET}"
 Write-Host ""

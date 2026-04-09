@@ -6,34 +6,43 @@
  * locally per-project based on the user's selected SCM + active agent.
  */
 
+import { ALL_SCM_SKILLS } from "@/services/config/index.ts";
+
 const SKILLS_REPO = "https://github.com/flora131/atomic.git";
 const SKILLS_AGENTS = ["claude-code", "opencode", "github-copilot"] as const;
-const SCM_SKILLS_TO_REMOVE_GLOBALLY = [
-  "gh-commit",
-  "gh-create-pr",
-  "sl-commit",
-  "sl-submit-diff",
-] as const;
 
-async function runNpxSkills(args: string[]): Promise<boolean> {
+interface NpxSkillsResult {
+  ok: boolean;
+  /** Tail of captured stderr/stdout — surfaced by the spinner on failure. */
+  details: string;
+}
+
+async function runNpxSkills(args: string[]): Promise<NpxSkillsResult> {
   const npxPath = Bun.which("npx");
   if (!npxPath) {
-    console.warn("npx not found on PATH — skipping skills install");
-    return false;
+    return { ok: false, details: "npx not found on PATH" };
   }
 
+  // Capture stdout/stderr so the outer spinner UI owns terminal output and
+  // can surface the tail of any failure. `npx skills add` is otherwise
+  // very chatty.
   const proc = Bun.spawn([npxPath, "--yes", "skills", ...args], {
-    stdio: ["ignore", "inherit", "inherit"],
+    stdout: "pipe",
+    stderr: "pipe",
   });
-  const exitCode = await proc.exited;
-  return exitCode === 0;
+  const [stderr, stdout, exitCode] = await Promise.all([
+    new Response(proc.stderr).text(),
+    new Response(proc.stdout).text(),
+    proc.exited,
+  ]);
+  const details = (stderr.trim() || stdout.trim()).slice(-800);
+  return { ok: exitCode === 0, details };
 }
 
 export async function installGlobalSkills(): Promise<void> {
   const agentFlags = SKILLS_AGENTS.flatMap((agent) => ["-a", agent]);
 
-  console.log("Installing bundled skills globally...");
-  const addOk = await runNpxSkills([
+  const addResult = await runNpxSkills([
     "add",
     SKILLS_REPO,
     "--skill",
@@ -42,26 +51,22 @@ export async function installGlobalSkills(): Promise<void> {
     ...agentFlags,
     "-y",
   ]);
-  if (!addOk) {
-    console.warn("Warning: 'npx skills add' exited non-zero (non-fatal)");
-    return;
+  if (!addResult.ok) {
+    throw new Error(`npx skills add failed: ${addResult.details}`);
   }
 
-  const removeSkillFlags = SCM_SKILLS_TO_REMOVE_GLOBALLY.flatMap((skill) => [
+  const removeSkillFlags = ALL_SCM_SKILLS.flatMap((skill) => [
     "--skill",
     skill,
   ]);
-  console.log(
-    "Removing source-control skill variants globally (added per-project by `atomic init`)...",
-  );
-  const removeOk = await runNpxSkills([
+  const removeResult = await runNpxSkills([
     "remove",
     ...removeSkillFlags,
     "-g",
     ...agentFlags,
     "-y",
   ]);
-  if (!removeOk) {
-    console.warn("Warning: 'npx skills remove' exited non-zero (non-fatal)");
+  if (!removeResult.ok) {
+    throw new Error(`npx skills remove failed: ${removeResult.details}`);
   }
 }

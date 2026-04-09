@@ -31,6 +31,7 @@ Atomic is an open-source **multi-agent harness** that orchestrates **Claude Code
     - [Workflow SDK — Build Your Own Harness](#workflow-sdk--build-your-own-harness)
       - [Builder API](#builder-api)
       - [Session Context (`ctx`)](#session-context-ctx)
+      - [Session Options (`SessionRunOptions`)](#session-options-sessionrunoptions)
       - [Saving Transcripts](#saving-transcripts)
       - [Provider Helpers](#provider-helpers)
       - [Key Rules](#key-rules)
@@ -44,6 +45,8 @@ Atomic is an open-source **multi-agent harness** that orchestrates **Claude Code
     - [Why Research → Plan → Implement → Verify Works](#why-research--plan--implement--verify-works)
   - [Commands Reference](#commands-reference)
     - [CLI Commands](#cli-commands)
+      - [Global Flags](#global-flags)
+      - [`atomic init` Flags](#atomic-init-flags)
       - [`atomic chat` Flags](#atomic-chat-flags)
       - [`atomic workflow` Flags](#atomic-workflow-flags)
     - [Atomic-Provided Skills (invokable from any agent chat)](#atomic-provided-skills-invokable-from-any-agent-chat)
@@ -275,6 +278,8 @@ export default defineWorkflow({
 | **Native TypeScript control flow** | Use `for`, `if/else`, `Promise.all()`, `try/catch` — no framework DSL needed |
 | **Session return values**    | Session callbacks can return data: `const h = await ctx.session(...); h.result`      |
 | **Transcript passing**       | Access prior session output via handle (`s.transcript(handle)`) or name (`s.transcript("name")`) |
+| **Nested sub-sessions**      | Call `s.session()` inside a session callback to spawn child sessions — visible as nested nodes in the graph |
+| **Dependency tracking**      | Use `dependsOn: ["name"]` to declare session ordering — the runtime waits and the graph shows the edges |
 | **Provider-agnostic**        | Write raw SDK code for Claude, Copilot, or OpenCode inside each session callback     |
 | **Live graph visualization** | Sessions appear in the TUI graph as they're spawned — loops and conditionals are visible in real time |
 
@@ -320,6 +325,24 @@ Use your workflow-creator skill to create a workflow that plans, implements, and
 | `s.getMessages(ref)`    | `Promise<SavedMessage[]>` | Get a completed session's raw native messages                  |
 | `s.session(opts, fn)`   | `Promise<SessionHandle<T>>` | Spawn a nested sub-session (child in the graph)              |
 
+#### Session Options (`SessionRunOptions`)
+
+| Property      | Type       | Description                                                                   |
+| ------------- | ---------- | ----------------------------------------------------------------------------- |
+| `name`        | `string`   | Unique session name within the workflow run                                   |
+| `description` | `string?`  | Human-readable description shown in the graph                                 |
+| `dependsOn`   | `string[]?`| Names of sessions that must complete before this one starts (creates graph edges) |
+
+`dependsOn` is useful when spawning sessions with `Promise.all()` — it lets the runtime enforce ordering while still allowing parallel spawning of independent sessions:
+
+```ts
+await Promise.all([
+  ctx.session({ name: "migrate-db" }, async (s) => { /* ... */ }),
+  ctx.session({ name: "seed-data", dependsOn: ["migrate-db"] }, async (s) => { /* ... */ }),
+  ctx.session({ name: "gen-types", dependsOn: ["migrate-db"] }, async (s) => { /* ... */ }),
+]);
+```
+
 #### Saving Transcripts
 
 Each provider saves transcripts differently:
@@ -334,12 +357,34 @@ Each provider saves transcripts differently:
 
 | Export                            | Purpose                                             |
 | --------------------------------- | --------------------------------------------------- |
-| `createClaudeSession({ paneId })` | Start a Claude TUI in a tmux pane                   |
-| `claudeQuery({ paneId, prompt })` | Send a prompt to Claude and wait for the response   |
-| `clearClaudeSession(paneId)`      | Clear the current Claude session                    |
+| `createClaudeSession(options)`    | Start a Claude TUI in a tmux pane                   |
+| `claudeQuery(options)`            | Send a prompt to Claude and wait for the response   |
+| `clearClaudeSession(paneId)`      | Free memory for a killed/finished Claude session    |
 | `validateClaudeWorkflow()`        | Validate a Claude workflow source before run        |
 | `validateCopilotWorkflow()`       | Validate a Copilot workflow source before run       |
 | `validateOpenCodeWorkflow()`      | Validate an OpenCode workflow source before run     |
+
+`createClaudeSession` accepts:
+
+| Option            | Type       | Default                                               | Description                        |
+| ----------------- | ---------- | ----------------------------------------------------- | ---------------------------------- |
+| `paneId`          | `string`   | —                                                     | tmux pane ID (required)            |
+| `chatFlags`       | `string[]` | `["--dangerously-skip-permissions"]` | CLI flags passed to `claude`       |
+| `readyTimeoutMs`  | `number`   | `30000`                                               | Timeout waiting for TUI readiness  |
+
+`claudeQuery` accepts:
+
+| Option            | Type     | Default  | Description                                      |
+| ----------------- | -------- | -------- | ------------------------------------------------ |
+| `paneId`          | `string` | —        | tmux pane ID (required)                           |
+| `prompt`          | `string` | —        | The prompt to send (required)                     |
+| `timeoutMs`       | `number` | `300000` | Response timeout (5 min)                          |
+| `pollIntervalMs`  | `number` | `2000`   | Polling interval for output stabilization         |
+| `submitPresses`   | `number` | `1`      | C-m presses per submit round                      |
+| `maxSubmitRounds` | `number` | `6`      | Max retry rounds for delivery confirmation        |
+| `readyTimeoutMs`  | `number` | `30000`  | Pane readiness timeout before sending             |
+
+Returns `{ output: string; delivered: boolean }` — `delivered` confirms the prompt was accepted by the agent.
 
 #### Key Rules
 
@@ -419,8 +464,10 @@ The [Ralph Wiggum Method](https://ghuntley.com/ralph/) enables **multi-hour auto
 **How Ralph works:**
 
 1. **Task Decomposition** — A `planner` sub-agent breaks your spec into a structured task list with dependency tracking, stored in a SQLite database with WAL mode for parallel access
-2. **Worker Loop** — Dispatches `worker` sub-agents for ready tasks, executing up to 100 iterations with concurrent execution of independent tasks
-3. **Review & Debug** — A `reviewer` sub-agent audits the implementation; if issues are found, a `debugger` sub-agent generates a report that feeds back to the planner on the next iteration
+2. **Orchestration** — An `orchestrator` sub-agent retrieves the task list, validates the dependency graph, and dispatches `worker` sub-agents for ready tasks with concurrent execution of independent tasks
+3. **Review & Debug** — A `reviewer` sub-agent audits the implementation with structured JSON output; if actionable findings exist (P0–P2 severity), a `debugger` sub-agent investigates root causes and produces a markdown report that feeds back to the planner on the next iteration
+
+**Loop configuration:** Ralph runs up to **10 iterations** and exits early after **2 consecutive clean reviews** (zero actionable findings). P3 (minor) findings are filtered as non-actionable.
 
 ```bash
 # From a prompt
@@ -610,7 +657,7 @@ During `atomic workflow` execution, Atomic renders a live orchestrator panel bui
 - **Session graph** — Nodes for each `.session()` call with status (pending, running, completed, failed) and edges for sequential / parallel dependencies
 - **Task list tracking** — Ralph's decomposed task list with dependency arrows, updated in real time as workers complete tasks
 - **Pane previews** — Thumbnail of each tmux pane so you can see what every agent is doing without switching contexts
-- **Transcript passing visibility** — Highlights `ctx.save()` / `ctx.transcript()` handoffs as they happen between sessions
+- **Transcript passing visibility** — Highlights `s.save()` / `s.transcript()` handoffs as they happen between sessions
 
 During `atomic chat`, there is no Atomic-owned TUI — `atomic chat -a <agent>` spawns the native agent CLI inside a tmux/psmux session, so all chat features (streaming, `@` mentions, `/slash-commands`, model selection, theme switching, keyboard shortcuts) come from the agent CLI itself. Atomic's role in chat mode is to handle config sync, tmux session management, and argument passthrough.
 
@@ -667,6 +714,29 @@ This is also why the cycle is iterative. Research and specs become persistent co
 | `atomic chat`               | Spawn the native agent CLI inside a tmux/psmux session                |
 | `atomic workflow`           | Run a multi-session agent workflow with the Atomic orchestrator panel |
 | `atomic config set <k> <v>` | Set configuration values (currently supports `telemetry`)             |
+
+#### Global Flags
+
+These flags are available on all commands:
+
+| Flag            | Description                                  |
+| --------------- | -------------------------------------------- |
+| `-y, --yes`     | Auto-confirm all prompts (non-interactive)   |
+| `--no-banner`   | Skip ASCII banner display                    |
+| `-v, --version` | Show version number                          |
+
+#### `atomic init` Flags
+
+| Flag                 | Description                                    |
+| -------------------- | ---------------------------------------------- |
+| `-a, --agent <name>` | Pre-select agent: `claude`, `opencode`, `copilot` |
+| `-s, --scm <name>`   | Pre-select SCM: `github`, `sapling`            |
+
+```bash
+atomic init                              # Interactive setup
+atomic init -a claude -s github          # Pre-select agent and SCM
+atomic init --yes                        # Auto-confirm all prompts
+```
 
 #### `atomic chat` Flags
 
@@ -760,7 +830,7 @@ Created automatically during `atomic init`. Resolution order:
 <summary>Install a specific version</summary>
 
 ```bash
-bun install -g @bastani/atomic@0.5.0-1   # replace with desired version
+bun install -g @bastani/atomic@0.5.0-4   # replace with desired version
 ```
 
 List all published versions with `npm view @bastani/atomic versions`.

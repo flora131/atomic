@@ -10,7 +10,7 @@
     "skipLibCheck": true,
     "types": ["bun"],
     "paths": {
-      "@bastani/atomic-workflows": ["../../packages/workflow-sdk/src/index.ts"]
+      "@bastani/atomic/workflows": ["../../src/sdk/workflows.ts"]
     }
   },
   "include": [

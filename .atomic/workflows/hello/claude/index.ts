@@ -8,37 +8,34 @@
  * Run: atomic workflow -n hello -a claude "describe this project"
  */
 
-import { defineWorkflow, createClaudeSession, claudeQuery } from "@bastani/atomic-workflows";
+import { defineWorkflow, createClaudeSession, claudeQuery } from "@bastani/atomic/workflows";
 
 export default defineWorkflow({
   name: "hello",
   description: "Two-session Claude demo: describe → summarize",
 })
-  .session({
-    name: "describe",
-    description: "Ask Claude to describe the project",
-    run: async (ctx) => {
-      await createClaudeSession({ paneId: ctx.paneId });
-      await claudeQuery({
-        paneId: ctx.paneId,
-        prompt: ctx.userPrompt,
-      });
-      // Save transcript via Claude Agent SDK (reads from ~/.claude session files)
-      ctx.save(ctx.sessionId);
-    },
-  })
-  .session({
-    name: "summarize",
-    description: "Summarize the previous session's output",
-    run: async (ctx) => {
-      await createClaudeSession({ paneId: ctx.paneId });
-      const research = await ctx.transcript("describe");
+  .run(async (ctx) => {
+    const describe = await ctx.session(
+      { name: "describe", description: "Ask Claude to describe the project" },
+      async (s) => {
+        await createClaudeSession({ paneId: s.paneId });
+        await claudeQuery({ paneId: s.paneId, prompt: s.userPrompt });
+        s.save(s.sessionId);
+      },
+    );
 
-      await claudeQuery({
-        paneId: ctx.paneId,
-        prompt: `Read ${research.path} and summarize it in 2-3 bullet points.`,
-      });
-      ctx.save(ctx.sessionId);
-    },
+    await ctx.session(
+      { name: "summarize", description: "Summarize the previous session's output" },
+      async (s) => {
+        await createClaudeSession({ paneId: s.paneId });
+        const research = await s.transcript(describe);
+
+        await claudeQuery({
+          paneId: s.paneId,
+          prompt: `Read ${research.path} and summarize it in 2-3 bullet points.`,
+        });
+        s.save(s.sessionId);
+      },
+    );
   })
   .compile();

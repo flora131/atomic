@@ -1,41 +1,39 @@
 # Computation and Validation
 
-Deterministic computation — validation, data transforms, file I/O, API calls — is written as plain TypeScript inside `run()`. No LLM session is needed. This is the programmatic equivalent of a `.tool()` node.
+Deterministic computation — validation, data transforms, file I/O, API calls — is written as plain TypeScript inside `.run()` or session callbacks. No LLM session is needed. This is the programmatic equivalent of a `.tool()` node.
+
+> **Note:** All Claude examples below assume `createClaudeSession({ paneId: s.paneId })` is called at the start of each session callback before any `claudeQuery()` calls.
 
 ## Inline computation
 
-Any TypeScript code inside `run()` that doesn't call an SDK prompt function is deterministic computation:
+Any TypeScript code inside a session callback that doesn't call an SDK prompt function is deterministic computation:
 
 ```ts
-.session({
-  name: "validate-and-fix",
-  description: "Validate, then fix if needed",
-  run: async (ctx) => {
-    // Step 1: Deterministic — parse prior session's output
-    const messages = await ctx.getMessages("planner");
-    const planText = extractText(messages);
-    const plan = JSON.parse(planText);
+await ctx.session({ name: "validate-and-fix", description: "Validate, then fix if needed" }, async (s) => {
+  // Step 1: Deterministic — parse prior session's output
+  const messages = await s.getMessages("planner");
+  const planText = extractText(messages);
+  const plan = JSON.parse(planText);
 
-    // Step 2: Deterministic — validate the plan
-    const isValid = plan.tasks?.length > 0 && plan.tasks.every((t: any) => t.id && t.description);
+  // Step 2: Deterministic — validate the plan
+  const isValid = plan.tasks?.length > 0 && plan.tasks.every((t: any) => t.id && t.description);
 
-    if (!isValid) {
-      // Step 3: Agent session — ask the agent to fix the plan
-      await claudeQuery({
-        paneId: ctx.paneId,
-        prompt: "The plan is invalid. Please create a valid plan with tasks.",
-      });
-    } else {
-      // Step 4: Agent session — execute the valid plan
-      await claudeQuery({
-        paneId: ctx.paneId,
-        prompt: `Execute this plan:\n${JSON.stringify(plan.tasks)}`,
-      });
-    }
+  if (!isValid) {
+    // Step 3: Agent session — ask the agent to fix the plan
+    await claudeQuery({
+      paneId: s.paneId,
+      prompt: "The plan is invalid. Please create a valid plan with tasks.",
+    });
+  } else {
+    // Step 4: Agent session — execute the valid plan
+    await claudeQuery({
+      paneId: s.paneId,
+      prompt: `Execute this plan:\n${JSON.stringify(plan.tasks)}`,
+    });
+  }
 
-    ctx.save(ctx.sessionId);
-  },
-})
+  s.save(s.sessionId);
+});
 ```
 
 ## Parsing SDK responses
@@ -47,28 +45,35 @@ Each SDK returns responses in different formats. Use helpers to extract text:
 `claudeQuery()` returns `{ output: string }` — the captured pane text.
 
 ```ts
-const result = await claudeQuery({ paneId: ctx.paneId, prompt: "..." });
+const result = await claudeQuery({ paneId: s.paneId, prompt: "..." });
 const text = result.output; // Already a string
 ```
 
 ### Copilot
 
-`session.getMessages()` returns `SessionEvent[]`. Filter for assistant messages:
+`session.getMessages()` returns `SessionEvent[]`. Concatenate every
+top-level assistant turn's non-empty content — picking only `.at(-1)` is a
+silent-failure trap. See `failure-modes.md` §F1 / §F2 for the full
+explanation.
 
 ```ts
 import type { SessionEvent } from "@github/copilot-sdk";
 
-function getLastAssistantText(messages: SessionEvent[]): string {
-  const assistantMessages = messages.filter(
-    (m): m is Extract<SessionEvent, { type: "assistant.message" }> =>
-      m.type === "assistant.message",
-  );
-  return assistantMessages.at(-1)?.data.content ?? "";
+/** Concatenate every top-level assistant turn's non-empty content. */
+function getAssistantText(messages: SessionEvent[]): string {
+  return messages
+    .filter(
+      (m): m is Extract<SessionEvent, { type: "assistant.message" }> =>
+        m.type === "assistant.message" && !m.data.parentToolCallId,
+    )
+    .map((m) => m.data.content)
+    .filter((c) => c.length > 0)
+    .join("\n\n");
 }
 
 // Usage:
 const messages = await session.getMessages();
-const text = getLastAssistantText(messages);
+const text = getAssistantText(messages);
 ```
 
 ### OpenCode
@@ -144,9 +149,10 @@ Read and write files directly in `run()`:
 import { readFile, writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 
-run: async (ctx) => {
+// Inside a ctx.session() callback:
+async (s) => {
   // Write to session directory
-  const outputDir = join(ctx.sessionDir, "artifacts");
+  const outputDir = join(s.sessionDir, "artifacts");
   await mkdir(outputDir, { recursive: true });
   await writeFile(join(outputDir, "report.json"), JSON.stringify(data));
 
@@ -160,16 +166,17 @@ run: async (ctx) => {
 Make HTTP requests for external integrations:
 
 ```ts
-run: async (ctx) => {
+// Inside a ctx.session() callback:
+async (s) => {
   const response = await fetch("https://api.example.com/data");
   const data = await response.json();
 
   // Use the data in a prompt
   await claudeQuery({
-    paneId: ctx.paneId,
+    paneId: s.paneId,
     prompt: `Process this data:\n${JSON.stringify(data)}`,
   });
-  ctx.save(ctx.sessionId);
+  s.save(s.sessionId);
 },
 ```
 
@@ -178,8 +185,9 @@ run: async (ctx) => {
 Transform data between sessions:
 
 ```ts
-run: async (ctx) => {
-  const raw = await ctx.getMessages("planner");
+// Inside a ctx.session() callback:
+async (s) => {
+  const raw = await s.getMessages("planner");
 
   // Transform: extract only task IDs and descriptions
   const tasks = extractTasks(raw).map(t => ({
@@ -193,9 +201,9 @@ run: async (ctx) => {
 
   // Pass to agent
   await claudeQuery({
-    paneId: ctx.paneId,
+    paneId: s.paneId,
     prompt: `Execute these tasks in order:\n${JSON.stringify(tasks)}`,
   });
-  ctx.save(ctx.sessionId);
+  s.save(s.sessionId);
 },
 ```

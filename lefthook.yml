@@ -6,15 +6,10 @@ pre-commit:
         lint:
             glob: "*.{ts,tsx}"
             run: bun run lint
-        workflow-sdk-typecheck:
-            run: bun run --cwd packages/workflow-sdk typecheck
-        workflow-sdk-lint:
-            glob: "packages/workflow-sdk/**/*.{ts,tsx}"
-            run: bun run --cwd packages/workflow-sdk lint
-        workflow-sdk-test:
-            run: bun run --cwd packages/workflow-sdk test </dev/null
+        test:
+            run: bun test </dev/null
 
 pre-push:
     commands:
-        workflow-sdk-test-coverage:
-            run: bun run --cwd packages/workflow-sdk test:coverage </dev/null
+        test-coverage:
+            run: bun run test:coverage </dev/null

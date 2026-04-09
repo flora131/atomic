@@ -11,8 +11,6 @@
  *   atomic init -s <scm>             Setup specific SCM (github, sapling)
  *   atomic chat -a <agent>          Start interactive chat with an agent
  *   atomic config set <key> <value> Set configuration value
- *   atomic update                   Self-update to latest version
- *   atomic uninstall                Remove atomic installation
  *   atomic --version                Show version
  *   atomic --help                   Show help
  */
@@ -32,7 +30,6 @@ export function createProgram() {
         .version(VERSION, "-v, --version", "Show version number")
 
         // Global options available to all commands
-        .option("-f, --force", "Overwrite all config files")
         .option("-y, --yes", "Auto-confirm all prompts (non-interactive mode)")
         .option("--no-banner", "Skip ASCII banner display")
 
@@ -70,7 +67,6 @@ export function createProgram() {
                 showBanner: globalOpts.banner !== false,
                 preSelectedAgent: localOpts.agent as AgentKey | undefined,
                 preSelectedScm: localOpts.scm as SourceControlType | undefined,
-                force: globalOpts.force,
                 yes: globalOpts.yes,
             });
         });
@@ -165,32 +161,6 @@ Examples:
             await configCommand("set", key, value);
         });
 
-    // Add update command for self-updating binary installations
-    program
-        .command("update")
-        .description("Self-update to the latest version (binary installs only)")
-        .action(async () => {
-            const { updateCommand } = await import("@/commands/cli/update.ts");
-            await updateCommand();
-        });
-
-    // Add uninstall command for removing binary installations
-    program
-        .command("uninstall")
-        .description("Remove atomic installation (binary installs only)")
-        .option("--dry-run", "Show what would be removed without removing")
-        .option("--keep-config", "Keep configuration data, only remove binary")
-        .action(async (localOpts) => {
-            const globalOpts = program.opts();
-            const { uninstallCommand } = await import("@/commands/cli/uninstall.ts");
-
-            await uninstallCommand({
-                yes: globalOpts.yes,
-                dryRun: localOpts.dryRun,
-                keepConfig: localOpts.keepConfig,
-            });
-        });
-
     return program;
 }
 
@@ -202,17 +172,20 @@ export const program = createProgram();
  */
 async function main(): Promise<void> {
     try {
-        if (process.platform === "win32") {
-            const { cleanupWindowsLeftoverFiles } = await import("@/services/system/cleanup.ts");
-            await cleanupWindowsLeftoverFiles();
-        }
+        // Sync tooling deps and global skills on first launch after install
+        // or upgrade. Runs at most once per version bump (gated on a marker
+        // file under ~/.atomic). Skipped for `--version` / `--help` so info
+        // paths stay instant.
+        const argv = process.argv.slice(2);
+        const isInfoCommand =
+            argv.includes("--version") ||
+            argv.includes("-v") ||
+            argv.includes("--help") ||
+            argv.includes("-h");
 
-        // Ensure config data directory exists for binary installs.
-        const skipConfigCommands = new Set(["--version", "-v", "--help", "-h"]);
-        const needsConfig = !process.argv.slice(2).some((arg) => skipConfigCommands.has(arg));
-        if (needsConfig) {
-            const { ensureConfigDataDir } = await import("@/services/config/config-path.ts");
-            await ensureConfigDataDir(VERSION);
+        if (!isInfoCommand) {
+            const { autoSyncIfStale } = await import("@/services/system/auto-sync.ts");
+            await autoSyncIfStale();
         }
 
         // Parse and execute the command
@@ -225,7 +198,6 @@ async function main(): Promise<void> {
 }
 
 // Run the CLI
-const _isCompiledBinary = /[\\/]\$bunfs[\\/]|^[Bb]:[\\/]~BUN[\\/]/.test(import.meta.path);
-if (import.meta.main || _isCompiledBinary) {
+if (import.meta.main) {
     await main();
 }

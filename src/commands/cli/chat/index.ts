@@ -20,17 +20,19 @@ import { AGENT_CONFIG, type AgentKey } from "@/services/config/index.ts";
 import { COLORS } from "@/theme/colors.ts";
 import { isCommandInstalled } from "@/services/system/detect.ts";
 import {
-  ensureAtomicGlobalAgentConfigsForInstallType,
+  ensureAtomicGlobalAgentConfigs,
 } from "@/services/config/atomic-global-config.ts";
-import { detectInstallationType, getConfigRoot } from "@/services/config/config-path.ts";
+import { getConfigRoot } from "@/services/config/config-path.ts";
 import {
   isInsideTmux,
   isTmuxInstalled,
+  resetMuxBinaryCache,
+} from "@/sdk/workflows.ts";
+import {
   createSession,
   killSession,
   getMuxBinary,
-  resetMuxBinaryCache,
-} from "@bastani/atomic-workflows";
+} from "@/sdk/workflows.ts";
 import { ensureTmuxInstalled } from "@/lib/spawn.ts";
 
 // ============================================================================
@@ -90,14 +92,20 @@ function buildLauncherScript(
   cmd: string,
   args: string[],
   projectRoot: string,
+  envVars: Record<string, string> = {},
 ): { script: string; ext: string } {
   const isWin = process.platform === "win32";
+  const envEntries = Object.entries(envVars);
 
   if (isWin) {
     // PowerShell: use array splatting for safe arg passing
     const argList = args.map((a) => `"${escPwsh(a)}"`).join(", ");
+    const envLines = envEntries.map(
+      ([key, value]) => `$env:${key} = "${escPwsh(value)}"`,
+    );
     const script = [
       `Set-Location "${escPwsh(projectRoot)}"`,
+      ...envLines,
       argList.length > 0
         ? `& "${escPwsh(cmd)}" @(${argList})`
         : `& "${escPwsh(cmd)}"`,
@@ -109,9 +117,13 @@ function buildLauncherScript(
   const quotedArgs = args
     .map((a) => `"${escBash(a)}"`)
     .join(" ");
+  const envLines = envEntries.map(
+    ([key, value]) => `export ${key}="${escBash(value)}"`,
+  );
   const script = [
     "#!/bin/bash",
     `cd "${escBash(projectRoot)}"`,
+    ...envLines,
     `exec "${escBash(cmd)}" ${quotedArgs}`,
   ].join("\n");
   return { script, ext: "sh" };
@@ -154,22 +166,22 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   // ── Preflight: global config sync ──
   const projectRoot = process.cwd();
   const configRoot = getConfigRoot();
-  const installType = detectInstallationType();
 
-  await ensureAtomicGlobalAgentConfigsForInstallType(installType, configRoot);
+  await ensureAtomicGlobalAgentConfigs(configRoot);
 
   // ── Build argv ──
   const args = buildAgentArgs(agentType, passthroughArgs);
   const cmd = [config.cmd, ...args];
+  const envVars = config.env_vars;
 
   // ── Inside tmux: spawn inline in the current pane ──
   if (isInsideTmux()) {
-    return spawnDirect(cmd, projectRoot);
+    return spawnDirect(cmd, projectRoot, envVars);
   }
 
   // ── No TTY: tmux attach requires a real terminal ──
   if (!process.stdin.isTTY) {
-    return spawnDirect(cmd, projectRoot);
+    return spawnDirect(cmd, projectRoot, envVars);
   }
 
   // ── Ensure tmux is available ──
@@ -183,7 +195,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     }
     if (!isTmuxInstalled()) {
       // No tmux available — fall back to direct spawn
-      return spawnDirect(cmd, projectRoot);
+      return spawnDirect(cmd, projectRoot, envVars);
     }
   }
 
@@ -193,7 +205,12 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
 
   const sessionsDir = join(homedir(), ".atomic", "sessions", "chat");
   await mkdir(sessionsDir, { recursive: true });
-  const { script, ext } = buildLauncherScript(config.cmd, args, projectRoot);
+  const { script, ext } = buildLauncherScript(
+    config.cmd,
+    args,
+    projectRoot,
+    envVars,
+  );
   const launcherPath = join(sessionsDir, `${windowName}.${ext}`);
   await writeFile(launcherPath, script, { mode: 0o755 });
 
@@ -217,7 +234,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     // If tmux attach itself failed (e.g. lost TTY), clean up and fall back
     if (exitCode !== 0) {
       try { killSession(windowName); } catch {}
-      return spawnDirect(cmd, projectRoot);
+      return spawnDirect(cmd, projectRoot, envVars);
     }
 
     return exitCode;
@@ -227,7 +244,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     console.error(
       `${COLORS.yellow}Warning: Failed to create tmux session (${message}). Falling back to direct spawn.${COLORS.reset}`
     );
-    return spawnDirect(cmd, projectRoot);
+    return spawnDirect(cmd, projectRoot, envVars);
   }
 }
 
@@ -235,11 +252,15 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
  * Spawn the agent CLI directly with inherited stdio.
  * Used when not inside tmux.
  */
-async function spawnDirect(cmd: string[], projectRoot: string): Promise<number> {
+async function spawnDirect(
+  cmd: string[],
+  projectRoot: string,
+  envVars: Record<string, string> = {},
+): Promise<number> {
   const proc = Bun.spawn(cmd, {
     stdio: ["inherit", "inherit", "inherit"],
     cwd: projectRoot,
-    env: { ...process.env },
+    env: { ...process.env, ...envVars },
   });
 
   return await proc.exited;

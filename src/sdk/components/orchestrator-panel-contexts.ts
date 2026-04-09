@@ -1,6 +1,6 @@
 // ─── React Contexts & Hooks ───────────────────────
 
-import { createContext, useContext, useState, useEffect } from "react";
+import { createContext, useContext, useSyncExternalStore } from "react";
 import type { PanelStore } from "./orchestrator-panel-store.ts";
 import type { GraphTheme } from "./graph-theme.ts";
 
@@ -20,7 +20,16 @@ export function useGraphTheme(): GraphTheme {
   return ctx;
 }
 
-export function useStoreSubscription(store: PanelStore): void {
-  const [, forceRender] = useState(0);
-  useEffect(() => store.subscribe(() => forceRender((c) => c + 1)), [store]);
+/**
+ * Subscribe to the store and return its current version.
+ *
+ * Uses `useSyncExternalStore` so the subscription is active from the
+ * very first render — no `useEffect` timing gap that could cause a
+ * missed `addSession` update.
+ */
+export function useStoreVersion(store: PanelStore): number {
+  return useSyncExternalStore(
+    store.subscribe,
+    () => store.version,
+  );
 }

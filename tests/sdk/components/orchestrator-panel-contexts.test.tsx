@@ -8,7 +8,7 @@ import {
   ThemeContext,
   useStore,
   useGraphTheme,
-  useStoreSubscription,
+  useStoreVersion,
 } from "@/sdk/components/orchestrator-panel-contexts.ts";
 import { TEST_THEME } from "./test-helpers.tsx";
 
@@ -29,9 +29,9 @@ function ThemeConsumer() {
   return <text>bg:{theme.background}</text>;
 }
 
-function SubscriptionConsumer({ store }: { store: PanelStore }) {
-  useStoreSubscription(store);
-  return <text>v:{store.version}</text>;
+function VersionConsumer({ store }: { store: PanelStore }) {
+  const version = useStoreVersion(store);
+  return <text>v:{version}</text>;
 }
 
 describe("useStore", () => {
@@ -81,13 +81,13 @@ describe("useGraphTheme", () => {
   });
 });
 
-describe("useStoreSubscription", () => {
-  test("subscribes to store and unsubscribes on unmount", async () => {
+describe("useStoreVersion", () => {
+  test("returns current version from store", async () => {
     const store = new PanelStore();
 
     testSetup = await testRender(
       <StoreContext.Provider value={store}>
-        <SubscriptionConsumer store={store} />
+        <VersionConsumer store={store} />
       </StoreContext.Provider>,
       { width: 40, height: 5 },
     );
@@ -95,11 +95,20 @@ describe("useStoreSubscription", () => {
     const frame = testSetup.captureCharFrame();
     // Component renders with initial version
     expect(frame).toContain("v:0");
+  });
 
-    // Verify the subscription was wired up by checking store listeners fire
-    let listenerCalled = false;
-    store.subscribe(() => { listenerCalled = true; });
+  test("reflects version after pre-render store mutation", async () => {
+    const store = new PanelStore();
+    // Mutate before render — useSyncExternalStore reads the latest snapshot
     store.setWorkflowInfo("wf", "claude", [], "p");
-    expect(listenerCalled).toBe(true);
+
+    testSetup = await testRender(
+      <StoreContext.Provider value={store}>
+        <VersionConsumer store={store} />
+      </StoreContext.Provider>,
+      { width: 40, height: 5 },
+    );
+    await testSetup.renderOnce();
+    expect(testSetup.captureCharFrame()).toContain("v:1");
   });
 });

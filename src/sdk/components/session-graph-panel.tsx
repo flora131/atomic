@@ -22,7 +22,7 @@ import { tmuxRun } from "../runtime/tmux.ts";
 import {
   useStore,
   useGraphTheme,
-  useStoreSubscription,
+  useStoreVersion,
   TmuxSessionContext,
 } from "./orchestrator-panel-contexts.ts";
 import { computeLayout } from "./layout.ts";
@@ -51,10 +51,10 @@ export function SessionGraphPanel() {
   useRenderer();
   const { width: termW, height: termH } = useTerminalDimensions();
 
-  useStoreSubscription(store);
+  const storeVersion = useStoreVersion(store);
 
   // Compute layout from current session data
-  const layout = useMemo(() => computeLayout(store.sessions), [store.version]);
+  const layout = useMemo(() => computeLayout(store.sessions), [storeVersion]);
   const nodeList = useMemo(() => Object.values(layout.map), [layout]);
 
   const connectors = useMemo(() => {
@@ -82,7 +82,7 @@ export function SessionGraphPanel() {
     if (store.sessions.length > 0 && !layout.map[focusedId]) {
       setFocusedId(store.sessions[0]!.name);
     }
-  }, [store.version]);
+  }, [storeVersion]);
 
   // Pulse animation for running nodes — paused when nothing is running
   const hasRunning = store.sessions.some((s) => s.status === "running");
@@ -99,11 +99,10 @@ export function SessionGraphPanel() {
   // Live timer refresh — re-render every second while any session is running
   const [, setTick] = useState(0);
   useEffect(() => {
-    const hasRunning = store.sessions.some((s) => s.status === "running");
     if (!hasRunning) return;
     const id = setInterval(() => setTick((t) => t + 1), 1000);
     return () => clearInterval(id);
-  }, [store.version]);
+  }, [hasRunning]);
 
   // Attach flash message
   const [attachMsg, setAttachMsg] = useState("");

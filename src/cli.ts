@@ -30,7 +30,6 @@ export function createProgram() {
         .version(VERSION, "-v, --version", "Show version number")
 
         // Global options available to all commands
-        .option("-f, --force", "Overwrite all config files")
         .option("-y, --yes", "Auto-confirm all prompts (non-interactive mode)")
         .option("--no-banner", "Skip ASCII banner display")
 
@@ -68,7 +67,6 @@ export function createProgram() {
                 showBanner: globalOpts.banner !== false,
                 preSelectedAgent: localOpts.agent as AgentKey | undefined,
                 preSelectedScm: localOpts.scm as SourceControlType | undefined,
-                force: globalOpts.force,
                 yes: globalOpts.yes,
             });
         });

@@ -167,8 +167,6 @@ interface InitOptions {
   /** Pre-selected source control type (skip SCM selection prompt) */
   preSelectedScm?: SourceControlType;
   configNotFoundMessage?: string;
-  /** Force overwrite of preserved files (bypass preservation/merge logic) */
-  force?: boolean;
   /** Auto-confirm all prompts (non-interactive mode for CI/testing) */
   yes?: boolean;
   /**
@@ -330,10 +328,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
   const targetFolder = join(targetDir, agent.folder);
   const folderExists = await pathExists(targetFolder);
 
-  // --force bypasses update confirmation prompts.
-  const shouldForce = options.force ?? false;
-
-  if (folderExists && !shouldForce && !autoConfirm) {
+  if (folderExists && !autoConfirm) {
     const update = await confirm({
       message: `${agent.folder} already exists. Update source control skills?`,
       initialValue: true,

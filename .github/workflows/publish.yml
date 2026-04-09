@@ -199,7 +199,7 @@ jobs:
   release:
     name: Create Release
     runs-on: ubuntu-latest
-    needs: [build, validate-binaries]
+    needs: [build, validate-binaries, publish-workflow-sdk]
 
     steps:
       - name: Checkout repository
@@ -265,7 +265,7 @@ jobs:
   publish-workflow-sdk:
     name: Publish Workflow SDK to npm
     runs-on: ubuntu-latest
-    needs: [release]
+    needs: [validate-binaries]
     permissions:
       contents: read
       id-token: write # Required for OIDC provenance

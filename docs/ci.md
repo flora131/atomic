@@ -15,9 +15,9 @@ This document describes the GitHub Actions workflows that power Atomic CLI's con
   │                              │     │                                │
   │  CI ..................... ✓  │     │  Publish .................. ✓  │
   │    · TypeScript Checks       │     │    Build → Validate Binaries   │
-  │    · Workflow SDK            │     │    → Release                   │
-  │  Code Review ........... ✓   │     │    → Publish Workflow SDK      │
-  │  PR Description ........ ✓   │     │      (npm)                    │
+  │    · Workflow SDK            │     │    → Publish Workflow SDK      │
+  │  Code Review ........... ✓   │     │      (npm)                    │
+  │  PR Description ........ ✓   │     │    → Release                   │
   │  Bump Version .......... ✓   │     │                                │
   │  Validate Features ..... ✓   │     │  Publish Features ........ ✓  │
   │  Installer Validation .. ✓   │     │    (only on devcontainer       │
@@ -175,17 +175,8 @@ Concurrency is enforced per-ref (`publish-${{ github.ref }}`), cancelling in-pro
   │   │    ✗ skills dirs (moved to skills CLI) │                          │
   │   └────────────────────┬───────────────────┘                          │
   │                        ▼                                              │
-  │   ┌────────────────────────────────────────┐                          │
-  │   │           Create Release               │   ◄── Overwritable       │
-  │   │                                        │                          │
-  │   │  · SHA256 checksums                    │                          │
-  │   │  · GitHub Release (tag: v{version})     │                          │
-  │   │  · Attach binaries + config archives   │                          │
-  │   │  · prerelease flag if version has -    │                          │
-  │   └────────────────────┬───────────────────┘                          │
-  │                        ▼                                              │
   │   ┌─────────────────────┐                                             │
-  │   │  Publish            │   ◄── Permanent, gated by release           │
+  │   │  Publish            │   ◄── Permanent, gated by validation        │
   │   │  Workflow SDK       │                                             │
   │   │  (npm)              │                                             │
   │   │                     │                                             │
@@ -196,7 +187,16 @@ Concurrency is enforced per-ref (`publish-${{ github.ref }}`), cancelling in-pro
   │   │    (tag: latest     │                                             │
   │   │     or next)        │                                             │
   │   │  · OIDC provenance  │                                             │
-  │   └─────────────────────┘                                             │
+  │   └──────────┬──────────┘                                             │
+  │              ▼                                                        │
+  │   ┌────────────────────────────────────────┐                          │
+  │   │           Create Release               │   ◄── Overwritable       │
+  │   │                                        │                          │
+  │   │  · SHA256 checksums                    │                          │
+  │   │  · GitHub Release (tag: v{version})     │                          │
+  │   │  · Attach binaries + config archives   │                          │
+  │   │  · prerelease flag if version has -    │                          │
+  │   └────────────────────────────────────────┘                          │
   └───────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -207,14 +207,14 @@ Features are validated via schema checks during PRs and published after merge.
 ### Why This Order?
 
 ```
-  ┌───────────────┐     ┌──────────────────┐
-  │    Release    │ ──► │  Publish SDK     │
-  │ (overwritable)│     │  (permanent)     │
-  └───────────────┘     └──────────────────┘
+  ┌──────────────────┐     ┌───────────────┐
+  │  Publish SDK     │ ──► │    Release    │
+  │  (permanent)     │     │ (overwritable)│
+  └──────────────────┘     └───────────────┘
 ```
 
-1. **Release first** — The GitHub release is created early because install scripts download binaries from it. The release can be deleted and re-created if needed.
-2. **Publish SDK last** — npm publishes are permanent (cannot be overwritten) and are gated behind a successful release. Published with OIDC provenance.
+1. **Publish SDK first** — npm publishes are permanent (cannot be overwritten) and run with OIDC provenance. Publishing before the release guarantees the `@bastani/atomic-workflows` package is available on npm when users run the install script, since the config archive bundled with the release references it as a dependency.
+2. **Release last** — The GitHub release is created after the SDK is on npm so that `bun install` in the install script's workflow setup always succeeds. The release can be deleted and re-created if needed.
 3. **Features are independent** — Devcontainer features just pull a released binary, so they're validated during PRs (schema checks) and published in their own workflow triggered by `devcontainer-features/**` changes merging to main.
 
 ### Publish Features (`publish-features.yml`)
@@ -267,15 +267,14 @@ End-to-end flow for a release, from branch creation to published artifacts:
      Validate binaries (6 native platform runners)            │
            │                                                  │
            ▼                                                  │
-     Create GitHub Release (overwritable)                     │
-           │                                                  │
-           ▼                                                  │
      ┌───────────────────┐                                    │
      │ Publish Workflow  │                                    │
      │ SDK to npm        │                                    │
      │ (permanent, with  │                                    │
      │  OIDC provenance) │                                    │
-     └───────────────────┘                                    │
+     └────────┬──────────┘                                    │
+              ▼                                               │
+     Create GitHub Release (overwritable)                     │
                                                               │
   ⑤ Done ◄───────────────────────────────────────────────────┘
 ```

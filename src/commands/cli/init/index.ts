@@ -26,12 +26,12 @@ import {
   isValidScm,
 } from "@/services/config/index.ts";
 import { pathExists } from "@/services/system/copy.ts";
-import { detectInstallationType, getConfigRoot } from "@/services/config/config-path.ts";
+import { getConfigRoot } from "@/services/config/config-path.ts";
 import { isWindows, isWslInstalled, WSL_INSTALL_URL } from "@/services/system/detect.ts";
 import { saveAtomicConfig } from "@/services/config/atomic-config.ts";
 import { upsertTrustedWorkspacePath } from "@/services/config/settings.ts";
 import {
-  ensureAtomicGlobalAgentConfigsForInstallType,
+  ensureAtomicGlobalAgentConfigs,
   getTemplateAgentFolder,
 } from "@/services/config/atomic-global-config.ts";
 import {
@@ -359,10 +359,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
   try {
     const configRoot = getConfigRoot();
 
-    await ensureAtomicGlobalAgentConfigsForInstallType(
-      detectInstallationType(),
-      configRoot
-    );
+    await ensureAtomicGlobalAgentConfigs(configRoot);
 
     const templateAgentFolder = getTemplateAgentFolder(agentKey);
     const sourceSkillsDir = join(configRoot, templateAgentFolder, "skills");
@@ -406,7 +403,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     // template-copy above has placed the selected variants into `targetDir`;
     // skip the network-backed skills CLI in that case to keep dev iteration
     // fast and offline-friendly.
-    if (detectInstallationType() !== "source") {
+    if (import.meta.dir.includes("node_modules")) {
       const skillsSpinner = spinner();
       skillsSpinner.start(
         `Installing ${getScmPrefix(scmType)}* skills locally for ${agent.name}...`,

@@ -6,7 +6,7 @@ Workflows are organized per workflow name, with agent-specific implementations a
 
 ```
 .atomic/workflows/
-├── package.json                    # Depends on @bastani/atomic-workflows
+├── package.json                    # Depends on atomic/workflows
 ├── tsconfig.json                   # TypeScript config with path alias
 ├── hello/
 │   ├── claude/index.ts             # Claude-specific workflow
@@ -40,7 +40,7 @@ Local workflows override global ones with the same name. The `<agent>` subdirect
 Every workflow file must use `export default` with a compiled workflow:
 
 ```ts
-import { defineWorkflow } from "@bastani/atomic-workflows";
+import { defineWorkflow } from "atomic/workflows";
 
 export default defineWorkflow({
     name: "my-workflow",
@@ -98,7 +98,7 @@ The workflow directory needs a `tsconfig.json` that maps the SDK import:
     "skipLibCheck": true,
     "types": ["bun"],
     "paths": {
-      "@bastani/atomic-workflows": ["../../packages/workflow-sdk/src/index.ts"]
+      "atomic/workflows": ["../../packages/workflow-sdk/src/index.ts"]
     }
   },
   "include": ["./**/*.ts"]
@@ -112,12 +112,12 @@ The workflow directory needs a `tsconfig.json` that maps the SDK import:
   "name": "atomic-workflows",
   "private": true,
   "dependencies": {
-    "@bastani/atomic-workflows": "*"
+    "atomic/workflows": "*"
   }
 }
 ```
 
-The path alias in `tsconfig.json` maps `@bastani/atomic-workflows` to the local SDK source for type checking. At runtime, Bun resolves the import via the package.json dependency.
+The path alias in `tsconfig.json` maps `atomic/workflows` to the local SDK source for type checking. At runtime, Bun resolves the import via the package.json dependency.
 
 ## Type checking
 

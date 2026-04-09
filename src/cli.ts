@@ -11,8 +11,6 @@
  *   atomic init -s <scm>             Setup specific SCM (github, sapling)
  *   atomic chat -a <agent>          Start interactive chat with an agent
  *   atomic config set <key> <value> Set configuration value
- *   atomic update                   Self-update to latest version
- *   atomic uninstall                Remove atomic installation
  *   atomic --version                Show version
  *   atomic --help                   Show help
  */
@@ -149,6 +147,14 @@ Examples:
             process.exit(exitCode);
         });
 
+    program
+        .command("update")
+        .description("Update atomic to the latest version and reinstall skills")
+        .action(async () => {
+            const { updateCommand } = await import("@/commands/cli/update.ts");
+            process.exit(await updateCommand());
+        });
+
     // Add config command for managing CLI settings
     const configCmd = program
         .command("config")
@@ -165,32 +171,6 @@ Examples:
             await configCommand("set", key, value);
         });
 
-    // Add update command for self-updating binary installations
-    program
-        .command("update")
-        .description("Self-update to the latest version (binary installs only)")
-        .action(async () => {
-            const { updateCommand } = await import("@/commands/cli/update.ts");
-            await updateCommand();
-        });
-
-    // Add uninstall command for removing binary installations
-    program
-        .command("uninstall")
-        .description("Remove atomic installation (binary installs only)")
-        .option("--dry-run", "Show what would be removed without removing")
-        .option("--keep-config", "Keep configuration data, only remove binary")
-        .action(async (localOpts) => {
-            const globalOpts = program.opts();
-            const { uninstallCommand } = await import("@/commands/cli/uninstall.ts");
-
-            await uninstallCommand({
-                yes: globalOpts.yes,
-                dryRun: localOpts.dryRun,
-                keepConfig: localOpts.keepConfig,
-            });
-        });
-
     return program;
 }
 
@@ -202,19 +182,6 @@ export const program = createProgram();
  */
 async function main(): Promise<void> {
     try {
-        if (process.platform === "win32") {
-            const { cleanupWindowsLeftoverFiles } = await import("@/services/system/cleanup.ts");
-            await cleanupWindowsLeftoverFiles();
-        }
-
-        // Ensure config data directory exists for binary installs.
-        const skipConfigCommands = new Set(["--version", "-v", "--help", "-h"]);
-        const needsConfig = !process.argv.slice(2).some((arg) => skipConfigCommands.has(arg));
-        if (needsConfig) {
-            const { ensureConfigDataDir } = await import("@/services/config/config-path.ts");
-            await ensureConfigDataDir(VERSION);
-        }
-
         // Parse and execute the command
         await program.parseAsync();
     } catch (error) {
@@ -225,7 +192,6 @@ async function main(): Promise<void> {
 }
 
 // Run the CLI
-const _isCompiledBinary = /[\\/]\$bunfs[\\/]|^[Bb]:[\\/]~BUN[\\/]/.test(import.meta.path);
-if (import.meta.main || _isCompiledBinary) {
+if (import.meta.main) {
     await main();
 }

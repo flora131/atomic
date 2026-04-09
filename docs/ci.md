@@ -213,7 +213,7 @@ Features are validated via schema checks during PRs and published after merge.
   └──────────────────┘     └───────────────┘
 ```
 
-1. **Publish SDK first** — npm publishes are permanent (cannot be overwritten) and run with OIDC provenance. Publishing before the release guarantees the `@bastani/atomic-workflows` package is available on npm when users run the install script, since the config archive bundled with the release references it as a dependency.
+1. **Publish SDK first** — npm publishes are permanent (cannot be overwritten) and run with OIDC provenance. Publishing before the release guarantees the `atomic` package is available on npm when users run the install script, since the config archive bundled with the release references it as a dependency.
 2. **Release last** — The GitHub release is created after the SDK is on npm so that `bun install` in the install script's workflow setup always succeeds. The release can be deleted and re-created if needed.
 3. **Features are independent** — Devcontainer features just pull a released binary, so they're validated during PRs (schema checks) and published in their own workflow triggered by `devcontainer-features/**` changes merging to main.
 
@@ -300,7 +300,7 @@ The publish workflow delegates build and packaging to TypeScript scripts that ca
 
 Values that appear across multiple scripts and workflows are centralised in `constants.ts` to reduce drift:
 
-- **`SDK_PACKAGE_NAME`** — the npm package name (`@bastani/atomic-workflows`)
+- **`SDK_PACKAGE_NAME`** — the npm package name (`atomic`)
 - **`WORKFLOW_SDK_DIR`** — repo-relative path to the SDK package (`packages/workflow-sdk`)
 - **`VERSION_FILES`** — `package.json` files bumped together during releases
 - **`CONFIG_DIRS`** — agent config directories included in the config archive, derived from the canonical `AGENTS` list exported by the workflow SDK

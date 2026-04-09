@@ -7,7 +7,7 @@
  * Run: atomic workflow -n hello -a copilot "describe this project"
  */
 
-import { defineWorkflow } from "@bastani/atomic-workflows";
+import { defineWorkflow } from "atomic/workflows";
 import { CopilotClient, approveAll } from "@github/copilot-sdk";
 
 export default defineWorkflow({

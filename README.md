@@ -183,7 +183,7 @@ Each agent gets its own configuration directory (`.claude/`, `.opencode/`, `.git
 
 ### Workflow SDK — Build Your Own Harness
 
-Every team has a process — triage bugs this way, ship features that way, review PRs with these checks. Most of it lives in a wiki nobody reads or in one senior engineer's head. The **Workflow SDK** (`@bastani/atomic-workflows`) lets you encode that process as a chain of named sessions with raw provider SDK code — then run it from the CLI.
+Every team has a process — triage bugs this way, ship features that way, review PRs with these checks. Most of it lives in a wiki nobody reads or in one senior engineer's head. The **Workflow SDK** (`atomic/workflows`) lets you encode that process as a chain of named sessions with raw provider SDK code — then run it from the CLI.
 
 Drop a `.ts` file in `.atomic/workflows/<name>/<agent>/index.ts` and run it:
 
@@ -196,7 +196,7 @@ atomic workflow -n hello -a claude "describe this project"
 
 ```ts
 // .atomic/workflows/hello/claude/index.ts
-import { defineWorkflow, createClaudeSession, claudeQuery } from "@bastani/atomic-workflows";
+import { defineWorkflow, createClaudeSession, claudeQuery } from "atomic/workflows";
 
 export default defineWorkflow({
   name: "hello",

@@ -8,7 +8,7 @@
  * Run: atomic workflow -n hello -a claude "describe this project"
  */
 
-import { defineWorkflow, createClaudeSession, claudeQuery } from "@bastani/atomic-workflows";
+import { defineWorkflow, createClaudeSession, claudeQuery } from "atomic/workflows";
 
 export default defineWorkflow({
   name: "hello",

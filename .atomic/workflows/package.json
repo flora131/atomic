@@ -3,6 +3,6 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@bastani/atomic-workflows": "file:../../packages/workflow-sdk"
+    "atomic": "file:../../"
   }
 }

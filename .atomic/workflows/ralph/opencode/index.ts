@@ -16,7 +16,7 @@
  * Run: atomic workflow -n ralph -a opencode "<your spec>"
  */
 
-import { defineWorkflow } from "@bastani/atomic-workflows";
+import { defineWorkflow } from "atomic/workflows";
 import {
   createOpencodeClient,
   type SessionPromptResponse,

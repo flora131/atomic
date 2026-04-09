@@ -8,7 +8,7 @@
  * - Get platform-specific filenames for binaries and config archives
  */
 
-import { isWindows } from "@/services/system/detect.ts";
+
 
 /**
  * Error thrown when a file's checksum does not match the expected value.
@@ -307,96 +307,7 @@ declare const __ATOMIC_BASELINE__: boolean | undefined;
  * Get platform-specific binary filename for download.
  *
  * Returns the filename used in GitHub releases, e.g.:
- * - linux-x64: "atomic-linux-x64"
- * - darwin-arm64: "atomic-darwin-arm64"
- * - windows-x64: "atomic-windows-x64.exe"
- *
- * @returns The binary filename for the current platform
- * @throws Error if the platform or architecture is not supported
- */
-export function getBinaryFilename(): string {
-  const platform = process.platform;
-  const arch = process.arch;
-
-  let os: string;
-  switch (platform) {
-    case "linux":
-      os = "linux";
-      break;
-    case "darwin":
-      os = "darwin";
-      break;
-    case "win32":
-      os = "windows";
-      break;
-    default:
-      throw new Error(`Unsupported platform: ${platform}`);
-  }
-
-  let archStr: string;
-  switch (arch) {
-    case "x64":
-      archStr = "x64";
-      break;
-    case "arm64":
-      archStr = "arm64";
-      break;
-    default:
-      throw new Error(`Unsupported architecture: ${arch}`);
-  }
-
-  const ext = platform === "win32" ? ".exe" : "";
-  if (
-    platform === "win32" &&
-    typeof __ATOMIC_BASELINE__ !== "undefined" &&
-    __ATOMIC_BASELINE__
-  ) {
-    return `atomic-${os}-arm64${ext}`;
-  }
-
-  return `atomic-${os}-${archStr}${ext}`;
-}
-
-/**
- * Get platform-specific config archive filename.
- *
- * Returns:
- * - Unix (Linux/macOS): "atomic-config.tar.gz"
- * - Windows: "atomic-config.zip"
- *
- * @returns The config archive filename for the current platform
- */
-export function getConfigArchiveFilename(): string {
-  return isWindows() ? "atomic-config.zip" : "atomic-config.tar.gz";
-}
-
-/**
- * Build a download URL for a specific version and asset from GitHub releases.
- *
- * @param version - Version tag (should include 'v' prefix, e.g., "v0.1.0")
- * @param filename - The asset filename to download
- * @returns The full download URL
- */
-export function getDownloadUrl(version: string, filename: string): string {
-  // Ensure version has 'v' prefix
-  const tag = version.startsWith("v") ? version : `v${version}`;
-  return `https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`;
-}
-
-/**
- * Get the URL for the checksums.txt file for a specific version.
- *
- * @param version - Version tag (with or without 'v' prefix)
- * @returns The download URL for checksums.txt
- */
-export function getChecksumsUrl(version: string): string {
-  return getDownloadUrl(version, "checksums.txt");
-}
-
-/**
- * Check whether a specific version of an npm package exists on the registry.
- *
- * @param packageName - Full package name including scope (e.g. "@bastani/atomic-workflows")
+ * @param packageName - Full package name including scope (e.g. "atomic")
  * @param version     - Semver version without 'v' prefix (e.g. "0.4.30")
  * @returns true if the package version exists, false otherwise
  */

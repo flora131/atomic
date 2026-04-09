@@ -16,7 +16,7 @@
  * Run: atomic workflow -n ralph -a copilot "<your spec>"
  */
 
-import { defineWorkflow } from "@bastani/atomic-workflows";
+import { defineWorkflow } from "atomic/workflows";
 import { CopilotClient, approveAll } from "@github/copilot-sdk";
 import type { SessionEvent } from "@github/copilot-sdk";
 

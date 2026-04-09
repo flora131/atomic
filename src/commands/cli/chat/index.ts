@@ -20,17 +20,19 @@ import { AGENT_CONFIG, type AgentKey } from "@/services/config/index.ts";
 import { COLORS } from "@/theme/colors.ts";
 import { isCommandInstalled } from "@/services/system/detect.ts";
 import {
-  ensureAtomicGlobalAgentConfigsForInstallType,
+  ensureAtomicGlobalAgentConfigs,
 } from "@/services/config/atomic-global-config.ts";
-import { detectInstallationType, getConfigRoot } from "@/services/config/config-path.ts";
+import { getConfigRoot } from "@/services/config/config-path.ts";
 import {
   isInsideTmux,
   isTmuxInstalled,
+  resetMuxBinaryCache,
+} from "@/sdk/workflows.ts";
+import {
   createSession,
   killSession,
   getMuxBinary,
-  resetMuxBinaryCache,
-} from "@bastani/atomic-workflows";
+} from "@/sdk/workflows.ts";
 import { ensureTmuxInstalled } from "@/lib/spawn.ts";
 
 // ============================================================================
@@ -154,9 +156,8 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   // ── Preflight: global config sync ──
   const projectRoot = process.cwd();
   const configRoot = getConfigRoot();
-  const installType = detectInstallationType();
 
-  await ensureAtomicGlobalAgentConfigsForInstallType(installType, configRoot);
+  await ensureAtomicGlobalAgentConfigs(configRoot);
 
   // ── Build argv ──
   const args = buildAgentArgs(agentType, passthroughArgs);

@@ -9,7 +9,7 @@ Claude runs as a full interactive TUI in a tmux pane. The `claudeQuery()` helper
 ### Basic usage with `claudeQuery()`
 
 ```ts
-import { defineWorkflow, claudeQuery } from "@bastani/atomic-workflows";
+import { defineWorkflow, claudeQuery } from "atomic/workflows";
 
 // ...
 .session({

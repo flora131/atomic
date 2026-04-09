@@ -36,8 +36,8 @@
   "scripts": {
     "dev": "bun run src/cli.ts",
     "build": "bun run build.ts",
-    "test": "bun test",
-    "test:coverage": "bun test --coverage",
+    "test": "bun test ./src ./tests",
+    "test:coverage": "bun test --coverage ./src ./tests",
     "typecheck": "bunx tsc --noEmit",
     "lint": "oxlint --config=oxlint.json src",
     "lint:fix": "oxlint --config=oxlint.json --fix src",

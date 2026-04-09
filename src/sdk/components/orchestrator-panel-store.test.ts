@@ -558,4 +558,160 @@ describe("PanelStore", () => {
       expect(emitCount.value).toBe(7);
     });
   });
+
+  // ── addSession ──────────────────────────────────────────────────────────────
+
+  describe("addSession", () => {
+    test("appends a new session to the sessions array", () => {
+      store.setWorkflowInfo("wf", "copilot", [], "prompt");
+      const beforeCount = store.sessions.length;
+
+      store.addSession({
+        name: "dynamic-1",
+        status: "running",
+        parents: ["orchestrator"],
+        startedAt: Date.now(),
+        endedAt: null,
+      });
+
+      expect(store.sessions.length).toBe(beforeCount + 1);
+      expect(store.sessions.at(-1)!.name).toBe("dynamic-1");
+      expect(store.sessions.at(-1)!.status).toBe("running");
+    });
+
+    test("increments version on add", () => {
+      store.setWorkflowInfo("wf", "copilot", [], "prompt");
+      const v = store.version;
+
+      store.addSession({
+        name: "dynamic-2",
+        status: "running",
+        parents: ["orchestrator"],
+        startedAt: Date.now(),
+        endedAt: null,
+      });
+
+      expect(store.version).toBe(v + 1);
+    });
+
+    test("notifies subscribers on add", () => {
+      const listener = mock(() => {});
+      store.subscribe(listener);
+      store.setWorkflowInfo("wf", "copilot", [], "prompt");
+      listener.mockClear();
+
+      store.addSession({
+        name: "dynamic-3",
+        status: "running",
+        parents: ["orchestrator"],
+        startedAt: Date.now(),
+        endedAt: null,
+      });
+
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    test("dynamically added session can be started/completed", () => {
+      store.setWorkflowInfo("wf", "copilot", [], "prompt");
+
+      store.addSession({
+        name: "dynamic-4",
+        status: "running",
+        parents: ["orchestrator"],
+        startedAt: Date.now(),
+        endedAt: null,
+      });
+
+      store.completeSession("dynamic-4");
+      const session = store.sessions.find((s) => s.name === "dynamic-4");
+      expect(session!.status).toBe("complete");
+      expect(session!.endedAt).not.toBeNull();
+    });
+
+    test("stores session with non-existent parent reference", () => {
+      store.setWorkflowInfo("wf", "copilot", [], "prompt");
+
+      store.addSession({
+        name: "orphan",
+        status: "running",
+        parents: ["nonexistent"],
+        startedAt: Date.now(),
+        endedAt: null,
+      });
+
+      const session = store.sessions.find((s) => s.name === "orphan");
+      expect(session).toBeDefined();
+      expect(session!.parents).toEqual(["nonexistent"]);
+    });
+
+    test("stores session with empty parents array", () => {
+      store.setWorkflowInfo("wf", "copilot", [], "prompt");
+
+      store.addSession({
+        name: "no-parent",
+        status: "running",
+        parents: [],
+        startedAt: Date.now(),
+        endedAt: null,
+      });
+
+      const session = store.sessions.find((s) => s.name === "no-parent");
+      expect(session).toBeDefined();
+      expect(session!.parents).toEqual([]);
+    });
+
+    test("nested child added after parent via addSession", () => {
+      store.setWorkflowInfo("wf", "copilot", [], "prompt");
+
+      store.addSession({
+        name: "step-1",
+        status: "running",
+        parents: ["orchestrator"],
+        startedAt: Date.now(),
+        endedAt: null,
+      });
+
+      store.addSession({
+        name: "step-1-child",
+        status: "running",
+        parents: ["step-1"],
+        startedAt: Date.now(),
+        endedAt: null,
+      });
+
+      const child = store.sessions.find((s) => s.name === "step-1-child");
+      expect(child).toBeDefined();
+      expect(child!.parents).toEqual(["step-1"]);
+    });
+  });
+
+  // ── setWorkflowInfo edge cases ─────────────────────────────────────────────
+
+  describe("setWorkflowInfo edge cases", () => {
+    test("session with inter-session parent reference preserves parents", () => {
+      store.setWorkflowInfo("wf", "copilot", [
+        { name: "step-1", parents: [] },
+        { name: "step-2", parents: ["step-1"] },
+      ], "prompt");
+
+      const step1 = store.sessions.find((s) => s.name === "step-1");
+      const step2 = store.sessions.find((s) => s.name === "step-2");
+      // step-1 with empty parents gets ["orchestrator"]
+      expect(step1!.parents).toEqual(["orchestrator"]);
+      // step-2 with explicit parent keeps it
+      expect(step2!.parents).toEqual(["step-1"]);
+    });
+
+    test("deeply nested pre-defined sessions preserve hierarchy", () => {
+      store.setWorkflowInfo("wf", "copilot", [
+        { name: "s1", parents: [] },
+        { name: "s2", parents: ["s1"] },
+        { name: "s3", parents: ["s2"] },
+      ], "prompt");
+
+      expect(store.sessions.find((s) => s.name === "s1")!.parents).toEqual(["orchestrator"]);
+      expect(store.sessions.find((s) => s.name === "s2")!.parents).toEqual(["s1"]);
+      expect(store.sessions.find((s) => s.name === "s3")!.parents).toEqual(["s2"]);
+    });
+  });
 });

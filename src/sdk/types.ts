@@ -34,9 +34,9 @@ export type SavedMessage =
 /**
  * Save native message objects from the provider SDK.
  *
- * - **Copilot**: `ctx.save(await session.getMessages())`
- * - **OpenCode**: `ctx.save(result.data)` — the full `{ info, parts }` response
- * - **Claude**: `ctx.save(sessionId)` — auto-reads via `getSessionMessages()`
+ * - **Copilot**: `s.save(await session.getMessages())`
+ * - **OpenCode**: `s.save(result.data)` — the full `{ info, parts }` response
+ * - **Claude**: `s.save(sessionId)` — auto-reads via `getSessionMessages()`
  */
 export interface SaveTranscript {
   /** Save Copilot SessionEvent[] from session.getMessages() */
@@ -47,8 +47,54 @@ export interface SaveTranscript {
   (claudeSessionId: string): Promise<void>;
 }
 
+/** A reference to a completed session — either a handle or a session name string. */
+export type SessionRef = string | SessionHandle<unknown>;
+
 /**
- * Session context provided to each session's run() callback at execution time.
+ * Handle returned by `ctx.session()`. Used for type-safe transcript references
+ * and carries the callback's return value.
+ */
+export interface SessionHandle<T = void> {
+  /** The session's unique name */
+  readonly name: string;
+  /** The session's generated UUID */
+  readonly id: string;
+  /** The value returned by the session callback */
+  readonly result: T;
+}
+
+/**
+ * Options for spawning a session via `ctx.session()`.
+ */
+export interface SessionRunOptions {
+  /** Unique name for this session (used for transcript references and graph display) */
+  name: string;
+  /** Human-readable description */
+  description?: string;
+  /**
+   * Names of sessions this one depends on. Serves two purposes:
+   *
+   * 1. **Graph rendering** — each named session becomes a parent edge in the
+   *    graph, so chains and fan-ins show up as real topology instead of
+   *    sibling-under-root.
+   * 2. **Runtime ordering** — at spawn time, the runtime waits for every
+   *    named dep to finish before starting. This makes dependency-driven
+   *    `Promise.all([...])` patterns safe: you can kick off many sessions
+   *    concurrently and let `dependsOn` serialize only the edges that matter.
+   *
+   * Each name must refer to a session that has already been spawned (either
+   * active or completed) at the time the dependent session is created.
+   * Unknown names throw a clear error.
+   *
+   * When omitted, the session falls back to the default parent (the
+   * enclosing `ctx.session()` scope, or `orchestrator` at the top level).
+   */
+  dependsOn?: string[];
+}
+
+/**
+ * Context provided to each session's callback.
+ * Created by `ctx.session(opts, fn)` — the callback receives this as its argument.
  */
 export interface SessionContext {
   /** The agent's server URL (Copilot --ui-server / OpenCode built-in server) */
@@ -58,15 +104,15 @@ export interface SessionContext {
   /** Which agent is running */
   agent: AgentType;
   /**
-   * Get a previous session's transcript as rendered text.
-   * Returns `{ path, content }` — path for file triggers, content for embedding.
+   * Get a completed session's transcript as rendered text.
+   * Accepts a SessionHandle (recommended) or session name string.
    */
-  transcript(sessionName: string): Promise<Transcript>;
+  transcript(ref: SessionRef): Promise<Transcript>;
   /**
-   * Get a previous session's raw native messages.
-   * Returns SavedMessage[] exactly as stored by ctx.save().
+   * Get a completed session's raw native messages.
+   * Accepts a SessionHandle (recommended) or session name string.
    */
-  getMessages(sessionName: string): Promise<SavedMessage[]>;
+  getMessages(ref: SessionRef): Promise<SavedMessage[]>;
   /**
    * Save this session's output for subsequent sessions.
    * Accepts native SDK message objects only.
@@ -78,18 +124,45 @@ export interface SessionContext {
   paneId: string;
   /** Session UUID */
   sessionId: string;
+  /**
+   * Spawn a nested sub-session with its own tmux window and graph node.
+   * The sub-session is a child of this session in the graph.
+   * The callback's return value is available as `handle.result`.
+   */
+  session<T = void>(
+    options: SessionRunOptions,
+    run: (ctx: SessionContext) => Promise<T>,
+  ): Promise<SessionHandle<T>>;
 }
 
 /**
- * Options for defining a session in a workflow.
+ * Top-level context provided to the workflow's `.run()` callback.
+ * Does not have session-specific fields (serverUrl, paneId, save, etc.).
  */
-export interface SessionOptions {
-  /** Unique name for this session (used for transcript references) */
-  name: string;
-  /** Human-readable description */
-  description?: string;
-  /** The session callback. User writes raw provider-specific SDK code here. */
-  run: (ctx: SessionContext) => Promise<void>;
+export interface WorkflowContext {
+  /** The original user prompt from the CLI invocation */
+  userPrompt: string;
+  /** Which agent is running */
+  agent: AgentType;
+  /**
+   * Spawn a session with its own tmux window and graph node.
+   * The runtime manages the full lifecycle: start → run callback → complete/error.
+   * The callback's return value is available as `handle.result`.
+   */
+  session<T = void>(
+    options: SessionRunOptions,
+    run: (ctx: SessionContext) => Promise<T>,
+  ): Promise<SessionHandle<T>>;
+  /**
+   * Get a completed session's transcript as rendered text.
+   * Accepts a SessionHandle (recommended) or session name string.
+   */
+  transcript(ref: SessionRef): Promise<Transcript>;
+  /**
+   * Get a completed session's raw native messages.
+   * Accepts a SessionHandle (recommended) or session name string.
+   */
+  getMessages(ref: SessionRef): Promise<SavedMessage[]>;
 }
 
 /**
@@ -109,6 +182,6 @@ export interface WorkflowDefinition {
   readonly __brand: "WorkflowDefinition";
   readonly name: string;
   readonly description: string;
-  /** Ordered execution steps. Each step is an array of sessions — length 1 is sequential, length > 1 is parallel. */
-  readonly steps: ReadonlyArray<ReadonlyArray<SessionOptions>>;
+  /** The workflow's entry point. Called by the executor with a WorkflowContext. */
+  readonly run: (ctx: WorkflowContext) => Promise<void>;
 }

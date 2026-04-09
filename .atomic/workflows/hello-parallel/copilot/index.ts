@@ -22,100 +22,103 @@ export default defineWorkflow({
   name: "hello-parallel",
   description: "Parallel Copilot demo: describe → [summarize-a, summarize-b] → merge",
 })
-  .session({
-    name: "describe",
-    description: "Ask the agent to describe the project",
-    run: async (ctx) => {
-      const client = new CopilotClient({ cliUrl: ctx.serverUrl });
-      await client.start();
-
-      const session = await client.createSession({ onPermissionRequest: approveAll });
-      await client.setForegroundSessionId(session.sessionId);
-      await session.sendAndWait({ prompt: ctx.userPrompt }, SEND_TIMEOUT_MS);
-
-      ctx.save(await session.getMessages());
-      await session.disconnect();
-      await client.stop();
-    },
-  })
-  .session([
-    {
-      name: "summarize-a",
-      description: "Summarize the description as bullet points",
-      run: async (ctx) => {
-        const research = await ctx.transcript("describe");
-
-        const client = new CopilotClient({ cliUrl: ctx.serverUrl });
+  .run(async (ctx) => {
+    // Sequential: describe
+    const describe = await ctx.session(
+      { name: "describe", description: "Ask the agent to describe the project" },
+      async (s) => {
+        const client = new CopilotClient({ cliUrl: s.serverUrl });
         await client.start();
 
         const session = await client.createSession({ onPermissionRequest: approveAll });
         await client.setForegroundSessionId(session.sessionId);
-        await session.sendAndWait(
-          {
-            prompt: `Summarize the following in 2-3 bullet points:\n\n${research.content}`,
-          },
-          SEND_TIMEOUT_MS,
-        );
+        await session.sendAndWait({ prompt: s.userPrompt }, SEND_TIMEOUT_MS);
 
-        ctx.save(await session.getMessages());
+        s.save(await session.getMessages());
         await session.disconnect();
         await client.stop();
       },
-    },
-    {
-      name: "summarize-b",
-      description: "Summarize the description as a one-liner",
-      run: async (ctx) => {
-        const research = await ctx.transcript("describe");
+    );
 
-        const client = new CopilotClient({ cliUrl: ctx.serverUrl });
-        await client.start();
+    // Parallel: summarize-a + summarize-b
+    const [summarizeA, summarizeB] = await Promise.all([
+      ctx.session(
+        { name: "summarize-a", description: "Summarize the description as bullet points" },
+        async (s) => {
+          const research = await s.transcript(describe);
 
-        const session = await client.createSession({ onPermissionRequest: approveAll });
-        await client.setForegroundSessionId(session.sessionId);
-        await session.sendAndWait(
-          {
-            prompt: `Summarize the following in a single sentence:\n\n${research.content}`,
-          },
-          SEND_TIMEOUT_MS,
-        );
+          const client = new CopilotClient({ cliUrl: s.serverUrl });
+          await client.start();
 
-        ctx.save(await session.getMessages());
-        await session.disconnect();
-        await client.stop();
-      },
-    },
-  ])
-  .session({
-    name: "merge",
-    description: "Merge both summaries into a final output",
-    run: async (ctx) => {
-      const bullets = await ctx.transcript("summarize-a");
-      const oneliner = await ctx.transcript("summarize-b");
+          const session = await client.createSession({ onPermissionRequest: approveAll });
+          await client.setForegroundSessionId(session.sessionId);
+          await session.sendAndWait(
+            {
+              prompt: `Summarize the following in 2-3 bullet points:\n\n${research.content}`,
+            },
+            SEND_TIMEOUT_MS,
+          );
 
-      const client = new CopilotClient({ cliUrl: ctx.serverUrl });
-      await client.start();
-
-      const session = await client.createSession({ onPermissionRequest: approveAll });
-      await client.setForegroundSessionId(session.sessionId);
-      await session.sendAndWait(
-        {
-          prompt: [
-            "Combine the following two summaries into one concise paragraph:",
-            "",
-            "## Bullet points",
-            bullets.content,
-            "",
-            "## One-liner",
-            oneliner.content,
-          ].join("\n"),
+          s.save(await session.getMessages());
+          await session.disconnect();
+          await client.stop();
         },
-        SEND_TIMEOUT_MS,
-      );
+      ),
+      ctx.session(
+        { name: "summarize-b", description: "Summarize the description as a one-liner" },
+        async (s) => {
+          const research = await s.transcript(describe);
 
-      ctx.save(await session.getMessages());
-      await session.disconnect();
-      await client.stop();
-    },
+          const client = new CopilotClient({ cliUrl: s.serverUrl });
+          await client.start();
+
+          const session = await client.createSession({ onPermissionRequest: approveAll });
+          await client.setForegroundSessionId(session.sessionId);
+          await session.sendAndWait(
+            {
+              prompt: `Summarize the following in a single sentence:\n\n${research.content}`,
+            },
+            SEND_TIMEOUT_MS,
+          );
+
+          s.save(await session.getMessages());
+          await session.disconnect();
+          await client.stop();
+        },
+      ),
+    ]);
+
+    // Sequential: merge
+    await ctx.session(
+      { name: "merge", description: "Merge both summaries into a final output" },
+      async (s) => {
+        const bullets = await s.transcript(summarizeA);
+        const oneliner = await s.transcript(summarizeB);
+
+        const client = new CopilotClient({ cliUrl: s.serverUrl });
+        await client.start();
+
+        const session = await client.createSession({ onPermissionRequest: approveAll });
+        await client.setForegroundSessionId(session.sessionId);
+        await session.sendAndWait(
+          {
+            prompt: [
+              "Combine the following two summaries into one concise paragraph:",
+              "",
+              "## Bullet points",
+              bullets.content,
+              "",
+              "## One-liner",
+              oneliner.content,
+            ].join("\n"),
+          },
+          SEND_TIMEOUT_MS,
+        );
+
+        s.save(await session.getMessages());
+        await session.disconnect();
+        await client.stop();
+      },
+    );
   })
   .compile();

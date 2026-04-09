@@ -6,7 +6,8 @@
  * 2. It creates a tmux session with an orchestrator pane that runs
  *    `bun run executor.ts --run <args>`
  * 3. The CLI then attaches to the tmux session (user sees it live)
- * 4. The orchestrator pane spawns agent windows and drives the SDK calls
+ * 4. The orchestrator pane calls `definition.run(workflowCtx)` — the
+ *    user's callback uses `ctx.session()` to spawn agent sessions
  */
 
 import { join, resolve } from "path";
@@ -14,8 +15,11 @@ import { homedir } from "os";
 import { mkdir, writeFile, readFile } from "fs/promises";
 import type {
   WorkflowDefinition,
-  SessionOptions,
+  WorkflowContext,
   SessionContext,
+  SessionRunOptions,
+  SessionHandle,
+  SessionRef,
   AgentType,
   Transcript,
   SavedMessage,
@@ -28,7 +32,7 @@ import * as tmux from "./tmux.ts";
 import { getMuxBinary } from "./tmux.ts";
 import { WorkflowLoader } from "./loader.ts";
 import { clearClaudeSession } from "../providers/claude.ts";
-import { OrchestratorPanel, type PanelSession } from "./panel.tsx";
+import { OrchestratorPanel } from "./panel.tsx";
 
 /** Maximum time (ms) to wait for an agent's server to become reachable. */
 const SERVER_WAIT_TIMEOUT_MS = 60_000;
@@ -62,6 +66,14 @@ const AGENT_CLI: Record<
   },
 };
 
+/** Thrown when the user aborts a running workflow via `q` or `Ctrl+C`. */
+class WorkflowAbortError extends Error {
+  constructor() {
+    super("Workflow aborted by user");
+    this.name = "WorkflowAbortError";
+  }
+}
+
 export interface WorkflowRunOptions {
   /** The compiled workflow definition */
   definition: WorkflowDefinition;
@@ -80,6 +92,18 @@ interface SessionResult {
   sessionId: string;
   sessionDir: string;
   paneId: string;
+}
+
+/** A session that has been spawned but may not have completed yet. */
+interface ActiveSession {
+  name: string;
+  paneId: string;
+  /**
+   * Settles when the session finishes. Resolves on success, rejects with the
+   * callback's error on failure. Dependent sessions awaiting via `dependsOn`
+   * block on this promise.
+   */
+  done: Promise<void>;
 }
 
 function generateId(): string {
@@ -305,14 +329,6 @@ export async function executeWorkflow(
 }
 
 /**
- * Throw immediately if the abort signal has already been triggered.
- * Consolidates the repeated abort-check pattern used throughout session execution.
- */
-function throwIfAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) throw new Error("Cancelled: a sibling session failed");
-}
-
-/**
  * Small buffer (ms) subtracted from `Date.now()` when recording the Claude
  * session start timestamp.  Protects against fast sequential runs where
  * the system clock granularity could cause a just-created session's
@@ -388,257 +404,322 @@ export function renderMessagesToText(messages: SavedMessage[]): string {
     .join("\n\n");
 }
 
-interface RunSessionOptions {
-  sessionDef: SessionOptions;
+/** Resolve a SessionRef (string or SessionHandle) to the session name. */
+function resolveRef(ref: SessionRef): string {
+  return typeof ref === "string" ? ref : ref.name;
+}
+
+// ============================================================================
+// Session runner — implements ctx.session() lifecycle
+// ============================================================================
+
+/** Shared state passed to session runners by the orchestrator. */
+interface SharedRunnerState {
   tmuxSessionName: string;
   sessionsBaseDir: string;
   agent: AgentType;
   prompt: string;
-  completedSessions: SessionResult[];
   panel: OrchestratorPanel;
-  signal?: AbortSignal;
-  siblingNames: Set<string>;
+  /** Sessions that have been spawned (for name uniqueness + cleanup). */
+  activeRegistry: Map<string, ActiveSession>;
+  /** Sessions that completed successfully (for transcript reads). */
+  completedRegistry: Map<string, SessionResult>;
 }
 
 /**
- * Run a single session from start to finish.
- * On success: calls panel.sessionSuccess, returns SessionResult.
- * On failure: writes error.txt, calls panel.sessionError, rethrows.
+ * Create a `ctx.session()` function bound to a parent name for graph edges.
+ * The returned function manages the full session lifecycle:
+ * spawn → run callback → flush saves → complete/error → cleanup.
  */
-async function runSingleSession(
-  opts: RunSessionOptions,
-): Promise<SessionResult> {
-  const {
-    sessionDef,
-    tmuxSessionName,
-    sessionsBaseDir,
-    agent,
-    prompt,
-    completedSessions,
-    panel,
-    signal,
-    siblingNames,
-  } = opts;
+function createSessionRunner(
+  shared: SharedRunnerState,
+  parentName: string,
+): <T = void>(
+  options: SessionRunOptions,
+  run: (ctx: SessionContext) => Promise<T>,
+) => Promise<SessionHandle<T>> {
+  return async <T = void>(
+    options: SessionRunOptions,
+    run: (ctx: SessionContext) => Promise<T>,
+  ): Promise<SessionHandle<T>> => {
+    const { name } = options;
+    const deps = options.dependsOn ?? [];
 
-  panel.sessionStart(sessionDef.name);
-
-  throwIfAborted(signal);
-
-  const port = await getRandomPort();
-  const { command: paneCmd, envVars: paneEnvVars } = buildPaneCommand(
-    agent,
-    port,
-  );
-  const paneId = tmux.createWindow(
-    tmuxSessionName,
-    sessionDef.name,
-    paneCmd,
-    undefined,
-    paneEnvVars,
-  );
-
-  throwIfAborted(signal);
-
-  const serverUrl = await waitForServer(agent, port, paneId);
-
-  throwIfAborted(signal);
-
-  const sessionId = generateId();
-  const sessionDirName = `${sessionDef.name}-${sessionId}`;
-  const sessionDir = join(sessionsBaseDir, sessionDirName);
-  await ensureDir(sessionDir);
-
-  const messagesPath = join(sessionDir, "messages.json");
-  const inboxPath = join(sessionDir, "inbox.md");
-
-  // Snapshot existing Claude session IDs before the run so we can identify
-  // which session was created during this execution — robust against concurrent
-  // workflows creating sessions in the same working directory.
-  let knownClaudeSessionIds: Set<string> | undefined;
-  if (agent === "claude") {
-    const { listSessions } = await import("@anthropic-ai/claude-agent-sdk");
-    const existing = await listSessions({ dir: process.cwd() });
-    knownClaudeSessionIds = new Set(existing.map((s) => s.sessionId));
-  }
-
-  // Timestamp fallback for when the snapshot is unavailable.
-  // A small buffer is subtracted to handle clock granularity in fast sequential runs.
-  const claudeSessionStartedAfter =
-    agent === "claude" ? Date.now() - CLAUDE_SESSION_TIMESTAMP_BUFFER_MS : 0;
-
-  async function wrapMessages(
-    arg: SessionEvent[] | SessionPromptResponse | string,
-  ): Promise<SavedMessage[]> {
-    if (typeof arg === "string") {
-      const { getSessionMessages, listSessions } =
-        await import("@anthropic-ai/claude-agent-sdk");
-      const dir = process.cwd();
-      const sessions = await listSessions({ dir });
-
-      // Primary: filter to sessions not in the pre-run snapshot (new sessions only).
-      // Fallback: use timestamp if snapshot is unavailable.
-      const newSessions = knownClaudeSessionIds
-        ? sessions.filter((s) => !knownClaudeSessionIds!.has(s.sessionId))
-        : sessions.filter((s) => s.lastModified >= claudeSessionStartedAfter);
-
-      const candidates = newSessions.sort(
-        (a, b) => b.lastModified - a.lastModified,
-      );
-
-      const candidate = candidates[0];
-      if (!candidate) {
-        throw new Error(`wrapMessages: no new Claude session found for ${dir}`);
-      }
-
-      const msgs: SessionMessage[] = await getSessionMessages(
-        candidate.sessionId,
-        { dir },
-      );
-      return msgs.map((m) => ({ provider: "claude" as const, data: m }));
+    // ── 1. Validate name uniqueness (synchronous, before any await) ──
+    if (!name || name.trim() === "") {
+      throw new Error("Session name is required.");
+    }
+    if (shared.activeRegistry.has(name) || shared.completedRegistry.has(name)) {
+      throw new Error(`Duplicate session name: "${name}"`);
     }
 
-    if (!Array.isArray(arg) && "info" in arg && "parts" in arg) {
-      return [
-        { provider: "opencode" as const, data: arg as SessionPromptResponse },
-      ];
-    }
-
-    if (Array.isArray(arg)) {
-      return (arg as SessionEvent[]).map((m) => ({
-        provider: "copilot" as const,
-        data: m,
-      }));
-    }
-
-    return [];
-  }
-
-  const pendingSaves: Promise<void>[] = [];
-
-  const save: SaveTranscript = ((
-    arg: SessionEvent[] | SessionPromptResponse | string,
-  ) => {
-    const p = (async () => {
-      const wrapped = await wrapMessages(arg);
-      await Bun.write(messagesPath, JSON.stringify(wrapped, null, 2));
-      const text = renderMessagesToText(wrapped);
-      await Bun.write(inboxPath, text);
-    })();
-    pendingSaves.push(p);
-    return p;
-  }) as SaveTranscript;
-
-  const ctx: SessionContext = {
-    serverUrl,
-    userPrompt: prompt,
-    agent,
-    sessionDir,
-    paneId,
-    sessionId,
-    save,
-    transcript: async (name: string): Promise<Transcript> => {
-      if (siblingNames.has(name)) {
-        throw new Error(
-          `Cannot read transcript for "${name}" \u2014 it is running in parallel. ` +
-            `Only sessions from prior steps are available.`,
-        );
+    // ── 2. Validate dependsOn (synchronous, before any await) ──
+    if (deps.length > 0) {
+      if (deps.includes(name)) {
+        throw new Error(`Session "${name}" cannot depend on itself.`);
       }
-      const prev = completedSessions.find((s) => s.name === name);
-      if (!prev) {
-        throw new Error(
-          `No transcript for "${name}". Available: ${completedSessions.map((s) => s.name).join(", ") || "(none)"}`,
-        );
-      }
-      const filePath = join(prev.sessionDir, "inbox.md");
-      const content = await readFile(filePath, "utf-8");
-      return { path: filePath, content };
-    },
-    getMessages: async (name: string): Promise<SavedMessage[]> => {
-      if (siblingNames.has(name)) {
-        throw new Error(
-          `Cannot read messages for "${name}" \u2014 it is running in parallel. ` +
-            `Only sessions from prior steps are available.`,
-        );
-      }
-      const prev = completedSessions.find((s) => s.name === name);
-      if (!prev) {
-        throw new Error(
-          `No messages for "${name}". Available: ${completedSessions.map((s) => s.name).join(", ") || "(none)"}`,
-        );
-      }
-      const filePath = join(prev.sessionDir, "messages.json");
-      const raw = await readFile(filePath, "utf-8");
-      return JSON.parse(raw) as SavedMessage[];
-    },
-  };
-
-  await writeFile(
-    join(sessionDir, "metadata.json"),
-    JSON.stringify(
-      {
-        name: sessionDef.name,
-        description: sessionDef.description ?? "",
-        agent,
-        paneId,
-        serverUrl,
-        port,
-        startedAt: new Date().toISOString(),
-      },
-      null,
-      2,
-    ),
-  );
-
-  try {
-    await sessionDef.run(ctx);
-    if (pendingSaves.length > 0) await Promise.all(pendingSaves);
-  } catch (error) {
-    const isCancelled = signal?.aborted;
-    const message = isCancelled
-      ? "Cancelled: a sibling session failed"
-      : error instanceof Error
-        ? error.message
-        : String(error);
-    await writeFile(join(sessionDir, "error.txt"), message).catch(() => {});
-    panel.sessionError(sessionDef.name, message);
-    throw error;
-  }
-
-  panel.sessionSuccess(sessionDef.name);
-  return { name: sessionDef.name, sessionId, sessionDir, paneId };
-}
-
-/** Like Promise.all() but aborts on first rejection and calls a cleanup callback. */
-async function promiseAllFailFast<T>(
-  promises: Promise<T>[],
-  controller: AbortController,
-  onFirstFailure: () => void,
-): Promise<T[]> {
-  if (promises.length === 0) return Promise.resolve([]);
-
-  return new Promise<T[]>((resolve, reject) => {
-    const results = Array.from<T>({ length: promises.length });
-    let remaining = promises.length;
-    let rejected = false;
-
-    promises.forEach((promise, index) => {
-      promise.then(
-        (value) => {
-          if (rejected) return;
-          results[index] = value;
-          remaining--;
-          if (remaining === 0) resolve(results);
-        },
-        (error) => {
-          if (rejected) return;
-          rejected = true;
-          controller.abort();
-          onFirstFailure();
-          reject(error);
-        },
+      const unknown = deps.filter(
+        (d) =>
+          !shared.activeRegistry.has(d) && !shared.completedRegistry.has(d),
       );
+      if (unknown.length > 0) {
+        throw new Error(
+          `Session "${name}" dependsOn unknown session(s): ${unknown.join(
+            ", ",
+          )}. Dependencies must be spawned before the dependent session.`,
+        );
+      }
+    }
+
+    // ── 3. Create done promise so dependent sessions can await this one ──
+    let resolveDone!: () => void;
+    let rejectDone!: (err: unknown) => void;
+    const donePromise = new Promise<void>((resolve, reject) => {
+      resolveDone = resolve;
+      rejectDone = reject;
     });
-  });
+    // Prevent "unhandled rejection" noise when no dependent awaits us.
+    donePromise.catch(() => {});
+
+    // ── 4. Register in active registry (synchronous) ──
+    // Placeholder paneId — filled in after tmux window creation.
+    shared.activeRegistry.set(name, { name, paneId: "", done: donePromise });
+
+    const sessionId = generateId();
+    let paneId = "";
+    // Graph parents: explicit deps if provided, otherwise the enclosing scope.
+    const graphParents = deps.length > 0 ? [...deps] : [parentName];
+
+    try {
+      // ── 5. Wait for dependsOn sessions to finish ──
+      // Active deps block; completed deps resolve immediately. If a dep
+      // rejects (its session failed), this throws and aborts the dependent.
+      if (deps.length > 0) {
+        await Promise.all(
+          deps.map((d) => {
+            const active = shared.activeRegistry.get(d);
+            if (active) return active.done;
+            return Promise.resolve();
+          }),
+        );
+      }
+
+      // ── 6. Allocate port ──
+      const port = await getRandomPort();
+      const { command: paneCmd, envVars: paneEnvVars } = buildPaneCommand(
+        shared.agent,
+        port,
+      );
+
+      // ── 7. Create tmux window ──
+      paneId = tmux.createWindow(
+        shared.tmuxSessionName,
+        name,
+        paneCmd,
+        undefined,
+        paneEnvVars,
+      );
+      shared.activeRegistry.set(name, { name, paneId, done: donePromise });
+
+      // ── 8. Wait for server readiness ──
+      const serverUrl = await waitForServer(shared.agent, port, paneId);
+
+      // ── 9. Create session directory ──
+      const sessionDirName = `${name}-${sessionId}`;
+      const sessionDir = join(shared.sessionsBaseDir, sessionDirName);
+      await ensureDir(sessionDir);
+
+      const messagesPath = join(sessionDir, "messages.json");
+      const inboxPath = join(sessionDir, "inbox.md");
+
+      // ── 10. Add node to graph panel ──
+      shared.panel.addSession(name, graphParents);
+
+      // ── 11. Claude session snapshot (for identifying new sessions later) ──
+      let knownClaudeSessionIds: Set<string> | undefined;
+      if (shared.agent === "claude") {
+        const { listSessions } = await import("@anthropic-ai/claude-agent-sdk");
+        const existing = await listSessions({ dir: process.cwd() });
+        knownClaudeSessionIds = new Set(existing.map((s) => s.sessionId));
+      }
+      const claudeSessionStartedAfter =
+        shared.agent === "claude"
+          ? Date.now() - CLAUDE_SESSION_TIMESTAMP_BUFFER_MS
+          : 0;
+
+      // ── Message wrapping (Claude/Copilot/OpenCode) ──
+      async function wrapMessages(
+        arg: SessionEvent[] | SessionPromptResponse | string,
+      ): Promise<SavedMessage[]> {
+        if (typeof arg === "string") {
+          const { getSessionMessages, listSessions } = await import(
+            "@anthropic-ai/claude-agent-sdk"
+          );
+          const dir = process.cwd();
+          const sessions = await listSessions({ dir });
+
+          const newSessions = knownClaudeSessionIds
+            ? sessions.filter(
+                (s) => !knownClaudeSessionIds!.has(s.sessionId),
+              )
+            : sessions.filter(
+                (s) => s.lastModified >= claudeSessionStartedAfter,
+              );
+
+          const candidates = newSessions.sort(
+            (a, b) => b.lastModified - a.lastModified,
+          );
+
+          const candidate = candidates[0];
+          if (!candidate) {
+            throw new Error(
+              `wrapMessages: no new Claude session found for ${dir}`,
+            );
+          }
+
+          const msgs: SessionMessage[] = await getSessionMessages(
+            candidate.sessionId,
+            { dir },
+          );
+          return msgs.map((m) => ({ provider: "claude" as const, data: m }));
+        }
+
+        if (!Array.isArray(arg) && "info" in arg && "parts" in arg) {
+          return [
+            {
+              provider: "opencode" as const,
+              data: arg as SessionPromptResponse,
+            },
+          ];
+        }
+
+        if (Array.isArray(arg)) {
+          return (arg as SessionEvent[]).map((m) => ({
+            provider: "copilot" as const,
+            data: m,
+          }));
+        }
+
+        return [];
+      }
+
+      // ── Save function ──
+      const pendingSaves: Promise<void>[] = [];
+
+      const save: SaveTranscript = ((
+        arg: SessionEvent[] | SessionPromptResponse | string,
+      ) => {
+        const p = (async () => {
+          const wrapped = await wrapMessages(arg);
+          await Bun.write(messagesPath, JSON.stringify(wrapped, null, 2));
+          const text = renderMessagesToText(wrapped);
+          await Bun.write(inboxPath, text);
+        })();
+        pendingSaves.push(p);
+        return p;
+      }) as SaveTranscript;
+
+      // ── Transcript/messages access (reads only from completedRegistry) ──
+      const transcriptFn = async (ref: SessionRef): Promise<Transcript> => {
+        const refName = resolveRef(ref);
+        const prev = shared.completedRegistry.get(refName);
+        if (!prev) {
+          const available =
+            [...shared.completedRegistry.keys()].join(", ") || "(none)";
+          throw new Error(
+            `No transcript for "${refName}". Available: ${available}`,
+          );
+        }
+        const filePath = join(prev.sessionDir, "inbox.md");
+        const content = await readFile(filePath, "utf-8");
+        return { path: filePath, content };
+      };
+
+      const getMessagesFn = async (
+        ref: SessionRef,
+      ): Promise<SavedMessage[]> => {
+        const refName = resolveRef(ref);
+        const prev = shared.completedRegistry.get(refName);
+        if (!prev) {
+          const available =
+            [...shared.completedRegistry.keys()].join(", ") || "(none)";
+          throw new Error(
+            `No messages for "${refName}". Available: ${available}`,
+          );
+        }
+        const filePath = join(prev.sessionDir, "messages.json");
+        const raw = await readFile(filePath, "utf-8");
+        return JSON.parse(raw) as SavedMessage[];
+      };
+
+      // ── 12. Construct SessionContext ──
+      const ctx: SessionContext = {
+        serverUrl,
+        userPrompt: shared.prompt,
+        agent: shared.agent,
+        sessionDir,
+        paneId,
+        sessionId,
+        save,
+        transcript: transcriptFn,
+        getMessages: getMessagesFn,
+        session: createSessionRunner(shared, name),
+      };
+
+      // ── Write session metadata ──
+      await writeFile(
+        join(sessionDir, "metadata.json"),
+        JSON.stringify(
+          {
+            name,
+            description: options.description ?? "",
+            agent: shared.agent,
+            paneId,
+            serverUrl,
+            port,
+            startedAt: new Date().toISOString(),
+          },
+          null,
+          2,
+        ),
+      );
+
+      // ── 13. Run user callback ──
+      let callbackResult: T;
+      try {
+        callbackResult = await run(ctx);
+        if (pendingSaves.length > 0) await Promise.all(pendingSaves);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : String(error);
+        await writeFile(join(sessionDir, "error.txt"), message).catch(
+          () => {},
+        );
+        shared.panel.sessionError(name, message);
+        throw error;
+      }
+
+      // ── 14. Mark session complete ──
+      shared.panel.sessionSuccess(name);
+      const result: SessionResult = { name, sessionId, sessionDir, paneId };
+      shared.completedRegistry.set(name, result);
+      shared.activeRegistry.delete(name);
+      resolveDone();
+
+      return { name, id: sessionId, result: callbackResult! };
+    } catch (error) {
+      // Ensure the done promise settles and the active entry is cleared so
+      // dependents fail fast instead of hanging forever on a ghost dep.
+      shared.activeRegistry.delete(name);
+      rejectDone(error);
+      throw error;
+    } finally {
+      // ── 15. Cleanup (Claude session state) ──
+      if (shared.agent === "claude" && paneId) {
+        clearClaudeSession(paneId);
+      }
+    }
+  };
 }
 
 // ============================================================================
@@ -695,6 +776,17 @@ async function runOrchestrator(): Promise<void> {
   const signalHandler = () => shutdown(1);
   process.on("SIGINT", signalHandler);
 
+  // Shared state for all session runners
+  const shared: SharedRunnerState = {
+    tmuxSessionName,
+    sessionsBaseDir,
+    agent,
+    prompt,
+    panel,
+    activeRegistry: new Map(),
+    completedRegistry: new Map(),
+  };
+
   try {
     const plan: WorkflowLoader.Plan = {
       name: workflowFile.split("/").at(-3) ?? "unknown",
@@ -730,96 +822,73 @@ async function runOrchestrator(): Promise<void> {
       ),
     );
 
-    // Build panel sessions from steps — track all parent names for fan-in edges
-    const panelSessions: PanelSession[] = [];
-    let prevStepNames = ["orchestrator"];
-    for (const step of definition.steps) {
-      for (const s of step) {
-        panelSessions.push({ name: s.name, parents: prevStepNames });
-      }
-      prevStepNames = step.map((s) => s.name);
-    }
+    // Initialize panel with just the orchestrator node (sessions added dynamically)
+    panel.showWorkflowInfo(definition.name, agent, [], prompt);
 
-    panel.showWorkflowInfo(definition.name, agent, panelSessions, prompt);
+    // Build the WorkflowContext — top-level context for the .run() callback
+    const sessionRunner = createSessionRunner(shared, "orchestrator");
 
-    const completedSessions: SessionResult[] = [];
-
-    for (const step of definition.steps) {
-      if (step.length === 1) {
-        // Sequential: single session in this step
-        try {
-          const result = await runSingleSession({
-            sessionDef: step[0]!,
-            tmuxSessionName,
-            sessionsBaseDir,
-            agent,
-            prompt,
-            completedSessions,
-            panel,
-            siblingNames: new Set(),
-          });
-          completedSessions.push(result);
-          if (agent === "claude") clearClaudeSession(result.paneId);
-        } catch (error) {
-          const message =
-            error instanceof Error ? error.message : String(error);
-          panel.showFatalError(message);
-          await panel.waitForExit();
-          shutdown(1);
-          return;
+    const workflowCtx: WorkflowContext = {
+      userPrompt: prompt,
+      agent,
+      session: sessionRunner,
+      transcript: async (ref: SessionRef): Promise<Transcript> => {
+        const refName = resolveRef(ref);
+        const prev = shared.completedRegistry.get(refName);
+        if (!prev) {
+          const available =
+            [...shared.completedRegistry.keys()].join(", ") || "(none)";
+          throw new Error(
+            `No transcript for "${refName}". Available: ${available}`,
+          );
         }
-      } else {
-        // Parallel: multiple sessions run concurrently with fail-fast
-        const controller = new AbortController();
-        const allNames = new Set(step.map((s) => s.name));
-
-        const promises = step.map((sessionDef) => {
-          const mySiblings = new Set(allNames);
-          mySiblings.delete(sessionDef.name);
-          return runSingleSession({
-            sessionDef,
-            tmuxSessionName,
-            sessionsBaseDir,
-            agent,
-            prompt,
-            completedSessions,
-            panel,
-            signal: controller.signal,
-            siblingNames: mySiblings,
-          });
-        });
-
-        try {
-          const results = await promiseAllFailFast(promises, controller, () => {
-            for (const s of step) tmux.killWindow(tmuxSessionName, s.name);
-          });
-          completedSessions.push(...results);
-          if (agent === "claude") {
-            for (const r of results) clearClaudeSession(r.paneId);
-          }
-        } catch (error) {
-          // Wait for all cancelled siblings to settle
-          await Promise.allSettled(promises);
-          const message =
-            error instanceof Error ? error.message : String(error);
-          panel.showFatalError(message);
-          await panel.waitForExit();
-          shutdown(1);
-          return;
+        const filePath = join(prev.sessionDir, "inbox.md");
+        const content = await readFile(filePath, "utf-8");
+        return { path: filePath, content };
+      },
+      getMessages: async (ref: SessionRef): Promise<SavedMessage[]> => {
+        const refName = resolveRef(ref);
+        const prev = shared.completedRegistry.get(refName);
+        if (!prev) {
+          const available =
+            [...shared.completedRegistry.keys()].join(", ") || "(none)";
+          throw new Error(
+            `No messages for "${refName}". Available: ${available}`,
+          );
         }
-      }
-    }
+        const filePath = join(prev.sessionDir, "messages.json");
+        const raw = await readFile(filePath, "utf-8");
+        return JSON.parse(raw) as SavedMessage[];
+      },
+    };
+
+    // Run the workflow, racing against user abort (q / Ctrl+C)
+    const abortPromise = panel.waitForAbort().then(() => {
+      throw new WorkflowAbortError();
+    });
+    await Promise.race([definition.run(workflowCtx), abortPromise]);
 
     panel.showCompletion(definition.name, sessionsBaseDir);
     await panel.waitForExit();
     shutdown(0);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    try {
-      panel.showFatalError(message);
-      await panel.waitForExit();
-    } catch {}
-    shutdown(1);
+    // Kill any active session tmux windows that didn't complete
+    for (const [, active] of shared.activeRegistry) {
+      try {
+        tmux.killWindow(tmuxSessionName, active.name);
+      } catch {}
+    }
+
+    if (error instanceof WorkflowAbortError) {
+      shutdown(0);
+    } else {
+      const message = error instanceof Error ? error.message : String(error);
+      try {
+        panel.showFatalError(message);
+        await panel.waitForExit();
+      } catch {}
+      shutdown(1);
+    }
   } finally {
     process.off("SIGINT", signalHandler);
   }

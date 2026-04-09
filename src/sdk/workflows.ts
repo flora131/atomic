@@ -1,9 +1,9 @@
 /**
  * atomic/workflows
  *
- * Workflow SDK for defining multi-session agent workflows.
- * Workflows are defined as a chain of .session() calls and compiled
- * into a WorkflowDefinition consumed by the Atomic CLI runtime.
+ * Workflow SDK for defining dynamic agent workflows.
+ * Workflows use defineWorkflow().run().compile() with ctx.session()
+ * for spawning agent sessions using native TypeScript control flow.
  */
 
 export { defineWorkflow, WorkflowBuilder } from "./define-workflow.ts";
@@ -14,7 +14,10 @@ export type {
   SavedMessage,
   SaveTranscript,
   SessionContext,
-  SessionOptions,
+  SessionRef,
+  SessionHandle,
+  SessionRunOptions,
+  WorkflowContext,
   WorkflowOptions,
   WorkflowDefinition,
 } from "./types.ts";

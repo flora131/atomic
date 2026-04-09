@@ -41,7 +41,7 @@ describe("WorkflowLoader — atomic/* SDK resolution", () => {
 import { defineWorkflow } from "@bastani/atomic/workflows";
 
 export default defineWorkflow({ name: "ext" })
-  .session({ name: "s1", run: async () => {} })
+  .run(async () => {})
   .compile();
 `,
     );
@@ -82,7 +82,7 @@ import { z } from "zod";
 const schema = z.object({ name: z.string() });
 
 export default defineWorkflow({ name: schema.parse({ name: "tp" }).name })
-  .session({ name: "s1", run: async () => {} })
+  .run(async () => {})
   .compile();
 `,
     );
@@ -121,7 +121,7 @@ describe("WorkflowLoader.validate — agent provider validation", () => {
 import { defineWorkflow } from "${join(process.cwd(), "src/sdk/workflows.ts")}";
 ${body}
 export default defineWorkflow({ name: "${name}" })
-  .session({ name: "s1", run: async () => {} })
+  .run(async () => {})
   .compile();
 `,
     );

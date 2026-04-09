@@ -2,7 +2,7 @@
  * Copilot workflow source validation.
  *
  * Checks that Copilot workflow source files follow required patterns:
- * - `cliUrl` is wired to `ctx.serverUrl` (or destructured `serverUrl`)
+ * - `cliUrl` is wired to the session context's `serverUrl`
  * - `setForegroundSessionId` is called after creating a session
  */
 
@@ -18,11 +18,13 @@ export function validateCopilotWorkflow(source: string): CopilotValidationWarnin
   const warnings: CopilotValidationWarning[] = [];
 
   if (/\bCopilotClient\b/.test(source)) {
-    if (!/cliUrl\s*:\s*(?:ctx\.serverUrl|serverUrl)/.test(source)) {
+    // Accept any identifier before .serverUrl (e.g., s.serverUrl, ctx.serverUrl)
+    // or a destructured `serverUrl` variable
+    if (!/cliUrl\s*:\s*(?:\w+\.serverUrl|serverUrl)/.test(source)) {
       warnings.push({
         rule: "copilot/cli-url",
         message:
-          "Could not verify that CopilotClient is created with { cliUrl: ctx.serverUrl }. " +
+          "Could not verify that CopilotClient is created with { cliUrl: s.serverUrl }. " +
           "This is required to connect to the workflow's agent pane.",
       });
     }

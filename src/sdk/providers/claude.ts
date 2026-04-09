@@ -307,7 +307,7 @@ export function validateClaudeWorkflow(source: string): ClaudeValidationWarning[
         rule: "claude/create-session",
         message:
           "Could not verify that createClaudeSession is called before claudeQuery(). " +
-          "Call createClaudeSession({ paneId: ctx.paneId }) to start the Claude CLI before sending queries.",
+          "Call createClaudeSession({ paneId: s.paneId }) to start the Claude CLI before sending queries.",
       });
     }
   }

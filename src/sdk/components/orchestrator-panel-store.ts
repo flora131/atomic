@@ -15,6 +15,7 @@ export class PanelStore {
   fatalError: string | null = null;
   completionReached = false;
   exitResolve: (() => void) | null = null;
+  abortResolve: (() => void) | null = null;
 
   private listeners = new Set<Listener>();
 
@@ -81,6 +82,11 @@ export class PanelStore {
     this.emit();
   }
 
+  addSession(session: SessionData): void {
+    this.sessions.push(session);
+    this.emit();
+  }
+
   setCompletion(workflowName: string, transcriptsPath: string): void {
     this.completionInfo = { workflowName, transcriptsPath };
     const orch = this.sessions.find((s) => s.name === "orchestrator");
@@ -108,6 +114,24 @@ export class PanelStore {
       const resolve = this.exitResolve;
       this.exitResolve = null;
       resolve();
+    }
+  }
+
+  /** Safely invoke abortResolve at most once to signal mid-execution quit. */
+  resolveAbort(): void {
+    if (this.abortResolve) {
+      const resolve = this.abortResolve;
+      this.abortResolve = null;
+      resolve();
+    }
+  }
+
+  /** Quit the workflow — routes to the correct handler based on current phase. */
+  requestQuit(): void {
+    if (this.completionReached) {
+      this.resolveExit();
+    } else {
+      this.resolveAbort();
     }
   }
 

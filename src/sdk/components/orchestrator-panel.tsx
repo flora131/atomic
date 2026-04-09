@@ -111,6 +111,17 @@ export class OrchestratorPanel {
     this.store.failSession(name, message);
   }
 
+  /** Dynamically add a new session node to the graph UI. */
+  addSession(name: string, parents: string[]): void {
+    this.store.addSession({
+      name,
+      status: "running",
+      parents,
+      startedAt: Date.now(),
+      endedAt: null,
+    });
+  }
+
   /** Show the workflow-complete banner with a link to saved transcripts. */
   showCompletion(workflowName: string, transcriptsPath: string): void {
     this.store.setCompletion(workflowName, transcriptsPath);
@@ -129,6 +140,16 @@ export class OrchestratorPanel {
     this.store.markCompletionReached();
     return new Promise<void>((resolve) => {
       this.store.exitResolve = resolve;
+    });
+  }
+
+  /**
+   * Returns a promise that resolves when the user requests a mid-execution quit
+   * (via `q` or `Ctrl+C`). Race this against the workflow run.
+   */
+  waitForAbort(): Promise<void> {
+    return new Promise<void>((resolve) => {
+      this.store.abortResolve = resolve;
     });
   }
 

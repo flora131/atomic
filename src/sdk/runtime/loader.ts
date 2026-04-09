@@ -297,7 +297,7 @@ export namespace WorkflowLoader {
               `Workflow at ${validated.path} was defined but not compiled.\n` +
               `  Add .compile() at the end of your defineWorkflow() chain:\n\n` +
               `    export default defineWorkflow({ ... })\n` +
-              `      .session({ ... })\n` +
+              `      .run(async (ctx) => { ... })\n` +
               `      .compile();`,
           };
         }
@@ -308,7 +308,7 @@ export namespace WorkflowLoader {
           error: new Error("Invalid workflow export"),
           message:
             `${validated.path} does not export a valid WorkflowDefinition.\n` +
-            `  Make sure it exports defineWorkflow(...).compile() as the default export.`,
+            `  Make sure it exports defineWorkflow(...).run(...).compile() as the default export.`,
         };
       }
 

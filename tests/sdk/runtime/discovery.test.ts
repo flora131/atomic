@@ -161,7 +161,7 @@ describe("WorkflowLoader", () => {
 import { defineWorkflow } from "${join(process.cwd(), "src/sdk/workflows.ts")}";
 
 export default defineWorkflow({ name: "test" })
-  .session({ name: "s1", run: async () => {} });
+  .run(async () => {});
 // NOTE: .compile() is intentionally missing
 `,
     );
@@ -203,7 +203,7 @@ export default defineWorkflow({ name: "test" })
 import { defineWorkflow } from "${join(process.cwd(), "src/sdk/workflows.ts")}";
 
 export default defineWorkflow({ name: "valid-test" })
-  .session({ name: "s1", run: async () => {} })
+  .run(async () => {})
   .compile();
 `,
     );
@@ -214,8 +214,7 @@ export default defineWorkflow({ name: "valid-test" })
     if (result.ok) {
       expect(result.value.definition.__brand).toBe("WorkflowDefinition");
       expect(result.value.definition.name).toBe("valid-test");
-      expect(result.value.definition.steps).toHaveLength(1);
-      expect(result.value.definition.steps[0]).toHaveLength(1);
+      expect(typeof result.value.definition.run).toBe("function");
     }
   });
 
@@ -246,7 +245,7 @@ export default defineWorkflow({ name: "valid-test" })
 import { defineWorkflow } from "${join(process.cwd(), "src/sdk/workflows.ts")}";
 
 export default defineWorkflow({ name: "stage-test" })
-  .session({ name: "s1", run: async () => {} })
+  .run(async () => {})
   .compile();
 `,
     );
@@ -284,7 +283,7 @@ export default defineWorkflow({ name: "stage-test" })
 import { defineWorkflow } from "${join(process.cwd(), "src/sdk/workflows.ts")}";
 
 export default defineWorkflow({ name: "report-test" })
-  .session({ name: "s1", run: async () => {} })
+  .run(async () => {})
   .compile();
 `,
     );

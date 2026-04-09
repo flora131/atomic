@@ -921,4 +921,325 @@ describe("computeLayout", () => {
       });
     }
   });
+
+  // ─── Edge cases: parent normalization ─────────
+
+  describe("missing parent fallback", () => {
+    test("session with missing parent falls back to orchestrator child", () => {
+      const r = computeLayout([
+        session("orchestrator"),
+        session("orphan", ["nonexistent"]),
+      ]);
+      // orphan should be a child of orchestrator, not a root
+      expect(r.roots).toHaveLength(1);
+      expect(r.roots[0]!.name).toBe("orchestrator");
+      expect(r.map["orchestrator"]!.children).toHaveLength(1);
+      expect(r.map["orchestrator"]!.children[0]!.name).toBe("orphan");
+      expect(r.map["orphan"]!.depth).toBe(1);
+    });
+
+    test("session with missing parent and no orchestrator becomes root", () => {
+      const r = computeLayout([
+        session("A"),
+        session("orphan", ["nonexistent"]),
+      ]);
+      // Without orchestrator, orphan becomes a root alongside A
+      expect(r.roots).toHaveLength(2);
+      expect(r.roots.map((n) => n.name)).toContain("orphan");
+    });
+
+    test("preserves raw parents array on LayoutNode even when normalized", () => {
+      const r = computeLayout([
+        session("orchestrator"),
+        session("orphan", ["nonexistent"]),
+      ]);
+      // raw parents metadata should be unchanged
+      expect(r.map["orphan"]!.parents).toEqual(["nonexistent"]);
+    });
+
+    test("multiple orphans all fall back to orchestrator", () => {
+      const r = computeLayout([
+        session("orchestrator"),
+        session("a", ["ghost-1"]),
+        session("b", ["ghost-2"]),
+      ]);
+      expect(r.roots).toHaveLength(1);
+      expect(r.map["orchestrator"]!.children).toHaveLength(2);
+      expect(r.map["a"]!.depth).toBe(1);
+      expect(r.map["b"]!.depth).toBe(1);
+    });
+
+    test("valid parent takes priority over orchestrator fallback", () => {
+      const r = computeLayout([
+        session("orchestrator"),
+        session("step-1", ["orchestrator"]),
+        session("child", ["step-1"]),
+      ]);
+      // child should be under step-1, not orchestrator
+      expect(r.map["step-1"]!.children).toHaveLength(1);
+      expect(r.map["step-1"]!.children[0]!.name).toBe("child");
+      expect(r.map["child"]!.depth).toBe(2);
+    });
+
+    test("orchestrator itself does not get reparented to itself", () => {
+      const r = computeLayout([session("orchestrator")]);
+      expect(r.roots).toHaveLength(1);
+      expect(r.roots[0]!.name).toBe("orchestrator");
+      expect(r.map["orchestrator"]!.children).toHaveLength(0);
+    });
+  });
+
+  describe("merge node with missing parents", () => {
+    test("merge with one missing parent reclassified as single-parent child", () => {
+      const r = computeLayout([
+        session("orchestrator"),
+        session("A", ["orchestrator"]),
+        session("M", ["A", "nonexistent"]),
+      ]);
+      // M should become a single-parent child of A (not a merge node)
+      expect(r.map["A"]!.children).toHaveLength(1);
+      expect(r.map["A"]!.children[0]!.name).toBe("M");
+      expect(r.map["M"]!.depth).toBe(2);
+    });
+
+    test("merge with all missing parents falls back to orchestrator child", () => {
+      const r = computeLayout([
+        session("orchestrator"),
+        session("M", ["ghost-1", "ghost-2"]),
+      ]);
+      // All parents missing → falls back to orchestrator
+      expect(r.map["orchestrator"]!.children).toHaveLength(1);
+      expect(r.map["orchestrator"]!.children[0]!.name).toBe("M");
+      expect(r.map["M"]!.depth).toBe(1);
+    });
+
+    test("merge with duplicate parents after filtering is deduplicated", () => {
+      const r = computeLayout([
+        session("orchestrator"),
+        session("A", ["orchestrator"]),
+        session("M", ["A", "A"]),
+      ]);
+      // Duplicate "A" deduplicated → single parent → tree child of A
+      expect(r.map["A"]!.children).toHaveLength(1);
+      expect(r.map["A"]!.children[0]!.name).toBe("M");
+    });
+  });
+
+  describe("chained merge node ordering", () => {
+    test("merge nodes in reverse order get correct depths", () => {
+      // M2 depends on M1, but M2 appears first in the sessions array
+      const r = computeLayout([
+        session("A"),
+        session("B"),
+        session("C"),
+        session("M2", ["M1", "C"]),  // M2 before M1 in array
+        session("M1", ["A", "B"]),
+      ]);
+      expect(r.map["M1"]!.depth).toBe(1);
+      expect(r.map["M2"]!.depth).toBe(2); // must be deeper than M1
+    });
+
+    test("indirect merge dependency: A,B → M1 → X; C,X → M2", () => {
+      const r = computeLayout([
+        session("A"),
+        session("B"),
+        session("C"),
+        session("M1", ["A", "B"]),
+        session("X", ["M1"]),
+        session("M2", ["C", "X"]),
+      ]);
+      expect(r.map["M1"]!.depth).toBe(1);
+      expect(r.map["X"]!.depth).toBe(2);
+      expect(r.map["M2"]!.depth).toBe(3);
+    });
+
+    test("indirect merge dependency in forward session order", () => {
+      const r = computeLayout([
+        session("A"),
+        session("B"),
+        session("C"),
+        session("M1", ["A", "B"]),
+        session("X", ["M1"]),
+        session("M2", ["C", "X"]),
+      ]);
+      expect(r.map["M1"]!.depth).toBe(1);
+      expect(r.map["X"]!.depth).toBe(2);
+      expect(r.map["M2"]!.depth).toBe(3);
+    });
+  });
+
+  describe("deeply nested tree", () => {
+    test("four levels of nesting with orchestrator", () => {
+      const r = computeLayout([
+        session("orchestrator"),
+        session("step-1", ["orchestrator"]),
+        session("step-2", ["step-1"]),
+        session("step-3", ["step-2"]),
+        session("step-4", ["step-3"]),
+      ]);
+      expect(r.map["orchestrator"]!.depth).toBe(0);
+      expect(r.map["step-1"]!.depth).toBe(1);
+      expect(r.map["step-2"]!.depth).toBe(2);
+      expect(r.map["step-3"]!.depth).toBe(3);
+      expect(r.map["step-4"]!.depth).toBe(4);
+      // All share x (single chain)
+      const x0 = r.map["orchestrator"]!.x;
+      for (const name of ["step-1", "step-2", "step-3", "step-4"]) {
+        expect(r.map[name]!.x).toBe(x0);
+      }
+    });
+  });
+
+  describe("merge node as single parent", () => {
+    test("child of merge node is placed correctly", () => {
+      const r = computeLayout([
+        session("A"),
+        session("B"),
+        session("M", ["A", "B"]),
+        session("child", ["M"]),
+      ]);
+      expect(r.map["M"]!.depth).toBe(1);
+      expect(r.map["child"]!.depth).toBe(2);
+      // child should be directly below M
+      expect(r.map["child"]!.x).toBe(r.map["M"]!.x);
+    });
+  });
+
+  describe("wide fan-out from non-root node", () => {
+    test("multiple children of a mid-tree node", () => {
+      const r = computeLayout([
+        session("orchestrator"),
+        session("parent", ["orchestrator"]),
+        session("c1", ["parent"]),
+        session("c2", ["parent"]),
+        session("c3", ["parent"]),
+      ]);
+      expect(r.map["parent"]!.depth).toBe(1);
+      expect(r.map["c1"]!.depth).toBe(2);
+      expect(r.map["c2"]!.depth).toBe(2);
+      expect(r.map["c3"]!.depth).toBe(2);
+      // parent centered over children
+      const parentX = r.map["parent"]!.x;
+      const c1X = r.map["c1"]!.x;
+      const c3X = r.map["c3"]!.x;
+      expect(parentX).toBe(Math.round((c1X + c3X) / 2));
+    });
+  });
+
+  // ─── Extended invariants for new topologies ───
+
+  describe("layout invariants (extended edge cases)", () => {
+    const EDGE_TOPOLOGIES = [
+      {
+        name: "missing parent → orchestrator fallback",
+        sessions: () => [
+          session("orchestrator"),
+          session("orphan", ["nonexistent"]),
+        ],
+      },
+      {
+        name: "merge with missing parent reclassified",
+        sessions: () => [
+          session("orchestrator"),
+          session("A", ["orchestrator"]),
+          session("M", ["A", "nonexistent"]),
+        ],
+      },
+      {
+        name: "chained merges in reverse order",
+        sessions: () => [
+          session("A"),
+          session("B"),
+          session("C"),
+          session("M2", ["M1", "C"]),
+          session("M1", ["A", "B"]),
+        ],
+      },
+      {
+        name: "indirect merge dependency",
+        sessions: () => [
+          session("A"),
+          session("B"),
+          session("C"),
+          session("M1", ["A", "B"]),
+          session("X", ["M1"]),
+          session("M2", ["C", "X"]),
+        ],
+      },
+      {
+        name: "deeply nested (5 levels)",
+        sessions: () => [
+          session("orchestrator"),
+          session("s1", ["orchestrator"]),
+          session("s2", ["s1"]),
+          session("s3", ["s2"]),
+          session("s4", ["s3"]),
+        ],
+      },
+      {
+        name: "wide fan-out from non-root",
+        sessions: () => [
+          session("orchestrator"),
+          session("parent", ["orchestrator"]),
+          session("c1", ["parent"]),
+          session("c2", ["parent"]),
+          session("c3", ["parent"]),
+        ],
+      },
+    ];
+
+    for (const topo of EDGE_TOPOLOGIES) {
+      test(`[${topo.name}] all x values are >= PAD`, () => {
+        const r = computeLayout(topo.sessions());
+        for (const node of Object.values(r.map)) {
+          expect(node.x).toBeGreaterThanOrEqual(PAD);
+        }
+      });
+
+      test(`[${topo.name}] all y values are >= PAD`, () => {
+        const r = computeLayout(topo.sessions());
+        for (const node of Object.values(r.map)) {
+          expect(node.y).toBeGreaterThanOrEqual(PAD);
+        }
+      });
+
+      test(`[${topo.name}] width = max(node.x + NODE_W) + PAD`, () => {
+        const r = computeLayout(topo.sessions());
+        const rightmost = Math.max(...Object.values(r.map).map((n) => n.x + NODE_W));
+        expect(r.width).toBe(rightmost + PAD);
+      });
+
+      test(`[${topo.name}] height = max(node.y + NODE_H) + PAD`, () => {
+        const r = computeLayout(topo.sessions());
+        const bottommost = Math.max(...Object.values(r.map).map((n) => n.y + NODE_H));
+        expect(r.height).toBe(bottommost + PAD);
+      });
+
+      test(`[${topo.name}] nodes at same depth share the same y`, () => {
+        const r = computeLayout(topo.sessions());
+        const byDepth: Record<number, number[]> = {};
+        for (const node of Object.values(r.map)) {
+          (byDepth[node.depth] ??= []).push(node.y);
+        }
+        for (const ys of Object.values(byDepth)) {
+          const first = ys[0]!;
+          for (const y of ys) expect(y).toBe(first);
+        }
+      });
+
+      test(`[${topo.name}] no horizontal overlap between nodes at same depth`, () => {
+        const r = computeLayout(topo.sessions());
+        const byDepth: Record<number, number[]> = {};
+        for (const node of Object.values(r.map)) {
+          (byDepth[node.depth] ??= []).push(node.x);
+        }
+        for (const xs of Object.values(byDepth)) {
+          xs.sort((a, b) => a - b);
+          for (let i = 1; i < xs.length; i++) {
+            expect(xs[i]! - xs[i - 1]!).toBeGreaterThanOrEqual(NODE_W + H_GAP);
+          }
+        }
+      });
+    }
+  });
 });

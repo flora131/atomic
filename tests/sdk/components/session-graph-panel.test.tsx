@@ -240,16 +240,16 @@ describe("SessionGraphPanel", () => {
       expect(frame).toBeTruthy();
     });
 
-    test("Ctrl+C triggers exit resolve", async () => {
+    test("Ctrl+C triggers abort during execution", async () => {
       const store = createPopulatedStore();
-      let exitResolved = false;
-      store.exitResolve = () => { exitResolved = true; };
+      let abortResolved = false;
+      store.abortResolve = () => { abortResolved = true; };
 
       const setup = await renderPanel(store);
       setup.mockInput.pressCtrlC();
       await setup.renderOnce();
 
-      expect(exitResolved).toBe(true);
+      expect(abortResolved).toBe(true);
     });
 
     test("q exits after completion", async () => {
@@ -265,16 +265,16 @@ describe("SessionGraphPanel", () => {
       expect(exitResolved).toBe(true);
     });
 
-    test("q does not exit before completion", async () => {
+    test("q triggers abort before completion", async () => {
       const store = createPopulatedStore();
-      let exitResolved = false;
-      store.exitResolve = () => { exitResolved = true; };
+      let abortResolved = false;
+      store.abortResolve = () => { abortResolved = true; };
 
       const setup = await renderPanel(store);
       setup.mockInput.pressKey("q");
       await setup.renderOnce();
 
-      expect(exitResolved).toBe(false);
+      expect(abortResolved).toBe(true);
     });
   });
 

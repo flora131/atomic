@@ -659,3 +659,48 @@ describe("buildMergeConnector", () => {
     expect(barLine[84]).toBe("┤");
   });
 });
+
+// ─── Integration tests: connectors with computeLayout-produced nodes ──────
+
+describe("integration with computeLayout", () => {
+  test("connector from orchestrator to reclassified orphan child", () => {
+    const { computeLayout } = require("./layout.ts");
+    const layout = computeLayout([
+      { name: "orchestrator", status: "running", parents: [], startedAt: null, endedAt: null },
+      { name: "orphan", status: "pending", parents: ["nonexistent"], startedAt: null, endedAt: null },
+    ]);
+    const orch = layout.map["orchestrator"];
+    expect(orch.children).toHaveLength(1);
+    const conn = buildConnector(orch, layout.rowH, mockTheme);
+    expect(conn).not.toBeNull();
+    expect(conn!.height).toBeGreaterThan(0);
+  });
+
+  test("connector from parent to reclassified merge-to-single-parent node", () => {
+    const { computeLayout } = require("./layout.ts");
+    const layout = computeLayout([
+      { name: "orchestrator", status: "running", parents: [], startedAt: null, endedAt: null },
+      { name: "A", status: "pending", parents: ["orchestrator"], startedAt: null, endedAt: null },
+      { name: "M", status: "pending", parents: ["A", "nonexistent"], startedAt: null, endedAt: null },
+    ]);
+    const nodeA = layout.map["A"];
+    expect(nodeA.children).toHaveLength(1);
+    expect(nodeA.children[0].name).toBe("M");
+    const conn = buildConnector(nodeA, layout.rowH, mockTheme);
+    expect(conn).not.toBeNull();
+  });
+
+  test("merge connector still works for valid merge nodes", () => {
+    const { computeLayout } = require("./layout.ts");
+    const layout = computeLayout([
+      { name: "A", status: "pending", parents: [], startedAt: null, endedAt: null },
+      { name: "B", status: "pending", parents: [], startedAt: null, endedAt: null },
+      { name: "M", status: "pending", parents: ["A", "B"], startedAt: null, endedAt: null },
+    ]);
+    const nodeM = layout.map["M"];
+    expect(nodeM.parents).toEqual(["A", "B"]);
+    const mergeConn = buildMergeConnector(nodeM, layout.rowH, layout.map, mockTheme);
+    expect(mergeConn).not.toBeNull();
+    expect(mergeConn!.height).toBeGreaterThan(0);
+  });
+});

@@ -1,6 +1,6 @@
 /** @jsxImportSource @opentui/react */
 
-import { useStore, useGraphTheme } from "./orchestrator-panel-contexts.ts";
+import { useGraphTheme } from "./orchestrator-panel-contexts.ts";
 import { statusIcon, statusColor, statusLabel } from "./status-helpers.ts";
 import type { LayoutNode } from "./layout.ts";
 
@@ -11,11 +11,9 @@ export function Statusline({
   focusedNode: LayoutNode | undefined;
   attachMsg: string;
 }) {
-  const store = useStore();
   const theme = useGraphTheme();
   const ni = focusedNode ? statusIcon(focusedNode.status) : "";
   const nc = focusedNode ? statusColor(focusedNode.status, theme) : theme.textDim;
-  const canExit = store.completionReached;
 
   return (
     <box height={1} flexDirection="row" backgroundColor={theme.backgroundElement}>
@@ -52,9 +50,9 @@ export function Statusline({
             <span fg={theme.textDim}> {"\u00B7"} </span>
             <span fg={theme.text}>{"\u21B5"}</span>
             <span fg={theme.textMuted}> attach</span>
-            {canExit ? <span fg={theme.textDim}> {"\u00B7"} </span> : null}
-            {canExit ? <span fg={theme.text}>q</span> : null}
-            {canExit ? <span fg={theme.textMuted}> quit</span> : null}
+            <span fg={theme.textDim}> {"\u00B7"} </span>
+            <span fg={theme.text}>q</span>
+            <span fg={theme.textMuted}> quit</span>
           </text>
         )}
       </box>

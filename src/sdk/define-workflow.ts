@@ -1,75 +1,71 @@
 /**
- * Workflow Builder — chainable DSL for defining multi-session workflows.
+ * Workflow Builder — defines a workflow with a single `.run()` entry point.
  *
  * Usage:
- *   defineWorkflow({ name: "ralph", description: "..." })
- *     .session({ name: "research", run: async (ctx) => { ... } })
- *     .session({ name: "plan", run: async (ctx) => { ... } })
+ *   defineWorkflow({ name: "my-workflow", description: "..." })
+ *     .run(async (ctx) => {
+ *       await ctx.session({ name: "research" }, async (s) => { ... });
+ *       await ctx.session({ name: "plan" }, async (s) => { ... });
+ *     })
  *     .compile()
  */
 
-import type { WorkflowOptions, SessionOptions, WorkflowDefinition } from "./types.ts";
+import type { WorkflowOptions, WorkflowContext, WorkflowDefinition } from "./types.ts";
 
 /**
- * Chainable workflow builder. Records session definitions in order,
- * then .compile() seals them into a WorkflowDefinition.
+ * Chainable workflow builder. Records the run callback,
+ * then .compile() seals it into a WorkflowDefinition.
  */
 export class WorkflowBuilder {
   /** @internal Brand for detection across package boundaries */
   readonly __brand = "WorkflowBuilder" as const;
   private readonly options: WorkflowOptions;
-  private readonly stepDefs: SessionOptions[][] = [];
-  private readonly namesSeen = new Set<string>();
+  private runFn: ((ctx: WorkflowContext) => Promise<void>) | null = null;
 
   constructor(options: WorkflowOptions) {
     this.options = options;
   }
 
   /**
-   * Add a session (or parallel group of sessions) to the workflow.
+   * Set the workflow's entry point.
    *
-   * Pass a single SessionOptions for sequential execution.
-   * Pass an array of SessionOptions for parallel execution —
-   * all sessions in the array run concurrently, and the next
-   * .session() call waits for the entire group to complete.
+   * The callback receives a {@link WorkflowContext} with `session()` for
+   * spawning agent sessions, and `transcript()` / `getMessages()` for
+   * reading completed session outputs. Use native TypeScript control flow
+   * (loops, conditionals, `Promise.all()`) for orchestration.
    */
-  session(opts: SessionOptions | SessionOptions[]): this {
-    const step = Array.isArray(opts) ? opts : [opts];
-    if (step.length === 0) {
-      throw new Error("session() requires at least one SessionOptions.");
+  run(fn: (ctx: WorkflowContext) => Promise<void>): this {
+    if (this.runFn) {
+      throw new Error("run() can only be called once per workflow.");
     }
-    for (const s of step) {
-      if (!s.name || s.name.trim() === "") {
-        throw new Error("Session name is required.");
-      }
-      if (typeof s.run !== "function") {
-        throw new Error(`Session "${s.name}": run must be a function, got ${typeof s.run}.`);
-      }
-      if (this.namesSeen.has(s.name)) {
-        throw new Error(`Duplicate session name: "${s.name}"`);
-      }
-      this.namesSeen.add(s.name);
+    if (typeof fn !== "function") {
+      throw new Error(`run() requires a function, got ${typeof fn}.`);
     }
-    this.stepDefs.push(step);
+    this.runFn = fn;
     return this;
   }
 
   /**
    * Compile the workflow into a sealed WorkflowDefinition.
    *
-   * After calling compile(), no more sessions can be added.
-   * The returned object is consumed by the Atomic CLI runtime.
+   * After calling compile(), the returned object is consumed by the
+   * Atomic CLI runtime.
    */
   compile(): WorkflowDefinition {
-    if (this.stepDefs.length === 0) {
-      throw new Error(`Workflow "${this.options.name}" has no sessions. Add at least one .session() call.`);
+    if (!this.runFn) {
+      throw new Error(
+        `Workflow "${this.options.name}" has no run callback. ` +
+          `Add a .run(async (ctx) => { ... }) call before .compile().`,
+      );
     }
+
+    const runFn = this.runFn;
 
     return {
       __brand: "WorkflowDefinition" as const,
       name: this.options.name,
       description: this.options.description ?? "",
-      steps: Object.freeze(this.stepDefs.map((step) => Object.freeze([...step]))),
+      run: runFn,
     };
   }
 }
@@ -82,11 +78,18 @@ export class WorkflowBuilder {
  * import { defineWorkflow } from "@bastani/atomic/workflows";
  *
  * export default defineWorkflow({
- *   name: "ralph",
- *   description: "Research, plan, implement",
+ *   name: "hello",
+ *   description: "Two-session demo",
  * })
- *   .session({ name: "research", run: async (ctx) => { ... } })
- *   .session({ name: "plan", run: async (ctx) => { ... } })
+ *   .run(async (ctx) => {
+ *     const describe = await ctx.session({ name: "describe" }, async (s) => {
+ *       // ... agent SDK code using s.serverUrl, s.paneId, s.save() ...
+ *     });
+ *     await ctx.session({ name: "summarize" }, async (s) => {
+ *       const research = await s.transcript(describe);
+ *       // ...
+ *     });
+ *   })
  *   .compile();
  * ```
  */

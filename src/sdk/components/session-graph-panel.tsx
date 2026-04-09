@@ -180,15 +180,9 @@ export function SessionGraphPanel() {
 
   // Keyboard handling
   useKeyboard((key) => {
-    // Ctrl+C always exits
-    if (key.ctrl && key.name === "c") {
-      store.resolveExit();
-      return;
-    }
-
-    // After completion: only q exits (Enter is for attach, Escape is too easy to hit)
-    if (store.completionReached && key.name === "q") {
-      store.resolveExit();
+    // Ctrl+C or q: quit the workflow (abort if running, exit if completed)
+    if ((key.ctrl && key.name === "c") || key.name === "q") {
+      store.requestQuit();
       return;
     }
 

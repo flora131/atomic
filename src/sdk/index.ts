@@ -19,7 +19,10 @@ export type {
   SavedMessage,
   SaveTranscript,
   SessionContext,
-  SessionOptions,
+  SessionRef,
+  SessionHandle,
+  SessionRunOptions,
+  WorkflowContext,
   WorkflowOptions,
   WorkflowDefinition,
 } from "./types.ts";

@@ -20,7 +20,7 @@ export class WorkflowNotCompiledError extends Error {
       `Workflow at ${path} was defined but not compiled.\n` +
       `  Add .compile() at the end of your defineWorkflow() chain:\n\n` +
       `    export default defineWorkflow({ ... })\n` +
-      `      .session({ ... })\n` +
+      `      .run(async (ctx) => { ... })\n` +
       `      .compile();`,
     );
     this.name = "WorkflowNotCompiledError";

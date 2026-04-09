@@ -92,7 +92,7 @@ describe("Statusline", () => {
       <TestProviders store={store}>
         <Statusline focusedNode={node} attachMsg="" />
       </TestProviders>,
-      { width: 80, height: 5 },
+      { width: 120, height: 5 },
     );
     await testSetup.renderOnce();
     const frame = testSetup.captureCharFrame();
@@ -114,7 +114,7 @@ describe("Statusline", () => {
     expect(frame).toContain("quit");
   });
 
-  test("hides quit option when completion not reached", async () => {
+  test("shows quit option regardless of completion state", async () => {
     const store = new PanelStore();
     testSetup = await testRender(
       <TestProviders store={store}>
@@ -124,6 +124,6 @@ describe("Statusline", () => {
     );
     await testSetup.renderOnce();
     const frame = testSetup.captureCharFrame();
-    expect(frame).not.toContain("quit");
+    expect(frame).toContain("quit");
   });
 });

@@ -72,6 +72,32 @@ function resolveOverlaps(map: Record<string, LayoutNode>): void {
 
 // ─── Layout Computation ───────────────────────────
 
+/**
+ * Compute effective parents for each session by filtering out references
+ * to sessions that don't exist in the map and deduplicating.  Orphaned
+ * sessions (all parents missing) fall back to the "orchestrator" node
+ * when one is present, instead of becoming disconnected roots.
+ */
+function normalizeParents(
+  sessions: SessionData[],
+  map: Record<string, LayoutNode>,
+): Map<string, string[]> {
+  const hasOrchestrator = "orchestrator" in map;
+  const effective = new Map<string, string[]>();
+
+  for (const s of sessions) {
+    const valid = [...new Set(s.parents)].filter((p) => p in map);
+    if (valid.length > 0) {
+      effective.set(s.name, valid);
+    } else if (hasOrchestrator && s.name !== "orchestrator") {
+      effective.set(s.name, ["orchestrator"]);
+    } else {
+      effective.set(s.name, []);
+    }
+  }
+  return effective;
+}
+
 export function computeLayout(sessions: SessionData[]): LayoutResult {
   const map: Record<string, LayoutNode> = {};
   const roots: LayoutNode[] = [];
@@ -92,27 +118,36 @@ export function computeLayout(sessions: SessionData[]): LayoutResult {
     };
   }
 
-  // Classify: single-parent → tree child, multi-parent → merge node, no parent → root
+  // Normalize parents: filter missing refs, dedupe, orchestrator fallback
+  const effective = normalizeParents(sessions, map);
+
+  // Classify using effective parents (preserves LayoutNode.parents as raw metadata)
   for (const s of sessions) {
-    if (s.parents.length > 1) {
+    const ep = effective.get(s.name) ?? [];
+    if (ep.length > 1) {
       mergeNodes.push(map[s.name]!);
-    } else if (s.parents.length === 1 && map[s.parents[0]!]) {
-      map[s.parents[0]!]!.children.push(map[s.name]!);
+    } else if (ep.length === 1 && map[ep[0]!]) {
+      map[ep[0]!]!.children.push(map[s.name]!);
     } else {
       roots.push(map[s.name]!);
     }
   }
 
-  function setDepth(n: LayoutNode, d: number) {
-    n.depth = d;
-    for (const c of n.children) setDepth(c, d + 1);
+  // Memoized depth resolution — handles tree children, merge nodes,
+  // indirect dependencies, and arbitrary session ordering.
+  const depthCache = new Map<string, number>();
+  function resolveDepth(name: string): number {
+    if (depthCache.has(name)) return depthCache.get(name)!;
+    depthCache.set(name, 0); // guard against cycles
+    const ep = effective.get(name) ?? [];
+    if (ep.length === 0) return 0;
+    const maxParentDepth = Math.max(...ep.map((p) => resolveDepth(p)));
+    const depth = maxParentDepth + 1;
+    depthCache.set(name, depth);
+    return depth;
   }
-  for (const r of roots) setDepth(r, 0);
-
-  // Merge nodes: depth = max(parent depths) + 1, then recurse into children
-  for (const m of mergeNodes) {
-    const maxParentDepth = Math.max(...m.parents.map((p) => map[p]?.depth ?? 0));
-    setDepth(m, maxParentDepth + 1);
+  for (const s of sessions) {
+    map[s.name]!.depth = resolveDepth(s.name);
   }
 
   const rowH: Record<number, number> = {};
@@ -149,9 +184,10 @@ export function computeLayout(sessions: SessionData[]): LayoutResult {
     firstRoot = false;
   }
 
-  // Place merge nodes centered under all parents (and their sub-trees)
+  // Place merge nodes centered under all effective parents (and their sub-trees)
   for (const m of mergeNodes) {
-    const parentCenters = m.parents.map((p) => (map[p]?.x ?? 0) + Math.floor(NODE_W / 2));
+    const ep = effective.get(m.name) ?? [];
+    const parentCenters = ep.map((p) => (map[p]?.x ?? 0) + Math.floor(NODE_W / 2));
     const avgCenter = Math.round(parentCenters.reduce((a, b) => a + b, 0) / parentCenters.length);
 
     if (m.children.length > 0) {

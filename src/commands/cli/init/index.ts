@@ -21,6 +21,7 @@ import {
   getAgentKeys,
   isValidAgent,
   SCM_CONFIG,
+  SCM_SKILLS_BY_TYPE,
   type SourceControlType,
   getScmKeys,
   isValidScm,
@@ -35,7 +36,6 @@ import {
   getTemplateAgentFolder,
 } from "@/services/config/atomic-global-config.ts";
 import {
-  getScmPrefix,
   installLocalScmSkills,
   reconcileScmVariants,
   syncProjectScmSkills,
@@ -404,9 +404,11 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     // skip the network-backed skills CLI in that case to keep dev iteration
     // fast and offline-friendly.
     if (import.meta.dir.includes("node_modules")) {
+      const skillsToInstall = SCM_SKILLS_BY_TYPE[scmType];
+      const skillsLabel = skillsToInstall.join(", ");
       const skillsSpinner = spinner();
       skillsSpinner.start(
-        `Installing ${getScmPrefix(scmType)}* skills locally for ${agent.name}...`,
+        `Installing ${skillsLabel} locally for ${agent.name}...`,
       );
       const skillsResult = await installLocalScmSkills({
         scmType,
@@ -415,11 +417,11 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
       });
       if (skillsResult.success) {
         skillsSpinner.stop(
-          `Installed ${getScmPrefix(scmType)}* skills locally for ${agent.name}`,
+          `Installed ${skillsLabel} locally for ${agent.name}`,
         );
       } else {
         skillsSpinner.stop(
-          `Skipped local ${getScmPrefix(scmType)}* skills install (${skillsResult.details})`,
+          `Skipped local ${skillsLabel} install (${skillsResult.details})`,
         );
       }
     }

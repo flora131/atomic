@@ -13,8 +13,13 @@ import { join, resolve } from "path";
 import { homedir } from "os";
 import { mkdir, writeFile, readFile } from "fs/promises";
 import type {
-  WorkflowDefinition, SessionOptions, SessionContext, AgentType, Transcript,
-  SavedMessage, SaveTranscript,
+  WorkflowDefinition,
+  SessionOptions,
+  SessionContext,
+  AgentType,
+  Transcript,
+  SavedMessage,
+  SaveTranscript,
 } from "../types.ts";
 import type { SessionEvent } from "@github/copilot-sdk";
 import type { SessionPromptResponse } from "@opencode-ai/sdk/v2";
@@ -29,10 +34,32 @@ import { OrchestratorPanel, type PanelSession } from "./panel.tsx";
 const SERVER_WAIT_TIMEOUT_MS = 60_000;
 
 /** Agent CLI configuration for spawning in tmux panes. */
-const AGENT_CLI: Record<AgentType, { cmd: string; chatFlags: string[] }> = {
-  copilot: { cmd: "copilot", chatFlags: ["--add-dir", ".", "--yolo", "--experimental"] },
-  opencode: { cmd: "opencode", chatFlags: [] },
-  claude: { cmd: "claude", chatFlags: ["--allow-dangerously-skip-permissions", "--dangerously-skip-permissions"] },
+const AGENT_CLI: Record<
+  AgentType,
+  { cmd: string; chatFlags: string[]; envVars: Record<string, string> }
+> = {
+  copilot: {
+    cmd: "copilot",
+    chatFlags: [
+      "--add-dir",
+      ".",
+      "--yolo",
+      "--experimental",
+      "--no-auto-update",
+    ],
+    envVars: {
+      COPILOT_ALLOW_ALL: "true",
+    },
+  },
+  opencode: { cmd: "opencode", chatFlags: [], envVars: {} },
+  claude: {
+    cmd: "claude",
+    chatFlags: [
+      "--allow-dangerously-skip-permissions",
+      "--dangerously-skip-permissions",
+    ],
+    envVars: {},
+  },
 };
 
 export interface WorkflowRunOptions {
@@ -85,26 +112,50 @@ async function getRandomPort(): Promise<number> {
     await Bun.sleep(50);
   }
 
-  throw new Error(`Failed to acquire a random port after ${MAX_RETRIES} attempts (last: ${lastPort})`);
+  throw new Error(
+    `Failed to acquire a random port after ${MAX_RETRIES} attempts (last: ${lastPort})`,
+  );
 }
 
-function buildPaneCommand(agent: AgentType, port: number): string {
-  const { cmd, chatFlags } = AGENT_CLI[agent];
+function buildPaneCommand(
+  agent: AgentType,
+  port: number,
+): { command: string; envVars: Record<string, string> } {
+  const { cmd, chatFlags, envVars } = AGENT_CLI[agent];
 
   switch (agent) {
     case "copilot":
-      return [cmd, "--ui-server", "--port", String(port), ...chatFlags].join(" ");
+      return {
+        command: [cmd, "--ui-server", "--port", String(port), ...chatFlags].join(
+          " ",
+        ),
+        envVars,
+      };
     case "opencode":
-      return [cmd, "--port", String(port), ...chatFlags].join(" ");
+      return {
+        command: [cmd, "--port", String(port), ...chatFlags].join(" "),
+        envVars,
+      };
     case "claude":
       // Claude is started via createClaudeSession() in the workflow's run()
-      return process.env.SHELL || (process.platform === "win32" ? "pwsh" : "sh");
+      return {
+        command:
+          process.env.SHELL || (process.platform === "win32" ? "pwsh" : "sh"),
+        envVars,
+      };
     default:
-      return [cmd, ...chatFlags].join(" ");
+      return {
+        command: [cmd, ...chatFlags].join(" "),
+        envVars,
+      };
   }
 }
 
-async function waitForServer(agent: AgentType, port: number, paneId: string): Promise<string> {
+async function waitForServer(
+  agent: AgentType,
+  port: number,
+  paneId: string,
+): Promise<string> {
   if (agent === "claude") return "";
 
   const serverUrl = `localhost:${port}`;
@@ -181,8 +232,16 @@ export function escPwsh(s: string): string {
  * Creates a tmux session with the orchestrator as the initial pane,
  * then attaches so the user sees everything live.
  */
-export async function executeWorkflow(options: WorkflowRunOptions): Promise<void> {
-  const { definition, agent, prompt, workflowFile, projectRoot = process.cwd() } = options;
+export async function executeWorkflow(
+  options: WorkflowRunOptions,
+): Promise<void> {
+  const {
+    definition,
+    agent,
+    prompt,
+    workflowFile,
+    projectRoot = process.cwd(),
+  } = options;
 
   const workflowRunId = generateId();
   const tmuxSessionName = `atomic-wf-${definition.name}-${workflowRunId}`;
@@ -235,9 +294,12 @@ export async function executeWorkflow(options: WorkflowRunOptions): Promise<void
   } else {
     // Outside tmux: attach normally (blocks until session ends)
     const muxBinary = getMuxBinary() ?? "tmux";
-    const attachProc = Bun.spawn([muxBinary, "attach-session", "-t", tmuxSessionName], {
-      stdio: ["inherit", "inherit", "inherit"],
-    });
+    const attachProc = Bun.spawn(
+      [muxBinary, "attach-session", "-t", tmuxSessionName],
+      {
+        stdio: ["inherit", "inherit", "inherit"],
+      },
+    );
     await attachProc.exited;
   }
 }
@@ -264,13 +326,27 @@ const CLAUDE_SESSION_TIMESTAMP_BUFFER_MS = 100;
 
 /** Type guard for objects with a string `content` property (Copilot assistant.message data). */
 export function hasContent(value: unknown): value is { content: string } {
-  return typeof value === "object" && value !== null && "content" in value && typeof (value as { content: unknown }).content === "string";
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "content" in value &&
+    typeof (value as { content: unknown }).content === "string"
+  );
 }
 
 /** Type guard for Claude message objects whose `content` is an array of text blocks. */
-export function isTextBlockArray(value: unknown): value is Array<{ type: "text"; text: string }> {
-  return Array.isArray(value) && value.every(
-    (b) => typeof b === "object" && b !== null && b.type === "text" && typeof b.text === "string",
+export function isTextBlockArray(
+  value: unknown,
+): value is Array<{ type: "text"; text: string }> {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (b) =>
+        typeof b === "object" &&
+        b !== null &&
+        b.type === "text" &&
+        typeof b.text === "string",
+    )
   );
 }
 
@@ -286,7 +362,10 @@ export function renderMessagesToText(messages: SavedMessage[]): string {
         case "opencode": {
           // Part is a discriminated union; filter to TextPart which has { type: "text", text: string }
           return m.data.parts
-            .filter((p): p is Extract<typeof p, { type: "text" }> => p.type === "text")
+            .filter(
+              (p): p is Extract<typeof p, { type: "text" }> =>
+                p.type === "text",
+            )
             .map((p) => p.text)
             .join("\n");
         }
@@ -326,10 +405,19 @@ interface RunSessionOptions {
  * On success: calls panel.sessionSuccess, returns SessionResult.
  * On failure: writes error.txt, calls panel.sessionError, rethrows.
  */
-async function runSingleSession(opts: RunSessionOptions): Promise<SessionResult> {
+async function runSingleSession(
+  opts: RunSessionOptions,
+): Promise<SessionResult> {
   const {
-    sessionDef, tmuxSessionName, sessionsBaseDir, agent,
-    prompt, completedSessions, panel, signal, siblingNames,
+    sessionDef,
+    tmuxSessionName,
+    sessionsBaseDir,
+    agent,
+    prompt,
+    completedSessions,
+    panel,
+    signal,
+    siblingNames,
   } = opts;
 
   panel.sessionStart(sessionDef.name);
@@ -337,8 +425,17 @@ async function runSingleSession(opts: RunSessionOptions): Promise<SessionResult>
   throwIfAborted(signal);
 
   const port = await getRandomPort();
-  const paneCmd = buildPaneCommand(agent, port);
-  const paneId = tmux.createWindow(tmuxSessionName, sessionDef.name, paneCmd);
+  const { command: paneCmd, envVars: paneEnvVars } = buildPaneCommand(
+    agent,
+    port,
+  );
+  const paneId = tmux.createWindow(
+    tmuxSessionName,
+    sessionDef.name,
+    paneCmd,
+    undefined,
+    paneEnvVars,
+  );
 
   throwIfAborted(signal);
 
@@ -366,13 +463,15 @@ async function runSingleSession(opts: RunSessionOptions): Promise<SessionResult>
 
   // Timestamp fallback for when the snapshot is unavailable.
   // A small buffer is subtracted to handle clock granularity in fast sequential runs.
-  const claudeSessionStartedAfter = agent === "claude"
-    ? Date.now() - CLAUDE_SESSION_TIMESTAMP_BUFFER_MS
-    : 0;
+  const claudeSessionStartedAfter =
+    agent === "claude" ? Date.now() - CLAUDE_SESSION_TIMESTAMP_BUFFER_MS : 0;
 
-  async function wrapMessages(arg: SessionEvent[] | SessionPromptResponse | string): Promise<SavedMessage[]> {
+  async function wrapMessages(
+    arg: SessionEvent[] | SessionPromptResponse | string,
+  ): Promise<SavedMessage[]> {
     if (typeof arg === "string") {
-      const { getSessionMessages, listSessions } = await import("@anthropic-ai/claude-agent-sdk");
+      const { getSessionMessages, listSessions } =
+        await import("@anthropic-ai/claude-agent-sdk");
       const dir = process.cwd();
       const sessions = await listSessions({ dir });
 
@@ -382,19 +481,26 @@ async function runSingleSession(opts: RunSessionOptions): Promise<SessionResult>
         ? sessions.filter((s) => !knownClaudeSessionIds!.has(s.sessionId))
         : sessions.filter((s) => s.lastModified >= claudeSessionStartedAfter);
 
-      const candidates = newSessions.sort((a, b) => b.lastModified - a.lastModified);
+      const candidates = newSessions.sort(
+        (a, b) => b.lastModified - a.lastModified,
+      );
 
       const candidate = candidates[0];
       if (!candidate) {
         throw new Error(`wrapMessages: no new Claude session found for ${dir}`);
       }
 
-      const msgs: SessionMessage[] = await getSessionMessages(candidate.sessionId, { dir });
+      const msgs: SessionMessage[] = await getSessionMessages(
+        candidate.sessionId,
+        { dir },
+      );
       return msgs.map((m) => ({ provider: "claude" as const, data: m }));
     }
 
     if (!Array.isArray(arg) && "info" in arg && "parts" in arg) {
-      return [{ provider: "opencode" as const, data: arg as SessionPromptResponse }];
+      return [
+        { provider: "opencode" as const, data: arg as SessionPromptResponse },
+      ];
     }
 
     if (Array.isArray(arg)) {
@@ -409,7 +515,9 @@ async function runSingleSession(opts: RunSessionOptions): Promise<SessionResult>
 
   const pendingSaves: Promise<void>[] = [];
 
-  const save: SaveTranscript = ((arg: SessionEvent[] | SessionPromptResponse | string) => {
+  const save: SaveTranscript = ((
+    arg: SessionEvent[] | SessionPromptResponse | string,
+  ) => {
     const p = (async () => {
       const wrapped = await wrapMessages(arg);
       await Bun.write(messagesPath, JSON.stringify(wrapped, null, 2));
@@ -432,13 +540,13 @@ async function runSingleSession(opts: RunSessionOptions): Promise<SessionResult>
       if (siblingNames.has(name)) {
         throw new Error(
           `Cannot read transcript for "${name}" \u2014 it is running in parallel. ` +
-          `Only sessions from prior steps are available.`
+            `Only sessions from prior steps are available.`,
         );
       }
       const prev = completedSessions.find((s) => s.name === name);
       if (!prev) {
         throw new Error(
-          `No transcript for "${name}". Available: ${completedSessions.map((s) => s.name).join(", ") || "(none)"}`
+          `No transcript for "${name}". Available: ${completedSessions.map((s) => s.name).join(", ") || "(none)"}`,
         );
       }
       const filePath = join(prev.sessionDir, "inbox.md");
@@ -449,13 +557,13 @@ async function runSingleSession(opts: RunSessionOptions): Promise<SessionResult>
       if (siblingNames.has(name)) {
         throw new Error(
           `Cannot read messages for "${name}" \u2014 it is running in parallel. ` +
-          `Only sessions from prior steps are available.`
+            `Only sessions from prior steps are available.`,
         );
       }
       const prev = completedSessions.find((s) => s.name === name);
       if (!prev) {
         throw new Error(
-          `No messages for "${name}". Available: ${completedSessions.map((s) => s.name).join(", ") || "(none)"}`
+          `No messages for "${name}". Available: ${completedSessions.map((s) => s.name).join(", ") || "(none)"}`,
         );
       }
       const filePath = join(prev.sessionDir, "messages.json");
@@ -466,12 +574,19 @@ async function runSingleSession(opts: RunSessionOptions): Promise<SessionResult>
 
   await writeFile(
     join(sessionDir, "metadata.json"),
-    JSON.stringify({
-      name: sessionDef.name,
-      description: sessionDef.description ?? "",
-      agent, paneId, serverUrl, port,
-      startedAt: new Date().toISOString(),
-    }, null, 2)
+    JSON.stringify(
+      {
+        name: sessionDef.name,
+        description: sessionDef.description ?? "",
+        agent,
+        paneId,
+        serverUrl,
+        port,
+        startedAt: new Date().toISOString(),
+      },
+      null,
+      2,
+    ),
   );
 
   try {
@@ -481,7 +596,9 @@ async function runSingleSession(opts: RunSessionOptions): Promise<SessionResult>
     const isCancelled = signal?.aborted;
     const message = isCancelled
       ? "Cancelled: a sibling session failed"
-      : (error instanceof Error ? error.message : String(error));
+      : error instanceof Error
+        ? error.message
+        : String(error);
     await writeFile(join(sessionDir, "error.txt"), message).catch(() => {});
     panel.sessionError(sessionDef.name, message);
     throw error;
@@ -530,8 +647,12 @@ async function promiseAllFailFast<T>(
 
 async function runOrchestrator(): Promise<void> {
   const requiredEnvVars = [
-    "ATOMIC_WF_ID", "ATOMIC_WF_TMUX", "ATOMIC_WF_AGENT",
-    "ATOMIC_WF_PROMPT", "ATOMIC_WF_FILE", "ATOMIC_WF_CWD",
+    "ATOMIC_WF_ID",
+    "ATOMIC_WF_TMUX",
+    "ATOMIC_WF_AGENT",
+    "ATOMIC_WF_PROMPT",
+    "ATOMIC_WF_FILE",
+    "ATOMIC_WF_CWD",
   ] as const;
   for (const key of requiredEnvVars) {
     if (!process.env[key]) {
@@ -542,7 +663,9 @@ async function runOrchestrator(): Promise<void> {
   const workflowRunId = process.env.ATOMIC_WF_ID!;
   const tmuxSessionName = process.env.ATOMIC_WF_TMUX!;
   const agent = process.env.ATOMIC_WF_AGENT! as AgentType;
-  const prompt = Buffer.from(process.env.ATOMIC_WF_PROMPT!, "base64").toString("utf-8");
+  const prompt = Buffer.from(process.env.ATOMIC_WF_PROMPT!, "base64").toString(
+    "utf-8",
+  );
   const workflowFile = process.env.ATOMIC_WF_FILE!;
   const cwd = process.env.ATOMIC_WF_CWD!;
 
@@ -551,7 +674,9 @@ async function runOrchestrator(): Promise<void> {
   const sessionsBaseDir = join(getSessionsBaseDir(), workflowRunId);
   await ensureDir(sessionsBaseDir);
 
-  const panel = await OrchestratorPanel.create({ tmuxSession: tmuxSessionName });
+  const panel = await OrchestratorPanel.create({
+    tmuxSession: tmuxSessionName,
+  });
 
   // Idempotent shutdown guard
   let shutdownCalled = false;
@@ -559,7 +684,9 @@ async function runOrchestrator(): Promise<void> {
     if (shutdownCalled) return;
     shutdownCalled = true;
     panel.destroy();
-    try { tmux.killSession(tmuxSessionName); } catch {}
+    try {
+      tmux.killSession(tmuxSessionName);
+    } catch {}
     process.exitCode = exitCode;
   };
 
@@ -590,13 +717,17 @@ async function runOrchestrator(): Promise<void> {
 
     await writeFile(
       join(sessionsBaseDir, "metadata.json"),
-      JSON.stringify({
-        workflowName: definition.name,
-        agent,
-        prompt,
-        projectRoot: cwd,
-        startedAt: new Date().toISOString(),
-      }, null, 2)
+      JSON.stringify(
+        {
+          workflowName: definition.name,
+          agent,
+          prompt,
+          projectRoot: cwd,
+          startedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
     );
 
     // Build panel sessions from steps — track all parent names for fan-in edges
@@ -619,13 +750,19 @@ async function runOrchestrator(): Promise<void> {
         try {
           const result = await runSingleSession({
             sessionDef: step[0]!,
-            tmuxSessionName, sessionsBaseDir, agent, prompt,
-            completedSessions, panel, siblingNames: new Set(),
+            tmuxSessionName,
+            sessionsBaseDir,
+            agent,
+            prompt,
+            completedSessions,
+            panel,
+            siblingNames: new Set(),
           });
           completedSessions.push(result);
           if (agent === "claude") clearClaudeSession(result.paneId);
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
+          const message =
+            error instanceof Error ? error.message : String(error);
           panel.showFatalError(message);
           await panel.waitForExit();
           shutdown(1);
@@ -641,8 +778,12 @@ async function runOrchestrator(): Promise<void> {
           mySiblings.delete(sessionDef.name);
           return runSingleSession({
             sessionDef,
-            tmuxSessionName, sessionsBaseDir, agent, prompt,
-            completedSessions, panel,
+            tmuxSessionName,
+            sessionsBaseDir,
+            agent,
+            prompt,
+            completedSessions,
+            panel,
             signal: controller.signal,
             siblingNames: mySiblings,
           });
@@ -659,7 +800,8 @@ async function runOrchestrator(): Promise<void> {
         } catch (error) {
           // Wait for all cancelled siblings to settle
           await Promise.allSettled(promises);
-          const message = error instanceof Error ? error.message : String(error);
+          const message =
+            error instanceof Error ? error.message : String(error);
           panel.showFatalError(message);
           await panel.waitForExit();
           shutdown(1);

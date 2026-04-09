@@ -111,6 +111,19 @@ function tmuxExec(args: string[]): void {
 // ---------------------------------------------------------------------------
 
 /**
+ * Build `-e KEY=VALUE` argument pairs for tmux environment flags.
+ * Supported by tmux new-session/new-window since tmux 3.2.
+ */
+function buildEnvArgs(envVars?: Record<string, string>): string[] {
+  if (!envVars) return [];
+  const args: string[] = [];
+  for (const [key, value] of Object.entries(envVars)) {
+    args.push("-e", `${key}=${value}`);
+  }
+  return args;
+}
+
+/**
  * Create a new tmux session with the given name.
  * The session starts detached with an initial command in the first pane.
  *
@@ -118,14 +131,22 @@ function tmuxExec(args: string[]): void {
  * @param initialCommand - Shell command to run in the initial pane
  * @param windowName - Optional name for the initial window
  * @param cwd - Optional working directory for the initial pane
+ * @param envVars - Optional environment variables for the initial pane
  * @returns The pane ID of the initial pane (e.g., "%0")
  */
-export function createSession(sessionName: string, initialCommand: string, windowName?: string, cwd?: string): string {
+export function createSession(
+  sessionName: string,
+  initialCommand: string,
+  windowName?: string,
+  cwd?: string,
+  envVars?: Record<string, string>,
+): string {
   const args = [
     "new-session",
     "-d",
     "-s", sessionName,
     "-P", "-F", "#{pane_id}",
+    ...buildEnvArgs(envVars),
   ];
   if (windowName) {
     args.push("-n", windowName);
@@ -145,15 +166,23 @@ export function createSession(sessionName: string, initialCommand: string, windo
  * @param windowName - Name for the new window
  * @param command - Shell command to run in the new window
  * @param cwd - Optional working directory for the new window
+ * @param envVars - Optional environment variables for the new window
  * @returns The pane ID of the new window's pane
  */
-export function createWindow(sessionName: string, windowName: string, command: string, cwd?: string): string {
+export function createWindow(
+  sessionName: string,
+  windowName: string,
+  command: string,
+  cwd?: string,
+  envVars?: Record<string, string>,
+): string {
   const args = [
     "new-window",
     "-d",
     "-t", sessionName,
     "-n", windowName,
     "-P", "-F", "#{pane_id}",
+    ...buildEnvArgs(envVars),
   ];
   if (cwd) {
     args.push("-c", cwd);

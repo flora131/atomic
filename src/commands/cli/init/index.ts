@@ -21,21 +21,21 @@ import {
   getAgentKeys,
   isValidAgent,
   SCM_CONFIG,
+  SCM_SKILLS_BY_TYPE,
   type SourceControlType,
   getScmKeys,
   isValidScm,
 } from "@/services/config/index.ts";
 import { pathExists } from "@/services/system/copy.ts";
-import { detectInstallationType, getConfigRoot } from "@/services/config/config-path.ts";
+import { getConfigRoot } from "@/services/config/config-path.ts";
 import { isWindows, isWslInstalled, WSL_INSTALL_URL } from "@/services/system/detect.ts";
 import { saveAtomicConfig } from "@/services/config/atomic-config.ts";
 import { upsertTrustedWorkspacePath } from "@/services/config/settings.ts";
 import {
-  ensureAtomicGlobalAgentConfigsForInstallType,
+  ensureAtomicGlobalAgentConfigs,
   getTemplateAgentFolder,
 } from "@/services/config/atomic-global-config.ts";
 import {
-  getScmPrefix,
   installLocalScmSkills,
   reconcileScmVariants,
   syncProjectScmSkills,
@@ -167,8 +167,6 @@ interface InitOptions {
   /** Pre-selected source control type (skip SCM selection prompt) */
   preSelectedScm?: SourceControlType;
   configNotFoundMessage?: string;
-  /** Force overwrite of preserved files (bypass preservation/merge logic) */
-  force?: boolean;
   /** Auto-confirm all prompts (non-interactive mode for CI/testing) */
   yes?: boolean;
   /**
@@ -330,10 +328,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
   const targetFolder = join(targetDir, agent.folder);
   const folderExists = await pathExists(targetFolder);
 
-  // --force bypasses update confirmation prompts.
-  const shouldForce = options.force ?? false;
-
-  if (folderExists && !shouldForce && !autoConfirm) {
+  if (folderExists && !autoConfirm) {
     const update = await confirm({
       message: `${agent.folder} already exists. Update source control skills?`,
       initialValue: true,
@@ -359,10 +354,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
   try {
     const configRoot = getConfigRoot();
 
-    await ensureAtomicGlobalAgentConfigsForInstallType(
-      detectInstallationType(),
-      configRoot
-    );
+    await ensureAtomicGlobalAgentConfigs(configRoot);
 
     const templateAgentFolder = getTemplateAgentFolder(agentKey);
     const sourceSkillsDir = join(configRoot, templateAgentFolder, "skills");
@@ -406,10 +398,12 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     // template-copy above has placed the selected variants into `targetDir`;
     // skip the network-backed skills CLI in that case to keep dev iteration
     // fast and offline-friendly.
-    if (detectInstallationType() !== "source") {
+    if (import.meta.dir.includes("node_modules")) {
+      const skillsToInstall = SCM_SKILLS_BY_TYPE[scmType];
+      const skillsLabel = skillsToInstall.join(", ");
       const skillsSpinner = spinner();
       skillsSpinner.start(
-        `Installing ${getScmPrefix(scmType)}* skills locally for ${agent.name}...`,
+        `Installing ${skillsLabel} locally for ${agent.name}...`,
       );
       const skillsResult = await installLocalScmSkills({
         scmType,
@@ -418,11 +412,11 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
       });
       if (skillsResult.success) {
         skillsSpinner.stop(
-          `Installed ${getScmPrefix(scmType)}* skills locally for ${agent.name}`,
+          `Installed ${skillsLabel} locally for ${agent.name}`,
         );
       } else {
         skillsSpinner.stop(
-          `Skipped local ${getScmPrefix(scmType)}* skills install (${skillsResult.details})`,
+          `Skipped local ${skillsLabel} install (${skillsResult.details})`,
         );
       }
     }

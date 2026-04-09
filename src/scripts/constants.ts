@@ -5,12 +5,11 @@
  * change propagates everywhere.
  */
 
-import { AGENTS } from "@bastani/atomic-workflows";
-import type { AgentType } from "@bastani/atomic-workflows";
+import { AGENTS } from "@/sdk/workflows.ts";
+import type { AgentType } from "@/sdk/workflows.ts";
 
 export {
   SDK_PACKAGE_NAME,
-  WORKFLOW_SDK_DIR,
   VERSION_FILES,
 } from "./constants-base.ts";
 

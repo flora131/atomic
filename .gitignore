@@ -184,7 +184,3 @@ tmux-screenshots/
 
 
 *.bun-build
-
-
-# APM dependencies
-apm_modules/

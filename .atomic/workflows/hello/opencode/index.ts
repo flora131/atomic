@@ -7,52 +7,52 @@
  * Run: atomic workflow -n hello -a opencode "describe this project"
  */
 
-import { defineWorkflow } from "@bastani/atomic-workflows";
+import { defineWorkflow } from "@bastani/atomic/workflows";
 import { createOpencodeClient } from "@opencode-ai/sdk/v2";
 
 export default defineWorkflow({
   name: "hello",
   description: "Two-session OpenCode demo: describe → summarize",
 })
-  .session({
-    name: "describe",
-    description: "Ask the agent to describe the project",
-    run: async (ctx) => {
-      const client = createOpencodeClient({ baseUrl: ctx.serverUrl });
+  .run(async (ctx) => {
+    const describe = await ctx.session(
+      { name: "describe", description: "Ask the agent to describe the project" },
+      async (s) => {
+        const client = createOpencodeClient({ baseUrl: s.serverUrl });
 
-      const session = await client.session.create({ title: "describe" });
-      await client.tui.selectSession({ sessionID: session.data!.id });
+        const session = await client.session.create({ title: "describe" });
+        await client.tui.selectSession({ sessionID: session.data!.id });
 
-      const result = await client.session.prompt({
-        sessionID: session.data!.id,
-        parts: [{ type: "text", text: ctx.userPrompt }],
-      });
+        const result = await client.session.prompt({
+          sessionID: session.data!.id,
+          parts: [{ type: "text", text: s.userPrompt }],
+        });
 
-      // Save OpenCode response parts for the next session
-      ctx.save(result.data!);
-    },
-  })
-  .session({
-    name: "summarize",
-    description: "Summarize the previous session's output",
-    run: async (ctx) => {
-      const research = await ctx.transcript("describe");
-      const client = createOpencodeClient({ baseUrl: ctx.serverUrl });
+        s.save(result.data!);
+      },
+    );
 
-      const session = await client.session.create({ title: "summarize" });
-      await client.tui.selectSession({ sessionID: session.data!.id });
+    await ctx.session(
+      { name: "summarize", description: "Summarize the previous session's output" },
+      async (s) => {
+        const research = await s.transcript(describe);
+        const client = createOpencodeClient({ baseUrl: s.serverUrl });
 
-      const result = await client.session.prompt({
-        sessionID: session.data!.id,
-        parts: [
-          {
-            type: "text",
-            text: `Summarize the following in 2-3 bullet points:\n\n${research.content}`,
-          },
-        ],
-      });
+        const session = await client.session.create({ title: "summarize" });
+        await client.tui.selectSession({ sessionID: session.data!.id });
 
-      ctx.save(result.data!);
-    },
+        const result = await client.session.prompt({
+          sessionID: session.data!.id,
+          parts: [
+            {
+              type: "text",
+              text: `Summarize the following in 2-3 bullet points:\n\n${research.content}`,
+            },
+          ],
+        });
+
+        s.save(result.data!);
+      },
+    );
   })
   .compile();

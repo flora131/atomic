@@ -196,7 +196,7 @@ atomic workflow -n hello -a claude "describe this project"
 
 ```ts
 // .atomic/workflows/hello/claude/index.ts
-import { defineWorkflow, createClaudeSession, claudeQuery } from "atomic/workflows";
+import { defineWorkflow, createClaudeSession, claudeQuery } from "@bastani/atomic/workflows";
 
 export default defineWorkflow({
   name: "hello",

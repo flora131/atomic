@@ -6,7 +6,7 @@
  */
 
 /** npm package name. */
-export const SDK_PACKAGE_NAME = "atomic";
+export const SDK_PACKAGE_NAME = "@bastani/atomic";
 
 /** package.json files whose `version` field is bumped together. */
 export const VERSION_FILES = [

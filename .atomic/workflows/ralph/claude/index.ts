@@ -22,7 +22,7 @@ import {
   defineWorkflow,
   createClaudeSession,
   claudeQuery,
-} from "atomic/workflows";
+} from "@bastani/atomic/workflows";
 
 import {
   buildPlannerPrompt,

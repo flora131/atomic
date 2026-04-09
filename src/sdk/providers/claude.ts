@@ -73,7 +73,7 @@ export interface ClaudeSessionOptions {
  *
  * @example
  * ```typescript
- * import { createClaudeSession, claudeQuery } from "atomic/workflows";
+ * import { createClaudeSession, claudeQuery } from "@bastani/atomic/workflows";
  *
  * await createClaudeSession({ paneId: ctx.paneId });
  * await claudeQuery({ paneId: ctx.paneId, prompt: "Describe this project" });
@@ -157,7 +157,7 @@ export interface ClaudeQueryResult {
  *
  * @example
  * ```typescript
- * import { claudeQuery } from "atomic/workflows";
+ * import { claudeQuery } from "@bastani/atomic/workflows";
  *
  * const result = await claudeQuery({
  *   paneId: ctx.paneId,

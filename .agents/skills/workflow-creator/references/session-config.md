@@ -62,7 +62,7 @@ const result = query({
 The `claudeQuery()` helper is simpler — it sends text to a tmux pane:
 
 ```ts
-import { claudeQuery } from "atomic/workflows";
+import { claudeQuery } from "@bastani/atomic/workflows";
 
 const result = await claudeQuery({
   paneId: ctx.paneId,     // tmux pane ID (from SessionContext)

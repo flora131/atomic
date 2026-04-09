@@ -66,9 +66,14 @@ function resolveAtomicSubpath(subpath: string): string | null {
  * module resolution context (so `@github/copilot-sdk`, `zod`, etc. resolve
  * from atomic's installed `node_modules`).
  */
+const ATOMIC_PKG = "@bastani/atomic";
+const ATOMIC_PKG_PREFIX = `${ATOMIC_PKG}/`;
+
 function resolveBareSpecifier(spec: string): string | null {
-  if (spec === "atomic") return resolveAtomicSubpath("index");
-  if (spec.startsWith("atomic/")) return resolveAtomicSubpath(spec.slice("atomic/".length));
+  if (spec === ATOMIC_PKG) return resolveAtomicSubpath("index");
+  if (spec.startsWith(ATOMIC_PKG_PREFIX)) {
+    return resolveAtomicSubpath(spec.slice(ATOMIC_PKG_PREFIX.length));
+  }
   try {
     return Bun.resolveSync(spec, LOADER_DIR);
   } catch {
@@ -97,9 +102,9 @@ function rewriteBareImports(source: string): string {
 /**
  * Register a Bun `onLoad` plugin that rewrites bare imports inside any TS
  * file under the given workflow root. This lets workflow authors write
- * `import { defineWorkflow } from "atomic/workflows"` (and import atomic's
- * transitive deps like `@github/copilot-sdk`) without maintaining their own
- * `package.json` / `node_modules`.
+ * `import { defineWorkflow } from "@bastani/atomic/workflows"` (and import
+ * atomic's transitive deps like `@github/copilot-sdk`) without maintaining
+ * their own `package.json` / `node_modules`.
  *
  * Why source rewriting via `onLoad` instead of `onResolve`?
  * Bun's runtime plugin API honors `onLoad` but silently ignores `onResolve`

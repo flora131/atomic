@@ -23,7 +23,7 @@ afterEach(async () => {
 });
 
 // ---------------------------------------------------------------------------
-// SDK resolver — proves workflow files can `import "atomic/workflows"` from
+// SDK resolver — proves workflow files can `import "@bastani/atomic/workflows"` from
 // any location on disk, without a `package.json` or `node_modules`.
 // ---------------------------------------------------------------------------
 
@@ -38,7 +38,7 @@ describe("WorkflowLoader — atomic/* SDK resolution", () => {
     await writeFile(
       filePath,
       `
-import { defineWorkflow } from "atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic/workflows";
 
 export default defineWorkflow({ name: "ext" })
   .session({ name: "s1", run: async () => {} })
@@ -75,7 +75,7 @@ export default defineWorkflow({ name: "ext" })
     await writeFile(
       filePath,
       `
-import { defineWorkflow } from "atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic/workflows";
 import { z } from "zod";
 
 // Touch the import so tree-shaking / minifiers don't drop it.

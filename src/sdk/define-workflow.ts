@@ -79,7 +79,7 @@ export class WorkflowBuilder {
  *
  * @example
  * ```typescript
- * import { defineWorkflow } from "atomic/workflows";
+ * import { defineWorkflow } from "@bastani/atomic/workflows";
  *
  * export default defineWorkflow({
  *   name: "ralph",

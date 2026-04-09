@@ -7,7 +7,7 @@
  * Run: atomic workflow -n hello -a opencode "describe this project"
  */
 
-import { defineWorkflow } from "atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic/workflows";
 import { createOpencodeClient } from "@opencode-ai/sdk/v2";
 
 export default defineWorkflow({

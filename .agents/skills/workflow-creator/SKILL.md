@@ -75,7 +75,7 @@ When designing workflows, consult these skills to make informed architectural de
 A workflow is a TypeScript file that chains `.session()` calls to define a sequence of agent sessions. Each session's `run(ctx)` callback contains **raw provider SDK code** — you program directly against the Claude Agent SDK, Copilot SDK, or OpenCode SDK. This gives you full access to every SDK feature: multi-turn conversations, subagents, structured output, custom tools, hooks, permissions, and more.
 
 ```ts
-import { defineWorkflow } from "atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic/workflows";
 
 export default defineWorkflow({ name: "my-workflow", description: "..." })
   .session({ name: "step-1", run: async (ctx) => { /* SDK code here */ } })
@@ -170,7 +170,7 @@ Each `.session()` call defines one step:
 
 ```ts
 // .atomic/workflows/my-workflow/claude/index.ts
-import { defineWorkflow, claudeQuery } from "atomic/workflows";
+import { defineWorkflow, claudeQuery } from "@bastani/atomic/workflows";
 
 export default defineWorkflow({
     name: "my-workflow",
@@ -203,7 +203,7 @@ export default defineWorkflow({
 
 ```ts
 // .atomic/workflows/my-workflow/copilot/index.ts
-import { defineWorkflow } from "atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic/workflows";
 import { CopilotClient, approveAll } from "@github/copilot-sdk";
 
 export default defineWorkflow({
@@ -252,7 +252,7 @@ export default defineWorkflow({
 
 ```ts
 // .atomic/workflows/my-workflow/opencode/index.ts
-import { defineWorkflow } from "atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic/workflows";
 import { createOpencodeClient } from "@opencode-ai/sdk/v2";
 
 export default defineWorkflow({

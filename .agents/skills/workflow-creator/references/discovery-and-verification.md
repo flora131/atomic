@@ -6,8 +6,7 @@ Workflows are organized per workflow name, with agent-specific implementations a
 
 ```
 .atomic/workflows/
-├── package.json                    # Depends on atomic/workflows
-├── tsconfig.json                   # TypeScript config with path alias
+├── tsconfig.json                   # Optional: TS path alias for editor types
 ├── hello/
 │   ├── claude/index.ts             # Claude-specific workflow
 │   ├── copilot/index.ts            # Copilot-specific workflow
@@ -40,7 +39,7 @@ Local workflows override global ones with the same name. The `<agent>` subdirect
 Every workflow file must use `export default` with a compiled workflow:
 
 ```ts
-import { defineWorkflow } from "atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic/workflows";
 
 export default defineWorkflow({
     name: "my-workflow",
@@ -81,9 +80,16 @@ At load time, the runtime verifies:
 
 ## TypeScript configuration
 
-### `tsconfig.json`
+### `tsconfig.json` (optional)
 
-The workflow directory needs a `tsconfig.json` that maps the SDK import:
+Workflow files run without any scaffold files — the Atomic loader registers a
+Bun `onLoad` plugin that rewrites `@bastani/atomic/workflows` (and atomic's
+transitive deps like `@github/copilot-sdk`, `@opencode-ai/sdk`, `zod`) to
+absolute paths inside the installed atomic package at load time. No
+`package.json` or `node_modules` is required in the workflow directory.
+
+For editor type support (VS Code, tsserver), you can commit a minimal
+`.atomic/workflows/tsconfig.json` that maps the SDK import to atomic's source:
 
 ```json
 {
@@ -94,30 +100,17 @@ The workflow directory needs a `tsconfig.json` that maps the SDK import:
     "allowImportingTsExtensions": true,
     "noEmit": true,
     "strict": true,
-    "esModuleInterop": true,
     "skipLibCheck": true,
     "types": ["bun"],
     "paths": {
-      "atomic/workflows": ["../../packages/workflow-sdk/src/index.ts"]
+      "@bastani/atomic/workflows": ["../../src/sdk/workflows.ts"]
     }
   },
-  "include": ["./**/*.ts"]
+  "include": ["**/claude/**/*.ts", "**/copilot/**/*.ts", "**/opencode/**/*.ts", "**/helpers/**/*.ts"]
 }
 ```
 
-### `package.json`
-
-```json
-{
-  "name": "atomic-workflows",
-  "private": true,
-  "dependencies": {
-    "atomic/workflows": "*"
-  }
-}
-```
-
-The path alias in `tsconfig.json` maps `atomic/workflows` to the local SDK source for type checking. At runtime, Bun resolves the import via the package.json dependency.
+This file is purely for editor hints — the runtime does not read it.
 
 ## Type checking
 

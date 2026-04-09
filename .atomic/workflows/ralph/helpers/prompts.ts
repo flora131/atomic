@@ -110,14 +110,57 @@ and persist them via TaskCreate.
 // ORCHESTRATOR
 // ============================================================================
 
+export interface OrchestratorContext {
+  /**
+   * Trailing commentary from the planner's last assistant message, if any.
+   * The Copilot and OpenCode workflows create a fresh session for each
+   * sub-agent, so the planner's in-session output is NOT automatically
+   * visible to the orchestrator — only what the planner persisted via
+   * `TaskCreate`. Forward the planner's final text here so the orchestrator
+   * sees any caveats, risks, or execution hints that didn't fit into task
+   * bodies.
+   */
+  plannerNotes?: string;
+}
+
 /**
  * Build the orchestrator prompt. The orchestrator retrieves the planner's
  * task list, validates the dependency graph, and spawns parallel workers.
+ *
+ * @param spec - The original user specification. Required because the
+ *   orchestrator runs in a fresh session on Copilot/OpenCode and needs the
+ *   end-user goal to resolve ambiguous tasks.
+ * @param context - Optional planner handoff context (trailing commentary).
  */
-export function buildOrchestratorPrompt(): string {
+export function buildOrchestratorPrompt(
+  spec: string,
+  context: OrchestratorContext = {},
+): string {
+  const plannerNotes = context.plannerNotes?.trim() ?? "";
+  const plannerSection =
+    plannerNotes.length > 0
+      ? `## Planner Notes (trailing commentary)
+
+The planner produced the notes below alongside the task list. They capture
+caveats, risks, or execution hints that did not fit into individual task
+bodies. Treat them as guidance, not as task definitions.
+
+<planner_notes>
+${plannerNotes}
+</planner_notes>
+
+`
+      : "";
+
   return `You are an orchestrator managing a set of implementation tasks.
 
-## Retrieve Task List
+## Original User Specification
+
+<specification>
+${spec}
+</specification>
+
+${plannerSection}## Retrieve Task List
 
 Start by retrieving the current task list using your TaskList tool. The
 planner has already created all tasks; you MUST retrieve them before any

@@ -14,16 +14,20 @@ This document describes the GitHub Actions workflows that power Atomic CLI's con
   ├──────────────────────────────┤     ├────────────────────────────────┤
   │                              │     │                                │
   │  CI ..................... ✓  │     │  Publish .................. ✓  │
-  │    · TypeScript Checks       │     │    Build → Validate Binaries   │
-  │    · Workflow SDK            │     │    → Publish Workflow SDK      │
-  │  Code Review ........... ✓   │     │      (npm)                    │
-  │  PR Description ........ ✓   │     │    → Release                   │
+  │    · typecheck/lint/test     │     │    · typecheck + tests         │
+  │  Code Review ........... ✓   │     │    · publish @bastani/atomic   │
+  │  PR Description ........ ✓   │     │    · Create GitHub Release     │
   │  Bump Version .......... ✓   │     │                                │
   │  Validate Features ..... ✓   │     │  Publish Features ........ ✓  │
-  │  Installer Validation .. ✓   │     │    (only on devcontainer       │
+  │                              │     │    (only on devcontainer       │
   │                              │     │     changes)                   │
   └──────────────────────────────┘     └────────────────────────────────┘
 ```
+
+Atomic is distributed exclusively as a single npm package (`@bastani/atomic`)
+that exposes both the CLI binary (`atomic`) and the workflow SDK (via the
+`@bastani/atomic/workflows` package export). There are no platform-specific
+compiled binaries — installation happens through `bun install -g @bastani/atomic`.
 
 ---
 
@@ -33,31 +37,34 @@ These workflows run when a PR is opened or updated, providing feedback before me
 
 ### CI (`ci.yml`)
 
-Runs on all PRs to `main` that touch source code, config, or agent definitions. Runs two parallel jobs.
+Runs on all PRs to `main` that touch source code or config. A single `Checks`
+job runs against the consolidated `@bastani/atomic` package.
 
 ```
   PR opened/updated
   (paths: *.ts, *.tsx, *.js, *.jsx, package.json, bun.lock, tsconfig.json)
          │
-         ├──────────────────────────────────────┐
-         ▼                                      ▼
-  ┌──────────────────────────┐   ┌──────────────────────────────┐
-  │   TypeScript Checks      │   │    Workflow SDK              │
-  │  ┌────────────────────┐  │   │  ┌────────────────────────┐  │
-  │  │ bun ci             │  │   │  │ bun ci                 │  │
-  │  │ typecheck          │  │   │  │ typecheck              │  │
-  │  │ lint               │  │   │  │ lint                   │  │
-  │  └────────────────────┘  │   │  │ test:coverage          │  │
-  └──────────────────────────┘   │  │ upload coverage        │  │
-                                 │  └────────────────────────┘  │
-                                 │  (runs in packages/          │
-                                 │   workflow-sdk/)             │
-                                 └──────────────────────────────┘
+         ▼
+  ┌──────────────────────────────────┐
+  │              Checks              │
+  │  ┌────────────────────────────┐  │
+  │  │ bun install                │  │
+  │  │ bun run typecheck          │  │
+  │  │ bun run lint               │  │
+  │  │ bun test                   │  │
+  │  └────────────────────────────┘  │
+  └──────────────────────────────────┘
 ```
+
+The CLI source, the workflow SDK source (`src/sdk/`), and SDK tests
+(`tests/sdk/`) all live in the same package, so a single job covers
+everything.
 
 ### Bump Version (`bump-version.yml`)
 
-Automatically bumps version numbers when a `release/*` or `prerelease/*` PR is opened. Extracts the version from the branch name and updates all versioned files.
+Automatically bumps the version when a `release/*` or `prerelease/*` PR is
+opened. Extracts the version from the branch name and updates
+`package.json` (the only file tracked in `VERSION_FILES`).
 
 ```
   PR opened/synchronized
@@ -81,8 +88,6 @@ Automatically bumps version numbers when a `release/*` or `prerelease/*` PR is o
   │  │                                 │  │
   │  │ Updates:                        │  │
   │  │  · package.json                 │  │
-  │  │  · packages/workflow-sdk/       │  │
-  │  │    package.json                 │  │
   │  └────────────────┬────────────────┘  │
   │                   ▼                   │
   │  ┌─────────────────────────────────┐  │
@@ -98,10 +103,6 @@ Automatically bumps version numbers when a `release/*` or `prerelease/*` PR is o
 ### Validate Features (`validate-features.yml`)
 
 Validates `devcontainer-feature.json` schemas on any PR that touches `devcontainer-features/**`, or via manual dispatch.
-
-### Installer Validation (`installer-validation.yml`)
-
-Runs syntax and lint checks on `install.sh` (ShellCheck on Linux/macOS via matrix) and `install.ps1` (PSScriptAnalyzer on Windows) when those files change, or via manual dispatch.
 
 ### Code Review & PR Description (`code-review.yml`, `pr-description.yml`)
 
@@ -133,89 +134,74 @@ Concurrency is enforced per-ref (`publish-${{ github.ref }}`), cancelling in-pro
   release/* or prerelease/* PR merged to main
          │
          ▼
-  ┌───────────────────────────────────────────────────────────────────────┐
-  │                          Publish Workflow                             │
-  │                                                                       │
-  │   ┌─────────────────────────────────────────────┐                    │
-  │   │  Build Binaries (single ubuntu runner)      │                    │
-  │   │                                             │                    │
-  │   │  · bun ci                                   │                    │
-  │   │  · install cross-platform native modules    │                    │
-  │   │    (@opentui/core: --os="*" --cpu="*")      │                    │
-  │   │  · tests + typecheck                        │                    │
-  │   │  · cross-compile all 6 targets:             │                    │
-  │   │    linux-x64, linux-arm64,                  │                    │
-  │   │    darwin-x64, darwin-arm64,                │                    │
-  │   │    windows-x64, windows-arm64              │                    │
-  │   │  · config archives (tar.gz + zip):          │                    │
-  │   │    .claude/agents, .opencode/agents,        │                    │
-  │   │    .github/agents, .github/lsp.json,        │                    │
-  │   │    .atomic/workflows                        │                    │
-  │   └────────────────────┬────────────────────────┘                    │
-  │                        ▼                                              │
-  │   ┌────────────────────────────────────────┐                          │
-  │   │  Validate Binaries (6 platform runners)│                          │
-  │   │                                        │                          │
-  │   │  · linux-x64     (ubuntu-latest)       │                          │
-  │   │  · linux-arm64   (ubuntu-24.04-arm)    │                          │
-  │   │  · darwin-x64    (macos-15-intel)      │                          │
-  │   │  · darwin-arm64  (macos-latest)        │                          │
-  │   │  · windows-x64   (windows-latest)      │                          │
-  │   │  · windows-arm64 (windows-11-arm)      │                          │
-  │   │                                        │                          │
-  │   │  Per binary:                           │                          │
-  │   │  · --version check (matches pkg ver)   │                          │
-  │   │  · --help smoke test                   │                          │
-  │   │  · config archive validation:          │                          │
-  │   │    ✓ .claude/agents                    │                          │
-  │   │    ✓ .opencode/agents                  │                          │
-  │   │    ✓ .github/agents                    │                          │
-  │   │    ✓ .github/lsp.json                  │                          │
-  │   │    ✓ .atomic/workflows                 │                          │
-  │   │    ✗ skills dirs (moved to skills CLI) │                          │
-  │   └────────────────────┬───────────────────┘                          │
-  │                        ▼                                              │
-  │   ┌─────────────────────┐                                             │
-  │   │  Publish            │   ◄── Permanent, gated by validation        │
-  │   │  Workflow SDK       │                                             │
-  │   │  (npm)              │                                             │
-  │   │                     │                                             │
-  │   │  · tests            │                                             │
-  │   │  · typecheck        │                                             │
-  │   │  · lint             │                                             │
-  │   │  · npm publish      │                                             │
-  │   │    (tag: latest     │                                             │
-  │   │     or next)        │                                             │
-  │   │  · OIDC provenance  │                                             │
-  │   └──────────┬──────────┘                                             │
-  │              ▼                                                        │
-  │   ┌────────────────────────────────────────┐                          │
-  │   │           Create Release               │   ◄── Overwritable       │
-  │   │                                        │                          │
-  │   │  · SHA256 checksums                    │                          │
-  │   │  · GitHub Release (tag: v{version})     │                          │
-  │   │  · Attach binaries + config archives   │                          │
-  │   │  · prerelease flag if version has -    │                          │
-  │   └────────────────────────────────────────┘                          │
-  └───────────────────────────────────────────────────────────────────────┘
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                        Publish Workflow                         │
+  │                                                                 │
+  │   ┌─────────────────────────────────────────────┐              │
+  │   │  Publish to npm (ubuntu-latest)             │              │
+  │   │                                             │              │
+  │   │  · bun install                              │              │
+  │   │  · bun run typecheck                        │              │
+  │   │  · bun test                                 │              │
+  │   │  · determine npm tag                        │              │
+  │   │      version has '-' → next                 │              │
+  │   │      otherwise       → latest               │              │
+  │   │  · setup Node for npm registry              │              │
+  │   │  · npm publish                              │              │
+  │   │      --provenance --access public           │              │
+  │   │      --tag {latest|next}                    │              │
+  │   └────────────────────┬────────────────────────┘              │
+  │                        ▼                                        │
+  │   ┌─────────────────────────────────────────────┐              │
+  │   │  Create Release          ◄── Overwritable   │              │
+  │   │                                             │              │
+  │   │  · Read version from package.json           │              │
+  │   │  · GitHub Release (tag: v{version})         │              │
+  │   │  · prerelease flag if version has '-'       │              │
+  │   │  · generate_release_notes: true             │              │
+  │   └─────────────────────────────────────────────┘              │
+  └─────────────────────────────────────────────────────────────────┘
 ```
 
 Devcontainer features are published independently via `publish-features.yml`
 when `devcontainer-features/**` files are merged to main or via manual dispatch.
 Features are validated via schema checks during PRs and published after merge.
 
-### Why This Order?
+### Why npm-Only?
+
+Atomic ships as a single npm package. The `atomic` bin (keyed by command
+name in `package.json`'s `bin` field) points at `src/cli.ts` and is run by
+Bun at install time, so there are no platform-specific binaries to compile,
+validate, or attach to a release. This eliminates a large amount of CI
+complexity that used to live in this pipeline:
+
+- No `build-binaries` cross-compilation step (6 targets removed)
+- No 6-platform binary validation matrix (linux/darwin/windows × x64/arm64)
+- No config archive packaging or per-platform validation
+- No `installer-validation.yml` workflow (`install.sh` / `install.ps1` are
+  now thin wrappers around `bun install -g @bastani/atomic`)
+- No separate workflow SDK package or publish step — the SDK is exposed as
+  the `@bastani/atomic/workflows` subpath export of the same package
+
+### Why Publish Before Release?
 
 ```
   ┌──────────────────┐     ┌───────────────┐
-  │  Publish SDK     │ ──► │    Release    │
-  │  (permanent)     │     │ (overwritable)│
+  │   npm publish    │ ──► │    Release    │
+  │   (permanent)    │     │ (overwritable)│
   └──────────────────┘     └───────────────┘
 ```
 
-1. **Publish SDK first** — npm publishes are permanent (cannot be overwritten) and run with OIDC provenance. Publishing before the release guarantees the `@bastani/atomic-workflows` package is available on npm when users run the install script, since the config archive bundled with the release references it as a dependency.
-2. **Release last** — The GitHub release is created after the SDK is on npm so that `bun install` in the install script's workflow setup always succeeds. The release can be deleted and re-created if needed.
-3. **Features are independent** — Devcontainer features just pull a released binary, so they're validated during PRs (schema checks) and published in their own workflow triggered by `devcontainer-features/**` changes merging to main.
+1. **npm publish first** — npm publishes are permanent (cannot be
+   overwritten) and run with OIDC provenance. Publishing before the GitHub
+   release guarantees the `@bastani/atomic` package is on npm before any
+   consumer reads the release notes or runs the install script.
+2. **Release last** — The GitHub release is created after the npm publish
+   succeeds. The release can be deleted and re-created if needed.
+3. **Features are independent** — Devcontainer features just install the
+   published `@bastani/atomic` package, so they're validated during PRs
+   (schema checks) and published in their own workflow triggered by
+   `devcontainer-features/**` changes merging to main.
 
 ### Publish Features (`publish-features.yml`)
 
@@ -261,20 +247,11 @@ End-to-end flow for a release, from branch creation to published artifacts:
            ▼
   ④ Publish workflow fires ──────────────────────────────────┐
            │                                                  │
-     Build binaries (Linux, macOS, Windows × x64, arm64)      │
+     Publish to npm (permanent, OIDC provenance)              │
            │                                                  │
            ▼                                                  │
-     Validate binaries (6 native platform runners)            │
-           │                                                  │
-           ▼                                                  │
-     ┌───────────────────┐                                    │
-     │ Publish Workflow  │                                    │
-     │ SDK to npm        │                                    │
-     │ (permanent, with  │                                    │
-     │  OIDC provenance) │                                    │
-     └────────┬──────────┘                                    │
-              ▼                                               │
-     Create GitHub Release (overwritable)                     │
+     Create GitHub Release (overwritable, auto-generated     │
+     release notes)                                           │
                                                               │
   ⑤ Done ◄───────────────────────────────────────────────────┘
 ```
@@ -287,24 +264,26 @@ of the release pipeline).
 
 ## Build & Release Scripts
 
-The publish workflow delegates build and packaging to TypeScript scripts that can also be run locally:
+The publish workflow is intentionally thin. The only release-time script that
+runs locally is the version bumper:
 
-| Script                                    | Purpose                                                                 |
-|-------------------------------------------|-------------------------------------------------------------------------|
-| `src/scripts/build-binaries.ts`           | Cross-compiles Atomic CLI for all 6 platform targets into `dist/`       |
-| `src/scripts/create-config-archives.ts`   | Packages agent configs and workflow templates into `dist/` archives      |
-| `src/scripts/bump-version.ts`             | Bumps version across all tracked `package.json` files                   |
-| `src/scripts/constants.ts`                | Shared constants (`SDK_PACKAGE_NAME`, `CONFIG_DIRS`, `VERSION_FILES`, etc.) |
+| Script                          | Purpose                                                    |
+|---------------------------------|------------------------------------------------------------|
+| `src/scripts/bump-version.ts`   | Bumps version across all tracked `package.json` files      |
+| `src/scripts/constants.ts`      | Shared constants (`SDK_PACKAGE_NAME`, `CONFIG_DIRS`, etc.) |
+| `src/scripts/constants-base.ts` | Dependency-free constants (`SDK_PACKAGE_NAME`, `VERSION_FILES`) safe to import before `bun install` |
 
-### Shared Constants (`src/scripts/constants.ts`)
+### Shared Constants
 
-Values that appear across multiple scripts and workflows are centralised in `constants.ts` to reduce drift:
+Values that appear across multiple scripts are centralised to reduce drift:
 
-- **`SDK_PACKAGE_NAME`** — the npm package name (`@bastani/atomic-workflows`)
-- **`WORKFLOW_SDK_DIR`** — repo-relative path to the SDK package (`packages/workflow-sdk`)
-- **`VERSION_FILES`** — `package.json` files bumped together during releases
-- **`CONFIG_DIRS`** — agent config directories included in the config archive, derived from the canonical `AGENTS` list exported by the workflow SDK
-- **`CONFIG_FILES`** — individual config files included in the archive (e.g. `.github/lsp.json`)
+- **`SDK_PACKAGE_NAME`** — the npm package name (`@bastani/atomic`)
+- **`VERSION_FILES`** — `package.json` files bumped together during releases (currently just the root `package.json`)
+- **`CONFIG_DIRS`** — agent config directories, derived from the canonical `AGENTS` list exported by the workflow SDK (`src/sdk/workflows.ts`)
+- **`CONFIG_FILES`** — individual config files (e.g. `.github/lsp.json`)
+
+`constants-base.ts` is intentionally free of heavy dependencies so it can be
+imported by `bump-version.ts` before `bun install` has run in CI.
 
 ---
 
@@ -312,12 +291,11 @@ Values that appear across multiple scripts and workflows are centralised in `con
 
 | File                       | Trigger                                        | Purpose                            |
 |----------------------------|------------------------------------------------|------------------------------------|
-| `ci.yml`                   | PR (source/config changes)                     | Tests, typecheck, lint, coverage (root + workflow-sdk) |
-| `bump-version.yml`        | PR opened/synced (`release/*`, `prerelease/*`) | Auto-bump versions from branch name|
-| `validate-features.yml`   | PR (`devcontainer-features/**`), `workflow_dispatch` | Schema validation            |
-| `installer-validation.yml`| PR (`install.sh`, `install.ps1`), `workflow_dispatch` | Shell/PowerShell lint        |
-| `code-review.yml`         | PR opened/synced                               | AI code review (Claude Opus)       |
-| `pr-description.yml`      | PR opened/synced                               | AI PR description (Claude Sonnet)  |
-| `claude.yml`              | `@claude` mentions (issues, PRs, reviews)      | Claude Code interactive assistant  |
-| `publish.yml`             | Merged `release/*`/`prerelease/*` PR, release published, `workflow_dispatch` | Build, validate, release, publish SDK |
-| `publish-features.yml`    | Merged PR (`devcontainer-features/**`), `workflow_dispatch` | Publish features to GHCR |
+| `ci.yml`                   | PR (source/config changes)                     | Typecheck, lint, tests             |
+| `bump-version.yml`         | PR opened/synced (`release/*`, `prerelease/*`) | Auto-bump version from branch name |
+| `validate-features.yml`    | PR (`devcontainer-features/**`), `workflow_dispatch` | Schema validation            |
+| `code-review.yml`          | PR opened/synced                               | AI code review (Claude Opus)       |
+| `pr-description.yml`       | PR opened/synced                               | AI PR description (Claude Sonnet)  |
+| `claude.yml`               | `@claude` mentions (issues, PRs, reviews)      | Claude Code interactive assistant  |
+| `publish.yml`              | Merged `release/*`/`prerelease/*` PR, release published, `workflow_dispatch` | Publish to npm + create GitHub release |
+| `publish-features.yml`     | Merged PR (`devcontainer-features/**`), `workflow_dispatch` | Publish features to GHCR |

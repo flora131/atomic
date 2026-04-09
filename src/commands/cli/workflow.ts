@@ -6,88 +6,19 @@
  *   atomic workflow --list
  */
 
-import { join, resolve, relative } from "path";
-import { existsSync } from "fs";
 import { AGENT_CONFIG, type AgentKey } from "@/services/config/index.ts";
 import { COLORS } from "@/theme/colors.ts";
-import { isCommandInstalled } from "@/services/system/detect.ts";
+import { isCommandInstalled, supportsColor, supportsTrueColor } from "@/services/system/detect.ts";
 import { ensureTmuxInstalled, ensureBunInstalled } from "../../lib/spawn.ts";
-import { VERSION } from "@/version.ts";
-import { detectInstallationType } from "@/services/config/config-path.ts";
 import {
   isTmuxInstalled,
   discoverWorkflows,
   findWorkflow,
-  loadWorkflowDefinition,
   executeWorkflow,
+  WorkflowLoader,
   resetMuxBinaryCache,
-} from "@bastani/atomic-workflows";
-import type { AgentType } from "@bastani/atomic-workflows";
-
-/**
- * Ensure the workflow-sdk (and its transitive SDK deps) is installed at the
- * correct spec in the workflow directory that contains the discovered
- * workflow file. Writes the pinned version (or file: reference for dev
- * installs) into `package.json` and runs `bun install` so that
- * `@github/copilot-sdk`, `@opencode-ai/sdk`, etc. are available as
- * hoisted transitive dependencies.
- *
- * For source/dev installations:
- *   - local (.atomic/workflows): uses a file: reference to the workspace SDK
- *   - global (~/.atomic/workflows): skipped entirely
- * For binary/npm installations:
- *   - both local and global: pinned to the exact running CLI version
- */
-async function ensureWorkflowDeps(
-  workflowDir: string,
-  source: "local" | "global",
-): Promise<void> {
-  const pkgPath = join(workflowDir, "package.json");
-  const pkgFile = Bun.file(pkgPath);
-
-  if (!(await pkgFile.exists())) return;
-
-  const installType = detectInstallationType();
-
-  // For source/dev installations, never touch global workflows
-  if (installType === "source" && source === "global") return;
-
-  // Determine the desired dependency spec
-  let desiredSpec: string;
-  if (installType === "source") {
-    // Use a file: reference to the workspace workflow-sdk package
-    const sdkPath = resolve(workflowDir, "..", "..", "packages", "workflow-sdk");
-    if (!existsSync(sdkPath)) return;
-    desiredSpec = `file:${relative(workflowDir, sdkPath)}`;
-  } else {
-    desiredSpec = VERSION;
-  }
-
-  const pkg = await pkgFile.json();
-  const currentSpec = pkg.dependencies?.["@bastani/atomic-workflows"];
-
-  // Already set to the desired spec — skip install
-  if (currentSpec === desiredSpec) return;
-
-  pkg.dependencies = pkg.dependencies ?? {};
-  pkg.dependencies["@bastani/atomic-workflows"] = desiredSpec;
-  await Bun.write(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
-
-  const bunPath = Bun.which("bun");
-  if (!bunPath) return;
-
-  const proc = Bun.spawn([bunPath, "install"], {
-    cwd: workflowDir,
-    stdio: ["ignore", "ignore", "pipe"],
-  });
-  const exitCode = await proc.exited;
-  if (exitCode !== 0) {
-    const stderr = await new Response(proc.stderr).text();
-    throw new Error(
-      `Failed to install workflow dependencies (exit ${exitCode}):\n${stderr.trim()}`,
-    );
-  }
-}
+} from "@/sdk/workflows.ts";
+import type { AgentType, DiscoveredWorkflow } from "@/sdk/workflows.ts";
 
 export async function workflowCommand(options: {
   name?: string;
@@ -98,19 +29,7 @@ export async function workflowCommand(options: {
   // List mode
   if (options.list) {
     const workflows = await discoverWorkflows(undefined, options.agent as AgentType | undefined);
-
-    if (workflows.length === 0) {
-      console.log("No workflows found.");
-      console.log("Create a workflow in .atomic/workflows/<name>/<agent>/index.ts");
-      return 0;
-    }
-
-    console.log("Available workflows:\n");
-    for (const wf of workflows) {
-      const badge = wf.source === "local" ? "(local)" : "(global)";
-      console.log(`  ${wf.agent}/${wf.name} ${COLORS.dim}${badge}${COLORS.reset}`);
-      console.log(`    ${COLORS.dim}${wf.path}${COLORS.reset}`);
-    }
+    process.stdout.write(renderWorkflowList(workflows));
     return 0;
   }
 
@@ -197,41 +116,29 @@ export async function workflowCommand(options: {
     return 1;
   }
 
-  // Ensure workflow SDK deps are installed at the correct version in both
-  // local (.atomic/workflows) and global (~/.atomic/workflows) directories.
-  // For dev installs, only the local dir is updated (with a file: reference);
-  // the global dir is left untouched.
-  const { homedir } = await import("os");
-  const localWorkflowDir = join(process.cwd(), ".atomic", "workflows");
-  const globalWorkflowDir = join(homedir(), ".atomic", "workflows");
-  const workflowDirs: Array<[string, "local" | "global"]> = [
-    [localWorkflowDir, "local"],
-    [globalWorkflowDir, "global"],
-  ];
-  for (const [dir, source] of workflowDirs) {
-    try {
-      await ensureWorkflowDeps(dir, source);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`${COLORS.red}Error installing workflow dependencies in ${dir}: ${message}${COLORS.reset}`);
-      return 1;
-    }
-  }
+  // Load workflow through the pipeline: resolve → validate → load.
+  // The loader registers a Bun resolver plugin that maps `atomic/*` and
+  // atomic's installed deps onto the running CLI's own module graph, so
+  // workflow files don't need their own `package.json` / `node_modules`.
+  const result = await WorkflowLoader.loadWorkflow(discovered, {
+    warn(warnings) {
+      for (const w of warnings) {
+        console.warn(`⚠ [${w.rule}] ${w.message}`);
+      }
+    },
+    error(stage, _error, message) {
+      console.error(`${COLORS.red}Error (${stage}): ${message}${COLORS.reset}`);
+    },
+  });
 
-  // Load and validate
-  let definition;
-  try {
-    definition = await loadWorkflowDefinition(discovered.path, agent);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`${COLORS.red}Error loading workflow: ${message}${COLORS.reset}`);
+  if (!result.ok) {
     return 1;
   }
 
   // Execute
   try {
     await executeWorkflow({
-      definition,
+      definition: result.value.definition,
       agent,
       prompt: options.prompt ?? "",
       workflowFile: discovered.path,
@@ -242,4 +149,210 @@ export async function workflowCommand(options: {
     console.error(`${COLORS.red}Workflow failed: ${message}${COLORS.reset}`);
     return 1;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Workflow list rendering
+//
+// Catppuccin Mocha palette rendered via 24-bit ANSI, with graceful fallback
+// to basic ANSI on legacy terminals and plain text when colour is disabled.
+// Hex values mirror src/sdk/runtime/theme.ts so the CLI output and the TUI
+// speak one visual language.
+// ---------------------------------------------------------------------------
+
+type PaletteKey = "text" | "dim" | "accent" | "success" | "mauve";
+
+const PALETTE: Record<PaletteKey, readonly [number, number, number]> = {
+  text:    [205, 214, 244], // #cdd6f4 — primary text
+  dim:     [127, 132, 156], // #7f849c — secondary text
+  accent:  [137, 180, 250], // #89b4fa — blue accent
+  success: [166, 227, 161], // #a6e3a1 — green (local source)
+  mauve:   [203, 166, 247], // #cba6f7 — mauve (global source)
+};
+
+interface PaintOptions {
+  bold?: boolean;
+}
+
+type Paint = (key: PaletteKey, text: string, opts?: PaintOptions) => string;
+
+/** Stable agent sort order; keeps output deterministic across runs. */
+const AGENT_ORDER: readonly AgentType[] = ["claude", "opencode", "copilot"];
+/** Display names shown as provider sub-headings; honours proper branding. */
+const AGENT_DISPLAY_NAMES: Record<AgentType, string> = {
+  claude: "Claude",
+  opencode: "OpenCode",
+  copilot: "Copilot CLI",
+};
+/** Local first — project-scoped workflows are the most immediately relevant. */
+const SOURCE_ORDER: readonly DiscoveredWorkflow["source"][] = ["local", "global"];
+/** Friendly directory labels shown inline with each section heading. */
+const SOURCE_DIRS: Record<DiscoveredWorkflow["source"], string> = {
+  local: ".atomic/workflows",
+  global: "~/.atomic/workflows",
+};
+/** Section heading colour per source — preserves the source-type semantic. */
+const SOURCE_COLORS: Record<DiscoveredWorkflow["source"], PaletteKey> = {
+  local: "success",
+  global: "mauve",
+};
+
+/**
+ * Build a colour-aware painter for the current terminal.
+ * Truecolor terminals get the full Catppuccin palette; legacy terminals
+ * degrade to basic ANSI; NO_COLOR emits plain text. The optional `bold`
+ * flag adds weight contrast — essential for typographic hierarchy in a
+ * monospace medium where size and family are fixed.
+ */
+function createPainter(): Paint {
+  if (supportsTrueColor()) {
+    return (key, text, opts) => {
+      const [r, g, b] = PALETTE[key];
+      const sgr = opts?.bold
+        ? `\x1b[1;38;2;${r};${g};${b}m`
+        : `\x1b[38;2;${r};${g};${b}m`;
+      return `${sgr}${text}\x1b[0m`;
+    };
+  }
+  if (supportsColor()) {
+    const ANSI: Record<PaletteKey, string> = {
+      text:    "",
+      dim:     "\x1b[2m",
+      accent:  "\x1b[34m",
+      success: "\x1b[32m",
+      mauve:   "\x1b[35m",
+    };
+    return (key, text, opts) => {
+      const weight = opts?.bold ? "\x1b[1m" : "";
+      return `${weight}${ANSI[key]}${text}\x1b[0m`;
+    };
+  }
+  return (_key, text) => text;
+}
+
+/**
+ * Render `atomic workflow --list` output as a printable string.
+ *
+ * Three-level hierarchy: source → provider → workflow name.
+ *
+ * Layout:
+ *   N workflows
+ *
+ *
+ *   local (.atomic/workflows)
+ *
+ *     Claude
+ *
+ *       <name>
+ *       <name>
+ *
+ *     OpenCode
+ *
+ *       <name>
+ *
+ *
+ *   global (~/.atomic/workflows)
+ *
+ *     Claude
+ *
+ *       <name>
+ *
+ *
+ *   run: atomic workflow -n <name> -a <agent>
+ */
+function renderWorkflowList(workflows: DiscoveredWorkflow[]): string {
+  const paint = createPainter();
+  const lines: string[] = [];
+
+  // Empty state — teach the user where workflows live.
+  if (workflows.length === 0) {
+    lines.push("");
+    lines.push("  " + paint("text", "no workflows found", { bold: true }));
+    lines.push("");
+    lines.push("  " + paint("dim", "create one at"));
+    lines.push(
+      "    " +
+        paint("accent", ".atomic/workflows/<name>/<agent>/index.ts"),
+    );
+    lines.push("");
+    return lines.join("\n") + "\n";
+  }
+
+  // Group by source → agent → sorted names. This gives the renderer O(1)
+  // lookups at both nesting levels and keeps the output deterministic.
+  type ByAgent = Map<AgentType, string[]>;
+  const bySource = new Map<DiscoveredWorkflow["source"], ByAgent>();
+  for (const wf of workflows) {
+    let byAgent = bySource.get(wf.source);
+    if (!byAgent) {
+      byAgent = new Map();
+      bySource.set(wf.source, byAgent);
+    }
+    const names = byAgent.get(wf.agent) ?? [];
+    names.push(wf.name);
+    byAgent.set(wf.agent, names);
+  }
+  for (const byAgent of bySource.values()) {
+    for (const names of byAgent.values()) {
+      names.sort((a, b) => a.localeCompare(b));
+    }
+  }
+
+  // Top header — data-first: the count is bold (it's the actual info), the
+  // noun trails in dim. Handles singular "1 workflow" gracefully.
+  const count = workflows.length;
+  const noun = count === 1 ? "workflow" : "workflows";
+  lines.push("");
+  lines.push(
+    "  " + paint("text", String(count), { bold: true }) + " " + paint("dim", noun),
+  );
+
+  // One stanza per source section, with nested provider sub-groups inside.
+  // Rhythm:
+  //   2 blanks before each source heading  (major break)
+  //   1 blank before each provider heading (tight, they're nested)
+  //   1 blank before each provider's entries
+  for (const source of SOURCE_ORDER) {
+    const byAgent = bySource.get(source);
+    if (!byAgent || byAgent.size === 0) continue;
+
+    // Major break before the source section.
+    lines.push("");
+    lines.push("");
+
+    // Source heading: bold semantic colour + dim inline directory hint.
+    // `local (.atomic/workflows)` — label carries the weight, parens recede.
+    lines.push(
+      "  " +
+        paint(SOURCE_COLORS[source], source, { bold: true }) +
+        paint("dim", ` (${SOURCE_DIRS[source]})`),
+    );
+
+    for (const agent of AGENT_ORDER) {
+      const names = byAgent.get(agent);
+      if (!names || names.length === 0) continue;
+
+      // Provider heading: bold accent blue — a clearly different layer from
+      // both the semantic source heading above and the neutral entries below.
+      lines.push("");
+      lines.push(
+        "    " + paint("accent", AGENT_DISPLAY_NAMES[agent], { bold: true }),
+      );
+      lines.push("");
+
+      for (const name of names) {
+        lines.push("      " + paint("text", name));
+      }
+    }
+  }
+
+  // Footer — dim run hint, separated by the same major-break rhythm.
+  lines.push("");
+  lines.push("");
+  lines.push(
+    "  " + paint("dim", "run: atomic workflow -n <name> -a <agent>"),
+  );
+  lines.push("");
+
+  return lines.join("\n") + "\n";
 }

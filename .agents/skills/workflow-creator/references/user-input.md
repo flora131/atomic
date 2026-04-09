@@ -11,11 +11,12 @@ The Claude Agent SDK provides a `canUseTool` callback for runtime approval and u
 ```ts
 import { query } from "@anthropic-ai/claude-agent-sdk";
 
-run: async (ctx) => {
+// Inside a ctx.session() callback:
+async (s) => {
   const result = query({
     prompt: "Implement the feature, but ask me before making any database changes.",
     options: {
-      canUseTool: async (toolName, toolInput) => {
+      canUseTool: async (toolName, toolInput, options) => {
         if (toolName === "Write" && toolInput.file_path?.includes("migration")) {
           // Prompt the user for approval
           const approved = await promptUser("Allow database migration?");
@@ -128,8 +129,9 @@ OpenCode uses TUI control endpoints for user interaction:
 ```ts
 import { createOpencodeClient } from "@opencode-ai/sdk/v2";
 
-run: async (ctx) => {
-  const client = createOpencodeClient({ baseUrl: ctx.serverUrl });
+// Inside a ctx.session() callback:
+async (s) => {
+  const client = createOpencodeClient({ baseUrl: s.serverUrl });
 
   // Wait for the next TUI control request
   const controlRequest = await client.tui.next();
@@ -164,19 +166,21 @@ const unsubscribe = await client.event.subscribe((event) => {
 Use user input results in conditional logic:
 
 ```ts
-run: async (ctx) => {
-  // Get the plan from the previous session
-  const plan = await ctx.transcript("plan");
+// Inside a ctx.session() callback:
+async (s) => {
+  // Get the plan from a previous session
+  const plan = await s.transcript("plan");
+  await createClaudeSession({ paneId: s.paneId });
 
   // Ask the user (implementation depends on which SDK you're using)
   const approved = await getUserApproval(`Approve this plan?\n${plan.content}`);
 
   if (approved) {
-    await claudeQuery({ paneId: ctx.paneId, prompt: "Execute the plan." });
+    await claudeQuery({ paneId: s.paneId, prompt: "Execute the plan." });
   } else {
-    await claudeQuery({ paneId: ctx.paneId, prompt: "Revise the plan." });
+    await claudeQuery({ paneId: s.paneId, prompt: "Revise the plan." });
   }
 
-  ctx.save(ctx.sessionId);
+  s.save(s.sessionId);
 },
 ```

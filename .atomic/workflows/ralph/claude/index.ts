@@ -1,19 +1,11 @@
 /**
  * Ralph workflow for Claude Code — plan → orchestrate → review → debug loop.
  *
- * One Claude TUI runs in a tmux pane for the duration of the workflow. Each
- * loop iteration invokes sub-agents via @-mention syntax (planner,
- * orchestrator, reviewer, and — when findings remain — debugger). The loop
+ * Each sub-agent invocation spawns its own visible session in the graph,
+ * so users can see each iteration's progress in real time. The loop
  * terminates when:
  *   - {@link MAX_LOOPS} iterations have completed, OR
  *   - Two consecutive reviewer passes return zero findings.
- *
- * A loop is one cycle of plan → orchestrate → review. When a review returns
- * zero findings on the FIRST pass we re-run only the reviewer (still inside
- * the same loop iteration) to confirm; if that confirmation pass is also
- * clean we stop. The debugger only runs when findings remain after the
- * reviewer pass(es), and its markdown report is fed back to the planner on
- * the next iteration.
  *
  * Run: atomic workflow -n ralph -a claude "<your spec>"
  */
@@ -22,7 +14,7 @@ import {
   defineWorkflow,
   createClaudeSession,
   claudeQuery,
-} from "@bastani/atomic-workflows";
+} from "@bastani/atomic/workflows";
 
 import {
   buildPlannerPrompt,
@@ -48,102 +40,145 @@ export default defineWorkflow({
   description:
     "Plan → orchestrate → review → debug loop with bounded iteration",
 })
-  .session({
-    name: "ralph-loop",
-    description:
-      "Drive plan/orchestrate/review/debug iterations until clean or capped",
-    run: async (ctx) => {
-      await createClaudeSession({ paneId: ctx.paneId });
+  .run(async (ctx) => {
+    let consecutiveClean = 0;
+    let debuggerReport = "";
+    // Track the most recent session so the next stage can declare it as a
+    // dependency — this chains planner → orchestrator → reviewer → [confirm]
+    // → [debugger] → next planner in the graph instead of showing every
+    // stage as an independent sibling under the root.
+    let prevStage: string | undefined;
+    const depsOn = (): string[] | undefined =>
+      prevStage ? [prevStage] : undefined;
 
-      let consecutiveClean = 0;
-      let debuggerReport = "";
+    for (let iteration = 1; iteration <= MAX_LOOPS; iteration++) {
+      // ── Plan ────────────────────────────────────────────────────────────
+      const plannerName = `planner-${iteration}`;
+      await ctx.session(
+        { name: plannerName, dependsOn: depsOn() },
+        async (s) => {
+          await createClaudeSession({ paneId: s.paneId });
+          await claudeQuery({
+            paneId: s.paneId,
+            prompt: asAgentCall(
+              "planner",
+              buildPlannerPrompt(s.userPrompt, {
+                iteration,
+                debuggerReport: debuggerReport || undefined,
+              }),
+            ),
+          });
+          s.save(s.sessionId);
+        },
+      );
+      prevStage = plannerName;
 
-      for (let iteration = 1; iteration <= MAX_LOOPS; iteration++) {
-        // ── Plan ────────────────────────────────────────────────────────────
-        await claudeQuery({
-          paneId: ctx.paneId,
-          prompt: asAgentCall(
-            "planner",
-            buildPlannerPrompt(ctx.userPrompt, {
-              iteration,
-              debuggerReport: debuggerReport || undefined,
-            }),
-          ),
-        });
+      // ── Orchestrate ─────────────────────────────────────────────────────
+      const orchName = `orchestrator-${iteration}`;
+      await ctx.session(
+        { name: orchName, dependsOn: depsOn() },
+        async (s) => {
+          await createClaudeSession({ paneId: s.paneId });
+          await claudeQuery({
+            paneId: s.paneId,
+            prompt: asAgentCall(
+              "orchestrator",
+              buildOrchestratorPrompt(s.userPrompt),
+            ),
+          });
+          s.save(s.sessionId);
+        },
+      );
+      prevStage = orchName;
 
-        // ── Orchestrate ─────────────────────────────────────────────────────
-        await claudeQuery({
-          paneId: ctx.paneId,
-          prompt: asAgentCall("orchestrator", buildOrchestratorPrompt()),
-        });
+      // ── Review (first pass) ─────────────────────────────────────────────
+      let gitStatus = await safeGitStatusS();
+      const reviewerName = `reviewer-${iteration}`;
+      const review = await ctx.session(
+        { name: reviewerName, dependsOn: depsOn() },
+        async (s) => {
+          await createClaudeSession({ paneId: s.paneId });
+          const result = await claudeQuery({
+            paneId: s.paneId,
+            prompt: asAgentCall(
+              "reviewer",
+              buildReviewPrompt(s.userPrompt, { gitStatus, iteration }),
+            ),
+          });
+          s.save(s.sessionId);
+          return result.output;
+        },
+      );
+      prevStage = reviewerName;
 
-        // ── Review (first pass) ─────────────────────────────────────────────
-        let gitStatus = await safeGitStatusS();
-        let reviewQuery = await claudeQuery({
-          paneId: ctx.paneId,
-          prompt: asAgentCall(
-            "reviewer",
-            buildReviewPrompt(ctx.userPrompt, { gitStatus, iteration }),
-          ),
-        });
-        let reviewRaw = reviewQuery.output;
-        let parsed = parseReviewResult(reviewRaw);
+      let reviewRaw = review.result;
+      let parsed = parseReviewResult(reviewRaw);
+
+      if (!hasActionableFindings(parsed, reviewRaw)) {
+        consecutiveClean += 1;
+        if (consecutiveClean >= CONSECUTIVE_CLEAN_THRESHOLD) break;
+
+        // Confirmation pass — re-run reviewer only
+        gitStatus = await safeGitStatusS();
+        const confirmName = `reviewer-${iteration}-confirm`;
+        const confirm = await ctx.session(
+          { name: confirmName, dependsOn: depsOn() },
+          async (s) => {
+            await createClaudeSession({ paneId: s.paneId });
+            const result = await claudeQuery({
+              paneId: s.paneId,
+              prompt: asAgentCall(
+                "reviewer",
+                buildReviewPrompt(s.userPrompt, {
+                  gitStatus,
+                  iteration,
+                  isConfirmationPass: true,
+                }),
+              ),
+            });
+            s.save(s.sessionId);
+            return result.output;
+          },
+        );
+        prevStage = confirmName;
+
+        reviewRaw = confirm.result;
+        parsed = parseReviewResult(reviewRaw);
 
         if (!hasActionableFindings(parsed, reviewRaw)) {
           consecutiveClean += 1;
-          if (consecutiveClean >= CONSECUTIVE_CLEAN_THRESHOLD) {
-            break;
-          }
-
-          // Confirmation pass — re-run reviewer only, NOT plan/orchestrate.
-          gitStatus = await safeGitStatusS();
-          reviewQuery = await claudeQuery({
-            paneId: ctx.paneId,
-            prompt: asAgentCall(
-              "reviewer",
-              buildReviewPrompt(ctx.userPrompt, {
-                gitStatus,
-                iteration,
-                isConfirmationPass: true,
-              }),
-            ),
-          });
-          reviewRaw = reviewQuery.output;
-          parsed = parseReviewResult(reviewRaw);
-
-          if (!hasActionableFindings(parsed, reviewRaw)) {
-            consecutiveClean += 1;
-            if (consecutiveClean >= CONSECUTIVE_CLEAN_THRESHOLD) {
-              break;
-            }
-          } else {
-            consecutiveClean = 0;
-            // fall through to debugger
-          }
+          if (consecutiveClean >= CONSECUTIVE_CLEAN_THRESHOLD) break;
         } else {
           consecutiveClean = 0;
         }
-
-        // ── Debug (only if findings remain AND another iteration is allowed) ─
-        if (
-          hasActionableFindings(parsed, reviewRaw) &&
-          iteration < MAX_LOOPS
-        ) {
-          const debuggerQuery = await claudeQuery({
-            paneId: ctx.paneId,
-            prompt: asAgentCall(
-              "debugger",
-              buildDebuggerReportPrompt(parsed, reviewRaw, {
-                iteration,
-                gitStatus,
-              }),
-            ),
-          });
-          debuggerReport = extractMarkdownBlock(debuggerQuery.output);
-        }
+      } else {
+        consecutiveClean = 0;
       }
 
-      ctx.save(ctx.sessionId);
-    },
+      // ── Debug (only if findings remain AND another iteration is allowed) ─
+      if (hasActionableFindings(parsed, reviewRaw) && iteration < MAX_LOOPS) {
+        const debuggerName = `debugger-${iteration}`;
+        const debugger_ = await ctx.session(
+          { name: debuggerName, dependsOn: depsOn() },
+          async (s) => {
+            await createClaudeSession({ paneId: s.paneId });
+            const result = await claudeQuery({
+              paneId: s.paneId,
+              prompt: asAgentCall(
+                "debugger",
+                buildDebuggerReportPrompt(parsed, reviewRaw, {
+                  iteration,
+                  gitStatus,
+                }),
+              ),
+            });
+            s.save(s.sessionId);
+            return result.output;
+          },
+        );
+        prevStage = debuggerName;
+        debuggerReport = extractMarkdownBlock(debugger_.result);
+      }
+    }
   })
   .compile();

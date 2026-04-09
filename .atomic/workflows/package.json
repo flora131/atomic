@@ -1,8 +1,0 @@
-{
-  "name": "atomic-workflows",
-  "private": true,
-  "type": "module",
-  "dependencies": {
-    "atomic": "file:../../"
-  }
-}

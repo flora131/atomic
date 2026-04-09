@@ -6,7 +6,6 @@
  *   atomic workflow --list
  */
 
-import { join } from "path";
 import { AGENT_CONFIG, type AgentKey } from "@/services/config/index.ts";
 import { COLORS } from "@/theme/colors.ts";
 import { isCommandInstalled } from "@/services/system/detect.ts";
@@ -129,17 +128,10 @@ export async function workflowCommand(options: {
     return 1;
   }
 
-  // Ensure workflow SDK deps are linked in the local workflow directory.
-  const localWorkflowDir = join(process.cwd(), ".atomic", "workflows");
-  try {
-    await WorkflowLoader.installDeps(localWorkflowDir);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`${COLORS.red}Error installing workflow dependencies in ${localWorkflowDir}: ${message}${COLORS.reset}`);
-    return 1;
-  }
-
-  // Load workflow through the pipeline: resolve → validate → load
+  // Load workflow through the pipeline: resolve → validate → load.
+  // The loader registers a Bun resolver plugin that maps `atomic/*` and
+  // atomic's installed deps onto the running CLI's own module graph, so
+  // workflow files don't need their own `package.json` / `node_modules`.
   const result = await WorkflowLoader.loadWorkflow(discovered, {
     warn(warnings) {
       for (const w of warnings) {

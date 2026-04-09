@@ -1,6 +1,7 @@
 /**
  * Tests for WorkflowLoader — covering paths not exercised by discovery.test.ts:
- * - installDeps (already-set spec, pkg rewrite + bun install subprocess)
+ * - Bun.plugin SDK resolver (loads a workflow from a tempdir outside the
+ *   atomic repo and verifies `atomic/workflows` resolution)
  * - validateSource for opencode and claude agents
  * - resolve / validate / load catch blocks
  */
@@ -22,76 +23,84 @@ afterEach(async () => {
 });
 
 // ---------------------------------------------------------------------------
-// installDeps
+// SDK resolver — proves workflow files can `import "atomic/workflows"` from
+// any location on disk, without a `package.json` or `node_modules`.
 // ---------------------------------------------------------------------------
 
-describe("WorkflowLoader.installDeps", () => {
-  test("returns false when workflow directory has no package.json", async () => {
-    const result = await WorkflowLoader.installDeps(tempDir);
-    expect(result).toBe(false);
-  });
-
-  test("returns true without spawning install when spec already matches", async () => {
-    // Construct a directory layout where repoRoot resolves to a real dir:
-    //   <tempDir>/fake-repo/                 ← repoRoot (has package.json named "atomic")
-    //   <tempDir>/fake-repo/level1/workflows ← workflowDir
-    const repoRoot = join(tempDir, "fake-repo");
-    const workflowDir = join(repoRoot, "level1", "workflows");
+describe("WorkflowLoader — atomic/* SDK resolution", () => {
+  test("loads a workflow that imports `atomic/workflows` from outside the repo", async () => {
+    // Place the workflow file in a tempdir well outside `<atomic>/.atomic/`,
+    // so resolution cannot accidentally rely on a parent `node_modules/atomic`
+    // symlink. Only the Bun resolver plugin can satisfy this import.
+    const workflowDir = join(tempDir, "ext", "wf-name", "claude");
     await mkdir(workflowDir, { recursive: true });
-
-    // The workflow's package.json must declare `atomic` with the exact spec
-    // that installDeps would compute, so it takes the early-return branch.
-    const desiredSpec = "file:../..";
+    const filePath = join(workflowDir, "index.ts");
     await writeFile(
-      join(workflowDir, "package.json"),
-      JSON.stringify(
-        { name: "wf", version: "0.0.0", dependencies: { atomic: desiredSpec } },
-        null,
-        2,
-      ),
+      filePath,
+      `
+import { defineWorkflow } from "atomic/workflows";
+
+export default defineWorkflow({ name: "ext" })
+  .session({ name: "s1", run: async () => {} })
+  .compile();
+`,
     );
 
-    const result = await WorkflowLoader.installDeps(workflowDir);
-    expect(result).toBe(true);
+    const result = await WorkflowLoader.loadWorkflow({
+      name: "ext",
+      agent: "claude",
+      path: filePath,
+      source: "local",
+    });
 
-    // No node_modules should be created because install was skipped.
-    const nm = Bun.file(join(workflowDir, "node_modules", ".package-lock.json"));
-    expect(await nm.exists()).toBe(false);
+    if (!result.ok) {
+      // Surface the failure cause so the test report is actionable.
+      throw new Error(
+        `loadWorkflow failed at stage "${result.stage}": ${result.message}\n` +
+          `error=${result.error instanceof Error ? result.error.stack : String(result.error)}`,
+      );
+    }
+    expect(result.value.definition.__brand).toBe("WorkflowDefinition");
+    expect(result.value.definition.name).toBe("ext");
   });
 
-  test(
-    "rewrites package.json and runs bun install when spec differs",
-    async () => {
-      // Same structure as above, but with a wrong/missing spec so the full
-      // install path executes. The fake repoRoot is a valid minimal package
-      // that `bun install file:../..` can resolve.
-      const repoRoot = join(tempDir, "fake-repo");
-      const workflowDir = join(repoRoot, "level1", "workflows");
-      await mkdir(workflowDir, { recursive: true });
+  test("resolves third-party specifiers from atomic's own node_modules", async () => {
+    // A workflow file that imports a bare specifier (`zod`) atomic ships as
+    // a transitive dep. If the loader's `Bun.resolveSync` delegation is
+    // working, this import should succeed even though the workflow lives
+    // outside the atomic repo and has no `node_modules` of its own.
+    const workflowDir = join(tempDir, "tp", "wf", "claude");
+    await mkdir(workflowDir, { recursive: true });
+    const filePath = join(workflowDir, "index.ts");
+    await writeFile(
+      filePath,
+      `
+import { defineWorkflow } from "atomic/workflows";
+import { z } from "zod";
 
-      await writeFile(
-        join(repoRoot, "package.json"),
-        JSON.stringify({ name: "atomic", version: "0.0.1" }, null, 2),
+// Touch the import so tree-shaking / minifiers don't drop it.
+const schema = z.object({ name: z.string() });
+
+export default defineWorkflow({ name: schema.parse({ name: "tp" }).name })
+  .session({ name: "s1", run: async () => {} })
+  .compile();
+`,
+    );
+
+    const result = await WorkflowLoader.loadWorkflow({
+      name: "tp",
+      agent: "claude",
+      path: filePath,
+      source: "local",
+    });
+
+    if (!result.ok) {
+      throw new Error(
+        `loadWorkflow failed at stage "${result.stage}": ${result.message}`,
       );
-
-      await writeFile(
-        join(workflowDir, "package.json"),
-        JSON.stringify(
-          { name: "wf", version: "0.0.0", dependencies: { atomic: "file:./wrong" } },
-          null,
-          2,
-        ),
-      );
-
-      const result = await WorkflowLoader.installDeps(workflowDir);
-      expect(result).toBe(true);
-
-      // package.json should now reflect the computed spec.
-      const updated = await Bun.file(join(workflowDir, "package.json")).json();
-      expect(updated.dependencies.atomic).toBe("file:../..");
-    },
-    30_000, // bun install can be slow on first run
-  );
+    }
+    expect(result.value.definition.name).toBe("tp");
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -9,59 +9,49 @@
 [![Bun](https://img.shields.io/badge/Bun-Runtime-f9f1e1?logo=bun&logoColor=black)](./package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-Atomic is an open-source **multi-agent harness** that orchestrates **Claude Code**, **OpenCode**, and **GitHub Copilot CLI** through a unified interface — with a **workflow SDK**, **containerized execution**, **deep codebase research**, and **autonomous multi-hour coding sessions**.
+Atomic is an open-source **agent harness framework** that lets you build, compose, and run **multi-session coding workflows** on top of **Claude Code**, **OpenCode**, and **GitHub Copilot CLI** — with **58 built-in skills**, **12 specialized sub-agents**, and **containerized execution**.
 
-> One CLI. Three agent SDKs. Research it, spec it, ship it — then wake up to completed code ready for review.
+> Build any agent harness you want. Define workflows as TypeScript. Run them on any coding agent.
+
+---
+
+## Why Atomic
+
+Building harnesses and workflows around coding agents is harder than it should be. Teams hit the same walls:
+
+- **No way to chain agent sessions.** You can prompt an agent, but there's no standard way to feed one session's output into the next — research into planning, planning into implementation, implementation into review. Teams resort to copy-pasting between terminals.
+- **Context degrades in long sessions.** A single agent asked to research, plan, implement, and review in one session produces increasingly unreliable output as its context window fills up. There's no built-in mechanism to isolate concerns across sessions.
+- **Agent-specific configuration is fragmented.** Claude Code, OpenCode, and Copilot CLI each have their own config directories, skill formats, and agent definitions. Building a workflow that works across agents means maintaining three separate configurations.
+- **Team processes live in wikis, not in code.** Every team has a process — triage bugs this way, ship features that way, review PRs with these checks. But those processes are prose in a wiki, not executable code that an agent can follow.
+- **Autonomous execution is unsafe without isolation.** Agents run shell commands, delete files, and execute arbitrary code. Running them autonomously on your host system is a risk most teams won't take.
+- **Specialized work requires specialized agents.** A single general-purpose agent juggling file search, code analysis, web research, and implementation will lose track of details. There's no framework for dispatching purpose-built sub-agents with scoped tools and isolated context windows.
+- **Agent workflows aren't deterministic.** Even when you do chain sessions together, there's no guarantee they'll execute in the same order, pass data the same way, or produce an inspectable record. Without strict ordering and controlled data flow, workflows become unpredictable — hard to debug, impossible to reproduce.
+
+Atomic solves these by giving you a **Workflow SDK** to define multi-session pipelines as TypeScript with **deterministic execution** — strict step ordering, frozen definitions, and controlled transcript passing — plus **12 specialized sub-agents** that keep context windows small and focused, and **containerized execution** via devcontainer features that isolate agents from your host system. Write a workflow once, run it on Claude Code, OpenCode, or Copilot CLI with a flag change.
 
 ---
 
 ## Table of Contents
 
-- [Atomic](#atomic)
-  - [Table of Contents](#table-of-contents)
-  - [Quick Start](#quick-start)
-    - [Prerequisites](#prerequisites)
-    - [1. Install](#1-install)
-    - [2. Initialize Your Project](#2-initialize-your-project)
-    - [3. Generate Context Files](#3-generate-context-files)
-    - [4. Ship Features](#4-ship-features)
-  - [Video Overview](#video-overview)
-  - [Core Features](#core-features)
-    - [Multi-Agent SDK Support](#multi-agent-sdk-support)
-    - [Workflow SDK — Build Your Own Harness](#workflow-sdk--build-your-own-harness)
-      - [Builder API](#builder-api)
-      - [Session Context (`ctx`)](#session-context-ctx)
-      - [Session Options (`SessionRunOptions`)](#session-options-sessionrunoptions)
-      - [Saving Transcripts](#saving-transcripts)
-      - [Provider Helpers](#provider-helpers)
-      - [Key Rules](#key-rules)
-    - [Deep Codebase Research](#deep-codebase-research)
-    - [Autonomous Execution (Ralph)](#autonomous-execution-ralph)
-    - [Containerized Execution](#containerized-execution)
-    - [Specialized Sub-Agents](#specialized-sub-agents)
-    - [Built-in Skills](#built-in-skills)
-    - [Workflow Orchestrator Panel](#workflow-orchestrator-panel)
-  - [Architecture](#architecture)
-    - [Why Research → Plan → Implement → Verify Works](#why-research--plan--implement--verify-works)
-  - [Commands Reference](#commands-reference)
-    - [CLI Commands](#cli-commands)
-      - [Global Flags](#global-flags)
-      - [`atomic init` Flags](#atomic-init-flags)
-      - [`atomic chat` Flags](#atomic-chat-flags)
-      - [`atomic workflow` Flags](#atomic-workflow-flags)
-    - [Atomic-Provided Skills (invokable from any agent chat)](#atomic-provided-skills-invokable-from-any-agent-chat)
-  - [Configuration](#configuration)
-    - [`.atomic/settings.json`](#atomicsettingsjson)
-    - [Agent-Specific Files](#agent-specific-files)
-  - [Installation Options](#installation-options)
-  - [Updating \& Uninstalling](#updating--uninstalling)
-    - [Update](#update)
-    - [Uninstall](#uninstall)
-  - [Troubleshooting](#troubleshooting)
-  - [FAQ](#faq)
-  - [Contributing](#contributing)
-  - [License](#license)
-  - [Credits](#credits)
+- [Quick Start](#quick-start)
+- [Core Features](#core-features)
+  - [Multi-Agent SDK Support](#multi-agent-sdk-support)
+  - [Workflow SDK — Build Your Own Deterministic Harness](#workflow-sdk--build-your-own-deterministic-harness)
+  - [Deep Codebase Research](#deep-codebase-research)
+  - [Autonomous Execution (Ralph)](#autonomous-execution-ralph)
+  - [Containerized Execution](#containerized-execution)
+  - [Specialized Sub-Agents](#specialized-sub-agents)
+  - [Built-in Skills](#built-in-skills)
+  - [Workflow Orchestrator Panel](#workflow-orchestrator-panel)
+- [Commands Reference](#commands-reference)
+- [Configuration](#configuration)
+- [Installation Options](#installation-options)
+- [Updating & Uninstalling](#updating--uninstalling)
+- [Troubleshooting](#troubleshooting)
+- [FAQ](#faq)
+- [Contributing](#contributing)
+- [License](#license)
+- [Credits](#credits)
 
 ---
 
@@ -70,6 +60,7 @@ Atomic is an open-source **multi-agent harness** that orchestrates **Claude Code
 ### Prerequisites
 
 - **macOS, Linux, or Windows** (PowerShell 7+ required on Windows — [install guide](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-windows))
+- **[Bun](https://bun.sh/)** runtime installed
 - **At least one coding agent installed and logged in:**
   - [Claude Code](https://code.claude.com/docs/en/quickstart) — run `claude` and complete authentication
   - [OpenCode](https://opencode.ai) — run `opencode` and complete authentication
@@ -96,13 +87,7 @@ your-project/
 └── ...
 ```
 
-```jsonc
-{
-  "features": {
-    "ghcr.io/flora131/atomic/claude:1": {}   // or /opencode:1 or /copilot:1
-  }
-}
-```
+On first run, Atomic automatically sets up all required tooling (Node.js, tmux, Playwright CLI, config files, skills, and agent configurations). This happens once and takes about a minute.
 
 | Feature              | Reference                            | Agent                                                |
 | -------------------- | ------------------------------------ | ---------------------------------------------------- |
@@ -130,8 +115,6 @@ macOS / Linux:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
-# or with wget:
-wget -qO- https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
 ```
 
 Windows PowerShell 7+:
@@ -140,6 +123,58 @@ Windows PowerShell 7+:
 irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1 | iex
 ```
 
+<details>
+<summary>Migrating from v0.4.x (Binary) to v0.5.x (npm)?</summary>
+
+Atomic has moved from a standalone binary distribution to an **npm package**. The new version gives you the Workflow SDK, 58 skills, and 12 sub-agents as a single installable package.
+
+#### Migration Steps
+
+**1. Uninstall the old binary:**
+
+```bash
+atomic uninstall
+```
+
+**2. Remove the old Workflow SDK global package:**
+
+```bash
+bun uninstall -g @bastani/atomic-workflows
+```
+
+**3. Delete the old configuration directory:**
+
+```bash
+rm -rf ~/.atomic
+```
+
+**4. Install the new version:**
+
+```bash
+bun install -g @bastani/atomic
+```
+
+**5. Re-initialize your project:**
+
+```bash
+cd your-project
+atomic init
+```
+
+> On first run after install, Atomic automatically syncs all agent configurations, skills, workflows, and tooling. This replaces the old `atomic update` command — updates now happen lazily on CLI startup when a version mismatch is detected.
+
+#### What Changed
+
+| Aspect | v0.4.x (Binary) | v0.5.x (npm) |
+| --- | --- | --- |
+| **Distribution** | Pre-compiled binary via `install.sh` | npm package via `bun install -g` |
+| **Updates** | `atomic update` command | Reinstall via `bun install -g @bastani/atomic` + auto-sync on first run |
+| **Uninstall** | `atomic uninstall` | `bun uninstall -g @bastani/atomic` |
+| **Workflow SDK** | Separate `@bastani/atomic-workflows` global package | Bundled with CLI as workspace package |
+| **Config sync** | Manual via install scripts | Automatic on first run after upgrade |
+
+</details>
+
 ### 2. Initialize Your Project
 
 ```bash
@@ -147,7 +182,7 @@ cd your-project
 atomic init
 ```
 
-Select your coding agent when prompted. The CLI configures your project automatically.
+Select your coding agent and source control system when prompted. The CLI configures your project automatically.
 
 ### 3. Generate Context Files
 
@@ -163,47 +198,70 @@ atomic chat -a <claude|opencode|copilot>
 
 This explores your codebase using sub-agents and generates documentation that gives coding agents the context they need.
 
-### 4. Ship Features
+### 4. Build a Workflow
 
-```
-Research  →  Spec  →  Implement, Verify & Review  →  PR
-```
+Every team has a process. Atomic lets you encode it as TypeScript — chain agent sessions together, pass transcripts between them, and run the whole thing from the CLI.
+
+Drop a `.ts` file in `.atomic/workflows/<name>/<agent>/index.ts` and run it:
 
 ```bash
-# Research the codebase
-/research-codebase Describe your feature or question
-/clear
-
-# Create a specification (review carefully — it becomes the contract)
-/create-spec research-path
-/clear
-
-# Implement autonomously (run from a separate terminal)
-atomic workflow -n ralph -a <claude|opencode|copilot> "<prompt-or-spec-path>"
-
-# Review the implementation
-# Ralph runs tests, reviews correctness, and fixes issues automatically —
-# but you should still read the code changes before shipping.
-Review the code changes against the spec. Flag anything that doesn't match.
-
-# Commit and ship
-/gh-commit
-/gh-create-pr
+atomic workflow -n my-workflow -a claude "add user avatars to the profile page"
 ```
 
-> **Testing and verification are automated.** Ralph's review-debug loop runs tests, checks correctness and test coverage against the spec, and fixes issues — but we suggest to review the final diff yourself before committing.
+Here's a workflow that researches a codebase, implements a feature, and reviews the result — three sessions, each in its own context window:
 
-If something breaks, use the debugging agent:
+```ts
+// .atomic/workflows/my-workflow/claude/index.ts
+import { defineWorkflow, createClaudeSession, claudeQuery } from "@bastani/atomic/workflows";
 
+export default defineWorkflow({
+  name: "my-workflow",
+  description: "Research -> Implement -> Review",
+})
+  .run(async (ctx) => {
+    const research = await ctx.session(
+      { name: "research", description: "Analyze the codebase for the requested change" },
+      async (s) => {
+        await createClaudeSession({ paneId: s.paneId });
+        await claudeQuery({
+          paneId: s.paneId,
+          prompt: `/research-codebase ${s.userPrompt}`,
+        });
+        s.save(s.sessionId);
+      },
+    );
+
+    const implement = await ctx.session(
+      { name: "implement", description: "Implement the feature based on research findings" },
+      async (s) => {
+        const transcript = await s.transcript(research);
+        await createClaudeSession({ paneId: s.paneId });
+        await claudeQuery({
+          paneId: s.paneId,
+          prompt: `Read ${transcript.path} and implement the changes described. Run tests to verify.`,
+        });
+        s.save(s.sessionId);
+      },
+    );
+
+    await ctx.session(
+      { name: "review", description: "Review the implementation for correctness" },
+      async (s) => {
+        await createClaudeSession({ paneId: s.paneId });
+        await claudeQuery({
+          paneId: s.paneId,
+          prompt: "Review all uncommitted changes. Flag any issues with correctness, tests, or style.",
+        });
+        s.save(s.sessionId);
+      },
+    );
+  })
+  .compile();
 ```
-Use the debugging agent to create a debugging report for [error message]
-```
 
----
+This is just one example. Add a spec phase, parallelize independent sessions, swap in a different agent — the workflow is yours to define. See [Workflow SDK — Build Your Own Harness](#workflow-sdk--build-your-own-harness) for the full API and more examples.
 
-## Video Overview
-
-[![Atomic Video Overview](https://img.youtube.com/vi/Lq8-qzGfoy4/maxresdefault.jpg)](https://www.youtube.com/watch?v=Lq8-qzGfoy4)
+> **Want something that works out of the box?** Atomic ships with `ralph`, a built-in workflow that plans, implements, reviews, and debugs autonomously — see [Autonomous Execution (Ralph)](#autonomous-execution-ralph).
 
 ---
 
@@ -221,7 +279,7 @@ Atomic is the only harness that unifies **three production agent SDKs** behind a
 
 Each agent gets its own configuration directory (`.claude/`, `.opencode/`, `.github/`), skills, and context files — all managed by Atomic. Write a workflow once, run it on any agent.
 
-### Workflow SDK — Build Your Own Harness
+### Workflow SDK — Build Your Own Deterministic Harness
 
 Every team has a process — triage bugs this way, ship features that way, review PRs with these checks. Most of it lives in a wiki nobody reads or in one senior engineer's head. The **Workflow SDK** (`@bastani/atomic/workflows`) lets you encode that process as TypeScript — spawn agent sessions dynamically with native control flow (`for`, `if`, `Promise.all()`), and watch them appear in a live graph as they execute.
 
@@ -232,7 +290,7 @@ atomic workflow -n hello -a claude "describe this project"
 ```
 
 <details>
-<summary>See an example of the workflow definition</summary>
+<summary>Example: Sequential workflow (describe -> summarize)</summary>
 
 ```ts
 // .atomic/workflows/hello/claude/index.ts
@@ -240,7 +298,7 @@ import { defineWorkflow, createClaudeSession, claudeQuery } from "@bastani/atomi
 
 export default defineWorkflow({
   name: "hello",
-  description: "Two-session Claude demo: describe → summarize",
+  description: "Two-session Claude demo: describe -> summarize",
 })
   .run(async (ctx) => {
     const describe = await ctx.session(
@@ -270,6 +328,81 @@ export default defineWorkflow({
 
 </details>
 
+<details>
+<summary>Example: Parallel workflow (describe -> [summarize-a, summarize-b] -> merge)</summary>
+
+```ts
+// .atomic/workflows/hello-parallel/claude/index.ts
+import { defineWorkflow, createClaudeSession, claudeQuery } from "@bastani/atomic/workflows";
+
+export default defineWorkflow({
+  name: "hello-parallel",
+  description: "Parallel Claude demo: describe -> [summarize-a, summarize-b] -> merge",
+})
+  .run(async (ctx) => {
+    const describe = await ctx.session(
+      { name: "describe", description: "Ask Claude to describe the project" },
+      async (s) => {
+        await createClaudeSession({ paneId: s.paneId });
+        await claudeQuery({ paneId: s.paneId, prompt: s.userPrompt });
+        s.save(s.sessionId);
+      },
+    );
+
+    const [summarizeA, summarizeB] = await Promise.all([
+      ctx.session(
+        { name: "summarize-a", description: "Summarize the description as bullet points" },
+        async (s) => {
+          const research = await s.transcript(describe);
+          await createClaudeSession({ paneId: s.paneId });
+          await claudeQuery({
+            paneId: s.paneId,
+            prompt: `Read ${research.path} and summarize it in 2-3 bullet points.`,
+          });
+          s.save(s.sessionId);
+        },
+      ),
+      ctx.session(
+        { name: "summarize-b", description: "Summarize the description as a one-liner" },
+        async (s) => {
+          const research = await s.transcript(describe);
+          await createClaudeSession({ paneId: s.paneId });
+          await claudeQuery({
+            paneId: s.paneId,
+            prompt: `Read ${research.path} and summarize it in a single sentence.`,
+          });
+          s.save(s.sessionId);
+        },
+      ),
+    ]);
+
+    await ctx.session(
+      { name: "merge", description: "Merge both summaries into a final output" },
+      async (s) => {
+        const bullets = await s.transcript(summarizeA);
+        const oneliner = await s.transcript(summarizeB);
+        await createClaudeSession({ paneId: s.paneId });
+        await claudeQuery({
+          paneId: s.paneId,
+          prompt: [
+            "Combine the following two summaries into one concise paragraph:",
+            "",
+            "## Bullet points",
+            bullets.content,
+            "",
+            "## One-liner",
+            oneliner.content,
+          ].join("\n"),
+        });
+        s.save(s.sessionId);
+      },
+    );
+  })
+  .compile();
+```
+
+</details>
+
 **Key capabilities:**
 
 | Capability                   | Description                                                                          |
@@ -282,6 +415,18 @@ export default defineWorkflow({
 | **Dependency tracking**      | Use `dependsOn: ["name"]` to declare session ordering — the runtime waits and the graph shows the edges |
 | **Provider-agnostic**        | Write raw SDK code for Claude, Copilot, or OpenCode inside each session callback     |
 | **Live graph visualization** | Sessions appear in the TUI graph as they're spawned — loops and conditionals are visible in real time |
+
+**Deterministic execution guarantees:**
+
+Workflows are deterministic by design — the same definition always produces the same execution order with the same data flow, regardless of when or where you run it.
+
+- **Strict step ordering** — Steps execute sequentially. Step 2 never starts until Step 1 finishes. Parallel sessions within a step all complete (or fail fast) before the next step begins.
+- **Frozen definitions** — `.compile()` freezes the workflow structure. Once compiled, the step order, session names, and execution graph are immutable.
+- **Controlled transcript access** — Sessions can only read transcripts from *completed* upstream sessions. Parallel siblings are blocked from reading each other, eliminating race conditions on shared state.
+- **Isolated context windows** — Each session runs in its own tmux pane with a fresh context window. No session inherits stale state from another — data flows only through explicit `ctx.transcript()` and `ctx.getMessages()` calls.
+- **Persisted artifacts** — Every session writes its messages, transcript, and metadata to disk. The workflow produces a complete, inspectable execution record you can replay or debug after the fact.
+
+This means you can run the same workflow on different machines, different agents, or at different times and get structurally identical execution — same steps, same data flow, same ordering. The only variance comes from the LLM's responses, not from the harness.
 
 Drop a `.ts` file in `.atomic/workflows/<name>/<agent>/` (project-local) or `~/.atomic/workflows/` (global). You can also ask Atomic to create workflows for you:
 
@@ -520,7 +665,7 @@ Each feature installs Atomic + one agent. Mix and match across projects:
 
 ### Specialized Sub-Agents
 
-Atomic doesn't use one general-purpose agent for everything. It dispatches **purpose-built sub-agents**, each with scoped context, tools, and termination conditions:
+Atomic dispatches **purpose-built sub-agents**, each with scoped context, tools, and termination conditions:
 
 | Sub-Agent                    | Purpose                                                                |
 | ---------------------------- | ---------------------------------------------------------------------- |
@@ -668,42 +813,6 @@ During `atomic chat`, there is no Atomic-owned TUI — `atomic chat -a <agent>` 
 
 ---
 
-## Architecture
-
-**You own the decisions. Agents own the execution.**
-
-Every feature follows this cycle. Specs and research become persistent context for future sessions. You review at two critical points: after research (did the agent understand the codebase?) and after the spec (is the plan correct?).
-
-```
-Research → Specs → Execution → Outcomes → Specs (persistent context)
-                ↑                                    ↓
-                └────────────────────────────────────┘
-```
-
-### Why Research → Plan → Implement → Verify Works
-
-Most failures in AI-assisted coding come from the same root cause: **the agent didn't have enough context before it started writing code**. An agent that jumps straight to implementation is guessing at architecture, conventions, and constraints — and the further it gets, the more expensive it is to correct course. This is true regardless of model capability.
-
-Atomic's architecture is built around a four-phase cycle that plays to how LLMs actually work best:
-
-**1. Research** — Before touching any code, the agent builds a factual understanding of the codebase. Specialized research sub-agents fan out in parallel: locating relevant files, analyzing implementations, querying external documentation. The output is a structured research document — not a plan, not code, just facts. This gives the human a checkpoint: *did the agent actually understand the codebase?* If the research is wrong, you catch it here instead of after 500 lines of incorrect implementation.
-
-**2. Plan (Spec)** — The agent produces a technical specification grounded in the research. This is the most important human review point. A spec is a contract: it defines what will be built, what files will be touched, what the expected behavior is. Specs are cheap to revise; implementations are expensive to rewrite. By forcing a planning phase, Atomic ensures the agent commits to a coherent strategy before writing any code.
-
-**3. Implement** — With a validated spec, the planner decomposes work into discrete tasks with dependency tracking. Worker sub-agents execute tasks in parallel, each in its own context window, each focused on a single unit of work. This is where specialization pays off — a worker implementing a database migration doesn't need to hold the full API spec in context. It just needs its task, the relevant files, and the tools to edit them.
-
-**4. Verify** — A reviewer sub-agent audits the implementation against the original spec. If issues are found, a debugger generates a report that feeds back to the planner on the next iteration. This catches errors before they compound — a misnamed field caught during review is a one-line fix; the same error caught by a user in production is a multi-file cascade.
-
-**Why this matters for LLMs specifically:**
-
-LLMs are stateless — they don't retain memory between turns beyond what's in the context window. Without structure, a long coding session becomes a degrading context window where early decisions get pushed out and the agent loses coherence. Atomic's phased approach solves this by externalizing state: research documents persist to disk, specs become files, task lists live in a SQLite database, and review feedback generates new tasks. Each phase produces artifacts that the next phase consumes, so no single agent needs to hold the entire problem in its context window.
-
-This is also why the cycle is iterative. Research and specs become persistent context for future sessions — every investigation compounds. The agent that implements your next feature starts with richer context than the one that implemented the first, without anyone having to re-explain the codebase.
-
-[![Architecture](assets/architecture.svg)](assets/architecture.svg)
-
----
-
 ## Commands Reference
 
 ### CLI Commands
@@ -825,6 +934,65 @@ Created automatically during `atomic init`. Resolution order:
 ---
 
 ## Installation Options
+
+### Bun (recommended)
+
+```bash
+bun install -g @bastani/atomic
+```
+
+### Devcontainer (recommended for autonomous agents)
+
+> [!TIP]
+> Devcontainers isolate the coding agent from your host system, reducing the risk of destructive actions like unintended file deletions or misapplied shell commands. This makes them the safest way to run Atomic.
+>
+> Use the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) for VS Code or [DevPod](https://devpod.sh) to spawn and manage your devcontainers.
+
+Add a single feature to your `.devcontainer/devcontainer.json`:
+
+```
+your-project/
++-- .devcontainer/
+|   +-- devcontainer.json   <-- add the feature here
++-- src/
++-- ...
+```
+
+```jsonc
+{
+  "features": {
+    "ghcr.io/flora131/atomic/claude:1": {}   // or /opencode:1 or /copilot:1
+  }
+}
+```
+
+| Feature | Reference | Agent |
+|---------|-----------|-------|
+| Atomic + Claude Code | `ghcr.io/flora131/atomic/claude:1` | [Claude Code](https://claude.ai) |
+| Atomic + OpenCode | `ghcr.io/flora131/atomic/opencode:1` | [OpenCode](https://opencode.ai) |
+| Atomic + Copilot CLI | `ghcr.io/flora131/atomic/copilot:1` | [Copilot CLI](https://github.com/github/copilot-cli) |
+
+Each feature installs the Atomic CLI, all shared dependencies (bun, playwright-cli), agent-specific configurations (agents, skills), and the agent CLI itself. Features are versioned in sync with Atomic CLI releases.
+
+<details>
+<summary>Standalone binary (macOS / Linux)</summary>
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
+# or with wget:
+wget -qO- https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
+```
+
+</details>
+
+<details>
+<summary>Standalone binary (Windows PowerShell)</summary>
+
+```powershell
+irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1 | iex
+```
+
+</details>
 
 <details>
 <summary>Install a specific version</summary>
@@ -1004,6 +1172,7 @@ Remove-Item -Path "$env:USERPROFILE\.atomic" -Recurse -Force
 
 ---
 
+
 ## Troubleshooting
 
 <details>
@@ -1030,6 +1199,27 @@ If agents fail to spawn on Windows, ensure the agent CLI is in your PATH. Atomic
 
 </details>
 
+<details>
+<summary>Sub-agent tree stuck on "Initializing..."</summary>
+
+1. Update to the latest release (`bun install -g @bastani/atomic`) and retry
+2. Check for terminal progress events in verbose mode
+3. Press `Ctrl+F` twice to terminate stuck background agents, then resend your prompt
+4. If the issue persists, capture reproduction steps and [open an issue](https://github.com/flora131/atomic/issues)
+
+</details>
+
+<details>
+<summary>Shift+Enter not inserting newline</summary>
+
+- **VS Code terminal:** Keep `terminal.integrated.enableKittyKeyboardProtocol` enabled
+- **GNOME Terminal, xterm, Alacritty, WezTerm, iTerm2:** `modifyOtherKeys` mode is enabled automatically
+- **Universal fallback:** Use `Ctrl+J` for newline
+- **Last resort:** End line with `\` and press Enter
+
+</details>
+
+
 ---
 
 ## FAQ
@@ -1039,17 +1229,21 @@ If agents fail to spawn on Windows, ensure the agent CLI is in your PATH. Atomic
 
 [Spec Kit](https://github.com/github/spec-kit) is GitHub's toolkit for "Spec-Driven Development." Both improve AI-assisted development, but solve different problems:
 
-| Aspect           | Spec-Kit                        | Atomic                                          |
-| ---------------- | ------------------------------- | ----------------------------------------------- |
-| **Focus**        | Greenfield projects             | Large existing codebases + greenfield           |
-| **First Step**   | Define project principles       | Analyze existing architecture                   |
-| **Context**      | Per-feature specs               | Research → Specs → Execution → Outcomes         |
-| **Agents**       | Single agent with shell scripts | 12+ specialized sub-agents across 3 SDKs        |
-| **Workflows**    | Not available                   | Session-based pipelines with transcript passing |
-| **Human Review** | Implicit                        | Explicit checkpoints                            |
-| **Debugging**    | Not addressed                   | Dedicated debugging workflow                    |
-| **Autonomous**   | Not available                   | Ralph for multi-hour execution                  |
-| **Isolation**    | Not addressed                   | Devcontainer features for safe execution        |
+**In short:** Spec-Kit works well for greenfield projects where you start from a spec and use a single Copilot session to generate code. Atomic is built for the harder case — large existing codebases where you need to research what's already there before changing anything. It gives you multi-session pipelines with isolated context windows (so the agent doesn't degrade over long tasks), deterministic execution, and support for Claude Code, OpenCode, and Copilot CLI instead of just one agent. If you're starting a new project from scratch with Copilot, Spec-Kit is simpler. If you're working on an established codebase and need chained sessions, parallel research, or autonomous execution, that's what Atomic is for.
+
+| Aspect | Spec-Kit | Atomic |
+| --- | --- | --- |
+| **Focus** | Greenfield projects with spec-first workflow | Large existing codebases + greenfield — research-first or spec-first |
+| **First Step** | Define project principles and specs | Analyze existing architecture with parallel research sub-agents |
+| **Workflow Definition** | Shell scripts and markdown templates | TypeScript Workflow SDK (`defineWorkflow()` → `.run()` → `.compile()`) with deterministic execution |
+| **Session Management** | Single agent session | Multi-session pipelines — sequential and parallel — each in isolated context windows |
+| **Data Flow** | Manual — copy output between steps | Controlled transcript passing via `ctx.transcript()` and `ctx.getMessages()` |
+| **Agent Support** | GitHub Copilot CLI | Claude Code + OpenCode + Copilot CLI — switch with a flag |
+| **Sub-Agents** | Single general-purpose agent | 12 specialized sub-agents with scoped tools and isolated contexts |
+| **Skills** | Not available | 58 built-in skills (development, design, docs, agent architecture) |
+| **Autonomous Execution** | Not available | Ralph — multi-hour autonomous sessions with plan/implement/review/debug loop |
+| **Execution Guarantees** | Non-deterministic | Deterministic — strict step ordering, frozen definitions, controlled transcript access |
+| **Isolation** | Not addressed | Devcontainer features for containerized execution |
 
 </details>
 
@@ -1058,15 +1252,54 @@ If agents fail to spawn on Windows, ensure the agent CLI is in your PATH. Atomic
 
 [DeerFlow](https://github.com/bytedance/deer-flow) is ByteDance's agent harness built on LangGraph/LangChain. Both are multi-agent orchestrators, but take different approaches:
 
-| Aspect         | DeerFlow                    | Atomic                                             |
-| -------------- | --------------------------- | -------------------------------------------------- |
-| **Runtime**    | Python (LangGraph)          | TypeScript (Bun)                                   |
-| **Agent SDKs** | OpenAI-compatible API       | Claude Code + OpenCode + Copilot CLI SDKs natively |
-| **Focus**      | General-purpose agent tasks | Coding-specific: research, spec, implement, review |
-| **Workflows**  | LangGraph state machines    | Session-based chainable API with `.compile()`      |
-| **Execution**  | Sandbox containers          | Devcontainer features + git worktrees              |
-| **Interface**  | Web UI                      | Terminal TUI with agent activity tree              |
-| **Autonomous** | Not available               | Ralph for multi-hour coding sessions               |
+**In short:** DeerFlow is a general-purpose agent orchestrator — it handles research, report generation, and other tasks through a LangGraph DAG with a web UI. Atomic is narrowly focused on coding workflows. The key difference is that Atomic runs on top of production coding agents (Claude Code, OpenCode, Copilot CLI) rather than reimplementing coding tools through a generic API. You get each agent's native file editing, permissions, MCP integrations, and hooks out of the box. Atomic also gives you deterministic execution — same step order, same data flow every run — which matters when you're encoding a team's dev process and need it to be reproducible across people and CI. If you need a general-purpose agent pipeline with a web UI, DeerFlow is the better fit. If you need coding-specific workflows with strict execution guarantees, Atomic is more appropriate.
+
+| Aspect | DeerFlow | Atomic |
+| --- | --- | --- |
+| **Runtime** | Python (LangGraph) | TypeScript (Bun) |
+| **Agent SDKs** | OpenAI-compatible API | Claude Code + OpenCode + Copilot CLI native SDKs — write raw SDK code in each session |
+| **Focus** | General-purpose agent tasks (research, reports) | Coding-specific: research, spec, implement, review, debug |
+| **Workflow Definition** | LangGraph state machines with graph nodes | TypeScript Workflow SDK — `defineWorkflow()` → `.run()` → `.compile()` |
+| **Execution Model** | DAG-based with conditional edges | Deterministic — strict step ordering, frozen definitions, controlled transcript passing |
+| **Parallelism** | Via LangGraph branch nodes | Native parallel sessions via `Promise.all()` with `ctx.session()` in isolated context windows |
+| **Sub-Agents** | Researcher, coder, reporter nodes | 12 specialized sub-agents with scoped tools (planner, worker, reviewer, debugger, etc.) |
+| **Skills** | Not available | 58 built-in skills auto-invoked by context |
+| **Isolation** | Sandbox containers | Devcontainer features + git worktrees |
+| **Interface** | Web UI (Streamlit) | Terminal chat with tmux-based session management |
+| **Autonomous** | Not available | Ralph — bounded iteration with plan/implement/review/debug loop |
+| **Distribution** | `pip install` + local server | `bun install -g` or devcontainer features |
+
+</details>
+
+<details>
+<summary>How does Atomic differ from Hermes Agent?</summary>
+
+[Hermes Agent](https://github.com/NousResearch/hermes-agent) is Nous Research's general-purpose AI agent with a self-improving learning loop. Both are open-source agent frameworks, but serve different use cases:
+
+**In short:** Hermes Agent is a broad AI assistant that learns and improves across sessions, connects to messaging platforms, and works with any OpenAI-compatible model. Atomic is a coding-specific harness built for engineering teams. It lets you encode your development process as deterministic TypeScript workflows that run identically across team members, machines, and CI pipelines. Instead of reimplementing coding tools from scratch, Atomic inherits production-hardened tool ecosystems from Claude Code, OpenCode, and Copilot CLI — including their permission systems, MCP integrations, and hooks — giving you two independent security boundaries (devcontainer isolation + agent permissions) rather than one. Each workflow session runs in a fresh context window with only distilled transcripts passed forward, so output stays sharp over multi-hour coding tasks instead of degrading through lossy compression. And because skills are developer-authored and version-controlled, they don't drift or accumulate errors the way auto-generated skills can. Choose Hermes if you want a self-improving general-purpose agent with multi-platform messaging; choose Atomic if you want repeatable, auditable coding workflows with strict execution guarantees and production-grade isolation.
+
+| Aspect | Hermes Agent | Atomic |
+| --- | --- | --- |
+| **Focus** | General-purpose AI assistant (coding, messaging, smart home, research) | Coding-specific: multi-session workflows on coding agents |
+| **Runtime** | Python 3.11+ (uv) | TypeScript (Bun) |
+| **Agent SDKs** | OpenAI-compatible API as universal adapter (200+ models via OpenRouter) | Claude Code + OpenCode + Copilot CLI native SDKs — write raw SDK code in each session |
+| **Workflow Definition** | Cron scheduler + subagent delegation | TypeScript Workflow SDK — `defineWorkflow()` → `.run()` → `.compile()` |
+| **Session Management** | Single conversation loop with context compression | Multi-session pipelines — sequential and parallel — each in isolated context windows |
+| **Data Flow** | In-context within a single conversation | Controlled transcript passing via `ctx.transcript()` and `ctx.getMessages()` |
+| **Self-Improvement** | Closed learning loop — auto-creates skills from experience, persistent user model via Honcho | Skills authored by developers; memory via CLAUDE.md / AGENTS.md context files |
+| **Sub-Agents** | `delegate_task` spawns isolated subagents | 12 specialized sub-agents with scoped tools and model tiers (Opus, Sonnet, Haiku) |
+| **Skills** | 40+ tools + community Skills Hub (agentskills.io) | 58 built-in skills (development, design, docs, agent architecture) |
+| **Interface** | Terminal TUI + multi-platform messaging gateway (Telegram, Discord, Slack, WhatsApp, etc.) | Terminal chat with tmux-based session management |
+| **Isolation** | Six terminal backends (local, Docker, SSH, Daytona, Singularity, Modal) | Devcontainer features + git worktrees |
+| **Autonomous Execution** | Cron scheduler with inactivity-based timeouts | Ralph — bounded iteration with plan/implement/review/debug loop |
+| **Execution Guarantees** | Non-deterministic conversation loop | Deterministic — strict step ordering, frozen definitions, controlled transcript access |
+| **Team Process Encoding** | Personal assistant — no concept of team-shared workflows | Encode your team's dev process as TypeScript — repeatable across members, projects, and CI |
+| **Coding Agent Tooling** | Reimplements file/terminal tools from scratch via `model_tools.py` | Inherits production-hardened tool ecosystems from Claude Code, OpenCode, and Copilot CLI (file editing, permissions, MCP, hooks) |
+| **Reproducibility** | Conversation loop produces different execution paths each run | Frozen workflow definitions run identically across machines, team members, and CI pipelines |
+| **Context Quality** | Lossy compression within a single conversation — degrades on long coding tasks | Fresh context window per session with only distilled transcripts passed forward — stays sharp over multi-hour tasks |
+| **Skill Authoring** | Auto-created skills may drift, accumulate errors, or encode bad patterns over time | Developer-authored, version-controlled skills — intentional and auditable |
+| **Security Model** | Command approval + container backends (single boundary) | Devcontainer isolation + coding agent permission systems (Claude Code permissions, Copilot safeguards) — two independent security boundaries |
+| **Distribution** | `uv` / `pip` | `bun install -g` or devcontainer features |
 
 </details>
 
@@ -1089,3 +1322,4 @@ MIT License — see [LICENSE](LICENSE) for details.
 - [Ralph Wiggum Method](https://ghuntley.com/ralph/)
 - [OpenAI Codex Cookbook](https://github.com/openai/openai-cookbook)
 - [HumanLayer](https://github.com/humanlayer/humanlayer)
+- [Impeccable](https://github.com/pbakaus/impeccable)

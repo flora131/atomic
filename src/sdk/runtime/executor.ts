@@ -7,7 +7,7 @@
  *    `bun run executor.ts --run <args>`
  * 3. The CLI then attaches to the tmux session (user sees it live)
  * 4. The orchestrator pane calls `definition.run(workflowCtx)` — the
- *    user's callback uses `ctx.session()` to spawn agent sessions
+ *    user's callback uses `ctx.stage()` to spawn agent sessions
  */
 
 import { join, resolve } from "path";
@@ -24,6 +24,8 @@ import type {
   Transcript,
   SavedMessage,
   SaveTranscript,
+  StageClientOptions,
+  StageSessionOptions,
 } from "../types.ts";
 import type { SessionEvent } from "@github/copilot-sdk";
 import type { SessionPromptResponse } from "@opencode-ai/sdk/v2";
@@ -31,8 +33,13 @@ import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import * as tmux from "./tmux.ts";
 import { getMuxBinary } from "./tmux.ts";
 import { WorkflowLoader } from "./loader.ts";
-import { clearClaudeSession } from "../providers/claude.ts";
+import {
+  clearClaudeSession,
+  ClaudeClientWrapper,
+  ClaudeSessionWrapper,
+} from "../providers/claude.ts";
 import { OrchestratorPanel } from "./panel.tsx";
+import { GraphFrontierTracker } from "./graph-inference.ts";
 
 /** Maximum time (ms) to wait for an agent's server to become reachable. */
 const SERVER_WAIT_TIMEOUT_MS = 60_000;
@@ -98,11 +105,7 @@ interface SessionResult {
 interface ActiveSession {
   name: string;
   paneId: string;
-  /**
-   * Settles when the session finishes. Resolves on success, rejects with the
-   * callback's error on failure. Dependent sessions awaiting via `dependsOn`
-   * block on this promise.
-   */
+  /** Settles when the session finishes. Resolves on success, rejects on failure. */
   done: Promise<void>;
 }
 
@@ -410,7 +413,7 @@ function resolveRef(ref: SessionRef): string {
 }
 
 // ============================================================================
-// Session runner — implements ctx.session() lifecycle
+// Session runner — implements ctx.stage() lifecycle
 // ============================================================================
 
 /** Shared state passed to session runners by the orchestrator. */
@@ -427,23 +430,118 @@ interface SharedRunnerState {
 }
 
 /**
- * Create a `ctx.session()` function bound to a parent name for graph edges.
+ * Create the provider-specific client and session for a stage.
+ * Called by the session runner after server readiness is confirmed.
+ */
+async function initProviderClientAndSession(
+  agent: AgentType,
+  serverUrl: string,
+  paneId: string,
+  sessionId: string,
+  clientOpts: StageClientOptions<AgentType>,
+  sessionOpts: StageSessionOptions<AgentType>,
+): Promise<{ client: unknown; session: unknown }> {
+  switch (agent) {
+    case "copilot": {
+      const { CopilotClient, approveAll } = await import("@github/copilot-sdk");
+      const copilotClientOpts = clientOpts as StageClientOptions<"copilot">;
+      const copilotSessionOpts = sessionOpts as StageSessionOptions<"copilot">;
+      const client = new CopilotClient({ cliUrl: serverUrl, ...copilotClientOpts });
+      await client.start();
+      const session = await client.createSession({
+        onPermissionRequest: approveAll,
+        ...copilotSessionOpts,
+      });
+      await client.setForegroundSessionId(session.sessionId);
+      return { client, session };
+    }
+    case "opencode": {
+      const { createOpencodeClient } = await import("@opencode-ai/sdk/v2");
+      const ocClientOpts = clientOpts as StageClientOptions<"opencode">;
+      const ocSessionOpts = sessionOpts as StageSessionOptions<"opencode">;
+      const client = createOpencodeClient({ baseUrl: serverUrl, ...ocClientOpts });
+      const sessionResult = await client.session.create(ocSessionOpts);
+      await client.tui.selectSession({ sessionID: sessionResult.data!.id });
+      return { client, session: sessionResult.data! };
+    }
+    case "claude": {
+      const claudeClientOpts = clientOpts as StageClientOptions<"claude">;
+      const claudeSessionOpts = sessionOpts as StageSessionOptions<"claude">;
+      const client = new ClaudeClientWrapper(paneId, claudeClientOpts);
+      await client.start();
+      const session = new ClaudeSessionWrapper(paneId, sessionId, claudeSessionOpts);
+      return { client, session };
+    }
+  }
+}
+
+/**
+ * Clean up provider-specific resources after a stage callback completes.
+ * Errors are silently caught — cleanup must not mask callback errors.
+ */
+async function cleanupProvider(
+  agent: AgentType,
+  providerClient: unknown,
+  providerSession: unknown,
+  paneId: string,
+): Promise<void> {
+  switch (agent) {
+    case "copilot": {
+      const { CopilotSession: CopilotSessionClass } = await import("@github/copilot-sdk");
+      try {
+        if (providerSession instanceof CopilotSessionClass) {
+          await providerSession.disconnect();
+        }
+      } catch {}
+      try {
+        const { CopilotClient: CopilotClientClass } = await import("@github/copilot-sdk");
+        if (providerClient instanceof CopilotClientClass) {
+          await providerClient.stop();
+        }
+      } catch {}
+      break;
+    }
+    case "opencode":
+      // Stateless HTTP client — no cleanup needed
+      break;
+    case "claude":
+      clearClaudeSession(paneId);
+      break;
+  }
+}
+
+/**
+ * Create a `ctx.stage()` function bound to a parent name for graph edges.
+ *
+ * Graph topology is auto-inferred from JavaScript's execution order:
+ * - **Sequential** (`await`): the completed stage is in the frontier when the
+ *   next stage spawns → parent-child edge.
+ * - **Parallel** (`Promise.all`): both calls fire in the same synchronous
+ *   frame → frontier is empty for the second call → sibling edges.
+ * - **Fan-in**: after `Promise.all` resolves, all parallel stages are in the
+ *   frontier → the next stage depends on all of them.
+ *
  * The returned function manages the full session lifecycle:
- * spawn → run callback → flush saves → complete/error → cleanup.
+ * spawn → init client/session → run callback → flush saves → cleanup → complete/error.
  */
 function createSessionRunner(
   shared: SharedRunnerState,
   parentName: string,
 ): <T = void>(
   options: SessionRunOptions,
+  clientOpts: StageClientOptions<AgentType>,
+  sessionOpts: StageSessionOptions<AgentType>,
   run: (ctx: SessionContext) => Promise<T>,
 ) => Promise<SessionHandle<T>> {
+  const graphTracker = new GraphFrontierTracker(parentName);
+
   return async <T = void>(
     options: SessionRunOptions,
+    clientOpts: StageClientOptions<AgentType>,
+    sessionOpts: StageSessionOptions<AgentType>,
     run: (ctx: SessionContext) => Promise<T>,
   ): Promise<SessionHandle<T>> => {
     const { name } = options;
-    const deps = options.dependsOn ?? [];
 
     // ── 1. Validate name uniqueness (synchronous, before any await) ──
     if (!name || name.trim() === "") {
@@ -453,23 +551,8 @@ function createSessionRunner(
       throw new Error(`Duplicate session name: "${name}"`);
     }
 
-    // ── 2. Validate dependsOn (synchronous, before any await) ──
-    if (deps.length > 0) {
-      if (deps.includes(name)) {
-        throw new Error(`Session "${name}" cannot depend on itself.`);
-      }
-      const unknown = deps.filter(
-        (d) =>
-          !shared.activeRegistry.has(d) && !shared.completedRegistry.has(d),
-      );
-      if (unknown.length > 0) {
-        throw new Error(
-          `Session "${name}" dependsOn unknown session(s): ${unknown.join(
-            ", ",
-          )}. Dependencies must be spawned before the dependent session.`,
-        );
-      }
-    }
+    // ── 2. Auto-infer graph parents from frontier (synchronous) ──
+    const graphParents = graphTracker.onSpawn();
 
     // ── 3. Create done promise so dependent sessions can await this one ──
     let resolveDone!: () => void;
@@ -487,22 +570,8 @@ function createSessionRunner(
 
     const sessionId = generateId();
     let paneId = "";
-    // Graph parents: explicit deps if provided, otherwise the enclosing scope.
-    const graphParents = deps.length > 0 ? [...deps] : [parentName];
 
     try {
-      // ── 5. Wait for dependsOn sessions to finish ──
-      // Active deps block; completed deps resolve immediately. If a dep
-      // rejects (its session failed), this throws and aborts the dependent.
-      if (deps.length > 0) {
-        await Promise.all(
-          deps.map((d) => {
-            const active = shared.activeRegistry.get(d);
-            if (active) return active.done;
-            return Promise.resolve();
-          }),
-        );
-      }
 
       // ── 6. Allocate port ──
       const port = await getRandomPort();
@@ -652,9 +721,21 @@ function createSessionRunner(
         return JSON.parse(raw) as SavedMessage[];
       };
 
-      // ── 12. Construct SessionContext ──
+      // ── 12. Auto-create provider client and session ──
+      const { client: providerClient, session: providerSession } =
+        await initProviderClientAndSession(
+          shared.agent,
+          serverUrl,
+          paneId,
+          sessionId,
+          clientOpts,
+          sessionOpts,
+        );
+
+      // ── 13. Construct SessionContext ──
       const ctx: SessionContext = {
-        serverUrl,
+        client: providerClient as SessionContext["client"],
+        session: providerSession as SessionContext["session"],
         userPrompt: shared.prompt,
         agent: shared.agent,
         sessionDir,
@@ -663,7 +744,7 @@ function createSessionRunner(
         save,
         transcript: transcriptFn,
         getMessages: getMessagesFn,
-        session: createSessionRunner(shared, name),
+        stage: createSessionRunner(shared, name) as SessionContext["stage"],
       };
 
       // ── Write session metadata ──
@@ -684,7 +765,7 @@ function createSessionRunner(
         ),
       );
 
-      // ── 13. Run user callback ──
+      // ── 14. Run user callback ──
       let callbackResult: T;
       try {
         callbackResult = await run(ctx);
@@ -697,27 +778,29 @@ function createSessionRunner(
         );
         shared.panel.sessionError(name, message);
         throw error;
+      } finally {
+        // ── 14a. Auto-cleanup provider resources ──
+        await cleanupProvider(shared.agent, providerClient, providerSession, paneId);
       }
 
-      // ── 14. Mark session complete ──
+      // ── 15. Mark session complete ──
       shared.panel.sessionSuccess(name);
       const result: SessionResult = { name, sessionId, sessionDir, paneId };
       shared.completedRegistry.set(name, result);
       shared.activeRegistry.delete(name);
       resolveDone();
 
+      // Update frontier so the next stage in this scope chains from us.
+      graphTracker.onSettle(name);
       return { name, id: sessionId, result: callbackResult! };
     } catch (error) {
-      // Ensure the done promise settles and the active entry is cleared so
-      // dependents fail fast instead of hanging forever on a ghost dep.
+      // Ensure the done promise settles and the active entry is cleared.
       shared.activeRegistry.delete(name);
       rejectDone(error);
+      // Update frontier even on failure — if the caller catches and
+      // continues, the next stage should still chain from this one.
+      graphTracker.onSettle(name);
       throw error;
-    } finally {
-      // ── 15. Cleanup (Claude session state) ──
-      if (shared.agent === "claude" && paneId) {
-        clearClaudeSession(paneId);
-      }
     }
   };
 }
@@ -831,7 +914,7 @@ async function runOrchestrator(): Promise<void> {
     const workflowCtx: WorkflowContext = {
       userPrompt: prompt,
       agent,
-      session: sessionRunner,
+      stage: sessionRunner as WorkflowContext["stage"],
       transcript: async (ref: SessionRef): Promise<Transcript> => {
         const refName = resolveRef(ref);
         const prev = shared.completedRegistry.get(refName);

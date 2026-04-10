@@ -25,6 +25,10 @@ export type {
   WorkflowContext,
   WorkflowOptions,
   WorkflowDefinition,
+  StageClientOptions,
+  StageSessionOptions,
+  ProviderClient,
+  ProviderSession,
 } from "./types.ts";
 
 // Workflow SDK (also available as atomic/workflows subpath)

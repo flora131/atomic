@@ -1,9 +1,8 @@
 /**
  * Copilot workflow source validation.
  *
- * Checks that Copilot workflow source files follow required patterns:
- * - `cliUrl` is wired to the session context's `serverUrl`
- * - `setForegroundSessionId` is called after creating a session
+ * Checks that Copilot workflow source files use the runtime-managed
+ * `s.client` and `s.session` instead of manual SDK client creation.
  */
 
 export interface CopilotValidationWarning {
@@ -17,28 +16,22 @@ export interface CopilotValidationWarning {
 export function validateCopilotWorkflow(source: string): CopilotValidationWarning[] {
   const warnings: CopilotValidationWarning[] = [];
 
-  if (/\bCopilotClient\b/.test(source)) {
-    // Accept any identifier before .serverUrl (e.g., s.serverUrl, ctx.serverUrl)
-    // or a destructured `serverUrl` variable
-    if (!/cliUrl\s*:\s*(?:\w+\.serverUrl|serverUrl)/.test(source)) {
-      warnings.push({
-        rule: "copilot/cli-url",
-        message:
-          "Could not verify that CopilotClient is created with { cliUrl: s.serverUrl }. " +
-          "This is required to connect to the workflow's agent pane.",
-      });
-    }
+  if (/\bnew\s+CopilotClient\b/.test(source)) {
+    warnings.push({
+      rule: "copilot/manual-client",
+      message:
+        "Manual CopilotClient creation detected. Use s.client instead — " +
+        "the runtime auto-creates and cleans up the client.",
+    });
   }
 
-  if (/\bcreateSession\b/.test(source)) {
-    if (!/\bsetForegroundSessionId\b/.test(source)) {
-      warnings.push({
-        rule: "copilot/foreground-session",
-        message:
-          "Could not verify that setForegroundSessionId is called after createSession(). " +
-          "Call client.setForegroundSessionId(session.sessionId) so the TUI displays the workflow session.",
-      });
-    }
+  if (/\bclient\.createSession\b/.test(source)) {
+    warnings.push({
+      rule: "copilot/manual-session",
+      message:
+        "Manual createSession() call detected. Use s.session instead — " +
+        "the runtime auto-creates the session. Pass session config as the third arg to ctx.stage().",
+    });
   }
 
   return warnings;

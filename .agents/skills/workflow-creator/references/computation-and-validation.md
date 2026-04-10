@@ -2,34 +2,26 @@
 
 Deterministic computation — validation, data transforms, file I/O, API calls — is written as plain TypeScript inside `.run()` or session callbacks. No LLM session is needed. This is the programmatic equivalent of a `.tool()` node.
 
-> **Note:** All Claude examples below assume `createClaudeSession({ paneId: s.paneId })` is called at the start of each session callback before any `claudeQuery()` calls.
-
 ## Inline computation
 
 Any TypeScript code inside a session callback that doesn't call an SDK prompt function is deterministic computation:
 
 ```ts
-await ctx.session({ name: "validate-and-fix", description: "Validate, then fix if needed" }, async (s) => {
+await ctx.stage({ name: "validate-and-fix", description: "Validate, then fix if needed" }, {}, {}, async (s) => {
   // Step 1: Deterministic — parse prior session's output
   const messages = await s.getMessages("planner");
   const planText = extractText(messages);
   const plan = JSON.parse(planText);
 
   // Step 2: Deterministic — validate the plan
-  const isValid = plan.tasks?.length > 0 && plan.tasks.every((t: any) => t.id && t.description);
+  const isValid = plan.tasks?.length > 0 && plan.tasks.every((t: { id: string; description: string }) => t.id && t.description);
 
   if (!isValid) {
     // Step 3: Agent session — ask the agent to fix the plan
-    await claudeQuery({
-      paneId: s.paneId,
-      prompt: "The plan is invalid. Please create a valid plan with tasks.",
-    });
+    await s.session.query("The plan is invalid. Please create a valid plan with tasks.");
   } else {
     // Step 4: Agent session — execute the valid plan
-    await claudeQuery({
-      paneId: s.paneId,
-      prompt: `Execute this plan:\n${JSON.stringify(plan.tasks)}`,
-    });
+    await s.session.query(`Execute this plan:\n${JSON.stringify(plan.tasks)}`);
   }
 
   s.save(s.sessionId);
@@ -42,16 +34,16 @@ Each SDK returns responses in different formats. Use helpers to extract text:
 
 ### Claude
 
-`claudeQuery()` returns `{ output: string }` — the captured pane text.
+`s.session.query()` returns `{ output: string, delivered: boolean }` — the captured response text.
 
 ```ts
-const result = await claudeQuery({ paneId: s.paneId, prompt: "..." });
+const result = await s.session.query("...");
 const text = result.output; // Already a string
 ```
 
 ### Copilot
 
-`session.getMessages()` returns `SessionEvent[]`. Concatenate every
+`s.session.getMessages()` returns `SessionEvent[]`. Concatenate every
 top-level assistant turn's non-empty content — picking only `.at(-1)` is a
 silent-failure trap. See `failure-modes.md` §F1 / §F2 for the full
 explanation.
@@ -72,7 +64,7 @@ function getAssistantText(messages: SessionEvent[]): string {
 }
 
 // Usage:
-const messages = await session.getMessages();
+const messages = await s.session.getMessages();
 const text = getAssistantText(messages);
 ```
 
@@ -149,7 +141,7 @@ Read and write files directly in `run()`:
 import { readFile, writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 
-// Inside a ctx.session() callback:
+// Inside a ctx.stage() callback:
 async (s) => {
   // Write to session directory
   const outputDir = join(s.sessionDir, "artifacts");
@@ -166,16 +158,13 @@ async (s) => {
 Make HTTP requests for external integrations:
 
 ```ts
-// Inside a ctx.session() callback:
+// Inside a ctx.stage() callback:
 async (s) => {
   const response = await fetch("https://api.example.com/data");
   const data = await response.json();
 
   // Use the data in a prompt
-  await claudeQuery({
-    paneId: s.paneId,
-    prompt: `Process this data:\n${JSON.stringify(data)}`,
-  });
+  await s.session.query(`Process this data:\n${JSON.stringify(data)}`);
   s.save(s.sessionId);
 },
 ```
@@ -185,7 +174,7 @@ async (s) => {
 Transform data between sessions:
 
 ```ts
-// Inside a ctx.session() callback:
+// Inside a ctx.stage() callback:
 async (s) => {
   const raw = await s.getMessages("planner");
 
@@ -200,10 +189,45 @@ async (s) => {
   tasks.sort((a, b) => b.priority - a.priority);
 
   // Pass to agent
-  await claudeQuery({
-    paneId: s.paneId,
-    prompt: `Execute these tasks in order:\n${JSON.stringify(tasks)}`,
-  });
+  await s.session.query(`Execute these tasks in order:\n${JSON.stringify(tasks)}`);
   s.save(s.sessionId);
 },
+```
+
+## Quality Gate with LLM-as-Judge
+
+Add automated quality checkpoints using evaluation rubrics. This pattern applies `evaluation` + `advanced-evaluation`:
+
+```ts
+.run(async (ctx) => {
+  const impl = await ctx.stage({ name: "implement" }, {}, {}, async (s) => {
+    await s.session.query(s.userPrompt);
+    s.save(s.sessionId);
+  });
+
+  await ctx.stage({ name: "quality-gate" }, {}, {}, async (s) => {
+    const implTranscript = await s.transcript(impl);
+    const result = await s.session.query(
+      `You are a code quality judge. Score this implementation 1-5 for:
+- **Correctness**: Does it solve the stated problem?
+- **Completeness**: Are edge cases handled?
+- **Style**: Does it follow project conventions?
+
+## Implementation to judge
+${implTranscript.content}
+
+Respond with JSON: { "correctness": N, "completeness": N, "style": N, "pass": boolean, "issues": [...] }`,
+    );
+
+    const scores = JSON.parse(
+      result.output.match(/\`\`\`json\s*\n([\s\S]*?)\n\`\`\`/)?.[1] ?? result.output,
+    );
+
+    if (!scores.pass) {
+      await s.session.query(`Fix these quality issues:\n${scores.issues.join("\n")}`);
+    }
+
+    s.save(s.sessionId);
+  });
+})
 ```

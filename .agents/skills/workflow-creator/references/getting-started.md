@@ -4,37 +4,40 @@ This guide covers the basics of creating workflows with the `defineWorkflow().ru
 
 ## Quick-start example
 
-Use `defineWorkflow().run(callback).compile()` to define your workflow. Inside the `.run()` callback, use `ctx.session()` to spawn agent sessions dynamically. Each session gets its own tmux window and graph node. Use native TypeScript control flow (`for`, `if`, `Promise.all()`) for orchestration.
+Use `defineWorkflow<"agent">().run(callback).compile()` to define your workflow. Inside the `.run()` callback, use `ctx.stage()` to spawn agent sessions dynamically. Each session gets its own tmux window and graph node. Use native TypeScript control flow (`for`, `if`, `Promise.all()`) for orchestration.
+
+The runtime manages the full session lifecycle automatically — it creates the client, creates the session, runs your callback, then cleans up. You never need to manually disconnect or stop anything.
 
 ### Claude
 
 ```ts
 // .atomic/workflows/my-workflow/claude/index.ts
-import { defineWorkflow, createClaudeSession, claudeQuery } from "@bastani/atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic/workflows";
 
-export default defineWorkflow({
+export default defineWorkflow<"claude">({
     name: "my-workflow",
     description: "A two-session pipeline",
   })
   .run(async (ctx) => {
-    const describe = await ctx.session(
+    const describe = await ctx.stage(
       { name: "describe", description: "Ask Claude to describe the project" },
+      {},
+      {},
       async (s) => {
-        await createClaudeSession({ paneId: s.paneId });
-        await claudeQuery({ paneId: s.paneId, prompt: ctx.userPrompt });
+        await s.session.query(s.userPrompt);
         s.save(s.sessionId);
       },
     );
 
-    await ctx.session(
+    await ctx.stage(
       { name: "summarize", description: "Summarize the previous session's output" },
+      {},
+      {},
       async (s) => {
         const research = await s.transcript(describe);
-        await createClaudeSession({ paneId: s.paneId });
-        await claudeQuery({
-          paneId: s.paneId,
-          prompt: `Read ${research.path} and summarize it in 2-3 bullet points.`,
-        });
+        await s.session.query(
+          `Read ${research.path} and summarize it in 2-3 bullet points.`,
+        );
         s.save(s.sessionId);
       },
     );
@@ -53,47 +56,38 @@ explicit, generous timeout. See the "Critical pitfall" section in
 ```ts
 // .atomic/workflows/my-workflow/copilot/index.ts
 import { defineWorkflow } from "@bastani/atomic/workflows";
-import { CopilotClient, approveAll } from "@github/copilot-sdk";
 
 // Explicit 30-minute timeout — required; see agent-sessions.md pitfall note.
 const SEND_TIMEOUT_MS = 30 * 60 * 1000;
 
-export default defineWorkflow({
+export default defineWorkflow<"copilot">({
     name: "my-workflow",
     description: "A two-session pipeline",
   })
   .run(async (ctx) => {
-    const describe = await ctx.session(
+    const describe = await ctx.stage(
       { name: "describe", description: "Ask the agent to describe the project" },
+      {},
+      {},
       async (s) => {
-        const client = new CopilotClient({ cliUrl: s.serverUrl });
-        await client.start();
-        const session = await client.createSession({ onPermissionRequest: approveAll });
-        await client.setForegroundSessionId(session.sessionId);
-        await session.sendAndWait({ prompt: ctx.userPrompt }, SEND_TIMEOUT_MS);
-        s.save(await session.getMessages());
-        await session.disconnect();
-        await client.stop();
+        await s.session.sendAndWait({ prompt: s.userPrompt }, SEND_TIMEOUT_MS);
+        s.save(await s.session.getMessages());
       },
     );
 
-    await ctx.session(
+    await ctx.stage(
       { name: "summarize", description: "Summarize the previous session's output" },
+      {},
+      {},
       async (s) => {
         const research = await s.transcript(describe);
-        const client = new CopilotClient({ cliUrl: s.serverUrl });
-        await client.start();
-        const session = await client.createSession({ onPermissionRequest: approveAll });
-        await client.setForegroundSessionId(session.sessionId);
-        await session.sendAndWait(
+        await s.session.sendAndWait(
           {
             prompt: `Summarize the following in 2-3 bullet points:\n\n${research.content}`,
           },
           SEND_TIMEOUT_MS,
         );
-        s.save(await session.getMessages());
-        await session.disconnect();
-        await client.stop();
+        s.save(await s.session.getMessages());
       },
     );
   })
@@ -105,36 +99,33 @@ export default defineWorkflow({
 ```ts
 // .atomic/workflows/my-workflow/opencode/index.ts
 import { defineWorkflow } from "@bastani/atomic/workflows";
-import { createOpencodeClient } from "@opencode-ai/sdk/v2";
 
-export default defineWorkflow({
+export default defineWorkflow<"opencode">({
     name: "my-workflow",
     description: "A two-session pipeline",
   })
   .run(async (ctx) => {
-    const describe = await ctx.session(
+    const describe = await ctx.stage(
       { name: "describe", description: "Ask the agent to describe the project" },
+      {},
+      { title: "describe" },
       async (s) => {
-        const client = createOpencodeClient({ baseUrl: s.serverUrl });
-        const session = await client.session.create({ title: "describe" });
-        await client.tui.selectSession({ sessionID: session.data!.id });
-        const result = await client.session.prompt({
-          sessionID: session.data!.id,
-          parts: [{ type: "text", text: ctx.userPrompt }],
+        const result = await s.client.session.prompt({
+          sessionID: s.session.id,
+          parts: [{ type: "text", text: s.userPrompt }],
         });
         s.save(result.data!);
       },
     );
 
-    await ctx.session(
+    await ctx.stage(
       { name: "summarize", description: "Summarize the previous session's output" },
+      {},
+      { title: "summarize" },
       async (s) => {
         const research = await s.transcript(describe);
-        const client = createOpencodeClient({ baseUrl: s.serverUrl });
-        const session = await client.session.create({ title: "summarize" });
-        await client.tui.selectSession({ sessionID: session.data!.id });
-        const result = await client.session.prompt({
-          sessionID: session.data!.id,
+        const result = await s.client.session.prompt({
+          sessionID: s.session.id,
           parts: [{ type: "text", text: `Summarize the following in 2-3 bullet points:\n\n${research.content}` }],
         });
         s.save(result.data!);
@@ -153,13 +144,13 @@ Sessions are spawned dynamically, so you can use loops, conditionals, and `Promi
 ```ts
 // Parallel sessions
 const [a, b] = await Promise.all([
-  ctx.session({ name: "task-a" }, async (s) => { /* ... */ }),
-  ctx.session({ name: "task-b" }, async (s) => { /* ... */ }),
+  ctx.stage({ name: "task-a" }, {}, {}, async (s) => { /* ... */ }),
+  ctx.stage({ name: "task-b" }, {}, {}, async (s) => { /* ... */ }),
 ]);
 
 // Loop with dynamic sessions
 for (let i = 1; i <= maxIterations; i++) {
-  const result = await ctx.session({ name: `step-${i}` }, async (s) => {
+  const result = await ctx.stage({ name: `step-${i}` }, {}, {}, async (s) => {
     // ... do work ...
     return someValue; // available as result.result
   });
@@ -168,7 +159,7 @@ for (let i = 1; i <= maxIterations; i++) {
 
 // Conditional sessions
 if (needsReview) {
-  await ctx.session({ name: "review" }, async (s) => { /* ... */ });
+  await ctx.stage({ name: "review" }, {}, {}, async (s) => { /* ... */ });
 }
 ```
 
@@ -177,7 +168,7 @@ if (needsReview) {
 The SDK (`@bastani/atomic/workflows`) exports everything you need for workflow authoring:
 
 **Builder:**
-- `defineWorkflow` — entry point, returns a chainable `WorkflowBuilder`
+- `defineWorkflow` — entry point, accepts an optional type parameter (`"claude"`, `"copilot"`, `"opencode"`) for type narrowing; returns a chainable `WorkflowBuilder`
 - `WorkflowBuilder` — the builder class (rarely needed directly)
 
 **Types** (import with `import type`):
@@ -185,9 +176,16 @@ The SDK (`@bastani/atomic/workflows`) exports everything you need for workflow a
 - `Transcript` — `{ path: string, content: string }` from `ctx.transcript()`
 - `SavedMessage` — union of provider-specific message types
 - `SaveTranscript` — overloaded save function type
-- `SessionContext` — the context object passed to `ctx.session()` callbacks
-- `SessionHandle<T>` — returned by `ctx.session()`, carries `{ name, id, result }`
-- `SessionRunOptions` — `{ name, description?, dependsOn? }` for `ctx.session()` first argument
+- `SessionContext` — the context object passed to `ctx.stage()` callbacks
+- `SessionHandle<T>` — returned by `ctx.stage()`, carries `{ name, id, result }`
+- `SessionRunOptions` — `{ name, description? }` for `ctx.stage()` first argument
+- `StageClientOptions<A>` — provider-specific client init options for `ctx.stage()` second argument
+- `StageSessionOptions<A>` — provider-specific session create options for `ctx.stage()` third argument
+- `ProviderClient<A>` — the `s.client` type, resolved by agent type
+- `ProviderSession<A>` — the `s.session` type, resolved by agent type
+- `ClaudeClientWrapper` — synthetic client wrapper for Claude stages
+- `ClaudeSessionWrapper` — synthetic session wrapper for Claude stages (exposes `s.session.query()`)
+- `ClaudeQueryDefaults` — per-stage query defaults (timeouts, poll interval) for Claude sessions
 - `SessionRef` — `string | SessionHandle<unknown>` for transcript/message lookups
 - `WorkflowContext` — top-level context passed to `.run()` callback
 - `WorkflowOptions` — `{ name, description? }` workflow metadata
@@ -199,12 +197,10 @@ The SDK (`@bastani/atomic/workflows`) exports everything you need for workflow a
 - `ClaudeSessionMessage` — from `@anthropic-ai/claude-agent-sdk`
 
 **Provider helpers:**
-- `createClaudeSession` — start Claude TUI in a tmux pane; must be called before `claudeQuery()`
-- `claudeQuery` — send a prompt to Claude TUI via tmux send-keys
-- `clearClaudeSession` — remove a pane from the initialized set (cleanup)
-- `validateClaudeWorkflow` — static validation for Claude workflow source files
-- `validateCopilotWorkflow` — regex-based Copilot usage checks
-- `validateOpenCodeWorkflow` — regex-based OpenCode usage checks
+- `validateClaudeWorkflow` — static validation for Claude workflow source files; warns on direct `createClaudeSession` or `claudeQuery` usage
+- `validateCopilotWorkflow` — static validation for Copilot workflow source files; warns on manual `new CopilotClient` or `client.createSession()` usage
+- `validateOpenCodeWorkflow` — static validation for OpenCode workflow source files; warns on manual `createOpencodeClient()` or `client.session.create()` usage
+- `createClaudeSession`, `claudeQuery`, `clearClaudeSession` — low-level tmux helpers; still exported for advanced use but not needed in typical workflows (use `s.session.query()` instead)
 
 **Runtime utilities:**
 - tmux helpers: `createSession`, `createWindow`, `createPane`, `sendKeysAndSubmit`, `capturePane`, etc.
@@ -216,7 +212,8 @@ The SDK (`@bastani/atomic/workflows`) exports everything you need for workflow a
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `serverUrl` | `string` | Agent's server URL (Copilot / OpenCode) |
+| `client` | `ProviderClient<A>` | Pre-created SDK client (auto-managed by runtime) |
+| `session` | `ProviderSession<A>` | Pre-created provider session (auto-managed by runtime) |
 | `userPrompt` | `string` | Original user prompt from CLI invocation |
 | `agent` | `AgentType` | Which agent is running |
 | `transcript(ref)` | `(ref: SessionRef) => Promise<Transcript>` | Get prior session's transcript as `{ path, content }` |
@@ -225,7 +222,7 @@ The SDK (`@bastani/atomic/workflows`) exports everything you need for workflow a
 | `sessionDir` | `string` | Path to session storage directory |
 | `paneId` | `string` | tmux pane ID |
 | `sessionId` | `string` | Session UUID |
-| `session(opts, fn)` | `<T>(...) => Promise<SessionHandle<T>>` | Spawn a nested sub-session (child of this session in the graph) |
+| `stage(opts, clientOpts, sessionOpts, fn)` | `<T>(...) => Promise<SessionHandle<T>>` | Spawn a nested sub-session (child of this session in the graph) |
 
 ## Reference files
 
@@ -241,4 +238,4 @@ The SDK (`@bastani/atomic/workflows`) exports everything you need for workflow a
 
 ## Type safety
 
-The SDK is typed with **no `unknown` or `any`**. `SessionContext` fields are precisely typed, and native SDK types are re-exported for convenience. Use `import type` for type-only imports.
+The SDK is typed with **no `unknown` or `any`**. `SessionContext` fields are precisely typed, and native SDK types are re-exported for convenience. Use `import type` for type-only imports. Use the `defineWorkflow<"agent">()` type parameter to narrow `s.client` and `s.session` to the correct provider types.

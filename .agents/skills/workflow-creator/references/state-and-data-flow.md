@@ -2,8 +2,6 @@
 
 Data flows between sessions via `s.save()` (in the producing session) and `transcript()` / `getMessages()` (in consuming sessions or at the `.run()` level). Within a session, use plain TypeScript variables. This is the programmatic equivalent of `globalState` and reducers.
 
-> **Note:** All Claude examples below assume `createClaudeSession({ paneId: s.paneId })` is called at the start of each session callback before any `claudeQuery()` calls.
-
 ## Between sessions: `s.save()` → `transcript()` / `getMessages()`
 
 **Completion rule:** `transcript()` and `getMessages()` can only access data from sessions whose callbacks have already returned (i.e., sessions in the `completedRegistry`). In a `Promise.all()` group, sibling sessions cannot read each other's output — only sessions that completed before the group started are available.
@@ -17,7 +15,7 @@ Each SDK has its own save pattern:
 s.save(s.sessionId);
 
 // Copilot — pass SessionEvent[] from getMessages()
-s.save(await session.getMessages());
+s.save(await s.session.getMessages());
 
 // OpenCode — pass response { info, parts } from session.prompt()
 s.save(result.data!);
@@ -29,31 +27,23 @@ s.save(result.data!);
 - `path` — absolute file path to the transcript on disk
 - `content` — extracted assistant text, ready to embed in prompts
 
-Pass the session handle returned by a prior `ctx.session()` call (handle-based, recommended). The string name `s.transcript("name")` also works when no handle is in scope.
+Pass the session handle returned by a prior `ctx.stage()` call (handle-based, recommended). The string name `s.transcript("name")` also works when no handle is in scope.
 
 ```ts
 .run(async (ctx) => {
-  const researchHandle = await ctx.session({ name: "research" }, async (s) => {
-    await createClaudeSession({ paneId: s.paneId });
-    await claudeQuery({ paneId: s.paneId, prompt: "Research the topic." });
+  const researchHandle = await ctx.stage({ name: "research" }, {}, {}, async (s) => {
+    await s.session.query("Research the topic.");
     s.save(s.sessionId);
   });
 
-  await ctx.session({ name: "synthesize" }, async (s) => {
+  await ctx.stage({ name: "synthesize" }, {}, {}, async (s) => {
     const research = await s.transcript(researchHandle);
-    await createClaudeSession({ paneId: s.paneId });
 
     // Use rendered text in a prompt
-    await claudeQuery({
-      paneId: s.paneId,
-      prompt: `Synthesize this research:\n${research.content}`,
-    });
+    await s.session.query(`Synthesize this research:\n${research.content}`);
 
     // Or reference the file path (useful for Claude file triggers)
-    await claudeQuery({
-      paneId: s.paneId,
-      prompt: `Read ${research.path} and summarize the key findings.`,
-    });
+    await s.session.query(`Read ${research.path} and summarize the key findings.`);
 
     s.save(s.sessionId);
   });
@@ -66,12 +56,12 @@ Pass the session handle returned by a prior `ctx.session()` call (handle-based, 
 
 ```ts
 .run(async (ctx) => {
-  const researchHandle = await ctx.session({ name: "research" }, async (s) => {
+  const researchHandle = await ctx.stage({ name: "research" }, {}, {}, async (s) => {
     // ... research work ...
     s.save(s.sessionId);
   });
 
-  await ctx.session({ name: "analyze-results" }, async (s) => {
+  await ctx.stage({ name: "analyze-results" }, {}, {}, async (s) => {
     const messages = await s.getMessages(researchHandle);
 
     // messages is SavedMessage[], where each entry is:
@@ -96,7 +86,7 @@ Session callbacks can return a value directly. The handle exposes it via `.resul
 
 ```ts
 .run(async (ctx) => {
-  const planHandle = await ctx.session({ name: "plan" }, async (s) => {
+  const planHandle = await ctx.stage({ name: "plan" }, {}, {}, async (s) => {
     // ... planning work ...
     return { taskCount: 5, priority: "high" };
   });
@@ -112,18 +102,16 @@ Use closures and variables for state within a single session:
 
 ```ts
 .run(async (ctx) => {
-  await ctx.session({ name: "review-fix" }, async (s) => {
-    await createClaudeSession({ paneId: s.paneId });
+  await ctx.stage({ name: "review-fix" }, {}, {}, async (s) => {
     // Local state — plain variables
     let consecutiveClean = 0;
     let priorOutput = "";
     const findings: string[] = [];
 
     for (let cycle = 0; cycle < 10; cycle++) {
-      const result = await claudeQuery({
-        paneId: s.paneId,
-        prompt: buildReviewPrompt(ctx.userPrompt, priorOutput),
-      });
+      const result = await s.session.query(
+        buildReviewPrompt(ctx.userPrompt, priorOutput),
+      );
 
       // Accumulate findings
       const review = parseReviewResult(result.output);
@@ -140,10 +128,7 @@ Use closures and variables for state within a single session:
       consecutiveClean = 0;
 
       // Apply fix
-      const fixResult = await claudeQuery({
-        paneId: s.paneId,
-        prompt: buildFixSpec(review, ctx.userPrompt),
-      });
+      const fixResult = await s.session.query(buildFixSpec(review, ctx.userPrompt));
       priorOutput = fixResult.output;
     }
 
@@ -163,11 +148,11 @@ import { readFile, writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 
 .run(async (ctx) => {
-  await ctx.session({ name: "plan" }, async (s) => {
+  await ctx.stage({ name: "plan" }, {}, {}, async (s) => {
     // ... plan session ...
   });
 
-  await ctx.session({ name: "generate-report" }, async (s) => {
+  await ctx.stage({ name: "generate-report" }, {}, {}, async (s) => {
     // Write artifacts to session directory
     const artifactDir = join(s.sessionDir, "artifacts");
     await mkdir(artifactDir, { recursive: true });
@@ -262,32 +247,28 @@ Session A → s.save() → Session B reads via s.transcript(handleA)
 
 ```ts
 .run(async (ctx) => {
-  const researchHandle = await ctx.session({ name: "research" }, async (s) => {
+  const researchHandle = await ctx.stage({ name: "research" }, {}, {}, async (s) => {
     // ... research work ...
     s.save(s.sessionId);
   });
-  const analysisHandle = await ctx.session({ name: "analysis" }, async (s) => {
+  const analysisHandle = await ctx.stage({ name: "analysis" }, {}, {}, async (s) => {
     // ... analysis work ...
     s.save(s.sessionId);
   });
-  const feedbackHandle = await ctx.session({ name: "feedback" }, async (s) => {
+  const feedbackHandle = await ctx.stage({ name: "feedback" }, {}, {}, async (s) => {
     // ... feedback work ...
     s.save(s.sessionId);
   });
 
-  await ctx.session({ name: "merge" }, async (s) => {
+  await ctx.stage({ name: "merge" }, {}, {}, async (s) => {
     const research = await s.transcript(researchHandle);
     const analysis = await s.transcript(analysisHandle);
     const userFeedback = await s.transcript(feedbackHandle);
-    await createClaudeSession({ paneId: s.paneId });
 
-    await claudeQuery({
-      paneId: s.paneId,
-      prompt: `Combine these inputs:
+    await s.session.query(`Combine these inputs:
 Research: ${research.content}
 Analysis: ${analysis.content}
-Feedback: ${userFeedback.content}`,
-    });
+Feedback: ${userFeedback.content}`);
     s.save(s.sessionId);
   });
 })
@@ -299,16 +280,16 @@ Each session can read all prior completed steps (but not parallel siblings):
 
 ```ts
 .run(async (ctx) => {
-  const h1 = await ctx.session({ name: "session-1" }, async (s) => {
+  const h1 = await ctx.stage({ name: "session-1" }, {}, {}, async (s) => {
     // ...
     s.save(s.sessionId);
   });
-  const h2 = await ctx.session({ name: "session-2" }, async (s) => {
+  const h2 = await ctx.stage({ name: "session-2" }, {}, {}, async (s) => {
     // ...
     s.save(s.sessionId);
   });
 
-  await ctx.session({ name: "session-3" }, async (s) => {
+  await ctx.stage({ name: "session-3" }, {}, {}, async (s) => {
     // Read from any prior completed session via its handle
     const s1 = await s.transcript(h1);
     const s2 = await s.transcript(h2);
@@ -316,6 +297,56 @@ Each session can read all prior completed steps (but not parallel siblings):
     // Combine and process
     const combined = `${s1.content}\n${s2.content}`;
     // ...
+  });
+})
+```
+
+## Context-Aware Transcript Handoff
+
+When passing transcripts between sessions, compress at the boundary to prevent downstream context degradation. Use structured summaries that preserve actionable information while dropping verbose tool output (applies `context-compression` + `context-degradation`):
+
+```ts
+// helpers/compression.ts
+export function compressTranscript(content: string, maxTokenEstimate: number = 4000): string {
+  // Rough estimate: 1 token ≈ 4 chars
+  const maxChars = maxTokenEstimate * 4;
+  if (content.length <= maxChars) return content;
+
+  // Preserve first and last sections (recency + primacy bias)
+  const headSize = Math.floor(maxChars * 0.4);
+  const tailSize = Math.floor(maxChars * 0.4);
+  const head = content.slice(0, headSize);
+  const tail = content.slice(-tailSize);
+
+  return `${head}\n\n[... ${content.length - headSize - tailSize} chars compressed ...]\n\n${tail}`;
+}
+```
+
+```ts
+await ctx.stage({ name: "synthesize" }, {}, {}, async (s) => {
+  const research = await s.transcript("research");
+  // Compress before injecting into prompt to stay within token budget
+  const compressed = compressTranscript(research.content, 4000);
+  await s.session.query(`Synthesize this research:\n${compressed}`);
+  s.save(s.sessionId);
+});
+```
+
+## File-Based Coordination
+
+Use the filesystem as a coordination layer instead of inlining large data into prompts. This applies `filesystem-context`:
+
+```ts
+.run(async (ctx) => {
+  await ctx.stage({ name: "plan" }, {}, {}, async (s) => {
+    await s.session.query(`Create a plan for: ${s.userPrompt}\n\nWrite it to plan.md.`);
+    s.save(s.sessionId);
+  });
+
+  await ctx.stage({ name: "execute" }, {}, {}, async (s) => {
+    // Reference the file by path — lets the agent read selectively
+    await s.session.query(`Read plan.md and implement each task. Mark tasks done as you go.`);
+    s.save(s.sessionId);
   });
 })
 ```

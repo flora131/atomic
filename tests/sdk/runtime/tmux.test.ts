@@ -29,7 +29,7 @@ import {
   switchClient,
   getCurrentSession,
   attachOrSwitch,
-} from "@/sdk/workflows.ts";
+} from "@/sdk/workflows/index.ts";
 
 // ---------------------------------------------------------------------------
 // getMuxBinary

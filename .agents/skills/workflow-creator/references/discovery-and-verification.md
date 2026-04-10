@@ -1,42 +1,61 @@
 # Discovery and Verification
 
-## Workflow file structure
+## Setup
 
-Workflows are organized per workflow name, with agent-specific implementations as subdirectories:
+```bash
+bun init                                   # Create a new project
+bun add @bastani/atomic                    # Install the workflow SDK
+bun add @github/copilot-sdk               # For Copilot workflows
+bun add @anthropic-ai/claude-agent-sdk    # For Claude workflows
+bun add @opencode-ai/sdk                  # For OpenCode workflows
+```
+
+Install only the agent SDK(s) you need.
+
+Create workflow files at `.atomic/workflows/<name>/<agent>/index.ts`.
+
+## Workflow file structure
 
 ```
 .atomic/workflows/
-├── tsconfig.json                   # Optional: TS path alias for editor types
-├── hello/
-│   ├── claude/index.ts             # Claude-specific workflow
-│   ├── copilot/index.ts            # Copilot-specific workflow
-│   └── opencode/index.ts           # OpenCode-specific workflow
-├── ralph/
-│   ├── claude/index.ts             # Claude-specific workflow
-│   ├── copilot/index.ts            # Copilot-specific workflow
-│   ├── opencode/index.ts           # OpenCode-specific workflow
-│   └── helpers/                    # Self-contained shared helpers
-│       ├── prompts.ts
-│       └── parsers.ts
-└── <workflow-name>/
-    ├── <agent>/index.ts
-    └── helpers/                    # Optional shared helpers
+├── my-workflow/
+│   ├── claude/index.ts
+│   ├── copilot/index.ts
+│   └── opencode/index.ts
+└── my-other-workflow/
+    ├── claude/index.ts
+    ├── copilot/index.ts
+    ├── opencode/index.ts
+    └── helpers/
+        ├── prompts.ts
+        └── parsers.ts
 ```
+
+The built-in `ralph` workflow (`src/sdk/workflows/builtin/ralph/` in this
+repository) serves as a reference implementation and can be overridden by a
+local workflow with the same name. In installed projects, built-ins are
+resolved from the SDK package's bundled `workflows/builtin/` directory.
 
 ## Discovery paths
 
-Workflows are discovered from:
+| Scope | Path | Precedence |
+|-------|------|------------|
+| **Local** | `.atomic/workflows/<name>/<agent>/index.ts` | Highest |
+| **Global** | `~/.atomic/workflows/<name>/<agent>/index.ts` | Middle |
+| **Built-in** | SDK modules shipped with `@bastani/atomic` | Lowest |
 
-| Scope | Path |
-|-------|------|
-| **Local** | `.atomic/workflows/<name>/<agent>/index.ts` |
-| **Global** | `~/.atomic/workflows/<name>/<agent>/index.ts` |
+The `<agent>` subdirectory determines which SDK the workflow targets: `claude/`, `copilot/`, or `opencode/`.
 
-Local workflows override global ones with the same name. The `<agent>` subdirectory determines which SDK the workflow targets: `claude/`, `copilot/`, or `opencode/`.
+## Workflows directory hygiene
+
+The workflows directory maintains its own auto-generated `.gitignore`. The
+runtime regenerates it if missing and uses it during discovery, so ignored
+directories such as `node_modules/`, `dist/`, `build/`, `coverage/`, `.cache/`,
+and `*.tsbuildinfo` do not pollute workflow discovery.
 
 ## Export format
 
-Every workflow file must use `export default` with a compiled workflow. Pass the agent type as a generic parameter to `defineWorkflow` for precise `s.client` and `s.session` types. `ctx.stage()` takes four positional arguments: stage options, client init options, session create options, and the callback.
+Every workflow file must use `export default` with a compiled workflow:
 
 ```ts
 import { defineWorkflow } from "@bastani/atomic/workflows";
@@ -84,37 +103,7 @@ At load time, the runtime verifies:
 
 ## TypeScript configuration
 
-### `tsconfig.json` (optional)
-
-Workflow files run without any scaffold files — the Atomic loader registers a
-Bun `onLoad` plugin that rewrites `@bastani/atomic/workflows` (and atomic's
-transitive deps like `@github/copilot-sdk`, `@opencode-ai/sdk`, `zod`) to
-absolute paths inside the installed atomic package at load time. No
-`package.json` or `node_modules` is required in the workflow directory.
-
-For editor type support (VS Code, tsserver), you can commit a minimal
-`.atomic/workflows/tsconfig.json` that maps the SDK import to atomic's source:
-
-```json
-{
-  "compilerOptions": {
-    "target": "ESNext",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "noEmit": true,
-    "strict": true,
-    "skipLibCheck": true,
-    "types": ["bun"],
-    "paths": {
-      "@bastani/atomic/workflows": ["../../src/sdk/workflows.ts"]
-    }
-  },
-  "include": ["**/claude/**/*.ts", "**/copilot/**/*.ts", "**/opencode/**/*.ts", "**/helpers/**/*.ts"]
-}
-```
-
-This file is purely for editor hints — the runtime does not read it.
+Standard module resolution handles all imports. The project's `tsconfig.json` should use `"moduleResolution": "bundler"` (Bun's default).
 
 ## Type checking
 

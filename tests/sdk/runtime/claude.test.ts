@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { paneLooksReady, paneHasActiveTask } from "@/sdk/workflows.ts";
+import { paneLooksReady, paneHasActiveTask } from "@/sdk/workflows/index.ts";
 
 // ---------------------------------------------------------------------------
 // paneLooksReady

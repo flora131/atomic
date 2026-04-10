@@ -20,8 +20,8 @@ import { defineWorkflow } from "@bastani/atomic/workflows";
     {}, // clientOpts: chatFlags and readyTimeoutMs go here
     {}, // sessionOpts: query defaults (timeoutMs, pollIntervalMs, etc.) go here
     async (s) => {
-      // s.client — ClaudeClientWrapper (Claude CLI already started by runtime)
-      // s.session — ClaudeSessionWrapper (ready to accept queries)
+      // s.client — Claude CLI wrapper (already started by runtime)
+      // s.session — session wrapper (ready to accept queries via s.session.query())
 
       // Send queries — Claude maintains conversation context across calls
       const result = await s.session.query(s.userPrompt);
@@ -35,9 +35,9 @@ import { defineWorkflow } from "@bastani/atomic/workflows";
 ```
 
 The runtime handles:
-1. Starting the Claude CLI in the tmux pane (equivalent to the old `createClaudeSession()`)
-2. Creating a `ClaudeSessionWrapper` bound to the pane
-3. Auto-cleanup via `clearClaudeSession` after the callback
+1. Starting the Claude CLI in the tmux pane
+2. Creating a session wrapper bound to the pane (exposes `s.session.query()`)
+3. Auto-cleanup after the callback returns
 
 Client options (2nd arg to `ctx.stage()`):
 - `chatFlags` — CLI flags (default: `["--allow-dangerously-skip-permissions", "--dangerously-skip-permissions"]`)
@@ -301,6 +301,11 @@ The failure mode: you close a session, create a new one, and assume the new
 one "remembers" the previous conversation. It doesn't. `client` is just the
 transport — each session is a fully independent conversation.
 
+For normal workflow authoring, the key rule is simpler than the full lifecycle
+table: **every new `ctx.stage()` call is fresh**. If you need full history,
+prefer another turn inside the same stage callback. Resume/fork APIs are
+provider-specific escape hatches, not the default stage-to-stage handoff path.
+
 ```ts
 // Buggy — the orchestrator session is fresh and knows NOTHING about
 // what the planner just produced, because createSession() started a
@@ -311,7 +316,7 @@ await runAgent("orchestrator", buildOrchestratorPrompt());
 //   no original user spec, no context.
 ```
 
-#### Three valid ways to carry context across a session boundary
+#### Three reliable ways to avoid losing context
 
 Pick the one that fits the data you need to hand off. These are not
 mutually exclusive — ralph uses (1) + (2) together as belt-and-braces.
@@ -342,17 +347,20 @@ read: the task list (`TaskCreate` / `TaskList`), files on disk, a git
 working tree, or a database. The planner writes; the orchestrator reads.
 Ralph uses `TaskCreate`/`TaskList` as its primary coordination medium.
 
-**3. Resume the same session** — if the next step uses the **same agent**,
-`client.resumeSession(sessionId)` reattaches and continues the same
-conversation with full history intact. Resume is **not** a way to swap
-agents: each session is bound to one agent at creation time, so this only
-helps for multi-turn work within the same role.
+**3. Keep the follow-up in the same stage callback** — if the next step needs
+the full live conversation, don't cross a stage boundary. Send another turn to
+the same session instead. This is the standard workflow-API way to preserve
+history across related steps.
 
 ```ts
-// Same agent, multi-turn — resume keeps full history
-const resumed = await client.resumeSession(savedSessionId);
-await resumed.sendAndWait({ prompt: "Follow up on that." }, SEND_TIMEOUT_MS);
+// Same stage, multi-turn — full history stays attached
+await s.session.sendAndWait({ prompt: "Plan the implementation." }, SEND_TIMEOUT_MS);
+await s.session.sendAndWait({ prompt: "Follow up on the plan above." }, SEND_TIMEOUT_MS);
 ```
+
+If you deliberately drop down to provider-specific resume/fork APIs, keep them
+within the same agent role. They are advanced escape hatches, not the normal
+way stages communicate.
 
 #### When context grows too large: compaction and clearing
 
@@ -582,7 +590,7 @@ substitute the OpenCode API equivalents:
 | Fresh session (auto-created) | `s.session` (runtime creates via `createSession`) | `s.session` (runtime creates via `session.create`) |
 | Send a turn | `s.session.sendAndWait({ prompt }, timeout)` | `s.client.session.prompt({ sessionID: s.session.id, parts })` |
 | Close / disconnect | Auto-handled by runtime | session lifecycle managed via server; no explicit disconnect in typical flow |
-| Resume prior session | `s.client.resumeSession(sessionId)` | Reuse the same `sessionID` with `s.client.session.prompt()` — the server retains history |
+| Continue prior conversation | `s.client.resumeSession(sessionId)` (provider API; advanced) | Reuse the same `sessionID` with `s.client.session.prompt()` inside the same logical conversation. `ctx.stage()` itself still creates a fresh session every time |
 | Extract final text | `getAssistantText(messages)` (see `failure-modes.md` §F1) | `extractResponseText(result.data!.parts)` |
 
 **Multi-agent handoff example (applies the same pattern as Copilot):**

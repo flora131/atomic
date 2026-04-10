@@ -27,7 +27,10 @@
   },
   "exports": {
     ".": "./src/sdk/index.ts",
-    "./workflows": "./src/sdk/workflows.ts"
+    "./workflows": "./src/sdk/workflows/index.ts",
+    "./workflows/builtin/ralph/claude": "./src/sdk/workflows/builtin/ralph/claude/index.ts",
+    "./workflows/builtin/ralph/copilot": "./src/sdk/workflows/builtin/ralph/copilot/index.ts",
+    "./workflows/builtin/ralph/opencode": "./src/sdk/workflows/builtin/ralph/opencode/index.ts"
   },
   "files": [
     "src",
@@ -36,8 +39,7 @@
     ".claude/agents",
     ".opencode/agents",
     ".github/agents",
-    ".github/lsp.json",
-    ".atomic/workflows"
+    ".github/lsp.json"
   ],
   "scripts": {
     "dev": "bun run src/cli.ts",

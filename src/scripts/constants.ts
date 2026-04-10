@@ -5,8 +5,8 @@
  * change propagates everywhere.
  */
 
-import { AGENTS } from "@/sdk/workflows.ts";
-import type { AgentType } from "@/sdk/workflows.ts";
+import { AGENTS } from "@/sdk/workflows/index.ts";
+import type { AgentType } from "@/sdk/workflows/index.ts";
 
 export {
   SDK_PACKAGE_NAME,

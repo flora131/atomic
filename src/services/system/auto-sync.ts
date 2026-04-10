@@ -38,7 +38,6 @@ import {
   upgradeLiteparse,
 } from "@/lib/spawn.ts";
 import { installGlobalAgents } from "@/services/system/agents.ts";
-import { installGlobalWorkflows } from "@/services/system/workflows.ts";
 import { installGlobalSkills } from "@/services/system/skills.ts";
 import { runSteps, printSummary } from "@/services/system/install-ui.ts";
 
@@ -108,7 +107,6 @@ export async function autoSyncIfStale(): Promise<void> {
     { label: "@playwright/cli",    fn: upgradePlaywrightCli },
     { label: "@llamaindex/liteparse", fn: upgradeLiteparse },
     { label: "global agent configs",  fn: installGlobalAgents },
-    { label: "global workflows",      fn: installGlobalWorkflows },
     { label: "global skills",         fn: installGlobalSkills },
   ]);
 

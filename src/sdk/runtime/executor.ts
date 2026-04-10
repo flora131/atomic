@@ -1,0 +1,906 @@
+/**
+ * Workflow runtime executor.
+ *
+ * Architecture:
+ * 1. `executeWorkflow()` is called by the CLI command
+ * 2. It creates a tmux session with an orchestrator pane that runs
+ *    `bun run executor.ts --run <args>`
+ * 3. The CLI then attaches to the tmux session (user sees it live)
+ * 4. The orchestrator pane calls `definition.run(workflowCtx)` — the
+ *    user's callback uses `ctx.session()` to spawn agent sessions
+ */
+
+import { join, resolve } from "path";
+import { homedir } from "os";
+import { mkdir, writeFile, readFile } from "fs/promises";
+import type {
+  WorkflowDefinition,
+  WorkflowContext,
+  SessionContext,
+  SessionRunOptions,
+  SessionHandle,
+  SessionRef,
+  AgentType,
+  Transcript,
+  SavedMessage,
+  SaveTranscript,
+} from "../types.ts";
+import type { SessionEvent } from "@github/copilot-sdk";
+import type { SessionPromptResponse } from "@opencode-ai/sdk/v2";
+import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
+import * as tmux from "./tmux.ts";
+import { getMuxBinary } from "./tmux.ts";
+import { WorkflowLoader } from "./loader.ts";
+import { clearClaudeSession } from "../providers/claude.ts";
+import { OrchestratorPanel } from "./panel.tsx";
+
+/** Maximum time (ms) to wait for an agent's server to become reachable. */
+const SERVER_WAIT_TIMEOUT_MS = 60_000;
+
+/** Agent CLI configuration for spawning in tmux panes. */
+const AGENT_CLI: Record<
+  AgentType,
+  { cmd: string; chatFlags: string[]; envVars: Record<string, string> }
+> = {
+  copilot: {
+    cmd: "copilot",
+    chatFlags: [
+      "--add-dir",
+      ".",
+      "--yolo",
+      "--experimental",
+      "--no-auto-update",
+    ],
+    envVars: {
+      COPILOT_ALLOW_ALL: "true",
+    },
+  },
+  opencode: { cmd: "opencode", chatFlags: [], envVars: {} },
+  claude: {
+    cmd: "claude",
+    chatFlags: [
+      "--allow-dangerously-skip-permissions",
+      "--dangerously-skip-permissions",
+    ],
+    envVars: {},
+  },
+};
+
+/** Thrown when the user aborts a running workflow via `q` or `Ctrl+C`. */
+class WorkflowAbortError extends Error {
+  constructor() {
+    super("Workflow aborted by user");
+    this.name = "WorkflowAbortError";
+  }
+}
+
+export interface WorkflowRunOptions {
+  /** The compiled workflow definition */
+  definition: WorkflowDefinition;
+  /** Agent type */
+  agent: AgentType;
+  /** The user's prompt */
+  prompt: string;
+  /** Absolute path to the workflow's index.ts file (from discovery) */
+  workflowFile: string;
+  /** Project root (defaults to cwd) */
+  projectRoot?: string;
+}
+
+interface SessionResult {
+  name: string;
+  sessionId: string;
+  sessionDir: string;
+  paneId: string;
+}
+
+/** A session that has been spawned but may not have completed yet. */
+interface ActiveSession {
+  name: string;
+  paneId: string;
+  /**
+   * Settles when the session finishes. Resolves on success, rejects with the
+   * callback's error on failure. Dependent sessions awaiting via `dependsOn`
+   * block on this promise.
+   */
+  done: Promise<void>;
+}
+
+function generateId(): string {
+  return crypto.randomUUID().slice(0, 8);
+}
+
+function getSessionsBaseDir(): string {
+  return join(homedir(), ".atomic", "sessions");
+}
+
+async function getRandomPort(): Promise<number> {
+  const net = await import("node:net");
+
+  const MAX_RETRIES = 3;
+  let lastPort = 0;
+
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const port = await new Promise<number>((resolve, reject) => {
+      const server = net.createServer();
+      server.listen(0, () => {
+        const addr = server.address();
+        const p = typeof addr === "object" && addr ? addr.port : 0;
+        server.close(() => resolve(p));
+      });
+      server.on("error", reject);
+    });
+
+    if (port > 0) return port;
+    lastPort = port;
+    await Bun.sleep(50);
+  }
+
+  throw new Error(
+    `Failed to acquire a random port after ${MAX_RETRIES} attempts (last: ${lastPort})`,
+  );
+}
+
+function buildPaneCommand(
+  agent: AgentType,
+  port: number,
+): { command: string; envVars: Record<string, string> } {
+  const { cmd, chatFlags, envVars } = AGENT_CLI[agent];
+
+  switch (agent) {
+    case "copilot":
+      return {
+        command: [cmd, "--ui-server", "--port", String(port), ...chatFlags].join(
+          " ",
+        ),
+        envVars,
+      };
+    case "opencode":
+      return {
+        command: [cmd, "--port", String(port), ...chatFlags].join(" "),
+        envVars,
+      };
+    case "claude":
+      // Claude is started via createClaudeSession() in the workflow's run()
+      return {
+        command:
+          process.env.SHELL || (process.platform === "win32" ? "pwsh" : "sh"),
+        envVars,
+      };
+    default:
+      return {
+        command: [cmd, ...chatFlags].join(" "),
+        envVars,
+      };
+  }
+}
+
+async function waitForServer(
+  agent: AgentType,
+  port: number,
+  paneId: string,
+): Promise<string> {
+  if (agent === "claude") return "";
+
+  const serverUrl = `localhost:${port}`;
+  const deadline = Date.now() + SERVER_WAIT_TIMEOUT_MS;
+
+  // Wait for the TUI to render first
+  while (Date.now() < deadline) {
+    const content = tmux.capturePane(paneId);
+    const lines = content.split("\n").filter((l) => l.trim().length > 0);
+    if (lines.length >= 3) break;
+    await Bun.sleep(1_000);
+  }
+
+  // Then verify the SDK can actually connect and list sessions
+  if (agent === "copilot") {
+    const { CopilotClient } = await import("@github/copilot-sdk");
+    while (Date.now() < deadline) {
+      try {
+        const probe = new CopilotClient({ cliUrl: serverUrl });
+        await probe.start();
+        await probe.listSessions();
+        await probe.stop();
+        return serverUrl;
+      } catch {
+        await Bun.sleep(1_000);
+      }
+    }
+  }
+
+  // For OpenCode, give it extra time after TUI renders
+  await Bun.sleep(3_000);
+  return serverUrl;
+}
+
+async function ensureDir(dir: string): Promise<void> {
+  await mkdir(dir, { recursive: true });
+}
+
+/**
+ * Escape a string for safe interpolation inside a bash double-quoted string.
+ *
+ * In bash `"..."` strings only `$`, `` ` ``, `\`, `"`, and `!` are special.
+ * Single quotes are literal inside double quotes and need no escaping.
+ * Null bytes are stripped because bash strings cannot contain them.
+ */
+export function escBash(s: string): string {
+  return s
+    .replace(/\x00/g, "")
+    .replace(/[\n\r]+/g, " ")
+    .replace(/[\\"$`!]/g, "\\$&");
+}
+
+/**
+ * Escape a string for safe interpolation inside a PowerShell double-quoted string.
+ *
+ * In PowerShell `"..."` strings, backtick is the escape character and `$` triggers
+ * variable expansion.  Null bytes are stripped for safety.
+ */
+export function escPwsh(s: string): string {
+  return s
+    .replace(/\x00/g, "")
+    .replace(/[`"$]/g, "`$&")
+    .replace(/\n/g, "`n")
+    .replace(/\r/g, "`r");
+}
+
+// ============================================================================
+// Entry point called by the CLI command
+// ============================================================================
+
+/**
+ * Called by `atomic workflow -n <name> -a <agent> <prompt>`.
+ *
+ * Creates a tmux session with the orchestrator as the initial pane,
+ * then attaches so the user sees everything live.
+ */
+export async function executeWorkflow(
+  options: WorkflowRunOptions,
+): Promise<void> {
+  const {
+    definition,
+    agent,
+    prompt,
+    workflowFile,
+    projectRoot = process.cwd(),
+  } = options;
+
+  const workflowRunId = generateId();
+  const tmuxSessionName = `atomic-wf-${definition.name}-${workflowRunId}`;
+  const sessionsBaseDir = join(getSessionsBaseDir(), workflowRunId);
+  await ensureDir(sessionsBaseDir);
+
+  // Write a launcher script for the orchestrator pane
+  const thisFile = resolve(import.meta.dir, "executor.ts");
+  const isWin = process.platform === "win32";
+  const launcherExt = isWin ? "ps1" : "sh";
+  const launcherPath = join(sessionsBaseDir, `orchestrator.${launcherExt}`);
+  const logPath = join(sessionsBaseDir, "orchestrator.log");
+
+  const launcherScript = isWin
+    ? [
+        `Set-Location "${escPwsh(projectRoot)}"`,
+        `$env:ATOMIC_WF_ID = "${escPwsh(workflowRunId)}"`,
+        `$env:ATOMIC_WF_TMUX = "${escPwsh(tmuxSessionName)}"`,
+        `$env:ATOMIC_WF_AGENT = "${escPwsh(agent)}"`,
+        `$env:ATOMIC_WF_PROMPT = "${escPwsh(Buffer.from(prompt).toString("base64"))}"`,
+        `$env:ATOMIC_WF_FILE = "${escPwsh(workflowFile)}"`,
+        `$env:ATOMIC_WF_CWD = "${escPwsh(projectRoot)}"`,
+        `bun run "${escPwsh(thisFile)}" --run 2>"${escPwsh(logPath)}"`,
+      ].join("\n")
+    : [
+        "#!/bin/bash",
+        `cd "${escBash(projectRoot)}"`,
+        `export ATOMIC_WF_ID="${escBash(workflowRunId)}"`,
+        `export ATOMIC_WF_TMUX="${escBash(tmuxSessionName)}"`,
+        `export ATOMIC_WF_AGENT="${escBash(agent)}"`,
+        `export ATOMIC_WF_PROMPT="${escBash(Buffer.from(prompt).toString("base64"))}"`,
+        `export ATOMIC_WF_FILE="${escBash(workflowFile)}"`,
+        `export ATOMIC_WF_CWD="${escBash(projectRoot)}"`,
+        `bun run "${escBash(thisFile)}" --run 2>"${escBash(logPath)}"`,
+      ].join("\n");
+
+  await writeFile(launcherPath, launcherScript, { mode: 0o755 });
+
+  // Create tmux session with orchestrator as the initial window
+  const shellCmd = isWin
+    ? `pwsh -NoProfile -File "${escPwsh(launcherPath)}"`
+    : `bash "${escBash(launcherPath)}"`;
+  tmux.createSession(tmuxSessionName, shellCmd, "orchestrator");
+
+  // Attach or switch depending on whether we're already inside tmux
+  if (tmux.isInsideTmux()) {
+    // Inside tmux: switch the current client to the workflow session
+    // to avoid creating a nested tmux client
+    tmux.switchClient(tmuxSessionName);
+  } else {
+    // Outside tmux: attach normally (blocks until session ends)
+    const muxBinary = getMuxBinary() ?? "tmux";
+    const attachProc = Bun.spawn(
+      [muxBinary, "attach-session", "-t", tmuxSessionName],
+      {
+        stdio: ["inherit", "inherit", "inherit"],
+      },
+    );
+    await attachProc.exited;
+  }
+}
+
+/**
+ * Small buffer (ms) subtracted from `Date.now()` when recording the Claude
+ * session start timestamp.  Protects against fast sequential runs where
+ * the system clock granularity could cause a just-created session's
+ * `lastModified` to fall slightly before our recorded timestamp.
+ */
+const CLAUDE_SESSION_TIMESTAMP_BUFFER_MS = 100;
+
+// ============================================================================
+// Session execution helpers
+// ============================================================================
+
+/** Type guard for objects with a string `content` property (Copilot assistant.message data). */
+export function hasContent(value: unknown): value is { content: string } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "content" in value &&
+    typeof (value as { content: unknown }).content === "string"
+  );
+}
+
+/** Type guard for Claude message objects whose `content` is an array of text blocks. */
+export function isTextBlockArray(
+  value: unknown,
+): value is Array<{ type: "text"; text: string }> {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (b) =>
+        typeof b === "object" &&
+        b !== null &&
+        b.type === "text" &&
+        typeof b.text === "string",
+    )
+  );
+}
+
+export function renderMessagesToText(messages: SavedMessage[]): string {
+  return messages
+    .map((m) => {
+      switch (m.provider) {
+        case "copilot": {
+          if (m.data.type !== "assistant.message") return "";
+          // SessionEvent["data"] for assistant.message has a typed `content: string`
+          return hasContent(m.data.data) ? m.data.data.content : "";
+        }
+        case "opencode": {
+          // Part is a discriminated union; filter to TextPart which has { type: "text", text: string }
+          return m.data.parts
+            .filter(
+              (p): p is Extract<typeof p, { type: "text" }> =>
+                p.type === "text",
+            )
+            .map((p) => p.text)
+            .join("\n");
+        }
+        case "claude": {
+          if (m.data.type !== "assistant") return "";
+          const msg = m.data.message;
+          if (typeof msg === "string") return msg;
+          if (msg && typeof msg === "object" && "content" in msg) {
+            const { content } = msg as { content: unknown };
+            if (typeof content === "string") return content;
+            if (isTextBlockArray(content)) {
+              return content.map((b) => b.text).join("\n");
+            }
+          }
+          return JSON.stringify(msg);
+        }
+      }
+    })
+    .filter((txt): txt is string => typeof txt === "string" && txt.length > 0)
+    .join("\n\n");
+}
+
+/** Resolve a SessionRef (string or SessionHandle) to the session name. */
+function resolveRef(ref: SessionRef): string {
+  return typeof ref === "string" ? ref : ref.name;
+}
+
+// ============================================================================
+// Session runner — implements ctx.session() lifecycle
+// ============================================================================
+
+/** Shared state passed to session runners by the orchestrator. */
+interface SharedRunnerState {
+  tmuxSessionName: string;
+  sessionsBaseDir: string;
+  agent: AgentType;
+  prompt: string;
+  panel: OrchestratorPanel;
+  /** Sessions that have been spawned (for name uniqueness + cleanup). */
+  activeRegistry: Map<string, ActiveSession>;
+  /** Sessions that completed successfully (for transcript reads). */
+  completedRegistry: Map<string, SessionResult>;
+}
+
+/**
+ * Create a `ctx.session()` function bound to a parent name for graph edges.
+ * The returned function manages the full session lifecycle:
+ * spawn → run callback → flush saves → complete/error → cleanup.
+ */
+function createSessionRunner(
+  shared: SharedRunnerState,
+  parentName: string,
+): <T = void>(
+  options: SessionRunOptions,
+  run: (ctx: SessionContext) => Promise<T>,
+) => Promise<SessionHandle<T>> {
+  return async <T = void>(
+    options: SessionRunOptions,
+    run: (ctx: SessionContext) => Promise<T>,
+  ): Promise<SessionHandle<T>> => {
+    const { name } = options;
+    const deps = options.dependsOn ?? [];
+
+    // ── 1. Validate name uniqueness (synchronous, before any await) ──
+    if (!name || name.trim() === "") {
+      throw new Error("Session name is required.");
+    }
+    if (shared.activeRegistry.has(name) || shared.completedRegistry.has(name)) {
+      throw new Error(`Duplicate session name: "${name}"`);
+    }
+
+    // ── 2. Validate dependsOn (synchronous, before any await) ──
+    if (deps.length > 0) {
+      if (deps.includes(name)) {
+        throw new Error(`Session "${name}" cannot depend on itself.`);
+      }
+      const unknown = deps.filter(
+        (d) =>
+          !shared.activeRegistry.has(d) && !shared.completedRegistry.has(d),
+      );
+      if (unknown.length > 0) {
+        throw new Error(
+          `Session "${name}" dependsOn unknown session(s): ${unknown.join(
+            ", ",
+          )}. Dependencies must be spawned before the dependent session.`,
+        );
+      }
+    }
+
+    // ── 3. Create done promise so dependent sessions can await this one ──
+    let resolveDone!: () => void;
+    let rejectDone!: (err: unknown) => void;
+    const donePromise = new Promise<void>((resolve, reject) => {
+      resolveDone = resolve;
+      rejectDone = reject;
+    });
+    // Prevent "unhandled rejection" noise when no dependent awaits us.
+    donePromise.catch(() => {});
+
+    // ── 4. Register in active registry (synchronous) ──
+    // Placeholder paneId — filled in after tmux window creation.
+    shared.activeRegistry.set(name, { name, paneId: "", done: donePromise });
+
+    const sessionId = generateId();
+    let paneId = "";
+    // Graph parents: explicit deps if provided, otherwise the enclosing scope.
+    const graphParents = deps.length > 0 ? [...deps] : [parentName];
+
+    try {
+      // ── 5. Wait for dependsOn sessions to finish ──
+      // Active deps block; completed deps resolve immediately. If a dep
+      // rejects (its session failed), this throws and aborts the dependent.
+      if (deps.length > 0) {
+        await Promise.all(
+          deps.map((d) => {
+            const active = shared.activeRegistry.get(d);
+            if (active) return active.done;
+            return Promise.resolve();
+          }),
+        );
+      }
+
+      // ── 6. Allocate port ──
+      const port = await getRandomPort();
+      const { command: paneCmd, envVars: paneEnvVars } = buildPaneCommand(
+        shared.agent,
+        port,
+      );
+
+      // ── 7. Create tmux window ──
+      paneId = tmux.createWindow(
+        shared.tmuxSessionName,
+        name,
+        paneCmd,
+        undefined,
+        paneEnvVars,
+      );
+      shared.activeRegistry.set(name, { name, paneId, done: donePromise });
+
+      // ── 8. Wait for server readiness ──
+      const serverUrl = await waitForServer(shared.agent, port, paneId);
+
+      // ── 9. Create session directory ──
+      const sessionDirName = `${name}-${sessionId}`;
+      const sessionDir = join(shared.sessionsBaseDir, sessionDirName);
+      await ensureDir(sessionDir);
+
+      const messagesPath = join(sessionDir, "messages.json");
+      const inboxPath = join(sessionDir, "inbox.md");
+
+      // ── 10. Add node to graph panel ──
+      shared.panel.addSession(name, graphParents);
+
+      // ── 11. Claude session snapshot (for identifying new sessions later) ──
+      let knownClaudeSessionIds: Set<string> | undefined;
+      if (shared.agent === "claude") {
+        const { listSessions } = await import("@anthropic-ai/claude-agent-sdk");
+        const existing = await listSessions({ dir: process.cwd() });
+        knownClaudeSessionIds = new Set(existing.map((s) => s.sessionId));
+      }
+      const claudeSessionStartedAfter =
+        shared.agent === "claude"
+          ? Date.now() - CLAUDE_SESSION_TIMESTAMP_BUFFER_MS
+          : 0;
+
+      // ── Message wrapping (Claude/Copilot/OpenCode) ──
+      async function wrapMessages(
+        arg: SessionEvent[] | SessionPromptResponse | string,
+      ): Promise<SavedMessage[]> {
+        if (typeof arg === "string") {
+          const { getSessionMessages, listSessions } = await import(
+            "@anthropic-ai/claude-agent-sdk"
+          );
+          const dir = process.cwd();
+          const sessions = await listSessions({ dir });
+
+          const newSessions = knownClaudeSessionIds
+            ? sessions.filter(
+                (s) => !knownClaudeSessionIds!.has(s.sessionId),
+              )
+            : sessions.filter(
+                (s) => s.lastModified >= claudeSessionStartedAfter,
+              );
+
+          const candidates = newSessions.sort(
+            (a, b) => b.lastModified - a.lastModified,
+          );
+
+          const candidate = candidates[0];
+          if (!candidate) {
+            throw new Error(
+              `wrapMessages: no new Claude session found for ${dir}`,
+            );
+          }
+
+          const msgs: SessionMessage[] = await getSessionMessages(
+            candidate.sessionId,
+            { dir },
+          );
+          return msgs.map((m) => ({ provider: "claude" as const, data: m }));
+        }
+
+        if (!Array.isArray(arg) && "info" in arg && "parts" in arg) {
+          return [
+            {
+              provider: "opencode" as const,
+              data: arg as SessionPromptResponse,
+            },
+          ];
+        }
+
+        if (Array.isArray(arg)) {
+          return (arg as SessionEvent[]).map((m) => ({
+            provider: "copilot" as const,
+            data: m,
+          }));
+        }
+
+        return [];
+      }
+
+      // ── Save function ──
+      const pendingSaves: Promise<void>[] = [];
+
+      const save: SaveTranscript = ((
+        arg: SessionEvent[] | SessionPromptResponse | string,
+      ) => {
+        const p = (async () => {
+          const wrapped = await wrapMessages(arg);
+          await Bun.write(messagesPath, JSON.stringify(wrapped, null, 2));
+          const text = renderMessagesToText(wrapped);
+          await Bun.write(inboxPath, text);
+        })();
+        pendingSaves.push(p);
+        return p;
+      }) as SaveTranscript;
+
+      // ── Transcript/messages access (reads only from completedRegistry) ──
+      const transcriptFn = async (ref: SessionRef): Promise<Transcript> => {
+        const refName = resolveRef(ref);
+        const prev = shared.completedRegistry.get(refName);
+        if (!prev) {
+          const available =
+            [...shared.completedRegistry.keys()].join(", ") || "(none)";
+          throw new Error(
+            `No transcript for "${refName}". Available: ${available}`,
+          );
+        }
+        const filePath = join(prev.sessionDir, "inbox.md");
+        const content = await readFile(filePath, "utf-8");
+        return { path: filePath, content };
+      };
+
+      const getMessagesFn = async (
+        ref: SessionRef,
+      ): Promise<SavedMessage[]> => {
+        const refName = resolveRef(ref);
+        const prev = shared.completedRegistry.get(refName);
+        if (!prev) {
+          const available =
+            [...shared.completedRegistry.keys()].join(", ") || "(none)";
+          throw new Error(
+            `No messages for "${refName}". Available: ${available}`,
+          );
+        }
+        const filePath = join(prev.sessionDir, "messages.json");
+        const raw = await readFile(filePath, "utf-8");
+        return JSON.parse(raw) as SavedMessage[];
+      };
+
+      // ── 12. Construct SessionContext ──
+      const ctx: SessionContext = {
+        serverUrl,
+        userPrompt: shared.prompt,
+        agent: shared.agent,
+        sessionDir,
+        paneId,
+        sessionId,
+        save,
+        transcript: transcriptFn,
+        getMessages: getMessagesFn,
+        session: createSessionRunner(shared, name),
+      };
+
+      // ── Write session metadata ──
+      await writeFile(
+        join(sessionDir, "metadata.json"),
+        JSON.stringify(
+          {
+            name,
+            description: options.description ?? "",
+            agent: shared.agent,
+            paneId,
+            serverUrl,
+            port,
+            startedAt: new Date().toISOString(),
+          },
+          null,
+          2,
+        ),
+      );
+
+      // ── 13. Run user callback ──
+      let callbackResult: T;
+      try {
+        callbackResult = await run(ctx);
+        if (pendingSaves.length > 0) await Promise.all(pendingSaves);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : String(error);
+        await writeFile(join(sessionDir, "error.txt"), message).catch(
+          () => {},
+        );
+        shared.panel.sessionError(name, message);
+        throw error;
+      }
+
+      // ── 14. Mark session complete ──
+      shared.panel.sessionSuccess(name);
+      const result: SessionResult = { name, sessionId, sessionDir, paneId };
+      shared.completedRegistry.set(name, result);
+      shared.activeRegistry.delete(name);
+      resolveDone();
+
+      return { name, id: sessionId, result: callbackResult! };
+    } catch (error) {
+      // Ensure the done promise settles and the active entry is cleared so
+      // dependents fail fast instead of hanging forever on a ghost dep.
+      shared.activeRegistry.delete(name);
+      rejectDone(error);
+      throw error;
+    } finally {
+      // ── 15. Cleanup (Claude session state) ──
+      if (shared.agent === "claude" && paneId) {
+        clearClaudeSession(paneId);
+      }
+    }
+  };
+}
+
+// ============================================================================
+// Orchestrator logic — runs inside a tmux pane
+// ============================================================================
+
+async function runOrchestrator(): Promise<void> {
+  const requiredEnvVars = [
+    "ATOMIC_WF_ID",
+    "ATOMIC_WF_TMUX",
+    "ATOMIC_WF_AGENT",
+    "ATOMIC_WF_PROMPT",
+    "ATOMIC_WF_FILE",
+    "ATOMIC_WF_CWD",
+  ] as const;
+  for (const key of requiredEnvVars) {
+    if (!process.env[key]) {
+      throw new Error(`Missing required environment variable: ${key}`);
+    }
+  }
+
+  const workflowRunId = process.env.ATOMIC_WF_ID!;
+  const tmuxSessionName = process.env.ATOMIC_WF_TMUX!;
+  const agent = process.env.ATOMIC_WF_AGENT! as AgentType;
+  const prompt = Buffer.from(process.env.ATOMIC_WF_PROMPT!, "base64").toString(
+    "utf-8",
+  );
+  const workflowFile = process.env.ATOMIC_WF_FILE!;
+  const cwd = process.env.ATOMIC_WF_CWD!;
+
+  process.chdir(cwd);
+
+  const sessionsBaseDir = join(getSessionsBaseDir(), workflowRunId);
+  await ensureDir(sessionsBaseDir);
+
+  const panel = await OrchestratorPanel.create({
+    tmuxSession: tmuxSessionName,
+  });
+
+  // Idempotent shutdown guard
+  let shutdownCalled = false;
+  const shutdown = (exitCode = 0) => {
+    if (shutdownCalled) return;
+    shutdownCalled = true;
+    panel.destroy();
+    try {
+      tmux.killSession(tmuxSessionName);
+    } catch {}
+    process.exitCode = exitCode;
+  };
+
+  // Wire SIGINT so the terminal is always restored.
+  // SIGTERM and other signals are handled by OpenTUI's exitSignals.
+  const signalHandler = () => shutdown(1);
+  process.on("SIGINT", signalHandler);
+
+  // Shared state for all session runners
+  const shared: SharedRunnerState = {
+    tmuxSessionName,
+    sessionsBaseDir,
+    agent,
+    prompt,
+    panel,
+    activeRegistry: new Map(),
+    completedRegistry: new Map(),
+  };
+
+  try {
+    const plan: WorkflowLoader.Plan = {
+      name: workflowFile.split("/").at(-3) ?? "unknown",
+      agent,
+      path: workflowFile,
+      source: "local",
+    };
+
+    const loaded = await WorkflowLoader.loadWorkflow(plan, {
+      warn(warnings) {
+        for (const w of warnings) {
+          console.warn(`⚠ [${w.rule}] ${w.message}`);
+        }
+      },
+    });
+    if (!loaded.ok) {
+      throw new Error(loaded.message);
+    }
+    const definition = loaded.value.definition;
+
+    await writeFile(
+      join(sessionsBaseDir, "metadata.json"),
+      JSON.stringify(
+        {
+          workflowName: definition.name,
+          agent,
+          prompt,
+          projectRoot: cwd,
+          startedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+    );
+
+    // Initialize panel with just the orchestrator node (sessions added dynamically)
+    panel.showWorkflowInfo(definition.name, agent, [], prompt);
+
+    // Build the WorkflowContext — top-level context for the .run() callback
+    const sessionRunner = createSessionRunner(shared, "orchestrator");
+
+    const workflowCtx: WorkflowContext = {
+      userPrompt: prompt,
+      agent,
+      session: sessionRunner,
+      transcript: async (ref: SessionRef): Promise<Transcript> => {
+        const refName = resolveRef(ref);
+        const prev = shared.completedRegistry.get(refName);
+        if (!prev) {
+          const available =
+            [...shared.completedRegistry.keys()].join(", ") || "(none)";
+          throw new Error(
+            `No transcript for "${refName}". Available: ${available}`,
+          );
+        }
+        const filePath = join(prev.sessionDir, "inbox.md");
+        const content = await readFile(filePath, "utf-8");
+        return { path: filePath, content };
+      },
+      getMessages: async (ref: SessionRef): Promise<SavedMessage[]> => {
+        const refName = resolveRef(ref);
+        const prev = shared.completedRegistry.get(refName);
+        if (!prev) {
+          const available =
+            [...shared.completedRegistry.keys()].join(", ") || "(none)";
+          throw new Error(
+            `No messages for "${refName}". Available: ${available}`,
+          );
+        }
+        const filePath = join(prev.sessionDir, "messages.json");
+        const raw = await readFile(filePath, "utf-8");
+        return JSON.parse(raw) as SavedMessage[];
+      },
+    };
+
+    // Run the workflow, racing against user abort (q / Ctrl+C)
+    const abortPromise = panel.waitForAbort().then(() => {
+      throw new WorkflowAbortError();
+    });
+    await Promise.race([definition.run(workflowCtx), abortPromise]);
+
+    panel.showCompletion(definition.name, sessionsBaseDir);
+    await panel.waitForExit();
+    shutdown(0);
+  } catch (error) {
+    // Kill any active session tmux windows that didn't complete
+    for (const [, active] of shared.activeRegistry) {
+      try {
+        tmux.killWindow(tmuxSessionName, active.name);
+      } catch {}
+    }
+
+    if (error instanceof WorkflowAbortError) {
+      shutdown(0);
+    } else {
+      const message = error instanceof Error ? error.message : String(error);
+      try {
+        panel.showFatalError(message);
+        await panel.waitForExit();
+      } catch {}
+      shutdown(1);
+    }
+  } finally {
+    process.off("SIGINT", signalHandler);
+  }
+}
+
+// ============================================================================
+// Direct invocation: `bun run executor.ts --run`
+// ============================================================================
+
+if (process.argv.includes("--run")) {
+  runOrchestrator().catch((err) => {
+    console.error("Fatal:", err);
+    process.exitCode = 1;
+  });
+}

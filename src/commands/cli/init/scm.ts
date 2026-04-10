@@ -2,7 +2,11 @@ import { join } from "path";
 import { readdir } from "fs/promises";
 import { copyFile, pathExists, ensureDir } from "@/services/system/copy.ts";
 import { getOppositeScriptExtension } from "@/services/system/detect.ts";
-import type { AgentKey, SourceControlType } from "@/services/config/index.ts";
+import {
+  SCM_SKILLS_BY_TYPE,
+  type AgentKey,
+  type SourceControlType,
+} from "@/services/config/index.ts";
 
 export const SCM_PREFIX_BY_TYPE: Record<SourceControlType, "gh-" | "sl-"> = {
   github: "gh-",
@@ -127,14 +131,21 @@ export interface InstallLocalScmSkillsOptions {
 
 export interface InstallLocalScmSkillsResult {
   success: boolean;
+  /** The explicit skill names that were requested (e.g. `["gh-commit", "gh-create-pr"]`). */
+  skills: readonly string[];
   /** Non-empty when `success` is false. */
   details: string;
 }
 
 /**
- * Install the SCM skill variants (gh-* or sl-*) locally into the current
- * project via `npx skills add`. The `-g` flag is intentionally omitted so
- * the skills are installed per-project (in the given `cwd`).
+ * Install the SCM skill variants (e.g. `gh-commit`, `gh-create-pr` for
+ * GitHub) locally into the current project via `npx skills add`. The `-g`
+ * flag is intentionally omitted so the skills are installed per-project
+ * (in the given `cwd`).
+ *
+ * Each skill is passed explicitly with `--skill <name>` — the skills CLI
+ * does not support glob patterns like `gh-*`, which would either fail or
+ * fall back to installing the entire skill set.
  *
  * This is best-effort: callers should treat a failed result as a warning,
  * not as a fatal error.
@@ -144,13 +155,15 @@ export async function installLocalScmSkills(
 ): Promise<InstallLocalScmSkillsResult> {
   const { scmType, agentKey, cwd } = options;
 
+  const skills = SCM_SKILLS_BY_TYPE[scmType];
+
   const npxPath = Bun.which("npx");
   if (!npxPath) {
-    return { success: false, details: "npx not found on PATH" };
+    return { success: false, skills, details: "npx not found on PATH" };
   }
 
-  const pattern = `${getScmPrefix(scmType)}*`;
   const agentFlag = SKILLS_AGENT_BY_KEY[agentKey];
+  const skillFlags = skills.flatMap((skill) => ["--skill", skill]);
 
   try {
     const proc = Bun.spawn({
@@ -160,8 +173,7 @@ export async function installLocalScmSkills(
         "skills",
         "add",
         SKILLS_REPO,
-        "--skill",
-        pattern,
+        ...skillFlags,
         "-a",
         agentFlag,
         "-y",
@@ -177,13 +189,18 @@ export async function installLocalScmSkills(
       proc.exited,
     ]);
     if (exitCode === 0) {
-      return { success: true, details: "" };
+      return { success: true, skills, details: "" };
     }
     const details = stderr.trim().length > 0 ? stderr.trim() : stdout.trim();
-    return { success: false, details: details || `exit code ${exitCode}` };
+    return {
+      success: false,
+      skills,
+      details: details || `exit code ${exitCode}`,
+    };
   } catch (error) {
     return {
       success: false,
+      skills,
       details: error instanceof Error ? error.message : String(error),
     };
   }

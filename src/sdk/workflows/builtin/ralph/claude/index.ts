@@ -1,5 +1,5 @@
 /**
- * Ralph workflow for OpenCode — plan → orchestrate → review → debug loop.
+ * Ralph workflow for Claude Code — plan → orchestrate → review → debug loop.
  *
  * Each sub-agent invocation spawns its own visible session in the graph,
  * so users can see each iteration's progress in real time. The loop
@@ -7,10 +7,10 @@
  *   - {@link MAX_LOOPS} iterations have completed, OR
  *   - Two consecutive reviewer passes return zero findings.
  *
- * Run: atomic workflow -n ralph -a opencode "<your spec>"
+ * Run: atomic workflow -n ralph -a claude "<your spec>"
  */
 
-import { defineWorkflow } from "@bastani/atomic/workflows";
+import { defineWorkflow } from "../../../index.ts";
 
 import {
   buildPlannerPrompt,
@@ -26,17 +26,12 @@ import { safeGitStatusS } from "../helpers/git.ts";
 const MAX_LOOPS = 10;
 const CONSECUTIVE_CLEAN_THRESHOLD = 2;
 
-/** Concatenate the text-typed parts of an OpenCode response. */
-function extractResponseText(
-  parts: Array<{ type: string; [key: string]: unknown }>,
-): string {
-  return parts
-    .filter((p) => p.type === "text")
-    .map((p) => (p as { type: string; text: string }).text)
-    .join("\n");
+/** Wrap a prompt with a Claude Code @-mention so the named sub-agent runs it. */
+function asAgentCall(agentName: string, prompt: string): string {
+  return `@"${agentName} (agent)" ${prompt}`;
 }
 
-export default defineWorkflow<"opencode">({
+export default defineWorkflow<"claude">({
   name: "ralph",
   description:
     "Plan → orchestrate → review → debug loop with bounded iteration",
@@ -48,26 +43,21 @@ export default defineWorkflow<"opencode">({
     for (let iteration = 1; iteration <= MAX_LOOPS; iteration++) {
       // ── Plan ────────────────────────────────────────────────────────────
       const plannerName = `planner-${iteration}`;
-      const planner = await ctx.stage(
+      await ctx.stage(
         { name: plannerName },
         {},
-        { title: `planner-${iteration}` },
+        {},
         async (s) => {
-          const result = await s.client.session.prompt({
-            sessionID: s.session.id,
-            parts: [
-              {
-                type: "text",
-                text: buildPlannerPrompt(s.userPrompt, {
-                  iteration,
-                  debuggerReport: debuggerReport || undefined,
-                }),
-              },
-            ],
-            agent: "planner",
-          });
-          s.save(result.data!);
-          return extractResponseText(result.data!.parts);
+          await s.session.query(
+            asAgentCall(
+              "planner",
+              buildPlannerPrompt(s.userPrompt, {
+                iteration,
+                debuggerReport: debuggerReport || undefined,
+              }),
+            ),
+          );
+          s.save(s.sessionId);
         },
       );
 
@@ -77,21 +67,15 @@ export default defineWorkflow<"opencode">({
       await ctx.stage(
         { name: orchName },
         {},
-        { title: `orchestrator-${iteration}` },
+        {},
         async (s) => {
-          const result = await s.client.session.prompt({
-            sessionID: s.session.id,
-            parts: [
-              {
-                type: "text",
-                text: buildOrchestratorPrompt(s.userPrompt, {
-                  plannerNotes: planner.result,
-                }),
-              },
-            ],
-            agent: "orchestrator",
-          });
-          s.save(result.data!);
+          await s.session.query(
+            asAgentCall(
+              "orchestrator",
+              buildOrchestratorPrompt(s.userPrompt),
+            ),
+          );
+          s.save(s.sessionId);
         },
       );
 
@@ -102,23 +86,16 @@ export default defineWorkflow<"opencode">({
       const review = await ctx.stage(
         { name: reviewerName },
         {},
-        { title: `reviewer-${iteration}` },
+        {},
         async (s) => {
-          const result = await s.client.session.prompt({
-            sessionID: s.session.id,
-            parts: [
-              {
-                type: "text",
-                text: buildReviewPrompt(s.userPrompt, {
-                  gitStatus,
-                  iteration,
-                }),
-              },
-            ],
-            agent: "reviewer",
-          });
-          s.save(result.data!);
-          return extractResponseText(result.data!.parts);
+          const result = await s.session.query(
+            asAgentCall(
+              "reviewer",
+              buildReviewPrompt(s.userPrompt, { gitStatus, iteration }),
+            ),
+          );
+          s.save(s.sessionId);
+          return result.output;
         },
       );
 
@@ -136,24 +113,20 @@ export default defineWorkflow<"opencode">({
         const confirm = await ctx.stage(
           { name: confirmName },
           {},
-          { title: `reviewer-${iteration}-confirm` },
+          {},
           async (s) => {
-            const result = await s.client.session.prompt({
-              sessionID: s.session.id,
-              parts: [
-                {
-                  type: "text",
-                  text: buildReviewPrompt(s.userPrompt, {
-                    gitStatus,
-                    iteration,
-                    isConfirmationPass: true,
-                  }),
-                },
-              ],
-              agent: "reviewer",
-            });
-            s.save(result.data!);
-            return extractResponseText(result.data!.parts);
+            const result = await s.session.query(
+              asAgentCall(
+                "reviewer",
+                buildReviewPrompt(s.userPrompt, {
+                  gitStatus,
+                  iteration,
+                  isConfirmationPass: true,
+                }),
+              ),
+            );
+            s.save(s.sessionId);
+            return result.output;
           },
         );
 
@@ -177,23 +150,19 @@ export default defineWorkflow<"opencode">({
         const debugger_ = await ctx.stage(
           { name: debuggerName },
           {},
-          { title: `debugger-${iteration}` },
+          {},
           async (s) => {
-            const result = await s.client.session.prompt({
-              sessionID: s.session.id,
-              parts: [
-                {
-                  type: "text",
-                  text: buildDebuggerReportPrompt(parsed, reviewRaw, {
-                    iteration,
-                    gitStatus,
-                  }),
-                },
-              ],
-              agent: "debugger",
-            });
-            s.save(result.data!);
-            return extractResponseText(result.data!.parts);
+            const result = await s.session.query(
+              asAgentCall(
+                "debugger",
+                buildDebuggerReportPrompt(parsed, reviewRaw, {
+                  iteration,
+                  gitStatus,
+                }),
+              ),
+            );
+            s.save(s.sessionId);
+            return result.output;
           },
         );
 

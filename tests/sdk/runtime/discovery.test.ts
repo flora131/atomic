@@ -11,7 +11,7 @@ import {
   findWorkflow,
   WorkflowLoader,
   WORKFLOWS_GITIGNORE,
-} from "@/sdk/workflows.ts";
+} from "@/sdk/workflows/index.ts";
 import { readFile } from "fs/promises";
 
 let tempDir: string;
@@ -149,6 +149,38 @@ describe("discoverWorkflows — .gitignore filtering", () => {
   });
 });
 
+describe("built-in workflow discovery", () => {
+  test("discovers ralph workflow (builtin or global)", async () => {
+    // Ralph is always available — either from built-in SDK modules or from
+    // a previously-synced global directory. Both are valid discovery paths.
+    const results = await discoverWorkflows(tempDir, "claude");
+    const ralph = results.find((r) => r.name === "ralph");
+    expect(ralph).toBeDefined();
+    expect(ralph!.agent).toBe("claude");
+    expect(["builtin", "global"]).toContain(ralph!.source);
+  });
+
+  test("discovers ralph for all agent types", async () => {
+    const results = await discoverWorkflows(tempDir);
+    const ralphAgents = results
+      .filter((r) => r.name === "ralph")
+      .map((r) => r.agent)
+      .sort();
+    expect(ralphAgents).toEqual(["claude", "copilot", "opencode"]);
+  });
+
+  test("local workflow overrides built-in with same name", async () => {
+    const dir = join(tempDir, ".atomic", "workflows", "ralph", "claude");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "index.ts"), "export default {};");
+
+    const results = await discoverWorkflows(tempDir, "claude");
+    const ralph = results.find((r) => r.name === "ralph");
+    expect(ralph).toBeDefined();
+    expect(ralph!.source).toBe("local");
+  });
+});
+
 describe("WorkflowLoader", () => {
   test("returns load error when .compile() is not called", async () => {
     const workflowDir = join(tempDir, "missing-compile");
@@ -158,7 +190,7 @@ describe("WorkflowLoader", () => {
     await writeFile(
       filePath,
       `
-import { defineWorkflow } from "${join(process.cwd(), "src/sdk/workflows.ts")}";
+import { defineWorkflow } from "${join(process.cwd(), "src/sdk/workflows/index.ts")}";
 
 export default defineWorkflow({ name: "test" })
   .run(async () => {});
@@ -200,7 +232,7 @@ export default defineWorkflow({ name: "test" })
     await writeFile(
       filePath,
       `
-import { defineWorkflow } from "${join(process.cwd(), "src/sdk/workflows.ts")}";
+import { defineWorkflow } from "${join(process.cwd(), "src/sdk/workflows/index.ts")}";
 
 export default defineWorkflow({ name: "valid-test" })
   .run(async () => {})
@@ -242,7 +274,7 @@ export default defineWorkflow({ name: "valid-test" })
     await writeFile(
       filePath,
       `
-import { defineWorkflow } from "${join(process.cwd(), "src/sdk/workflows.ts")}";
+import { defineWorkflow } from "${join(process.cwd(), "src/sdk/workflows/index.ts")}";
 
 export default defineWorkflow({ name: "stage-test" })
   .run(async () => {})
@@ -280,7 +312,7 @@ export default defineWorkflow({ name: "stage-test" })
     await writeFile(
       filePath,
       `
-import { defineWorkflow } from "${join(process.cwd(), "src/sdk/workflows.ts")}";
+import { defineWorkflow } from "${join(process.cwd(), "src/sdk/workflows/index.ts")}";
 
 export default defineWorkflow({ name: "report-test" })
   .run(async () => {})

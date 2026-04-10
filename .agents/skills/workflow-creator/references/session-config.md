@@ -1,24 +1,35 @@
 # Session Configuration
 
-Each SDK has its own configuration options for controlling model selection, tools, permissions, hooks, and structured output. Configure these within each session callback.
+Each SDK has its own configuration options for controlling model selection, tools, permissions, hooks, and structured output. Pass these via `clientOpts` (2nd arg to `ctx.stage()`) and `sessionOpts` (3rd arg to `ctx.stage()`). The runtime uses them to create the client and session automatically — no manual client or session creation needed.
 
 ## Claude Agent SDK
 
-### `createClaudeSession()` options
+### Client options (`clientOpts` — 2nd arg to `ctx.stage()`)
 
-Start the Claude TUI in a tmux pane. Must be called before any `claudeQuery()` on the same pane:
+These correspond to `createClaudeSession()` options and control how the Claude
+TUI pane is started:
 
 ```ts
-import { createClaudeSession } from "@bastani/atomic/workflows";
-
-// Default flags (skip all permissions)
-await createClaudeSession({ paneId: s.paneId });
-
-// Custom CLI flags
-await createClaudeSession({
-  paneId: s.paneId,
+await ctx.stage({ name: "..." }, {
   chatFlags: ["--model", "opus", "--dangerously-skip-permissions"],
   readyTimeoutMs: 60_000,  // Wait up to 60s for TUI (default: 30s)
+}, {}, async (s) => {
+  // s.client and s.session are ready
+});
+```
+
+### Session options (`sessionOpts` — 3rd arg to `ctx.stage()`)
+
+These are `ClaudeQueryDefaults` and set defaults for every `s.session.query()`
+call inside the callback (`timeoutMs`, `pollIntervalMs`, etc.):
+
+```ts
+await ctx.stage({ name: "..." }, {}, {
+  timeoutMs: 5 * 60 * 1000,     // 5 minutes per query (default)
+  pollIntervalMs: 1_000,         // Poll interval for output
+}, async (s) => {
+  await s.session.query(ctx.userPrompt);
+  s.save(s.sessionId);
 });
 ```
 
@@ -85,20 +96,21 @@ const result = query({
 });
 ```
 
-### `claudeQuery()` options
+### `s.session.query()` usage
 
-The `claudeQuery()` helper sends text to a tmux pane. Requires `createClaudeSession()` to have been called first on the same pane:
+`s.session.query()` is the runtime wrapper around `claudeQuery()`. It uses
+the pane ID from `s.paneId` automatically. Call it inside the stage callback:
 
 ```ts
-import { createClaudeSession, claudeQuery } from "@bastani/atomic/workflows";
-
-await createClaudeSession({ paneId: s.paneId });
-const result = await claudeQuery({
-  paneId: s.paneId,       // tmux pane ID (from SessionContext)
-  prompt: "Your prompt",  // Text to send
+await ctx.stage({ name: "..." }, {}, {}, async (s) => {
+  const result = await s.session.query("Your prompt");
+  // result.output — captured response text
+  s.save(s.sessionId);
 });
-// result.output — captured response text
 ```
+
+The query defaults (timeout, poll interval) can be configured via `sessionOpts`
+as shown above.
 
 ### Claude hooks
 
@@ -146,12 +158,16 @@ const result = query({
 
 ## Copilot SDK
 
-### `createSession()` options
+### Session options (`sessionOpts` — 3rd arg to `ctx.stage()`)
+
+All `client.createSession()` options are passed as `sessionOpts`. The runtime
+forwards them to `client.createSession()`. `onPermissionRequest` defaults to
+`approveAll` when not specified.
 
 ```ts
-import { CopilotClient, approveAll, defineTool } from "@github/copilot-sdk";
+import { approveAll, defineTool } from "@github/copilot-sdk";
 
-const session = await client.createSession({
+await ctx.stage({ name: "plan" }, {}, {
   // Model selection
   model: "claude-sonnet-4.6",
   reasoningEffort: "high",
@@ -169,8 +185,8 @@ const session = await client.createSession({
     }),
   ],
 
-  // Permissions (required)
-  onPermissionRequest: approveAll,    // Or custom handler
+  // Permissions (defaults to approveAll if omitted)
+  onPermissionRequest: approveAll,
 
   // User input
   onUserInputRequest: async (request) => {
@@ -191,133 +207,150 @@ const session = await client.createSession({
 
   // Advanced
   infiniteSessions: true,             // Auto-manage context via compaction
-  provider: {                          // Custom provider config
-    name: "my-provider",
-    baseUrl: "https://api.example.com",
-    apiKey: "...",
-  },
+}, async (s) => {
+  await s.session.sendAndWait({ prompt: ctx.userPrompt }, SEND_TIMEOUT_MS);
+  s.save(await s.session.getMessages());
 });
 ```
 
 ### Copilot permission modes
 
 ```ts
-// Approve everything (autonomous)
-const session = await client.createSession({
-  onPermissionRequest: approveAll,
+// Approve everything (autonomous) — this is the default
+await ctx.stage({ name: "plan" }, {}, { onPermissionRequest: approveAll }, async (s) => {
+  await s.session.sendAndWait({ prompt: ctx.userPrompt }, SEND_TIMEOUT_MS);
+  s.save(await s.session.getMessages());
 });
 
 // Custom permission handler
-const session = await client.createSession({
+await ctx.stage({ name: "plan" }, {}, {
   onPermissionRequest: async (request) => {
     // request.kind: "shell" | "write" | "read" | "mcp" | "custom-tool" | "url" | "memory" | "hook"
     switch (request.kind) {
       case "shell":
-        // Inspect command before approving
         return request.command?.includes("rm")
           ? { kind: "denied-permanently", reason: "Dangerous" }
           : { kind: "approved" };
       case "write":
-        // Allow all file writes
         return { kind: "approved" };
       default:
         return { kind: "approved" };
     }
   },
+}, async (s) => {
+  await s.session.sendAndWait({ prompt: ctx.userPrompt }, SEND_TIMEOUT_MS);
+  s.save(await s.session.getMessages());
 });
 ```
 
 ## OpenCode SDK
 
-### Client creation
+### Client options (`clientOpts` — 2nd arg to `ctx.stage()`)
+
+The `baseUrl` is auto-injected by the runtime. Pass any additional client
+options (such as `directory`) via `clientOpts`:
 
 ```ts
-import { createOpencode, createOpencodeClient } from "@opencode-ai/sdk/v2";
-
-// Option 1: Start server + client (standalone)
-const opencode = await createOpencode({
-  hostname: "localhost",
-  port: 3000,
-  config: {
-    // Inline config overrides opencode.json
-  },
+await ctx.stage({ name: "..." }, {
+  directory: "/path/to/project",   // Override working directory
+}, {}, async (s) => {
+  // s.client is the OpencodeClient, already connected
 });
+```
 
-// Option 2: Client-only (connect to existing server — typical for workflows)
-const client = createOpencodeClient({
-  baseUrl: s.serverUrl,   // From SessionContext
+### Session options (`sessionOpts` — 3rd arg to `ctx.stage()`)
+
+These are forwarded to `client.session.create()`. Use them to set a title,
+parentID, or workspaceID for the session:
+
+```ts
+await ctx.stage({ name: "..." }, {}, {
+  title: "Feature implementation",
+  parentID: "parent-session-id",
+  workspaceID: "workspace-id",
+}, async (s) => {
+  // s.session is the created OpencodeSession, s.session.id is the session ID
 });
 ```
 
 ### Session prompting
 
+Use `s.client` and `s.session.id` inside the callback:
+
 ```ts
-// Basic prompt
-const result = await client.session.prompt({
-  sessionID: session.data!.id,
-  parts: [{ type: "text", text: "Your prompt" }],
-});
+await ctx.stage({ name: "implement" }, {}, {}, async (s) => {
+  // Basic prompt
+  const result = await s.client.session.prompt({
+    sessionID: s.session.id,
+    parts: [{ type: "text", text: ctx.userPrompt }],
+  });
 
-// Structured output
-const result = await client.session.prompt({
-  sessionID: session.data!.id,
-  parts: [{ type: "text", text: "List endpoints as JSON" }],
-  format: {
-    type: "json_schema",
-    schema: { type: "object", properties: { endpoints: { type: "array" } } },
-    retryCount: 3,
-  },
-});
+  // Structured output
+  const structured = await s.client.session.prompt({
+    sessionID: s.session.id,
+    parts: [{ type: "text", text: "List endpoints as JSON" }],
+    format: {
+      type: "json_schema",
+      schema: { type: "object", properties: { endpoints: { type: "array" } } },
+      retryCount: 3,
+    },
+  });
 
-// No-reply context injection
-await client.session.prompt({
-  sessionID: session.data!.id,
-  parts: [{ type: "text", text: "Background context..." }],
-  noReply: true,
+  // No-reply context injection
+  await s.client.session.prompt({
+    sessionID: s.session.id,
+    parts: [{ type: "text", text: "Background context..." }],
+    noReply: true,
+  });
+
+  s.save(result.data!);
 });
 ```
 
 ### OpenCode session management
 
 ```ts
-// Create session
-const session = await client.session.create({ title: "my-session" });
+await ctx.stage({ name: "..." }, {}, {}, async (s) => {
+  // Select session in TUI (auto-called by runtime, but can be called again)
+  await s.client.tui.selectSession({ sessionID: s.session.id });
 
-// Select session in TUI
-await client.tui.selectSession({ sessionID: session.data!.id });
+  // Fork session
+  await s.client.session.fork({ sessionID: s.session.id, messageID: "..." });
 
-// Fork session
-await client.session.fork({ sessionID: session.data!.id, messageID: "..." });
+  // Abort
+  await s.client.session.abort({ sessionID: s.session.id });
 
-// Abort
-await client.session.abort({ sessionID: session.data!.id });
-
-// Session messages
-const messages = await client.session.messages({ sessionID: session.data!.id });
+  // Session messages
+  const messages = await s.client.session.messages({ sessionID: s.session.id });
+});
 ```
 
 ### OpenCode event streaming
 
 ```ts
-const unsubscribe = await client.event.subscribe((event) => {
-  switch (event.type) {
-    case "session.updated":
-      console.log("Session updated");
-      break;
-    case "message.created":
-      console.log("New message");
-      break;
-  }
+await ctx.stage({ name: "..." }, {}, {}, async (s) => {
+  const unsubscribe = await s.client.event.subscribe((event) => {
+    switch (event.type) {
+      case "session.updated":
+        console.log("Session updated");
+        break;
+      case "message.created":
+        console.log("New message");
+        break;
+    }
+  });
 });
 ```
 
 ### OpenCode permissions
 
 ```ts
-// Handle permission requests
-await client.session.permission({
-  sessionID: session.data!.id,
-  permissionID: "...",
-  approved: true,
+await ctx.stage({ name: "..." }, {}, {}, async (s) => {
+  // Handle permission requests
+  await s.client.session.permission({
+    sessionID: s.session.id,
+    permissionID: "...",
+    approved: true,
+  });
 });
 ```

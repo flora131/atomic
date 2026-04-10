@@ -9,23 +9,19 @@
  */
 
 import { defineWorkflow } from "@bastani/atomic/workflows";
-import { createOpencodeClient } from "@opencode-ai/sdk/v2";
 
-export default defineWorkflow({
+export default defineWorkflow<"opencode">({
   name: "hello-parallel",
   description: "Parallel OpenCode demo: describe → [summarize-a, summarize-b] → merge",
 })
   .run(async (ctx) => {
-    const describe = await ctx.session(
+    const describe = await ctx.stage(
       { name: "describe", description: "Ask the agent to describe the project" },
+      {},
+      { title: "describe" },
       async (s) => {
-        const client = createOpencodeClient({ baseUrl: s.serverUrl });
-
-        const session = await client.session.create({ title: "describe" });
-        await client.tui.selectSession({ sessionID: session.data!.id });
-
-        const result = await client.session.prompt({
-          sessionID: session.data!.id,
+        const result = await s.client.session.prompt({
+          sessionID: s.session.id,
           parts: [{ type: "text", text: s.userPrompt }],
         });
 
@@ -34,17 +30,15 @@ export default defineWorkflow({
     );
 
     const [summarizeA, summarizeB] = await Promise.all([
-      ctx.session(
+      ctx.stage(
         { name: "summarize-a", description: "Summarize the description as bullet points" },
+        {},
+        { title: "summarize-a" },
         async (s) => {
           const research = await s.transcript(describe);
-          const client = createOpencodeClient({ baseUrl: s.serverUrl });
 
-          const session = await client.session.create({ title: "summarize-a" });
-          await client.tui.selectSession({ sessionID: session.data!.id });
-
-          const result = await client.session.prompt({
-            sessionID: session.data!.id,
+          const result = await s.client.session.prompt({
+            sessionID: s.session.id,
             parts: [
               {
                 type: "text",
@@ -56,17 +50,15 @@ export default defineWorkflow({
           s.save(result.data!);
         },
       ),
-      ctx.session(
+      ctx.stage(
         { name: "summarize-b", description: "Summarize the description as a one-liner" },
+        {},
+        { title: "summarize-b" },
         async (s) => {
           const research = await s.transcript(describe);
-          const client = createOpencodeClient({ baseUrl: s.serverUrl });
 
-          const session = await client.session.create({ title: "summarize-b" });
-          await client.tui.selectSession({ sessionID: session.data!.id });
-
-          const result = await client.session.prompt({
-            sessionID: session.data!.id,
+          const result = await s.client.session.prompt({
+            sessionID: s.session.id,
             parts: [
               {
                 type: "text",
@@ -80,18 +72,16 @@ export default defineWorkflow({
       ),
     ]);
 
-    await ctx.session(
+    await ctx.stage(
       { name: "merge", description: "Merge both summaries into a final output" },
+      {},
+      { title: "merge" },
       async (s) => {
         const bullets = await s.transcript(summarizeA);
         const oneliner = await s.transcript(summarizeB);
-        const client = createOpencodeClient({ baseUrl: s.serverUrl });
 
-        const session = await client.session.create({ title: "merge" });
-        await client.tui.selectSession({ sessionID: session.data!.id });
-
-        const result = await client.session.prompt({
-          sessionID: session.data!.id,
+        const result = await s.client.session.prompt({
+          sessionID: s.session.id,
           parts: [
             {
               type: "text",

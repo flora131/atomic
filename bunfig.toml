@@ -89,6 +89,7 @@ coveragePathIgnorePatterns = [
   # System utilities (I/O-heavy)
   "src/services/system/download.ts",
   "src/services/system/file-lock.ts",
+  "src/services/system/workflows.ts",
   "src/lib/spawn.ts",
   "src/lib/ui/clipboard.ts",
   "src/lib/ui/mention-parsing.ts",

@@ -2,7 +2,7 @@
  * atomic/workflows
  *
  * Workflow SDK for defining dynamic agent workflows.
- * Workflows use defineWorkflow().run().compile() with ctx.session()
+ * Workflows use defineWorkflow().run().compile() with ctx.stage()
  * for spawning agent sessions using native TypeScript control flow.
  */
 
@@ -20,6 +20,19 @@ export type {
   WorkflowContext,
   WorkflowOptions,
   WorkflowDefinition,
+  StageClientOptions,
+  StageSessionOptions,
+  ProviderClient,
+  ProviderSession,
+  CopilotClient,
+  CopilotClientOptions,
+  CopilotSession,
+  CopilotSessionConfig,
+  OpencodeClient,
+  OpencodeSession,
+  ClaudeClientWrapper,
+  ClaudeSessionWrapper,
+  ClaudeQueryDefaults,
 } from "./types.ts";
 
 // Re-export native SDK types for convenience

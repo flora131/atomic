@@ -34,7 +34,8 @@ for every session boundary in your workflow:
 1. **What context does this session need to succeed?** The original user
    spec? Prior stage output? File paths? Git state? A summary?
 2. **How will that context reach the session?** Built into the prompt?
-   Read from a file? Retrieved via a tool? Resumed from a prior session?
+   Read from a file? Retrieved via a tool? Kept inside one continued
+   multi-turn stage instead of crossing a stage boundary?
 3. **What happens if the context window fills up?** Compact? Clear? Spawn
    a sub-session? Offload to files?
 
@@ -51,8 +52,7 @@ them is the #1 cause of broken multi-agent workflows:
 |---|---|---|
 | **Fresh** | **Nothing** — empty conversation | Each new `ctx.stage()` call — the runtime creates a new session |
 | **Continued** | Everything sent so far in this session | Additional turns within the same stage callback |
-| **Resumed** | Everything persisted from the prior session of the SAME agent | Reusing a `sessionID` from a prior stage |
-| **Closed** | Gone from the live client; possibly persisted on disk | Runtime auto-cleanup after the stage callback returns |
+| **Closed** | Gone from the live client; persisted only through what you explicitly saved | Runtime auto-cleanup after the stage callback returns |
 
 **Closing a session and creating a new one wipes all in-session context.**
 The new session knows *only* what you put in its first prompt. This is the
@@ -62,17 +62,28 @@ the prior stage produced.
 
 Claude is different: the runtime reuses a single persistent tmux pane, so every turn within a stage accumulates in the same conversation. Sub-agent dispatch via `@"agent-name (agent)"` still shares pane scrollback with the parent. But for Copilot and OpenCode, **every `ctx.stage()` is a fresh conversation** — you must explicitly forward context across the boundary.
 
-### Three ways to carry context across a session boundary
+Provider SDKs may expose resume/fork primitives for advanced same-role work,
+but those are **not** the standard `ctx.stage()` handoff model. When authoring
+normal workflows, assume every new stage is fresh unless you deliberately keep
+the work inside one stage callback.
+
+### Three reliable ways to avoid losing context
 
 Pick the one that fits the data. These compose — it's common to use (1)+(2).
 
 1. **Explicit prompt handoff** — capture the prior session's final text and
-   inject it into the next session's first prompt. Simple, always works.
+    inject it into the next session's first prompt. Simple, always works.
 2. **External shared state** — write to task list / files / git / database;
-   the next session reads from there. Best when the data is already
-   structured (tasks, files, commits).
-3. **Resume the same session** — `resumeSession(id)` keeps full history.
-   Only works when the next step uses the **same agent**.
+    the next session reads from there. Best when the data is already
+    structured (tasks, files, commits).
+3. **Keep related turns in one stage callback** — if the next step needs the
+    full conversation history, do not split it into another `ctx.stage()`.
+    Send another turn to the same `s.session` instead. This is the idiomatic
+    way to preserve context inside the workflow API.
+
+Provider-level resume/fork can still be useful as an escape hatch for
+same-role work, but treat it as advanced SDK-specific behavior rather than the
+default way stages communicate.
 
 ### Context is finite: compact before it overflows
 
@@ -141,12 +152,27 @@ export default defineWorkflow<"claude">({ name: "my-workflow", description: "...
 
 The runtime manages the full session lifecycle — when the callback returns, the session is marked complete; when it throws, the session is marked as errored. The `.compile()` call at the end produces a branded `WorkflowDefinition` consumed by the CLI runtime.
 
-Workflows are SDK-specific and saved to `.atomic/workflows/<workflow-name>/<agent>/index.ts`:
+Workflows are SDK-specific. User-created workflows live in a project with `@bastani/atomic` installed as a dependency, along with the native agent SDK(s) for the provider(s) you target:
+
+```bash
+bun init                                   # Create a new project
+bun add @bastani/atomic                    # Install the workflow SDK
+bun add @github/copilot-sdk               # For Copilot workflows
+bun add @anthropic-ai/claude-agent-sdk    # For Claude workflows
+bun add @opencode-ai/sdk                  # For OpenCode workflows
+```
+
+Install only the agent SDK(s) you need. The Atomic SDK manages session lifecycle (`s.client` and `s.session`), while the native SDKs provide types, utilities, and advanced APIs that you import directly (e.g., `approveAll` from `@github/copilot-sdk`, `query` from `@anthropic-ai/claude-agent-sdk`).
+
+Then create workflow files at `.atomic/workflows/<name>/<agent>/index.ts`:
 - `.atomic/workflows/<name>/claude/index.ts` — Claude Agent SDK code
 - `.atomic/workflows/<name>/copilot/index.ts` — Copilot SDK code
 - `.atomic/workflows/<name>/opencode/index.ts` — OpenCode SDK code
 
-Global workflows: `~/.atomic/workflows/<name>/<agent>/index.ts`
+Discovery sources (highest precedence first):
+- **Local**: `.atomic/workflows/<name>/<agent>/index.ts` — project-scoped
+- **Global**: `~/.atomic/workflows/<name>/<agent>/index.ts` — user-global
+- **Built-in**: SDK modules shipped with `@bastani/atomic` (e.g., the `ralph` workflow)
 
 ### Two context levels
 
@@ -227,11 +253,11 @@ Workflows are per-SDK. Pass a type parameter to `defineWorkflow<"agent">()` to n
 
 | Agent | `defineWorkflow` type | Primary API (inside callback) |
 |-------|----------------------|-------------------------------|
-| Claude | `defineWorkflow<"claude">` | `s.session.query(prompt)` — wraps `claudeQuery({ paneId, prompt })`, auto-manages tmux pane |
+| Claude | `defineWorkflow<"claude">` | `s.session.query(prompt)` — sends prompt to the Claude TUI pane, auto-manages session lifecycle |
 | Copilot | `defineWorkflow<"copilot">` | `s.session.sendAndWait({ prompt }, SEND_TIMEOUT_MS)` — explicit timeout is mandatory (default 60s throws; see `references/agent-sessions.md`) |
 | OpenCode | `defineWorkflow<"opencode">` | `s.client.session.prompt({ sessionID: s.session.id, parts: [...] })` |
 
-No direct imports of `CopilotClient`, `createOpencodeClient`, or `createClaudeSession` are needed — the runtime manages client/session lifecycle automatically.
+The runtime manages client/session lifecycle (creating and closing `s.client` and `s.session`) automatically — do not manually create or destroy clients or sessions. For SDK-specific types, utilities, and advanced APIs beyond what `s.client` and `s.session` provide, import directly from the native SDK packages (e.g., `@github/copilot-sdk`, `@anthropic-ai/claude-agent-sdk`, `@opencode-ai/sdk/v2`).
 
 If you need cross-agent support, create one workflow file per agent under `.atomic/workflows/<name>/<agent>/index.ts`. Use shared helper modules for SDK-agnostic logic (prompts, parsing, validation) in a sibling directory like `.atomic/workflows/<name>/helpers/`.
 
@@ -680,8 +706,8 @@ Use the filesystem as a coordination layer instead of inlining large data into p
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `client` | `ProviderClient<A>` | Pre-created SDK client (`CopilotClient` / `OpencodeClient` / `ClaudeClientWrapper`) — managed by the runtime |
-| `session` | `ProviderSession<A>` | Pre-created session (`CopilotSession` / `OpencodeSession` / `ClaudeSessionWrapper`) — managed by the runtime |
+| `client` | `ProviderClient<A>` | Pre-created SDK client — managed by the runtime; type resolves to the native SDK client for your agent |
+| `session` | `ProviderSession<A>` | Pre-created session — managed by the runtime; type resolves to the native SDK session for your agent |
 | `userPrompt` | `string` | The original user prompt from the CLI invocation |
 | `agent` | `AgentType` | Which agent is running |
 | `paneId` | `string` | tmux pane ID for this session |

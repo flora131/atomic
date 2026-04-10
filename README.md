@@ -935,7 +935,7 @@ Created automatically during `atomic init`. Resolution order:
 
 ## Installation Options
 
-### npm / Bun (recommended)
+### Bun (recommended)
 
 ```bash
 bun install -g @bastani/atomic
@@ -1202,7 +1202,7 @@ If agents fail to spawn on Windows, ensure the agent CLI is in your PATH. Atomic
 <details>
 <summary>Sub-agent tree stuck on "Initializing..."</summary>
 
-1. Update to the latest release and retry
+1. Update to the latest release (`bun install -g @bastani/atomic`) and retry
 2. Check for terminal progress events in verbose mode
 3. Press `Ctrl+F` twice to terminate stuck background agents, then resend your prompt
 4. If the issue persists, capture reproduction steps and [open an issue](https://github.com/flora131/atomic/issues)

@@ -284,6 +284,92 @@ export async function claudeQuery(options: ClaudeQueryOptions): Promise<ClaudeQu
 }
 
 // ---------------------------------------------------------------------------
+// Synthetic wrappers — uniform s.client / s.session API for Claude stages
+// ---------------------------------------------------------------------------
+
+/**
+ * Default query options the user can set per-stage via the `sessionOpts` arg.
+ * These become defaults for every `s.session.query()` call within that stage.
+ */
+export interface ClaudeQueryDefaults {
+  /** Timeout in ms waiting for Claude to finish responding (default: 300s) */
+  timeoutMs?: number;
+  /** Polling interval in ms (default: 2000) */
+  pollIntervalMs?: number;
+  /** Number of C-m presses per submit round (default: 1) */
+  submitPresses?: number;
+  /** Max submit rounds if text isn't consumed (default: 6) */
+  maxSubmitRounds?: number;
+  /** Timeout in ms waiting for pane to be ready before sending (default: 30s) */
+  readyTimeoutMs?: number;
+}
+
+/**
+ * Synthetic client wrapper for Claude stages.
+ * Auto-starts the Claude CLI in the tmux pane during `start()`.
+ */
+export class ClaudeClientWrapper {
+  readonly paneId: string;
+  private readonly opts: { chatFlags?: string[]; readyTimeoutMs?: number };
+
+  constructor(
+    paneId: string,
+    opts: { chatFlags?: string[]; readyTimeoutMs?: number } = {},
+  ) {
+    this.paneId = paneId;
+    this.opts = opts;
+  }
+
+  /** Start the Claude CLI in the tmux pane. Called by the runtime during init. */
+  async start(): Promise<void> {
+    await createClaudeSession({
+      paneId: this.paneId,
+      chatFlags: this.opts.chatFlags,
+      readyTimeoutMs: this.opts.readyTimeoutMs,
+    });
+  }
+
+  /** Noop — cleanup is handled by the runtime via `clearClaudeSession`. */
+  async stop(): Promise<void> {}
+}
+
+/**
+ * Synthetic session wrapper for Claude stages.
+ * Wraps `claudeQuery()` so users call `s.session.query(prompt)`.
+ */
+export class ClaudeSessionWrapper {
+  readonly paneId: string;
+  readonly sessionId: string;
+  private readonly defaults: ClaudeQueryDefaults;
+
+  constructor(
+    paneId: string,
+    sessionId: string,
+    defaults: ClaudeQueryDefaults = {},
+  ) {
+    this.paneId = paneId;
+    this.sessionId = sessionId;
+    this.defaults = defaults;
+  }
+
+  /** Send a prompt to Claude and wait for the response. */
+  async query(
+    prompt: string,
+    opts?: Partial<ClaudeQueryDefaults>,
+  ): Promise<ClaudeQueryResult> {
+    return claudeQuery({
+      paneId: this.paneId,
+      prompt,
+      ...this.defaults,
+      ...opts,
+    });
+  }
+
+  /** Noop — for API symmetry with CopilotSession.disconnect(). */
+  async disconnect(): Promise<void> {}
+}
+
+// ---------------------------------------------------------------------------
 // Static source validation
 // ---------------------------------------------------------------------------
 
@@ -295,21 +381,28 @@ export interface ClaudeValidationWarning {
 /**
  * Validate a Claude workflow source file for common mistakes.
  *
- * Checks that `createClaudeSession` is called when `claudeQuery` is used,
- * paralleling the validation patterns for Copilot and OpenCode workflows.
+ * Warns on direct usage of createClaudeSession/claudeQuery — the runtime
+ * now handles init/cleanup automatically via s.client and s.session.
  */
 export function validateClaudeWorkflow(source: string): ClaudeValidationWarning[] {
   const warnings: ClaudeValidationWarning[] = [];
 
+  if (/\bcreateClaudeSession\b/.test(source)) {
+    warnings.push({
+      rule: "claude/manual-session",
+      message:
+        "Manual createClaudeSession() call detected. The runtime auto-starts the Claude CLI — " +
+        "use s.session.query() instead of claudeQuery(). Pass chatFlags via the second arg to ctx.stage().",
+    });
+  }
+
   if (/\bclaudeQuery\b/.test(source)) {
-    if (!/\bcreateClaudeSession\b/.test(source)) {
-      warnings.push({
-        rule: "claude/create-session",
-        message:
-          "Could not verify that createClaudeSession is called before claudeQuery(). " +
-          "Call createClaudeSession({ paneId: s.paneId }) to start the Claude CLI before sending queries.",
-      });
-    }
+    warnings.push({
+      rule: "claude/manual-query",
+      message:
+        "Direct claudeQuery() call detected. Use s.session.query(prompt) instead — " +
+        "it wraps claudeQuery with the correct paneId.",
+    });
   }
 
   return warnings;

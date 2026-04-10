@@ -1,9 +1,8 @@
 /**
  * OpenCode workflow source validation.
  *
- * Checks that OpenCode workflow source files follow required patterns:
- * - `baseUrl` is wired to the session context's `serverUrl`
- * - `tui.selectSession` is called after creating a session
+ * Checks that OpenCode workflow source files use the runtime-managed
+ * `s.client` and `s.session` instead of manual SDK client creation.
  */
 
 export interface OpenCodeValidationWarning {
@@ -18,27 +17,21 @@ export function validateOpenCodeWorkflow(source: string): OpenCodeValidationWarn
   const warnings: OpenCodeValidationWarning[] = [];
 
   if (/\bcreateOpencodeClient\b/.test(source)) {
-    // Accept any identifier before .serverUrl (e.g., s.serverUrl, ctx.serverUrl)
-    // or a destructured `serverUrl` variable
-    if (!/baseUrl\s*:\s*(?:\w+\.serverUrl|serverUrl)/.test(source)) {
-      warnings.push({
-        rule: "opencode/base-url",
-        message:
-          "Could not verify that createOpencodeClient is called with { baseUrl: s.serverUrl }. " +
-          "This is required to connect to the workflow's agent pane.",
-      });
-    }
+    warnings.push({
+      rule: "opencode/manual-client",
+      message:
+        "Manual createOpencodeClient() call detected. Use s.client instead — " +
+        "the runtime auto-creates the client. Pass client config as the second arg to ctx.stage().",
+    });
   }
 
-  if (/\bsession\.create\b/.test(source)) {
-    if (!/\btui\.selectSession\b/.test(source)) {
-      warnings.push({
-        rule: "opencode/select-session",
-        message:
-          "Could not verify that tui.selectSession is called after session.create(). " +
-          "Call client.tui.selectSession({ sessionID }) so the TUI displays the workflow session.",
-      });
-    }
+  if (/\bclient\.session\.create\b/.test(source)) {
+    warnings.push({
+      rule: "opencode/manual-session",
+      message:
+        "Manual client.session.create() call detected. Use s.session instead — " +
+        "the runtime auto-creates the session. Pass session config as the third arg to ctx.stage().",
+    });
   }
 
   return warnings;

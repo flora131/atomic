@@ -2,25 +2,25 @@
  * Workflow Builder — defines a workflow with a single `.run()` entry point.
  *
  * Usage:
- *   defineWorkflow({ name: "my-workflow", description: "..." })
+ *   defineWorkflow<"copilot">({ name: "my-workflow", description: "..." })
  *     .run(async (ctx) => {
- *       await ctx.session({ name: "research" }, async (s) => { ... });
- *       await ctx.session({ name: "plan" }, async (s) => { ... });
+ *       await ctx.stage({ name: "research" }, {}, {}, async (s) => { ... });
+ *       await ctx.stage({ name: "plan" }, {}, {}, async (s) => { ... });
  *     })
  *     .compile()
  */
 
-import type { WorkflowOptions, WorkflowContext, WorkflowDefinition } from "./types.ts";
+import type { AgentType, WorkflowOptions, WorkflowContext, WorkflowDefinition } from "./types.ts";
 
 /**
  * Chainable workflow builder. Records the run callback,
  * then .compile() seals it into a WorkflowDefinition.
  */
-export class WorkflowBuilder {
+export class WorkflowBuilder<A extends AgentType = AgentType> {
   /** @internal Brand for detection across package boundaries */
   readonly __brand = "WorkflowBuilder" as const;
   private readonly options: WorkflowOptions;
-  private runFn: ((ctx: WorkflowContext) => Promise<void>) | null = null;
+  private runFn: ((ctx: WorkflowContext<A>) => Promise<void>) | null = null;
 
   constructor(options: WorkflowOptions) {
     this.options = options;
@@ -29,12 +29,12 @@ export class WorkflowBuilder {
   /**
    * Set the workflow's entry point.
    *
-   * The callback receives a {@link WorkflowContext} with `session()` for
+   * The callback receives a {@link WorkflowContext} with `stage()` for
    * spawning agent sessions, and `transcript()` / `getMessages()` for
    * reading completed session outputs. Use native TypeScript control flow
    * (loops, conditionals, `Promise.all()`) for orchestration.
    */
-  run(fn: (ctx: WorkflowContext) => Promise<void>): this {
+  run(fn: (ctx: WorkflowContext<A>) => Promise<void>): this {
     if (this.runFn) {
       throw new Error("run() can only be called once per workflow.");
     }
@@ -51,7 +51,7 @@ export class WorkflowBuilder {
    * After calling compile(), the returned object is consumed by the
    * Atomic CLI runtime.
    */
-  compile(): WorkflowDefinition {
+  compile(): WorkflowDefinition<A> {
     if (!this.runFn) {
       throw new Error(
         `Workflow "${this.options.name}" has no run callback. ` +
@@ -73,29 +73,45 @@ export class WorkflowBuilder {
 /**
  * Entry point for defining a workflow.
  *
+ * Pass a type parameter to narrow all context types to a specific agent:
+ *
  * @example
  * ```typescript
  * import { defineWorkflow } from "@bastani/atomic/workflows";
  *
- * export default defineWorkflow({
+ * export default defineWorkflow<"copilot">({
  *   name: "hello",
  *   description: "Two-session demo",
  * })
  *   .run(async (ctx) => {
- *     const describe = await ctx.session({ name: "describe" }, async (s) => {
- *       // ... agent SDK code using s.serverUrl, s.paneId, s.save() ...
- *     });
- *     await ctx.session({ name: "summarize" }, async (s) => {
- *       const research = await s.transcript(describe);
- *       // ...
- *     });
+ *     const describe = await ctx.stage(
+ *       { name: "describe" },
+ *       {},
+ *       {},
+ *       async (s) => {
+ *         // s.client: CopilotClient, s.session: CopilotSession
+ *         await s.session.sendAndWait({ prompt: s.userPrompt });
+ *         s.save(await s.session.getMessages());
+ *       },
+ *     );
+ *     await ctx.stage(
+ *       { name: "summarize" },
+ *       {},
+ *       {},
+ *       async (s) => {
+ *         const research = await s.transcript(describe);
+ *         // ...
+ *       },
+ *     );
  *   })
  *   .compile();
  * ```
  */
-export function defineWorkflow(options: WorkflowOptions): WorkflowBuilder {
+export function defineWorkflow<A extends AgentType = AgentType>(
+  options: WorkflowOptions,
+): WorkflowBuilder<A> {
   if (!options.name || options.name.trim() === "") {
     throw new Error("Workflow name is required.");
   }
-  return new WorkflowBuilder(options);
+  return new WorkflowBuilder<A>(options);
 }

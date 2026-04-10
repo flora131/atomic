@@ -9,7 +9,6 @@
  */
 
 import { defineWorkflow } from "@bastani/atomic/workflows";
-import { CopilotClient, approveAll } from "@github/copilot-sdk";
 
 /**
  * `CopilotSession.sendAndWait` defaults to a 60s timeout and THROWS on
@@ -18,89 +17,71 @@ import { CopilotClient, approveAll } from "@github/copilot-sdk";
  */
 const SEND_TIMEOUT_MS = 30 * 60 * 1000;
 
-export default defineWorkflow({
+export default defineWorkflow<"copilot">({
   name: "hello-parallel",
   description: "Parallel Copilot demo: describe → [summarize-a, summarize-b] → merge",
 })
   .run(async (ctx) => {
     // Sequential: describe
-    const describe = await ctx.session(
+    const describe = await ctx.stage(
       { name: "describe", description: "Ask the agent to describe the project" },
+      {},
+      {},
       async (s) => {
-        const client = new CopilotClient({ cliUrl: s.serverUrl });
-        await client.start();
+        await s.session.sendAndWait({ prompt: s.userPrompt }, SEND_TIMEOUT_MS);
 
-        const session = await client.createSession({ onPermissionRequest: approveAll });
-        await client.setForegroundSessionId(session.sessionId);
-        await session.sendAndWait({ prompt: s.userPrompt }, SEND_TIMEOUT_MS);
-
-        s.save(await session.getMessages());
-        await session.disconnect();
-        await client.stop();
+        s.save(await s.session.getMessages());
       },
     );
 
     // Parallel: summarize-a + summarize-b
     const [summarizeA, summarizeB] = await Promise.all([
-      ctx.session(
+      ctx.stage(
         { name: "summarize-a", description: "Summarize the description as bullet points" },
+        {},
+        {},
         async (s) => {
           const research = await s.transcript(describe);
 
-          const client = new CopilotClient({ cliUrl: s.serverUrl });
-          await client.start();
-
-          const session = await client.createSession({ onPermissionRequest: approveAll });
-          await client.setForegroundSessionId(session.sessionId);
-          await session.sendAndWait(
+          await s.session.sendAndWait(
             {
               prompt: `Summarize the following in 2-3 bullet points:\n\n${research.content}`,
             },
             SEND_TIMEOUT_MS,
           );
 
-          s.save(await session.getMessages());
-          await session.disconnect();
-          await client.stop();
+          s.save(await s.session.getMessages());
         },
       ),
-      ctx.session(
+      ctx.stage(
         { name: "summarize-b", description: "Summarize the description as a one-liner" },
+        {},
+        {},
         async (s) => {
           const research = await s.transcript(describe);
 
-          const client = new CopilotClient({ cliUrl: s.serverUrl });
-          await client.start();
-
-          const session = await client.createSession({ onPermissionRequest: approveAll });
-          await client.setForegroundSessionId(session.sessionId);
-          await session.sendAndWait(
+          await s.session.sendAndWait(
             {
               prompt: `Summarize the following in a single sentence:\n\n${research.content}`,
             },
             SEND_TIMEOUT_MS,
           );
 
-          s.save(await session.getMessages());
-          await session.disconnect();
-          await client.stop();
+          s.save(await s.session.getMessages());
         },
       ),
     ]);
 
     // Sequential: merge
-    await ctx.session(
+    await ctx.stage(
       { name: "merge", description: "Merge both summaries into a final output" },
+      {},
+      {},
       async (s) => {
         const bullets = await s.transcript(summarizeA);
         const oneliner = await s.transcript(summarizeB);
 
-        const client = new CopilotClient({ cliUrl: s.serverUrl });
-        await client.start();
-
-        const session = await client.createSession({ onPermissionRequest: approveAll });
-        await client.setForegroundSessionId(session.sessionId);
-        await session.sendAndWait(
+        await s.session.sendAndWait(
           {
             prompt: [
               "Combine the following two summaries into one concise paragraph:",
@@ -115,9 +96,7 @@ export default defineWorkflow({
           SEND_TIMEOUT_MS,
         );
 
-        s.save(await session.getMessages());
-        await session.disconnect();
-        await client.stop();
+        s.save(await s.session.getMessages());
       },
     );
   })

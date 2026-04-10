@@ -11,7 +11,7 @@ The Claude Agent SDK provides a `canUseTool` callback for runtime approval and u
 ```ts
 import { query } from "@anthropic-ai/claude-agent-sdk";
 
-// Inside a ctx.session() callback:
+// Inside a ctx.stage() callback:
 async (s) => {
   const result = query({
     prompt: "Implement the feature, but ask me before making any database changes.",
@@ -58,19 +58,25 @@ q.streamInput("Here's the additional context you asked for...");
 
 ## Copilot
 
+Session callbacks (`onUserInputRequest`, `onElicitationRequest`,
+`onPermissionRequest`) are passed as `sessionOpts` — the third argument to
+`ctx.stage()`. The runtime forwards them to `client.createSession()`.
+`onPermissionRequest` defaults to `approveAll` when not specified.
+
 ### Via `onUserInputRequest`
 
 Handle `ask_user` tool requests from the agent:
 
 ```ts
-const session = await client.createSession({
-  onPermissionRequest: approveAll,
+await ctx.stage({ name: "plan" }, {}, {
   onUserInputRequest: async (request) => {
     // request.question contains the agent's question
-    // Return the user's answer
     const answer = await promptUser(request.question);
     return answer;
   },
+}, async (s) => {
+  await s.session.sendAndWait({ prompt: ctx.userPrompt }, SEND_TIMEOUT_MS);
+  s.save(await s.session.getMessages());
 });
 ```
 
@@ -79,28 +85,33 @@ const session = await client.createSession({
 For form-style UI with structured options:
 
 ```ts
-const session = await client.createSession({
+await ctx.stage({ name: "plan" }, {}, {
   onPermissionRequest: approveAll,
   onElicitationRequest: async (request) => {
     // request contains form fields and options
-    // Return structured response
     return {
       action: "submit",
       values: { strategy: "conservative", confirm: true },
     };
   },
+}, async (s) => {
+  await s.session.sendAndWait({ prompt: ctx.userPrompt }, SEND_TIMEOUT_MS);
+  s.save(await s.session.getMessages());
 });
 ```
 
 ### Programmatic approval
 
-For fully autonomous workflows, use `approveAll` to skip all permission prompts:
+For fully autonomous workflows, use `approveAll` to skip all permission prompts.
+This is the **default** when `onPermissionRequest` is not specified in `sessionOpts`:
 
 ```ts
 import { approveAll } from "@github/copilot-sdk";
 
-const session = await client.createSession({
-  onPermissionRequest: approveAll,
+// Explicit (same as the default):
+await ctx.stage({ name: "plan" }, {}, { onPermissionRequest: approveAll }, async (s) => {
+  await s.session.sendAndWait({ prompt: ctx.userPrompt }, SEND_TIMEOUT_MS);
+  s.save(await s.session.getMessages());
 });
 ```
 
@@ -109,7 +120,7 @@ const session = await client.createSession({
 For fine-grained control over permissions:
 
 ```ts
-const session = await client.createSession({
+await ctx.stage({ name: "plan" }, {}, {
   onPermissionRequest: async (request) => {
     // request.kind: "shell" | "write" | "read" | "mcp" | "custom-tool" | "url" | "memory" | "hook"
     if (request.kind === "shell" && request.command?.includes("rm -rf")) {
@@ -117,27 +128,29 @@ const session = await client.createSession({
     }
     return { kind: "approved" };
   },
+}, async (s) => {
+  await s.session.sendAndWait({ prompt: ctx.userPrompt }, SEND_TIMEOUT_MS);
+  s.save(await s.session.getMessages());
 });
 ```
 
 ## OpenCode
+
+The `s.client` and `s.session` are auto-created by the runtime. Use them
+directly — no manual client creation needed.
 
 ### Via TUI control endpoints
 
 OpenCode uses TUI control endpoints for user interaction:
 
 ```ts
-import { createOpencodeClient } from "@opencode-ai/sdk/v2";
-
-// Inside a ctx.session() callback:
+// Inside a ctx.stage() callback:
 async (s) => {
-  const client = createOpencodeClient({ baseUrl: s.serverUrl });
-
   // Wait for the next TUI control request
-  const controlRequest = await client.tui.next();
+  const controlRequest = await s.client.tui.next();
 
   // Respond to the control request
-  await client.tui.response({
+  await s.client.tui.response({
     requestID: controlRequest.data!.id,
     response: "User's answer here",
   });
@@ -149,16 +162,19 @@ async (s) => {
 Handle permission requests programmatically:
 
 ```ts
-// Subscribe to events and handle permission requests
-const unsubscribe = await client.event.subscribe((event) => {
-  if (event.type === "permission.requested") {
-    client.session.permission({
-      sessionID: event.sessionID,
-      permissionID: event.permissionID,
-      approved: true,
-    });
-  }
-});
+// Inside a ctx.stage() callback:
+async (s) => {
+  // Subscribe to events and handle permission requests
+  const unsubscribe = await s.client.event.subscribe((event) => {
+    if (event.type === "permission.requested") {
+      s.client.session.permission({
+        sessionID: event.sessionID,
+        permissionID: event.permissionID,
+        approved: true,
+      });
+    }
+  });
+},
 ```
 
 ## Combining user input with control flow
@@ -166,19 +182,18 @@ const unsubscribe = await client.event.subscribe((event) => {
 Use user input results in conditional logic:
 
 ```ts
-// Inside a ctx.session() callback:
+// Inside a ctx.stage() callback (Claude example):
 async (s) => {
   // Get the plan from a previous session
   const plan = await s.transcript("plan");
-  await createClaudeSession({ paneId: s.paneId });
 
   // Ask the user (implementation depends on which SDK you're using)
   const approved = await getUserApproval(`Approve this plan?\n${plan.content}`);
 
   if (approved) {
-    await claudeQuery({ paneId: s.paneId, prompt: "Execute the plan." });
+    await s.session.query("Execute the plan.");
   } else {
-    await claudeQuery({ paneId: s.paneId, prompt: "Revise the plan." });
+    await s.session.query("Revise the plan.");
   }
 
   s.save(s.sessionId);

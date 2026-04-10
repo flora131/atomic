@@ -8,23 +8,19 @@
  */
 
 import { defineWorkflow } from "@bastani/atomic/workflows";
-import { createOpencodeClient } from "@opencode-ai/sdk/v2";
 
-export default defineWorkflow({
+export default defineWorkflow<"opencode">({
   name: "hello",
   description: "Two-session OpenCode demo: describe → summarize",
 })
   .run(async (ctx) => {
-    const describe = await ctx.session(
+    const describe = await ctx.stage(
       { name: "describe", description: "Ask the agent to describe the project" },
+      {},
+      { title: "describe" },
       async (s) => {
-        const client = createOpencodeClient({ baseUrl: s.serverUrl });
-
-        const session = await client.session.create({ title: "describe" });
-        await client.tui.selectSession({ sessionID: session.data!.id });
-
-        const result = await client.session.prompt({
-          sessionID: session.data!.id,
+        const result = await s.client.session.prompt({
+          sessionID: s.session.id,
           parts: [{ type: "text", text: s.userPrompt }],
         });
 
@@ -32,17 +28,15 @@ export default defineWorkflow({
       },
     );
 
-    await ctx.session(
+    await ctx.stage(
       { name: "summarize", description: "Summarize the previous session's output" },
+      {},
+      { title: "summarize" },
       async (s) => {
         const research = await s.transcript(describe);
-        const client = createOpencodeClient({ baseUrl: s.serverUrl });
 
-        const session = await client.session.create({ title: "summarize" });
-        await client.tui.selectSession({ sessionID: session.data!.id });
-
-        const result = await client.session.prompt({
-          sessionID: session.data!.id,
+        const result = await s.client.session.prompt({
+          sessionID: s.session.id,
           parts: [
             {
               type: "text",

@@ -10,11 +10,7 @@
  * Run: atomic workflow -n ralph -a claude "<your spec>"
  */
 
-import {
-  defineWorkflow,
-  createClaudeSession,
-  claudeQuery,
-} from "@bastani/atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic/workflows";
 
 import {
   buildPlannerPrompt,
@@ -35,7 +31,7 @@ function asAgentCall(agentName: string, prompt: string): string {
   return `@"${agentName} (agent)" ${prompt}`;
 }
 
-export default defineWorkflow({
+export default defineWorkflow<"claude">({
   name: "ralph",
   description:
     "Plan → orchestrate → review → debug loop with bounded iteration",
@@ -43,73 +39,66 @@ export default defineWorkflow({
   .run(async (ctx) => {
     let consecutiveClean = 0;
     let debuggerReport = "";
-    // Track the most recent session so the next stage can declare it as a
-    // dependency — this chains planner → orchestrator → reviewer → [confirm]
-    // → [debugger] → next planner in the graph instead of showing every
-    // stage as an independent sibling under the root.
-    let prevStage: string | undefined;
-    const depsOn = (): string[] | undefined =>
-      prevStage ? [prevStage] : undefined;
 
     for (let iteration = 1; iteration <= MAX_LOOPS; iteration++) {
       // ── Plan ────────────────────────────────────────────────────────────
       const plannerName = `planner-${iteration}`;
-      await ctx.session(
-        { name: plannerName, dependsOn: depsOn() },
+      await ctx.stage(
+        { name: plannerName },
+        {},
+        {},
         async (s) => {
-          await createClaudeSession({ paneId: s.paneId });
-          await claudeQuery({
-            paneId: s.paneId,
-            prompt: asAgentCall(
+          await s.session.query(
+            asAgentCall(
               "planner",
               buildPlannerPrompt(s.userPrompt, {
                 iteration,
                 debuggerReport: debuggerReport || undefined,
               }),
             ),
-          });
+          );
           s.save(s.sessionId);
         },
       );
-      prevStage = plannerName;
+
 
       // ── Orchestrate ─────────────────────────────────────────────────────
       const orchName = `orchestrator-${iteration}`;
-      await ctx.session(
-        { name: orchName, dependsOn: depsOn() },
+      await ctx.stage(
+        { name: orchName },
+        {},
+        {},
         async (s) => {
-          await createClaudeSession({ paneId: s.paneId });
-          await claudeQuery({
-            paneId: s.paneId,
-            prompt: asAgentCall(
+          await s.session.query(
+            asAgentCall(
               "orchestrator",
               buildOrchestratorPrompt(s.userPrompt),
             ),
-          });
+          );
           s.save(s.sessionId);
         },
       );
-      prevStage = orchName;
+
 
       // ── Review (first pass) ─────────────────────────────────────────────
       let gitStatus = await safeGitStatusS();
       const reviewerName = `reviewer-${iteration}`;
-      const review = await ctx.session(
-        { name: reviewerName, dependsOn: depsOn() },
+      const review = await ctx.stage(
+        { name: reviewerName },
+        {},
+        {},
         async (s) => {
-          await createClaudeSession({ paneId: s.paneId });
-          const result = await claudeQuery({
-            paneId: s.paneId,
-            prompt: asAgentCall(
+          const result = await s.session.query(
+            asAgentCall(
               "reviewer",
               buildReviewPrompt(s.userPrompt, { gitStatus, iteration }),
             ),
-          });
+          );
           s.save(s.sessionId);
           return result.output;
         },
       );
-      prevStage = reviewerName;
+
 
       let reviewRaw = review.result;
       let parsed = parseReviewResult(reviewRaw);
@@ -121,13 +110,13 @@ export default defineWorkflow({
         // Confirmation pass — re-run reviewer only
         gitStatus = await safeGitStatusS();
         const confirmName = `reviewer-${iteration}-confirm`;
-        const confirm = await ctx.session(
-          { name: confirmName, dependsOn: depsOn() },
+        const confirm = await ctx.stage(
+          { name: confirmName },
+          {},
+          {},
           async (s) => {
-            await createClaudeSession({ paneId: s.paneId });
-            const result = await claudeQuery({
-              paneId: s.paneId,
-              prompt: asAgentCall(
+            const result = await s.session.query(
+              asAgentCall(
                 "reviewer",
                 buildReviewPrompt(s.userPrompt, {
                   gitStatus,
@@ -135,12 +124,12 @@ export default defineWorkflow({
                   isConfirmationPass: true,
                 }),
               ),
-            });
+            );
             s.save(s.sessionId);
             return result.output;
           },
         );
-        prevStage = confirmName;
+
 
         reviewRaw = confirm.result;
         parsed = parseReviewResult(reviewRaw);
@@ -158,25 +147,25 @@ export default defineWorkflow({
       // ── Debug (only if findings remain AND another iteration is allowed) ─
       if (hasActionableFindings(parsed, reviewRaw) && iteration < MAX_LOOPS) {
         const debuggerName = `debugger-${iteration}`;
-        const debugger_ = await ctx.session(
-          { name: debuggerName, dependsOn: depsOn() },
+        const debugger_ = await ctx.stage(
+          { name: debuggerName },
+          {},
+          {},
           async (s) => {
-            await createClaudeSession({ paneId: s.paneId });
-            const result = await claudeQuery({
-              paneId: s.paneId,
-              prompt: asAgentCall(
+            const result = await s.session.query(
+              asAgentCall(
                 "debugger",
                 buildDebuggerReportPrompt(parsed, reviewRaw, {
                   iteration,
                   gitStatus,
                 }),
               ),
-            });
+            );
             s.save(s.sessionId);
             return result.output;
           },
         );
-        prevStage = debuggerName;
+
         debuggerReport = extractMarkdownBlock(debugger_.result);
       }
     }

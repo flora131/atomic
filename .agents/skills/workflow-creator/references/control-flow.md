@@ -4,8 +4,8 @@ Control flow in workflows is plain TypeScript inside `.run()`. Use `if`/`else` f
 
 There are two levels where control flow can live:
 
-- **Intra-session**: multiple SDK calls within one `ctx.session()` callback — the agent remembers context across all of them.
-- **Inter-session**: loops/conditionals at the `.run()` level that spawn multiple `ctx.session()` calls — each iteration becomes its own visible graph node in the UI.
+- **Intra-session**: multiple SDK calls within one `ctx.stage()` callback — the agent remembers context across all of them.
+- **Inter-session**: loops/conditionals at the `.run()` level that spawn multiple `ctx.stage()` calls — each iteration becomes its own visible graph node in the UI.
 
 Prefer inter-session control flow when you want the workflow graph to reflect what actually happened at runtime.
 
@@ -18,12 +18,10 @@ Run a triage session first, then branch at the `.run()` level to spawn a purpose
 ```ts
 .run(async (ctx) => {
   // Step 1: Classify the request
-  const triage = await ctx.session({ name: "triage" }, async (s) => {
-    await createClaudeSession({ paneId: s.paneId });
-    const result = await claudeQuery({
-      paneId: s.paneId,
-      prompt: `Classify this as "bug", "feature", or "question": ${ctx.userPrompt}`,
-    });
+  const triage = await ctx.stage({ name: "triage" }, {}, {}, async (s) => {
+    const result = await s.session.query(
+      `Classify this as "bug", "feature", or "question": ${ctx.userPrompt}`,
+    );
     s.save(s.sessionId);
     return result.output.toLowerCase();
   });
@@ -32,21 +30,18 @@ Run a triage session first, then branch at the `.run()` level to spawn a purpose
 
   // Step 2: Branch — each path spawns its own session
   if (classification.includes("bug")) {
-    await ctx.session({ name: "fix-bug" }, async (s) => {
-      await createClaudeSession({ paneId: s.paneId });
-      await claudeQuery({ paneId: s.paneId, prompt: "Diagnose and fix the bug described above." });
+    await ctx.stage({ name: "fix-bug" }, {}, {}, async (s) => {
+      await s.session.query("Diagnose and fix the bug described above.");
       s.save(s.sessionId);
     });
   } else if (classification.includes("feature")) {
-    await ctx.session({ name: "implement-feature" }, async (s) => {
-      await createClaudeSession({ paneId: s.paneId });
-      await claudeQuery({ paneId: s.paneId, prompt: "Design and implement the feature described above." });
+    await ctx.stage({ name: "implement-feature" }, {}, {}, async (s) => {
+      await s.session.query("Design and implement the feature described above.");
       s.save(s.sessionId);
     });
   } else {
-    await ctx.session({ name: "answer-question" }, async (s) => {
-      await createClaudeSession({ paneId: s.paneId });
-      await claudeQuery({ paneId: s.paneId, prompt: "Research and answer the question above." });
+    await ctx.stage({ name: "answer-question" }, {}, {}, async (s) => {
+      await s.session.query("Research and answer the question above.");
       s.save(s.sessionId);
     });
   }
@@ -59,22 +54,19 @@ When the branching logic is simple and you want the agent to retain full context
 
 ```ts
 .run(async (ctx) => {
-  await ctx.session({ name: "triage-and-act" }, async (s) => {
-    await createClaudeSession({ paneId: s.paneId });
-
-    const triageResult = await claudeQuery({
-      paneId: s.paneId,
-      prompt: `Classify this as "bug", "feature", or "question": ${ctx.userPrompt}`,
-    });
+  await ctx.stage({ name: "triage-and-act" }, {}, {}, async (s) => {
+    const triageResult = await s.session.query(
+      `Classify this as "bug", "feature", or "question": ${ctx.userPrompt}`,
+    );
 
     const classification = triageResult.output.toLowerCase();
 
     if (classification.includes("bug")) {
-      await claudeQuery({ paneId: s.paneId, prompt: "Diagnose and fix the bug described above." });
+      await s.session.query("Diagnose and fix the bug described above.");
     } else if (classification.includes("feature")) {
-      await claudeQuery({ paneId: s.paneId, prompt: "Design and implement the feature described above." });
+      await s.session.query("Design and implement the feature described above.");
     } else {
-      await claudeQuery({ paneId: s.paneId, prompt: "Research and answer the question above." });
+      await s.session.query("Research and answer the question above.");
     }
 
     s.save(s.sessionId);
@@ -93,12 +85,8 @@ Each iteration spawns its own session, so the graph shows exactly how many passe
   const MAX_ITERATIONS = 5;
 
   for (let i = 1; i <= MAX_ITERATIONS; i++) {
-    const iteration = await ctx.session({ name: `refine-${i}` }, async (s) => {
-      await createClaudeSession({ paneId: s.paneId });
-      const result = await claudeQuery({
-        paneId: s.paneId,
-        prompt: `Iteration ${i}: Improve the implementation.`,
-      });
+    const iteration = await ctx.stage({ name: `refine-${i}` }, {}, {}, async (s) => {
+      const result = await s.session.query(`Iteration ${i}: Improve the implementation.`);
       s.save(s.sessionId);
       return result.output;
     });
@@ -116,15 +104,11 @@ When the agent must remember every prior iteration's output to make progress, ke
 
 ```ts
 .run(async (ctx) => {
-  await ctx.session({ name: "iterative-refinement" }, async (s) => {
-    await createClaudeSession({ paneId: s.paneId });
+  await ctx.stage({ name: "iterative-refinement" }, {}, {}, async (s) => {
     const MAX_ITERATIONS = 5;
 
     for (let i = 0; i < MAX_ITERATIONS; i++) {
-      const result = await claudeQuery({
-        paneId: s.paneId,
-        prompt: `Iteration ${i + 1}: Improve the implementation.`,
-      });
+      const result = await s.session.query(`Iteration ${i + 1}: Improve the implementation.`);
 
       if (result.output.includes("LGTM") || result.output.includes("no issues")) {
         break;
@@ -148,12 +132,8 @@ The inter-session pattern is the right fit here: every review and every fix beco
 
   for (let cycle = 1; cycle <= MAX_CYCLES; cycle++) {
     // Each review is a visible graph node
-    const review = await ctx.session({ name: `review-${cycle}` }, async (s) => {
-      await createClaudeSession({ paneId: s.paneId });
-      const result = await claudeQuery({
-        paneId: s.paneId,
-        prompt: buildReviewPrompt(ctx.userPrompt),
-      });
+    const review = await ctx.stage({ name: `review-${cycle}` }, {}, {}, async (s) => {
+      const result = await s.session.query(buildReviewPrompt(ctx.userPrompt));
       s.save(s.sessionId);
       return result.output;
     });
@@ -176,12 +156,8 @@ The inter-session pattern is the right fit here: every review and every fix beco
       : buildFixSpecFromRawReview(reviewRaw, ctx.userPrompt);
 
     // Each fix is also a visible graph node
-    await ctx.session({ name: `fix-${cycle}` }, async (s) => {
-      await createClaudeSession({ paneId: s.paneId });
-      await claudeQuery({
-        paneId: s.paneId,
-        prompt: fixPrompt || "Fix any remaining issues.",
-      });
+    await ctx.stage({ name: `fix-${cycle}` }, {}, {}, async (s) => {
+      await s.session.query(fixPrompt || "Fix any remaining issues.");
       s.save(s.sessionId);
     });
   }
@@ -204,21 +180,14 @@ const SEND_TIMEOUT_MS = 30 * 60 * 1000;
   let consecutiveClean = 0;
 
   for (let cycle = 1; cycle <= MAX_CYCLES; cycle++) {
-    const review = await ctx.session({ name: `review-${cycle}` }, async (s) => {
-      const client = new CopilotClient({ cliUrl: s.serverUrl });
-      await client.start();
-      const session = await client.createSession({ onPermissionRequest: approveAll });
-      await client.setForegroundSessionId(session.sessionId);
-
-      await session.sendAndWait(
+    const review = await ctx.stage({ name: `review-${cycle}` }, {}, {}, async (s) => {
+      await s.session.sendAndWait(
         { prompt: buildReviewPrompt(ctx.userPrompt) },
         SEND_TIMEOUT_MS,
       );
-      const reviewRaw = getAssistantText(await session.getMessages()); // see failure-modes.md §F1
+      const reviewRaw = getAssistantText(await s.session.getMessages()); // see failure-modes.md §F1
 
-      s.save(await session.getMessages());
-      await session.disconnect();
-      await client.stop();
+      s.save(await s.session.getMessages());
       return reviewRaw;
     });
 
@@ -236,137 +205,101 @@ const SEND_TIMEOUT_MS = 30 * 60 * 1000;
       ? buildFixSpecFromReview(parsed, ctx.userPrompt)
       : buildFixSpecFromRawReview(reviewRaw, ctx.userPrompt);
 
-    await ctx.session({ name: `fix-${cycle}` }, async (s) => {
-      const client = new CopilotClient({ cliUrl: s.serverUrl });
-      await client.start();
-      const session = await client.createSession({ onPermissionRequest: approveAll });
-      await client.setForegroundSessionId(session.sessionId);
-
-      await session.sendAndWait(
+    await ctx.stage({ name: `fix-${cycle}` }, {}, {}, async (s) => {
+      await s.session.sendAndWait(
         { prompt: fixPrompt || "Fix remaining issues." },
         SEND_TIMEOUT_MS,
       );
 
-      s.save(await session.getMessages());
-      await session.disconnect();
-      await client.stop();
+      s.save(await s.session.getMessages());
     });
   }
 })
 ```
 
-## Explicit dependency chains (`dependsOn`)
+## Graph topology: auto-inferred from `await`/`Promise.all`
 
-`SessionRunOptions.dependsOn` lets a session declare which prior sessions it's a successor of. It has two effects, and both matter:
+The runtime automatically infers the workflow graph topology from the JavaScript control flow. No explicit dependency declarations are needed or supported — the graph always reflects the actual execution structure.
 
-1. **Graph rendering** — each name becomes a parent edge, so the workflow graph draws a real chain (or fan-in) instead of making every top-level `ctx.session()` a sibling under `orchestrator`.
-2. **Runtime ordering** — the runtime awaits each named dep before starting. In `Promise.all([...])` patterns, this lets you fan out concurrently and still serialize the edges that matter. If a dep failed, the dependent fails fast with a clear error.
+### Sequential (`await`): `a → b` edge
 
-Use `dependsOn` whenever the default behavior (every top-level session shown as a sibling under orchestrator) misrepresents what the workflow actually does. The classic case: an iterative loop where each stage depends on the previous one.
-
-### Why this exists: the sibling-under-root problem
-
-Without `dependsOn`, every top-level `ctx.session()` attaches to `orchestrator`. Two sequential awaits produce a graph that looks like *parallel siblings* even though the JavaScript is strictly sequential:
+Each sequential `await ctx.stage(...)` produces a parent-child edge from the previous stage. The graph draws a real chain:
 
 ```ts
-// ❌ Graph shows planner and worker as siblings under orchestrator.
-// The await runs them in order, but the graph loses that information —
-// users can't tell at a glance which stage happened first.
+// ✅ Graph infers: orchestrator → planner → worker
 .run(async (ctx) => {
-  await ctx.session({ name: "planner" }, async (s) => { /* ... */ });
-  await ctx.session({ name: "worker"  }, async (s) => { /* ... */ });
+  await ctx.stage({ name: "planner" }, {}, {}, async (s) => { /* ... */ });
+  await ctx.stage({ name: "worker"  }, {}, {}, async (s) => { /* ... */ });
 })
 ```
 
+### Parallel (`Promise.all`): both branch from same parent
+
+Sessions passed to `Promise.all([...])` branch from the same parent and run concurrently. The runtime gives each a sibling edge from the enclosing scope:
+
 ```ts
-// ✅ Graph shows orchestrator → planner → worker as a chain.
+// ✅ Graph infers: orchestrator → [summarize-a, summarize-b] (parallel siblings)
 .run(async (ctx) => {
-  await ctx.session({ name: "planner" }, async (s) => { /* ... */ });
-  await ctx.session(
-    { name: "worker", dependsOn: ["planner"] },
-    async (s) => { /* ... */ },
-  );
+  const [a, b] = await Promise.all([
+    ctx.stage({ name: "summarize-a" }, {}, {}, async (s) => { /* ... */ }),
+    ctx.stage({ name: "summarize-b" }, {}, {}, async (s) => { /* ... */ }),
+  ]);
 })
 ```
 
-### Pattern: "previous stage" chain in a loop
+### Fan-in: stage after `Promise.all` gets all parallel stages as parents
 
-When every stage in a loop is the successor of the last, thread a local `prevStage` variable through each `ctx.session()` call. This is the pattern used by the bundled `ralph` workflow (`.atomic/workflows/ralph/*/index.ts`) — every iteration's planner depends on the previous iteration's debugger, every orchestrator depends on the planner just above it, and so on. The whole multi-iteration pipeline renders as one long spine instead of a mess of siblings:
+A stage awaited after a `Promise.all` resolves automatically receives all parallel stages as parents — the graph draws a merge node:
 
 ```ts
+// ✅ Graph infers: orchestrator → A → [B, C] → D (fan-in merge)
 .run(async (ctx) => {
-  // Track the most recent session so the next stage can wire itself
-  // as a successor. `depsOn()` just returns [prevStage] or undefined.
-  let prevStage: string | undefined;
-  const depsOn = (): string[] | undefined =>
-    prevStage ? [prevStage] : undefined;
+  await ctx.stage({ name: "A" }, {}, {}, async (s) => { /* ... */ });
 
+  await Promise.all([
+    ctx.stage({ name: "B" }, {}, {}, async (s) => { /* ... */ }),
+    ctx.stage({ name: "C" }, {}, {}, async (s) => { /* ... */ }),
+  ]);
+
+  // D receives B and C as parents — rendered as a merge node.
+  await ctx.stage({ name: "D" }, {}, {}, async (s) => { /* ... */ });
+})
+```
+
+### Nested sub-sessions: child of the enclosing session
+
+`s.stage()` inside a callback automatically becomes a child of the enclosing session — no declaration needed:
+
+```ts
+await ctx.stage({ name: "outer" }, {}, {}, async (s) => {
+  // inner is a child of outer in the graph automatically
+  await s.stage({ name: "inner" }, {}, {}, async (s2) => { /* ... */ });
+});
+```
+
+### Pattern: iterative loop chains
+
+In iterative loops each stage is naturally the successor of the last because `await` serializes them within the loop body. The graph renders as a chain by default:
+
+```ts
+// ✅ Graph infers a spine: planner-1 → worker-1 → planner-2 → worker-2 → ...
+.run(async (ctx) => {
   for (let i = 1; i <= MAX_LOOPS; i++) {
-    const plannerName = `planner-${i}`;
-    await ctx.session(
-      { name: plannerName, dependsOn: depsOn() },
-      async (s) => { /* ... */ },
-    );
-    prevStage = plannerName;
+    await ctx.stage({ name: `planner-${i}` }, {}, {}, async (s) => { /* ... */ });
+    await ctx.stage({ name: `worker-${i}` }, {}, {}, async (s) => { /* ... */ });
 
-    const workerName = `worker-${i}`;
-    await ctx.session(
-      { name: workerName, dependsOn: depsOn() },
-      async (s) => { /* ... */ },
-    );
-    prevStage = workerName;
-
-    // Conditionally appended stages still update prevStage so the next
-    // iteration's first stage picks up wherever the chain left off.
     if (needsReview) {
-      const reviewerName = `reviewer-${i}`;
-      await ctx.session(
-        { name: reviewerName, dependsOn: depsOn() },
-        async (s) => { /* ... */ },
-      );
-      prevStage = reviewerName;
+      await ctx.stage({ name: `reviewer-${i}` }, {}, {}, async (s) => { /* ... */ });
     }
   }
 })
 ```
 
-**Why the helper function instead of an inline array?** The helper returns `undefined` on the first iteration (no prior stage exists yet) and `[prevStage]` thereafter. Passing `undefined` makes the first session fall back to the default parent — no special-case branching in the loop body.
+Each iteration's stages form a natural chain because each `await` follows the previous one. Conditional stages fit in seamlessly — the graph reflects whatever path was actually executed.
 
-### Pattern: parallel fan-out with a gating dep
+### Note on data flow vs. topology
 
-`dependsOn` is the only way to make `Promise.all([...])` patterns respect "B must wait for A" without serializing the whole group. The runtime awaits each dep's completion promise before starting the dependent session, so B sits idle until A finishes while C runs alongside A.
-
-```ts
-.run(async (ctx) => {
-  // Gate: A must run first; B and C can run in parallel after A.
-  await ctx.session({ name: "A" }, async (s) => { /* ... */ });
-
-  await Promise.all([
-    ctx.session(
-      { name: "B", dependsOn: ["A"] },
-      async (s) => { /* ... */ },
-    ),
-    ctx.session(
-      { name: "C", dependsOn: ["A"] },
-      async (s) => { /* ... */ },
-    ),
-  ]);
-
-  // D waits for BOTH B and C (fan-in) — renders as a merge node.
-  await ctx.session(
-    { name: "D", dependsOn: ["B", "C"] },
-    async (s) => { /* ... */ },
-  );
-})
-```
-
-Because `A` finished before the `Promise.all`, the `dependsOn: ["A"]` check resolves immediately for both `B` and `C` — they start concurrently. `D` waits for both to settle. If either `B` or `C` throws, `D` gets the same error instead of hanging.
-
-### When NOT to use `dependsOn`
-
-- **When siblings really are siblings.** If you have two independent top-level sessions that genuinely don't depend on each other and you *want* the graph to show them as parallel work under orchestrator, don't add `dependsOn`. It's not a style — it's a dependency declaration.
-- **For nested sub-sessions inside a callback.** `s.session()` already declares parentage via its enclosing scope: the nested session is a child of the outer session automatically. Adding `dependsOn` there is redundant.
-- **Instead of `s.transcript()`.** `dependsOn` controls execution order and graph edges, not data flow. If B needs to *read* A's output, use `s.transcript(aHandle)` — that still requires `await ctx.session(a)` to have completed, which `dependsOn` (or a simple await) guarantees.
+Graph topology (parent-child edges) is inferred from control flow. Data flow between sessions is separate: use `s.transcript(handle)` to read a prior session's saved output. The two concerns are independent — you do not need explicit dependency declarations to access another session's transcript; you just need that session's `await` to have completed before you read it.
 
 ## Multi-turn conversations
 
@@ -374,13 +307,12 @@ Within a single session callback, each SDK call adds to the conversation context
 
 ```ts
 .run(async (ctx) => {
-  await ctx.session({ name: "guided-implementation" }, async (s) => {
-    await createClaudeSession({ paneId: s.paneId });
-    // Claude remembers all prior turns within the same pane
-    await claudeQuery({ paneId: s.paneId, prompt: "Step 1: Set up the project structure." });
-    await claudeQuery({ paneId: s.paneId, prompt: "Step 2: Implement the core logic." });
-    await claudeQuery({ paneId: s.paneId, prompt: "Step 3: Add error handling." });
-    await claudeQuery({ paneId: s.paneId, prompt: "Step 4: Write tests." });
+  await ctx.stage({ name: "guided-implementation" }, {}, {}, async (s) => {
+    // The session remembers all prior turns within the same callback
+    await s.session.query("Step 1: Set up the project structure.");
+    await s.session.query("Step 2: Implement the core logic.");
+    await s.session.query("Step 3: Add error handling.");
+    await s.session.query("Step 4: Write tests.");
     s.save(s.sessionId);
   });
 })
@@ -392,16 +324,14 @@ Within a single session callback, each SDK call adds to the conversation context
 
 ```ts
 .run(async (ctx) => {
-  await ctx.session({ name: "implement" }, async (s) => {
-    await createClaudeSession({ paneId: s.paneId });
+  await ctx.stage({ name: "implement" }, {}, {}, async (s) => {
     try {
-      await claudeQuery({ paneId: s.paneId, prompt: ctx.userPrompt });
+      await s.session.query(ctx.userPrompt);
     } catch (error) {
       // Retry with simpler prompt
-      await claudeQuery({
-        paneId: s.paneId,
-        prompt: `The previous attempt failed. Please try a simpler approach: ${ctx.userPrompt}`,
-      });
+      await s.session.query(
+        `The previous attempt failed. Please try a simpler approach: ${ctx.userPrompt}`,
+      );
     }
     s.save(s.sessionId);
   });
@@ -428,11 +358,8 @@ async function retryWithBackoff<T>(
 }
 
 .run(async (ctx) => {
-  await ctx.session({ name: "implement" }, async (s) => {
-    await createClaudeSession({ paneId: s.paneId });
-    await retryWithBackoff(() =>
-      claudeQuery({ paneId: s.paneId, prompt: ctx.userPrompt })
-    );
+  await ctx.stage({ name: "implement" }, {}, {}, async (s) => {
+    await retryWithBackoff(() => s.session.query(ctx.userPrompt));
     s.save(s.sessionId);
   });
 })
@@ -445,9 +372,8 @@ Combine loops, conditionals, and inter-session data passing. Session callbacks r
 ```ts
 .run(async (ctx) => {
   // Step 1: Analyse — result is available as a typed handle
-  const analysisHandle = await ctx.session({ name: "analyze" }, async (s) => {
-    await createClaudeSession({ paneId: s.paneId });
-    const result = await claudeQuery({ paneId: s.paneId, prompt: `Analyse the task: ${ctx.userPrompt}` });
+  const analysisHandle = await ctx.stage({ name: "analyze" }, {}, {}, async (s) => {
+    const result = await s.session.query(`Analyse the task: ${ctx.userPrompt}`);
     s.save(s.sessionId);
     return result.output;
   });
@@ -457,16 +383,14 @@ Combine loops, conditionals, and inter-session data passing. Session callbacks r
 
   // Step 2: Iterative implementation — each pass is a graph node
   for (let i = 1; i <= maxIterations; i++) {
-    const impl = await ctx.session({ name: `implement-${i}` }, async (s) => {
+    const impl = await ctx.stage({ name: `implement-${i}` }, {}, {}, async (s) => {
       // Pass the analysis transcript into this session
       const analysis = await s.transcript(analysisHandle);
-      await createClaudeSession({ paneId: s.paneId });
-      const result = await claudeQuery({
-        paneId: s.paneId,
-        prompt: i === 1
+      const result = await s.session.query(
+        i === 1
           ? `Implement based on:\n${analysis.content}`
           : "Continue improving the implementation.",
-      });
+      );
       s.save(s.sessionId);
       return result.output;
     });

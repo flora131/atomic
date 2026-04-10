@@ -11,7 +11,6 @@
  */
 
 import { defineWorkflow } from "@bastani/atomic/workflows";
-import { CopilotClient, approveAll } from "@github/copilot-sdk";
 import type { SessionEvent } from "@github/copilot-sdk";
 
 import {
@@ -68,7 +67,7 @@ function getAssistantText(messages: SessionEvent[]): string {
     .join("\n\n");
 }
 
-export default defineWorkflow({
+export default defineWorkflow<"copilot">({
   name: "ralph",
   description:
     "Plan → orchestrate → review → debug loop with bounded iteration",
@@ -76,28 +75,16 @@ export default defineWorkflow({
   .run(async (ctx) => {
     let consecutiveClean = 0;
     let debuggerReport = "";
-    // Track the most recent session so the next stage can declare it as a
-    // dependency — this chains planner → orchestrator → reviewer → [confirm]
-    // → [debugger] → next planner in the graph instead of showing every
-    // stage as an independent sibling under the root.
-    let prevStage: string | undefined;
-    const depsOn = (): string[] | undefined =>
-      prevStage ? [prevStage] : undefined;
 
     for (let iteration = 1; iteration <= MAX_LOOPS; iteration++) {
       // ── Plan ──────────────────────────────────────────────────────────
       const plannerName = `planner-${iteration}`;
-      const planner = await ctx.session(
-        { name: plannerName, dependsOn: depsOn() },
+      const planner = await ctx.stage(
+        { name: plannerName },
+        {},
+        { agent: "planner" },
         async (s) => {
-          const client = new CopilotClient({ cliUrl: s.serverUrl });
-          await client.start();
-          const session = await client.createSession({
-            agent: "planner",
-            onPermissionRequest: approveAll,
-          });
-          await client.setForegroundSessionId(session.sessionId);
-          await session.sendAndWait(
+          await s.session.sendAndWait(
             {
               prompt: buildPlannerPrompt(s.userPrompt, {
                 iteration,
@@ -106,28 +93,21 @@ export default defineWorkflow({
             },
             AGENT_SEND_TIMEOUT_MS,
           );
-          const messages = await session.getMessages();
+          const messages = await s.session.getMessages();
           s.save(messages);
-          await session.disconnect();
-          await client.stop();
           return getAssistantText(messages);
         },
       );
-      prevStage = plannerName;
+
 
       // ── Orchestrate ───────────────────────────────────────────────────
       const orchName = `orchestrator-${iteration}`;
-      await ctx.session(
-        { name: orchName, dependsOn: depsOn() },
+      await ctx.stage(
+        { name: orchName },
+        {},
+        { agent: "orchestrator" },
         async (s) => {
-          const client = new CopilotClient({ cliUrl: s.serverUrl });
-          await client.start();
-          const session = await client.createSession({
-            agent: "orchestrator",
-            onPermissionRequest: approveAll,
-          });
-          await client.setForegroundSessionId(session.sessionId);
-          await session.sendAndWait(
+          await s.session.sendAndWait(
             {
               prompt: buildOrchestratorPrompt(s.userPrompt, {
                 plannerNotes: planner.result,
@@ -135,27 +115,20 @@ export default defineWorkflow({
             },
             AGENT_SEND_TIMEOUT_MS,
           );
-          s.save(await session.getMessages());
-          await session.disconnect();
-          await client.stop();
+          s.save(await s.session.getMessages());
         },
       );
-      prevStage = orchName;
+
 
       // ── Review (first pass) ───────────────────────────────────────────
       let gitStatus = await safeGitStatusS();
       const reviewerName = `reviewer-${iteration}`;
-      const review = await ctx.session(
-        { name: reviewerName, dependsOn: depsOn() },
+      const review = await ctx.stage(
+        { name: reviewerName },
+        {},
+        { agent: "reviewer" },
         async (s) => {
-          const client = new CopilotClient({ cliUrl: s.serverUrl });
-          await client.start();
-          const session = await client.createSession({
-            agent: "reviewer",
-            onPermissionRequest: approveAll,
-          });
-          await client.setForegroundSessionId(session.sessionId);
-          await session.sendAndWait(
+          await s.session.sendAndWait(
             {
               prompt: buildReviewPrompt(s.userPrompt, {
                 gitStatus,
@@ -164,14 +137,12 @@ export default defineWorkflow({
             },
             AGENT_SEND_TIMEOUT_MS,
           );
-          const messages = await session.getMessages();
+          const messages = await s.session.getMessages();
           s.save(messages);
-          await session.disconnect();
-          await client.stop();
           return getAssistantText(messages);
         },
       );
-      prevStage = reviewerName;
+
 
       let reviewRaw = review.result;
       let parsed = parseReviewResult(reviewRaw);
@@ -183,17 +154,12 @@ export default defineWorkflow({
         // Confirmation pass — re-run reviewer only
         gitStatus = await safeGitStatusS();
         const confirmName = `reviewer-${iteration}-confirm`;
-        const confirm = await ctx.session(
-          { name: confirmName, dependsOn: depsOn() },
+        const confirm = await ctx.stage(
+          { name: confirmName },
+          {},
+          { agent: "reviewer" },
           async (s) => {
-            const client = new CopilotClient({ cliUrl: s.serverUrl });
-            await client.start();
-            const session = await client.createSession({
-              agent: "reviewer",
-              onPermissionRequest: approveAll,
-            });
-            await client.setForegroundSessionId(session.sessionId);
-            await session.sendAndWait(
+            await s.session.sendAndWait(
               {
                 prompt: buildReviewPrompt(s.userPrompt, {
                   gitStatus,
@@ -203,14 +169,12 @@ export default defineWorkflow({
               },
               AGENT_SEND_TIMEOUT_MS,
             );
-            const messages = await session.getMessages();
+            const messages = await s.session.getMessages();
             s.save(messages);
-            await session.disconnect();
-            await client.stop();
             return getAssistantText(messages);
           },
         );
-        prevStage = confirmName;
+
 
         reviewRaw = confirm.result;
         parsed = parseReviewResult(reviewRaw);
@@ -228,17 +192,12 @@ export default defineWorkflow({
       // ── Debug (only if findings remain AND another iteration is allowed) ─
       if (hasActionableFindings(parsed, reviewRaw) && iteration < MAX_LOOPS) {
         const debuggerName = `debugger-${iteration}`;
-        const debugger_ = await ctx.session(
-          { name: debuggerName, dependsOn: depsOn() },
+        const debugger_ = await ctx.stage(
+          { name: debuggerName },
+          {},
+          { agent: "debugger" },
           async (s) => {
-            const client = new CopilotClient({ cliUrl: s.serverUrl });
-            await client.start();
-            const session = await client.createSession({
-              agent: "debugger",
-              onPermissionRequest: approveAll,
-            });
-            await client.setForegroundSessionId(session.sessionId);
-            await session.sendAndWait(
+            await s.session.sendAndWait(
               {
                 prompt: buildDebuggerReportPrompt(parsed, reviewRaw, {
                   iteration,
@@ -247,14 +206,12 @@ export default defineWorkflow({
               },
               AGENT_SEND_TIMEOUT_MS,
             );
-            const messages = await session.getMessages();
+            const messages = await s.session.getMessages();
             s.save(messages);
-            await session.disconnect();
-            await client.stop();
             return getAssistantText(messages);
           },
         );
-        prevStage = debuggerName;
+
         debuggerReport = extractMarkdownBlock(debugger_.result);
       }
     }

@@ -11,7 +11,6 @@
  */
 
 import { defineWorkflow } from "@bastani/atomic/workflows";
-import { createOpencodeClient } from "@opencode-ai/sdk/v2";
 
 import {
   buildPlannerPrompt,
@@ -37,7 +36,7 @@ function extractResponseText(
     .join("\n");
 }
 
-export default defineWorkflow({
+export default defineWorkflow<"opencode">({
   name: "ralph",
   description:
     "Plan → orchestrate → review → debug loop with bounded iteration",
@@ -45,27 +44,17 @@ export default defineWorkflow({
   .run(async (ctx) => {
     let consecutiveClean = 0;
     let debuggerReport = "";
-    // Track the most recent session so the next stage can declare it as a
-    // dependency — this chains planner → orchestrator → reviewer → [confirm]
-    // → [debugger] → next planner in the graph instead of showing every
-    // stage as an independent sibling under the root.
-    let prevStage: string | undefined;
-    const depsOn = (): string[] | undefined =>
-      prevStage ? [prevStage] : undefined;
 
     for (let iteration = 1; iteration <= MAX_LOOPS; iteration++) {
       // ── Plan ────────────────────────────────────────────────────────────
       const plannerName = `planner-${iteration}`;
-      const planner = await ctx.session(
-        { name: plannerName, dependsOn: depsOn() },
+      const planner = await ctx.stage(
+        { name: plannerName },
+        {},
+        { title: `planner-${iteration}` },
         async (s) => {
-          const client = createOpencodeClient({ baseUrl: s.serverUrl });
-          const session = await client.session.create({
-            title: `planner-${iteration}`,
-          });
-          await client.tui.selectSession({ sessionID: session.data!.id });
-          const result = await client.session.prompt({
-            sessionID: session.data!.id,
+          const result = await s.client.session.prompt({
+            sessionID: s.session.id,
             parts: [
               {
                 type: "text",
@@ -81,20 +70,17 @@ export default defineWorkflow({
           return extractResponseText(result.data!.parts);
         },
       );
-      prevStage = plannerName;
+
 
       // ── Orchestrate ─────────────────────────────────────────────────────
       const orchName = `orchestrator-${iteration}`;
-      await ctx.session(
-        { name: orchName, dependsOn: depsOn() },
+      await ctx.stage(
+        { name: orchName },
+        {},
+        { title: `orchestrator-${iteration}` },
         async (s) => {
-          const client = createOpencodeClient({ baseUrl: s.serverUrl });
-          const session = await client.session.create({
-            title: `orchestrator-${iteration}`,
-          });
-          await client.tui.selectSession({ sessionID: session.data!.id });
-          const result = await client.session.prompt({
-            sessionID: session.data!.id,
+          const result = await s.client.session.prompt({
+            sessionID: s.session.id,
             parts: [
               {
                 type: "text",
@@ -108,21 +94,18 @@ export default defineWorkflow({
           s.save(result.data!);
         },
       );
-      prevStage = orchName;
+
 
       // ── Review (first pass) ─────────────────────────────────────────────
       let gitStatus = await safeGitStatusS();
       const reviewerName = `reviewer-${iteration}`;
-      const review = await ctx.session(
-        { name: reviewerName, dependsOn: depsOn() },
+      const review = await ctx.stage(
+        { name: reviewerName },
+        {},
+        { title: `reviewer-${iteration}` },
         async (s) => {
-          const client = createOpencodeClient({ baseUrl: s.serverUrl });
-          const session = await client.session.create({
-            title: `reviewer-${iteration}`,
-          });
-          await client.tui.selectSession({ sessionID: session.data!.id });
-          const result = await client.session.prompt({
-            sessionID: session.data!.id,
+          const result = await s.client.session.prompt({
+            sessionID: s.session.id,
             parts: [
               {
                 type: "text",
@@ -138,7 +121,7 @@ export default defineWorkflow({
           return extractResponseText(result.data!.parts);
         },
       );
-      prevStage = reviewerName;
+
 
       let reviewRaw = review.result;
       let parsed = parseReviewResult(reviewRaw);
@@ -150,16 +133,13 @@ export default defineWorkflow({
         // Confirmation pass — re-run reviewer only
         gitStatus = await safeGitStatusS();
         const confirmName = `reviewer-${iteration}-confirm`;
-        const confirm = await ctx.session(
-          { name: confirmName, dependsOn: depsOn() },
+        const confirm = await ctx.stage(
+          { name: confirmName },
+          {},
+          { title: `reviewer-${iteration}-confirm` },
           async (s) => {
-            const client = createOpencodeClient({ baseUrl: s.serverUrl });
-            const session = await client.session.create({
-              title: `reviewer-${iteration}-confirm`,
-            });
-            await client.tui.selectSession({ sessionID: session.data!.id });
-            const result = await client.session.prompt({
-              sessionID: session.data!.id,
+            const result = await s.client.session.prompt({
+              sessionID: s.session.id,
               parts: [
                 {
                   type: "text",
@@ -176,7 +156,7 @@ export default defineWorkflow({
             return extractResponseText(result.data!.parts);
           },
         );
-        prevStage = confirmName;
+
 
         reviewRaw = confirm.result;
         parsed = parseReviewResult(reviewRaw);
@@ -194,16 +174,13 @@ export default defineWorkflow({
       // ── Debug (only if findings remain AND another iteration is allowed) ─
       if (hasActionableFindings(parsed, reviewRaw) && iteration < MAX_LOOPS) {
         const debuggerName = `debugger-${iteration}`;
-        const debugger_ = await ctx.session(
-          { name: debuggerName, dependsOn: depsOn() },
+        const debugger_ = await ctx.stage(
+          { name: debuggerName },
+          {},
+          { title: `debugger-${iteration}` },
           async (s) => {
-            const client = createOpencodeClient({ baseUrl: s.serverUrl });
-            const session = await client.session.create({
-              title: `debugger-${iteration}`,
-            });
-            await client.tui.selectSession({ sessionID: session.data!.id });
-            const result = await client.session.prompt({
-              sessionID: session.data!.id,
+            const result = await s.client.session.prompt({
+              sessionID: s.session.id,
               parts: [
                 {
                   type: "text",
@@ -219,7 +196,7 @@ export default defineWorkflow({
             return extractResponseText(result.data!.parts);
           },
         );
-        prevStage = debuggerName;
+
         debuggerReport = extractMarkdownBlock(debugger_.result);
       }
     }

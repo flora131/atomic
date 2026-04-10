@@ -166,14 +166,14 @@ describe("computeLayout", () => {
     expect(result.map["b"]!.x).toBe(result.map["c"]!.x);
   });
 
-  // ── dependsOn-style ralph chain ──────────────────────────────────────────
+  // ── Auto-inferred ralph chain ────────────────────────────────────────────
   //
-  // When the executor wires up `dependsOn`, the parents array on each
-  // SessionData ends up pointing at the prior stage instead of the root
-  // "orchestrator". These tests assert that the layout treats that shape
-  // as a linear chain (not a fan-out of siblings under the root), which is
-  // the visual behavior users see after the fix.
-  describe("ralph-style dependsOn chain", () => {
+  // The executor's frontier tracker auto-infers parent-child edges from
+  // `await`/`Promise.all` patterns. For sequential `await` chains (like
+  // ralph), each stage's parents array points at the prior stage instead
+  // of the root "orchestrator". These tests assert that the layout treats
+  // that shape as a linear chain (not a fan-out of siblings under the root).
+  describe("auto-inferred ralph chain", () => {
     test("single-iteration chain: plan → orch → review → debug", () => {
       const result = computeLayout([
         makeSession("orchestrator"),

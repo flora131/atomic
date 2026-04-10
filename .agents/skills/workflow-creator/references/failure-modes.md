@@ -33,17 +33,17 @@ Silent failures are catalogued first below. Loud failures are grouped at the end
 | [F1](#f1-copilot-getlastassistanttext-returns-empty-string) | Copilot: `getLastAssistantText` returns empty string | Copilot | silent |
 | [F2](#f2-copilot-sub-agent-messages-pollute-getmessages-stream) | Copilot: sub-agent messages pollute `getMessages()` stream | Copilot | silent |
 | [F3](#f3-opencode-result-parts-contain-non-text-parts) | OpenCode: `result.data.parts` contains non-text parts | OpenCode | silent |
-| [F4](#f4-claudequery-output-includes-tui-scrollback-not-just-the-last-turn) | Claude: `claudeQuery.output` includes TUI scrollback, not just the last turn | Claude | silent |
+| [F4](#f4-claudequery-output-includes-tui-scrollback-not-just-the-last-turn) | Claude: `s.session.query()` output includes TUI scrollback, not just the last turn | Claude | silent |
 | [F5](#f5-fresh-session-wipes-prior-stage-context) | Fresh session wipes prior stage context | Copilot, OpenCode | silent |
 | [F6](#f6-planner-prompts-that-dont-request-trailing-commentary-produce-empty-handoffs) | Planner prompts that don't request trailing commentary produce empty handoffs | all | silent |
 | [F7](#f7-continued-sessions-accumulate-state-across-loop-iterations) | Continued sessions accumulate state across loop iterations (lost-in-middle) | all | silent |
 | [F8](#f8-fenced-block-parsers-break-when-the-model-adds-prose) | Fenced-block parsers break when the model adds prose before/after | all | silent |
 | [F9](#f9-ssave-receives-the-wrong-shape) | `s.save()` receives the wrong shape for the SDK | all | silent |
 | [F10](#f10-copilot-sendandwait-default-60s-timeout-throws) | Copilot: `sendAndWait` default 60s timeout throws | Copilot | loud |
-| [F11](#f11-claudequery-without-prior-createclaudesession-throws) | Claude: `claudeQuery` without prior `createClaudeSession` throws | Claude | loud |
+| [F11](#f11-claudequery-without-prior-createclaudesession-throws-resolved-by-runtime) | ~~Claude: `claudeQuery` without prior `createClaudeSession` throws~~ (resolved by runtime) | Claude | N/A |
 | [F12](#f12-resume-session-tries-to-swap-agents) | Resume session tries to swap agents | Copilot, OpenCode | loud |
 | [F13](#f13-parallel-siblings-read-each-others-transcripts) | Parallel siblings read each other's transcripts | all | loud |
-| [F14](#f14-forgetting-to-await-ctxsession) | Forgetting to `await` `ctx.session()` | all | silent |
+| [F14](#f14-forgetting-to-await-ctxstage) | Forgetting to `await` `ctx.stage()` | all | silent |
 | [F15](#f15-using-a-pending-sessionhandle-before-completion) | Using a pending `SessionHandle` before completion | all | silent |
 
 ---
@@ -175,17 +175,18 @@ function extractResponseText(
 
 ---
 
-## F4. Claude: `claudeQuery.output` includes TUI scrollback, not just the last turn
+## F4. Claude: `s.session.query()` output includes TUI scrollback, not just the last turn
 
 **Symptom.** Parsers matching "the last fenced JSON block" pick up an old
 turn's JSON because the captured output contains multiple turns of scrollback.
 
-**Root cause.** `claudeQuery()` captures the tmux pane's visible scrollback
-after output stabilizes — it's not a scoped "this call's response only"
-string. Earlier sub-agent output, prior-turn assistant text, and even the
-user's own prompt echo all end up in `result.output`.
+**Root cause.** `s.session.query()` wraps `claudeQuery()`, which captures the
+tmux pane's visible scrollback after output stabilizes — it's not a scoped
+"this call's response only" string. Earlier sub-agent output, prior-turn
+assistant text, and even the user's own prompt echo all end up in
+`result.output`.
 
-**Affected SDKs.** Claude (tmux-based `claudeQuery`).
+**Affected SDKs.** Claude (tmux-based query).
 
 ### ❌ Wrong
 
@@ -233,7 +234,7 @@ put in its first prompt.
 
 **Affected SDKs.** Copilot, OpenCode. (Claude's tmux pane model is
 different — context accumulates in the same pane, so this failure mode
-does NOT apply to `claudeQuery`.)
+does NOT apply to `s.session.query()`.)
 
 ### ❌ Wrong
 
@@ -333,11 +334,12 @@ vulnerable because the scrollback captures every intermediate turn.
 ### ❌ Wrong — unbounded loop on a single session
 
 ```ts
-await createClaudeSession({ paneId });
-for (let i = 0; i < 20; i++) {
-  await claudeQuery({ paneId, prompt: buildReviewPrompt() });
-  await claudeQuery({ paneId, prompt: buildFixPrompt() });
-}
+await ctx.stage({ name: "review-loop" }, {}, {}, async (s) => {
+  for (let i = 0; i < 20; i++) {
+    await s.session.query(buildReviewPrompt());
+    await s.session.query(buildFixPrompt());
+  }
+});
 ```
 
 ### ✅ Right — compact or reset between iterations
@@ -353,17 +355,19 @@ Options, in order of preference:
    lose the in-session reasoning but gain a clean context window.
 
 ```ts
-const MAX_TURNS_BEFORE_COMPACT = 10;
-let turnsSinceCompact = 0;
+await ctx.stage({ name: "review-loop" }, {}, {}, async (s) => {
+  const MAX_TURNS_BEFORE_COMPACT = 10;
+  let turnsSinceCompact = 0;
 
-for (let i = 0; i < MAX_ITERATIONS; i++) {
-  if (turnsSinceCompact >= MAX_TURNS_BEFORE_COMPACT) {
-    await claudeQuery({ paneId, prompt: "/compact" });
-    turnsSinceCompact = 0;
+  for (let i = 0; i < MAX_ITERATIONS; i++) {
+    if (turnsSinceCompact >= MAX_TURNS_BEFORE_COMPACT) {
+      await s.session.query("/compact");
+      turnsSinceCompact = 0;
+    }
+    await s.session.query(buildReviewPrompt());
+    turnsSinceCompact += 1;
   }
-  await claudeQuery({ paneId, prompt: buildReviewPrompt() });
-  turnsSinceCompact += 1;
-}
+});
 ```
 
 **Consult.** `context-degradation`, `context-compression`, `context-optimization`.
@@ -444,7 +448,7 @@ expects, and the runtime doesn't type-check the argument beyond "anything".
 | SDK | Correct argument |
 |---|---|
 | Claude | `s.save(s.sessionId)` — pass the session ID; the runtime reads the transcript file |
-| Copilot | `s.save(await session.getMessages())` — pass `SessionEvent[]` |
+| Copilot | `s.save(await s.session.getMessages())` — pass `SessionEvent[]` |
 | OpenCode | `s.save(result.data!)` — pass the `{ info, parts }` object |
 
 ### ❌ Wrong
@@ -454,9 +458,9 @@ expects, and the runtime doesn't type-check the argument beyond "anything".
 s.save(result.output);
 
 // Copilot — saves an empty array if called before sendAndWait
-s.save(await session.getMessages());
+s.save(await s.session.getMessages());
 // Or saves one message object instead of the array
-s.save((await session.getMessages()).at(-1));
+s.save((await s.session.getMessages()).at(-1));
 
 // OpenCode — missing the data unwrap
 s.save(result);
@@ -477,7 +481,7 @@ log the length. A 0-length or JSON-that-isn't-prose signature = F9.
 ## F10. Copilot: `sendAndWait` default 60s timeout throws
 
 **Symptom.** `Timeout after 60000ms waiting for session.idle`. Every
-subsequent `ctx.session()` call never executes — the throw propagates out of
+subsequent `ctx.stage()` call never executes — the throw propagates out of
 `run()` and halts the workflow.
 
 **Full write-up.** `agent-sessions.md` §"Critical pitfall: `sendAndWait` has
@@ -487,29 +491,38 @@ a 60-second default timeout".
 
 ```ts
 const SEND_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
-await session.sendAndWait({ prompt }, SEND_TIMEOUT_MS);
+await s.session.sendAndWait({ prompt }, SEND_TIMEOUT_MS);
 ```
 
 ---
 
-## F11. Claude: `claudeQuery` without prior `createClaudeSession` throws
+## F11. ~~Claude: `claudeQuery` without prior `createClaudeSession` throws~~ (resolved by runtime)
 
-**Symptom.** Exception at the first `claudeQuery` call in a session.
+This failure mode is now handled automatically by the runtime. When using
+`s.session.query()`, the runtime calls `createClaudeSession()` during stage
+initialization before the user callback runs. Manual `createClaudeSession`
+calls are no longer needed — `s.client` and `s.session` arrive fully
+initialized.
 
-**Fix.** Always call `createClaudeSession({ paneId: s.paneId })` as the
-first line inside each Claude-backed `ctx.session()` callback:
+**Previously required (now unnecessary):**
 
 ```ts
-await ctx.session({ name: "..." }, async (s) => {
-  await createClaudeSession({ paneId: s.paneId });
+// OLD — no longer needed
+await ctx.stage({ name: "..." }, async (s) => {
+  await createClaudeSession({ paneId: s.paneId }); // ← runtime does this now
   await claudeQuery({ paneId: s.paneId, prompt: ctx.userPrompt });
   s.save(s.sessionId);
 });
 ```
 
-If a Claude session is killed mid-workflow, call
-`clearClaudeSession(paneId)` to remove the pane from the initialized set
-before recreating it.
+**Current pattern:**
+
+```ts
+await ctx.stage({ name: "..." }, {}, {}, async (s) => {
+  const result = await s.session.query(ctx.userPrompt);
+  s.save(s.sessionId);
+});
+```
 
 ---
 
@@ -534,7 +547,7 @@ throws or returns empty.
 
 **Root cause.** `s.transcript()` only exposes **prior completed sessions** —
 ones whose callback has returned and whose saves have flushed. Sessions
-launched concurrently via `Promise.all([ctx.session(...), ctx.session(...)])` run
+launched concurrently via `Promise.all([ctx.stage(...), ctx.stage(...)])` run
 at the same time; forward-only data flow is enforced.
 
 **Fix.** Restructure to either a linear chain, a "fan-out, then merge"
@@ -543,19 +556,19 @@ shared state (files, DB) if siblings genuinely need to coordinate.
 
 ```ts
 // Fan-out → merge
-await ctx.session({ name: "describe" }, async (s) => { /* ... */ });
+await ctx.stage({ name: "describe" }, {}, {}, async (s) => { /* ... */ });
 
 await Promise.all([
-  ctx.session({ name: "summarize-a" }, async (s) => {
+  ctx.stage({ name: "summarize-a" }, {}, {}, async (s) => {
     const d = await s.transcript("describe"); // OK — prior completed session
     // s.transcript("summarize-b") would fail here — sibling not yet complete
   }),
-  ctx.session({ name: "summarize-b" }, async (s) => {
+  ctx.stage({ name: "summarize-b" }, {}, {}, async (s) => {
     const d = await s.transcript("describe"); // OK — prior completed session
   }),
 ]);
 
-await ctx.session({ name: "merge" }, async (s) => {
+await ctx.stage({ name: "merge" }, {}, {}, async (s) => {
   const a = await s.transcript("summarize-a"); // OK — prior completed session
   const b = await s.transcript("summarize-b"); // OK — prior completed session
 });
@@ -563,7 +576,7 @@ await ctx.session({ name: "merge" }, async (s) => {
 
 ---
 
-## F14. Forgetting to `await` `ctx.session()`
+## F14. Forgetting to `await` `ctx.stage()`
 
 **Symptom.** A session runs (its tmux window opens, the agent does work)
 but the orchestrator doesn't wait for it. Subsequent sessions that depend
@@ -571,7 +584,7 @@ on its output via `transcript()` or `getMessages()` see empty or missing
 data. The workflow may finish "successfully" before the session's callback
 has returned.
 
-**Root cause.** `ctx.session()` returns a `Promise<SessionHandle<T>>`.
+**Root cause.** `ctx.stage()` returns a `Promise<SessionHandle<T>>`.
 Without `await`, the session is spawned but the `.run()` callback continues
 immediately. The session's save never reaches the `completedRegistry`
 before downstream code tries to read it.
@@ -583,13 +596,13 @@ SDK-specific.
 
 ```ts
 // Missing await — session fires but orchestrator doesn't wait
-ctx.session({ name: "research" }, async (s) => {
+ctx.stage({ name: "research" }, {}, {}, async (s) => {
   // ... agent work ...
   s.save(s.sessionId);
 });
 
 // This runs before "research" completes
-await ctx.session({ name: "synthesize" }, async (s) => {
+await ctx.stage({ name: "synthesize" }, {}, {}, async (s) => {
   const r = await s.transcript("research"); // empty or throws
 });
 ```
@@ -597,12 +610,12 @@ await ctx.session({ name: "synthesize" }, async (s) => {
 ### ✅ Right
 
 ```ts
-await ctx.session({ name: "research" }, async (s) => {
+await ctx.stage({ name: "research" }, {}, {}, async (s) => {
   // ... agent work ...
   s.save(s.sessionId);
 });
 
-await ctx.session({ name: "synthesize" }, async (s) => {
+await ctx.stage({ name: "synthesize" }, {}, {}, async (s) => {
   const r = await s.transcript("research"); // works
 });
 ```
@@ -620,7 +633,7 @@ this at compile time.
 `s.transcript(handle)` throws / returns empty even though the session
 eventually completes.
 
-**Root cause.** `ctx.session()` returns a `SessionHandle<T>` whose
+**Root cause.** `ctx.stage()` returns a `SessionHandle<T>` whose
 `.result` is only populated after the callback returns. If you store the
 promise but access the handle before awaiting it, the result field is
 not yet set and the session is not in the `completedRegistry`.
@@ -631,8 +644,8 @@ not yet set and the session is not in the `completedRegistry`.
 
 ```ts
 // Start both but access handles before awaiting
-const handleA = ctx.session({ name: "a" }, async (s) => { /* ... */ return 42; });
-const handleB = ctx.session({ name: "b" }, async (s) => {
+const handleA = ctx.stage({ name: "a" }, {}, {}, async (s) => { /* ... */ return 42; });
+const handleB = ctx.stage({ name: "b" }, {}, {}, async (s) => {
   // handleA is a Promise, not a resolved SessionHandle
   const transcript = await s.transcript(handleA); // fails
 });
@@ -642,9 +655,9 @@ const handleB = ctx.session({ name: "b" }, async (s) => {
 
 ```ts
 // Await first, then use the resolved handle
-const handleA = await ctx.session({ name: "a" }, async (s) => { /* ... */ return 42; });
+const handleA = await ctx.stage({ name: "a" }, {}, {}, async (s) => { /* ... */ return 42; });
 
-await ctx.session({ name: "b" }, async (s) => {
+await ctx.stage({ name: "b" }, {}, {}, async (s) => {
   const transcript = await s.transcript(handleA); // works — handleA is resolved
   console.log(handleA.result); // 42
 });
@@ -655,13 +668,13 @@ all promises resolve:
 
 ```ts
 const [a, b] = await Promise.all([
-  ctx.session({ name: "a" }, async (s) => { /* ... */ return "x"; }),
-  ctx.session({ name: "b" }, async (s) => { /* ... */ return "y"; }),
+  ctx.stage({ name: "a" }, {}, {}, async (s) => { /* ... */ return "x"; }),
+  ctx.stage({ name: "b" }, {}, {}, async (s) => { /* ... */ return "y"; }),
 ]);
 // a.result === "x", b.result === "y"
 ```
 
-**Detection.** TypeScript's type system helps — `ctx.session()` returns
+**Detection.** TypeScript's type system helps — `ctx.stage()` returns
 `Promise<SessionHandle<T>>`, not `SessionHandle<T>` directly. If you're
 accessing `.result` without awaiting, the type will be `Promise`, not `T`.
 
@@ -671,15 +684,14 @@ accessing `.result` without awaiting, the type will be `Promise`, not `T`.
 
 Before shipping a multi-session workflow, walk the list:
 
-- [ ] Every `session.sendAndWait` call passes an explicit timeout (F10)
+- [ ] Every `s.session.sendAndWait` call passes an explicit timeout (F10)
 - [ ] Every fresh-session handoff forwards context explicitly (F5)
 - [ ] Every prompt whose output feeds a downstream stage explicitly requests trailing commentary (F6)
 - [ ] Response-text extraction uses the per-SDK correct pattern (F1-F4)
 - [ ] Structured-output parsers extract the LAST fenced block, not the first (F8)
-- [ ] `s.save()` receives the per-SDK correct shape (F9)
+- [ ] `s.save()` receives the per-SDK correct shape — Copilot uses `s.session.getMessages()` (F9)
 - [ ] Loops over 10 iterations have a compaction / reset strategy (F7)
 - [ ] Parallel groups only read from prior completed sessions, never siblings (F13)
-- [ ] Every `ctx.session()` call is `await`ed (F14)
+- [ ] Every `ctx.stage()` call is `await`ed (F14)
 - [ ] `SessionHandle` values are only used after the promise resolves (F15)
-- [ ] Claude-backed sessions start with `createClaudeSession` (F11)
 - [ ] Resume is only used within the same agent role (F12)

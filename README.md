@@ -301,7 +301,7 @@ export default defineWorkflow({
   description: "Two-session Claude demo: describe -> summarize",
 })
   .run(async (ctx) => {
-    const describe = await ctx.session(
+    const describe = await ctx.stage(
       { name: "describe", description: "Ask Claude to describe the project" },
       async (s) => {
         await createClaudeSession({ paneId: s.paneId });
@@ -310,7 +310,7 @@ export default defineWorkflow({
       },
     );
 
-    await ctx.session(
+    await ctx.stage(
       { name: "summarize", description: "Summarize the previous session's output" },
       async (s) => {
         const research = await s.transcript(describe);
@@ -407,12 +407,12 @@ export default defineWorkflow({
 
 | Capability                   | Description                                                                          |
 | ---------------------------- | ------------------------------------------------------------------------------------ |
-| **Dynamic session spawning** | Call `ctx.session()` to spawn sessions at runtime — each gets its own tmux window and graph node |
+| **Dynamic session spawning** | Call `ctx.stage()` to spawn sessions at runtime — each gets its own tmux window and graph node |
 | **Native TypeScript control flow** | Use `for`, `if/else`, `Promise.all()`, `try/catch` — no framework DSL needed |
-| **Session return values**    | Session callbacks can return data: `const h = await ctx.session(...); h.result`      |
+| **Session return values**    | Session callbacks can return data: `const h = await ctx.stage(...); h.result`      |
 | **Transcript passing**       | Access prior session output via handle (`s.transcript(handle)`) or name (`s.transcript("name")`) |
-| **Nested sub-sessions**      | Call `s.session()` inside a session callback to spawn child sessions — visible as nested nodes in the graph |
-| **Dependency tracking**      | Use `dependsOn: ["name"]` to declare session ordering — the runtime waits and the graph shows the edges |
+| **Nested sub-sessions**      | Call `s.stage()` inside a session callback to spawn child sessions — visible as nested nodes in the graph |
+| **Auto-inferred graph**      | Graph topology auto-inferred from `await`/`Promise.all` patterns — no annotations needed               |
 | **Provider-agnostic**        | Write raw SDK code for Claude, Copilot, or OpenCode inside each session callback     |
 | **Live graph visualization** | Sessions appear in the TUI graph as they're spawned — loops and conditionals are visible in real time |
 
@@ -451,7 +451,7 @@ Use your workflow-creator skill to create a workflow that plans, implements, and
 | ----------------------- | ------------------------- | -------------------------------------------------------------- |
 | `ctx.userPrompt`        | `string`                  | Original user prompt from the CLI invocation                   |
 | `ctx.agent`             | `AgentType`               | Which agent is running (`"claude"`, `"copilot"`, `"opencode"`) |
-| `ctx.session(opts, fn)` | `Promise<SessionHandle<T>>` | Spawn a session — returns handle with `name`, `id`, `result` |
+| `ctx.stage(opts, fn)` | `Promise<SessionHandle<T>>` | Spawn a session — returns handle with `name`, `id`, `result` |
 | `ctx.transcript(ref)`   | `Promise<Transcript>`     | Get a completed session's transcript (`{ path, content }`)     |
 | `ctx.getMessages(ref)`  | `Promise<SavedMessage[]>` | Get a completed session's raw native messages                  |
 
@@ -468,7 +468,7 @@ Use your workflow-creator skill to create a workflow that plans, implements, and
 | `s.save(messages)`      | `SaveTranscript`          | Save this session's output for subsequent sessions             |
 | `s.transcript(ref)`     | `Promise<Transcript>`     | Get a completed session's transcript                           |
 | `s.getMessages(ref)`    | `Promise<SavedMessage[]>` | Get a completed session's raw native messages                  |
-| `s.session(opts, fn)`   | `Promise<SessionHandle<T>>` | Spawn a nested sub-session (child in the graph)              |
+| `s.stage(opts, fn)`   | `Promise<SessionHandle<T>>` | Spawn a nested sub-session (child in the graph)              |
 
 #### Session Options (`SessionRunOptions`)
 
@@ -476,17 +476,8 @@ Use your workflow-creator skill to create a workflow that plans, implements, and
 | ------------- | ---------- | ----------------------------------------------------------------------------- |
 | `name`        | `string`   | Unique session name within the workflow run                                   |
 | `description` | `string?`  | Human-readable description shown in the graph                                 |
-| `dependsOn`   | `string[]?`| Names of sessions that must complete before this one starts (creates graph edges) |
 
-`dependsOn` is useful when spawning sessions with `Promise.all()` — it lets the runtime enforce ordering while still allowing parallel spawning of independent sessions:
-
-```ts
-await Promise.all([
-  ctx.session({ name: "migrate-db" }, async (s) => { /* ... */ }),
-  ctx.session({ name: "seed-data", dependsOn: ["migrate-db"] }, async (s) => { /* ... */ }),
-  ctx.session({ name: "gen-types", dependsOn: ["migrate-db"] }, async (s) => { /* ... */ }),
-]);
-```
+The runtime auto-infers parent-child edges from execution order: sequential `await` creates a chain, while `Promise.all` creates parallel fan-out/fan-in — no annotations needed.
 
 #### Saving Transcripts
 
@@ -799,7 +790,7 @@ Skills are auto-invoked when relevant — `test-driven-development` activates be
 
 During `atomic workflow` execution, Atomic renders a live orchestrator panel built on [OpenTUI](https://github.com/anomalyco/opentui) on top of the workflow's tmux session graph. It shows:
 
-- **Session graph** — Nodes for each `.session()` call with status (pending, running, completed, failed) and edges for sequential / parallel dependencies
+- **Session graph** — Nodes for each `.stage()` call with status (pending, running, completed, failed) and edges for sequential / parallel dependencies
 - **Task list tracking** — Ralph's decomposed task list with dependency arrows, updated in real time as workers complete tasks
 - **Pane previews** — Thumbnail of each tmux pane so you can see what every agent is doing without switching contexts
 - **Transcript passing visibility** — Highlights `s.save()` / `s.transcript()` handoffs as they happen between sessions

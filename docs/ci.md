@@ -279,7 +279,7 @@ Values that appear across multiple scripts are centralised to reduce drift:
 
 - **`SDK_PACKAGE_NAME`** — the npm package name (`@bastani/atomic`)
 - **`VERSION_FILES`** — `package.json` files bumped together during releases (currently just the root `package.json`)
-- **`CONFIG_DIRS`** — agent config directories, derived from the canonical `AGENTS` list exported by the workflow SDK (`src/sdk/workflows.ts`)
+- **`CONFIG_DIRS`** — agent config directories, derived from the canonical `AGENTS` list exported by the workflow SDK (`src/sdk/workflows/index.ts`)
 - **`CONFIG_FILES`** — individual config files (e.g. `.github/lsp.json`)
 
 `constants-base.ts` is intentionally free of heavy dependencies so it can be

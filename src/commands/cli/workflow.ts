@@ -17,8 +17,8 @@ import {
   executeWorkflow,
   WorkflowLoader,
   resetMuxBinaryCache,
-} from "@/sdk/workflows.ts";
-import type { AgentType, DiscoveredWorkflow } from "@/sdk/workflows.ts";
+} from "@/sdk/workflows/index.ts";
+import type { AgentType, DiscoveredWorkflow } from "@/sdk/workflows/index.ts";
 
 export async function workflowCommand(options: {
   name?: string;
@@ -117,9 +117,7 @@ export async function workflowCommand(options: {
   }
 
   // Load workflow through the pipeline: resolve → validate → load.
-  // The loader registers a Bun resolver plugin that maps `atomic/*` and
-  // atomic's installed deps onto the running CLI's own module graph, so
-  // workflow files don't need their own `package.json` / `node_modules`.
+  // External workflows must have `@bastani/atomic` installed as a dependency.
   const result = await WorkflowLoader.loadWorkflow(discovered, {
     warn(warnings) {
       for (const w of warnings) {
@@ -185,16 +183,18 @@ const AGENT_DISPLAY_NAMES: Record<AgentType, string> = {
   copilot: "Copilot CLI",
 };
 /** Local first — project-scoped workflows are the most immediately relevant. */
-const SOURCE_ORDER: readonly DiscoveredWorkflow["source"][] = ["local", "global"];
+const SOURCE_ORDER: readonly DiscoveredWorkflow["source"][] = ["local", "global", "builtin"];
 /** Friendly directory labels shown inline with each section heading. */
 const SOURCE_DIRS: Record<DiscoveredWorkflow["source"], string> = {
   local: ".atomic/workflows",
   global: "~/.atomic/workflows",
+  builtin: "built-in",
 };
 /** Section heading colour per source — preserves the source-type semantic. */
 const SOURCE_COLORS: Record<DiscoveredWorkflow["source"], PaletteKey> = {
   local: "success",
   global: "mauve",
+  builtin: "accent",
 };
 
 /**

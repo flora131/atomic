@@ -27,12 +27,12 @@ import {
   isInsideTmux,
   isTmuxInstalled,
   resetMuxBinaryCache,
-} from "@/sdk/workflows.ts";
+} from "@/sdk/workflows/index.ts";
 import {
   createSession,
   killSession,
   getMuxBinary,
-} from "@/sdk/workflows.ts";
+} from "@/sdk/workflows/index.ts";
 import { ensureTmuxInstalled } from "@/lib/spawn.ts";
 
 // ============================================================================

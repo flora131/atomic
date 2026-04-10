@@ -123,57 +123,6 @@ Windows PowerShell 7+:
 irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1 | iex
 ```
 
-<details>
-<summary>Migrating from v0.4.x (Binary) to v0.5.x (npm)?</summary>
-
-Atomic has moved from a standalone binary distribution to an **npm package**. The new version gives you the Workflow SDK, 58 skills, and 12 sub-agents as a single installable package.
-
-#### Migration Steps
-
-**1. Uninstall the old binary:**
-
-```bash
-atomic uninstall
-```
-
-**2. Remove the old Workflow SDK global package:**
-
-```bash
-bun uninstall -g @bastani/atomic-workflows
-```
-
-**3. Delete the old configuration directory:**
-
-```bash
-rm -rf ~/.atomic
-```
-
-**4. Install the new version:**
-
-```bash
-bun install -g @bastani/atomic
-```
-
-**5. Re-initialize your project:**
-
-```bash
-cd your-project
-atomic init
-```
-
-> On first run after install, Atomic automatically syncs all agent configurations, skills, workflows, and tooling. This replaces the old `atomic update` command — updates now happen lazily on CLI startup when a version mismatch is detected.
-
-#### What Changed
-
-| Aspect | v0.4.x (Binary) | v0.5.x (npm) |
-| --- | --- | --- |
-| **Distribution** | Pre-compiled binary via `install.sh` | npm package via `bun install -g` |
-| **Updates** | `atomic update` command | Reinstall via `bun install -g @bastani/atomic` + auto-sync on first run |
-| **Uninstall** | `atomic uninstall` | `bun uninstall -g @bastani/atomic` |
-| **Workflow SDK** | Separate `@bastani/atomic-workflows` global package | Bundled with CLI as workspace package |
-| **Config sync** | Manual via install scripts | Automatic on first run after upgrade |
-
-</details>
 
 ### 2. Initialize Your Project
 
@@ -202,56 +151,50 @@ This explores your codebase using sub-agents and generates documentation that gi
 
 Every team has a process. Atomic lets you encode it as TypeScript — chain agent sessions together, pass transcripts between them, and run the whole thing from the CLI.
 
-Drop a `.ts` file in `.atomic/workflows/<name>/<agent>/index.ts` and run it:
+Create a workflow project, install the SDK, and add your workflow file:
 
 ```bash
-atomic workflow -n my-workflow -a claude "add user avatars to the profile page"
+bun init && bun add @bastani/atomic
+mkdir -p .atomic/workflows/my-workflow/claude
 ```
-
-Here's a workflow that researches a codebase, implements a feature, and reviews the result — three sessions, each in its own context window:
 
 ```ts
 // .atomic/workflows/my-workflow/claude/index.ts
-import { defineWorkflow, createClaudeSession, claudeQuery } from "@bastani/atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic/workflows";
 
-export default defineWorkflow({
+export default defineWorkflow<"claude">({
   name: "my-workflow",
   description: "Research -> Implement -> Review",
 })
   .run(async (ctx) => {
-    const research = await ctx.session(
-      { name: "research", description: "Analyze the codebase for the requested change" },
+    const research = await ctx.stage(
+      { name: "research", description: "Analyze the codebase" },
+      {}, {},
       async (s) => {
-        await createClaudeSession({ paneId: s.paneId });
-        await claudeQuery({
-          paneId: s.paneId,
-          prompt: `/research-codebase ${s.userPrompt}`,
-        });
+        await s.session.query(`/research-codebase ${s.userPrompt}`);
         s.save(s.sessionId);
       },
     );
 
-    const implement = await ctx.session(
-      { name: "implement", description: "Implement the feature based on research findings" },
+    await ctx.stage(
+      { name: "implement", description: "Implement based on research" },
+      {}, {},
       async (s) => {
         const transcript = await s.transcript(research);
-        await createClaudeSession({ paneId: s.paneId });
-        await claudeQuery({
-          paneId: s.paneId,
-          prompt: `Read ${transcript.path} and implement the changes described. Run tests to verify.`,
-        });
+        await s.session.query(
+          `Read ${transcript.path} and implement the changes. Run tests to verify.`,
+        );
         s.save(s.sessionId);
       },
     );
 
-    await ctx.session(
-      { name: "review", description: "Review the implementation for correctness" },
+    await ctx.stage(
+      { name: "review", description: "Review the implementation" },
+      {}, {},
       async (s) => {
-        await createClaudeSession({ paneId: s.paneId });
-        await claudeQuery({
-          paneId: s.paneId,
-          prompt: "Review all uncommitted changes. Flag any issues with correctness, tests, or style.",
-        });
+        await s.session.query(
+          "Review all uncommitted changes. Flag any issues with correctness, tests, or style.",
+        );
         s.save(s.sessionId);
       },
     );
@@ -259,7 +202,13 @@ export default defineWorkflow({
   .compile();
 ```
 
-This is just one example. Add a spec phase, parallelize independent sessions, swap in a different agent — the workflow is yours to define. See [Workflow SDK — Build Your Own Harness](#workflow-sdk--build-your-own-harness) for the full API and more examples.
+Run it:
+
+```bash
+atomic workflow -n my-workflow -a claude "add user avatars to the profile page"
+```
+
+Add a spec phase, parallelize independent sessions, swap in a different agent — the workflow is yours to define. See [Workflow SDK — Build Your Own Harness](#workflow-sdk--build-your-own-harness) for the full API and more examples.
 
 > **Want something that works out of the box?** Atomic ships with `ralph`, a built-in workflow that plans, implements, reviews, and debugs autonomously — see [Autonomous Execution (Ralph)](#autonomous-execution-ralph).
 
@@ -283,42 +232,41 @@ Each agent gets its own configuration directory (`.claude/`, `.opencode/`, `.git
 
 Every team has a process — triage bugs this way, ship features that way, review PRs with these checks. Most of it lives in a wiki nobody reads or in one senior engineer's head. The **Workflow SDK** (`@bastani/atomic/workflows`) lets you encode that process as TypeScript — spawn agent sessions dynamically with native control flow (`for`, `if`, `Promise.all()`), and watch them appear in a live graph as they execute.
 
-Drop a `.ts` file in `.atomic/workflows/<name>/<agent>/index.ts` and run it:
+Set up a workflow project (`bun init && bun add @bastani/atomic`), create a `.ts` file in `.atomic/workflows/<name>/<agent>/index.ts`, and run it:
 
 ```bash
-atomic workflow -n hello -a claude "describe this project"
+atomic workflow -n my-workflow -a claude "describe this project"
 ```
 
 <details>
 <summary>Example: Sequential workflow (describe -> summarize)</summary>
 
 ```ts
-// .atomic/workflows/hello/claude/index.ts
-import { defineWorkflow, createClaudeSession, claudeQuery } from "@bastani/atomic/workflows";
+// .atomic/workflows/my-workflow/claude/index.ts
+import { defineWorkflow } from "@bastani/atomic/workflows";
 
-export default defineWorkflow({
-  name: "hello",
-  description: "Two-session Claude demo: describe -> summarize",
+export default defineWorkflow<"claude">({
+  name: "my-workflow",
+  description: "Two-session pipeline: describe -> summarize",
 })
   .run(async (ctx) => {
     const describe = await ctx.stage(
       { name: "describe", description: "Ask Claude to describe the project" },
+      {}, {},
       async (s) => {
-        await createClaudeSession({ paneId: s.paneId });
-        await claudeQuery({ paneId: s.paneId, prompt: s.userPrompt });
+        await s.session.query(s.userPrompt);
         s.save(s.sessionId);
       },
     );
 
     await ctx.stage(
       { name: "summarize", description: "Summarize the previous session's output" },
+      {}, {},
       async (s) => {
         const research = await s.transcript(describe);
-        await createClaudeSession({ paneId: s.paneId });
-        await claudeQuery({
-          paneId: s.paneId,
-          prompt: `Read ${research.path} and summarize it in 2-3 bullet points.`,
-        });
+        await s.session.query(
+          `Read ${research.path} and summarize it in 2-3 bullet points.`,
+        );
         s.save(s.sessionId);
       },
     );
@@ -332,71 +280,42 @@ export default defineWorkflow({
 <summary>Example: Parallel workflow (describe -> [summarize-a, summarize-b] -> merge)</summary>
 
 ```ts
-// .atomic/workflows/hello-parallel/claude/index.ts
-import { defineWorkflow, createClaudeSession, claudeQuery } from "@bastani/atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic/workflows";
 
-export default defineWorkflow({
-  name: "hello-parallel",
-  description: "Parallel Claude demo: describe -> [summarize-a, summarize-b] -> merge",
+export default defineWorkflow<"claude">({
+  name: "parallel-demo",
+  description: "describe -> [summarize-a, summarize-b] -> merge",
 })
   .run(async (ctx) => {
-    const describe = await ctx.session(
-      { name: "describe", description: "Ask Claude to describe the project" },
+    const describe = await ctx.stage(
+      { name: "describe" }, {}, {},
       async (s) => {
-        await createClaudeSession({ paneId: s.paneId });
-        await claudeQuery({ paneId: s.paneId, prompt: s.userPrompt });
+        await s.session.query(s.userPrompt);
         s.save(s.sessionId);
       },
     );
 
     const [summarizeA, summarizeB] = await Promise.all([
-      ctx.session(
-        { name: "summarize-a", description: "Summarize the description as bullet points" },
-        async (s) => {
-          const research = await s.transcript(describe);
-          await createClaudeSession({ paneId: s.paneId });
-          await claudeQuery({
-            paneId: s.paneId,
-            prompt: `Read ${research.path} and summarize it in 2-3 bullet points.`,
-          });
-          s.save(s.sessionId);
-        },
-      ),
-      ctx.session(
-        { name: "summarize-b", description: "Summarize the description as a one-liner" },
-        async (s) => {
-          const research = await s.transcript(describe);
-          await createClaudeSession({ paneId: s.paneId });
-          await claudeQuery({
-            paneId: s.paneId,
-            prompt: `Read ${research.path} and summarize it in a single sentence.`,
-          });
-          s.save(s.sessionId);
-        },
-      ),
+      ctx.stage({ name: "summarize-a" }, {}, {}, async (s) => {
+        const research = await s.transcript(describe);
+        await s.session.query(`Read ${research.path} and summarize in 2-3 bullet points.`);
+        s.save(s.sessionId);
+      }),
+      ctx.stage({ name: "summarize-b" }, {}, {}, async (s) => {
+        const research = await s.transcript(describe);
+        await s.session.query(`Read ${research.path} and summarize in a single sentence.`);
+        s.save(s.sessionId);
+      }),
     ]);
 
-    await ctx.session(
-      { name: "merge", description: "Merge both summaries into a final output" },
-      async (s) => {
-        const bullets = await s.transcript(summarizeA);
-        const oneliner = await s.transcript(summarizeB);
-        await createClaudeSession({ paneId: s.paneId });
-        await claudeQuery({
-          paneId: s.paneId,
-          prompt: [
-            "Combine the following two summaries into one concise paragraph:",
-            "",
-            "## Bullet points",
-            bullets.content,
-            "",
-            "## One-liner",
-            oneliner.content,
-          ].join("\n"),
-        });
-        s.save(s.sessionId);
-      },
-    );
+    await ctx.stage({ name: "merge" }, {}, {}, async (s) => {
+      const bullets = await s.transcript(summarizeA);
+      const oneliner = await s.transcript(summarizeB);
+      await s.session.query(
+        `Combine:\n\n## Bullets\n${bullets.content}\n\n## One-liner\n${oneliner.content}`,
+      );
+      s.save(s.sessionId);
+    });
   })
   .compile();
 ```
@@ -428,7 +347,7 @@ Workflows are deterministic by design — the same definition always produces th
 
 This means you can run the same workflow on different machines, different agents, or at different times and get structurally identical execution — same steps, same data flow, same ordering. The only variance comes from the LLM's responses, not from the harness.
 
-Drop a `.ts` file in `.atomic/workflows/<name>/<agent>/` (project-local) or `~/.atomic/workflows/` (global). You can also ask Atomic to create workflows for you:
+Set up a project (`bun init && bun add @bastani/atomic`), drop a `.ts` file in `.atomic/workflows/<name>/<agent>/index.ts`, and run it. You can also ask Atomic to create workflows for you:
 
 ```
 Use your workflow-creator skill to create a workflow that plans, implements, and reviews a feature.
@@ -451,7 +370,7 @@ Use your workflow-creator skill to create a workflow that plans, implements, and
 | ----------------------- | ------------------------- | -------------------------------------------------------------- |
 | `ctx.userPrompt`        | `string`                  | Original user prompt from the CLI invocation                   |
 | `ctx.agent`             | `AgentType`               | Which agent is running (`"claude"`, `"copilot"`, `"opencode"`) |
-| `ctx.stage(opts, fn)` | `Promise<SessionHandle<T>>` | Spawn a session — returns handle with `name`, `id`, `result` |
+| `ctx.stage(opts, clientOpts, sessionOpts, fn)` | `Promise<SessionHandle<T>>` | Spawn a session — returns handle with `name`, `id`, `result` |
 | `ctx.transcript(ref)`   | `Promise<Transcript>`     | Get a completed session's transcript (`{ path, content }`)     |
 | `ctx.getMessages(ref)`  | `Promise<SavedMessage[]>` | Get a completed session's raw native messages                  |
 
@@ -459,7 +378,8 @@ Use your workflow-creator skill to create a workflow that plans, implements, and
 
 | Property                | Type                      | Description                                                    |
 | ----------------------- | ------------------------- | -------------------------------------------------------------- |
-| `s.serverUrl`           | `string`                  | The agent's server URL                                         |
+| `s.client`              | `ProviderClient<A>`       | Pre-created SDK client (auto-managed by runtime)               |
+| `s.session`             | `ProviderSession<A>`      | Pre-created provider session (auto-managed by runtime)         |
 | `s.userPrompt`          | `string`                  | Original user prompt from the CLI invocation                   |
 | `s.agent`               | `AgentType`               | Which agent is running                                         |
 | `s.paneId`              | `string`                  | tmux pane ID for this session                                  |
@@ -468,7 +388,7 @@ Use your workflow-creator skill to create a workflow that plans, implements, and
 | `s.save(messages)`      | `SaveTranscript`          | Save this session's output for subsequent sessions             |
 | `s.transcript(ref)`     | `Promise<Transcript>`     | Get a completed session's transcript                           |
 | `s.getMessages(ref)`    | `Promise<SavedMessage[]>` | Get a completed session's raw native messages                  |
-| `s.stage(opts, fn)`   | `Promise<SessionHandle<T>>` | Spawn a nested sub-session (child in the graph)              |
+| `s.stage(opts, clientOpts, sessionOpts, fn)` | `Promise<SessionHandle<T>>` | Spawn a nested sub-session (child in the graph) |
 
 #### Session Options (`SessionRunOptions`)
 
@@ -489,38 +409,15 @@ Each provider saves transcripts differently:
 | **Copilot**  | `s.save(await session.getMessages())` — pass `SessionEvent[]`     |
 | **OpenCode** | `s.save(result.data!)` — pass the full `{ info, parts }` response |
 
-#### Provider Helpers
+#### Per-Agent Session APIs
 
-| Export                            | Purpose                                             |
-| --------------------------------- | --------------------------------------------------- |
-| `createClaudeSession(options)`    | Start a Claude TUI in a tmux pane                   |
-| `claudeQuery(options)`            | Send a prompt to Claude and wait for the response   |
-| `clearClaudeSession(paneId)`      | Free memory for a killed/finished Claude session    |
-| `validateClaudeWorkflow()`        | Validate a Claude workflow source before run        |
-| `validateCopilotWorkflow()`       | Validate a Copilot workflow source before run       |
-| `validateOpenCodeWorkflow()`      | Validate an OpenCode workflow source before run     |
+The runtime auto-creates `s.client` and `s.session` — use them directly inside the callback:
 
-`createClaudeSession` accepts:
-
-| Option            | Type       | Default                                               | Description                        |
-| ----------------- | ---------- | ----------------------------------------------------- | ---------------------------------- |
-| `paneId`          | `string`   | —                                                     | tmux pane ID (required)            |
-| `chatFlags`       | `string[]` | `["--dangerously-skip-permissions"]` | CLI flags passed to `claude`       |
-| `readyTimeoutMs`  | `number`   | `30000`                                               | Timeout waiting for TUI readiness  |
-
-`claudeQuery` accepts:
-
-| Option            | Type     | Default  | Description                                      |
-| ----------------- | -------- | -------- | ------------------------------------------------ |
-| `paneId`          | `string` | —        | tmux pane ID (required)                           |
-| `prompt`          | `string` | —        | The prompt to send (required)                     |
-| `timeoutMs`       | `number` | `300000` | Response timeout (5 min)                          |
-| `pollIntervalMs`  | `number` | `2000`   | Polling interval for output stabilization         |
-| `submitPresses`   | `number` | `1`      | C-m presses per submit round                      |
-| `maxSubmitRounds` | `number` | `6`      | Max retry rounds for delivery confirmation        |
-| `readyTimeoutMs`  | `number` | `30000`  | Pane readiness timeout before sending             |
-
-Returns `{ output: string; delivered: boolean }` — `delivered` confirms the prompt was accepted by the agent.
+| Agent | How to send a prompt |
+| ----- | -------------------- |
+| **Claude** | `await s.session.query(prompt)` |
+| **Copilot** | `await s.session.sendAndWait({ prompt }, TIMEOUT_MS)` — explicit timeout required (default 60s throws) |
+| **OpenCode** | `await s.client.session.prompt({ sessionID: s.session.id, parts: [{ type: "text", text: prompt }] })` |
 
 #### Key Rules
 
@@ -529,8 +426,7 @@ Returns `{ output: string; delivered: boolean }` — `delivered` confirms the pr
 3. `transcript()` / `getMessages()` only access completed sessions (callback returned + saves flushed)
 4. Each session runs in its own tmux window with the chosen agent
 5. Workflows are organized per-workflow: `.atomic/workflows/<name>/<agent>/index.ts`
-
-Workflow files need no `package.json` or `node_modules` of their own — the Atomic loader rewrites `@bastani/atomic/*` and atomic's transitive deps (`@github/copilot-sdk`, `@opencode-ai/sdk`, `@anthropic-ai/claude-agent-sdk`, `zod`, etc.) to absolute paths inside the installed atomic package at load time. Drop a `.ts` file and it runs.
+6. Set up your workflow project with `bun init && bun add @bastani/atomic` — standard module resolution handles imports
 
 For the authoring walkthrough with worked examples, ask Atomic to use the `workflow-creator` skill or read the skill reference at `.agents/skills/workflow-creator/`.
 

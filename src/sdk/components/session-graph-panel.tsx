@@ -127,9 +127,7 @@ export function SessionGraphPanel() {
       setAttachMsg(`\u2192 ${n.name}`);
       attachTimerRef.current = setTimeout(() => setAttachMsg(""), ATTACH_MSG_DISPLAY_MS);
 
-      try {
-        tmuxRun(["select-window", "-t", `${tmuxSession}:${n.name}`]);
-      } catch {}
+      tmuxRun(["switch-client", "-t", `${tmuxSession}:${n.name}`]);
     },
     [layout.map, tmuxSession, store.sessions],
   );

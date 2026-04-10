@@ -6,8 +6,7 @@ Workflows are organized per workflow name, with agent-specific implementations a
 
 ```
 .atomic/workflows/
-├── package.json                    # Depends on @bastani/atomic-workflows
-├── tsconfig.json                   # TypeScript config with path alias
+├── tsconfig.json                   # Optional: TS path alias for editor types
 ├── hello/
 │   ├── claude/index.ts             # Claude-specific workflow
 │   ├── copilot/index.ts            # Copilot-specific workflow
@@ -40,14 +39,16 @@ Local workflows override global ones with the same name. The `<agent>` subdirect
 Every workflow file must use `export default` with a compiled workflow:
 
 ```ts
-import { defineWorkflow } from "@bastani/atomic-workflows";
+import { defineWorkflow } from "@bastani/atomic/workflows";
 
 export default defineWorkflow({
     name: "my-workflow",
     description: "What this workflow does",
   })
-  .session({ name: "step-1", run: async (ctx) => { /* ... */ } })
-  .session({ name: "step-2", run: async (ctx) => { /* ... */ } })
+  .run(async (ctx) => {
+    await ctx.session({ name: "step-1" }, async (s) => { /* ... */ });
+    await ctx.session({ name: "step-2" }, async (s) => { /* ... */ });
+  })
   .compile();
 ```
 
@@ -59,16 +60,18 @@ The `.compile()` method returns a `WorkflowDefinition` with `__brand: "WorkflowD
 
 The `WorkflowBuilder` enforces these rules at definition time:
 
-1. **Non-empty workflow** — `.compile()` throws if no `.session()` calls were made
-2. **Unique session names** — `.session()` throws if a duplicate `name` is detected
-3. **Required workflow name** — `defineWorkflow()` throws if `name` is empty
+1. **Non-empty workflow** — `.compile()` throws if no `.run()` call was made
+2. **Required workflow name** — `defineWorkflow()` throws if `name` is empty
+
+Session name uniqueness is enforced at runtime when `ctx.session()` is called — duplicate names within the same workflow run will throw.
 
 ### Provider validation warnings
 
-The SDK includes regex-based validation for Copilot and OpenCode workflows:
+The SDK includes regex-based validation for all three providers:
 
-- **Copilot** (`validateCopilotWorkflow`): Warns if the workflow doesn't use `ctx.serverUrl` for `CopilotClient` or doesn't call `setForegroundSessionId()`
-- **OpenCode** (`validateOpenCodeWorkflow`): Warns if the workflow doesn't use `ctx.serverUrl` for `createOpencodeClient` or doesn't call `tui.selectSession()`
+- **Claude** (`validateClaudeWorkflow`): Warns if the workflow uses `claudeQuery` without a corresponding `createClaudeSession` call
+- **Copilot** (`validateCopilotWorkflow`): Warns if the workflow doesn't use `s.serverUrl` for `CopilotClient` or doesn't call `setForegroundSessionId()`
+- **OpenCode** (`validateOpenCodeWorkflow`): Warns if the workflow doesn't use `s.serverUrl` for `createOpencodeClient` or doesn't call `tui.selectSession()`
 
 These are non-blocking warnings — the workflow will still load.
 
@@ -77,13 +80,20 @@ These are non-blocking warnings — the workflow will still load.
 At load time, the runtime verifies:
 - The file has a `default` export
 - The export has `__brand === "WorkflowDefinition"`
-- The definition has a `name` and at least one session
+- The definition has a `name` and a `run` callback
 
 ## TypeScript configuration
 
-### `tsconfig.json`
+### `tsconfig.json` (optional)
 
-The workflow directory needs a `tsconfig.json` that maps the SDK import:
+Workflow files run without any scaffold files — the Atomic loader registers a
+Bun `onLoad` plugin that rewrites `@bastani/atomic/workflows` (and atomic's
+transitive deps like `@github/copilot-sdk`, `@opencode-ai/sdk`, `zod`) to
+absolute paths inside the installed atomic package at load time. No
+`package.json` or `node_modules` is required in the workflow directory.
+
+For editor type support (VS Code, tsserver), you can commit a minimal
+`.atomic/workflows/tsconfig.json` that maps the SDK import to atomic's source:
 
 ```json
 {
@@ -94,30 +104,17 @@ The workflow directory needs a `tsconfig.json` that maps the SDK import:
     "allowImportingTsExtensions": true,
     "noEmit": true,
     "strict": true,
-    "esModuleInterop": true,
     "skipLibCheck": true,
     "types": ["bun"],
     "paths": {
-      "@bastani/atomic-workflows": ["../../packages/workflow-sdk/src/index.ts"]
+      "@bastani/atomic/workflows": ["../../src/sdk/workflows.ts"]
     }
   },
-  "include": ["./**/*.ts"]
+  "include": ["**/claude/**/*.ts", "**/copilot/**/*.ts", "**/opencode/**/*.ts", "**/helpers/**/*.ts"]
 }
 ```
 
-### `package.json`
-
-```json
-{
-  "name": "atomic-workflows",
-  "private": true,
-  "dependencies": {
-    "@bastani/atomic-workflows": "*"
-  }
-}
-```
-
-The path alias in `tsconfig.json` maps `@bastani/atomic-workflows` to the local SDK source for type checking. At runtime, Bun resolves the import via the package.json dependency.
+This file is purely for editor hints — the runtime does not read it.
 
 ## Type checking
 
@@ -128,10 +125,10 @@ bunx tsc --noEmit --pretty false
 ```
 
 This catches:
-- Invalid `SessionContext` field access
-- Wrong `run()` callback signatures
-- Missing required fields (`name`, `run`)
-- SDK type mismatches (e.g., passing wrong types to `ctx.save()`)
+- Invalid `SessionContext` / `WorkflowContext` field access
+- Wrong session callback signatures
+- Missing required fields (`name`)
+- SDK type mismatches (e.g., passing wrong types to `s.save()`)
 
 ## Testing
 

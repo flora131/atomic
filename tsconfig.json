@@ -8,9 +8,9 @@
 
     // Bundler mode
     "paths": {
-      "@/*": ["./src/*"],
-      "@bastani/atomic-workflows": ["./packages/workflow-sdk/src/index.ts"]
+      "@/*": ["./src/*"]
     },
+    "jsxImportSource": "@opentui/react",
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
@@ -30,6 +30,5 @@
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false
   },
-  "include": ["src", "packages"],
-  "exclude": ["docs"]
+  "include": ["src"]
 }

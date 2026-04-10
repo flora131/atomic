@@ -5,7 +5,7 @@ import { homedir } from "os";
 import { AGENT_CONFIG, type AgentKey } from "@/services/config/index.ts";
 import { mergeJsonFile } from "@/lib/merge.ts";
 import { copyDir, ensureDir, pathExists } from "@/services/system/copy.ts";
-import type { InstallationType } from "@/services/config/config-path.ts";
+
 
 const ATOMIC_HOME_DIR = join(homedir(), ".atomic");
 
@@ -349,9 +349,7 @@ export async function hasAtomicGlobalAgentConfigs(
  * runs a merge re-sync, which fills the missing files from the local
  * config data dir while leaving user-added files alone.
  *
- * The authoritative "install all bundled agents" step happens in
- * `install.sh` / `install.ps1` and `atomic update`; this helper only
- * heals drift (e.g. a user deleted `~/.claude/agents/<foo>.md`).
+ * This helper heals drift (e.g. a user deleted `~/.claude/agents/<foo>.md`).
  */
 export async function ensureAtomicGlobalAgentConfigs(
   configRoot: string,
@@ -361,19 +359,3 @@ export async function ensureAtomicGlobalAgentConfigs(
   await syncAtomicGlobalAgentConfigs(configRoot, baseDir);
 }
 
-/**
- * Verify-and-repair across all install types.
- */
-export async function ensureAtomicGlobalAgentConfigsForInstallType(
-  installType: InstallationType,
-  configRoot: string,
-  baseDir: string = ATOMIC_HOME_DIR,
-): Promise<void> {
-  switch (installType) {
-    case "source":
-    case "npm":
-    case "binary":
-      await ensureAtomicGlobalAgentConfigs(configRoot, baseDir);
-      return;
-  }
-}

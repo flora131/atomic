@@ -1,79 +1,91 @@
 # Agent Sessions
 
-Each `ctx.session()` call inside a workflow's `.run()` callback creates an isolated agent session. The session callback receives `s` (a `SessionContext`) which scopes all session-specific operations. This is the programmatic equivalent of defining agent stages — you have full access to every SDK feature.
+Each `ctx.stage()` call inside a workflow's `.run()` callback creates an isolated agent session. The runtime auto-initializes the provider client and session before invoking your callback — the callback receives `s` (a `SessionContext`) with `s.client` (the pre-created SDK client) and `s.session` (the pre-created session) ready to use. Auto-cleanup (disconnect, stop) is handled by the runtime after the callback completes. This is the programmatic equivalent of defining agent stages — you have full access to every SDK feature through `s.client` and `s.session`.
+
+`ctx.stage()` takes four arguments: `ctx.stage(stageOpts, clientOpts, sessionOpts, callback)`.
 
 ## Claude Agent SDK
 
-Claude runs as a full interactive TUI in a tmux pane. You must call `createClaudeSession()` to start the TUI before sending queries with `claudeQuery()`.
+Claude runs as a full interactive TUI in a tmux pane. The runtime auto-starts the Claude CLI (via `s.client`) and creates a session wrapper (`s.session`) before the callback runs. Pass CLI flags via `clientOpts` (2nd arg) and query defaults via `sessionOpts` (3rd arg).
 
 ### Session lifecycle
 
 ```ts
-import { defineWorkflow, createClaudeSession, claudeQuery, clearClaudeSession } from "@bastani/atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic/workflows";
 
 // ...
 .run(async (ctx) => {
-  await ctx.session({ name: "implement", description: "Implement the feature" }, async (s) => {
-    // 1. Start Claude TUI in the pane (required before claudeQuery)
-    await createClaudeSession({ paneId: s.paneId });
+  await ctx.stage(
+    { name: "implement", description: "Implement the feature" },
+    {}, // clientOpts: chatFlags and readyTimeoutMs go here
+    {}, // sessionOpts: query defaults (timeoutMs, pollIntervalMs, etc.) go here
+    async (s) => {
+      // s.client — ClaudeClientWrapper (Claude CLI already started by runtime)
+      // s.session — ClaudeSessionWrapper (ready to accept queries)
 
-    // 2. Send queries — Claude maintains conversation context across calls
-    const result = await claudeQuery({
-      paneId: s.paneId,
-      prompt: ctx.userPrompt,
-    });
-    // result.output contains the captured response text
+      // Send queries — Claude maintains conversation context across calls
+      const result = await s.session.query(s.userPrompt);
+      // result.output contains the captured response text
 
-    // 3. Save transcript
-    s.save(s.sessionId);
-  });
+      // Save transcript
+      s.save(s.sessionId);
+    },
+  );
 })
 ```
 
-`createClaudeSession()` sends the `claude` command with permission flags, waits for the TUI to render, and registers the pane. If `claudeQuery()` is called without a prior `createClaudeSession()` on the same pane, it throws an error.
+The runtime handles:
+1. Starting the Claude CLI in the tmux pane (equivalent to the old `createClaudeSession()`)
+2. Creating a `ClaudeSessionWrapper` bound to the pane
+3. Auto-cleanup via `clearClaudeSession` after the callback
 
-Options:
-- `paneId` — tmux pane ID (from `s.paneId`)
+Client options (2nd arg to `ctx.stage()`):
 - `chatFlags` — CLI flags (default: `["--allow-dangerously-skip-permissions", "--dangerously-skip-permissions"]`)
 - `readyTimeoutMs` — timeout waiting for TUI readiness (default: 30s)
 
-`clearClaudeSession(paneId)` removes a pane from the initialized set. Call it when a Claude session is killed or no longer needed.
+Session options (3rd arg to `ctx.stage()`), applied as defaults to every `s.session.query()` call:
+- `timeoutMs` — timeout waiting for Claude to finish responding (default: 300s)
+- `pollIntervalMs` — polling interval (default: 2000ms)
+- `submitPresses` — C-m presses per submit round (default: 1)
+- `maxSubmitRounds` — max submit rounds (default: 6)
+- `readyTimeoutMs` — timeout waiting for pane readiness before sending (default: 30s)
 
-### Basic usage with `claudeQuery()`
+### Basic usage with `s.session.query()`
 
 ```ts
-import { defineWorkflow, createClaudeSession, claudeQuery } from "@bastani/atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic/workflows";
 
-// ...
-.run(async (ctx) => {
-  await ctx.session({ name: "implement", description: "Implement the feature" }, async (s) => {
-    await createClaudeSession({ paneId: s.paneId });
-    const result = await claudeQuery({
-      paneId: s.paneId,
-      prompt: ctx.userPrompt,
-    });
-    // result.output contains the captured response text
-    s.save(s.sessionId);
-  });
-})
+export default defineWorkflow<"claude">({ name: "implement" })
+  .run(async (ctx) => {
+    await ctx.stage(
+      { name: "implement", description: "Implement the feature" },
+      {},
+      {},
+      async (s) => {
+        const result = await s.session.query(s.userPrompt);
+        // result.output contains the captured response text
+        s.save(s.sessionId);
+      },
+    );
+  })
+  .compile();
 ```
 
-`claudeQuery()` sends text to the Claude pane, verifies delivery, retries if needed, and waits for output stabilization. Returns `{ output: string }`.
+`s.session.query(prompt)` sends text to the Claude pane, verifies delivery, retries if needed, and waits for output stabilization. Returns `{ output: string }`.
 
 ### Multi-turn conversations
 
-Claude maintains conversation context across calls within the same pane. Send multiple prompts in one session for multi-turn conversations:
+Claude maintains conversation context across calls within the same pane. Call `s.session.query()` multiple times in one stage for multi-turn conversations:
 
 ```ts
 .run(async (ctx) => {
-  await ctx.session({ name: "implement" }, async (s) => {
-    await createClaudeSession({ paneId: s.paneId });
+  await ctx.stage({ name: "implement" }, {}, {}, async (s) => {
     // Turn 1: Plan
-    await claudeQuery({ paneId: s.paneId, prompt: "Plan the implementation." });
+    await s.session.query("Plan the implementation.");
     // Turn 2: Execute (Claude remembers the plan)
-    await claudeQuery({ paneId: s.paneId, prompt: "Now implement the plan." });
+    await s.session.query("Now implement the plan.");
     // Turn 3: Verify
-    await claudeQuery({ paneId: s.paneId, prompt: "Run the tests." });
+    await s.session.query("Run the tests.");
     s.save(s.sessionId);
   });
 })
@@ -87,9 +99,9 @@ For programmatic control beyond tmux automation, the Claude Agent SDK provides `
 import { query } from "@anthropic-ai/claude-agent-sdk";
 
 .run(async (ctx) => {
-  await ctx.session({ name: "implement" }, async (s) => {
+  await ctx.stage({ name: "implement" }, {}, {}, async (s) => {
     const result = query({
-      prompt: ctx.userPrompt,
+      prompt: s.userPrompt,
       options: {
         model: "claude-opus-4-6",
         effort: "high",
@@ -171,26 +183,18 @@ const result = query({ prompt: "Continue...", options: { resume: sessionId } });
 const result = query({ prompt: "Try a different approach", options: { resume: sessionId, forkSession: true } });
 ```
 
-### Sub-agent delegation via `claudeQuery()`
+### Sub-agent delegation via `s.session.query()`
 
-When using `claudeQuery()`, invoke named sub-agents by prefixing the prompt with `@"agent-name (agent)"`. The agent must be defined in `.claude/agents/`:
+Invoke named sub-agents by prefixing the prompt with `@"agent-name (agent)"`. The agent must be defined in `.claude/agents/`:
 
 ```ts
 .run(async (ctx) => {
-  await ctx.session({ name: "plan-and-implement" }, async (s) => {
-    await createClaudeSession({ paneId: s.paneId });
-
+  await ctx.stage({ name: "plan-and-implement" }, {}, {}, async (s) => {
     // Delegate to the "planner" agent
-    await claudeQuery({
-      paneId: s.paneId,
-      prompt: `@"planner (agent)" Create a plan for: ${ctx.userPrompt}`,
-    });
+    await s.session.query(`@"planner (agent)" Create a plan for: ${s.userPrompt}`);
 
     // Delegate to the "orchestrator" agent
-    await claudeQuery({
-      paneId: s.paneId,
-      prompt: `@"orchestrator (agent)" Execute the plan above.`,
-    });
+    await s.session.query(`@"orchestrator (agent)" Execute the plan above.`);
 
     s.save(s.sessionId);
   });
@@ -199,34 +203,33 @@ When using `claudeQuery()`, invoke named sub-agents by prefixing the prompt with
 
 ## Copilot SDK
 
-Copilot uses a client-server architecture. `CopilotClient` manages the CLI server, and `CopilotSession` handles individual conversations.
+Copilot uses a client-server architecture. The runtime auto-creates a `CopilotClient` (as `s.client`) and a `CopilotSession` (as `s.session`) before invoking your callback. Auto-cleanup (`session.disconnect()` and `client.stop()`) is handled by the runtime after the callback completes.
 
 ### Basic usage
 
 ```ts
-import { CopilotClient, approveAll } from "@github/copilot-sdk";
+import { defineWorkflow } from "@bastani/atomic/workflows";
 
 // Always pass an explicit timeout to sendAndWait — see the pitfall note below.
 const SEND_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
-.run(async (ctx) => {
-  await ctx.session({ name: "implement" }, async (s) => {
-    const client = new CopilotClient({ cliUrl: s.serverUrl });
-    await client.start();
+export default defineWorkflow<"copilot">({ name: "implement" })
+  .run(async (ctx) => {
+    await ctx.stage(
+      { name: "implement" },
+      {}, // clientOpts: CopilotClientOptions (excluding cliUrl, which is auto-injected)
+      {}, // sessionOpts: CopilotSessionConfig (model, agent, tools, hooks, etc.)
+      async (s) => {
+        // s.client — CopilotClient (already started by runtime)
+        // s.session — CopilotSession (already created, foreground session set)
 
-    const session = await client.createSession({
-      onPermissionRequest: approveAll,
-    });
-    await client.setForegroundSessionId(session.sessionId);
+        await s.session.sendAndWait({ prompt: s.userPrompt }, SEND_TIMEOUT_MS);
 
-    await session.sendAndWait({ prompt: ctx.userPrompt }, SEND_TIMEOUT_MS);
-
-    s.save(await session.getMessages());
-
-    await session.disconnect();
-    await client.stop();
-  });
-})
+        s.save(await s.session.getMessages());
+      },
+    );
+  })
+  .compile();
 ```
 
 ### Critical pitfall: `sendAndWait` has a 60-second default timeout
@@ -403,41 +406,42 @@ needs its own explicit timeout.
 const SEND_TIMEOUT_MS = 30 * 60 * 1000;
 
 .run(async (ctx) => {
-  await ctx.session({ name: "implement" }, async (s) => {
-    const client = new CopilotClient({ cliUrl: s.serverUrl });
-    await client.start();
-    const session = await client.createSession({ onPermissionRequest: approveAll });
-    await client.setForegroundSessionId(session.sessionId);
-
+  await ctx.stage({ name: "implement" }, {}, {}, async (s) => {
     // Turn 1
-    await session.sendAndWait({ prompt: "Plan the implementation." }, SEND_TIMEOUT_MS);
+    await s.session.sendAndWait({ prompt: "Plan the implementation." }, SEND_TIMEOUT_MS);
     // Turn 2
-    await session.sendAndWait({ prompt: "Now implement the plan." }, SEND_TIMEOUT_MS);
+    await s.session.sendAndWait({ prompt: "Now implement the plan." }, SEND_TIMEOUT_MS);
     // Turn 3
-    await session.sendAndWait({ prompt: "Run the tests." }, SEND_TIMEOUT_MS);
+    await s.session.sendAndWait({ prompt: "Run the tests." }, SEND_TIMEOUT_MS);
 
-    s.save(await session.getMessages());
-    await session.disconnect();
-    await client.stop();
+    s.save(await s.session.getMessages());
   });
 })
 ```
 
 ### Session configuration
 
+Pass session config options as the 3rd arg to `ctx.stage()` (`sessionOpts`). These are forwarded to `client.createSession()`:
+
 ```ts
-const session = await client.createSession({
-  model: "claude-sonnet-4.6",
-  reasoningEffort: "high",
-  systemMessage: "You are a security auditor...",
-  tools: [defineTool({ ... })],
-  onPermissionRequest: approveAll,
-  onUserInputRequest: (request) => { /* handle user input */ },
-  hooks: {
-    onPreToolUse: (event) => { /* before tool execution */ },
-    onPostToolUse: (event) => { /* after tool execution */ },
+await ctx.stage(
+  { name: "audit" },
+  {}, // clientOpts
+  {
+    model: "claude-sonnet-4.6",
+    reasoningEffort: "high",
+    systemMessage: "You are a security auditor...",
+    onUserInputRequest: (request) => { /* handle user input */ },
+    hooks: {
+      onPreToolUse: (event) => { /* before tool execution */ },
+      onPostToolUse: (event) => { /* after tool execution */ },
+    },
+  }, // sessionOpts
+  async (s) => {
+    await s.session.sendAndWait({ prompt: s.userPrompt }, SEND_TIMEOUT_MS);
+    s.save(await s.session.getMessages());
   },
-});
+);
 ```
 
 ### Custom tools
@@ -455,10 +459,16 @@ const myTool = defineTool({
   },
 });
 
-const session = await client.createSession({
-  tools: [myTool],
-  onPermissionRequest: approveAll,
-});
+// Pass tools via sessionOpts (3rd arg to ctx.stage())
+await ctx.stage(
+  { name: "implement" },
+  {},
+  { tools: [myTool] },
+  async (s) => {
+    await s.session.sendAndWait({ prompt: s.userPrompt }, SEND_TIMEOUT_MS);
+    s.save(await s.session.getMessages());
+  },
+);
 ```
 
 ### Extracting response text
@@ -489,67 +499,65 @@ function getAssistantText(messages: SessionEvent[]): string {
 ### Streaming events
 
 ```ts
-session.on("assistant.message_delta", (event) => {
+// s.session is the CopilotSession — subscribe to events directly
+s.session.on("assistant.message_delta", (event) => {
   process.stdout.write(event.data.content);
 });
 
-session.on("assistant.reasoning_delta", (event) => {
+s.session.on("assistant.reasoning_delta", (event) => {
   // Access reasoning output
 });
 ```
 
 ### Sub-agent delegation
 
-Pass the `agent` parameter to `createSession()` to bind a session to a named sub-agent:
+Pass the `agent` parameter in `sessionOpts` (3rd arg to `ctx.stage()`) to bind the session to a named sub-agent:
 
 ```ts
 const SEND_TIMEOUT_MS = 30 * 60 * 1000; // planner can take a while
 
 .run(async (ctx) => {
-  await ctx.session({ name: "plan" }, async (s) => {
-    const client = new CopilotClient({ cliUrl: s.serverUrl });
-    await client.start();
-
-    // Create a session bound to the "planner" agent
-    const session = await client.createSession({
-      agent: "planner",
-      onPermissionRequest: approveAll,
-    });
-    await client.setForegroundSessionId(session.sessionId);
-
-    await session.sendAndWait({ prompt: ctx.userPrompt }, SEND_TIMEOUT_MS);
-
-    s.save(await session.getMessages());
-    await session.disconnect();
-    await client.stop();
-  });
+  await ctx.stage(
+    { name: "plan" },
+    {},
+    { agent: "planner" }, // sessionOpts — binds the session to the "planner" agent
+    async (s) => {
+      await s.session.sendAndWait({ prompt: s.userPrompt }, SEND_TIMEOUT_MS);
+      s.save(await s.session.getMessages());
+    },
+  );
 })
 ```
 
 ## OpenCode SDK
 
-OpenCode uses a client-server model. `createOpencodeClient()` connects to a running server.
+OpenCode uses a client-server model. The runtime auto-creates an `OpencodeClient` (as `s.client`) and an OpenCode session (as `s.session`) before invoking your callback. Use `s.client.session.prompt({ sessionID: s.session.id, ... })` to send prompts.
 
 ### Basic usage
 
 ```ts
-import { createOpencodeClient } from "@opencode-ai/sdk/v2";
+import { defineWorkflow } from "@bastani/atomic/workflows";
 
-.run(async (ctx) => {
-  await ctx.session({ name: "implement" }, async (s) => {
-    const client = createOpencodeClient({ baseUrl: s.serverUrl });
+export default defineWorkflow<"opencode">({ name: "implement" })
+  .run(async (ctx) => {
+    await ctx.stage(
+      { name: "implement" },
+      {}, // clientOpts: directory, experimental_workspaceID
+      { title: "implement" }, // sessionOpts: title, parentID, workspaceID
+      async (s) => {
+        // s.client — OpencodeClient (already connected)
+        // s.session — OpenCode Session (already created, TUI selected)
 
-    const session = await client.session.create({ title: "implement" });
-    await client.tui.selectSession({ sessionID: session.data!.id });
+        const result = await s.client.session.prompt({
+          sessionID: s.session.id,
+          parts: [{ type: "text", text: s.userPrompt }],
+        });
 
-    const result = await client.session.prompt({
-      sessionID: session.data!.id,
-      parts: [{ type: "text", text: ctx.userPrompt }],
-    });
-
-    s.save(result.data!);
-  });
-})
+        s.save(result.data!);
+      },
+    );
+  })
+  .compile();
 ```
 
 ### Critical pitfall: session lifecycle controls what context is available
@@ -571,10 +579,10 @@ substitute the OpenCode API equivalents:
 
 | Concept | Copilot API | OpenCode API |
 |---|---|---|
-| Create fresh session | `client.createSession({ agent })` | `client.session.create({ title })` + `agent` on `session.prompt()` |
-| Send a turn | `session.sendAndWait({ prompt }, timeout)` | `client.session.prompt({ sessionID, parts })` |
-| Close / disconnect | `session.disconnect()` / `client.stop()` | session lifecycle managed via server; no explicit disconnect in typical flow |
-| Resume prior session | `client.resumeSession(sessionId)` | Reuse the same `sessionID` with `client.session.prompt()` — the server retains history |
+| Fresh session (auto-created) | `s.session` (runtime creates via `createSession`) | `s.session` (runtime creates via `session.create`) |
+| Send a turn | `s.session.sendAndWait({ prompt }, timeout)` | `s.client.session.prompt({ sessionID: s.session.id, parts })` |
+| Close / disconnect | Auto-handled by runtime | session lifecycle managed via server; no explicit disconnect in typical flow |
+| Resume prior session | `s.client.resumeSession(sessionId)` | Reuse the same `sessionID` with `s.client.session.prompt()` — the server retains history |
 | Extract final text | `getAssistantText(messages)` (see `failure-modes.md` §F1) | `extractResponseText(result.data!.parts)` |
 
 **Multi-agent handoff example (applies the same pattern as Copilot):**
@@ -609,28 +617,24 @@ identically here; the only thing that changes is the method names.
 
 ### Multi-turn conversations
 
-Send multiple prompts to the same session:
+Send multiple prompts to the same session using `s.client.session.prompt()` with `s.session.id`:
 
 ```ts
 .run(async (ctx) => {
-  await ctx.session({ name: "multi-turn" }, async (s) => {
-    const client = createOpencodeClient({ baseUrl: s.serverUrl });
-    const session = await client.session.create({ title: "multi-turn" });
-    await client.tui.selectSession({ sessionID: session.data!.id });
-
+  await ctx.stage({ name: "multi-turn" }, {}, { title: "multi-turn" }, async (s) => {
     // Turn 1
-    await client.session.prompt({
-      sessionID: session.data!.id,
+    await s.client.session.prompt({
+      sessionID: s.session.id,
       parts: [{ type: "text", text: "Plan the implementation." }],
     });
     // Turn 2
-    await client.session.prompt({
-      sessionID: session.data!.id,
+    await s.client.session.prompt({
+      sessionID: s.session.id,
       parts: [{ type: "text", text: "Now implement the plan." }],
     });
     // Turn 3
-    const result = await client.session.prompt({
-      sessionID: session.data!.id,
+    const result = await s.client.session.prompt({
+      sessionID: s.session.id,
       parts: [{ type: "text", text: "Run the tests." }],
     });
 
@@ -642,8 +646,9 @@ Send multiple prompts to the same session:
 ### Structured output
 
 ```ts
-const result = await client.session.prompt({
-  sessionID: session.data!.id,
+// Inside a ctx.stage callback:
+const result = await s.client.session.prompt({
+  sessionID: s.session.id,
   parts: [{ type: "text", text: "List all API endpoints as JSON" }],
   format: {
     type: "json_schema",
@@ -666,14 +671,15 @@ const result = await client.session.prompt({
 Inject context into a session without triggering a response:
 
 ```ts
-await client.session.prompt({
-  sessionID: session.data!.id,
+// Inside a ctx.stage callback:
+await s.client.session.prompt({
+  sessionID: s.session.id,
   parts: [{ type: "text", text: "Here is the background context..." }],
   noReply: true,
 });
 // Now send the actual prompt
-const result = await client.session.prompt({
-  sessionID: session.data!.id,
+const result = await s.client.session.prompt({
+  sessionID: s.session.id,
   parts: [{ type: "text", text: "Based on the context, implement..." }],
 });
 ```
@@ -690,14 +696,19 @@ function extractResponseText(
     .join("\n");
 }
 
-// Usage:
+// Usage inside a ctx.stage callback:
+const result = await s.client.session.prompt({
+  sessionID: s.session.id,
+  parts: [{ type: "text", text: s.userPrompt }],
+});
 const text = extractResponseText(result.data!.parts);
 ```
 
 ### Event streaming
 
 ```ts
-const unsubscribe = await client.event.subscribe((event) => {
+// Inside a ctx.stage callback:
+const unsubscribe = await s.client.event.subscribe((event) => {
   if (event.type === "session.updated") {
     console.log("Session updated:", event.data);
   }
@@ -706,23 +717,24 @@ const unsubscribe = await client.event.subscribe((event) => {
 
 ### Sub-agent delegation
 
-Pass the `agent` parameter to `session.prompt()` to route a prompt to a named sub-agent:
+Pass the `agent` parameter to `s.client.session.prompt()` to route a prompt to a named sub-agent:
 
 ```ts
 .run(async (ctx) => {
-  await ctx.session({ name: "plan" }, async (s) => {
-    const client = createOpencodeClient({ baseUrl: s.serverUrl });
-    const session = await client.session.create({ title: "plan" });
-    await client.tui.selectSession({ sessionID: session.data!.id });
+  await ctx.stage(
+    { name: "plan" },
+    {},
+    { title: "plan" },
+    async (s) => {
+      // Route the prompt to the "planner" agent
+      const result = await s.client.session.prompt({
+        sessionID: s.session.id,
+        parts: [{ type: "text", text: s.userPrompt }],
+        agent: "planner",
+      });
 
-    // Route the prompt to the "planner" agent
-    const result = await client.session.prompt({
-      sessionID: session.data!.id,
-      parts: [{ type: "text", text: ctx.userPrompt }],
-      agent: "planner",
-    });
-
-    s.save(result.data!);
-  });
+      s.save(result.data!);
+    },
+  );
 })
 ```

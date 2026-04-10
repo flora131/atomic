@@ -36,18 +36,18 @@ Local workflows override global ones with the same name. The `<agent>` subdirect
 
 ## Export format
 
-Every workflow file must use `export default` with a compiled workflow:
+Every workflow file must use `export default` with a compiled workflow. Pass the agent type as a generic parameter to `defineWorkflow` for precise `s.client` and `s.session` types. `ctx.stage()` takes four positional arguments: stage options, client init options, session create options, and the callback.
 
 ```ts
 import { defineWorkflow } from "@bastani/atomic/workflows";
 
-export default defineWorkflow({
+export default defineWorkflow<"claude">({
     name: "my-workflow",
     description: "What this workflow does",
   })
   .run(async (ctx) => {
-    await ctx.session({ name: "step-1" }, async (s) => { /* ... */ });
-    await ctx.session({ name: "step-2" }, async (s) => { /* ... */ });
+    await ctx.stage({ name: "step-1" }, {}, {}, async (s) => { /* ... */ });
+    await ctx.stage({ name: "step-2" }, {}, {}, async (s) => { /* ... */ });
   })
   .compile();
 ```
@@ -63,15 +63,15 @@ The `WorkflowBuilder` enforces these rules at definition time:
 1. **Non-empty workflow** — `.compile()` throws if no `.run()` call was made
 2. **Required workflow name** — `defineWorkflow()` throws if `name` is empty
 
-Session name uniqueness is enforced at runtime when `ctx.session()` is called — duplicate names within the same workflow run will throw.
+Session name uniqueness is enforced at runtime when `ctx.stage()` is called — duplicate names within the same workflow run will throw.
 
 ### Provider validation warnings
 
 The SDK includes regex-based validation for all three providers:
 
-- **Claude** (`validateClaudeWorkflow`): Warns if the workflow uses `claudeQuery` without a corresponding `createClaudeSession` call
-- **Copilot** (`validateCopilotWorkflow`): Warns if the workflow doesn't use `s.serverUrl` for `CopilotClient` or doesn't call `setForegroundSessionId()`
-- **OpenCode** (`validateOpenCodeWorkflow`): Warns if the workflow doesn't use `s.serverUrl` for `createOpencodeClient` or doesn't call `tui.selectSession()`
+- **Claude** (`validateClaudeWorkflow`): Warns on direct `createClaudeSession` or `claudeQuery` usage — the runtime now handles init/cleanup automatically. Use `s.session.query(prompt)` instead.
+- **Copilot** (`validateCopilotWorkflow`): Warns on manual `new CopilotClient` or `client.createSession()` usage — the runtime auto-creates and cleans up the client and session. Use `s.client` and `s.session` instead. Pass session config as the third argument to `ctx.stage()`.
+- **OpenCode** (`validateOpenCodeWorkflow`): Warns on manual `createOpencodeClient()` or `client.session.create()` usage — the runtime auto-creates the client and session. Use `s.client` and `s.session` instead. Pass client config as the second argument and session config as the third argument to `ctx.stage()`.
 
 These are non-blocking warnings — the workflow will still load.
 
@@ -129,6 +129,9 @@ This catches:
 - Wrong session callback signatures
 - Missing required fields (`name`)
 - SDK type mismatches (e.g., passing wrong types to `s.save()`)
+- Incorrect provider-specific method calls (e.g., calling `s.session.query()` in a Copilot workflow)
+
+**Note on generic type parameter:** Using `defineWorkflow<"claude">()`, `defineWorkflow<"copilot">()`, or `defineWorkflow<"opencode">()` narrows `s.client` and `s.session` to the correct provider types throughout the `.run()` callback and all `ctx.stage()` callbacks. Without the type parameter, `s.client` and `s.session` resolve to a union of all provider types, which requires type guards to use provider-specific methods.
 
 ## Testing
 

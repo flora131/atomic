@@ -9,6 +9,8 @@ export interface AgentConfig {
   cmd: string;
   /** Flags used when spawning the agent in interactive chat mode */
   chat_flags: string[];
+  /** Environment variables to set when spawning the agent (merged with process env) */
+  env_vars: Record<string, string>;
   /** Config folder relative to repo root */
   folder: string;
   /** URL for installation instructions */
@@ -30,7 +32,11 @@ export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
   claude: {
     name: "Claude Code",
     cmd: "claude",
-    chat_flags: ["--allow-dangerously-skip-permissions", "--dangerously-skip-permissions"],
+    chat_flags: [
+      "--allow-dangerously-skip-permissions",
+      "--dangerously-skip-permissions",
+    ],
+    env_vars: {},
     folder: ".claude",
     install_url: "https://code.claude.com/docs/en/setup",
     exclude: [".DS_Store", "settings.json"],
@@ -51,6 +57,7 @@ export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
     name: "OpenCode",
     cmd: "opencode",
     chat_flags: [],
+    env_vars: { OPENCODE_EXPERIMENTAL_LSP_TOOL: "true" },
     folder: ".opencode",
     install_url: "https://opencode.ai",
     exclude: [
@@ -72,7 +79,16 @@ export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
   copilot: {
     name: "GitHub Copilot CLI",
     cmd: "copilot",
-    chat_flags: ["--add-dir", ".", "--yolo", "--experimental"],
+    chat_flags: [
+      "--add-dir",
+      ".",
+      "--yolo",
+      "--experimental",
+      "--no-auto-update",
+    ],
+    env_vars: {
+      COPILOT_ALLOW_ALL: "true",
+    },
     folder: ".github",
     install_url:
       "https://github.com/github/copilot-cli?tab=readme-ov-file#installation",
@@ -153,6 +169,27 @@ export const SCM_CONFIG: Record<SourceControlType, ScmConfig> = {
 
 /** Commands that have SCM-specific variants */
 export const SCM_SPECIFIC_COMMANDS = ["commit"];
+
+/**
+ * SCM-variant skill names, grouped by source control type.
+ *
+ * These are the skills that `installGlobalSkills` removes from the global
+ * scope after the initial install, and that `installLocalScmSkills`
+ * re-installs per-project based on the user's selected SCM. Passed to
+ * `npx skills add --skill <name>` as explicit names (the skills CLI does
+ * not support glob patterns like `gh-*`).
+ */
+export const SCM_SKILLS_BY_TYPE: Record<SourceControlType, readonly string[]> =
+  {
+    github: ["gh-commit", "gh-create-pr"],
+    sapling: ["sl-commit", "sl-submit-diff"],
+  };
+
+/** Flat list of every SCM-variant skill across all source control types. */
+export const ALL_SCM_SKILLS: readonly string[] = [
+  ...SCM_SKILLS_BY_TYPE.github,
+  ...SCM_SKILLS_BY_TYPE.sapling,
+];
 
 /**
  * Get all SCM keys for iteration

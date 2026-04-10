@@ -1,6 +1,7 @@
 [test]
+root = "."
+
 # Coverage (opt-in via `bun run test:coverage`, not on every run)
-# Note: root-level test/test:coverage scripts delegate to packages/workflow-sdk
 coverageThreshold = 0.85
 coverageReporter = ["text", "lcov"]
 coverageDir = "coverage"
@@ -61,6 +62,15 @@ coveragePathIgnorePatterns = [
   # Model operations (SDK-dependent)
   "src/services/models/model-operations.ts",
   "src/services/models/model-operations/**",
+  # SDK: non-testable runtime modules (require running agent CLIs, terminals, filesystems)
+  "src/sdk/define-workflow.ts",
+  "src/sdk/providers/**",
+  "src/sdk/runtime/discovery.ts",
+  "src/sdk/runtime/executor.ts",
+  "src/sdk/runtime/panel.tsx",
+  "src/sdk/runtime/theme.ts",
+  "src/sdk/components/error-boundary.tsx",
+  "src/sdk/components/orchestrator-panel.tsx",
   # Workflow runtime I/O (subprocess/SDK/filesystem dependent)
   "src/services/workflows/session.ts",
   "src/services/workflows/graph/nodes.ts",

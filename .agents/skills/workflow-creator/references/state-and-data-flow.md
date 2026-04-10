@@ -1,8 +1,12 @@
 # State and Data Flow
 
-Data flows between sessions via `ctx.save()`, `ctx.transcript()`, and `ctx.getMessages()`. Within a session, use plain TypeScript variables. This is the programmatic equivalent of `globalState` and reducers.
+Data flows between sessions via `s.save()` (in the producing session) and `transcript()` / `getMessages()` (in consuming sessions or at the `.run()` level). Within a session, use plain TypeScript variables. This is the programmatic equivalent of `globalState` and reducers.
 
-## Between sessions: `ctx.save()` → `ctx.transcript()` / `ctx.getMessages()`
+> **Note:** All Claude examples below assume `createClaudeSession({ paneId: s.paneId })` is called at the start of each session callback before any `claudeQuery()` calls.
+
+## Between sessions: `s.save()` → `transcript()` / `getMessages()`
+
+**Completion rule:** `transcript()` and `getMessages()` can only access data from sessions whose callbacks have already returned (i.e., sessions in the `completedRegistry`). In a `Promise.all()` group, sibling sessions cannot read each other's output — only sessions that completed before the group started are available.
 
 ### Saving output
 
@@ -10,53 +14,65 @@ Each SDK has its own save pattern:
 
 ```ts
 // Claude — pass session ID (auto-reads transcript)
-ctx.save(ctx.sessionId);
+s.save(s.sessionId);
 
 // Copilot — pass SessionEvent[] from getMessages()
-ctx.save(await session.getMessages());
+s.save(await session.getMessages());
 
 // OpenCode — pass response { info, parts } from session.prompt()
-ctx.save(result.data!);
+s.save(result.data!);
 ```
 
 ### Retrieving as rendered text
 
-`ctx.transcript(name)` returns `{ path: string, content: string }`:
+`s.transcript(handle)` returns `{ path: string, content: string }`:
 - `path` — absolute file path to the transcript on disk
 - `content` — extracted assistant text, ready to embed in prompts
 
+Pass the session handle returned by a prior `ctx.session()` call (handle-based, recommended). The string name `s.transcript("name")` also works when no handle is in scope.
+
 ```ts
-.session({
-  name: "synthesize",
-  run: async (ctx) => {
-    const research = await ctx.transcript("research");
+.run(async (ctx) => {
+  const researchHandle = await ctx.session({ name: "research" }, async (s) => {
+    await createClaudeSession({ paneId: s.paneId });
+    await claudeQuery({ paneId: s.paneId, prompt: "Research the topic." });
+    s.save(s.sessionId);
+  });
+
+  await ctx.session({ name: "synthesize" }, async (s) => {
+    const research = await s.transcript(researchHandle);
+    await createClaudeSession({ paneId: s.paneId });
 
     // Use rendered text in a prompt
     await claudeQuery({
-      paneId: ctx.paneId,
+      paneId: s.paneId,
       prompt: `Synthesize this research:\n${research.content}`,
     });
 
     // Or reference the file path (useful for Claude file triggers)
     await claudeQuery({
-      paneId: ctx.paneId,
+      paneId: s.paneId,
       prompt: `Read ${research.path} and summarize the key findings.`,
     });
 
-    ctx.save(ctx.sessionId);
-  },
+    s.save(s.sessionId);
+  });
 })
 ```
 
 ### Retrieving as raw messages
 
-`ctx.getMessages(name)` returns `SavedMessage[]` — the native SDK messages exactly as stored:
+`s.getMessages(handle)` returns `SavedMessage[]` — the native SDK messages exactly as stored:
 
 ```ts
-.session({
-  name: "analyze-results",
-  run: async (ctx) => {
-    const messages = await ctx.getMessages("research");
+.run(async (ctx) => {
+  const researchHandle = await ctx.session({ name: "research" }, async (s) => {
+    // ... research work ...
+    s.save(s.sessionId);
+  });
+
+  await ctx.session({ name: "analyze-results" }, async (s) => {
+    const messages = await s.getMessages(researchHandle);
 
     // messages is SavedMessage[], where each entry is:
     //   { provider: "copilot", data: SessionEvent }
@@ -70,7 +86,23 @@ ctx.save(result.data!);
         const event = msg.data;
       }
     }
-  },
+  });
+})
+```
+
+### Returning values from session callbacks
+
+Session callbacks can return a value directly. The handle exposes it via `.result`:
+
+```ts
+.run(async (ctx) => {
+  const planHandle = await ctx.session({ name: "plan" }, async (s) => {
+    // ... planning work ...
+    return { taskCount: 5, priority: "high" };
+  });
+
+  // Access the returned value on the handle
+  console.log(planHandle.result.taskCount); // 5
 })
 ```
 
@@ -79,9 +111,9 @@ ctx.save(result.data!);
 Use closures and variables for state within a single session:
 
 ```ts
-.session({
-  name: "review-fix",
-  run: async (ctx) => {
+.run(async (ctx) => {
+  await ctx.session({ name: "review-fix" }, async (s) => {
+    await createClaudeSession({ paneId: s.paneId });
     // Local state — plain variables
     let consecutiveClean = 0;
     let priorOutput = "";
@@ -89,7 +121,7 @@ Use closures and variables for state within a single session:
 
     for (let cycle = 0; cycle < 10; cycle++) {
       const result = await claudeQuery({
-        paneId: ctx.paneId,
+        paneId: s.paneId,
         prompt: buildReviewPrompt(ctx.userPrompt, priorOutput),
       });
 
@@ -109,7 +141,7 @@ Use closures and variables for state within a single session:
 
       // Apply fix
       const fixResult = await claudeQuery({
-        paneId: ctx.paneId,
+        paneId: s.paneId,
         prompt: buildFixSpec(review, ctx.userPrompt),
       });
       priorOutput = fixResult.output;
@@ -117,8 +149,8 @@ Use closures and variables for state within a single session:
 
     // All local state is available here
     console.log(`Total findings across cycles: ${findings.length}`);
-    ctx.save(ctx.sessionId);
-  },
+    s.save(s.sessionId);
+  });
 })
 ```
 
@@ -130,11 +162,14 @@ For data that needs to survive session restarts or be accessible outside the wor
 import { readFile, writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 
-.session({
-  name: "generate-report",
-  run: async (ctx) => {
+.run(async (ctx) => {
+  await ctx.session({ name: "plan" }, async (s) => {
+    // ... plan session ...
+  });
+
+  await ctx.session({ name: "generate-report" }, async (s) => {
     // Write artifacts to session directory
-    const artifactDir = join(ctx.sessionDir, "artifacts");
+    const artifactDir = join(s.sessionDir, "artifacts");
     await mkdir(artifactDir, { recursive: true });
 
     const report = { timestamp: Date.now(), status: "complete" };
@@ -145,9 +180,9 @@ import { join } from "path";
 
     // Read artifacts from a prior session
     const priorReport = JSON.parse(
-      await readFile(join(ctx.sessionDir, "..", "plan", "artifacts", "report.json"), "utf-8"),
+      await readFile(join(s.sessionDir, "..", "plan", "artifacts", "report.json"), "utf-8"),
     );
-  },
+  });
 })
 ```
 
@@ -219,47 +254,68 @@ import { parseReviewResult } from "../helpers/parsers.ts";
 ### Linear pipeline
 
 ```
-Session A → ctx.save() → Session B reads via ctx.transcript("A")
-                        → ctx.save() → Session C reads via ctx.transcript("B")
+Session A → s.save() → Session B reads via s.transcript(handleA)
+                       → s.save() → Session C reads via s.transcript(handleB)
 ```
 
 ### Fan-in (multiple prior sessions)
 
 ```ts
-.session({
-  name: "merge",
-  run: async (ctx) => {
-    const research = await ctx.transcript("research");
-    const analysis = await ctx.transcript("analysis");
-    const userFeedback = await ctx.transcript("feedback");
+.run(async (ctx) => {
+  const researchHandle = await ctx.session({ name: "research" }, async (s) => {
+    // ... research work ...
+    s.save(s.sessionId);
+  });
+  const analysisHandle = await ctx.session({ name: "analysis" }, async (s) => {
+    // ... analysis work ...
+    s.save(s.sessionId);
+  });
+  const feedbackHandle = await ctx.session({ name: "feedback" }, async (s) => {
+    // ... feedback work ...
+    s.save(s.sessionId);
+  });
+
+  await ctx.session({ name: "merge" }, async (s) => {
+    const research = await s.transcript(researchHandle);
+    const analysis = await s.transcript(analysisHandle);
+    const userFeedback = await s.transcript(feedbackHandle);
+    await createClaudeSession({ paneId: s.paneId });
 
     await claudeQuery({
-      paneId: ctx.paneId,
+      paneId: s.paneId,
       prompt: `Combine these inputs:
 Research: ${research.content}
 Analysis: ${analysis.content}
 Feedback: ${userFeedback.content}`,
     });
-    ctx.save(ctx.sessionId);
-  },
+    s.save(s.sessionId);
+  });
 })
 ```
 
 ### Accumulating state across sessions
 
-Since sessions run sequentially, each session can read all prior sessions:
+Each session can read all prior completed steps (but not parallel siblings):
 
 ```ts
-.session({
-  name: "session-3",
-  run: async (ctx) => {
-    // Read from any prior session
-    const s1 = await ctx.transcript("session-1");
-    const s2 = await ctx.transcript("session-2");
+.run(async (ctx) => {
+  const h1 = await ctx.session({ name: "session-1" }, async (s) => {
+    // ...
+    s.save(s.sessionId);
+  });
+  const h2 = await ctx.session({ name: "session-2" }, async (s) => {
+    // ...
+    s.save(s.sessionId);
+  });
+
+  await ctx.session({ name: "session-3" }, async (s) => {
+    // Read from any prior completed session via its handle
+    const s1 = await s.transcript(h1);
+    const s2 = await s.transcript(h2);
 
     // Combine and process
     const combined = `${s1.content}\n${s2.content}`;
     // ...
-  },
+  });
 })
 ```

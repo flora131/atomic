@@ -22,31 +22,6 @@
       "format": "date-time",
       "description": "ISO 8601 timestamp of the last configuration update."
     },
-    "model": {
-      "type": "object",
-      "description": "Model preferences keyed by agent type.",
-      "properties": {
-        "claude": { "type": "string", "description": "Model ID for Claude Code." },
-        "opencode": { "type": "string", "description": "Model ID for OpenCode." },
-        "copilot": { "type": "string", "description": "Model ID for GitHub Copilot." }
-      },
-      "additionalProperties": { "type": "string" }
-    },
-    "reasoningEffort": {
-      "type": "object",
-      "description": "Reasoning effort level keyed by agent type.",
-      "properties": {
-        "claude": { "type": "string", "description": "Reasoning effort for Claude Code." },
-        "opencode": { "type": "string", "description": "Reasoning effort for OpenCode." },
-        "copilot": { "type": "string", "description": "Reasoning effort for GitHub Copilot." }
-      },
-      "additionalProperties": { "type": "string" }
-    },
-    "prerelease": {
-      "type": "boolean",
-      "description": "When true, 'atomic update' fetches the latest prerelease instead of the latest stable release. Set automatically by the installer when using the --prerelease flag.",
-      "default": false
-    },
     "trustedPaths": {
       "type": "array",
       "description": "Globally trusted workspaces that have completed provider onboarding through 'atomic init'.",
@@ -68,5 +43,5 @@
       }
     }
   },
-  "additionalProperties": true
+  "additionalProperties": false
 }

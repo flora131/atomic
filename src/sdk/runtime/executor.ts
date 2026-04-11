@@ -31,7 +31,7 @@ import type { SessionEvent } from "@github/copilot-sdk";
 import type { SessionPromptResponse } from "@opencode-ai/sdk/v2";
 import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import * as tmux from "./tmux.ts";
-import { getMuxBinary } from "./tmux.ts";
+import { getMuxBinary, spawnMuxAttach, SOCKET_NAME } from "./tmux.ts";
 import { WorkflowLoader } from "./loader.ts";
 import {
   clearClaudeSession,
@@ -307,26 +307,31 @@ export async function executeWorkflow(
 
   await writeFile(launcherPath, launcherScript, { mode: 0o755 });
 
-  // Create tmux session with orchestrator as the initial window
-  const shellCmd = isWin
-    ? `pwsh -NoProfile -File "${escPwsh(launcherPath)}"`
-    : `bash "${escBash(launcherPath)}"`;
-  tmux.createSession(tmuxSessionName, shellCmd, "orchestrator");
+  console.log(`[atomic] Session: ${tmuxSessionName} (FYI all atomic sessions run on tmux -L ${SOCKET_NAME})`);
 
-  // Attach or switch depending on whether we're already inside tmux
+  // Attach or spawn depending on whether we're already inside tmux
   if (tmux.isInsideTmux()) {
-    // Inside tmux: switch the current client to the workflow session
-    // to avoid creating a nested tmux client
-    tmux.switchClient(tmuxSessionName);
+    // Inside tmux: create the session with just a shell (agent windows live here),
+    // then run the orchestrator directly in the user's current pane.
+    const defaultShell = process.env.SHELL || (isWin ? "pwsh" : "sh");
+    tmux.createSession(tmuxSessionName, defaultShell, "orchestrator");
+
+    const launcherCmd = isWin
+      ? ["pwsh", "-NoProfile", "-File", launcherPath]
+      : ["bash", launcherPath];
+    const proc = Bun.spawn(launcherCmd, {
+      stdio: ["inherit", "inherit", "inherit"],
+      cwd: projectRoot,
+    });
+    await proc.exited;
   } else {
-    // Outside tmux: attach normally (blocks until session ends)
-    const muxBinary = getMuxBinary() ?? "tmux";
-    const attachProc = Bun.spawn(
-      [muxBinary, "attach-session", "-t", tmuxSessionName],
-      {
-        stdio: ["inherit", "inherit", "inherit"],
-      },
-    );
+    // Outside tmux: create session with the orchestrator and attach to it
+    const shellCmd = isWin
+      ? `pwsh -NoProfile -File "${escPwsh(launcherPath)}"`
+      : `bash "${escBash(launcherPath)}"`;
+    tmux.createSession(tmuxSessionName, shellCmd, "orchestrator");
+
+    const attachProc = spawnMuxAttach(tmuxSessionName);
     await attachProc.exited;
   }
 }

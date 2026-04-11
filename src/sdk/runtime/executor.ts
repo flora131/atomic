@@ -455,7 +455,7 @@ async function initProviderClientAndSession(
       const { CopilotClient, approveAll } = await import("@github/copilot-sdk");
       const copilotClientOpts = clientOpts as StageClientOptions<"copilot">;
       const copilotSessionOpts = sessionOpts as StageSessionOptions<"copilot">;
-      const client = new CopilotClient({ cliUrl: serverUrl, ...copilotClientOpts });
+      const client = new CopilotClient({ ...copilotClientOpts, cliUrl: serverUrl });
       await client.start();
       const session = await client.createSession({
         onPermissionRequest: approveAll,
@@ -468,7 +468,7 @@ async function initProviderClientAndSession(
       const { createOpencodeClient } = await import("@opencode-ai/sdk/v2");
       const ocClientOpts = clientOpts as StageClientOptions<"opencode">;
       const ocSessionOpts = sessionOpts as StageSessionOptions<"opencode">;
-      const client = createOpencodeClient({ baseUrl: serverUrl, ...ocClientOpts });
+      const client = createOpencodeClient({ ...ocClientOpts, baseUrl: serverUrl });
       const sessionResult = await client.session.create(ocSessionOpts);
       await client.tui.selectSession({ sessionID: sessionResult.data!.id });
       return { client, session: sessionResult.data! };

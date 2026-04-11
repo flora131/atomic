@@ -10,21 +10,25 @@
  * Instead, we detect a fresh install or upgrade lazily on CLI startup by
  * comparing the bundled `VERSION` constant against a marker file at
  * `~/.atomic/.synced-version`. On a mismatch we run the same setup the
- * production bootstrap installers (`install.sh` / `install.ps1`) provide:
+ * production bootstrap installers (`install.sh` / `install.ps1`) provide,
+ * grouped into two parallel phases:
  *
- *   1. Node.js / npm           (gates everything that needs npm/npx)
- *   2. tmux / psmux            (terminal multiplexer for `chat` and `workflow`)
- *   3. @playwright/cli         (global npm package used by skills)
- *   4. @llamaindex/liteparse   (global npm package used by skills)
- *   5. global agent configs    (~/.claude/agents, ~/.opencode/agents, ~/.copilot/agents, lsp-config.json)
- *   6. global workflows        (~/.atomic/workflows/{hello,hello-parallel,ralph,...})
- *   7. global skills           (npx skills add ...)
+ *   Phase 1 (parallel — no inter-dependencies):
+ *     1. Node.js / npm           (installed via fnm, no system pkg-mgr)
+ *     2. tmux / psmux            (terminal multiplexer for `chat` / `workflow`)
+ *     3. global agent configs    (file copies — no network)
  *
- * Each step runs sequentially. Failures are collected and reported as a
- * summary at the end, but never abort the run — partial setup matches the
- * production installer's "best-effort" semantics. The marker is written
- * after every run (success or partial) so we don't re-attempt the whole
- * setup on every subsequent launch.
+ *   Phase 2 (parallel — all need npm from Phase 1):
+ *     4. @playwright/cli         (npm install -g)
+ *     5. @llamaindex/liteparse   (npm install -g)
+ *     6. global skills           (npx skills add ...)
+ *
+ * Steps within each phase run concurrently; phases run sequentially.
+ * Failures are collected and reported as a summary at the end, but never
+ * abort the run — partial setup matches the production installer's
+ * "best-effort" semantics. The marker is written after every run (success
+ * or partial) so we don't re-attempt the whole setup on every subsequent
+ * launch.
  */
 
 import { join } from "path";
@@ -40,6 +44,7 @@ import {
 import { installGlobalAgents } from "@/services/system/agents.ts";
 import { installGlobalSkills } from "@/services/system/skills.ts";
 import { runSteps, printSummary } from "@/services/system/install-ui.ts";
+import { displayBlockBanner } from "@/theme/logo.ts";
 
 /** Path to the version marker. Honors ATOMIC_SETTINGS_HOME for tests. */
 function syncMarkerPath(): string {
@@ -88,26 +93,34 @@ export async function autoSyncIfStale(): Promise<void> {
     `\n  ${COLORS.dim}Setting up atomic ${COLORS.reset}${COLORS.bold}v${VERSION}${COLORS.reset}${COLORS.dim}…${COLORS.reset}\n`,
   );
 
-  // Ordering notes:
-  //  - Phase 1 (npm, tmux): core tools. npm comes first because
-  //    @playwright/cli, @llamaindex/liteparse, and `npx skills` all need it.
-  //    tmux/psmux is independent but installed sequentially to avoid
-  //    contention with system package-manager locks (apt-get, dnf, etc).
-  //  - Phase 2 (global npm packages): will fail loudly if Phase 1's npm
-  //    install failed, which is fine — the spinner summary records their
-  //    failure too.
-  //  - Phase 3 (bundled atomic content): file copies + npx skills install.
+  // Steps are split into two parallel phases:
+  //
+  //  Phase 1 — core tools + file copies (no inter-dependencies):
+  //    npm is installed via fnm (not a system package manager), so it
+  //    won't contend with tmux's apt-get/dnf install. Agent config
+  //    copies are pure file I/O with no network or npm dependency.
+  //
+  //  Phase 2 — npm-dependent tasks (run after Phase 1):
+  //    @playwright/cli, @llamaindex/liteparse, and `npx skills` all
+  //    need npm/npx. They install independent packages, so they can
+  //    run concurrently.
   //
   // Each step's failure is caught inside `runSteps` (not thrown), so
   // subsequent steps still run even if one fails — matches install.sh's
   // best-effort contract.
   const results = await runSteps([
-    { label: "Node.js / npm",      fn: () => ensureNpmInstalled({ quiet: true }) },
-    { label: "tmux / psmux",       fn: () => ensureTmuxInstalled({ quiet: true }) },
-    { label: "@playwright/cli",    fn: upgradePlaywrightCli },
-    { label: "@llamaindex/liteparse", fn: upgradeLiteparse },
-    { label: "global agent configs",  fn: installGlobalAgents },
-    { label: "global skills",         fn: installGlobalSkills },
+    // Phase 1 — parallel
+    [
+      { label: "Node.js / npm",        fn: () => ensureNpmInstalled({ quiet: true }) },
+      { label: "tmux / psmux",         fn: () => ensureTmuxInstalled({ quiet: true }) },
+      { label: "global agent configs", fn: installGlobalAgents },
+    ],
+    // Phase 2 — parallel, after Phase 1
+    [
+      { label: "@playwright/cli",       fn: upgradePlaywrightCli },
+      { label: "@llamaindex/liteparse", fn: upgradeLiteparse },
+      { label: "global skills",         fn: installGlobalSkills },
+    ],
   ]);
 
   // Always write the marker — partial setup is the production-installer
@@ -115,7 +128,7 @@ export async function autoSyncIfStale(): Promise<void> {
   // @bastani/atomic` is the recovery path for a failed setup.
   await markSynced();
 
-  console.log();
+  displayBlockBanner();
   printSummary(results);
 
   const failures = results.filter((r) => !r.ok);
@@ -124,6 +137,8 @@ export async function autoSyncIfStale(): Promise<void> {
       `\n  ${COLORS.dim}Re-run \`bun install -g @bastani/atomic\` after resolving the issues to retry.${COLORS.reset}\n`,
     );
   } else {
-    console.log();
+    console.log(
+      `\n  ${COLORS.dim}Learn more at ${COLORS.reset}${COLORS.blue}https://deepwiki.com/flora131/atomic${COLORS.reset}\n`,
+    );
   }
 }

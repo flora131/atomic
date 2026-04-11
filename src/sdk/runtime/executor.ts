@@ -31,7 +31,7 @@ import type { SessionEvent } from "@github/copilot-sdk";
 import type { SessionPromptResponse } from "@opencode-ai/sdk/v2";
 import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import * as tmux from "./tmux.ts";
-import { getMuxBinary, spawnMuxAttach, SOCKET_NAME } from "./tmux.ts";
+import { spawnMuxAttach, SOCKET_NAME } from "./tmux.ts";
 import { WorkflowLoader } from "./loader.ts";
 import {
   clearClaudeSession,

@@ -7,8 +7,8 @@
  */
 
 import { AGENT_CONFIG, type AgentKey } from "@/services/config/index.ts";
-import { COLORS } from "@/theme/colors.ts";
-import { isCommandInstalled, supportsColor, supportsTrueColor } from "@/services/system/detect.ts";
+import { COLORS, createPainter, type PaletteKey } from "@/theme/colors.ts";
+import { isCommandInstalled } from "@/services/system/detect.ts";
 import { ensureTmuxInstalled, ensureBunInstalled } from "../../lib/spawn.ts";
 import {
   isTmuxInstalled,
@@ -149,31 +149,6 @@ export async function workflowCommand(options: {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Workflow list rendering
-//
-// Catppuccin Mocha palette rendered via 24-bit ANSI, with graceful fallback
-// to basic ANSI on legacy terminals and plain text when colour is disabled.
-// Hex values mirror src/sdk/runtime/theme.ts so the CLI output and the TUI
-// speak one visual language.
-// ---------------------------------------------------------------------------
-
-type PaletteKey = "text" | "dim" | "accent" | "success" | "mauve";
-
-const PALETTE: Record<PaletteKey, readonly [number, number, number]> = {
-  text:    [205, 214, 244], // #cdd6f4 — primary text
-  dim:     [127, 132, 156], // #7f849c — secondary text
-  accent:  [137, 180, 250], // #89b4fa — blue accent
-  success: [166, 227, 161], // #a6e3a1 — green (local source)
-  mauve:   [203, 166, 247], // #cba6f7 — mauve (global source)
-};
-
-interface PaintOptions {
-  bold?: boolean;
-}
-
-type Paint = (key: PaletteKey, text: string, opts?: PaintOptions) => string;
-
 /** Stable agent sort order; keeps output deterministic across runs. */
 const AGENT_ORDER: readonly AgentType[] = ["claude", "opencode", "copilot"];
 /** Display names shown as provider sub-headings; honours proper branding. */
@@ -196,39 +171,6 @@ const SOURCE_COLORS: Record<DiscoveredWorkflow["source"], PaletteKey> = {
   global: "mauve",
   builtin: "accent",
 };
-
-/**
- * Build a colour-aware painter for the current terminal.
- * Truecolor terminals get the full Catppuccin palette; legacy terminals
- * degrade to basic ANSI; NO_COLOR emits plain text. The optional `bold`
- * flag adds weight contrast — essential for typographic hierarchy in a
- * monospace medium where size and family are fixed.
- */
-function createPainter(): Paint {
-  if (supportsTrueColor()) {
-    return (key, text, opts) => {
-      const [r, g, b] = PALETTE[key];
-      const sgr = opts?.bold
-        ? `\x1b[1;38;2;${r};${g};${b}m`
-        : `\x1b[38;2;${r};${g};${b}m`;
-      return `${sgr}${text}\x1b[0m`;
-    };
-  }
-  if (supportsColor()) {
-    const ANSI: Record<PaletteKey, string> = {
-      text:    "",
-      dim:     "\x1b[2m",
-      accent:  "\x1b[34m",
-      success: "\x1b[32m",
-      mauve:   "\x1b[35m",
-    };
-    return (key, text, opts) => {
-      const weight = opts?.bold ? "\x1b[1m" : "";
-      return `${weight}${ANSI[key]}${text}\x1b[0m`;
-    };
-  }
-  return (_key, text) => text;
-}
 
 /**
  * Render `atomic workflow --list` output as a printable string.

@@ -32,6 +32,8 @@ import {
   createSession,
   killSession,
   getMuxBinary,
+  spawnMuxAttach,
+  SOCKET_NAME,
 } from "@/sdk/workflows.ts";
 import { ensureTmuxInstalled } from "@/lib/spawn.ts";
 
@@ -222,10 +224,9 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   try {
     createSession(windowName, shellCmd, undefined, projectRoot);
 
-    const muxBinary = getMuxBinary() ?? "tmux";
-    const attachProc = Bun.spawn([muxBinary, "attach-session", "-t", windowName], {
-      stdio: ["inherit", "inherit", "inherit"],
-    });
+    console.log(`[atomic] Session: ${windowName} (FYI all atomic sessions run on tmux -L ${SOCKET_NAME})`);
+
+    const attachProc = spawnMuxAttach(windowName);
     const exitCode = await attachProc.exited;
 
     // Clean up launcher

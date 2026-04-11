@@ -52,6 +52,7 @@ export type { OpenCodeValidationWarning } from "./providers/opencode.ts";
 
 // Runtime — tmux utilities
 export {
+  SOCKET_NAME,
   isTmuxInstalled,
   getMuxBinary,
   resetMuxBinaryCache,
@@ -69,6 +70,7 @@ export {
   killWindow,
   sessionExists,
   attachSession,
+  spawnMuxAttach,
   switchClient,
   getCurrentSession,
   attachOrSwitch,

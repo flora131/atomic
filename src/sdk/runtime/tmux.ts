@@ -6,6 +6,19 @@
  * sending keystrokes, and pane state detection.
  */
 
+import { join } from "path";
+import type { Subprocess } from "bun";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/** Dedicated tmux socket name — isolates Atomic sessions from the user's default server. */
+export const SOCKET_NAME = "atomic";
+
+/** Path to the bundled tmux config (shared by tmux and psmux). */
+const CONFIG_PATH = join(import.meta.dir, "tmux.conf");
+
 // ---------------------------------------------------------------------------
 // Core tmux primitives
 // ---------------------------------------------------------------------------
@@ -73,8 +86,9 @@ export function tmuxRun(args: string[]): { ok: true; stdout: string } | { ok: fa
   if (!binary) {
     return { ok: false, stderr: "No terminal multiplexer (tmux/psmux) found on PATH" };
   }
+  const fullArgs = ["-f", CONFIG_PATH, "-L", SOCKET_NAME, ...args];
   const result = Bun.spawnSync({
-    cmd: [binary, ...args],
+    cmd: [binary, ...fullArgs],
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -318,14 +332,8 @@ export function killWindow(sessionName: string, windowName: string): void {
  * Check if a tmux session exists.
  */
 export function sessionExists(sessionName: string): boolean {
-  const binary = getMuxBinary();
-  if (!binary) return false;
-  const result = Bun.spawnSync({
-    cmd: [binary, "has-session", "-t", sessionName],
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  return result.success;
+  const result = tmuxRun(["has-session", "-t", sessionName]);
+  return result.ok;
 }
 
 /**
@@ -337,7 +345,7 @@ export function attachSession(sessionName: string): void {
     throw new Error("No terminal multiplexer (tmux/psmux) found on PATH");
   }
   const proc = Bun.spawnSync({
-    cmd: [binary, "attach-session", "-t", sessionName],
+    cmd: [binary, "-f", CONFIG_PATH, "-L", SOCKET_NAME, "attach-session", "-t", sessionName],
     stdin: "inherit",
     stdout: "inherit",
     stderr: "pipe",
@@ -346,6 +354,22 @@ export function attachSession(sessionName: string): void {
     const stderr = new TextDecoder().decode(proc.stderr).trim();
     throw new Error(`Failed to attach to session: ${sessionName}${stderr ? ` (${stderr})` : ""}`);
   }
+}
+
+/**
+ * Spawn an interactive attach-session process.
+ * Encapsulates binary resolution, config injection, and socket isolation.
+ * Used by all async attach call sites (executor, chat).
+ */
+export function spawnMuxAttach(sessionName: string): Subprocess {
+  const binary = getMuxBinary();
+  if (!binary) {
+    throw new Error("No terminal multiplexer (tmux/psmux) found on PATH");
+  }
+  return Bun.spawn(
+    [binary, "-f", CONFIG_PATH, "-L", SOCKET_NAME, "attach-session", "-t", sessionName],
+    { stdio: ["inherit", "inherit", "inherit"] },
+  );
 }
 
 /**

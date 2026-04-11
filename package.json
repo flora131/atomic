@@ -29,26 +29,31 @@
     ".": {
       "bun": "./src/sdk/index.ts",
       "types": "./dist/sdk/index.d.ts",
+      "import": "./dist/sdk/index.js",
       "default": "./dist/sdk/index.js"
     },
     "./workflows": {
       "bun": "./src/sdk/workflows/index.ts",
       "types": "./dist/sdk/workflows/index.d.ts",
+      "import": "./dist/sdk/workflows/index.js",
       "default": "./dist/sdk/workflows/index.js"
     },
     "./workflows/builtin/ralph/claude": {
       "bun": "./src/sdk/workflows/builtin/ralph/claude/index.ts",
       "types": "./dist/sdk/workflows/builtin/ralph/claude/index.d.ts",
+      "import": "./dist/sdk/workflows/builtin/ralph/claude/index.js",
       "default": "./dist/sdk/workflows/builtin/ralph/claude/index.js"
     },
     "./workflows/builtin/ralph/copilot": {
       "bun": "./src/sdk/workflows/builtin/ralph/copilot/index.ts",
       "types": "./dist/sdk/workflows/builtin/ralph/copilot/index.d.ts",
+      "import": "./dist/sdk/workflows/builtin/ralph/copilot/index.js",
       "default": "./dist/sdk/workflows/builtin/ralph/copilot/index.js"
     },
     "./workflows/builtin/ralph/opencode": {
       "bun": "./src/sdk/workflows/builtin/ralph/opencode/index.ts",
       "types": "./dist/sdk/workflows/builtin/ralph/opencode/index.d.ts",
+      "import": "./dist/sdk/workflows/builtin/ralph/opencode/index.js",
       "default": "./dist/sdk/workflows/builtin/ralph/opencode/index.js"
     }
   },

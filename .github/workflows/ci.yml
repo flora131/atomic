@@ -37,3 +37,6 @@ jobs:
 
             - name: Run tests
               run: bun test 2>&1 | cat
+
+            - name: Validate SDK build
+              run: bun run build

@@ -31,7 +31,6 @@ import {
 import {
   createSession,
   killSession,
-  getMuxBinary,
   spawnMuxAttach,
   SOCKET_NAME,
 } from "@/sdk/workflows.ts";

@@ -53,45 +53,67 @@ info()  { printf '  %sinfo%s %s\n' "$C_CYAN" "$C_RESET" "$*"; }
 warn()  { printf '  %swarn%s %s\n' "$C_YELLOW" "$C_RESET" "$*" >&2; }
 error() { printf '  %serror%s %s\n' "$C_RED" "$C_RESET" "$*" >&2; }
 
-# Render a bracketed progress bar at the given completion ratio.
+# Render a slim progress bar with a continuous color gradient.
 #
 # Args: $1 = completed, $2 = total, $3 = state (progress|success|error)
 #
-# The filled segment carries the state colour (blue/green/red). The
-# empty track stays dim so only the active portion telegraphs outcome.
+# Uses true-color per-character gradient (Catppuccin palette) when the
+# terminal supports it; falls back to a single ANSI colour otherwise.
+# The filled segment uses ■ (slim) and the empty track uses ･ (dot).
 render_bar() {
     local completed=$1 total=$2 state=${3:-progress}
-    local width=18
-    local filled=$(( completed * width / total ))
+    local width=30
+    local filled=0
+    (( total > 0 )) && filled=$(( completed * width / total ))
     (( filled > width )) && filled=$width
     local empty=$(( width - filled ))
-    local fill_color
-    case "$state" in
-        success) fill_color="$C_GREEN" ;;
-        error)   fill_color="$C_RED"   ;;
-        *)       fill_color="$C_BLUE"  ;;
-    esac
     local bar="" i
-    for ((i=0; i<filled; i++)); do bar+="█"; done
+
+    if [[ -z "${NO_COLOR:-}" ]] && [[ "${COLORTERM:-}" == "truecolor" || "${COLORTERM:-}" == "24bit" ]] && (( filled > 0 )); then
+        local sr sg sb er eg eb
+        case "$state" in
+            success) sr=126 sg=201 sb=138 er=166 eg=227 eb=161 ;;
+            error)   sr=224 sg=108 sb=136 er=243 eg=139 eb=168 ;;
+            *)       sr=242 sg=196 sb=120 er=249 eg=226 eb=175 ;;
+        esac
+        for ((i=0; i<filled; i++)); do
+            if (( filled > 1 )); then
+                local r=$(( sr + (er - sr) * i / (filled - 1) ))
+                local g=$(( sg + (eg - sg) * i / (filled - 1) ))
+                local b=$(( sb + (eb - sb) * i / (filled - 1) ))
+            else
+                local r=$er g=$eg b=$eb
+            fi
+            bar+=$'\033'"[38;2;${r};${g};${b}m■"
+        done
+        bar+=$'\033[0m'
+    else
+        local fill_color
+        case "$state" in
+            success) fill_color="$C_GREEN" ;;
+            error)   fill_color="$C_RED"   ;;
+            *)       fill_color="$C_YELLOW" ;;
+        esac
+        for ((i=0; i<filled; i++)); do bar+="■"; done
+        bar="${fill_color}${bar}${C_RESET}"
+    fi
+
     local rest=""
-    for ((i=0; i<empty; i++)); do rest+="░"; done
-    printf '%s%s%s%s%s%s%s' "$C_BOLD" "$fill_color" "$bar" "$C_RESET" "$C_DIM" "$rest" "$C_RESET"
+    for ((i=0; i<empty; i++)); do rest+="･"; done
+    printf '%s%s%s%s' "$bar" "$C_DIM" "$rest" "$C_RESET"
 }
 
 # Render the full status line (no newline).
 #
-# Args: $1 = glyph, $2 = stepno (1-indexed), $3 = fill (completed count),
-#       $4 = state (progress|success|error), $5 = label
-#
-# `stepno` and `fill` are separate so we can show "step 2/3" in the
-# counter while the bar is still empty (fill=1) during the spinner, and
-# flip to fill=2 only once the step actually succeeds.
+# Args: $1 = glyph, $2 = fill (completed count),
+#       $3 = state (progress|success|error), $4 = label
 render_line() {
-    local glyph=$1 stepno=$2 fill=$3 state=$4 label=$5
-    local bar
+    local glyph=$1 fill=$2 state=$3 label=$4
+    local bar pct=0
     bar=$(render_bar "$fill" "$STEP_TOTAL" "$state")
-    printf '  %s  %s  %s%d/%d%s  %s' \
-        "$glyph" "$bar" "$C_DIM" "$stepno" "$STEP_TOTAL" "$C_RESET" "$label"
+    (( STEP_TOTAL > 0 )) && pct=$(( fill * 100 / STEP_TOTAL ))
+    printf '  %s  %s  %s%3d%%%s  %s' \
+        "$glyph" "$bar" "$C_DIM" "$pct" "$C_RESET" "$label"
 }
 
 # Run a command with a spinner; capture output; surface only on failure.
@@ -129,7 +151,7 @@ run_step() {
     while kill -0 "$pid" 2>/dev/null; do
         local f="${frames[i % 10]}"
         printf '\r\033[2K'
-        render_line "${C_BLUE}${f}${C_RESET}" "$stepno" "$completed" "progress" "$label"
+        render_line "${C_BLUE}${f}${C_RESET}" "$completed" "progress" "$label"
         i=$((i + 1))
         sleep 0.08
     done
@@ -139,12 +161,12 @@ run_step() {
     printf '\r\033[2K'
     if [[ "$rc" == "0" ]]; then
         STEP_INDEX=$((STEP_INDEX + 1))
-        render_line "${C_GREEN}✓${C_RESET}" "$stepno" "$STEP_INDEX" "success" "${C_DIM}${label}${C_RESET}"
+        render_line "${C_GREEN}✓${C_RESET}" "$STEP_INDEX" "success" "${C_DIM}${label}${C_RESET}"
         printf '\n\033[?25h'  # newline + show cursor
         rm -f "$log"
         return 0
     else
-        render_line "${C_RED}✗${C_RESET}" "$stepno" "$completed" "error" "$label"
+        render_line "${C_RED}✗${C_RESET}" "$completed" "error" "$label"
         printf '\n\033[?25h'
         if [[ -s "$log" ]]; then
             # Indent and dim the final ~15 lines of captured output

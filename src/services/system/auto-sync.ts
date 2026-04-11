@@ -90,7 +90,7 @@ export async function autoSyncIfStale(): Promise<void> {
   if (stored === VERSION) return;
 
   console.log(
-    `\n  ${COLORS.dim}Setting up atomic ${COLORS.reset}${COLORS.bold}v${VERSION}${COLORS.reset}${COLORS.dim}…${COLORS.reset}\n`,
+    `\n  ${COLORS.dim}Setting up atomic ${COLORS.reset}${COLORS.bold}v${VERSION}${COLORS.reset}${COLORS.dim}…${COLORS.reset}`,
   );
 
   // Steps are split into two parallel phases:

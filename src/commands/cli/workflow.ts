@@ -238,25 +238,19 @@ function createPainter(): Paint {
  * Layout:
  *   N workflows
  *
- *
  *   local (.atomic/workflows)
  *
  *     Claude
- *
  *       <name>
  *       <name>
  *
  *     OpenCode
- *
  *       <name>
- *
  *
  *   global (~/.atomic/workflows)
  *
  *     Claude
- *
  *       <name>
- *
  *
  *   run: atomic workflow -n <name> -a <agent>
  */
@@ -309,15 +303,13 @@ function renderWorkflowList(workflows: DiscoveredWorkflow[]): string {
 
   // One stanza per source section, with nested provider sub-groups inside.
   // Rhythm:
-  //   2 blanks before each source heading  (major break)
-  //   1 blank before each provider heading (tight, they're nested)
-  //   1 blank before each provider's entries
+  //   1 blank before each source heading  (section break)
+  //   1 blank before each provider heading (grouped with its entries)
   for (const source of SOURCE_ORDER) {
     const byAgent = bySource.get(source);
     if (!byAgent || byAgent.size === 0) continue;
 
-    // Major break before the source section.
-    lines.push("");
+    // Section break before the source section.
     lines.push("");
 
     // Source heading: bold semantic colour + dim inline directory hint.
@@ -338,7 +330,6 @@ function renderWorkflowList(workflows: DiscoveredWorkflow[]): string {
       lines.push(
         "    " + paint("accent", AGENT_DISPLAY_NAMES[agent], { bold: true }),
       );
-      lines.push("");
 
       for (const name of names) {
         lines.push("      " + paint("text", name));
@@ -346,8 +337,7 @@ function renderWorkflowList(workflows: DiscoveredWorkflow[]): string {
     }
   }
 
-  // Footer — dim run hint, separated by the same major-break rhythm.
-  lines.push("");
+  // Footer — dim run hint, separated by a section break.
   lines.push("");
   lines.push(
     "  " + paint("dim", "run: atomic workflow -n <name> -a <agent>"),

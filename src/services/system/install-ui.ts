@@ -1,12 +1,21 @@
 /**
  * Progress UI primitives for the first-run install flow (auto-sync).
  *
- * Renders a single persistent line:
+ * Renders an OpenCode-inspired single-line progress bar:
  *
- *     ⠋ [██████▒▒▒▒▒▒] 3/7  tmux / psmux
+ *     ⠋ ■■■■■■■■■■■■■■■■■■････････････  50%  tmux / psmux
  *
- * where the braille spinner animation is provided by `@clack/prompts`
- * and the bracketed bar tracks overall step progress (completed / total).
+ * where the braille spinner is provided by `@clack/prompts` and the bar
+ * uses Catppuccin Mocha accent colors (Blue for progress, Green for
+ * success, Red for error) with true-color → 256-color → basic ANSI
+ * fallback.
+ *
+ * Steps are grouped into **phases**. Steps within a phase run in parallel
+ * (via `Promise.all`); phases themselves run sequentially so later phases
+ * can depend on earlier ones (e.g. npm must be available before
+ * `npm install -g` tasks). The progress bar advances and the label
+ * updates in real-time as individual steps complete within a phase.
+ *
  * A final summary (✓/✗ per step) is printed after all steps finish, and
  * any captured stderr/stdout from a failed step is shown beneath it.
  *
@@ -16,16 +25,20 @@
 
 import { spinner } from "@clack/prompts";
 import { COLORS } from "@/theme/colors.ts";
+import {
+  supportsTrueColor,
+  supports256Color,
+} from "@/services/system/detect.ts";
 
-const BAR_WIDTH = 18;
-const BAR_FILLED = "█";
-const BAR_EMPTY = "░";
+const BAR_WIDTH = 30;
+const BAR_FILLED = "■";
+const BAR_EMPTY = "･";
 
 /**
- * Semantic bar states:
- *   progress → blue (Catppuccin accent; "in flight")
- *   success  → green (universal "completed")
- *   error    → red   (universal "failed")
+ * Semantic bar states mapped to Catppuccin Mocha colors:
+ *   progress → Blue  #89b4fa (accent; "in flight")
+ *   success  → Green #a6e3a1 (universal "completed")
+ *   error    → Red   #f38ba8 (universal "failed")
  *
  * The empty track stays dim regardless — only the filled portion carries
  * the status signal, which keeps the bar legible while still telegraphing
@@ -34,6 +47,28 @@ const BAR_EMPTY = "░";
 type BarState = "progress" | "success" | "error";
 
 function fillColor(state: BarState): string {
+  if (supportsTrueColor()) {
+    switch (state) {
+      case "success":
+        return "\x1b[38;2;166;227;161m"; // Catppuccin Green #a6e3a1
+      case "error":
+        return "\x1b[38;2;243;139;168m"; // Catppuccin Red   #f38ba8
+      case "progress":
+      default:
+        return "\x1b[38;2;137;180;250m"; // Catppuccin Blue  #89b4fa
+    }
+  }
+  if (supports256Color()) {
+    switch (state) {
+      case "success":
+        return "\x1b[38;5;150m";
+      case "error":
+        return "\x1b[38;5;211m";
+      case "progress":
+      default:
+        return "\x1b[38;5;111m";
+    }
+  }
   switch (state) {
     case "success":
       return COLORS.green;
@@ -45,7 +80,7 @@ function fillColor(state: BarState): string {
   }
 }
 
-/** Render a bracketed step-progress bar. `completed` is capped at `total`. */
+/** Render a progress bar: colored filled ■ + dim empty ･ */
 function renderBar(
   completed: number,
   total: number,
@@ -56,7 +91,6 @@ function renderBar(
   const filled = Math.round(ratio * BAR_WIDTH);
   const empty = BAR_WIDTH - filled;
   return (
-    COLORS.bold +
     fillColor(state) +
     BAR_FILLED.repeat(filled) +
     COLORS.reset +
@@ -73,8 +107,12 @@ function formatLine(
   state: BarState = "progress",
 ): string {
   const bar = renderBar(completed, total, state);
-  const counter = `${COLORS.dim}${completed}/${total}${COLORS.reset}`;
-  return `${bar}  ${counter}  ${label}`;
+  const safeTotal = Math.max(1, total);
+  const pct = Math.round(
+    Math.max(0, Math.min(1, completed / safeTotal)) * 100,
+  );
+  const percent = `${COLORS.dim}${String(pct).padStart(3)}%${COLORS.reset}`;
+  return `${bar}  ${percent}  ${label}`;
 }
 
 export interface StepResult {
@@ -84,48 +122,80 @@ export interface StepResult {
   error?: string;
 }
 
+export interface Step {
+  label: string;
+  fn: () => Promise<unknown>;
+}
+
+/** A phase is a group of steps that run in parallel. */
+export type Phase = Step[];
+
 /**
- * Runs a sequence of async steps with a single persistent spinner line
- * showing stepped progress. Each step's failure is collected rather than
- * thrown, mirroring auto-sync's "best-effort" contract.
+ * Runs phases of async steps with a single persistent spinner line
+ * showing stepped progress. Steps within each phase run in parallel;
+ * phases run sequentially so later phases can depend on earlier ones.
  *
- * Returns the per-step results in submission order so the caller can
- * render a summary.
+ * Each step's failure is collected rather than thrown, mirroring
+ * auto-sync's "best-effort" contract.
+ *
+ * Returns the per-step results in phase/submission order so the caller
+ * can render a summary.
  */
-export async function runSteps(
-  steps: Array<{ label: string; fn: () => Promise<unknown> }>,
-): Promise<StepResult[]> {
-  const total = steps.length;
+export async function runSteps(phases: Phase[]): Promise<StepResult[]> {
+  const total = phases.reduce((n, phase) => n + phase.length, 0);
   const results: StepResult[] = [];
   const s = spinner();
+  let completed = 0;
 
   // Start with 0/total so the user sees the bar immediately.
-  s.start(formatLine(0, total, steps[0]?.label ?? ""));
+  s.start(formatLine(0, total, phases[0]?.[0]?.label ?? ""));
 
-  for (let i = 0; i < steps.length; i++) {
-    const step = steps[i]!;
-    s.message(formatLine(i, total, step.label));
+  for (const phase of phases) {
+    // Show all in-flight labels for this phase.
+    const inFlight = new Set(phase.map((step) => step.label));
+    s.message(formatLine(completed, total, [...inFlight].join(", ")));
 
-    try {
-      await step.fn();
-      results.push({ label: step.label, ok: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      results.push({ label: step.label, ok: false, error: message });
-    }
+    // Run every step in this phase concurrently.
+    const phaseResults = await Promise.all(
+      phase.map(async (step): Promise<StepResult> => {
+        try {
+          await step.fn();
+          completed++;
+          inFlight.delete(step.label);
+          if (inFlight.size > 0) {
+            s.message(
+              formatLine(completed, total, [...inFlight].join(", ")),
+            );
+          }
+          return { label: step.label, ok: true };
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          completed++;
+          inFlight.delete(step.label);
+          if (inFlight.size > 0) {
+            s.message(
+              formatLine(completed, total, [...inFlight].join(", ")),
+            );
+          }
+          return { label: step.label, ok: false, error: message };
+        }
+      }),
+    );
+
+    results.push(...phaseResults);
   }
 
-  // Stop with a filled bar + final label so the user sees we reached the
-  // end rather than leaving the last in-flight step pinned. Bar color
-  // flips to the universal status colors: green when every step
-  // succeeded, red when any step failed. The per-step ✓/✗ rows printed
-  // afterwards provide the detailed breakdown.
+  // Stop with a filled bar + final label. Bar color flips to the
+  // universal status colors: green when every step succeeded, red when
+  // any step failed.
   const okCount = results.filter((r) => r.ok).length;
   const allOk = okCount === total;
+  const finalState: BarState = allOk ? "success" : "error";
   const finalLabel = allOk
-    ? `${COLORS.green}Setup complete${COLORS.reset}`
-    : `${COLORS.red}Setup finished with errors${COLORS.reset}`;
-  s.stop(formatLine(total, total, finalLabel, allOk ? "success" : "error"));
+    ? `${fillColor("success")}Setup complete${COLORS.reset}`
+    : `${fillColor("error")}Setup finished with errors${COLORS.reset}`;
+  s.stop(formatLine(total, total, finalLabel, finalState));
 
   return results;
 }

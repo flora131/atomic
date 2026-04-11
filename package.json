@@ -26,14 +26,40 @@
     "atomic": "src/cli.ts"
   },
   "exports": {
-    ".": "./src/sdk/index.ts",
-    "./workflows": "./src/sdk/workflows/index.ts",
-    "./workflows/builtin/ralph/claude": "./src/sdk/workflows/builtin/ralph/claude/index.ts",
-    "./workflows/builtin/ralph/copilot": "./src/sdk/workflows/builtin/ralph/copilot/index.ts",
-    "./workflows/builtin/ralph/opencode": "./src/sdk/workflows/builtin/ralph/opencode/index.ts"
+    ".": {
+      "bun": "./src/sdk/index.ts",
+      "types": "./dist/sdk/index.d.ts",
+      "import": "./dist/sdk/index.js",
+      "default": "./dist/sdk/index.js"
+    },
+    "./workflows": {
+      "bun": "./src/sdk/workflows/index.ts",
+      "types": "./dist/sdk/workflows/index.d.ts",
+      "import": "./dist/sdk/workflows/index.js",
+      "default": "./dist/sdk/workflows/index.js"
+    },
+    "./workflows/builtin/ralph/claude": {
+      "bun": "./src/sdk/workflows/builtin/ralph/claude/index.ts",
+      "types": "./dist/sdk/workflows/builtin/ralph/claude/index.d.ts",
+      "import": "./dist/sdk/workflows/builtin/ralph/claude/index.js",
+      "default": "./dist/sdk/workflows/builtin/ralph/claude/index.js"
+    },
+    "./workflows/builtin/ralph/copilot": {
+      "bun": "./src/sdk/workflows/builtin/ralph/copilot/index.ts",
+      "types": "./dist/sdk/workflows/builtin/ralph/copilot/index.d.ts",
+      "import": "./dist/sdk/workflows/builtin/ralph/copilot/index.js",
+      "default": "./dist/sdk/workflows/builtin/ralph/copilot/index.js"
+    },
+    "./workflows/builtin/ralph/opencode": {
+      "bun": "./src/sdk/workflows/builtin/ralph/opencode/index.ts",
+      "types": "./dist/sdk/workflows/builtin/ralph/opencode/index.d.ts",
+      "import": "./dist/sdk/workflows/builtin/ralph/opencode/index.js",
+      "default": "./dist/sdk/workflows/builtin/ralph/opencode/index.js"
+    }
   },
   "files": [
     "src",
+    "dist",
     "tsconfig.json",
     "assets/settings.schema.json",
     ".claude/agents",
@@ -44,6 +70,7 @@
   "scripts": {
     "dev": "bun run src/cli.ts",
     "build": "bun run build.ts",
+    "prepack": "bun run build",
     "test": "bun test ./src ./tests",
     "test:coverage": "bun test --coverage ./src ./tests",
     "typecheck": "bunx tsc --noEmit && bunx tsc -p tests --noEmit",

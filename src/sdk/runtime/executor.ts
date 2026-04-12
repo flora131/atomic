@@ -4,10 +4,14 @@
  * Architecture:
  * 1. `executeWorkflow()` is called by the CLI command
  * 2. It creates a tmux session with an orchestrator pane that runs
- *    `bun run executor.ts --run <args>`
+ *    `bun run executor-entry.ts` (a thin wrapper that calls `runOrchestrator()`)
  * 3. The CLI then attaches to the tmux session (user sees it live)
  * 4. The orchestrator pane calls `definition.run(workflowCtx)` — the
  *    user's callback uses `ctx.stage()` to spawn agent sessions
+ *
+ * The entry point is in executor-entry.ts (not this file) to avoid Bun's
+ * dual-module-identity issue: Bun evaluates a file twice when it is both
+ * the entry point and reached through package.json `exports` self-referencing.
  */
 
 import { join, resolve } from "path";
@@ -275,8 +279,11 @@ export async function executeWorkflow(
   const sessionsBaseDir = join(getSessionsBaseDir(), workflowRunId);
   await ensureDir(sessionsBaseDir);
 
-  // Write a launcher script for the orchestrator pane
-  const thisFile = resolve(import.meta.dir, "executor.ts");
+  // Write a launcher script for the orchestrator pane.
+  // Points to executor-entry.ts (not executor.ts) to avoid Bun's
+  // dual-module-identity issue: entry points and package self-references
+  // are evaluated as separate module instances in Bun.
+  const thisFile = resolve(import.meta.dir, "executor-entry.ts");
   const isWin = process.platform === "win32";
   const launcherExt = isWin ? "ps1" : "sh";
   const launcherPath = join(sessionsBaseDir, `orchestrator.${launcherExt}`);
@@ -291,7 +298,7 @@ export async function executeWorkflow(
         `$env:ATOMIC_WF_PROMPT = "${escPwsh(Buffer.from(prompt).toString("base64"))}"`,
         `$env:ATOMIC_WF_FILE = "${escPwsh(workflowFile)}"`,
         `$env:ATOMIC_WF_CWD = "${escPwsh(projectRoot)}"`,
-        `bun run "${escPwsh(thisFile)}" --run 2>"${escPwsh(logPath)}"`,
+        `bun run "${escPwsh(thisFile)}" 2>"${escPwsh(logPath)}"`,
       ].join("\n")
     : [
         "#!/bin/bash",
@@ -302,7 +309,7 @@ export async function executeWorkflow(
         `export ATOMIC_WF_PROMPT="${escBash(Buffer.from(prompt).toString("base64"))}"`,
         `export ATOMIC_WF_FILE="${escBash(workflowFile)}"`,
         `export ATOMIC_WF_CWD="${escBash(projectRoot)}"`,
-        `bun run "${escBash(thisFile)}" --run 2>"${escBash(logPath)}"`,
+        `bun run "${escBash(thisFile)}" 2>"${escBash(logPath)}"`,
       ].join("\n");
 
   await writeFile(launcherPath, launcherScript, { mode: 0o755 });
@@ -432,6 +439,8 @@ interface SharedRunnerState {
   activeRegistry: Map<string, ActiveSession>;
   /** Sessions that completed successfully (for transcript reads). */
   completedRegistry: Map<string, SessionResult>;
+  /** Sessions that already failed before completing successfully. */
+  failedRegistry: Set<string>;
 }
 
 /**
@@ -451,7 +460,7 @@ async function initProviderClientAndSession(
       const { CopilotClient, approveAll } = await import("@github/copilot-sdk");
       const copilotClientOpts = clientOpts as StageClientOptions<"copilot">;
       const copilotSessionOpts = sessionOpts as StageSessionOptions<"copilot">;
-      const client = new CopilotClient({ cliUrl: serverUrl, ...copilotClientOpts });
+      const client = new CopilotClient({ ...copilotClientOpts, cliUrl: serverUrl });
       await client.start();
       const session = await client.createSession({
         onPermissionRequest: approveAll,
@@ -464,7 +473,7 @@ async function initProviderClientAndSession(
       const { createOpencodeClient } = await import("@opencode-ai/sdk/v2");
       const ocClientOpts = clientOpts as StageClientOptions<"opencode">;
       const ocSessionOpts = sessionOpts as StageSessionOptions<"opencode">;
-      const client = createOpencodeClient({ baseUrl: serverUrl, ...ocClientOpts });
+      const client = createOpencodeClient({ ...ocClientOpts, baseUrl: serverUrl });
       const sessionResult = await client.session.create(ocSessionOpts);
       await client.tui.selectSession({ sessionID: sessionResult.data!.id });
       return { client, session: sessionResult.data! };
@@ -552,7 +561,11 @@ function createSessionRunner(
     if (!name || name.trim() === "") {
       throw new Error("Session name is required.");
     }
-    if (shared.activeRegistry.has(name) || shared.completedRegistry.has(name)) {
+    if (
+      shared.activeRegistry.has(name) ||
+      shared.completedRegistry.has(name) ||
+      shared.failedRegistry.has(name)
+    ) {
       throw new Error(`Duplicate session name: "${name}"`);
     }
 
@@ -575,6 +588,7 @@ function createSessionRunner(
 
     const sessionId = generateId();
     let paneId = "";
+    let panelSessionAdded = false;
 
     try {
 
@@ -608,6 +622,7 @@ function createSessionRunner(
 
       // ── 10. Add node to graph panel ──
       shared.panel.addSession(name, graphParents);
+      panelSessionAdded = true;
 
       // ── 11. Claude session snapshot (for identifying new sessions later) ──
       let knownClaudeSessionIds: Set<string> | undefined;
@@ -799,8 +814,16 @@ function createSessionRunner(
       graphTracker.onSettle(name);
       return { name, id: sessionId, result: callbackResult! };
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (panelSessionAdded) {
+        shared.panel.sessionError(name, message);
+      }
+      if (paneId) {
+        tmux.killWindow(shared.tmuxSessionName, name);
+      }
       // Ensure the done promise settles and the active entry is cleared.
       shared.activeRegistry.delete(name);
+      shared.failedRegistry.add(name);
       rejectDone(error);
       // Update frontier even on failure — if the caller catches and
       // continues, the next stage should still chain from this one.
@@ -814,7 +837,7 @@ function createSessionRunner(
 // Orchestrator logic — runs inside a tmux pane
 // ============================================================================
 
-async function runOrchestrator(): Promise<void> {
+export async function runOrchestrator(): Promise<void> {
   const requiredEnvVars = [
     "ATOMIC_WF_ID",
     "ATOMIC_WF_TMUX",
@@ -873,6 +896,7 @@ async function runOrchestrator(): Promise<void> {
     panel,
     activeRegistry: new Map(),
     completedRegistry: new Map(),
+    failedRegistry: new Set(),
   };
 
   try {
@@ -982,13 +1006,3 @@ async function runOrchestrator(): Promise<void> {
   }
 }
 
-// ============================================================================
-// Direct invocation: `bun run executor.ts --run`
-// ============================================================================
-
-if (process.argv.includes("--run")) {
-  runOrchestrator().catch((err) => {
-    console.error("Fatal:", err);
-    process.exitCode = 1;
-  });
-}

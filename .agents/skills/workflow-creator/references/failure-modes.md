@@ -40,7 +40,7 @@ Silent failures are catalogued first below. Loud failures are grouped at the end
 | [F8](#f8-fenced-block-parsers-break-when-the-model-adds-prose) | Fenced-block parsers break when the model adds prose before/after | all | silent |
 | [F9](#f9-ssave-receives-the-wrong-shape) | `s.save()` receives the wrong shape for the SDK | all | silent |
 | [F10](#f10-copilot-sendandwait-default-60s-timeout-throws) | Copilot: `sendAndWait` default 60s timeout throws | Copilot | loud |
-| [F11](#f11-claudequery-without-prior-createclaudesession-throws-resolved-by-runtime) | ~~Claude: `claudeQuery` without prior `createClaudeSession` throws~~ (resolved by runtime) | Claude | N/A |
+| [F11](#f11-manual-claude-session-initialization-resolved-by-runtime) | ~~Manual Claude session initialization~~ (resolved by runtime) | Claude | N/A |
 | [F12](#f12-resume-session-tries-to-swap-agents) | Resume session tries to swap agents | Copilot, OpenCode | loud |
 | [F13](#f13-parallel-siblings-read-each-others-transcripts) | Parallel siblings read each other's transcripts | all | loud |
 | [F14](#f14-forgetting-to-await-ctxstage) | Forgetting to `await` `ctx.stage()` | all | silent |
@@ -180,8 +180,7 @@ function extractResponseText(
 **Symptom.** Parsers matching "the last fenced JSON block" pick up an old
 turn's JSON because the captured output contains multiple turns of scrollback.
 
-**Root cause.** `s.session.query()` wraps `claudeQuery()`, which captures the
-tmux pane's visible scrollback after output stabilizes — it's not a scoped
+**Root cause.** `s.session.query()` captures the tmux pane's visible scrollback after output stabilizes — it's not a scoped
 "this call's response only" string. Earlier sub-agent output, prior-turn
 assistant text, and even the user's own prompt echo all end up in
 `result.output`.
@@ -212,7 +211,7 @@ export function extractLastFencedBlock(
 }
 ```
 
-The ralph helpers in `.atomic/workflows/ralph/helpers/prompts.ts`
+The ralph helpers in `src/sdk/workflows/builtin/ralph/helpers/prompts.ts`
 (`parseReviewResult`, `extractMarkdownBlock`) use this pattern — always take
 the **last** block, never the first.
 
@@ -255,8 +254,9 @@ await runAgent(
 ```
 
 Alternatives: write to shared state (`TaskCreate`/`TaskList`, files, git) and
-have the next stage read from there, or `resumeSession(id)` **if the next
-step uses the same agent**.
+have the next stage read from there, or keep the follow-up inside the same
+stage callback when it needs the full live conversation. Provider-level resume
+is an advanced same-role escape hatch, not the normal stage-to-stage handoff.
 
 **Full write-up.** `agent-sessions.md` §"Critical pitfall: session lifecycle
 controls what context is available".
@@ -423,7 +423,7 @@ export function parseReviewResult(content: string): ReviewResult | null {
   }
 
   // 3. Last balanced object containing the required key
-  // (implementation in .atomic/workflows/ralph/helpers/prompts.ts)
+  // (implementation in src/sdk/workflows/builtin/ralph/helpers/prompts.ts)
   return null;
 }
 ```
@@ -496,21 +496,21 @@ await s.session.sendAndWait({ prompt }, SEND_TIMEOUT_MS);
 
 ---
 
-## F11. ~~Claude: `claudeQuery` without prior `createClaudeSession` throws~~ (resolved by runtime)
+## F11. ~~Manual Claude session initialization~~ (resolved by runtime)
 
 This failure mode is now handled automatically by the runtime. When using
-`s.session.query()`, the runtime calls `createClaudeSession()` during stage
-initialization before the user callback runs. Manual `createClaudeSession`
-calls are no longer needed — `s.client` and `s.session` arrive fully
+`s.session.query()`, the runtime initializes the Claude CLI session during stage
+setup before the user callback runs. Manual session initialization
+is no longer needed — `s.client` and `s.session` arrive fully
 initialized.
 
 **Previously required (now unnecessary):**
 
 ```ts
-// OLD — no longer needed
-await ctx.stage({ name: "..." }, async (s) => {
-  await createClaudeSession({ paneId: s.paneId }); // ← runtime does this now
-  await claudeQuery({ paneId: s.paneId, prompt: ctx.userPrompt });
+// OLD — no longer needed; the runtime handles session initialization
+await ctx.stage({ name: "..." }, {}, {}, async (s) => {
+  // Manual init was required before the runtime managed lifecycle
+  await s.session.query(ctx.userPrompt);
   s.save(s.sessionId);
 });
 ```
@@ -526,7 +526,7 @@ await ctx.stage({ name: "..." }, {}, {}, async (s) => {
 
 ---
 
-## F12. Resume session tries to swap agents
+## F12. Provider-level resume tries to swap agents
 
 **Symptom.** Resumed Copilot / OpenCode session behaves as the original
 agent instead of the requested new one — or the SDK throws "agent mismatch"
@@ -535,8 +535,10 @@ on resume.
 **Root cause.** Each session is **bound to one agent at creation time**.
 `resumeSession` reattaches the conversation but does not change the agent.
 
-**Fix.** Use resume only for multi-turn work within the same role. To swap
-agents, create a new session (fresh) and forward context via F5's pattern.
+**Fix.** Use provider-level resume only for multi-turn work within the same
+role. To swap agents, create a new session (fresh) and forward context via
+F5's pattern. In normal workflow code, prefer a same-stage multi-turn session
+over trying to reopen a prior stage.
 
 ---
 
@@ -694,4 +696,4 @@ Before shipping a multi-session workflow, walk the list:
 - [ ] Parallel groups only read from prior completed sessions, never siblings (F13)
 - [ ] Every `ctx.stage()` call is `await`ed (F14)
 - [ ] `SessionHandle` values are only used after the promise resolves (F15)
-- [ ] Resume is only used within the same agent role (F12)
+- [ ] If provider-level resume/fork is used at all, it stays within the same agent role (F12)

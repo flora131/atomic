@@ -57,27 +57,53 @@ function Get-Bar {
         [int]$Total,
         [ValidateSet("progress", "success", "error")][string]$State = "progress"
     )
-    $width = 18
+    $width = 30
     $filled = [Math]::Min($width, [int]($Completed * $width / [Math]::Max(1, $Total)))
     $empty  = $width - $filled
-    $fill = switch ($State) {
-        "success" { $script:C_GREEN }
-        "error"   { $script:C_RED }
-        default   { $script:C_BLUE }
+    $bar = ""
+
+    $hasTrueColor = ($env:COLORTERM -eq "truecolor" -or $env:COLORTERM -eq "24bit")
+    if ($hasTrueColor -and $filled -gt 0 -and ($null -eq $env:NO_COLOR -or $env:NO_COLOR -eq "")) {
+        switch ($State) {
+            "success" { $sr=126; $sg=201; $sb=138; $er=166; $eg=227; $eb=161 }
+            "error"   { $sr=224; $sg=108; $sb=136; $er=243; $eg=139; $eb=168 }
+            default   { $sr=242; $sg=196; $sb=120; $er=249; $eg=226; $eb=175 }
+        }
+        for ($i = 0; $i -lt $filled; $i++) {
+            if ($filled -gt 1) {
+                $t = $i / ($filled - 1)
+            } else {
+                $t = 1.0
+            }
+            $r = [int]($sr + ($er - $sr) * $t)
+            $g = [int]($sg + ($eg - $sg) * $t)
+            $b = [int]($sb + ($eb - $sb) * $t)
+            $bar += "`e[38;2;${r};${g};${b}m■"
+        }
+        $bar += "`e[0m"
+    } else {
+        $fill = switch ($State) {
+            "success" { $script:C_GREEN }
+            "error"   { $script:C_RED }
+            default   { $script:C_YELLOW }
+        }
+        $bar = "${fill}$('■' * $filled)${C_RESET}"
     }
-    return "${C_BOLD}${fill}$('█' * $filled)${C_RESET}${C_DIM}$('░' * $empty)${C_RESET}"
+
+    return "${bar}${C_DIM}$('･' * $empty)${C_RESET}"
 }
 
 function Format-Line {
     param(
         [string]$Glyph,
-        [int]$StepNo,
         [int]$Fill,
         [ValidateSet("progress", "success", "error")][string]$State = "progress",
         [string]$Label
     )
     $bar = Get-Bar -Completed $Fill -Total $script:StepTotal -State $State
-    return "  $Glyph  $bar  ${C_DIM}$StepNo/$($script:StepTotal)${C_RESET}  $Label"
+    $pct = if ($script:StepTotal -gt 0) { [int]($Fill * 100 / $script:StepTotal) } else { 0 }
+    $pctStr = $pct.ToString().PadLeft(3)
+    return "  $Glyph  $bar  ${C_DIM}${pctStr}%${C_RESET}  $Label"
 }
 
 # Run a ScriptBlock with a spinner; capture output; surface only on failure.
@@ -132,7 +158,7 @@ function Invoke-Step {
     try {
         while ($job.State -eq 'Running') {
             $f = $frames[$i % 10]
-            $line = Format-Line -Glyph "${C_BLUE}$f${C_RESET}" -StepNo $stepNo -Fill $completed -State "progress" -Label $Label
+            $line = Format-Line -Glyph "${C_BLUE}$f${C_RESET}" -Fill $completed -State "progress" -Label $Label
             [Console]::Write("`r`e[2K$line")
             Start-Sleep -Milliseconds 80
             $i++
@@ -142,11 +168,11 @@ function Invoke-Step {
         [Console]::Write("`r`e[2K")
         if ($succeeded) {
             $script:StepIndex++
-            $line = Format-Line -Glyph "${C_GREEN}✓${C_RESET}" -StepNo $stepNo -Fill $script:StepIndex -State "success" -Label "${C_DIM}$Label${C_RESET}"
+            $line = Format-Line -Glyph "${C_GREEN}✓${C_RESET}" -Fill $script:StepIndex -State "success" -Label "${C_DIM}$Label${C_RESET}"
             Write-Host $line
             return $true
         } else {
-            $line = Format-Line -Glyph "${C_RED}✗${C_RESET}" -StepNo $stepNo -Fill $completed -State "error" -Label $Label
+            $line = Format-Line -Glyph "${C_RED}✗${C_RESET}" -Fill $completed -State "error" -Label $Label
             Write-Host $line
             if (Test-Path $logFile) {
                 Get-Content $logFile -Tail 15 | ForEach-Object {

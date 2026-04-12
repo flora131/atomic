@@ -10,6 +10,7 @@
 
 import { join } from "path";
 import { readdir, writeFile } from "fs/promises";
+import { existsSync, readdirSync } from "fs";
 import { homedir } from "os";
 import ignore from "ignore";
 import type { AgentType } from "../types.ts";
@@ -18,7 +19,7 @@ export interface DiscoveredWorkflow {
   name: string;
   agent: AgentType;
   path: string;
-  source: "local" | "global";
+  source: "local" | "global" | "builtin";
 }
 
 function getLocalWorkflowsDir(projectRoot: string): string {
@@ -131,8 +132,50 @@ async function discoverFromBaseDir(
 }
 
 /**
- * Discover all available workflows from local and global directories.
- * Optionally filter by agent. Local workflows take precedence over global.
+ * Absolute path to the `builtin/` directory inside the SDK source tree.
+ * Computed from this file's URL so it always resolves correctly regardless
+ * of how the package was installed (dev checkout, global, bunx, etc.).
+ */
+const BUILTIN_WORKFLOWS_DIR = join(
+  Bun.fileURLToPath(new URL("../workflows/builtin", import.meta.url)),
+);
+
+/**
+ * Discover built-in workflows shipped as SDK modules.
+ *
+ * Scans `src/sdk/workflows/builtin/<name>/<agent>/index.ts` for known
+ * workflow directories. Returns entries with `source: "builtin"`.
+ */
+function discoverBuiltinWorkflows(
+  agentFilter?: AgentType,
+): DiscoveredWorkflow[] {
+  const results: DiscoveredWorkflow[] = [];
+  const agents = agentFilter ? [agentFilter] : AGENTS;
+
+  let workflowNames: string[];
+  try {
+    workflowNames = readdirSync(BUILTIN_WORKFLOWS_DIR, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name);
+  } catch {
+    return results;
+  }
+
+  for (const name of workflowNames) {
+    for (const agent of agents) {
+      const indexPath = join(BUILTIN_WORKFLOWS_DIR, name, agent, "index.ts");
+      if (existsSync(indexPath)) {
+        results.push({ name, agent, path: indexPath, source: "builtin" });
+      }
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Discover all available workflows from built-in, global, and local sources.
+ * Optionally filter by agent. Precedence: local > global > builtin.
  */
 export async function discoverWorkflows(
   projectRoot: string = process.cwd(),
@@ -141,12 +184,17 @@ export async function discoverWorkflows(
   const localDir = getLocalWorkflowsDir(projectRoot);
   const globalDir = getGlobalWorkflowsDir();
 
+  const builtinResults = discoverBuiltinWorkflows(agentFilter);
   const [globalResults, localResults] = await Promise.all([
     discoverFromBaseDir(globalDir, "global", agentFilter),
     discoverFromBaseDir(localDir, "local", agentFilter),
   ]);
 
+  // Merge with precedence: builtin (lowest) → global → local (highest)
   const byKey = new Map<string, DiscoveredWorkflow>();
+  for (const wf of builtinResults) {
+    byKey.set(`${wf.agent}/${wf.name}`, wf);
+  }
   for (const wf of globalResults) {
     byKey.set(`${wf.agent}/${wf.name}`, wf);
   }

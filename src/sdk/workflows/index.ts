@@ -6,7 +6,7 @@
  * for spawning agent sessions using native TypeScript control flow.
  */
 
-export { defineWorkflow, WorkflowBuilder } from "./define-workflow.ts";
+export { defineWorkflow, WorkflowBuilder } from "../define-workflow.ts";
 
 export type {
   AgentType,
@@ -33,7 +33,7 @@ export type {
   ClaudeClientWrapper,
   ClaudeSessionWrapper,
   ClaudeQueryDefaults,
-} from "./types.ts";
+} from "../types.ts";
 
 // Re-export native SDK types for convenience
 export type { SessionEvent as CopilotSessionEvent } from "@github/copilot-sdk";
@@ -41,14 +41,14 @@ export type { SessionPromptResponse as OpenCodePromptResponse } from "@opencode-
 export type { SessionMessage as ClaudeSessionMessage } from "@anthropic-ai/claude-agent-sdk";
 
 // Providers
-export { createClaudeSession, claudeQuery, clearClaudeSession, validateClaudeWorkflow } from "./providers/claude.ts";
-export type { ClaudeSessionOptions, ClaudeQueryOptions, ClaudeQueryResult, ClaudeValidationWarning } from "./providers/claude.ts";
+export { createClaudeSession, claudeQuery, clearClaudeSession, validateClaudeWorkflow } from "../providers/claude.ts";
+export type { ClaudeSessionOptions, ClaudeQueryOptions, ClaudeQueryResult, ClaudeValidationWarning } from "../providers/claude.ts";
 
-export { validateCopilotWorkflow } from "./providers/copilot.ts";
-export type { CopilotValidationWarning } from "./providers/copilot.ts";
+export { validateCopilotWorkflow } from "../providers/copilot.ts";
+export type { CopilotValidationWarning } from "../providers/copilot.ts";
 
-export { validateOpenCodeWorkflow } from "./providers/opencode.ts";
-export type { OpenCodeValidationWarning } from "./providers/opencode.ts";
+export { validateOpenCodeWorkflow } from "../providers/opencode.ts";
+export type { OpenCodeValidationWarning } from "../providers/opencode.ts";
 
 // Runtime — tmux utilities
 export {
@@ -84,7 +84,7 @@ export {
   paneIsIdle,
   waitForPaneReady,
   attemptSubmitRounds,
-} from "./runtime/tmux.ts";
+} from "../runtime/tmux.ts";
 
 // Runtime — workflow discovery
 export {
@@ -92,12 +92,12 @@ export {
   discoverWorkflows,
   findWorkflow,
   WORKFLOWS_GITIGNORE,
-} from "./runtime/discovery.ts";
-export type { DiscoveredWorkflow } from "./runtime/discovery.ts";
+} from "../runtime/discovery.ts";
+export type { DiscoveredWorkflow } from "../runtime/discovery.ts";
 
 // Runtime — workflow loader pipeline
-export { WorkflowLoader } from "./runtime/loader.ts";
+export { WorkflowLoader } from "../runtime/loader.ts";
 
 // Runtime — workflow executor
-export { executeWorkflow } from "./runtime/executor.ts";
-export type { WorkflowRunOptions } from "./runtime/executor.ts";
+export { executeWorkflow } from "../runtime/executor.ts";
+export type { WorkflowRunOptions } from "../runtime/executor.ts";

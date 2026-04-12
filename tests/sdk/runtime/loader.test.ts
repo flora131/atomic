@@ -1,7 +1,5 @@
 /**
  * Tests for WorkflowLoader — covering paths not exercised by discovery.test.ts:
- * - Bun.plugin SDK resolver (loads a workflow from a tempdir outside the
- *   atomic repo and verifies `atomic/workflows` resolution)
  * - validateSource for opencode and claude agents
  * - resolve / validate / load catch blocks
  */
@@ -10,7 +8,7 @@ import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { join } from "path";
 import { mkdtemp, mkdir, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
-import { WorkflowLoader } from "@/sdk/workflows.ts";
+import { WorkflowLoader } from "@/sdk/workflows/index.ts";
 
 let tempDir: string;
 
@@ -20,87 +18,6 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await rm(tempDir, { recursive: true, force: true });
-});
-
-// ---------------------------------------------------------------------------
-// SDK resolver — proves workflow files can `import "@bastani/atomic/workflows"` from
-// any location on disk, without a `package.json` or `node_modules`.
-// ---------------------------------------------------------------------------
-
-describe("WorkflowLoader — atomic/* SDK resolution", () => {
-  test("loads a workflow that imports `atomic/workflows` from outside the repo", async () => {
-    // Place the workflow file in a tempdir well outside `<atomic>/.atomic/`,
-    // so resolution cannot accidentally rely on a parent `node_modules/atomic`
-    // symlink. Only the Bun resolver plugin can satisfy this import.
-    const workflowDir = join(tempDir, "ext", "wf-name", "claude");
-    await mkdir(workflowDir, { recursive: true });
-    const filePath = join(workflowDir, "index.ts");
-    await writeFile(
-      filePath,
-      `
-import { defineWorkflow } from "@bastani/atomic/workflows";
-
-export default defineWorkflow({ name: "ext" })
-  .run(async () => {})
-  .compile();
-`,
-    );
-
-    const result = await WorkflowLoader.loadWorkflow({
-      name: "ext",
-      agent: "claude",
-      path: filePath,
-      source: "local",
-    });
-
-    if (!result.ok) {
-      // Surface the failure cause so the test report is actionable.
-      throw new Error(
-        `loadWorkflow failed at stage "${result.stage}": ${result.message}\n` +
-          `error=${result.error instanceof Error ? result.error.stack : String(result.error)}`,
-      );
-    }
-    expect(result.value.definition.__brand).toBe("WorkflowDefinition");
-    expect(result.value.definition.name).toBe("ext");
-  });
-
-  test("resolves third-party specifiers from atomic's own node_modules", async () => {
-    // A workflow file that imports a bare specifier (`zod`) atomic ships as
-    // a transitive dep. If the loader's `Bun.resolveSync` delegation is
-    // working, this import should succeed even though the workflow lives
-    // outside the atomic repo and has no `node_modules` of its own.
-    const workflowDir = join(tempDir, "tp", "wf", "claude");
-    await mkdir(workflowDir, { recursive: true });
-    const filePath = join(workflowDir, "index.ts");
-    await writeFile(
-      filePath,
-      `
-import { defineWorkflow } from "@bastani/atomic/workflows";
-import { z } from "zod";
-
-// Touch the import so tree-shaking / minifiers don't drop it.
-const schema = z.object({ name: z.string() });
-
-export default defineWorkflow({ name: schema.parse({ name: "tp" }).name })
-  .run(async () => {})
-  .compile();
-`,
-    );
-
-    const result = await WorkflowLoader.loadWorkflow({
-      name: "tp",
-      agent: "claude",
-      path: filePath,
-      source: "local",
-    });
-
-    if (!result.ok) {
-      throw new Error(
-        `loadWorkflow failed at stage "${result.stage}": ${result.message}`,
-      );
-    }
-    expect(result.value.definition.name).toBe("tp");
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -118,7 +35,7 @@ describe("WorkflowLoader.validate — agent provider validation", () => {
     await writeFile(
       filePath,
       `
-import { defineWorkflow } from "${join(process.cwd(), "src/sdk/workflows.ts")}";
+import { defineWorkflow } from "${join(process.cwd(), "src/sdk/workflows/index.ts")}";
 ${body}
 export default defineWorkflow({ name: "${name}" })
   .run(async () => {})

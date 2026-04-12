@@ -5,7 +5,8 @@
  * eliminating duplication across postinstall-playwright, postinstall-liteparse, etc.
  */
 
-import { join } from "path";
+import { join } from "node:path";
+import { homedir } from "node:os";
 
 export interface SpawnResult {
   success: boolean;
@@ -73,10 +74,12 @@ export function prependPath(directory: string): void {
 }
 
 /**
- * Get the user's home directory from environment variables.
+ * Get the user's home directory.
+ * Uses Node.js os.homedir() which handles cross-platform resolution
+ * (HOME on Unix, USERPROFILE on Windows, and fallback to passwd on Linux).
  */
-export function getHomeDir(): string | undefined {
-  return process.env.HOME ?? process.env.USERPROFILE;
+export function getHomeDir(): string {
+  return homedir();
 }
 
 /**
@@ -163,13 +166,16 @@ async function installNodeViaFnm(quiet: boolean): Promise<boolean> {
 
   // Activate the installed version by adding its bin dir to PATH.
   const envShell = process.platform === "win32" ? "cmd" : "bash";
-  const envResult = Bun.spawnSync({
+  const envProc = Bun.spawn({
     cmd: [fnmPath, "env", "--shell", envShell],
     stdout: "pipe",
     stderr: "pipe",
   });
-  if (envResult.success) {
-    const envOutput = envResult.stdout.toString();
+  const [envOutput, envExitCode] = await Promise.all([
+    new Response(envProc.stdout).text(),
+    envProc.exited,
+  ]);
+  if (envExitCode === 0) {
     if (process.platform === "win32") {
       // cmd output: SET "PATH=C:\...\fnm_multishells\...;..."
       const pathMatch = envOutput.match(/SET "PATH=([^"]+?)"/i);

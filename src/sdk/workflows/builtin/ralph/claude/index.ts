@@ -26,6 +26,10 @@ import { safeGitStatusS } from "../helpers/git.ts";
 const MAX_LOOPS = 10;
 const CONSECUTIVE_CLEAN_THRESHOLD = 2;
 
+// The orchestrator stage implements the actual code changes and can run for
+// a very long time on large tasks. 24 hours prevents premature timeout.
+const ORCHESTRATOR_TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24 hours
+
 /** Wrap a prompt with a Claude Code @-mention so the named sub-agent runs it. */
 function asAgentCall(agentName: string, prompt: string): string {
   return `@"${agentName} (agent)" ${prompt}`;
@@ -78,6 +82,7 @@ export default defineWorkflow<"claude">({
               "orchestrator",
               buildOrchestratorPrompt(prompt),
             ),
+            { timeoutMs: ORCHESTRATOR_TIMEOUT_MS },
           );
           s.save(s.sessionId);
         },

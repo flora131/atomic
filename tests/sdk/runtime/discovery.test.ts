@@ -3,16 +3,16 @@
  */
 
 import { test, expect, beforeEach, afterEach, describe } from "bun:test";
-import { join } from "path";
-import { mkdtemp, mkdir, rm, writeFile } from "fs/promises";
-import { tmpdir } from "os";
+import { join } from "node:path";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import {
   discoverWorkflows,
   findWorkflow,
   WorkflowLoader,
   WORKFLOWS_GITIGNORE,
 } from "@/sdk/workflows/index.ts";
-import { readFile } from "fs/promises";
+import { readFile } from "node:fs/promises";
 
 let tempDir: string;
 

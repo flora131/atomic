@@ -12,6 +12,7 @@
 
 import type { WorkflowDefinition, AgentType } from "../types.ts";
 import type { DiscoveredWorkflow } from "./discovery.ts";
+import { errorMessage, WorkflowNotCompiledError, InvalidWorkflowError } from "../errors.ts";
 import { validateCopilotWorkflow } from "../providers/copilot.ts";
 import { validateOpenCodeWorkflow } from "../providers/opencode.ts";
 import { validateClaudeWorkflow } from "../providers/claude.ts";
@@ -44,11 +45,8 @@ export namespace WorkflowLoader {
   /** Output of the resolve stage. */
   export type Resolved = Plan;
 
-  /** A source validation warning (agent-specific). */
-  export interface ValidationWarning {
-    rule: string;
-    message: string;
-  }
+  /** Source validation warning — alias of the canonical type from types.ts. */
+  export type ValidationWarning = import("../types.ts").ValidationWarning;
 
   /** Output of the validate stage. */
   export type Validated = Resolved & {
@@ -97,7 +95,7 @@ export namespace WorkflowLoader {
         ok: false,
         stage: "resolve",
         error,
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       };
     }
   }
@@ -115,8 +113,10 @@ export namespace WorkflowLoader {
         return validateOpenCodeWorkflow(source);
       case "claude":
         return validateClaudeWorkflow(source);
-      default:
-        return [];
+      default: {
+        const _exhaustive: never = agent;
+        return _exhaustive;
+      }
     }
   }
 
@@ -140,7 +140,7 @@ export namespace WorkflowLoader {
         ok: false,
         stage: "validate",
         error,
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       };
     }
   }
@@ -162,26 +162,21 @@ export namespace WorkflowLoader {
 
       if (!definition || definition.__brand !== "WorkflowDefinition") {
         if (definition && definition.__brand === "WorkflowBuilder") {
+          const err = new WorkflowNotCompiledError(validated.path);
           return {
             ok: false,
             stage: "load",
-            error: new Error("Workflow not compiled"),
-            message:
-              `Workflow at ${validated.path} was defined but not compiled.\n` +
-              `  Add .compile() at the end of your defineWorkflow() chain:\n\n` +
-              `    export default defineWorkflow({ ... })\n` +
-              `      .run(async (ctx) => { ... })\n` +
-              `      .compile();`,
+            error: err,
+            message: err.message,
           };
         }
 
+        const err = new InvalidWorkflowError(validated.path);
         return {
           ok: false,
           stage: "load",
-          error: new Error("Invalid workflow export"),
-          message:
-            `${validated.path} does not export a valid WorkflowDefinition.\n` +
-            `  Make sure it exports defineWorkflow(...).run(...).compile() as the default export.`,
+          error: err,
+          message: err.message,
         };
       }
 
@@ -194,7 +189,7 @@ export namespace WorkflowLoader {
         ok: false,
         stage: "load",
         error,
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       };
     }
   }

@@ -6,7 +6,9 @@
  * sending keystrokes, and pane state detection.
  */
 
-import { join } from "path";
+import { join } from "node:path";
+import { writeFileSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
 import type { Subprocess } from "bun";
 
 // ---------------------------------------------------------------------------
@@ -18,6 +20,11 @@ export const SOCKET_NAME = "atomic";
 
 /** Path to the bundled tmux config (shared by tmux and psmux). */
 const CONFIG_PATH = join(import.meta.dir, "tmux.conf");
+
+/** Discriminated result from a tmux command execution. */
+export type TmuxResult =
+  | { ok: true; stdout: string }
+  | { ok: false; stderr: string };
 
 // ---------------------------------------------------------------------------
 // Core tmux primitives
@@ -81,7 +88,7 @@ export function isInsideTmux(): boolean {
  * Prefers this over the throwing `tmux()` for cases where callers
  * need to handle failure gracefully.
  */
-export function tmuxRun(args: string[]): { ok: true; stdout: string } | { ok: false; stderr: string } {
+export function tmuxRun(args: string[]): TmuxResult {
   const binary = getMuxBinary();
   if (!binary) {
     return { ok: false, stderr: "No terminal multiplexer (tmux/psmux) found on PATH" };
@@ -93,10 +100,9 @@ export function tmuxRun(args: string[]): { ok: true; stdout: string } | { ok: fa
     stderr: "pipe",
   });
   if (!result.success) {
-    const stderr = new TextDecoder().decode(result.stderr).trim();
-    return { ok: false, stderr };
+    return { ok: false, stderr: result.stderr.toString().trim() };
   }
-  return { ok: true, stdout: new TextDecoder().decode(result.stdout).trim() };
+  return { ok: true, stdout: result.stdout.toString().trim() };
 }
 
 /**
@@ -224,13 +230,63 @@ export function createPane(sessionName: string, command: string): string {
 // ---------------------------------------------------------------------------
 
 /**
+ * Maximum bytes per `send-keys -l` invocation.
+ *
+ * tmux passes the text as a single command-line argument to the child
+ * process. On Linux the per-argument limit (`MAX_ARG_STRLEN`) is 128 KB;
+ * on macOS the total `ARG_MAX` is ~1 MB but shared across all args.
+ * We stay well under both limits with 50 KB chunks.
+ */
+const SEND_KEYS_CHUNK_SIZE = 50_000;
+
+/**
  * Send literal text to a tmux pane using `-l` flag (no special key interpretation).
  * Uses `--` to prevent text starting with `-` from being parsed as flags.
+ *
+ * Long texts are chunked to avoid OS `ARG_MAX` / `MAX_ARG_STRLEN` limits
+ * that cause `tmux send-keys` to fail with "command too long".
  */
 export function sendLiteralText(paneId: string, text: string): void {
   // Replace newlines with spaces to avoid premature submission
   const normalized = text.replace(/[\r\n]+/g, " ");
-  tmuxExec(["send-keys", "-t", paneId, "-l", "--", normalized]);
+
+  if (normalized.length <= SEND_KEYS_CHUNK_SIZE) {
+    tmuxExec(["send-keys", "-t", paneId, "-l", "--", normalized]);
+    return;
+  }
+
+  for (let offset = 0; offset < normalized.length; offset += SEND_KEYS_CHUNK_SIZE) {
+    const chunk = normalized.slice(offset, offset + SEND_KEYS_CHUNK_SIZE);
+    tmuxExec(["send-keys", "-t", paneId, "-l", "--", chunk]);
+  }
+}
+
+/**
+ * Send text to a tmux pane via the paste buffer.
+ *
+ * More reliable than `send-keys -l` for large text:
+ * - No OS ARG_MAX / MAX_ARG_STRLEN limits (text goes through a temp file)
+ * - Atomic delivery — the entire text is pasted at once
+ * - No chunking needed
+ *
+ * Newlines are normalized to spaces to prevent premature submission,
+ * matching `sendLiteralText`'s behavior.
+ */
+export function sendViaPasteBuffer(paneId: string, text: string): void {
+  const normalized = text.replace(/[\r\n]+/g, " ");
+  const tmp = join(tmpdir(), `atomic-paste-${process.pid}-${Date.now()}.txt`);
+
+  writeFileSync(tmp, normalized, "utf-8");
+  try {
+    tmuxExec(["load-buffer", tmp]);
+    tmuxExec(["paste-buffer", "-t", paneId, "-d"]);
+  } finally {
+    try {
+      unlinkSync(tmp);
+    } catch {
+      // Temp file cleanup is best-effort
+    }
+  }
 }
 
 /**
@@ -247,17 +303,17 @@ export function sendSpecialKey(paneId: string, key: string): void {
  * @param presses - Number of C-m presses (default: 1)
  * @param delayMs - Delay between presses in ms (default: 100)
  */
-export function sendKeysAndSubmit(
+export async function sendKeysAndSubmit(
   paneId: string,
   text: string,
   presses = 1,
   delayMs = 100
-): void {
+): Promise<void> {
   sendLiteralText(paneId, text);
 
   for (let i = 0; i < presses; i++) {
     if (i > 0 && delayMs > 0) {
-      Bun.sleepSync(delayMs);
+      await Bun.sleep(delayMs);
     }
     sendSpecialKey(paneId, "C-m");
   }
@@ -281,6 +337,16 @@ export function capturePane(paneId: string, start?: number): string {
   return tmux(args);
 }
 
+/** Internal capture helper — returns empty string on failure. */
+function capturePaneRaw(paneId: string, scrollbackLines?: number): string {
+  const args = ["capture-pane", "-t", paneId, "-p"];
+  if (scrollbackLines !== undefined) {
+    args.push("-S", `-${scrollbackLines}`);
+  }
+  const result = tmuxRun(args);
+  return result.ok ? result.stdout : "";
+}
+
 /**
  * Capture only the visible portion of a pane (no scrollback).
  * Preferred for state detection (ready/busy) to avoid stale prompt lines
@@ -288,9 +354,7 @@ export function capturePane(paneId: string, start?: number): string {
  * Returns empty string on failure instead of throwing.
  */
 export function capturePaneVisible(paneId: string): string {
-  const result = tmuxRun(["capture-pane", "-t", paneId, "-p"]);
-  if (!result.ok) return "";
-  return result.stdout;
+  return capturePaneRaw(paneId);
 }
 
 /**
@@ -299,9 +363,7 @@ export function capturePaneVisible(paneId: string): string {
  * Returns empty string on failure instead of throwing.
  */
 export function capturePaneScrollback(paneId: string, lines = 200): string {
-  const result = tmuxRun(["capture-pane", "-t", paneId, "-p", "-S", `-${lines}`]);
-  if (!result.ok) return "";
-  return result.stdout;
+  return capturePaneRaw(paneId, lines);
 }
 
 // ---------------------------------------------------------------------------
@@ -336,22 +398,28 @@ export function sessionExists(sessionName: string): boolean {
   return result.ok;
 }
 
-/**
- * Attach to an existing tmux session (takes over the current terminal).
- */
-export function attachSession(sessionName: string): void {
+/** Build the full argument list for an attach-session command. */
+function buildAttachArgs(sessionName: string): string[] {
   const binary = getMuxBinary();
   if (!binary) {
     throw new Error("No terminal multiplexer (tmux/psmux) found on PATH");
   }
+  return [binary, "-f", CONFIG_PATH, "-L", SOCKET_NAME, "attach-session", "-t", sessionName];
+}
+
+/**
+ * Attach to an existing tmux session (takes over the current terminal).
+ */
+export function attachSession(sessionName: string): void {
+  const cmd = buildAttachArgs(sessionName);
   const proc = Bun.spawnSync({
-    cmd: [binary, "-f", CONFIG_PATH, "-L", SOCKET_NAME, "attach-session", "-t", sessionName],
+    cmd,
     stdin: "inherit",
     stdout: "inherit",
     stderr: "pipe",
   });
   if (!proc.success) {
-    const stderr = new TextDecoder().decode(proc.stderr).trim();
+    const stderr = proc.stderr.toString().trim();
     throw new Error(`Failed to attach to session: ${sessionName}${stderr ? ` (${stderr})` : ""}`);
   }
 }
@@ -362,14 +430,9 @@ export function attachSession(sessionName: string): void {
  * Used by all async attach call sites (executor, chat).
  */
 export function spawnMuxAttach(sessionName: string): Subprocess {
-  const binary = getMuxBinary();
-  if (!binary) {
-    throw new Error("No terminal multiplexer (tmux/psmux) found on PATH");
-  }
-  return Bun.spawn(
-    [binary, "-f", CONFIG_PATH, "-L", SOCKET_NAME, "attach-session", "-t", sessionName],
-    { stdio: ["inherit", "inherit", "inherit"] },
-  );
+  return Bun.spawn(buildAttachArgs(sessionName), {
+    stdio: ["inherit", "inherit", "inherit"],
+  });
 }
 
 /**
@@ -485,10 +548,10 @@ export function paneHasActiveTask(captured: string): boolean {
     .map((line) => line.trim())
     .slice(-40);
 
-  if (tail.some((l) => /\b\d+\s+background terminal running\b/i.test(l))) return true;
-  if (tail.some((l) => /esc to interrupt/i.test(l))) return true;
-  if (tail.some((l) => /\bbackground terminal running\b/i.test(l))) return true;
   return tail.some((l) =>
+    /\b\d+\s+background terminal running\b/i.test(l) ||
+    /esc to interrupt/i.test(l) ||
+    /\bbackground terminal running\b/i.test(l) ||
     /^[·✻]\s+[A-Za-z][A-Za-z0-9''-]*(?:\s+[A-Za-z][A-Za-z0-9''-]*){0,3}(?:…|\.{3})$/u.test(l),
   );
 }

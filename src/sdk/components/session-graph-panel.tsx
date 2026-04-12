@@ -25,9 +25,7 @@ import {
   useStoreVersion,
   TmuxSessionContext,
 } from "./orchestrator-panel-contexts.ts";
-import { computeLayout } from "./layout.ts";
-import { NODE_W, NODE_H } from "./layout.ts";
-import type { LayoutNode } from "./layout.ts";
+import { computeLayout, NODE_W, NODE_H, type LayoutNode } from "./layout.ts";
 import { buildConnector, buildMergeConnector } from "./connectors.ts";
 import type { ConnectorResult } from "./connectors.ts";
 import { NodeCard } from "./node-card.tsx";
@@ -85,23 +83,21 @@ export function SessionGraphPanel() {
   }, [storeVersion]);
 
   // Pulse animation for running nodes — paused when nothing is running
-  const hasRunning = store.sessions.some((s) => s.status === "running");
+  const hasRunning = useMemo(
+    () => store.sessions.some((s) => s.status === "running"),
+    [storeVersion],
+  );
   const [pulsePhase, setPulsePhase] = useState(0);
+  // Pulse animation doubles as a live timer refresh — 60ms updates keep
+  // both the pulse animation and duration displays current, so a separate
+  // 1s tick interval is unnecessary.
   useEffect(() => {
     if (!hasRunning) return;
-    const id = setInterval(
+    const pulseId = setInterval(
       () => setPulsePhase((p: number) => (p + 1) % PULSE_FRAME_COUNT),
       PULSE_INTERVAL_MS,
     );
-    return () => clearInterval(id);
-  }, [hasRunning]);
-
-  // Live timer refresh — re-render every second while any session is running
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    if (!hasRunning) return;
-    const id = setInterval(() => setTick((t) => t + 1), 1000);
-    return () => clearInterval(id);
+    return () => clearInterval(pulseId);
   }, [hasRunning]);
 
   // Attach flash message
@@ -129,13 +125,13 @@ export function SessionGraphPanel() {
 
       tmuxRun(["switch-client", "-t", `${tmuxSession}:${n.name}`]);
     },
-    [layout.map, tmuxSession, store.sessions],
+    [layout.map, tmuxSession],
   );
 
   // Spatial navigation
   const navigate = useCallback(
     (dir: "left" | "right" | "up" | "down") => {
-      const cur = layout.map[focusedId];
+      const cur = layout.map[focusedIdRef.current];
       if (!cur) return;
       const cx = cur.x + NODE_W / 2;
       const cy = cur.y + NODE_H / 2;
@@ -143,7 +139,7 @@ export function SessionGraphPanel() {
       let bestDist = Infinity;
 
       for (const n of nodeList) {
-        if (n.name === focusedId) continue;
+        if (n.name === focusedIdRef.current) continue;
         const nx = n.x + NODE_W / 2;
         const ny = n.y + NODE_H / 2;
         const dx = nx - cx;
@@ -169,7 +165,7 @@ export function SessionGraphPanel() {
 
       if (best) setFocusedId(best.name);
     },
-    [focusedId, layout.map, nodeList],
+    [layout.map, nodeList],
   );
 
   // gg double-tap tracking

@@ -13,7 +13,7 @@
  * Everything here is pure TypeScript + child_process — no LLM calls.
  */
 
-import { spawnSync } from "node:child_process";
+// Use Bun.spawnSync instead of node:child_process for consistency with the rest of the codebase.
 
 /** Source-file extensions we treat as "code" for LOC accounting. */
 const CODE_EXTENSIONS = new Set<string>([
@@ -72,12 +72,13 @@ export type CodebaseScout = {
 
 /** Resolve the project root. Prefers `git rev-parse --show-toplevel`. */
 export function getCodebaseRoot(): string {
-  const r = spawnSync("git", ["rev-parse", "--show-toplevel"], {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "ignore"],
+  const r = Bun.spawnSync({
+    cmd: ["git", "rev-parse", "--show-toplevel"],
+    stdout: "pipe",
+    stderr: "pipe",
   });
-  if (r.status === 0 && r.stdout) {
-    return r.stdout.trim();
+  if (r.success && r.stdout) {
+    return r.stdout.toString().trim();
   }
   return process.cwd();
 }
@@ -91,29 +92,29 @@ function isCodeFile(p: string): boolean {
 
 /** List all files in the repository. Prefers git ls-files (respects .gitignore). */
 function listAllFiles(root: string): string[] {
-  const git = spawnSync("git", ["ls-files"], {
+  const git = Bun.spawnSync({
+    cmd: ["git", "ls-files"],
     cwd: root,
-    encoding: "utf8",
-    maxBuffer: 64 * 1024 * 1024,
-    stdio: ["ignore", "pipe", "ignore"],
+    stdout: "pipe",
+    stderr: "pipe",
   });
-  if (git.status === 0 && git.stdout) {
-    return git.stdout.split("\n").filter((l) => l.length > 0);
+  if (git.success && git.stdout) {
+    return git.stdout.toString().split("\n").filter((l) => l.length > 0);
   }
 
   // Fallback: shell out to find with the standard ignore patterns.
-  const args: string[] = [".", "-type", "f"];
+  const args: string[] = ["find", ".", "-type", "f"];
   for (const pattern of FIND_IGNORE_PATTERNS) {
     args.push("-not", "-path", `*/${pattern}/*`);
   }
-  const find = spawnSync("find", args, {
+  const find = Bun.spawnSync({
+    cmd: args,
     cwd: root,
-    encoding: "utf8",
-    maxBuffer: 64 * 1024 * 1024,
-    stdio: ["ignore", "pipe", "ignore"],
+    stdout: "pipe",
+    stderr: "pipe",
   });
-  if (find.status === 0 && find.stdout) {
-    return find.stdout
+  if (find.success && find.stdout) {
+    return find.stdout.toString()
       .split("\n")
       .map((p) => p.replace(/^\.\//, ""))
       .filter((p) => p.length > 0);
@@ -135,14 +136,14 @@ function countLines(root: string, files: string[]): Map<string, number> {
   const BATCH = 200;
   for (let i = 0; i < files.length; i += BATCH) {
     const batch = files.slice(i, i + BATCH);
-    const r = spawnSync("wc", ["-l", "--", ...batch], {
+    const r = Bun.spawnSync({
+      cmd: ["wc", "-l", "--", ...batch],
       cwd: root,
-      encoding: "utf8",
-      maxBuffer: 32 * 1024 * 1024,
-      stdio: ["ignore", "pipe", "ignore"],
+      stdout: "pipe",
+      stderr: "pipe",
     });
     if (!r.stdout) continue;
-    for (const line of r.stdout.split("\n")) {
+    for (const line of r.stdout.toString().split("\n")) {
       const m = line.match(/^\s*(\d+)\s+(.+)$/);
       // Regex groups are typed `string | undefined` under strict mode even
       // when the whole match succeeded — guard explicitly.

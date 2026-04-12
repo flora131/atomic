@@ -1,5 +1,5 @@
-import { realpath } from "fs/promises";
-import { isAbsolute, relative, resolve } from "path";
+import { realpath } from "node:fs/promises";
+import { isAbsolute, relative, resolve } from "node:path";
 
 function isSubPath(rootPath: string, targetPath: string): boolean {
   const rel = relative(rootPath, targetPath);

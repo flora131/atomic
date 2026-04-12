@@ -5,34 +5,24 @@
  * `s.client` and `s.session` instead of manual SDK client creation.
  */
 
-export interface CopilotValidationWarning {
-  rule: string;
-  message: string;
-}
+import { createProviderValidator } from "../types.ts";
 
 /**
  * Validate a Copilot workflow source file for common mistakes.
  */
-export function validateCopilotWorkflow(source: string): CopilotValidationWarning[] {
-  const warnings: CopilotValidationWarning[] = [];
-
-  if (/\bnew\s+CopilotClient\b/.test(source)) {
-    warnings.push({
-      rule: "copilot/manual-client",
-      message:
-        "Manual CopilotClient creation detected. Use s.client instead — " +
-        "the runtime auto-creates and cleans up the client.",
-    });
-  }
-
-  if (/\bclient\.createSession\b/.test(source)) {
-    warnings.push({
-      rule: "copilot/manual-session",
-      message:
-        "Manual createSession() call detected. Use s.session instead — " +
-        "the runtime auto-creates the session. Pass session config as the third arg to ctx.stage().",
-    });
-  }
-
-  return warnings;
-}
+export const validateCopilotWorkflow = createProviderValidator([
+  {
+    pattern: /\bnew\s+CopilotClient\b/,
+    rule: "copilot/manual-client",
+    message:
+      "Manual CopilotClient creation detected. Use s.client instead — " +
+      "the runtime auto-creates and cleans up the client.",
+  },
+  {
+    pattern: /\bclient\.createSession\b/,
+    rule: "copilot/manual-session",
+    message:
+      "Manual createSession() call detected. Use s.session instead — " +
+      "the runtime auto-creates the session. Pass session config as the third arg to ctx.stage().",
+  },
+]);

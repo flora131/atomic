@@ -119,7 +119,7 @@ Examples:
 
             const { chatCommand } = await import("@/commands/cli/chat.ts");
             const exitCode = await chatCommand({
-                agentType: agentType as "claude" | "opencode" | "copilot",
+                agentType: agentType as AgentKey,
                 passthroughArgs,
             });
 
@@ -180,7 +180,8 @@ Examples:
         .argument("<value>", "Value to set (e.g., true, false)")
         .action(async (key: string, value: string) => {
             const { configCommand } = await import("@/commands/cli/config.ts");
-            await configCommand("set", key, value);
+            const exitCode = await configCommand("set", key, value);
+            process.exit(exitCode);
         });
 
     return program;

@@ -119,12 +119,11 @@ export function getAgentKeys(): AgentKey[] {
  * Source Control Management (SCM) configuration definitions
  */
 
-/** Supported source control types */
-export type SourceControlType = "github" | "sapling";
-// Future: | 'azure-devops'
-
 /** SCM keys for iteration */
 const SCM_KEYS = ["github", "sapling"] as const;
+
+/** Supported source control types — derived from SCM_KEYS tuple. */
+export type SourceControlType = (typeof SCM_KEYS)[number];
 
 export interface ScmConfig {
   /** Internal identifier */

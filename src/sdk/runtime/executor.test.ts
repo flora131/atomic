@@ -2,7 +2,6 @@ import { test, expect, describe } from "bun:test";
 import {
   renderMessagesToText,
   hasContent,
-  isTextBlockArray,
   escBash,
   escPwsh,
 } from "./executor.ts";
@@ -193,10 +192,23 @@ describe("renderMessagesToText", () => {
     expect(renderMessagesToText(messages)).toBe("");
   });
 
-  test("falls back to JSON.stringify for claude assistant with unknown message shape", () => {
+  test("returns empty string for claude assistant with unknown message shape", () => {
     const unknownMsg = { weird: "shape", count: 99 };
     const messages: SavedMessage[] = [makeClaudeMessage("assistant", unknownMsg)];
-    expect(renderMessagesToText(messages)).toBe(JSON.stringify(unknownMsg));
+    expect(renderMessagesToText(messages)).toBe("");
+  });
+
+  test("extracts text blocks from mixed claude content array (text + tool_use)", () => {
+    const messages: SavedMessage[] = [
+      makeClaudeMessage("assistant", {
+        content: [
+          { type: "text", text: "I'll read the file" },
+          { type: "tool_use", id: "tu-1", name: "Read", input: { path: "/tmp/foo" } },
+          { type: "text", text: "Here's what I found" },
+        ],
+      }),
+    ];
+    expect(renderMessagesToText(messages)).toBe("I'll read the file\nHere's what I found");
   });
 
   // --- Mixed providers ---
@@ -249,51 +261,6 @@ describe("hasContent", () => {
 
   test("returns false for undefined", () => {
     expect(hasContent(undefined)).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// isTextBlockArray type guard
-// ---------------------------------------------------------------------------
-
-describe("isTextBlockArray", () => {
-  test("returns true for a valid array of text blocks", () => {
-    expect(isTextBlockArray([{ type: "text", text: "hi" }])).toBe(true);
-  });
-
-  test("returns true for an array with multiple text blocks", () => {
-    expect(
-      isTextBlockArray([
-        { type: "text", text: "first" },
-        { type: "text", text: "second" },
-      ]),
-    ).toBe(true);
-  });
-
-  test("returns true for an empty array (vacuously satisfies every element check)", () => {
-    // Array.prototype.every returns true on empty arrays — the empty array
-    // satisfies the type guard because there are no elements that violate it.
-    expect(isTextBlockArray([])).toBe(true);
-  });
-
-  test("returns false for array with wrong block shape (missing text)", () => {
-    expect(isTextBlockArray([{ type: "text" }])).toBe(false);
-  });
-
-  test("returns false for array with wrong type value", () => {
-    expect(isTextBlockArray([{ type: "tool_use", text: "hi" }])).toBe(false);
-  });
-
-  test("returns false for non-array value", () => {
-    expect(isTextBlockArray("not an array")).toBe(false);
-  });
-
-  test("returns false for null", () => {
-    expect(isTextBlockArray(null)).toBe(false);
-  });
-
-  test("returns false when array elements are not objects", () => {
-    expect(isTextBlockArray(["text"])).toBe(false);
   });
 });
 

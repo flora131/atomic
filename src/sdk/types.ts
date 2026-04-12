@@ -95,6 +95,51 @@ export type {
   ClaudeQueryDefaults,
 };
 
+// ─── Validation ─────────────────────────────────────────────────────────────
+
+/** A source validation warning emitted by provider-specific workflow validators. */
+export interface ValidationWarning {
+  rule: string;
+  message: string;
+}
+
+/** A declarative validation rule: pattern to match + warning to emit. */
+export interface ValidationRule {
+  pattern: RegExp;
+  rule: string;
+  message: string;
+}
+
+/**
+ * Run a set of regex-based validation rules against workflow source code.
+ * Returns a warning for each matching pattern.
+ */
+export function validateWorkflowSource(
+  source: string,
+  rules: readonly ValidationRule[],
+): ValidationWarning[] {
+  // Strip single-line comments to avoid false positives from patterns
+  // that appear only in comments (e.g., a comment mentioning claudeQuery).
+  const stripped = source.replace(/\/\/.*$/gm, "");
+  const warnings: ValidationWarning[] = [];
+  for (const { pattern, rule, message } of rules) {
+    if (pattern.test(stripped)) {
+      warnings.push({ rule, message });
+    }
+  }
+  return warnings;
+}
+
+/**
+ * Create a provider-specific workflow validator from a set of rules.
+ * Eliminates boilerplate — each provider file only needs to declare its rules.
+ */
+export function createProviderValidator(
+  rules: readonly ValidationRule[],
+): (source: string) => ValidationWarning[] {
+  return (source) => validateWorkflowSource(source, rules);
+}
+
 // ─── Workflow input schemas ─────────────────────────────────────────────────
 
 /**

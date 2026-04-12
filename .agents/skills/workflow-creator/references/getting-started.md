@@ -19,12 +19,16 @@ export default defineWorkflow<"claude">({
     description: "A two-session pipeline",
   })
   .run(async (ctx) => {
+    // Free-form workflow: the positional CLI prompt lands under
+    // `inputs.prompt`. Destructure once and close over it in stages.
+    const prompt = ctx.inputs.prompt ?? "";
+
     const describe = await ctx.stage(
       { name: "describe", description: "Ask Claude to describe the project" },
       {},
       {},
       async (s) => {
-        await s.session.query(s.userPrompt);
+        await s.session.query(prompt);
         s.save(s.sessionId);
       },
     );
@@ -65,12 +69,17 @@ export default defineWorkflow<"copilot">({
     description: "A two-session pipeline",
   })
   .run(async (ctx) => {
+    // `userPromptText` rather than `prompt` because Copilot's
+    // sendAndWait uses `{ prompt: ... }` as an object key — the local
+    // name avoids visual collision inside those send calls.
+    const userPromptText = ctx.inputs.prompt ?? "";
+
     const describe = await ctx.stage(
       { name: "describe", description: "Ask the agent to describe the project" },
       {},
       {},
       async (s) => {
-        await s.session.sendAndWait({ prompt: s.userPrompt }, SEND_TIMEOUT_MS);
+        await s.session.sendAndWait({ prompt: userPromptText }, SEND_TIMEOUT_MS);
         s.save(await s.session.getMessages());
       },
     );
@@ -105,6 +114,8 @@ export default defineWorkflow<"opencode">({
     description: "A two-session pipeline",
   })
   .run(async (ctx) => {
+    const prompt = ctx.inputs.prompt ?? "";
+
     const describe = await ctx.stage(
       { name: "describe", description: "Ask the agent to describe the project" },
       {},
@@ -112,7 +123,7 @@ export default defineWorkflow<"opencode">({
       async (s) => {
         const result = await s.client.session.prompt({
           sessionID: s.session.id,
-          parts: [{ type: "text", text: s.userPrompt }],
+          parts: [{ type: "text", text: prompt }],
         });
         s.save(result.data!);
       },
@@ -211,7 +222,7 @@ The Atomic runtime provides `s.client` and `s.session` with types resolved from 
 |-------|------|-------------|
 | `client` | `ProviderClient<A>` | Pre-created SDK client (auto-managed by runtime) |
 | `session` | `ProviderSession<A>` | Pre-created provider session (auto-managed by runtime) |
-| `userPrompt` | `string` | Original user prompt from CLI invocation |
+| `inputs` | `Record<string, string>` | Structured inputs for this run. Free-form workflows read `s.inputs.prompt`; structured workflows read their declared field names. See `workflow-inputs.md`. |
 | `agent` | `AgentType` | Which agent is running |
 | `transcript(ref)` | `(ref: SessionRef) => Promise<Transcript>` | Get prior session's transcript as `{ path, content }` |
 | `getMessages(ref)` | `(ref: SessionRef) => Promise<SavedMessage[]>` | Get prior session's raw native messages |
@@ -225,9 +236,10 @@ The Atomic runtime provides `s.client` and `s.session` with types resolved from 
 
 | File | Topic |
 |---|---|
+| `workflow-inputs.md` | Declaring the `inputs: WorkflowInput[]` schema, the free-form vs structured decision, CLI flag + picker invocation surfaces, builtin protection |
 | `agent-sessions.md` | Creating agent sessions with SDK calls per provider |
 | `computation-and-validation.md` | Deterministic computation, parsing, validation inside `run()` |
-| `user-input.md` | Collecting user input with per-SDK APIs |
+| `user-input.md` | Collecting user input **mid-workflow** (for invocation-time inputs, see `workflow-inputs.md`) |
 | `control-flow.md` | Loops, conditionals, early termination in plain TypeScript |
 | `state-and-data-flow.md` | Data flow between sessions, transcripts, persistence |
 | `session-config.md` | Per-SDK session configuration: model, tools, permissions, hooks |

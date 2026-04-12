@@ -238,7 +238,7 @@ does NOT apply to `s.session.query()`.)
 ### ❌ Wrong
 
 ```ts
-await runAgent("planner", buildPlannerPrompt(ctx.userPrompt));
+await runAgent("planner", buildPlannerPrompt((ctx.inputs.prompt ?? "")));
 // orchestrator is a fresh session — it has no idea what the planner produced
 await runAgent("orchestrator", buildOrchestratorPrompt());
 ```
@@ -246,10 +246,10 @@ await runAgent("orchestrator", buildOrchestratorPrompt());
 ### ✅ Right — explicit handoff
 
 ```ts
-const plannerNotes = await runAgent("planner", buildPlannerPrompt(ctx.userPrompt));
+const plannerNotes = await runAgent("planner", buildPlannerPrompt((ctx.inputs.prompt ?? "")));
 await runAgent(
   "orchestrator",
-  buildOrchestratorPrompt(ctx.userPrompt, { plannerNotes }),
+  buildOrchestratorPrompt((ctx.inputs.prompt ?? ""), { plannerNotes }),
 );
 ```
 
@@ -510,7 +510,7 @@ initialized.
 // OLD — no longer needed; the runtime handles session initialization
 await ctx.stage({ name: "..." }, {}, {}, async (s) => {
   // Manual init was required before the runtime managed lifecycle
-  await s.session.query(ctx.userPrompt);
+  await s.session.query((ctx.inputs.prompt ?? ""));
   s.save(s.sessionId);
 });
 ```
@@ -519,7 +519,7 @@ await ctx.stage({ name: "..." }, {}, {}, async (s) => {
 
 ```ts
 await ctx.stage({ name: "..." }, {}, {}, async (s) => {
-  const result = await s.session.query(ctx.userPrompt);
+  const result = await s.session.query((ctx.inputs.prompt ?? ""));
   s.save(s.sessionId);
 });
 ```

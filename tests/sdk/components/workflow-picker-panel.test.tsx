@@ -1,0 +1,915 @@
+/** @jsxImportSource @opentui/react */
+
+import { test, expect, describe, afterEach } from "bun:test";
+import { testRender } from "@opentui/react/test-utils";
+import { createTestRenderer } from "@opentui/core/testing";
+import { act } from "react";
+import {
+  WorkflowPicker,
+  WorkflowPickerPanel,
+  buildEntries,
+  buildPickerTheme,
+  buildRows,
+  fuzzyMatch,
+  isFieldValid,
+  type PickerTheme,
+  type WorkflowPickerResult,
+} from "@/sdk/components/workflow-picker-panel.tsx";
+import type { WorkflowWithMetadata } from "@/sdk/runtime/discovery.ts";
+import type { WorkflowInput } from "@/sdk/types.ts";
+
+// ─── Keyboard input helpers ───────────────────────
+//
+// OpenTUI's stdin parser holds lone `\x1B` bytes pending, waiting for
+// either a follow-up byte or a timeout to disambiguate a bare escape
+// key from the start of an escape sequence. In tests that never
+// advance the clock, we need to force-flush the parser explicitly.
+// We also wrap every input action in React's `act()` so the resulting
+// state updates are committed before the next `renderOnce()` captures
+// a frame.
+
+type TestSetup = Awaited<ReturnType<typeof testRender>>;
+
+function flushPendingInput(setup: TestSetup) {
+  // stdinParser is public on CliRenderer (no underscore).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const r = setup.renderer as any;
+  r.stdinParser?.flushTimeout?.(Number.POSITIVE_INFINITY);
+  r.drainStdinParser?.();
+}
+
+async function press(
+  setup: TestSetup,
+  action: (input: TestSetup["mockInput"]) => void | Promise<void>,
+) {
+  await act(async () => {
+    await action(setup.mockInput);
+    flushPendingInput(setup);
+  });
+  await setup.renderOnce();
+}
+
+// ─── Fixtures ─────────────────────────────────────
+
+function makeWorkflow(
+  overrides: Partial<WorkflowWithMetadata> = {},
+): WorkflowWithMetadata {
+  return {
+    name: "wf",
+    agent: "claude",
+    path: "/tmp/wf",
+    source: "local",
+    description: "",
+    inputs: [],
+    ...overrides,
+  };
+}
+
+const TEST_DARK_BASE = {
+  bg: "#1e1e2e",
+  surface: "#313244",
+  selection: "#45475a",
+  border: "#6c7086",
+  borderDim: "#585b70",
+  accent: "#89b4fa",
+  text: "#cdd6f4",
+  dim: "#7f849c",
+  success: "#a6e3a1",
+  error: "#f38ba8",
+  warning: "#f9e2af",
+};
+
+const TEST_LIGHT_BASE = {
+  bg: "#eff1f5",
+  surface: "#ccd0da",
+  selection: "#bcc0cc",
+  border: "#9ca0b0",
+  borderDim: "#acb0be",
+  accent: "#1e66f5",
+  text: "#4c4f69",
+  dim: "#8c8fa1",
+  success: "#40a02b",
+  error: "#d20f39",
+  warning: "#df8e1d",
+};
+
+const TEST_THEME: PickerTheme = buildPickerTheme(TEST_DARK_BASE);
+
+// A catalog with one workflow from each source plus a free-form one.
+const WORKFLOWS: WorkflowWithMetadata[] = [
+  makeWorkflow({
+    name: "ralph",
+    source: "local",
+    description: "run ralph loop",
+    inputs: [
+      {
+        name: "task",
+        type: "text",
+        required: true,
+        description: "the task",
+        placeholder: "what to do",
+      },
+      {
+        name: "mode",
+        type: "enum",
+        required: true,
+        values: ["fast", "slow"],
+        default: "fast",
+      },
+      { name: "notes", type: "string", required: false },
+    ],
+  }),
+  makeWorkflow({
+    name: "deep-research",
+    source: "global",
+    description: "deep research",
+    inputs: [
+      { name: "question", type: "string", required: true, placeholder: "ask" },
+    ],
+  }),
+  makeWorkflow({
+    name: "freeform",
+    source: "builtin",
+    description: "freeform prompt",
+    inputs: [],
+  }),
+];
+
+// ─── Lifecycle ────────────────────────────────────
+
+let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;
+
+afterEach(() => {
+  testSetup?.renderer.destroy();
+  testSetup = null;
+});
+
+async function renderPicker(
+  opts: {
+    workflows?: WorkflowWithMetadata[];
+    onSubmit?: (r: WorkflowPickerResult) => void;
+    onCancel?: () => void;
+    width?: number;
+    height?: number;
+    kittyKeyboard?: boolean;
+  } = {},
+) {
+  const onSubmit = opts.onSubmit ?? (() => {});
+  const onCancel = opts.onCancel ?? (() => {});
+  testSetup = await testRender(
+    <WorkflowPicker
+      theme={TEST_THEME}
+      agent="claude"
+      workflows={opts.workflows ?? WORKFLOWS}
+      onSubmit={onSubmit}
+      onCancel={onCancel}
+    />,
+    {
+      width: opts.width ?? 120,
+      height: opts.height ?? 40,
+      // Kitty mode lets `pressKey("j", { ctrl: true })` emit distinct
+      // `ctrl+j` key events instead of being flattened to "\n" which
+      // the standard keypress parser reports as return.
+      kittyKeyboard: opts.kittyKeyboard ?? false,
+    },
+  );
+  await testSetup.renderOnce();
+  return testSetup;
+}
+
+// ─── Pure helper unit tests ───────────────────────
+
+describe("fuzzyMatch", () => {
+  test("returns 0 for empty query", () => {
+    expect(fuzzyMatch("", "anything")).toBe(0);
+  });
+
+  test("returns null when no subsequence match", () => {
+    expect(fuzzyMatch("xyz", "hello")).toBeNull();
+  });
+
+  test("matches contiguous prefix cheaply", () => {
+    const score = fuzzyMatch("hel", "hello");
+    expect(score).not.toBeNull();
+    expect(score!).toBeLessThan(20);
+  });
+
+  test("penalises gaps between matched characters", () => {
+    // "ab" should match both "ab" and "a_____b" but the latter scores higher
+    // (higher = worse).
+    const tight = fuzzyMatch("ab", "ab")!;
+    const loose = fuzzyMatch("ab", "a-----b")!;
+    expect(tight).toBeLessThan(loose);
+  });
+
+  test("case insensitive", () => {
+    expect(fuzzyMatch("ABC", "abcdef")).not.toBeNull();
+    expect(fuzzyMatch("abc", "ABCDEF")).not.toBeNull();
+  });
+});
+
+describe("isFieldValid", () => {
+  test("optional field is always valid", () => {
+    const f: WorkflowInput = { name: "n", type: "string", required: false };
+    expect(isFieldValid(f, "")).toBe(true);
+    expect(isFieldValid(f, "  ")).toBe(true);
+  });
+
+  test("required string/text invalid when only whitespace", () => {
+    const f: WorkflowInput = { name: "n", type: "string", required: true };
+    expect(isFieldValid(f, "")).toBe(false);
+    expect(isFieldValid(f, "   ")).toBe(false);
+    expect(isFieldValid(f, "x")).toBe(true);
+  });
+
+  test("required text treats newline-only as invalid", () => {
+    const f: WorkflowInput = { name: "n", type: "text", required: true };
+    expect(isFieldValid(f, "\n")).toBe(false);
+    expect(isFieldValid(f, "content\n")).toBe(true);
+  });
+
+  test("required enum invalid when empty string", () => {
+    const f: WorkflowInput = {
+      name: "mode",
+      type: "enum",
+      required: true,
+      values: ["a", "b"],
+    };
+    expect(isFieldValid(f, "")).toBe(false);
+    // Enum fields don't trim — any non-empty selection is valid.
+    expect(isFieldValid(f, "a")).toBe(true);
+  });
+});
+
+describe("buildEntries", () => {
+  test("empty query groups workflows by source in canonical order", () => {
+    const entries = buildEntries("", WORKFLOWS);
+    const sections = entries.map((e) => e.section);
+    // local should come before global which should come before builtin.
+    expect(sections).toEqual(["local", "global", "builtin"]);
+  });
+
+  test("empty query sorts alphabetically within a source", () => {
+    const workflows = [
+      makeWorkflow({ name: "zebra", source: "local" }),
+      makeWorkflow({ name: "alpha", source: "local" }),
+      makeWorkflow({ name: "mango", source: "local" }),
+    ];
+    const entries = buildEntries("", workflows);
+    expect(entries.map((e) => e.workflow.name)).toEqual([
+      "alpha",
+      "mango",
+      "zebra",
+    ]);
+  });
+
+  test("non-empty query sorts by score regardless of source", () => {
+    const entries = buildEntries("ralph", WORKFLOWS);
+    expect(entries.length).toBeGreaterThan(0);
+    // "ralph" should match the ralph workflow first.
+    expect(entries[0]!.workflow.name).toBe("ralph");
+  });
+
+  test("query that matches description only still returns the entry", () => {
+    const workflows = [
+      makeWorkflow({
+        name: "wf-a",
+        description: "does unique-marker thing",
+      }),
+    ];
+    const entries = buildEntries("unique-marker", workflows);
+    expect(entries).toHaveLength(1);
+  });
+
+  test("query with no match returns empty", () => {
+    const entries = buildEntries("qqqqqq", WORKFLOWS);
+    expect(entries).toHaveLength(0);
+  });
+
+  test("name match scored strictly better than description-only match", () => {
+    // Two workflows, one matches in name, one matches in description.
+    const workflows = [
+      makeWorkflow({ name: "abc", description: "irrelevant" }),
+      makeWorkflow({ name: "other", description: "abc here" }),
+    ];
+    const entries = buildEntries("abc", workflows);
+    // The name-match should sort first.
+    expect(entries[0]!.workflow.name).toBe("abc");
+  });
+});
+
+describe("buildRows", () => {
+  test("empty query inserts section headers for each source transition", () => {
+    const entries = buildEntries("", WORKFLOWS);
+    const rows = buildRows(entries, "");
+    const sectionRows = rows.filter((r) => r.kind === "section");
+    expect(sectionRows).toHaveLength(3);
+    expect(sectionRows.map((r) => r.source)).toEqual([
+      "local",
+      "global",
+      "builtin",
+    ]);
+  });
+
+  test("non-empty query emits no section rows", () => {
+    const entries = buildEntries("ralph", WORKFLOWS);
+    const rows = buildRows(entries, "ralph");
+    expect(rows.every((r) => r.kind === "entry")).toBe(true);
+  });
+
+  test("empty entries yields empty rows", () => {
+    expect(buildRows([], "")).toEqual([]);
+  });
+});
+
+describe("buildPickerTheme", () => {
+  test("produces distinct dark-mode info/mauve for Mocha base", () => {
+    const theme = buildPickerTheme(TEST_DARK_BASE);
+    expect(theme.backgroundPanel).toBe("#181825");
+    expect(theme.backgroundElement).toBe("#11111b");
+    expect(theme.info).toBe("#89dceb");
+    expect(theme.mauve).toBe("#cba6f7");
+  });
+
+  test("produces light-mode values when base.bg is Latte base", () => {
+    const theme = buildPickerTheme(TEST_LIGHT_BASE);
+    expect(theme.backgroundPanel).toBe("#e6e9ef");
+    expect(theme.backgroundElement).toBe("#dce0e8");
+    expect(theme.info).toBe("#04a5e5");
+    expect(theme.mauve).toBe("#8839ef");
+  });
+
+  test("forwards base colors into matching theme slots", () => {
+    const theme = buildPickerTheme(TEST_DARK_BASE);
+    expect(theme.background).toBe(TEST_DARK_BASE.bg);
+    expect(theme.surface).toBe(TEST_DARK_BASE.surface);
+    expect(theme.text).toBe(TEST_DARK_BASE.text);
+    expect(theme.primary).toBe(TEST_DARK_BASE.accent);
+  });
+});
+
+// ─── React component rendering ────────────────────
+
+describe("WorkflowPicker rendering", () => {
+  test("renders header with agent pill and workflow count", async () => {
+    const setup = await renderPicker();
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("CLAUDE");
+    expect(frame).toContain("workflow");
+    // Three workflows in the catalog.
+    expect(frame).toContain("3 workflows");
+  });
+
+  test("header shows singular when exactly one workflow", async () => {
+    const setup = await renderPicker({
+      workflows: [makeWorkflow({ name: "solo", source: "local" })],
+    });
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("1 workflow");
+    expect(frame).not.toContain("1 workflows");
+  });
+
+  test("renders PICK mode badge initially", async () => {
+    const setup = await renderPicker();
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("PICK");
+  });
+
+  test("renders workflow names in list", async () => {
+    const setup = await renderPicker();
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("ralph");
+    expect(frame).toContain("deep-research");
+    expect(frame).toContain("freeform");
+  });
+
+  test("renders source section labels", async () => {
+    const setup = await renderPicker();
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("local");
+    expect(frame).toContain("global");
+    expect(frame).toContain("builtin");
+  });
+
+  test("renders preview for the focused workflow", async () => {
+    const setup = await renderPicker();
+    const frame = setup.captureCharFrame();
+    // Focus starts on the first entry which (alphabetically within local)
+    // is "ralph" — its description should appear in the preview pane.
+    expect(frame).toContain("run ralph loop");
+    expect(frame).toContain("ARGUMENTS");
+  });
+
+  test("renders navigation hints in statusline", async () => {
+    const setup = await renderPicker();
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("navigate");
+    expect(frame).toContain("select");
+    expect(frame).toContain("quit");
+  });
+
+  test("renders 'no matches' with empty workflow list", async () => {
+    const setup = await renderPicker({ workflows: [] });
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("no matches");
+  });
+
+  test("empty workflow list renders the empty preview hint", async () => {
+    const setup = await renderPicker({ workflows: [] });
+    const frame = setup.captureCharFrame();
+    // EmptyPreview shows the `.atomic/workflows/...` hint.
+    expect(frame).toContain(".atomic/workflows");
+  });
+});
+
+// ─── Keyboard: PICK phase ─────────────────────────
+
+describe("WorkflowPicker PICK keyboard", () => {
+  test("escape calls onCancel", async () => {
+    let cancelled = false;
+    const setup = await renderPicker({
+      onCancel: () => {
+        cancelled = true;
+      },
+    });
+    await press(setup, (i) => i.pressEscape());
+    expect(cancelled).toBe(true);
+  });
+
+  test("ctrl+c calls onCancel", async () => {
+    let cancelled = false;
+    const setup = await renderPicker({
+      onCancel: () => {
+        cancelled = true;
+      },
+    });
+    await press(setup, (i) => i.pressCtrlC());
+    expect(cancelled).toBe(true);
+  });
+
+  test("arrow down moves focus to next entry", async () => {
+    const setup = await renderPicker();
+    await press(setup, (i) => i.pressArrow("down"));
+    // The focused preview switches from ralph to deep-research.
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("deep research");
+  });
+
+  test("arrow up is clamped at 0", async () => {
+    const setup = await renderPicker();
+    // Try to move up from the top — should stay at 0 without throwing.
+    await press(setup, (i) => i.pressArrow("up"));
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("run ralph loop");
+  });
+
+  test("ctrl+j moves focus down like arrow down", async () => {
+    // Kitty keyboard mode is required for the parser to report the raw
+    // key as `ctrl+j` instead of collapsing it onto `return` (CR/LF).
+    const setup = await renderPicker({ kittyKeyboard: true });
+    await press(setup, (i) => i.pressKey("j", { ctrl: true }));
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("deep research");
+  });
+
+  test("ctrl+k moves focus up like arrow up", async () => {
+    const setup = await renderPicker({ kittyKeyboard: true });
+    await press(setup, (i) => i.pressArrow("down"));
+    await press(setup, (i) => i.pressKey("k", { ctrl: true }));
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("run ralph loop");
+  });
+
+  test("arrow down clamps at bottom of list", async () => {
+    const setup = await renderPicker();
+    for (let i = 0; i < 10; i++) {
+      await press(setup, (input) => input.pressArrow("down"));
+    }
+    const frame = setup.captureCharFrame();
+    // After over-scrolling, we should sit on the last workflow (freeform).
+    expect(frame).toContain("freeform prompt");
+  });
+
+  test("typing printable characters builds the query", async () => {
+    const setup = await renderPicker();
+    await press(setup, (i) => i.typeText("ralph"));
+    const frame = setup.captureCharFrame();
+    // The query should appear in the filter bar.
+    expect(frame).toContain("ralph");
+    expect(frame).not.toContain("no matches");
+  });
+
+  test("typing a query that matches nothing shows no matches", async () => {
+    const setup = await renderPicker();
+    await press(setup, (i) => i.typeText("qqqq"));
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("no matches");
+    expect(frame).toContain('"qqqq"');
+  });
+
+  test("backspace removes last query character", async () => {
+    const setup = await renderPicker();
+    await press(setup, (i) => i.typeText("qqqq"));
+    // Confirm the "no matches" state before backspacing.
+    expect(setup.captureCharFrame()).toContain("no matches");
+    for (let i = 0; i < 6; i++) {
+      await press(setup, (input) => input.pressBackspace());
+    }
+    const frame = setup.captureCharFrame();
+    expect(frame).not.toContain("no matches");
+    expect(frame).toContain("run ralph loop");
+  });
+
+  test("enter transitions to prompt phase", async () => {
+    const setup = await renderPicker();
+    await press(setup, (i) => i.pressEnter());
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("PROMPT");
+    expect(frame).toContain("INPUTS");
+  });
+
+  test("enter with no focused workflow (empty list) is a no-op", async () => {
+    const setup = await renderPicker({ workflows: [] });
+    await press(setup, (i) => i.pressEnter());
+    // Still in PICK phase.
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("PICK");
+  });
+});
+
+// ─── Keyboard: PROMPT phase ───────────────────────
+
+async function renderAndEnterPrompt(
+  opts: Parameters<typeof renderPicker>[0] = {},
+) {
+  const setup = await renderPicker(opts);
+  await press(setup, (i) => i.pressEnter());
+  return setup;
+}
+
+describe("WorkflowPicker PROMPT keyboard", () => {
+  test("escape returns to pick phase", async () => {
+    const setup = await renderAndEnterPrompt();
+    await press(setup, (i) => i.pressEscape());
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("PICK");
+  });
+
+  test("ctrl+c still calls onCancel from prompt phase", async () => {
+    let cancelled = false;
+    const setup = await renderAndEnterPrompt({
+      onCancel: () => {
+        cancelled = true;
+      },
+    });
+    await press(setup, (i) => i.pressCtrlC());
+    expect(cancelled).toBe(true);
+  });
+
+  test("tab cycles focus forward through fields", async () => {
+    const setup = await renderAndEnterPrompt();
+    await press(setup, (i) => i.pressTab());
+    const frame = setup.captureCharFrame();
+    // ralph has 3 inputs; pos indicator should move to "2 / 3".
+    expect(frame).toContain("2 / 3");
+  });
+
+  test("shift+tab cycles focus backward through fields", async () => {
+    const setup = await renderAndEnterPrompt();
+    await press(setup, (i) => i.pressTab({ shift: true }));
+    const frame = setup.captureCharFrame();
+    // Shift-tab from field 0 wraps to last (field 3 → "3 / 3").
+    expect(frame).toContain("3 / 3");
+  });
+
+  test("tab is a no-op when there is only one field", async () => {
+    const workflows = [
+      makeWorkflow({
+        name: "one-field",
+        source: "local",
+        inputs: [{ name: "only", type: "string", required: true }],
+      }),
+    ];
+    const setup = await renderAndEnterPrompt({ workflows });
+    await press(setup, (i) => i.pressTab());
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("1 / 1");
+  });
+
+  test("typing in a text field appends characters", async () => {
+    const setup = await renderAndEnterPrompt();
+    // Field 0 is the "task" text field.
+    await press(setup, (i) => i.typeText("hello"));
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("hello");
+  });
+
+  test("return in a text field inserts a newline", async () => {
+    const setup = await renderAndEnterPrompt();
+    await press(setup, (i) => i.typeText("line1"));
+    await press(setup, (i) => i.pressEnter());
+    await press(setup, (i) => i.typeText("line2"));
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("line1");
+    expect(frame).toContain("line2");
+    // Still on field 1 of 3 (no field advance).
+    expect(frame).toContain("1 / 3");
+  });
+
+  test("backspace removes last char from a text field", async () => {
+    const setup = await renderAndEnterPrompt();
+    await press(setup, (i) => i.typeText("abc"));
+    await press(setup, (i) => i.pressBackspace());
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("ab");
+  });
+
+  test("return on string field advances focus", async () => {
+    // A workflow with two string fields — return should jump from field 0 to field 1.
+    const workflows = [
+      makeWorkflow({
+        name: "two-strings",
+        source: "local",
+        inputs: [
+          { name: "a", type: "string", required: true },
+          { name: "b", type: "string", required: true },
+        ],
+      }),
+    ];
+    const setup = await renderAndEnterPrompt({ workflows });
+    await press(setup, (i) => i.pressEnter());
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("2 / 2");
+  });
+
+  test("enum field: right arrow cycles value forward", async () => {
+    // ralph has an enum "mode" with ["fast","slow"] at index 1.
+    const setup = await renderAndEnterPrompt();
+    // Advance focus to field idx 1 (the enum).
+    await press(setup, (i) => i.pressTab());
+    await press(setup, (i) => i.pressArrow("right"));
+    // Now the selected enum should have rotated from "fast" → "slow".
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("slow");
+  });
+
+  test("enum field: left arrow cycles value backward (wraps)", async () => {
+    const setup = await renderAndEnterPrompt();
+    await press(setup, (i) => i.pressTab());
+    await press(setup, (i) => i.pressArrow("left"));
+    const frame = setup.captureCharFrame();
+    // "fast" → left wraps back to "slow".
+    expect(frame).toContain("slow");
+  });
+
+  test("enum field with empty values array is a no-op on arrow", async () => {
+    const workflows = [
+      makeWorkflow({
+        name: "empty-enum",
+        source: "local",
+        inputs: [
+          { name: "choice", type: "enum", required: false, values: [] },
+        ],
+      }),
+    ];
+    const setup = await renderAndEnterPrompt({ workflows });
+    await press(setup, (i) => i.pressArrow("right"));
+    // Should not crash; frame should still render.
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("empty-enum");
+  });
+
+  test("ctrl+s with invalid required text field stays in PROMPT mode", async () => {
+    const setup = await renderAndEnterPrompt();
+    // Nothing has been typed into the required text field — form invalid.
+    await press(setup, (i) => i.pressKey("s", { ctrl: true }));
+    const frame = setup.captureCharFrame();
+    // Still on PROMPT mode, not CONFIRM.
+    expect(frame).toContain("PROMPT");
+    expect(frame).not.toContain("CONFIRM");
+  });
+
+  test("ctrl+s with all required fields filled opens the confirm modal", async () => {
+    const setup = await renderAndEnterPrompt();
+    // Fill the required text field "task".
+    await press(setup, (i) => i.typeText("do something"));
+    await press(setup, (i) => i.pressKey("s", { ctrl: true }));
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("CONFIRM");
+    expect(frame).toContain("submit");
+  });
+
+  test("free-form workflow seeds a DEFAULT prompt field", async () => {
+    const setup = await renderPicker();
+    // Move down past ralph (local) and deep-research (global) to freeform
+    // (the builtin entry).
+    for (let i = 0; i < 3; i++) {
+      await press(setup, (input) => input.pressArrow("down"));
+    }
+    await press(setup, (i) => i.pressEnter());
+    const frame = setup.captureCharFrame();
+    // Free-form shows "PROMPT" header (isStructured = false).
+    expect(frame).toContain("PROMPT");
+    // Default field name is "prompt".
+    expect(frame).toContain("prompt");
+  });
+});
+
+// ─── Keyboard: CONFIRM phase ─────────────────────
+
+async function renderInConfirm(
+  opts: Parameters<typeof renderPicker>[0] = {},
+) {
+  const setup = await renderAndEnterPrompt(opts);
+  await press(setup, (i) => i.typeText("task text"));
+  await press(setup, (i) => i.pressKey("s", { ctrl: true }));
+  return setup;
+}
+
+describe("WorkflowPicker CONFIRM keyboard", () => {
+  test("y submits with current inputs", async () => {
+    let result: WorkflowPickerResult | null = null;
+    const setup = await renderInConfirm({
+      onSubmit: (r) => {
+        result = r;
+      },
+    });
+    await press(setup, (i) => i.pressKey("y"));
+    expect(result).not.toBeNull();
+    expect(result!.workflow.name).toBe("ralph");
+    expect(result!.inputs.task).toContain("task text");
+  });
+
+  test("return also submits", async () => {
+    let submitted = false;
+    const setup = await renderInConfirm({
+      onSubmit: () => {
+        submitted = true;
+      },
+    });
+    await press(setup, (i) => i.pressEnter());
+    expect(submitted).toBe(true);
+  });
+
+  test("n cancels the confirm back to prompt", async () => {
+    const setup = await renderInConfirm();
+    await press(setup, (i) => i.pressKey("n"));
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("PROMPT");
+    expect(frame).not.toContain("CONFIRM");
+  });
+
+  test("escape cancels the confirm back to prompt", async () => {
+    const setup = await renderInConfirm();
+    await press(setup, (i) => i.pressEscape());
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("PROMPT");
+  });
+
+  test("unrelated keys in confirm phase are ignored", async () => {
+    const setup = await renderInConfirm();
+    await press(setup, (i) => i.pressKey("x"));
+    const frame = setup.captureCharFrame();
+    // Still in CONFIRM.
+    expect(frame).toContain("CONFIRM");
+  });
+
+  test("ctrl+c in confirm still calls onCancel", async () => {
+    let cancelled = false;
+    const setup = await renderInConfirm({
+      onCancel: () => {
+        cancelled = true;
+      },
+    });
+    await press(setup, (i) => i.pressCtrlC());
+    expect(cancelled).toBe(true);
+  });
+});
+
+// ─── Imperative class ────────────────────────────
+
+describe("WorkflowPickerPanel class", () => {
+  let panel: WorkflowPickerPanel | null = null;
+  let coreSetup: Awaited<ReturnType<typeof createTestRenderer>> | null = null;
+
+  afterEach(() => {
+    panel?.destroy();
+    panel = null;
+    coreSetup?.renderer.destroy();
+    coreSetup = null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).IS_REACT_ACT_ENVIRONMENT = false;
+  });
+
+  async function createPanel() {
+    coreSetup = await createTestRenderer({ width: 120, height: 40 });
+    // Match what `testRender` does so useEffect-backed subscriptions (like
+    // `useKeyboard`) flush synchronously during construction — without
+    // this, the keyboard listener isn't attached in time for subsequent
+    // mockInput events.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+    act(() => {
+      panel = WorkflowPickerPanel.createWithRenderer(coreSetup!.renderer, {
+        agent: "claude",
+        workflows: WORKFLOWS,
+      });
+    });
+    return panel!;
+  }
+
+  test("createWithRenderer returns an instance without throwing", async () => {
+    const p = await createPanel();
+    expect(p).toBeInstanceOf(WorkflowPickerPanel);
+  });
+
+  test("waitForSelection returns a pending promise", async () => {
+    const p = await createPanel();
+    const promise = p.waitForSelection();
+    expect(promise).toBeInstanceOf(Promise);
+
+    let resolved = false;
+    promise.then(() => {
+      resolved = true;
+    });
+    await Bun.sleep(5);
+    expect(resolved).toBe(false);
+  });
+
+  test("waitForSelection is idempotent — same promise on subsequent calls", async () => {
+    const p = await createPanel();
+    const a = p.waitForSelection();
+    const b = p.waitForSelection();
+    expect(a).toBe(b);
+  });
+
+  test("destroy resolves a pending selection with null", async () => {
+    const p = await createPanel();
+    const promise = p.waitForSelection();
+    p.destroy();
+    panel = null;
+    const result = await promise;
+    expect(result).toBeNull();
+  });
+
+  test("destroy is idempotent", async () => {
+    const p = await createPanel();
+    p.destroy();
+    expect(() => p.destroy()).not.toThrow();
+    panel = null;
+  });
+
+  test("createWithRenderer with empty workflow list still mounts", async () => {
+    coreSetup = await createTestRenderer({ width: 120, height: 40 });
+    panel = WorkflowPickerPanel.createWithRenderer(coreSetup.renderer, {
+      agent: "opencode",
+      workflows: [],
+    });
+    expect(panel).toBeInstanceOf(WorkflowPickerPanel);
+  });
+
+  async function pressOnCore(fn: () => void | Promise<void>) {
+    await act(async () => {
+      await fn();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const r = coreSetup!.renderer as any;
+      r.stdinParser?.flushTimeout?.(Number.POSITIVE_INFINITY);
+      r.drainStdinParser?.();
+    });
+    await coreSetup!.renderOnce();
+  }
+
+  test("handleCancel: esc from PICK resolves selection with null", async () => {
+    const p = await createPanel();
+    const selection = p.waitForSelection();
+    await pressOnCore(() => coreSetup!.mockInput.pressEscape());
+    const result = await selection;
+    expect(result).toBeNull();
+    // Prevent afterEach from double-destroying after handleCancel.
+    panel = null;
+    p.destroy();
+  });
+
+  test("handleSubmit: driving the full pick→prompt→confirm→y flow resolves with payload", async () => {
+    const p = await createPanel();
+    const selection = p.waitForSelection();
+
+    // PICK → press enter to lock in ralph.
+    await pressOnCore(() => coreSetup!.mockInput.pressEnter());
+    // PROMPT → fill the required text field.
+    await pressOnCore(() => coreSetup!.mockInput.typeText("via class"));
+    // Ctrl-s → open CONFIRM modal.
+    await pressOnCore(() =>
+      coreSetup!.mockInput.pressKey("s", { ctrl: true }),
+    );
+    // y → submit.
+    await pressOnCore(() => coreSetup!.mockInput.pressKey("y"));
+
+    const result = await selection;
+    expect(result).not.toBeNull();
+    expect(result!.workflow.name).toBe("ralph");
+    expect(result!.inputs.task).toContain("via class");
+    panel = null;
+    p.destroy();
+  });
+});

@@ -44,7 +44,7 @@ import { ErrorBoundary } from "./error-boundary.tsx";
 // ones — the same distinctions `atomic workflow -l` already draws. The
 // rest is sourced from {@link resolveTheme} so light/dark mode tracks the
 // orchestrator panel.
-interface PickerTheme {
+export interface PickerTheme {
   background: string;
   backgroundPanel: string;
   backgroundElement: string;
@@ -62,7 +62,7 @@ interface PickerTheme {
   borderActive: string;
 }
 
-function buildPickerTheme(base: TerminalTheme): PickerTheme {
+export function buildPickerTheme(base: TerminalTheme): PickerTheme {
   // For dark mode the prototype values track Catppuccin Mocha. For light
   // mode we derive muted variants from the base palette — the specific
   // extras (`info`, `mauve`, the three-level background ladder) have no
@@ -135,7 +135,7 @@ const SOURCE_COLOR: Record<Source, keyof PickerTheme> = {
  * better) or null for no match. Adjacent matches are rewarded; jumps over
  * non-matching characters are penalized proportionally to the gap.
  */
-function fuzzyMatch(query: string, target: string): number | null {
+export function fuzzyMatch(query: string, target: string): number | null {
   if (query === "") return 0;
   const q = query.toLowerCase();
   const t = target.toLowerCase();
@@ -172,7 +172,7 @@ interface ListRow {
   entry?: ListEntry;
 }
 
-function buildEntries(
+export function buildEntries(
   query: string,
   workflows: WorkflowWithMetadata[],
 ): ListEntry[] {
@@ -210,7 +210,7 @@ function buildEntries(
   }));
 }
 
-function buildRows(entries: ListEntry[], query: string): ListRow[] {
+export function buildRows(entries: ListEntry[], query: string): ListRow[] {
   const rows: ListRow[] = [];
   if (query === "") {
     let lastSection: string | null = null;
@@ -229,7 +229,7 @@ function buildRows(entries: ListEntry[], query: string): ListRow[] {
 
 // ─── Validation ─────────────────────────────────
 
-function isFieldValid(field: WorkflowInput, value: string): boolean {
+export function isFieldValid(field: WorkflowInput, value: string): boolean {
   if (!field.required) return true;
   if (field.type === "enum") return value !== "";
   return value.trim() !== "";
@@ -1051,7 +1051,7 @@ interface PickerAppProps {
   onCancel: () => void;
 }
 
-function WorkflowPicker({
+export function WorkflowPicker({
   theme,
   agent,
   workflows,
@@ -1412,6 +1412,14 @@ export class WorkflowPickerPanel {
         "SIGFPE",
       ],
     });
+    return new WorkflowPickerPanel(renderer, options);
+  }
+
+  /** Create with an externally-provided renderer (e.g. a test renderer). */
+  static createWithRenderer(
+    renderer: CliRenderer,
+    options: WorkflowPickerPanelOptions,
+  ): WorkflowPickerPanel {
     return new WorkflowPickerPanel(renderer, options);
   }
 

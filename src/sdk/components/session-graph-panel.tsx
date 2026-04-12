@@ -227,13 +227,6 @@ export function SessionGraphPanel() {
         if (agent) doAttach(agent.name);
         return;
       }
-      // Number keys 1-9 for direct jump
-      const num = parseInt(key.sequence ?? "", 10);
-      if (num >= 1 && num <= store.sessions.length) {
-        closeSwitcher();
-        doAttach(store.sessions[num - 1]!.name);
-        return;
-      }
       return; // Swallow all other keys while switcher is open
     }
 

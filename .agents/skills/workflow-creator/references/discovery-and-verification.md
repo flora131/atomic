@@ -31,10 +31,14 @@ Create workflow files at `.atomic/workflows/<name>/<agent>/index.ts`.
         └── parsers.ts
 ```
 
-The built-in `ralph` workflow (`src/sdk/workflows/builtin/ralph/` in this
-repository) serves as a reference implementation and can be overridden by a
-local workflow with the same name. In installed projects, built-ins are
-resolved from the SDK package's bundled `workflows/builtin/` directory.
+The SDK ships two built-in workflows as reference implementations:
+- **`ralph`** — iterative plan → orchestrate → review → debug loop (`src/sdk/workflows/builtin/ralph/`)
+- **`deep-research-codebase`** — deterministic scout → parallel explorers → aggregator (`src/sdk/workflows/builtin/deep-research-codebase/`)
+
+Built-in workflows are **reserved** — a local or global workflow with the
+same name cannot shadow the built-in at resolution time. Pick distinct names
+for your own workflows. In installed projects, built-ins are resolved from
+the SDK package's bundled `workflows/builtin/` directory.
 
 ## Discovery paths
 

@@ -165,7 +165,7 @@ if (needsReview) {
 
 ## SDK exports
 
-The SDK (`@bastani/atomic/workflows`) exports everything you need for workflow authoring:
+The `@bastani/atomic/workflows` package exports the workflow authoring primitives. For native SDK types and utilities, install and import from the provider packages directly.
 
 **Builder:**
 - `defineWorkflow` — entry point, accepts an optional type parameter (`"claude"`, `"copilot"`, `"opencode"`) for type narrowing; returns a chainable `WorkflowBuilder`
@@ -183,30 +183,27 @@ The SDK (`@bastani/atomic/workflows`) exports everything you need for workflow a
 - `StageSessionOptions<A>` — provider-specific session create options for `ctx.stage()` third argument
 - `ProviderClient<A>` — the `s.client` type, resolved by agent type
 - `ProviderSession<A>` — the `s.session` type, resolved by agent type
-- `ClaudeClientWrapper` — synthetic client wrapper for Claude stages
-- `ClaudeSessionWrapper` — synthetic session wrapper for Claude stages (exposes `s.session.query()`)
+- `ClaudeSessionWrapper` — Atomic wrapper for Claude sessions (exposes `s.session.query()`)
 - `ClaudeQueryDefaults` — per-stage query defaults (timeouts, poll interval) for Claude sessions
 - `SessionRef` — `string | SessionHandle<unknown>` for transcript/message lookups
 - `WorkflowContext` — top-level context passed to `.run()` callback
 - `WorkflowOptions` — `{ name, description? }` workflow metadata
 - `WorkflowDefinition` — sealed output of `.compile()`
 
-**Re-exported native SDK types** (for type annotations):
-- `CopilotSessionEvent` — from `@github/copilot-sdk`
-- `OpenCodePromptResponse` — from `@opencode-ai/sdk/v2`
-- `ClaudeSessionMessage` — from `@anthropic-ai/claude-agent-sdk`
-
-**Provider helpers:**
+**Validation helpers:**
 - `validateClaudeWorkflow` — static validation for Claude workflow source files; warns on direct `createClaudeSession` or `claudeQuery` usage
 - `validateCopilotWorkflow` — static validation for Copilot workflow source files; warns on manual `new CopilotClient` or `client.createSession()` usage
 - `validateOpenCodeWorkflow` — static validation for OpenCode workflow source files; warns on manual `createOpencodeClient()` or `client.session.create()` usage
-- `createClaudeSession`, `claudeQuery`, `clearClaudeSession` — low-level tmux helpers; still exported for advanced use but not needed in typical workflows (use `s.session.query()` instead)
 
-**Runtime utilities:**
-- tmux helpers: `createSession`, `createWindow`, `createPane`, `sendKeysAndSubmit`, `capturePane`, etc.
-- Discovery: `discoverWorkflows`, `findWorkflow`
-- Loader: `WorkflowLoader.loadWorkflow`, `WorkflowLoader.resolve`, `WorkflowLoader.validate`, `WorkflowLoader.load`
-- Executor: `executeWorkflow`
+**Native SDK dependencies:**
+
+The Atomic runtime provides `s.client` and `s.session` with types resolved from the native SDKs. If you need to name those types in your own code, or use SDK utilities and advanced APIs, import them directly from the provider packages:
+
+| Provider | Package | Key imports |
+|----------|---------|-------------|
+| Copilot | `@github/copilot-sdk` | `SessionEvent`, `CopilotClient`, `CopilotSession`, `approveAll`, `defineTool` |
+| Claude | `@anthropic-ai/claude-agent-sdk` | `SessionMessage`, `query` |
+| OpenCode | `@opencode-ai/sdk/v2` | `SessionPromptResponse`, `OpencodeClient`, `Session` |
 
 ## `SessionContext` reference
 
@@ -238,4 +235,4 @@ The SDK (`@bastani/atomic/workflows`) exports everything you need for workflow a
 
 ## Type safety
 
-The SDK is typed with **no `unknown` or `any`**. `SessionContext` fields are precisely typed, and native SDK types are re-exported for convenience. Use `import type` for type-only imports. Use the `defineWorkflow<"agent">()` type parameter to narrow `s.client` and `s.session` to the correct provider types.
+The SDK is typed with **no `unknown` or `any`**. `SessionContext` fields are precisely typed, and native provider types may appear inside Atomic generic aliases and runtime values — if you need to name those types in your own code, import them from the provider SDK directly. Use `import type` for type-only imports. Use the `defineWorkflow<"agent">()` type parameter to narrow `s.client` and `s.session` to the correct provider types.

@@ -6,8 +6,7 @@ Each SDK has its own configuration options for controlling model selection, tool
 
 ### Client options (`clientOpts` — 2nd arg to `ctx.stage()`)
 
-These correspond to `createClaudeSession()` options and control how the Claude
-TUI pane is started:
+These control how the Claude TUI pane is started:
 
 ```ts
 await ctx.stage({ name: "..." }, {
@@ -98,7 +97,7 @@ const result = query({
 
 ### `s.session.query()` usage
 
-`s.session.query()` is the runtime wrapper around `claudeQuery()`. It uses
+`s.session.query()` sends text to the Claude pane, verifies delivery, and waits for output stabilization. It uses
 the pane ID from `s.paneId` automatically. Call it inside the stage callback:
 
 ```ts

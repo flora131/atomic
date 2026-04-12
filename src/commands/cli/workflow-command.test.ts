@@ -35,6 +35,7 @@ import { tmpdir } from "node:os";
 import * as realWorkflows from "@/sdk/workflows/index.ts";
 import * as realDetect from "@/services/system/detect.ts";
 import * as realSpawn from "../../lib/spawn.ts";
+import { AGENT_CONFIG } from "@/services/config/index.ts";
 import type {
   WorkflowDefinition,
   WorkflowRunOptions,
@@ -82,9 +83,11 @@ const isTmuxInstalledMock =
 // override every test that passes through runPrereqChecks would bail early.
 // Non-agent commands still hit the real check so mock.module doesn't break
 // detect.test.ts (Bun shares one process across test files).
-const AGENT_CMDS = new Set(["claude", "opencode", "copilot"]);
+const AGENT_CMDS = new Set(Object.values(AGENT_CONFIG).map((c) => c.cmd));
+const defaultIsCommandInstalled = (cmd: string) =>
+  AGENT_CMDS.has(cmd) || realIsCommandInstalled(cmd);
 const isCommandInstalledMock = mock<typeof realDetect.isCommandInstalled>(
-  (cmd) => AGENT_CMDS.has(cmd) || realIsCommandInstalled(cmd),
+  defaultIsCommandInstalled,
 );
 
 // Default: no-op so the best-effort installer branch in runPrereqChecks
@@ -206,9 +209,7 @@ beforeEach(async () => {
   isTmuxInstalledMock.mockClear();
   isTmuxInstalledMock.mockImplementation(() => true);
   isCommandInstalledMock.mockClear();
-  isCommandInstalledMock.mockImplementation(
-    (cmd) => AGENT_CMDS.has(cmd) || realIsCommandInstalled(cmd),
-  );
+  isCommandInstalledMock.mockImplementation(defaultIsCommandInstalled);
   ensureTmuxInstalledMock.mockClear();
   ensureTmuxInstalledMock.mockImplementation(async () => {});
   ensureBunInstalledMock.mockClear();

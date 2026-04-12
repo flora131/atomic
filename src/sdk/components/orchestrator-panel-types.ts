@@ -2,6 +2,8 @@
 
 export type SessionStatus = "pending" | "running" | "complete" | "error";
 
+export type ViewMode = "graph" | "attached";
+
 export interface PanelSession {
   name: string;
   parents: string[];

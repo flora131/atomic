@@ -714,4 +714,128 @@ describe("PanelStore", () => {
       expect(store.sessions.find((s) => s.name === "s3")!.parents).toEqual(["s2"]);
     });
   });
+
+  // ── setViewMode ────────────────────────────────────────────────────────────
+
+  describe("setViewMode", () => {
+    test("defaults to graph mode with empty active agent", () => {
+      expect(store.viewMode).toBe("graph");
+      expect(store.activeAgentId).toBe("");
+    });
+
+    test("switches to attached mode with agent ID", () => {
+      store.setViewMode("attached", "worker-1");
+      expect(store.viewMode).toBe("attached");
+      expect(store.activeAgentId).toBe("worker-1");
+    });
+
+    test("switches back to graph mode and clears active agent", () => {
+      store.setViewMode("attached", "worker-1");
+      store.setViewMode("graph");
+      expect(store.viewMode).toBe("graph");
+      expect(store.activeAgentId).toBe("");
+    });
+
+    test("increments version by exactly 1", () => {
+      const before = store.version;
+      store.setViewMode("attached", "worker-1");
+      expect(store.version).toBe(before + 1);
+    });
+
+    test("notifies subscribers", () => {
+      const listener = mock(() => {});
+      store.subscribe(listener);
+      store.setViewMode("attached", "worker-1");
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    test("attached without agent ID clears active agent", () => {
+      store.setViewMode("attached");
+      expect(store.viewMode).toBe("attached");
+      expect(store.activeAgentId).toBe("");
+    });
+  });
+
+  // ── getSubagents ───────────────────────────────────────────────────────────
+
+  describe("getSubagents", () => {
+    beforeEach(() => {
+      store.setWorkflowInfo("wf", "claude", [
+        { name: "planner", parents: [] },
+        { name: "writer", parents: ["planner"] },
+        { name: "reviewer", parents: ["writer"] },
+      ], "prompt");
+    });
+
+    test("returns empty when all non-orchestrator sessions are pending", () => {
+      expect(store.getSubagents()).toEqual([]);
+    });
+
+    test("excludes orchestrator from subagent list", () => {
+      store.startSession("planner");
+      const subs = store.getSubagents();
+      expect(subs.every((s) => s.name !== "orchestrator")).toBe(true);
+    });
+
+    test("includes running and completed sessions", () => {
+      store.startSession("planner");
+      store.completeSession("planner");
+      store.startSession("writer");
+      const subs = store.getSubagents();
+      expect(subs.map((s) => s.name)).toEqual(["planner", "writer"]);
+    });
+
+    test("includes errored sessions", () => {
+      store.startSession("planner");
+      store.failSession("planner", "timeout");
+      const subs = store.getSubagents();
+      expect(subs.map((s) => s.name)).toEqual(["planner"]);
+    });
+
+    test("excludes pending sessions", () => {
+      store.startSession("planner");
+      const subs = store.getSubagents();
+      expect(subs.map((s) => s.name)).toEqual(["planner"]);
+      expect(subs.some((s) => s.name === "writer")).toBe(false);
+      expect(subs.some((s) => s.name === "reviewer")).toBe(false);
+    });
+  });
+
+  // ── getActiveAgentIndex ────────────────────────────────────────────────────
+
+  describe("getActiveAgentIndex", () => {
+    beforeEach(() => {
+      store.setWorkflowInfo("wf", "claude", [
+        { name: "planner", parents: [] },
+        { name: "writer", parents: ["planner"] },
+        { name: "reviewer", parents: ["writer"] },
+      ], "prompt");
+      store.startSession("planner");
+      store.startSession("writer");
+    });
+
+    test("returns -1 when no agent is active", () => {
+      expect(store.getActiveAgentIndex()).toBe(-1);
+    });
+
+    test("returns correct index for first subagent", () => {
+      store.setViewMode("attached", "planner");
+      expect(store.getActiveAgentIndex()).toBe(0);
+    });
+
+    test("returns correct index for second subagent", () => {
+      store.setViewMode("attached", "writer");
+      expect(store.getActiveAgentIndex()).toBe(1);
+    });
+
+    test("returns -1 for orchestrator (not a subagent)", () => {
+      store.setViewMode("attached", "orchestrator");
+      expect(store.getActiveAgentIndex()).toBe(-1);
+    });
+
+    test("returns -1 for non-existent agent", () => {
+      store.setViewMode("attached", "nonexistent");
+      expect(store.getActiveAgentIndex()).toBe(-1);
+    });
+  });
 });

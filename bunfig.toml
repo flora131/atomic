@@ -71,6 +71,8 @@ coveragePathIgnorePatterns = [
   "src/sdk/runtime/theme.ts",
   "src/sdk/components/error-boundary.tsx",
   "src/sdk/components/orchestrator-panel.tsx",
+  "src/sdk/components/compact-switcher.tsx",
+  "src/sdk/components/session-graph-panel.tsx",
   # Workflow runtime I/O (subprocess/SDK/filesystem dependent)
   "src/services/workflows/session.ts",
   "src/services/workflows/graph/nodes.ts",

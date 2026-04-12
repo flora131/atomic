@@ -5,4 +5,4 @@
  * The implementation lives under `commands/cli/chat/`.
  */
 
-export * from "@/commands/cli/chat/index.ts";
+export * from "./chat/index.ts";

@@ -9,9 +9,9 @@
 
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
-import { type SourceControlType } from "@/services/config/index.ts";
-import { SETTINGS_SCHEMA_URL } from "@/services/config/settings-schema.ts";
-import { ensureDir } from "@/services/system/copy.ts";
+import { type SourceControlType } from "./index.ts";
+import { SETTINGS_SCHEMA_URL } from "./settings-schema.ts";
+import { ensureDir } from "../system/copy.ts";
 
 const SETTINGS_DIR = ".atomic";
 const SETTINGS_FILENAME = "settings.json";

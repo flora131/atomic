@@ -4,8 +4,8 @@ import {
   statusLabel,
   statusIcon,
   fmtDuration,
-} from "@/sdk/components/status-helpers.ts";
-import type { GraphTheme } from "@/sdk/components/graph-theme.ts";
+} from "../../../src/sdk/components/status-helpers.ts";
+import type { GraphTheme } from "../../../src/sdk/components/graph-theme.ts";
 
 const mockTheme: GraphTheme = {
   background: "#1e1e2e",

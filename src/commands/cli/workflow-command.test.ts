@@ -32,15 +32,15 @@ import {
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import * as realWorkflows from "@/sdk/workflows/index.ts";
-import * as realDetect from "@/services/system/detect.ts";
+import * as realWorkflows from "../../sdk/workflows/index.ts";
+import * as realDetect from "../../services/system/detect.ts";
 import * as realSpawn from "../../lib/spawn.ts";
-import { AGENT_CONFIG } from "@/services/config/index.ts";
+import { AGENT_CONFIG } from "../../services/config/index.ts";
 import type {
   WorkflowDefinition,
   WorkflowRunOptions,
   DiscoveredWorkflow,
-} from "@/sdk/workflows/index.ts";
+} from "../../sdk/workflows/index.ts";
 
 // Capture original function references BEFORE `mock.module` replaces the
 // module exports. `import * as realWorkflows` gives a LIVE namespace — after
@@ -99,14 +99,14 @@ const ensureBunInstalledMock = mock<typeof realSpawn.ensureBunInstalled>(
   async () => {},
 );
 
-mock.module("@/sdk/workflows/index.ts", () => ({
+mock.module("../../sdk/workflows/index.ts", () => ({
   ...realWorkflows,
   executeWorkflow: executeWorkflowMock,
   discoverWorkflows: discoverWorkflowsMock,
   loadWorkflowsMetadata: loadWorkflowsMetadataMock,
   isTmuxInstalled: isTmuxInstalledMock,
 }));
-mock.module("@/services/system/detect.ts", () => ({
+mock.module("../../services/system/detect.ts", () => ({
   ...realDetect,
   isCommandInstalled: isCommandInstalledMock,
 }));

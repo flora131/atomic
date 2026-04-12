@@ -1,7 +1,7 @@
 import { dirname, join } from "node:path";
-import { AGENT_CONFIG, type AgentKey } from "@/services/config/index.ts";
-import { copyFile, pathExists, ensureDir } from "@/services/system/copy.ts";
-import { mergeJsonFile } from "@/lib/merge.ts";
+import { AGENT_CONFIG, type AgentKey } from "../../../services/config/index.ts";
+import { copyFile, pathExists, ensureDir } from "../../../services/system/copy.ts";
+import { mergeJsonFile } from "../../../lib/merge.ts";
 
 export async function applyManagedOnboardingFiles(
   agentKey: AgentKey,

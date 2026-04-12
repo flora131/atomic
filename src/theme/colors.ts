@@ -1,4 +1,4 @@
-import { supportsColor, supportsTrueColor } from "@/services/system/detect.ts";
+import { supportsColor, supportsTrueColor } from "../services/system/detect.ts";
 
 /**
  * ANSI color and formatting codes for CLI output

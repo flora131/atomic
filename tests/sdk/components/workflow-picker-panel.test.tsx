@@ -14,9 +14,9 @@ import {
   isFieldValid,
   type PickerTheme,
   type WorkflowPickerResult,
-} from "@/sdk/components/workflow-picker-panel.tsx";
-import type { WorkflowWithMetadata } from "@/sdk/runtime/discovery.ts";
-import type { WorkflowInput } from "@/sdk/types.ts";
+} from "../../../src/sdk/components/workflow-picker-panel.tsx";
+import type { WorkflowWithMetadata } from "../../../src/sdk/runtime/discovery.ts";
+import type { WorkflowInput } from "../../../src/sdk/types.ts";
 
 // ─── Keyboard input helpers ───────────────────────
 //

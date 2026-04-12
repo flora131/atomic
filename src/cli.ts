@@ -16,9 +16,9 @@
  */
 
 import { Command } from "@commander-js/extra-typings";
-import { VERSION } from "@/version.ts";
-import { COLORS } from "@/theme/colors.ts";
-import { AGENT_CONFIG, type AgentKey, SCM_CONFIG, type SourceControlType } from "@/services/config/index.ts";
+import { VERSION } from "./version.ts";
+import { COLORS } from "./theme/colors.ts";
+import { AGENT_CONFIG, type AgentKey, SCM_CONFIG, type SourceControlType } from "./services/config/index.ts";
 
 /**
  * Create and configure the main CLI program
@@ -61,7 +61,7 @@ export function createProgram() {
         )
         .action(async (localOpts) => {
             const globalOpts = program.opts();
-            const { initCommand } = await import("@/commands/cli/init.ts");
+            const { initCommand } = await import("./commands/cli/init.ts");
 
             await initCommand({
                 showBanner: globalOpts.banner !== false,
@@ -117,7 +117,7 @@ Examples:
             // Collect extra args/options to forward to the native CLI
             const passthroughArgs = cmd.args;
 
-            const { chatCommand } = await import("@/commands/cli/chat.ts");
+            const { chatCommand } = await import("./commands/cli/chat.ts");
             const exitCode = await chatCommand({
                 agentType: agentType as AgentKey,
                 passthroughArgs,
@@ -157,7 +157,7 @@ Examples:
                                                     Run a structured-input workflow`,
         )
         .action(async (localOpts, cmd) => {
-            const { workflowCommand } = await import("@/commands/cli/workflow.ts");
+            const { workflowCommand } = await import("./commands/cli/workflow.ts");
             const exitCode = await workflowCommand({
                 name: localOpts.name,
                 agent: localOpts.agent,
@@ -179,7 +179,7 @@ Examples:
         .argument("<key>", "Configuration key (e.g., telemetry)")
         .argument("<value>", "Value to set (e.g., true, false)")
         .action(async (key: string, value: string) => {
-            const { configCommand } = await import("@/commands/cli/config.ts");
+            const { configCommand } = await import("./commands/cli/config.ts");
             const exitCode = await configCommand("set", key, value);
             process.exit(exitCode);
         });
@@ -207,7 +207,7 @@ async function main(): Promise<void> {
             argv.includes("-h");
 
         if (!isInfoCommand) {
-            const { autoSyncIfStale } = await import("@/services/system/auto-sync.ts");
+            const { autoSyncIfStale } = await import("./services/system/auto-sync.ts");
             await autoSyncIfStale();
         }
 

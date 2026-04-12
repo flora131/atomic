@@ -2,7 +2,7 @@
 
 import { test, expect, describe, afterEach } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
-import { Edge } from "@/sdk/components/edge.tsx";
+import { Edge } from "../../../src/sdk/components/edge.tsx";
 
 let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;
 

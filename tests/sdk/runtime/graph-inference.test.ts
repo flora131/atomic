@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { GraphFrontierTracker } from "@/sdk/runtime/graph-inference.ts";
+import { GraphFrontierTracker } from "../../../src/sdk/runtime/graph-inference.ts";
 
 describe("GraphFrontierTracker", () => {
   test("first stage gets the scope parent", () => {

@@ -32,23 +32,23 @@ import type {
   StageSessionOptions,
   ProviderClient,
   ProviderSession,
-} from "@/sdk/types.ts";
-import { isValidAgent } from "@/services/config/definitions.ts";
-import { ensureDir } from "@/services/system/copy.ts";
+} from "../types.ts";
+import { isValidAgent } from "../../services/config/definitions.ts";
+import { ensureDir } from "../../services/system/copy.ts";
 import type { SessionEvent } from "@github/copilot-sdk";
 import type { SessionPromptResponse } from "@opencode-ai/sdk/v2";
 import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
-import * as tmux from "@/sdk/runtime/tmux.ts";
-import { spawnMuxAttach, SOCKET_NAME } from "@/sdk/runtime/tmux.ts";
-import { WorkflowLoader } from "@/sdk/runtime/loader.ts";
+import * as tmux from "./tmux.ts";
+import { spawnMuxAttach, SOCKET_NAME } from "./tmux.ts";
+import { WorkflowLoader } from "./loader.ts";
 import {
   clearClaudeSession,
   ClaudeClientWrapper,
   ClaudeSessionWrapper,
-} from "@/sdk/providers/claude.ts";
-import { OrchestratorPanel } from "@/sdk/runtime/panel.tsx";
-import { GraphFrontierTracker } from "@/sdk/runtime/graph-inference.ts";
-import { errorMessage } from "@/sdk/errors.ts";
+} from "../providers/claude.ts";
+import { OrchestratorPanel } from "./panel.tsx";
+import { GraphFrontierTracker } from "./graph-inference.ts";
+import { errorMessage } from "../errors.ts";
 
 /** Maximum time (ms) to wait for an agent's server to become reachable. */
 const SERVER_WAIT_TIMEOUT_MS = 60_000;
@@ -96,7 +96,7 @@ function assertNever(value: never): never {
 }
 
 // Re-export for backward compatibility (tests import from here)
-export { errorMessage } from "@/sdk/errors.ts";
+export { errorMessage } from "../errors.ts";
 
 /** Runtime guard for deserialized SavedMessage objects. */
 function isValidSavedMessage(msg: unknown): msg is SavedMessage {

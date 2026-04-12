@@ -8,7 +8,7 @@ import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { join } from "node:path";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { WorkflowLoader } from "@/sdk/workflows/index.ts";
+import { WorkflowLoader } from "../../../src/sdk/workflows/index.ts";
 
 let tempDir: string;
 

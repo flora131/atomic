@@ -147,7 +147,39 @@ atomic chat -a <claude|opencode|copilot>
 
 This explores your codebase using sub-agents and generates documentation that gives coding agents the context they need.
 
-### 4. Build a Workflow
+### 4. Managing Sessions
+
+Atomic runs every chat and workflow session inside [tmux](https://github.com/tmux/tmux) on a dedicated socket called `atomic`. This keeps Atomic sessions isolated from any personal tmux sessions you may have running.
+
+When you start a session you'll see a line like:
+
+```
+[atomic] Session: atomic-chat-a1b2c3d4 (FYI all atomic sessions run on tmux -L atomic)
+```
+
+Use standard tmux commands with `-L atomic` to manage your sessions:
+
+```bash
+# List all running Atomic sessions
+tmux -L atomic list-sessions
+
+# Re-attach to a running session
+tmux -L atomic attach-session -t <session-name>
+
+# Kill a session you no longer need
+tmux -L atomic kill-session -t <session-name>
+```
+
+Session names follow a predictable pattern:
+
+| Session type | Name format                        | Example                       |
+| ------------ | ---------------------------------- | ----------------------------- |
+| Chat         | `atomic-chat-<id>`                 | `atomic-chat-a1b2c3d4`       |
+| Workflow     | `atomic-wf-<workflow>-<id>`        | `atomic-wf-ralph-x9y8z7w6`   |
+
+> **Tip:** If your terminal disconnects or you accidentally close the window, your session is still alive — just run `tmux -L atomic attach-session -t <session-name>` to pick up where you left off.
+
+### 5. Build a Workflow
 
 Every team has a process. Atomic lets you encode it as TypeScript — chain agent sessions together, pass transcripts between them, and run the whole thing from the CLI.
 
@@ -786,6 +818,17 @@ During `atomic chat`, there is no Atomic-owned TUI — `atomic chat -a <agent>` 
 | `atomic chat`               | Spawn the native agent CLI inside a tmux/psmux session                |
 | `atomic workflow`           | Run a multi-session agent workflow with the Atomic orchestrator panel |
 | `atomic config set <k> <v>` | Set configuration values (currently supports `telemetry`)             |
+
+### Session Management (tmux)
+
+All Atomic sessions run on a dedicated tmux socket (`-L atomic`), separate from your personal tmux server. Use these commands to manage running sessions:
+
+| Command                                              | Description                                 |
+| ---------------------------------------------------- | ------------------------------------------- |
+| `tmux -L atomic list-sessions`                       | List all running Atomic sessions            |
+| `tmux -L atomic attach-session -t <session-name>`    | Re-attach to a session (e.g. after disconnect) |
+| `tmux -L atomic kill-session -t <session-name>`      | Terminate a session                         |
+| `tmux -L atomic list-windows -t <session-name>`      | List windows inside a workflow session      |
 
 #### Global Flags
 

@@ -126,7 +126,7 @@ export class PanelStore {
 
   /**
    * Return non-orchestrator agents that have started (not pending).
-   * These are the agents Tab/Shift+Tab cycles through.
+   * Used for the tmux status bar agent count and active-agent index.
    */
   getSubagents(): SessionData[] {
     return this.sessions.filter(

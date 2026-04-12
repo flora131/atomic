@@ -273,13 +273,6 @@ export function SessionGraphPanel() {
       navigate("down");
       return;
     }
-    if (key.name === "tab") {
-      // Tab: attach to first available subagent
-      const subs = store.getSubagents();
-      if (subs.length > 0) doAttach(subs[0]!.name);
-      return;
-    }
-
     // Enter: attach to focused node's tmux window
     if (key.name === "return") {
       doAttach(focusedIdRef.current);

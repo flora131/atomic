@@ -95,6 +95,44 @@ export type {
   ClaudeQueryDefaults,
 };
 
+// ─── Workflow input schemas ─────────────────────────────────────────────────
+
+/**
+ * Supported field types for a workflow's declared inputs.
+ *
+ * - `"string"` — single-line free-form input (short values, identifiers, paths)
+ * - `"text"`   — multi-line free-form input (long prose, prompts, specs)
+ * - `"enum"`   — one of a fixed list of allowed `values`
+ */
+export type WorkflowInputType = "string" | "text" | "enum";
+
+/**
+ * A declared input for a workflow. When a workflow provides an `inputs`
+ * array, the CLI materialises one `--<name>` flag per input (and the
+ * interactive picker renders one field per input) so users can pass
+ * structured values rather than a single free-form prompt.
+ *
+ * Leaving `inputs` unset (or empty) signals that the workflow consumes a
+ * single free-form prompt instead — the legacy
+ * `atomic workflow -n <name> -a <agent> "prompt"` form.
+ */
+export interface WorkflowInput {
+  /** Field name — also the CLI flag (`--<name>`) and form field identifier. */
+  name: string;
+  /** Input kind — see {@link WorkflowInputType}. */
+  type: WorkflowInputType;
+  /** Whether the field must be non-empty before the workflow can run. */
+  required?: boolean;
+  /** Short human description shown as the field caption. */
+  description?: string;
+  /** Placeholder text shown when the field is empty. */
+  placeholder?: string;
+  /** Default value pre-filled into the field. Enums use this to pick their initial value. */
+  default?: string;
+  /** Allowed values — required when `type` is `"enum"`. */
+  values?: string[];
+}
+
 // ─── Core types ─────────────────────────────────────────────────────────────
 
 /**
@@ -169,8 +207,16 @@ export interface SessionContext<A extends AgentType = AgentType> {
   client: ProviderClient<A>;
   /** Provider-specific session (auto-created by runtime) */
   session: ProviderSession<A>;
-  /** The original user prompt from the CLI invocation */
-  userPrompt: string;
+  /**
+   * Structured inputs for this workflow run. Populated from CLI flags
+   * (`--<name>=<value>`) or the interactive picker.
+   *
+   * Free-form workflows (no declared `inputs` schema) receive their
+   * single positional prompt under the `prompt` key — so
+   * `s.inputs.prompt` is the canonical way to read the user's prompt
+   * regardless of whether the workflow is structured or free-form.
+   */
+  inputs: Record<string, string>;
   /** Which agent is running */
   agent: A;
   /**
@@ -212,8 +258,16 @@ export interface SessionContext<A extends AgentType = AgentType> {
  * Does not have session-specific fields (paneId, save, etc.).
  */
 export interface WorkflowContext<A extends AgentType = AgentType> {
-  /** The original user prompt from the CLI invocation */
-  userPrompt: string;
+  /**
+   * Structured inputs for this workflow run. Populated from CLI flags
+   * (`--<name>=<value>`) or the interactive picker.
+   *
+   * Free-form workflows (no declared `inputs` schema) receive their
+   * single positional prompt under the `prompt` key — so
+   * `ctx.inputs.prompt` is the canonical way to read the user's prompt
+   * regardless of whether the workflow is structured or free-form.
+   */
+  inputs: Record<string, string>;
   /** Which agent is running */
   agent: A;
   /**
@@ -248,6 +302,13 @@ export interface WorkflowOptions {
   name: string;
   /** Human-readable description */
   description?: string;
+  /**
+   * Optional declared inputs. When provided, the CLI materialises one
+   * `--<name>` flag per entry and the interactive picker renders one form
+   * field per entry. Leave unset to keep the workflow free-form (a single
+   * positional prompt argument).
+   */
+  inputs?: WorkflowInput[];
 }
 
 /**
@@ -257,6 +318,8 @@ export interface WorkflowDefinition<A extends AgentType = AgentType> {
   readonly __brand: "WorkflowDefinition";
   readonly name: string;
   readonly description: string;
+  /** Declared input schema — empty array for free-form workflows. */
+  readonly inputs: readonly WorkflowInput[];
   /** The workflow's entry point. Called by the executor with a WorkflowContext. */
   readonly run: (ctx: WorkflowContext<A>) => Promise<void>;
 }

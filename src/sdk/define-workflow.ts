@@ -10,7 +10,49 @@
  *     .compile()
  */
 
-import type { AgentType, WorkflowOptions, WorkflowContext, WorkflowDefinition } from "./types.ts";
+import type {
+  AgentType,
+  WorkflowOptions,
+  WorkflowContext,
+  WorkflowDefinition,
+  WorkflowInput,
+} from "./types.ts";
+
+/**
+ * Validate a single declared workflow input, throwing on authoring
+ * mistakes that would otherwise surface as confusing runtime errors
+ * inside the picker or the flag parser.
+ */
+function validateWorkflowInput(input: WorkflowInput, workflowName: string): void {
+  if (!input.name || input.name.trim() === "") {
+    throw new Error(
+      `Workflow "${workflowName}" has an input with an empty name.`,
+    );
+  }
+  if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(input.name)) {
+    throw new Error(
+      `Workflow "${workflowName}" input "${input.name}" has an invalid ` +
+        `name — must start with a letter and contain only letters, ` +
+        `digits, underscores, and dashes (so it can be used as a ` +
+        `\`--${input.name}\` CLI flag).`,
+    );
+  }
+  if (input.type === "enum") {
+    if (!Array.isArray(input.values) || input.values.length === 0) {
+      throw new Error(
+        `Workflow "${workflowName}" input "${input.name}" is an enum but ` +
+          `declares no \`values\`.`,
+      );
+    }
+    if (input.default !== undefined && !input.values.includes(input.default)) {
+      throw new Error(
+        `Workflow "${workflowName}" input "${input.name}" has a default ` +
+          `"${input.default}" that is not one of its declared values: ` +
+          `${input.values.join(", ")}.`,
+      );
+    }
+  }
+}
 
 /**
  * Chainable workflow builder. Records the run callback,
@@ -61,10 +103,28 @@ export class WorkflowBuilder<A extends AgentType = AgentType> {
 
     const runFn = this.runFn;
 
+    // Freeze the declared inputs so consumers can read the schema without
+    // worrying that picker or executor code has mutated it upstream.
+    const declaredInputs = this.options.inputs ?? [];
+    const seen = new Set<string>();
+    for (const input of declaredInputs) {
+      validateWorkflowInput(input, this.options.name);
+      if (seen.has(input.name)) {
+        throw new Error(
+          `Workflow "${this.options.name}" has duplicate input name "${input.name}".`,
+        );
+      }
+      seen.add(input.name);
+    }
+    const inputs = Object.freeze(
+      declaredInputs.map((i) => Object.freeze({ ...i })),
+    ) as readonly WorkflowInput[];
+
     return {
       __brand: "WorkflowDefinition" as const,
       name: this.options.name,
       description: this.options.description ?? "",
+      inputs,
       run: runFn,
     };
   }
@@ -90,7 +150,7 @@ export class WorkflowBuilder<A extends AgentType = AgentType> {
  *       {},
  *       async (s) => {
  *         // s.client: CopilotClient, s.session: CopilotSession
- *         await s.session.sendAndWait({ prompt: s.userPrompt });
+ *         await s.session.sendAndWait({ prompt: s.inputs.prompt ?? "" });
  *         s.save(await s.session.getMessages());
  *       },
  *     );

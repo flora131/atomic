@@ -2,17 +2,42 @@ import { defineWorkflow } from "@bastani/atomic/workflows";
 
 const SEND_TIMEOUT_MS = 30 * 60 * 1000;
 
+/** Compose the initial greeting prompt from the structured inputs. */
+function buildGreetPrompt(inputs: Record<string, string>): string {
+  const topic = inputs.topic ?? "the world";
+  const tone = inputs.tone ?? "warm";
+  return `Write a short ${tone} greeting about "${topic}".`;
+}
+
 export default defineWorkflow<"copilot">({
     name: "parallel-hello-world",
     description: "Parallel hello world: greet → [formal, casual] → merge",
+    inputs: [
+      {
+        name: "topic",
+        type: "string",
+        required: true,
+        description: "what the greeting should be about",
+        placeholder: "a new project launch",
+      },
+      {
+        name: "tone",
+        type: "enum",
+        required: true,
+        description: "overall tone of the seed greeting",
+        values: ["warm", "neutral", "cold"],
+        default: "warm",
+      },
+    ],
   })
   .run(async (ctx) => {
+    const seedPrompt = buildGreetPrompt(ctx.inputs);
     const greet = await ctx.stage(
       { name: "greet", description: "Generate a greeting topic" },
       {},
       {},
       async (s) => {
-        await s.session.sendAndWait({ prompt: s.userPrompt }, SEND_TIMEOUT_MS);
+        await s.session.sendAndWait({ prompt: seedPrompt }, SEND_TIMEOUT_MS);
         s.save(await s.session.getMessages());
       },
     );

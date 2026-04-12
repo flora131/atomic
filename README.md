@@ -167,11 +167,16 @@ export default defineWorkflow<"claude">({
   description: "Research -> Implement -> Review",
 })
   .run(async (ctx) => {
+    // Free-form workflows receive their positional prompt under
+    // `ctx.inputs.prompt`. Destructure it once so every stage below
+    // can close over a bare string.
+    const prompt = ctx.inputs.prompt ?? "";
+
     const research = await ctx.stage(
       { name: "research", description: "Analyze the codebase" },
       {}, {},
       async (s) => {
-        await s.session.query(`/research-codebase ${s.userPrompt}`);
+        await s.session.query(`/research-codebase ${prompt}`);
         s.save(s.sessionId);
       },
     );
@@ -250,11 +255,13 @@ export default defineWorkflow<"claude">({
   description: "Two-session pipeline: describe -> summarize",
 })
   .run(async (ctx) => {
+    const prompt = ctx.inputs.prompt ?? "";
+
     const describe = await ctx.stage(
       { name: "describe", description: "Ask Claude to describe the project" },
       {}, {},
       async (s) => {
-        await s.session.query(s.userPrompt);
+        await s.session.query(prompt);
         s.save(s.sessionId);
       },
     );
@@ -287,10 +294,12 @@ export default defineWorkflow<"claude">({
   description: "describe -> [summarize-a, summarize-b] -> merge",
 })
   .run(async (ctx) => {
+    const prompt = ctx.inputs.prompt ?? "";
+
     const describe = await ctx.stage(
       { name: "describe" }, {}, {},
       async (s) => {
-        await s.session.query(s.userPrompt);
+        await s.session.query(prompt);
         s.save(s.sessionId);
       },
     );
@@ -322,6 +331,71 @@ export default defineWorkflow<"claude">({
 
 </details>
 
+<details>
+<summary>Example: Structured-input workflow (declared schema + CLI flag validation)</summary>
+
+Declare an `inputs` array on `defineWorkflow` and the CLI materialises one `--<field>=<value>` flag per entry. Required fields, enum membership, and unknown-flag rejection are all validated before any tmux session is spawned. The interactive picker (`atomic workflow -a <agent>`) renders the same schema as a form.
+
+```ts
+// .atomic/workflows/gen-spec/claude/index.ts
+import { defineWorkflow } from "@bastani/atomic/workflows";
+
+export default defineWorkflow<"claude">({
+  name: "gen-spec",
+  description: "Convert a research doc into an execution spec",
+  inputs: [
+    {
+      name: "research_doc",
+      type: "string",
+      required: true,
+      description: "path to the research doc",
+      placeholder: "research/docs/2026-04-11-auth.md",
+    },
+    {
+      name: "focus",
+      type: "enum",
+      required: true,
+      description: "how aggressively to scope the spec",
+      values: ["minimal", "standard", "exhaustive"],
+      default: "standard",
+    },
+    {
+      name: "notes",
+      type: "text",
+      description: "extra guidance for the spec writer (optional)",
+    },
+  ],
+})
+  .run(async (ctx) => {
+    // Read each declared field by name.
+    const { research_doc, focus } = ctx.inputs;
+    const notes = ctx.inputs.notes ?? "";
+
+    await ctx.stage({ name: "write-spec" }, {}, {}, async (s) => {
+      await s.session.query(
+        `Read ${research_doc} and produce a ${focus} spec.` +
+          (notes ? `\n\nExtra guidance:\n${notes}` : ""),
+      );
+      s.save(s.sessionId);
+    });
+  })
+  .compile();
+```
+
+Run it either way:
+
+```bash
+# Named + flags (scriptable; CI-friendly)
+atomic workflow -n gen-spec -a claude \
+  --research_doc=research/docs/2026-04-11-auth.md \
+  --focus=standard
+
+# Picker (fuzzy-search the workflow list, then fill the form)
+atomic workflow -a claude
+```
+
+</details>
+
 **Key capabilities:**
 
 | Capability                   | Description                                                                          |
@@ -330,6 +404,8 @@ export default defineWorkflow<"claude">({
 | **Native TypeScript control flow** | Use `for`, `if/else`, `Promise.all()`, `try/catch` — no framework DSL needed |
 | **Session return values**    | Session callbacks can return data: `const h = await ctx.stage(...); h.result`      |
 | **Transcript passing**       | Access prior session output via handle (`s.transcript(handle)`) or name (`s.transcript("name")`) |
+| **Declared input schemas**   | Add an `inputs: [...]` array to `defineWorkflow()` and the CLI materialises `--<field>=<value>` flags with built-in validation (required fields, enum membership, unknown flags) |
+| **Interactive picker**       | `atomic workflow -a <agent>` launches a fuzzy-searchable picker that renders each workflow's input schema as a form — no flag-memorisation required |
 | **Nested sub-sessions**      | Call `s.stage()` inside a session callback to spawn child sessions — visible as nested nodes in the graph |
 | **Auto-inferred graph**      | Graph topology auto-inferred from `await`/`Promise.all` patterns — no annotations needed               |
 | **Provider-agnostic**        | Write raw SDK code for Claude, Copilot, or OpenCode inside each session callback     |
@@ -368,7 +444,7 @@ Use your workflow-creator skill to create a workflow that plans, implements, and
 
 | Property                | Type                      | Description                                                    |
 | ----------------------- | ------------------------- | -------------------------------------------------------------- |
-| `ctx.userPrompt`        | `string`                  | Original user prompt from the CLI invocation                   |
+| `ctx.inputs`            | `Record<string, string>`  | Structured inputs for this run. Free-form workflows store their positional prompt under `ctx.inputs.prompt`; workflows with a declared `inputs` schema store one key per declared field |
 | `ctx.agent`             | `AgentType`               | Which agent is running (`"claude"`, `"copilot"`, `"opencode"`) |
 | `ctx.stage(opts, clientOpts, sessionOpts, fn)` | `Promise<SessionHandle<T>>` | Spawn a session — returns handle with `name`, `id`, `result` |
 | `ctx.transcript(ref)`   | `Promise<Transcript>`     | Get a completed session's transcript (`{ path, content }`)     |
@@ -380,7 +456,7 @@ Use your workflow-creator skill to create a workflow that plans, implements, and
 | ----------------------- | ------------------------- | -------------------------------------------------------------- |
 | `s.client`              | `ProviderClient<A>`       | Pre-created SDK client (auto-managed by runtime)               |
 | `s.session`             | `ProviderSession<A>`      | Pre-created provider session (auto-managed by runtime)         |
-| `s.userPrompt`          | `string`                  | Original user prompt from the CLI invocation                   |
+| `s.inputs`              | `Record<string, string>`  | Same inputs record as `ctx.inputs`, forwarded into every stage so session callbacks can read values without closing over the outer `ctx` |
 | `s.agent`               | `AgentType`               | Which agent is running                                         |
 | `s.paneId`              | `string`                  | tmux pane ID for this session                                  |
 | `s.sessionId`           | `string`                  | Session UUID                                                   |
@@ -750,12 +826,35 @@ atomic chat -a claude --verbose              # Forward --verbose to claude
 
 #### `atomic workflow` Flags
 
-| Flag                 | Description                                                         |
-| -------------------- | ------------------------------------------------------------------- |
-| `-n, --name <name>`  | Workflow name (matches directory under `.atomic/workflows/<name>/`) |
-| `-a, --agent <name>` | Agent: `claude`, `opencode`, `copilot`                              |
-| `-l, --list`         | List available workflows                                            |
-| `[prompt...]`        | Prompt for the workflow                                             |
+| Flag                       | Description                                                         |
+| -------------------------- | ------------------------------------------------------------------- |
+| `-n, --name <name>`        | Workflow name (matches directory under `.atomic/workflows/<name>/`) |
+| `-a, --agent <name>`       | Agent: `claude`, `opencode`, `copilot`                              |
+| `-l, --list`               | List available workflows, grouped by source                         |
+| `--<field>=<value>`        | Structured input for workflows that declare an `inputs` schema (also accepts `--<field> <value>`) |
+| `[prompt...]`               | Positional prompt for free-form workflows (rejected on workflows with a declared schema) |
+
+The workflow command supports four invocation shapes:
+
+```bash
+# 1. List every workflow available to you, grouped by source
+atomic workflow -l
+
+# 2. Launch the interactive picker for an agent (no -n) — fuzzy-search
+#    the list, fill the form rendered from the workflow's declared inputs,
+#    and confirm with y/n
+atomic workflow -a claude
+
+# 3. Run a free-form workflow with a positional prompt
+atomic workflow -n ralph -a claude "build a REST API for user management"
+
+# 4. Run a structured-input workflow with one --<field> flag per declared input
+atomic workflow -n gen-spec -a claude \
+  --research_doc=research/docs/2026-04-11-auth.md \
+  --focus=standard
+```
+
+Workflows that declare an `inputs: WorkflowInput[]` schema get CLI flag validation for free — missing required fields and invalid enum values are rejected before any tmux session is spawned, with error messages that spell out the expected flag set. Workflows that don't declare a schema still accept a single positional prompt, which the runtime stores under `ctx.inputs.prompt`. **Builtin workflows (like `ralph`) are reserved names** — a local or global workflow with the same name will not shadow a builtin at resolution time.
 
 ### Atomic-Provided Skills (invokable from any agent chat)
 

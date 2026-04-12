@@ -201,7 +201,7 @@ Add automated quality checkpoints using evaluation rubrics. This pattern applies
 ```ts
 .run(async (ctx) => {
   const impl = await ctx.stage({ name: "implement" }, {}, {}, async (s) => {
-    await s.session.query(s.userPrompt);
+    await s.session.query((s.inputs.prompt ?? ""));
     s.save(s.sessionId);
   });
 

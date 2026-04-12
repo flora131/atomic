@@ -27,7 +27,7 @@ await ctx.stage({ name: "..." }, {}, {
   timeoutMs: 5 * 60 * 1000,     // 5 minutes per query (default)
   pollIntervalMs: 1_000,         // Poll interval for output
 }, async (s) => {
-  await s.session.query(ctx.userPrompt);
+  await s.session.query((ctx.inputs.prompt ?? ""));
   s.save(s.sessionId);
 });
 ```
@@ -38,7 +38,7 @@ await ctx.stage({ name: "..." }, {}, {
 import { query } from "@anthropic-ai/claude-agent-sdk";
 
 const result = query({
-  prompt: ctx.userPrompt,
+  prompt: (ctx.inputs.prompt ?? ""),
   options: {
     // Model selection
     model: "claude-opus-4-6",         // Full model ID or alias ("opus", "sonnet", "haiku")
@@ -117,7 +117,7 @@ Hooks intercept tool usage, session events, and context management. The `hooks` 
 
 ```ts
 const result = query({
-  prompt: ctx.userPrompt,
+  prompt: (ctx.inputs.prompt ?? ""),
   options: {
     hooks: {
       PreToolUse: [{
@@ -207,7 +207,7 @@ await ctx.stage({ name: "plan" }, {}, {
   // Advanced
   infiniteSessions: true,             // Auto-manage context via compaction
 }, async (s) => {
-  await s.session.sendAndWait({ prompt: ctx.userPrompt }, SEND_TIMEOUT_MS);
+  await s.session.sendAndWait({ prompt: (ctx.inputs.prompt ?? "") }, SEND_TIMEOUT_MS);
   s.save(await s.session.getMessages());
 });
 ```
@@ -217,7 +217,7 @@ await ctx.stage({ name: "plan" }, {}, {
 ```ts
 // Approve everything (autonomous) — this is the default
 await ctx.stage({ name: "plan" }, {}, { onPermissionRequest: approveAll }, async (s) => {
-  await s.session.sendAndWait({ prompt: ctx.userPrompt }, SEND_TIMEOUT_MS);
+  await s.session.sendAndWait({ prompt: (ctx.inputs.prompt ?? "") }, SEND_TIMEOUT_MS);
   s.save(await s.session.getMessages());
 });
 
@@ -237,7 +237,7 @@ await ctx.stage({ name: "plan" }, {}, {
     }
   },
 }, async (s) => {
-  await s.session.sendAndWait({ prompt: ctx.userPrompt }, SEND_TIMEOUT_MS);
+  await s.session.sendAndWait({ prompt: (ctx.inputs.prompt ?? "") }, SEND_TIMEOUT_MS);
   s.save(await s.session.getMessages());
 });
 ```
@@ -281,7 +281,7 @@ await ctx.stage({ name: "implement" }, {}, {}, async (s) => {
   // Basic prompt
   const result = await s.client.session.prompt({
     sessionID: s.session.id,
-    parts: [{ type: "text", text: ctx.userPrompt }],
+    parts: [{ type: "text", text: (ctx.inputs.prompt ?? "") }],
   });
 
   // Structured output

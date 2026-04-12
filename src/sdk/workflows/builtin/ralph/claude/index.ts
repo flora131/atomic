@@ -37,6 +37,10 @@ export default defineWorkflow<"claude">({
     "Plan → orchestrate → review → debug loop with bounded iteration",
 })
   .run(async (ctx) => {
+    // Free-form workflows receive their positional prompt under
+    // `inputs.prompt`; destructure once so every stage below can close
+    // over a bare `prompt` string without re-reaching into ctx.inputs.
+    const prompt = ctx.inputs.prompt ?? "";
     let consecutiveClean = 0;
     let debuggerReport = "";
 
@@ -51,7 +55,7 @@ export default defineWorkflow<"claude">({
           await s.session.query(
             asAgentCall(
               "planner",
-              buildPlannerPrompt(s.userPrompt, {
+              buildPlannerPrompt(prompt, {
                 iteration,
                 debuggerReport: debuggerReport || undefined,
               }),
@@ -72,7 +76,7 @@ export default defineWorkflow<"claude">({
           await s.session.query(
             asAgentCall(
               "orchestrator",
-              buildOrchestratorPrompt(s.userPrompt),
+              buildOrchestratorPrompt(prompt),
             ),
           );
           s.save(s.sessionId);
@@ -91,7 +95,7 @@ export default defineWorkflow<"claude">({
           const result = await s.session.query(
             asAgentCall(
               "reviewer",
-              buildReviewPrompt(s.userPrompt, { gitStatus, iteration }),
+              buildReviewPrompt(prompt, { gitStatus, iteration }),
             ),
           );
           s.save(s.sessionId);
@@ -118,7 +122,7 @@ export default defineWorkflow<"claude">({
             const result = await s.session.query(
               asAgentCall(
                 "reviewer",
-                buildReviewPrompt(s.userPrompt, {
+                buildReviewPrompt(prompt, {
                   gitStatus,
                   iteration,
                   isConfirmationPass: true,

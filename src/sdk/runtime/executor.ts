@@ -90,8 +90,13 @@ export interface WorkflowRunOptions {
   definition: WorkflowDefinition;
   /** Agent type */
   agent: AgentType;
-  /** The user's prompt */
-  prompt: string;
+  /**
+   * Structured inputs for this run. Free-form workflows model their
+   * single positional prompt as `{ prompt: "..." }` so workflow
+   * authors can read `ctx.inputs.prompt` uniformly regardless of
+   * whether the workflow declares a schema. Empty record is valid.
+   */
+  inputs?: Record<string, string>;
   /** Absolute path to the workflow's index.ts file (from discovery) */
   workflowFile: string;
   /** Project root (defaults to cwd) */
@@ -253,6 +258,31 @@ export function escPwsh(s: string): string {
     .replace(/\r/g, "`r");
 }
 
+/**
+ * Decode the ATOMIC_WF_INPUTS env var (base64-encoded JSON) into a
+ * `Record<string, string>`. Returns an empty record when the variable
+ * is missing, malformed, or does not decode to a string-map object —
+ * structured inputs are optional, so a corrupt payload must never
+ * prevent free-form workflows from running.
+ */
+export function parseInputsEnv(raw: string | undefined): Record<string, string> {
+  if (!raw) return {};
+  try {
+    const decoded = Buffer.from(raw, "base64").toString("utf-8");
+    const parsed: unknown = JSON.parse(decoded);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof v === "string") out[k] = v;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 // ============================================================================
 // Entry point called by the CLI command
 // ============================================================================
@@ -269,7 +299,7 @@ export async function executeWorkflow(
   const {
     definition,
     agent,
-    prompt,
+    inputs = {},
     workflowFile,
     projectRoot = process.cwd(),
   } = options;
@@ -289,13 +319,20 @@ export async function executeWorkflow(
   const launcherPath = join(sessionsBaseDir, `orchestrator.${launcherExt}`);
   const logPath = join(sessionsBaseDir, "orchestrator.log");
 
+  // Inputs are passed through as base64-encoded JSON so long multiline
+  // text values survive shell quoting without any further escaping.
+  // Free-form workflows ride the same pipe — their single positional
+  // prompt is stored under the `prompt` key so workflow authors always
+  // read the user's prompt via `ctx.inputs.prompt`.
+  const inputsB64 = Buffer.from(JSON.stringify(inputs)).toString("base64");
+
   const launcherScript = isWin
     ? [
         `Set-Location "${escPwsh(projectRoot)}"`,
         `$env:ATOMIC_WF_ID = "${escPwsh(workflowRunId)}"`,
         `$env:ATOMIC_WF_TMUX = "${escPwsh(tmuxSessionName)}"`,
         `$env:ATOMIC_WF_AGENT = "${escPwsh(agent)}"`,
-        `$env:ATOMIC_WF_PROMPT = "${escPwsh(Buffer.from(prompt).toString("base64"))}"`,
+        `$env:ATOMIC_WF_INPUTS = "${escPwsh(inputsB64)}"`,
         `$env:ATOMIC_WF_FILE = "${escPwsh(workflowFile)}"`,
         `$env:ATOMIC_WF_CWD = "${escPwsh(projectRoot)}"`,
         `bun run "${escPwsh(thisFile)}" 2>"${escPwsh(logPath)}"`,
@@ -306,7 +343,7 @@ export async function executeWorkflow(
         `export ATOMIC_WF_ID="${escBash(workflowRunId)}"`,
         `export ATOMIC_WF_TMUX="${escBash(tmuxSessionName)}"`,
         `export ATOMIC_WF_AGENT="${escBash(agent)}"`,
-        `export ATOMIC_WF_PROMPT="${escBash(Buffer.from(prompt).toString("base64"))}"`,
+        `export ATOMIC_WF_INPUTS="${escBash(inputsB64)}"`,
         `export ATOMIC_WF_FILE="${escBash(workflowFile)}"`,
         `export ATOMIC_WF_CWD="${escBash(projectRoot)}"`,
         `bun run "${escBash(thisFile)}" 2>"${escBash(logPath)}"`,
@@ -428,7 +465,13 @@ interface SharedRunnerState {
   tmuxSessionName: string;
   sessionsBaseDir: string;
   agent: AgentType;
-  prompt: string;
+  /**
+   * Structured inputs for this workflow run. Free-form workflows use
+   * `{ prompt: "..." }`; structured workflows use their declared field
+   * names. Workflow authors read both shapes via `ctx.inputs` — and
+   * specifically via `ctx.inputs.prompt` for the free-form case.
+   */
+  inputs: Record<string, string>;
   panel: OrchestratorPanel;
   /** Sessions that have been spawned (for name uniqueness + cleanup). */
   activeRegistry: Map<string, ActiveSession>;
@@ -748,10 +791,14 @@ function createSessionRunner(
         );
 
       // ── 13. Construct SessionContext ──
+      // Free-form workflows read their prompt via `s.inputs.prompt`;
+      // structured workflows read their declared fields the same way.
+      // A single uniform access pattern means workflow code never has
+      // to branch on "is this workflow structured or free-form".
       const ctx: SessionContext = {
         client: providerClient as SessionContext["client"],
         session: providerSession as SessionContext["session"],
-        userPrompt: shared.prompt,
+        inputs: shared.inputs,
         agent: shared.agent,
         sessionDir,
         paneId,
@@ -837,12 +884,11 @@ export async function runOrchestrator(): Promise<void> {
     "ATOMIC_WF_ID",
     "ATOMIC_WF_TMUX",
     "ATOMIC_WF_AGENT",
-    "ATOMIC_WF_PROMPT",
     "ATOMIC_WF_FILE",
     "ATOMIC_WF_CWD",
   ] as const;
   for (const key of requiredEnvVars) {
-    if (!process.env[key]) {
+    if (process.env[key] === undefined) {
       throw new Error(`Missing required environment variable: ${key}`);
     }
   }
@@ -850,9 +896,15 @@ export async function runOrchestrator(): Promise<void> {
   const workflowRunId = process.env.ATOMIC_WF_ID!;
   const tmuxSessionName = process.env.ATOMIC_WF_TMUX!;
   const agent = process.env.ATOMIC_WF_AGENT! as AgentType;
-  const prompt = Buffer.from(process.env.ATOMIC_WF_PROMPT!, "base64").toString(
-    "utf-8",
-  );
+  // ATOMIC_WF_INPUTS carries the full input payload. Free-form
+  // workflows store their single positional prompt under the `prompt`
+  // key so workflow authors always read it via `ctx.inputs.prompt`.
+  // An unset, missing, or malformed payload falls back to an empty
+  // record so `ctx.inputs.prompt` gracefully becomes `undefined`.
+  const inputs = parseInputsEnv(process.env.ATOMIC_WF_INPUTS);
+  // A bare prompt string is still useful for the panel header and the
+  // session-dir metadata.json — both just want something displayable.
+  const prompt = inputs.prompt ?? "";
   const workflowFile = process.env.ATOMIC_WF_FILE!;
   const cwd = process.env.ATOMIC_WF_CWD!;
 
@@ -887,7 +939,7 @@ export async function runOrchestrator(): Promise<void> {
     tmuxSessionName,
     sessionsBaseDir,
     agent,
-    prompt,
+    inputs,
     panel,
     activeRegistry: new Map(),
     completedRegistry: new Map(),
@@ -936,7 +988,7 @@ export async function runOrchestrator(): Promise<void> {
     const sessionRunner = createSessionRunner(shared, "orchestrator");
 
     const workflowCtx: WorkflowContext = {
-      userPrompt: prompt,
+      inputs,
       agent,
       stage: sessionRunner as WorkflowContext["stage"],
       transcript: async (ref: SessionRef): Promise<Transcript> => {

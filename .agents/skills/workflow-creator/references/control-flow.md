@@ -20,7 +20,7 @@ Run a triage session first, then branch at the `.run()` level to spawn a purpose
   // Step 1: Classify the request
   const triage = await ctx.stage({ name: "triage" }, {}, {}, async (s) => {
     const result = await s.session.query(
-      `Classify this as "bug", "feature", or "question": ${ctx.userPrompt}`,
+      `Classify this as "bug", "feature", or "question": ${(ctx.inputs.prompt ?? "")}`,
     );
     s.save(s.sessionId);
     return result.output.toLowerCase();
@@ -56,7 +56,7 @@ When the branching logic is simple and you want the agent to retain full context
 .run(async (ctx) => {
   await ctx.stage({ name: "triage-and-act" }, {}, {}, async (s) => {
     const triageResult = await s.session.query(
-      `Classify this as "bug", "feature", or "question": ${ctx.userPrompt}`,
+      `Classify this as "bug", "feature", or "question": ${(ctx.inputs.prompt ?? "")}`,
     );
 
     const classification = triageResult.output.toLowerCase();
@@ -133,7 +133,7 @@ The inter-session pattern is the right fit here: every review and every fix beco
   for (let cycle = 1; cycle <= MAX_CYCLES; cycle++) {
     // Each review is a visible graph node
     const review = await ctx.stage({ name: `review-${cycle}` }, {}, {}, async (s) => {
-      const result = await s.session.query(buildReviewPrompt(ctx.userPrompt));
+      const result = await s.session.query(buildReviewPrompt((ctx.inputs.prompt ?? "")));
       s.save(s.sessionId);
       return result.output;
     });
@@ -152,8 +152,8 @@ The inter-session pattern is the right fit here: every review and every fix beco
     consecutiveClean = 0;
 
     const fixPrompt = parsed
-      ? buildFixSpecFromReview(parsed, ctx.userPrompt)
-      : buildFixSpecFromRawReview(reviewRaw, ctx.userPrompt);
+      ? buildFixSpecFromReview(parsed, (ctx.inputs.prompt ?? ""))
+      : buildFixSpecFromRawReview(reviewRaw, (ctx.inputs.prompt ?? ""));
 
     // Each fix is also a visible graph node
     await ctx.stage({ name: `fix-${cycle}` }, {}, {}, async (s) => {
@@ -182,7 +182,7 @@ const SEND_TIMEOUT_MS = 30 * 60 * 1000;
   for (let cycle = 1; cycle <= MAX_CYCLES; cycle++) {
     const review = await ctx.stage({ name: `review-${cycle}` }, {}, {}, async (s) => {
       await s.session.sendAndWait(
-        { prompt: buildReviewPrompt(ctx.userPrompt) },
+        { prompt: buildReviewPrompt((ctx.inputs.prompt ?? "")) },
         SEND_TIMEOUT_MS,
       );
       const reviewRaw = getAssistantText(await s.session.getMessages()); // see failure-modes.md §F1
@@ -202,8 +202,8 @@ const SEND_TIMEOUT_MS = 30 * 60 * 1000;
     consecutiveClean = 0;
 
     const fixPrompt = parsed
-      ? buildFixSpecFromReview(parsed, ctx.userPrompt)
-      : buildFixSpecFromRawReview(reviewRaw, ctx.userPrompt);
+      ? buildFixSpecFromReview(parsed, (ctx.inputs.prompt ?? ""))
+      : buildFixSpecFromRawReview(reviewRaw, (ctx.inputs.prompt ?? ""));
 
     await ctx.stage({ name: `fix-${cycle}` }, {}, {}, async (s) => {
       await s.session.sendAndWait(
@@ -326,11 +326,11 @@ Within a single session callback, each SDK call adds to the conversation context
 .run(async (ctx) => {
   await ctx.stage({ name: "implement" }, {}, {}, async (s) => {
     try {
-      await s.session.query(ctx.userPrompt);
+      await s.session.query((ctx.inputs.prompt ?? ""));
     } catch (error) {
       // Retry with simpler prompt
       await s.session.query(
-        `The previous attempt failed. Please try a simpler approach: ${ctx.userPrompt}`,
+        `The previous attempt failed. Please try a simpler approach: ${(ctx.inputs.prompt ?? "")}`,
       );
     }
     s.save(s.sessionId);
@@ -359,7 +359,7 @@ async function retryWithBackoff<T>(
 
 .run(async (ctx) => {
   await ctx.stage({ name: "implement" }, {}, {}, async (s) => {
-    await retryWithBackoff(() => s.session.query(ctx.userPrompt));
+    await retryWithBackoff(() => s.session.query((ctx.inputs.prompt ?? "")));
     s.save(s.sessionId);
   });
 })
@@ -373,7 +373,7 @@ Combine loops, conditionals, and inter-session data passing. Session callbacks r
 .run(async (ctx) => {
   // Step 1: Analyse — result is available as a typed handle
   const analysisHandle = await ctx.stage({ name: "analyze" }, {}, {}, async (s) => {
-    const result = await s.session.query(`Analyse the task: ${ctx.userPrompt}`);
+    const result = await s.session.query(`Analyse the task: ${(ctx.inputs.prompt ?? "")}`);
     s.save(s.sessionId);
     return result.output;
   });

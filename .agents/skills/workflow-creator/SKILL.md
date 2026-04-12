@@ -1,6 +1,6 @@
 ---
 name: workflow-creator
-description: Create custom multi-agent workflows for Atomic CLI using the defineWorkflow().run().compile() API with ctx.stage(opts, clientOpts, sessionOpts, callback) for dynamic session spawning with auto-init/cleanup. Applies context engineering principles (context-fundamentals, context-degradation, context-compression, context-optimization), architectural patterns (multi-agent-patterns, memory-systems, tool-design, filesystem-context, hosted-agents), quality assurance (evaluation, advanced-evaluation), and design methodology (project-development, bdi-mental-states) to produce robust, context-aware workflows. Workflows live at .atomic/workflows/<name>/<agent>/index.ts. Trigger when users want to create workflows, build agent pipelines, define multi-stage automations, set up review loops, connect coding agents, or mention .atomic/workflows/, defineWorkflow, or agent task sequences.
+description: Create custom multi-agent workflows for Atomic CLI using the defineWorkflow().run().compile() API with ctx.stage(opts, clientOpts, sessionOpts, callback) for dynamic session spawning with auto-init/cleanup. Workflows can declare structured input schemas (string/text/enum fields) that the CLI materialises as `--<field>=<value>` flags and the interactive picker (`atomic workflow -a <agent>`) renders as a form; free-form workflows receive their positional prompt under `ctx.inputs.prompt`. Applies context engineering principles (context-fundamentals, context-degradation, context-compression, context-optimization), architectural patterns (multi-agent-patterns, memory-systems, tool-design, filesystem-context, hosted-agents), quality assurance (evaluation, advanced-evaluation), and design methodology (project-development, bdi-mental-states) to produce robust, context-aware workflows. Workflows live at .atomic/workflows/<name>/<agent>/index.ts. Trigger when users want to create workflows, build agent pipelines, define multi-stage automations, set up review loops, connect coding agents, declare workflow inputs, or mention .atomic/workflows/, defineWorkflow, ctx.inputs, the atomic workflow picker, or agent task sequences.
 ---
 
 # Workflow Creator
@@ -17,12 +17,13 @@ Load the topic-specific reference files from `references/` based on priority. **
 |---|---|---|
 | **1** | `getting-started.md` | **Always** — quick-start examples for all 3 SDKs, SDK exports, `SessionContext` reference |
 | **1** | `failure-modes.md` | **Always for multi-session workflows** — 15 catalogued failures (silent + loud) with wrong-vs-right patterns and a pre-ship design checklist |
+| **1** | `workflow-inputs.md` | **Always when declaring structured inputs or documenting how a workflow is invoked** — `WorkflowInput` schema, field-type selection, picker + CLI flag semantics, builtin-protection rules, invocation cheat sheet |
 | **2** | `agent-sessions.md` | When writing SDK calls — `s.session.query()` (Claude), `s.session.sendAndWait()` (Copilot), `s.client.session.prompt()` (OpenCode); includes critical pitfalls on timeouts and session lifecycle |
 | **2** | `control-flow.md` | When using loops, conditionals, parallel execution, or review/fix patterns |
 | **2** | `state-and-data-flow.md` | When passing data between sessions — `s.save()`, `s.transcript()`, `s.getMessages()`, file persistence, transcript compression |
 | **3** | `computation-and-validation.md` | When adding deterministic computation, response parsing, validation, quality gates, or file I/O |
 | **3** | `session-config.md` | When configuring model, tools, permissions, hooks, or structured output per SDK |
-| **3** | `user-input.md` | When collecting user input mid-workflow — Claude `canUseTool`, Copilot `onElicitationRequest`, OpenCode TUI control |
+| **3** | `user-input.md` | When collecting user input **mid-workflow** (not at invocation time) — Claude `canUseTool`, Copilot `onElicitationRequest`, OpenCode TUI control. For invocation-time inputs, see `workflow-inputs.md`. |
 | **3** | `discovery-and-verification.md` | When setting up workflow file structure, validation, or TypeScript config |
 
 ## Information Flow Is a First-Class Design Concern
@@ -178,10 +179,70 @@ Discovery sources (highest precedence first):
 
 | Context | Available in | Has `client`/`session`/`paneId`/`save`? | Purpose |
 |---------|-------------|----------------------------------|---------|
-| `WorkflowContext` (`ctx`) | `.run(async (ctx) => ...)` | No | Orchestration: spawn sessions, read transcripts |
-| `SessionContext` (`s`) | `ctx.stage(opts, clientOpts, sessionOpts, async (s) => ...)` | Yes | Agent work: use `s.client` and `s.session` for SDK calls, save output |
+| `WorkflowContext` (`ctx`) | `.run(async (ctx) => ...)` | No | Orchestration: spawn sessions, read transcripts, read `ctx.inputs` |
+| `SessionContext` (`s`) | `ctx.stage(opts, clientOpts, sessionOpts, async (s) => ...)` | Yes | Agent work: use `s.client` and `s.session` for SDK calls, save output, read `s.inputs` |
 
-The `WorkflowContext` is the orchestrator — it spawns sessions and reads transcripts. The `SessionContext` is the worker — it has the pre-initialized client and session, tmux pane, and save function. Both contexts can spawn nested sessions via `stage()` and read prior transcripts via `transcript()`.
+The `WorkflowContext` is the orchestrator — it spawns sessions and reads transcripts. The `SessionContext` is the worker — it has the pre-initialized client and session, tmux pane, and save function. Both contexts can spawn nested sessions via `stage()` and read prior transcripts via `transcript()`. Both expose the same `inputs: Record<string, string>` field — populated identically from whichever invocation surface the user chose.
+
+### Declared inputs: one API, three invocation surfaces
+
+Workflows receive user data exclusively through `ctx.inputs` (and `s.inputs` inside stage callbacks). The invocation surface — positional CLI prompt, structured CLI flags, or the interactive picker — is a CLI concern; by the time your workflow code runs, the runtime has already normalised everything into a `Record<string, string>`.
+
+You have two choices when defining a workflow:
+
+**Free-form** — no schema. The positional CLI prompt lands under the reserved `prompt` key. Read it via `ctx.inputs.prompt ?? ""`.
+
+```ts
+defineWorkflow<"claude">({ name: "answer", description: "Single-turn answer" })
+  .run(async (ctx) => {
+    // Destructure once so every stage can close over a bare string.
+    const prompt = ctx.inputs.prompt ?? "";
+    await ctx.stage({ name: "answer" }, {}, {}, async (s) => {
+      await s.session.query(prompt);
+      s.save(s.sessionId);
+    });
+  })
+  .compile();
+```
+
+**Structured** — declare an `inputs` array on `defineWorkflow`. The CLI materialises one `--<field>=<value>` flag per entry, validates required fields + enum membership before launching anything, and the interactive picker renders a form from the same schema.
+
+```ts
+defineWorkflow<"claude">({
+    name: "gen-spec",
+    description: "Convert a research doc into an execution spec",
+    inputs: [
+      { name: "research_doc", type: "string", required: true, description: "path to the research doc" },
+      {
+        name: "focus",
+        type: "enum",
+        required: true,
+        values: ["minimal", "standard", "exhaustive"],
+        default: "standard",
+      },
+      { name: "notes", type: "text", description: "extra guidance (optional)" },
+    ],
+  })
+  .run(async (ctx) => {
+    const { research_doc, focus } = ctx.inputs;
+    const notes = ctx.inputs.notes ?? "";
+    // ... use the fields to build prompts, paths, etc.
+  })
+  .compile();
+```
+
+Three field types are supported: `string` (single-line), `text` (multi-line), `enum` (fixed set of values). **Load `references/workflow-inputs.md` for the full schema shape, validation rules, invocation cheat sheet, and the free-form-vs-structured decision guide.**
+
+### Invocation surfaces
+
+| Surface | Command | When the user reaches for it |
+|---|---|---|
+| Named, free-form prompt | `atomic workflow -n hello -a claude "fix the bug"` | Scripted runs of free-form workflows; the positional prompt lands in `ctx.inputs.prompt` |
+| Named, structured flags | `atomic workflow -n gen-spec -a claude --research_doc=notes.md --focus=standard` | Scripted runs of structured workflows; one `--<name>=<value>` per declared input |
+| Interactive picker | `atomic workflow -a claude` | Discovery. Shows a fuzzy-filterable list, then renders a form (free-form gets a single `prompt` field; structured gets one field per declared input) |
+| List | `atomic workflow -l` | Browsing everything available, grouped by source (local / global / builtin) |
+
+**Builtin workflows are reserved.** A local or global workflow with the same name as a builtin (e.g. `ralph`) cannot shadow the builtin at resolution time — `atomic workflow -n ralph -a claude` always resolves to the SDK copy. Pick distinct names for your own workflows and you'll never hit this.
 
 ### Structural Rules
 
@@ -274,13 +335,17 @@ export default defineWorkflow<"claude">({
     description: "Two-step pipeline",
   })
   .run(async (ctx) => {
+    // Free-form workflow — destructure the positional prompt once so
+    // every stage below can close over a bare string.
+    const prompt = ctx.inputs.prompt ?? "";
+
     const analyze = await ctx.stage(
       { name: "analyze", description: "Analyze the codebase" },
       {},
       {},
       async (s) => {
         // s.session is a ClaudeSessionWrapper — auto-created by the runtime
-        const result = await s.session.query(s.userPrompt);
+        const result = await s.session.query(prompt);
         s.save(s.sessionId);
         return result.output;
       },
@@ -322,13 +387,18 @@ export default defineWorkflow<"copilot">({
     description: "Two-step pipeline",
   })
   .run(async (ctx) => {
+    // `userPromptText` rather than `prompt` because Copilot's
+    // sendAndWait uses `{ prompt: ... }` as an object key — the local
+    // name avoids visual collision inside those send calls.
+    const userPromptText = ctx.inputs.prompt ?? "";
+
     const analyze = await ctx.stage(
       { name: "analyze", description: "Analyze the codebase" },
       {},
       {},
       async (s) => {
         // s.session is a CopilotSession — auto-created by the runtime
-        await s.session.sendAndWait({ prompt: s.userPrompt }, SEND_TIMEOUT_MS);
+        await s.session.sendAndWait({ prompt: userPromptText }, SEND_TIMEOUT_MS);
         s.save(await s.session.getMessages());
       },
     );
@@ -363,6 +433,8 @@ export default defineWorkflow<"opencode">({
     description: "Two-step pipeline",
   })
   .run(async (ctx) => {
+    const prompt = ctx.inputs.prompt ?? "";
+
     const analyze = await ctx.stage(
       { name: "analyze", description: "Analyze the codebase" },
       {},
@@ -371,7 +443,7 @@ export default defineWorkflow<"opencode">({
         // s.client is OpencodeClient; s.session is the Session data object
         const result = await s.client.session.prompt({
           sessionID: s.session.id,
-          parts: [{ type: "text", text: s.userPrompt }],
+          parts: [{ type: "text", text: prompt }],
         });
         s.save(result.data!);
       },
@@ -405,9 +477,27 @@ bunx tsc --noEmit --pretty false
 
 ### 5. Test the Workflow
 
+For free-form workflows, pass the prompt as a positional argument:
+
 ```bash
 atomic workflow -n <workflow-name> -a <agent> "<your prompt>"
 ```
+
+For structured workflows, pass one `--<field>=<value>` flag per declared input (both `--foo=bar` and `--foo bar` forms work):
+
+```bash
+atomic workflow -n <workflow-name> -a <agent> \
+  --research_doc=notes.md \
+  --focus=standard
+```
+
+To discover workflows interactively without remembering flag names, launch the picker:
+
+```bash
+atomic workflow -a <agent>
+```
+
+The picker is scoped to `<agent>` — it shows every workflow compatible with that backend, grouped by source (local / global / builtin), with a fuzzy filter and a form rendered from each workflow's declared schema.
 
 ## Key Patterns
 
@@ -430,6 +520,7 @@ Loops run at the workflow level, spawning a new graph node per iteration so user
 ```ts
 defineWorkflow<"claude">({ name: "review-fix", description: "Iterative review and fix" })
   .run(async (ctx) => {
+    const prompt = ctx.inputs.prompt ?? "";
     const MAX_CYCLES = 10;
     let consecutiveClean = 0;
 
@@ -437,7 +528,7 @@ defineWorkflow<"claude">({ name: "review-fix", description: "Iterative review an
       // Each iteration spawns a visible graph node
       const review = await ctx.stage({ name: `review-${cycle}` }, {}, {}, async (s) => {
         // s.session is auto-created by the runtime
-        const result = await s.session.query(buildReviewPrompt(s.userPrompt));
+        const result = await s.session.query(buildReviewPrompt(prompt));
         s.save(s.sessionId);
         return result.output;
       });
@@ -452,7 +543,7 @@ defineWorkflow<"claude">({ name: "review-fix", description: "Iterative review an
 
       // Conditionally spawn a fix session
       await ctx.stage({ name: `fix-${cycle}` }, {}, {}, async (s) => {
-        await s.session.query(buildFixSpecFromReview(parsed, s.userPrompt));
+        await s.session.query(buildFixSpecFromReview(parsed, prompt));
         s.save(s.sessionId);
       });
     }
@@ -479,9 +570,11 @@ await ctx.stage({ name: "guided-implementation" }, {}, {}, async (s) => {
 
 ```ts
 .run(async (ctx) => {
+  const prompt = ctx.inputs.prompt ?? "";
+
   const triage = await ctx.stage({ name: "triage" }, {}, {}, async (s) => {
     const result = await s.session.query(
-      `Classify this as "bug", "feature", or "question":\n${s.userPrompt}`,
+      `Classify this as "bug", "feature", or "question":\n${prompt}`,
     );
     s.save(s.sessionId);
     return result.output.toLowerCase();
@@ -532,8 +625,10 @@ export default defineWorkflow<"claude">({
     description: "describe → [summarize-a, summarize-b] → merge",
   })
   .run(async (ctx) => {
+    const prompt = ctx.inputs.prompt ?? "";
+
     const describe = await ctx.stage({ name: "describe" }, {}, {}, async (s) => {
-      await s.session.query(s.userPrompt);
+      await s.session.query(prompt);
       s.save(s.sessionId);
     });
 
@@ -610,12 +705,14 @@ These three primitives compose to express any DAG topology through ordinary Type
 
 Delegate to named sub-agents within a session. Each SDK has its own mechanism:
 
+Assume `const prompt = ctx.inputs.prompt ?? "";` is pulled out at the top of each workflow's `.run()` callback (free-form convention) — every example below closes over it.
+
 **Claude** — prefix the prompt with `@"agent-name (agent)"`:
 
 ```ts
 await ctx.stage({ name: "plan-and-execute" }, {}, {}, async (s) => {
   // s.session is auto-created; query() passes the prompt directly to the Claude TUI
-  await s.session.query(`@"planner (agent)" Create a plan for: ${s.userPrompt}`);
+  await s.session.query(`@"planner (agent)" Create a plan for: ${prompt}`);
   await s.session.query(`@"orchestrator (agent)" Execute the plan above.`);
   s.save(s.sessionId);
 });
@@ -628,7 +725,7 @@ const SEND_TIMEOUT_MS = 30 * 60 * 1000;
 
 await ctx.stage({ name: "plan" }, {}, { agent: "planner" }, async (s) => {
   // s.session is a CopilotSession created with agent: "planner"
-  await s.session.sendAndWait({ prompt: s.userPrompt }, SEND_TIMEOUT_MS);
+  await s.session.sendAndWait({ prompt }, SEND_TIMEOUT_MS);
   s.save(await s.session.getMessages());
 });
 ```
@@ -640,7 +737,7 @@ await ctx.stage({ name: "plan" }, {}, { title: "plan" }, async (s) => {
   // s.client is OpencodeClient; s.session is the Session data object
   const result = await s.client.session.prompt({
     sessionID: s.session.id,
-    parts: [{ type: "text", text: s.userPrompt }],
+    parts: [{ type: "text", text: prompt }],
     agent: "planner",
   });
   s.save(result.data!);
@@ -672,10 +769,13 @@ export function buildPlanPrompt(spec: string): string {
 // .atomic/workflows/my-workflow/claude/index.ts
 import { buildPlanPrompt } from "../helpers/prompts.ts";
 // ...
-await ctx.stage({ name: "plan" }, {}, {}, async (s) => {
-  await s.session.query(buildPlanPrompt(s.userPrompt));
-  s.save(s.sessionId);
-});
+.run(async (ctx) => {
+  const prompt = ctx.inputs.prompt ?? "";
+  await ctx.stage({ name: "plan" }, {}, {}, async (s) => {
+    await s.session.query(buildPlanPrompt(prompt));
+    s.save(s.sessionId);
+  });
+})
 ```
 
 ### Context-Aware Transcript Handoff
@@ -696,7 +796,7 @@ Use the filesystem as a coordination layer instead of inlining large data into p
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `userPrompt` | `string` | The original user prompt from the CLI invocation |
+| `inputs` | `Record<string, string>` | Structured inputs for this run. Free-form workflows store their positional prompt under `inputs.prompt`; structured workflows store one key per declared input. See `references/workflow-inputs.md`. |
 | `agent` | `AgentType` | Which agent is running (`"claude"`, `"copilot"`, or `"opencode"`) |
 | `stage(opts, clientOpts, sessionOpts, fn)` | `<T>(opts: SessionRunOptions, clientOpts: StageClientOptions<A>, sessionOpts: StageSessionOptions<A>, fn: (s: SessionContext<A>) => Promise<T>) => Promise<SessionHandle<T>>` | Spawn a session — runtime auto-creates client+session, runs callback, auto-cleans up |
 | `transcript(ref)` | `(ref: SessionRef) => Promise<Transcript>` | Get a completed session's transcript |
@@ -708,7 +808,7 @@ Use the filesystem as a coordination layer instead of inlining large data into p
 |-------|------|-------------|
 | `client` | `ProviderClient<A>` | Pre-created SDK client — managed by the runtime; type resolves to the native SDK client for your agent |
 | `session` | `ProviderSession<A>` | Pre-created session — managed by the runtime; type resolves to the native SDK session for your agent |
-| `userPrompt` | `string` | The original user prompt from the CLI invocation |
+| `inputs` | `Record<string, string>` | Same inputs record as `WorkflowContext.inputs`, forwarded into every stage so session callbacks can read the values without closing over the outer `ctx` |
 | `agent` | `AgentType` | Which agent is running |
 | `paneId` | `string` | tmux pane ID for this session |
 | `sessionId` | `string` | Session UUID |

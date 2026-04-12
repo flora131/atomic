@@ -169,7 +169,10 @@ describe("built-in workflow discovery", () => {
     expect(ralphAgents).toEqual(["claude", "copilot", "opencode"]);
   });
 
-  test("local workflow overrides built-in with same name", async () => {
+  test("built-in workflow is NOT shadowed by a local with the same name", async () => {
+    // Builtin names are reserved — a user-defined local workflow must
+    // never win at merge time, even when it exists on disk. This
+    // protects SDK-shipped workflows from being silently overridden.
     const dir = join(tempDir, ".atomic", "workflows", "ralph", "claude");
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, "index.ts"), "export default {};");
@@ -177,7 +180,59 @@ describe("built-in workflow discovery", () => {
     const results = await discoverWorkflows(tempDir, "claude");
     const ralph = results.find((r) => r.name === "ralph");
     expect(ralph).toBeDefined();
-    expect(ralph!.source).toBe("local");
+    expect(ralph!.source).toBe("builtin");
+  });
+
+  test("reserved builtin names are dropped from unmerged discovery", async () => {
+    // `--list` uses `{ merge: false }`, but reserved builtin names must
+    // still filter out user-defined local/global workflows of the same
+    // name so nothing shadowed ever appears in the list. Users should
+    // see exactly one `ralph` entry — the SDK-shipped one — even if
+    // they have a local copy sitting on disk under the reserved name.
+    const dir = join(tempDir, ".atomic", "workflows", "ralph", "claude");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "index.ts"), "export default {};");
+
+    const results = await discoverWorkflows(tempDir, "claude", { merge: false });
+    const ralphEntries = results.filter((r) => r.name === "ralph");
+    expect(ralphEntries).toHaveLength(1);
+    expect(ralphEntries[0]!.source).toBe("builtin");
+  });
+
+  test("reservation is name-based across all agents", async () => {
+    // Ralph ships for every agent, so a local copilot ralph is reserved
+    // even when discovery is filtered to copilot specifically. The
+    // reservation lives at the NAME level, not the (name, agent) level,
+    // so a user can never register any variant of a reserved name.
+    const dir = join(tempDir, ".atomic", "workflows", "ralph", "copilot");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "index.ts"), "export default {};");
+
+    const merged = await discoverWorkflows(tempDir, "copilot");
+    const mergedRalph = merged.filter((r) => r.name === "ralph");
+    expect(mergedRalph).toHaveLength(1);
+    expect(mergedRalph[0]!.source).toBe("builtin");
+
+    const unmerged = await discoverWorkflows(tempDir, "copilot", {
+      merge: false,
+    });
+    const unmergedRalph = unmerged.filter((r) => r.name === "ralph");
+    expect(unmergedRalph).toHaveLength(1);
+    expect(unmergedRalph[0]!.source).toBe("builtin");
+  });
+
+  test("findWorkflow never resolves a reserved name to a local entry", async () => {
+    // Sanity check: the named-mode CLI path goes through `findWorkflow`,
+    // which internally calls discoverWorkflows in merged mode. With
+    // reserved-name filtering, a local ralph/claude must still resolve
+    // to the builtin — never to the user's file.
+    const dir = join(tempDir, ".atomic", "workflows", "ralph", "claude");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "index.ts"), "export default {};");
+
+    const resolved = await findWorkflow("ralph", "claude", tempDir);
+    expect(resolved).not.toBeNull();
+    expect(resolved!.source).toBe("builtin");
   });
 });
 

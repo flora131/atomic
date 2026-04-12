@@ -34,7 +34,7 @@ export const COLORS = supportsColor() ? ANSI_CODES : NO_COLORS;
 // Hex values mirror .impeccable.md and src/sdk/runtime/theme.ts.
 // ---------------------------------------------------------------------------
 
-export type PaletteKey = "text" | "dim" | "accent" | "success" | "error" | "warning" | "mauve";
+export type PaletteKey = "text" | "dim" | "accent" | "success" | "error" | "warning" | "mauve" | "info";
 
 export const PALETTE: Record<PaletteKey, readonly [number, number, number]> = {
   text:    [205, 214, 244], // #cdd6f4
@@ -44,6 +44,7 @@ export const PALETTE: Record<PaletteKey, readonly [number, number, number]> = {
   error:   [243, 139, 168], // #f38ba8 (Red)
   warning: [249, 226, 175], // #f9e2af (Yellow)
   mauve:   [203, 166, 247], // #cba6f7 (Mauve)
+  info:    [137, 220, 235], // #89dceb (Sky)
 };
 
 export interface PaintOptions {
@@ -79,6 +80,7 @@ export function createPainter(): Paint {
       error:   "\x1b[31m",
       warning: "\x1b[33m",
       mauve:   "\x1b[35m",
+      info:    "\x1b[36m",
     };
     return (key, text, opts) => {
       const weight = opts?.bold ? "\x1b[1m" : "";

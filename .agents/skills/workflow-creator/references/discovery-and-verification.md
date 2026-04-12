@@ -124,7 +124,7 @@ This catches:
 
 ## Testing
 
-Test a workflow by running it:
+Run a free-form workflow by passing the prompt as a positional argument:
 
 ```bash
 atomic workflow -n <workflow-name> -a <agent> "<your prompt>"
@@ -133,4 +133,18 @@ atomic workflow -n <workflow-name> -a <agent> "<your prompt>"
 Where:
 - `-n` / `--name` — workflow name (matches directory name)
 - `-a` / `--agent` — target agent (`claude`, `copilot`, or `opencode`)
-- The quoted string is the user prompt passed as `ctx.userPrompt`
+- The quoted string is the user prompt, which the runtime stores under `ctx.inputs.prompt` so workflow authors can read it via `ctx.inputs.prompt ?? ""`
+
+Run a workflow with declared inputs by passing one `--<field>=<value>` flag per entry in its schema:
+
+```bash
+atomic workflow -n <workflow-name> -a <agent> --field_a=value --field_b=value
+```
+
+Or discover and run any workflow interactively through the picker:
+
+```bash
+atomic workflow -a <agent>
+```
+
+See `workflow-inputs.md` for the full `WorkflowInput` schema shape, validation rules, and picker behaviour.

@@ -20,6 +20,8 @@ export type {
   WorkflowContext,
   WorkflowOptions,
   WorkflowDefinition,
+  WorkflowInput,
+  WorkflowInputType,
   StageClientOptions,
   StageSessionOptions,
   ProviderClient,
@@ -89,9 +91,13 @@ export {
   AGENTS,
   discoverWorkflows,
   findWorkflow,
+  loadWorkflowsMetadata,
   WORKFLOWS_GITIGNORE,
 } from "../runtime/discovery.ts";
-export type { DiscoveredWorkflow } from "../runtime/discovery.ts";
+export type {
+  DiscoveredWorkflow,
+  WorkflowWithMetadata,
+} from "../runtime/discovery.ts";
 
 // Runtime — workflow loader pipeline
 export { WorkflowLoader } from "../runtime/loader.ts";

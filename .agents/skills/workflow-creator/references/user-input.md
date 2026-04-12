@@ -1,6 +1,8 @@
-# User Input
+# User Input (mid-workflow)
 
-Collecting user input mid-workflow is achieved through SDK-specific APIs. This is the programmatic equivalent of `.askUserQuestion()`.
+This reference covers **mid-workflow** user interaction — pausing a running stage to ask the user a question, approve a permission, or confirm a decision. It's the programmatic equivalent of `.askUserQuestion()`.
+
+For **invocation-time** inputs (the values the user supplies when they launch the workflow from the CLI or the picker), see `workflow-inputs.md` instead. Invocation-time inputs are declared on `defineWorkflow({ inputs: [...] })` and arrive in `ctx.inputs` before any stage starts — the workflow author reads them via `ctx.inputs.<name>`.
 
 ## Claude
 
@@ -38,7 +40,7 @@ Allow the agent to ask the user questions by including `AskUserQuestion` in `all
 
 ```ts
 const result = query({
-  prompt: ctx.userPrompt,
+  prompt: (ctx.inputs.prompt ?? ""),
   options: {
     allowedTools: ["Read", "Write", "Edit", "Bash", "AskUserQuestion"],
   },
@@ -50,7 +52,7 @@ const result = query({
 For interactive sessions, use streaming mode to feed user input:
 
 ```ts
-const q = query({ prompt: ctx.userPrompt, options: { ... } });
+const q = query({ prompt: (ctx.inputs.prompt ?? ""), options: { ... } });
 
 // Feed additional input while the agent is running
 q.streamInput("Here's the additional context you asked for...");
@@ -75,7 +77,7 @@ await ctx.stage({ name: "plan" }, {}, {
     return answer;
   },
 }, async (s) => {
-  await s.session.sendAndWait({ prompt: ctx.userPrompt }, SEND_TIMEOUT_MS);
+  await s.session.sendAndWait({ prompt: (ctx.inputs.prompt ?? "") }, SEND_TIMEOUT_MS);
   s.save(await s.session.getMessages());
 });
 ```
@@ -95,7 +97,7 @@ await ctx.stage({ name: "plan" }, {}, {
     };
   },
 }, async (s) => {
-  await s.session.sendAndWait({ prompt: ctx.userPrompt }, SEND_TIMEOUT_MS);
+  await s.session.sendAndWait({ prompt: (ctx.inputs.prompt ?? "") }, SEND_TIMEOUT_MS);
   s.save(await s.session.getMessages());
 });
 ```
@@ -110,7 +112,7 @@ import { approveAll } from "@github/copilot-sdk";
 
 // Explicit (same as the default):
 await ctx.stage({ name: "plan" }, {}, { onPermissionRequest: approveAll }, async (s) => {
-  await s.session.sendAndWait({ prompt: ctx.userPrompt }, SEND_TIMEOUT_MS);
+  await s.session.sendAndWait({ prompt: (ctx.inputs.prompt ?? "") }, SEND_TIMEOUT_MS);
   s.save(await s.session.getMessages());
 });
 ```
@@ -129,7 +131,7 @@ await ctx.stage({ name: "plan" }, {}, {
     return { kind: "approved" };
   },
 }, async (s) => {
-  await s.session.sendAndWait({ prompt: ctx.userPrompt }, SEND_TIMEOUT_MS);
+  await s.session.sendAndWait({ prompt: (ctx.inputs.prompt ?? "") }, SEND_TIMEOUT_MS);
   s.save(await s.session.getMessages());
 });
 ```

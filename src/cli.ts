@@ -127,20 +127,42 @@ Examples:
         });
 
     // Add workflow command
+    //
+    // Two shapes are supported behind a single command:
+    //   1. `atomic workflow -a <agent>`                 — interactive picker
+    //   2. `atomic workflow -n <name> -a <agent> ...`   — named run with
+    //       either a positional prompt (free-form workflows) or
+    //       `--<field>=<value>` flags (structured-input workflows).
+    //
+    // `allowUnknownOption` + `allowExcessArguments` give us both: unknown
+    // flags and positional tokens land in `cmd.args`, which we forward
+    // as `passthroughArgs` so the command layer can parse them against
+    // the workflow's declared schema.
     program
         .command("workflow")
         .description("Run a multi-session agent workflow")
         .option("-n, --name <name>", "Workflow name (matches directory under .atomic/workflows/<name>/)")
         .option("-a, --agent <name>", `Agent to use (${agentChoices})`)
         .option("-l, --list", "List available workflows")
-        .argument("[prompt...]", "Prompt for the workflow")
-        .action(async (promptParts, localOpts) => {
+        .allowUnknownOption()
+        .allowExcessArguments(true)
+        .addHelpText(
+            "after",
+            `
+Examples:
+  $ atomic workflow -l                              List available workflows
+  $ atomic workflow -a claude                       Open the interactive picker
+  $ atomic workflow -n ralph -a claude "fix bug"    Run a free-form workflow
+  $ atomic workflow -n gen-spec -a claude --research_doc=notes.md --focus=standard
+                                                    Run a structured-input workflow`,
+        )
+        .action(async (localOpts, cmd) => {
             const { workflowCommand } = await import("@/commands/cli/workflow.ts");
             const exitCode = await workflowCommand({
                 name: localOpts.name,
                 agent: localOpts.agent,
-                prompt: promptParts.length > 0 ? promptParts.join(" ") : undefined,
                 list: localOpts.list,
+                passthroughArgs: cmd.args,
             });
             process.exit(exitCode);
         });

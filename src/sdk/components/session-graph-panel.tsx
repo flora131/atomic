@@ -34,6 +34,7 @@ import { NodeCard } from "./node-card.tsx";
 import { Edge } from "./edge.tsx";
 import { Header } from "./header.tsx";
 import { Statusline } from "./statusline.tsx";
+import { CompactSwitcher } from "./compact-switcher.tsx";
 
 /** Interval (ms) between pulse animation frames — ~60fps feel. */
 const PULSE_INTERVAL_MS = 60;
@@ -76,6 +77,10 @@ export function SessionGraphPanel() {
   const [focusedId, setFocusedId] = useState("");
   const focusedIdRef = useRef(focusedId);
   focusedIdRef.current = focusedId;
+
+  // Compact switcher state
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [switcherSel, setSwitcherSel] = useState(0);
 
   // Update focus when sessions first appear
   useEffect(() => {
@@ -123,14 +128,39 @@ export function SessionGraphPanel() {
       const session = store.sessions.find((s) => s.name === id);
       if (!session || session.status === "pending") return;
 
+      // Orchestrator = the graph view itself
+      if (id === "orchestrator") {
+        store.setViewMode("graph");
+        return;
+      }
+
       if (attachTimerRef.current) clearTimeout(attachTimerRef.current);
       setAttachMsg(`\u2192 ${n.name}`);
       attachTimerRef.current = setTimeout(() => setAttachMsg(""), ATTACH_MSG_DISPLAY_MS);
 
+      setFocusedId(id);
+      store.setViewMode("attached", id);
       tmuxRun(["switch-client", "-t", `${tmuxSession}:${n.name}`]);
     },
     [layout.map, tmuxSession, store.sessions],
   );
+
+  const returnToGraph = useCallback(() => {
+    store.setViewMode("graph");
+  }, []);
+
+  const openSwitcher = useCallback(() => {
+    // Pre-select the current agent or focused node
+    const currentId = store.viewMode === "attached" ? store.activeAgentId : focusedIdRef.current;
+    const idx = store.sessions.findIndex((s) => s.name === currentId);
+    setSwitcherSel(Math.max(0, idx));
+    setSwitcherOpen(true);
+  }, []);
+
+  const closeSwitcher = useCallback(() => {
+    setSwitcherOpen(false);
+    setSwitcherSel(0);
+  }, []);
 
   // Spatial navigation
   const navigate = useCallback(
@@ -172,18 +202,61 @@ export function SessionGraphPanel() {
     [focusedId, layout.map, nodeList],
   );
 
-  // gg double-tap tracking
+  // gg double-tap tracking (graph mode only)
   const lastKeyRef = useRef({ key: "", time: 0 });
 
-  // Keyboard handling
+  // Keyboard handling — with Ctrl+G return-to-graph and auto-reset
   useKeyboard((key) => {
-    // Ctrl+C or q: quit the workflow (abort if running, exit if completed)
+    // ── Switcher open: intercept all keys ──
+    if (switcherOpen) {
+      if (key.name === "escape") {
+        closeSwitcher();
+        return;
+      }
+      if (key.name === "up" || key.name === "k") {
+        setSwitcherSel((s) => Math.max(0, s - 1));
+        return;
+      }
+      if (key.name === "down" || key.name === "j") {
+        setSwitcherSel((s) => Math.min(store.sessions.length - 1, s + 1));
+        return;
+      }
+      if (key.name === "return") {
+        const agent = store.sessions[switcherSel];
+        closeSwitcher();
+        if (agent) doAttach(agent.name);
+        return;
+      }
+      // Number keys 1-9 for direct jump
+      const num = parseInt(key.sequence ?? "", 10);
+      if (num >= 1 && num <= store.sessions.length) {
+        closeSwitcher();
+        doAttach(store.sessions[num - 1]!.name);
+        return;
+      }
+      return; // Swallow all other keys while switcher is open
+    }
+
+    // ── Global: Ctrl+C or q quits ──
     if ((key.ctrl && key.name === "c") || key.name === "q") {
       store.requestQuit();
       return;
     }
 
-    // Arrow keys + hjkl navigation
+    // ── Auto-reset: receiving keys while "attached" means user returned to the orchestrator window ──
+    if (store.viewMode === "attached") {
+      returnToGraph();
+      // Fall through to process the key in graph mode
+    }
+
+    // ── / opens agent switcher ──
+    if (key.sequence === "/") {
+      openSwitcher();
+      return;
+    }
+
+    // ── Graph view navigation ──
+    // Arrow keys + hjkl
     if (key.name === "left" || key.name === "h") {
       navigate("left");
       return;
@@ -201,7 +274,9 @@ export function SessionGraphPanel() {
       return;
     }
     if (key.name === "tab") {
-      navigate(key.shift ? "left" : "right");
+      // Tab: attach to first available subagent
+      const subs = store.getSubagents();
+      if (subs.length > 0) doAttach(subs[0]!.name);
       return;
     }
 
@@ -289,6 +364,63 @@ export function SessionGraphPanel() {
     }
   }, [focusedId, focused, termW, termH, padX, padY, viewportH, layout.rowH]);
 
+  // ── Detect return to graph via Ctrl+G ─────────────────
+  // Ctrl+G is bound at the tmux level (select-window -t :0), so tmux
+  // swallows the key and the React app never receives it.  Poll the
+  // active window index while attached; when window 0 becomes active
+  // again we know the user returned and can reset viewMode immediately.
+  useEffect(() => {
+    if (store.viewMode !== "attached") return;
+
+    const check = () => {
+      const result = tmuxRun([
+        "display-message", "-t", tmuxSession, "-p", "#{window_index}",
+      ]);
+      if (result.ok && result.stdout.trim() === "0") {
+        store.setViewMode("graph");
+      }
+    };
+
+    const id = setInterval(check, 300);
+    return () => clearInterval(id);
+  }, [store.viewMode, tmuxSession]);
+
+  // ── Tmux status bar sync ──────────────────────────────
+  // When attached, the orchestrator panel is hidden (user views the agent's
+  // tmux window). Mirror the status line hints into tmux's own status bar
+  // so navigation keys remain discoverable.
+  const subagentCount = store.getSubagents().length;
+  const activeAgentIdx = store.getActiveAgentIndex();
+
+  useEffect(() => {
+    if (store.viewMode === "attached" && store.activeAgentId) {
+      const name = store.activeAgentId;
+      const left = `#[bg=#6c7086,fg=#1e1e2e,bold] ATTACHED #[default] #[fg=#7f849c]\u203a #[fg=#cdd6f4]${name} #[fg=#7f849c]${activeAgentIdx + 1}/${subagentCount}`;
+      const right = `#[fg=#7f849c]Graph: #[fg=#cdd6f4]ctrl+g #[fg=#7f849c]| Next: #[fg=#cdd6f4]ctrl+\\ `;
+
+      tmuxRun(["set", "-g", "status-left", left]);
+      tmuxRun(["set", "-g", "status-left-length", "50"]);
+      tmuxRun(["set", "-g", "status-right", right]);
+      tmuxRun(["set", "-g", "status-right-length", "40"]);
+    } else {
+      // Graph mode: restore defaults from tmux.conf
+      tmuxRun(["set", "-g", "status-left", " "]);
+      tmuxRun(["set", "-g", "status-left-length", "10"]);
+      tmuxRun(["set", "-g", "status-right", " #{session_name} | %H:%M "]);
+      tmuxRun(["set", "-g", "status-right-length", "60"]);
+    }
+  }, [store.viewMode, store.activeAgentId, activeAgentIdx, subagentCount]);
+
+  // Restore default tmux status bar on unmount
+  useEffect(() => {
+    return () => {
+      tmuxRun(["set", "-g", "status-left", " "]);
+      tmuxRun(["set", "-g", "status-left-length", "10"]);
+      tmuxRun(["set", "-g", "status-right", " #{session_name} | %H:%M "]);
+      tmuxRun(["set", "-g", "status-right-length", "60"]);
+    };
+  }, []);
+
   return (
     <box width="100%" height="100%" flexDirection="column" backgroundColor={theme.background}>
       <Header />
@@ -348,6 +480,9 @@ export function SessionGraphPanel() {
           </box>
         </box>
       </scrollbox>
+
+      {/* Compact agent switcher overlay */}
+      {switcherOpen ? <CompactSwitcher selectedIndex={switcherSel} /> : null}
 
       <Statusline focusedNode={focused} attachMsg={attachMsg} />
     </box>

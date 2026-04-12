@@ -82,7 +82,8 @@ describe("Statusline", () => {
     await testSetup.renderOnce();
     const frame = testSetup.captureCharFrame();
     expect(frame).toContain("my-session");
-    expect(frame).toContain("running");
+    // Status is shown as an icon (●) rather than text label in the redesigned statusline
+    expect(frame).toContain("\u25CF");
   });
 
   test("shows error info for errored focused node", async () => {

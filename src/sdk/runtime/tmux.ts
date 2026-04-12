@@ -170,6 +170,9 @@ export function createSession(
   }
   args.push(initialCommand);
   const paneId = tmux(args);
+  // Reload config into the running server so keybindings are always current
+  // (tmux only loads -f on first server start; source-file updates a running server).
+  tmuxRun(["source-file", CONFIG_PATH]);
   return paneId || tmux(["list-panes", "-t", sessionName, "-F", "#{pane_id}"]).split("\n")[0]!;
 }
 

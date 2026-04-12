@@ -180,8 +180,16 @@ export async function workflowCommand(options: {
    * {@link parsePassthroughArgs} helper splits apart.
    */
   passthroughArgs?: string[];
+  /**
+   * Project root used for workflow discovery. Defaults to
+   * `process.cwd()` in production; tests inject a temp dir so they
+   * can control which workflows are visible without touching the
+   * real filesystem.
+   */
+  cwd?: string;
 }): Promise<number> {
   const passthroughArgs = options.passthroughArgs ?? [];
+  const cwd = options.cwd;
 
   // ── List mode ──
   // `merge: false` keeps local and global entries independent so the
@@ -191,7 +199,7 @@ export async function workflowCommand(options: {
   // workflows never reach the renderer.
   if (options.list) {
     const workflows = await discoverWorkflows(
-      undefined,
+      cwd,
       options.agent as AgentType | undefined,
       { merge: false },
     );
@@ -223,11 +231,11 @@ export async function workflowCommand(options: {
 
   // ── Picker mode: -a <agent>, no -n ──
   if (!options.name) {
-    return runPickerMode(agent, passthroughArgs);
+    return runPickerMode(agent, passthroughArgs, cwd);
   }
 
   // ── Named mode: -n <name> -a <agent> [args...] ──
-  return runNamedMode(options.name, agent, passthroughArgs);
+  return runNamedMode(options.name, agent, passthroughArgs, cwd);
 }
 
 // ─── Shared helpers ─────────────────────────────────────────────────────────
@@ -329,6 +337,7 @@ async function runLoadedWorkflow(args: {
 async function runPickerMode(
   agent: AgentKey,
   passthroughArgs: string[],
+  cwd: string | undefined,
 ): Promise<number> {
   if (passthroughArgs.length > 0) {
     console.error(
@@ -340,7 +349,7 @@ async function runPickerMode(
     return 1;
   }
 
-  const discovered = await discoverWorkflows(undefined, agent);
+  const discovered = await discoverWorkflows(cwd, agent);
   if (discovered.length === 0) {
     console.error(
       `${COLORS.red}No workflows found for agent '${agent}'.${COLORS.reset}`,
@@ -414,9 +423,10 @@ async function runNamedMode(
   name: string,
   agent: AgentKey,
   passthroughArgs: string[],
+  cwd: string | undefined,
 ): Promise<number> {
   // Find the workflow
-  const discovered = await findWorkflow(name, agent);
+  const discovered = await findWorkflow(name, agent, cwd);
 
   if (!discovered) {
     console.error(
@@ -430,7 +440,7 @@ async function runNamedMode(
       `  ~/.atomic/workflows/${name}/${agent}/index.ts ${COLORS.dim}(global)${COLORS.reset}`,
     );
 
-    const available = await discoverWorkflows(undefined, agent);
+    const available = await discoverWorkflows(cwd, agent);
     if (available.length > 0) {
       console.error(`\nAvailable ${agent} workflows:`);
       for (const wf of available) {
@@ -580,8 +590,11 @@ const SOURCE_COLORS: Record<DiscoveredWorkflow["source"], PaletteKey> = {
  *       <name>
  *
  *   run: atomic workflow -n <name> -a <agent>
+ *
+ * Exported for testing — the pure-function shape makes coverage for the
+ * renderer trivial without spinning up a full CLI invocation.
  */
-function renderWorkflowList(workflows: DiscoveredWorkflow[]): string {
+export function renderWorkflowList(workflows: DiscoveredWorkflow[]): string {
   const paint = createPainter();
   const lines: string[] = [];
 

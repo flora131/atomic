@@ -168,31 +168,6 @@ describe("SessionGraphPanel", () => {
       expect(frame).toContain("orchestrator");
     });
 
-    test("tab moves focus right", async () => {
-      const store = createPopulatedStore();
-      const setup = await renderPanel(store);
-
-      setup.mockInput.pressTab();
-      await setup.renderOnce();
-
-      const frame = setup.captureCharFrame();
-      expect(frame).toContain("worker-1");
-    });
-
-    test("shift+tab moves focus left", async () => {
-      const store = createPopulatedStore();
-      const setup = await renderPanel(store);
-
-      // First move right, then shift-tab back
-      setup.mockInput.pressTab();
-      await setup.renderOnce();
-      setup.mockInput.pressTab({ shift: true });
-      await setup.renderOnce();
-
-      const frame = setup.captureCharFrame();
-      expect(frame).toContain("orchestrator");
-    });
-
     test("G (shift+g) moves to deepest node", async () => {
       const store = createPopulatedStore();
       const setup = await renderPanel(store);

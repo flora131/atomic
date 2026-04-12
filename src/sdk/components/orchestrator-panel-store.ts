@@ -1,7 +1,7 @@
 // ─── State Store ──────────────────────────────────
 // Bridges the imperative OrchestratorPanel API with the React component tree.
 
-import type { SessionData, SessionStatus, PanelSession } from "./orchestrator-panel-types.ts";
+import type { SessionData, SessionStatus, PanelSession, ViewMode } from "./orchestrator-panel-types.ts";
 
 type Listener = () => void;
 
@@ -16,6 +16,11 @@ export class PanelStore {
   completionReached = false;
   exitResolve: (() => void) | null = null;
   abortResolve: (() => void) | null = null;
+
+  /** Current view mode — graph overview or attached to a specific agent. */
+  viewMode: ViewMode = "graph";
+  /** ID of the agent currently attached to (only meaningful when viewMode === "attached"). */
+  activeAgentId = "";
 
   private listeners = new Set<Listener>();
 
@@ -106,6 +111,36 @@ export class PanelStore {
       orch.endedAt = Date.now();
     }
     this.emit();
+  }
+
+  /**
+   * Switch between graph and attached view modes.
+   * When switching to "attached", provide the agent ID to attach to.
+   * Switching to "graph" clears the active agent.
+   */
+  setViewMode(mode: ViewMode, agentId?: string): void {
+    this.viewMode = mode;
+    this.activeAgentId = mode === "attached" && agentId ? agentId : "";
+    this.emit();
+  }
+
+  /**
+   * Return non-orchestrator agents that have started (not pending).
+   * These are the agents Tab/Shift+Tab cycles through.
+   */
+  getSubagents(): SessionData[] {
+    return this.sessions.filter(
+      (s) => s.name !== "orchestrator" && s.status !== "pending",
+    );
+  }
+
+  /**
+   * Return the 0-based index of the active agent within the subagent list,
+   * or -1 if not found.
+   */
+  getActiveAgentIndex(): number {
+    const subs = this.getSubagents();
+    return subs.findIndex((s) => s.name === this.activeAgentId);
   }
 
   /** Safely invoke exitResolve at most once, guarding against rapid repeated calls. */

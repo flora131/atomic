@@ -7,8 +7,8 @@
  */
 
 import { AGENT_CONFIG, type AgentKey } from "@/services/config/index.ts";
-import { COLORS } from "@/theme/colors.ts";
-import { isCommandInstalled, supportsColor, supportsTrueColor } from "@/services/system/detect.ts";
+import { COLORS, createPainter, type PaletteKey } from "@/theme/colors.ts";
+import { isCommandInstalled } from "@/services/system/detect.ts";
 import { ensureTmuxInstalled, ensureBunInstalled } from "../../lib/spawn.ts";
 import {
   isTmuxInstalled,
@@ -17,8 +17,8 @@ import {
   executeWorkflow,
   WorkflowLoader,
   resetMuxBinaryCache,
-} from "@/sdk/workflows.ts";
-import type { AgentType, DiscoveredWorkflow } from "@/sdk/workflows.ts";
+} from "@/sdk/workflows/index.ts";
+import type { AgentType, DiscoveredWorkflow } from "@/sdk/workflows/index.ts";
 
 export async function workflowCommand(options: {
   name?: string;
@@ -117,9 +117,7 @@ export async function workflowCommand(options: {
   }
 
   // Load workflow through the pipeline: resolve → validate → load.
-  // The loader registers a Bun resolver plugin that maps `atomic/*` and
-  // atomic's installed deps onto the running CLI's own module graph, so
-  // workflow files don't need their own `package.json` / `node_modules`.
+  // External workflows must have `@bastani/atomic` installed as a dependency.
   const result = await WorkflowLoader.loadWorkflow(discovered, {
     warn(warnings) {
       for (const w of warnings) {
@@ -151,31 +149,6 @@ export async function workflowCommand(options: {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Workflow list rendering
-//
-// Catppuccin Mocha palette rendered via 24-bit ANSI, with graceful fallback
-// to basic ANSI on legacy terminals and plain text when colour is disabled.
-// Hex values mirror src/sdk/runtime/theme.ts so the CLI output and the TUI
-// speak one visual language.
-// ---------------------------------------------------------------------------
-
-type PaletteKey = "text" | "dim" | "accent" | "success" | "mauve";
-
-const PALETTE: Record<PaletteKey, readonly [number, number, number]> = {
-  text:    [205, 214, 244], // #cdd6f4 — primary text
-  dim:     [127, 132, 156], // #7f849c — secondary text
-  accent:  [137, 180, 250], // #89b4fa — blue accent
-  success: [166, 227, 161], // #a6e3a1 — green (local source)
-  mauve:   [203, 166, 247], // #cba6f7 — mauve (global source)
-};
-
-interface PaintOptions {
-  bold?: boolean;
-}
-
-type Paint = (key: PaletteKey, text: string, opts?: PaintOptions) => string;
-
 /** Stable agent sort order; keeps output deterministic across runs. */
 const AGENT_ORDER: readonly AgentType[] = ["claude", "opencode", "copilot"];
 /** Display names shown as provider sub-headings; honours proper branding. */
@@ -185,50 +158,19 @@ const AGENT_DISPLAY_NAMES: Record<AgentType, string> = {
   copilot: "Copilot CLI",
 };
 /** Local first — project-scoped workflows are the most immediately relevant. */
-const SOURCE_ORDER: readonly DiscoveredWorkflow["source"][] = ["local", "global"];
+const SOURCE_ORDER: readonly DiscoveredWorkflow["source"][] = ["local", "global", "builtin"];
 /** Friendly directory labels shown inline with each section heading. */
 const SOURCE_DIRS: Record<DiscoveredWorkflow["source"], string> = {
   local: ".atomic/workflows",
   global: "~/.atomic/workflows",
+  builtin: "built-in",
 };
 /** Section heading colour per source — preserves the source-type semantic. */
 const SOURCE_COLORS: Record<DiscoveredWorkflow["source"], PaletteKey> = {
   local: "success",
   global: "mauve",
+  builtin: "accent",
 };
-
-/**
- * Build a colour-aware painter for the current terminal.
- * Truecolor terminals get the full Catppuccin palette; legacy terminals
- * degrade to basic ANSI; NO_COLOR emits plain text. The optional `bold`
- * flag adds weight contrast — essential for typographic hierarchy in a
- * monospace medium where size and family are fixed.
- */
-function createPainter(): Paint {
-  if (supportsTrueColor()) {
-    return (key, text, opts) => {
-      const [r, g, b] = PALETTE[key];
-      const sgr = opts?.bold
-        ? `\x1b[1;38;2;${r};${g};${b}m`
-        : `\x1b[38;2;${r};${g};${b}m`;
-      return `${sgr}${text}\x1b[0m`;
-    };
-  }
-  if (supportsColor()) {
-    const ANSI: Record<PaletteKey, string> = {
-      text:    "",
-      dim:     "\x1b[2m",
-      accent:  "\x1b[34m",
-      success: "\x1b[32m",
-      mauve:   "\x1b[35m",
-    };
-    return (key, text, opts) => {
-      const weight = opts?.bold ? "\x1b[1m" : "";
-      return `${weight}${ANSI[key]}${text}\x1b[0m`;
-    };
-  }
-  return (_key, text) => text;
-}
 
 /**
  * Render `atomic workflow --list` output as a printable string.
@@ -238,25 +180,19 @@ function createPainter(): Paint {
  * Layout:
  *   N workflows
  *
- *
  *   local (.atomic/workflows)
  *
  *     Claude
- *
  *       <name>
  *       <name>
  *
  *     OpenCode
- *
  *       <name>
- *
  *
  *   global (~/.atomic/workflows)
  *
  *     Claude
- *
  *       <name>
- *
  *
  *   run: atomic workflow -n <name> -a <agent>
  */
@@ -309,15 +245,13 @@ function renderWorkflowList(workflows: DiscoveredWorkflow[]): string {
 
   // One stanza per source section, with nested provider sub-groups inside.
   // Rhythm:
-  //   2 blanks before each source heading  (major break)
-  //   1 blank before each provider heading (tight, they're nested)
-  //   1 blank before each provider's entries
+  //   1 blank before each source heading  (section break)
+  //   1 blank before each provider heading (grouped with its entries)
   for (const source of SOURCE_ORDER) {
     const byAgent = bySource.get(source);
     if (!byAgent || byAgent.size === 0) continue;
 
-    // Major break before the source section.
-    lines.push("");
+    // Section break before the source section.
     lines.push("");
 
     // Source heading: bold semantic colour + dim inline directory hint.
@@ -338,7 +272,6 @@ function renderWorkflowList(workflows: DiscoveredWorkflow[]): string {
       lines.push(
         "    " + paint("accent", AGENT_DISPLAY_NAMES[agent], { bold: true }),
       );
-      lines.push("");
 
       for (const name of names) {
         lines.push("      " + paint("text", name));
@@ -346,8 +279,7 @@ function renderWorkflowList(workflows: DiscoveredWorkflow[]): string {
     }
   }
 
-  // Footer — dim run hint, separated by the same major-break rhythm.
-  lines.push("");
+  // Footer — dim run hint, separated by a section break.
   lines.push("");
   lines.push(
     "  " + paint("dim", "run: atomic workflow -n <name> -a <agent>"),

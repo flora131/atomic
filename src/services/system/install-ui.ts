@@ -1,12 +1,21 @@
 /**
  * Progress UI primitives for the first-run install flow (auto-sync).
  *
- * Renders a single persistent line:
+ * Renders an OpenCode-inspired single-line progress bar:
  *
- *     ⠋ [██████▒▒▒▒▒▒] 3/7  tmux / psmux
+ *     ⠋  ■■■■■■■■■■■■■■■■■■････････････  50%  tmux / psmux
  *
- * where the braille spinner animation is provided by `@clack/prompts`
- * and the bracketed bar tracks overall step progress (completed / total).
+ * The braille spinner animates in-place via a setInterval loop and the
+ * bar uses Catppuccin Mocha accent colors (Yellow for progress, Green
+ * for success, Red for error) with a per-character true-color gradient
+ * that falls back gracefully through 256-color → basic ANSI.
+ *
+ * Steps are grouped into **phases**. Steps within a phase run in parallel
+ * (via `Promise.all`); phases themselves run sequentially so later phases
+ * can depend on earlier ones (e.g. npm must be available before
+ * `npm install -g` tasks). The progress bar advances and the label
+ * updates in real-time as individual steps complete within a phase.
+ *
  * A final summary (✓/✗ per step) is printed after all steps finish, and
  * any captured stderr/stdout from a failed step is shown beneath it.
  *
@@ -14,18 +23,21 @@
  * library, just what auto-sync needs to stop being visually noisy.
  */
 
-import { spinner } from "@clack/prompts";
 import { COLORS } from "@/theme/colors.ts";
+import {
+  supportsTrueColor,
+  supports256Color,
+} from "@/services/system/detect.ts";
 
-const BAR_WIDTH = 18;
-const BAR_FILLED = "█";
-const BAR_EMPTY = "░";
+const BAR_WIDTH = 30;
+const BAR_FILLED = "■";
+const BAR_EMPTY = "･";
 
 /**
- * Semantic bar states:
- *   progress → blue (Catppuccin accent; "in flight")
- *   success  → green (universal "completed")
- *   error    → red   (universal "failed")
+ * Semantic bar states mapped to Catppuccin Mocha colors:
+ *   progress → Yellow #f9e2af (warm accent; "in flight")
+ *   success  → Green  #a6e3a1 (universal "completed")
+ *   error    → Red    #f38ba8 (universal "failed")
  *
  * The empty track stays dim regardless — only the filled portion carries
  * the status signal, which keeps the bar legible while still telegraphing
@@ -34,6 +46,28 @@ const BAR_EMPTY = "░";
 type BarState = "progress" | "success" | "error";
 
 function fillColor(state: BarState): string {
+  if (supportsTrueColor()) {
+    switch (state) {
+      case "success":
+        return "\x1b[38;2;166;227;161m"; // Catppuccin Green  #a6e3a1
+      case "error":
+        return "\x1b[38;2;243;139;168m"; // Catppuccin Red    #f38ba8
+      case "progress":
+      default:
+        return "\x1b[38;2;249;226;175m"; // Catppuccin Yellow #f9e2af
+    }
+  }
+  if (supports256Color()) {
+    switch (state) {
+      case "success":
+        return "\x1b[38;5;150m";
+      case "error":
+        return "\x1b[38;5;211m";
+      case "progress":
+      default:
+        return "\x1b[38;5;222m";
+    }
+  }
   switch (state) {
     case "success":
       return COLORS.green;
@@ -41,11 +75,36 @@ function fillColor(state: BarState): string {
       return COLORS.red;
     case "progress":
     default:
-      return COLORS.blue;
+      return COLORS.yellow;
   }
 }
 
-/** Render a bracketed step-progress bar. `completed` is capped at `total`. */
+type RGB = [number, number, number];
+
+/**
+ * Gradient endpoints for the filled bar segment. Each state interpolates
+ * from a slightly deeper/warmer tone (left) to the full Catppuccin
+ * accent (right), producing a smooth continuous color gradient.
+ */
+function gradientEndpoints(state: BarState): { start: RGB; end: RGB } {
+  switch (state) {
+    case "success":
+      return { start: [126, 201, 138], end: [166, 227, 161] };
+    case "error":
+      return { start: [224, 108, 136], end: [243, 139, 168] };
+    case "progress":
+    default:
+      return { start: [242, 196, 120], end: [249, 226, 175] };
+  }
+}
+
+/**
+ * Render a progress bar: gradient-filled ■ + dim empty ･
+ *
+ * In true-color mode each filled character gets its own interpolated RGB
+ * value, producing a smooth continuous gradient. Falls back to a single
+ * solid color on 256-color or basic ANSI terminals.
+ */
 function renderBar(
   completed: number,
   total: number,
@@ -55,15 +114,25 @@ function renderBar(
   const ratio = Math.max(0, Math.min(1, completed / safeTotal));
   const filled = Math.round(ratio * BAR_WIDTH);
   const empty = BAR_WIDTH - filled;
-  return (
-    COLORS.bold +
-    fillColor(state) +
-    BAR_FILLED.repeat(filled) +
-    COLORS.reset +
-    COLORS.dim +
-    BAR_EMPTY.repeat(empty) +
-    COLORS.reset
-  );
+
+  let filledStr = "";
+  if (filled > 0) {
+    if (supportsTrueColor()) {
+      const { start, end } = gradientEndpoints(state);
+      for (let i = 0; i < filled; i++) {
+        const t = filled > 1 ? i / (filled - 1) : 1;
+        const r = Math.round(start[0] + (end[0] - start[0]) * t);
+        const g = Math.round(start[1] + (end[1] - start[1]) * t);
+        const b = Math.round(start[2] + (end[2] - start[2]) * t);
+        filledStr += `\x1b[38;2;${r};${g};${b}m${BAR_FILLED}`;
+      }
+      filledStr += COLORS.reset;
+    } else {
+      filledStr = fillColor(state) + BAR_FILLED.repeat(filled) + COLORS.reset;
+    }
+  }
+
+  return filledStr + COLORS.dim + BAR_EMPTY.repeat(empty) + COLORS.reset;
 }
 
 function formatLine(
@@ -73,8 +142,12 @@ function formatLine(
   state: BarState = "progress",
 ): string {
   const bar = renderBar(completed, total, state);
-  const counter = `${COLORS.dim}${completed}/${total}${COLORS.reset}`;
-  return `${bar}  ${counter}  ${label}`;
+  const safeTotal = Math.max(1, total);
+  const pct = Math.round(
+    Math.max(0, Math.min(1, completed / safeTotal)) * 100,
+  );
+  const percent = `${COLORS.dim}${String(pct).padStart(3)}%${COLORS.reset}`;
+  return `${bar}  ${percent}  ${label}`;
 }
 
 export interface StepResult {
@@ -84,48 +157,115 @@ export interface StepResult {
   error?: string;
 }
 
+export interface Step {
+  label: string;
+  fn: () => Promise<unknown>;
+}
+
+/** A phase is a group of steps that run in parallel. */
+export type Phase = Step[];
+
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
 /**
- * Runs a sequence of async steps with a single persistent spinner line
- * showing stepped progress. Each step's failure is collected rather than
- * thrown, mirroring auto-sync's "best-effort" contract.
+ * Runs phases of async steps with a single persistent spinner line
+ * showing stepped progress. Steps within each phase run in parallel;
+ * phases run sequentially so later phases can depend on earlier ones.
  *
- * Returns the per-step results in submission order so the caller can
- * render a summary.
+ * Each step's failure is collected rather than thrown, mirroring
+ * auto-sync's "best-effort" contract.
+ *
+ * Returns the per-step results in phase/submission order so the caller
+ * can render a summary.
  */
-export async function runSteps(
-  steps: Array<{ label: string; fn: () => Promise<unknown> }>,
-): Promise<StepResult[]> {
-  const total = steps.length;
+export async function runSteps(phases: Phase[]): Promise<StepResult[]> {
+  const total = phases.reduce((n, phase) => n + phase.length, 0);
   const results: StepResult[] = [];
-  const s = spinner();
+  let completed = 0;
+  let frameIdx = 0;
+  let currentLabel = phases[0]?.[0]?.label ?? "";
+  let animating = true;
 
-  // Start with 0/total so the user sees the bar immediately.
-  s.start(formatLine(0, total, steps[0]?.label ?? ""));
+  const isTTY = process.stdout.isTTY ?? false;
 
-  for (let i = 0; i < steps.length; i++) {
-    const step = steps[i]!;
-    s.message(formatLine(i, total, step.label));
+  if (isTTY) process.stdout.write("\x1b[?25l"); // hide cursor
 
-    try {
-      await step.fn();
-      results.push({ label: step.label, ok: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      results.push({ label: step.label, ok: false, error: message });
-    }
+  // Restore cursor on unexpected exit so the terminal isn't left broken.
+  const restoreCursor = () => {
+    if (isTTY) process.stdout.write("\x1b[?25h");
+  };
+  process.once("SIGINT", restoreCursor);
+  process.once("SIGTERM", restoreCursor);
+
+  // Animate the braille spinner + progress bar in-place (80 ms/frame).
+  const interval = isTTY
+    ? setInterval(() => {
+        if (!animating) return;
+        const frame = SPINNER_FRAMES[frameIdx % SPINNER_FRAMES.length];
+        const line = formatLine(completed, total, currentLabel);
+        process.stdout.write(
+          `\r\x1b[2K  ${COLORS.blue}${frame}${COLORS.reset}  ${line}`,
+        );
+        frameIdx++;
+      }, 80)
+    : null;
+
+  for (const phase of phases) {
+    const inFlight = new Set(phase.map((step) => step.label));
+    currentLabel = [...inFlight].join(", ");
+
+    const phaseResults = await Promise.all(
+      phase.map(async (step): Promise<StepResult> => {
+        try {
+          await step.fn();
+          completed++;
+          inFlight.delete(step.label);
+          if (inFlight.size > 0) {
+            currentLabel = [...inFlight].join(", ");
+          }
+          return { label: step.label, ok: true };
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          completed++;
+          inFlight.delete(step.label);
+          if (inFlight.size > 0) {
+            currentLabel = [...inFlight].join(", ");
+          }
+          return { label: step.label, ok: false, error: message };
+        }
+      }),
+    );
+
+    results.push(...phaseResults);
   }
 
-  // Stop with a filled bar + final label so the user sees we reached the
-  // end rather than leaving the last in-flight step pinned. Bar color
-  // flips to the universal status colors: green when every step
-  // succeeded, red when any step failed. The per-step ✓/✗ rows printed
-  // afterwards provide the detailed breakdown.
+  // Stop animation and render the final line.
+  animating = false;
+  if (interval) clearInterval(interval);
+  process.removeListener("SIGINT", restoreCursor);
+  process.removeListener("SIGTERM", restoreCursor);
+
   const okCount = results.filter((r) => r.ok).length;
   const allOk = okCount === total;
+  const finalState: BarState = allOk ? "success" : "error";
+  const glyph = allOk
+    ? `${fillColor("success")}✓${COLORS.reset}`
+    : `${fillColor("error")}✗${COLORS.reset}`;
   const finalLabel = allOk
-    ? `${COLORS.green}Setup complete${COLORS.reset}`
-    : `${COLORS.red}Setup finished with errors${COLORS.reset}`;
-  s.stop(formatLine(total, total, finalLabel, allOk ? "success" : "error"));
+    ? `${fillColor("success")}Setup complete${COLORS.reset}`
+    : `${fillColor("error")}Setup finished with errors${COLORS.reset}`;
+
+  if (isTTY) {
+    process.stdout.write(
+      `\r\x1b[2K  ${glyph}  ${formatLine(total, total, finalLabel, finalState)}\n`,
+    );
+    process.stdout.write("\x1b[?25h"); // show cursor
+  } else {
+    console.log(
+      `  ${glyph}  ${formatLine(total, total, finalLabel, finalState)}`,
+    );
+  }
 
   return results;
 }

@@ -137,9 +137,10 @@ export function buildExplorerPrompt(opts: {
     .map((u) => `\`${path.join(opts.root, u.path)}\``)
     .join(", ");
 
-  const orientation = opts.scoutOverview.trim().length > 0
-    ? opts.scoutOverview.trim()
-    : "(scout overview unavailable — proceed without)";
+  const orientation =
+    opts.scoutOverview.trim().length > 0
+      ? opts.scoutOverview.trim()
+      : "(scout overview unavailable — proceed without)";
 
   return [
     `<RESEARCH_QUESTION>`,
@@ -418,13 +419,15 @@ export function buildExplorerPromptGeneric(opts: {
     .map((u) => `\`${path.join(opts.root, u.path)}\``)
     .join(", ");
 
-  const orientation = opts.scoutOverview.trim().length > 0
-    ? opts.scoutOverview.trim()
-    : "(scout overview unavailable — proceed without)";
+  const orientation =
+    opts.scoutOverview.trim().length > 0
+      ? opts.scoutOverview.trim()
+      : "(scout overview unavailable — proceed without)";
 
-  const history = opts.historyOverview.trim().length > 0
-    ? opts.historyOverview.trim()
-    : "(no historical research surfaced)";
+  const history =
+    opts.historyOverview.trim().length > 0
+      ? opts.historyOverview.trim()
+      : "(no historical research surfaced)";
 
   return [
     `<RESEARCH_QUESTION>`,
@@ -670,7 +673,11 @@ export function buildAggregatorPrompt(opts: {
   totalLoc: number;
   totalFiles: number;
   explorerCount: number;
-  explorerFiles: { index: number; scratchPath: string; partition: PartitionUnit[] }[];
+  explorerFiles: {
+    index: number;
+    scratchPath: string;
+    partition: PartitionUnit[];
+  }[];
   finalPath: string;
   scoutOverview: string;
   historyOverview: string;
@@ -682,13 +689,15 @@ export function buildAggregatorPrompt(opts: {
     })
     .join("\n");
 
-  const orientation = opts.scoutOverview.trim().length > 0
-    ? opts.scoutOverview.trim()
-    : "(scout overview unavailable)";
+  const orientation =
+    opts.scoutOverview.trim().length > 0
+      ? opts.scoutOverview.trim()
+      : "(scout overview unavailable)";
 
-  const history = opts.historyOverview.trim().length > 0
-    ? opts.historyOverview.trim()
-    : "(no historical research surfaced)";
+  const history =
+    opts.historyOverview.trim().length > 0
+      ? opts.historyOverview.trim()
+      : "(no historical research surfaced)";
 
   return [
     `<RESEARCH_QUESTION>`,

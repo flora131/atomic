@@ -17,8 +17,8 @@
  * source is left untouched).
  */
 
-import { join, dirname } from "path";
-import { homedir } from "os";
+import { join, dirname } from "node:path";
+import { homedir } from "node:os";
 import {
   copyDir,
   copyFile,

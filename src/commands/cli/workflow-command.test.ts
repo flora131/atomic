@@ -29,9 +29,9 @@ import {
   afterEach,
   mock,
 } from "bun:test";
-import { mkdtemp, mkdir, rm, writeFile } from "fs/promises";
-import { join } from "path";
-import { tmpdir } from "os";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import * as realWorkflows from "@/sdk/workflows/index.ts";
 import * as realDetect from "@/services/system/detect.ts";
 import * as realSpawn from "../../lib/spawn.ts";

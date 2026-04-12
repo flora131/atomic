@@ -13,9 +13,9 @@
  *   atomic chat -a <agent> [native-args...]
  */
 
-import { join } from "path";
-import { homedir } from "os";
-import { mkdir, writeFile, rm } from "fs/promises";
+import { join } from "node:path";
+import { homedir } from "node:os";
+import { mkdir, writeFile, rm } from "node:fs/promises";
 import { AGENT_CONFIG, type AgentKey } from "@/services/config/index.ts";
 import { COLORS } from "@/theme/colors.ts";
 import { isCommandInstalled } from "@/services/system/detect.ts";

@@ -18,7 +18,7 @@
  */
 
 import {
-  sendLiteralText,
+  sendViaPasteBuffer,
   sendSpecialKey,
   sendKeysAndSubmit,
   capturePaneVisible,
@@ -35,10 +35,18 @@ import {
 // Session tracking — ensures createClaudeSession is called before claudeQuery
 // ---------------------------------------------------------------------------
 
-const initializedPanes = new Set<string>();
+/** Per-pane state for Claude sessions, used by transcript-based idle detection. */
+interface PaneState {
+  /** Claude Code's own session ID (from the Agent SDK). Resolved lazily. */
+  claudeSessionId: string | undefined;
+  /** Session IDs that existed before this pane's Claude instance started. */
+  knownSessionIds: Set<string>;
+}
+
+const initializedPanes = new Map<string, PaneState>();
 
 /**
- * Remove a pane from the initialized set, freeing memory.
+ * Remove a pane from the initialized map, freeing memory.
  * Call when a Claude session is killed or no longer needed.
  */
 export function clearClaudeSession(paneId: string): void {
@@ -95,8 +103,19 @@ export async function createClaudeSession(options: ClaudeSessionOptions): Promis
     readyTimeoutMs = 30_000,
   } = options;
 
+  // Snapshot existing Claude sessions BEFORE starting, so we can identify the
+  // new session later for transcript-based idle detection.
+  let knownSessionIds = new Set<string>();
+  try {
+    const { listSessions } = await import("@anthropic-ai/claude-agent-sdk");
+    const existing = await listSessions({ dir: process.cwd() });
+    knownSessionIds = new Set(existing.map((s) => s.sessionId));
+  } catch {
+    // SDK unavailable — transcript-based detection will gracefully degrade
+  }
+
   const cmd = ["claude", ...chatFlags].join(" ");
-  sendKeysAndSubmit(paneId, cmd);
+  await sendKeysAndSubmit(paneId, cmd);
 
   // Give the shell time to exec before polling for TUI readiness
   await Bun.sleep(1_000);
@@ -112,7 +131,166 @@ export async function createClaudeSession(options: ClaudeSessionOptions): Promis
     );
   }
 
-  initializedPanes.add(paneId);
+  // Try to resolve the Claude session ID eagerly. It may not exist yet if
+  // Claude hasn't written its session file; we'll retry lazily in claudeQuery.
+  let claudeSessionId: string | undefined;
+  try {
+    const { listSessions } = await import("@anthropic-ai/claude-agent-sdk");
+    const current = await listSessions({ dir: process.cwd() });
+    const newSession = current.find((s) => !knownSessionIds.has(s.sessionId));
+    claudeSessionId = newSession?.sessionId;
+  } catch {}
+
+  initializedPanes.set(paneId, { claudeSessionId, knownSessionIds });
+}
+
+// ---------------------------------------------------------------------------
+// Transcript-based idle detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Check whether a SessionMessage represents a session_state_changed event
+ * with state 'idle'. The `message` payload is `unknown` in the SDK type, so
+ * we do runtime narrowing to handle both possible JSONL serialization shapes
+ * (extra fields only, or full raw SDKMessage).
+ */
+function isIdleStateInTranscript(msg: { type: string; message: unknown }): boolean {
+  if (msg.type !== "system") return false;
+  const m = msg.message;
+  if (!m || typeof m !== "object") return false;
+  const obj = m as Record<string, unknown>;
+  return obj.subtype === "session_state_changed" && obj.state === "idle";
+}
+
+/**
+ * Wait for the Claude session to become idle by polling its transcript.
+ *
+ * Reads session messages (with `includeSystemMessages: true`) and looks for
+ * an `SDKSessionStateChangedMessage` with `state: 'idle'` that appears after
+ * `transcriptBeforeCount` messages — i.e., a NEW idle event that fired after
+ * our prompt was submitted.
+ *
+ * This is the **authoritative** turn-over signal from Claude Code's runtime,
+ * far more reliable than pane-capture heuristics which can false-positive on
+ * transient prompt indicators between sub-agent dispatches.
+ *
+ * Returns `null` if the SDK is unavailable, signalling the caller to fall
+ * back to pane-capture polling.
+ */
+async function waitForIdleViaTranscript(
+  paneId: string,
+  claudeSessionId: string,
+  transcriptBeforeCount: number,
+  deadline: number,
+  pollIntervalMs: number,
+  delivered: boolean,
+): Promise<ClaudeQueryResult | null> {
+  const sdk = await import("@anthropic-ai/claude-agent-sdk").catch(() => null);
+  if (!sdk) return null;
+
+  const dir = process.cwd();
+
+  // Give Claude time to start processing before first poll
+  await Bun.sleep(3_000);
+
+  while (Date.now() < deadline) {
+    try {
+      const msgs = await sdk.getSessionMessages(claudeSessionId, {
+        dir,
+        includeSystemMessages: true,
+      });
+
+      // No new messages yet — prompt may not have been received
+      if (msgs.length <= transcriptBeforeCount) {
+        await Bun.sleep(pollIntervalMs);
+        continue;
+      }
+
+      // New messages exist. Scan backwards from the tail for an idle event
+      // that appeared after our prompt was sent.
+      for (let i = msgs.length - 1; i >= transcriptBeforeCount; i--) {
+        const msg = msgs[i];
+        if (msg && isIdleStateInTranscript(msg)) {
+          const output = normalizeTmuxLines(capturePaneScrollback(paneId));
+          return { output, delivered: true };
+        }
+      }
+    } catch {
+      // SDK read error — signal caller to fall back to pane capture
+      return null;
+    }
+
+    await Bun.sleep(pollIntervalMs);
+  }
+
+  // Timeout — return whatever the pane currently shows
+  const output = capturePaneScrollback(paneId);
+  return { output: normalizeTmuxLines(output || ""), delivered };
+}
+
+/**
+ * Wait for the Claude session to become idle by polling pane capture.
+ *
+ * Legacy fallback used when transcript-based detection is unavailable
+ * (SDK error, session ID unknown). Uses the same hysteresis logic as before:
+ * require `idleConfirmCount` consecutive idle detections to avoid
+ * false-idle returns between sub-agent dispatches.
+ */
+async function waitForIdleViaCapture(
+  paneId: string,
+  beforeContent: string,
+  deadline: number,
+  pollIntervalMs: number,
+  idleConfirmCount: number,
+  delivered: boolean,
+): Promise<ClaudeQueryResult> {
+  let lastContent = "";
+  let stableCount = 0;
+  let consecutiveIdleCount = 0;
+  const idleThreshold = Math.max(1, idleConfirmCount);
+
+  // Give Claude time to start processing
+  await Bun.sleep(3_000);
+
+  while (Date.now() < deadline) {
+    const currentContent = normalizeTmuxLines(capturePaneScrollback(paneId));
+
+    // Must have new content compared to before we sent
+    if (currentContent === beforeContent) {
+      consecutiveIdleCount = 0;
+      await Bun.sleep(pollIntervalMs);
+      continue;
+    }
+
+    // Use visible capture for state detection to avoid stale scrollback matches
+    const visible = capturePaneVisible(paneId);
+    if (paneLooksReady(visible) && !paneHasActiveTask(visible)) {
+      consecutiveIdleCount++;
+      if (consecutiveIdleCount >= idleThreshold) {
+        return { output: currentContent, delivered };
+      }
+      // Not yet confirmed idle — wait and recheck
+      await Bun.sleep(pollIntervalMs);
+      continue;
+    } else {
+      consecutiveIdleCount = 0;
+    }
+
+    if (currentContent === lastContent) {
+      stableCount++;
+      if (stableCount >= 3) {
+        return { output: currentContent, delivered };
+      }
+    } else {
+      stableCount = 0;
+    }
+
+    lastContent = currentContent;
+    await Bun.sleep(pollIntervalMs);
+  }
+
+  // Timeout — return whatever we have
+  return { output: lastContent || capturePaneScrollback(paneId), delivered };
 }
 
 // ---------------------------------------------------------------------------
@@ -134,6 +312,13 @@ export interface ClaudeQueryOptions {
   maxSubmitRounds?: number;
   /** Timeout in ms waiting for pane to be ready before sending (default: 30s) */
   readyTimeoutMs?: number;
+  /**
+   * Number of consecutive idle detections required before considering the
+   * response complete (default: 2). Prevents false-idle returns between
+   * sub-agent dispatches where the pane briefly shows the prompt indicator
+   * without an active task.
+   */
+  idleConfirmCount?: number;
 }
 
 export interface ClaudeQueryResult {
@@ -175,9 +360,11 @@ export async function claudeQuery(options: ClaudeQueryOptions): Promise<ClaudeQu
     submitPresses = 1,
     maxSubmitRounds = 6,
     readyTimeoutMs = 30_000,
+    idleConfirmCount = 2,
   } = options;
 
-  if (!initializedPanes.has(paneId)) {
+  const paneState = initializedPanes.get(paneId);
+  if (!paneState) {
     throw new Error(
       "claudeQuery() called without a prior createClaudeSession() for this pane. " +
       "Call createClaudeSession({ paneId }) first to start the Claude CLI.",
@@ -199,8 +386,42 @@ export async function claudeQuery(options: ClaudeQueryOptions): Promise<ClaudeQu
 
   const beforeContent = normalizeTmuxLines(capturePaneScrollback(paneId));
 
-  // Step 2: Send literal text
-  sendLiteralText(paneId, prompt);
+  // ── Transcript snapshot (before sending) ──
+  // Lazily resolve the Claude session ID if not yet known, then snapshot the
+  // current transcript length. This lets us detect NEW idle events that fire
+  // after our prompt is submitted.
+  let claudeSessionId = paneState.claudeSessionId;
+  let transcriptBeforeCount = -1;
+
+  if (!claudeSessionId) {
+    try {
+      const { listSessions } = await import("@anthropic-ai/claude-agent-sdk");
+      const sessions = await listSessions({ dir: process.cwd() });
+      const newSession = sessions.find(
+        (s) => !paneState.knownSessionIds.has(s.sessionId),
+      );
+      if (newSession) {
+        claudeSessionId = newSession.sessionId;
+        paneState.claudeSessionId = claudeSessionId;
+      }
+    } catch {}
+  }
+
+  if (claudeSessionId) {
+    try {
+      const { getSessionMessages } = await import(
+        "@anthropic-ai/claude-agent-sdk"
+      );
+      const msgs = await getSessionMessages(claudeSessionId, {
+        dir: process.cwd(),
+        includeSystemMessages: true,
+      });
+      transcriptBeforeCount = msgs.length;
+    } catch {}
+  }
+
+  // Step 2: Send text via paste buffer (atomic, avoids ARG_MAX)
+  sendViaPasteBuffer(paneId, prompt);
   await Bun.sleep(150);
 
   // Step 3: Submit with per-round capture verification
@@ -215,7 +436,7 @@ export async function claudeQuery(options: ClaudeQueryOptions): Promise<ClaudeQu
     if (visibleNorm.includes(normalizedPrompt) && !paneHasActiveTask(visibleCapture) && paneLooksReady(visibleCapture)) {
       sendSpecialKey(paneId, "C-u");
       await Bun.sleep(80);
-      sendLiteralText(paneId, prompt);
+      sendViaPasteBuffer(paneId, prompt);
       await Bun.sleep(120);
       delivered = await attemptSubmitRounds(paneId, normalizedPrompt, 4, submitPresses);
     }
@@ -243,44 +464,35 @@ export async function claudeQuery(options: ClaudeQueryOptions): Promise<ClaudeQu
     }
   }
 
-  // Step 6: Wait for response by detecting output stabilization or prompt return
+  // Step 6: Wait for response completion
   const deadline = Date.now() + responseTimeoutMs;
-  let lastContent = "";
-  let stableCount = 0;
 
-  // Give Claude time to start processing
-  await Bun.sleep(3_000);
-
-  while (Date.now() < deadline) {
-    const currentContent = normalizeTmuxLines(capturePaneScrollback(paneId));
-
-    // Must have new content compared to before we sent
-    if (currentContent === beforeContent) {
-      await Bun.sleep(pollIntervalMs);
-      continue;
-    }
-
-    // Use visible capture for state detection to avoid stale scrollback matches
-    const visible = capturePaneVisible(paneId);
-    if (paneLooksReady(visible) && !paneHasActiveTask(visible)) {
-      return { output: currentContent, delivered };
-    }
-
-    if (currentContent === lastContent) {
-      stableCount++;
-      if (stableCount >= 3) {
-        return { output: currentContent, delivered };
-      }
-    } else {
-      stableCount = 0;
-    }
-
-    lastContent = currentContent;
-    await Bun.sleep(pollIntervalMs);
+  // ── Transcript-based idle detection (preferred) ──
+  // Uses the Claude Agent SDK's session_state_changed message as the
+  // authoritative turn-over signal. Falls back to pane capture if the
+  // SDK is unavailable or the session ID couldn't be resolved.
+  if (claudeSessionId && transcriptBeforeCount >= 0) {
+    const transcriptResult = await waitForIdleViaTranscript(
+      paneId,
+      claudeSessionId,
+      transcriptBeforeCount,
+      deadline,
+      pollIntervalMs,
+      delivered,
+    );
+    if (transcriptResult) return transcriptResult;
+    // null → SDK error; fall through to pane-capture
   }
 
-  // Timeout — return whatever we have
-  return { output: lastContent || capturePaneScrollback(paneId), delivered };
+  // ── Pane-capture fallback ──
+  return waitForIdleViaCapture(
+    paneId,
+    beforeContent,
+    deadline,
+    pollIntervalMs,
+    idleConfirmCount,
+    delivered,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -302,6 +514,13 @@ export interface ClaudeQueryDefaults {
   maxSubmitRounds?: number;
   /** Timeout in ms waiting for pane to be ready before sending (default: 30s) */
   readyTimeoutMs?: number;
+  /**
+   * Number of consecutive idle detections required before considering the
+   * response complete (default: 2). Increase for long-running multi-step
+   * tasks (e.g., explorer stages with sub-agent dispatches) to avoid
+   * false-idle returns between steps.
+   */
+  idleConfirmCount?: number;
 }
 
 /**
@@ -373,10 +592,7 @@ export class ClaudeSessionWrapper {
 // Static source validation
 // ---------------------------------------------------------------------------
 
-export interface ClaudeValidationWarning {
-  rule: string;
-  message: string;
-}
+import { createProviderValidator } from "../types.ts";
 
 /**
  * Validate a Claude workflow source file for common mistakes.
@@ -384,26 +600,19 @@ export interface ClaudeValidationWarning {
  * Warns on direct usage of createClaudeSession/claudeQuery — the runtime
  * now handles init/cleanup automatically via s.client and s.session.
  */
-export function validateClaudeWorkflow(source: string): ClaudeValidationWarning[] {
-  const warnings: ClaudeValidationWarning[] = [];
-
-  if (/\bcreateClaudeSession\b/.test(source)) {
-    warnings.push({
-      rule: "claude/manual-session",
-      message:
-        "Manual createClaudeSession() call detected. The runtime auto-starts the Claude CLI — " +
-        "use s.session.query() instead of claudeQuery(). Pass chatFlags via the second arg to ctx.stage().",
-    });
-  }
-
-  if (/\bclaudeQuery\b/.test(source)) {
-    warnings.push({
-      rule: "claude/manual-query",
-      message:
-        "Direct claudeQuery() call detected. Use s.session.query(prompt) instead — " +
-        "it wraps claudeQuery with the correct paneId.",
-    });
-  }
-
-  return warnings;
-}
+export const validateClaudeWorkflow = createProviderValidator([
+  {
+    pattern: /\bcreateClaudeSession\b/,
+    rule: "claude/manual-session",
+    message:
+      "Manual createClaudeSession() call detected. The runtime auto-starts the Claude CLI — " +
+      "use s.session.query() instead of claudeQuery(). Pass chatFlags via the second arg to ctx.stage().",
+  },
+  {
+    pattern: /\bclaudeQuery\b/,
+    rule: "claude/manual-query",
+    message:
+      "Direct claudeQuery() call detected. Use s.session.query(prompt) instead — " +
+      "it wraps claudeQuery with the correct paneId.",
+  },
+]);

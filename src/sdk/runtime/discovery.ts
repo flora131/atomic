@@ -8,10 +8,9 @@
  * Project-local workflows take precedence over global ones with the same name.
  */
 
-import { join } from "path";
-import { readdir, writeFile } from "fs/promises";
-import { existsSync, readdirSync } from "fs";
-import { homedir } from "os";
+import { join } from "node:path";
+import { readdir } from "node:fs/promises";
+import { homedir } from "node:os";
 import ignore from "ignore";
 import type { AgentType, WorkflowInput } from "../types.ts";
 import { WorkflowLoader } from "./loader.ts";
@@ -61,7 +60,7 @@ async function loadWorkflowsGitignore(workflowsDir: string): Promise<ignore.Igno
     content = await Bun.file(gitignorePath).text();
   } catch {
     // Missing — regenerate from the canonical template
-    await writeFile(gitignorePath, WORKFLOWS_GITIGNORE);
+    await Bun.write(gitignorePath, WORKFLOWS_GITIGNORE);
     content = WORKFLOWS_GITIGNORE;
   }
   return ignore().add(content);
@@ -147,25 +146,27 @@ const BUILTIN_WORKFLOWS_DIR = join(
  * Scans `src/sdk/workflows/builtin/<name>/<agent>/index.ts` for known
  * workflow directories. Returns entries with `source: "builtin"`.
  */
-function discoverBuiltinWorkflows(
+async function discoverBuiltinWorkflows(
   agentFilter?: AgentType,
-): DiscoveredWorkflow[] {
+): Promise<DiscoveredWorkflow[]> {
   const results: DiscoveredWorkflow[] = [];
   const agents = agentFilter ? [agentFilter] : AGENTS;
 
-  let workflowNames: string[];
+  let workflowEntries;
   try {
-    workflowNames = readdirSync(BUILTIN_WORKFLOWS_DIR, { withFileTypes: true })
-      .filter((d) => d.isDirectory())
-      .map((d) => d.name);
+    workflowEntries = await readdir(BUILTIN_WORKFLOWS_DIR, { withFileTypes: true });
   } catch {
     return results;
   }
 
+  const workflowNames = workflowEntries
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name);
+
   for (const name of workflowNames) {
     for (const agent of agents) {
       const indexPath = join(BUILTIN_WORKFLOWS_DIR, name, agent, "index.ts");
-      if (existsSync(indexPath)) {
+      if (await Bun.file(indexPath).exists()) {
         results.push({ name, agent, path: indexPath, source: "builtin" });
       }
     }
@@ -219,16 +220,15 @@ export async function discoverWorkflows(
   // name-based across every agent: a local `ralph` for copilot is still
   // reserved by a builtin `ralph` for claude, even when the discovery
   // call was filtered to copilot.
-  const allBuiltins = discoverBuiltinWorkflows();
+  const [allBuiltins, globalResults, localResults] = await Promise.all([
+    discoverBuiltinWorkflows(),
+    discoverFromBaseDir(globalDir, "global", agentFilter),
+    discoverFromBaseDir(localDir, "local", agentFilter),
+  ]);
   const reservedNames = new Set<string>(allBuiltins.map((w) => w.name));
   const builtinResults = agentFilter
     ? allBuiltins.filter((w) => w.agent === agentFilter)
     : allBuiltins;
-
-  const [globalResults, localResults] = await Promise.all([
-    discoverFromBaseDir(globalDir, "global", agentFilter),
-    discoverFromBaseDir(localDir, "local", agentFilter),
-  ]);
 
   // Drop any local/global workflow whose name matches a reserved
   // builtin. This happens BEFORE both merge and unmerged code paths so

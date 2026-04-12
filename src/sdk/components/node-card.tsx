@@ -1,11 +1,12 @@
 /** @jsxImportSource @opentui/react */
 
+import React from "react";
 import { lerpColor } from "./color-utils.ts";
 import { useGraphTheme } from "./orchestrator-panel-contexts.ts";
 import { statusColor, fmtDuration } from "./status-helpers.ts";
 import { NODE_W, type LayoutNode } from "./layout.ts";
 
-export function NodeCard({
+export const NodeCard = React.memo(function NodeCard({
   node,
   focused,
   pulsePhase,
@@ -65,4 +66,4 @@ export function NodeCard({
       </box>
     </box>
   );
-}
+});

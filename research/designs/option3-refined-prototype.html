@@ -338,6 +338,7 @@ const agents = [
 ];
 const icons = { running:"\u25CF", complete:"\u2713", error:"\u2717", pending:"\u25CB" };
 const started = agents.filter(a => a.status !== "pending");
+const subagents = started.filter(a => a.id !== "orchestrator");
 
 const outputs = {
   orchestrator:[
@@ -511,12 +512,12 @@ function attachTo(id) {
   document.getElementById("badge").className = "mode-badge attached";
   document.getElementById("badge").textContent = "ATTACHED";
 
-  const idx = agents.findIndex(x => x.id === id);
+  const subIdx = subagents.findIndex(x => x.id === id);
   document.getElementById("breadcrumb").innerHTML =
     `<span class="bc-sep">\u203A</span>` +
     `<span class="bc-status ${a.status}">${icons[a.status]}</span>` +
     `<span class="bc-agent">${a.id}</span>` +
-    `<span class="bc-pos">${idx + 1}/${agents.length}</span>`;
+    `<span class="bc-pos">${subIdx + 1}/${subagents.length}</span>`;
 
   document.getElementById("hints").innerHTML = ATTACHED_HINTS;
   closeSwitcher();
@@ -524,12 +525,12 @@ function attachTo(id) {
 
 function cycleAgent(dir) {
   if (view !== "agent") return;
-  const curIdx = started.findIndex(a => a.id === activeId);
+  const curIdx = subagents.findIndex(a => a.id === activeId);
+  if (curIdx < 0) return;
   let next = curIdx + dir;
-  if (next < 0) next = started.length - 1;
-  if (next >= started.length) next = 0;
-  // attachTo handles orchestrator → graph automatically
-  attachTo(started[next].id);
+  if (next < 0) next = subagents.length - 1;
+  if (next >= subagents.length) next = 0;
+  attachTo(subagents[next].id);
 }
 
 // ── Spatial navigation ────────────────────────

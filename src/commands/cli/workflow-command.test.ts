@@ -77,9 +77,14 @@ const loadWorkflowsMetadataMock = mock<
 const isTmuxInstalledMock =
   mock<typeof realWorkflows.isTmuxInstalled>(() => true);
 
-// Default: real presence check. Tests override for the agent-missing branch.
+// Default: delegate to the real check, but pretend agent CLIs are installed.
+// CI runners won't have copilot/opencode/claude on PATH; without this
+// override every test that passes through runPrereqChecks would bail early.
+// Non-agent commands still hit the real check so mock.module doesn't break
+// detect.test.ts (Bun shares one process across test files).
+const AGENT_CMDS = new Set(["claude", "opencode", "copilot"]);
 const isCommandInstalledMock = mock<typeof realDetect.isCommandInstalled>(
-  (cmd) => realIsCommandInstalled(cmd),
+  (cmd) => AGENT_CMDS.has(cmd) || realIsCommandInstalled(cmd),
 );
 
 // Default: no-op so the best-effort installer branch in runPrereqChecks
@@ -201,7 +206,9 @@ beforeEach(async () => {
   isTmuxInstalledMock.mockClear();
   isTmuxInstalledMock.mockImplementation(() => true);
   isCommandInstalledMock.mockClear();
-  isCommandInstalledMock.mockImplementation((cmd) => realIsCommandInstalled(cmd));
+  isCommandInstalledMock.mockImplementation(
+    (cmd) => AGENT_CMDS.has(cmd) || realIsCommandInstalled(cmd),
+  );
   ensureTmuxInstalledMock.mockClear();
   ensureTmuxInstalledMock.mockImplementation(async () => {});
   ensureBunInstalledMock.mockClear();

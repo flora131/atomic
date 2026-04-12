@@ -243,8 +243,9 @@
   <h1>Option 3 — Refined</h1>
   <p>
     Full keyboard navigation: arrow keys to navigate the graph, Enter to attach,
-    Esc to return, Tab/Shift+Tab to cycle agents, and <strong>/</strong> to open a compact
-    agent list for direct jumping. Try it below — this is fully interactive.
+    Tab/Shift+Tab to cycle agents, <strong>g</strong> to jump straight back to graph,
+    and <strong>/</strong> to open a compact agent list for direct jumping.
+    No Esc key — avoids interrupting running agents. Try it below.
   </p>
 </div>
 
@@ -290,7 +291,6 @@
     Click the terminal to focus it, then use keyboard to navigate.
     <span class="kh">&uarr;&darr;&larr;&rarr;</span> move focus
     <span class="kh">Enter</span> attach
-    <span class="kh">Esc</span> back
     <span class="kh">Tab</span> next agent
     <span class="kh">/</span> agent list
   </p>
@@ -309,9 +309,9 @@
       </div>
       <div class="keymap-col">
         <h4>Attached view</h4>
-        <div class="keymap-row"><span class="km-key">Esc</span><span class="km-desc">Return to graph</span></div>
-        <div class="keymap-row"><span class="km-key">Tab</span><span class="km-desc">Next agent</span></div>
+        <div class="keymap-row"><span class="km-key">Tab</span><span class="km-desc">Next agent (wraps to graph)</span></div>
         <div class="keymap-row"><span class="km-key">Shift+Tab</span><span class="km-desc">Previous agent</span></div>
+        <div class="keymap-row"><span class="km-key">g</span><span class="km-desc">Back to graph</span></div>
         <div class="keymap-row"><span class="km-key">/</span><span class="km-desc">Open agent list</span></div>
         <div class="keymap-row"><span class="km-key">q</span><span class="km-desc">Quit</span></div>
       </div>
@@ -319,7 +319,6 @@
         <h4>Agent list (/)</h4>
         <div class="keymap-row"><span class="km-key">&uarr; &darr;</span><span class="km-desc">Select agent</span></div>
         <div class="keymap-row"><span class="km-key">Enter</span><span class="km-desc">Jump to agent</span></div>
-        <div class="keymap-row"><span class="km-key">Esc</span><span class="km-desc">Close list</span></div>
       </div>
     </div>
   </div>
@@ -466,7 +465,7 @@ let switcherOpen = false;
 let switcherSel = 0;
 
 const GRAPH_HINTS = '<span class="key">\u2191\u2193\u2190\u2192</span> navigate<span class="sep">\u00B7</span><span class="key">\u21B5</span> attach<span class="sep">\u00B7</span><span class="key">/</span> agents<span class="sep">\u00B7</span><span class="key">q</span> quit';
-const ATTACHED_HINTS = '<span class="key">Esc</span> graph<span class="sep">\u00B7</span><span class="key">Tab</span> next<span class="sep">\u00B7</span><span class="key">/</span> agents<span class="sep">\u00B7</span><span class="key">q</span> quit';
+const ATTACHED_HINTS = '<span class="key">Tab</span> next<span class="sep">\u00B7</span><span class="key">S-Tab</span> prev<span class="sep">\u00B7</span><span class="key">g</span> graph<span class="sep">\u00B7</span><span class="key">/</span> agents<span class="sep">\u00B7</span><span class="key">q</span> quit';
 
 // ── View helpers ──────────────────────────────
 
@@ -491,6 +490,14 @@ function showGraph() {
 function attachTo(id) {
   const a = agents.find(x => x.id === id);
   if (!a || a.status === "pending") return;
+
+  // Orchestrator = the graph view (it's the same tmux window in reality)
+  if (id === "orchestrator") {
+    focusedId = "orchestrator";
+    showGraph();
+    return;
+  }
+
   view = "agent"; activeId = id; focusedId = id;
 
   document.getElementById("graph-view").style.display = "none";
@@ -521,6 +528,7 @@ function cycleAgent(dir) {
   let next = curIdx + dir;
   if (next < 0) next = started.length - 1;
   if (next >= started.length) next = 0;
+  // attachTo handles orchestrator → graph automatically
   attachTo(started[next].id);
 }
 
@@ -635,13 +643,6 @@ document.addEventListener("keydown", e => {
     return;
   }
 
-  // ── Escape: return to graph ──
-  if (e.key === "Escape") {
-    e.preventDefault();
-    if (view === "agent") showGraph();
-    return;
-  }
-
   // ── Graph view ──
   if (view === "graph") {
     if (e.key === "ArrowUp"    || e.key === "k") { e.preventDefault(); navigate("up"); }
@@ -660,6 +661,10 @@ document.addEventListener("keydown", e => {
     if (e.key === "Tab") {
       e.preventDefault();
       cycleAgent(e.shiftKey ? -1 : 1);
+    }
+    if (e.key === "g") {
+      e.preventDefault();
+      showGraph();
     }
   }
 });

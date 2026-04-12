@@ -41,7 +41,11 @@ if (!result.success) {
 }
 
 // 2. Declaration files
+//    tsc-alias rewrites the @/* path aliases in emitted .d.ts files
+//    to relative paths, so source code can use @/ consistently while
+//    the published declarations remain portable.
 await $`bunx tsc --project tsconfig.build.json`;
+await $`bunx tsc-alias --project tsconfig.build.json`;
 
 // 3. Rewrite .ts/.tsx → .js in relative specifiers within .d.ts files
 //    so consumers resolve ./foo.js → ./foo.d.ts via standard TS resolution.

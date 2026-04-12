@@ -33,8 +33,8 @@ import type {
   ProviderClient,
   ProviderSession,
 } from "../types.ts";
-import { isValidAgent } from "../../services/config/definitions.ts";
-import { ensureDir } from "../../services/system/copy.ts";
+import { isValidAgent } from "@/services/config/definitions.ts";
+import { ensureDir } from "@/services/system/copy.ts";
 import type { SessionEvent } from "@github/copilot-sdk";
 import type { SessionPromptResponse } from "@opencode-ai/sdk/v2";
 import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";

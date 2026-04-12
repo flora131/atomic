@@ -5,12 +5,12 @@
 import { readdir, mkdir, stat, readFile } from "node:fs/promises";
 import { mkdirSync } from "node:fs";
 import { join, extname, relative, resolve } from "node:path";
-import { getOppositeScriptExtension } from "./detect.ts";
+import { getOppositeScriptExtension } from "@/services/system/detect.ts";
 import {
   assertPathWithinRoot,
   assertRealPathWithinRoot,
   isPathWithinRoot,
-} from "../../lib/path-root-guard.ts";
+} from "@/lib/path-root-guard.ts";
 
 /**
  * Safely create a directory (and parents) without throwing on EEXIST.

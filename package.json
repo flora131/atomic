@@ -83,6 +83,7 @@
     "@types/react": "^19.2.14",
     "lefthook": "^2.1.5",
     "oxlint": "^1.59.0",
+    "tsc-alias": "^1.8.16",
     "typescript": "^6.0.2",
     "typescript-language-server": "^5.1.3"
   },

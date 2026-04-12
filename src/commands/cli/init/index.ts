@@ -16,7 +16,7 @@ import {
   note,
   log,
 } from "@clack/prompts";
-import { join, resolve } from "path";
+import { join, resolve } from "node:path";
 
 import {
   AGENT_CONFIG,
@@ -268,7 +268,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     await saveAtomicConfig(targetDir, {
       scm: scmType,
     });
-    upsertTrustedWorkspacePath(resolve(targetDir), agentKey);
+    await upsertTrustedWorkspacePath(resolve(targetDir), agentKey);
 
     s.stop(paint("success", "✓", { bold: true }) + " Skills configured");
 

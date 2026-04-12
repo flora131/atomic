@@ -14,9 +14,9 @@
  * the entry point and reached through package.json `exports` self-referencing.
  */
 
-import { join, resolve } from "path";
-import { homedir } from "os";
-import { mkdir, writeFile, readFile } from "fs/promises";
+import { join, resolve } from "node:path";
+import { homedir } from "node:os";
+import { writeFile } from "node:fs/promises";
 import type {
   WorkflowDefinition,
   WorkflowContext,
@@ -30,7 +30,11 @@ import type {
   SaveTranscript,
   StageClientOptions,
   StageSessionOptions,
+  ProviderClient,
+  ProviderSession,
 } from "../types.ts";
+import { isValidAgent } from "../../services/config/definitions.ts";
+import { ensureDir } from "../../services/system/copy.ts";
 import type { SessionEvent } from "@github/copilot-sdk";
 import type { SessionPromptResponse } from "@opencode-ai/sdk/v2";
 import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
@@ -44,6 +48,7 @@ import {
 } from "../providers/claude.ts";
 import { OrchestratorPanel } from "./panel.tsx";
 import { GraphFrontierTracker } from "./graph-inference.ts";
+import { errorMessage } from "../errors.ts";
 
 /** Maximum time (ms) to wait for an agent's server to become reachable. */
 const SERVER_WAIT_TIMEOUT_MS = 60_000;
@@ -83,6 +88,21 @@ class WorkflowAbortError extends Error {
     super("Workflow aborted by user");
     this.name = "WorkflowAbortError";
   }
+}
+
+/** Compile-time exhaustiveness guard for discriminated unions. */
+function assertNever(value: never): never {
+  throw new Error(`Unhandled agent type: ${String(value)}`);
+}
+
+// Re-export for backward compatibility (tests import from here)
+export { errorMessage } from "../errors.ts";
+
+/** Runtime guard for deserialized SavedMessage objects. */
+function isValidSavedMessage(msg: unknown): msg is SavedMessage {
+  if (!msg || typeof msg !== "object") return false;
+  const m = msg as Record<string, unknown>;
+  return m.provider === "copilot" || m.provider === "opencode" || m.provider === "claude";
 }
 
 export interface WorkflowRunOptions {
@@ -180,10 +200,7 @@ function buildPaneCommand(
         envVars,
       };
     default:
-      return {
-        command: [cmd, ...chatFlags].join(" "),
-        envVars,
-      };
+      return assertNever(agent);
   }
 }
 
@@ -224,10 +241,6 @@ async function waitForServer(
   // For OpenCode, give it extra time after TUI renders
   await Bun.sleep(3_000);
   return serverUrl;
-}
-
-async function ensureDir(dir: string): Promise<void> {
-  await mkdir(dir, { recursive: true });
 }
 
 /**
@@ -274,7 +287,7 @@ export function parseInputsEnv(raw: string | undefined): Record<string, string> 
       return {};
     }
     const out: Record<string, string> = {};
-    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+    for (const [k, v] of Object.entries(parsed)) {
       if (typeof v === "string") out[k] = v;
     }
     return out;
@@ -402,22 +415,6 @@ export function hasContent(value: unknown): value is { content: string } {
   );
 }
 
-/** Type guard for Claude message objects whose `content` is an array of text blocks. */
-export function isTextBlockArray(
-  value: unknown,
-): value is Array<{ type: "text"; text: string }> {
-  return (
-    Array.isArray(value) &&
-    value.every(
-      (b) =>
-        typeof b === "object" &&
-        b !== null &&
-        b.type === "text" &&
-        typeof b.text === "string",
-    )
-  );
-}
-
 export function renderMessagesToText(messages: SavedMessage[]): string {
   return messages
     .map((m) => {
@@ -444,11 +441,25 @@ export function renderMessagesToText(messages: SavedMessage[]): string {
           if (msg && typeof msg === "object" && "content" in msg) {
             const { content } = msg as { content: unknown };
             if (typeof content === "string") return content;
-            if (isTextBlockArray(content)) {
-              return content.map((b) => b.text).join("\n");
+            // Claude messages often have mixed content arrays (text +
+            // tool_use + thinking blocks). Filter for text blocks instead
+            // of requiring ALL blocks to be text — the old isTextBlockArray
+            // check caused a JSON.stringify fallback that embedded raw
+            // message objects into downstream prompts.
+            if (Array.isArray(content)) {
+              const textParts = content
+                .filter(
+                  (b): b is { type: "text"; text: string } =>
+                    typeof b === "object" &&
+                    b !== null &&
+                    b.type === "text" &&
+                    typeof b.text === "string",
+                )
+                .map((b) => b.text);
+              if (textParts.length > 0) return textParts.join("\n");
             }
           }
-          return JSON.stringify(msg);
+          return "";
         }
       }
     })
@@ -459,6 +470,61 @@ export function renderMessagesToText(messages: SavedMessage[]): string {
 /** Resolve a SessionRef (string or SessionHandle) to the session name. */
 function resolveRef(ref: SessionRef): string {
   return typeof ref === "string" ? ref : ref.name;
+}
+
+// ============================================================================
+// Shared transcript / message readers
+// ============================================================================
+
+/**
+ * Create a `transcript(ref)` function bound to a completed-session registry.
+ * Used by both the top-level WorkflowContext and per-session SessionContext
+ * so the implementation is defined once.
+ */
+function createTranscriptReader(
+  completedRegistry: Map<string, SessionResult>,
+): (ref: SessionRef) => Promise<Transcript> {
+  return async (ref) => {
+    const refName = resolveRef(ref);
+    const prev = completedRegistry.get(refName);
+    if (!prev) {
+      const available =
+        [...completedRegistry.keys()].join(", ") || "(none)";
+      throw new Error(
+        `No transcript for "${refName}". Available: ${available}`,
+      );
+    }
+    const filePath = join(prev.sessionDir, "inbox.md");
+    const content = await Bun.file(filePath).text();
+    return { path: filePath, content };
+  };
+}
+
+/**
+ * Create a `getMessages(ref)` function bound to a completed-session registry.
+ * Used by both the top-level WorkflowContext and per-session SessionContext.
+ */
+function createMessagesReader(
+  completedRegistry: Map<string, SessionResult>,
+): (ref: SessionRef) => Promise<SavedMessage[]> {
+  return async (ref) => {
+    const refName = resolveRef(ref);
+    const prev = completedRegistry.get(refName);
+    if (!prev) {
+      const available =
+        [...completedRegistry.keys()].join(", ") || "(none)";
+      throw new Error(
+        `No messages for "${refName}". Available: ${available}`,
+      );
+    }
+    const filePath = join(prev.sessionDir, "messages.json");
+    const raw = await Bun.file(filePath).text();
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      throw new Error(`Invalid messages file for "${refName}": expected array`);
+    }
+    return parsed.filter(isValidSavedMessage);
+  };
 }
 
 // ============================================================================
@@ -489,15 +555,23 @@ interface SharedRunnerState {
 /**
  * Create the provider-specific client and session for a stage.
  * Called by the session runner after server readiness is confirmed.
+ *
+ * Generic over `A` so callers receive typed `ProviderClient<A>` /
+ * `ProviderSession<A>` without unsafe casts. The internal `switch`
+ * branches know the concrete types being constructed, so the `as`
+ * assertions here are producer-side (correct by construction) rather
+ * than consumer-side (trusting the caller to guess right).
  */
-async function initProviderClientAndSession(
-  agent: AgentType,
+async function initProviderClientAndSession<A extends AgentType>(
+  agent: A,
   serverUrl: string,
   paneId: string,
   sessionId: string,
-  clientOpts: StageClientOptions<AgentType>,
-  sessionOpts: StageSessionOptions<AgentType>,
-): Promise<{ client: unknown; session: unknown }> {
+  clientOpts: StageClientOptions<A>,
+  sessionOpts: StageSessionOptions<A>,
+): Promise<{ client: ProviderClient<A>; session: ProviderSession<A> }> {
+  type Result = { client: ProviderClient<A>; session: ProviderSession<A> };
+
   switch (agent) {
     case "copilot": {
       const { CopilotClient, approveAll } = await import("@github/copilot-sdk");
@@ -510,7 +584,7 @@ async function initProviderClientAndSession(
         ...copilotSessionOpts,
       });
       await client.setForegroundSessionId(session.sessionId);
-      return { client, session };
+      return { client, session } as Result;
     }
     case "opencode": {
       const { createOpencodeClient } = await import("@opencode-ai/sdk/v2");
@@ -519,7 +593,7 @@ async function initProviderClientAndSession(
       const client = createOpencodeClient({ ...ocClientOpts, baseUrl: serverUrl });
       const sessionResult = await client.session.create(ocSessionOpts);
       await client.tui.selectSession({ sessionID: sessionResult.data!.id });
-      return { client, session: sessionResult.data! };
+      return { client, session: sessionResult.data! } as Result;
     }
     case "claude": {
       const claudeClientOpts = clientOpts as StageClientOptions<"claude">;
@@ -527,35 +601,41 @@ async function initProviderClientAndSession(
       const client = new ClaudeClientWrapper(paneId, claudeClientOpts);
       await client.start();
       const session = new ClaudeSessionWrapper(paneId, sessionId, claudeSessionOpts);
-      return { client, session };
+      return { client, session } as Result;
     }
+    default:
+      return assertNever(agent);
   }
 }
 
 /**
  * Clean up provider-specific resources after a stage callback completes.
  * Errors are silently caught — cleanup must not mask callback errors.
+ *
+ * The `switch (agent)` already narrows the type, so we call
+ * disconnect/stop directly without redundant `instanceof` checks or
+ * dynamic imports.
  */
-async function cleanupProvider(
-  agent: AgentType,
-  providerClient: unknown,
-  providerSession: unknown,
+async function cleanupProvider<A extends AgentType>(
+  agent: A,
+  providerClient: ProviderClient<A>,
+  providerSession: ProviderSession<A>,
   paneId: string,
 ): Promise<void> {
   switch (agent) {
     case "copilot": {
-      const { CopilotSession: CopilotSessionClass } = await import("@github/copilot-sdk");
+      const session = providerSession as ProviderSession<"copilot">;
+      const client = providerClient as ProviderClient<"copilot">;
       try {
-        if (providerSession instanceof CopilotSessionClass) {
-          await providerSession.disconnect();
-        }
-      } catch {}
+        await session.disconnect();
+      } catch (e) {
+        console.warn(`[cleanup] copilot session disconnect failed: ${errorMessage(e)}`);
+      }
       try {
-        const { CopilotClient: CopilotClientClass } = await import("@github/copilot-sdk");
-        if (providerClient instanceof CopilotClientClass) {
-          await providerClient.stop();
-        }
-      } catch {}
+        await client.stop();
+      } catch (e) {
+        console.warn(`[cleanup] copilot client stop failed: ${errorMessage(e)}`);
+      }
       break;
     }
     case "opencode":
@@ -564,6 +644,8 @@ async function cleanupProvider(
     case "claude":
       clearClaudeSession(paneId);
       break;
+    default:
+      assertNever(agent);
   }
 }
 
@@ -752,37 +834,8 @@ function createSessionRunner(
       }) as SaveTranscript;
 
       // ── Transcript/messages access (reads only from completedRegistry) ──
-      const transcriptFn = async (ref: SessionRef): Promise<Transcript> => {
-        const refName = resolveRef(ref);
-        const prev = shared.completedRegistry.get(refName);
-        if (!prev) {
-          const available =
-            [...shared.completedRegistry.keys()].join(", ") || "(none)";
-          throw new Error(
-            `No transcript for "${refName}". Available: ${available}`,
-          );
-        }
-        const filePath = join(prev.sessionDir, "inbox.md");
-        const content = await readFile(filePath, "utf-8");
-        return { path: filePath, content };
-      };
-
-      const getMessagesFn = async (
-        ref: SessionRef,
-      ): Promise<SavedMessage[]> => {
-        const refName = resolveRef(ref);
-        const prev = shared.completedRegistry.get(refName);
-        if (!prev) {
-          const available =
-            [...shared.completedRegistry.keys()].join(", ") || "(none)";
-          throw new Error(
-            `No messages for "${refName}". Available: ${available}`,
-          );
-        }
-        const filePath = join(prev.sessionDir, "messages.json");
-        const raw = await readFile(filePath, "utf-8");
-        return JSON.parse(raw) as SavedMessage[];
-      };
+      const transcriptFn = createTranscriptReader(shared.completedRegistry);
+      const getMessagesFn = createMessagesReader(shared.completedRegistry);
 
       // ── 12. Auto-create provider client and session ──
       const { client: providerClient, session: providerSession } =
@@ -801,8 +854,8 @@ function createSessionRunner(
       // A single uniform access pattern means workflow code never has
       // to branch on "is this workflow structured or free-form".
       const ctx: SessionContext = {
-        client: providerClient as SessionContext["client"],
-        session: providerSession as SessionContext["session"],
+        client: providerClient,
+        session: providerSession,
         inputs: shared.inputs,
         agent: shared.agent,
         sessionDir,
@@ -815,7 +868,7 @@ function createSessionRunner(
       };
 
       // ── Write session metadata ──
-      await writeFile(
+      await Bun.write(
         join(sessionDir, "metadata.json"),
         JSON.stringify(
           {
@@ -839,8 +892,8 @@ function createSessionRunner(
         if (pendingSaves.length > 0) await Promise.all(pendingSaves);
       } catch (error) {
         const message =
-          error instanceof Error ? error.message : String(error);
-        await writeFile(join(sessionDir, "error.txt"), message).catch(
+          errorMessage(error);
+        await Bun.write(join(sessionDir, "error.txt"), message).catch(
           () => {},
         );
         shared.panel.sessionError(name, message);
@@ -861,7 +914,7 @@ function createSessionRunner(
       graphTracker.onSettle(name);
       return { name, id: sessionId, result: callbackResult! };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       if (panelSessionAdded) {
         shared.panel.sessionError(name, message);
       }
@@ -900,7 +953,11 @@ export async function runOrchestrator(): Promise<void> {
 
   const workflowRunId = process.env.ATOMIC_WF_ID!;
   const tmuxSessionName = process.env.ATOMIC_WF_TMUX!;
-  const agent = process.env.ATOMIC_WF_AGENT! as AgentType;
+  const rawAgent = process.env.ATOMIC_WF_AGENT!;
+  if (!isValidAgent(rawAgent)) {
+    throw new Error(`Invalid ATOMIC_WF_AGENT: "${rawAgent}". Expected one of: copilot, opencode, claude`);
+  }
+  const agent: AgentType = rawAgent;
   // ATOMIC_WF_INPUTS carries the full input payload. Free-form
   // workflows store their single positional prompt under the `prompt`
   // key so workflow authors always read it via `ctx.inputs.prompt`.
@@ -971,7 +1028,7 @@ export async function runOrchestrator(): Promise<void> {
     }
     const definition = loaded.value.definition;
 
-    await writeFile(
+    await Bun.write(
       join(sessionsBaseDir, "metadata.json"),
       JSON.stringify(
         {
@@ -996,34 +1053,8 @@ export async function runOrchestrator(): Promise<void> {
       inputs,
       agent,
       stage: sessionRunner as WorkflowContext["stage"],
-      transcript: async (ref: SessionRef): Promise<Transcript> => {
-        const refName = resolveRef(ref);
-        const prev = shared.completedRegistry.get(refName);
-        if (!prev) {
-          const available =
-            [...shared.completedRegistry.keys()].join(", ") || "(none)";
-          throw new Error(
-            `No transcript for "${refName}". Available: ${available}`,
-          );
-        }
-        const filePath = join(prev.sessionDir, "inbox.md");
-        const content = await readFile(filePath, "utf-8");
-        return { path: filePath, content };
-      },
-      getMessages: async (ref: SessionRef): Promise<SavedMessage[]> => {
-        const refName = resolveRef(ref);
-        const prev = shared.completedRegistry.get(refName);
-        if (!prev) {
-          const available =
-            [...shared.completedRegistry.keys()].join(", ") || "(none)";
-          throw new Error(
-            `No messages for "${refName}". Available: ${available}`,
-          );
-        }
-        const filePath = join(prev.sessionDir, "messages.json");
-        const raw = await readFile(filePath, "utf-8");
-        return JSON.parse(raw) as SavedMessage[];
-      },
+      transcript: createTranscriptReader(shared.completedRegistry),
+      getMessages: createMessagesReader(shared.completedRegistry),
     };
 
     // Run the workflow, racing against user abort (q / Ctrl+C)
@@ -1046,7 +1077,7 @@ export async function runOrchestrator(): Promise<void> {
     if (error instanceof WorkflowAbortError) {
       shutdown(0);
     } else {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       try {
         panel.showFatalError(message);
         await panel.waitForExit();

@@ -31,8 +31,8 @@
  * launch.
  */
 
-import { join } from "path";
-import { homedir } from "os";
+import { join } from "node:path";
+import { homedir } from "node:os";
 import { VERSION } from "@/version.ts";
 import { COLORS } from "@/theme/colors.ts";
 import {

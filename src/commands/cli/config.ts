@@ -17,39 +17,40 @@ export async function configCommand(
   subcommand: string | undefined,
   key: string | undefined,
   value: string | undefined
-): Promise<void> {
+): Promise<number> {
   if (!subcommand) {
     log.error("Missing subcommand. Usage: atomic config set <key> <value>");
-    process.exit(1);
+    return 1;
   }
 
   if (subcommand !== "set") {
     log.error(`Unknown subcommand: ${subcommand}. Only 'set' is supported.`);
-    process.exit(1);
+    return 1;
   }
 
   if (!key) {
     log.error("Missing key. Usage: atomic config set <key> <value>");
-    process.exit(1);
+    return 1;
   }
 
   if (key !== "telemetry") {
     log.error(`Unknown config key: ${key}. Only 'telemetry' is supported.`);
-    process.exit(1);
+    return 1;
   }
 
   if (!value) {
     log.error("Missing value. Usage: atomic config set telemetry <true|false>");
-    process.exit(1);
+    return 1;
   }
 
   if (value !== "true" && value !== "false") {
     log.error(`Invalid value: ${value}. Must be 'true' or 'false'.`);
-    process.exit(1);
+    return 1;
   }
 
   const enabled = value === "true";
-  setTelemetryEnabled(enabled);
+  await setTelemetryEnabled(enabled);
 
   log.success(`Telemetry has been ${enabled ? "enabled" : "disabled"}.`);
+  return 0;
 }

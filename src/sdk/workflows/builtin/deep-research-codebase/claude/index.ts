@@ -79,6 +79,23 @@ import {
   slugifyPrompt,
 } from "../helpers/prompts.ts";
 
+// ── Timeouts ────────────────────────────────────────────────────────────────
+// Every s.session.query() call passes one of these explicitly — never relying
+// on the 300-second default. Explorer and aggregator stages dispatch sub-agents
+// and can easily run 30+ minutes; a premature timeout causes the stage to
+// complete early, which makes Promise.all resolve and the next stage to launch
+// before parallel stages finish.
+const SCOUT_TIMEOUT_MS = 15 * 60 * 1000; // 15 min — short orientation call
+const HISTORY_TIMEOUT_MS = 20 * 60 * 1000; // 20 min — reads research/ docs
+const EXPLORER_TIMEOUT_MS = 45 * 60 * 1000; // 45 min — multi-step sub-agent dispatch
+const AGGREGATOR_TIMEOUT_MS = 45 * 60 * 1000; // 45 min — reads N explorer reports
+
+// Between sub-agent dispatches Claude's TUI briefly shows the prompt indicator
+// without an active-task spinner. Requiring 3 consecutive idle detections
+// prevents the query from returning during these transient gaps.
+const EXPLORER_IDLE_CONFIRM = 3;
+const AGGREGATOR_IDLE_CONFIRM = 3;
+
 export default defineWorkflow<"claude">({
     name: "deep-research-codebase",
     description:
@@ -149,6 +166,7 @@ export default defineWorkflow<"claude">({
               explorerCount: actualCount,
               partitionPreview: partitions,
             }),
+            { timeoutMs: SCOUT_TIMEOUT_MS },
           );
           s.save(s.sessionId);
 
@@ -177,6 +195,7 @@ export default defineWorkflow<"claude">({
           // synthesis as prose (no file write — consumed via transcript).
           await s.session.query(
             buildHistoryPrompt({ question: prompt, root }),
+            { timeoutMs: HISTORY_TIMEOUT_MS },
           );
           s.save(s.sessionId);
         },
@@ -236,6 +255,10 @@ export default defineWorkflow<"claude">({
                 scratchPath,
                 root,
               }),
+              {
+                timeoutMs: EXPLORER_TIMEOUT_MS,
+                idleConfirmCount: EXPLORER_IDLE_CONFIRM,
+              },
             );
             s.save(s.sessionId);
 
@@ -286,6 +309,10 @@ export default defineWorkflow<"claude">({
             scoutOverview,
             historyOverview,
           }),
+          {
+            timeoutMs: AGGREGATOR_TIMEOUT_MS,
+            idleConfirmCount: AGGREGATOR_IDLE_CONFIRM,
+          },
         );
         s.save(s.sessionId);
       },

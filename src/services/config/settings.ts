@@ -9,12 +9,12 @@
  * The --model CLI flag takes precedence over both (handled at call site).
  */
 
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { homedir } from "node:os";
 import { SETTINGS_SCHEMA_URL } from "@/services/config/settings-schema.ts";
-import { ensureDirSync } from "@/services/system/copy.ts";
-import type { AgentKey } from "@/services/config/definitions.ts";
+import { ensureDir } from "@/services/system/copy.ts";
+import { errorMessage } from "@/sdk/errors.ts";
+import type { AgentKey, SourceControlType } from "@/services/config/definitions.ts";
 
 export interface TrustedPathEntry {
   workspacePath: string;
@@ -23,10 +23,16 @@ export interface TrustedPathEntry {
 
 interface AtomicSettings {
   $schema?: string;
-  scm?: "github" | "sapling";
+  scm?: SourceControlType;
   version?: number;
   lastUpdated?: string;
   trustedPaths?: TrustedPathEntry[];
+  telemetryEnabled?: boolean;
+}
+
+/** Runtime guard for parsed JSON to ensure it's a plain object. */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** Global settings path: ~/.atomic/settings.json */
@@ -35,31 +41,21 @@ function globalSettingsPath(): string {
   return join(home, ".atomic", "settings.json");
 }
 
-function loadSettingsFileSync(path: string): AtomicSettings {
-  try {
-    if (existsSync(path)) {
-      return JSON.parse(readFileSync(path, "utf-8")) as AtomicSettings;
-    }
-  } catch {
-    // Silently fail
-  }
-  return {};
-}
-
 async function loadSettingsFile(path: string): Promise<AtomicSettings> {
   try {
-    return await Bun.file(path).json() as AtomicSettings;
+    const parsed: unknown = await Bun.file(path).json();
+    if (isPlainObject(parsed)) return parsed as AtomicSettings;
   } catch {
-    // Silently fail (file doesn't exist or invalid JSON)
+    // File missing or invalid JSON — fall through to default
   }
   return {};
 }
 
-function writeGlobalSettingsSync(settings: AtomicSettings): void {
+async function writeGlobalSettings(settings: AtomicSettings): Promise<void> {
+  settings.$schema = SETTINGS_SCHEMA_URL;
   const path = globalSettingsPath();
-  const dir = dirname(path);
-  if (!existsSync(dir)) ensureDirSync(dir);
-  writeFileSync(path, JSON.stringify(settings, null, 2), "utf-8");
+  await ensureDir(dirname(path));
+  await Bun.write(path, JSON.stringify(settings, null, 2));
 }
 
 function normalizeTrustedPathEntry(entry: TrustedPathEntry): TrustedPathEntry {
@@ -102,33 +98,31 @@ export async function isTrustedWorkspacePath(
   );
 }
 
-export function upsertTrustedWorkspacePath(
+export async function upsertTrustedWorkspacePath(
   workspacePath: string,
   provider: AgentKey,
-): void {
+): Promise<void> {
   try {
-    const settings = loadSettingsFileSync(globalSettingsPath());
-    settings.$schema = SETTINGS_SCHEMA_URL;
+    const settings = await loadSettingsFile(globalSettingsPath());
     settings.trustedPaths = normalizeTrustedPaths([
       ...(settings.trustedPaths ?? []),
       { workspacePath, provider },
     ]);
-    writeGlobalSettingsSync(settings);
-  } catch {
-    // Silently fail
+    await writeGlobalSettings(settings);
+  } catch (e) {
+    console.warn(`[settings] failed to upsert trusted path: ${errorMessage(e)}`);
   }
 }
 
 /**
  * Set telemetry enabled/disabled in global settings.
  */
-export function setTelemetryEnabled(enabled: boolean): void {
+export async function setTelemetryEnabled(enabled: boolean): Promise<void> {
   try {
-    const settings = loadSettingsFileSync(globalSettingsPath());
-    settings.$schema = SETTINGS_SCHEMA_URL;
-    (settings as Record<string, unknown>).telemetryEnabled = enabled;
-    writeGlobalSettingsSync(settings);
-  } catch {
-    // Silently fail
+    const settings = await loadSettingsFile(globalSettingsPath());
+    settings.telemetryEnabled = enabled;
+    await writeGlobalSettings(settings);
+  } catch (e) {
+    console.warn(`[settings] failed to set telemetry: ${errorMessage(e)}`);
   }
 }

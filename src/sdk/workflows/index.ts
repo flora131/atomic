@@ -10,6 +10,7 @@ export { defineWorkflow, WorkflowBuilder } from "../define-workflow.ts";
 
 export type {
   AgentType,
+  ValidationWarning,
   Transcript,
   SavedMessage,
   SaveTranscript,
@@ -44,15 +45,14 @@ export type { SessionMessage as ClaudeSessionMessage } from "@anthropic-ai/claud
 
 // Providers
 export { createClaudeSession, claudeQuery, clearClaudeSession, validateClaudeWorkflow } from "../providers/claude.ts";
-export type { ClaudeSessionOptions, ClaudeQueryOptions, ClaudeQueryResult, ClaudeValidationWarning } from "../providers/claude.ts";
+export type { ClaudeSessionOptions, ClaudeQueryOptions, ClaudeQueryResult } from "../providers/claude.ts";
 
 export { validateCopilotWorkflow } from "../providers/copilot.ts";
-export type { CopilotValidationWarning } from "../providers/copilot.ts";
 
 export { validateOpenCodeWorkflow } from "../providers/opencode.ts";
-export type { OpenCodeValidationWarning } from "../providers/opencode.ts";
 
 // Runtime — tmux utilities
+export type { TmuxResult } from "../runtime/tmux.ts";
 export {
   SOCKET_NAME,
   isTmuxInstalled,

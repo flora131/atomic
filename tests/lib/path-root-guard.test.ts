@@ -5,9 +5,9 @@ import {
   beforeAll,
   afterAll,
 } from "bun:test";
-import { mkdtemp, rm, mkdir, writeFile } from "fs/promises";
-import { join } from "path";
-import { tmpdir } from "os";
+import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import {
   isPathWithinRoot,
   assertPathWithinRoot,

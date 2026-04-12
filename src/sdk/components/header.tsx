@@ -1,14 +1,28 @@
 /** @jsxImportSource @opentui/react */
 
+import { useMemo } from "react";
 import type { SessionStatus } from "./orchestrator-panel-types.ts";
-import { useStore, useGraphTheme } from "./orchestrator-panel-contexts.ts";
+import { useStore, useGraphTheme, useStoreVersion } from "./orchestrator-panel-contexts.ts";
+
+function CountBadge({ color, icon, count }: { color: string; icon: string; count: number }) {
+  if (count <= 0) return null;
+  return (
+    <text>
+      <span fg={color}>{icon} {count}</span>
+    </text>
+  );
+}
 
 export function Header() {
   const store = useStore();
   const theme = useGraphTheme();
+  const storeVersion = useStoreVersion(store);
 
-  const counts: Record<SessionStatus, number> = { complete: 0, running: 0, pending: 0, error: 0 };
-  for (const s of store.sessions) counts[s.status]++;
+  const counts = useMemo(() => {
+    const c: Record<SessionStatus, number> = { complete: 0, running: 0, pending: 0, error: 0 };
+    for (const s of store.sessions) c[s.status]++;
+    return c;
+  }, [storeVersion]);
 
   const isFailed = store.fatalError !== null;
   const isDone = store.completionInfo !== null;
@@ -34,26 +48,10 @@ export function Header() {
       </text>
 
       <box flexGrow={1} justifyContent="flex-end" flexDirection="row" gap={2}>
-        {counts.complete > 0 ? (
-          <text>
-            <span fg={theme.success}>{"\u2713"} {counts.complete}</span>
-          </text>
-        ) : null}
-        {counts.running > 0 ? (
-          <text>
-            <span fg={theme.warning}>{"\u25CF"} {counts.running}</span>
-          </text>
-        ) : null}
-        {counts.pending > 0 ? (
-          <text>
-            <span fg={theme.textDim}>{"\u25CB"} {counts.pending}</span>
-          </text>
-        ) : null}
-        {counts.error > 0 ? (
-          <text>
-            <span fg={theme.error}>{"\u2717"} {counts.error}</span>
-          </text>
-        ) : null}
+        <CountBadge color={theme.success} icon={"\u2713"} count={counts.complete} />
+        <CountBadge color={theme.warning} icon={"\u25CF"} count={counts.running} />
+        <CountBadge color={theme.textDim} icon={"\u25CB"} count={counts.pending} />
+        <CountBadge color={theme.error} icon={"\u2717"} count={counts.error} />
       </box>
     </box>
   );

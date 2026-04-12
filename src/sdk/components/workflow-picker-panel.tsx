@@ -26,13 +26,18 @@
  * `{ workflow, inputs }` record if they confirm the run.
  */
 
-import { createCliRenderer, type CliRenderer } from "@opentui/core";
+import {
+  createCliRenderer,
+  type CliRenderer,
+  type TextareaRenderable,
+} from "@opentui/core";
 import {
   createRoot,
   useKeyboard,
   type Root,
 } from "@opentui/react";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useLatest } from "./hooks.ts";
 import { resolveTheme, type TerminalTheme } from "../runtime/theme.ts";
 import type { AgentType, WorkflowInput } from "../types.ts";
 import type { WorkflowWithMetadata } from "../runtime/discovery.ts";
@@ -166,11 +171,9 @@ interface ListEntry {
   section: Source;
 }
 
-interface ListRow {
-  kind: "section" | "entry";
-  source?: Source;
-  entry?: ListEntry;
-}
+type ListRow =
+  | { kind: "section"; source: Source }
+  | { kind: "entry"; entry: ListEntry };
 
 export function buildEntries(
   query: string,
@@ -259,13 +262,17 @@ function SectionLabel({
 function FilterBar({
   theme,
   query,
+  focused,
+  onInput,
 }: {
   theme: PickerTheme;
   query: string;
+  focused: boolean;
+  onInput: (value: string) => void;
 }) {
   return (
     <box
-      height={3}
+      minHeight={3}
       border
       borderStyle="rounded"
       borderColor={theme.borderActive}
@@ -280,14 +287,16 @@ function FilterBar({
           <strong>❯ </strong>
         </span>
       </text>
-      <text>
-        <span fg={theme.text}>{query}</span>
-        {/* Solid full-cell caret. Rendered as a space with a coloured
-            background so the cursor thickness stays stable — the
-            previous `▋` half-block halved in width compared to the
-            highlighted-char placeholder cursor. */}
-        <span bg={theme.primary}> </span>
-      </text>
+      <input
+        value={query}
+        focused={focused}
+        onInput={onInput}
+        textColor={theme.text}
+        backgroundColor={theme.backgroundPanel}
+        focusedBackgroundColor={theme.backgroundPanel}
+        focusedTextColor={theme.text}
+        flexGrow={1}
+      />
     </box>
   );
 }
@@ -311,12 +320,23 @@ function WorkflowList({
     );
   }
 
-  let entryCounter = -1;
+  // Pre-compute entry indices so the render pass is side-effect-free.
+  const entryIndexByRow = useMemo(() => {
+    const map = new Map<number, number>();
+    let counter = 0;
+    for (let i = 0; i < rows.length; i++) {
+      if (rows[i]!.kind === "entry") {
+        map.set(i, counter++);
+      }
+    }
+    return map;
+  }, [rows]);
+
   return (
     <box flexDirection="column">
       {rows.map((row, i) => {
         if (row.kind === "section") {
-          const src = row.source!;
+          const src = row.source;
           return (
             <box
               key={`s${i}`}
@@ -335,9 +355,9 @@ function WorkflowList({
             </box>
           );
         }
-        entryCounter++;
-        const isFocused = entryCounter === focusedEntryIdx;
-        const wf = row.entry!.workflow;
+        const entryIdx = entryIndexByRow.get(i) ?? -1;
+        const isFocused = entryIdx === focusedEntryIdx;
+        const wf = row.entry.workflow;
 
         return (
           <box
@@ -437,11 +457,11 @@ function Preview({
       <box height={1} />
 
       <text>
-        <span fg={theme[SOURCE_COLOR[wf.source as Source]]}>
-          {SOURCE_DISPLAY[wf.source as Source]}
+        <span fg={theme[SOURCE_COLOR[wf.source]]}>
+          {SOURCE_DISPLAY[wf.source]}
         </span>
         <span fg={theme.textDim}>
-          {" (" + SOURCE_DIR[wf.source as Source] + ")"}
+          {" (" + SOURCE_DIR[wf.source] + ")"}
         </span>
       </text>
 
@@ -508,97 +528,55 @@ function EmptyPreview({
 
 const TEXT_FIELD_LINES = 3;
 
-/**
- * Render a placeholder with a solid full-cell caret overlapping its
- * first character. The caret is a full cell wide — same thickness as
- * the trailing-caret cell used for typed text — so switching between
- * "empty" and "has input" states never visually halves the cursor.
- *
- * When the field is not focused, the placeholder renders plain dim
- * text without the caret highlight.
- */
-function PlaceholderWithCursor({
-  theme,
-  placeholder,
-  focused,
-}: {
-  theme: PickerTheme;
-  placeholder: string;
-  focused: boolean;
-}) {
-  const effective = placeholder.length > 0 ? placeholder : " ";
-  const first = effective.slice(0, 1);
-  const rest = effective.slice(1);
-
-  if (!focused) {
-    return (
-      <text>
-        <span fg={theme.textDim}>{effective}</span>
-      </text>
-    );
-  }
-
-  return (
-    <text>
-      <span fg={theme.surface} bg={theme.primary}>
-        {first}
-      </span>
-      <span fg={theme.textDim}>{rest}</span>
-    </text>
-  );
-}
 
 function TextAreaContent({
   theme,
   value,
   placeholder,
   focused,
-  lines,
+  onChangeRef,
 }: {
   theme: PickerTheme;
   value: string;
   placeholder: string;
   focused: boolean;
-  lines: number;
+  onChangeRef: React.RefObject<((value: string) => void) | null>;
 }) {
-  const textLines = value.split("\n");
-  const start = Math.max(0, textLines.length - lines);
-  const visible: string[] = [];
-  for (let i = 0; i < lines; i++) {
-    visible.push(textLines[start + i] ?? "");
-  }
-  const cursorLine = Math.min(lines - 1, textLines.length - 1 - start);
-  const isEmpty = value === "";
+  const ref = useRef<TextareaRenderable>(null);
+
+  // Sync external value → textarea when it diverges (e.g. initial value).
+  useEffect(() => {
+    if (ref.current && ref.current.plainText !== value) {
+      ref.current.setText(value);
+    }
+  }, [value]);
+
+  // Report changes back to parent via onContentChange.
+  useEffect(() => {
+    const ta = ref.current;
+    if (!ta) return;
+    ta.onContentChange = () => {
+      onChangeRef.current?.(ta.plainText);
+    };
+    return () => {
+      ta.onContentChange = undefined;
+    };
+  }, [onChangeRef]);
 
   return (
-    <box flexDirection="column">
-      {visible.map((line, i) => {
-        if (isEmpty && i === 0) {
-          return (
-            <box key={i} height={1}>
-              <PlaceholderWithCursor
-                theme={theme}
-                placeholder={placeholder}
-                focused={focused}
-              />
-            </box>
-          );
-        }
-        // Trailing caret on the active line. Rendered as a
-        // background-coloured space so the cell width matches the
-        // placeholder-overlap caret exactly — no thickness change
-        // between empty and typed states.
-        const showCursorHere = focused && !isEmpty && i === cursorLine;
-        return (
-          <box key={i} height={1}>
-            <text>
-              <span fg={theme.text}>{line}</span>
-              {showCursorHere ? <span bg={theme.primary}> </span> : null}
-            </text>
-          </box>
-        );
-      })}
-    </box>
+    <textarea
+      ref={ref}
+      initialValue={value}
+      placeholder={placeholder}
+      focused={focused}
+      textColor={theme.text}
+      backgroundColor="transparent"
+      focusedBackgroundColor="transparent"
+      focusedTextColor={theme.text}
+      placeholderColor={theme.textDim}
+      wrapMode="word"
+      flexGrow={1}
+    />
   );
 }
 
@@ -607,33 +585,26 @@ function StringContent({
   value,
   placeholder,
   focused,
+  onInput,
 }: {
   theme: PickerTheme;
   value: string;
   placeholder: string;
   focused: boolean;
+  onInput: (value: string) => void;
 }) {
-  const isEmpty = value === "";
-
-  if (isEmpty) {
-    return (
-      <box height={1} flexDirection="row">
-        <PlaceholderWithCursor
-          theme={theme}
-          placeholder={placeholder}
-          focused={focused}
-        />
-      </box>
-    );
-  }
-
   return (
-    <box height={1} flexDirection="row">
-      <text>
-        <span fg={theme.text}>{value}</span>
-        {focused ? <span bg={theme.primary}> </span> : null}
-      </text>
-    </box>
+    <input
+      value={value}
+      placeholder={placeholder}
+      focused={focused}
+      onInput={onInput}
+      textColor={theme.text}
+      backgroundColor="transparent"
+      focusedBackgroundColor="transparent"
+      focusedTextColor={theme.text}
+      flexGrow={1}
+    />
   );
 }
 
@@ -686,11 +657,15 @@ function Field({
   field,
   value,
   focused,
+  onInput,
+  onTextChangeRef,
 }: {
   theme: PickerTheme;
   field: WorkflowInput;
   value: string;
   focused: boolean;
+  onInput: (value: string) => void;
+  onTextChangeRef: React.RefObject<((value: string) => void) | null>;
 }) {
   const borderCol = focused ? theme.primary : theme.border;
   const bgCol = focused ? theme.backgroundPanel : theme.backgroundElement;
@@ -711,7 +686,7 @@ function Field({
         flexDirection="column"
         paddingLeft={2}
         paddingRight={2}
-        height={boxHeight}
+        minHeight={boxHeight}
         justifyContent={field.type === "text" ? "flex-start" : "center"}
         title={` ${field.name} `}
         titleAlignment="left"
@@ -722,7 +697,7 @@ function Field({
             value={value}
             placeholder={field.placeholder ?? ""}
             focused={focused}
-            lines={TEXT_FIELD_LINES}
+            onChangeRef={onTextChangeRef}
           />
         ) : field.type === "string" ? (
           <StringContent
@@ -730,6 +705,7 @@ function Field({
             value={value}
             placeholder={field.placeholder ?? ""}
             focused={focused}
+            onInput={onInput}
           />
         ) : field.type === "enum" ? (
           <EnumContent
@@ -762,6 +738,8 @@ function InputPhase({
   fields,
   values,
   focusedFieldIdx,
+  onFieldInput,
+  onTextChangeRef,
 }: {
   theme: PickerTheme;
   workflow: WorkflowWithMetadata;
@@ -769,6 +747,8 @@ function InputPhase({
   fields: WorkflowInput[];
   values: Record<string, string>;
   focusedFieldIdx: number;
+  onFieldInput: (fieldName: string, value: string) => void;
+  onTextChangeRef: React.RefObject<((value: string) => void) | null>;
 }) {
   const isStructured = workflow.inputs.length > 0;
 
@@ -801,11 +781,11 @@ function InputPhase({
           <span fg={theme.textDim}>{"  ·  "}</span>
           <span fg={theme.mauve}>{agent}</span>
           <span fg={theme.textDim}>{"  ·  "}</span>
-          <span fg={theme[SOURCE_COLOR[workflow.source as Source]]}>
-            {SOURCE_DISPLAY[workflow.source as Source]}
+          <span fg={theme[SOURCE_COLOR[workflow.source]]}>
+            {SOURCE_DISPLAY[workflow.source]}
           </span>
           <span fg={theme.textDim}>
-            {" (" + SOURCE_DIR[workflow.source as Source] + ")"}
+            {" (" + SOURCE_DIR[workflow.source] + ")"}
           </span>
         </text>
         <box height={1} />
@@ -840,6 +820,8 @@ function InputPhase({
           field={f}
           value={values[f.name] ?? ""}
           focused={i === focusedFieldIdx}
+          onInput={(v) => onFieldInput(f.name, v)}
+          onTextChangeRef={onTextChangeRef}
         />
       ))}
     </box>
@@ -865,6 +847,7 @@ function ConfirmModal({
       justifyContent="center"
       alignItems="center"
       zIndex={100}
+      backgroundColor={theme.background}
     >
       <box
         border
@@ -913,6 +896,17 @@ function ConfirmModal({
     </box>
   );
 }
+
+// Stable hint arrays — no need for useMemo since they never change.
+const PICK_HINTS: { key: string; label: string; dim?: boolean }[] = [
+  { key: "↑↓", label: "navigate" },
+  { key: "↵", label: "select" },
+  { key: "esc", label: "quit" },
+];
+const CONFIRM_HINTS: { key: string; label: string; dim?: boolean }[] = [
+  { key: "y", label: "submit" },
+  { key: "n", label: "cancel" },
+];
 
 // Per-agent brand color used as the Header pill background.
 const AGENT_PILL_COLOR: Record<AgentType, keyof PickerTheme> = {
@@ -998,7 +992,7 @@ function Statusline({
       : theme.success;
 
   return (
-    <box height={1} flexDirection="row" backgroundColor={theme.surface}>
+    <box height={1} flexDirection="row" backgroundColor={theme.surface} position="relative" zIndex={101}>
       <box
         backgroundColor={modeColor}
         paddingLeft={1}
@@ -1022,7 +1016,7 @@ function Statusline({
 
       <box paddingRight={2} alignItems="center" flexDirection="row">
         {hints.map((h, i) => (
-          <box key={i} flexDirection="row">
+          <box key={h.key} flexDirection="row">
             {i > 0 ? (
               <text>
                 <span fg={theme.textDim}>{"  ·  "}</span>
@@ -1065,28 +1059,26 @@ export function WorkflowPicker({
   const [focusedFieldIdx, setFocusedFieldIdx] = useState(0);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  // Note: the cursor is rendered as a steady full-cell block rather
-  // than a blinking caret. Blinking was causing the caret cell to
-  // flash visibly every 530ms, which read as a "text block flashing"
-  // bug on top of the already-jarring thickness change that used to
-  // happen when switching between placeholder and typed-text cursors.
-  // Both issues go away with a stable caret.
+  // Ref-based callback for textarea change notifications. The ref is
+  // stable across renders so the textarea effect doesn't re-attach.
+  const textChangeRef = useRef<((value: string) => void) | null>(null);
 
   const entries = useMemo(() => buildEntries(query, workflows), [query, workflows]);
   const rows = useMemo(() => buildRows(entries, query), [entries, query]);
 
+  // Clamp index when the list shrinks (e.g. typing filters entries out).
   useEffect(() => {
-    if (entryIdx >= entries.length) {
-      setEntryIdx(Math.max(0, entries.length - 1));
-    }
-  }, [entries.length, entryIdx]);
+    setEntryIdx((i) => Math.min(i, Math.max(0, entries.length - 1)));
+  }, [entries.length]);
 
   const focusedWf = entries[entryIdx]?.workflow;
 
-  const currentFields: WorkflowInput[] =
-    focusedWf && focusedWf.inputs.length > 0
-      ? [...focusedWf.inputs]
-      : [DEFAULT_PROMPT_INPUT];
+  const currentFields = useMemo<WorkflowInput[]>(
+    () => focusedWf && focusedWf.inputs.length > 0
+      ? focusedWf.inputs.slice()
+      : [DEFAULT_PROMPT_INPUT],
+    [focusedWf],
+  );
   const currentField = currentFields[focusedFieldIdx];
 
   const invalidFieldIndices = useMemo(() => {
@@ -1100,16 +1092,45 @@ export function WorkflowPicker({
   }, [currentFields, fieldValues]);
   const isFormValid = invalidFieldIndices.length === 0;
 
+  // Wire the textarea change callback so field values stay in sync.
+  // The ref is written here (not in a child) so the parent state
+  // always reflects the latest textarea content.
+  const focusedField = currentField;
+  textChangeRef.current = focusedField
+    ? (text: string) => {
+        setFieldValues((prev) => ({ ...prev, [focusedField.name]: text }));
+      }
+    : null;
+
+  // Stable callback for field input — the setter is referentially stable.
+  const onFieldInput = useCallback(
+    (name: string, v: string) => setFieldValues((prev) => ({ ...prev, [name]: v })),
+    [],
+  );
+
+  // Stable refs for values read inside the keyboard handler,
+  // preventing stale closures when useKeyboard holds the first callback.
+  const entriesRef = useLatest(entries);
+  const focusedWfRef = useLatest(focusedWf);
+  const fieldValuesRef = useLatest(fieldValues);
+  const isFormValidRef = useLatest(isFormValid);
+  const invalidFieldIndicesRef = useLatest(invalidFieldIndices);
+  const currentFieldsRef = useLatest(currentFields);
+  const currentFieldRef = useLatest(currentField);
+  const phaseRef = useLatest(phase);
+  const confirmOpenRef = useLatest(confirmOpen);
+
   useKeyboard((key) => {
     if (key.ctrl && key.name === "c") {
       onCancel();
       return;
     }
 
-    if (confirmOpen) {
+    if (confirmOpenRef.current) {
       if (key.name === "y" || key.name === "return") {
-        if (!focusedWf) return;
-        onSubmit({ workflow: focusedWf, inputs: { ...fieldValues } });
+        const wf = focusedWfRef.current;
+        if (!wf) return;
+        onSubmit({ workflow: wf, inputs: { ...fieldValuesRef.current } });
         return;
       }
       if (key.name === "n" || key.name === "escape") {
@@ -1119,7 +1140,7 @@ export function WorkflowPicker({
       return;
     }
 
-    if (phase === "pick") {
+    if (phaseRef.current === "pick") {
       if (key.name === "escape") {
         onCancel();
         return;
@@ -1130,15 +1151,16 @@ export function WorkflowPicker({
       }
       if (key.name === "down" || (key.ctrl && key.name === "j")) {
         setEntryIdx((i: number) =>
-          Math.min(entries.length - 1, i + 1),
+          Math.min(entriesRef.current.length - 1, i + 1),
         );
         return;
       }
       if (key.name === "return") {
-        if (focusedWf) {
+        const wf = focusedWfRef.current;
+        if (wf) {
           const inputs: WorkflowInput[] =
-            focusedWf.inputs.length > 0
-              ? [...focusedWf.inputs]
+            wf.inputs.length > 0
+              ? [...wf.inputs]
               : [DEFAULT_PROMPT_INPUT];
           const initial: Record<string, string> = {};
           for (const f of inputs) {
@@ -1152,19 +1174,8 @@ export function WorkflowPicker({
         }
         return;
       }
-      if (key.name === "backspace") {
-        setQuery((q: string) => q.slice(0, -1));
-        return;
-      }
-      if (
-        key.sequence &&
-        key.sequence.length === 1 &&
-        !key.ctrl &&
-        !key.meta
-      ) {
-        const c = key.sequence;
-        if (c >= " " && c <= "~") setQuery((q: string) => q + c);
-      }
+      // All other keys (typing, backspace, arrows) are handled by the
+      // native <input> component in the FilterBar.
       return;
     }
 
@@ -1174,8 +1185,8 @@ export function WorkflowPicker({
       return;
     }
     if (key.ctrl && key.name === "s") {
-      if (!isFormValid) {
-        setFocusedFieldIdx(invalidFieldIndices[0]!);
+      if (!isFormValidRef.current) {
+        setFocusedFieldIdx(invalidFieldIndicesRef.current[0]!);
         return;
       }
       setConfirmOpen(true);
@@ -1183,79 +1194,51 @@ export function WorkflowPicker({
     }
     if (key.name === "tab") {
       setFocusedFieldIdx((i: number) => {
-        const len = currentFields.length;
+        const len = currentFieldsRef.current.length;
         if (len <= 1) return 0;
         return key.shift ? (i - 1 + len) % len : (i + 1) % len;
       });
       return;
     }
-    if (!currentField) return;
+    const field = currentFieldRef.current;
+    if (!field) return;
 
-    if (currentField.type === "enum") {
-      const values = currentField.values ?? [];
+    // Enum fields use left/right to cycle values.
+    if (field.type === "enum") {
+      const values = field.values ?? [];
       if (values.length === 0) return;
       if (key.name === "left" || key.name === "right") {
         setFieldValues((prev: Record<string, string>) => {
-          const cur = prev[currentField.name] ?? values[0] ?? "";
+          const cur = prev[field.name] ?? values[0] ?? "";
           const idx = Math.max(0, values.indexOf(cur));
           const delta = key.name === "left" ? -1 : 1;
           const nextIdx = (idx + delta + values.length) % values.length;
-          return { ...prev, [currentField.name]: values[nextIdx] ?? "" };
+          return { ...prev, [field.name]: values[nextIdx] ?? "" };
         });
       }
       return;
     }
 
-    if (key.name === "return") {
-      if (currentField.type === "text") {
-        setFieldValues((prev: Record<string, string>) => ({
-          ...prev,
-          [currentField.name]: (prev[currentField.name] ?? "") + "\n",
-        }));
-      } else {
-        setFocusedFieldIdx((i: number) =>
-          Math.min(currentFields.length - 1, i + 1),
-        );
-      }
+    // For string fields, return advances focus to the next field
+    // (the native <input> fires onSubmit, but we handle it here so
+    // the focus-cycling logic stays in one place).
+    if (field.type === "string" && key.name === "return") {
+      setFocusedFieldIdx((i: number) =>
+        Math.min(currentFieldsRef.current.length - 1, i + 1),
+      );
       return;
     }
-    if (key.name === "backspace") {
-      setFieldValues((prev: Record<string, string>) => ({
-        ...prev,
-        [currentField.name]: (prev[currentField.name] ?? "").slice(0, -1),
-      }));
-      return;
-    }
-    if (
-      key.sequence &&
-      key.sequence.length === 1 &&
-      !key.ctrl &&
-      !key.meta
-    ) {
-      const c = key.sequence;
-      if (c >= " " && c <= "~") {
-        setFieldValues((prev: Record<string, string>) => ({
-          ...prev,
-          [currentField.name]: (prev[currentField.name] ?? "") + c,
-        }));
-      }
-    }
+    // All other keys for string/text fields (typing, backspace,
+    // arrows, undo/redo) are handled by native <input>/<textarea>.
   });
 
-  const pickHints = [
-    { key: "↑↓", label: "navigate" },
-    { key: "↵", label: "select" },
-    { key: "esc", label: "quit" },
-  ];
-  const promptHints = [
+  const pickHints = PICK_HINTS;
+  const confirmHints = CONFIRM_HINTS;
+  const promptHints = useMemo(() => [
     { key: "tab", label: "to navigate forward" },
     { key: "shift+tab", label: "to navigate backward" },
     { key: "ctrl+s", label: "to run", dim: !isFormValid },
-  ];
-  const confirmHints = [
-    { key: "y", label: "submit" },
-    { key: "n", label: "cancel" },
-  ];
+  ], [isFormValid]);
 
   const hints = confirmOpen
     ? confirmHints
@@ -1288,7 +1271,7 @@ export function WorkflowPicker({
           paddingTop={1}
         >
           <box width={36} flexDirection="column">
-            <FilterBar theme={theme} query={query} />
+            <FilterBar theme={theme} query={query} focused={phase === "pick"} onInput={setQuery} />
             <box height={1} />
             <WorkflowList
               theme={theme}
@@ -1312,7 +1295,9 @@ export function WorkflowPicker({
           agent={agent}
           fields={currentFields}
           values={fieldValues}
-          focusedFieldIdx={focusedFieldIdx}
+          focusedFieldIdx={confirmOpen ? -1 : focusedFieldIdx}
+          onFieldInput={onFieldInput}
+          onTextChangeRef={textChangeRef}
         />
       ) : null}
 

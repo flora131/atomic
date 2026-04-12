@@ -6,7 +6,7 @@
  * 2. npm/bun installed: Installed via `bun add -g @bastani/atomic`
  */
 
-import { join } from "path";
+import { join } from "node:path";
 
 /**
  * Get the root directory where config folders (.claude, .opencode, .github) are stored.

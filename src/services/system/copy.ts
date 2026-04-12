@@ -2,9 +2,9 @@
  * Utilities for copying directories and files with exclusions
  */
 
-import { readdir, mkdir, stat, readFile } from "fs/promises";
-import { mkdirSync } from "fs";
-import { join, extname, relative, resolve } from "path";
+import { readdir, mkdir, stat, readFile } from "node:fs/promises";
+import { mkdirSync } from "node:fs";
+import { join, extname, relative, resolve } from "node:path";
 
 /**
  * Safely create a directory (and parents) without throwing on EEXIST.

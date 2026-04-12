@@ -1,6 +1,6 @@
 ---
 name: tool-design
-description: This skill should be used when the user asks to "design agent tools", "create tool descriptions", "reduce tool complexity", "implement MCP tools", or mentions tool consolidation, architectural reduction, tool naming conventions, or agent-tool interfaces.
+description: This skill should be used when the user asks to "design agent tools", "create tool descriptions", "reduce tool complexity", "implement MCP tools", or mentions tool consolidation, architectural reduction, tool naming conventions, or agent-tool interfaces. Part of the context engineering skill suite — also activates when the user mentions "context engineering" or "context-engineering" in the context of designing tools that shape how agents receive and process context.
 ---
 
 # Tool Design for Agents

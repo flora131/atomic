@@ -73,11 +73,12 @@ Three reliable patterns (they compose — using 1+2 together is common). See `re
 
 ## Design Advisory Skills
 
-When designing workflows, consult these skills for informed architectural decisions. **The first four are not optional for multi-session workflows — they are the difference between a workflow that works and one that silently degrades.**
+Workflow quality depends on two disciplines: **prompt engineering** (crafting clear, structured prompts that each session receives) and **context engineering** (ensuring the right information reaches each session at the right time without exceeding token budgets). Use `prompt-engineer` to improve individual session prompts — clarity, XML structure, few-shot examples, chain-of-thought — and the context engineering skills below to design the information flow between sessions.
 
 | Design Concern | Skill | Trigger |
 |---|---|---|
-| Session prompt structure | `context-fundamentals` | Every workflow — token budgeting, prompt positioning |
+| Prompt clarity and structure | `prompt-engineer` | Every workflow — clear instructions, XML tags, examples, chain-of-thought |
+| Session prompt structure | `context-fundamentals` | Every workflow — token budgeting, prompt positioning, progressive disclosure |
 | Context failure prevention | `context-degradation` | Long conversations, accumulated state, multi-turn loops |
 | Transcript compression | `context-compression` | Passing large transcripts between sessions |
 | Multi-session architecture | `multi-agent-patterns` | Coordination topology, handoff protocols, error propagation |
@@ -117,7 +118,7 @@ bun add @github/copilot-sdk               # For Copilot workflows
 bun add @opencode-ai/sdk                  # For OpenCode workflows
 ```
 
-Workflow files live at `.atomic/workflows/<name>/<agent>/index.ts`. Discovery sources (highest precedence first): **Local** → **Global** (`~/.atomic/`) → **Built-in** (SDK-shipped, reserved: `ralph`, `deep-research-codebase`). See `references/discovery-and-verification.md` for full discovery paths and validation.
+Workflow files live at `.atomic/workflows/<name>/<agent>/index.ts`. Discovery sources: **Local** (`.atomic/workflows/`), **Global** (`~/.atomic/workflows/`), and **Built-in** (SDK-shipped). Built-in names (`ralph`, `deep-research-codebase`) are **reserved** — any local/global workflow with the same name is dropped before resolution. Among non-reserved names, local takes precedence over global. See `references/discovery-and-verification.md` for full discovery paths and validation.
 
 ### Two context levels
 
@@ -197,10 +198,11 @@ Map the user's intent to sessions and patterns:
 | Does the workflow need user input? | SDK-specific user input APIs (see `references/user-input.md`) |
 | Do any steps need a specific model? | SDK-specific session config (see `references/session-config.md`) |
 
-Then apply **design advisory checks** — these catch architectural issues before you write code:
+Then apply **design advisory checks** — these catch architectural and prompt quality issues before you write code:
 
 | Design Question | If Yes → Consult |
 |-----------------|------------------|
+| Do session prompts need to be clear, structured, or include examples? | `prompt-engineer` — use XML tags, chain-of-thought, few-shot examples, explicit output format |
 | Is this task actually viable for agent automation? | `project-development` — validate task-model fit before building |
 | Could any single session exceed context limits? | `context-fundamentals` — budget tokens; split into sub-sessions if needed |
 | Do loops accumulate state that degrades over iterations? | `context-degradation` — add compaction triggers; detect lost-in-middle risk |
@@ -259,7 +261,7 @@ Both live in `src/sdk/workflows/builtin/` and demonstrate real patterns includin
 ### 4. Type-Check the Workflow
 
 ```bash
-bunx tsc --noEmit --pretty false
+bun typecheck
 ```
 
 ### 5. Test the Workflow

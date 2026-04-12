@@ -42,11 +42,13 @@ the SDK package's bundled `workflows/builtin/` directory.
 
 ## Discovery paths
 
-| Scope | Path | Precedence |
+| Scope | Path | Resolution |
 |-------|------|------------|
-| **Local** | `.atomic/workflows/<name>/<agent>/index.ts` | Highest |
-| **Global** | `~/.atomic/workflows/<name>/<agent>/index.ts` | Middle |
-| **Built-in** | SDK modules shipped with `@bastani/atomic` | Lowest |
+| **Built-in** | SDK modules shipped with `@bastani/atomic` | **Reserved** — cannot be shadowed by local or global workflows of the same name |
+| **Local** | `.atomic/workflows/<name>/<agent>/index.ts` | Highest precedence among non-reserved names |
+| **Global** | `~/.atomic/workflows/<name>/<agent>/index.ts` | Lowest precedence among non-reserved names |
+
+Built-in workflow names (`ralph`, `deep-research-codebase`) are dropped from user sources before any merge. For non-reserved names, local overrides global.
 
 The `<agent>` subdirectory determines which SDK the workflow targets: `claude/`, `copilot/`, or `opencode/`.
 
@@ -111,10 +113,10 @@ Standard module resolution handles all imports. The project's `tsconfig.json` sh
 
 ## Type checking
 
-Run `tsc` to catch TypeScript errors before testing:
+Run the project's typecheck script to catch TypeScript errors before testing:
 
 ```bash
-bunx tsc --noEmit --pretty false
+bun typecheck
 ```
 
 This catches:

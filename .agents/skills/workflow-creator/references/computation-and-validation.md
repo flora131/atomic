@@ -45,24 +45,10 @@ const text = result.output; // Already a string
 
 `s.session.getMessages()` returns `SessionEvent[]`. Concatenate every
 top-level assistant turn's non-empty content — picking only `.at(-1)` is a
-silent-failure trap. See `failure-modes.md` §F1 / §F2 for the full
-explanation.
+silent-failure trap (see `failure-modes.md` §F1 / §F2). Use the
+`getAssistantText` helper defined in `failure-modes.md` §F1:
 
 ```ts
-import type { SessionEvent } from "@github/copilot-sdk";
-
-/** Concatenate every top-level assistant turn's non-empty content. */
-function getAssistantText(messages: SessionEvent[]): string {
-  return messages
-    .filter(
-      (m): m is Extract<SessionEvent, { type: "assistant.message" }> =>
-        m.type === "assistant.message" && !m.data.parentToolCallId,
-    )
-    .map((m) => m.data.content)
-    .filter((c) => c.length > 0)
-    .join("\n\n");
-}
-
 // Usage:
 const messages = await s.session.getMessages();
 const text = getAssistantText(messages);
@@ -70,18 +56,12 @@ const text = getAssistantText(messages);
 
 ### OpenCode
 
-`session.prompt()` returns `{ data: { info, parts } }`. Extract text parts:
+`session.prompt()` returns `{ data: { info, parts } }`. Filter for text
+parts only — non-text parts produce `[object Object]` (see
+`failure-modes.md` §F3). Use the `extractResponseText` helper defined
+there:
 
 ```ts
-function extractResponseText(
-  parts: Array<{ type: string; [key: string]: unknown }>,
-): string {
-  return parts
-    .filter((p) => p.type === "text")
-    .map((p) => (p as { type: string; text: string }).text)
-    .join("\n");
-}
-
 // Usage:
 const text = extractResponseText(result.data!.parts);
 ```
@@ -90,21 +70,34 @@ const text = extractResponseText(result.data!.parts);
 
 ### JSON parsing with fallback
 
+Use a layered fallback: direct parse, then the **last** fenced block (not
+the first — see `failure-modes.md` §F4 / §F8 for why), then last balanced
+object:
+
 ```ts
 function parseJsonResponse(text: string): Record<string, unknown> | null {
-  // Try direct parse
+  // 1. Direct parse
   try { return JSON.parse(text); } catch {}
 
-  // Try extracting from markdown code fence
-  const match = text.match(/```(?:json)?\s*\n([\s\S]*?)\n```/);
-  if (match?.[1]) {
-    try { return JSON.parse(match[1]); } catch {}
+  // 2. LAST fenced code block (prose often quotes examples before the real output)
+  const blockRe = /```(?:json)?\s*\n([\s\S]*?)\n```/g;
+  let lastBlock: string | null = null;
+  let m: RegExpExecArray | null;
+  while ((m = blockRe.exec(text)) !== null) {
+    if (m[1]) lastBlock = m[1];
+  }
+  if (lastBlock) {
+    try { return JSON.parse(lastBlock); } catch {}
   }
 
-  // Try extracting JSON object from prose
-  const objMatch = text.match(/\{[\s\S]*\}/);
-  if (objMatch) {
-    try { return JSON.parse(objMatch[0]); } catch {}
+  // 3. Last balanced JSON object
+  const objRe = /\{[\s\S]*\}/g;
+  let lastObj: string | null = null;
+  while ((m = objRe.exec(text)) !== null) {
+    if (m[0]) lastObj = m[0];
+  }
+  if (lastObj) {
+    try { return JSON.parse(lastObj); } catch {}
   }
 
   return null;
@@ -219,9 +212,7 @@ ${implTranscript.content}
 Respond with JSON: { "correctness": N, "completeness": N, "style": N, "pass": boolean, "issues": [...] }`,
     );
 
-    const scores = JSON.parse(
-      result.output.match(/\`\`\`json\s*\n([\s\S]*?)\n\`\`\`/)?.[1] ?? result.output,
-    );
+    const scores = parseJsonResponse(result.output);
 
     if (!scores.pass) {
       await s.session.query(`Fix these quality issues:\n${scores.issues.join("\n")}`);

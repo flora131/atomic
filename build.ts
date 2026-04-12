@@ -7,6 +7,7 @@
  */
 
 import { Glob, $ } from "bun";
+import { rmSync } from "fs";
 
 const pkg = await Bun.file("package.json").json();
 
@@ -18,7 +19,7 @@ const entrypoints: string[] = Object.entries(
   return entry;
 });
 
-await $`rm -rf dist`;
+rmSync("dist", { recursive: true, force: true });
 
 // 1. JS output
 //    target: "bun" — the compiled JS is Bun-specific (adds // @bun pragma).
@@ -32,6 +33,7 @@ const result = await Bun.build({
   format: "esm",
   splitting: true,
   packages: "external",
+  sourcemap: "external",
 });
 
 if (!result.success) {
@@ -47,38 +49,37 @@ if (!result.success) {
 await $`bunx tsc --project tsconfig.build.json`;
 await $`bunx tsc-alias --project tsconfig.build.json`;
 
-// 3. Rewrite .ts/.tsx → .js in relative specifiers within .d.ts files
-//    so consumers resolve ./foo.js → ./foo.d.ts via standard TS resolution.
-const tsExtRe = /(from\s+["']\.\.?\/[^"']*?)\.tsx?(["'])/g;
-
-for await (const path of new Glob("**/*.d.ts").scan("dist")) {
-  const file = Bun.file(`dist/${path}`);
-  const text = await file.text();
-  const rewritten = text.replace(tsExtRe, "$1.js$2");
-  if (rewritten !== text) await Bun.write(file, rewritten);
-}
-
-// 4. Post-build validation
+// 3. Rewrite TS specifiers → JS in .d.ts files and validate in a single pass.
+//    Extension mapping matches tsup's replaceDtsWithJsExtensions convention:
+//    .ts/.tsx → .js, .mts → .mjs, .cts → .cjs
+const tsExtRe = /(from\s+["']\.\.?\/[^"']*?)\.(tsx?|mts|cts)(["'])/g;
+const aliasRe = /(from\s+["'])@\/[^"']+["']/g;
+const jsExtMap: Record<string, string> = { ts: "js", tsx: "js", mts: "mjs", cts: "cjs" };
 let dtsCount = 0;
-const staleSpecifiers: string[] = [];
+const errors: string[] = [];
 
 for await (const path of new Glob("**/*.d.ts").scan("dist")) {
   dtsCount++;
-  const text = await Bun.file(`dist/${path}`).text();
-  const matches = text.match(tsExtRe);
-  if (matches) staleSpecifiers.push(`  dist/${path}: ${matches.join(", ")}`);
+  const file = Bun.file(`dist/${path}`);
+  const text = await file.text();
+  const rewritten = text.replace(tsExtRe, (_, prefix, ext, quote) => `${prefix}.${jsExtMap[ext]}${quote}`);
+  if (rewritten !== text) await Bun.write(file, rewritten);
+
+  // Validate: no stale TS specifiers survived the rewrite
+  const tsMatches = rewritten.match(tsExtRe);
+  if (tsMatches) errors.push(`  dist/${path}: stale specifier — ${tsMatches.join(", ")}`);
+  // Validate: no @/ aliases survived tsc-alias
+  const aliasMatches = rewritten.match(aliasRe);
+  if (aliasMatches) errors.push(`  dist/${path}: stale @/ alias — ${aliasMatches.join(", ")}`);
 }
 
 if (dtsCount === 0) {
-  console.error("Build validation failed: dist/ contains no .d.ts files");
+  console.error("Build failed: dist/ contains no .d.ts files");
   process.exit(1);
 }
 
-if (staleSpecifiers.length > 0) {
-  console.error(
-    "Build validation failed: .d.ts files still contain .ts specifiers:\n" +
-      staleSpecifiers.join("\n"),
-  );
+if (errors.length > 0) {
+  console.error("Build failed: declaration files have unresolved specifiers:\n" + errors.join("\n"));
   process.exit(1);
 }
 

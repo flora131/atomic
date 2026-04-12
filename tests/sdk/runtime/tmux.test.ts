@@ -32,6 +32,29 @@ import {
 } from "@/sdk/workflows/index.ts";
 
 // ---------------------------------------------------------------------------
+// Shared test helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Save and restore environment variables around each test.
+ * Call in a describe block to avoid duplicating the afterEach pattern.
+ */
+function withEnvRestore(vars: string[]) {
+  const saved: Record<string, string | undefined> = {};
+  for (const v of vars) saved[v] = process.env[v];
+
+  afterEach(() => {
+    for (const v of vars) {
+      if (saved[v] !== undefined) {
+        process.env[v] = saved[v];
+      } else {
+        delete process.env[v];
+      }
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
 // getMuxBinary
 // ---------------------------------------------------------------------------
 
@@ -101,22 +124,7 @@ describe("isTmuxInstalled", () => {
 // ---------------------------------------------------------------------------
 
 describe("isInsideTmux", () => {
-  const origTmux = process.env.TMUX;
-  const origPsmux = process.env.PSMUX;
-
-  afterEach(() => {
-    // Restore original env
-    if (origTmux !== undefined) {
-      process.env.TMUX = origTmux;
-    } else {
-      delete process.env.TMUX;
-    }
-    if (origPsmux !== undefined) {
-      process.env.PSMUX = origPsmux;
-    } else {
-      delete process.env.PSMUX;
-    }
-  });
+  withEnvRestore(["TMUX", "PSMUX"]);
 
   test("returns true when TMUX env var is set", () => {
     process.env.TMUX = "/tmp/tmux-1000/default,12345,0";
@@ -514,7 +522,7 @@ describe.if(tmuxAvailable)("tmux integration: send keys and capture", () => {
   });
 
   test("sendKeysAndSubmit sends text and presses enter", async () => {
-    sendKeysAndSubmit(paneId, "echo SUBMIT_TEST", 1, 50);
+    await sendKeysAndSubmit(paneId, "echo SUBMIT_TEST", 1, 50);
     await Bun.sleep(300);
 
     const captured = capturePane(paneId);
@@ -529,7 +537,7 @@ describe.if(tmuxAvailable)("tmux integration: send keys and capture", () => {
 
   test("capturePane with start parameter captures scrollback", async () => {
     // Generate some output to create scrollback
-    sendKeysAndSubmit(paneId, "echo SCROLLBACK_TEST", 1, 50);
+    await sendKeysAndSubmit(paneId, "echo SCROLLBACK_TEST", 1, 50);
     await Bun.sleep(200);
 
     const captured = capturePane(paneId, -50);
@@ -548,7 +556,7 @@ describe.if(tmuxAvailable)("tmux integration: send keys and capture", () => {
   });
 
   test("capturePaneScrollback returns recent history", async () => {
-    sendKeysAndSubmit(paneId, "echo SCROLLBACK_HISTORY", 1, 50);
+    await sendKeysAndSubmit(paneId, "echo SCROLLBACK_HISTORY", 1, 50);
     await Bun.sleep(200);
 
     const scrollback = capturePaneScrollback(paneId, 100);
@@ -647,7 +655,7 @@ describe.if(tmuxAvailable)("tmux integration: waitForOutput", () => {
   });
 
   test("waitForOutput resolves when pattern matches", async () => {
-    sendKeysAndSubmit(paneId, "echo WAITFOR_MARKER_XYZ", 1, 50);
+    await sendKeysAndSubmit(paneId, "echo WAITFOR_MARKER_XYZ", 1, 50);
 
     const content = await waitForOutput(paneId, /WAITFOR_MARKER_XYZ/, {
       timeoutMs: 5_000,
@@ -718,7 +726,7 @@ describe.if(tmuxAvailable)("tmux integration: sendKeysAndSubmit multi-press", ()
 
   test("sendKeysAndSubmit with multiple presses executes sleep between presses", async () => {
     // presses=2 triggers the Bun.sleepSync branch (line 201-202)
-    sendKeysAndSubmit(paneId, "echo MULTI_PRESS_TEST", 2, 50);
+    await sendKeysAndSubmit(paneId, "echo MULTI_PRESS_TEST", 2, 50);
     await Bun.sleep(300);
 
     const captured = capturePane(paneId);
@@ -726,7 +734,7 @@ describe.if(tmuxAvailable)("tmux integration: sendKeysAndSubmit multi-press", ()
   });
 
   test("sendKeysAndSubmit with presses=3 hits sleep multiple times", async () => {
-    sendKeysAndSubmit(paneId, "echo THREE_PRESSES", 3, 30);
+    await sendKeysAndSubmit(paneId, "echo THREE_PRESSES", 3, 30);
     await Bun.sleep(300);
 
     const captured = capturePane(paneId);
@@ -882,21 +890,7 @@ describe.if(tmuxAvailable)("createSession and createWindow with cwd", () => {
 // ---------------------------------------------------------------------------
 
 describe("getCurrentSession", () => {
-  const origTmux = process.env.TMUX;
-  const origPsmux = process.env.PSMUX;
-
-  afterEach(() => {
-    if (origTmux !== undefined) {
-      process.env.TMUX = origTmux;
-    } else {
-      delete process.env.TMUX;
-    }
-    if (origPsmux !== undefined) {
-      process.env.PSMUX = origPsmux;
-    } else {
-      delete process.env.PSMUX;
-    }
-  });
+  withEnvRestore(["TMUX", "PSMUX"]);
 
   test("returns null when not inside tmux", () => {
     delete process.env.TMUX;
@@ -920,21 +914,7 @@ describe.if(tmuxAvailable)("switchClient", () => {
 // ---------------------------------------------------------------------------
 
 describe.if(tmuxAvailable)("attachOrSwitch", () => {
-  const origTmux = process.env.TMUX;
-  const origPsmux = process.env.PSMUX;
-
-  afterEach(() => {
-    if (origTmux !== undefined) {
-      process.env.TMUX = origTmux;
-    } else {
-      delete process.env.TMUX;
-    }
-    if (origPsmux !== undefined) {
-      process.env.PSMUX = origPsmux;
-    } else {
-      delete process.env.PSMUX;
-    }
-  });
+  withEnvRestore(["TMUX", "PSMUX"]);
 
   test("outside tmux: calls attachSession (throws for non-existent session)", () => {
     delete process.env.TMUX;

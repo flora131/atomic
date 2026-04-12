@@ -13,9 +13,9 @@ import {
   readFile,
   stat,
   symlink,
-} from "fs/promises";
-import { join } from "path";
-import { tmpdir } from "os";
+} from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import {
   ensureDir,
   ensureDirSync,

@@ -5,9 +5,9 @@
  */
 
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
-import { join } from "path";
-import { mkdtemp, mkdir, rm, writeFile } from "fs/promises";
-import { tmpdir } from "os";
+import { join } from "node:path";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { WorkflowLoader } from "@/sdk/workflows/index.ts";
 
 let tempDir: string;
@@ -46,12 +46,12 @@ export default defineWorkflow({ name: "${name}" })
   }
 
   test("runs opencode source validation and returns warnings", async () => {
-    // Intentionally references createOpencodeClient without a ctx.serverUrl
-    // baseUrl so validateOpenCodeWorkflow emits a warning.
+    // Intentionally references createOpencodeClient in code (not a comment)
+    // so validateOpenCodeWorkflow emits a warning.
     const filePath = await writeCompiledWorkflow(
       join(tempDir, "opencode-wf"),
       "oc",
-      `// createOpencodeClient({ baseUrl: "http://wrong" })`,
+      `const _c = createOpencodeClient({ baseUrl: "http://wrong" })`,
     );
 
     const plan: WorkflowLoader.Plan = {
@@ -74,11 +74,11 @@ export default defineWorkflow({ name: "${name}" })
   });
 
   test("runs claude source validation and returns warnings", async () => {
-    // References claudeQuery without createClaudeSession → warning.
+    // References claudeQuery in code (not a comment) → warning.
     const filePath = await writeCompiledWorkflow(
       join(tempDir, "claude-wf"),
       "cl",
-      `// claudeQuery({ paneId: "x", prompt: "hi" })`,
+      `const _r = claudeQuery({ paneId: "x", prompt: "hi" })`,
     );
 
     const plan: WorkflowLoader.Plan = {
@@ -100,10 +100,12 @@ export default defineWorkflow({ name: "${name}" })
   });
 
   test("report.warn is invoked when validation produces warnings", async () => {
+    // Use a string literal containing the pattern so the file is importable
+    // but the source-level regex validator still fires.
     const filePath = await writeCompiledWorkflow(
       join(tempDir, "warn-wf"),
       "warn",
-      `// createOpencodeClient({ baseUrl: "nope" })`,
+      `const _s = "createOpencodeClient"`,
     );
 
     const plan: WorkflowLoader.Plan = {

@@ -7,9 +7,8 @@
  * 2) global `~/.atomic/settings.json` (default fallback)
  */
 
-import { readFile, writeFile } from "fs/promises";
-import { join, dirname } from "path";
-import { homedir } from "os";
+import { join, dirname } from "node:path";
+import { homedir } from "node:os";
 import { type SourceControlType } from "@/services/config/index.ts";
 import { SETTINGS_SCHEMA_URL } from "@/services/config/settings-schema.ts";
 import { ensureDir } from "@/services/system/copy.ts";
@@ -42,7 +41,7 @@ function getLocalSettingsPath(projectDir: string): string {
 
 async function readJsonFile(path: string): Promise<JsonRecord | null> {
   try {
-    return JSON.parse(await readFile(path, "utf-8")) as JsonRecord;
+    return await Bun.file(path).json() as JsonRecord;
   } catch {
     return null;
   }
@@ -112,7 +111,7 @@ export async function saveAtomicConfig(
   };
 
   await ensureDir(dirname(localPath));
-  await writeFile(localPath, JSON.stringify(nextSettings, null, 2) + "\n", "utf-8");
+  await Bun.write(localPath, JSON.stringify(nextSettings, null, 2) + "\n");
 }
 
 /**

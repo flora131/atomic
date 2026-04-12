@@ -2,29 +2,12 @@
  * Utilities for merging JSON configuration files
  */
 
-import { readFile, writeFile } from "fs/promises";
-import { resolve } from "path";
+import { resolve } from "node:path";
 
-interface McpConfig {
-  mcpServers?: Record<string, unknown>;
-  servers?: Record<string, unknown>;
-  lspServers?: Record<string, unknown>;
-  [key: string]: unknown;
-}
+type McpConfig = Record<string, unknown>;
 
-function mergeNamedObjectMap(
-  destination: Record<string, unknown> | undefined,
-  source: Record<string, unknown> | undefined,
-): Record<string, unknown> | undefined {
-  if (!destination && !source) {
-    return undefined;
-  }
-
-  return {
-    ...destination,
-    ...source,
-  };
-}
+/** Keys that hold named-object maps (server registries). */
+const SERVER_MAP_KEYS = ["mcpServers", "servers", "lspServers"] as const;
 
 /**
  * Merge source JSON file into destination JSON file
@@ -43,13 +26,10 @@ export async function mergeJsonFile(
     return;
   }
 
-  const [srcContent, destContent] = await Promise.all([
-    readFile(srcPath, "utf-8"),
-    readFile(destPath, "utf-8"),
+  const [srcConfig, destConfig] = await Promise.all([
+    Bun.file(srcPath).json() as Promise<McpConfig>,
+    Bun.file(destPath).json() as Promise<McpConfig>,
   ]);
-
-  const srcConfig: McpConfig = JSON.parse(srcContent);
-  const destConfig: McpConfig = JSON.parse(destContent);
 
   // Merge top-level config - preserve destination's other keys
   const mergedConfig: McpConfig = {
@@ -57,9 +37,15 @@ export async function mergeJsonFile(
     ...srcConfig,
   };
 
-  mergedConfig.mcpServers = mergeNamedObjectMap(destConfig.mcpServers, srcConfig.mcpServers);
-  mergedConfig.servers = mergeNamedObjectMap(destConfig.servers, srcConfig.servers);
-  mergedConfig.lspServers = mergeNamedObjectMap(destConfig.lspServers, srcConfig.lspServers);
+  // Server maps are merged individually so the destination's existing
+  // entries are preserved while source entries are added or updated.
+  for (const key of SERVER_MAP_KEYS) {
+    const dst = destConfig[key] as Record<string, unknown> | undefined;
+    const src = srcConfig[key] as Record<string, unknown> | undefined;
+    if (dst || src) {
+      mergedConfig[key] = { ...dst, ...src };
+    }
+  }
 
-  await writeFile(destPath, JSON.stringify(mergedConfig, null, 2) + "\n");
+  await Bun.write(destPath, JSON.stringify(mergedConfig, null, 2) + "\n");
 }

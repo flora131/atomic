@@ -1,4 +1,4 @@
-import { dirname, join } from "path";
+import { dirname, join } from "node:path";
 import { AGENT_CONFIG, type AgentKey } from "@/services/config/index.ts";
 import { copyFile, pathExists, ensureDir } from "@/services/system/copy.ts";
 import { mergeJsonFile } from "@/lib/merge.ts";

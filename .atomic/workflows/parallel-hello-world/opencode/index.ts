@@ -1,10 +1,35 @@
 import { defineWorkflow } from "@bastani/atomic/workflows";
 
+/** Compose the initial greeting prompt from the structured inputs. */
+function buildGreetPrompt(inputs: Record<string, string>): string {
+  const topic = inputs.topic ?? "the world";
+  const tone = inputs.tone ?? "warm";
+  return `Write a short ${tone} greeting about "${topic}".`;
+}
+
 export default defineWorkflow<"opencode">({
     name: "parallel-hello-world",
     description: "Parallel hello world: greet → [formal, casual] → merge",
+    inputs: [
+      {
+        name: "topic",
+        type: "string",
+        required: true,
+        description: "what the greeting should be about",
+        placeholder: "a new project launch",
+      },
+      {
+        name: "tone",
+        type: "enum",
+        required: true,
+        description: "overall tone of the seed greeting",
+        values: ["warm", "neutral", "cold"],
+        default: "warm",
+      },
+    ],
   })
   .run(async (ctx) => {
+    const seedPrompt = buildGreetPrompt(ctx.inputs);
     const greet = await ctx.stage(
       { name: "greet", description: "Generate a greeting topic" },
       {},
@@ -12,7 +37,7 @@ export default defineWorkflow<"opencode">({
       async (s) => {
         const result = await s.client.session.prompt({
           sessionID: s.session.id,
-          parts: [{ type: "text", text: s.userPrompt }],
+          parts: [{ type: "text", text: seedPrompt }],
         });
         s.save(result.data!);
       },

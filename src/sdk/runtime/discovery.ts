@@ -13,7 +13,8 @@ import { readdir, writeFile } from "fs/promises";
 import { existsSync, readdirSync } from "fs";
 import { homedir } from "os";
 import ignore from "ignore";
-import type { AgentType } from "../types.ts";
+import type { AgentType, WorkflowInput } from "../types.ts";
+import { WorkflowLoader } from "./loader.ts";
 
 export interface DiscoveredWorkflow {
   name: string;
@@ -175,30 +176,88 @@ function discoverBuiltinWorkflows(
 
 /**
  * Discover all available workflows from built-in, global, and local sources.
- * Optionally filter by agent. Precedence: local > global > builtin.
+ * Optionally filter by agent.
+ *
+ * **Merge precedence:** `builtin > local > global`.
+ *
+ * Builtin names are **strictly reserved** — a user-defined local or
+ * global workflow whose name matches any built-in workflow is dropped
+ * entirely from discovery. It will not be registered, returned from
+ * `findWorkflow`, appear in the interactive picker, or show up in
+ * `atomic workflow -l`. This protects SDK-shipped workflows (e.g.
+ * `ralph`) from being silently overridden or even visibly "competing
+ * with" a user's own definition, which would otherwise be confusing
+ * when someone tries to run the canonical version.
+ *
+ * Reservation is by **name only**, across all agents: if a builtin
+ * defines `ralph` for any agent, a local `ralph` for any other agent is
+ * also dropped. Local still overrides global for every non-builtin
+ * name, so project-scoped customisation of user-scoped workflows
+ * continues to work.
+ *
+ * By default, the result is **merged by precedence** — if a workflow is
+ * defined in both local and global sources, only the higher-precedence
+ * entry is returned. This is the right shape for `findWorkflow`, which
+ * needs the single resolved entry per (name, agent) pair.
+ *
+ * Pass `{ merge: false }` to get the **unmerged** result — local and
+ * global contribute their entries independently, so `--list` can show
+ * both a local and a global copy of the same workflow when they coexist
+ * on disk. (Builtin reservation still applies in both modes.)
  */
 export async function discoverWorkflows(
   projectRoot: string = process.cwd(),
-  agentFilter?: AgentType
+  agentFilter?: AgentType,
+  options: { merge?: boolean } = {},
 ): Promise<DiscoveredWorkflow[]> {
+  const { merge = true } = options;
+
   const localDir = getLocalWorkflowsDir(projectRoot);
   const globalDir = getGlobalWorkflowsDir();
 
-  const builtinResults = discoverBuiltinWorkflows(agentFilter);
+  // Collect ALL builtin names (ignoring agentFilter) so reservation is
+  // name-based across every agent: a local `ralph` for copilot is still
+  // reserved by a builtin `ralph` for claude, even when the discovery
+  // call was filtered to copilot.
+  const allBuiltins = discoverBuiltinWorkflows();
+  const reservedNames = new Set<string>(allBuiltins.map((w) => w.name));
+  const builtinResults = agentFilter
+    ? allBuiltins.filter((w) => w.agent === agentFilter)
+    : allBuiltins;
+
   const [globalResults, localResults] = await Promise.all([
     discoverFromBaseDir(globalDir, "global", agentFilter),
     discoverFromBaseDir(localDir, "local", agentFilter),
   ]);
 
-  // Merge with precedence: builtin (lowest) → global → local (highest)
+  // Drop any local/global workflow whose name matches a reserved
+  // builtin. This happens BEFORE both merge and unmerged code paths so
+  // reserved names never leak into `findWorkflow`, the picker, or
+  // `--list` — there is exactly one canonical entry per reserved name,
+  // the SDK-shipped one.
+  const filteredGlobal = globalResults.filter((w) => !reservedNames.has(w.name));
+  const filteredLocal = localResults.filter((w) => !reservedNames.has(w.name));
+
+  if (!merge) {
+    // Unmerged: keep local and global independent so `--list` can show
+    // both copies of a non-reserved name when they coexist. Order lowest
+    // → highest precedence so callers that want the winning entry can
+    // take the last one by (agent, name).
+    return [...filteredGlobal, ...filteredLocal, ...builtinResults];
+  }
+
+  // Merge with precedence: global (lowest) → local → builtin (highest).
+  // Builtin is layered last as a belt-and-braces guarantee — though
+  // reserved-name filtering above already makes this overwrite
+  // impossible in practice.
   const byKey = new Map<string, DiscoveredWorkflow>();
+  for (const wf of filteredGlobal) {
+    byKey.set(`${wf.agent}/${wf.name}`, wf);
+  }
+  for (const wf of filteredLocal) {
+    byKey.set(`${wf.agent}/${wf.name}`, wf);
+  }
   for (const wf of builtinResults) {
-    byKey.set(`${wf.agent}/${wf.name}`, wf);
-  }
-  for (const wf of globalResults) {
-    byKey.set(`${wf.agent}/${wf.name}`, wf);
-  }
-  for (const wf of localResults) {
     byKey.set(`${wf.agent}/${wf.name}`, wf);
   }
 
@@ -215,6 +274,50 @@ export async function findWorkflow(
 ): Promise<DiscoveredWorkflow | null> {
   const all = await discoverWorkflows(projectRoot, agent);
   return all.find((w) => w.name === name) ?? null;
+}
+
+/**
+ * A discovered workflow enriched with the metadata the picker needs to
+ * render it: the human description and the declared input schema.
+ *
+ * Populated by {@link loadWorkflowsMetadata}, which runs each discovered
+ * workflow through {@link WorkflowLoader.loadWorkflow} and extracts just
+ * the display-relevant fields — the full compiled definition is
+ * discarded after extraction so re-imports during execution are cheap.
+ */
+export interface WorkflowWithMetadata extends DiscoveredWorkflow {
+  /** Workflow description, empty string when none was declared. */
+  description: string;
+  /** Declared input schema, empty array for free-form workflows. */
+  inputs: readonly WorkflowInput[];
+}
+
+/**
+ * Load metadata (description + inputs) for a batch of discovered workflows.
+ *
+ * Workflows that fail to import are **skipped silently** so one broken
+ * entry can never prevent the picker from rendering. Callers that need
+ * to surface load errors (e.g. `atomic workflow -n broken`) should use
+ * {@link WorkflowLoader.loadWorkflow} directly — that path produces
+ * structured error reports.
+ */
+export async function loadWorkflowsMetadata(
+  discovered: DiscoveredWorkflow[],
+): Promise<WorkflowWithMetadata[]> {
+  const results = await Promise.all(
+    discovered.map(async (wf): Promise<WorkflowWithMetadata | null> => {
+      const loaded = await WorkflowLoader.loadWorkflow(wf);
+      if (!loaded.ok) return null;
+      return {
+        ...wf,
+        description: loaded.value.definition.description,
+        inputs: loaded.value.definition.inputs,
+      };
+    }),
+  );
+  return results.filter(
+    (r): r is WorkflowWithMetadata => r !== null,
+  );
 }
 
 

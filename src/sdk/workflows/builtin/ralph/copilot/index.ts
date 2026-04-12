@@ -73,6 +73,12 @@ export default defineWorkflow<"copilot">({
     "Plan → orchestrate → review → debug loop with bounded iteration",
 })
   .run(async (ctx) => {
+    // Free-form workflows receive their positional prompt under
+    // `inputs.prompt`; destructure once so every stage below can close
+    // over a bare `userPromptText` without re-reaching into ctx.inputs.
+    // (Named `userPromptText` rather than `prompt` to avoid confusion
+    // with the `prompt:` object key used in the Copilot send call.)
+    const userPromptText = ctx.inputs.prompt ?? "";
     let consecutiveClean = 0;
     let debuggerReport = "";
 
@@ -86,7 +92,7 @@ export default defineWorkflow<"copilot">({
         async (s) => {
           await s.session.sendAndWait(
             {
-              prompt: buildPlannerPrompt(s.userPrompt, {
+              prompt: buildPlannerPrompt(userPromptText, {
                 iteration,
                 debuggerReport: debuggerReport || undefined,
               }),
@@ -109,7 +115,7 @@ export default defineWorkflow<"copilot">({
         async (s) => {
           await s.session.sendAndWait(
             {
-              prompt: buildOrchestratorPrompt(s.userPrompt, {
+              prompt: buildOrchestratorPrompt(userPromptText, {
                 plannerNotes: planner.result,
               }),
             },
@@ -130,7 +136,7 @@ export default defineWorkflow<"copilot">({
         async (s) => {
           await s.session.sendAndWait(
             {
-              prompt: buildReviewPrompt(s.userPrompt, {
+              prompt: buildReviewPrompt(userPromptText, {
                 gitStatus,
                 iteration,
               }),
@@ -161,7 +167,7 @@ export default defineWorkflow<"copilot">({
           async (s) => {
             await s.session.sendAndWait(
               {
-                prompt: buildReviewPrompt(s.userPrompt, {
+                prompt: buildReviewPrompt(userPromptText, {
                   gitStatus,
                   iteration,
                   isConfirmationPass: true,

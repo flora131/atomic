@@ -24,7 +24,7 @@ import { defineWorkflow } from "@bastani/atomic/workflows";
       // s.session — session wrapper (ready to accept queries via s.session.query())
 
       // Send queries — Claude maintains conversation context across calls
-      const result = await s.session.query(s.userPrompt);
+      const result = await s.session.query((s.inputs.prompt ?? ""));
       // result.output contains the captured response text
 
       // Save transcript
@@ -62,7 +62,7 @@ export default defineWorkflow<"claude">({ name: "implement" })
       {},
       {},
       async (s) => {
-        const result = await s.session.query(s.userPrompt);
+        const result = await s.session.query((s.inputs.prompt ?? ""));
         // result.output contains the captured response text
         s.save(s.sessionId);
       },
@@ -101,7 +101,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 .run(async (ctx) => {
   await ctx.stage({ name: "implement" }, {}, {}, async (s) => {
     const result = query({
-      prompt: s.userPrompt,
+      prompt: (s.inputs.prompt ?? ""),
       options: {
         model: "claude-opus-4-6",
         effort: "high",
@@ -191,7 +191,7 @@ Invoke named sub-agents by prefixing the prompt with `@"agent-name (agent)"`. Th
 .run(async (ctx) => {
   await ctx.stage({ name: "plan-and-implement" }, {}, {}, async (s) => {
     // Delegate to the "planner" agent
-    await s.session.query(`@"planner (agent)" Create a plan for: ${s.userPrompt}`);
+    await s.session.query(`@"planner (agent)" Create a plan for: ${(s.inputs.prompt ?? "")}`);
 
     // Delegate to the "orchestrator" agent
     await s.session.query(`@"orchestrator (agent)" Execute the plan above.`);
@@ -223,7 +223,7 @@ export default defineWorkflow<"copilot">({ name: "implement" })
         // s.client — CopilotClient (already started by runtime)
         // s.session — CopilotSession (already created, foreground session set)
 
-        await s.session.sendAndWait({ prompt: s.userPrompt }, SEND_TIMEOUT_MS);
+        await s.session.sendAndWait({ prompt: (s.inputs.prompt ?? "") }, SEND_TIMEOUT_MS);
 
         s.save(await s.session.getMessages());
       },
@@ -310,7 +310,7 @@ provider-specific escape hatches, not the default stage-to-stage handoff path.
 // Buggy — the orchestrator session is fresh and knows NOTHING about
 // what the planner just produced, because createSession() started a
 // brand-new conversation.
-await runAgent("planner", buildPlannerPrompt(ctx.userPrompt));
+await runAgent("planner", buildPlannerPrompt((ctx.inputs.prompt ?? "")));
 await runAgent("orchestrator", buildOrchestratorPrompt());
 // ↑ orchestrator only sees buildOrchestratorPrompt() — no planner output,
 //   no original user spec, no context.
@@ -335,10 +335,10 @@ async function runAgent(agent: string, prompt: string): Promise<string> {
 }
 
 // Correct — forward the planner's output into the orchestrator prompt
-const plannerNotes = await runAgent("planner", buildPlannerPrompt(ctx.userPrompt));
+const plannerNotes = await runAgent("planner", buildPlannerPrompt((ctx.inputs.prompt ?? "")));
 await runAgent(
   "orchestrator",
-  buildOrchestratorPrompt(ctx.userPrompt, { plannerNotes }),
+  buildOrchestratorPrompt((ctx.inputs.prompt ?? ""), { plannerNotes }),
 );
 ```
 
@@ -446,7 +446,7 @@ await ctx.stage(
     },
   }, // sessionOpts
   async (s) => {
-    await s.session.sendAndWait({ prompt: s.userPrompt }, SEND_TIMEOUT_MS);
+    await s.session.sendAndWait({ prompt: (s.inputs.prompt ?? "") }, SEND_TIMEOUT_MS);
     s.save(await s.session.getMessages());
   },
 );
@@ -473,7 +473,7 @@ await ctx.stage(
   {},
   { tools: [myTool] },
   async (s) => {
-    await s.session.sendAndWait({ prompt: s.userPrompt }, SEND_TIMEOUT_MS);
+    await s.session.sendAndWait({ prompt: (s.inputs.prompt ?? "") }, SEND_TIMEOUT_MS);
     s.save(await s.session.getMessages());
   },
 );
@@ -530,7 +530,7 @@ const SEND_TIMEOUT_MS = 30 * 60 * 1000; // planner can take a while
     {},
     { agent: "planner" }, // sessionOpts — binds the session to the "planner" agent
     async (s) => {
-      await s.session.sendAndWait({ prompt: s.userPrompt }, SEND_TIMEOUT_MS);
+      await s.session.sendAndWait({ prompt: (s.inputs.prompt ?? "") }, SEND_TIMEOUT_MS);
       s.save(await s.session.getMessages());
     },
   );
@@ -558,7 +558,7 @@ export default defineWorkflow<"opencode">({ name: "implement" })
 
         const result = await s.client.session.prompt({
           sessionID: s.session.id,
-          parts: [{ type: "text", text: s.userPrompt }],
+          parts: [{ type: "text", text: (s.inputs.prompt ?? "") }],
         });
 
         s.save(result.data!);
@@ -598,19 +598,19 @@ substitute the OpenCode API equivalents:
 ```ts
 // Buggy — orchestrator session is fresh; it has no idea what the planner
 // produced because we created a brand-new session for it.
-await runAgent("planner-1", "planner", buildPlannerPrompt(ctx.userPrompt));
+await runAgent("planner-1", "planner", buildPlannerPrompt((ctx.inputs.prompt ?? "")));
 await runAgent("orchestrator-1", "orchestrator", buildOrchestratorPrompt());
 
 // Correct — capture planner output and forward it into orchestrator prompt
 const plannerNotes = await runAgent(
   "planner-1",
   "planner",
-  buildPlannerPrompt(ctx.userPrompt),
+  buildPlannerPrompt((ctx.inputs.prompt ?? "")),
 );
 await runAgent(
   "orchestrator-1",
   "orchestrator",
-  buildOrchestratorPrompt(ctx.userPrompt, { plannerNotes }),
+  buildOrchestratorPrompt((ctx.inputs.prompt ?? ""), { plannerNotes }),
 );
 ```
 
@@ -707,7 +707,7 @@ function extractResponseText(
 // Usage inside a ctx.stage callback:
 const result = await s.client.session.prompt({
   sessionID: s.session.id,
-  parts: [{ type: "text", text: s.userPrompt }],
+  parts: [{ type: "text", text: (s.inputs.prompt ?? "") }],
 });
 const text = extractResponseText(result.data!.parts);
 ```
@@ -737,7 +737,7 @@ Pass the `agent` parameter to `s.client.session.prompt()` to route a prompt to a
       // Route the prompt to the "planner" agent
       const result = await s.client.session.prompt({
         sessionID: s.session.id,
-        parts: [{ type: "text", text: s.userPrompt }],
+        parts: [{ type: "text", text: (s.inputs.prompt ?? "") }],
         agent: "planner",
       });
 

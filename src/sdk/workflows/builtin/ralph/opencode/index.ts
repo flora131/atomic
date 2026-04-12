@@ -42,6 +42,10 @@ export default defineWorkflow<"opencode">({
     "Plan → orchestrate → review → debug loop with bounded iteration",
 })
   .run(async (ctx) => {
+    // Free-form workflows receive their positional prompt under
+    // `inputs.prompt`; destructure once so every stage below can close
+    // over a bare `prompt` string without re-reaching into ctx.inputs.
+    const prompt = ctx.inputs.prompt ?? "";
     let consecutiveClean = 0;
     let debuggerReport = "";
 
@@ -58,7 +62,7 @@ export default defineWorkflow<"opencode">({
             parts: [
               {
                 type: "text",
-                text: buildPlannerPrompt(s.userPrompt, {
+                text: buildPlannerPrompt(prompt, {
                   iteration,
                   debuggerReport: debuggerReport || undefined,
                 }),
@@ -84,7 +88,7 @@ export default defineWorkflow<"opencode">({
             parts: [
               {
                 type: "text",
-                text: buildOrchestratorPrompt(s.userPrompt, {
+                text: buildOrchestratorPrompt(prompt, {
                   plannerNotes: planner.result,
                 }),
               },
@@ -109,7 +113,7 @@ export default defineWorkflow<"opencode">({
             parts: [
               {
                 type: "text",
-                text: buildReviewPrompt(s.userPrompt, {
+                text: buildReviewPrompt(prompt, {
                   gitStatus,
                   iteration,
                 }),
@@ -143,7 +147,7 @@ export default defineWorkflow<"opencode">({
               parts: [
                 {
                   type: "text",
-                  text: buildReviewPrompt(s.userPrompt, {
+                  text: buildReviewPrompt(prompt, {
                     gitStatus,
                     iteration,
                     isConfirmationPass: true,

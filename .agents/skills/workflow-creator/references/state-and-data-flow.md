@@ -110,7 +110,7 @@ Use closures and variables for state within a single session:
 
     for (let cycle = 0; cycle < 10; cycle++) {
       const result = await s.session.query(
-        buildReviewPrompt(ctx.userPrompt, priorOutput),
+        buildReviewPrompt((ctx.inputs.prompt ?? ""), priorOutput),
       );
 
       // Accumulate findings
@@ -128,7 +128,7 @@ Use closures and variables for state within a single session:
       consecutiveClean = 0;
 
       // Apply fix
-      const fixResult = await s.session.query(buildFixSpec(review, ctx.userPrompt));
+      const fixResult = await s.session.query(buildFixSpec(review, (ctx.inputs.prompt ?? "")));
       priorOutput = fixResult.output;
     }
 
@@ -339,7 +339,7 @@ Use the filesystem as a coordination layer instead of inlining large data into p
 ```ts
 .run(async (ctx) => {
   await ctx.stage({ name: "plan" }, {}, {}, async (s) => {
-    await s.session.query(`Create a plan for: ${s.userPrompt}\n\nWrite it to plan.md.`);
+    await s.session.query(`Create a plan for: ${(s.inputs.prompt ?? "")}\n\nWrite it to plan.md.`);
     s.save(s.sessionId);
   });
 

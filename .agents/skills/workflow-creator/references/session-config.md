@@ -207,7 +207,7 @@ await ctx.stage({ name: "plan" }, {}, {
   // Advanced
   infiniteSessions: true,             // Auto-manage context via compaction
 }, async (s) => {
-  await s.session.sendAndWait({ prompt: (ctx.inputs.prompt ?? "") }, SEND_TIMEOUT_MS);
+  await s.session.send({ prompt: (ctx.inputs.prompt ?? "") });
   s.save(await s.session.getMessages());
 });
 ```
@@ -217,7 +217,7 @@ await ctx.stage({ name: "plan" }, {}, {
 ```ts
 // Approve everything (autonomous) — this is the default
 await ctx.stage({ name: "plan" }, {}, { onPermissionRequest: approveAll }, async (s) => {
-  await s.session.sendAndWait({ prompt: (ctx.inputs.prompt ?? "") }, SEND_TIMEOUT_MS);
+  await s.session.send({ prompt: (ctx.inputs.prompt ?? "") });
   s.save(await s.session.getMessages());
 });
 
@@ -237,7 +237,7 @@ await ctx.stage({ name: "plan" }, {}, {
     }
   },
 }, async (s) => {
-  await s.session.sendAndWait({ prompt: (ctx.inputs.prompt ?? "") }, SEND_TIMEOUT_MS);
+  await s.session.send({ prompt: (ctx.inputs.prompt ?? "") });
   s.save(await s.session.getMessages());
 });
 ```

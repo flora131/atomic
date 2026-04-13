@@ -26,14 +26,6 @@ import { safeGitStatusS } from "../helpers/git.ts";
 
 const MAX_LOOPS = 10;
 const CONSECUTIVE_CLEAN_THRESHOLD = 2;
-/**
- * Per-agent send timeout. `CopilotSession.sendAndWait` defaults to 60s, which
- * is far too short for real planner/orchestrator/reviewer/debugger work — a
- * timeout there throws and aborts the whole workflow before the next stage
- * can run. 30 minutes gives each sub-agent ample headroom while still
- * surfacing truly hung sessions.
- */
-const AGENT_SEND_TIMEOUT_MS = 30 * 60 * 1000;
 
 /**
  * Concatenate the text content of every top-level assistant message in the
@@ -90,15 +82,12 @@ export default defineWorkflow<"copilot">({
         {},
         { agent: "planner" },
         async (s) => {
-          await s.session.sendAndWait(
-            {
-              prompt: buildPlannerPrompt(userPromptText, {
-                iteration,
-                debuggerReport: debuggerReport || undefined,
-              }),
-            },
-            AGENT_SEND_TIMEOUT_MS,
-          );
+          await s.session.send({
+            prompt: buildPlannerPrompt(userPromptText, {
+              iteration,
+              debuggerReport: debuggerReport || undefined,
+            }),
+          });
           const messages = await s.session.getMessages();
           s.save(messages);
           return getAssistantText(messages);
@@ -113,14 +102,11 @@ export default defineWorkflow<"copilot">({
         {},
         { agent: "orchestrator" },
         async (s) => {
-          await s.session.sendAndWait(
-            {
-              prompt: buildOrchestratorPrompt(userPromptText, {
-                plannerNotes: planner.result,
-              }),
-            },
-            AGENT_SEND_TIMEOUT_MS,
-          );
+          await s.session.send({
+            prompt: buildOrchestratorPrompt(userPromptText, {
+              plannerNotes: planner.result,
+            }),
+          });
           s.save(await s.session.getMessages());
         },
       );
@@ -134,15 +120,12 @@ export default defineWorkflow<"copilot">({
         {},
         { agent: "reviewer" },
         async (s) => {
-          await s.session.sendAndWait(
-            {
-              prompt: buildReviewPrompt(userPromptText, {
-                gitStatus,
-                iteration,
-              }),
-            },
-            AGENT_SEND_TIMEOUT_MS,
-          );
+          await s.session.send({
+            prompt: buildReviewPrompt(userPromptText, {
+              gitStatus,
+              iteration,
+            }),
+          });
           const messages = await s.session.getMessages();
           s.save(messages);
           return getAssistantText(messages);
@@ -165,16 +148,13 @@ export default defineWorkflow<"copilot">({
           {},
           { agent: "reviewer" },
           async (s) => {
-            await s.session.sendAndWait(
-              {
-                prompt: buildReviewPrompt(userPromptText, {
-                  gitStatus,
-                  iteration,
-                  isConfirmationPass: true,
-                }),
-              },
-              AGENT_SEND_TIMEOUT_MS,
-            );
+            await s.session.send({
+              prompt: buildReviewPrompt(userPromptText, {
+                gitStatus,
+                iteration,
+                isConfirmationPass: true,
+              }),
+            });
             const messages = await s.session.getMessages();
             s.save(messages);
             return getAssistantText(messages);
@@ -203,15 +183,12 @@ export default defineWorkflow<"copilot">({
           {},
           { agent: "debugger" },
           async (s) => {
-            await s.session.sendAndWait(
-              {
-                prompt: buildDebuggerReportPrompt(parsed, reviewRaw, {
-                  iteration,
-                  gitStatus,
-                }),
-              },
-              AGENT_SEND_TIMEOUT_MS,
-            );
+            await s.session.send({
+              prompt: buildDebuggerReportPrompt(parsed, reviewRaw, {
+                iteration,
+                gitStatus,
+              }),
+            });
             const messages = await s.session.getMessages();
             s.save(messages);
             return getAssistantText(messages);

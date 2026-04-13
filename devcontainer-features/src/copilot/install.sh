@@ -81,21 +81,10 @@ chmod 644 /etc/profile.d/atomic-path.sh
 
 echo "✓ Atomic CLI installed (${ATOMIC_SPEC})"
 
-# ─── Install global npm CLI tools ───────────────────────────────────────────
-# Source NVM (installed by the dependent node feature) so npm resolves to the
-# NVM-managed binary, then fix group permissions so the non-root container user
-# (already in the `nvm` group) can install packages later without permission errors.
-# This mirrors how devcontainers/features/node installs pnpm.
-NVM_DIR="${NVM_DIR:-"/usr/local/share/nvm"}"
-echo "Installing global npm CLI tools..."
-if [ -s "${NVM_DIR}/nvm.sh" ]; then
-    (. "${NVM_DIR}/nvm.sh" && npm install -g @playwright/cli @llamaindex/liteparse) 2>&1 \
-        && { echo "✓ Global npm CLI tools installed"; chmod -R g+rw "${NVM_DIR}/versions" 2>/dev/null || true; } \
-        || echo "⚠ Some global npm CLI tools failed to install (non-fatal)"
-else
-    npm install -g @playwright/cli @llamaindex/liteparse 2>&1 \
-        && echo "✓ Global npm CLI tools installed" \
-        || echo "⚠ Some global npm CLI tools failed to install (non-fatal)"
-fi
-command -v playwright >/dev/null && echo "✓ playwright available"
-command -v lit >/dev/null && echo "✓ liteparse (lit) available"
+# ─── Install global CLI tools via bun ──────────────────────────────────────
+# Use bun (already installed) with --trust to allow postinstall lifecycle
+# scripts (e.g. playwright browser downloads).
+echo "Installing global CLI tools..."
+su - "${REMOTE_USER}" -c "bun install -g --trust @playwright/cli@latest @llamaindex/liteparse@latest" 2>&1 \
+    && echo "✓ Global CLI tools installed" \
+    || echo "⚠ Some global CLI tools failed to install (non-fatal)"

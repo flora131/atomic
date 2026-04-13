@@ -11,19 +11,18 @@
  * comparing the bundled `VERSION` constant against a marker file at
  * `~/.atomic/.synced-version`. On a mismatch we run the same setup the
  * production bootstrap installers (`install.sh` / `install.ps1`) provide,
- * grouped into two parallel phases:
+ * as a single parallel phase:
  *
- *   Phase 1 (parallel — no inter-dependencies):
- *     1. Node.js / npm           (installed via fnm, no system pkg-mgr)
- *     2. tmux / psmux            (terminal multiplexer for `chat` / `workflow`)
- *     3. global agent configs    (file copies — no network)
+ *     1. tmux / psmux            (terminal multiplexer for `chat` / `workflow`)
+ *     2. global agent configs    (file copies — no network)
+ *     3. @playwright/cli         (bun install -g)
+ *     4. @llamaindex/liteparse   (bun install -g)
+ *     5. global skills           (bunx skills add ...)
  *
- *   Phase 2 (parallel — all need npm from Phase 1):
- *     4. @playwright/cli         (npm install -g)
- *     5. @llamaindex/liteparse   (npm install -g)
- *     6. global skills           (npx skills add ...)
+ * All steps run concurrently using bun (already our runtime) for package
+ * installs and `bunx` for CLI tools, avoiding a ~48 s Node.js/npm
+ * download via fnm that previously gated Phase 2.
  *
- * Steps within each phase run concurrently; phases run sequentially.
  * Failures are collected and reported as a summary at the end, but never
  * abort the run — partial setup matches the production installer's
  * "best-effort" semantics. The marker is written after every run (success
@@ -36,7 +35,6 @@ import { homedir } from "node:os";
 import { VERSION } from "../../version.ts";
 import { COLORS } from "../../theme/colors.ts";
 import {
-  ensureNpmInstalled,
   ensureTmuxInstalled,
   upgradePlaywrightCli,
   upgradeLiteparse,
@@ -93,33 +91,21 @@ export async function autoSyncIfStale(): Promise<void> {
     `\n  ${COLORS.dim}Setting up atomic ${COLORS.reset}${COLORS.bold}v${VERSION}${COLORS.reset}${COLORS.dim}…${COLORS.reset}`,
   );
 
-  // Steps are split into two parallel phases:
-  //
-  //  Phase 1 — core tools + file copies (no inter-dependencies):
-  //    npm is installed via fnm (not a system package manager), so it
-  //    won't contend with tmux's apt-get/dnf install. Agent config
-  //    copies are pure file I/O with no network or npm dependency.
-  //
-  //  Phase 2 — npm-dependent tasks (run after Phase 1):
-  //    @playwright/cli, @llamaindex/liteparse, and `npx skills` all
-  //    need npm/npx. They install independent packages, so they can
-  //    run concurrently.
+  // All steps run in a single parallel phase. bun (already our runtime)
+  // handles global package installs and `bunx` execution, so there is no
+  // need to install Node.js/npm first — eliminating a ~48 s fnm download
+  // that previously dominated the loading screen.
   //
   // Each step's failure is caught inside `runSteps` (not thrown), so
   // subsequent steps still run even if one fails — matches install.sh's
   // best-effort contract.
   const results = await runSteps([
-    // Phase 1 — parallel
     [
-      { label: "Node.js / npm",        fn: () => ensureNpmInstalled({ quiet: true }) },
       { label: "tmux / psmux",         fn: () => ensureTmuxInstalled({ quiet: true }) },
       { label: "global agent configs", fn: installGlobalAgents },
-    ],
-    // Phase 2 — parallel, after Phase 1
-    [
-      { label: "@playwright/cli",       fn: upgradePlaywrightCli },
+      { label: "@playwright/cli",      fn: upgradePlaywrightCli },
       { label: "@llamaindex/liteparse", fn: upgradeLiteparse },
-      { label: "global skills",         fn: installGlobalSkills },
+      { label: "global skills",        fn: installGlobalSkills },
     ],
   ]);
 

@@ -1,6 +1,6 @@
 {
   "id": "copilot",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "name": "Atomic + Copilot CLI",
   "description": "Installs Atomic CLI with GitHub Copilot agent, skills, and shared tooling (playwright, liteparse)",
   "documentationURL": "https://github.com/flora131/atomic",
@@ -13,7 +13,6 @@
     }
   },
   "dependsOn": {
-    "ghcr.io/devcontainers/features/node:1": { "version": "lts" },
     "ghcr.io/devcontainers-extra/features/tmux-apt-get:1": {},
     "ghcr.io/devcontainers-extra/features/bun:1": {},
     "ghcr.io/devcontainers/features/copilot-cli:1": {}

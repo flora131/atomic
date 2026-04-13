@@ -11,10 +11,9 @@
  * that falls back gracefully through 256-color → basic ANSI.
  *
  * Steps are grouped into **phases**. Steps within a phase run in parallel
- * (via `Promise.all`); phases themselves run sequentially so later phases
- * can depend on earlier ones (e.g. npm must be available before
- * `npm install -g` tasks). The progress bar advances and the label
- * updates in real-time as individual steps complete within a phase.
+ * (via `Promise.all`); phases themselves run sequentially. The progress
+ * bar advances and the label updates in real-time as individual steps
+ * complete within a phase.
  *
  * A final summary (✓/✗ per step) is printed after all steps finish, and
  * any captured stderr/stdout from a failed step is shown beneath it.

@@ -1,6 +1,7 @@
 ---
 name: distill
 description: Strip designs to their essence by removing unnecessary complexity. Great design is simple, powerful, and clean. Use when the user asks to simplify, declutter, reduce noise, remove elements, or make a UI cleaner and more focused.
+version: 2.1.1
 user-invocable: true
 argument-hint: "[target]"
 ---
@@ -9,7 +10,7 @@ Remove unnecessary complexity from designs, revealing the essential elements and
 
 ## MANDATORY PREPARATION
 
-Invoke /frontend-design — it contains design principles, anti-patterns, and the **Context Gathering Protocol**. Follow the protocol before proceeding — if no design context exists yet, you MUST run /teach-impeccable first.
+Invoke /impeccable — it contains design principles, anti-patterns, and the **Context Gathering Protocol**. Follow the protocol before proceeding — if no design context exists yet, you MUST run /impeccable teach first.
 
 ---
 

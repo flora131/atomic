@@ -52,13 +52,14 @@ export { validateCopilotWorkflow } from "../providers/copilot.ts";
 export { validateOpenCodeWorkflow } from "../providers/opencode.ts";
 
 // Runtime — tmux utilities
-export type { TmuxResult } from "../runtime/tmux.ts";
+export type { TmuxResult, TmuxSession, SessionType } from "../runtime/tmux.ts";
 export {
   SOCKET_NAME,
   isTmuxInstalled,
   getMuxBinary,
   resetMuxBinaryCache,
   isInsideTmux,
+  isInsideAtomicSocket,
   createSession,
   createWindow,
   createPane,
@@ -71,12 +72,17 @@ export {
   killSession,
   killWindow,
   sessionExists,
+  listSessions,
   attachSession,
   spawnMuxAttach,
   switchClient,
   getCurrentSession,
   attachOrSwitch,
+  detachAndAttachAtomic,
   selectWindow,
+  setSessionEnv,
+  getSessionEnv,
+  parseSessionName,
   waitForOutput,
   tmuxRun,
   normalizeTmuxCapture,

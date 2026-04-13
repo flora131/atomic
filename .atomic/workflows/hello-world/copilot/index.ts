@@ -1,7 +1,5 @@
 import { defineWorkflow } from "@bastani/atomic/workflows";
 
-const SEND_TIMEOUT_MS = 30 * 60 * 1000;
-
 /**
  * Build the greeting prompt from the structured inputs. The picker and
  * CLI flag parser both populate `ctx.inputs` — this workflow exercises
@@ -49,7 +47,7 @@ export default defineWorkflow<"copilot">({
       {},
       {},
       async (s) => {
-        await s.session.sendAndWait({ prompt }, SEND_TIMEOUT_MS);
+        await s.session.send({ prompt });
         s.save(await s.session.getMessages());
       },
     );

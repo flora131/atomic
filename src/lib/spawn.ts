@@ -99,29 +99,31 @@ export interface EnsureOptions {
 }
 
 /**
- * Install a global package via bun. Uses `--trust` to allow postinstall
- * lifecycle scripts (required by packages like @playwright/cli).
+ * Install one or more global packages via a single `bun install -g` call.
+ * Uses `--trust` to allow postinstall lifecycle scripts (required by
+ * packages like @playwright/cli).
+ *
+ * Combining multiple packages into one invocation is important: Bun's
+ * global linker is not safe to run concurrently — two parallel
+ * `bun install -g` processes race to create the same symlinks in the
+ * shared global store, causing EEXIST errors for transitive deps that
+ * both packages (or the already-installed @bastani/atomic) share.
  */
-export async function upgradeGlobalPackage(pkg: string): Promise<void> {
-  const versionedPkg = pkg.includes("@latest") ? pkg : `${pkg}@latest`;
+export async function upgradeGlobalPackages(pkgs: string[]): Promise<void> {
   const bunPath = Bun.which("bun");
   if (!bunPath) {
-    throw new Error(`bun is not available to install ${pkg}.`);
+    throw new Error(`bun is not available to install ${pkgs.join(", ")}.`);
   }
-  const result = await runCommand([bunPath, "install", "-g", "--trust", versionedPkg]);
+  const versioned = pkgs.map((p) => (p.includes("@latest") ? p : `${p}@latest`));
+  const result = await runCommand([bunPath, "install", "-g", "--trust", ...versioned]);
   if (!result.success) {
-    throw new Error(`Failed to install ${pkg}: ${result.details}`);
+    throw new Error(`Failed to install ${pkgs.join(", ")}: ${result.details}`);
   }
 }
 
-/** Upgrade @playwright/cli to the latest version globally. */
-export async function upgradePlaywrightCli(): Promise<void> {
-  return upgradeGlobalPackage("@playwright/cli");
-}
-
-/** Upgrade @llamaindex/liteparse to the latest version globally. */
-export async function upgradeLiteparse(): Promise<void> {
-  return upgradeGlobalPackage("@llamaindex/liteparse");
+/** Upgrade @playwright/cli and @llamaindex/liteparse globally in one pass. */
+export async function upgradeGlobalToolPackages(): Promise<void> {
+  return upgradeGlobalPackages(["@playwright/cli", "@llamaindex/liteparse"]);
 }
 
 /**

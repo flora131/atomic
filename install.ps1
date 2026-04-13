@@ -229,10 +229,22 @@ function Install-Bun {
     return $false
 }
 
+function Install-Completions {
+    $profileDir = Split-Path $PROFILE -Parent
+    if (-not (Test-Path $profileDir)) {
+        New-Item -ItemType Directory -Path $profileDir -Force | Out-Null
+    }
+    $marker = 'atomic completions powershell'
+    if ((Test-Path $PROFILE) -and (Select-String -Path $PROFILE -Pattern ([regex]::Escape($marker)) -Quiet)) {
+        return  # already installed
+    }
+    Add-Content -Path $PROFILE -Value "`n# Atomic CLI completions`natomic completions powershell | Invoke-Expression"
+}
+
 # ── Main ────────────────────────────────────────────────────────────────────
 
 # Count upcoming steps so the progress bar is honest.
-$script:StepTotal = 1  # atomic install
+$script:StepTotal = 2  # atomic install + completions
 if (-not (Get-Command bun -ErrorAction SilentlyContinue)) {
     $script:StepTotal++
 }
@@ -247,6 +259,12 @@ $ok = Invoke-Step -Label "Installing @bastani/atomic" -Action $atomicAction
 if (-not $ok) {
     Write-Err2 "Failed to install atomic"
     exit 1
+}
+
+# Best-effort: don't fail the install if completions can't be set up
+$ok = Invoke-Step -Label "Installing shell completions" -Action { Install-Completions }
+if (-not $ok) {
+    Write-Warn "Could not install PowerShell completions — run: atomic completions powershell | Invoke-Expression"
 }
 
 Write-Host ""

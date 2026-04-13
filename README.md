@@ -150,6 +150,15 @@ irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1 | iex
 ```
 
 
+> [!IMPORTANT]
+> **Migrating from the old standalone binary?** The old version of Atomic was a standalone binary. It is now distributed as an npm package. To migrate:
+>
+> 1. Uninstall the old binary: `atomic uninstall`
+> 2. Uninstall the old workflows package: `bun uninstall -g @bastani/atomic-workflows`
+> 3. Delete the old config directory: `rm -rf ~/.atomic`
+> 4. Remove legacy skill directories: `rm -rf ~/.copilot/skills ~/.opencode/skills`
+> 5. Re-install using any of the install options above
+
 ### 2. Initialize Your Project
 
 ```bash

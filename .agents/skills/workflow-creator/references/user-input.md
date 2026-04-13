@@ -181,23 +181,26 @@ async (s) => {
 
 ## Combining user input with control flow
 
-Use user input results in conditional logic:
+Use user input results in conditional logic. This Claude example uses
+`AskUserQuestion` by including it in `allowedTools` — the agent asks the
+user directly, and you parse the response to branch:
 
 ```ts
+import { query } from "@anthropic-ai/claude-agent-sdk";
+
 // Inside a ctx.stage() callback (Claude example):
 async (s) => {
-  // Get the plan from a previous session
   const plan = await s.transcript("plan");
 
-  // Ask the user (implementation depends on which SDK you're using)
-  const approved = await getUserApproval(`Approve this plan?\n${plan.content}`);
-
-  if (approved) {
-    await s.session.query("Execute the plan.");
-  } else {
-    await s.session.query("Revise the plan.");
-  }
+  // Let the agent ask the user for approval via AskUserQuestion
+  const result = await s.session.query(
+    `Here is the plan:\n${plan.content}\n\nAsk the user if they approve this plan. ` +
+    `If they approve, execute it. If not, revise it based on their feedback.`,
+  );
 
   s.save(s.sessionId);
 },
 ```
+
+For Copilot, use `onUserInputRequest` in `sessionOpts` (see above). For
+OpenCode, use the TUI control endpoints.

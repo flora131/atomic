@@ -8,7 +8,7 @@
  */
 
 import { log } from "@clack/prompts";
-import { setTelemetryEnabled } from "@/services/config/settings.ts";
+import { setTelemetryEnabled } from "../../services/config/settings.ts";
 
 /**
  * Execute the config command

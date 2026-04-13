@@ -32,14 +32,15 @@ import {
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import * as realWorkflows from "@/sdk/workflows/index.ts";
-import * as realDetect from "@/services/system/detect.ts";
+import * as realWorkflows from "../../sdk/workflows/index.ts";
+import * as realDetect from "../../services/system/detect.ts";
 import * as realSpawn from "../../lib/spawn.ts";
+import { AGENT_CONFIG } from "../../services/config/index.ts";
 import type {
   WorkflowDefinition,
   WorkflowRunOptions,
   DiscoveredWorkflow,
-} from "@/sdk/workflows/index.ts";
+} from "../../sdk/workflows/index.ts";
 
 // Capture original function references BEFORE `mock.module` replaces the
 // module exports. `import * as realWorkflows` gives a LIVE namespace — after
@@ -77,9 +78,16 @@ const loadWorkflowsMetadataMock = mock<
 const isTmuxInstalledMock =
   mock<typeof realWorkflows.isTmuxInstalled>(() => true);
 
-// Default: real presence check. Tests override for the agent-missing branch.
+// Default: delegate to the real check, but pretend agent CLIs are installed.
+// CI runners won't have copilot/opencode/claude on PATH; without this
+// override every test that passes through runPrereqChecks would bail early.
+// Non-agent commands still hit the real check so mock.module doesn't break
+// detect.test.ts (Bun shares one process across test files).
+const AGENT_CMDS = new Set(Object.values(AGENT_CONFIG).map((c) => c.cmd));
+const defaultIsCommandInstalled = (cmd: string) =>
+  AGENT_CMDS.has(cmd) || realIsCommandInstalled(cmd);
 const isCommandInstalledMock = mock<typeof realDetect.isCommandInstalled>(
-  (cmd) => realIsCommandInstalled(cmd),
+  defaultIsCommandInstalled,
 );
 
 // Default: no-op so the best-effort installer branch in runPrereqChecks
@@ -91,14 +99,14 @@ const ensureBunInstalledMock = mock<typeof realSpawn.ensureBunInstalled>(
   async () => {},
 );
 
-mock.module("@/sdk/workflows/index.ts", () => ({
+mock.module("../../sdk/workflows/index.ts", () => ({
   ...realWorkflows,
   executeWorkflow: executeWorkflowMock,
   discoverWorkflows: discoverWorkflowsMock,
   loadWorkflowsMetadata: loadWorkflowsMetadataMock,
   isTmuxInstalled: isTmuxInstalledMock,
 }));
-mock.module("@/services/system/detect.ts", () => ({
+mock.module("../../services/system/detect.ts", () => ({
   ...realDetect,
   isCommandInstalled: isCommandInstalledMock,
 }));
@@ -201,7 +209,7 @@ beforeEach(async () => {
   isTmuxInstalledMock.mockClear();
   isTmuxInstalledMock.mockImplementation(() => true);
   isCommandInstalledMock.mockClear();
-  isCommandInstalledMock.mockImplementation((cmd) => realIsCommandInstalled(cmd));
+  isCommandInstalledMock.mockImplementation(defaultIsCommandInstalled);
   ensureTmuxInstalledMock.mockClear();
   ensureTmuxInstalledMock.mockImplementation(async () => {});
   ensureBunInstalledMock.mockClear();

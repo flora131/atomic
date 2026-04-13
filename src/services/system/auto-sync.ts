@@ -33,18 +33,18 @@
 
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { VERSION } from "@/version.ts";
-import { COLORS } from "@/theme/colors.ts";
+import { VERSION } from "../../version.ts";
+import { COLORS } from "../../theme/colors.ts";
 import {
   ensureNpmInstalled,
   ensureTmuxInstalled,
   upgradePlaywrightCli,
   upgradeLiteparse,
-} from "@/lib/spawn.ts";
-import { installGlobalAgents } from "@/services/system/agents.ts";
-import { installGlobalSkills } from "@/services/system/skills.ts";
-import { runSteps, printSummary } from "@/services/system/install-ui.ts";
-import { displayBlockBanner } from "@/theme/logo.ts";
+} from "../../lib/spawn.ts";
+import { installGlobalAgents } from "./agents.ts";
+import { installGlobalSkills } from "./skills.ts";
+import { runSteps, printSummary } from "./install-ui.ts";
+import { displayBlockBanner } from "../../theme/logo.ts";
 
 /** Path to the version marker. Honors ATOMIC_SETTINGS_HOME for tests. */
 function syncMarkerPath(): string {

@@ -5,8 +5,8 @@ import {
   resolveInputs,
   renderWorkflowList,
 } from "./workflow.ts";
-import type { WorkflowInput } from "@/sdk/workflows/index.ts";
-import type { DiscoveredWorkflow } from "@/sdk/workflows/index.ts";
+import type { WorkflowInput } from "../../sdk/workflows/index.ts";
+import type { DiscoveredWorkflow } from "../../sdk/workflows/index.ts";
 
 // ─── Colour handling ────────────────────────────────────────────────────────
 // The renderer emits ANSI sequences when the host terminal claims truecolor

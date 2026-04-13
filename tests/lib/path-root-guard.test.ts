@@ -12,7 +12,7 @@ import {
   isPathWithinRoot,
   assertPathWithinRoot,
   assertRealPathWithinRoot,
-} from "@/lib/path-root-guard.ts";
+} from "../../src/lib/path-root-guard.ts";
 
 // ---------------------------------------------------------------------------
 // isPathWithinRoot

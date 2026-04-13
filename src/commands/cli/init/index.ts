@@ -28,16 +28,16 @@ import {
   type SourceControlType,
   getScmKeys,
   isValidScm,
-} from "@/services/config/index.ts";
-import { pathExists } from "@/services/system/copy.ts";
-import { getConfigRoot } from "@/services/config/config-path.ts";
-import { isWindows, isWslInstalled, WSL_INSTALL_URL } from "@/services/system/detect.ts";
-import { saveAtomicConfig } from "@/services/config/atomic-config.ts";
-import { upsertTrustedWorkspacePath } from "@/services/config/settings.ts";
+} from "../../../services/config/index.ts";
+import { pathExists } from "../../../services/system/copy.ts";
+import { getConfigRoot } from "../../../services/config/config-path.ts";
+import { isWindows, isWslInstalled, WSL_INSTALL_URL } from "../../../services/system/detect.ts";
+import { saveAtomicConfig } from "../../../services/config/atomic-config.ts";
+import { upsertTrustedWorkspacePath } from "../../../services/config/settings.ts";
 import {
   ensureAtomicGlobalAgentConfigs,
   getTemplateAgentFolder,
-} from "@/services/config/atomic-global-config.ts";
+} from "../../../services/config/atomic-global-config.ts";
 import {
   installLocalScmSkills,
   reconcileScmVariants,
@@ -47,8 +47,8 @@ import {
   applyManagedOnboardingFiles,
   hasProjectOnboardingFiles,
 } from "./onboarding.ts";
-import { displayBlockBanner } from "@/theme/logo.ts";
-import { createPainter } from "@/theme/colors.ts";
+import { displayBlockBanner } from "../../../theme/logo.ts";
+import { createPainter } from "../../../theme/colors.ts";
 
 /**
  * Thrown when the user cancels an interactive prompt during init.

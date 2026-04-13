@@ -11,10 +11,10 @@
 
 import { join, dirname, resolve } from "node:path";
 import { homedir } from "node:os";
-import { SETTINGS_SCHEMA_URL } from "@/services/config/settings-schema.ts";
-import { ensureDir } from "@/services/system/copy.ts";
-import { errorMessage } from "@/sdk/errors.ts";
-import type { AgentKey, SourceControlType } from "@/services/config/definitions.ts";
+import { SETTINGS_SCHEMA_URL } from "./settings-schema.ts";
+import { ensureDir } from "../system/copy.ts";
+import { errorMessage } from "../../sdk/errors.ts";
+import type { AgentKey, SourceControlType } from "./definitions.ts";
 
 export interface TrustedPathEntry {
   workspacePath: string;

@@ -491,7 +491,9 @@ empty string" for the full explanation and wrong-vs-right examples.
 ```ts
 import type { SessionEvent } from "@github/copilot-sdk";
 
-/** Concatenate every top-level assistant turn's non-empty content. */
+/** Concatenate every top-level assistant turn's non-empty content.
+ *  Canonical definition — also referenced in failure-modes.md §F1
+ *  and computation-and-validation.md. */
 function getAssistantText(messages: SessionEvent[]): string {
   return messages
     .filter(
@@ -695,6 +697,9 @@ const result = await s.client.session.prompt({
 ### Extracting response text
 
 ```ts
+/** Filter for text parts only — non-text parts produce [object Object].
+ *  Canonical definition — also referenced in failure-modes.md §F3
+ *  and computation-and-validation.md. */
 function extractResponseText(
   parts: Array<{ type: string; [key: string]: unknown }>,
 ): string {

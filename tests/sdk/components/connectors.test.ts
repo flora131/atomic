@@ -2,11 +2,11 @@ import { test, expect, describe } from "bun:test";
 import {
   buildConnector,
   buildMergeConnector,
-} from "@/sdk/components/connectors.ts";
-import { NODE_W, NODE_H, V_GAP } from "@/sdk/components/layout.ts";
-import type { LayoutNode } from "@/sdk/components/layout.ts";
-import type { GraphTheme } from "@/sdk/components/graph-theme.ts";
-import type { SessionStatus } from "@/sdk/components/orchestrator-panel-types.ts";
+} from "../../../src/sdk/components/connectors.ts";
+import { NODE_W, NODE_H, V_GAP } from "../../../src/sdk/components/layout.ts";
+import type { LayoutNode } from "../../../src/sdk/components/layout.ts";
+import type { GraphTheme } from "../../../src/sdk/components/graph-theme.ts";
+import type { SessionStatus } from "../../../src/sdk/components/orchestrator-panel-types.ts";
 
 const theme: GraphTheme = {
   background: "#1e1e2e",

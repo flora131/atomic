@@ -2,9 +2,9 @@
 
 import { test, expect, describe, afterEach } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
-import { PanelStore } from "@/sdk/components/orchestrator-panel-store.ts";
-import { Statusline } from "@/sdk/components/statusline.tsx";
-import type { LayoutNode } from "@/sdk/components/layout.ts";
+import { PanelStore } from "../../../src/sdk/components/orchestrator-panel-store.ts";
+import { Statusline } from "../../../src/sdk/components/statusline.tsx";
+import type { LayoutNode } from "../../../src/sdk/components/layout.ts";
 import { TestProviders } from "./test-helpers.tsx";
 
 let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;

@@ -2,7 +2,7 @@
 
 import { test, expect, describe, afterEach, mock } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
-import { ErrorBoundary } from "@/sdk/components/error-boundary.tsx";
+import { ErrorBoundary } from "../../../src/sdk/components/error-boundary.tsx";
 
 let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;
 

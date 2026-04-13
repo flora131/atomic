@@ -140,5 +140,5 @@ _atomic_session() {
     esac
 }
 
-_atomic "$@"
+compdef _atomic atomic
 `;

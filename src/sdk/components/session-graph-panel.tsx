@@ -18,7 +18,14 @@ import {
   useRef,
   useContext,
 } from "react";
-import { tmuxRun } from "../runtime/tmux.ts";
+import {
+  tmuxRun,
+  escapeTmuxFormat,
+  TMUX_DEFAULT_STATUS_LEFT,
+  TMUX_DEFAULT_STATUS_LEFT_LENGTH,
+  TMUX_DEFAULT_STATUS_RIGHT,
+  TMUX_DEFAULT_STATUS_RIGHT_LENGTH,
+} from "../runtime/tmux.ts";
 import {
   useStore,
   useGraphTheme,
@@ -380,8 +387,8 @@ export function SessionGraphPanel() {
 
   useEffect(() => {
     if (store.viewMode === "attached" && store.activeAgentId) {
-      const name = store.activeAgentId;
-      const left = `#[bg=#6c7086,fg=#1e1e2e,bold] ATTACHED #[default] #[fg=#7f849c]\u203a #[fg=#cdd6f4]${name} #[fg=#7f849c]${activeAgentIdx + 1}/${subagentCount}`;
+      const safeName = escapeTmuxFormat(store.activeAgentId);
+      const left = `#[bg=#6c7086,fg=#1e1e2e,bold] ATTACHED #[default] #[fg=#7f849c]\u203a #[fg=#cdd6f4]${safeName} #[fg=#7f849c]${activeAgentIdx + 1}/${subagentCount}`;
       const right = `#[fg=#7f849c]Graph: #[fg=#cdd6f4]ctrl+g #[fg=#7f849c]| Next: #[fg=#cdd6f4]ctrl+\\ `;
 
       tmuxRun(["set", "-g", "status-left", left]);
@@ -389,21 +396,21 @@ export function SessionGraphPanel() {
       tmuxRun(["set", "-g", "status-right", right]);
       tmuxRun(["set", "-g", "status-right-length", "40"]);
     } else {
-      // Graph mode: restore defaults from tmux.conf
-      tmuxRun(["set", "-g", "status-left", " "]);
-      tmuxRun(["set", "-g", "status-left-length", "10"]);
-      tmuxRun(["set", "-g", "status-right", " #{session_name} | %H:%M "]);
-      tmuxRun(["set", "-g", "status-right-length", "60"]);
+      // Graph mode: restore defaults (constants from tmux.ts match tmux.conf)
+      tmuxRun(["set", "-g", "status-left", TMUX_DEFAULT_STATUS_LEFT]);
+      tmuxRun(["set", "-g", "status-left-length", TMUX_DEFAULT_STATUS_LEFT_LENGTH]);
+      tmuxRun(["set", "-g", "status-right", TMUX_DEFAULT_STATUS_RIGHT]);
+      tmuxRun(["set", "-g", "status-right-length", TMUX_DEFAULT_STATUS_RIGHT_LENGTH]);
     }
   }, [store.viewMode, store.activeAgentId, activeAgentIdx, subagentCount]);
 
   // Restore default tmux status bar on unmount
   useEffect(() => {
     return () => {
-      tmuxRun(["set", "-g", "status-left", " "]);
-      tmuxRun(["set", "-g", "status-left-length", "10"]);
-      tmuxRun(["set", "-g", "status-right", " #{session_name} | %H:%M "]);
-      tmuxRun(["set", "-g", "status-right-length", "60"]);
+      tmuxRun(["set", "-g", "status-left", TMUX_DEFAULT_STATUS_LEFT]);
+      tmuxRun(["set", "-g", "status-left-length", TMUX_DEFAULT_STATUS_LEFT_LENGTH]);
+      tmuxRun(["set", "-g", "status-right", TMUX_DEFAULT_STATUS_RIGHT]);
+      tmuxRun(["set", "-g", "status-right-length", TMUX_DEFAULT_STATUS_RIGHT_LENGTH]);
     };
   }, []);
 

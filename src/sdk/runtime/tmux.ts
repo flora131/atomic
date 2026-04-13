@@ -84,6 +84,22 @@ export function isInsideTmux(): boolean {
 }
 
 /**
+ * Check if we're inside the atomic tmux socket specifically.
+ *
+ * The `TMUX` env var has the format `<socket_path>,<pid>,<index>`.
+ * On Unix this looks like `/tmp/tmux-1000/atomic,12345,0` when the
+ * socket name is "atomic".
+ */
+export function isInsideAtomicSocket(): boolean {
+  const tmuxEnv = process.env.TMUX ?? process.env.PSMUX ?? "";
+  // Socket path is everything before the first comma.
+  const socketPath = tmuxEnv.split(",")[0] ?? "";
+  // The socket name is the last path segment.
+  const socketName = socketPath.split("/").pop() ?? "";
+  return socketName === SOCKET_NAME;
+}
+
+/**
  * Run a tmux command and return a result object.
  * Prefers this over the throwing `tmux()` for cases where callers
  * need to handle failure gracefully.
@@ -468,6 +484,36 @@ export function attachOrSwitch(sessionName: string): void {
   } else {
     attachSession(sessionName);
   }
+}
+
+/**
+ * Detach from the user's current tmux session and replace the client
+ * with an attach to a session on the atomic socket.
+ *
+ * Uses `detach-client -E` so the user's terminal seamlessly transitions
+ * from their tmux session to the atomic session — no nesting.
+ * Their original tmux session stays alive; they can re-attach with
+ * `tmux attach` after leaving the atomic session.
+ *
+ * Only call when {@link isInsideTmux} returns `true`.
+ */
+export function detachAndAttachAtomic(sessionName: string): void {
+  const binary = getMuxBinary();
+  if (!binary) {
+    throw new Error("No terminal multiplexer (tmux/psmux) found on PATH");
+  }
+  // Build the shell command that will run on the freed terminal.
+  const attachArgs = buildAttachArgs(sessionName);
+  const attachCmd = attachArgs
+    .map((a) => `"${a.replace(/[\\"$`!]/g, "\\$&")}"`)
+    .join(" ");
+
+  // Target the user's current tmux server (no -L flag) and replace
+  // the client process with an attach to the atomic socket.
+  Bun.spawnSync({
+    cmd: [binary, "detach-client", "-E", attachCmd],
+    stdio: ["inherit", "inherit", "inherit"],
+  });
 }
 
 /**

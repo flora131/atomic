@@ -24,14 +24,17 @@ import {
 } from "../../../services/config/atomic-global-config.ts";
 import { getConfigRoot } from "../../../services/config/config-path.ts";
 import {
+  isInsideAtomicSocket,
   isInsideTmux,
   isTmuxInstalled,
   resetMuxBinaryCache,
 } from "../../../sdk/workflows/index.ts";
 import {
   createSession,
+  detachAndAttachAtomic,
   killSession,
   spawnMuxAttach,
+  switchClient,
   SOCKET_NAME,
 } from "../../../sdk/workflows/index.ts";
 import { ensureTmuxInstalled } from "../../../lib/spawn.ts";
@@ -137,11 +140,10 @@ function buildLauncherScript(
 /**
  * Spawn the native agent CLI as an interactive subprocess.
  *
- * When running inside a tmux/psmux session, the agent spawns inline
- * in the current pane with inherited stdio.
- *
- * When running outside tmux, a new tmux session is created and
- * attached so the agent benefits from multiplexer features.
+ * Always creates a new session in the atomic tmux socket and attaches
+ * to it, regardless of whether the user is already inside tmux.
+ * Falls back to direct spawn only when no TTY is available or tmux
+ * cannot be installed.
  *
  * @param options - Chat command configuration options
  * @returns Exit code from the agent process
@@ -174,11 +176,6 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   const args = buildAgentArgs(agentType, passthroughArgs);
   const cmd = [config.cmd, ...args];
   const envVars = config.env_vars;
-
-  // ── Inside tmux: spawn inline in the current pane ──
-  if (isInsideTmux()) {
-    return spawnDirect(cmd, projectRoot, envVars);
-  }
 
   // ── No TTY: tmux attach requires a real terminal ──
   if (!process.stdin.isTTY) {
@@ -219,11 +216,26 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     ? `pwsh -NoProfile -File "${launcherPath}"`
     : `bash "${launcherPath}"`;
 
-  // ── Outside tmux: create a new session and attach ──
+  // ── Create session on the atomic socket and attach ──
   try {
     createSession(windowName, shellCmd, undefined, projectRoot);
 
     console.log(`[atomic] Session: ${windowName} (FYI all atomic sessions run on tmux -L ${SOCKET_NAME})`);
+
+    if (isInsideAtomicSocket()) {
+      // Already on the atomic server — just switch to the new session.
+      switchClient(windowName);
+      try { await rm(launcherPath, { force: true }); } catch {}
+      return 0;
+    }
+
+    if (isInsideTmux()) {
+      // Inside a different tmux server — detach and replace the client
+      // with an attach to the atomic socket (no nesting).
+      detachAndAttachAtomic(windowName);
+      try { await rm(launcherPath, { force: true }); } catch {}
+      return 0;
+    }
 
     const attachProc = spawnMuxAttach(windowName);
     const exitCode = await attachProc.exited;

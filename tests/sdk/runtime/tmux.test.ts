@@ -38,8 +38,8 @@ import {
   spawnMuxAttach,
   detachAndAttachAtomic,
   parseSessionName,
-} from "../../../src/sdk/workflows/index.ts";
-import { sendViaPasteBuffer } from "../../../src/sdk/runtime/tmux.ts";
+  sendViaPasteBuffer,
+} from "../../../src/sdk/runtime/tmux.ts";
 
 // ---------------------------------------------------------------------------
 // Shared test helpers

@@ -10,20 +10,50 @@
 import { select, isCancel, cancel } from "@clack/prompts";
 import { createPainter, type PaletteKey } from "../../theme/colors.ts";
 import {
-  listSessions,
-  isTmuxInstalled,
-  isInsideAtomicSocket,
-  isInsideTmux,
-  sessionExists,
-  switchClient,
-  spawnMuxAttach,
-  detachAndAttachAtomic,
+  listSessions as _listSessions,
+  isTmuxInstalled as _isTmuxInstalled,
+  isInsideAtomicSocket as _isInsideAtomicSocket,
+  isInsideTmux as _isInsideTmux,
+  sessionExists as _sessionExists,
+  switchClient as _switchClient,
+  spawnMuxAttach as _spawnMuxAttach,
+  detachAndAttachAtomic as _detachAndAttachAtomic,
   SOCKET_NAME,
 } from "../../sdk/workflows/index.ts";
 import type { TmuxSession, SessionType } from "../../sdk/runtime/tmux.ts";
+import type { Subprocess } from "bun";
 
 /** Scope controls which session types a command shows. */
 export type SessionScope = "chat" | "workflow" | "all";
+
+/** Injectable tmux dependencies for command functions. */
+export interface SessionDeps {
+  isTmuxInstalled: () => boolean;
+  sessionExists: (name: string) => boolean;
+  listSessions: () => TmuxSession[];
+  isInsideAtomicSocket: () => boolean;
+  isInsideTmux: () => boolean;
+  switchClient: (name: string) => void;
+  spawnMuxAttach: (name: string) => Subprocess;
+  detachAndAttachAtomic: (name: string) => void;
+  /** Prompt function for the session picker — defaults to @clack/prompts select. */
+  select: typeof select;
+  isCancel: typeof isCancel;
+}
+
+/** Default deps — wire through to the real implementations. */
+const defaultDeps: SessionDeps = {
+  isTmuxInstalled: _isTmuxInstalled,
+  sessionExists: _sessionExists,
+  listSessions: _listSessions,
+  isInsideAtomicSocket: _isInsideAtomicSocket,
+  isInsideTmux: _isInsideTmux,
+  switchClient: _switchClient,
+  spawnMuxAttach: _spawnMuxAttach,
+  detachAndAttachAtomic: _detachAndAttachAtomic,
+  select,
+  isCancel,
+};
 
 // ─── Rendering ──────────────────────────────────────────────────────────────
 
@@ -125,8 +155,8 @@ export function filterByAgent(sessions: TmuxSession[], agents: string[]): TmuxSe
 
 // ─── Session list command ───────────────────────────────────────────────────
 
-export async function sessionListCommand(agents: string[] = [], scope: SessionScope = "all"): Promise<number> {
-  if (!isTmuxInstalled()) {
+export async function sessionListCommand(agents: string[] = [], scope: SessionScope = "all", deps: SessionDeps = defaultDeps): Promise<number> {
+  if (!deps.isTmuxInstalled()) {
     const paint = createPainter();
     process.stdout.write(
       "\n  " + paint("text", "no sessions running", { bold: true }) +
@@ -135,7 +165,7 @@ export async function sessionListCommand(agents: string[] = [], scope: SessionSc
     return 0;
   }
 
-  const sessions = filterByAgent(filterByScope(listSessions(), scope), agents);
+  const sessions = filterByAgent(filterByScope(deps.listSessions(), scope), agents);
   process.stdout.write(renderSessionList(sessions));
   return 0;
 }
@@ -147,21 +177,21 @@ export async function sessionListCommand(agents: string[] = [], scope: SessionSc
  * already on atomic socket → switch-client, inside other tmux → detach+attach,
  * outside tmux → spawn attach.
  */
-export async function sessionConnectCommand(sessionName: string): Promise<number> {
+export async function sessionConnectCommand(sessionName: string, deps: SessionDeps = defaultDeps): Promise<number> {
   const paint = createPainter();
 
-  if (!isTmuxInstalled()) {
+  if (!deps.isTmuxInstalled()) {
     process.stderr.write(
       paint("error", "Error: tmux is not installed.") + "\n",
     );
     return 1;
   }
 
-  if (!sessionExists(sessionName)) {
+  if (!deps.sessionExists(sessionName)) {
     process.stderr.write(
       paint("error", `Error: session '${sessionName}' not found.`) + "\n",
     );
-    const sessions = listSessions();
+    const sessions = deps.listSessions();
     if (sessions.length > 0) {
       process.stderr.write(
         "\n" + paint("dim", "Available sessions:") + "\n",
@@ -176,17 +206,17 @@ export async function sessionConnectCommand(sessionName: string): Promise<number
     return 1;
   }
 
-  if (isInsideAtomicSocket()) {
-    switchClient(sessionName);
+  if (deps.isInsideAtomicSocket()) {
+    deps.switchClient(sessionName);
     return 0;
   }
 
-  if (isInsideTmux()) {
-    detachAndAttachAtomic(sessionName);
+  if (deps.isInsideTmux()) {
+    deps.detachAndAttachAtomic(sessionName);
     return 0;
   }
 
-  const proc = spawnMuxAttach(sessionName);
+  const proc = deps.spawnMuxAttach(sessionName);
   return await proc.exited;
 }
 
@@ -196,24 +226,24 @@ export async function sessionConnectCommand(sessionName: string): Promise<number
  * Show an fzf-style interactive picker for all running atomic sessions.
  * Used by `atomic session connect` (no args).
  */
-export async function sessionPickerCommand(agents: string[] = [], scope: SessionScope = "all"): Promise<number> {
+export async function sessionPickerCommand(agents: string[] = [], scope: SessionScope = "all", deps: SessionDeps = defaultDeps): Promise<number> {
   const paint = createPainter();
 
-  if (!isTmuxInstalled()) {
+  if (!deps.isTmuxInstalled()) {
     process.stderr.write(
       paint("error", "Error: tmux is not installed.") + "\n",
     );
     return 1;
   }
 
-  const sessions = filterByAgent(filterByScope(listSessions(), scope), agents);
+  const sessions = filterByAgent(filterByScope(deps.listSessions(), scope), agents);
 
   if (sessions.length === 0) {
     process.stdout.write(renderSessionList(sessions));
     return 0;
   }
 
-  const selected = await select({
+  const selected = await deps.select({
     message: "Connect to session",
     options: sessions.map((s) => {
       const age = formatAge(s.created);
@@ -226,10 +256,10 @@ export async function sessionPickerCommand(agents: string[] = [], scope: Session
     }),
   });
 
-  if (isCancel(selected)) {
+  if (deps.isCancel(selected)) {
     cancel("Cancelled.");
     return 0;
   }
 
-  return sessionConnectCommand(selected as string);
+  return sessionConnectCommand(selected as string, deps);
 }

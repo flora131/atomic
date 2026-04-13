@@ -1,5 +1,13 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { renderSessionList, filterByAgent, filterByScope } from "./session.ts";
+import { describe, test, expect, beforeAll, afterAll, beforeEach, mock } from "bun:test";
+import {
+  renderSessionList,
+  filterByAgent,
+  filterByScope,
+  sessionListCommand,
+  sessionConnectCommand,
+  sessionPickerCommand,
+} from "./session.ts";
+import type { SessionDeps } from "./session.ts";
 import type { TmuxSession } from "../../sdk/runtime/tmux.ts";
 
 // Force plain-text output so assertions match readable substrings.
@@ -192,6 +200,45 @@ describe("filterByAgent", () => {
   });
 });
 
+// ─── renderSessionList — formatAge branches ─────────────────────────────
+
+describe("renderSessionList — formatAge edge cases", () => {
+  test("shows hours-ago for sessions older than 60 minutes", () => {
+    const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+    const sessions: TmuxSession[] = [
+      { name: "old-session", windows: 1, created: threeHoursAgo, attached: false },
+    ];
+    const output = renderSessionList(sessions);
+    expect(output).toContain("3h ago");
+  });
+
+  test("shows days-ago for sessions older than 24 hours", () => {
+    const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+    const sessions: TmuxSession[] = [
+      { name: "ancient-session", windows: 1, created: twoDaysAgo, attached: false },
+    ];
+    const output = renderSessionList(sessions);
+    expect(output).toContain("2d ago");
+  });
+
+  test("shows raw string for unparseable dates", () => {
+    const sessions: TmuxSession[] = [
+      { name: "bad-date", windows: 1, created: "not-a-date", attached: false },
+    ];
+    const output = renderSessionList(sessions);
+    expect(output).toContain("not-a-date");
+  });
+
+  test("shows 'just now' for future timestamps", () => {
+    const future = new Date(Date.now() + 60_000).toISOString();
+    const sessions: TmuxSession[] = [
+      { name: "future-session", windows: 1, created: future, attached: false },
+    ];
+    const output = renderSessionList(sessions);
+    expect(output).toContain("just now");
+  });
+});
+
 // ─── filterByScope + filterByAgent combined ───────────────────────────────
 
 describe("filterByScope + filterByAgent combined", () => {
@@ -218,5 +265,227 @@ describe("filterByScope + filterByAgent combined", () => {
   test("scope=all + agent=claude returns both chat and workflow claude sessions", () => {
     const result = filterByAgent(filterByScope(sessions, "all"), ["claude"]);
     expect(result).toHaveLength(2);
+  });
+});
+
+// ─── Command functions (dependency-injected mocks) ──────────────────────────
+//
+// Instead of mock.module (which leaks across test files in Bun — see
+// https://github.com/oven-sh/bun/issues/12823), each command function
+// receives its tmux/prompt dependencies via a `SessionDeps` parameter.
+// This keeps the mocks scoped to these tests without polluting the
+// module registry for other test files that import from tmux.ts.
+
+const tmuxMocks = {
+  isTmuxInstalled: mock<() => boolean>(() => true),
+  sessionExists: mock<(name: string) => boolean>(() => true),
+  listSessions: mock<() => TmuxSession[]>(() => []),
+  isInsideAtomicSocket: mock<() => boolean>(() => false),
+  isInsideTmux: mock<() => boolean>(() => false),
+  switchClient: mock<(name: string) => void>(() => {}),
+  detachAndAttachAtomic: mock<(name: string) => void>(() => {}),
+  spawnMuxAttach: mock(() => ({ exited: Promise.resolve(0) }) as never),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  select: mock<(...args: any[]) => Promise<string | symbol>>(() => Promise.resolve("my-session")),
+  isCancel: ((v: unknown) => typeof v === "symbol") as SessionDeps["isCancel"],
+};
+
+/** Build a deps object from the current mock state. */
+function makeDeps(): SessionDeps {
+  return tmuxMocks as unknown as SessionDeps;
+}
+
+function resetTmuxMocks(): void {
+  tmuxMocks.isTmuxInstalled.mockReset().mockReturnValue(true);
+  tmuxMocks.sessionExists.mockReset().mockReturnValue(true);
+  tmuxMocks.listSessions.mockReset().mockReturnValue([]);
+  tmuxMocks.isInsideAtomicSocket.mockReset().mockReturnValue(false);
+  tmuxMocks.isInsideTmux.mockReset().mockReturnValue(false);
+  tmuxMocks.switchClient.mockReset();
+  tmuxMocks.detachAndAttachAtomic.mockReset();
+  tmuxMocks.spawnMuxAttach.mockReset().mockReturnValue({ exited: Promise.resolve(0) } as never);
+  tmuxMocks.select.mockReset().mockResolvedValue("my-session");
+}
+
+// ─── sessionListCommand ─────────────────────────────────────────────────
+
+describe("sessionListCommand", () => {
+  beforeEach(resetTmuxMocks);
+
+  test("returns 0 and prints 'no sessions' when tmux is not installed", async () => {
+    tmuxMocks.isTmuxInstalled.mockReturnValue(false);
+    const chunks: string[] = [];
+    const origWrite = process.stdout.write;
+    process.stdout.write = ((c: string) => { chunks.push(c); return true; }) as typeof process.stdout.write;
+    try {
+      const code = await sessionListCommand([], "all", makeDeps());
+      expect(code).toBe(0);
+      const output = chunks.join("");
+      expect(output).toContain("no sessions running");
+      expect(output).toContain("tmux is not installed");
+    } finally {
+      process.stdout.write = origWrite;
+    }
+  });
+
+  test("returns 0 and prints session list when tmux is installed", async () => {
+    const now = new Date().toISOString();
+    tmuxMocks.listSessions.mockReturnValue([
+      { name: "atomic-chat-claude-aaa11111", windows: 1, created: now, attached: false, type: "chat" as const, agent: "claude" },
+    ]);
+    const chunks: string[] = [];
+    const origWrite = process.stdout.write;
+    process.stdout.write = ((c: string) => { chunks.push(c); return true; }) as typeof process.stdout.write;
+    try {
+      const code = await sessionListCommand([], "all", makeDeps());
+      expect(code).toBe(0);
+      const output = chunks.join("");
+      expect(output).toContain("1 session");
+      expect(output).toContain("atomic-chat-claude-aaa11111");
+    } finally {
+      process.stdout.write = origWrite;
+    }
+  });
+
+  test("filters by scope and agent", async () => {
+    const now = new Date().toISOString();
+    tmuxMocks.listSessions.mockReturnValue([
+      { name: "chat-1", windows: 1, created: now, attached: false, type: "chat" as const, agent: "claude" },
+      { name: "wf-1", windows: 1, created: now, attached: false, type: "workflow" as const, agent: "opencode" },
+    ]);
+    const chunks: string[] = [];
+    const origWrite = process.stdout.write;
+    process.stdout.write = ((c: string) => { chunks.push(c); return true; }) as typeof process.stdout.write;
+    try {
+      const code = await sessionListCommand(["claude"], "chat", makeDeps());
+      expect(code).toBe(0);
+      const output = chunks.join("");
+      expect(output).toContain("chat-1");
+      expect(output).not.toContain("wf-1");
+    } finally {
+      process.stdout.write = origWrite;
+    }
+  });
+});
+
+// ─── sessionConnectCommand ──────────────────────────────────────────────
+
+describe("sessionConnectCommand", () => {
+  beforeEach(resetTmuxMocks);
+
+  test("returns 1 when tmux is not installed", async () => {
+    tmuxMocks.isTmuxInstalled.mockReturnValue(false);
+    const origWrite = process.stderr.write;
+    process.stderr.write = (() => true) as typeof process.stderr.write;
+    try {
+      const code = await sessionConnectCommand("my-session", makeDeps());
+      expect(code).toBe(1);
+    } finally {
+      process.stderr.write = origWrite;
+    }
+  });
+
+  test("returns 1 when session does not exist", async () => {
+    tmuxMocks.sessionExists.mockReturnValue(false);
+    const origWrite = process.stderr.write;
+    process.stderr.write = (() => true) as typeof process.stderr.write;
+    try {
+      const code = await sessionConnectCommand("missing", makeDeps());
+      expect(code).toBe(1);
+    } finally {
+      process.stderr.write = origWrite;
+    }
+  });
+
+  test("lists available sessions when target not found", async () => {
+    tmuxMocks.sessionExists.mockReturnValue(false);
+    const now = new Date().toISOString();
+    tmuxMocks.listSessions.mockReturnValue([
+      { name: "existing", windows: 1, created: now, attached: false },
+    ]);
+    const chunks: string[] = [];
+    const origWrite = process.stderr.write;
+    process.stderr.write = ((c: string) => { chunks.push(c); return true; }) as typeof process.stderr.write;
+    try {
+      await sessionConnectCommand("missing", makeDeps());
+      const output = chunks.join("");
+      expect(output).toContain("existing");
+    } finally {
+      process.stderr.write = origWrite;
+    }
+  });
+
+  test("uses switch-client when inside atomic socket", async () => {
+    tmuxMocks.isInsideAtomicSocket.mockReturnValue(true);
+    const code = await sessionConnectCommand("my-session", makeDeps());
+    expect(code).toBe(0);
+    expect(tmuxMocks.switchClient).toHaveBeenCalledWith("my-session");
+  });
+
+  test("uses detach-and-attach when inside non-atomic tmux", async () => {
+    tmuxMocks.isInsideTmux.mockReturnValue(true);
+    const code = await sessionConnectCommand("my-session", makeDeps());
+    expect(code).toBe(0);
+    expect(tmuxMocks.detachAndAttachAtomic).toHaveBeenCalledWith("my-session");
+  });
+
+  test("spawns attach when outside tmux", async () => {
+    const code = await sessionConnectCommand("my-session", makeDeps());
+    expect(code).toBe(0);
+    expect(tmuxMocks.spawnMuxAttach).toHaveBeenCalledWith("my-session");
+  });
+});
+
+// ─── sessionPickerCommand ──────────────────────────────────────────────
+
+describe("sessionPickerCommand", () => {
+  beforeEach(resetTmuxMocks);
+
+  test("returns 1 when tmux is not installed", async () => {
+    tmuxMocks.isTmuxInstalled.mockReturnValue(false);
+    const origWrite = process.stderr.write;
+    process.stderr.write = (() => true) as typeof process.stderr.write;
+    try {
+      const code = await sessionPickerCommand([], "all", makeDeps());
+      expect(code).toBe(1);
+    } finally {
+      process.stderr.write = origWrite;
+    }
+  });
+
+  test("prints empty state and returns 0 when no sessions exist", async () => {
+    const chunks: string[] = [];
+    const origWrite = process.stdout.write;
+    process.stdout.write = ((c: string) => { chunks.push(c); return true; }) as typeof process.stdout.write;
+    try {
+      const code = await sessionPickerCommand([], "all", makeDeps());
+      expect(code).toBe(0);
+      const output = chunks.join("");
+      expect(output).toContain("no sessions running");
+    } finally {
+      process.stdout.write = origWrite;
+    }
+  });
+
+  test("shows picker and connects to selected session", async () => {
+    const now = new Date().toISOString();
+    tmuxMocks.listSessions.mockReturnValue([
+      { name: "my-session", windows: 1, created: now, attached: false },
+    ]);
+    tmuxMocks.select.mockResolvedValue("my-session");
+    const code = await sessionPickerCommand([], "all", makeDeps());
+    expect(code).toBe(0);
+    expect(tmuxMocks.spawnMuxAttach).toHaveBeenCalledWith("my-session");
+  });
+
+  test("returns 0 when user cancels picker", async () => {
+    const now = new Date().toISOString();
+    tmuxMocks.listSessions.mockReturnValue([
+      { name: "a-session", windows: 1, created: now, attached: false },
+    ]);
+    tmuxMocks.select.mockResolvedValue(Symbol("cancel"));
+    const code = await sessionPickerCommand([], "all", makeDeps());
+    expect(code).toBe(0);
+    expect(tmuxMocks.spawnMuxAttach).not.toHaveBeenCalled();
   });
 });

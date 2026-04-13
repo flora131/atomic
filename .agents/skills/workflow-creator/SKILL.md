@@ -18,7 +18,7 @@ Load the topic-specific reference files from `references/` based on priority. **
 | **1** | `getting-started.md` | **Always** — quick-start examples for all 3 SDKs, SDK exports, `SessionContext` reference |
 | **1** | `failure-modes.md` | **Always for multi-session workflows** — 15 catalogued failures (silent + loud) with wrong-vs-right patterns and a pre-ship design checklist |
 | **1** | `workflow-inputs.md` | **Always when declaring structured inputs or documenting how a workflow is invoked** — `WorkflowInput` schema, field-type selection, picker + CLI flag semantics, builtin-protection rules, invocation cheat sheet |
-| **2** | `agent-sessions.md` | When writing SDK calls — `s.session.query()` (Claude), `s.session.sendAndWait()` (Copilot), `s.client.session.prompt()` (OpenCode); includes critical pitfalls on timeouts and session lifecycle |
+| **2** | `agent-sessions.md` | When writing SDK calls — `s.session.query()` (Claude), `s.session.send()` (Copilot), `s.client.session.prompt()` (OpenCode); includes critical pitfalls on session lifecycle and when to use `sendAndWait` with explicit timeouts |
 | **2** | `control-flow.md` | When using loops, conditionals, parallel execution, or review/fix patterns |
 | **2** | `state-and-data-flow.md` | When passing data between sessions — `s.save()`, `s.transcript()`, `s.getMessages()`, file persistence, transcript compression |
 | **3** | `computation-and-validation.md` | When adding deterministic computation, response parsing, validation, quality gates, or file I/O |
@@ -160,7 +160,7 @@ Hard constraints enforced by the builder, loader, and runtime:
 4. **Unique session names** — every `ctx.stage()` call must use a unique `name` across the workflow run.
 5. **Completed-only reads** — `transcript()` and `getMessages()` only access sessions whose callback has returned and saves have flushed. Attempting to read a still-running session throws.
 6. **Graph topology is auto-inferred** — the runtime derives parent-child edges from `await`/`Promise.all` patterns. Sequential `await` creates a chain; `Promise.all([...])` branches from the same parent; a stage after `Promise.all` receives all parallel stages as parents. See `references/control-flow.md` for full details.
-7. **Do not manually create clients or sessions** — the runtime auto-creates `s.client` and `s.session` from `clientOpts` and `sessionOpts`. Use `s.session.query()`, `s.session.sendAndWait()`, and `s.client.session.prompt()` instead.
+7. **Do not manually create clients or sessions** — the runtime auto-creates `s.client` and `s.session` from `clientOpts` and `sessionOpts`. Use `s.session.query()`, `s.session.send()`, and `s.client.session.prompt()` instead.
 
 ## Concept-to-Code Mapping
 
@@ -220,7 +220,7 @@ Pass a type parameter to `defineWorkflow<"agent">()` to narrow all context types
 | Agent | Type Parameter | Primary Session API |
 |-------|---------------|---------------------|
 | Claude | `defineWorkflow<"claude">` | `s.session.query(prompt)` — sends prompt to the Claude TUI pane |
-| Copilot | `defineWorkflow<"copilot">` | `s.session.sendAndWait({ prompt }, TIMEOUT_MS)` — **explicit timeout required** (default 60s throws) |
+| Copilot | `defineWorkflow<"copilot">` | `s.session.send({ prompt })` — fire-and-forget; use `sendAndWait({ prompt }, timeoutMs)` only when the user explicitly requests timeout-based waiting |
 | OpenCode | `defineWorkflow<"opencode">` | `s.client.session.prompt({ sessionID: s.session.id, parts: [...] })` |
 
 The runtime manages client/session lifecycle automatically. For native SDK types and advanced APIs, import directly from the provider packages (`@github/copilot-sdk`, `@anthropic-ai/claude-agent-sdk`, `@opencode-ai/sdk/v2`).
@@ -246,9 +246,9 @@ Per-SDK cheat sheet:
 
 | Concern | Claude | Copilot | OpenCode |
 |---------|--------|---------|----------|
-| Send prompt | `s.session.query(prompt)` | `s.session.sendAndWait({ prompt }, TIMEOUT)` | `s.client.session.prompt({ sessionID: s.session.id, parts: [{ type: "text", text: prompt }] })` |
+| Send prompt | `s.session.query(prompt)` | `s.session.send({ prompt })` | `s.client.session.prompt({ sessionID: s.session.id, parts: [{ type: "text", text: prompt }] })` |
 | Save output | `s.save(s.sessionId)` | `s.save(await s.session.getMessages())` | `s.save(result.data!)` |
-| Timeout | Per-query defaults via sessionOpts | **Mandatory** 2nd arg (default 60s throws!) | N/A |
+| Timeout | Per-query defaults via sessionOpts | N/A (`send` has no timeout; `sendAndWait` accepts optional timeout, default 60s) | N/A |
 | Context model | Tmux pane (accumulates across turns) | Fresh per `ctx.stage()` | Fresh per `ctx.stage()` |
 | Extract text | `result.output` (string) | `getAssistantText(messages)` (see `failure-modes.md` F1) | `extractResponseText(result.data!.parts)` (see `failure-modes.md` F3) |
 

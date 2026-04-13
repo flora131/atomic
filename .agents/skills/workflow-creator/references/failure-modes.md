@@ -39,7 +39,7 @@ Silent failures are catalogued first below. Loud failures are grouped at the end
 | [F7](#f7-continued-sessions-accumulate-state-across-loop-iterations) | Continued sessions accumulate state across loop iterations (lost-in-middle) | all | silent |
 | [F8](#f8-fenced-block-parsers-break-when-the-model-adds-prose) | Fenced-block parsers break when the model adds prose before/after | all | silent |
 | [F9](#f9-ssave-receives-the-wrong-shape) | `s.save()` receives the wrong shape for the SDK | all | silent |
-| [F10](#f10-copilot-sendandwait-default-60s-timeout-throws) | Copilot: `sendAndWait` default 60s timeout throws | Copilot | loud |
+| [F10](#f10-copilot-sendandwait-default-60s-timeout-throws) | Copilot: `sendAndWait` default 60s timeout throws (use `send` by default) | Copilot | loud |
 | [F11](#f11-manual-claude-session-initialization-resolved-by-runtime) | ~~Manual Claude session initialization~~ (resolved by runtime) | Claude | N/A |
 | [F12](#f12-resume-session-tries-to-swap-agents) | Resume session tries to swap agents | Copilot, OpenCode | loud |
 | [F13](#f13-parallel-siblings-read-each-others-transcripts) | Parallel siblings read each other's transcripts | all | loud |
@@ -457,7 +457,7 @@ expects, and the runtime doesn't type-check the argument beyond "anything".
 // Claude — saves the wrong thing
 s.save(result.output);
 
-// Copilot — saves an empty array if called before sendAndWait
+// Copilot — saves an empty array if called before send
 s.save(await s.session.getMessages());
 // Or saves one message object instead of the array
 s.save((await s.session.getMessages()).at(-1));
@@ -484,13 +484,17 @@ log the length. A 0-length or JSON-that-isn't-prose signature = F9.
 subsequent `ctx.stage()` call never executes — the throw propagates out of
 `run()` and halts the workflow.
 
-**Full write-up.** `agent-sessions.md` §"Critical pitfall: `sendAndWait` has
-a 60-second default timeout".
-
-**Fix.** Always pass an explicit timeout as the second argument.
+**Fix.** Use `send` instead of `sendAndWait` — it has no timeout and avoids
+the problem entirely. Only use `sendAndWait` when the user explicitly
+requests timeout-based waiting, and always pass an explicit timeout (default
+to 5 minutes if the user is unsure).
 
 ```ts
-const SEND_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+// Default pattern — no timeout, no risk
+await s.session.send({ prompt });
+
+// Only when the user explicitly wants timeout-gated waiting
+const SEND_TIMEOUT_MS = 5 * 60 * 1000; // ask the user for a value
 await s.session.sendAndWait({ prompt }, SEND_TIMEOUT_MS);
 ```
 
@@ -662,7 +666,7 @@ accessing `.result` without awaiting, the type will be `Promise`, not `T`.
 
 Before shipping a multi-session workflow, walk the list:
 
-- [ ] Every `s.session.sendAndWait` call passes an explicit timeout (F10)
+- [ ] Copilot stages use `s.session.send` by default; `sendAndWait` only with an explicit user-requested timeout (F10)
 - [ ] Every fresh-session handoff forwards context explicitly (F5)
 - [ ] Every prompt whose output feeds a downstream stage explicitly requests trailing commentary (F6)
 - [ ] Response-text extraction uses the per-SDK correct pattern (F1-F4)

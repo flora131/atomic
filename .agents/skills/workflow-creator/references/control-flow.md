@@ -166,25 +166,16 @@ The inter-session pattern is the right fit here: every review and every fix beco
 
 ### Same pattern with Copilot
 
-Loops amplify the `sendAndWait` 60-second timeout pitfall — any iteration
-whose agent response takes longer than the default throws and kills the
-entire surrounding session. Always pass an explicit timeout. See the
-"Critical pitfall" section in `agent-sessions.md`.
-
 ```ts
-// Explicit per-call timeout — see agent-sessions.md pitfall note.
-const SEND_TIMEOUT_MS = 30 * 60 * 1000;
-
 .run(async (ctx) => {
   const MAX_CYCLES = 10;
   let consecutiveClean = 0;
 
   for (let cycle = 1; cycle <= MAX_CYCLES; cycle++) {
     const review = await ctx.stage({ name: `review-${cycle}` }, {}, {}, async (s) => {
-      await s.session.sendAndWait(
-        { prompt: buildReviewPrompt((ctx.inputs.prompt ?? "")) },
-        SEND_TIMEOUT_MS,
-      );
+      await s.session.send({
+        prompt: buildReviewPrompt((ctx.inputs.prompt ?? "")),
+      });
       const reviewRaw = getAssistantText(await s.session.getMessages()); // see failure-modes.md §F1
 
       s.save(await s.session.getMessages());
@@ -206,10 +197,9 @@ const SEND_TIMEOUT_MS = 30 * 60 * 1000;
       : buildFixSpecFromRawReview(reviewRaw, (ctx.inputs.prompt ?? ""));
 
     await ctx.stage({ name: `fix-${cycle}` }, {}, {}, async (s) => {
-      await s.session.sendAndWait(
-        { prompt: fixPrompt || "Fix remaining issues." },
-        SEND_TIMEOUT_MS,
-      );
+      await s.session.send({
+        prompt: fixPrompt || "Fix remaining issues.",
+      });
 
       s.save(await s.session.getMessages());
     });

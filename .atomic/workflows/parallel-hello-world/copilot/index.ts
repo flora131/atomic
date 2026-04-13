@@ -1,7 +1,5 @@
 import { defineWorkflow } from "@bastani/atomic/workflows";
 
-const SEND_TIMEOUT_MS = 30 * 60 * 1000;
-
 /** Compose the initial greeting prompt from the structured inputs. */
 function buildGreetPrompt(inputs: Record<string, string>): string {
   const topic = inputs.topic ?? "the world";
@@ -37,7 +35,7 @@ export default defineWorkflow<"copilot">({
       {},
       {},
       async (s) => {
-        await s.session.sendAndWait({ prompt: seedPrompt }, SEND_TIMEOUT_MS);
+        await s.session.send({ prompt: seedPrompt });
         s.save(await s.session.getMessages());
       },
     );
@@ -49,12 +47,9 @@ export default defineWorkflow<"copilot">({
         {},
         async (s) => {
           const prior = await s.transcript(greet);
-          await s.session.sendAndWait(
-            {
-              prompt: `Rewrite the following as a formal greeting:\n\n${prior.content}`,
-            },
-            SEND_TIMEOUT_MS,
-          );
+          await s.session.send({
+            prompt: `Rewrite the following as a formal greeting:\n\n${prior.content}`,
+          });
           s.save(await s.session.getMessages());
         },
       ),
@@ -64,12 +59,9 @@ export default defineWorkflow<"copilot">({
         {},
         async (s) => {
           const prior = await s.transcript(greet);
-          await s.session.sendAndWait(
-            {
-              prompt: `Rewrite the following as a casual greeting:\n\n${prior.content}`,
-            },
-            SEND_TIMEOUT_MS,
-          );
+          await s.session.send({
+            prompt: `Rewrite the following as a casual greeting:\n\n${prior.content}`,
+          });
           s.save(await s.session.getMessages());
         },
       ),
@@ -82,12 +74,9 @@ export default defineWorkflow<"copilot">({
       async (s) => {
         const formalText = await s.transcript(formal);
         const casualText = await s.transcript(casual);
-        await s.session.sendAndWait(
-          {
-            prompt: `Combine these two greetings into a single message:\n\n## Formal\n${formalText.content}\n\n## Casual\n${casualText.content}`,
-          },
-          SEND_TIMEOUT_MS,
-        );
+        await s.session.send({
+          prompt: `Combine these two greetings into a single message:\n\n## Formal\n${formalText.content}\n\n## Casual\n${casualText.content}`,
+        });
         s.save(await s.session.getMessages());
       },
     );

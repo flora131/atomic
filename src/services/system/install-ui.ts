@@ -23,11 +23,11 @@
  * library, just what auto-sync needs to stop being visually noisy.
  */
 
-import { COLORS } from "@/theme/colors.ts";
+import { COLORS } from "../../theme/colors.ts";
 import {
   supportsTrueColor,
   supports256Color,
-} from "@/services/system/detect.ts";
+} from "./detect.ts";
 
 const BAR_WIDTH = 30;
 const BAR_FILLED = "■";

@@ -4,4 +4,4 @@
  * Centralized access to the CLI's agent and SCM configuration.
  */
 
-export * from "@/services/config/definitions.ts";
+export * from "./definitions.ts";

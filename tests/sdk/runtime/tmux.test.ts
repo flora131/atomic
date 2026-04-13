@@ -29,7 +29,7 @@ import {
   switchClient,
   getCurrentSession,
   attachOrSwitch,
-} from "@/sdk/workflows/index.ts";
+} from "../../../src/sdk/workflows/index.ts";
 
 // ---------------------------------------------------------------------------
 // Shared test helpers

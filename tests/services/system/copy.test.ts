@@ -28,7 +28,7 @@ import {
   pathExists,
   isDirectory,
   isFileEmpty,
-} from "@/services/system/copy.ts";
+} from "../../../src/services/system/copy.ts";
 
 let tmpDir: string;
 

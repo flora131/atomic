@@ -6,7 +6,7 @@
  * locally per-project based on the user's selected SCM + active agent.
  */
 
-import { ALL_SCM_SKILLS } from "@/services/config/index.ts";
+import { ALL_SCM_SKILLS } from "../config/index.ts";
 
 const SKILLS_REPO = "https://github.com/flora131/atomic.git";
 const SKILLS_AGENTS = ["claude-code", "opencode", "github-copilot"] as const;

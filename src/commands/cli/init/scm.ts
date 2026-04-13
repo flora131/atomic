@@ -1,12 +1,12 @@
 import { join } from "node:path";
 import { readdir } from "node:fs/promises";
-import { copyFile, pathExists, ensureDir } from "@/services/system/copy.ts";
-import { getOppositeScriptExtension } from "@/services/system/detect.ts";
+import { copyFile, pathExists, ensureDir } from "../../../services/system/copy.ts";
+import { getOppositeScriptExtension } from "../../../services/system/detect.ts";
 import {
   SCM_SKILLS_BY_TYPE,
   type AgentKey,
   type SourceControlType,
-} from "@/services/config/index.ts";
+} from "../../../services/config/index.ts";
 
 export const SCM_PREFIX_BY_TYPE: Record<SourceControlType, "gh-" | "sl-"> = {
   github: "gh-",

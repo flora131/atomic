@@ -498,31 +498,7 @@ await s.session.sendAndWait({ prompt }, SEND_TIMEOUT_MS);
 
 ## F11. ~~Manual Claude session initialization~~ (resolved by runtime)
 
-This failure mode is now handled automatically by the runtime. When using
-`s.session.query()`, the runtime initializes the Claude CLI session during stage
-setup before the user callback runs. Manual session initialization
-is no longer needed — `s.client` and `s.session` arrive fully
-initialized.
-
-**Previously required (now unnecessary):**
-
-```ts
-// OLD — no longer needed; the runtime handles session initialization
-await ctx.stage({ name: "..." }, {}, {}, async (s) => {
-  // Manual init was required before the runtime managed lifecycle
-  await s.session.query((ctx.inputs.prompt ?? ""));
-  s.save(s.sessionId);
-});
-```
-
-**Current pattern:**
-
-```ts
-await ctx.stage({ name: "..." }, {}, {}, async (s) => {
-  const result = await s.session.query((ctx.inputs.prompt ?? ""));
-  s.save(s.sessionId);
-});
-```
+No longer a failure mode. The runtime now auto-initializes `s.client` and `s.session` before the callback runs — just use `s.session.query()` directly.
 
 ---
 

@@ -202,18 +202,21 @@ because the form teaches the schema as the user fills it in.
 
 ## Builtin protection
 
-Builtin workflows (the ones shipped inside the SDK — currently `ralph`)
-are **reserved**. A local or global workflow with the same name will
-not shadow the builtin at resolution time. This prevents a user from
-accidentally redefining the canonical version of a workflow in a way
-that confuses teammates or breaks automation.
+Builtin workflows (the ones shipped inside the SDK — currently `ralph`
+and `deep-research-codebase`) are **reserved**. A local or global
+workflow with the same name will not shadow the builtin at resolution
+time — the runtime drops user-defined workflows with reserved names
+before any precedence merge. This prevents a user from accidentally
+redefining the canonical version of a workflow in a way that confuses
+teammates or breaks automation.
 
 You'll still see shadowed local/global workflows in
 `atomic workflow -l` output so the collision is visible, but running
 `atomic workflow -n ralph -a claude` will always land on the builtin.
 
-The practical implication: **don't name a new workflow the same as a
-builtin**. Pick a distinct name and you'll never hit this.
+The practical implication: **don't name a new workflow `ralph` or
+`deep-research-codebase`**. Pick a distinct name and you'll never hit
+this.
 
 ## Invocation cheat sheet
 

@@ -8,7 +8,7 @@ import {
   supportsTrueColor,
   supports256Color,
   supportsColor,
-} from "@/services/system/detect.ts";
+} from "../services/system/detect.ts";
 
 export const ATOMIC_BLOCK_LOGO = [
   "█▀▀█ ▀▀█▀▀ █▀▀█ █▀▄▀█ ▀█▀ █▀▀",

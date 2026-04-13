@@ -18,7 +18,7 @@ import {
   supportsColor,
   supportsTrueColor,
   supports256Color,
-} from "@/services/system/detect.ts";
+} from "../../../src/services/system/detect.ts";
 
 // ---------------------------------------------------------------------------
 // Platform detection

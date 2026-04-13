@@ -6,8 +6,8 @@ import {
   H_GAP,
   V_GAP,
   PAD,
-} from "@/sdk/components/layout.ts";
-import type { SessionData } from "@/sdk/components/orchestrator-panel-types.ts";
+} from "../../../src/sdk/components/layout.ts";
+import type { SessionData } from "../../../src/sdk/components/orchestrator-panel-types.ts";
 
 function makeSession(
   name: string,

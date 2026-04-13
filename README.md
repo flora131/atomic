@@ -9,33 +9,59 @@
 [![Bun](https://img.shields.io/badge/Bun-Runtime-f9f1e1?logo=bun&logoColor=black)](./package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-Atomic is an open-source **agent harness framework** that lets you build, compose, and run **multi-session coding workflows** on top of **Claude Code**, **OpenCode**, and **GitHub Copilot CLI** — with **58 built-in skills**, **12 specialized sub-agents**, and **containerized execution**.
+Atomic is an open-source **TypeScript SDK** for building **any harness you want** around your coding agent — **Claude Code**, **OpenCode**, or **GitHub Copilot CLI**. Chain sessions into pipelines, add human-in-the-loop approval gates, plug in CI and notifications, dispatch **12 specialized sub-agents**, and tap **58 built-in skills** — then ship it as TypeScript your whole team runs.
 
-> Build any agent harness you want. Define workflows as TypeScript. Run them on any coding agent.
+> Define how your agent works. Start for yourself, scale to your team.
 
 ---
 
 ## Why Atomic
 
-Building harnesses and workflows around coding agents is harder than it should be. Teams hit the same walls:
+Coding agents keep getting more capable — better reasoning, larger context windows, more reliable tool use. But a more capable model doesn't reduce the need for structure around it. It **increases** it.
 
-- **No way to chain agent sessions.** You can prompt an agent, but there's no standard way to feed one session's output into the next — research into planning, planning into implementation, implementation into review. Teams resort to copy-pasting between terminals.
-- **Context degrades in long sessions.** A single agent asked to research, plan, implement, and review in one session produces increasingly unreliable output as its context window fills up. There's no built-in mechanism to isolate concerns across sessions.
-- **Agent-specific configuration is fragmented.** Claude Code, OpenCode, and Copilot CLI each have their own config directories, skill formats, and agent definitions. Building a workflow that works across agents means maintaining three separate configurations.
-- **Team processes live in wikis, not in code.** Every team has a process — triage bugs this way, ship features that way, review PRs with these checks. But those processes are prose in a wiki, not executable code that an agent can follow.
-- **Autonomous execution is unsafe without isolation.** Agents run shell commands, delete files, and execute arbitrary code. Running them autonomously on your host system is a risk most teams won't take.
-- **Specialized work requires specialized agents.** A single general-purpose agent juggling file search, code analysis, web research, and implementation will lose track of details. There's no framework for dispatching purpose-built sub-agents with scoped tools and isolated context windows.
-- **Agent workflows aren't deterministic.** Even when you do chain sessions together, there's no guarantee they'll execute in the same order, pass data the same way, or produce an inspectable record. Without strict ordering and controlled data flow, workflows become unpredictable — hard to debug, impossible to reproduce.
+The bottleneck is shifting from "can my agent write this code?" to "can my agent follow my process?" Every team has a process — how code gets reviewed, what checks run before merging, who approves deployments, how production gets monitored. That process lives in wikis nobody reads, in one senior engineer's head, or nowhere at all. A powerful agent without a defined process is just a faster way to ship unreviewed code.
 
-Atomic solves these by giving you a **Workflow SDK** to define multi-session pipelines as TypeScript with **deterministic execution** — strict step ordering, frozen definitions, and controlled transcript passing — plus **12 specialized sub-agents** that keep context windows small and focused, and **containerized execution** via devcontainer features that isolate agents from your host system. Write a workflow once, run it on Claude Code, OpenCode, or Copilot CLI with a flag change.
+**Harnesses are what turn a capable agent into a reliable part of your engineering workflow.** A harness encodes your process — research, then implement, then review, then run CI, then create a PR, then notify the right person, then wait for approval, then merge. Without one, you're prompting manually and copy-pasting between terminal sessions. With one, you run a single command and the process executes itself.
+
+Better models make harnesses **more** important, not less. The more you can trust an agent to execute complex tasks, the more value you get from defining exactly **what** it should execute, in **what order**, with **what checks** along the way. The harness is the durable layer — models will keep improving underneath it, but your process stays the same.
+
+Atomic gives you the SDK to build that harness:
+
+- **Start for yourself.** Automate the repetitive parts of your own workflow — research a codebase, add monitoring, generate specs. One developer, one afternoon, one TypeScript file.
+- **Scale to your team.** Encode your team's review process, deployment gates, and quality checks as TypeScript that every team member runs identically. Your process becomes versioned, testable, and reproducible — not tribal knowledge.
+- **Work across agents.** Write a harness once, run it on Claude Code, OpenCode, or Copilot CLI with a flag change. The harness is the constant; the agent is swappable.
+
+### What You Can Build
+
+**Add production monitoring to your codebase.** Build a harness that researches your current observability setup, identifies gaps in metrics, health checks, and alerting, implements the missing pieces, and reviews the changes — all in one run.
+
+```bash
+atomic workflow -n add-monitoring -a claude "add Prometheus metrics and health checks to all API endpoints"
+```
+
+**Automate your team's review-to-merge pipeline.** Encode your exact process: review code changes → run security scans and linting in parallel → create a PR → notify the team lead on Slack → wait for human approval → merge. The [human-in-the-loop gate](#workflow-sdk--build-your-own-deterministic-harness) pauses execution until the right person approves. New team members inherit the same pipeline on day one.
+
+```bash
+atomic workflow -n review-to-merge -a claude
+```
+
+**Run parallel UX testing with 50 personas.** Spin up 50 agents — each with a distinct user persona (first-time user, power user, accessibility-dependent user, non-technical stakeholder) — each using [Playwright](#built-in-skills) to navigate your app and report usability issues from their perspective. Batch in groups, aggregate findings, and get feedback at a scale no manual process can match.
+
+```bash
+atomic workflow -n ux-personas -a claude
+```
+
+Each of these is a `.ts` file using Atomic's [Workflow SDK](#workflow-sdk--build-your-own-deterministic-harness). See [Build a Workflow](#5-build-a-workflow) for a working example, or read the full SDK reference below.
 
 ---
 
 ## Table of Contents
 
+- [Why Atomic](#why-atomic)
+  - [What You Can Build](#what-you-can-build)
 - [Quick Start](#quick-start)
 - [Core Features](#core-features)
-  - [Multi-Agent SDK Support](#multi-agent-sdk-support)
+  - [Multi-Agent Support](#multi-agent-support)
   - [Workflow SDK — Build Your Own Deterministic Harness](#workflow-sdk--build-your-own-deterministic-harness)
   - [Deep Codebase Research](#deep-codebase-research)
   - [Autonomous Execution (Ralph)](#autonomous-execution-ralph)
@@ -107,9 +133,9 @@ bun install -g @bastani/atomic
 
 This installs the `atomic` binary on your PATH. `bun update -g @bastani/atomic` upgrades to the latest release.
 
-**Option C — Bootstrap script (installs bun + atomic in one step):**
+**Option C — Bootstrap script (installs bun + atomic + shell completions in one step):**
 
-For machines without Bun, the bootstrap scripts install Node (via fnm), Bun, and Atomic together:
+For machines without Bun, the bootstrap scripts install Bun, Atomic, and shell completions together:
 
 macOS / Linux:
 
@@ -149,25 +175,23 @@ This explores your codebase using sub-agents and generates documentation that gi
 
 ### 4. Managing Sessions
 
-Atomic runs every chat and workflow session inside [tmux](https://github.com/tmux/tmux) on a dedicated socket called `atomic`. This keeps Atomic sessions isolated from any personal tmux sessions you may have running.
-
-When you start a session you'll see a line like:
-
-```
-[atomic] Session: atomic-chat-a1b2c3d4 (FYI all atomic sessions run on tmux -L atomic)
-```
-
-Use standard tmux commands with `-L atomic` to manage your sessions:
+Atomic runs every chat and workflow session inside [tmux](https://github.com/tmux/tmux) on a dedicated socket, isolated from any personal tmux sessions you may have running. Use the built-in `session` commands to manage them:
 
 ```bash
-# List all running Atomic sessions
-tmux -L atomic list-sessions
+# List all running sessions
+atomic session list
 
-# Re-attach to a running session
-tmux -L atomic attach-session -t <session-name>
+# List only chat sessions
+atomic chat session list
 
-# Kill a session you no longer need
-tmux -L atomic kill-session -t <session-name>
+# List only workflow sessions
+atomic workflow session list
+
+# Connect to a session by name
+atomic session connect <session-name>
+
+# Interactive session picker (fuzzy-search)
+atomic session connect
 ```
 
 Session names follow a predictable pattern:
@@ -177,7 +201,7 @@ Session names follow a predictable pattern:
 | Chat         | `atomic-chat-<id>`                 | `atomic-chat-a1b2c3d4`       |
 | Workflow     | `atomic-wf-<workflow>-<id>`        | `atomic-wf-ralph-x9y8z7w6`   |
 
-> **Tip:** If your terminal disconnects or you accidentally close the window, your session is still alive — just run `tmux -L atomic attach-session -t <session-name>` to pick up where you left off.
+> **Tip:** If your terminal disconnects or you accidentally close the window, your session is still alive — just run `atomic session connect <session-name>` to pick up where you left off.
 
 ### 5. Build a Workflow
 
@@ -187,54 +211,78 @@ Create a workflow project, install the SDK, and add your workflow file:
 
 ```bash
 bun init && bun add @bastani/atomic
-mkdir -p .atomic/workflows/my-workflow/claude
+mkdir -p .atomic/workflows/review-to-merge/claude
 ```
 
+Here's one of the [canonical use cases](#what-you-can-build) — a team pipeline that reviews code, runs checks in parallel, creates a PR, notifies on Slack, waits for human approval, and merges:
+
 ```ts
-// .atomic/workflows/my-workflow/claude/index.ts
+// .atomic/workflows/review-to-merge/claude/index.ts
 import { defineWorkflow } from "@bastani/atomic/workflows";
 
 export default defineWorkflow<"claude">({
-  name: "my-workflow",
-  description: "Research -> Implement -> Review",
+  name: "review-to-merge",
+  description: "Review → CI → PR → Notify → Approve → Merge",
 })
   .run(async (ctx) => {
-    // Free-form workflows receive their positional prompt under
-    // `ctx.inputs.prompt`. Destructure it once so every stage below
-    // can close over a bare string.
-    const prompt = ctx.inputs.prompt ?? "";
-
-    const research = await ctx.stage(
-      { name: "research", description: "Analyze the codebase" },
+    // Step 1: Review the changes
+    const review = await ctx.stage(
+      { name: "review", description: "Review code changes" },
       {}, {},
       async (s) => {
-        await s.session.query(`/research-codebase ${prompt}`);
-        s.save(s.sessionId);
-      },
-    );
-
-    await ctx.stage(
-      { name: "implement", description: "Implement based on research" },
-      {}, {},
-      async (s) => {
-        const transcript = await s.transcript(research);
         await s.session.query(
-          `Read ${transcript.path} and implement the changes. Run tests to verify.`,
+          "Review all uncommitted changes. Flag issues with correctness, security, and style.",
         );
         s.save(s.sessionId);
       },
     );
 
-    await ctx.stage(
-      { name: "review", description: "Review the implementation" },
-      {}, {},
-      async (s) => {
-        await s.session.query(
-          "Review all uncommitted changes. Flag any issues with correctness, tests, or style.",
-        );
+    // Step 2: Run security and CI checks in parallel
+    await Promise.all([
+      ctx.stage({ name: "security-scan" }, {}, {}, async (s) => {
+        await s.session.query("Run `bun audit` and scan for leaked secrets or credentials.");
         s.save(s.sessionId);
-      },
-    );
+      }),
+      ctx.stage({ name: "ci-checks" }, {}, {}, async (s) => {
+        await s.session.query("Run `bun lint` and `bun test`. Report any failures.");
+        s.save(s.sessionId);
+      }),
+    ]);
+
+    // Step 3: Create a PR with the review summary
+    await ctx.stage({ name: "create-pr" }, {}, {}, async (s) => {
+      const transcript = await s.transcript(review);
+      await s.session.query(
+        `Read the review at ${transcript.path}. Create a pull request summarizing the changes.`,
+      );
+      s.save(s.sessionId);
+    });
+
+    // Step 4: Notify on Slack, then wait for human approval before merging.
+    // Stage callbacks are plain Bun code — fetch(), Bun.spawn(), and any
+    // Node API work here alongside agent session queries.
+    await ctx.stage({ name: "notify-and-merge" }, {}, {}, async (s) => {
+      await fetch("https://slack.com/api/chat.postMessage", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.SLACK_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          channel: "#code-review",
+          text: "New PR ready for review — please approve in GitHub.",
+        }),
+      });
+
+      // Human-in-the-loop: AskUserQuestion pauses the session until the
+      // user responds. The agent won't merge until approval is given.
+      await s.session.query(
+        "The team has been notified on Slack. Ask the user to confirm the PR " +
+        "is approved, then merge it with `gh pr merge --squash`.",
+        { allowedTools: ["Bash", "Read", "AskUserQuestion"] },
+      );
+      s.save(s.sessionId);
+    });
   })
   .compile();
 ```
@@ -242,10 +290,10 @@ export default defineWorkflow<"claude">({
 Run it:
 
 ```bash
-atomic workflow -n my-workflow -a claude "add user avatars to the profile page"
+atomic workflow -n review-to-merge -a claude
 ```
 
-Add a spec phase, parallelize independent sessions, swap in a different agent — the workflow is yours to define. See [Workflow SDK — Build Your Own Harness](#workflow-sdk--build-your-own-harness) for the full API and more examples.
+This single file demonstrates multi-step pipelines, parallel stages (`Promise.all`), transcript passing between sessions, external API calls (`fetch`), and human-in-the-loop approval — all in plain TypeScript. Swap `-a claude` for `-a opencode` or `-a copilot` to run the same harness on a different agent. See [Workflow SDK — Build Your Own Harness](#workflow-sdk--build-your-own-deterministic-harness) for the full API and more examples.
 
 > **Want something that works out of the box?** Atomic ships with `ralph`, a built-in workflow that plans, implements, reviews, and debugs autonomously — see [Autonomous Execution (Ralph)](#autonomous-execution-ralph).
 
@@ -253,15 +301,15 @@ Add a spec phase, parallelize independent sessions, swap in a different agent �
 
 ## Core Features
 
-### Multi-Agent SDK Support
+### Multi-Agent Support
 
-Atomic is the only harness that unifies **three production agent SDKs** behind a single interface. Switch between agents with a flag — your workflows, skills, and sub-agents work across all of them.
+Atomic works across **three production coding agents** — switch between them with a flag and your workflows, skills, and sub-agents carry over.
 
-| Agent              | SDK                              | Command                   |
-| ------------------ | -------------------------------- | ------------------------- |
-| Claude Code        | `@anthropic-ai/claude-agent-sdk` | `atomic chat -a claude`   |
-| OpenCode           | `@opencode-ai/sdk`               | `atomic chat -a opencode` |
-| GitHub Copilot CLI | `@github/copilot-sdk`            | `atomic chat -a copilot`  |
+| Agent              | Command                   |
+| ------------------ | ------------------------- |
+| Claude Code        | `atomic chat -a claude`   |
+| OpenCode           | `atomic chat -a opencode` |
+| GitHub Copilot CLI | `atomic chat -a copilot`  |
 
 Each agent gets its own configuration directory (`.claude/`, `.opencode/`, `.github/`), skills, and context files — all managed by Atomic. Write a workflow once, run it on any agent.
 
@@ -812,23 +860,16 @@ During `atomic chat`, there is no Atomic-owned TUI — `atomic chat -a <agent>` 
 
 ### CLI Commands
 
-| Command                     | Description                                                           |
-| --------------------------- | --------------------------------------------------------------------- |
-| `atomic init`               | Interactive project setup (agent selection, SCM choice, config sync)  |
-| `atomic chat`               | Spawn the native agent CLI inside a tmux/psmux session                |
-| `atomic workflow`           | Run a multi-session agent workflow with the Atomic orchestrator panel |
-| `atomic config set <k> <v>` | Set configuration values (currently supports `telemetry`)             |
-
-### Session Management (tmux)
-
-All Atomic sessions run on a dedicated tmux socket (`-L atomic`), separate from your personal tmux server. Use these commands to manage running sessions:
-
-| Command                                              | Description                                 |
-| ---------------------------------------------------- | ------------------------------------------- |
-| `tmux -L atomic list-sessions`                       | List all running Atomic sessions            |
-| `tmux -L atomic attach-session -t <session-name>`    | Re-attach to a session (e.g. after disconnect) |
-| `tmux -L atomic kill-session -t <session-name>`      | Terminate a session                         |
-| `tmux -L atomic list-windows -t <session-name>`      | List windows inside a workflow session      |
+| Command                          | Description                                                           |
+| -------------------------------- | --------------------------------------------------------------------- |
+| `atomic init`                    | Interactive project setup (agent selection, SCM choice, config sync)  |
+| `atomic chat`                    | Spawn the native agent CLI inside a tmux/psmux session                |
+| `atomic workflow`                | Run a multi-session agent workflow with the Atomic orchestrator panel |
+| `atomic workflow list`           | List available workflows, grouped by source                           |
+| `atomic session list`            | List all running sessions on the atomic tmux socket                   |
+| `atomic session connect [name]`  | Attach to a session (interactive picker when no name given)           |
+| `atomic completions <shell>`     | Output shell completion script (bash, zsh, fish, powershell)         |
+| `atomic config set <k> <v>`     | Set configuration values (currently supports `telemetry`)             |
 
 #### Global Flags
 
@@ -853,6 +894,29 @@ atomic init -a claude -s github          # Pre-select agent and SCM
 atomic init --yes                        # Auto-confirm all prompts
 ```
 
+#### `atomic session` Subcommands
+
+The `session` command is available at three levels — scoped or global:
+
+| Command                                    | Description                                          |
+| ------------------------------------------ | ---------------------------------------------------- |
+| `atomic session list`                      | List all running sessions                            |
+| `atomic session connect [name]`            | Attach to a session (interactive picker when no name) |
+| `atomic chat session list`                 | List running chat sessions only                      |
+| `atomic chat session connect [name]`       | Attach to a chat session                             |
+| `atomic workflow session list`             | List running workflow sessions only                  |
+| `atomic workflow session connect [name]`   | Attach to a workflow session                         |
+
+Both `list` and `connect` accept `-a <agent>` (repeatable) to filter by agent backend.
+
+```bash
+atomic session list                      # All sessions
+atomic session list -a claude            # Only Claude sessions
+atomic session connect my-session        # Attach by name
+atomic session connect                   # Interactive picker
+atomic chat session list -a copilot      # Chat sessions for Copilot only
+```
+
 #### `atomic chat` Flags
 
 | Flag                 | Description                            |
@@ -873,7 +937,6 @@ atomic chat -a claude --verbose              # Forward --verbose to claude
 | -------------------------- | ------------------------------------------------------------------- |
 | `-n, --name <name>`        | Workflow name (matches directory under `.atomic/workflows/<name>/`) |
 | `-a, --agent <name>`       | Agent: `claude`, `opencode`, `copilot`                              |
-| `-l, --list`               | List available workflows, grouped by source                         |
 | `--<field>=<value>`        | Structured input for workflows that declare an `inputs` schema (also accepts `--<field> <value>`) |
 | `[prompt...]`               | Positional prompt for free-form workflows (rejected on workflows with a declared schema) |
 
@@ -881,7 +944,8 @@ The workflow command supports four invocation shapes:
 
 ```bash
 # 1. List every workflow available to you, grouped by source
-atomic workflow -l
+atomic workflow list
+atomic workflow list -a claude       # filter by agent
 
 # 2. Launch the interactive picker for an agent (no -n) — fuzzy-search
 #    the list, fill the form rendered from the workflow's declared inputs,
@@ -898,6 +962,19 @@ atomic workflow -n gen-spec -a claude \
 ```
 
 Workflows that declare an `inputs: WorkflowInput[]` schema get CLI flag validation for free — missing required fields and invalid enum values are rejected before any tmux session is spawned, with error messages that spell out the expected flag set. Workflows that don't declare a schema still accept a single positional prompt, which the runtime stores under `ctx.inputs.prompt`. **Builtin workflows (like `ralph`) are reserved names** — a local or global workflow with the same name will not shadow a builtin at resolution time.
+
+#### `atomic completions` — Shell Completions
+
+Atomic ships tab-completion for **bash**, **zsh**, **fish**, and **PowerShell**. The `atomic completions <shell>` command prints the completion script to stdout — pipe it into your shell's config to enable.
+
+| Shell      | One-liner (add to your rc file)                                                          |
+| ---------- | ---------------------------------------------------------------------------------------- |
+| Bash       | `eval "$(atomic completions bash)"`  — add to `~/.bashrc`                                |
+| Zsh        | `eval "$(atomic completions zsh)"`  — add to `~/.zshrc`                                  |
+| Fish       | `atomic completions fish > ~/.config/fish/completions/atomic.fish`                       |
+| PowerShell | `atomic completions powershell \| Invoke-Expression`  — add to `$PROFILE`                |
+
+> **Tip:** The bootstrap installer (`install.sh` / `install.ps1`) automatically installs completions for your detected shell.
 
 ### Atomic-Provided Skills (invokable from any agent chat)
 

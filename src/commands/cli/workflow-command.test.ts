@@ -288,6 +288,54 @@ describe("workflowCommand --list", () => {
     expect(cap.stdout).not.toContain("copilot-only");
   });
 
+  test("excludes workflows missing .compile() from the list", async () => {
+    await writeCompiledWorkflow({ name: "good", agent: "copilot" });
+    await writeCompiledWorkflow({
+      name: "not-compiled",
+      agent: "copilot",
+      source: `
+import { defineWorkflow } from "${join(process.cwd(), "src/sdk/workflows/index.ts")}";
+
+export default defineWorkflow({ name: "not-compiled" })
+  .run(async () => {});
+// intentionally missing .compile()
+`,
+    });
+
+    const cap = captureOutput();
+    const code = await workflowCommand({
+      list: true,
+      agent: "copilot",
+      cwd: tempDir,
+    });
+    cap.restore();
+
+    expect(code).toBe(0);
+    expect(cap.stdout).toContain("good");
+    expect(cap.stdout).not.toContain("not-compiled");
+  });
+
+  test("excludes workflows with type errors from the list", async () => {
+    await writeCompiledWorkflow({ name: "valid", agent: "copilot" });
+    await writeCompiledWorkflow({
+      name: "broken-syntax",
+      agent: "copilot",
+      source: `this is not valid typescript }{}{`,
+    });
+
+    const cap = captureOutput();
+    const code = await workflowCommand({
+      list: true,
+      agent: "copilot",
+      cwd: tempDir,
+    });
+    cap.restore();
+
+    expect(code).toBe(0);
+    expect(cap.stdout).toContain("valid");
+    expect(cap.stdout).not.toContain("broken-syntax");
+  });
+
   test("renders the empty state when no workflows exist and no agent filter is set", async () => {
     // No agent filter + a fresh tempdir means `discoverWorkflows` only
     // returns builtins for whichever agents exist on disk; to exercise
@@ -380,6 +428,32 @@ describe("workflowCommand named-mode error paths", () => {
     expect(cap.stderr).toContain("real-one");
     // executeWorkflow should never be called on the error path.
     expect(executeWorkflowMock).not.toHaveBeenCalled();
+  });
+
+  test("available workflows hint excludes uncompiled workflows", async () => {
+    await writeCompiledWorkflow({ name: "real-one", agent: "copilot" });
+    await writeCompiledWorkflow({
+      name: "uncompiled",
+      agent: "copilot",
+      source: `
+import { defineWorkflow } from "${join(process.cwd(), "src/sdk/workflows/index.ts")}";
+
+export default defineWorkflow({ name: "uncompiled" })
+  .run(async () => {});
+`,
+    });
+
+    const cap = captureOutput();
+    const code = await workflowCommand({
+      name: "does-not-exist",
+      agent: "copilot",
+      cwd: tempDir,
+    });
+    cap.restore();
+
+    expect(code).toBe(1);
+    expect(cap.stderr).toContain("real-one");
+    expect(cap.stderr).not.toContain("uncompiled");
   });
 
   test("parse errors in passthrough args abort before loading", async () => {

@@ -124,25 +124,6 @@ export class PanelStore {
     this.emit();
   }
 
-  /**
-   * Return non-orchestrator agents that have started (not pending).
-   * Used for the tmux status bar agent count and active-agent index.
-   */
-  getSubagents(): SessionData[] {
-    return this.sessions.filter(
-      (s) => s.name !== "orchestrator" && s.status !== "pending",
-    );
-  }
-
-  /**
-   * Return the 0-based index of the active agent within the subagent list,
-   * or -1 if not found.
-   */
-  getActiveAgentIndex(): number {
-    const subs = this.getSubagents();
-    return subs.findIndex((s) => s.name === this.activeAgentId);
-  }
-
   /** Safely invoke exitResolve at most once, guarding against rapid repeated calls. */
   resolveExit(): void {
     if (this.exitResolve) {

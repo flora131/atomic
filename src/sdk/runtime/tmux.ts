@@ -40,14 +40,17 @@ export const TMUX_DEFAULT_STATUS_LEFT_LENGTH = "10";
 export const TMUX_DEFAULT_STATUS_RIGHT = " #{session_name} | %H:%M ";
 export const TMUX_DEFAULT_STATUS_RIGHT_LENGTH = "60";
 
-/**
- * Escape a string for safe interpolation into tmux format strings.
- * Replaces `#` with `##` to prevent tmux from interpreting `#[...]`
- * as style directives or `#(...)` as shell command expansions.
- */
-export function escapeTmuxFormat(value: string): string {
-  return value.replace(/#/g, "##");
-}
+// Attached-mode status bar — agent list via tmux window list + shortcut hints.
+// The window-status formats hide window 0 (orchestrator) and style agent names.
+// tmux natively highlights the current window, so no React state sync is needed
+// for agent cycling via Ctrl+\.
+export const TMUX_ATTACHED_STATUS_RIGHT =
+  "#[fg=#cdd6f4]ctrl+g #[fg=#6c7086]graph #[fg=#585b70]\u00b7 #[fg=#cdd6f4]ctrl+\\ #[fg=#6c7086]next ";
+export const TMUX_ATTACHED_STATUS_RIGHT_LENGTH = "40";
+export const TMUX_ATTACHED_WINDOW_FMT =
+  "#{?#{==:#{window_index},0},, #W }";
+export const TMUX_ATTACHED_WINDOW_STYLE = "fg=#6c7086";
+export const TMUX_ATTACHED_WINDOW_CURRENT_STYLE = "fg=#cdd6f4,bold";
 
 // ---------------------------------------------------------------------------
 // Core tmux primitives

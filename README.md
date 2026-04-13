@@ -865,6 +865,7 @@ During `atomic chat`, there is no Atomic-owned TUI — `atomic chat -a <agent>` 
 | `atomic init`                    | Interactive project setup (agent selection, SCM choice, config sync)  |
 | `atomic chat`                    | Spawn the native agent CLI inside a tmux/psmux session                |
 | `atomic workflow`                | Run a multi-session agent workflow with the Atomic orchestrator panel |
+| `atomic workflow list`           | List available workflows, grouped by source                           |
 | `atomic session list`            | List all running sessions on the atomic tmux socket                   |
 | `atomic session connect [name]`  | Attach to a session (interactive picker when no name given)           |
 | `atomic completions <shell>`     | Output shell completion script (bash, zsh, fish, powershell)         |
@@ -936,7 +937,6 @@ atomic chat -a claude --verbose              # Forward --verbose to claude
 | -------------------------- | ------------------------------------------------------------------- |
 | `-n, --name <name>`        | Workflow name (matches directory under `.atomic/workflows/<name>/`) |
 | `-a, --agent <name>`       | Agent: `claude`, `opencode`, `copilot`                              |
-| `-l, --list`               | List available workflows, grouped by source                         |
 | `--<field>=<value>`        | Structured input for workflows that declare an `inputs` schema (also accepts `--<field> <value>`) |
 | `[prompt...]`               | Positional prompt for free-form workflows (rejected on workflows with a declared schema) |
 
@@ -944,7 +944,8 @@ The workflow command supports four invocation shapes:
 
 ```bash
 # 1. List every workflow available to you, grouped by source
-atomic workflow -l
+atomic workflow list
+atomic workflow list -a claude       # filter by agent
 
 # 2. Launch the interactive picker for an agent (no -n) — fuzzy-search
 #    the list, fill the form rendered from the workflow's declared inputs,

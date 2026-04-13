@@ -20,11 +20,15 @@ import {
 } from "react";
 import {
   tmuxRun,
-  escapeTmuxFormat,
   TMUX_DEFAULT_STATUS_LEFT,
   TMUX_DEFAULT_STATUS_LEFT_LENGTH,
   TMUX_DEFAULT_STATUS_RIGHT,
   TMUX_DEFAULT_STATUS_RIGHT_LENGTH,
+  TMUX_ATTACHED_STATUS_RIGHT,
+  TMUX_ATTACHED_STATUS_RIGHT_LENGTH,
+  TMUX_ATTACHED_WINDOW_FMT,
+  TMUX_ATTACHED_WINDOW_STYLE,
+  TMUX_ATTACHED_WINDOW_CURRENT_STYLE,
 } from "../runtime/tmux.ts";
 import {
   useStore,
@@ -353,52 +357,62 @@ export function SessionGraphPanel() {
     }
   }, [focusedId, focused, termW, termH, padX, padY, viewportH, layout.rowH]);
 
-  // ── Detect return to graph via Ctrl+G ─────────────────
-  // Ctrl+G is bound at the tmux level (select-window -t :0), so tmux
-  // swallows the key and the React app never receives it.  Poll the
-  // active window index while attached; when window 0 becomes active
-  // again we know the user returned and can reset viewMode immediately.
+  // ── Track active tmux window ──────────────────────────
+  // Ctrl+G and Ctrl+\ are bound at the tmux level, so the React app
+  // never receives them.  Poll the active window to sync viewMode
+  // with tmux-level navigation in both directions.
   useEffect(() => {
-    if (store.viewMode !== "attached") return;
-
     const check = () => {
       const result = tmuxRun([
-        "display-message", "-t", tmuxSession, "-p", "#{window_index}",
+        "display-message", "-t", tmuxSession, "-p", "#{window_index} #{window_name}",
       ]);
-      if (result.ok && result.stdout.trim() === "0") {
-        store.setViewMode("graph");
+      if (!result.ok) return;
+
+      const output = result.stdout.trim();
+      const spaceIdx = output.indexOf(" ");
+      const idx = spaceIdx >= 0 ? output.slice(0, spaceIdx) : output;
+      const windowName = spaceIdx >= 0 ? output.slice(spaceIdx + 1) : "";
+
+      if (idx === "0") {
+        if (store.viewMode !== "graph") {
+          store.setViewMode("graph");
+        }
+      } else if (store.viewMode !== "attached" || store.activeAgentId !== windowName) {
+        store.setViewMode("attached", windowName);
       }
     };
 
     const id = setInterval(check, 300);
     return () => clearInterval(id);
-  }, [store.viewMode, tmuxSession]);
+  }, [tmuxSession]);
 
   // ── Tmux status bar sync ──────────────────────────────
-  // When attached, the orchestrator panel is hidden (user views the agent's
-  // tmux window). Mirror the status line hints into tmux's own status bar
-  // so navigation keys remain discoverable.
-  const subagentCount = store.getSubagents().length;
-  const activeAgentIdx = store.getActiveAgentIndex();
-
+  // Attached mode: use tmux's native window list to show agent names
+  // (the current window is highlighted automatically by tmux).
+  // Graph mode: restore the minimal defaults.
   useEffect(() => {
-    if (store.viewMode === "attached" && store.activeAgentId) {
-      const safeName = escapeTmuxFormat(store.activeAgentId);
-      const left = `#[bg=#6c7086,fg=#1e1e2e,bold] ATTACHED #[default] #[fg=#7f849c]\u203a #[fg=#cdd6f4]${safeName} #[fg=#7f849c]${activeAgentIdx + 1}/${subagentCount}`;
-      const right = `#[fg=#7f849c]Graph: #[fg=#cdd6f4]ctrl+g #[fg=#7f849c]| Next: #[fg=#cdd6f4]ctrl+\\ `;
-
-      tmuxRun(["set", "-g", "status-left", left]);
-      tmuxRun(["set", "-g", "status-left-length", "50"]);
-      tmuxRun(["set", "-g", "status-right", right]);
-      tmuxRun(["set", "-g", "status-right-length", "40"]);
+    if (store.viewMode === "attached") {
+      tmuxRun(["set", "-g", "status-left", " "]);
+      tmuxRun(["set", "-g", "status-left-length", "1"]);
+      tmuxRun(["set", "-g", "status-right", TMUX_ATTACHED_STATUS_RIGHT]);
+      tmuxRun(["set", "-g", "status-right-length", TMUX_ATTACHED_STATUS_RIGHT_LENGTH]);
+      tmuxRun(["set", "-g", "window-status-format", TMUX_ATTACHED_WINDOW_FMT]);
+      tmuxRun(["set", "-g", "window-status-current-format", TMUX_ATTACHED_WINDOW_FMT]);
+      tmuxRun(["set", "-g", "window-status-style", TMUX_ATTACHED_WINDOW_STYLE]);
+      tmuxRun(["set", "-g", "window-status-current-style", TMUX_ATTACHED_WINDOW_CURRENT_STYLE]);
+      tmuxRun(["set", "-g", "window-status-separator", ""]);
     } else {
-      // Graph mode: restore defaults (constants from tmux.ts match tmux.conf)
       tmuxRun(["set", "-g", "status-left", TMUX_DEFAULT_STATUS_LEFT]);
       tmuxRun(["set", "-g", "status-left-length", TMUX_DEFAULT_STATUS_LEFT_LENGTH]);
       tmuxRun(["set", "-g", "status-right", TMUX_DEFAULT_STATUS_RIGHT]);
       tmuxRun(["set", "-g", "status-right-length", TMUX_DEFAULT_STATUS_RIGHT_LENGTH]);
+      tmuxRun(["set", "-gu", "window-status-format"]);
+      tmuxRun(["set", "-gu", "window-status-current-format"]);
+      tmuxRun(["set", "-gu", "window-status-style"]);
+      tmuxRun(["set", "-gu", "window-status-current-style"]);
+      tmuxRun(["set", "-gu", "window-status-separator"]);
     }
-  }, [store.viewMode, store.activeAgentId, activeAgentIdx, subagentCount]);
+  }, [store.viewMode]);
 
   // Restore default tmux status bar on unmount
   useEffect(() => {
@@ -407,6 +421,11 @@ export function SessionGraphPanel() {
       tmuxRun(["set", "-g", "status-left-length", TMUX_DEFAULT_STATUS_LEFT_LENGTH]);
       tmuxRun(["set", "-g", "status-right", TMUX_DEFAULT_STATUS_RIGHT]);
       tmuxRun(["set", "-g", "status-right-length", TMUX_DEFAULT_STATUS_RIGHT_LENGTH]);
+      tmuxRun(["set", "-gu", "window-status-format"]);
+      tmuxRun(["set", "-gu", "window-status-current-format"]);
+      tmuxRun(["set", "-gu", "window-status-style"]);
+      tmuxRun(["set", "-gu", "window-status-current-style"]);
+      tmuxRun(["set", "-gu", "window-status-separator"]);
     };
   }, []);
 

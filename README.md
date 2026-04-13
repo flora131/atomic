@@ -9,33 +9,59 @@
 [![Bun](https://img.shields.io/badge/Bun-Runtime-f9f1e1?logo=bun&logoColor=black)](./package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-Atomic is an open-source **agent harness framework** that lets you build, compose, and run **multi-session coding workflows** on top of **Claude Code**, **OpenCode**, and **GitHub Copilot CLI** — with **58 built-in skills**, **12 specialized sub-agents**, and **containerized execution**.
+Atomic is an open-source **TypeScript SDK** for building **any harness you want** around your coding agent — **Claude Code**, **OpenCode**, or **GitHub Copilot CLI**. Chain sessions into pipelines, add human-in-the-loop approval gates, plug in CI and notifications, dispatch **12 specialized sub-agents**, and tap **58 built-in skills** — then ship it as TypeScript your whole team runs.
 
-> Build any agent harness you want. Define workflows as TypeScript. Run them on any coding agent.
+> Define how your agent works. Start for yourself, scale to your team.
 
 ---
 
 ## Why Atomic
 
-Building harnesses and workflows around coding agents is harder than it should be. Teams hit the same walls:
+Coding agents keep getting more capable — better reasoning, larger context windows, more reliable tool use. But a more capable model doesn't reduce the need for structure around it. It **increases** it.
 
-- **No way to chain agent sessions.** You can prompt an agent, but there's no standard way to feed one session's output into the next — research into planning, planning into implementation, implementation into review. Teams resort to copy-pasting between terminals.
-- **Context degrades in long sessions.** A single agent asked to research, plan, implement, and review in one session produces increasingly unreliable output as its context window fills up. There's no built-in mechanism to isolate concerns across sessions.
-- **Agent-specific configuration is fragmented.** Claude Code, OpenCode, and Copilot CLI each have their own config directories, skill formats, and agent definitions. Building a workflow that works across agents means maintaining three separate configurations.
-- **Team processes live in wikis, not in code.** Every team has a process — triage bugs this way, ship features that way, review PRs with these checks. But those processes are prose in a wiki, not executable code that an agent can follow.
-- **Autonomous execution is unsafe without isolation.** Agents run shell commands, delete files, and execute arbitrary code. Running them autonomously on your host system is a risk most teams won't take.
-- **Specialized work requires specialized agents.** A single general-purpose agent juggling file search, code analysis, web research, and implementation will lose track of details. There's no framework for dispatching purpose-built sub-agents with scoped tools and isolated context windows.
-- **Agent workflows aren't deterministic.** Even when you do chain sessions together, there's no guarantee they'll execute in the same order, pass data the same way, or produce an inspectable record. Without strict ordering and controlled data flow, workflows become unpredictable — hard to debug, impossible to reproduce.
+The bottleneck is shifting from "can my agent write this code?" to "can my agent follow my process?" Every team has a process — how code gets reviewed, what checks run before merging, who approves deployments, how production gets monitored. That process lives in wikis nobody reads, in one senior engineer's head, or nowhere at all. A powerful agent without a defined process is just a faster way to ship unreviewed code.
 
-Atomic solves these by giving you a **Workflow SDK** to define multi-session pipelines as TypeScript with **deterministic execution** — strict step ordering, frozen definitions, and controlled transcript passing — plus **12 specialized sub-agents** that keep context windows small and focused, and **containerized execution** via devcontainer features that isolate agents from your host system. Write a workflow once, run it on Claude Code, OpenCode, or Copilot CLI with a flag change.
+**Harnesses are what turn a capable agent into a reliable part of your engineering workflow.** A harness encodes your process — research, then implement, then review, then run CI, then create a PR, then notify the right person, then wait for approval, then merge. Without one, you're prompting manually and copy-pasting between terminal sessions. With one, you run a single command and the process executes itself.
+
+Better models make harnesses **more** important, not less. The more you can trust an agent to execute complex tasks, the more value you get from defining exactly **what** it should execute, in **what order**, with **what checks** along the way. The harness is the durable layer — models will keep improving underneath it, but your process stays the same.
+
+Atomic gives you the SDK to build that harness:
+
+- **Start for yourself.** Automate the repetitive parts of your own workflow — research a codebase, add monitoring, generate specs. One developer, one afternoon, one TypeScript file.
+- **Scale to your team.** Encode your team's review process, deployment gates, and quality checks as TypeScript that every team member runs identically. Your process becomes versioned, testable, and reproducible — not tribal knowledge.
+- **Work across agents.** Write a harness once, run it on Claude Code, OpenCode, or Copilot CLI with a flag change. The harness is the constant; the agent is swappable.
+
+### What You Can Build
+
+**Add production monitoring to your codebase.** Build a harness that researches your current observability setup, identifies gaps in metrics, health checks, and alerting, implements the missing pieces, and reviews the changes — all in one run.
+
+```bash
+atomic workflow -n add-monitoring -a claude "add Prometheus metrics and health checks to all API endpoints"
+```
+
+**Automate your team's review-to-merge pipeline.** Encode your exact process: review code changes → run security scans and linting in parallel → create a PR → notify the team lead on Slack → wait for human approval → merge. The [human-in-the-loop gate](#workflow-sdk--build-your-own-deterministic-harness) pauses execution until the right person approves. New team members inherit the same pipeline on day one.
+
+```bash
+atomic workflow -n review-to-merge -a claude
+```
+
+**Run parallel UX testing with 50 personas.** Spin up 50 agents — each with a distinct user persona (first-time user, power user, accessibility-dependent user, non-technical stakeholder) — each using [Playwright](#built-in-skills) to navigate your app and report usability issues from their perspective. Batch in groups, aggregate findings, and get feedback at a scale no manual process can match.
+
+```bash
+atomic workflow -n ux-personas -a claude
+```
+
+Each of these is a `.ts` file using Atomic's [Workflow SDK](#workflow-sdk--build-your-own-deterministic-harness). See [Build a Workflow](#5-build-a-workflow) for a working example, or read the full SDK reference below.
 
 ---
 
 ## Table of Contents
 
+- [Why Atomic](#why-atomic)
+  - [What You Can Build](#what-you-can-build)
 - [Quick Start](#quick-start)
 - [Core Features](#core-features)
-  - [Multi-Agent SDK Support](#multi-agent-sdk-support)
+  - [Multi-Agent Support](#multi-agent-support)
   - [Workflow SDK — Build Your Own Deterministic Harness](#workflow-sdk--build-your-own-deterministic-harness)
   - [Deep Codebase Research](#deep-codebase-research)
   - [Autonomous Execution (Ralph)](#autonomous-execution-ralph)
@@ -187,54 +213,78 @@ Create a workflow project, install the SDK, and add your workflow file:
 
 ```bash
 bun init && bun add @bastani/atomic
-mkdir -p .atomic/workflows/my-workflow/claude
+mkdir -p .atomic/workflows/review-to-merge/claude
 ```
 
+Here's one of the [canonical use cases](#what-you-can-build) — a team pipeline that reviews code, runs checks in parallel, creates a PR, notifies on Slack, waits for human approval, and merges:
+
 ```ts
-// .atomic/workflows/my-workflow/claude/index.ts
+// .atomic/workflows/review-to-merge/claude/index.ts
 import { defineWorkflow } from "@bastani/atomic/workflows";
 
 export default defineWorkflow<"claude">({
-  name: "my-workflow",
-  description: "Research -> Implement -> Review",
+  name: "review-to-merge",
+  description: "Review → CI → PR → Notify → Approve → Merge",
 })
   .run(async (ctx) => {
-    // Free-form workflows receive their positional prompt under
-    // `ctx.inputs.prompt`. Destructure it once so every stage below
-    // can close over a bare string.
-    const prompt = ctx.inputs.prompt ?? "";
-
-    const research = await ctx.stage(
-      { name: "research", description: "Analyze the codebase" },
+    // Step 1: Review the changes
+    const review = await ctx.stage(
+      { name: "review", description: "Review code changes" },
       {}, {},
       async (s) => {
-        await s.session.query(`/research-codebase ${prompt}`);
-        s.save(s.sessionId);
-      },
-    );
-
-    await ctx.stage(
-      { name: "implement", description: "Implement based on research" },
-      {}, {},
-      async (s) => {
-        const transcript = await s.transcript(research);
         await s.session.query(
-          `Read ${transcript.path} and implement the changes. Run tests to verify.`,
+          "Review all uncommitted changes. Flag issues with correctness, security, and style.",
         );
         s.save(s.sessionId);
       },
     );
 
-    await ctx.stage(
-      { name: "review", description: "Review the implementation" },
-      {}, {},
-      async (s) => {
-        await s.session.query(
-          "Review all uncommitted changes. Flag any issues with correctness, tests, or style.",
-        );
+    // Step 2: Run security and CI checks in parallel
+    await Promise.all([
+      ctx.stage({ name: "security-scan" }, {}, {}, async (s) => {
+        await s.session.query("Run `bun audit` and scan for leaked secrets or credentials.");
         s.save(s.sessionId);
-      },
-    );
+      }),
+      ctx.stage({ name: "ci-checks" }, {}, {}, async (s) => {
+        await s.session.query("Run `bun lint` and `bun test`. Report any failures.");
+        s.save(s.sessionId);
+      }),
+    ]);
+
+    // Step 3: Create a PR with the review summary
+    await ctx.stage({ name: "create-pr" }, {}, {}, async (s) => {
+      const transcript = await s.transcript(review);
+      await s.session.query(
+        `Read the review at ${transcript.path}. Create a pull request summarizing the changes.`,
+      );
+      s.save(s.sessionId);
+    });
+
+    // Step 4: Notify on Slack, then wait for human approval before merging.
+    // Stage callbacks are plain Bun code — fetch(), Bun.spawn(), and any
+    // Node API work here alongside agent session queries.
+    await ctx.stage({ name: "notify-and-merge" }, {}, {}, async (s) => {
+      await fetch("https://slack.com/api/chat.postMessage", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.SLACK_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          channel: "#code-review",
+          text: "New PR ready for review — please approve in GitHub.",
+        }),
+      });
+
+      // Human-in-the-loop: AskUserQuestion pauses the session until the
+      // user responds. The agent won't merge until approval is given.
+      await s.session.query(
+        "The team has been notified on Slack. Ask the user to confirm the PR " +
+        "is approved, then merge it with `gh pr merge --squash`.",
+        { allowedTools: ["Bash", "Read", "AskUserQuestion"] },
+      );
+      s.save(s.sessionId);
+    });
   })
   .compile();
 ```
@@ -242,10 +292,10 @@ export default defineWorkflow<"claude">({
 Run it:
 
 ```bash
-atomic workflow -n my-workflow -a claude "add user avatars to the profile page"
+atomic workflow -n review-to-merge -a claude
 ```
 
-Add a spec phase, parallelize independent sessions, swap in a different agent — the workflow is yours to define. See [Workflow SDK — Build Your Own Harness](#workflow-sdk--build-your-own-harness) for the full API and more examples.
+This single file demonstrates multi-step pipelines, parallel stages (`Promise.all`), transcript passing between sessions, external API calls (`fetch`), and human-in-the-loop approval — all in plain TypeScript. Swap `-a claude` for `-a opencode` or `-a copilot` to run the same harness on a different agent. See [Workflow SDK — Build Your Own Harness](#workflow-sdk--build-your-own-deterministic-harness) for the full API and more examples.
 
 > **Want something that works out of the box?** Atomic ships with `ralph`, a built-in workflow that plans, implements, reviews, and debugs autonomously — see [Autonomous Execution (Ralph)](#autonomous-execution-ralph).
 
@@ -253,15 +303,15 @@ Add a spec phase, parallelize independent sessions, swap in a different agent �
 
 ## Core Features
 
-### Multi-Agent SDK Support
+### Multi-Agent Support
 
-Atomic is the only harness that unifies **three production agent SDKs** behind a single interface. Switch between agents with a flag — your workflows, skills, and sub-agents work across all of them.
+Atomic works across **three production coding agents** — switch between them with a flag and your workflows, skills, and sub-agents carry over.
 
-| Agent              | SDK                              | Command                   |
-| ------------------ | -------------------------------- | ------------------------- |
-| Claude Code        | `@anthropic-ai/claude-agent-sdk` | `atomic chat -a claude`   |
-| OpenCode           | `@opencode-ai/sdk`               | `atomic chat -a opencode` |
-| GitHub Copilot CLI | `@github/copilot-sdk`            | `atomic chat -a copilot`  |
+| Agent              | Command                   |
+| ------------------ | ------------------------- |
+| Claude Code        | `atomic chat -a claude`   |
+| OpenCode           | `atomic chat -a opencode` |
+| GitHub Copilot CLI | `atomic chat -a copilot`  |
 
 Each agent gets its own configuration directory (`.claude/`, `.opencode/`, `.github/`), skills, and context files — all managed by Atomic. Write a workflow once, run it on any agent.
 

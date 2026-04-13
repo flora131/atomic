@@ -198,11 +198,14 @@ export async function workflowCommand(options: {
   // merge modes inside `discoverWorkflows`, so shadowed local/global
   // workflows never reach the renderer.
   if (options.list) {
-    const workflows = await discoverWorkflows(
+    const discovered = await discoverWorkflows(
       cwd,
       options.agent as AgentType | undefined,
       { merge: false },
     );
+    // Filter out workflows that fail to load (type errors, missing
+    // .compile(), etc.) so the list only shows workflows ready to run.
+    const workflows = await loadWorkflowsMetadata(discovered);
     process.stdout.write(renderWorkflowList(workflows));
     return 0;
   }
@@ -440,7 +443,9 @@ async function runNamedMode(
       `  ~/.atomic/workflows/${name}/${agent}/index.ts ${COLORS.dim}(global)${COLORS.reset}`,
     );
 
-    const available = await discoverWorkflows(cwd, agent);
+    const available = await loadWorkflowsMetadata(
+      await discoverWorkflows(cwd, agent),
+    );
     if (available.length > 0) {
       console.error(`\nAvailable ${agent} workflows:`);
       for (const wf of available) {

@@ -6,7 +6,7 @@
  *   atomic workflow -n <name> -a <agent> <prompt>  free-form workflow
  *   atomic workflow -n <name> -a <agent> --<field>=<value> ...
  *                                                  structured-input workflow
- *   atomic workflow --list                         list discoverable workflows
+ *   atomic workflow list [-a <agent>]              list discoverable workflows
  */
 
 import { AGENT_CONFIG, type AgentKey } from "../../services/config/index.ts";

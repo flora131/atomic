@@ -77,7 +77,7 @@ await ctx.stage({ name: "plan" }, {}, {
     return answer;
   },
 }, async (s) => {
-  await s.session.sendAndWait({ prompt: (ctx.inputs.prompt ?? "") }, SEND_TIMEOUT_MS);
+  await s.session.send({ prompt: (ctx.inputs.prompt ?? "") });
   s.save(await s.session.getMessages());
 });
 ```
@@ -97,7 +97,7 @@ await ctx.stage({ name: "plan" }, {}, {
     };
   },
 }, async (s) => {
-  await s.session.sendAndWait({ prompt: (ctx.inputs.prompt ?? "") }, SEND_TIMEOUT_MS);
+  await s.session.send({ prompt: (ctx.inputs.prompt ?? "") });
   s.save(await s.session.getMessages());
 });
 ```
@@ -112,7 +112,7 @@ import { approveAll } from "@github/copilot-sdk";
 
 // Explicit (same as the default):
 await ctx.stage({ name: "plan" }, {}, { onPermissionRequest: approveAll }, async (s) => {
-  await s.session.sendAndWait({ prompt: (ctx.inputs.prompt ?? "") }, SEND_TIMEOUT_MS);
+  await s.session.send({ prompt: (ctx.inputs.prompt ?? "") });
   s.save(await s.session.getMessages());
 });
 ```
@@ -131,7 +131,7 @@ await ctx.stage({ name: "plan" }, {}, {
     return { kind: "approved" };
   },
 }, async (s) => {
-  await s.session.sendAndWait({ prompt: (ctx.inputs.prompt ?? "") }, SEND_TIMEOUT_MS);
+  await s.session.send({ prompt: (ctx.inputs.prompt ?? "") });
   s.save(await s.session.getMessages());
 });
 ```

@@ -572,7 +572,7 @@ The runtime auto-creates `s.client` and `s.session` — use them directly inside
 | Agent | How to send a prompt |
 | ----- | -------------------- |
 | **Claude** | `await s.session.query(prompt)` |
-| **Copilot** | `await s.session.sendAndWait({ prompt }, TIMEOUT_MS)` — explicit timeout required (default 60s throws) |
+| **Copilot** | `await s.session.send({ prompt })` |
 | **OpenCode** | `await s.client.session.prompt({ sessionID: s.session.id, parts: [{ type: "text", text: prompt }] })` |
 
 #### Key Rules

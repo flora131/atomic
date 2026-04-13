@@ -210,9 +210,6 @@ Copilot uses a client-server architecture. The runtime auto-creates a `CopilotCl
 ```ts
 import { defineWorkflow } from "@bastani/atomic/workflows";
 
-// Always pass an explicit timeout to sendAndWait — see the pitfall note below.
-const SEND_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
-
 export default defineWorkflow<"copilot">({ name: "implement" })
   .run(async (ctx) => {
     await ctx.stage(
@@ -223,7 +220,7 @@ export default defineWorkflow<"copilot">({ name: "implement" })
         // s.client — CopilotClient (already started by runtime)
         // s.session — CopilotSession (already created, foreground session set)
 
-        await s.session.sendAndWait({ prompt: (s.inputs.prompt ?? "") }, SEND_TIMEOUT_MS);
+        await s.session.send({ prompt: (s.inputs.prompt ?? "") });
 
         s.save(await s.session.getMessages());
       },
@@ -232,47 +229,32 @@ export default defineWorkflow<"copilot">({ name: "implement" })
   .compile();
 ```
 
-### Critical pitfall: `sendAndWait` has a 60-second default timeout
+### `send` vs `sendAndWait`: choosing the right method
 
-`session.sendAndWait(options, timeout?)` accepts an optional second `timeout`
-parameter that **defaults to 60000 ms**. When the timeout elapses it **throws**
-`Timeout after 60000ms waiting for session.idle` — it does NOT abort the
-in-flight agent, and it does NOT silently return. The throw propagates out of
-the session callback, so:
-
-1. The current stage fails.
-2. Every subsequent session step never executes (e.g. a `planner → orchestrator → reviewer` pipeline stops dead after the planner).
-3. The agent may still be churning in the background.
-
-This is deadly for real work — planner, reviewer, and orchestrator sub-agents
-routinely need more than 60 seconds of wall-clock time. Source:
-`@github/copilot-sdk/dist/session.js` — the `sendAndWait` implementation races
-the idle promise against `setTimeout(..., timeout ?? 6e4)`.
-
-**Always pass an explicit, generous timeout** when calling `sendAndWait` inside
-a workflow. Define it as a named constant so it's obvious and tunable:
+**Default to `send`** for all Copilot workflow stages. `send` dispatches the
+prompt and returns the `messageId` immediately — no timeout to guess, no
+constants to tune, no risk of aborting a long-running agent mid-work.
 
 ```ts
-// Buggy — silently inherits the 60s default and crashes long stages
-await session.sendAndWait({ prompt });
-
-// Correct — explicit 30-minute budget
-const SEND_TIMEOUT_MS = 30 * 60 * 1000;
-await session.sendAndWait({ prompt }, SEND_TIMEOUT_MS);
+// Default pattern — clean, no timeout guessing
+await s.session.send({ prompt });
 ```
 
-Pick a timeout that fits the expected work:
+**Use `sendAndWait` only when the user explicitly requests timeout-based
+waiting.** `sendAndWait` blocks until the session emits `session.idle` or the
+timeout fires. If you must use it, ask the user for a reasonable timeout. If
+they aren't sure, default to **5 minutes** (300 000 ms).
 
-| Session type | Suggested timeout |
-|---|---|
-| Short, bounded prompts (summaries, classification) | 5-10 minutes |
-| Sub-agents doing file-wide analysis (planner, reviewer) | 30 minutes |
-| Long implementation or multi-file refactors | 60 minutes |
+```ts
+// Only when the user explicitly wants timeout-gated waiting
+const SEND_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes default; ask the user
+await s.session.sendAndWait({ prompt }, SEND_TIMEOUT_MS);
+```
 
-The timeout controls how long the SDK waits for `session.idle`; it does not
-cap the agent itself. Err on the generous side — a truly hung session will
-still surface as a clear error message rather than silently breaking
-downstream stages.
+**Why not `sendAndWait` by default?** The 60-second default timeout is almost
+never correct for real agent work — planners, reviewers, and orchestrators
+routinely exceed it. Guessing large timeouts (30-60 min) adds messy constants
+and still risks aborting work prematurely. `send` avoids the problem entirely.
 
 ### Critical pitfall: session lifecycle controls what context is available
 
@@ -293,7 +275,7 @@ state determines what context the model sees on its next turn:
 | State | How you get there | Context available | Action needed |
 |---|---|---|---|
 | **Fresh** | `client.createSession(...)` | **None** — empty conversation | You MUST inject everything the agent needs in the first prompt |
-| **Continued** | Same session, additional `sendAndWait` calls | All prior turns in this session | Nothing — but watch total token usage |
+| **Continued** | Same session, additional `send` calls | All prior turns in this session | Nothing — but watch total token usage |
 | **Resumed** | `client.resumeSession(sessionId)` | All persisted turns from the prior session of the SAME agent | Nothing — full history is reattached |
 | **Closed** | `session.disconnect()` or `client.stop()` | **Gone** from the live client; persisted on disk if the host enables it | Either resume by ID (same agent) or start fresh and re-inject context |
 
@@ -328,7 +310,7 @@ Simplest and most common fix:
 ```ts
 async function runAgent(agent: string, prompt: string): Promise<string> {
   const session = await client.createSession({ agent, onPermissionRequest: approveAll });
-  await session.sendAndWait({ prompt }, SEND_TIMEOUT_MS);
+  await session.send({ prompt });
   const messages = await session.getMessages();
   await session.disconnect();
   return getAssistantText(messages); // concatenate every top-level turn — see failure-modes.md §F1
@@ -354,8 +336,8 @@ history across related steps.
 
 ```ts
 // Same stage, multi-turn — full history stays attached
-await s.session.sendAndWait({ prompt: "Plan the implementation." }, SEND_TIMEOUT_MS);
-await s.session.sendAndWait({ prompt: "Follow up on the plan above." }, SEND_TIMEOUT_MS);
+await s.session.send({ prompt: "Plan the implementation." });
+await s.session.send({ prompt: "Follow up on the plan above." });
 ```
 
 If you deliberately drop down to provider-specific resume/fork APIs, keep them
@@ -407,20 +389,17 @@ them first.**
 
 ### Multi-turn conversations
 
-Send multiple prompts to the same session. Remember: every `sendAndWait` call
-needs its own explicit timeout.
+Send multiple prompts to the same session:
 
 ```ts
-const SEND_TIMEOUT_MS = 30 * 60 * 1000;
-
 .run(async (ctx) => {
   await ctx.stage({ name: "implement" }, {}, {}, async (s) => {
     // Turn 1
-    await s.session.sendAndWait({ prompt: "Plan the implementation." }, SEND_TIMEOUT_MS);
+    await s.session.send({ prompt: "Plan the implementation." });
     // Turn 2
-    await s.session.sendAndWait({ prompt: "Now implement the plan." }, SEND_TIMEOUT_MS);
+    await s.session.send({ prompt: "Now implement the plan." });
     // Turn 3
-    await s.session.sendAndWait({ prompt: "Run the tests." }, SEND_TIMEOUT_MS);
+    await s.session.send({ prompt: "Run the tests." });
 
     s.save(await s.session.getMessages());
   });
@@ -446,7 +425,7 @@ await ctx.stage(
     },
   }, // sessionOpts
   async (s) => {
-    await s.session.sendAndWait({ prompt: (s.inputs.prompt ?? "") }, SEND_TIMEOUT_MS);
+    await s.session.send({ prompt: (s.inputs.prompt ?? "") });
     s.save(await s.session.getMessages());
   },
 );
@@ -473,7 +452,7 @@ await ctx.stage(
   {},
   { tools: [myTool] },
   async (s) => {
-    await s.session.sendAndWait({ prompt: (s.inputs.prompt ?? "") }, SEND_TIMEOUT_MS);
+    await s.session.send({ prompt: (s.inputs.prompt ?? "") });
     s.save(await s.session.getMessages());
   },
 );
@@ -524,15 +503,13 @@ s.session.on("assistant.reasoning_delta", (event) => {
 Pass the `agent` parameter in `sessionOpts` (3rd arg to `ctx.stage()`) to bind the session to a named sub-agent:
 
 ```ts
-const SEND_TIMEOUT_MS = 30 * 60 * 1000; // planner can take a while
-
 .run(async (ctx) => {
   await ctx.stage(
     { name: "plan" },
     {},
     { agent: "planner" }, // sessionOpts — binds the session to the "planner" agent
     async (s) => {
-      await s.session.sendAndWait({ prompt: (s.inputs.prompt ?? "") }, SEND_TIMEOUT_MS);
+      await s.session.send({ prompt: (s.inputs.prompt ?? "") });
       s.save(await s.session.getMessages());
     },
   );
@@ -590,7 +567,7 @@ substitute the OpenCode API equivalents:
 | Concept | Copilot API | OpenCode API |
 |---|---|---|
 | Fresh session (auto-created) | `s.session` (runtime creates via `createSession`) | `s.session` (runtime creates via `session.create`) |
-| Send a turn | `s.session.sendAndWait({ prompt }, timeout)` | `s.client.session.prompt({ sessionID: s.session.id, parts })` |
+| Send a turn | `s.session.send({ prompt })` | `s.client.session.prompt({ sessionID: s.session.id, parts })` |
 | Close / disconnect | Auto-handled by runtime | session lifecycle managed via server; no explicit disconnect in typical flow |
 | Continue prior conversation | `s.client.resumeSession(sessionId)` (provider API; advanced) | Reuse the same `sessionID` with `s.client.session.prompt()` inside the same logical conversation. `ctx.stage()` itself still creates a fresh session every time |
 | Extract final text | `getAssistantText(messages)` (see `failure-modes.md` §F1) | `extractResponseText(result.data!.parts)` |

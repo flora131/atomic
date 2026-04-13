@@ -26,9 +26,6 @@
  *
  * Copilot-specific concerns baked in:
  *
- *  • F10 — every `sendAndWait` passes an explicit 30-minute timeout. The SDK
- *    default is 60 seconds; a timeout THROWS and aborts the entire stage.
- *    Explorers can easily exceed 60s on large partitions.
  *
  *  • F5 — every `ctx.stage()` call is a FRESH session with no memory of prior
  *    stages. We forward the scout overview, history overview, and partition
@@ -65,15 +62,6 @@ import {
   buildScoutPrompt,
   slugifyPrompt,
 } from "../helpers/prompts.ts";
-
-// ── Timeouts ────────────────────────────────────────────────────────────────
-// Every sendAndWait call passes one of these explicitly — never relying on
-// the 60-second default (F10). Pick generously; a hung session still surfaces
-// as a clear error rather than silently breaking downstream stages.
-const SCOUT_TIMEOUT_MS = 15 * 60 * 1000; // 15 min — short orientation call
-const HISTORY_TIMEOUT_MS = 20 * 60 * 1000; // 20 min — reads research/ docs
-const EXPLORER_TIMEOUT_MS = 45 * 60 * 1000; // 45 min — multi-step locate/analyze
-const AGGREGATOR_TIMEOUT_MS = 45 * 60 * 1000; // 45 min — reads N explorer reports
 
 export default defineWorkflow<"copilot">({
     name: "deep-research-codebase",
@@ -127,19 +115,16 @@ export default defineWorkflow<"copilot">({
           // 4. Short LLM call: architectural orientation for downstream
           //    explorers. The prompt forbids the agent from answering the
           //    research question — its only job here is to orient.
-          await s.session.sendAndWait(
-            {
-              prompt: buildScoutPrompt({
-                question: prompt,
-                tree: data.tree,
-                totalLoc: data.totalLoc,
-                totalFiles: data.totalFiles,
-                explorerCount: actualCount,
-                partitionPreview: partitions,
-              }),
-            },
-            SCOUT_TIMEOUT_MS,
-          );
+          await s.session.send({
+            prompt: buildScoutPrompt({
+              question: prompt,
+              tree: data.tree,
+              totalLoc: data.totalLoc,
+              totalFiles: data.totalFiles,
+              explorerCount: actualCount,
+              partitionPreview: partitions,
+            }),
+          });
           // F9: Copilot takes SessionEvent[], not a session ID.
           s.save(await s.session.getMessages());
 
@@ -166,10 +151,9 @@ export default defineWorkflow<"copilot">({
           // The generic history prompt drives a single default-agent session
           // through locate → analyze → synthesize inline, instead of Claude's
           // sub-agent dispatch.
-          await s.session.sendAndWait(
-            { prompt: buildHistoryPromptGeneric({ question: prompt, root }) },
-            HISTORY_TIMEOUT_MS,
-          );
+          await s.session.send({
+            prompt: buildHistoryPromptGeneric({ question: prompt, root }),
+          });
           s.save(await s.session.getMessages());
         },
       ),
@@ -210,21 +194,18 @@ export default defineWorkflow<"copilot">({
           {},
           {},
           async (s) => {
-            await s.session.sendAndWait(
-              {
-                prompt: buildExplorerPromptGeneric({
-                  question: prompt,
-                  index: i,
-                  total: explorerCount,
-                  partition,
-                  scoutOverview,
-                  historyOverview,
-                  scratchPath,
-                  root,
-                }),
-              },
-              EXPLORER_TIMEOUT_MS,
-            );
+            await s.session.send({
+              prompt: buildExplorerPromptGeneric({
+                question: prompt,
+                index: i,
+                total: explorerCount,
+                partition,
+                scoutOverview,
+                historyOverview,
+                scratchPath,
+                root,
+              }),
+            });
             s.save(await s.session.getMessages());
 
             // Returning structured metadata lets the aggregator stage reach
@@ -254,21 +235,18 @@ export default defineWorkflow<"copilot">({
       {},
       {},
       async (s) => {
-        await s.session.sendAndWait(
-          {
-            prompt: buildAggregatorPrompt({
-              question: prompt,
-              totalLoc,
-              totalFiles,
-              explorerCount,
-              explorerFiles: explorerHandles.map((h) => h.result),
-              finalPath,
-              scoutOverview,
-              historyOverview,
-            }),
-          },
-          AGGREGATOR_TIMEOUT_MS,
-        );
+        await s.session.send({
+          prompt: buildAggregatorPrompt({
+            question: prompt,
+            totalLoc,
+            totalFiles,
+            explorerCount,
+            explorerFiles: explorerHandles.map((h) => h.result),
+            finalPath,
+            scoutOverview,
+            historyOverview,
+          }),
+        });
         s.save(await s.session.getMessages());
       },
     );

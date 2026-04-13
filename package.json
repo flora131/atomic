@@ -30,6 +30,10 @@
       "bun": "./src/sdk/index.ts",
       "types": "./dist/sdk/index.d.ts"
     },
+    "./workflows": {
+      "bun": "./src/sdk/workflows/index.ts",
+      "types": "./dist/sdk/workflows/index.d.ts"
+    },
     "./*": {
       "bun": "./src/sdk/*",
       "types": "./dist/sdk/*"

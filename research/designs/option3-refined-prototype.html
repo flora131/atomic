@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Atomic — Option 3 Refined</title>
+<style>
+  *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+  :root {
+    --base:#1e1e2e; --mantle:#181825; --crust:#11111b;
+    --surface0:#313244; --surface1:#45475a; --surface2:#585b70;
+    --overlay0:#6c7086; --text:#cdd6f4; --subtext0:#a6adc8;
+    --blue:#89b4fa; --green:#a6e3a1; --red:#f38ba8;
+    --yellow:#f9e2af; --mauve:#cba6f7;
+    --font-mono:'JetBrains Mono','SF Mono','Cascadia Code','Fira Code','Menlo',monospace;
+    --row:20px;
+  }
+  body {
+    background:#0e0e16; color:var(--text);
+    font-family:var(--font-mono); font-size:13px;
+    line-height:var(--row); padding:32px 24px 120px;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  .page-header { max-width:960px; margin:0 auto 40px; }
+  .page-header h1 {
+    font-size:14px; font-weight:600; color:var(--blue);
+    letter-spacing:0.05em; text-transform:uppercase; margin-bottom:8px;
+  }
+  .page-header p { color:var(--subtext0); font-size:12px; line-height:1.6; max-width:680px; }
+
+  .section { max-width:960px; margin:0 auto 48px; }
+  .section-label {
+    font-size:11px; font-weight:600; color:var(--mauve);
+    letter-spacing:0.08em; text-transform:uppercase; margin-bottom:6px;
+  }
+  .section-title { font-size:13px; font-weight:600; color:var(--text); margin-bottom:16px; }
+
+  .interaction-hint {
+    font-size:11px; color:var(--surface2); margin-top:10px; font-style:italic;
+  }
+  .interaction-hint .kh {
+    color:var(--subtext0); font-style:normal;
+    background:var(--surface0); padding:1px 5px; border-radius:3px; font-size:10px;
+  }
+
+  /* ── Keymap reference ──────────────────────── */
+  .keymap {
+    margin-top:24px; padding:16px 20px;
+    background:var(--mantle); border:1px solid var(--surface0); border-radius:8px;
+  }
+  .keymap-title {
+    font-size:11px; font-weight:600; color:var(--surface2);
+    letter-spacing:0.06em; text-transform:uppercase; margin-bottom:10px;
+  }
+  .keymap-cols {
+    display:flex; gap:40px;
+  }
+  .keymap-col { flex:1; }
+  .keymap-col h4 {
+    font-size:11px; font-weight:600; color:var(--subtext0); margin-bottom:6px;
+  }
+  .keymap-row {
+    display:flex; align-items:center; gap:8px;
+    font-size:12px; line-height:1.8;
+  }
+  .keymap-row .km-key {
+    color:var(--text); font-weight:500; min-width:60px;
+  }
+  .keymap-row .km-desc { color:var(--surface2); }
+
+  /* ── Terminal ──────────────────────────────── */
+  .terminal {
+    background:var(--base); border:1px solid var(--surface0);
+    border-radius:8px; overflow:hidden; font-size:13px;
+    line-height:var(--row); position:relative;
+    /* Focus outline when terminal is active */
+    outline:none;
+  }
+  .terminal:focus-within, .terminal.active {
+    border-color:var(--surface1);
+  }
+  .terminal-titlebar {
+    background:var(--mantle); padding:8px 12px;
+    display:flex; align-items:center; gap:8px;
+    border-bottom:1px solid var(--surface0);
+  }
+  .terminal-dot { width:10px; height:10px; border-radius:50%; background:var(--surface1); }
+  .terminal-titlebar-text { font-size:11px; color:var(--surface2); margin-left:4px; }
+  .terminal-body {
+    display:flex; flex-direction:column; min-height:460px; position:relative;
+  }
+
+  /* ── Header ────────────────────────────────── */
+  .header-bar {
+    background:var(--crust); height:var(--row);
+    display:flex; align-items:center; padding:0 8px; flex-shrink:0;
+  }
+  .header-badge {
+    background:var(--mauve); color:var(--crust);
+    font-weight:700; font-size:11px; padding:0 6px;
+    height:16px; display:flex; align-items:center; border-radius:2px;
+  }
+  .header-counts { margin-left:auto; display:flex; gap:10px; font-size:12px; }
+  .count-green { color:var(--green); }
+  .count-yellow { color:var(--yellow); }
+  .count-dim { color:var(--surface2); }
+  .count-red { color:var(--red); }
+
+  /* ── Graph ─────────────────────────────────── */
+  .graph-canvas { flex:1; position:relative; padding:20px 24px; overflow:hidden; }
+  .node-grid { display:flex; flex-direction:column; align-items:center; }
+  .node-row { display:flex; justify-content:center; gap:24px; }
+  .connector-row {
+    display:flex; justify-content:center; height:28px;
+    color:var(--surface1); font-size:13px; line-height:14px;
+    white-space:pre; align-items:center;
+  }
+  .node-card {
+    width:160px; height:52px; border:1px solid var(--surface1); border-radius:6px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+    cursor:pointer; transition:border-color 0.15s, background 0.15s; position:relative;
+  }
+  .node-card .node-name { font-size:12px; font-weight:500; }
+  .node-card .node-meta { font-size:11px; color:var(--subtext0); }
+  .node-card[data-status="running"]  { border-color:var(--yellow); }
+  .node-card[data-status="running"]  .node-name { color:var(--text); }
+  .node-card[data-status="running"]  .node-meta { color:var(--yellow); }
+  .node-card[data-status="complete"] { border-color:var(--green); }
+  .node-card[data-status="complete"] .node-name { color:var(--text); }
+  .node-card[data-status="complete"] .node-meta { color:var(--green); }
+  .node-card[data-status="error"]    { border-color:var(--red); }
+  .node-card[data-status="error"]    .node-name { color:var(--text); }
+  .node-card[data-status="error"]    .node-meta { color:var(--red); }
+  .node-card[data-status="pending"]  { border-color:var(--surface0); }
+  .node-card[data-status="pending"]  .node-name { color:var(--surface2); }
+  .node-card[data-status="pending"]  .node-meta { color:var(--surface2); }
+  .node-card.focused {
+    background:rgba(137,180,250,0.08); border-color:var(--blue);
+    box-shadow:0 0 0 1px rgba(137,180,250,0.15);
+  }
+  .node-card.focused .node-name { color:#fff; }
+
+  /* ── Agent CLI ─────────────────────────────── */
+  .agent-view {
+    flex:1; padding:12px 16px; font-size:12px; line-height:1.7;
+    color:var(--subtext0); overflow:hidden;
+  }
+  .agent-view .prompt { color:var(--blue); }
+  .agent-view .agent-name-label { color:var(--mauve); font-weight:600; }
+  .agent-view .output { color:var(--surface2); }
+  .agent-view .success-text { color:var(--green); }
+  .cursor-block {
+    display:inline-block; width:7px; height:14px; background:var(--text);
+    animation:blink 1s steps(1) infinite; vertical-align:middle; margin-left:2px;
+  }
+  @keyframes blink { 0%,50%{opacity:1;} 51%,100%{opacity:0;} }
+
+  /* ── Statusline ────────────────────────────── */
+  .statusline {
+    background:var(--crust); height:var(--row);
+    display:flex; align-items:center; flex-shrink:0;
+    overflow:hidden; padding:0 4px;
+  }
+  .mode-badge {
+    font-weight:700; font-size:11px; padding:0 6px; height:16px;
+    display:flex; align-items:center; border-radius:2px; flex-shrink:0; margin-left:2px;
+  }
+  .mode-badge.graph { background:var(--blue); color:var(--crust); }
+  .mode-badge.attached { background:var(--surface1); color:var(--text); }
+
+  .breadcrumb {
+    display:flex; align-items:center; margin-left:6px; font-size:12px;
+    flex-shrink:1; min-width:0; overflow:hidden;
+  }
+  .breadcrumb .bc-sep { color:var(--surface2); margin:0 5px; flex-shrink:0; }
+  .breadcrumb .bc-agent { color:var(--text); white-space:nowrap; }
+  .breadcrumb .bc-status { font-size:9px; margin-right:4px; }
+  .breadcrumb .bc-status.running { color:var(--yellow); }
+  .breadcrumb .bc-status.complete { color:var(--green); }
+  .breadcrumb .bc-status.error { color:var(--red); }
+  .breadcrumb .bc-status.pending { color:var(--surface2); }
+  .breadcrumb .bc-pos { color:var(--surface2); font-size:11px; margin-left:6px; flex-shrink:0; }
+
+  .hints {
+    margin-left:auto; padding-right:8px; font-size:12px;
+    color:var(--subtext0); flex-shrink:0; white-space:nowrap; background:var(--crust);
+  }
+  .hints .key { color:var(--text); }
+  .hints .sep { color:var(--surface2); margin:0 3px; }
+
+  /* ── Compact switcher ──────────────────────── */
+  .compact-switcher {
+    position:absolute; bottom:calc(var(--row) + 4px); left:4px;
+    background:var(--mantle); border:1px solid var(--surface1);
+    border-radius:6px; width:260px; z-index:20;
+    overflow:hidden; box-shadow:0 -4px 24px rgba(0,0,0,0.4);
+    animation: pop-in 0.1s ease-out;
+  }
+  @keyframes pop-in {
+    from { opacity:0; transform:translateY(4px); }
+    to   { opacity:1; transform:translateY(0); }
+  }
+  .compact-switcher .sw-header {
+    padding:5px 10px; font-size:10px; color:var(--surface2);
+    border-bottom:1px solid var(--surface0);
+    display:flex; justify-content:space-between;
+  }
+  .compact-switcher .sw-list { padding:3px 0; }
+  .compact-switcher .sw-item {
+    padding:4px 10px; font-size:12px;
+    display:flex; align-items:center; gap:6px;
+    color:var(--subtext0); cursor:default;
+    transition:background 0.06s;
+  }
+  .compact-switcher .sw-item.selected {
+    background:rgba(137,180,250,0.10); color:var(--text);
+  }
+  .compact-switcher .sw-item .sw-dot { font-size:9px; }
+  .compact-switcher .sw-item .sw-dot.running { color:var(--yellow); }
+  .compact-switcher .sw-item .sw-dot.complete { color:var(--green); }
+  .compact-switcher .sw-item .sw-dot.error { color:var(--red); }
+  .compact-switcher .sw-item .sw-dot.pending { color:var(--surface2); }
+  .compact-switcher .sw-item .sw-num {
+    color:var(--surface2); font-size:10px; font-weight:600;
+    width:12px; text-align:right; flex-shrink:0;
+  }
+  .compact-switcher .sw-item .sw-name { flex:1; }
+  .compact-switcher .sw-item .sw-dur { color:var(--surface2); font-size:11px; }
+
+  /* Pulse */
+  @keyframes pulse-dot { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
+  .bc-status.running, .sw-dot.running { animation:pulse-dot 2s ease-in-out infinite; }
+
+  /* Flash on view switch */
+  .view-flash { animation:flash-in 0.12s ease-out; }
+  @keyframes flash-in { from{opacity:0.5;} to{opacity:1;} }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>Option 3 — Refined</h1>
+  <p>
+    Full keyboard navigation: arrow keys to navigate the graph, Enter to attach,
+    Tab/Shift+Tab to cycle agents, <strong>g</strong> to jump straight back to graph,
+    and <strong>/</strong> to open a compact agent list for direct jumping.
+    No Esc key — avoids interrupting running agents. Try it below.
+  </p>
+</div>
+
+<div class="section">
+  <div class="terminal" id="term" tabindex="0">
+    <div class="terminal-titlebar">
+      <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+      <span class="terminal-titlebar-text" id="titlebar-text">atomic-wf-ralph-a1b2</span>
+    </div>
+    <div class="terminal-body">
+      <!-- Graph view -->
+      <div id="graph-view">
+        <div class="header-bar">
+          <span class="header-badge">Orchestrator</span>
+          <div class="header-counts">
+            <span class="count-green">&#10003; 1</span>
+            <span class="count-yellow">&#9679; 3</span>
+            <span class="count-dim">&#9675; 2</span>
+            <span class="count-red">&#10007; 1</span>
+          </div>
+        </div>
+        <div class="graph-canvas" id="graph-canvas"></div>
+      </div>
+
+      <!-- Agent view -->
+      <div id="agent-view" style="display:none;flex:1;flex-direction:column;">
+        <div class="agent-view" id="agent-content" style="flex:1;"></div>
+      </div>
+
+      <!-- Compact switcher -->
+      <div class="compact-switcher" id="switcher" style="display:none;"></div>
+
+      <!-- Statusline -->
+      <div class="statusline" id="statusline">
+        <span class="mode-badge graph" id="badge">GRAPH</span>
+        <div class="breadcrumb" id="breadcrumb"></div>
+        <div class="hints" id="hints"></div>
+      </div>
+    </div>
+  </div>
+
+  <p class="interaction-hint">
+    Click the terminal to focus it, then use keyboard to navigate.
+    <span class="kh">&uarr;&darr;&larr;&rarr;</span> move focus
+    <span class="kh">Enter</span> attach
+    <span class="kh">Tab</span> next agent
+    <span class="kh">/</span> agent list
+  </p>
+
+  <!-- Keymap reference -->
+  <div class="keymap">
+    <div class="keymap-title">Keyboard Reference</div>
+    <div class="keymap-cols">
+      <div class="keymap-col">
+        <h4>Graph view</h4>
+        <div class="keymap-row"><span class="km-key">&uarr; &darr; &larr; &rarr;</span><span class="km-desc">Navigate nodes</span></div>
+        <div class="keymap-row"><span class="km-key">h j k l</span><span class="km-desc">Navigate (vim)</span></div>
+        <div class="keymap-row"><span class="km-key">Enter</span><span class="km-desc">Attach to focused node</span></div>
+        <div class="keymap-row"><span class="km-key">/</span><span class="km-desc">Open agent list</span></div>
+        <div class="keymap-row"><span class="km-key">q</span><span class="km-desc">Quit</span></div>
+      </div>
+      <div class="keymap-col">
+        <h4>Attached view</h4>
+        <div class="keymap-row"><span class="km-key">Tab</span><span class="km-desc">Next agent (wraps to graph)</span></div>
+        <div class="keymap-row"><span class="km-key">Shift+Tab</span><span class="km-desc">Previous agent</span></div>
+        <div class="keymap-row"><span class="km-key">g</span><span class="km-desc">Back to graph</span></div>
+        <div class="keymap-row"><span class="km-key">/</span><span class="km-desc">Open agent list</span></div>
+        <div class="keymap-row"><span class="km-key">q</span><span class="km-desc">Quit</span></div>
+      </div>
+      <div class="keymap-col">
+        <h4>Agent list (/)</h4>
+        <div class="keymap-row"><span class="km-key">&uarr; &darr;</span><span class="km-desc">Select agent</span></div>
+        <div class="keymap-row"><span class="km-key">Enter</span><span class="km-desc">Jump to agent</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Data ──────────────────────────────────────
+
+const agents = [
+  { id:"orchestrator",    status:"running",  dur:"5m 02s" },
+  { id:"planner",         status:"complete", dur:"1m 23s" },
+  { id:"frontend-writer", status:"running",  dur:"2m 45s" },
+  { id:"backend-writer",  status:"running",  dur:"3m 12s" },
+  { id:"reviewer",        status:"error",    dur:"0m 43s" },
+  { id:"test-runner",     status:"pending",  dur:"\u2014" },
+  { id:"deploy-agent",    status:"pending",  dur:"\u2014" },
+];
+const icons = { running:"\u25CF", complete:"\u2713", error:"\u2717", pending:"\u25CB" };
+const started = agents.filter(a => a.status !== "pending");
+const subagents = started.filter(a => a.id !== "orchestrator");
+
+const outputs = {
+  orchestrator:[
+    '<span class="agent-name-label">orchestrator</span> <span class="output">workflow started</span>',
+    '<span class="output">spawning planner...</span>',
+    '<span class="output">spawning deploy-agent...</span>',
+    '&nbsp;',
+    '<span class="prompt">&gt;</span> <span style="color:var(--text)">Coordinating 7 agents for ralph workflow...</span>',
+    '<span class="output">  planner: complete (1m 23s)</span>',
+    '<span class="output">  frontend-writer: running...</span>',
+    '<span class="output">  backend-writer: running...</span>',
+    '<span style="color:var(--red)">  reviewer: error \u2014 lint failed</span>',
+    '&nbsp;',
+    '<span class="prompt">&gt;</span> <span class="cursor-block"></span>',
+  ],
+  planner:[
+    '<span class="agent-name-label">planner</span> <span class="output">session started</span>',
+    '<span class="prompt">&gt;</span> <span style="color:var(--text)">Analyzing codebase structure...</span>',
+    '<span class="output">  found 42 source files, 8 test files</span>',
+    '<span class="output">  identifying change boundaries...</span>',
+    '<span class="success-text">  plan generated: 3 parallel tasks</span>',
+    '&nbsp;',
+    '<span class="success-text">\u2713 session complete (1m 23s)</span>',
+  ],
+  "frontend-writer":[
+    '<span class="agent-name-label">frontend-writer</span> <span class="output">session started</span>',
+    '<span class="prompt">&gt;</span> <span style="color:var(--text)">Implementing UI components...</span>',
+    '<span class="output">  writing src/components/Header.tsx...</span>',
+    '<span class="output">  writing src/components/Sidebar.tsx...</span>',
+    '<span class="output">  writing src/styles/theme.css...</span>',
+    '&nbsp;',
+    '<span class="prompt">&gt;</span> <span class="cursor-block"></span>',
+  ],
+  "backend-writer":[
+    '<span class="agent-name-label">backend-writer</span> <span class="output">session started</span>',
+    '<span class="prompt">&gt;</span> <span style="color:var(--text)">Implementing API endpoints...</span>',
+    '<span class="output">  writing src/routes/api.ts...</span>',
+    '<span class="output">  writing src/middleware/auth.ts...</span>',
+    '<span class="output">  running type checks...</span>',
+    '&nbsp;',
+    '<span class="prompt">&gt;</span> <span class="cursor-block"></span>',
+  ],
+  reviewer:[
+    '<span class="agent-name-label">reviewer</span> <span class="output">session started</span>',
+    '<span class="output">running lint checks on src/...</span>',
+    '&nbsp;',
+    '<span class="prompt">&gt;</span> <span style="color:var(--text)">Reviewing changes in src/index.ts...</span>',
+    '<span class="output">  checking type safety... done</span>',
+    '<span class="output">  checking imports... done</span>',
+    '<span style="color:var(--red)">  error: lint failed at src/index.ts:42</span>',
+    '<span style="color:var(--red)">    Expected semicolon, found newline</span>',
+    '&nbsp;',
+    '<span class="prompt">&gt;</span> <span style="color:var(--text)">Attempting auto-fix...</span>',
+    '<span class="output">  applying prettier...</span>',
+    '<span class="success-text">  fix applied, re-running lint...</span>',
+    '&nbsp;',
+    '<span class="prompt">&gt;</span> <span class="cursor-block"></span>',
+  ],
+  "test-runner":[
+    '<span class="agent-name-label">test-runner</span> <span style="color:var(--surface2)">waiting for backend-writer...</span>',
+  ],
+  "deploy-agent":[
+    '<span class="agent-name-label">deploy-agent</span> <span style="color:var(--surface2)">waiting for all tasks to complete...</span>',
+  ],
+};
+
+// ── Graph spatial positions ───────────────────
+
+const positions = {
+  orchestrator:     { x:2, y:0 },
+  planner:          { x:1, y:1 },
+  "deploy-agent":   { x:3, y:1 },
+  "frontend-writer":{ x:0, y:2 },
+  "backend-writer": { x:1, y:2 },
+  reviewer:         { x:2, y:2 },
+  "test-runner":    { x:1, y:3 },
+};
+
+// ── Build graph ───────────────────────────────
+
+function buildGraph() {
+  const canvas = document.getElementById("graph-canvas");
+  const rows = [
+    [{ id:"orchestrator", status:"running", dur:"5m 02s" }],
+    "fan2",
+    [{ id:"planner", status:"complete", dur:"1m 23s" }, { id:"deploy-agent", status:"pending", dur:"\u2014" }],
+    "fan3",
+    [{ id:"frontend-writer", status:"running", dur:"2m 45s" }, { id:"backend-writer", status:"running", dur:"3m 12s" }, { id:"reviewer", status:"error", dur:"lint failed" }],
+    "single",
+    [{ id:"test-runner", status:"pending", dur:"\u2014" }],
+  ];
+  const grid = document.createElement("div"); grid.className = "node-grid";
+  rows.forEach(row => {
+    if (typeof row === "string") {
+      const c = document.createElement("div"); c.className = "connector-row";
+      if (row === "fan2") c.innerHTML = "\u2502\n\u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510";
+      else if (row === "fan3") { c.innerHTML = "\u2502\n\u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510"; c.style.marginRight = "184px"; }
+      else { c.textContent = "\u2502"; c.style.marginRight = "368px"; }
+      grid.appendChild(c); return;
+    }
+    const nr = document.createElement("div"); nr.className = "node-row";
+    if (row.length === 1 && row[0].id === "test-runner") nr.style.marginRight = "368px";
+    row.forEach(n => {
+      const card = document.createElement("div");
+      card.className = "node-card" + (n.id === "orchestrator" ? " focused" : "");
+      card.dataset.status = n.status; card.dataset.id = n.id;
+      card.innerHTML = `<span class="node-name">${n.id}</span><span class="node-meta">${n.dur}</span>`;
+      card.addEventListener("click", () => {
+        focusNode(n.id);
+        attachTo(n.id);
+      });
+      nr.appendChild(card);
+    });
+    grid.appendChild(nr);
+  });
+  canvas.innerHTML = ""; canvas.appendChild(grid);
+}
+
+// ── State ─────────────────────────────────────
+
+let view = "graph";       // "graph" | "agent"
+let focusedId = "orchestrator";
+let activeId = "";
+let switcherOpen = false;
+let switcherSel = 0;
+
+const GRAPH_HINTS = '<span class="key">\u2191\u2193\u2190\u2192</span> navigate<span class="sep">\u00B7</span><span class="key">\u21B5</span> attach<span class="sep">\u00B7</span><span class="key">/</span> agents<span class="sep">\u00B7</span><span class="key">q</span> quit';
+const ATTACHED_HINTS = '<span class="key">Tab</span> next<span class="sep">\u00B7</span><span class="key">S-Tab</span> prev<span class="sep">\u00B7</span><span class="key">g</span> graph<span class="sep">\u00B7</span><span class="key">/</span> agents<span class="sep">\u00B7</span><span class="key">q</span> quit';
+
+// ── View helpers ──────────────────────────────
+
+function focusNode(id) {
+  focusedId = id;
+  document.querySelectorAll(".node-card").forEach(n =>
+    n.classList.toggle("focused", n.dataset.id === id));
+}
+
+function showGraph() {
+  view = "graph"; activeId = "";
+  document.getElementById("graph-view").style.display = "";
+  document.getElementById("agent-view").style.display = "none";
+  document.getElementById("badge").className = "mode-badge graph";
+  document.getElementById("badge").textContent = "GRAPH";
+  document.getElementById("breadcrumb").innerHTML = "";
+  document.getElementById("hints").innerHTML = GRAPH_HINTS;
+  closeSwitcher();
+  focusNode(focusedId);
+}
+
+function attachTo(id) {
+  const a = agents.find(x => x.id === id);
+  if (!a || a.status === "pending") return;
+
+  // Orchestrator = the graph view (it's the same tmux window in reality)
+  if (id === "orchestrator") {
+    focusedId = "orchestrator";
+    showGraph();
+    return;
+  }
+
+  view = "agent"; activeId = id; focusedId = id;
+
+  document.getElementById("graph-view").style.display = "none";
+  const av = document.getElementById("agent-view");
+  av.style.display = "flex";
+  av.classList.remove("view-flash"); void av.offsetWidth; av.classList.add("view-flash");
+
+  document.getElementById("agent-content").innerHTML =
+    (outputs[id] || []).map(l => `<div>${l}</div>`).join("");
+
+  document.getElementById("badge").className = "mode-badge attached";
+  document.getElementById("badge").textContent = "ATTACHED";
+
+  const subIdx = subagents.findIndex(x => x.id === id);
+  document.getElementById("breadcrumb").innerHTML =
+    `<span class="bc-sep">\u203A</span>` +
+    `<span class="bc-status ${a.status}">${icons[a.status]}</span>` +
+    `<span class="bc-agent">${a.id}</span>` +
+    `<span class="bc-pos">${subIdx + 1}/${subagents.length}</span>`;
+
+  document.getElementById("hints").innerHTML = ATTACHED_HINTS;
+  closeSwitcher();
+}
+
+function cycleAgent(dir) {
+  if (view !== "agent") return;
+  const curIdx = subagents.findIndex(a => a.id === activeId);
+  if (curIdx < 0) return;
+  let next = curIdx + dir;
+  if (next < 0) next = subagents.length - 1;
+  if (next >= subagents.length) next = 0;
+  attachTo(subagents[next].id);
+}
+
+// ── Spatial navigation ────────────────────────
+
+function navigate(dir) {
+  const cur = positions[focusedId];
+  if (!cur) return;
+  let best = null, bestDist = Infinity;
+  for (const [id, pos] of Object.entries(positions)) {
+    if (id === focusedId) continue;
+    const dx = pos.x - cur.x, dy = pos.y - cur.y;
+    let valid = false;
+    if (dir === "left"  && dx < 0) valid = true;
+    if (dir === "right" && dx > 0) valid = true;
+    if (dir === "up"    && dy < 0) valid = true;
+    if (dir === "down"  && dy > 0) valid = true;
+    if (!valid) continue;
+    const dist = (dir === "left" || dir === "right")
+      ? Math.abs(dx) + Math.abs(dy) * 3
+      : Math.abs(dy) + Math.abs(dx) * 3;
+    if (dist < bestDist) { bestDist = dist; best = id; }
+  }
+  if (best) focusNode(best);
+}
+
+// ── Compact switcher ──────────────────────────
+
+function openSwitcher() {
+  // Pre-select current agent if attached, or focused node if in graph
+  const currentId = view === "agent" ? activeId : focusedId;
+  switcherSel = agents.findIndex(a => a.id === currentId);
+  if (switcherSel < 0) switcherSel = 0;
+  renderSwitcher();
+  switcherOpen = true;
+}
+
+function renderSwitcher() {
+  const el = document.getElementById("switcher");
+  el.innerHTML = `
+    <div class="sw-header"><span>agents</span><span>\u2191\u2193 select \u00B7 \u21B5 jump \u00B7 Esc close</span></div>
+    <div class="sw-list">${agents.map((a, i) => `
+      <div class="sw-item${i === switcherSel ? ' selected' : ''}" data-idx="${i}">
+        <span class="sw-num">${i + 1}</span>
+        <span class="sw-dot ${a.status}">${icons[a.status]}</span>
+        <span class="sw-name">${a.id}</span>
+        <span class="sw-dur">${a.dur}</span>
+      </div>`).join("")}</div>`;
+  el.style.display = "block";
+
+  // Click handlers
+  el.querySelectorAll(".sw-item").forEach(item => {
+    item.addEventListener("click", () => {
+      const idx = parseInt(item.dataset.idx);
+      closeSwitcher();
+      attachTo(agents[idx].id);
+    });
+  });
+
+  // Scroll selected into view
+  const selected = el.querySelector(".sw-item.selected");
+  if (selected) selected.scrollIntoView({ block: "nearest" });
+}
+
+function closeSwitcher() {
+  document.getElementById("switcher").style.display = "none";
+  switcherOpen = false;
+  switcherSel = 0;
+}
+
+// ── Keyboard ──────────────────────────────────
+
+document.addEventListener("keydown", e => {
+  // Only respond when terminal is focused or page has focus
+  const term = document.getElementById("term");
+
+  // ── Switcher open: intercept all ──
+  if (switcherOpen) {
+    if (e.key === "Escape") { e.preventDefault(); closeSwitcher(); return; }
+    if (e.key === "ArrowUp" || e.key === "k") {
+      e.preventDefault();
+      switcherSel = Math.max(0, switcherSel - 1);
+      renderSwitcher(); return;
+    }
+    if (e.key === "ArrowDown" || e.key === "j") {
+      e.preventDefault();
+      switcherSel = Math.min(agents.length - 1, switcherSel + 1);
+      renderSwitcher(); return;
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const a = agents[switcherSel];
+      closeSwitcher();
+      if (a) attachTo(a.id);
+      return;
+    }
+    // Number jump within switcher
+    const num = parseInt(e.key);
+    if (num >= 1 && num <= agents.length) {
+      e.preventDefault();
+      closeSwitcher();
+      attachTo(agents[num - 1].id);
+      return;
+    }
+    return;
+  }
+
+  // ── / opens switcher from any view ──
+  if (e.key === "/") {
+    e.preventDefault();
+    openSwitcher();
+    return;
+  }
+
+  // ── Graph view ──
+  if (view === "graph") {
+    if (e.key === "ArrowUp"    || e.key === "k") { e.preventDefault(); navigate("up"); }
+    if (e.key === "ArrowDown"  || e.key === "j") { e.preventDefault(); navigate("down"); }
+    if (e.key === "ArrowLeft"  || e.key === "h") { e.preventDefault(); navigate("left"); }
+    if (e.key === "ArrowRight" || e.key === "l") { e.preventDefault(); navigate("right"); }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      attachTo(focusedId);
+    }
+    return;
+  }
+
+  // ── Attached view ──
+  if (view === "agent") {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      cycleAgent(e.shiftKey ? -1 : 1);
+    }
+    if (e.key === "g") {
+      e.preventDefault();
+      showGraph();
+    }
+  }
+});
+
+// ── Init ──────────────────────────────────────
+
+buildGraph();
+showGraph();
+
+// Auto-focus terminal
+document.getElementById("term").focus();
+</script>
+</body>
+</html>

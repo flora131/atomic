@@ -839,6 +839,46 @@ function createSessionRunner(
           sessionOpts,
         );
 
+      // ── 12a. Copilot: wrap send() to await session.idle ──
+      // Copilot's send() is fire-and-forget — it returns immediately after
+      // queuing the message. Without this wrapper, stage callbacks complete
+      // before the agent finishes processing, causing getMessages() to
+      // return incomplete data and the stage to be marked done prematurely.
+      // We intercept send() to block until the session emits "session.idle",
+      // matching the blocking behavior of Claude's query() and OpenCode's
+      // session.prompt().
+      //
+      // Compatible with sendAndWait(): the SDK's _dispatchEvent broadcasts
+      // to all handlers (typed + wildcard), so both this wrapper's listener
+      // and sendAndWait's internal wildcard handler observe the same event.
+      if (shared.agent === "copilot") {
+        const copilotSession = providerSession as ProviderSession<"copilot">;
+        const nativeSend = copilotSession.send.bind(copilotSession);
+        copilotSession.send = async (options) => {
+          // Register listeners BEFORE sending to avoid a race where the
+          // agent finishes before the listener is attached. Listen for
+          // both idle (success) and error (failure) so we never hang if
+          // the session errors without reaching idle.
+          const idle = new Promise<void>((resolve, reject) => {
+            let unsubIdle: (() => void) | undefined;
+            let unsubError: (() => void) | undefined;
+            const cleanup = () => { unsubIdle?.(); unsubError?.(); };
+            unsubIdle = copilotSession.on("session.idle", () => {
+              cleanup();
+              resolve();
+            });
+            unsubError = copilotSession.on("session.error", (event) => {
+              cleanup();
+              const data = event.data as { message?: string } | undefined;
+              reject(new Error(data?.message ?? "Copilot session error"));
+            });
+          });
+          const messageId = await nativeSend(options);
+          await idle;
+          return messageId;
+        };
+      }
+
       // ── 13. Construct SessionContext ──
       // Free-form workflows read their prompt via `s.inputs.prompt`;
       // structured workflows read their declared fields the same way.

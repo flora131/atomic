@@ -133,9 +133,9 @@ bun install -g @bastani/atomic
 
 This installs the `atomic` binary on your PATH. `bun update -g @bastani/atomic` upgrades to the latest release.
 
-**Option C — Bootstrap script (installs bun + atomic in one step):**
+**Option C — Bootstrap script (installs bun + atomic + shell completions in one step):**
 
-For machines without Bun, the bootstrap scripts install Node (via fnm), Bun, and Atomic together:
+For machines without Bun, the bootstrap scripts install Bun, Atomic, and shell completions together:
 
 macOS / Linux:
 
@@ -175,25 +175,23 @@ This explores your codebase using sub-agents and generates documentation that gi
 
 ### 4. Managing Sessions
 
-Atomic runs every chat and workflow session inside [tmux](https://github.com/tmux/tmux) on a dedicated socket called `atomic`. This keeps Atomic sessions isolated from any personal tmux sessions you may have running.
-
-When you start a session you'll see a line like:
-
-```
-[atomic] Session: atomic-chat-a1b2c3d4 (FYI all atomic sessions run on tmux -L atomic)
-```
-
-Use standard tmux commands with `-L atomic` to manage your sessions:
+Atomic runs every chat and workflow session inside [tmux](https://github.com/tmux/tmux) on a dedicated socket, isolated from any personal tmux sessions you may have running. Use the built-in `session` commands to manage them:
 
 ```bash
-# List all running Atomic sessions
-tmux -L atomic list-sessions
+# List all running sessions
+atomic session list
 
-# Re-attach to a running session
-tmux -L atomic attach-session -t <session-name>
+# List only chat sessions
+atomic chat session list
 
-# Kill a session you no longer need
-tmux -L atomic kill-session -t <session-name>
+# List only workflow sessions
+atomic workflow session list
+
+# Connect to a session by name
+atomic session connect <session-name>
+
+# Interactive session picker (fuzzy-search)
+atomic session connect
 ```
 
 Session names follow a predictable pattern:
@@ -203,7 +201,7 @@ Session names follow a predictable pattern:
 | Chat         | `atomic-chat-<id>`                 | `atomic-chat-a1b2c3d4`       |
 | Workflow     | `atomic-wf-<workflow>-<id>`        | `atomic-wf-ralph-x9y8z7w6`   |
 
-> **Tip:** If your terminal disconnects or you accidentally close the window, your session is still alive — just run `tmux -L atomic attach-session -t <session-name>` to pick up where you left off.
+> **Tip:** If your terminal disconnects or you accidentally close the window, your session is still alive — just run `atomic session connect <session-name>` to pick up where you left off.
 
 ### 5. Build a Workflow
 
@@ -862,23 +860,15 @@ During `atomic chat`, there is no Atomic-owned TUI — `atomic chat -a <agent>` 
 
 ### CLI Commands
 
-| Command                     | Description                                                           |
-| --------------------------- | --------------------------------------------------------------------- |
-| `atomic init`               | Interactive project setup (agent selection, SCM choice, config sync)  |
-| `atomic chat`               | Spawn the native agent CLI inside a tmux/psmux session                |
-| `atomic workflow`           | Run a multi-session agent workflow with the Atomic orchestrator panel |
-| `atomic config set <k> <v>` | Set configuration values (currently supports `telemetry`)             |
-
-### Session Management (tmux)
-
-All Atomic sessions run on a dedicated tmux socket (`-L atomic`), separate from your personal tmux server. Use these commands to manage running sessions:
-
-| Command                                              | Description                                 |
-| ---------------------------------------------------- | ------------------------------------------- |
-| `tmux -L atomic list-sessions`                       | List all running Atomic sessions            |
-| `tmux -L atomic attach-session -t <session-name>`    | Re-attach to a session (e.g. after disconnect) |
-| `tmux -L atomic kill-session -t <session-name>`      | Terminate a session                         |
-| `tmux -L atomic list-windows -t <session-name>`      | List windows inside a workflow session      |
+| Command                          | Description                                                           |
+| -------------------------------- | --------------------------------------------------------------------- |
+| `atomic init`                    | Interactive project setup (agent selection, SCM choice, config sync)  |
+| `atomic chat`                    | Spawn the native agent CLI inside a tmux/psmux session                |
+| `atomic workflow`                | Run a multi-session agent workflow with the Atomic orchestrator panel |
+| `atomic session list`            | List all running sessions on the atomic tmux socket                   |
+| `atomic session connect [name]`  | Attach to a session (interactive picker when no name given)           |
+| `atomic completions <shell>`     | Output shell completion script (bash, zsh, fish, powershell)         |
+| `atomic config set <k> <v>`     | Set configuration values (currently supports `telemetry`)             |
 
 #### Global Flags
 
@@ -901,6 +891,29 @@ These flags are available on all commands:
 atomic init                              # Interactive setup
 atomic init -a claude -s github          # Pre-select agent and SCM
 atomic init --yes                        # Auto-confirm all prompts
+```
+
+#### `atomic session` Subcommands
+
+The `session` command is available at three levels — scoped or global:
+
+| Command                                    | Description                                          |
+| ------------------------------------------ | ---------------------------------------------------- |
+| `atomic session list`                      | List all running sessions                            |
+| `atomic session connect [name]`            | Attach to a session (interactive picker when no name) |
+| `atomic chat session list`                 | List running chat sessions only                      |
+| `atomic chat session connect [name]`       | Attach to a chat session                             |
+| `atomic workflow session list`             | List running workflow sessions only                  |
+| `atomic workflow session connect [name]`   | Attach to a workflow session                         |
+
+Both `list` and `connect` accept `-a <agent>` (repeatable) to filter by agent backend.
+
+```bash
+atomic session list                      # All sessions
+atomic session list -a claude            # Only Claude sessions
+atomic session connect my-session        # Attach by name
+atomic session connect                   # Interactive picker
+atomic chat session list -a copilot      # Chat sessions for Copilot only
 ```
 
 #### `atomic chat` Flags
@@ -948,6 +961,19 @@ atomic workflow -n gen-spec -a claude \
 ```
 
 Workflows that declare an `inputs: WorkflowInput[]` schema get CLI flag validation for free — missing required fields and invalid enum values are rejected before any tmux session is spawned, with error messages that spell out the expected flag set. Workflows that don't declare a schema still accept a single positional prompt, which the runtime stores under `ctx.inputs.prompt`. **Builtin workflows (like `ralph`) are reserved names** — a local or global workflow with the same name will not shadow a builtin at resolution time.
+
+#### `atomic completions` — Shell Completions
+
+Atomic ships tab-completion for **bash**, **zsh**, **fish**, and **PowerShell**. The `atomic completions <shell>` command prints the completion script to stdout — pipe it into your shell's config to enable.
+
+| Shell      | One-liner (add to your rc file)                                                          |
+| ---------- | ---------------------------------------------------------------------------------------- |
+| Bash       | `eval "$(atomic completions bash)"`  — add to `~/.bashrc`                                |
+| Zsh        | `eval "$(atomic completions zsh)"`  — add to `~/.zshrc`                                  |
+| Fish       | `atomic completions fish > ~/.config/fish/completions/atomic.fish`                       |
+| PowerShell | `atomic completions powershell \| Invoke-Expression`  — add to `$PROFILE`                |
+
+> **Tip:** The bootstrap installer (`install.sh` / `install.ps1`) automatically installs completions for your detected shell.
 
 ### Atomic-Provided Skills (invokable from any agent chat)
 

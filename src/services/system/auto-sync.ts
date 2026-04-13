@@ -25,9 +25,9 @@
  *
  * Failures are collected and reported as a summary at the end, but never
  * abort the run — partial setup matches the production installer's
- * "best-effort" semantics. The marker is written after every run (success
- * or partial) so we don't re-attempt the whole setup on every subsequent
- * launch.
+ * "best-effort" semantics. The marker is only written when every step
+ * succeeds; on partial failure the next launch re-runs all steps (they
+ * are idempotent, so re-running already-succeeded steps is harmless).
  */
 
 import { join } from "node:path";
@@ -109,18 +109,21 @@ export async function autoSyncIfStale(): Promise<void> {
     ],
   ]);
 
-  // Always write the marker — partial setup is the production-installer
-  // contract. Re-running the bootstrap installer or `bun update -g
-  // @bastani/atomic` is the recovery path for a failed setup.
-  await markSynced();
+  const failures = results.filter((r) => !r.ok);
+
+  // Only write the marker when every step succeeded. On partial failure
+  // the next launch will re-run all steps — they're idempotent, so
+  // re-running already-succeeded steps is cheap and harmless.
+  if (failures.length === 0) {
+    await markSynced();
+  }
 
   displayBlockBanner();
   printSummary(results);
 
-  const failures = results.filter((r) => !r.ok);
   if (failures.length > 0) {
     console.log(
-      `\n  ${COLORS.dim}Re-run \`bun install -g @bastani/atomic\` after resolving the issues to retry.${COLORS.reset}\n`,
+      `\n  ${COLORS.dim}Setup will retry on next launch. To retry now, re-run your command.${COLORS.reset}\n`,
     );
   } else {
     console.log(

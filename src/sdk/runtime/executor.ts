@@ -39,7 +39,7 @@ import type { SessionEvent } from "@github/copilot-sdk";
 import type { SessionPromptResponse } from "@opencode-ai/sdk/v2";
 import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import * as tmux from "./tmux.ts";
-import { spawnMuxAttach, SOCKET_NAME } from "./tmux.ts";
+import { spawnMuxAttach } from "./tmux.ts";
 import { WorkflowLoader } from "./loader.ts";
 import {
   clearClaudeSession,
@@ -364,8 +364,6 @@ export async function executeWorkflow(
       ].join("\n");
 
   await writeFile(launcherPath, launcherScript, { mode: 0o755 });
-
-  console.log(`[atomic] Session: ${tmuxSessionName} (FYI all atomic sessions run on tmux -L ${SOCKET_NAME})`);
 
   const shellCmd = isWin
     ? `pwsh -NoProfile -File "${escPwsh(launcherPath)}"`

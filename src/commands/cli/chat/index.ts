@@ -36,7 +36,6 @@ import {
   setSessionEnv,
   spawnMuxAttach,
   switchClient,
-  SOCKET_NAME,
 } from "../../../sdk/workflows/index.ts";
 import { ensureTmuxInstalled } from "../../../lib/spawn.ts";
 
@@ -221,8 +220,6 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   try {
     createSession(windowName, shellCmd, undefined, projectRoot);
     setSessionEnv(windowName, "ATOMIC_AGENT", agentType);
-
-    console.log(`[atomic] Session: ${windowName} (FYI all atomic sessions run on tmux -L ${SOCKET_NAME})`);
 
     if (isInsideAtomicSocket()) {
       // Already on the atomic server — just switch to the new session.

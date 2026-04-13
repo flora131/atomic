@@ -18,15 +18,20 @@ interface NpxSkillsResult {
 }
 
 async function runNpxSkills(args: string[]): Promise<NpxSkillsResult> {
-  const npxPath = Bun.which("npx");
-  if (!npxPath) {
-    return { ok: false, details: "npx not found on PATH" };
+  // Prefer bunx (already available as our runtime) over npx to avoid
+  // depending on a full Node.js/npm installation.
+  const runner = Bun.which("bunx") ?? Bun.which("npx");
+  if (!runner) {
+    return { ok: false, details: "neither bunx nor npx found on PATH" };
   }
 
   // Capture stdout/stderr so the outer spinner UI owns terminal output and
-  // can surface the tail of any failure. `npx skills add` is otherwise
-  // very chatty.
-  const proc = Bun.spawn([npxPath, "--yes", "skills", ...args], {
+  // can surface the tail of any failure.
+  const isBunx = runner.endsWith("bunx");
+  const cmd = isBunx
+    ? [runner, "skills", ...args]
+    : [runner, "--yes", "skills", ...args];
+  const proc = Bun.spawn(cmd, {
     stdout: "pipe",
     stderr: "pipe",
   });

@@ -327,7 +327,8 @@ async function main(): Promise<void> {
             argv.includes("--version") ||
             argv.includes("-v") ||
             argv.includes("--help") ||
-            argv.includes("-h");
+            argv.includes("-h") ||
+            argv[0] === "completions";
 
         if (!isInfoCommand) {
             const { autoSyncIfStale } = await import("./services/system/auto-sync.ts");

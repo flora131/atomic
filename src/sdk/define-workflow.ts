@@ -150,7 +150,7 @@ export class WorkflowBuilder<A extends AgentType = AgentType> {
  *       {},
  *       async (s) => {
  *         // s.client: CopilotClient, s.session: CopilotSession
- *         await s.session.sendAndWait({ prompt: s.inputs.prompt ?? "" });
+ *         await s.session.send({ prompt: s.inputs.prompt ?? "" });
  *         s.save(await s.session.getMessages());
  *       },
  *     );

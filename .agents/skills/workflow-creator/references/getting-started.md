@@ -51,35 +51,23 @@ export default defineWorkflow<"claude">({
 
 ### Copilot
 
-Note the `SEND_TIMEOUT_MS` constant passed as the second argument to every
-`sendAndWait` call. The Copilot SDK's default timeout is **60 seconds**, and
-when it fires it throws — which aborts the current session. Always pass an
-explicit, generous timeout. See the "Critical pitfall" section in
-`agent-sessions.md` for the full explanation.
-
 ```ts
 // .atomic/workflows/my-workflow/copilot/index.ts
 import { defineWorkflow } from "@bastani/atomic/workflows";
-
-// Explicit 30-minute timeout — required; see agent-sessions.md pitfall note.
-const SEND_TIMEOUT_MS = 30 * 60 * 1000;
 
 export default defineWorkflow<"copilot">({
     name: "my-workflow",
     description: "A two-session pipeline",
   })
   .run(async (ctx) => {
-    // `userPromptText` rather than `prompt` because Copilot's
-    // sendAndWait uses `{ prompt: ... }` as an object key — the local
-    // name avoids visual collision inside those send calls.
-    const userPromptText = ctx.inputs.prompt ?? "";
+    const prompt = ctx.inputs.prompt ?? "";
 
     const describe = await ctx.stage(
       { name: "describe", description: "Ask the agent to describe the project" },
       {},
       {},
       async (s) => {
-        await s.session.sendAndWait({ prompt: userPromptText }, SEND_TIMEOUT_MS);
+        await s.session.send({ prompt });
         s.save(await s.session.getMessages());
       },
     );
@@ -90,12 +78,9 @@ export default defineWorkflow<"copilot">({
       {},
       async (s) => {
         const research = await s.transcript(describe);
-        await s.session.sendAndWait(
-          {
-            prompt: `Summarize the following in 2-3 bullet points:\n\n${research.content}`,
-          },
-          SEND_TIMEOUT_MS,
-        );
+        await s.session.send({
+          prompt: `Summarize the following in 2-3 bullet points:\n\n${research.content}`,
+        });
         s.save(await s.session.getMessages());
       },
     );

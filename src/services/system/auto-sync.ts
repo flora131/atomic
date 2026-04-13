@@ -17,7 +17,7 @@
  *     2. global agent configs    (file copies — no network)
  *     3. @playwright/cli         (bun install -g)
  *     4. @llamaindex/liteparse   (bun install -g)
- *     5. global skills           (bunx skills update … / bunx skills add …)
+ *     5. global skills           (bunx skills add ...)
  *
  * All steps run concurrently using bun (already our runtime) for package
  * installs and `bunx` for CLI tools, avoiding a ~48 s Node.js/npm

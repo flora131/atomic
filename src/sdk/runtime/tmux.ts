@@ -45,9 +45,14 @@ let resolvedMuxBinary: string | null | undefined; // undefined = not yet resolve
 export function getMuxBinary(): string | null {
   if (resolvedMuxBinary !== undefined) return resolvedMuxBinary;
 
+  // Bun.which() reads PATH from the original process environment at startup
+  // and ignores runtime mutations to process.env.PATH. Pass PATH explicitly
+  // so that callers who modify PATH (e.g. tests) get correct results.
+  const pathOpt = { PATH: process.env.PATH ?? "" };
+
   if (process.platform === "win32") {
     for (const candidate of ["psmux", "pmux", "tmux"]) {
-      if (Bun.which(candidate)) {
+      if (Bun.which(candidate, pathOpt)) {
         resolvedMuxBinary = candidate;
         return resolvedMuxBinary;
       }
@@ -57,7 +62,7 @@ export function getMuxBinary(): string | null {
   }
 
   // Unix / macOS
-  resolvedMuxBinary = Bun.which("tmux") ? "tmux" : null;
+  resolvedMuxBinary = Bun.which("tmux", pathOpt) ? "tmux" : null;
   return resolvedMuxBinary;
 }
 
@@ -246,35 +251,16 @@ export function createPane(sessionName: string, command: string): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Maximum bytes per `send-keys -l` invocation.
- *
- * tmux passes the text as a single command-line argument to the child
- * process. On Linux the per-argument limit (`MAX_ARG_STRLEN`) is 128 KB;
- * on macOS the total `ARG_MAX` is ~1 MB but shared across all args.
- * We stay well under both limits with 50 KB chunks.
- */
-const SEND_KEYS_CHUNK_SIZE = 50_000;
-
-/**
  * Send literal text to a tmux pane using `-l` flag (no special key interpretation).
  * Uses `--` to prevent text starting with `-` from being parsed as flags.
  *
- * Long texts are chunked to avoid OS `ARG_MAX` / `MAX_ARG_STRLEN` limits
- * that cause `tmux send-keys` to fail with "command too long".
+ * For large text payloads, prefer {@link sendViaPasteBuffer} which bypasses
+ * tmux's ~16 KB internal message buffer limit.
  */
 export function sendLiteralText(paneId: string, text: string): void {
   // Replace newlines with spaces to avoid premature submission
   const normalized = text.replace(/[\r\n]+/g, " ");
-
-  if (normalized.length <= SEND_KEYS_CHUNK_SIZE) {
-    tmuxExec(["send-keys", "-t", paneId, "-l", "--", normalized]);
-    return;
-  }
-
-  for (let offset = 0; offset < normalized.length; offset += SEND_KEYS_CHUNK_SIZE) {
-    const chunk = normalized.slice(offset, offset + SEND_KEYS_CHUNK_SIZE);
-    tmuxExec(["send-keys", "-t", paneId, "-l", "--", chunk]);
-  }
+  tmuxExec(["send-keys", "-t", paneId, "-l", "--", normalized]);
 }
 
 /**
@@ -414,6 +400,118 @@ export function sessionExists(sessionName: string): boolean {
   return result.ok;
 }
 
+/**
+ * Set a session-level environment variable.
+ * Uses `tmux set-environment -t <session>` so the value is scoped to
+ * the individual session, not the global server environment.
+ */
+export function setSessionEnv(sessionName: string, key: string, value: string): void {
+  tmuxRun(["set-environment", "-t", sessionName, key, value]);
+}
+
+/**
+ * Read a session-level environment variable.
+ * Returns `null` when the session doesn't exist or the variable isn't set.
+ */
+export function getSessionEnv(sessionName: string, key: string): string | null {
+  const result = tmuxRun(["show-environment", "-t", sessionName, key]);
+  if (!result.ok) return null;
+  // Output format: "KEY=VALUE"
+  const eq = result.stdout.indexOf("=");
+  return eq >= 0 ? result.stdout.slice(eq + 1) : null;
+}
+
+/** Session type derived from the session name prefix. */
+export type SessionType = "chat" | "workflow";
+
+/**
+ * Parse a session name into its type and agent.
+ *
+ * Naming conventions:
+ *   Chat:     atomic-chat-<agent>-<id>
+ *   Workflow:  atomic-wf-<agent>-<name>-<id>
+ *
+ * Agent names are a known, hyphen-free set (claude, copilot, opencode)
+ * so parsing is unambiguous even when the workflow name contains hyphens.
+ */
+export function parseSessionName(name: string): { type?: SessionType; agent?: string } {
+  const KNOWN_AGENTS = new Set(["claude", "copilot", "opencode"]);
+
+  if (name.startsWith("atomic-chat-")) {
+    // atomic-chat-<agent>-<id>
+    const rest = name.slice("atomic-chat-".length);
+    const dash = rest.indexOf("-");
+    const candidate = dash >= 0 ? rest.slice(0, dash) : rest;
+    if (KNOWN_AGENTS.has(candidate)) {
+      return { type: "chat", agent: candidate };
+    }
+    return { type: "chat" };
+  }
+
+  if (name.startsWith("atomic-wf-")) {
+    // atomic-wf-<agent>-<name>-<id>
+    const rest = name.slice("atomic-wf-".length);
+    const dash = rest.indexOf("-");
+    const candidate = dash >= 0 ? rest.slice(0, dash) : rest;
+    if (KNOWN_AGENTS.has(candidate)) {
+      return { type: "workflow", agent: candidate };
+    }
+    return { type: "workflow" };
+  }
+
+  return {};
+}
+
+/** A single tmux session on the atomic socket. */
+export interface TmuxSession {
+  /** Session name (e.g. "atomic-chat-claude-a1b2c3d4") */
+  name: string;
+  /** Number of windows in the session */
+  windows: number;
+  /** ISO 8601 creation timestamp */
+  created: string;
+  /** Whether a client is currently attached */
+  attached: boolean;
+  /** Session type derived from the name prefix */
+  type?: SessionType;
+  /** Agent backend that owns this session (e.g. "claude", "copilot", "opencode") */
+  agent?: string;
+}
+
+/**
+ * List all sessions on the atomic tmux socket.
+ *
+ * Uses a custom format string so output is machine-parseable regardless of
+ * locale. Returns an empty array when the server isn't running or has no
+ * sessions (tmux exits non-zero in both cases).
+ */
+export function listSessions(): TmuxSession[] {
+  const fmt = "#{session_name}\t#{session_windows}\t#{session_created}\t#{session_attached}";
+  const result = tmuxRun(["list-sessions", "-F", fmt]);
+  if (!result.ok) return [];
+
+  const sessions = result.stdout
+    .split("\n")
+    .filter((line) => line.trim() !== "")
+    .map((line) => {
+      const [name, windowsStr, createdStr, attachedStr] = line.split("\t");
+      const epochSec = Number(createdStr);
+      const parsed = parseSessionName(name!);
+      return {
+        name: name!,
+        windows: Number(windowsStr) || 1,
+        created: Number.isFinite(epochSec) && epochSec > 0
+          ? new Date(epochSec * 1000).toISOString()
+          : createdStr!,
+        attached: attachedStr === "1",
+        type: parsed.type,
+        agent: parsed.agent ?? getSessionEnv(name!, "ATOMIC_AGENT") ?? undefined,
+      };
+    });
+
+  return sessions;
+}
+
 /** Build the full argument list for an attach-session command. */
 function buildAttachArgs(sessionName: string): string[] {
   const binary = getMuxBinary();
@@ -466,6 +564,10 @@ export function switchClient(sessionName: string): void {
  */
 export function getCurrentSession(): string | null {
   if (!isInsideTmux()) return null;
+  // Only query the atomic server if we're actually inside the atomic socket.
+  // Otherwise, display-message picks an arbitrary session on the atomic
+  // server that has nothing to do with our terminal.
+  if (!isInsideAtomicSocket()) return null;
   const result = tmuxRun(["display-message", "-p", "#{session_name}"]);
   if (!result.ok) return null;
   return result.stdout || null;

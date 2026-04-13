@@ -319,7 +319,7 @@ export async function executeWorkflow(
   } = options;
 
   const workflowRunId = generateId();
-  const tmuxSessionName = `atomic-wf-${definition.name}-${workflowRunId}`;
+  const tmuxSessionName = `atomic-wf-${agent}-${definition.name}-${workflowRunId}`;
   const sessionsBaseDir = join(getSessionsBaseDir(), workflowRunId);
   await ensureDir(sessionsBaseDir);
 
@@ -371,6 +371,7 @@ export async function executeWorkflow(
     ? `pwsh -NoProfile -File "${escPwsh(launcherPath)}"`
     : `bash "${escBash(launcherPath)}"`;
   tmux.createSession(tmuxSessionName, shellCmd, "orchestrator");
+  tmux.setSessionEnv(tmuxSessionName, "ATOMIC_AGENT", agent);
 
   if (tmux.isInsideAtomicSocket()) {
     // Already on the atomic server — just switch to the new session.

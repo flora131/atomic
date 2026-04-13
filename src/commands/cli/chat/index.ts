@@ -33,6 +33,7 @@ import {
   createSession,
   detachAndAttachAtomic,
   killSession,
+  setSessionEnv,
   spawnMuxAttach,
   switchClient,
   SOCKET_NAME,
@@ -199,7 +200,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
 
   // ── Build launcher script for safe arg/cwd handling ──
   const chatId = generateChatId();
-  const windowName = `atomic-chat-${chatId}`;
+  const windowName = `atomic-chat-${agentType}-${chatId}`;
 
   const sessionsDir = join(homedir(), ".atomic", "sessions", "chat");
   await mkdir(sessionsDir, { recursive: true });
@@ -219,6 +220,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   // ── Create session on the atomic socket and attach ──
   try {
     createSession(windowName, shellCmd, undefined, projectRoot);
+    setSessionEnv(windowName, "ATOMIC_AGENT", agentType);
 
     console.log(`[atomic] Session: ${windowName} (FYI all atomic sessions run on tmux -L ${SOCKET_NAME})`);
 

@@ -16,6 +16,7 @@ import {
   capturePaneScrollback,
   killSession,
   sessionExists,
+  listSessions,
   normalizeTmuxCapture,
   normalizeTmuxLines,
   paneLooksReady,
@@ -29,7 +30,16 @@ import {
   switchClient,
   getCurrentSession,
   attachOrSwitch,
-} from "../../../src/sdk/workflows/index.ts";
+  isInsideAtomicSocket,
+  setSessionEnv,
+  getSessionEnv,
+  SOCKET_NAME,
+  selectWindow,
+  spawnMuxAttach,
+  detachAndAttachAtomic,
+  parseSessionName,
+  sendViaPasteBuffer,
+} from "../../../src/sdk/runtime/tmux.ts";
 
 // ---------------------------------------------------------------------------
 // Shared test helpers
@@ -425,6 +435,59 @@ describe("paneHasActiveTask — edge cases", () => {
   test("no false positive for empty lines", () => {
     const capture = "\n\n\n";
     expect(paneHasActiveTask(capture)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseSessionName — pure function
+// ---------------------------------------------------------------------------
+
+describe("parseSessionName", () => {
+  test("parses chat session with agent", () => {
+    const result = parseSessionName("atomic-chat-claude-a1b2c3d4");
+    expect(result).toEqual({ type: "chat", agent: "claude" });
+  });
+
+  test("parses chat session with copilot agent", () => {
+    const result = parseSessionName("atomic-chat-copilot-abcd1234");
+    expect(result).toEqual({ type: "chat", agent: "copilot" });
+  });
+
+  test("parses chat session with opencode agent", () => {
+    const result = parseSessionName("atomic-chat-opencode-abcd1234");
+    expect(result).toEqual({ type: "chat", agent: "opencode" });
+  });
+
+  test("parses workflow session with agent", () => {
+    const result = parseSessionName("atomic-wf-claude-ralph-a1b2c3d4");
+    expect(result).toEqual({ type: "workflow", agent: "claude" });
+  });
+
+  test("parses workflow session with hyphenated workflow name", () => {
+    const result = parseSessionName("atomic-wf-opencode-my-cool-workflow-a1b2c3d4");
+    expect(result).toEqual({ type: "workflow", agent: "opencode" });
+  });
+
+  test("returns type but no agent for legacy chat name (no agent segment)", () => {
+    const result = parseSessionName("atomic-chat-a1b2c3d4");
+    expect(result.type).toBe("chat");
+    expect(result.agent).toBeUndefined();
+  });
+
+  test("returns type but no agent for legacy workflow name (no agent segment)", () => {
+    const result = parseSessionName("atomic-wf-ralph-a1b2c3d4");
+    expect(result.type).toBe("workflow");
+    expect(result.agent).toBeUndefined();
+  });
+
+  test("returns empty object for unrelated session name", () => {
+    const result = parseSessionName("my-random-session");
+    expect(result).toEqual({});
+  });
+
+  test("returns empty object for empty string", () => {
+    const result = parseSessionName("");
+    expect(result).toEqual({});
   });
 });
 
@@ -926,5 +989,316 @@ describe.if(tmuxAvailable)("attachOrSwitch", () => {
     process.env.TMUX = "/tmp/tmux-fake/default,12345,0";
     delete process.env.PSMUX;
     expect(() => attachOrSwitch("nonexistent-session-xyz-99999")).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isInsideAtomicSocket
+// ---------------------------------------------------------------------------
+
+describe("isInsideAtomicSocket", () => {
+  withEnvRestore(["TMUX", "PSMUX"]);
+
+  test("returns true when TMUX points to atomic socket", () => {
+    process.env.TMUX = `/tmp/tmux-1000/${SOCKET_NAME},12345,0`;
+    delete process.env.PSMUX;
+    expect(isInsideAtomicSocket()).toBe(true);
+  });
+
+  test("returns true when PSMUX points to atomic socket", () => {
+    delete process.env.TMUX;
+    process.env.PSMUX = `/tmp/tmux-1000/${SOCKET_NAME},99999,0`;
+    expect(isInsideAtomicSocket()).toBe(true);
+  });
+
+  test("returns false when TMUX points to a different socket", () => {
+    process.env.TMUX = "/tmp/tmux-1000/default,12345,0";
+    delete process.env.PSMUX;
+    expect(isInsideAtomicSocket()).toBe(false);
+  });
+
+  test("returns false when neither env var is set", () => {
+    delete process.env.TMUX;
+    delete process.env.PSMUX;
+    expect(isInsideAtomicSocket()).toBe(false);
+  });
+
+  test("returns false for empty TMUX env var", () => {
+    process.env.TMUX = "";
+    delete process.env.PSMUX;
+    expect(isInsideAtomicSocket()).toBe(false);
+  });
+
+  test("handles TMUX with no comma separator", () => {
+    process.env.TMUX = `/tmp/tmux-1000/${SOCKET_NAME}`;
+    delete process.env.PSMUX;
+    expect(isInsideAtomicSocket()).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// tmuxRun — no binary available
+// ---------------------------------------------------------------------------
+
+describe("tmuxRun — no binary on PATH", () => {
+  let originalPath: string | undefined;
+
+  beforeEach(() => {
+    resetMuxBinaryCache();
+    originalPath = process.env.PATH;
+    // Point PATH to an empty directory so no binaries are found
+    process.env.PATH = "/nonexistent-empty-dir";
+  });
+
+  afterEach(() => {
+    process.env.PATH = originalPath;
+    resetMuxBinaryCache();
+  });
+
+  test("returns ok:false when no mux binary found", () => {
+    const result = tmuxRun(["list-sessions"]);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.stderr).toContain("No terminal multiplexer");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildAttachArgs / spawnMuxAttach / detachAndAttachAtomic — no binary
+// ---------------------------------------------------------------------------
+
+describe("no-binary error paths", () => {
+  let originalPath: string | undefined;
+
+  beforeEach(() => {
+    resetMuxBinaryCache();
+    originalPath = process.env.PATH;
+    process.env.PATH = "/nonexistent-empty-dir";
+  });
+
+  afterEach(() => {
+    process.env.PATH = originalPath;
+    resetMuxBinaryCache();
+  });
+
+  test("spawnMuxAttach throws when no binary found", () => {
+    expect(() => spawnMuxAttach("any-session")).toThrow(/No terminal multiplexer/);
+  });
+
+  test("detachAndAttachAtomic throws when no binary found", () => {
+    expect(() => detachAndAttachAtomic("any-session")).toThrow(/No terminal multiplexer/);
+  });
+
+  test("attachSession throws when no binary found", () => {
+    expect(() => attachSession("any-session")).toThrow(/No terminal multiplexer/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Integration: createSession / createWindow with envVars (buildEnvArgs)
+// ---------------------------------------------------------------------------
+
+const ENV_SESSION = `atomic-env-${crypto.randomUUID().slice(0, 8)}`;
+
+describe.if(tmuxAvailable)("createSession and createWindow with envVars", () => {
+  afterAll(() => {
+    killSession(ENV_SESSION);
+  });
+
+  test("createSession passes envVars to the pane", async () => {
+    const paneId = createSession(
+      ENV_SESSION,
+      "bash",
+      "env-test",
+      undefined,
+      { MY_TEST_VAR: "hello_from_env" },
+    );
+    expect(paneId).toMatch(/^%\d+$/);
+    await Bun.sleep(300);
+
+    // Verify the env var is set inside the pane
+    sendLiteralText(paneId, "echo $MY_TEST_VAR");
+    sendSpecialKey(paneId, "C-m");
+    await Bun.sleep(300);
+
+    const captured = capturePane(paneId);
+    expect(captured).toContain("hello_from_env");
+  });
+
+  test("createWindow passes envVars to the pane", async () => {
+    const paneId = createWindow(
+      ENV_SESSION,
+      "env-win",
+      "bash",
+      undefined,
+      { ANOTHER_TEST_VAR: "win_env_val" },
+    );
+    expect(paneId).toMatch(/^%\d+$/);
+    await Bun.sleep(300);
+
+    sendLiteralText(paneId, "echo $ANOTHER_TEST_VAR");
+    sendSpecialKey(paneId, "C-m");
+    await Bun.sleep(300);
+
+    const captured = capturePane(paneId);
+    expect(captured).toContain("win_env_val");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Integration: sendViaPasteBuffer
+// ---------------------------------------------------------------------------
+
+const PASTE_SESSION = `atomic-pst-${crypto.randomUUID().slice(0, 8)}`;
+
+describe.if(tmuxAvailable)("sendViaPasteBuffer", () => {
+  let paneId: string;
+
+  beforeAll(async () => {
+    paneId = createSession(PASTE_SESSION, "bash", "paste-test");
+    await Bun.sleep(500);
+  });
+
+  afterAll(() => {
+    killSession(PASTE_SESSION);
+  });
+
+  test("sends text via paste buffer", async () => {
+    sendViaPasteBuffer(paneId, "echo PASTE_BUFFER_TEST");
+    sendSpecialKey(paneId, "C-m");
+    await Bun.sleep(300);
+
+    const captured = capturePane(paneId);
+    expect(captured).toContain("PASTE_BUFFER_TEST");
+  });
+
+  test("normalizes newlines to spaces", async () => {
+    sendViaPasteBuffer(paneId, "echo paste\nnewline\ntest");
+    sendSpecialKey(paneId, "C-m");
+    await Bun.sleep(300);
+
+    const captured = capturePane(paneId);
+    expect(captured).toContain("paste newline test");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Integration: selectWindow
+// ---------------------------------------------------------------------------
+
+const SELECT_SESSION = `atomic-sel-${crypto.randomUUID().slice(0, 8)}`;
+
+describe.if(tmuxAvailable)("selectWindow", () => {
+  afterAll(() => {
+    killSession(SELECT_SESSION);
+  });
+
+  test("selects a window without throwing", () => {
+    createSession(SELECT_SESSION, "bash", "win-a");
+    createWindow(SELECT_SESSION, "win-b", "bash");
+    expect(() => selectWindow(`${SELECT_SESSION}:win-a`)).not.toThrow();
+    expect(() => selectWindow(`${SELECT_SESSION}:win-b`)).not.toThrow();
+  });
+
+  test("throws for non-existent window", () => {
+    expect(() => selectWindow(`${SELECT_SESSION}:nonexistent`)).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getCurrentSession — inside tmux path (query fails when not a real client)
+// ---------------------------------------------------------------------------
+
+describe.if(tmuxAvailable)("getCurrentSession — inside tmux env", () => {
+  withEnvRestore(["TMUX", "PSMUX"]);
+
+  test("returns null when inside tmux but not on the atomic socket", () => {
+    // TMUX points to a non-atomic socket — getCurrentSession should bail
+    // early via the isInsideAtomicSocket() guard without querying the
+    // atomic server (which would pick an arbitrary session).
+    process.env.TMUX = "/tmp/tmux-1000/default,12345,0";
+    delete process.env.PSMUX;
+    const result = getCurrentSession();
+    expect(result).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// listSessions
+// ---------------------------------------------------------------------------
+
+describe.if(tmuxAvailable)("listSessions", () => {
+  const LIST_SESSION = `atomic-chat-claude-${crypto.randomUUID().slice(0, 8)}`;
+
+  afterAll(() => {
+    killSession(LIST_SESSION);
+  });
+
+  test("returns an empty array when no sessions exist on a clean server", () => {
+    // If there are no sessions specifically named our test session,
+    // listSessions should at least return an array.
+    const sessions = listSessions();
+    expect(Array.isArray(sessions)).toBe(true);
+  });
+
+  test("includes a session after creation with parsed type and agent", () => {
+    createSession(LIST_SESSION, "bash");
+    const sessions = listSessions();
+    const found = sessions.find((s) => s.name === LIST_SESSION);
+    expect(found).toBeDefined();
+    expect(found!.windows).toBeGreaterThanOrEqual(1);
+    expect(typeof found!.created).toBe("string");
+    expect(typeof found!.attached).toBe("boolean");
+    expect(found!.type).toBe("chat");
+    expect(found!.agent).toBe("claude");
+  });
+
+  test("session has a parseable ISO date", () => {
+    const sessions = listSessions();
+    const found = sessions.find((s) => s.name === LIST_SESSION);
+    expect(found).toBeDefined();
+    const d = new Date(found!.created);
+    expect(Number.isNaN(d.getTime())).toBe(false);
+  });
+
+  test("session is gone after kill", () => {
+    killSession(LIST_SESSION);
+    const sessions = listSessions();
+    const found = sessions.find((s) => s.name === LIST_SESSION);
+    expect(found).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// setSessionEnv / getSessionEnv
+// ---------------------------------------------------------------------------
+
+const ENV_VAR_SESSION = `atomic-senv-${crypto.randomUUID().slice(0, 8)}`;
+
+describe.if(tmuxAvailable)("setSessionEnv / getSessionEnv", () => {
+  afterAll(() => {
+    killSession(ENV_VAR_SESSION);
+  });
+
+  test("setSessionEnv stores and getSessionEnv retrieves a value", () => {
+    createSession(ENV_VAR_SESSION, "bash");
+    setSessionEnv(ENV_VAR_SESSION, "ATOMIC_AGENT", "claude");
+    expect(getSessionEnv(ENV_VAR_SESSION, "ATOMIC_AGENT")).toBe("claude");
+  });
+
+  test("getSessionEnv returns null for unset key", () => {
+    expect(getSessionEnv(ENV_VAR_SESSION, "NONEXISTENT_KEY")).toBeNull();
+  });
+
+  test("getSessionEnv returns null for non-existent session", () => {
+    expect(getSessionEnv("nonexistent-session-xyz-99999", "ATOMIC_AGENT")).toBeNull();
+  });
+
+  test("listSessions includes agent from ATOMIC_AGENT env var", () => {
+    const sessions = listSessions();
+    const found = sessions.find((s) => s.name === ENV_VAR_SESSION);
+    expect(found).toBeDefined();
+    expect(found!.agent).toBe("claude");
   });
 });

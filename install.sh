@@ -210,11 +210,41 @@ install_atomic() {
     run_step "Installing @bastani/atomic" bun install -g "$PACKAGE"
 }
 
+install_completions() {
+    local shell_name
+    shell_name=$(basename "${SHELL:-}")
+
+    case "$shell_name" in
+        bash)
+            local rc="$HOME/.bashrc"
+            local marker='atomic completions bash'
+            if ! grep -qF "$marker" "$rc" 2>/dev/null; then
+                printf '\n# Atomic CLI completions\neval "$(atomic completions bash)"\n' >> "$rc"
+            fi
+            ;;
+        zsh)
+            local rc="$HOME/.zshrc"
+            local marker='atomic completions zsh'
+            if ! grep -qF "$marker" "$rc" 2>/dev/null; then
+                printf '\n# Atomic CLI completions\neval "$(atomic completions zsh)"\n' >> "$rc"
+            fi
+            ;;
+        fish)
+            local dir="$HOME/.config/fish/completions"
+            mkdir -p "$dir"
+            atomic completions fish > "$dir/atomic.fish"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
 # ── Main ────────────────────────────────────────────────────────────────────
 
 main() {
     # Count upcoming steps so the progress bar is honest.
-    STEP_TOTAL=1  # atomic install
+    STEP_TOTAL=2  # atomic install + completions
     if ! command -v bun >/dev/null 2>&1; then
         STEP_TOTAL=$((STEP_TOTAL + 1))  # bun install
     fi
@@ -229,6 +259,11 @@ main() {
     if ! install_atomic; then
         error "atomic installation failed"
         exit 1
+    fi
+
+    # Best-effort: don't fail the install if completions can't be set up
+    if ! run_step "Installing shell completions" install_completions; then
+        warn "Could not detect shell — install completions manually: atomic completions --help"
     fi
 
     printf '\n  %s✓%s %sAtomic installed successfully%s\n\n' \

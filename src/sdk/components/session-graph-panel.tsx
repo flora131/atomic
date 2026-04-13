@@ -361,7 +361,14 @@ export function SessionGraphPanel() {
   // Ctrl+G and Ctrl+\ are bound at the tmux level, so the React app
   // never receives them.  Poll the active window to sync viewMode
   // with tmux-level navigation in both directions.
+  const hasStartedAgent = useMemo(
+    () => store.sessions.some((s) => s.name !== "orchestrator" && s.status !== "pending"),
+    [storeVersion],
+  );
+
   useEffect(() => {
+    if (!hasStartedAgent) return;
+
     const check = () => {
       const result = tmuxRun([
         "display-message", "-t", tmuxSession, "-p", "#{window_index} #{window_name}",
@@ -382,9 +389,9 @@ export function SessionGraphPanel() {
       }
     };
 
-    const id = setInterval(check, 300);
+    const id = setInterval(check, 500);
     return () => clearInterval(id);
-  }, [tmuxSession]);
+  }, [tmuxSession, hasStartedAgent]);
 
   // ── Tmux status bar sync ──────────────────────────────
   // Attached mode: use tmux's native window list to show agent names

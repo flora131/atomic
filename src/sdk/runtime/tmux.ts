@@ -52,15 +52,6 @@ export const TMUX_ATTACHED_WINDOW_FMT =
 export const TMUX_ATTACHED_WINDOW_STYLE = "fg=#6c7086";
 export const TMUX_ATTACHED_WINDOW_CURRENT_STYLE = "fg=#cdd6f4,bold";
 
-/**
- * Escape a string for safe interpolation into tmux format strings.
- * Replaces `#` with `##` to prevent tmux from interpreting `#[...]`
- * as style directives or `#(...)` as shell command expansions.
- */
-export function escapeTmuxFormat(value: string): string {
-  return value.replace(/#/g, "##");
-}
-
 // ---------------------------------------------------------------------------
 // Core tmux primitives
 // ---------------------------------------------------------------------------

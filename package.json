@@ -1,6 +1,6 @@
 {
   "name": "@bastani/atomic",
-  "version": "0.5.5-0",
+  "version": "0.5.5",
   "description": "Configuration management CLI and SDK for coding agents",
   "type": "module",
   "license": "MIT",
@@ -56,7 +56,9 @@
     "lint:fix": "oxlint --config=oxlint.json --fix src",
     "prepare": "lefthook install || true"
   },
-  "trustedDependencies": ["lefthook"],
+  "trustedDependencies": [
+    "lefthook"
+  ],
   "devDependencies": {
     "@types/bun": "^1.3.12",
     "@types/react": "^19.2.14",

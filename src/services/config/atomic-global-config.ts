@@ -2,9 +2,9 @@ import { copyFile, lstat, readdir, rm, rmdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 
-import { AGENT_CONFIG, getAgentKeys, type AgentKey } from "@/services/config/index.ts";
-import { mergeJsonFile } from "@/lib/merge.ts";
-import { copyDir, ensureDir, pathExists } from "@/services/system/copy.ts";
+import { AGENT_CONFIG, getAgentKeys, type AgentKey } from "./index.ts";
+import { mergeJsonFile } from "../../lib/merge.ts";
+import { copyDir, ensureDir, pathExists } from "../system/copy.ts";
 
 
 const ATOMIC_HOME_DIR = join(homedir(), ".atomic");

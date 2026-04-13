@@ -245,6 +245,15 @@ The Atomic runtime provides `s.client` and `s.session` with types resolved from 
 | `session-config.md` | Per-SDK session configuration: model, tools, permissions, hooks |
 | `discovery-and-verification.md` | Workflow file discovery, validation, TypeScript config |
 
+## Builtin reference implementations
+
+The SDK ships two builtin workflows that demonstrate production patterns for all three SDKs:
+
+- **`ralph`** (`src/sdk/workflows/builtin/ralph/`) — iterative plan → orchestrate → review → debug loop with consecutive clean-pass detection, shared helpers for prompts/parsing/git, and cross-SDK adaptation
+- **`deep-research-codebase`** (`src/sdk/workflows/builtin/deep-research-codebase/`) — deterministic codebase scout → LOC-based heuristic explorer partitioning → parallel explorers → aggregator with file-based handoffs and context-aware prompt engineering
+
+Both include `helpers/` directories with SDK-agnostic logic (prompt builders, parsers, heuristics) and per-agent `index.ts` files showing how the same workflow topology adapts to Claude, Copilot, and OpenCode.
+
 ## Type safety
 
 The SDK is typed with **no `unknown` or `any`**. `SessionContext` fields are precisely typed, and native provider types may appear inside Atomic generic aliases and runtime values — if you need to name those types in your own code, import them from the provider SDK directly. Use `import type` for type-only imports. Use the `defineWorkflow<"agent">()` type parameter to narrow `s.client` and `s.session` to the correct provider types.

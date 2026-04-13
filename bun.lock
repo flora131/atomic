@@ -5,29 +5,32 @@
     "": {
       "name": "@bastani/atomic",
       "dependencies": {
-        "@anthropic-ai/claude-agent-sdk": "^0.2.92",
+        "@anthropic-ai/claude-agent-sdk": "^0.2.104",
         "@clack/prompts": "^1.2.0",
         "@commander-js/extra-typings": "^14.0.0",
-        "@github/copilot-sdk": "^0.2.1",
-        "@opencode-ai/sdk": "^1.3.17",
+        "@github/copilot-sdk": "^0.2.2",
+        "@opencode-ai/sdk": "^1.4.3",
         "@opentui/core": "^0.1.97",
         "@opentui/react": "^0.1.97",
         "commander": "^14.0.3",
         "ignore": "^7.0.5",
-        "react": "19",
+        "react": "^19.2.5",
         "yaml": "^2.8.3",
         "zod": "^4.3.6",
       },
       "devDependencies": {
-        "@types/bun": "^1.3.11",
+        "@types/bun": "^1.3.12",
         "@types/react": "^19.2.14",
-        "lefthook": "^2.1.4",
+        "lefthook": "^2.1.5",
         "oxlint": "^1.59.0",
         "typescript": "^6.0.2",
         "typescript-language-server": "^5.1.3",
       },
     },
   },
+  "trustedDependencies": [
+    "lefthook",
+  ],
   "packages": {
     "@anthropic-ai/claude-agent-sdk": ["@anthropic-ai/claude-agent-sdk@0.2.104", "", { "dependencies": { "@anthropic-ai/sdk": "^0.81.0", "@modelcontextprotocol/sdk": "^1.29.0" }, "optionalDependencies": { "@img/sharp-darwin-arm64": "^0.34.2", "@img/sharp-darwin-x64": "^0.34.2", "@img/sharp-linux-arm": "^0.34.2", "@img/sharp-linux-arm64": "^0.34.2", "@img/sharp-linux-x64": "^0.34.2", "@img/sharp-linuxmusl-arm64": "^0.34.2", "@img/sharp-linuxmusl-x64": "^0.34.2", "@img/sharp-win32-arm64": "^0.34.2", "@img/sharp-win32-x64": "^0.34.2" }, "peerDependencies": { "zod": "^4.0.0" } }, "sha512-lVm+nS79r6WWlDnv5AgRzTtAlbP8O6M6kkWmDZAWE3nt9agmngxls9frJFvH55uzws2+6l0yyup/JYspfijkzw=="],
 

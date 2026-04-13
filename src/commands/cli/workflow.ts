@@ -9,9 +9,9 @@
  *   atomic workflow --list                         list discoverable workflows
  */
 
-import { AGENT_CONFIG, type AgentKey } from "@/services/config/index.ts";
-import { COLORS, createPainter, type PaletteKey } from "@/theme/colors.ts";
-import { isCommandInstalled } from "@/services/system/detect.ts";
+import { AGENT_CONFIG, type AgentKey } from "../../services/config/index.ts";
+import { COLORS, createPainter, type PaletteKey } from "../../theme/colors.ts";
+import { isCommandInstalled } from "../../services/system/detect.ts";
 import { ensureTmuxInstalled, ensureBunInstalled } from "../../lib/spawn.ts";
 import {
   isTmuxInstalled,
@@ -21,14 +21,14 @@ import {
   executeWorkflow,
   WorkflowLoader,
   resetMuxBinaryCache,
-} from "@/sdk/workflows/index.ts";
+} from "../../sdk/workflows/index.ts";
 import type {
   AgentType,
   DiscoveredWorkflow,
   WorkflowInput,
   WorkflowWithMetadata,
-} from "@/sdk/workflows/index.ts";
-import { WorkflowPickerPanel } from "@/sdk/components/workflow-picker-panel.tsx";
+} from "../../sdk/workflows/index.ts";
+import { WorkflowPickerPanel } from "../../sdk/components/workflow-picker-panel.tsx";
 
 // ─── Flag parser ────────────────────────────────────────────────────────────
 

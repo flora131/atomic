@@ -1,6 +1,6 @@
 ---
 name: filesystem-context
-description: This skill should be used when the user asks to "offload context to files", "implement dynamic context discovery", "use filesystem for agent memory", "reduce context window bloat", or mentions file-based context management, tool output persistence, agent scratch pads, or just-in-time context loading.
+description: This skill should be used when the user asks to "offload context to files", "implement dynamic context discovery", "use filesystem for agent memory", "reduce context window bloat", or mentions file-based context management, tool output persistence, agent scratch pads, or just-in-time context loading. A core context engineering skill — also activates when the user mentions "context engineering" or "context-engineering" in the context of extending context beyond the window via filesystem strategies.
 ---
 
 # Filesystem-Based Context Engineering

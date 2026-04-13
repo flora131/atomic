@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeEach } from "bun:test";
-import { PanelStore } from "@/sdk/components/orchestrator-panel-store.ts";
+import { PanelStore } from "../../../src/sdk/components/orchestrator-panel-store.ts";
 
 describe("PanelStore", () => {
   let store: PanelStore;

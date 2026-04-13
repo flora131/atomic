@@ -11,7 +11,7 @@ import {
   findWorkflow,
   WorkflowLoader,
   WORKFLOWS_GITIGNORE,
-} from "@/sdk/workflows/index.ts";
+} from "../../../src/sdk/workflows/index.ts";
 import { readFile } from "node:fs/promises";
 
 let tempDir: string;

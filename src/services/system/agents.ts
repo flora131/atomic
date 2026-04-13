@@ -24,7 +24,7 @@ import {
   copyFile,
   ensureDir,
   pathExists,
-} from "@/services/system/copy.ts";
+} from "./copy.ts";
 
 /**
  * Locate the package root by walking up from this module. Both in installed

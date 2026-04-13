@@ -152,7 +152,7 @@ import { join } from "path";
     // ... plan session ...
   });
 
-  await ctx.stage({ name: "generate-report" }, {}, {}, async (s) => {
+  const planHandle = await ctx.stage({ name: "plan" }, {}, {}, async (s) => {
     // Write artifacts to session directory
     const artifactDir = join(s.sessionDir, "artifacts");
     await mkdir(artifactDir, { recursive: true });
@@ -163,9 +163,17 @@ import { join } from "path";
       JSON.stringify(report, null, 2),
     );
 
-    // Read artifacts from a prior session
+    s.save(s.sessionId);
+  });
+
+  await ctx.stage({ name: "generate-report" }, {}, {}, async (s) => {
+    // Read prior session's output via transcript (preferred over path traversal)
+    const planTranscript = await s.transcript(planHandle);
+
+    // Or read artifacts using the transcript's path to locate the session directory
+    const planSessionDir = join(planTranscript.path, "..");
     const priorReport = JSON.parse(
-      await readFile(join(s.sessionDir, "..", "plan", "artifacts", "report.json"), "utf-8"),
+      await readFile(join(planSessionDir, "artifacts", "report.json"), "utf-8"),
     );
   });
 })
@@ -213,14 +221,27 @@ export interface ReviewResult {
   overall_correctness: string;
 }
 
+/** Layered fallback: direct parse → last fenced block → last balanced object.
+ *  Always extract the LAST block, not the first — see failure-modes.md §F4/§F8. */
 export function parseReviewResult(text: string): ReviewResult | null {
+  // 1. Direct parse
   try {
-    const match = text.match(/```json\s*\n([\s\S]*?)\n```/);
-    if (match?.[1]) return JSON.parse(match[1]);
-    return JSON.parse(text);
-  } catch {
-    return null;
+    const parsed = JSON.parse(text);
+    if (parsed?.findings) return parsed;
+  } catch {}
+
+  // 2. Last fenced block
+  const blockRe = /```(?:json)?\s*\n([\s\S]*?)\n```/g;
+  let lastBlock: string | null = null;
+  let m: RegExpExecArray | null;
+  while ((m = blockRe.exec(text)) !== null) {
+    if (m[1]) lastBlock = m[1];
   }
+  if (lastBlock) {
+    try { return JSON.parse(lastBlock); } catch {}
+  }
+
+  return null;
 }
 ```
 
@@ -308,7 +329,8 @@ When passing transcripts between sessions, compress at the boundary to prevent d
 ```ts
 // helpers/compression.ts
 export function compressTranscript(content: string, maxTokenEstimate: number = 4000): string {
-  // Rough estimate: 1 token ≈ 4 chars
+  // Rough estimate: ~4 chars/token for English prose, ~2-3 for code.
+  // For precise budgeting, use the provider's tokenizer instead.
   const maxChars = maxTokenEstimate * 4;
   if (content.length <= maxChars) return content;
 

@@ -16,25 +16,25 @@
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { mkdir, writeFile, rm } from "node:fs/promises";
-import { AGENT_CONFIG, type AgentKey } from "@/services/config/index.ts";
-import { COLORS } from "@/theme/colors.ts";
-import { isCommandInstalled } from "@/services/system/detect.ts";
+import { AGENT_CONFIG, type AgentKey } from "../../../services/config/index.ts";
+import { COLORS } from "../../../theme/colors.ts";
+import { isCommandInstalled } from "../../../services/system/detect.ts";
 import {
   ensureAtomicGlobalAgentConfigs,
-} from "@/services/config/atomic-global-config.ts";
-import { getConfigRoot } from "@/services/config/config-path.ts";
+} from "../../../services/config/atomic-global-config.ts";
+import { getConfigRoot } from "../../../services/config/config-path.ts";
 import {
   isInsideTmux,
   isTmuxInstalled,
   resetMuxBinaryCache,
-} from "@/sdk/workflows/index.ts";
+} from "../../../sdk/workflows/index.ts";
 import {
   createSession,
   killSession,
   spawnMuxAttach,
   SOCKET_NAME,
-} from "@/sdk/workflows/index.ts";
-import { ensureTmuxInstalled } from "@/lib/spawn.ts";
+} from "../../../sdk/workflows/index.ts";
+import { ensureTmuxInstalled } from "../../../lib/spawn.ts";
 
 // ============================================================================
 // Types

@@ -31,18 +31,24 @@ Create workflow files at `.atomic/workflows/<name>/<agent>/index.ts`.
         └── parsers.ts
 ```
 
-The built-in `ralph` workflow (`src/sdk/workflows/builtin/ralph/` in this
-repository) serves as a reference implementation and can be overridden by a
-local workflow with the same name. In installed projects, built-ins are
-resolved from the SDK package's bundled `workflows/builtin/` directory.
+The SDK ships two built-in workflows as reference implementations:
+- **`ralph`** — iterative plan → orchestrate → review → debug loop (`src/sdk/workflows/builtin/ralph/`)
+- **`deep-research-codebase`** — deterministic scout → parallel explorers → aggregator (`src/sdk/workflows/builtin/deep-research-codebase/`)
+
+Built-in workflows are **reserved** — a local or global workflow with the
+same name cannot shadow the built-in at resolution time. Pick distinct names
+for your own workflows. In installed projects, built-ins are resolved from
+the SDK package's bundled `workflows/builtin/` directory.
 
 ## Discovery paths
 
-| Scope | Path | Precedence |
+| Scope | Path | Resolution |
 |-------|------|------------|
-| **Local** | `.atomic/workflows/<name>/<agent>/index.ts` | Highest |
-| **Global** | `~/.atomic/workflows/<name>/<agent>/index.ts` | Middle |
-| **Built-in** | SDK modules shipped with `@bastani/atomic` | Lowest |
+| **Built-in** | SDK modules shipped with `@bastani/atomic` | **Reserved** — cannot be shadowed by local or global workflows of the same name |
+| **Local** | `.atomic/workflows/<name>/<agent>/index.ts` | Highest precedence among non-reserved names |
+| **Global** | `~/.atomic/workflows/<name>/<agent>/index.ts` | Lowest precedence among non-reserved names |
+
+Built-in workflow names (`ralph`, `deep-research-codebase`) are dropped from user sources before any merge. For non-reserved names, local overrides global.
 
 The `<agent>` subdirectory determines which SDK the workflow targets: `claude/`, `copilot/`, or `opencode/`.
 
@@ -107,10 +113,10 @@ Standard module resolution handles all imports. The project's `tsconfig.json` sh
 
 ## Type checking
 
-Run `tsc` to catch TypeScript errors before testing:
+Run the project's typecheck script to catch TypeScript errors before testing:
 
 ```bash
-bunx tsc --noEmit --pretty false
+bun typecheck
 ```
 
 This catches:

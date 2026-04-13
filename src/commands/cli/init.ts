@@ -5,4 +5,4 @@
  * historical `commands/cli/init.ts` path remains stable.
  */
 
-export * from "@/commands/cli/init/index.ts";
+export * from "./init/index.ts";

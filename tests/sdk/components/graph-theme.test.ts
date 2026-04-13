@@ -1,6 +1,6 @@
 import { test, expect, describe } from "bun:test";
-import { deriveGraphTheme } from "@/sdk/components/graph-theme.ts";
-import type { TerminalTheme } from "@/sdk/runtime/theme.ts";
+import { deriveGraphTheme } from "../../../src/sdk/components/graph-theme.ts";
+import type { TerminalTheme } from "../../../src/sdk/runtime/theme.ts";
 
 const fakeTheme: TerminalTheme = {
   bg: "#1e1e2e",

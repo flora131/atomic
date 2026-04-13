@@ -36,8 +36,7 @@ import { VERSION } from "../../version.ts";
 import { COLORS } from "../../theme/colors.ts";
 import {
   ensureTmuxInstalled,
-  upgradePlaywrightCli,
-  upgradeLiteparse,
+  upgradeGlobalToolPackages,
 } from "../../lib/spawn.ts";
 import { installGlobalAgents } from "./agents.ts";
 import { installGlobalSkills } from "./skills.ts";
@@ -101,11 +100,10 @@ export async function autoSyncIfStale(): Promise<void> {
   // best-effort contract.
   const results = await runSteps([
     [
-      { label: "tmux / psmux",         fn: () => ensureTmuxInstalled({ quiet: true }) },
-      { label: "global agent configs", fn: installGlobalAgents },
-      { label: "@playwright/cli",      fn: upgradePlaywrightCli },
-      { label: "@llamaindex/liteparse", fn: upgradeLiteparse },
-      { label: "global skills",        fn: installGlobalSkills },
+      { label: "tmux / psmux",          fn: () => ensureTmuxInstalled({ quiet: true }) },
+      { label: "global agent configs",  fn: installGlobalAgents },
+      { label: "global tool packages",  fn: upgradeGlobalToolPackages },
+      { label: "global skills",         fn: installGlobalSkills },
     ],
   ]);
 

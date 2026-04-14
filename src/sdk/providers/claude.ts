@@ -589,6 +589,48 @@ export class ClaudeSessionWrapper {
 }
 
 // ---------------------------------------------------------------------------
+// Headless wrappers — use the Agent SDK directly (no tmux pane)
+// ---------------------------------------------------------------------------
+
+/**
+ * Headless client wrapper for Claude stages. No tmux pane — noop start/stop.
+ * Used when `options.headless` is true in `ctx.stage()`.
+ */
+export class HeadlessClaudeClientWrapper {
+  async start(): Promise<void> {}
+  async stop(): Promise<void> {}
+}
+
+/**
+ * Headless session wrapper for Claude stages. Uses the Agent SDK's `query()`
+ * directly instead of tmux pane operations. Implements the same `query()`
+ * interface as {@link ClaudeSessionWrapper} so workflow callbacks work
+ * identically for headless and interactive stages.
+ */
+export class HeadlessClaudeSessionWrapper {
+  readonly paneId = "";
+  readonly sessionId: string;
+
+  constructor(sessionId: string) {
+    this.sessionId = sessionId;
+  }
+
+  async query(prompt: string): Promise<ClaudeQueryResult> {
+    const { query } = await import("@anthropic-ai/claude-agent-sdk");
+    let output = "";
+    for await (const msg of query({ prompt })) {
+      if (msg.type === "result") {
+        // SDKResultSuccess has `result: string`, not `output`.
+        output = String((msg as Record<string, unknown>).result ?? "");
+      }
+    }
+    return { output, delivered: true };
+  }
+
+  async disconnect(): Promise<void> {}
+}
+
+// ---------------------------------------------------------------------------
 // Static source validation
 // ---------------------------------------------------------------------------
 

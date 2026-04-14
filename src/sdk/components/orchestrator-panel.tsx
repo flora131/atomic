@@ -122,6 +122,16 @@ export class OrchestratorPanel {
     });
   }
 
+  /** Increment the background task counter (shown in the statusline footer). */
+  backgroundTaskStarted(): void {
+    this.store.incrementBackgroundTasks();
+  }
+
+  /** Decrement the background task counter (shown in the statusline footer). */
+  backgroundTaskFinished(): void {
+    this.store.decrementBackgroundTasks();
+  }
+
   /** Show the workflow-complete banner with a link to saved transcripts. */
   showCompletion(workflowName: string, transcriptsPath: string): void {
     this.store.setCompletion(workflowName, transcriptsPath);

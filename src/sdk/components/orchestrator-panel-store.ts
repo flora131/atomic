@@ -17,6 +17,9 @@ export class PanelStore {
   exitResolve: (() => void) | null = null;
   abortResolve: (() => void) | null = null;
 
+  /** Number of background tasks/headless stages currently running. */
+  backgroundTaskCount = 0;
+
   /** Current view mode — graph overview or attached to a specific agent. */
   viewMode: ViewMode = "graph";
   /** ID of the agent currently attached to (only meaningful when viewMode === "attached"). */
@@ -110,6 +113,16 @@ export class PanelStore {
       orch.status = "error";
       orch.endedAt = Date.now();
     }
+    this.emit();
+  }
+
+  incrementBackgroundTasks(): void {
+    this.backgroundTaskCount++;
+    this.emit();
+  }
+
+  decrementBackgroundTasks(): void {
+    this.backgroundTaskCount = Math.max(0, this.backgroundTaskCount - 1);
     this.emit();
   }
 

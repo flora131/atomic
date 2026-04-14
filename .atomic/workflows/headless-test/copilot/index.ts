@@ -13,11 +13,20 @@ function getAssistantText(messages: SessionEvent[]): string {
     .join("\n\n");
 }
 
-export default defineWorkflow<"copilot">({
+export default defineWorkflow({
   name: "headless-test",
   description:
     "Test headless background stages: visible → [3 headless] → visible merge → headless verdict",
+  inputs: [
+    {
+      name: "prompt",
+      type: "string",
+      description: "topic to analyse",
+      default: "TypeScript",
+    },
+  ],
 })
+  .for<"copilot">()
   .run(async (ctx) => {
     const prompt = ctx.inputs.prompt ?? "TypeScript";
 

@@ -66,10 +66,11 @@ Every workflow file must use `export default` with a compiled workflow:
 ```ts
 import { defineWorkflow } from "@bastani/atomic/workflows";
 
-export default defineWorkflow<"claude">({
+export default defineWorkflow({
     name: "my-workflow",
     description: "What this workflow does",
   })
+  .for<"claude">()
   .run(async (ctx) => {
     await ctx.stage({ name: "step-1" }, {}, {}, async (s) => { /* ... */ });
     await ctx.stage({ name: "step-2" }, {}, {}, async (s) => { /* ... */ });
@@ -126,7 +127,7 @@ This catches:
 - SDK type mismatches (e.g., passing wrong types to `s.save()`)
 - Incorrect provider-specific method calls (e.g., calling `s.session.query()` in a Copilot workflow)
 
-**Note on generic type parameter:** Using `defineWorkflow<"claude">()`, `defineWorkflow<"copilot">()`, or `defineWorkflow<"opencode">()` narrows `s.client` and `s.session` to the correct provider types throughout the `.run()` callback and all `ctx.stage()` callbacks. Without the type parameter, `s.client` and `s.session` resolve to a union of all provider types, which requires type guards to use provider-specific methods.
+**Note on provider type parameter:** Using `.for<"claude">()`, `.for<"copilot">()`, or `.for<"opencode">()` narrows `s.client` and `s.session` to the correct provider types throughout the `.run()` callback and all `ctx.stage()` callbacks. Without the type parameter, `s.client` and `s.session` resolve to a union of all provider types, which requires type guards to use provider-specific methods.
 
 ## Testing
 

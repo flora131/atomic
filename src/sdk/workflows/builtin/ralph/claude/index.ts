@@ -14,7 +14,7 @@
  * Run: atomic workflow -n ralph -a claude "<your spec>"
  */
 
-import { defineWorkflow } from "../../../index.ts";
+import { defineWorkflow, extractAssistantText } from "../../../index.ts";
 import { query as claudeSdkQuery } from "@anthropic-ai/claude-agent-sdk";
 
 import {
@@ -36,13 +36,9 @@ import { captureBranchChangeset } from "../helpers/git.ts";
 const MAX_LOOPS = 10;
 
 // The orchestrator stage implements the actual code changes and can run for
-// a very long time on large tasks. 24 hours prevents premature timeout.
-const ORCHESTRATOR_TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24 hours
-
-/** Wrap a prompt with a Claude Code @-mention so the named sub-agent runs it. */
-function asAgentCall(agentName: string, prompt: string): string {
-  return `@"${agentName} (agent)" ${prompt}`;
-}
+// a very long time on large tasks. Completion is detected via session file
+// watching for idle and result events from Claude's own SDK — no manual
+// timeout is needed.
 
 /**
  * Run the Claude Agent SDK's `query()` with structured output and collect
@@ -65,7 +61,7 @@ async function queryWithStructuredOutput(
     },
   })) {
     if (msg.type === "result") {
-      raw = String((msg as Record<string, unknown>).output ?? "");
+      raw = String((msg as Record<string, unknown>).result ?? "");
       if (
         msg.subtype === "success" &&
         (msg as Record<string, unknown>).structured_output
@@ -81,11 +77,15 @@ async function queryWithStructuredOutput(
   };
 }
 
-export default defineWorkflow<"claude">({
+export default defineWorkflow({
   name: "ralph",
   description:
     "Plan → orchestrate → review → debug loop with bounded iteration",
+  inputs: [
+    { name: "prompt", type: "text", required: true, description: "task prompt" },
+  ],
 })
+  .for<"claude">()
   .run(async (ctx) => {
     const prompt = ctx.inputs.prompt ?? "";
     let debuggerReport = "";
@@ -94,17 +94,14 @@ export default defineWorkflow<"claude">({
       // ── Plan ────────────────────────────────────────────────────────────
       await ctx.stage(
         { name: `planner-${iteration}` },
-        {},
+        { chatFlags: ["--agent", "planner", "--allow-dangerously-skip-permissions", "--dangerously-skip-permissions"] },
         {},
         async (s) => {
           await s.session.query(
-            asAgentCall(
-              "planner",
-              buildPlannerPrompt(prompt, {
-                iteration,
-                debuggerReport: debuggerReport || undefined,
-              }),
-            ),
+            buildPlannerPrompt(prompt, {
+              iteration,
+              debuggerReport: debuggerReport || undefined,
+            }),
           );
           s.save(s.sessionId);
         },
@@ -113,13 +110,10 @@ export default defineWorkflow<"claude">({
       // ── Orchestrate ─────────────────────────────────────────────────────
       await ctx.stage(
         { name: `orchestrator-${iteration}` },
-        {},
+        { chatFlags: ["--agent", "orchestrator", "--allow-dangerously-skip-permissions", "--dangerously-skip-permissions"] },
         {},
         async (s) => {
-          await s.session.query(
-            asAgentCall("orchestrator", buildOrchestratorPrompt(prompt)),
-            { timeoutMs: ORCHESTRATOR_TIMEOUT_MS },
-          );
+          await s.session.query(buildOrchestratorPrompt(prompt));
           s.save(s.sessionId);
         },
       );
@@ -135,10 +129,11 @@ export default defineWorkflow<"claude">({
           {},
           async (s) => {
             const result = await s.session.query(
-              asAgentCall("codebase-locator", discoveryPrompts.locator),
+              discoveryPrompts.locator,
+              { agent: "codebase-locator", permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true },
             );
             s.save(s.sessionId);
-            return String(result.output ?? "");
+            return extractAssistantText(result, 0);
           },
         ),
         ctx.stage(
@@ -147,10 +142,11 @@ export default defineWorkflow<"claude">({
           {},
           async (s) => {
             const result = await s.session.query(
-              asAgentCall("codebase-analyzer", discoveryPrompts.analyzer),
+              discoveryPrompts.analyzer,
+              { agent: "codebase-analyzer", permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true },
             );
             s.save(s.sessionId);
-            return String(result.output ?? "");
+            return extractAssistantText(result, 0);
           },
         ),
         ctx.stage(
@@ -159,10 +155,11 @@ export default defineWorkflow<"claude">({
           {},
           async (s) => {
             const result = await s.session.query(
-              asAgentCall("codebase-pattern-finder", discoveryPrompts.patternFinder),
+              discoveryPrompts.patternFinder,
+              { agent: "codebase-pattern-finder", permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true },
             );
             s.save(s.sessionId);
-            return String(result.output ?? "");
+            return extractAssistantText(result, 0);
           },
         ),
       ]);
@@ -214,20 +211,17 @@ export default defineWorkflow<"claude">({
       if (iteration < MAX_LOOPS) {
         const debugger_ = await ctx.stage(
           { name: `debugger-${iteration}` },
-          {},
+          { chatFlags: ["--agent", "debugger", "--allow-dangerously-skip-permissions", "--dangerously-skip-permissions"] },
           {},
           async (s) => {
             const result = await s.session.query(
-              asAgentCall(
-                "debugger",
-                buildDebuggerReportPrompt(parsed, reviewRaw, {
-                  iteration,
-                  changeset,
-                }),
-              ),
+              buildDebuggerReportPrompt(parsed, reviewRaw, {
+                iteration,
+                changeset,
+              }),
             );
             s.save(s.sessionId);
-            return result.output;
+            return extractAssistantText(result, 0);
           },
         );
 

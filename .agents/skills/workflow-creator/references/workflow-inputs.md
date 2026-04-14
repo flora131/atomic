@@ -2,20 +2,22 @@
 
 Workflows collect structured data from the user at invocation time through
 a single uniform API: `ctx.inputs` (and `s.inputs` inside stage
-callbacks). This reference covers how the inputs pipe works, when to
-declare a schema vs. rely on the free-form fallback, and how values
-reach the workflow from the CLI and the interactive picker.
+callbacks). This reference covers how the inputs pipe works, how to
+declare input schemas, and how values reach the workflow from the CLI
+and the interactive picker.
 
 ## The inputs pipe
 
-Every workflow run receives a `Record<string, string>` of inputs. The
+Every workflow run receives a typed inputs object. When the workflow
+declares an `inputs` schema, only the declared field names are valid
+keys — accessing undeclared fields is a compile-time error. The
 runtime populates it from whichever invocation surface the user chose:
 
 | Surface | How values are supplied | How they land in `ctx.inputs` |
 |---|---|---|
-| **Named run, positional** — `atomic workflow -n hello -a claude "fix the bug"` | A single positional prompt string | `{ prompt: "fix the bug" }` |
+| **Named run, positional** — `atomic workflow -n hello -a claude "fix the bug"` | A single positional prompt string (the workflow must declare a `prompt` input) | `{ prompt: "fix the bug" }` |
 | **Named run, structured** — `atomic workflow -n gen-spec -a claude --research_doc=notes.md --focus=standard` | One `--<field>=<value>` flag per declared input | `{ research_doc: "notes.md", focus: "standard" }` |
-| **Interactive picker** — `atomic workflow -a claude` | The user fills in a form rendered from the declared schema (or the default `prompt` field if the workflow is free-form) | Whatever the user typed, keyed by field name |
+| **Interactive picker** — `atomic workflow -a claude` | The user fills in a form rendered from the declared schema | Whatever the user typed, keyed by field name |
 
 Workflow code is the same either way — it always reads
 `ctx.inputs.<name>`. The invocation surface is a CLI concern, not a
@@ -23,12 +25,19 @@ workflow concern.
 
 ## Reading inputs
 
-For free-form workflows (no declared schema), the positional prompt
-lands under the reserved `prompt` key. Destructure it once at the top of
-`.run()` so every stage can close over a bare string:
+Workflows that accept a user prompt should declare it explicitly as an
+input. Destructure it once at the top of `.run()` so every stage can
+close over a bare string:
 
 ```ts
-defineWorkflow<"claude">({ name: "answer", description: "Single-turn answer" })
+defineWorkflow({
+    name: "answer",
+    description: "Single-turn answer",
+    inputs: [
+      { name: "prompt", type: "text", required: true, description: "question to answer" },
+    ],
+  })
+  .for<"claude">()
   .run(async (ctx) => {
     const prompt = ctx.inputs.prompt ?? "";
 
@@ -45,7 +54,7 @@ out of `ctx.inputs` once for readability and so downstream stages can
 close over locals:
 
 ```ts
-defineWorkflow<"claude">({
+defineWorkflow({
     name: "gen-spec",
     description: "Convert a research doc into a detailed execution spec",
     inputs: [
@@ -60,6 +69,7 @@ defineWorkflow<"claude">({
       { name: "notes", type: "text" },
     ],
   })
+  .for<"claude">()
   .run(async (ctx) => {
     const { research_doc, focus } = ctx.inputs;
     const notes = ctx.inputs.notes ?? "";
@@ -99,7 +109,7 @@ interface WorkflowInput {
   /** Default value — enums use this to pick their initial value. */
   default?: string;
   /** Allowed values — required when `type` is `"enum"`. */
-  values?: string[];
+  values?: readonly string[];
 }
 ```
 
@@ -147,35 +157,29 @@ This validation runs before any workflow code, so a malformed
 invocation can never reach your `.run()` callback in a half-filled
 state.
 
-## Free-form vs structured: when to use which
+## Declaring a prompt input
 
-Choose **free-form** (no `inputs` field on `defineWorkflow`) when:
+Workflows that accept a user prompt should declare it explicitly in their
+`inputs` array rather than relying on an implicit key:
 
-- The workflow takes a single unstructured request that varies widely
-  in phrasing — "find the bug", "build me a chart", "refactor the auth
-  module".
-- You want the simplest possible CLI surface.
-- The workflow's first LLM call will do its own intent extraction from
-  the raw prompt.
+```ts
+inputs: [
+  { name: "prompt", type: "text", required: true, description: "task to perform" },
+]
+```
 
-Read the prompt via `ctx.inputs.prompt ?? ""`.
+This gives the same CLI ergonomics — `atomic workflow -n hello -a claude "fix the bug"` still works — while providing compile-time safety. Accessing `ctx.inputs.prompt` without declaring it is a type error.
 
-Choose **structured** (declared `inputs: [...]`) when:
+For workflows that need both a free-form prompt AND structured parameters,
+declare all fields in the schema:
 
-- Several distinct fields are always needed — a file path + a focus
-  level + optional notes, for example.
-- You want the picker to show a real form (each field, its type, and
-  any validation cues) instead of a single blob text area.
-- You want the CLI to reject bad inputs before spawning a workflow —
-  e.g. a nonexistent enum value.
-- You want the invocation to be scriptable and auditable — flag-based
-  invocation reads cleanly in CI.
-
-Structured workflows can also include a `prompt` field in their schema
-if they need both a free-form request AND structured parameters. The
-`prompt` key is not magic for structured workflows — it's just a
-conventional name. You only get "positional maps to `prompt`" behavior
-when the workflow has no schema at all.
+```ts
+inputs: [
+  { name: "prompt", type: "text", required: true, description: "what to build" },
+  { name: "focus", type: "enum", required: true, values: ["minimal", "standard", "exhaustive"], default: "standard" },
+  { name: "notes", type: "text", description: "extra context" },
+]
+```
 
 ## The interactive picker
 
@@ -187,8 +191,7 @@ picker. The picker:
 2. Loads each workflow's metadata (description + declared inputs).
 3. Shows a Telescope-style fuzzy list. The user types to filter,
    arrows to navigate, ↵ to lock in a selection.
-4. Renders the selected workflow's form. Free-form workflows get a
-   single `prompt` text field; structured workflows get one field
+4. Renders the selected workflow's form. The picker renders one field
    per declared input with type-specific rendering.
 5. Validates required fields on ⌃s. If any are empty, focus jumps to
    the first invalid field and the run button stays disabled.
@@ -246,18 +249,20 @@ Both `--flag=value` and `--flag value` forms are accepted. Short flags
 
 ## Pitfalls
 
-### Don't expect `inputs.prompt` on structured workflows
+### Declare every field you access
 
-A structured workflow that doesn't declare a `prompt` field will have
-`ctx.inputs.prompt === undefined`. The CLI also rejects a positional
-prompt for structured workflows outright — if you try
-`atomic workflow -n gen-spec -a claude "some text"` you'll get:
+With typed inputs, accessing `ctx.inputs.foo` when `foo` is not declared
+in the workflow's `inputs` array is a compile-time error. If your workflow
+needs a prompt field, declare it:
 
-> Error: workflow 'gen-spec' takes structured inputs — pass them as
-> `--<name>=<value>` flags instead of a positional prompt.
+```ts
+inputs: [
+  { name: "prompt", type: "text", required: true, description: "task prompt" },
+]
+```
 
-If your workflow wants both a free-form prompt AND structured fields,
-declare `prompt` as a `text` input explicitly in the schema.
+The CLI rejects positional prompt strings for workflows that don't declare
+a `prompt` input.
 
 ### Don't rename inputs across workflow versions
 

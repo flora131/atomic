@@ -63,15 +63,18 @@ import {
   slugifyPrompt,
 } from "../helpers/prompts.ts";
 
-export default defineWorkflow<"copilot">({
+export default defineWorkflow({
     name: "deep-research-codebase",
     description:
       "Deterministic deep codebase research: scout → LOC-driven parallel explorers → aggregator",
+    inputs: [
+      { name: "prompt", type: "text", required: true, description: "research question" },
+    ],
   })
+  .for<"copilot">()
   .run(async (ctx) => {
-    // Free-form workflows receive their positional prompt under
-    // `inputs.prompt`; destructure once so every stage below can close
-    // over a bare `prompt` string without re-reaching into ctx.inputs.
+    // Destructure once so every stage below can close over a bare
+    // `prompt` string without re-reaching into ctx.inputs.
     const prompt = ctx.inputs.prompt ?? "";
     const root = getCodebaseRoot();
     const startedAt = new Date();

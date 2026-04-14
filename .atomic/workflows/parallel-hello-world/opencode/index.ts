@@ -7,7 +7,7 @@ function buildGreetPrompt(inputs: Record<string, string>): string {
   return `Write a short ${tone} greeting about "${topic}".`;
 }
 
-export default defineWorkflow<"opencode">({
+export default defineWorkflow({
     name: "parallel-hello-world",
     description: "Parallel hello world: greet → [formal, casual] → merge",
     inputs: [
@@ -28,6 +28,7 @@ export default defineWorkflow<"opencode">({
       },
     ],
   })
+  .for<"opencode">()
   .run(async (ctx) => {
     const seedPrompt = buildGreetPrompt(ctx.inputs);
     const greet = await ctx.stage(

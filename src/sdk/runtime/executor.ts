@@ -45,6 +45,8 @@ import {
   clearClaudeSession,
   ClaudeClientWrapper,
   ClaudeSessionWrapper,
+  HeadlessClaudeClientWrapper,
+  HeadlessClaudeSessionWrapper,
 } from "../providers/claude.ts";
 import { OrchestratorPanel } from "./panel.tsx";
 import { GraphFrontierTracker } from "./graph-inference.ts";
@@ -560,33 +562,66 @@ async function initProviderClientAndSession<A extends AgentType>(
   sessionId: string,
   clientOpts: StageClientOptions<A>,
   sessionOpts: StageSessionOptions<A>,
-): Promise<{ client: ProviderClient<A>; session: ProviderSession<A> }> {
-  type Result = { client: ProviderClient<A>; session: ProviderSession<A> };
+  headless = false,
+): Promise<{
+  client: ProviderClient<A>;
+  session: ProviderSession<A>;
+  /** Optional cleanup for SDK-managed resources (e.g. headless OpenCode server). */
+  cleanup?: () => void;
+}> {
+  type Result = {
+    client: ProviderClient<A>;
+    session: ProviderSession<A>;
+    cleanup?: () => void;
+  };
 
   switch (agent) {
     case "copilot": {
       const { CopilotClient, approveAll } = await import("@github/copilot-sdk");
       const copilotClientOpts = clientOpts as StageClientOptions<"copilot">;
       const copilotSessionOpts = sessionOpts as StageSessionOptions<"copilot">;
-      const client = new CopilotClient({ ...copilotClientOpts, cliUrl: serverUrl });
+      // Headless: let the SDK spawn its own CLI process (no cliUrl).
+      // Non-headless: connect to the CLI server running in a tmux pane.
+      const client = headless
+        ? new CopilotClient({ ...copilotClientOpts })
+        : new CopilotClient({ ...copilotClientOpts, cliUrl: serverUrl });
       await client.start();
       const session = await client.createSession({
         onPermissionRequest: approveAll,
         ...copilotSessionOpts,
       });
-      await client.setForegroundSessionId(session.sessionId);
+      if (!headless) {
+        await client.setForegroundSessionId(session.sessionId);
+      }
       return { client, session } as Result;
     }
     case "opencode": {
+      const ocSessionOpts = sessionOpts as StageSessionOptions<"opencode">;
+      if (headless) {
+        const { createOpencode } = await import("@opencode-ai/sdk/v2");
+        const oc = await createOpencode({ port: 0 });
+        const sessionResult = await oc.client.session.create(ocSessionOpts);
+        return {
+          client: oc.client,
+          session: sessionResult.data!,
+          cleanup: () => oc.server.close(),
+        } as Result;
+      }
       const { createOpencodeClient } = await import("@opencode-ai/sdk/v2");
       const ocClientOpts = clientOpts as StageClientOptions<"opencode">;
-      const ocSessionOpts = sessionOpts as StageSessionOptions<"opencode">;
       const client = createOpencodeClient({ ...ocClientOpts, baseUrl: serverUrl });
       const sessionResult = await client.session.create(ocSessionOpts);
       await client.tui.selectSession({ sessionID: sessionResult.data!.id });
       return { client, session: sessionResult.data! } as Result;
     }
     case "claude": {
+      if (headless) {
+        // Headless Claude stages use the Agent SDK directly — no tmux pane.
+        const client = new HeadlessClaudeClientWrapper();
+        await client.start();
+        const session = new HeadlessClaudeSessionWrapper(sessionId);
+        return { client, session } as Result;
+      }
       const claudeClientOpts = clientOpts as StageClientOptions<"claude">;
       const claudeSessionOpts = sessionOpts as StageSessionOptions<"claude">;
       const client = new ClaudeClientWrapper(paneId, claudeClientOpts);
@@ -633,7 +668,10 @@ async function cleanupProvider<A extends AgentType>(
       // Stateless HTTP client — no cleanup needed
       break;
     case "claude":
-      clearClaudeSession(paneId);
+      // Headless Claude stages have no tmux pane to clear.
+      if (!paneId.startsWith("headless-")) {
+        clearClaudeSession(paneId);
+      }
       break;
     default:
       assertNever(agent);
@@ -685,8 +723,13 @@ function createSessionRunner(
       throw new Error(`Duplicate session name: "${name}"`);
     }
 
+    const isHeadless = options.headless === true;
+
     // ── 2. Auto-infer graph parents from frontier (synchronous) ──
-    const graphParents = graphTracker.onSpawn();
+    // Headless stages are invisible in the graph — they must not consume or
+    // update the frontier, otherwise the next visible stage gets orphaned
+    // parent refs that don't exist in the panel.
+    const graphParents = isHeadless ? [] : graphTracker.onSpawn();
 
     // ── 3. Create done promise so dependent sessions can await this one ──
     let resolveDone!: () => void;
@@ -715,18 +758,34 @@ function createSessionRunner(
         port,
       );
 
-      // ── 7. Create tmux window ──
-      paneId = tmux.createWindow(
-        shared.tmuxSessionName,
-        name,
-        paneCmd,
-        undefined,
-        paneEnvVars,
-      );
-      shared.activeRegistry.set(name, { name, paneId, done: donePromise });
+      // ── 7. Create tmux window or headless execution ──
+      let serverUrl: string;
+      if (isHeadless) {
+        // Headless stages use their SDKs directly — no tmux window.
+        // Claude Agent SDK runs in-process; Copilot SDK spawns its own CLI;
+        // OpenCode SDK starts both server and client via createOpencode().
+        paneId = `headless-${name}-${sessionId}`;
+        shared.activeRegistry.set(name, { name, paneId, done: donePromise });
+        serverUrl = "";
 
-      // ── 8. Wait for server readiness ──
-      const serverUrl = await waitForServer(shared.agent, port, paneId);
+        shared.panel.backgroundTaskStarted();
+        panelSessionAdded = true;
+      } else {
+        // Standard tmux window for visible stages.
+        paneId = tmux.createWindow(
+          shared.tmuxSessionName,
+          name,
+          paneCmd,
+          undefined,
+          paneEnvVars,
+        );
+        shared.activeRegistry.set(name, { name, paneId, done: donePromise });
+
+        serverUrl = await waitForServer(shared.agent, port, paneId);
+
+        shared.panel.addSession(name, graphParents);
+        panelSessionAdded = true;
+      }
 
       // ── 9. Create session directory ──
       const sessionDirName = `${name}-${sessionId}`;
@@ -735,10 +794,6 @@ function createSessionRunner(
 
       const messagesPath = join(sessionDir, "messages.json");
       const inboxPath = join(sessionDir, "inbox.md");
-
-      // ── 10. Add node to graph panel ──
-      shared.panel.addSession(name, graphParents);
-      panelSessionAdded = true;
 
       // ── 11. Claude session snapshot (for identifying new sessions later) ──
       let knownClaudeSessionIds: Set<string> | undefined;
@@ -829,7 +884,7 @@ function createSessionRunner(
       const getMessagesFn = createMessagesReader(shared.completedRegistry);
 
       // ── 12. Auto-create provider client and session ──
-      const { client: providerClient, session: providerSession } =
+      const { client: providerClient, session: providerSession, cleanup: providerCleanup } =
         await initProviderClientAndSession(
           shared.agent,
           serverUrl,
@@ -837,6 +892,7 @@ function createSessionRunner(
           sessionId,
           clientOpts,
           sessionOpts,
+          isHeadless,
         );
 
       // ── 12a. Copilot: wrap send() to await session.idle ──
@@ -927,30 +983,48 @@ function createSessionRunner(
         await Bun.write(join(sessionDir, "error.txt"), message).catch(
           () => {},
         );
-        shared.panel.sessionError(name, message);
+        if (!isHeadless) shared.panel.sessionError(name, message);
         throw error;
       } finally {
         // ── 14a. Auto-cleanup provider resources ──
         await cleanupProvider(shared.agent, providerClient, providerSession, paneId);
+        if (providerCleanup) {
+          try {
+            providerCleanup();
+          } catch {}
+        }
       }
 
       // ── 15. Mark session complete ──
-      shared.panel.sessionSuccess(name);
+      if (isHeadless) {
+        shared.panel.backgroundTaskFinished();
+      } else {
+        shared.panel.sessionSuccess(name);
+      }
       const result: SessionResult = { name, sessionId, sessionDir, paneId };
       shared.completedRegistry.set(name, result);
       shared.activeRegistry.delete(name);
       resolveDone();
 
       // Update frontier so the next stage in this scope chains from us.
-      graphTracker.onSettle(name);
+      // Headless stages are transparent — they don't touch the frontier.
+      if (!isHeadless) graphTracker.onSettle(name);
       return { name, id: sessionId, result: callbackResult! };
     } catch (error) {
       const message = errorMessage(error);
       if (panelSessionAdded) {
-        shared.panel.sessionError(name, message);
+        if (isHeadless) {
+          shared.panel.backgroundTaskFinished();
+        } else {
+          shared.panel.sessionError(name, message);
+        }
       }
-      if (paneId) {
-        tmux.killWindow(shared.tmuxSessionName, name);
+      // Kill the tmux window if one was created (visible stages and headless OpenCode).
+      // Headless Claude/Copilot have virtual paneIds ("headless-...") — no window to kill.
+      if (paneId && !paneId.startsWith("headless-")) {
+        try {
+          tmux.killWindow(shared.tmuxSessionName, name);
+        } catch {}
       }
       // Ensure the done promise settles and the active entry is cleared.
       shared.activeRegistry.delete(name);
@@ -958,7 +1032,8 @@ function createSessionRunner(
       rejectDone(error);
       // Update frontier even on failure — if the caller catches and
       // continues, the next stage should still chain from this one.
-      graphTracker.onSettle(name);
+      // Headless stages are transparent — they don't touch the frontier.
+      if (!isHeadless) graphTracker.onSettle(name);
       throw error;
     }
   };
@@ -1098,10 +1173,14 @@ export async function runOrchestrator(): Promise<void> {
     await panel.waitForExit();
     shutdown(0);
   } catch (error) {
-    // Kill any active session tmux windows that didn't complete
+    // Kill any active tmux windows that didn't complete.
+    // Headless Claude/Copilot have virtual paneIds ("headless-...") — their
+    // SDK-managed processes are cleaned up by cleanupProvider().
     for (const [, active] of shared.activeRegistry) {
       try {
-        tmux.killWindow(tmuxSessionName, active.name);
+        if (active.paneId && !active.paneId.startsWith("headless-")) {
+          tmux.killWindow(tmuxSessionName, active.name);
+        }
       } catch {}
     }
 

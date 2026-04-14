@@ -34,7 +34,7 @@ export function CompactSwitcher({ selectedIndex }: CompactSwitcherProps) {
     >
       {/* Header */}
       <box height={1} flexDirection="row" paddingLeft={1} paddingRight={1}>
-        <text fg={theme.textDim}>agents</text>
+        <text fg={theme.textDim}>stages</text>
         <box flexGrow={1} />
         <text fg={theme.textDim}>{headerHint}</text>
       </box>

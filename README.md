@@ -57,27 +57,56 @@ Each of these is a `.ts` file using Atomic's [Workflow SDK](#workflow-sdk--build
 
 ## Table of Contents
 
-- [Why Atomic](#why-atomic)
-  - [What You Can Build](#what-you-can-build)
-- [Quick Start](#quick-start)
-- [Core Features](#core-features)
-  - [Multi-Agent Support](#multi-agent-support)
-  - [Workflow SDK — Build Your Own Deterministic Harness](#workflow-sdk--build-your-own-deterministic-harness)
-  - [Deep Codebase Research](#deep-codebase-research)
-  - [Autonomous Execution (Ralph)](#autonomous-execution-ralph)
-  - [Containerized Execution](#containerized-execution)
-  - [Specialized Sub-Agents](#specialized-sub-agents)
-  - [Built-in Skills](#built-in-skills)
-  - [Workflow Orchestrator Panel](#workflow-orchestrator-panel)
-- [Commands Reference](#commands-reference)
-- [Configuration](#configuration)
-- [Installation Options](#installation-options)
-- [Updating & Uninstalling](#updating--uninstalling)
-- [Troubleshooting](#troubleshooting)
-- [FAQ](#faq)
-- [Contributing](#contributing)
-- [License](#license)
-- [Credits](#credits)
+- [Atomic](#atomic)
+  - [Why Atomic](#why-atomic)
+    - [What You Can Build](#what-you-can-build)
+  - [Table of Contents](#table-of-contents)
+  - [Quick Start](#quick-start)
+    - [Prerequisites](#prerequisites)
+    - [1. Install](#1-install)
+    - [2. Initialize Your Project](#2-initialize-your-project)
+    - [3. Generate Context Files](#3-generate-context-files)
+    - [4. Managing Sessions](#4-managing-sessions)
+    - [5. Build a Workflow](#5-build-a-workflow)
+  - [Core Features](#core-features)
+    - [Multi-Agent Support](#multi-agent-support)
+    - [Workflow SDK — Build Your Own Deterministic Harness](#workflow-sdk--build-your-own-deterministic-harness)
+      - [Builder API](#builder-api)
+      - [WorkflowContext (`ctx`) — top-level orchestrator](#workflowcontext-ctx--top-level-orchestrator)
+      - [SessionContext (`s`) — inside each session callback](#sessioncontext-s--inside-each-session-callback)
+      - [Session Options (`SessionRunOptions`)](#session-options-sessionrunoptions)
+      - [Saving Transcripts](#saving-transcripts)
+      - [Per-Agent Session APIs](#per-agent-session-apis)
+      - [Key Rules](#key-rules)
+    - [Deep Codebase Research](#deep-codebase-research)
+    - [Autonomous Execution (Ralph)](#autonomous-execution-ralph)
+    - [Containerized Execution](#containerized-execution)
+    - [Specialized Sub-Agents](#specialized-sub-agents)
+    - [Built-in Skills](#built-in-skills)
+    - [Workflow Orchestrator Panel](#workflow-orchestrator-panel)
+  - [Commands Reference](#commands-reference)
+    - [CLI Commands](#cli-commands)
+      - [Global Flags](#global-flags)
+      - [`atomic init` Flags](#atomic-init-flags)
+      - [`atomic session` Subcommands](#atomic-session-subcommands)
+      - [`atomic chat` Flags](#atomic-chat-flags)
+      - [`atomic workflow` Flags](#atomic-workflow-flags)
+      - [`atomic completions` — Shell Completions](#atomic-completions--shell-completions)
+    - [Atomic-Provided Skills (invokable from any agent chat)](#atomic-provided-skills-invokable-from-any-agent-chat)
+  - [Configuration](#configuration)
+    - [`.atomic/settings.json`](#atomicsettingsjson)
+    - [Agent-Specific Files](#agent-specific-files)
+  - [Installation Options](#installation-options)
+    - [Bun (recommended)](#bun-recommended)
+    - [Devcontainer (recommended for autonomous agents)](#devcontainer-recommended-for-autonomous-agents)
+  - [Updating \& Uninstalling](#updating--uninstalling)
+    - [Update](#update)
+    - [Uninstall](#uninstall)
+  - [Troubleshooting](#troubleshooting)
+  - [FAQ](#faq)
+  - [Contributing](#contributing)
+  - [License](#license)
+  - [Credits](#credits)
 
 ---
 
@@ -205,10 +234,10 @@ atomic session connect
 
 Session names follow a predictable pattern:
 
-| Session type | Name format                        | Example                       |
-| ------------ | ---------------------------------- | ----------------------------- |
-| Chat         | `atomic-chat-<id>`                 | `atomic-chat-a1b2c3d4`       |
-| Workflow     | `atomic-wf-<workflow>-<id>`        | `atomic-wf-ralph-x9y8z7w6`   |
+| Session type | Name format                 | Example                    |
+| ------------ | --------------------------- | -------------------------- |
+| Chat         | `atomic-chat-<id>`          | `atomic-chat-a1b2c3d4`     |
+| Workflow     | `atomic-wf-<workflow>-<id>` | `atomic-wf-ralph-x9y8z7w6` |
 
 > **Tip:** If your terminal disconnects or you accidentally close the window, your session is still alive — just run `atomic session connect <session-name>` to pick up where you left off.
 
@@ -485,20 +514,85 @@ atomic workflow -a claude
 
 </details>
 
+<details>
+<summary>Example: Background (headless) stages for parallel data gathering</summary>
+
+Stages can run in **headless mode** (`headless: true`) — they execute the provider SDK in-process instead of spawning a tmux window. Headless stages are invisible in the workflow graph but tracked via a background task counter in the statusline. Use them for parallel data-gathering tasks that don't need a visible TUI.
+
+```ts
+import { defineWorkflow } from "@bastani/atomic/workflows";
+
+export default defineWorkflow<"claude">({
+  name: "headless-demo",
+  description: "seed -> [3 headless background] -> merge",
+})
+  .run(async (ctx) => {
+    const prompt = ctx.inputs.prompt ?? "";
+
+    // Visible stage: generate seed data
+    const seed = await ctx.stage(
+      { name: "seed", description: "Generate overview" },
+      {}, {},
+      async (s) => {
+        const result = await s.session.query(prompt);
+        s.save(s.sessionId);
+        return String(result.output ?? "");
+      },
+    );
+
+    // Three parallel headless stages — invisible in graph, tracked by counter
+    const [pros, cons, uses] = await Promise.all([
+      ctx.stage({ name: "pros", headless: true }, {}, {}, async (s) => {
+        const r = await s.session.query(`List 3 pros:\n\n${seed.result}`);
+        s.save(s.sessionId);
+        return String(r.output ?? "");
+      }),
+      ctx.stage({ name: "cons", headless: true }, {}, {}, async (s) => {
+        const r = await s.session.query(`List 3 cons:\n\n${seed.result}`);
+        s.save(s.sessionId);
+        return String(r.output ?? "");
+      }),
+      ctx.stage({ name: "uses", headless: true }, {}, {}, async (s) => {
+        const r = await s.session.query(`List 3 use cases:\n\n${seed.result}`);
+        s.save(s.sessionId);
+        return String(r.output ?? "");
+      }),
+    ]);
+
+    // Visible stage: merge background results
+    await ctx.stage(
+      { name: "merge", description: "Combine results" },
+      {}, {},
+      async (s) => {
+        await s.session.query(
+          `Combine:\n\n## Pros\n${pros.result}\n\n## Cons\n${cons.result}\n\n## Uses\n${uses.result}`,
+        );
+        s.save(s.sessionId);
+      },
+    );
+  })
+  .compile();
+```
+
+The graph shows `seed → merge` — headless stages are transparent to the topology. The callback API (`s.client`, `s.session`, `s.save()`, `s.transcript()`, return values) is identical to interactive stages.
+
+</details>
+
 **Key capabilities:**
 
-| Capability                   | Description                                                                          |
-| ---------------------------- | ------------------------------------------------------------------------------------ |
-| **Dynamic session spawning** | Call `ctx.stage()` to spawn sessions at runtime — each gets its own tmux window and graph node |
-| **Native TypeScript control flow** | Use `for`, `if/else`, `Promise.all()`, `try/catch` — no framework DSL needed |
-| **Session return values**    | Session callbacks can return data: `const h = await ctx.stage(...); h.result`      |
-| **Transcript passing**       | Access prior session output via handle (`s.transcript(handle)`) or name (`s.transcript("name")`) |
-| **Declared input schemas**   | Add an `inputs: [...]` array to `defineWorkflow()` and the CLI materialises `--<field>=<value>` flags with built-in validation (required fields, enum membership, unknown flags) |
-| **Interactive picker**       | `atomic workflow -a <agent>` launches a fuzzy-searchable picker that renders each workflow's input schema as a form — no flag-memorisation required |
-| **Nested sub-sessions**      | Call `s.stage()` inside a session callback to spawn child sessions — visible as nested nodes in the graph |
-| **Auto-inferred graph**      | Graph topology auto-inferred from `await`/`Promise.all` patterns — no annotations needed               |
-| **Provider-agnostic**        | Write raw SDK code for Claude, Copilot, or OpenCode inside each session callback     |
-| **Live graph visualization** | Sessions appear in the TUI graph as they're spawned — loops and conditionals are visible in real time |
+| Capability                         | Description                                                                                                                                                                      |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Dynamic session spawning**       | Call `ctx.stage()` to spawn sessions at runtime — each gets its own tmux window and graph node                                                                                   |
+| **Native TypeScript control flow** | Use `for`, `if/else`, `Promise.all()`, `try/catch` — no framework DSL needed                                                                                                     |
+| **Session return values**          | Session callbacks can return data: `const h = await ctx.stage(...); h.result`                                                                                                    |
+| **Transcript passing**             | Access prior session output via handle (`s.transcript(handle)`) or name (`s.transcript("name")`)                                                                                 |
+| **Declared input schemas**         | Add an `inputs: [...]` array to `defineWorkflow()` and the CLI materialises `--<field>=<value>` flags with built-in validation (required fields, enum membership, unknown flags) |
+| **Interactive picker**             | `atomic workflow -a <agent>` launches a fuzzy-searchable picker that renders each workflow's input schema as a form — no flag-memorisation required                              |
+| **Nested sub-sessions**            | Call `s.stage()` inside a session callback to spawn child sessions — visible as nested nodes in the graph                                                                        |
+| **Auto-inferred graph**            | Graph topology auto-inferred from `await`/`Promise.all` patterns — no annotations needed                                                                                         |
+| **Provider-agnostic**              | Write raw SDK code for Claude, Copilot, or OpenCode inside each session callback                                                                                                 |
+| **Live graph visualization**       | Sessions appear in the TUI graph as they're spawned — loops and conditionals are visible in real time                                                                            |
+| **Background (headless) stages**   | Set `headless: true` on `ctx.stage()` to run stages in-process without a tmux window — invisible in graph, tracked by statusline counter, identical callback API                 |
 
 **Deterministic execution guarantees:**
 
@@ -531,36 +625,37 @@ Use your workflow-creator skill to create a workflow that plans, implements, and
 
 #### WorkflowContext (`ctx`) — top-level orchestrator
 
-| Property                | Type                      | Description                                                    |
-| ----------------------- | ------------------------- | -------------------------------------------------------------- |
-| `ctx.inputs`            | `Record<string, string>`  | Structured inputs for this run. Free-form workflows store their positional prompt under `ctx.inputs.prompt`; workflows with a declared `inputs` schema store one key per declared field |
-| `ctx.agent`             | `AgentType`               | Which agent is running (`"claude"`, `"copilot"`, `"opencode"`) |
-| `ctx.stage(opts, clientOpts, sessionOpts, fn)` | `Promise<SessionHandle<T>>` | Spawn a session — returns handle with `name`, `id`, `result` |
-| `ctx.transcript(ref)`   | `Promise<Transcript>`     | Get a completed session's transcript (`{ path, content }`)     |
-| `ctx.getMessages(ref)`  | `Promise<SavedMessage[]>` | Get a completed session's raw native messages                  |
+| Property                                       | Type                        | Description                                                                                                                                                                             |
+| ---------------------------------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ctx.inputs`                                   | `Record<string, string>`    | Structured inputs for this run. Free-form workflows store their positional prompt under `ctx.inputs.prompt`; workflows with a declared `inputs` schema store one key per declared field |
+| `ctx.agent`                                    | `AgentType`                 | Which agent is running (`"claude"`, `"copilot"`, `"opencode"`)                                                                                                                          |
+| `ctx.stage(opts, clientOpts, sessionOpts, fn)` | `Promise<SessionHandle<T>>` | Spawn a session — returns handle with `name`, `id`, `result`                                                                                                                            |
+| `ctx.transcript(ref)`                          | `Promise<Transcript>`       | Get a completed session's transcript (`{ path, content }`)                                                                                                                              |
+| `ctx.getMessages(ref)`                         | `Promise<SavedMessage[]>`   | Get a completed session's raw native messages                                                                                                                                           |
 
 #### SessionContext (`s`) — inside each session callback
 
-| Property                | Type                      | Description                                                    |
-| ----------------------- | ------------------------- | -------------------------------------------------------------- |
-| `s.client`              | `ProviderClient<A>`       | Pre-created SDK client (auto-managed by runtime)               |
-| `s.session`             | `ProviderSession<A>`      | Pre-created provider session (auto-managed by runtime)         |
-| `s.inputs`              | `Record<string, string>`  | Same inputs record as `ctx.inputs`, forwarded into every stage so session callbacks can read values without closing over the outer `ctx` |
-| `s.agent`               | `AgentType`               | Which agent is running                                         |
-| `s.paneId`              | `string`                  | tmux pane ID for this session                                  |
-| `s.sessionId`           | `string`                  | Session UUID                                                   |
-| `s.sessionDir`          | `string`                  | Path to this session's storage directory on disk               |
-| `s.save(messages)`      | `SaveTranscript`          | Save this session's output for subsequent sessions             |
-| `s.transcript(ref)`     | `Promise<Transcript>`     | Get a completed session's transcript                           |
-| `s.getMessages(ref)`    | `Promise<SavedMessage[]>` | Get a completed session's raw native messages                  |
-| `s.stage(opts, clientOpts, sessionOpts, fn)` | `Promise<SessionHandle<T>>` | Spawn a nested sub-session (child in the graph) |
+| Property                                     | Type                        | Description                                                                                                                              |
+| -------------------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `s.client`                                   | `ProviderClient<A>`         | Pre-created SDK client (auto-managed by runtime)                                                                                         |
+| `s.session`                                  | `ProviderSession<A>`        | Pre-created provider session (auto-managed by runtime)                                                                                   |
+| `s.inputs`                                   | `Record<string, string>`    | Same inputs record as `ctx.inputs`, forwarded into every stage so session callbacks can read values without closing over the outer `ctx` |
+| `s.agent`                                    | `AgentType`                 | Which agent is running                                                                                                                   |
+| `s.paneId`                                   | `string`                    | tmux pane ID for this session                                                                                                            |
+| `s.sessionId`                                | `string`                    | Session UUID                                                                                                                             |
+| `s.sessionDir`                               | `string`                    | Path to this session's storage directory on disk                                                                                         |
+| `s.save(messages)`                           | `SaveTranscript`            | Save this session's output for subsequent sessions                                                                                       |
+| `s.transcript(ref)`                          | `Promise<Transcript>`       | Get a completed session's transcript                                                                                                     |
+| `s.getMessages(ref)`                         | `Promise<SavedMessage[]>`   | Get a completed session's raw native messages                                                                                            |
+| `s.stage(opts, clientOpts, sessionOpts, fn)` | `Promise<SessionHandle<T>>` | Spawn a nested sub-session (child in the graph)                                                                                          |
 
 #### Session Options (`SessionRunOptions`)
 
-| Property      | Type       | Description                                                                   |
-| ------------- | ---------- | ----------------------------------------------------------------------------- |
-| `name`        | `string`   | Unique session name within the workflow run                                   |
-| `description` | `string?`  | Human-readable description shown in the graph                                 |
+| Property      | Type       | Description                                                                                           |
+| ------------- | ---------- | ----------------------------------------------------------------------------------------------------- |
+| `name`        | `string`   | Unique session name within the workflow run                                                           |
+| `description` | `string?`  | Human-readable description shown in the graph                                                         |
+| `headless`    | `boolean?` | When `true`, run in-process without a tmux window — invisible in graph, tracked by background counter |
 
 The runtime auto-infers parent-child edges from execution order: sequential `await` creates a chain, while `Promise.all` creates parallel fan-out/fan-in — no annotations needed.
 
@@ -568,8 +663,8 @@ The runtime auto-infers parent-child edges from execution order: sequential `awa
 
 Each provider saves transcripts differently:
 
-| Provider     | How to Save                                                        |
-| ------------ | ------------------------------------------------------------------ |
+| Provider     | How to Save                                                       |
+| ------------ | ----------------------------------------------------------------- |
 | **Claude**   | `s.save(s.sessionId)` — auto-reads via `getSessionMessages()`     |
 | **Copilot**  | `s.save(await session.getMessages())` — pass `SessionEvent[]`     |
 | **OpenCode** | `s.save(result.data!)` — pass the full `{ info, parts }` response |
@@ -578,10 +673,10 @@ Each provider saves transcripts differently:
 
 The runtime auto-creates `s.client` and `s.session` — use them directly inside the callback:
 
-| Agent | How to send a prompt |
-| ----- | -------------------- |
-| **Claude** | `await s.session.query(prompt)` |
-| **Copilot** | `await s.session.send({ prompt })` |
+| Agent        | How to send a prompt                                                                                  |
+| ------------ | ----------------------------------------------------------------------------------------------------- |
+| **Claude**   | `await s.session.query(prompt)`                                                                       |
+| **Copilot**  | `await s.session.send({ prompt })`                                                                    |
 | **OpenCode** | `await s.client.session.prompt({ sessionID: s.session.id, parts: [{ type: "text", text: prompt }] })` |
 
 #### Key Rules
@@ -592,6 +687,7 @@ The runtime auto-creates `s.client` and `s.session` — use them directly inside
 4. Each session runs in its own tmux window with the chosen agent
 5. Workflows are organized per-workflow: `.atomic/workflows/<name>/<agent>/index.ts`
 6. Set up your workflow project with `bun init && bun add @bastani/atomic` — standard module resolution handles imports
+7. Background (headless) stages use the same callback API — `s.client`, `s.session`, `s.save()`, return values all work identically
 
 For the authoring walkthrough with worked examples, ask Atomic to use the `workflow-creator` skill or read the skill reference at `.agents/skills/workflow-creator/`.
 
@@ -869,33 +965,33 @@ During `atomic chat`, there is no Atomic-owned TUI — `atomic chat -a <agent>` 
 
 ### CLI Commands
 
-| Command                          | Description                                                           |
-| -------------------------------- | --------------------------------------------------------------------- |
-| `atomic init`                    | Interactive project setup (agent selection, SCM choice, config sync)  |
-| `atomic chat`                    | Spawn the native agent CLI inside a tmux/psmux session                |
-| `atomic workflow`                | Run a multi-session agent workflow with the Atomic orchestrator panel |
-| `atomic workflow list`           | List available workflows, grouped by source                           |
-| `atomic session list`            | List all running sessions on the atomic tmux socket                   |
-| `atomic session connect [name]`  | Attach to a session (interactive picker when no name given)           |
-| `atomic completions <shell>`     | Output shell completion script (bash, zsh, fish, powershell)         |
+| Command                         | Description                                                           |
+| ------------------------------- | --------------------------------------------------------------------- |
+| `atomic init`                   | Interactive project setup (agent selection, SCM choice, config sync)  |
+| `atomic chat`                   | Spawn the native agent CLI inside a tmux/psmux session                |
+| `atomic workflow`               | Run a multi-session agent workflow with the Atomic orchestrator panel |
+| `atomic workflow list`          | List available workflows, grouped by source                           |
+| `atomic session list`           | List all running sessions on the atomic tmux socket                   |
+| `atomic session connect [name]` | Attach to a session (interactive picker when no name given)           |
+| `atomic completions <shell>`    | Output shell completion script (bash, zsh, fish, powershell)          |
 | `atomic config set <k> <v>`     | Set configuration values (currently supports `telemetry`)             |
 
 #### Global Flags
 
 These flags are available on all commands:
 
-| Flag            | Description                                  |
-| --------------- | -------------------------------------------- |
-| `-y, --yes`     | Auto-confirm all prompts (non-interactive)   |
-| `--no-banner`   | Skip ASCII banner display                    |
-| `-v, --version` | Show version number                          |
+| Flag            | Description                                |
+| --------------- | ------------------------------------------ |
+| `-y, --yes`     | Auto-confirm all prompts (non-interactive) |
+| `--no-banner`   | Skip ASCII banner display                  |
+| `-v, --version` | Show version number                        |
 
 #### `atomic init` Flags
 
-| Flag                 | Description                                    |
-| -------------------- | ---------------------------------------------- |
+| Flag                 | Description                                       |
+| -------------------- | ------------------------------------------------- |
 | `-a, --agent <name>` | Pre-select agent: `claude`, `opencode`, `copilot` |
-| `-s, --scm <name>`   | Pre-select SCM: `github`, `sapling`            |
+| `-s, --scm <name>`   | Pre-select SCM: `github`, `sapling`               |
 
 ```bash
 atomic init                              # Interactive setup
@@ -907,14 +1003,14 @@ atomic init --yes                        # Auto-confirm all prompts
 
 The `session` command is available at three levels — scoped or global:
 
-| Command                                    | Description                                          |
-| ------------------------------------------ | ---------------------------------------------------- |
-| `atomic session list`                      | List all running sessions                            |
-| `atomic session connect [name]`            | Attach to a session (interactive picker when no name) |
-| `atomic chat session list`                 | List running chat sessions only                      |
-| `atomic chat session connect [name]`       | Attach to a chat session                             |
-| `atomic workflow session list`             | List running workflow sessions only                  |
-| `atomic workflow session connect [name]`   | Attach to a workflow session                         |
+| Command                                  | Description                                           |
+| ---------------------------------------- | ----------------------------------------------------- |
+| `atomic session list`                    | List all running sessions                             |
+| `atomic session connect [name]`          | Attach to a session (interactive picker when no name) |
+| `atomic chat session list`               | List running chat sessions only                       |
+| `atomic chat session connect [name]`     | Attach to a chat session                              |
+| `atomic workflow session list`           | List running workflow sessions only                   |
+| `atomic workflow session connect [name]` | Attach to a workflow session                          |
 
 Both `list` and `connect` accept `-a <agent>` (repeatable) to filter by agent backend.
 
@@ -942,12 +1038,12 @@ atomic chat -a claude --verbose              # Forward --verbose to claude
 
 #### `atomic workflow` Flags
 
-| Flag                       | Description                                                         |
-| -------------------------- | ------------------------------------------------------------------- |
-| `-n, --name <name>`        | Workflow name (matches directory under `.atomic/workflows/<name>/`) |
-| `-a, --agent <name>`       | Agent: `claude`, `opencode`, `copilot`                              |
-| `--<field>=<value>`        | Structured input for workflows that declare an `inputs` schema (also accepts `--<field> <value>`) |
-| `[prompt...]`               | Positional prompt for free-form workflows (rejected on workflows with a declared schema) |
+| Flag                 | Description                                                                                       |
+| -------------------- | ------------------------------------------------------------------------------------------------- |
+| `-n, --name <name>`  | Workflow name (matches directory under `.atomic/workflows/<name>/`)                               |
+| `-a, --agent <name>` | Agent: `claude`, `opencode`, `copilot`                                                            |
+| `--<field>=<value>`  | Structured input for workflows that declare an `inputs` schema (also accepts `--<field> <value>`) |
+| `[prompt...]`        | Positional prompt for free-form workflows (rejected on workflows with a declared schema)          |
 
 The workflow command supports four invocation shapes:
 
@@ -976,12 +1072,12 @@ Workflows that declare an `inputs: WorkflowInput[]` schema get CLI flag validati
 
 Atomic ships tab-completion for **bash**, **zsh**, **fish**, and **PowerShell**. The `atomic completions <shell>` command prints the completion script to stdout — pipe it into your shell's config to enable.
 
-| Shell      | One-liner (add to your rc file)                                                          |
-| ---------- | ---------------------------------------------------------------------------------------- |
-| Bash       | `eval "$(atomic completions bash)"`  — add to `~/.bashrc`                                |
-| Zsh        | `eval "$(atomic completions zsh)"`  — add to `~/.zshrc`                                  |
-| Fish       | `atomic completions fish > ~/.config/fish/completions/atomic.fish`                       |
-| PowerShell | `atomic completions powershell \| Invoke-Expression`  — add to `$PROFILE`                |
+| Shell      | One-liner (add to your rc file)                                           |
+| ---------- | ------------------------------------------------------------------------- |
+| Bash       | `eval "$(atomic completions bash)"`  — add to `~/.bashrc`                 |
+| Zsh        | `eval "$(atomic completions zsh)"`  — add to `~/.zshrc`                   |
+| Fish       | `atomic completions fish > ~/.config/fish/completions/atomic.fish`        |
+| PowerShell | `atomic completions powershell \| Invoke-Expression`  — add to `$PROFILE` |
 
 > **Tip:** The bootstrap installer (`install.sh` / `install.ps1`) automatically installs completions for your detected shell.
 
@@ -1026,23 +1122,23 @@ Created automatically during `atomic init`. Resolution order:
 }
 ```
 
-| Field          | Type    | Description                                                                                               |
-| -------------- | ------- | --------------------------------------------------------------------------------------------------------- |
-| `$schema`      | string  | JSON Schema URL for editor autocomplete                                                                   |
-| `version`      | number  | Config schema version (currently `1`)                                                                     |
-| `scm`          | string  | Source control: `github` or `sapling`                                                                     |
-| `lastUpdated`  | string  | ISO 8601 timestamp of the last update                                                                     |
-| `trustedPaths` | array   | Workspaces that have completed provider onboarding via `atomic init`; atomic skips re-prompting for these |
+| Field          | Type   | Description                                                                                               |
+| -------------- | ------ | --------------------------------------------------------------------------------------------------------- |
+| `$schema`      | string | JSON Schema URL for editor autocomplete                                                                   |
+| `version`      | number | Config schema version (currently `1`)                                                                     |
+| `scm`          | string | Source control: `github` or `sapling`                                                                     |
+| `lastUpdated`  | string | ISO 8601 timestamp of the last update                                                                     |
+| `trustedPaths` | array  | Workspaces that have completed provider onboarding via `atomic init`; atomic skips re-prompting for these |
 
 > **Note:** Model selection and reasoning effort are managed by each underlying agent CLI (e.g. Claude Code's `/model`), not by Atomic itself. Atomic's chat command spawns the agent's native TUI — use the agent's own controls to pick a model or adjust reasoning effort.
 
 ### Agent-Specific Files
 
-| Agent          | Folder       | Skills                                       | Context File |
-| -------------- | ------------ | -------------------------------------------- | ------------ |
+| Agent          | Folder       | Skills                                          | Context File |
+| -------------- | ------------ | ----------------------------------------------- | ------------ |
 | Claude Code    | `.claude/`   | `.claude/skills/` (symlink → `.agents/skills/`) | `CLAUDE.md`  |
-| OpenCode       | `.opencode/` | `.agents/skills/`                            | `AGENTS.md`  |
-| GitHub Copilot | `.github/`   | `.agents/skills/`                            | `AGENTS.md`  |
+| OpenCode       | `.opencode/` | `.agents/skills/`                               | `AGENTS.md`  |
+| GitHub Copilot | `.github/`   | `.agents/skills/`                               | `AGENTS.md`  |
 
 > **Note:** All three agents share the same skill set via `.agents/skills/`. Claude Code accesses them through a `.claude/skills/` symlink that points to `.agents/skills/`, so a single skill directory serves all agents.
 
@@ -1081,11 +1177,11 @@ your-project/
 }
 ```
 
-| Feature | Reference | Agent |
-|---------|-----------|-------|
-| Atomic + Claude Code | `ghcr.io/flora131/atomic/claude:1` | [Claude Code](https://claude.ai) |
-| Atomic + OpenCode | `ghcr.io/flora131/atomic/opencode:1` | [OpenCode](https://opencode.ai) |
-| Atomic + Copilot CLI | `ghcr.io/flora131/atomic/copilot:1` | [Copilot CLI](https://github.com/github/copilot-cli) |
+| Feature              | Reference                            | Agent                                                |
+| -------------------- | ------------------------------------ | ---------------------------------------------------- |
+| Atomic + Claude Code | `ghcr.io/flora131/atomic/claude:1`   | [Claude Code](https://claude.ai)                     |
+| Atomic + OpenCode    | `ghcr.io/flora131/atomic/opencode:1` | [OpenCode](https://opencode.ai)                      |
+| Atomic + Copilot CLI | `ghcr.io/flora131/atomic/copilot:1`  | [Copilot CLI](https://github.com/github/copilot-cli) |
 
 Each feature installs the Atomic CLI, all shared dependencies (bun, playwright-cli), agent-specific configurations (agents, skills), and the agent CLI itself. Features are versioned in sync with Atomic CLI releases.
 
@@ -1346,19 +1442,19 @@ If agents fail to spawn on Windows, ensure the agent CLI is in your PATH. Atomic
 
 **In short:** Spec-Kit works well for greenfield projects where you start from a spec and use a single Copilot session to generate code. Atomic is built for the harder case — large existing codebases where you need to research what's already there before changing anything. It gives you multi-session pipelines with isolated context windows (so the agent doesn't degrade over long tasks), deterministic execution, and support for Claude Code, OpenCode, and Copilot CLI instead of just one agent. If you're starting a new project from scratch with Copilot, Spec-Kit is simpler. If you're working on an established codebase and need chained sessions, parallel research, or autonomous execution, that's what Atomic is for.
 
-| Aspect | Spec-Kit | Atomic |
-| --- | --- | --- |
-| **Focus** | Greenfield projects with spec-first workflow | Large existing codebases + greenfield — research-first or spec-first |
-| **First Step** | Define project principles and specs | Analyze existing architecture with parallel research sub-agents |
-| **Workflow Definition** | Shell scripts and markdown templates | TypeScript Workflow SDK (`defineWorkflow()` → `.run()` → `.compile()`) with deterministic execution |
-| **Session Management** | Single agent session | Multi-session pipelines — sequential and parallel — each in isolated context windows |
-| **Data Flow** | Manual — copy output between steps | Controlled transcript passing via `ctx.transcript()` and `ctx.getMessages()` |
-| **Agent Support** | GitHub Copilot CLI | Claude Code + OpenCode + Copilot CLI — switch with a flag |
-| **Sub-Agents** | Single general-purpose agent | 12 specialized sub-agents with scoped tools and isolated contexts |
-| **Skills** | Not available | 58 built-in skills (development, design, docs, agent architecture) |
-| **Autonomous Execution** | Not available | Ralph — multi-hour autonomous sessions with plan/implement/review/debug loop |
-| **Execution Guarantees** | Non-deterministic | Deterministic — strict step ordering, frozen definitions, controlled transcript access |
-| **Isolation** | Not addressed | Devcontainer features for containerized execution |
+| Aspect                   | Spec-Kit                                     | Atomic                                                                                              |
+| ------------------------ | -------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| **Focus**                | Greenfield projects with spec-first workflow | Large existing codebases + greenfield — research-first or spec-first                                |
+| **First Step**           | Define project principles and specs          | Analyze existing architecture with parallel research sub-agents                                     |
+| **Workflow Definition**  | Shell scripts and markdown templates         | TypeScript Workflow SDK (`defineWorkflow()` → `.run()` → `.compile()`) with deterministic execution |
+| **Session Management**   | Single agent session                         | Multi-session pipelines — sequential and parallel — each in isolated context windows                |
+| **Data Flow**            | Manual — copy output between steps           | Controlled transcript passing via `ctx.transcript()` and `ctx.getMessages()`                        |
+| **Agent Support**        | GitHub Copilot CLI                           | Claude Code + OpenCode + Copilot CLI — switch with a flag                                           |
+| **Sub-Agents**           | Single general-purpose agent                 | 12 specialized sub-agents with scoped tools and isolated contexts                                   |
+| **Skills**               | Not available                                | 58 built-in skills (development, design, docs, agent architecture)                                  |
+| **Autonomous Execution** | Not available                                | Ralph — multi-hour autonomous sessions with plan/implement/review/debug loop                        |
+| **Execution Guarantees** | Non-deterministic                            | Deterministic — strict step ordering, frozen definitions, controlled transcript access              |
+| **Isolation**            | Not addressed                                | Devcontainer features for containerized execution                                                   |
 
 </details>
 
@@ -1369,20 +1465,20 @@ If agents fail to spawn on Windows, ensure the agent CLI is in your PATH. Atomic
 
 **In short:** DeerFlow is a general-purpose agent orchestrator — it handles research, report generation, and other tasks through a LangGraph DAG with a web UI. Atomic is narrowly focused on coding workflows. The key difference is that Atomic runs on top of production coding agents (Claude Code, OpenCode, Copilot CLI) rather than reimplementing coding tools through a generic API. You get each agent's native file editing, permissions, MCP integrations, and hooks out of the box. Atomic also gives you deterministic execution — same step order, same data flow every run — which matters when you're encoding a team's dev process and need it to be reproducible across people and CI. If you need a general-purpose agent pipeline with a web UI, DeerFlow is the better fit. If you need coding-specific workflows with strict execution guarantees, Atomic is more appropriate.
 
-| Aspect | DeerFlow | Atomic |
-| --- | --- | --- |
-| **Runtime** | Python (LangGraph) | TypeScript (Bun) |
-| **Agent SDKs** | OpenAI-compatible API | Claude Code + OpenCode + Copilot CLI native SDKs — write raw SDK code in each session |
-| **Focus** | General-purpose agent tasks (research, reports) | Coding-specific: research, spec, implement, review, debug |
-| **Workflow Definition** | LangGraph state machines with graph nodes | TypeScript Workflow SDK — `defineWorkflow()` → `.run()` → `.compile()` |
-| **Execution Model** | DAG-based with conditional edges | Deterministic — strict step ordering, frozen definitions, controlled transcript passing |
-| **Parallelism** | Via LangGraph branch nodes | Native parallel sessions via `Promise.all()` with `ctx.session()` in isolated context windows |
-| **Sub-Agents** | Researcher, coder, reporter nodes | 12 specialized sub-agents with scoped tools (planner, worker, reviewer, debugger, etc.) |
-| **Skills** | Not available | 58 built-in skills auto-invoked by context |
-| **Isolation** | Sandbox containers | Devcontainer features + git worktrees |
-| **Interface** | Web UI (Streamlit) | Terminal chat with tmux-based session management |
-| **Autonomous** | Not available | Ralph — bounded iteration with plan/implement/review/debug loop |
-| **Distribution** | `pip install` + local server | `bun install -g` or devcontainer features |
+| Aspect                  | DeerFlow                                        | Atomic                                                                                        |
+| ----------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| **Runtime**             | Python (LangGraph)                              | TypeScript (Bun)                                                                              |
+| **Agent SDKs**          | OpenAI-compatible API                           | Claude Code + OpenCode + Copilot CLI native SDKs — write raw SDK code in each session         |
+| **Focus**               | General-purpose agent tasks (research, reports) | Coding-specific: research, spec, implement, review, debug                                     |
+| **Workflow Definition** | LangGraph state machines with graph nodes       | TypeScript Workflow SDK — `defineWorkflow()` → `.run()` → `.compile()`                        |
+| **Execution Model**     | DAG-based with conditional edges                | Deterministic — strict step ordering, frozen definitions, controlled transcript passing       |
+| **Parallelism**         | Via LangGraph branch nodes                      | Native parallel sessions via `Promise.all()` with `ctx.session()` in isolated context windows |
+| **Sub-Agents**          | Researcher, coder, reporter nodes               | 12 specialized sub-agents with scoped tools (planner, worker, reviewer, debugger, etc.)       |
+| **Skills**              | Not available                                   | 58 built-in skills auto-invoked by context                                                    |
+| **Isolation**           | Sandbox containers                              | Devcontainer features + git worktrees                                                         |
+| **Interface**           | Web UI (Streamlit)                              | Terminal chat with tmux-based session management                                              |
+| **Autonomous**          | Not available                                   | Ralph — bounded iteration with plan/implement/review/debug loop                               |
+| **Distribution**        | `pip install` + local server                    | `bun install -g` or devcontainer features                                                     |
 
 </details>
 
@@ -1393,28 +1489,28 @@ If agents fail to spawn on Windows, ensure the agent CLI is in your PATH. Atomic
 
 **In short:** Hermes Agent is a broad AI assistant that learns and improves across sessions, connects to messaging platforms, and works with any OpenAI-compatible model. Atomic is a coding-specific harness built for engineering teams. It lets you encode your development process as deterministic TypeScript workflows that run identically across team members, machines, and CI pipelines. Instead of reimplementing coding tools from scratch, Atomic inherits production-hardened tool ecosystems from Claude Code, OpenCode, and Copilot CLI — including their permission systems, MCP integrations, and hooks — giving you two independent security boundaries (devcontainer isolation + agent permissions) rather than one. Each workflow session runs in a fresh context window with only distilled transcripts passed forward, so output stays sharp over multi-hour coding tasks instead of degrading through lossy compression. And because skills are developer-authored and version-controlled, they don't drift or accumulate errors the way auto-generated skills can. Choose Hermes if you want a self-improving general-purpose agent with multi-platform messaging; choose Atomic if you want repeatable, auditable coding workflows with strict execution guarantees and production-grade isolation.
 
-| Aspect | Hermes Agent | Atomic |
-| --- | --- | --- |
-| **Focus** | General-purpose AI assistant (coding, messaging, smart home, research) | Coding-specific: multi-session workflows on coding agents |
-| **Runtime** | Python 3.11+ (uv) | TypeScript (Bun) |
-| **Agent SDKs** | OpenAI-compatible API as universal adapter (200+ models via OpenRouter) | Claude Code + OpenCode + Copilot CLI native SDKs — write raw SDK code in each session |
-| **Workflow Definition** | Cron scheduler + subagent delegation | TypeScript Workflow SDK — `defineWorkflow()` → `.run()` → `.compile()` |
-| **Session Management** | Single conversation loop with context compression | Multi-session pipelines — sequential and parallel — each in isolated context windows |
-| **Data Flow** | In-context within a single conversation | Controlled transcript passing via `ctx.transcript()` and `ctx.getMessages()` |
-| **Self-Improvement** | Closed learning loop — auto-creates skills from experience, persistent user model via Honcho | Skills authored by developers; memory via CLAUDE.md / AGENTS.md context files |
-| **Sub-Agents** | `delegate_task` spawns isolated subagents | 12 specialized sub-agents with scoped tools and model tiers (Opus, Sonnet, Haiku) |
-| **Skills** | 40+ tools + community Skills Hub (agentskills.io) | 58 built-in skills (development, design, docs, agent architecture) |
-| **Interface** | Terminal TUI + multi-platform messaging gateway (Telegram, Discord, Slack, WhatsApp, etc.) | Terminal chat with tmux-based session management |
-| **Isolation** | Six terminal backends (local, Docker, SSH, Daytona, Singularity, Modal) | Devcontainer features + git worktrees |
-| **Autonomous Execution** | Cron scheduler with inactivity-based timeouts | Ralph — bounded iteration with plan/implement/review/debug loop |
-| **Execution Guarantees** | Non-deterministic conversation loop | Deterministic — strict step ordering, frozen definitions, controlled transcript access |
-| **Team Process Encoding** | Personal assistant — no concept of team-shared workflows | Encode your team's dev process as TypeScript — repeatable across members, projects, and CI |
-| **Coding Agent Tooling** | Reimplements file/terminal tools from scratch via `model_tools.py` | Inherits production-hardened tool ecosystems from Claude Code, OpenCode, and Copilot CLI (file editing, permissions, MCP, hooks) |
-| **Reproducibility** | Conversation loop produces different execution paths each run | Frozen workflow definitions run identically across machines, team members, and CI pipelines |
-| **Context Quality** | Lossy compression within a single conversation — degrades on long coding tasks | Fresh context window per session with only distilled transcripts passed forward — stays sharp over multi-hour tasks |
-| **Skill Authoring** | Auto-created skills may drift, accumulate errors, or encode bad patterns over time | Developer-authored, version-controlled skills — intentional and auditable |
-| **Security Model** | Command approval + container backends (single boundary) | Devcontainer isolation + coding agent permission systems (Claude Code permissions, Copilot safeguards) — two independent security boundaries |
-| **Distribution** | `uv` / `pip` | `bun install -g` or devcontainer features |
+| Aspect                    | Hermes Agent                                                                                 | Atomic                                                                                                                                       |
+| ------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Focus**                 | General-purpose AI assistant (coding, messaging, smart home, research)                       | Coding-specific: multi-session workflows on coding agents                                                                                    |
+| **Runtime**               | Python 3.11+ (uv)                                                                            | TypeScript (Bun)                                                                                                                             |
+| **Agent SDKs**            | OpenAI-compatible API as universal adapter (200+ models via OpenRouter)                      | Claude Code + OpenCode + Copilot CLI native SDKs — write raw SDK code in each session                                                        |
+| **Workflow Definition**   | Cron scheduler + subagent delegation                                                         | TypeScript Workflow SDK — `defineWorkflow()` → `.run()` → `.compile()`                                                                       |
+| **Session Management**    | Single conversation loop with context compression                                            | Multi-session pipelines — sequential and parallel — each in isolated context windows                                                         |
+| **Data Flow**             | In-context within a single conversation                                                      | Controlled transcript passing via `ctx.transcript()` and `ctx.getMessages()`                                                                 |
+| **Self-Improvement**      | Closed learning loop — auto-creates skills from experience, persistent user model via Honcho | Skills authored by developers; memory via CLAUDE.md / AGENTS.md context files                                                                |
+| **Sub-Agents**            | `delegate_task` spawns isolated subagents                                                    | 12 specialized sub-agents with scoped tools and model tiers (Opus, Sonnet, Haiku)                                                            |
+| **Skills**                | 40+ tools + community Skills Hub (agentskills.io)                                            | 58 built-in skills (development, design, docs, agent architecture)                                                                           |
+| **Interface**             | Terminal TUI + multi-platform messaging gateway (Telegram, Discord, Slack, WhatsApp, etc.)   | Terminal chat with tmux-based session management                                                                                             |
+| **Isolation**             | Six terminal backends (local, Docker, SSH, Daytona, Singularity, Modal)                      | Devcontainer features + git worktrees                                                                                                        |
+| **Autonomous Execution**  | Cron scheduler with inactivity-based timeouts                                                | Ralph — bounded iteration with plan/implement/review/debug loop                                                                              |
+| **Execution Guarantees**  | Non-deterministic conversation loop                                                          | Deterministic — strict step ordering, frozen definitions, controlled transcript access                                                       |
+| **Team Process Encoding** | Personal assistant — no concept of team-shared workflows                                     | Encode your team's dev process as TypeScript — repeatable across members, projects, and CI                                                   |
+| **Coding Agent Tooling**  | Reimplements file/terminal tools from scratch via `model_tools.py`                           | Inherits production-hardened tool ecosystems from Claude Code, OpenCode, and Copilot CLI (file editing, permissions, MCP, hooks)             |
+| **Reproducibility**       | Conversation loop produces different execution paths each run                                | Frozen workflow definitions run identically across machines, team members, and CI pipelines                                                  |
+| **Context Quality**       | Lossy compression within a single conversation — degrades on long coding tasks               | Fresh context window per session with only distilled transcripts passed forward — stays sharp over multi-hour tasks                          |
+| **Skill Authoring**       | Auto-created skills may drift, accumulate errors, or encode bad patterns over time           | Developer-authored, version-controlled skills — intentional and auditable                                                                    |
+| **Security Model**        | Command approval + container backends (single boundary)                                      | Devcontainer isolation + coding agent permission systems (Claude Code permissions, Copilot safeguards) — two independent security boundaries |
+| **Distribution**          | `uv` / `pip`                                                                                 | `bun install -g` or devcontainer features                                                                                                    |
 
 </details>
 

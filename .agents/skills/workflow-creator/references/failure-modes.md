@@ -45,6 +45,7 @@ Silent failures are catalogued first below. Loud failures are grouped at the end
 | [F13](#f13-parallel-siblings-read-each-others-transcripts) | Parallel siblings read each other's transcripts | all | loud |
 | [F14](#f14-forgetting-to-await-ctxstage) | Forgetting to `await` `ctx.stage()` | all | silent |
 | [F15](#f15-using-a-pending-sessionhandle-before-completion) | Using a pending `SessionHandle` before completion | all | silent |
+| [F16](#f16-headless-stage-errors-are-invisible-in-the-graph) | Headless stage errors are invisible in the graph | all | silent |
 
 ---
 
@@ -662,6 +663,57 @@ accessing `.result` without awaiting, the type will be `Promise`, not `T`.
 
 ---
 
+## F16. Headless stage errors are invisible in the graph
+
+**Symptom.** A workflow fails but the graph shows all visible stages as
+completed. The error message references a session name that doesn't appear
+in the graph panel.
+
+**Root cause.** Headless stages (`{ headless: true }`) are invisible in the
+workflow graph — they have no graph node, no tmux window, and no pane
+preview. When a headless stage throws, the error is recorded in the
+`failedRegistry` and the workflow halts, but the failure is only visible in
+the orchestrator's error output and the session's `error.txt` file on disk.
+
+**Affected SDKs.** All three — this is an executor-level behavior, not
+SDK-specific.
+
+### ❌ Wrong — no error context for headless stages
+
+```ts
+// Headless stage fails silently in the graph
+const [a, b, c] = await Promise.all([
+  ctx.stage({ name: "gather-a", headless: true }, {}, {}, async (s) => {
+    throw new Error("API key expired"); // Fails — no graph node to show red
+  }),
+  ctx.stage({ name: "gather-b", headless: true }, {}, {}, async (s) => { /* ... */ }),
+  ctx.stage({ name: "gather-c", headless: true }, {}, {}, async (s) => { /* ... */ }),
+]);
+```
+
+### ✅ Right — wrap headless stages with descriptive error context
+
+```ts
+const [a, b, c] = await Promise.all([
+  ctx.stage({ name: "gather-a", headless: true }, {}, {}, async (s) => {
+    try {
+      return await doWork(s);
+    } catch (error) {
+      throw new Error(`[gather-a] ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }),
+  // ... same pattern for b, c
+]);
+```
+
+**Detection.** If a workflow fails and the graph shows no failed nodes,
+check the orchestrator log (`orchestrator.log` in the session directory)
+and look for `headless-<name>` in the error output. The session directory
+at `~/.atomic/sessions/<run-id>/<name>-<id>/error.txt` contains the
+full error for each failed headless stage.
+
+---
+
 ## Design checklist
 
 Before shipping a multi-session workflow, walk the list:
@@ -677,3 +729,4 @@ Before shipping a multi-session workflow, walk the list:
 - [ ] Every `ctx.stage()` call is `await`ed (F14)
 - [ ] `SessionHandle` values are only used after the promise resolves (F15)
 - [ ] If provider-level resume/fork is used at all, it stays within the same agent role (F12)
+- [ ] Headless stage callbacks include descriptive error context so failures can be diagnosed without a graph node (F16)

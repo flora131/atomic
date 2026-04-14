@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import {
   discoverWorkflows,
   findWorkflow,
+  loadWorkflowsMetadata,
   WorkflowLoader,
   WORKFLOWS_GITIGNORE,
 } from "../../../src/sdk/workflows/index.ts";
@@ -384,5 +385,44 @@ export default defineWorkflow({ name: "report-test" })
 
     expect(result.ok).toBe(true);
     expect(stages).toEqual(["resolve", "validate", "load"]);
+  });
+});
+
+describe("loadWorkflowsMetadata", () => {
+  test("materializes the default prompt field for free-form workflows", async () => {
+    const workflowDir = join(
+      tempDir,
+      ".atomic",
+      "workflows",
+      "picker-freeform",
+      "copilot",
+    );
+    await mkdir(workflowDir, { recursive: true });
+    await writeFile(
+      join(workflowDir, "index.ts"),
+      `
+import { defineWorkflow } from "${join(process.cwd(), "src/sdk/workflows/index.ts")}";
+
+export default defineWorkflow({ name: "picker-freeform" })
+  .run(async () => {})
+  .compile();
+`,
+    );
+
+    const discovered = await discoverWorkflows(tempDir, "copilot");
+    const metadata = await loadWorkflowsMetadata(
+      discovered.filter((wf) => wf.name === "picker-freeform"),
+    );
+
+    expect(metadata).toHaveLength(1);
+    expect(metadata[0]!.inputs).toEqual([
+      {
+        name: "prompt",
+        type: "text",
+        required: true,
+        description: "what do you want this workflow to do?",
+        placeholder: "describe your task…",
+      },
+    ]);
   });
 });

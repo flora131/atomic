@@ -18,6 +18,7 @@ import {
 } from "../../../src/sdk/components/workflow-picker-panel.tsx";
 import type { WorkflowWithMetadata } from "../../../src/sdk/runtime/discovery.ts";
 import type { WorkflowInput } from "../../../src/sdk/types.ts";
+import { DEFAULT_PROMPT_FIELDS } from "../../../src/sdk/workflow-inputs.ts";
 
 // ─── Keyboard input helpers ───────────────────────
 //
@@ -134,7 +135,7 @@ const WORKFLOWS: WorkflowWithMetadata[] = [
     name: "freeform",
     source: "builtin",
     description: "freeform prompt",
-    inputs: [],
+    inputs: DEFAULT_PROMPT_FIELDS,
   }),
 ];
 
@@ -750,8 +751,8 @@ describe("WorkflowPicker PROMPT keyboard", () => {
     }
     await press(setup, (i) => i.pressEnter());
     const frame = setup.captureCharFrame();
-    // Free-form shows "PROMPT" header (isStructured = false).
-    expect(frame).toContain("PROMPT");
+    // Free-form uses the same INPUTS section label as structured workflows.
+    expect(frame).toContain("INPUTS");
     // Default field name is "prompt".
     expect(frame).toContain("prompt");
   });
@@ -763,12 +764,38 @@ describe("WorkflowPicker PROMPT keyboard", () => {
       await press(setup, (input) => input.pressArrow("down"));
     }
     await press(setup, (i) => i.pressEnter());
-    // Type into the DEFAULT_PROMPT_INPUT textarea.
+    // Type into the normalized default prompt textarea.
     await press(setup, (i) => i.typeText("build a dashboard"));
     await press(setup, (i) => i.pressKey("d", { ctrl: true }));
     const frame = setup.captureCharFrame();
     expect(frame).toContain("CONFIRM");
     expect(frame).toContain("submit");
+  });
+
+  test("short terminal: fields remain navigable via tab and the focused field is visible", async () => {
+    // A many-field workflow at a very constrained height (15 rows) —
+    // the scrollbox should keep the focused field visible instead of
+    // clumping all fields together.
+    const manyFields: WorkflowInput[] = [
+      { name: "a", type: "string", required: true },
+      { name: "b", type: "string", required: false },
+      { name: "c", type: "string", required: false },
+      { name: "d", type: "string", required: false },
+      { name: "e", type: "string", required: false },
+    ];
+    const workflows = [
+      makeWorkflow({ name: "many", source: "local", inputs: manyFields }),
+    ];
+    const setup = await renderAndEnterPrompt({ workflows, height: 15 });
+    // Tab through fields — each should remain navigable without crash.
+    for (let i = 0; i < 4; i++) {
+      await press(setup, (input) => input.pressTab());
+    }
+    const frame = setup.captureCharFrame();
+    // After 4 tabs we should be on the last field (5 / 5).
+    expect(frame).toContain("5 / 5");
+    // The PROMPT status badge should still be visible.
+    expect(frame).toContain("PROMPT");
   });
 });
 

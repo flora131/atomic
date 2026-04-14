@@ -13,6 +13,7 @@ import { readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import ignore from "ignore";
 import type { AgentType, WorkflowInput } from "../types.ts";
+import { normalizePickerInputs } from "../workflow-inputs.ts";
 import { WorkflowLoader } from "./loader.ts";
 
 export interface DiscoveredWorkflow {
@@ -288,12 +289,12 @@ export async function findWorkflow(
 export interface WorkflowWithMetadata extends DiscoveredWorkflow {
   /** Workflow description, empty string when none was declared. */
   description: string;
-  /** Declared input schema, empty array for free-form workflows. */
+  /** Picker-ready input schema; free-form workflows materialize a prompt field. */
   inputs: readonly WorkflowInput[];
 }
 
 /**
- * Load metadata (description + inputs) for a batch of discovered workflows.
+ * Load metadata (description + picker-ready inputs) for a batch of discovered workflows.
  *
  * Workflows that fail to import are **skipped silently** so one broken
  * entry can never prevent the picker from rendering. Callers that need
@@ -311,7 +312,7 @@ export async function loadWorkflowsMetadata(
       return {
         ...wf,
         description: loaded.value.definition.description,
-        inputs: loaded.value.definition.inputs,
+        inputs: normalizePickerInputs(loaded.value.definition.inputs),
       };
     }),
   );
@@ -319,5 +320,4 @@ export async function loadWorkflowsMetadata(
     (r): r is WorkflowWithMetadata => r !== null,
   );
 }
-
 

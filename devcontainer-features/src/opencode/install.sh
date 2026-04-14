@@ -65,10 +65,16 @@ if ! su - "${REMOTE_USER}" -c 'command -v bun >/dev/null 2>&1'; then
 fi
 su - "${REMOTE_USER}" -c "bun add -g '${ATOMIC_SPEC}'"
 
-# ─── Ensure ~/.bun/bin is on PATH for login shells ──────────────────────────
-# The bun feature typically configures this in the user's shell rc files, but
-# set it in /etc/profile.d as well so the atomic binary is discoverable in
-# every login shell regardless of the base image.
+# ─── Ensure ~/.bun/bin is on PATH for ALL shell types ──────────────────────
+# The bun feature may configure PATH in the user's rc files, but devcontainer
+# terminals often run as non-login shells that skip /etc/profile.d/. Cover
+# every entry point so `atomic` (and other bun globals) are always found:
+#   - Login shells:          /etc/profile.d/
+#   - Non-login bash shells: /etc/bash.bashrc
+#   - Non-login zsh shells:  /etc/zsh/zshrc
+#   - Fish shells:           /etc/fish/conf.d/
+
+# Login shells
 cat > /etc/profile.d/atomic-path.sh <<'PROFILE_EOF'
 if [ -d "$HOME/.bun/bin" ]; then
     case ":$PATH:" in
@@ -78,6 +84,47 @@ if [ -d "$HOME/.bun/bin" ]; then
 fi
 PROFILE_EOF
 chmod 644 /etc/profile.d/atomic-path.sh
+
+# Non-login bash shells
+if [ -f /etc/bash.bashrc ] && ! grep -q '.bun/bin' /etc/bash.bashrc 2>/dev/null; then
+    cat >> /etc/bash.bashrc <<'BASHRC_EOF'
+
+# bun global bin (atomic CLI + tools)
+if [ -d "$HOME/.bun/bin" ]; then
+    case ":$PATH:" in
+        *":$HOME/.bun/bin:"*) ;;
+        *) export PATH="$HOME/.bun/bin:$PATH" ;;
+    esac
+fi
+BASHRC_EOF
+fi
+
+# Non-login zsh shells
+if [ -f /etc/zsh/zshrc ] && ! grep -q '.bun/bin' /etc/zsh/zshrc 2>/dev/null; then
+    cat >> /etc/zsh/zshrc <<'ZSHRC_EOF'
+
+# bun global bin (atomic CLI + tools)
+if [ -d "$HOME/.bun/bin" ]; then
+    case ":$PATH:" in
+        *":$HOME/.bun/bin:"*) ;;
+        *) export PATH="$HOME/.bun/bin:$PATH" ;;
+    esac
+fi
+ZSHRC_EOF
+fi
+
+# Fish shells (conf.d is auto-sourced on every fish startup)
+if [ -d /etc/fish/conf.d ] && ! grep -q '.bun/bin' /etc/fish/conf.d/atomic-path.fish 2>/dev/null; then
+    cat > /etc/fish/conf.d/atomic-path.fish <<'FISH_EOF'
+# bun global bin (atomic CLI + tools)
+if test -d "$HOME/.bun/bin"
+    if not contains "$HOME/.bun/bin" $PATH
+        set -gx PATH "$HOME/.bun/bin" $PATH
+    end
+end
+FISH_EOF
+    chmod 644 /etc/fish/conf.d/atomic-path.fish
+fi
 
 echo "✓ Atomic CLI installed (${ATOMIC_SPEC})"
 

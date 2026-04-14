@@ -85,6 +85,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
       - name: Get version from package.json
         id: version
         run: echo "version=$(jq -r .version package.json)" >> $GITHUB_OUTPUT
@@ -101,6 +106,9 @@ jobs:
             echo "make_latest=true" >> $GITHUB_OUTPUT
           fi
 
+      - name: Bundle configs for release
+        run: bun run src/scripts/bundle-configs.ts "${{ steps.version.outputs.version }}"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -110,3 +118,4 @@ jobs:
           prerelease: ${{ steps.release-type.outputs.is_prerelease == 'true' }}
           make_latest: ${{ steps.release-type.outputs.make_latest }}
           generate_release_notes: true
+          files: atomic-configs-v${{ steps.version.outputs.version }}.zip

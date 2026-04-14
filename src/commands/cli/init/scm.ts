@@ -113,7 +113,7 @@ export async function syncProjectScmSkills(options: SyncProjectScmSkillsOptions)
   return copiedCount;
 }
 
-/** Skills-CLI agent identifiers (match `npx skills -a <value>`). */
+/** Skills-CLI agent identifiers (match `bunx skills -a <value>`). */
 const SKILLS_AGENT_BY_KEY: Record<AgentKey, string> = {
   claude: "claude-code",
   opencode: "opencode",
@@ -125,7 +125,7 @@ const SKILLS_REPO = "https://github.com/flora131/atomic.git";
 export interface InstallLocalScmSkillsOptions {
   scmType: SourceControlType;
   agentKey: AgentKey;
-  /** The directory to run `npx skills add` in (the project root). */
+  /** The directory to run `bunx skills add` in (the project root). */
   cwd: string;
 }
 
@@ -139,7 +139,7 @@ export interface InstallLocalScmSkillsResult {
 
 /**
  * Install the SCM skill variants (e.g. `gh-commit`, `gh-create-pr` for
- * GitHub) locally into the current project via `npx skills add`. The `-g`
+ * GitHub) locally into the current project via `bunx skills add`. The `-g`
  * flag is intentionally omitted so the skills are installed per-project
  * (in the given `cwd`).
  *
@@ -157,9 +157,9 @@ export async function installLocalScmSkills(
 
   const skills = SCM_SKILLS_BY_TYPE[scmType];
 
-  const npxPath = Bun.which("npx");
-  if (!npxPath) {
-    return { success: false, skills, details: "npx not found on PATH" };
+  const bunxPath = Bun.which("bunx");
+  if (!bunxPath) {
+    return { success: false, skills, details: "bunx not found on PATH" };
   }
 
   const agentFlag = SKILLS_AGENT_BY_KEY[agentKey];
@@ -168,8 +168,7 @@ export async function installLocalScmSkills(
   try {
     const proc = Bun.spawn({
       cmd: [
-        npxPath,
-        "--yes",
+        bunxPath,
         "skills",
         "add",
         SKILLS_REPO,

@@ -41,9 +41,8 @@
   },
   "files": [
     "src",
-    "dist",
-    "tsconfig.json",
     "assets/settings.schema.json",
+    ".agents/skills",
     ".claude/agents",
     ".opencode/agents",
     ".github/agents",

@@ -244,7 +244,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     // Best-effort template copy: source checkouts still carry the bundled
     // gh-*/sl-* skill templates, but binary and npm installs no longer do
     // (they live in the skills CLI repo). `installLocalScmSkills` below
-    // handles the binary/npm case by invoking `npx skills add` — so a zero
+    // handles the binary/npm case by invoking `bunx skills add` — so a zero
     // copy here is not an error, just a signal that the template isn't
     // bundled for this install type.
     await syncProjectScmSkills({
@@ -273,7 +273,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     s.stop(paint("success", "✓", { bold: true }) + " Skills configured");
 
     // Install SCM-specific skill variants locally for the active agent via
-    // `npx skills add` (best-effort: a failure is surfaced as a warning).
+    // `bunx skills add` (best-effort: a failure is surfaced as a warning).
     //
     // Source checkouts already have the bundled skills on disk and the
     // template-copy above has placed the selected variants into `targetDir`;

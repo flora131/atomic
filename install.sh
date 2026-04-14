@@ -3,8 +3,8 @@
 #
 # Bootstrap installer for systems that don't already have bun. Installs
 # bun (if missing) and then installs atomic from npm via bun. The CLI
-# itself handles tooling deps (Node.js/npm) and global skills on first
-# launch — see src/services/system/auto-sync.ts.
+# silently syncs tooling deps and bundled skills on first launch — see
+# src/services/system/auto-sync.ts.
 #
 # If you already have bun, you can skip this script entirely:
 #   bun install -g @bastani/atomic@latest
@@ -269,7 +269,7 @@ main() {
     printf '\n  %s✓%s %sAtomic installed successfully%s\n\n' \
         "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET"
     printf '    Get started:  %satomic init%s\n\n' "$C_CYAN" "$C_RESET"
-    printf '    %sTooling deps and skills will be set up automatically on first launch.%s\n' \
+    printf '    %sTooling deps and skills are synced silently on first launch.%s\n' \
         "$C_DIM" "$C_RESET"
     printf '    %sTo upgrade later: bun update -g @bastani/atomic%s\n\n' \
         "$C_DIM" "$C_RESET"

@@ -713,6 +713,21 @@ describe("WorkflowPicker PROMPT keyboard", () => {
     // Default field name is "prompt".
     expect(frame).toContain("prompt");
   });
+
+  test("ctrl+s on free-form workflow with filled prompt opens confirm modal", async () => {
+    const setup = await renderPicker();
+    // Navigate to the freeform workflow (inputs: []).
+    for (let i = 0; i < 3; i++) {
+      await press(setup, (input) => input.pressArrow("down"));
+    }
+    await press(setup, (i) => i.pressEnter());
+    // Type into the DEFAULT_PROMPT_INPUT textarea.
+    await press(setup, (i) => i.typeText("build a dashboard"));
+    await press(setup, (i) => i.pressKey("s", { ctrl: true }));
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("CONFIRM");
+    expect(frame).toContain("submit");
+  });
 });
 
 // ─── Keyboard: CONFIRM phase ─────────────────────

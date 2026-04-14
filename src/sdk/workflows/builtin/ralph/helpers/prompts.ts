@@ -2,16 +2,108 @@
  * Ralph Prompt Utilities
  *
  * Prompts used by the Ralph plan → orchestrate → review → debug loop:
- *   - buildPlannerPrompt:        initial planning OR re-planning from a debugger report
- *   - buildOrchestratorPrompt:   spawn workers to execute the task list
- *   - buildReviewPrompt:         structured code review with injected git status
- *   - buildDebuggerReportPrompt: diagnose review findings, produce a re-plan brief
+ *   - buildPlannerPrompt:           initial planning OR re-planning from a debugger report
+ *   - buildOrchestratorPrompt:      spawn workers to execute the task list
+ *   - buildInfraDiscoveryPrompts:   prompts for parallel sub-agent infrastructure discovery
+ *   - buildReviewPrompt:            structured code review with injected changeset + discovery context
+ *   - buildDebuggerReportPrompt:    diagnose review findings, produce a re-plan brief
  *
- * Plus parsing helpers for the reviewer JSON output and the debugger markdown
- * report.
- *
- * Zero-dependency: no imports from the Atomic runtime.
+ * Plus Zod schemas for structured output, parsing helpers for the reviewer
+ * JSON output, and the debugger markdown report.
  */
+
+import { z } from "zod";
+
+// ============================================================================
+// STRUCTURED OUTPUT SCHEMAS
+// ============================================================================
+
+/** Zod schema for a single review finding. */
+export const ReviewFindingSchema = z.object({
+  title: z.string().describe("Brief title prefixed with priority, e.g. '[P0] Missing null check'"),
+  body: z.string().describe("Detailed explanation of the issue, its impact, and a suggested fix"),
+  confidence_score: z.number().min(0).max(1).optional().describe("Confidence in the finding (0.0–1.0)"),
+  priority: z.number().int().min(0).max(3).optional().describe("Severity: 0=P0 critical, 1=P1 important, 2=P2 moderate, 3=P3 minor"),
+  code_location: z.object({
+    absolute_file_path: z.string().describe("Absolute path to the file containing the issue"),
+    line_range: z.object({
+      start: z.number().int().describe("Start line number"),
+      end: z.number().int().describe("End line number"),
+    }),
+  }).optional().describe("Location of the issue in the codebase"),
+});
+
+/** Zod schema for the full structured review output. */
+export const ReviewResultSchema = z.object({
+  findings: z.array(ReviewFindingSchema).describe("List of review findings, ordered by priority"),
+  overall_correctness: z.string().describe("'patch is correct' or 'patch is incorrect'"),
+  overall_explanation: z.string().describe("Summary of overall quality and correctness"),
+  overall_confidence_score: z.number().min(0).max(1).optional().describe("Overall confidence in the review (0.0–1.0)"),
+});
+
+/** JSON Schema derived from the Zod schema — used by Claude and OpenCode SDKs. */
+export const REVIEW_RESULT_JSON_SCHEMA = z.toJSONSchema(ReviewResultSchema);
+
+/** Result from a reviewer stage with structured output support. */
+export interface StructuredReviewResult {
+  /** Parsed and filtered review from SDK structured output, or null if unavailable */
+  structured: ReviewResult | null;
+  /** Raw text output for fallback parsing and debugger input */
+  raw: string;
+}
+
+/**
+ * Merge two parallel reviewer results into one.
+ *
+ * Two independent reviewers run the same prompt simultaneously. This function
+ * unions their findings and picks the more conservative overall_correctness.
+ * When either reviewer's structured output is unavailable, it falls back to
+ * text parsing ({@link parseReviewResult}) before merging.
+ */
+export function mergeReviewResults(
+  a: StructuredReviewResult,
+  b: StructuredReviewResult,
+): StructuredReviewResult {
+  const rawCombined = [a.raw, b.raw].filter(Boolean).join("\n\n---\n\n");
+
+  // Resolve: prefer structured output, fall back to text parsing
+  const parsedA = a.structured ?? (a.raw.trim() ? parseReviewResult(a.raw) : null);
+  const parsedB = b.structured ?? (b.raw.trim() ? parseReviewResult(b.raw) : null);
+
+  if (!parsedA && !parsedB) {
+    return { structured: null, raw: rawCombined };
+  }
+
+  const findingsA = parsedA?.findings ?? [];
+  const findingsB = parsedB?.findings ?? [];
+
+  const correctnessA = parsedA?.overall_correctness ?? "patch is correct";
+  const correctnessB = parsedB?.overall_correctness ?? "patch is correct";
+  const isIncorrect =
+    correctnessA === "patch is incorrect" ||
+    correctnessB === "patch is incorrect";
+
+  const explanations = [
+    parsedA?.overall_explanation,
+    parsedB?.overall_explanation,
+  ].filter(Boolean) as string[];
+
+  const confidences = [
+    parsedA?.overall_confidence_score,
+    parsedB?.overall_confidence_score,
+  ].filter((c): c is number => c !== undefined);
+
+  return {
+    structured: {
+      findings: [...findingsA, ...findingsB],
+      overall_correctness: isIncorrect ? "patch is incorrect" : "patch is correct",
+      overall_explanation: explanations.join(" | "),
+      overall_confidence_score:
+        confidences.length > 0 ? Math.max(...confidences) : undefined,
+    },
+    raw: rawCombined,
+  };
+}
 
 // ============================================================================
 // PLANNER
@@ -240,6 +332,135 @@ Update task statuses **immediately** at every transition via TaskUpdate.
 }
 
 // ============================================================================
+// INFRASTRUCTURE DISCOVERY
+// ============================================================================
+
+/** Prompts for the three parallel infrastructure-discovery sub-agents. */
+export interface InfraDiscoveryPrompts {
+  /** Prompt for the codebase-locator sub-agent. */
+  locator: string;
+  /** Prompt for the codebase-analyzer sub-agent. */
+  analyzer: string;
+  /** Prompt for the codebase-pattern-finder sub-agent. */
+  patternFinder: string;
+}
+
+/**
+ * Build prompts for three parallel sub-agent stages that discover the
+ * repository's build, test, lint, and CI infrastructure. Each sub-agent
+ * explores the codebase dynamically — no hard-coded file lists or patterns.
+ *
+ * Inspired by the deep-research-codebase workflow which dispatches
+ * codebase-locator, codebase-analyzer, and codebase-pattern-finder
+ * sub-agents in parallel for exploratory research.
+ */
+export function buildInfraDiscoveryPrompts(): InfraDiscoveryPrompts {
+  return {
+    locator: `# Locate Build & Test Infrastructure Files
+
+Find ALL files in this repository that define or configure the build, test,
+lint, type-check, and CI/CD infrastructure. Report their paths and a
+one-line description of each.
+
+## What to look for
+
+- **Package manifest**: package.json, Cargo.toml, go.mod, pyproject.toml, etc.
+- **Lockfiles**: bun.lockb, bun.lock, package-lock.json, yarn.lock, pnpm-lock.yaml, etc.
+- **Build config**: tsconfig.json, webpack.config.*, vite.config.*, esbuild.*, rollup.config.*, Makefile, etc.
+- **Test config**: jest.config.*, vitest.config.*, playwright.config.*, .mocharc.*, pytest.ini, etc.
+- **Lint / format config**: .eslintrc.*, eslint.config.*, biome.json, .prettierrc.*, oxlint.json, etc.
+- **CI/CD workflows**: .github/workflows/*.yml, .gitlab-ci.yml, Jenkinsfile, .circleci/config.yml, etc.
+- **Agent config files**: CLAUDE.md, AGENTS.md, .claude/*, .github/copilot-instructions.md (these often document project commands)
+
+## Output format
+
+Respond with a flat list:
+
+\`\`\`
+<path> — <one-line description>
+\`\`\`
+
+Be exhaustive. Do NOT skip files just because they seem minor — CI configs
+and agent instruction files often contain the authoritative command list.
+End with a brief trailing summary (1-2 sentences) of what you found.`,
+
+    analyzer: `# Analyze Build & Test Infrastructure
+
+Examine this repository's build, test, lint, and type-check infrastructure.
+Your goal is to produce a concise reference that tells a reviewer exactly
+which commands to run to verify an implementation.
+
+## Investigation steps
+
+1. Read the package manifest (package.json, Cargo.toml, go.mod, etc.) and
+   list every script/target related to building, testing, linting,
+   type-checking, or formatting.
+2. Identify the package manager (bun, npm, yarn, pnpm, cargo, go, make)
+   from lockfiles or config.
+3. Read CI workflow files (.github/workflows/*.yml, etc.) and extract the
+   key \`run:\` commands — these are the authoritative "what CI actually
+   executes" list.
+4. Read CLAUDE.md / AGENTS.md if present — they often document the
+   canonical commands for contributors.
+5. Identify the test framework(s) in use and how to invoke them.
+
+## Output format
+
+\`\`\`
+## Package Manager
+<name>
+
+## Build Commands
+- \`<command>\` — <what it does>
+
+## Test Commands
+- \`<command>\` — <what it does>
+
+## Lint / Type-check Commands
+- \`<command>\` — <what it does>
+
+## CI Commands (from workflow files)
+- \`<command>\` — <source file and context>
+\`\`\`
+
+Be specific — include the exact invocation string (e.g. \`bun test\`, not
+just "run tests"). If a command has variants (e.g. test:unit, test:e2e),
+list each separately. End with a brief trailing summary.`,
+
+    patternFinder: `# Find Build & Test Patterns
+
+Search this repository for existing patterns that show how code is built,
+tested, and validated. A reviewer needs to know not just WHAT commands exist,
+but HOW they are used in practice.
+
+## What to find
+
+1. **Test file patterns**: Where do tests live? What naming convention
+   (*.test.ts, *.spec.ts, *_test.go, etc.)? Show 2-3 example paths.
+2. **Test execution patterns**: How are tests actually run? Find examples in
+   CI configs, scripts, or documentation. Note any environment variables or
+   flags that are standard (e.g. CLAUDECODE=1, --coverage).
+3. **Build patterns**: How is the project built? Is there a multi-step build
+   (e.g. codegen → compile → bundle)? What order matters?
+4. **Quality gate patterns**: What checks gate a merge? Look at CI workflows,
+   pre-commit hooks, and PR check configurations. List the commands in the
+   order CI runs them.
+5. **Dependency install pattern**: How are dependencies installed before
+   build/test (e.g. \`bun install\`, \`npm ci\`)?
+
+## Output format
+
+For each pattern found, report:
+- The pattern name
+- The concrete command or file path
+- A brief explanation of when/how it's used
+
+End with a brief trailing summary of the overall build/test workflow order
+(e.g. "install → typecheck → lint → test → build").`,
+  };
+}
+
+// ============================================================================
 // REVIEWER
 // ============================================================================
 
@@ -264,52 +485,164 @@ export interface ReviewResult {
 }
 
 export interface ReviewContext {
-  /** Output of `git status -s` captured immediately before the review. */
-  gitStatus: string;
+  /**
+   * Full branch changeset captured by {@link captureBranchChangeset}.
+   * Contains diff stat, name-status, and uncommitted changes relative to
+   * the parent branch — giving the reviewer complete visibility into every
+   * change this branch introduces.
+   */
+  changeset: {
+    baseBranch: string;
+    diffStat: string;
+    uncommitted: string;
+    nameStatus: string;
+    errors: string[];
+  };
   /** 1-indexed loop iteration, used in the prompt header. */
   iteration?: number;
   /**
-   * Whether this is the second consecutive review pass within the same loop
-   * iteration (i.e. the previous pass had zero findings and we are
-   * confirming before counting two clean reviews in a row).
+   * When true, instructs the reviewer to call the `submit_review` tool
+   * instead of outputting JSON directly. Used by the Copilot SDK which
+   * achieves structured output through tool definitions.
    */
-  isConfirmationPass?: boolean;
+  useSubmitTool?: boolean;
+  /**
+   * Raw output from the parallel infrastructure-discovery sub-agents
+   * (codebase-locator, codebase-analyzer, codebase-pattern-finder).
+   * When present, the reviewer uses this to identify and run the
+   * repository's build/test/lint commands as part of verification.
+   */
+  discoveryContext?: string;
 }
 
 /**
- * Build the reviewer prompt. Injects deterministic `git status -s` so the
- * reviewer doesn't have to re-discover what changed.
+ * Build the reviewer prompt. Injects a deterministic branch-relative
+ * changeset so the reviewer sees every file this branch has touched —
+ * both committed and uncommitted — without expensive tool calls.
  */
 export function buildReviewPrompt(
   spec: string,
   context: ReviewContext,
 ): string {
-  const gitStatus = context.gitStatus.trim();
-  const gitSection =
-    gitStatus.length > 0
-      ? `## Working Tree (\`git status -s\`)
+  const { changeset } = context;
+  const hasChanges =
+    changeset.diffStat.length > 0 ||
+    changeset.uncommitted.length > 0;
+  const hasErrors = changeset.errors.length > 0;
 
-These files have uncommitted changes — they are the files actually touched in
-this iteration. Use them to focus your review:
+  // ── Changeset section ──────────────────────────────────────────────────
 
-\`\`\`
-${gitStatus}
-\`\`\``
-      : `## Working Tree (\`git status -s\`)
+  let changesetSection: string;
 
-The working tree is clean. Either nothing was implemented this iteration or
-all changes were already committed. Cross-check the task list to verify
-whether the implementation actually ran.`;
+  if (hasChanges || hasErrors) {
+    const parts: string[] = [];
+
+    parts.push(
+      `## Branch Changeset (relative to \`${changeset.baseBranch}\`)`,
+    );
+
+    // Surface git errors first — the agent needs to know the data is partial
+    if (hasErrors) {
+      parts.push(
+        "",
+        "### Git Errors",
+        "",
+        "The following git commands failed during changeset capture. The data",
+        "below may be **incomplete**. You should re-run the failed commands",
+        "yourself to get the full picture, or flag the gap as a finding.",
+        "",
+        ...changeset.errors.map((e) => `- ${e}`),
+      );
+    }
+
+    if (hasChanges) {
+      parts.push(
+        "",
+        "The following shows every change this branch introduces — both committed",
+        "and uncommitted. Use this to scope your review. Read the actual file",
+        "contents for any file that warrants closer inspection.",
+      );
+    }
+
+    if (changeset.nameStatus.length > 0) {
+      parts.push(
+        "",
+        "### Changed Files",
+        "",
+        "```",
+        changeset.nameStatus,
+        "```",
+      );
+    }
+
+    if (changeset.diffStat.length > 0) {
+      parts.push(
+        "",
+        "### Diff Summary",
+        "",
+        "```",
+        changeset.diffStat,
+        "```",
+      );
+    }
+
+    if (changeset.uncommitted.length > 0) {
+      parts.push(
+        "",
+        "### Uncommitted Changes (`git status -s`)",
+        "",
+        "These changes are in the working tree but not yet committed:",
+        "",
+        "```",
+        changeset.uncommitted,
+        "```",
+      );
+    }
+
+    changesetSection = parts.join("\n");
+  } else {
+    changesetSection = `## Branch Changeset (relative to \`${changeset.baseBranch}\`)
+
+No changes detected relative to \`${changeset.baseBranch}\`. Either nothing
+was implemented, all changes were reverted, or you are already on the base
+branch. Cross-check the task list to verify whether the implementation ran.`;
+  }
+
+  // ── Header ─────────────────────────────────────────────────────────────
 
   const header = context.iteration
-    ? `# Code Review Request (Iteration ${context.iteration}${context.isConfirmationPass ? ", confirmation pass" : ""})`
+    ? `# Code Review Request (Iteration ${context.iteration})`
     : "# Code Review Request";
 
-  const confirmationNote = context.isConfirmationPass
-    ? `\n\n**Note**: This is a confirmation pass. The previous review of this same iteration produced zero findings. Re-verify with fresh eyes; do not assume the prior pass was correct.`
+  // ── Output instructions ────────────────────────────────────────────────
+
+  const outputSection = context.useSubmitTool
+    ? `## Output
+
+You MUST submit your review by calling the \`submit_review\` tool exactly
+once with your complete structured review. Do NOT output the review as
+plain text — the tool enforces the required schema.`
+    : `## Output
+
+Your review output is captured via structured output. The schema is enforced
+by the SDK — focus on providing accurate, well-reasoned data for each field.`;
+
+  // ── Discovery context section ────────────────────────────────────────────
+
+  const discoverySection = context.discoveryContext
+    ? `## Build & Test Infrastructure Discovery
+
+Three sub-agents explored this repository's build, test, lint, and CI
+infrastructure. Their findings are below. Use them to identify the exact
+commands you must run to verify the implementation.
+
+${context.discoveryContext}
+`
     : "";
 
-  return `${header}${confirmationNote}
+  // ── Full prompt ────────────────────────────────────────────────────────
+
+  return `${header}
 
 ## Original Specification
 
@@ -317,7 +650,15 @@ whether the implementation actually ran.`;
 ${spec}
 </user_request>
 
-${gitSection}
+${changesetSection}
+
+${discoverySection}## Project Conventions
+
+Use the repository's \`AGENTS.md\` and/or \`CLAUDE.md\` files (if present) for
+guidance on style, conventions, testing expectations, and architectural
+patterns. Your review should respect these project-level norms — flag
+deviations only when they conflict with correctness or security, not personal
+preference.
 
 ## Retrieve Task List
 
@@ -326,46 +667,62 @@ Call \`TaskList\` to fetch the current task plan and statuses. Use it to:
 2. Cross-reference the plan against the specification.
 3. Calculate completion metrics.
 
+## Verification Step
+
+**Before writing any findings**, run the build, test, lint, and type-check
+commands identified in the "Build & Test Infrastructure Discovery" section
+above. Execute them via Bash from the repository root. Run ALL commands even
+if earlier ones fail — the goal is a complete picture.
+
+- Build failures and type errors → P0 finding.
+- Test failures → P1 finding.
+- Lint violations → P1 finding.
+
+Include the exact command, exit status, and relevant error output in each
+finding's body. If no discovery section is present, attempt to discover
+commands yourself by reading package.json, CI configs, or CLAUDE.md.
+
 ## Review Focus Areas (priority order)
 
 1. **Task Completion & Specification Gap Analysis** — HIGHEST priority. Every
    task in PENDING / IN_PROGRESS / ERROR status MUST become a P0 finding.
    Every spec requirement not covered by any task is a P0 finding. Do NOT
    mark the patch correct if any task is incomplete.
-2. **Correctness of Logic** — does the code implement the requirements?
-3. **Error Handling & Edge Cases** — boundary, empty/null, error paths.
-4. **Security** — injection, secret leakage, auth bypasses.
-5. **Performance** — obvious resource leaks, N+1, hot loops.
-6. **Test Coverage** — critical paths and edge cases tested.
+2. **Verification Failures** — Any build, test, lint, or type-check command
+   that failed during the verification step above is a P0 or P1 finding.
+   Reference the specific command and error output.
+3. **Correctness of Logic** — does the code implement the requirements?
+4. **Error Handling & Edge Cases** — boundary, empty/null, error paths.
+5. **Security** — injection, secret leakage, auth bypasses.
+6. **Performance** — obvious resource leaks, N+1, hot loops.
+7. **Test Coverage** — critical paths and edge cases tested.
 
-## Output Format
+## Review Guidelines
 
-Output ONLY a JSON object inside a single fenced \`\`\`json block. No prose
-before or after. Use this schema exactly:
+- Be **constructive and helpful** in your feedback. Every finding should
+  include a clear explanation of the impact and a concrete suggested fix.
+- Avoid nitpicks (P3) unless they affect readability or maintainability in
+  a significant way. The review loop filters out P3 findings.
+- When in doubt, give the implementation the benefit of the doubt — flag
+  genuine issues, not stylistic preferences.
 
-\`\`\`json
-{
-  "findings": [
-    {
-      "title": "[P0] Brief title (P0=critical, P1=important, P2=moderate, P3=minor)",
-      "body": "Detailed explanation, why it matters, and a suggested fix",
-      "confidence_score": 0.95,
-      "priority": 0,
-      "code_location": {
-        "absolute_file_path": "/full/path/to/file.ts",
-        "line_range": { "start": 42, "end": 45 }
-      }
-    }
-  ],
-  "overall_correctness": "patch is correct",
-  "overall_explanation": "Summary of overall quality and correctness",
-  "overall_confidence_score": 0.85
-}
-\`\`\`
+${outputSection}
 
-Set \`overall_correctness\` to \`"patch is incorrect"\` whenever there is at
-least one P0 or P1 finding (including incomplete tasks). Use
-\`"patch is correct"\` only when findings are empty or strictly P3.
+### Field Guidance
+
+- **findings**: Each finding should have:
+  - \`title\`: Prefix with priority level, e.g. "[P0] Missing null check"
+  - \`body\`: What's wrong, why it matters, and how to fix it
+  - \`priority\`: 0 = P0 critical, 1 = P1 important, 2 = P2 moderate, 3 = P3 minor
+  - \`confidence_score\`: 0.0 – 1.0, how confident you are this is a real issue
+  - \`code_location\`: absolute file path and line range (when applicable)
+
+- **overall_correctness**: Set to \`"patch is incorrect"\` whenever there is at
+  least one P0 or P1 finding (including incomplete tasks). Use
+  \`"patch is correct"\` only when findings are empty or strictly P2/P3.
+
+- **overall_explanation**: Summary of overall quality, correctness, and any
+  patterns observed.
 
 Begin your review now.`;
 }
@@ -377,8 +734,17 @@ Begin your review now.`;
 export interface DebuggerContext {
   /** 1-indexed loop iteration the debugger is investigating. */
   iteration: number;
-  /** Output of `git status -s` from immediately before the review. */
-  gitStatus: string;
+  /**
+   * Branch changeset captured immediately before the review. Provides the
+   * debugger with the same file-level context as the reviewer.
+   */
+  changeset: {
+    baseBranch: string;
+    diffStat: string;
+    uncommitted: string;
+    nameStatus: string;
+    errors: string[];
+  };
 }
 
 /**
@@ -420,13 +786,31 @@ ${trimmed}
         : `(no reviewer output captured)`;
   }
 
-  const gitStatus = context.gitStatus.trim();
-  const gitSection =
-    gitStatus.length > 0
-      ? `\`\`\`
-${gitStatus}
-\`\`\``
-      : `(working tree clean)`;
+  const { changeset } = context;
+  const hasChanges =
+    changeset.nameStatus.length > 0 || changeset.uncommitted.length > 0;
+  const hasErrors = changeset.errors.length > 0;
+
+  let changesetSection: string;
+  if (hasChanges || hasErrors) {
+    const parts: string[] = [];
+    if (hasErrors) {
+      parts.push(
+        "**Git errors** (changeset may be incomplete — re-run these yourself):",
+        ...changeset.errors.map((e) => `- ${e}`),
+        "",
+      );
+    }
+    if (changeset.nameStatus.length > 0) {
+      parts.push(`Changed files (relative to \`${changeset.baseBranch}\`):`, "```", changeset.nameStatus, "```");
+    }
+    if (changeset.uncommitted.length > 0) {
+      parts.push(`Uncommitted (\`git status -s\`):`, "```", changeset.uncommitted, "```");
+    }
+    changesetSection = parts.join("\n");
+  } else {
+    changesetSection = "(no changes detected)";
+  }
 
   return `# Debugging Report Request (Iteration ${context.iteration})
 
@@ -442,9 +826,9 @@ read-only mode) are fine; mutations are not.
 
 ${findingsSection}
 
-## Working Tree (\`git status -s\`)
+## Branch Changeset
 
-${gitSection}
+${changesetSection}
 
 ## Investigation Steps
 
@@ -544,7 +928,7 @@ export function parseReviewResult(content: string): ReviewResult | null {
   return null;
 }
 
-function filterActionable(parsed: {
+export function filterActionable(parsed: {
   findings: ReviewFinding[];
   overall_correctness: string;
   overall_explanation?: string;

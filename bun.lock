@@ -5,7 +5,7 @@
     "": {
       "name": "@bastani/atomic",
       "dependencies": {
-        "@anthropic-ai/claude-agent-sdk": "^0.2.105",
+        "@anthropic-ai/claude-agent-sdk": "^0.2.107",
         "@clack/prompts": "^1.2.0",
         "@commander-js/extra-typings": "^14.0.0",
         "@github/copilot-sdk": "^0.2.2",

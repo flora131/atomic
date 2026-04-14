@@ -159,6 +159,50 @@ if (needsReview) {
 }
 ```
 
+## Headless (background) stages
+
+Stages can run in headless mode by setting `headless: true` in the first argument to `ctx.stage()`. Headless stages execute the provider SDK in-process instead of spawning a tmux window — they are invisible in the workflow graph but tracked via a background task counter in the statusline.
+
+```ts
+// Headless stage — identical callback API, no tmux window
+const result = await ctx.stage(
+  { name: "background-task", headless: true },
+  {}, {},
+  async (s) => {
+    // s.client, s.session, s.save(), s.transcript() all work identically
+    const result = await s.session.query("Analyze the codebase.");
+    s.save(s.sessionId);
+    return result.output;
+  },
+);
+// result.result contains the returned value
+```
+
+The callback interface is identical to interactive stages. The only differences:
+- No tmux window is created
+- The stage does not appear as a node in the workflow graph
+- The `paneId` is a virtual identifier: `headless-<name>-<sessionId>`
+- Background stages are tracked by a counter in the orchestrator statusline
+
+**Common pattern — visible seed, parallel headless gather, visible merge:**
+
+```ts
+const seed = await ctx.stage({ name: "seed" }, {}, {}, async (s) => { /* ... */ });
+
+const [a, b, c] = await Promise.all([
+  ctx.stage({ name: "gather-a", headless: true }, {}, {}, async (s) => { /* ... */ }),
+  ctx.stage({ name: "gather-b", headless: true }, {}, {}, async (s) => { /* ... */ }),
+  ctx.stage({ name: "gather-c", headless: true }, {}, {}, async (s) => { /* ... */ }),
+]);
+
+await ctx.stage({ name: "merge" }, {}, {}, async (s) => {
+  await s.session.query(`Merge:\n${a.result}\n${b.result}\n${c.result}`);
+  s.save(s.sessionId);
+});
+```
+
+Headless stages are transparent to graph topology — `seed → [3 headless] → merge` renders as `seed → merge` in the graph.
+
 ## SDK exports
 
 The `@bastani/atomic/workflows` package exports the workflow authoring primitives. For native SDK types and utilities, install and import from the provider packages directly.
@@ -174,7 +218,7 @@ The `@bastani/atomic/workflows` package exports the workflow authoring primitive
 - `SaveTranscript` — overloaded save function type
 - `SessionContext` — the context object passed to `ctx.stage()` callbacks
 - `SessionHandle<T>` — returned by `ctx.stage()`, carries `{ name, id, result }`
-- `SessionRunOptions` — `{ name, description? }` for `ctx.stage()` first argument
+- `SessionRunOptions` — `{ name, description?, headless? }` for `ctx.stage()` first argument
 - `StageClientOptions<A>` — provider-specific client init options for `ctx.stage()` second argument
 - `StageSessionOptions<A>` — provider-specific session create options for `ctx.stage()` third argument
 - `ProviderClient<A>` — the `s.client` type, resolved by agent type
@@ -213,7 +257,7 @@ The Atomic runtime provides `s.client` and `s.session` with types resolved from 
 | `getMessages(ref)` | `(ref: SessionRef) => Promise<SavedMessage[]>` | Get prior session's raw native messages |
 | `save` | `SaveTranscript` | Save this session's output for downstream sessions |
 | `sessionDir` | `string` | Path to session storage directory |
-| `paneId` | `string` | tmux pane ID |
+| `paneId` | `string` | tmux pane ID (or `headless-<name>-<id>` for headless stages) |
 | `sessionId` | `string` | Session UUID |
 | `stage(opts, clientOpts, sessionOpts, fn)` | `<T>(...) => Promise<SessionHandle<T>>` | Spawn a nested sub-session (child of this session in the graph) |
 
@@ -236,6 +280,7 @@ The SDK ships two builtin workflows that demonstrate production patterns for all
 
 - **`ralph`** (`src/sdk/workflows/builtin/ralph/`) — iterative plan → orchestrate → review → debug loop with consecutive clean-pass detection, shared helpers for prompts/parsing/git, and cross-SDK adaptation
 - **`deep-research-codebase`** (`src/sdk/workflows/builtin/deep-research-codebase/`) — deterministic codebase scout → LOC-based heuristic explorer partitioning → parallel explorers → aggregator with file-based handoffs and context-aware prompt engineering
+- **`headless-test`** (`.atomic/workflows/headless-test/`) — demonstrates the visible → [parallel headless] → visible merge pattern (all 3 SDKs)
 
 Both include `helpers/` directories with SDK-agnostic logic (prompt builders, parsers, heuristics) and per-agent `index.ts` files showing how the same workflow topology adapts to Claude, Copilot, and OpenCode.
 

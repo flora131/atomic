@@ -123,7 +123,7 @@ export default defineWorkflow<"copilot">({
 
       const [locatorResult, analyzerResult, patternResult] = await Promise.all([
         ctx.stage(
-          { name: `infra-locate-${iteration}` },
+          { name: `infra-locate-${iteration}`, headless: true },
           {},
           { agent: "codebase-locator" },
           async (s) => {
@@ -134,7 +134,7 @@ export default defineWorkflow<"copilot">({
           },
         ),
         ctx.stage(
-          { name: `infra-analyze-${iteration}` },
+          { name: `infra-analyze-${iteration}`, headless: true },
           {},
           { agent: "codebase-analyzer" },
           async (s) => {
@@ -145,7 +145,7 @@ export default defineWorkflow<"copilot">({
           },
         ),
         ctx.stage(
-          { name: `infra-patterns-${iteration}` },
+          { name: `infra-patterns-${iteration}`, headless: true },
           {},
           { agent: "codebase-pattern-finder" },
           async (s) => {

@@ -1122,11 +1122,15 @@ export function WorkflowPicker({
 
   useKeyboard((key) => {
     if (key.ctrl && key.name === "c") {
+      key.stopPropagation();
       onCancel();
       return;
     }
 
     if (confirmOpenRef.current) {
+      // Consume all keys while the modal is open so focused fields
+      // behind the overlay never see them.
+      key.stopPropagation();
       if (key.name === "y" || key.name === "return") {
         const wf = focusedWfRef.current;
         if (!wf) return;
@@ -1142,20 +1146,24 @@ export function WorkflowPicker({
 
     if (phaseRef.current === "pick") {
       if (key.name === "escape") {
+        key.stopPropagation();
         onCancel();
         return;
       }
       if (key.name === "up" || (key.ctrl && key.name === "k")) {
+        key.stopPropagation();
         setEntryIdx((i: number) => Math.max(0, i - 1));
         return;
       }
       if (key.name === "down" || (key.ctrl && key.name === "j")) {
+        key.stopPropagation();
         setEntryIdx((i: number) =>
           Math.min(entriesRef.current.length - 1, i + 1),
         );
         return;
       }
       if (key.name === "return") {
+        key.stopPropagation();
         const wf = focusedWfRef.current;
         if (wf) {
           const inputs: WorkflowInput[] =
@@ -1181,10 +1189,12 @@ export function WorkflowPicker({
 
     // ── PROMPT phase ──
     if (key.name === "escape") {
+      key.stopPropagation();
       setPhase("pick");
       return;
     }
     if (key.ctrl && key.name === "s") {
+      key.stopPropagation();
       if (!isFormValidRef.current) {
         setFocusedFieldIdx(invalidFieldIndicesRef.current[0]!);
         return;
@@ -1193,6 +1203,7 @@ export function WorkflowPicker({
       return;
     }
     if (key.name === "tab") {
+      key.stopPropagation();
       setFocusedFieldIdx((i: number) => {
         const len = currentFieldsRef.current.length;
         if (len <= 1) return 0;
@@ -1208,6 +1219,7 @@ export function WorkflowPicker({
       const values = field.values ?? [];
       if (values.length === 0) return;
       if (key.name === "left" || key.name === "right") {
+        key.stopPropagation();
         setFieldValues((prev: Record<string, string>) => {
           const cur = prev[field.name] ?? values[0] ?? "";
           const idx = Math.max(0, values.indexOf(cur));
@@ -1223,6 +1235,7 @@ export function WorkflowPicker({
     // (the native <input> fires onSubmit, but we handle it here so
     // the focus-cycling logic stays in one place).
     if (field.type === "string" && key.name === "return") {
+      key.stopPropagation();
       setFocusedFieldIdx((i: number) =>
         Math.min(currentFieldsRef.current.length - 1, i + 1),
       );

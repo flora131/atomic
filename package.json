@@ -1,6 +1,6 @@
 {
   "name": "@bastani/atomic",
-  "version": "0.5.12",
+  "version": "0.5.13-0",
   "description": "Configuration management CLI and SDK for coding agents",
   "type": "module",
   "license": "MIT",
@@ -41,6 +41,7 @@
   },
   "files": [
     "src",
+    "dist",
     "assets/settings.schema.json",
     ".agents/skills",
     ".claude/agents",

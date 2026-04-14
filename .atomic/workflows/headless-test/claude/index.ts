@@ -3,7 +3,7 @@ import { defineWorkflow } from "@bastani/atomic/workflows";
 export default defineWorkflow<"claude">({
   name: "headless-test",
   description:
-    "Test headless background stages: visible → [3 headless] → visible merge",
+    "Test headless background stages: visible → [3 headless] → visible merge → headless verdict",
 })
   .run(async (ctx) => {
     const prompt = ctx.inputs.prompt ?? "TypeScript";
@@ -63,12 +63,12 @@ export default defineWorkflow<"claude">({
     ]);
 
     // ── Visible stage: merge results from background stages ──
-    await ctx.stage(
+    const mergeHandle = await ctx.stage(
       { name: "merge", description: "Combine background results" },
       {},
       {},
       async (s) => {
-        await s.session.query(
+        const result = await s.session.query(
           [
             "Combine these three analyses into a concise summary:\n",
             `## Pros\n${prosHandle.result}`,
@@ -77,6 +77,21 @@ export default defineWorkflow<"claude">({
           ].join("\n\n"),
         );
         s.save(s.sessionId);
+        return String(result.output ?? "");
+      },
+    );
+
+    // ── Final headless stage: verify the orchestrator timer stays alive ──
+    await ctx.stage(
+      { name: "verdict", headless: true },
+      {},
+      {},
+      async (s) => {
+        const result = await s.session.query(
+          `Given this summary, write a one-sentence final verdict:\n\n${mergeHandle.result}`,
+        );
+        s.save(s.sessionId);
+        return String(result.output ?? "");
       },
     );
   })

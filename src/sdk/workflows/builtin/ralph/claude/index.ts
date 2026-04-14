@@ -130,7 +130,7 @@ export default defineWorkflow<"claude">({
 
       const [locatorResult, analyzerResult, patternResult] = await Promise.all([
         ctx.stage(
-          { name: `infra-locate-${iteration}` },
+          { name: `infra-locate-${iteration}`, headless: true },
           {},
           {},
           async (s) => {
@@ -142,7 +142,7 @@ export default defineWorkflow<"claude">({
           },
         ),
         ctx.stage(
-          { name: `infra-analyze-${iteration}` },
+          { name: `infra-analyze-${iteration}`, headless: true },
           {},
           {},
           async (s) => {
@@ -154,7 +154,7 @@ export default defineWorkflow<"claude">({
           },
         ),
         ctx.stage(
-          { name: `infra-patterns-${iteration}` },
+          { name: `infra-patterns-${iteration}`, headless: true },
           {},
           {},
           async (s) => {

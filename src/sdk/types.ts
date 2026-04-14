@@ -240,6 +240,13 @@ export interface SessionRunOptions {
   name: string;
   /** Human-readable description */
   description?: string;
+  /**
+   * When true, spawn the CLI server as a background child process (Bun.spawn)
+   * instead of creating a tmux window. The provider client/session are still
+   * auto-created but the stage is invisible in the graph. Useful for
+   * Copilot/OpenCode SDKs that need a server but don't need a visible TUI.
+   */
+  headless?: boolean;
 }
 
 /**

@@ -37,6 +37,18 @@ export function Statusline({
         </box>
       ) : null}
 
+      {store.backgroundTaskCount > 0 ? (
+        <box backgroundColor="transparent" paddingLeft={1} alignItems="center">
+          <text>
+            <span fg={theme.textDim}>{"\u00B7"} </span>
+            <span fg={theme.warning}>{"\u25C6"} </span>
+            <span fg={theme.textMuted}>
+              {store.backgroundTaskCount} background
+            </span>
+          </text>
+        </box>
+      ) : null}
+
       <box flexGrow={1} />
 
       {/* Navigation hints — always graph-mode (tmux status bar handles attached-mode hints) */}
@@ -54,7 +66,7 @@ export function Statusline({
             <span fg={theme.textMuted}> attach</span>
             <span fg={theme.textDim}> {"\u00B7"} </span>
             <span fg={theme.text}>/</span>
-            <span fg={theme.textMuted}> agents</span>
+            <span fg={theme.textMuted}> stages</span>
             <span fg={theme.textDim}> {"\u00B7"} </span>
             <span fg={theme.text}>q</span>
             <span fg={theme.textMuted}> quit</span>

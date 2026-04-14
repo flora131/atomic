@@ -1,6 +1,6 @@
 {
   "name": "@bastani/atomic",
-  "version": "0.5.12-2",
+  "version": "0.5.12-3",
   "description": "Configuration management CLI and SDK for coding agents",
   "type": "module",
   "license": "MIT",
@@ -81,6 +81,8 @@
     "commander": "^14.0.3",
     "ignore": "^7.0.5",
     "react": "^19.2.5",
+    "react-devtools-core": "^7.0.1",
+    "ws": "^8.18.0",
     "yaml": "^2.8.3",
     "zod": "^4.3.6"
   }

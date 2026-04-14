@@ -201,6 +201,26 @@ Invoke named sub-agents by prefixing the prompt with `@"agent-name (agent)"`. Th
 })
 ```
 
+### Headless mode (background stages)
+
+Claude headless stages use the Agent SDK's `query()` API directly in-process instead of automating a tmux pane. Set `headless: true` in the stage options:
+
+```ts
+await ctx.stage(
+  { name: "background-analysis", headless: true },
+  {}, {},
+  async (s) => {
+    // s.session.query() works identically — the runtime uses
+    // HeadlessClaudeSessionWrapper which calls the Agent SDK directly
+    const result = await s.session.query("Analyze the codebase.");
+    s.save(s.sessionId);
+    return result.output;
+  },
+);
+```
+
+The callback interface is identical to interactive stages. Internally, the runtime uses `HeadlessClaudeClientWrapper` (no-op start/stop) and `HeadlessClaudeSessionWrapper` (calls `query()` from `@anthropic-ai/claude-agent-sdk` directly). No tmux pane is created, and the stage is invisible in the workflow graph.
+
 ## Copilot SDK
 
 Copilot uses a client-server architecture. The runtime auto-creates a `CopilotClient` (as `s.client`) and a `CopilotSession` (as `s.session`) before invoking your callback. Auto-cleanup (`session.disconnect()` and `client.stop()`) is handled by the runtime after the callback completes.
@@ -516,6 +536,24 @@ Pass the `agent` parameter in `sessionOpts` (3rd arg to `ctx.stage()`) to bind t
 })
 ```
 
+### Headless mode (background stages)
+
+Copilot headless stages let the SDK spawn its own CLI subprocess internally — no tmux pane is needed. Set `headless: true`:
+
+```ts
+await ctx.stage(
+  { name: "background-task", headless: true },
+  {}, {},
+  async (s) => {
+    // s.session.send() works identically
+    await s.session.send({ prompt: "Analyze the codebase." });
+    s.save(await s.session.getMessages());
+  },
+);
+```
+
+The SDK creates a `CopilotClient` without a `cliUrl` — it spawns its own CLI process internally rather than connecting to a tmux-hosted server. The callback interface is identical.
+
 ## OpenCode SDK
 
 OpenCode uses a client-server model. The runtime auto-creates an `OpencodeClient` (as `s.client`) and an OpenCode session (as `s.session`) before invoking your callback. Use `s.client.session.prompt({ sessionID: s.session.id, ... })` to send prompts.
@@ -728,3 +766,24 @@ Pass the `agent` parameter to `s.client.session.prompt()` to route a prompt to a
   );
 })
 ```
+
+### Headless mode (background stages)
+
+OpenCode headless stages use `createOpencode()` from the SDK to start both server and client in-process. Set `headless: true`:
+
+```ts
+await ctx.stage(
+  { name: "background-task", headless: true },
+  {}, { title: "background-task" },
+  async (s) => {
+    // s.client.session.prompt() works identically
+    const result = await s.client.session.prompt({
+      sessionID: s.session.id,
+      parts: [{ type: "text", text: "Analyze the codebase." }],
+    });
+    s.save(result.data!);
+  },
+);
+```
+
+Internally, the runtime uses `createOpencode({ port: 0 })` to start both the OpenCode server and client in-process. A cleanup callback closes the server when the stage completes. The callback interface is identical.

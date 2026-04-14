@@ -1,6 +1,6 @@
 ---
 name: workflow-creator
-description: Create multi-agent workflows for Atomic CLI using defineWorkflow().run().compile() with ctx.stage() for session orchestration across Claude, Copilot, and OpenCode SDKs. Use whenever the user wants to create, edit, or debug workflows, build agent pipelines, define multi-stage automations, set up review loops, declare workflow inputs, or mentions .atomic/workflows/, defineWorkflow, ctx.stage, ctx.inputs, or the atomic workflow picker.
+description: Create multi-agent workflows for Atomic CLI using defineWorkflow().run().compile() with ctx.stage() for session orchestration across Claude, Copilot, and OpenCode SDKs. Use whenever the user wants to create, edit, or debug workflows, build agent pipelines, define multi-stage automations, set up review loops, declare workflow inputs, run background/headless stages, or mentions .atomic/workflows/, defineWorkflow, ctx.stage, ctx.inputs, headless, background stages, or the atomic workflow picker.
 ---
 
 # Workflow Creator
@@ -94,7 +94,7 @@ Workflow quality depends on two disciplines: **prompt engineering** (crafting cl
 
 ## How Workflows Work
 
-A workflow is a TypeScript file with a single `.run()` callback that orchestrates agent sessions dynamically. Inside the callback, `ctx.stage()` spawns sessions — each gets its own tmux window and graph node. Native TypeScript handles all control flow: loops, conditionals, `Promise.all()`, `try`/`catch`.
+A workflow is a TypeScript file with a single `.run()` callback that orchestrates agent sessions dynamically. Inside the callback, `ctx.stage()` spawns sessions — each gets its own tmux window and graph node (unless running in headless mode). Native TypeScript handles all control flow: loops, conditionals, `Promise.all()`, `try`/`catch`.
 
 ```ts
 import { defineWorkflow } from "@bastani/atomic/workflows";
@@ -108,6 +108,61 @@ export default defineWorkflow<"claude">({ name: "my-workflow", description: "...
 ```
 
 The runtime manages the full session lifecycle — callback return marks completion; throws mark errors. `.compile()` produces a branded `WorkflowDefinition` consumed by the CLI.
+
+### Background (headless) stages
+
+Stages can run in **headless mode** by passing `{ headless: true }` in `SessionRunOptions`. Headless stages execute the provider SDK **in-process** instead of spawning a tmux window — they are invisible in the workflow graph but tracked via a background task counter in the statusline.
+
+```ts
+// Headless stage — runs in-process, no tmux window, invisible in graph
+await ctx.stage(
+  { name: "background-analysis", headless: true },
+  {}, {},
+  async (s) => {
+    const result = await s.session.query("Analyze the codebase structure.");
+    s.save(s.sessionId);
+    return result.output;
+  },
+);
+```
+
+**When to use headless stages:**
+- Parallel data-gathering tasks that don't need a visible TUI (e.g., codebase research, infrastructure discovery)
+- Support tasks that should run alongside visible stages without cluttering the graph
+- Any stage where only the result matters, not the live TUI interaction
+
+**How they work per provider:**
+- **Claude**: Uses the Agent SDK `query()` API directly in-process (no tmux pane)
+- **Copilot**: SDK spawns its own CLI subprocess internally (no tmux pane needed)
+- **OpenCode**: Uses `createOpencode()` to start both server and client in-process
+
+**Key behaviors:**
+- The callback interface is **identical** to interactive stages — `s.client`, `s.session`, `s.save()`, `s.transcript()` all work the same way
+- Headless stages are **transparent to graph topology** — they don't consume or update the execution frontier, so `visible → [3 headless] → visible` renders as `visible → visible` in the graph
+- Errors in headless stages still fail the workflow — they are tracked and recorded identically to interactive stages
+- The `paneId` for headless stages is a virtual identifier: `headless-<name>-<sessionId>`
+
+**Common pattern — fan-out with headless background stages:**
+
+```ts
+// Visible stage seeds context
+const seed = await ctx.stage({ name: "seed" }, {}, {}, async (s) => { /* ... */ });
+
+// Three parallel headless stages gather data in the background
+const [a, b, c] = await Promise.all([
+  ctx.stage({ name: "gather-a", headless: true }, {}, {}, async (s) => { /* ... */ }),
+  ctx.stage({ name: "gather-b", headless: true }, {}, {}, async (s) => { /* ... */ }),
+  ctx.stage({ name: "gather-c", headless: true }, {}, {}, async (s) => { /* ... */ }),
+]);
+
+// Visible stage merges background results
+await ctx.stage({ name: "merge" }, {}, {}, async (s) => {
+  await s.session.query(`Merge:\n${a.result}\n${b.result}\n${c.result}`);
+  s.save(s.sessionId);
+});
+```
+
+See `references/control-flow.md` for full headless pattern details and `references/agent-sessions.md` for per-SDK headless session behavior.
 
 Workflows are SDK-specific. User-created workflows live in a project with `@bastani/atomic` installed as a dependency, along with the native agent SDK(s) for the provider(s) you target. Install only the SDK(s) you need:
 
@@ -159,8 +214,9 @@ Hard constraints enforced by the builder, loader, and runtime:
 3. **`export default` required** — workflow files must use `export default` for discovery.
 4. **Unique session names** — every `ctx.stage()` call must use a unique `name` across the workflow run.
 5. **Completed-only reads** — `transcript()` and `getMessages()` only access sessions whose callback has returned and saves have flushed. Attempting to read a still-running session throws.
-6. **Graph topology is auto-inferred** — the runtime derives parent-child edges from `await`/`Promise.all` patterns. Sequential `await` creates a chain; `Promise.all([...])` branches from the same parent; a stage after `Promise.all` receives all parallel stages as parents. See `references/control-flow.md` for full details.
+6. **Graph topology is auto-inferred** — the runtime derives parent-child edges from `await`/`Promise.all` patterns. Sequential `await` creates a chain; `Promise.all([...])` branches from the same parent; a stage after `Promise.all` receives all parallel stages as parents. Headless stages are **transparent** to the graph — they don't consume or update the execution frontier. See `references/control-flow.md` for full details.
 7. **Do not manually create clients or sessions** — the runtime auto-creates `s.client` and `s.session` from `clientOpts` and `sessionOpts`. Use `s.session.query()`, `s.session.send()`, and `s.client.session.prompt()` instead.
+8. **Headless stages share the same callback interface** — `s.client`, `s.session`, `s.save()`, `s.transcript()`, and return values all work identically in headless mode. The only differences are: no tmux window, no graph node, and a virtual `paneId`.
 
 ## Concept-to-Code Mapping
 
@@ -169,8 +225,10 @@ Every workflow pattern maps directly to TypeScript code:
 | Workflow Concept | Programmatic Pattern |
 |---|---|
 | Agent session (send prompt, get response) | `ctx.stage({ name }, {}, {}, async (s) => { /* use s.client, s.session */ })` |
+| Background (headless) session | `ctx.stage({ name, headless: true }, {}, {}, async (s) => { /* same API */ })` — invisible in graph, tracked by background counter |
 | Sequential execution | `await ctx.stage(...)` followed by `await ctx.stage(...)` |
 | Parallel execution | `Promise.all([ctx.stage(...), ctx.stage(...)])` |
+| Parallel background tasks | `Promise.all([ctx.stage({ name: "a", headless: true }, ...), ctx.stage({ name: "b", headless: true }, ...)])` |
 | Conditional branching | `if (...) { await ctx.stage({ name: "fix" }, {}, {}, ...) }` |
 | Bounded loops with visible graph nodes | `for (let i = 1; i <= N; i++) { await ctx.stage({ name: \`step-\${i}\` }, {}, {}, ...) }` |
 | Return data from session | `const h = await ctx.stage(opts, {}, {}, async (s) => { return value; }); h.result` |
@@ -191,6 +249,7 @@ Map the user's intent to sessions and patterns:
 |----------|---------|
 | What are the distinct steps? | Each step → `ctx.stage()` call |
 | Can any steps run in parallel? | `Promise.all([ctx.stage(...), ...])` |
+| Should any parallel steps run in the background? | `ctx.stage({ name, headless: true }, ...)` — invisible in graph, ideal for data-gathering |
 | Does any step need deterministic computation? | Plain TypeScript inside `.run()` or session callback |
 | Do any steps need to repeat? | `for`/`while` loop with `ctx.stage()` inside |
 | Are there conditional paths? | `if`/`else` wrapping `ctx.stage()` calls |

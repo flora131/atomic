@@ -11,37 +11,29 @@
  * comparing the bundled `VERSION` constant against a marker file at
  * `~/.atomic/.synced-version`. On a mismatch we run the same setup the
  * production bootstrap installers (`install.sh` / `install.ps1`) provide,
- * as a single parallel phase:
+ * silently in the background:
  *
  *     1. tmux / psmux            (terminal multiplexer for `chat` / `workflow`)
  *     2. global agent configs    (file copies — no network)
  *     3. @playwright/cli         (bun install -g)
  *     4. @llamaindex/liteparse   (bun install -g)
- *     5. global skills           (bunx skills add ...)
+ *     5. global skills           (file copies from bundled .agents/skills)
  *
- * All steps run concurrently using bun (already our runtime) for package
- * installs and `bunx` for CLI tools, avoiding a ~48 s Node.js/npm
- * download via fnm that previously gated Phase 2.
- *
- * Failures are collected and reported as a summary at the end, but never
- * abort the run — partial setup matches the production installer's
- * "best-effort" semantics. The marker is only written when every step
- * succeeds; on partial failure the next launch re-runs all steps (they
- * are idempotent, so re-running already-succeeded steps is harmless).
+ * All steps run silently. The only user-facing loading bar lives in the
+ * bootstrap installers (install.sh / install.ps1). Failures are swallowed;
+ * the marker is only written when every step succeeds, so the next launch
+ * retries (all steps are idempotent).
  */
 
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { VERSION } from "../../version.ts";
-import { COLORS } from "../../theme/colors.ts";
 import {
   ensureTmuxInstalled,
   upgradeGlobalToolPackages,
 } from "../../lib/spawn.ts";
 import { installGlobalAgents } from "./agents.ts";
 import { installGlobalSkills } from "./skills.ts";
-import { runSteps, printSummary } from "./install-ui.ts";
-import { displayBlockBanner } from "../../theme/logo.ts";
 
 /** Path to the version marker. Honors ATOMIC_SETTINGS_HOME for tests. */
 function syncMarkerPath(): string {
@@ -71,9 +63,24 @@ export async function markSynced(): Promise<void> {
 }
 
 /**
+ * Run a step silently, returning whether it succeeded.
+ */
+async function silentStep(fn: () => Promise<unknown>): Promise<boolean> {
+  try {
+    await fn();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Sync tooling deps, bundled agents, and global skills if the marker
  * doesn't match the bundled VERSION. No-op in dev checkouts and when the
  * marker already matches the current version.
+ *
+ * Runs entirely silently — no spinner, no progress bar, no banner. The
+ * only loading UI lives in the bootstrap installers (install.sh / install.ps1).
  */
 export async function autoSyncIfStale(): Promise<void> {
   if (!isInstalledPackage()) return;
@@ -86,46 +93,19 @@ export async function autoSyncIfStale(): Promise<void> {
 
   if (stored === VERSION) return;
 
-  console.log(
-    `\n  ${COLORS.dim}Setting up atomic ${COLORS.reset}${COLORS.bold}v${VERSION}${COLORS.reset}${COLORS.dim}…${COLORS.reset}`,
-  );
-
-  // All steps run in a single parallel phase. bun (already our runtime)
-  // handles global package installs and `bunx` execution, so there is no
-  // need to install Node.js/npm first — eliminating a ~48 s fnm download
-  // that previously dominated the loading screen.
-  //
-  // Each step's failure is caught inside `runSteps` (not thrown), so
-  // subsequent steps still run even if one fails — matches install.sh's
-  // best-effort contract.
-  const results = await runSteps([
-    [
-      { label: "tmux / psmux",          fn: () => ensureTmuxInstalled({ quiet: true }) },
-      { label: "global agent configs",  fn: installGlobalAgents },
-      { label: "global tool packages",  fn: upgradeGlobalToolPackages },
-      { label: "global skills",         fn: installGlobalSkills },
-    ],
+  // All steps run in parallel and silently. Failures are swallowed so the
+  // CLI can proceed. The marker is only written when every step succeeds;
+  // on partial failure the next launch retries (all steps are idempotent).
+  const results = await Promise.all([
+    silentStep(() => ensureTmuxInstalled({ quiet: true })),
+    silentStep(installGlobalAgents),
+    silentStep(upgradeGlobalToolPackages),
+    silentStep(installGlobalSkills),
   ]);
 
-  const failures = results.filter((r) => !r.ok);
+  const allOk = results.every(Boolean);
 
-  // Only write the marker when every step succeeded. On partial failure
-  // the next launch will re-run all steps — they're idempotent, so
-  // re-running already-succeeded steps is cheap and harmless.
-  if (failures.length === 0) {
+  if (allOk) {
     await markSynced();
-  }
-
-  displayBlockBanner();
-  printSummary(results);
-
-  if (failures.length > 0) {
-    console.log(
-      `\n  ${COLORS.dim}Setup will retry on next launch. To retry now, re-run your command.${COLORS.reset}\n`,
-    );
-  } else {
-    console.log(
-      `\n  ${COLORS.dim}Learn more at ${COLORS.reset}${COLORS.blue}https://deepwiki.com/flora131/atomic${COLORS.reset}\n`,
-    );
   }
 }

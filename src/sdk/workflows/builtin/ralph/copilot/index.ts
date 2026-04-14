@@ -5,27 +5,42 @@
  * so users can see each iteration's progress in real time. The loop
  * terminates when:
  *   - {@link MAX_LOOPS} iterations have completed, OR
- *   - Two consecutive reviewer passes return zero findings.
+ *   - Two parallel reviewer passes both return zero findings.
+ *
+ * The reviewer stages use a `submit_review` custom tool (defined via
+ * `defineTool` with Zod schema validation) to guarantee the review result
+ * matches the {@link ReviewResultSchema}. The Copilot SDK validates tool
+ * call arguments against the Zod schema before the handler fires.
  *
  * Run: atomic workflow -n ralph -a copilot "<your spec>"
  */
 
 import { defineWorkflow } from "../../../index.ts";
+import { defineTool } from "@github/copilot-sdk";
 import type { SessionEvent } from "@github/copilot-sdk";
 
 import {
   buildPlannerPrompt,
   buildOrchestratorPrompt,
+  buildInfraDiscoveryPrompts,
   buildReviewPrompt,
   buildDebuggerReportPrompt,
-  parseReviewResult,
   extractMarkdownBlock,
+  filterActionable,
+  mergeReviewResults,
+  ReviewResultSchema,
+  type ReviewResult,
+  type StructuredReviewResult,
 } from "../helpers/prompts.ts";
 import { hasActionableFindings } from "../helpers/review.ts";
-import { safeGitStatusS } from "../helpers/git.ts";
+import { captureBranchChangeset } from "../helpers/git.ts";
 
 const MAX_LOOPS = 10;
-const CONSECUTIVE_CLEAN_THRESHOLD = 2;
+
+const SUBMIT_REVIEW_DESCRIPTION =
+  "Submit the structured code review result. You MUST call this tool " +
+  "exactly once with your complete review. Do not output the review as " +
+  "plain text — use this tool.";
 
 /**
  * Concatenate the text content of every top-level assistant message in the
@@ -65,20 +80,13 @@ export default defineWorkflow<"copilot">({
     "Plan → orchestrate → review → debug loop with bounded iteration",
 })
   .run(async (ctx) => {
-    // Free-form workflows receive their positional prompt under
-    // `inputs.prompt`; destructure once so every stage below can close
-    // over a bare `userPromptText` without re-reaching into ctx.inputs.
-    // (Named `userPromptText` rather than `prompt` to avoid confusion
-    // with the `prompt:` object key used in the Copilot send call.)
     const userPromptText = ctx.inputs.prompt ?? "";
-    let consecutiveClean = 0;
     let debuggerReport = "";
 
     for (let iteration = 1; iteration <= MAX_LOOPS; iteration++) {
       // ── Plan ──────────────────────────────────────────────────────────
-      const plannerName = `planner-${iteration}`;
       const planner = await ctx.stage(
-        { name: plannerName },
+        { name: `planner-${iteration}` },
         {},
         { agent: "planner" },
         async (s) => {
@@ -94,11 +102,9 @@ export default defineWorkflow<"copilot">({
         },
       );
 
-
       // ── Orchestrate ───────────────────────────────────────────────────
-      const orchName = `orchestrator-${iteration}`;
       await ctx.stage(
-        { name: orchName },
+        { name: `orchestrator-${iteration}` },
         {},
         { agent: "orchestrator" },
         async (s) => {
@@ -111,82 +117,134 @@ export default defineWorkflow<"copilot">({
         },
       );
 
+      // ── Infrastructure Discovery (three parallel sub-agent stages) ──
+      const changeset = await captureBranchChangeset();
+      const discoveryPrompts = buildInfraDiscoveryPrompts();
 
-      // ── Review (first pass) ───────────────────────────────────────────
-      let gitStatus = await safeGitStatusS();
-      const reviewerName = `reviewer-${iteration}`;
-      const review = await ctx.stage(
-        { name: reviewerName },
-        {},
-        { agent: "reviewer" },
-        async (s) => {
-          await s.session.send({
-            prompt: buildReviewPrompt(userPromptText, {
-              gitStatus,
-              iteration,
-            }),
-          });
-          const messages = await s.session.getMessages();
-          s.save(messages);
-          return getAssistantText(messages);
-        },
-      );
-
-
-      let reviewRaw = review.result;
-      let parsed = parseReviewResult(reviewRaw);
-
-      if (!hasActionableFindings(parsed, reviewRaw)) {
-        consecutiveClean += 1;
-        if (consecutiveClean >= CONSECUTIVE_CLEAN_THRESHOLD) break;
-
-        // Confirmation pass — re-run reviewer only
-        gitStatus = await safeGitStatusS();
-        const confirmName = `reviewer-${iteration}-confirm`;
-        const confirm = await ctx.stage(
-          { name: confirmName },
+      const [locatorResult, analyzerResult, patternResult] = await Promise.all([
+        ctx.stage(
+          { name: `infra-locate-${iteration}` },
           {},
-          { agent: "reviewer" },
+          { agent: "codebase-locator" },
           async (s) => {
-            await s.session.send({
-              prompt: buildReviewPrompt(userPromptText, {
-                gitStatus,
-                iteration,
-                isConfirmationPass: true,
-              }),
-            });
+            await s.session.send({ prompt: discoveryPrompts.locator });
             const messages = await s.session.getMessages();
             s.save(messages);
             return getAssistantText(messages);
           },
-        );
+        ),
+        ctx.stage(
+          { name: `infra-analyze-${iteration}` },
+          {},
+          { agent: "codebase-analyzer" },
+          async (s) => {
+            await s.session.send({ prompt: discoveryPrompts.analyzer });
+            const messages = await s.session.getMessages();
+            s.save(messages);
+            return getAssistantText(messages);
+          },
+        ),
+        ctx.stage(
+          { name: `infra-patterns-${iteration}` },
+          {},
+          { agent: "codebase-pattern-finder" },
+          async (s) => {
+            await s.session.send({ prompt: discoveryPrompts.patternFinder });
+            const messages = await s.session.getMessages();
+            s.save(messages);
+            return getAssistantText(messages);
+          },
+        ),
+      ]);
 
+      const discoveryContext = [
+        "### Infrastructure Files (codebase-locator)\n\n" + locatorResult.result,
+        "### Infrastructure Analysis (codebase-analyzer)\n\n" + analyzerResult.result,
+        "### Build & Test Patterns (codebase-pattern-finder)\n\n" + patternResult.result,
+      ].join("\n\n---\n\n");
 
-        reviewRaw = confirm.result;
-        parsed = parseReviewResult(reviewRaw);
+      // ── Review (two parallel passes) ──────────────────────────────────
+      const reviewPrompt = buildReviewPrompt(userPromptText, {
+        changeset,
+        iteration,
+        useSubmitTool: true,
+        discoveryContext,
+      });
 
-        if (!hasActionableFindings(parsed, reviewRaw)) {
-          consecutiveClean += 1;
-          if (consecutiveClean >= CONSECUTIVE_CLEAN_THRESHOLD) break;
-        } else {
-          consecutiveClean = 0;
-        }
-      } else {
-        consecutiveClean = 0;
-      }
+      // Each parallel reviewer gets its own tool + capture ref so they
+      // don't race on a shared mutable.
+      let captureA: ReviewResult | null = null;
+      let captureB: ReviewResult | null = null;
 
-      // ── Debug (only if findings remain AND another iteration is allowed) ─
-      if (hasActionableFindings(parsed, reviewRaw) && iteration < MAX_LOOPS) {
-        const debuggerName = `debugger-${iteration}`;
+      const toolA = defineTool("submit_review", {
+        description: SUBMIT_REVIEW_DESCRIPTION,
+        parameters: ReviewResultSchema,
+        skipPermission: true,
+        handler: async (data: ReviewResult) => {
+          captureA = filterActionable(data);
+          return "Review submitted successfully.";
+        },
+      });
+
+      const toolB = defineTool("submit_review", {
+        description: SUBMIT_REVIEW_DESCRIPTION,
+        parameters: ReviewResultSchema,
+        skipPermission: true,
+        handler: async (data: ReviewResult) => {
+          captureB = filterActionable(data);
+          return "Review submitted successfully.";
+        },
+      });
+
+      const [reviewA, reviewB] = await Promise.all([
+        ctx.stage(
+          { name: `reviewer-${iteration}-a` },
+          {},
+          { agent: "reviewer", tools: [toolA] },
+          async (s) => {
+            await s.session.sendAndWait({ prompt: reviewPrompt });
+            const messages = await s.session.getMessages();
+            s.save(messages);
+            return {
+              structured: captureA,
+              raw: getAssistantText(messages),
+            } as StructuredReviewResult;
+          },
+        ),
+        ctx.stage(
+          { name: `reviewer-${iteration}-b` },
+          {},
+          { agent: "reviewer", tools: [toolB] },
+          async (s) => {
+            await s.session.sendAndWait({ prompt: reviewPrompt });
+            const messages = await s.session.getMessages();
+            s.save(messages);
+            return {
+              structured: captureB,
+              raw: getAssistantText(messages),
+            } as StructuredReviewResult;
+          },
+        ),
+      ]);
+
+      const merged = mergeReviewResults(reviewA.result, reviewB.result);
+      const parsed = merged.structured;
+      const reviewRaw = merged.raw;
+
+      // Both reviewers agree the code is clean → done
+      if (!hasActionableFindings(parsed, reviewRaw)) break;
+
+      // ── Debug (only if another iteration is allowed) ──────────────────
+      if (iteration < MAX_LOOPS) {
         const debugger_ = await ctx.stage(
-          { name: debuggerName },
+          { name: `debugger-${iteration}` },
           {},
           { agent: "debugger" },
           async (s) => {
             await s.session.send({
               prompt: buildDebuggerReportPrompt(parsed, reviewRaw, {
                 iteration,
-                gitStatus,
+                changeset,
               }),
             });
             const messages = await s.session.getMessages();

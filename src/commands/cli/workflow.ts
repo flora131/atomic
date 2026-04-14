@@ -391,7 +391,7 @@ async function runPickerMode(
 
 /**
  * Execute a workflow selected via the picker. The picker already stores
- * free-form prompts under the `prompt` key (via `DEFAULT_PROMPT_INPUT`),
+ * free-form prompts under the canonical `prompt` key,
  * so we can hand the inputs record straight through — no split between
  * "prompt" and "structured inputs" is needed.
  */

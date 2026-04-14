@@ -73,6 +73,8 @@ coveragePathIgnorePatterns = [
   "src/sdk/components/orchestrator-panel.tsx",
   "src/sdk/components/compact-switcher.tsx",
   "src/sdk/components/session-graph-panel.tsx",
+  # Builtin workflow implementations (SDK-session-dependent orchestration + subprocess helpers)
+  "src/sdk/workflows/builtin/**",
   # Workflow runtime I/O (subprocess/SDK/filesystem dependent)
   "src/services/workflows/session.ts",
   "src/services/workflows/graph/nodes.ts",

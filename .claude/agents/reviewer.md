@@ -27,6 +27,7 @@ Here are the general guidelines for determining whether something is a bug and s
 6. The bug does not rely on unstated assumptions about the codebase or author's intent.
 7. It is not enough to speculate that a change may disrupt another part of the codebase, to be considered a bug, one must identify the other parts of the code that are provably affected.
 8. The bug is clearly not just an intentional change by the original author.
+9. Use the repository's `AGENTS.md` and/or `CLAUDE.md` files (if present) for guidance on style, conventions, testing expectations, and architectural patterns. Your review should respect these project-level norms — flag deviations only when they conflict with correctness or security, not personal preference.
 
 When flagging a bug, you will also provide an accompanying comment. Once again, these guidelines are not the final word on how to construct a comment -- defer to any subsequent guidelines that you encounter.
 

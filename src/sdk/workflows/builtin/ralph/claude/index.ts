@@ -5,26 +5,35 @@
  * so users can see each iteration's progress in real time. The loop
  * terminates when:
  *   - {@link MAX_LOOPS} iterations have completed, OR
- *   - Two consecutive reviewer passes return zero findings.
+ *   - Two parallel reviewer passes both return zero findings.
+ *
+ * The reviewer stages use the Claude Agent SDK's structured output
+ * (`outputFormat`) to guarantee the review result matches the
+ * {@link ReviewResultSchema} — no manual JSON parsing required.
  *
  * Run: atomic workflow -n ralph -a claude "<your spec>"
  */
 
 import { defineWorkflow } from "../../../index.ts";
+import { query as claudeSdkQuery } from "@anthropic-ai/claude-agent-sdk";
 
 import {
   buildPlannerPrompt,
   buildOrchestratorPrompt,
+  buildInfraDiscoveryPrompts,
   buildReviewPrompt,
   buildDebuggerReportPrompt,
-  parseReviewResult,
   extractMarkdownBlock,
+  filterActionable,
+  mergeReviewResults,
+  REVIEW_RESULT_JSON_SCHEMA,
+  type ReviewResult,
+  type StructuredReviewResult,
 } from "../helpers/prompts.ts";
 import { hasActionableFindings } from "../helpers/review.ts";
-import { safeGitStatusS } from "../helpers/git.ts";
+import { captureBranchChangeset } from "../helpers/git.ts";
 
 const MAX_LOOPS = 10;
-const CONSECUTIVE_CLEAN_THRESHOLD = 2;
 
 // The orchestrator stage implements the actual code changes and can run for
 // a very long time on large tasks. 24 hours prevents premature timeout.
@@ -35,24 +44,56 @@ function asAgentCall(agentName: string, prompt: string): string {
   return `@"${agentName} (agent)" ${prompt}`;
 }
 
+/**
+ * Run the Claude Agent SDK's `query()` with structured output and collect
+ * the result. Returns a {@link StructuredReviewResult} with the SDK-validated
+ * structured output (when available) and the raw text fallback.
+ */
+async function queryWithStructuredOutput(
+  prompt: string,
+): Promise<StructuredReviewResult> {
+  let structured: ReviewResult | null = null;
+  let raw = "";
+
+  for await (const msg of claudeSdkQuery({
+    prompt,
+    options: {
+      outputFormat: {
+        type: "json_schema",
+        schema: REVIEW_RESULT_JSON_SCHEMA,
+      },
+    },
+  })) {
+    if (msg.type === "result") {
+      raw = String((msg as Record<string, unknown>).output ?? "");
+      if (
+        msg.subtype === "success" &&
+        (msg as Record<string, unknown>).structured_output
+      ) {
+        structured = (msg as Record<string, unknown>).structured_output as ReviewResult;
+      }
+    }
+  }
+
+  return {
+    structured: structured ? filterActionable(structured) : null,
+    raw,
+  };
+}
+
 export default defineWorkflow<"claude">({
   name: "ralph",
   description:
     "Plan → orchestrate → review → debug loop with bounded iteration",
 })
   .run(async (ctx) => {
-    // Free-form workflows receive their positional prompt under
-    // `inputs.prompt`; destructure once so every stage below can close
-    // over a bare `prompt` string without re-reaching into ctx.inputs.
     const prompt = ctx.inputs.prompt ?? "";
-    let consecutiveClean = 0;
     let debuggerReport = "";
 
     for (let iteration = 1; iteration <= MAX_LOOPS; iteration++) {
       // ── Plan ────────────────────────────────────────────────────────────
-      const plannerName = `planner-${iteration}`;
       await ctx.stage(
-        { name: plannerName },
+        { name: `planner-${iteration}` },
         {},
         {},
         async (s) => {
@@ -69,95 +110,110 @@ export default defineWorkflow<"claude">({
         },
       );
 
-
       // ── Orchestrate ─────────────────────────────────────────────────────
-      const orchName = `orchestrator-${iteration}`;
       await ctx.stage(
-        { name: orchName },
+        { name: `orchestrator-${iteration}` },
         {},
         {},
         async (s) => {
           await s.session.query(
-            asAgentCall(
-              "orchestrator",
-              buildOrchestratorPrompt(prompt),
-            ),
+            asAgentCall("orchestrator", buildOrchestratorPrompt(prompt)),
             { timeoutMs: ORCHESTRATOR_TIMEOUT_MS },
           );
           s.save(s.sessionId);
         },
       );
 
+      // ── Infrastructure Discovery (three parallel sub-agent stages) ────
+      const changeset = await captureBranchChangeset();
+      const discoveryPrompts = buildInfraDiscoveryPrompts();
 
-      // ── Review (first pass) ─────────────────────────────────────────────
-      let gitStatus = await safeGitStatusS();
-      const reviewerName = `reviewer-${iteration}`;
-      const review = await ctx.stage(
-        { name: reviewerName },
-        {},
-        {},
-        async (s) => {
-          const result = await s.session.query(
-            asAgentCall(
-              "reviewer",
-              buildReviewPrompt(prompt, { gitStatus, iteration }),
-            ),
-          );
-          s.save(s.sessionId);
-          return result.output;
-        },
-      );
-
-
-      let reviewRaw = review.result;
-      let parsed = parseReviewResult(reviewRaw);
-
-      if (!hasActionableFindings(parsed, reviewRaw)) {
-        consecutiveClean += 1;
-        if (consecutiveClean >= CONSECUTIVE_CLEAN_THRESHOLD) break;
-
-        // Confirmation pass — re-run reviewer only
-        gitStatus = await safeGitStatusS();
-        const confirmName = `reviewer-${iteration}-confirm`;
-        const confirm = await ctx.stage(
-          { name: confirmName },
+      const [locatorResult, analyzerResult, patternResult] = await Promise.all([
+        ctx.stage(
+          { name: `infra-locate-${iteration}` },
           {},
           {},
           async (s) => {
             const result = await s.session.query(
-              asAgentCall(
-                "reviewer",
-                buildReviewPrompt(prompt, {
-                  gitStatus,
-                  iteration,
-                  isConfirmationPass: true,
-                }),
-              ),
+              asAgentCall("codebase-locator", discoveryPrompts.locator),
             );
             s.save(s.sessionId);
-            return result.output;
+            return String(result.output ?? "");
           },
-        );
+        ),
+        ctx.stage(
+          { name: `infra-analyze-${iteration}` },
+          {},
+          {},
+          async (s) => {
+            const result = await s.session.query(
+              asAgentCall("codebase-analyzer", discoveryPrompts.analyzer),
+            );
+            s.save(s.sessionId);
+            return String(result.output ?? "");
+          },
+        ),
+        ctx.stage(
+          { name: `infra-patterns-${iteration}` },
+          {},
+          {},
+          async (s) => {
+            const result = await s.session.query(
+              asAgentCall("codebase-pattern-finder", discoveryPrompts.patternFinder),
+            );
+            s.save(s.sessionId);
+            return String(result.output ?? "");
+          },
+        ),
+      ]);
 
+      const discoveryContext = [
+        "### Infrastructure Files (codebase-locator)\n\n" + locatorResult.result,
+        "### Infrastructure Analysis (codebase-analyzer)\n\n" + analyzerResult.result,
+        "### Build & Test Patterns (codebase-pattern-finder)\n\n" + patternResult.result,
+      ].join("\n\n---\n\n");
 
-        reviewRaw = confirm.result;
-        parsed = parseReviewResult(reviewRaw);
+      // ── Review (two parallel passes) ────────────────────────────────────
+      const reviewPrompt = buildReviewPrompt(prompt, {
+        changeset,
+        iteration,
+        discoveryContext,
+      });
 
-        if (!hasActionableFindings(parsed, reviewRaw)) {
-          consecutiveClean += 1;
-          if (consecutiveClean >= CONSECUTIVE_CLEAN_THRESHOLD) break;
-        } else {
-          consecutiveClean = 0;
-        }
-      } else {
-        consecutiveClean = 0;
-      }
+      const [reviewA, reviewB] = await Promise.all([
+        ctx.stage(
+          { name: `reviewer-${iteration}-a` },
+          {},
+          {},
+          async (s) => {
+            const result = await queryWithStructuredOutput(reviewPrompt);
+            s.save(s.sessionId);
+            return result;
+          },
+        ),
+        ctx.stage(
+          { name: `reviewer-${iteration}-b` },
+          {},
+          {},
+          async (s) => {
+            const result = await queryWithStructuredOutput(reviewPrompt);
+            s.save(s.sessionId);
+            return result;
+          },
+        ),
+      ]);
 
-      // ── Debug (only if findings remain AND another iteration is allowed) ─
-      if (hasActionableFindings(parsed, reviewRaw) && iteration < MAX_LOOPS) {
-        const debuggerName = `debugger-${iteration}`;
+      const merged = mergeReviewResults(reviewA.result, reviewB.result);
+      const parsed = merged.structured;
+      const reviewRaw = merged.raw;
+
+      // Both reviewers agree the code is clean → done
+      if (!hasActionableFindings(parsed, reviewRaw)) break;
+
+      // ── Debug (only if another iteration is allowed) ────────────────────
+      if (iteration < MAX_LOOPS) {
         const debugger_ = await ctx.stage(
-          { name: debuggerName },
+          { name: `debugger-${iteration}` },
           {},
           {},
           async (s) => {
@@ -166,7 +222,7 @@ export default defineWorkflow<"claude">({
                 "debugger",
                 buildDebuggerReportPrompt(parsed, reviewRaw, {
                   iteration,
-                  gitStatus,
+                  changeset,
                 }),
               ),
             );

@@ -18,7 +18,6 @@ import {
 } from "../../../src/sdk/components/workflow-picker-panel.tsx";
 import type { WorkflowWithMetadata } from "../../../src/sdk/runtime/discovery.ts";
 import type { WorkflowInput } from "../../../src/sdk/types.ts";
-import { DEFAULT_PROMPT_FIELDS } from "../../../src/sdk/workflow-inputs.ts";
 
 // ─── Keyboard input helpers ───────────────────────
 //
@@ -135,7 +134,7 @@ const WORKFLOWS: WorkflowWithMetadata[] = [
     name: "freeform",
     source: "builtin",
     description: "freeform prompt",
-    inputs: DEFAULT_PROMPT_FIELDS,
+    inputs: [],
   }),
 ];
 

@@ -65,11 +65,15 @@ function extractReview(
   return { structured: null, raw };
 }
 
-export default defineWorkflow<"opencode">({
+export default defineWorkflow({
   name: "ralph",
   description:
     "Plan → orchestrate → review → debug loop with bounded iteration",
+  inputs: [
+    { name: "prompt", type: "text", required: true, description: "task prompt" },
+  ],
 })
+  .for<"opencode">()
   .run(async (ctx) => {
     const prompt = ctx.inputs.prompt ?? "";
     let debuggerReport = "";

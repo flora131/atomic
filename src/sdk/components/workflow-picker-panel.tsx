@@ -43,11 +43,6 @@ import { useLatest } from "./hooks.ts";
 import { resolveTheme, type TerminalTheme } from "../runtime/theme.ts";
 import type { AgentType, WorkflowInput } from "../types.ts";
 import type { WorkflowWithMetadata } from "../runtime/discovery.ts";
-import {
-  DEFAULT_PROMPT_FIELDS,
-  isFreeformPromptSchema,
-  normalizePickerInputs,
-} from "../workflow-inputs.ts";
 import { ErrorBoundary } from "./error-boundary.tsx";
 
 // ─── Theme ──────────────────────────────────────
@@ -470,7 +465,7 @@ const Preview = memo(function Preview({
   wf: WorkflowWithMetadata;
 }) {
   const theme = usePickerTheme();
-  const args = normalizePickerInputs(wf.inputs);
+  const args = wf.inputs;
 
   return (
     <box
@@ -504,13 +499,16 @@ const Preview = memo(function Preview({
         </span>
       </text>
 
-      <box height={2} />
-
-      <SectionLabel label="ARGUMENTS" />
-      <box height={1} />
-      {args.map((f) => (
-        <ArgumentRow key={f.name} field={f} />
-      ))}
+      {args.length > 0 && (
+        <>
+          <box height={2} />
+          <SectionLabel label="ARGUMENTS" />
+          <box height={1} />
+          {args.map((f) => (
+            <ArgumentRow key={f.name} field={f} />
+          ))}
+        </>
+      )}
     </box>
   );
 });
@@ -643,7 +641,7 @@ function EnumContent({
   selected,
   focused,
 }: {
-  values: string[];
+  values: readonly string[];
   selected: string;
   focused: boolean;
 }) {
@@ -782,7 +780,7 @@ function InputPhase({
   onTextChangeRef: React.RefObject<((value: string) => void) | null>;
 }) {
   const theme = usePickerTheme();
-  const isStructured = !isFreeformPromptSchema(workflow.inputs);
+  const isStructured = workflow.inputs.length > 0;
   const scrollboxRef = useRef<ScrollBoxRenderable>(null);
   const [scrollTop, setScrollTop] = useState(0);
 
@@ -1241,9 +1239,8 @@ function usePickerKeyboard(state: PickerKeyboardState): void {
       key.stopPropagation();
       const wf = focusedWfRef.current;
       if (wf) {
-        const inputs = normalizePickerInputs(wf.inputs);
         const initial: Record<string, string> = {};
-        for (const f of inputs) {
+        for (const f of wf.inputs) {
           initial[f.name] =
             f.default ??
             (f.type === "enum" ? (f.values?.[0] ?? "") : "");
@@ -1357,10 +1354,7 @@ export function WorkflowPicker({
   const focusedWf = entries[clampedEntryIdx]?.workflow;
 
   const currentFields = useMemo<readonly WorkflowInput[]>(
-    () =>
-      focusedWf
-        ? normalizePickerInputs(focusedWf.inputs)
-        : DEFAULT_PROMPT_FIELDS,
+    () => focusedWf?.inputs ?? [],
     [focusedWf],
   );
   const currentField = currentFields[focusedFieldIdx];

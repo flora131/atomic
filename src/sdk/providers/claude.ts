@@ -14,9 +14,17 @@
  * - Per-round capture verification (6 rounds)
  * - Adaptive retry with C-u clear + retype
  * - Post-submit active-task detection
- * - Whitespace-collapsing normalization
+ * - File-based idle detection via session JSONL watching
  */
 
+import {
+  listSessions,
+  getSessionMessages,
+  query as sdkQuery,
+  type SessionMessage,
+  type SDKUserMessage,
+  type Options as SDKOptions,
+} from "@anthropic-ai/claude-agent-sdk";
 import {
   sendViaPasteBuffer,
   sendSpecialKey,
@@ -30,14 +38,15 @@ import {
   waitForPaneReady,
   attemptSubmitRounds,
 } from "../runtime/tmux.ts";
+import { watch } from "node:fs/promises";
 
 // ---------------------------------------------------------------------------
 // Session tracking — ensures createClaudeSession is called before claudeQuery
 // ---------------------------------------------------------------------------
 
-/** Per-pane state for Claude sessions, used by transcript-based idle detection. */
+/** Per-pane state for Claude sessions. */
 interface PaneState {
-  /** Claude Code's own session ID (from the Agent SDK). Resolved lazily. */
+  /** Claude Code's own session ID. Resolved after the first query is sent. */
   claudeSessionId: string | undefined;
   /** Session IDs that existed before this pane's Claude instance started. */
   knownSessionIds: Set<string>;
@@ -104,14 +113,14 @@ export async function createClaudeSession(options: ClaudeSessionOptions): Promis
   } = options;
 
   // Snapshot existing Claude sessions BEFORE starting, so we can identify the
-  // new session later for transcript-based idle detection.
+  // new session later by diffing against this set. The directory may not exist
+  // on first run — that's fine, the known set is just empty.
   let knownSessionIds = new Set<string>();
   try {
-    const { listSessions } = await import("@anthropic-ai/claude-agent-sdk");
     const existing = await listSessions({ dir: process.cwd() });
     knownSessionIds = new Set(existing.map((s) => s.sessionId));
   } catch {
-    // SDK unavailable — transcript-based detection will gracefully degrade
+    // No session directory yet — all sessions will be "new"
   }
 
   const cmd = ["claude", ...chatFlags].join(" ");
@@ -131,166 +140,165 @@ export async function createClaudeSession(options: ClaudeSessionOptions): Promis
     );
   }
 
-  // Try to resolve the Claude session ID eagerly. It may not exist yet if
-  // Claude hasn't written its session file; we'll retry lazily in claudeQuery.
-  let claudeSessionId: string | undefined;
+  // Session ID is resolved lazily in claudeQuery — Claude doesn't write its
+  // session file until it receives the first message.
+  initializedPanes.set(paneId, {
+    claudeSessionId: undefined,
+    knownSessionIds,
+  });
+}
+
+/**
+ * Find a session ID that isn't in the known set.
+ * Returns `undefined` if no new session exists yet.
+ */
+async function findNewSessionId(
+  knownSessionIds: Set<string>,
+  cwd: string,
+): Promise<string | undefined> {
   try {
-    const { listSessions } = await import("@anthropic-ai/claude-agent-sdk");
-    const current = await listSessions({ dir: process.cwd() });
-    const newSession = current.find((s) => !knownSessionIds.has(s.sessionId));
-    claudeSessionId = newSession?.sessionId;
-  } catch {}
-
-  initializedPanes.set(paneId, { claudeSessionId, knownSessionIds });
-}
-
-// ---------------------------------------------------------------------------
-// Transcript-based idle detection
-// ---------------------------------------------------------------------------
-
-/**
- * Check whether a SessionMessage represents a session_state_changed event
- * with state 'idle'. The `message` payload is `unknown` in the SDK type, so
- * we do runtime narrowing to handle both possible JSONL serialization shapes
- * (extra fields only, or full raw SDKMessage).
- */
-function isIdleStateInTranscript(msg: { type: string; message: unknown }): boolean {
-  if (msg.type !== "system") return false;
-  const m = msg.message;
-  if (!m || typeof m !== "object") return false;
-  const obj = m as Record<string, unknown>;
-  return obj.subtype === "session_state_changed" && obj.state === "idle";
+    const sessions = await listSessions({ dir: cwd });
+    return sessions.find((s) => !knownSessionIds.has(s.sessionId))?.sessionId;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
- * Wait for the Claude session to become idle by polling its transcript.
+ * Watch for a new Claude session JSONL file to appear on disk.
  *
- * Reads session messages (with `includeSystemMessages: true`) and looks for
- * an `SDKSessionStateChangedMessage` with `state: 'idle'` that appears after
- * `transcriptBeforeCount` messages — i.e., a NEW idle event that fired after
- * our prompt was submitted.
+ * Uses the `fs/promises` `watch()` async iterator (backed by inotify/kqueue
+ * in Bun — OS-native, no polling) for instant notification when Claude writes
+ * its session file. A `Bun.sleep`-based polling loop runs concurrently to
+ * handle the case where the session directory doesn't exist yet (first run).
  *
- * This is the **authoritative** turn-over signal from Claude Code's runtime,
- * far more reliable than pane-capture heuristics which can false-positive on
- * transient prompt indicators between sub-agent dispatches.
- *
- * Returns `null` if the SDK is unavailable, signalling the caller to fall
- * back to pane-capture polling.
+ * An `AbortController` coordinates the timeout and cleanup across both
+ * watchers — whichever detects the session first wins the `Promise.race`,
+ * and the abort signal tears down the other.
  */
-async function waitForIdleViaTranscript(
+async function waitForSessionFile(
+  knownSessionIds: Set<string>,
+  timeoutMs: number,
+): Promise<string> {
+  const cwd = process.cwd();
+  const sessionDir = resolveSessionDir(cwd);
+  const ac = new AbortController();
+  const timeout = setTimeout(() => ac.abort(), timeoutMs);
+
+  try {
+    return await Promise.race([
+      // fs.watch — instant OS-native notification (inotify/kqueue in Bun)
+      (async (): Promise<string> => {
+        try {
+          for await (const event of watch(sessionDir, {
+            signal: ac.signal,
+          })) {
+            if (event.filename?.endsWith(".jsonl")) {
+              const id = await findNewSessionId(knownSessionIds, cwd);
+              if (id) return id;
+            }
+          }
+        } catch (e: unknown) {
+          if (e instanceof Error && e.name === "AbortError") throw e;
+          // Directory doesn't exist yet — let polling handle it
+        }
+        // Park this branch so polling can win the race
+        return new Promise<string>(() => {});
+      })(),
+
+      // Polling fallback — handles directory-not-yet-created case
+      (async (): Promise<string> => {
+        while (!ac.signal.aborted) {
+          const id = await findNewSessionId(knownSessionIds, cwd);
+          if (id) return id;
+          await Bun.sleep(500);
+        }
+        throw new DOMException("Aborted", "AbortError");
+      })(),
+    ]);
+  } catch (e: unknown) {
+    if (e instanceof DOMException && e.name === "AbortError") {
+      throw new Error(
+        "Timed out waiting for Claude to write its session file. " +
+        "Verify the `claude` command started successfully.",
+      );
+    }
+    throw e;
+  } finally {
+    clearTimeout(timeout);
+    ac.abort();
+  }
+}
+
+/**
+ * Resolve the session directory for a given cwd.
+ * Session files live at `~/.claude/projects/<encoded-cwd>/`.
+ */
+function resolveSessionDir(cwd: string): string {
+  const encodedCwd = cwd.replace(/[^a-zA-Z0-9]/g, "-");
+  const home = process.env.HOME || process.env.USERPROFILE || "";
+  return `${home}/.claude/projects/${encodedCwd}`;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Idle detection via pane capture
+// ---------------------------------------------------------------------------
+
+/**
+ * Wait for the Claude session to become idle by polling the tmux pane.
+ *
+ * Interactive Claude Code sessions don't write idle or result events to the
+ * JSONL session file (those only flow through the SDK streaming output for
+ * headless consumers). The pane prompt indicator is the only reliable idle
+ * signal for interactive sessions.
+ *
+ * Once idle is detected, assistant output is extracted from the session
+ * transcript via `getSessionMessages()` rather than scraping the pane —
+ * the transcript has structured content blocks, not terminal escape codes.
+ *
+ * No timeout is imposed. The loop runs until the pane shows the idle prompt.
+ */
+async function waitForIdle(
   paneId: string,
-  claudeSessionId: string,
+  claudeSessionId: string | undefined,
   transcriptBeforeCount: number,
-  deadline: number,
+  beforeContent: string,
   pollIntervalMs: number,
-  delivered: boolean,
-): Promise<ClaudeQueryResult | null> {
-  const sdk = await import("@anthropic-ai/claude-agent-sdk").catch(() => null);
-  if (!sdk) return null;
-
-  const dir = process.cwd();
-
+): Promise<SessionMessage[]> {
   // Give Claude time to start processing before first poll
   await Bun.sleep(3_000);
 
-  while (Date.now() < deadline) {
-    try {
-      const msgs = await sdk.getSessionMessages(claudeSessionId, {
-        dir,
-        includeSystemMessages: true,
-      });
-
-      // No new messages yet — prompt may not have been received
-      if (msgs.length <= transcriptBeforeCount) {
-        await Bun.sleep(pollIntervalMs);
-        continue;
-      }
-
-      // New messages exist. Scan backwards from the tail for an idle event
-      // that appeared after our prompt was sent.
-      for (let i = msgs.length - 1; i >= transcriptBeforeCount; i--) {
-        const msg = msgs[i];
-        if (msg && isIdleStateInTranscript(msg)) {
-          const output = normalizeTmuxLines(capturePaneScrollback(paneId));
-          return { output, delivered: true };
-        }
-      }
-    } catch {
-      // SDK read error — signal caller to fall back to pane capture
-      return null;
-    }
-
-    await Bun.sleep(pollIntervalMs);
-  }
-
-  // Timeout — return whatever the pane currently shows
-  const output = capturePaneScrollback(paneId);
-  return { output: normalizeTmuxLines(output || ""), delivered };
-}
-
-/**
- * Wait for the Claude session to become idle by polling pane capture.
- *
- * Legacy fallback used when transcript-based detection is unavailable
- * (SDK error, session ID unknown). Uses the same hysteresis logic as before:
- * require `idleConfirmCount` consecutive idle detections to avoid
- * false-idle returns between sub-agent dispatches.
- */
-async function waitForIdleViaCapture(
-  paneId: string,
-  beforeContent: string,
-  deadline: number,
-  pollIntervalMs: number,
-  idleConfirmCount: number,
-  delivered: boolean,
-): Promise<ClaudeQueryResult> {
-  let lastContent = "";
-  let stableCount = 0;
-  let consecutiveIdleCount = 0;
-  const idleThreshold = Math.max(1, idleConfirmCount);
-
-  // Give Claude time to start processing
-  await Bun.sleep(3_000);
-
-  while (Date.now() < deadline) {
+  while (true) {
     const currentContent = normalizeTmuxLines(capturePaneScrollback(paneId));
 
     // Must have new content compared to before we sent
-    if (currentContent === beforeContent) {
-      consecutiveIdleCount = 0;
-      await Bun.sleep(pollIntervalMs);
-      continue;
-    }
-
-    // Use visible capture for state detection to avoid stale scrollback matches
-    const visible = capturePaneVisible(paneId);
-    if (paneLooksReady(visible) && !paneHasActiveTask(visible)) {
-      consecutiveIdleCount++;
-      if (consecutiveIdleCount >= idleThreshold) {
-        return { output: currentContent, delivered };
+    if (currentContent !== beforeContent) {
+      const visible = capturePaneVisible(paneId);
+      if (paneLooksReady(visible) && !paneHasActiveTask(visible)) {
+        // Pane is idle — return transcript messages from this turn
+        if (claudeSessionId) {
+          try {
+            const msgs = await getSessionMessages(claudeSessionId, {
+              dir: process.cwd(),
+              includeSystemMessages: true,
+            });
+            if (msgs.length > transcriptBeforeCount) {
+              return msgs.slice(transcriptBeforeCount);
+            }
+          } catch {
+            // Transcript read failed — return empty
+          }
+        }
+        return [];
       }
-      // Not yet confirmed idle — wait and recheck
-      await Bun.sleep(pollIntervalMs);
-      continue;
-    } else {
-      consecutiveIdleCount = 0;
     }
 
-    if (currentContent === lastContent) {
-      stableCount++;
-      if (stableCount >= 3) {
-        return { output: currentContent, delivered };
-      }
-    } else {
-      stableCount = 0;
-    }
-
-    lastContent = currentContent;
     await Bun.sleep(pollIntervalMs);
   }
-
-  // Timeout — return whatever we have
-  return { output: lastContent || capturePaneScrollback(paneId), delivered };
 }
 
 // ---------------------------------------------------------------------------
@@ -302,8 +310,6 @@ export interface ClaudeQueryOptions {
   paneId: string;
   /** The prompt to send */
   prompt: string;
-  /** Timeout in ms waiting for Claude to finish responding (default: 300s) */
-  timeoutMs?: number;
   /** Polling interval in ms (default: 2000) */
   pollIntervalMs?: number;
   /** Number of C-m presses per submit round (default: 1 for Claude) */
@@ -312,20 +318,41 @@ export interface ClaudeQueryOptions {
   maxSubmitRounds?: number;
   /** Timeout in ms waiting for pane to be ready before sending (default: 30s) */
   readyTimeoutMs?: number;
-  /**
-   * Number of consecutive idle detections required before considering the
-   * response complete (default: 2). Prevents false-idle returns between
-   * sub-agent dispatches where the pane briefly shows the prompt indicator
-   * without an active task.
-   */
-  idleConfirmCount?: number;
 }
 
-export interface ClaudeQueryResult {
-  /** The full pane content after the response completed */
-  output: string;
-  /** Whether delivery was confirmed (text disappeared from input) */
-  delivered: boolean;
+/**
+ * Extract text content from assistant messages in a transcript slice.
+ *
+ * Walks messages from `afterIndex` forward, pulls `TextBlock.text` from each
+ * assistant message's content array, and joins them. The `message` payload is
+ * `unknown` in the SDK type so we do runtime narrowing.
+ *
+ * Exported so workflow authors can extract text from `SessionMessage[]`
+ * returned by `s.session.query()`.
+ */
+export function extractAssistantText(
+  msgs: ReadonlyArray<{ type: string; message: unknown }>,
+  afterIndex: number,
+): string {
+  const parts: string[] = [];
+  for (let i = afterIndex; i < msgs.length; i++) {
+    const msg = msgs[i];
+    if (!msg || msg.type !== "assistant") continue;
+    const m = msg.message;
+    if (!m || typeof m !== "object") continue;
+    const content = (m as Record<string, unknown>).content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content) {
+      if (
+        block &&
+        typeof block === "object" &&
+        (block as Record<string, unknown>).type === "text"
+      ) {
+        parts.push(String((block as Record<string, unknown>).text ?? ""));
+      }
+    }
+  }
+  return parts.join("\n");
 }
 
 /**
@@ -351,16 +378,14 @@ export interface ClaudeQueryResult {
  * ctx.log(result.output);
  * ```
  */
-export async function claudeQuery(options: ClaudeQueryOptions): Promise<ClaudeQueryResult> {
+export async function claudeQuery(options: ClaudeQueryOptions): Promise<SessionMessage[]> {
   const {
     paneId,
     prompt,
-    timeoutMs = 300_000,
     pollIntervalMs = 2_000,
     submitPresses = 1,
     maxSubmitRounds = 6,
     readyTimeoutMs = 30_000,
-    idleConfirmCount = 2,
   } = options;
 
   const paneState = initializedPanes.get(paneId);
@@ -372,55 +397,32 @@ export async function claudeQuery(options: ClaudeQueryOptions): Promise<ClaudeQu
   }
 
   const normalizedPrompt = normalizeTmuxCapture(prompt).slice(0, 100);
+  const dir = process.cwd();
+  let { claudeSessionId } = paneState;
 
-  // Step 1: Wait for pane readiness before sending (deducted from response timeout)
-  const waitElapsed = await waitForPaneReady(paneId, readyTimeoutMs);
-  const responseTimeoutMs = Math.max(0, timeoutMs - waitElapsed);
+  // Step 1: Wait for pane readiness before sending
+  await waitForPaneReady(paneId, readyTimeoutMs);
 
-  if (waitElapsed > timeoutMs * 0.5) {
-    console.warn(
-      `claudeQuery: readiness wait consumed ${Math.round(waitElapsed / 1000)}s ` +
-      `of ${Math.round(timeoutMs / 1000)}s total timeout budget`,
-    );
+  // ── Transcript snapshot (before send) ──
+  // Must be taken BEFORE sending so we get an accurate baseline. On the
+  // first query the session ID is unknown (Claude hasn't written its file
+  // yet), so transcriptBeforeCount stays 0 and we extract all messages.
+  let transcriptBeforeCount = 0;
+  if (claudeSessionId) {
+    try {
+      const msgs = await getSessionMessages(claudeSessionId, {
+        dir,
+        includeSystemMessages: true,
+      });
+      transcriptBeforeCount = msgs.length;
+    } catch {
+      // Best-effort — 0 means we scan all messages (correct, slightly less efficient)
+    }
   }
 
   const beforeContent = normalizeTmuxLines(capturePaneScrollback(paneId));
 
-  // ── Transcript snapshot (before sending) ──
-  // Lazily resolve the Claude session ID if not yet known, then snapshot the
-  // current transcript length. This lets us detect NEW idle events that fire
-  // after our prompt is submitted.
-  let claudeSessionId = paneState.claudeSessionId;
-  let transcriptBeforeCount = -1;
-
-  if (!claudeSessionId) {
-    try {
-      const { listSessions } = await import("@anthropic-ai/claude-agent-sdk");
-      const sessions = await listSessions({ dir: process.cwd() });
-      const newSession = sessions.find(
-        (s) => !paneState.knownSessionIds.has(s.sessionId),
-      );
-      if (newSession) {
-        claudeSessionId = newSession.sessionId;
-        paneState.claudeSessionId = claudeSessionId;
-      }
-    } catch {}
-  }
-
-  if (claudeSessionId) {
-    try {
-      const { getSessionMessages } = await import(
-        "@anthropic-ai/claude-agent-sdk"
-      );
-      const msgs = await getSessionMessages(claudeSessionId, {
-        dir: process.cwd(),
-        includeSystemMessages: true,
-      });
-      transcriptBeforeCount = msgs.length;
-    } catch {}
-  }
-
-  // Step 2: Send text via paste buffer (atomic, avoids ARG_MAX)
+  // Step 2: Send text via paste buffer (atomic, handles large prompts)
   sendViaPasteBuffer(paneId, prompt);
   await Bun.sleep(150);
 
@@ -438,7 +440,7 @@ export async function claudeQuery(options: ClaudeQueryOptions): Promise<ClaudeQu
       await Bun.sleep(80);
       sendViaPasteBuffer(paneId, prompt);
       await Bun.sleep(120);
-      delivered = await attemptSubmitRounds(paneId, normalizedPrompt, 4, submitPresses);
+      delivered = await attemptSubmitRounds(paneId, normalizedPrompt, maxSubmitRounds, submitPresses);
     }
   }
 
@@ -464,34 +466,31 @@ export async function claudeQuery(options: ClaudeQueryOptions): Promise<ClaudeQu
     }
   }
 
-  // Step 6: Wait for response completion
-  const deadline = Date.now() + responseTimeoutMs;
-
-  // ── Transcript-based idle detection (preferred) ──
-  // Uses the Claude Agent SDK's session_state_changed message as the
-  // authoritative turn-over signal. Falls back to pane capture if the
-  // SDK is unavailable or the session ID couldn't be resolved.
-  if (claudeSessionId && transcriptBeforeCount >= 0) {
-    const transcriptResult = await waitForIdleViaTranscript(
-      paneId,
-      claudeSessionId,
-      transcriptBeforeCount,
-      deadline,
-      pollIntervalMs,
-      delivered,
-    );
-    if (transcriptResult) return transcriptResult;
-    // null → SDK error; fall through to pane-capture
+  // ── Resolve session ID (after send, first query only) ──
+  // Claude doesn't write its session file until it receives the first message.
+  if (!claudeSessionId) {
+    try {
+      claudeSessionId = await waitForSessionFile(
+        paneState.knownSessionIds,
+        readyTimeoutMs,
+      );
+      paneState.claudeSessionId = claudeSessionId;
+    } catch {
+      // Session file not found — output will fall back to pane content
+    }
   }
 
-  // ── Pane-capture fallback ──
-  return waitForIdleViaCapture(
+  // Step 6: Wait for response completion via pane capture
+  //
+  // Interactive Claude Code sessions don't write idle/result events to the
+  // JSONL. The pane prompt indicator is the only reliable idle signal.
+  // Once idle, output is extracted from the transcript when available.
+  return waitForIdle(
     paneId,
+    claudeSessionId,
+    transcriptBeforeCount,
     beforeContent,
-    deadline,
     pollIntervalMs,
-    idleConfirmCount,
-    delivered,
   );
 }
 
@@ -504,8 +503,6 @@ export async function claudeQuery(options: ClaudeQueryOptions): Promise<ClaudeQu
  * These become defaults for every `s.session.query()` call within that stage.
  */
 export interface ClaudeQueryDefaults {
-  /** Timeout in ms waiting for Claude to finish responding (default: 300s) */
-  timeoutMs?: number;
   /** Polling interval in ms (default: 2000) */
   pollIntervalMs?: number;
   /** Number of C-m presses per submit round (default: 1) */
@@ -514,13 +511,6 @@ export interface ClaudeQueryDefaults {
   maxSubmitRounds?: number;
   /** Timeout in ms waiting for pane to be ready before sending (default: 30s) */
   readyTimeoutMs?: number;
-  /**
-   * Number of consecutive idle detections required before considering the
-   * response complete (default: 2). Increase for long-running multi-step
-   * tasks (e.g., explorer stages with sub-agent dispatches) to avoid
-   * false-idle returns between steps.
-   */
-  idleConfirmCount?: number;
 }
 
 /**
@@ -574,8 +564,8 @@ export class ClaudeSessionWrapper {
   /** Send a prompt to Claude and wait for the response. */
   async query(
     prompt: string,
-    opts?: Partial<ClaudeQueryDefaults>,
-  ): Promise<ClaudeQueryResult> {
+    opts?: Partial<ClaudeQueryDefaults & SDKOptions>,
+  ): Promise<SessionMessage[]> {
     return claudeQuery({
       paneId: this.paneId,
       prompt,
@@ -621,18 +611,29 @@ export class HeadlessClaudeSessionWrapper {
   }
 
   async query(
-    prompt: string | AsyncIterable<import("@anthropic-ai/claude-agent-sdk").SDKUserMessage>,
-    options?: import("@anthropic-ai/claude-agent-sdk").Options,
-  ): Promise<ClaudeQueryResult> {
-    const { query } = await import("@anthropic-ai/claude-agent-sdk");
-    let output = "";
-    for await (const msg of query({ prompt, options })) {
+    prompt: string | AsyncIterable<SDKUserMessage>,
+    options?: Partial<ClaudeQueryDefaults & SDKOptions>,
+  ): Promise<SessionMessage[]> {
+    // Strip query-defaults fields; the rest are SDK options
+    const {
+      pollIntervalMs: _a,
+      submitPresses: _b,
+      maxSubmitRounds: _c,
+      readyTimeoutMs: _d,
+      ...sdkOpts
+    } = options ?? {};
+
+    let sdkSessionId = "";
+    for await (const msg of sdkQuery({ prompt, options: sdkOpts })) {
       if (msg.type === "result") {
-        // SDKResultSuccess has `result: string`, not `output`.
-        output = String((msg as Record<string, unknown>).result ?? "");
+        sdkSessionId = String((msg as Record<string, unknown>).session_id ?? "");
       }
     }
-    return { output, delivered: true };
+    // Read the transcript to return native SessionMessage[]
+    if (sdkSessionId) {
+      return getSessionMessages(sdkSessionId, { dir: process.cwd() });
+    }
+    return [];
   }
 
   async disconnect(): Promise<void> {}

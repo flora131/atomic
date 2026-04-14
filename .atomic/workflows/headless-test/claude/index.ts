@@ -1,10 +1,19 @@
-import { defineWorkflow } from "@bastani/atomic/workflows";
+import { defineWorkflow, extractAssistantText } from "@bastani/atomic/workflows";
 
-export default defineWorkflow<"claude">({
+export default defineWorkflow({
   name: "headless-test",
   description:
     "Test headless background stages: visible → [3 headless] → visible merge → headless verdict",
+  inputs: [
+    {
+      name: "prompt",
+      type: "string",
+      description: "topic to analyse",
+      default: "TypeScript",
+    },
+  ],
 })
+  .for<"claude">()
   .run(async (ctx) => {
     const prompt = ctx.inputs.prompt ?? "TypeScript";
 
@@ -18,7 +27,7 @@ export default defineWorkflow<"claude">({
           `In one short paragraph, describe what "${prompt}" is.`,
         );
         s.save(s.sessionId);
-        return String(result.output ?? "");
+        return extractAssistantText(result, 0);
       },
     );
 
@@ -31,9 +40,10 @@ export default defineWorkflow<"claude">({
         async (s) => {
           const result = await s.session.query(
             `Given this topic overview, list 3 pros:\n\n${seed.result}`,
+            { permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true },
           );
           s.save(s.sessionId);
-          return String(result.output ?? "");
+          return extractAssistantText(result, 0);
         },
       ),
       ctx.stage(
@@ -43,9 +53,10 @@ export default defineWorkflow<"claude">({
         async (s) => {
           const result = await s.session.query(
             `Given this topic overview, list 3 cons:\n\n${seed.result}`,
+            { permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true },
           );
           s.save(s.sessionId);
-          return String(result.output ?? "");
+          return extractAssistantText(result, 0);
         },
       ),
       ctx.stage(
@@ -55,9 +66,10 @@ export default defineWorkflow<"claude">({
         async (s) => {
           const result = await s.session.query(
             `Given this topic overview, list 3 use cases:\n\n${seed.result}`,
+            { permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true },
           );
           s.save(s.sessionId);
-          return String(result.output ?? "");
+          return extractAssistantText(result, 0);
         },
       ),
     ]);
@@ -77,7 +89,7 @@ export default defineWorkflow<"claude">({
           ].join("\n\n"),
         );
         s.save(s.sessionId);
-        return String(result.output ?? "");
+        return extractAssistantText(result, 0);
       },
     );
 
@@ -89,9 +101,10 @@ export default defineWorkflow<"claude">({
       async (s) => {
         const result = await s.session.query(
           `Given this summary, write a one-sentence final verdict:\n\n${mergeHandle.result}`,
+          { permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true },
         );
         s.save(s.sessionId);
-        return String(result.output ?? "");
+        return extractAssistantText(result, 0);
       },
     );
   })

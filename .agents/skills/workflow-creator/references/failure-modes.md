@@ -33,7 +33,7 @@ Silent failures are catalogued first below. Loud failures are grouped at the end
 | [F1](#f1-copilot-getlastassistanttext-returns-empty-string) | Copilot: `getLastAssistantText` returns empty string | Copilot | silent |
 | [F2](#f2-copilot-sub-agent-messages-pollute-getmessages-stream) | Copilot: sub-agent messages pollute `getMessages()` stream | Copilot | silent |
 | [F3](#f3-opencode-result-parts-contain-non-text-parts) | OpenCode: `result.data.parts` contains non-text parts | OpenCode | silent |
-| [F4](#f4-claudequery-output-includes-tui-scrollback-not-just-the-last-turn) | Claude: `s.session.query()` output includes TUI scrollback, not just the last turn | Claude | silent |
+| [F4](#f4-claude-ssessionquery-returns-sessionmessage-extract-text-with-extractassistanttext) | Claude: `s.session.query()` returns `SessionMessage[]` — extract text with `extractAssistantText(result, 0)` | Claude | silent |
 | [F5](#f5-fresh-session-wipes-prior-stage-context) | Fresh session wipes prior stage context | Copilot, OpenCode | silent |
 | [F6](#f6-planner-prompts-that-dont-request-trailing-commentary-produce-empty-handoffs) | Planner prompts that don't request trailing commentary produce empty handoffs | all | silent |
 | [F7](#f7-continued-sessions-accumulate-state-across-loop-iterations) | Continued sessions accumulate state across loop iterations (lost-in-middle) | all | silent |
@@ -176,49 +176,48 @@ function extractResponseText(
 
 ---
 
-## F4. Claude: `s.session.query()` output includes TUI scrollback, not just the last turn
+## F4. Claude: `s.session.query()` returns `SessionMessage[]` — extract text with `extractAssistantText`
 
-**Symptom.** Parsers matching "the last fenced JSON block" pick up an old
-turn's JSON because the captured output contains multiple turns of scrollback.
+**Symptom.** Workflow code tries to access `.output` or `.text` on the
+result of `s.session.query()` and gets `undefined`, or passes the result
+directly to a string parser that throws.
 
-**Root cause.** `s.session.query()` captures the tmux pane's visible scrollback after output stabilizes — it's not a scoped
-"this call's response only" string. Earlier sub-agent output, prior-turn
-assistant text, and even the user's own prompt echo all end up in
-`result.output`.
+**Root cause.** `s.session.query()` returns `SessionMessage[]` — the native
+Claude Agent SDK type. It does NOT return a `{ output: string }` object or a
+raw TUI scrollback string. The assistant's text lives inside structured content
+blocks within those messages and must be extracted explicitly.
 
-**Affected SDKs.** Claude (tmux-based query).
+**Affected SDKs.** Claude.
 
 ### ❌ Wrong
 
 ```ts
-// Assumes `output` is only the latest turn's JSON
-const parsed = JSON.parse(reviewResult.output);
+// result is SessionMessage[], not { output: string }
+const result = await s.session.query(prompt);
+const parsed = JSON.parse(result.output);  // TypeError: result.output is undefined
 ```
 
-### ✅ Right — extract the LAST fenced block, not the first
+### ✅ Right — use `extractAssistantText(result, 0)`
 
 ```ts
-export function extractLastFencedBlock(
-  content: string,
-  lang = "json",
-): string | null {
-  const re = new RegExp("```" + lang + "\\s*\\n([\\s\\S]*?)\\n```", "g");
-  let last: string | null = null;
-  let match: RegExpExecArray | null;
-  while ((match = re.exec(content)) !== null) {
-    if (match[1]) last = match[1];
-  }
-  return last;
-}
+import { extractAssistantText } from "@bastani/atomic/workflows";
+
+const result = await s.session.query(prompt);
+const text = extractAssistantText(result, 0);
+// Now `text` is the concatenated assistant prose for this turn
 ```
 
-The ralph helpers in `src/sdk/workflows/builtin/ralph/helpers/prompts.ts`
-(`parseReviewResult`, `extractMarkdownBlock`) use this pattern — always take
-the **last** block, never the first.
+`extractAssistantText(msgs, afterIndex)` walks `SessionMessage[]` from
+`afterIndex` forward, pulls `TextBlock.text` from each `assistant` message's
+content array, and joins them with newlines.
 
-**Detection.** Run the workflow twice in the same session; if the
-downstream parser returns stale data from the prior iteration, F4 is the
-cause.
+The ralph helpers in `src/sdk/workflows/builtin/ralph/helpers/prompts.ts`
+(`parseReviewResult`, `extractMarkdownBlock`) use this pattern — always
+extract text first, then parse.
+
+**Detection.** Log `typeof result` after `s.session.query()`. If it's
+`object` (an array), you need `extractAssistantText`. Accessing `.output`
+on an array returns `undefined`.
 
 ---
 
@@ -232,9 +231,9 @@ returns a **fresh, empty conversation**. The CLIENT object is just the
 transport — each session is independent. The new session sees only what you
 put in its first prompt.
 
-**Affected SDKs.** Copilot, OpenCode. (Claude's tmux pane model is
-different — context accumulates in the same pane, so this failure mode
-does NOT apply to `s.session.query()`.)
+**Affected SDKs.** Copilot, OpenCode. (Claude's session model is
+different — context accumulates within the same SDK session, so this failure
+mode does NOT apply to `s.session.query()`.)
 
 ### ❌ Wrong
 
@@ -329,8 +328,8 @@ or "forgetting" a requirement that was clearly stated in the original spec.
 session, and context grows past the attention window. The model starts
 dropping middle-of-context information (classic lost-in-middle).
 
-**Affected SDKs.** All three. Claude's long tmux pane is especially
-vulnerable because the scrollback captures every intermediate turn.
+**Affected SDKs.** All three. Claude's session transcript accumulates every
+intermediate turn, so long loops grow the context window substantially.
 
 ### ❌ Wrong — unbounded loop on a single session
 
@@ -455,8 +454,8 @@ expects, and the runtime doesn't type-check the argument beyond "anything".
 ### ❌ Wrong
 
 ```ts
-// Claude — saves the wrong thing
-s.save(result.output);
+// Claude — saves the wrong thing (result is SessionMessage[], not { output: string })
+s.save(result.output);  // TypeError: result.output is undefined; use s.save(s.sessionId)
 
 // Copilot — saves an empty array if called before send
 s.save(await s.session.getMessages());

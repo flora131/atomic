@@ -20,11 +20,13 @@ await ctx.stage({ name: "..." }, {
 ### Session options (`sessionOpts` — 3rd arg to `ctx.stage()`)
 
 These are `ClaudeQueryDefaults` and set defaults for every `s.session.query()`
-call inside the callback (`timeoutMs`, `pollIntervalMs`, etc.):
+call inside the callback. The available fields are: `pollIntervalMs`,
+`submitPresses`, `maxSubmitRounds`, `readyTimeoutMs`. Note that `timeoutMs` no
+longer exists — idle detection is automatic (pane capture for interactive
+stages, SDK streaming for headless stages).
 
 ```ts
 await ctx.stage({ name: "..." }, {}, {
-  timeoutMs: 5 * 60 * 1000,     // 5 minutes per query (default)
   pollIntervalMs: 1_000,         // Poll interval for output
 }, async (s) => {
   await s.session.query((ctx.inputs.prompt ?? ""));
@@ -101,15 +103,34 @@ const result = query({
 the pane ID from `s.paneId` automatically. Call it inside the stage callback:
 
 ```ts
+import { extractAssistantText } from "@anthropic-ai/claude-agent-sdk";
+
 await ctx.stage({ name: "..." }, {}, {}, async (s) => {
   const result = await s.session.query("Your prompt");
-  // result.output — captured response text
+  // extractAssistantText(result, 0) — extract assistant text from the result
+  const text = extractAssistantText(result, 0);
   s.save(s.sessionId);
 });
 ```
 
-The query defaults (timeout, poll interval) can be configured via `sessionOpts`
-as shown above.
+The query defaults (poll interval, submit presses, etc.) can be configured via
+`sessionOpts` as shown above.
+
+For **headless stages**, SDK options (such as `permissionMode`, `agent`,
+`allowDangerouslySkipPermissions`) can be passed directly as the second
+argument to `s.session.query()`:
+
+```ts
+await ctx.stage({ name: "..." }, {}, {}, async (s) => {
+  const result = await s.session.query("Your prompt", {
+    permissionMode: "bypassPermissions",
+    allowDangerouslySkipPermissions: true,
+    agent: "worker",
+  });
+  const text = extractAssistantText(result, 0);
+  s.save(s.sessionId);
+});
+```
 
 ### Claude hooks
 

@@ -13,7 +13,7 @@ function buildHelloPrompt(inputs: Record<string, string>): string {
   return notes ? `${base}\n\nAdditional guidance:\n${notes}` : base;
 }
 
-export default defineWorkflow<"opencode">({
+export default defineWorkflow({
     name: "hello-world",
     description: "A simple single-session hello world workflow",
     inputs: [
@@ -40,6 +40,7 @@ export default defineWorkflow<"opencode">({
       },
     ],
   })
+  .for<"opencode">()
   .run(async (ctx) => {
     const prompt = buildHelloPrompt(ctx.inputs);
     await ctx.stage(
